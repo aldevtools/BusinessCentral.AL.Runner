@@ -386,8 +386,8 @@ fn a_passing_test_commits_so_a_later_asserterror_rolls_back_only_to_that_point()
 
 #[test]
 fn install_codeunits_run_before_the_tests() {
-    // OnInstallAppPerDatabase has no company, so it writes a DataPerCompany = false table. A shared table the per-company
-    // trigger wrote would not be known (ADR-046 decision 4c), so it writes a per-company one.
+    // OnInstallAppPerDatabase has no company, so it writes a DataPerCompany = false table; the per-company trigger writes a
+    // per-company one.
     let o = outcomes("table 60900 S { DataPerCompany = false; fields { field(1; K; Code[10]) { } } }
             table 60901 C { fields { field(1; K; Code[10]) { } } }
             codeunit 60901 Inst { Subtype = Install;
@@ -443,11 +443,11 @@ fn an_extension_triggers_subscriber_of_the_app_runs_per_company_then_per_databas
     assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
 }
 
-// ADR-046 decision 4c: BC runs per-company install code once in each company of the database (two in the corpus CI,
-// PeVTests.al:284, :313-314), this runtime in one. A shared table that code writes holds one write per company on BC: a read
-// whose answer depends on its rows is refused, a Get that finds its row and an insert are answered.
+// ADR-046 amendment 4 (owner, 2026-10-30), replacing decision 4c: the default mode models a database with one company.
+// Per-company install code runs once, in that company, so a shared table that code writes holds one write, and every
+// read of it is answered.
 #[test]
-fn a_shared_table_that_per_company_install_code_writes_is_not_known() {
+fn a_shared_table_that_per_company_install_code_writes_holds_one_write_in_the_default_mode() {
     let o = outcomes(
         "table 60900 Log { DataPerCompany = false; fields { field(1; K; Code[10]) { } } }
             codeunit 60905 Subs {
@@ -458,12 +458,9 @@ fn a_shared_table_that_per_company_install_code_writes_is_not_known() {
                 [Test] procedure GetsItsRow() var R: Record Log; begin R.Get('CO'); end;
                 [Test] procedure Inserts() var R: Record Log; begin R.K := 'T'; R.Insert(); end; }",
     );
-    assert!(
-        matches!(&o[0].1, Outcome::NotRun(r) if r.contains("once in each company") && r.contains("4c")),
-        "{o:?}"
-    );
-    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
-    assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
+    for (name, x) in &o {
+        assert_eq!(*x, Outcome::Pass, "{name}: {o:?}");
+    }
 }
 
 // ADR-046 amendment 3: install codeunit triggers and Extension Triggers subscribers of one app run as one sequence in
@@ -493,8 +490,9 @@ fn tables_whose_install_rows_depend_on_the_order_of_the_routines_follow_ascendin
     for (n, r) in &o {
         assert_eq!(*r, Outcome::Pass, "{n}: {o:?}");
     }
+    // The order is pinned (install/lt-ur-block-order/UrBlockOrderTests.al:59-81): no pass rests on an assumption.
     for (n, h) in &hits {
-        assert!(h.contains(&"install-order-ascending-id"), "{n}: {hits:?}");
+        assert!(h.is_empty(), "{n}: {hits:?}");
     }
 }
 
@@ -609,8 +607,9 @@ fn install_routines_of_one_app_run_in_ascending_object_id_and_share_single_insta
     for (n, r) in &o {
         assert_eq!(*r, Outcome::Pass, "{n}: {o:?}");
     }
+    // The order is pinned (install/lt-ur-block-order/UrBlockOrderTests.al:59-81): no pass rests on an assumption.
     for (n, h) in &hits {
-        assert!(h.contains(&"install-order-ascending-id"), "{n}: {hits:?}");
+        assert!(h.is_empty(), "{n}: {hits:?}");
     }
 }
 
@@ -1851,10 +1850,10 @@ codeunit 50120 "Lib" { procedure ReadSetup(): Text var S: Record "Setup"; begin 
 "#;
 
 #[test]
-fn a_shared_log_the_projects_own_install_codeunits_write_in_turn_is_not_known() {
-    // Every OnInstallAppPerCompany, then every OnInstallAppPerDatabase (install/lt-bf-install-probes/BfInstallTests.al:239),
-    // but the order of the two per-company triggers is not pinned (ADR-046 amendment 1, A2 a), and BC writes the shared
-    // log once per company of the database (decision 4c): the read is refused.
+fn a_shared_log_the_projects_own_install_codeunits_write_in_turn_holds_their_rows_in_order() {
+    // Every OnInstallAppPerCompany, then every OnInstallAppPerDatabase (install/lt-bf-install-probes/BfInstallTests.al:239);
+    // the two per-company triggers run in ascending id, as their ids lie in one block of 65536 (ADR-046 amendment 3), and
+    // the default mode models a database with one company (amendment 4), so the shared log holds one write of each.
     let o = outcomes(
         r#"
 table 50101 "Shared Log" { DataPerCompany = false; fields { field(1; "No."; Integer) { AutoIncrement = true; } field(2; What; Text[30]) { } } keys { key(PK; "No.") { } } }
@@ -1869,10 +1868,7 @@ codeunit 50001 "T" { Subtype = Test;
     if T <> 'A-company;B-company;A-db;' then Error(T); end; }
 "#,
     );
-    assert!(
-        matches!(&o[0].1, Outcome::NotRun(r) if r.contains("Shared Log")),
-        "{o:?}"
-    );
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }
 
 /// A dependency app whose `Global Triggers` subscribers cannot run (they reach an unimplemented

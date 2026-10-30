@@ -207,8 +207,13 @@ pub enum Gate {
     /// `RequiredTestIsolation`; on BC 27 it runs every codeunit under runner 130450 (Codeunit isolation). A difference of the
     /// CI's harness, not of the platform (codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16, 36-39; the BC28PLUS
     /// guards of codeunit/lt-qu-commit-isolation/RqIsolationModes.al mark the same difference, :38-41). Consumed by
-    /// `al-test-cli` (`RunOptions::required_isolation`).
+    /// `al-test-cli` (`RunOptions::required_isolation`). The same harness difference keeps the Test Runner app's frames out of
+    /// `NavApp.GetCallerCallstackModuleInfos()` from BC 28 on, so lt-ss1030/SsCallerModulesTestRunner.al runs on BC 27 only
+    /// (`#if not BC28PLUS`, :7-9).
     TestRunnerHubRequiredIsolationFrom28,
+    /// The License Permission row of a page object at the top of the object range (2000000000 and 2000000001) has execute
+    /// permission only from BC 28 (lt-ss1030/SsLicensePermissionObjects.al:106-109, :114-117, `#if BC28PLUS`). Not consumed yet.
+    LicensePermissionTopRangePageFrom28,
     /// `Media.ImportFile` of a .docx file keeps the file's bytes as Tenant Media content and gives them back on export on BC 27
     /// and 28; BC 29 on the Linux CI tier stores a re-zipped package (same parts, 919 bytes against 911), a Linux suspect the
     /// corpus ignores (al-language-onprem/media/MediaFiles.al:505-513, RD_Media_ImportFile_Docx; corpus bump 57). Consumed by
@@ -303,6 +308,7 @@ impl Gate {
         Gate::HttpHeaderNameRulesProbedFrom28,
         Gate::QueryReadCommittedFrom29,
         Gate::TestRunnerHubRequiredIsolationFrom28,
+        Gate::LicensePermissionTopRangePageFrom28,
         Gate::DocxMediaRezippedFrom29,
         Gate::OtherRecordOptionCaptionFrom29,
         Gate::JpegMediaSetKeptFrom29,
@@ -371,6 +377,7 @@ impl Gate {
             | Gate::HttpHeaderNameRulesProbedFrom28
             | Gate::AutoFormatAmountFieldRoundsFrom28
             | Gate::TestRunnerHubRequiredIsolationFrom28
+            | Gate::LicensePermissionTopRangePageFrom28
             | Gate::ReportLayoutListColumnsFrom28 => 28,
         }
     }
@@ -974,7 +981,15 @@ impl Gate {
                     file: "codeunit/lt-qu-commit-isolation/RqIsolationModes.al",
                     lines: "357,419,493,578,600,625",
                 },
+                Evidence {
+                    file: "lt-ss1030/SsCallerModulesTestRunner.al",
+                    lines: "9",
+                },
             ],
+            Gate::LicensePermissionTopRangePageFrom28 => &[Evidence {
+                file: "lt-ss1030/SsLicensePermissionObjects.al",
+                lines: "106,114",
+            }],
             Gate::QueryReadCommittedFrom29 => &[Evidence {
                 file: "query/TestQueryReadStateContracts.al",
                 lines: "56,120,146,151,155,159",

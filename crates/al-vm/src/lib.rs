@@ -167,15 +167,11 @@ pub struct Engine {
 /// The tables whose install rows a test may not read (ADR-046), found from the static closures of the install routines.
 #[derive(Debug, Default, Clone)]
 pub struct InstallFacts {
-    /// Table object -> why its rows are not known: a shared table that per-company install code of an app under test
-    /// writes (BC writes it once in each company of the database, decision 4c), or a table whose rows depend on the order
-    /// of the install routines of one app and part (amendment 1, A2 items a to c). A read whose answer depends on the rows
+    /// Table object -> why its rows are not known: a table whose rows depend on the order of the install routines of one
+    /// app and part (amendment 1, A2 items a to c). (Decision 4c, a shared table that per-company install code writes, is
+    /// gone: the default mode models a database with one company, amendment 4.) A read whose answer depends on the rows
     /// is refused outside install code, as for `Engine::unseeded`.
     pub unknown: std::collections::HashMap<usize, String>,
-    /// Table object -> why its rows are not known in the default mode of one company: a shared table that per-company
-    /// install code of an app under test writes (decision 4c). Under the `--companies` opt-in that code runs once in each
-    /// declared company, and the table is answered.
-    pub per_company_shared: std::collections::HashMap<usize, String>,
     /// The tables of the apps under test (ADR-046 decision 5): under the opt-in, the only per-company tables answered in
     /// a declared company other than the session company.
     pub under_test_tables: std::collections::HashSet<usize>,
