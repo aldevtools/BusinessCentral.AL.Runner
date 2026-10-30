@@ -1780,8 +1780,8 @@ pub enum LibraryValue {
     },
     /// A `File` that was created or opened, or had a mode set (an untouched one is `Empty`).
     File(crate::file::FileState),
-    /// An XmlNamespaceManager: the (prefix, namespace) pairs added to it.
-    XmlNamespaces(Vec<(String, String)>),
+    /// An XmlNamespaceManager: its declarations and scopes.
+    XmlNamespaces(crate::xml::NsScopes),
     /// An InStream: a snapshot being read.
     InStream(crate::stream::InState),
     /// An OutStream: appends to a Blob buffer.
