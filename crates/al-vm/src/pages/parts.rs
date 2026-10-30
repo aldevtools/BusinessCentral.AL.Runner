@@ -946,12 +946,19 @@ impl Session {
     }
 
     /// A field typed on the current row of part `child`: the parts that take their link from it (`Provider`) and link on that
-    /// field read their rows again with the typed value, before the row is stored (al-runner issue 6377; corpus writer Y5,
-    /// branch al-runtime-rs-staging-y5, pages/lt-y5/Y5ProviderEditLink.al:155 (plain field), :191 (OnValidate calls
-    /// CurrPage.Update), :223, :244, :268; codeunit 90980: a plain field and one whose
-    /// OnValidate calls CurrPage.Update; a part linked on another field keeps its rows). A linked field another field's
-    /// validation changes is not measured and keeps the earlier behavior.
-    fn resync_dependents_linked_by(&mut self, child: &St, control: usize) -> Result<(), Signal> {
+    /// field, or on a field the typing changed through an OnValidate of the table field or of the page control (`before`
+    /// holds the row as it was before the SetValue), read their rows again with the new value, before the row is stored
+    /// (al-runner issue 6377; corpus writer Y5, branch al-runtime-rs-staging-y5, pages/lt-y5/Y5ProviderEditLink.al:155
+    /// (plain field), :191 (OnValidate calls CurrPage.Update), :223, :244, :268; codeunit 90980; and branch
+    /// al-runtime-rs-staging-y5b, pages/lt-y5/Y5ProviderIndirectLink.al, codeunit 90988: Quantity whose table OnValidate sets
+    /// the linked Qty. (Base), a page control whose OnValidate sets it, and a value with no matching row). A part linked on
+    /// fields that did not change keeps its rows.
+    fn resync_dependents_linked_by(
+        &mut self,
+        child: &St,
+        control: usize,
+        before: Option<&[Value]>,
+    ) -> Result<(), Signal> {
         let Some((host, idx)) = child.borrow().host.clone() else {
             return Ok(());
         };
@@ -964,13 +971,23 @@ impl Session {
             return Ok(());
         };
         let page = page_of(&engine, &host);
+        let now = self.page_rec(child).borrow().fields.clone();
+        let changed = |hf: usize| {
+            hf == pos
+                || before.is_some_and(|b| {
+                    b.get(hf).is_some_and(|was| {
+                        now.get(hf)
+                            .is_some_and(|v| !Self::same_values(std::slice::from_ref(was), std::slice::from_ref(v)))
+                    })
+                })
+        };
         let parts = host.borrow().parts.clone();
         for (i, sibling) in &parts {
             let follows = page.controls[*i].part_link.as_ref().is_some_and(|l| {
                 l.provider == Some(idx)
                     && l.entries
                         .iter()
-                        .any(|e| matches!(e, ir::LinkEntry::Field(_, hf) if *hf == pos))
+                        .any(|e| matches!(e, ir::LinkEntry::Field(_, hf) if changed(*hf)))
             });
             if follows {
                 self.sync_part(&host, *i, sibling)?;
@@ -1083,11 +1100,8 @@ impl Session {
                         });
                     }
                     ir::LinkEntry::Filter(pf, text) => {
-                        if text == "''" {
-                            al_builtins::assumptions::assume(
-                                al_builtins::assumptions::Assumption::SubPageLinkEmptyTerm,
-                            );
-                        }
+                        // An empty term selects the rows whose field is blank (pages/lt-ao-testpage/AoTests.al:513-560 RunPageLink, :845-887
+                        // SubPageLink).
                         fields.push(*pf);
                         let ty = table.fields[*pf].ty.clone();
                         let expr = self
@@ -1162,8 +1176,13 @@ impl Session {
 
     /// A field the host just changed is read by the link of some parts: they follow the new value
     /// (corpus handlers/TestPageOpenNewPartLink.al:OpenNew_NumberTyped_PartWriteCarriesTheNumber).
-    pub(super) fn resync_parts_linked_by(&mut self, st: &St, control: usize) -> Result<(), Signal> {
-        self.resync_dependents_linked_by(st, control)?;
+    pub(super) fn resync_parts_linked_by(
+        &mut self,
+        st: &St,
+        control: usize,
+        before: Option<&[Value]>,
+    ) -> Result<(), Signal> {
+        self.resync_dependents_linked_by(st, control, before)?;
         if st.borrow().parts.is_empty() || !st.borrow().open {
             return Ok(());
         }

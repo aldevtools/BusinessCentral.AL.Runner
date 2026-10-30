@@ -1,6 +1,6 @@
 //! A report variable whose procedure ran before its run: the request page's OnInit runs at that first use, right after
-//! OnInitReport, so the values the procedure set survive the run. Assumed (request-page-oninit-at-first-use) for Microsoft's
-//! tests, where Library - Manufacturing RefreshProdOrder calls Refresh Production Order's InitializeRequest(CalcLines = false)
+//! OnInitReport, so the values the procedure set survive the run (report/lt-request-page-oninit/RequestPageOnInitFirstUse.al:
+//! 104-185). Microsoft's tests need it, where Library - Manufacturing RefreshProdOrder calls Refresh Production Order's InitializeRequest(CalcLines = false)
 //! and the request page OnInit sets CalcLines := true (Tests-SCM 137402 CapacityCostPostedToGLForTwoItemsInOneProductionOrder);
 //! the page variable analog is pinned (handlers/TestPageOnInit_Tests.al:188). A run without a procedure before it keeps
 //! OnInitReport, then the request page's OnInit (report/lt-ae-reporthandler/AeReportHandler.al:85 Run_UseRequestPageFalse).

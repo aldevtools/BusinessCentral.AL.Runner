@@ -1,7 +1,7 @@
 //! A Worksheet without the new-row line, filtered in filter group 2 on a key field, whose action deletes every line and leaves
 //! Rec on a primary key no row has (page 5510 "Production Journal" Post): the list stands on the blank Rec, which takes the
 //! filter value, as when Rec keeps the deleted row's key (al-runner issue 6027, the reporter's repro green on real BC
-//! `N:B1;C:0:B1;`; corpus RtFilteredGoneRow.al TD_LeavesKey_Line1WithUpdate_OneLine; three lines per major, :656). Without
+//! `N:B1;C:0:B1;`; corpus RtFilteredGoneRow.al TD_LeavesKey_Line1WithUpdate_OneLine; two and three lines per major, :656, :679). Without
 //! CurrPage.Update(false), or with another count of lines shown before the action, it is refused.
 
 const SRC: &str = r#"
@@ -109,31 +109,31 @@ fn run_on(bc: &str, routine: &str) -> Result<al_builtins::value::Value, al_built
     s.call(oi, ri, inst, vec![]).map(|(v, _)| v)
 }
 
-/// Three deleted lines run OnNewRecord and OnAfterGetCurrRecord once on BC 28 and twice on BC 27 and from BC 29 (corpus
-/// RtFilteredGoneRow.al:656 TD_LeavesKey_Line1WithUpdate_ThreeLines, `#if BC28PLUS and not BC29PLUS`).
+/// Two and three deleted lines run OnNewRecord and OnAfterGetCurrRecord once on BC 28 and twice on BC 27 and from BC 29
+/// (corpus RtFilteredGoneRow.al:656 TD_LeavesKey_Line1WithUpdate_ThreeLines and :679 _TwoLines, `#if BC28PLUS and not BC29PLUS`;
+/// pages/lt-y1-6292/Y1WorksheetPostLog.al:161 Y1_Post_TwoLines, :177 Y1_Post_ThreeLines; al-runner issue 6292).
 #[test]
-fn three_deleted_lines_run_the_triggers_as_the_major_does() {
-    assert_eq!(
-        al_testkit::text(run_on("27.5", "PostThreeLines")),
-        "N:B1;C:0:B1;N:B1;C:0:B1;|0"
-    );
-    assert_eq!(al_testkit::text(run_on("28.5", "PostThreeLines")), "N:B1;C:0:B1;|0");
-    assert_eq!(
-        al_testkit::text(run_on("29.0", "PostThreeLines")),
-        "N:B1;C:0:B1;N:B1;C:0:B1;|0"
-    );
-}
-
-/// Two lines, or four and more, are not pinned.
-#[test]
-fn another_count_of_deleted_lines_is_refused() {
-    for routine in ["PostTwoLines", "PostFourLines"] {
-        let r = run_on("28.5", routine);
-        assert!(
-            matches!(r, Err(al_builtins::native::Signal::Unsupported(_))),
-            "{routine}: {r:?}"
+fn two_and_three_deleted_lines_run_the_triggers_as_the_major_does() {
+    for routine in ["PostTwoLines", "PostThreeLines"] {
+        assert_eq!(
+            al_testkit::text(run_on("27.5", routine)),
+            "N:B1;C:0:B1;N:B1;C:0:B1;|0",
+            "{routine}"
+        );
+        assert_eq!(al_testkit::text(run_on("28.5", routine)), "N:B1;C:0:B1;|0", "{routine}");
+        assert_eq!(
+            al_testkit::text(run_on("29.0", routine)),
+            "N:B1;C:0:B1;N:B1;C:0:B1;|0",
+            "{routine}"
         );
     }
+}
+
+/// Four and more lines are not pinned.
+#[test]
+fn another_count_of_deleted_lines_is_refused() {
+    let r = run_on("28.5", "PostFourLines");
+    assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
 }
 
 #[test]

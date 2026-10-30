@@ -352,6 +352,10 @@ pub enum ReadBackwards {
 /// A row key and what the repeater's page-variable controls show for it: (control index, value) (`PageState::row_vars`).
 pub type RowVars = (Vec<Value>, Vec<(usize, Value)>);
 
+/// The view of a page's record an action started from: filters, key, the fields of an ad-hoc key, Ascending
+/// (`PageState::view_before_action`).
+pub type ActionView = (Vec<crate::filter::FieldFilter>, usize, Option<Vec<usize>>, bool);
+
 /// The test client's state for one page (ADR-012). Fields grow with the
 /// behaviours the corpus pins.
 pub struct PageState {
@@ -451,9 +455,6 @@ pub struct PageState {
     pub run_page_link_opened: bool,
     /// Its OnOpenPage moved Rec to a linked row with a FindFirst or FindLast that found one.
     pub run_page_link_open_moved: bool,
-    /// The record the page opens on came from an action's RunObject (RunPageOnRec, RunPageLink or RunPageView), not from
-    /// Page.Run: the open reads it once.
-    pub run_object_record: bool,
     /// Set by the opener for the page's next open: the values an action's `RunPageLink` fills into Rec before OnOpenPage
     /// (field position, value), with the link's filters (`RecordState::run_page_link`). `None`: the link fills nothing pinned.
     pub open_rec_fill: Option<RunPageLinkFill>,
@@ -547,6 +548,16 @@ pub struct PageState {
     pub marking_action: bool,
     /// The refresh after such an action took the marked rows it read as the rows the client holds.
     pub marked_rows_held: bool,
+    /// While an action runs: the view of the page's record (filters, key and its ad-hoc fields, Ascending) as it was before
+    /// the action, so the refresh inside the action can tell the view changed (al-runner issue 6381).
+    pub view_before_action: Option<ActionView>,
+    /// An action runs on a list whose Rec had MarkedOnly on: a refresh after it that finds MarkedOnly off holds the rows it read.
+    pub unmarking_action: bool,
+    /// A marking OnDrillDown with CurrPage.Update(false) left Rec on another row of a list without row triggers, with a part, in a
+    /// key other than the primary key: a field read before the next other call shows this row, the one shown before.
+    pub shown_until_next_call: Option<Vec<Value>>,
+    /// The primary key the last TestPage GoToKey or GoToRecord looked for (`marked_view_changed_by_move`).
+    pub go_to_want: Option<Vec<Value>>,
     /// A marking OnDrillDown with CurrPage.Update(false) moved Rec off the shown row of a list in its primary key: a field read
     /// before the next move is refused (the page still shows the old row there; not built).
     pub marked_only_read_unbuilt: bool,
@@ -860,7 +871,6 @@ impl PageState {
             open_rec_unpinned: None,
             run_page_link_opened: false,
             run_page_link_open_moved: false,
-            run_object_record: false,
             open_rec_fill: None,
             temp_reads_once_more: false,
             reads_once_more_in: None,
@@ -900,6 +910,10 @@ impl PageState {
             marked_only_by_action: false,
             marking_action: false,
             marked_rows_held: false,
+            view_before_action: None,
+            unmarking_action: false,
+            shown_until_next_call: None,
+            go_to_want: None,
             marked_only_read_unbuilt: false,
             marked_refill_in_key: None,
             read_after_goto: false,

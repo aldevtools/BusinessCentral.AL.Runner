@@ -802,3 +802,57 @@ fn a_read_adds_the_content_length_only_when_it_is_missing() {
         "Yes[5] Yes[5] read=a longer text"
     );
 }
+
+/// Writer Y2's value shapes (network/lt-se-header-values/SeHeaderValues.al:507-614).
+#[test]
+fn y2_date_and_quality_shapes() {
+    let cases = [
+        (
+            "Req",
+            "If-Modified-Since",
+            "Sun, 06 Nov 49 08:49:37 GMT",
+            "ret=No get=E",
+        ),
+        (
+            "Req",
+            "If-Modified-Since",
+            "Sun, 06 Nov 50 08:49:37 GMT",
+            "ret=No get=E",
+        ),
+        (
+            "Req",
+            "If-Modified-Since",
+            "Sun, 06 Nov 1994 08:49:37 -0500",
+            "ret=Yes n=1[Sun, 06 Nov 1994 13:49:37 GMT]",
+        ),
+        (
+            "Req",
+            "If-Modified-Since",
+            "Sun, 06 Nov 1994 08:49:37 +0000",
+            "ret=Yes n=1[Sun, 06 Nov 1994 08:49:37 GMT]",
+        ),
+        (
+            "Req",
+            "If-Modified-Since",
+            "sun, 06 nov 1994 08:49:37 GMT",
+            "ret=Yes n=1[Sun, 06 Nov 1994 08:49:37 GMT]",
+        ),
+        (
+            "Req",
+            "If-Modified-Since",
+            "Sun,06 Nov 1994 08:49:37 GMT",
+            "ret=Yes n=1[Sun, 06 Nov 1994 08:49:37 GMT]",
+        ),
+        ("Req", "If-Modified-Since", "06 Nov 1994", "ret=No get=E"),
+        (
+            "Req",
+            "If-Modified-Since",
+            "Sun, 6 Nov 1994 8:49:37 GMT",
+            "ret=Yes n=1[Sun, 06 Nov 1994 08:49:37 GMT]",
+        ),
+        ("Req", "Accept-Charset", "utf-8;q=x", "ret=No get=E"),
+    ];
+    for (routine, name, value, want) in cases {
+        assert_eq!(call(routine, name, value), want, "{name}: {value}");
+    }
+}

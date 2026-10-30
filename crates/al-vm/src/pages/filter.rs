@@ -113,13 +113,10 @@ impl Session {
                 {
                     return Ok(Value::Null);
                 }
-                // An empty text takes the user's filter off the field (Record.SetFilter and FieldRef.SetFilter do:
-                // errors/lt-ms-refusals-134/P134DateTextFilters.al:P134_FieldRef_Date_EmptyAndBlankForms); for a page filter
-                // that is an assumption.
+                // An empty text or one of spaces takes the user's filter off the field: GetFilter reads empty and every row shows
+                // (pages/lt-ao-testpage/AoTests.al:673-695 TestFilter_SetFilterSpace, _SetFilterEmpty, :930-940
+                // SF_TestFilter_SetFilterTwoSpaces).
                 if text.trim().is_empty() {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::TestFilterSetFilterEmptyClears,
-                    );
                     rec.borrow_mut().filters.retain(|f| !(f.field == pos && f.group == 0));
                     self.filter_changed(st)?;
                     return Ok(Value::Null);

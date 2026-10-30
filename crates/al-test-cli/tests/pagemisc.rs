@@ -1257,7 +1257,7 @@ fn a_new_document_with_a_part_linked_on_its_number_opens_activates_a_field_and_c
 
 // Microsoft's Service Credit Memo, Invoice and Order pages declare OnFindRecord, and their tests open them with OpenNew
 // (Tests-SCM-Service ServiceCreditMemoByPage and about 30 more were refused). The page is opened as one without the trigger.
-// Assumed, open-new-skips-onfindrecord.
+// Pinned by pages/lt-opennew-findrecord/OpenNewFindRecord.al:150-230.
 #[test]
 fn open_new_on_a_page_with_on_find_record_gets_to_the_new_row() {
     passes(&format!(

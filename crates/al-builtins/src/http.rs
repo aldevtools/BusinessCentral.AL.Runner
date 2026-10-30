@@ -656,20 +656,22 @@ fn digits_of(s: &str, len: std::ops::RangeInclusive<usize>) -> Option<i64> {
     (len.contains(&s.len()) && s.chars().all(|c| c.is_ascii_digit())).then(|| s.parse().ok())?
 }
 
-/// `HH:MM:SS` as seconds of the day.
+/// `HH:MM:SS` as seconds of the day; the hour may have one digit (SeHeaderValues.al:530-571 Y2_Shapes_DatesTwoDigitYearsOffsets
+/// `ifmodifiedsince_8`, `8:49:37`).
 fn time_of_day(s: &str) -> Option<i64> {
     let mut p = s.split(':');
     let (h, m, sec) = (p.next()?, p.next()?, p.next()?);
     if p.next().is_some() {
         return None;
     }
-    let (h, m, sec) = (digits_of(h, 2..=2)?, digits_of(m, 2..=2)?, digits_of(sec, 2..=2)?);
+    let (h, m, sec) = (digits_of(h, 1..=2)?, digits_of(m, 2..=2)?, digits_of(sec, 2..=2)?);
     (h < 24 && m < 60 && sec < 60).then_some(h * 3600 + m * 60 + sec)
 }
 
 /// Seconds since 1970 of a valid date and time; the weekday given, when there is one, must be the date's.
 fn instant(y: i64, mon: &str, d: i64, secs: i64, weekday: Option<usize>) -> Option<i64> {
-    let m = MONTHS.iter().position(|x| *x == mon)? as i64 + 1;
+    // The month in any case (SeHeaderValues.al:530-571 `ifmodifiedsince_5`, `sun, 06 nov 1994 08:49:37 GMT`).
+    let m = MONTHS.iter().position(|x| x.eq_ignore_ascii_case(mon))? as i64 + 1;
     let days = days_from_civil(y, m, d);
     if civil_from_days(days) != (y, m, d) {
         return None;
@@ -699,18 +701,41 @@ fn rfc1123(t: i64) -> String {
 /// RFC 1123 GMT: `Tue, 15 Nov 1994 08:12:31 GMT` (also lt-http-header-rules/P87Values.al, AyHeaderAddResult.al:119), the same with
 /// `UTC`, RFC 850 `Tuesday, 15-Nov-94 08:12:31 GMT`, asctime `Tue Nov 15 08:12:31 1994` and `15 Nov 1994 08:12:31 +0100` (the offset
 /// is taken off). `None` for another text.
+/// Writer Y2 (SeHeaderValues.al:530-571, Y2_Shapes_DatesTwoDigitYearsOffsets) measured more of the RFC 1123 form: the weekday and
+/// month in lower case (with `GMT` in capitals), no blank after the comma, a one-digit hour and a numeric offset (`-0500` is
+/// stored five hours later, `+0000` as GMT).
 fn parse_date_forms(v: &str) -> Option<i64> {
-    let p: Vec<&str> = v.split_whitespace().collect();
+    let spaced = match v.split_once(',') {
+        Some((wd, rest)) if !rest.starts_with(' ') && !wd.contains(' ') => format!("{wd}, {rest}"),
+        _ => v.to_string(),
+    };
+    let p: Vec<&str> = spaced.split_whitespace().collect();
     let weekday = |w: &str, names: &[&str; 7]| names.iter().position(|x| *x == w);
+    let weekday_any_case = |w: &str| WEEKDAYS.iter().position(|x| x.eq_ignore_ascii_case(w));
     match p.as_slice() {
         [wd, d, mon, y, time, zone] if wd.ends_with(',') && matches!(*zone, "GMT" | "UTC") => {
-            let w = weekday(&wd[..wd.len() - 1], &WEEKDAYS)?;
+            let w = weekday_any_case(&wd[..wd.len() - 1])?;
             instant(
                 digits_of(y, 4..=4)?,
                 mon,
                 digits_of(d, 1..=2)?,
                 time_of_day(time)?,
                 Some(w),
+            )
+        }
+        [wd, d, mon, y, time, zone] if wd.ends_with(',') && zone.len() == 5 && zone.starts_with(['+', '-']) => {
+            let w = weekday_any_case(&wd[..wd.len() - 1])?;
+            let hh = digits_of(&zone[1..3], 2..=2)?;
+            let mm = digits_of(&zone[3..5], 2..=2)?;
+            let offset = (hh * 3600 + mm * 60) * if zone.starts_with('-') { -1 } else { 1 };
+            Some(
+                instant(
+                    digits_of(y, 4..=4)?,
+                    mon,
+                    digits_of(d, 1..=2)?,
+                    time_of_day(time)?,
+                    Some(w),
+                )? - offset,
             )
         }
         [wd, dmy, time, "GMT"] if wd.ends_with(',') => {
@@ -766,6 +791,22 @@ fn http_date(v: &str) -> Result<Option<String>, Signal> {
     }
     if !v.contains(|c: char| c.is_ascii_digit()) || !v.contains(' ') {
         return Ok(None);
+    }
+    // Refused (SeHeaderValues.al:530-571): the RFC 1123 form with a two-digit year (`Sun, 06 Nov 49 08:49:37 GMT` and `50`) and a
+    // date without a time (`06 Nov 1994`).
+    let p: Vec<&str> = v.split_whitespace().collect();
+    match p.as_slice() {
+        [wd, _, _, y, _, "GMT"] if wd.ends_with(',') && matches!(*y, "49" | "50") => return Ok(None),
+        [d, mon, y]
+            if d.len() <= 2
+                && MONTHS.contains(mon)
+                && y.len() == 4
+                && d.parse::<u8>().is_ok()
+                && y.parse::<u16>().is_ok() =>
+        {
+            return Ok(None);
+        }
+        _ => {}
     }
     if !v.contains(|c: char| c.is_ascii_uppercase()) {
         let capitalized: String = v
@@ -1456,6 +1497,17 @@ const REQUEST_ONLY_MEASURED_ON_RESPONSE: &[&str] = &[
     "referer",
     "max-forwards",
     "expect",
+    // SeHeaderValues.al:454-505 Y2_RequestOnlyNames_OnResponse and _OnClient.
+    "accept-charset",
+    "accept-encoding",
+    "accept-language",
+    "from",
+    "if-modified-since",
+    "if-none-match",
+    "if-range",
+    "if-unmodified-since",
+    "proxy-authorization",
+    "te",
 ];
 /// The names SE_ClientHeaders added to the client's default headers.
 const MEASURED_ON_CLIENT: &[&str] = &[
@@ -1468,6 +1520,17 @@ const MEASURED_ON_CLIENT: &[&str] = &[
     "referer",
     "via",
     "date",
+    // SeHeaderValues.al:454-505 Y2_RequestOnlyNames_OnResponse and _OnClient.
+    "accept-charset",
+    "accept-encoding",
+    "accept-language",
+    "from",
+    "if-modified-since",
+    "if-none-match",
+    "if-range",
+    "if-unmodified-since",
+    "proxy-authorization",
+    "te",
 ];
 
 /// A header a request or response collection would store as written: a name of the other kind of message.
@@ -1509,7 +1572,17 @@ fn typed_add_se(bag: &HeaderBag, lower: &str, value: &str) -> Result<Option<Type
                 if head.is_empty() || head.contains(char::is_whitespace) {
                     return fail();
                 }
-                if !is_token(head) || !parts.all(is_quality) {
+                // A quality that is no number is refused (SeHeaderValues.al:507-528 Y2_Shapes_RequestOnlyValues,
+                // `utf-8;q=x`).
+                let params: Vec<&str> = parts.collect();
+                if params.iter().any(|p| {
+                    p.split_once('=').is_some_and(|(n, q)| {
+                        n.trim().eq_ignore_ascii_case("q") && is_token(q.trim()) && !is_quality(p)
+                    })
+                }) {
+                    return fail();
+                }
+                if !is_token(head) || !params.iter().all(|p| is_quality(p)) {
                     return unmeasured();
                 }
                 out.push(join_params(&item));
@@ -3098,8 +3171,8 @@ impl HttpContentState {
     /// rewritten: it stays for an empty body (network/lt-ay-http/AyContentLength.al:ContentLength_SecondWriteFrom `empty`
     /// `Yes[13]`), for a body of the same length (P100_SecondWrite_ReplacesBody, 5 bytes twice) and for a longer, a shorter or a
     /// stream body (AyContentLength.al:PY_ContentLength_LongerBodyAfterRead, _ShorterBodyAfterRead, _InStreamAfterRead `Yes[5]`).
-    /// Pinned for a value a read put there (AyContentLength.al PY_ContentLength_*); for one added by hand it is assumption
-    /// http-content-length-after-read.
+    /// Pinned for a value a read put there (AyContentLength.al PY_ContentLength_*) and for one added by hand, before or after a
+    /// read, with or without a body before it (AyContentLength.al:366-460, Y2_ContentLength_AddedByHand*).
     fn write_body(&mut self, data: Vec<u8>) {
         {
             let mut bag = self.headers.borrow_mut();
@@ -3112,9 +3185,6 @@ impl HttpContentState {
                 None => bag
                     .items
                     .insert(0, ("Content-Type".into(), vec!["text/plain; charset=utf-8".into()])),
-            }
-            if find(&bag.items, "Content-Length").is_some() {
-                assume(crate::assumptions::Assumption::HttpContentLengthAfterRead);
             }
         }
         self.data = data;
