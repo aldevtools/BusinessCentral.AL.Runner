@@ -182,6 +182,14 @@ impl Session {
             ids::SYSTEM_WINDOWSLANGUAGE_1 => Ok(Value::Integer(self.host.identity.windows_language())),
             ids::SYSTEM_GLOBALLANGUAGE_1 => match args.first() {
                 None => Ok(Value::Integer(self.global_language)),
+                // 0, -1 and 99999 raise NotSupportedLanguage and leave the language as it was
+                // (platform/lt-platform-members/PlTSession.al:245-266, GlobalLanguage_InvalidIds).
+                Some(Value::Integer(n @ (0 | -1 | 99999))) => Err(crate::transactions::al_error_code(
+                    &format!(
+                        "'{n}' is not a valid language code. You must specify a locale identifier (LCID) or code in the format of language-country/region, such as en-US, de-DE, or da-DK."
+                    ),
+                    "NotSupportedLanguage",
+                )),
                 Some(Value::Integer(n)) if *n > 0 => {
                     self.global_language = *n;
                     self.events.event_stats.language.set(*n);
@@ -190,7 +198,7 @@ impl Session {
                     Ok(Value::Null)
                 }
                 other => unsupported(format!(
-                    "GlobalLanguage with {other} (only a positive language id is pinned)",
+                    "GlobalLanguage with {other} (only a positive language id and 0, -1 and 99999 are pinned)",
                     other = other.describe()
                 )),
             },

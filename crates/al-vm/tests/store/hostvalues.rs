@@ -436,13 +436,31 @@ fn sleep_of_zero_is_allowed_and_a_negative_wait_is_refused() {
     }
 }
 
+// platform/lt-platform-members/PlTSession.al:245-266 (GlobalLanguage_InvalidIds): 0, -1 and 99999 raise NotSupportedLanguage and
+// leave the language unchanged; other ids that are not positive are not pinned.
 #[test]
-fn global_language_accepts_only_positive_ids() {
-    for bad in ["0", "-1"] {
+fn global_language_raises_for_the_pinned_invalid_ids() {
+    for bad in ["0", "-1", "99999"] {
         match run(&format!("procedure F() begin GlobalLanguage({bad}); end;")) {
-            Err(Signal::Unsupported(m)) => assert!(m.contains("positive language id"), "{bad}: {m}"),
+            Err(Signal::Error(e)) => {
+                assert_eq!(
+                    e.message,
+                    format!(
+                        "'{bad}' is not a valid language code. You must specify a locale identifier (LCID) or code in the format of language-country/region, such as en-US, de-DE, or da-DK."
+                    )
+                );
+                assert_eq!(e.code, "NotSupportedLanguage");
+            }
             other => panic!("{bad}: {other:?}"),
         }
+    }
+    let r = run("[TryFunction] local procedure TrySet() begin GlobalLanguage(0); end; \
+         procedure F(): Text var Old: Integer; begin Old := GlobalLanguage(); \
+         exit(Format(TrySet()) + Format(GlobalLanguage() = Old)); end;");
+    assert!(matches!(&r, Ok(Value::Text(t)) if t.as_str() == "NoYes"), "{r:?}");
+    match run("procedure F() begin GlobalLanguage(-2); end;") {
+        Err(Signal::Unsupported(m)) => assert!(m.contains("are pinned"), "{m}"),
+        other => panic!("{other:?}"),
     }
 }
 
