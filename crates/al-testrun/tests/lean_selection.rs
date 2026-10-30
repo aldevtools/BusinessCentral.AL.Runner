@@ -98,6 +98,8 @@ fn run(main: &str, only: &[u32], cache: Option<&std::path::Path>) -> CorpusRunti
         id_ranges: Vec::new(),
         translations: false,
         translation_files: Vec::new(),
+        runtime: None,
+        app_json_keys: Vec::new(),
         symbols: vec![],
     };
     CorpusRuntime::try_run_suites_with(
