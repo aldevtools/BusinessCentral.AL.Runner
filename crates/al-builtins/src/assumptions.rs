@@ -761,59 +761,6 @@ registry! {
         tests: "No Microsoft test: owner decision for partner apps whose per-company install routine reads a table a dependency app's Company Triggers subscriber writes (a reporter's suite: 126 tests refused before).",
         probe: "Probe Q3 of ADR-046: a fixture app subscriber to OnCompanyOpen increments a SingleInstance counter; the main app's per-company install routine logs it, and a test counts how often the subscriber ran during the fixture app's own install.",
     },
-    RowVersionSentByMoreReads => {
-        id: "row-version-sent-by-more-reads",
-        assumed: "Like Get, FindFirst, FindLast, FindSet, IsEmpty, Count and CalcSums, a GetBySystemId, a Find('='), Find('-') or Find('+'), and a CalcFields of a record of a table the open transaction inserted into send that table's inserted rows: Database.LastUsedRowVersion grows (pinned on corpus master by platform/lt-platform-members/PlTRowVersionValue.al NP3_RowVersions_InsertThenGetBySystemId_OpenTransaction, _InsertThenFind_OpenTransaction, _InsertThenCalcFields_OpenTransaction, corpus PR 820; not yet in the pinned corpus).",
-        tests: "No Microsoft test: a partner app's suite that reads MinimumActiveRowVersion after such reads (6 tests of the owner's partner measurement).",
-        probe: "None: the next corpus bump brings the pinning tests; delete this entry then.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/platform/lt-platform-members/PlTRowVersionValue.al::NP3_RowVersions_InsertThenGetBySystemId_OpenTransaction",
-                "tests/al-language/platform/lt-platform-members/PlTRowVersionValue.al::NP3_RowVersions_InsertThenFind_OpenTransaction",
-                "tests/al-language/platform/lt-platform-members/PlTRowVersionValue.al::NP3_RowVersions_InsertThenCalcFields_OpenTransaction",
-            ],
-            since: "2026-10-30",
-        },
-    },
-    CalcformulaFilterEqualsEmptyDate => {
-        id: "calcformula-filter-equals-empty-date",
-        assumed: "A CalcFormula filter(= 0D) or filter(=0D) on a Date field of the source table matches the rows with the empty date, as filter(0D) does, in count, exist and in a FlowField that filters on such a FlowField (pinned on corpus master by record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al EqualsEmptyDate_Rows_Result, _OnlyDatedRows_Result and _Chained_GroupOverFlowField, corpus PR 820; not yet in the pinned corpus).",
-        tests: "No Microsoft test: a partner app's suite whose FlowFields count rows with filter(= 0D) (13 tests of the owner's partner measurement).",
-        probe: "None: the next corpus bump brings the pinning tests; delete this entry then.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al::EqualsEmptyDate_Rows_Result",
-                "tests/al-language/record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al::EqualsEmptyDate_Chained_GroupOverFlowField",
-            ],
-            since: "2026-10-30",
-        },
-    },
-    FormatRecordStandard9 => {
-        id: "format-record-standard-nine",
-        assumed: "Format(Record, 0, 9) and Format(RecordRef, 0, 9) give the same text as standard format 0 (the fields in standard format 0, a Date as 03/05/24, joined by a TAB), for a database, temporary or FlowField record; an unopened RecordRef formats as the empty text with standard format 0 and 9 (pinned on corpus master by errors/lt-ms-refusals-133/P133DateEvaluateFormat.al NP3_FormatRecord_StandardFormats_0And9, _Temporary_AndFlowField_0And9, NP3_FormatRecordRef_StandardFormats_0And9 and NP3_FormatRecordRef_NotOpen, corpus PR 820; not yet in the pinned corpus).",
-        tests: "No Microsoft test: a partner app's suite that formats records and RecordRefs with standard format 9 (7 tests of the owner's partner measurement).",
-        probe: "None: the next corpus bump brings the pinning tests; delete this entry then.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/errors/lt-ms-refusals-133/P133DateEvaluateFormat.al::NP3_FormatRecord_StandardFormats_0And9",
-                "tests/al-language/errors/lt-ms-refusals-133/P133DateEvaluateFormat.al::NP3_FormatRecordRef_NotOpen",
-            ],
-            since: "2026-10-30",
-        },
-    },
-    InstallOrderAscendingId => {        id: "install-order-ascending-id",
-        assumed: "The install routines of one app (install codeunit triggers and Extension Triggers subscribers) run as one sequence in ascending codeunit id in each company and in the per-database part, also across the 65536 id boundary, and a SingleInstance codeunit's state carries from one to the next within a company or part (ADR-046 amendment 3). Ascending id inside one block is pinned on corpus master (install/lt-um-install-order/UmInstallOrder.al, corpus PR 807); across the boundary it is pinned only on a writer branch, not yet in the pinned corpus (UrBlockOrderTests.al, 50300 to 90515). Two subscribers of one codeunit are not pinned and stay refused.",
-        tests: "No Microsoft test: a partner app's suite whose install codeunits share tables and SingleInstance codeunits (the owner's partner measurement).",
-        probe: "UmInstallOrder.al is in the pinned corpus, but the runtime does not run InstallCodeunits_OneApp_RunOrderPerPart yet (per-company install code writes a DataPerCompany = false table: ADR-046 decision 4c): run it. UrBlockOrderTests.al (writer UR, corpus PR 810), install codeunits and subscribers 50300 to 90515 across the 65536 boundary: wanted, the bump that puts it on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/install/lt-ur-block-order/UrBlockOrderTests.al"],
-            since: "2026-10-29",
-        },
-    },
     InstallOrderIdsAboveProbedRange => {
         id: "install-order-ids-above-probed-range",
         assumed: "An install routine of an app whose codeunit id is above 99999 runs in the same ascending integer order of codeunit ids as the pinned ids up to 99999 (ADR-046 amendment 3). The probe could not publish ids above 99999 on the sandbox, so nothing pins that range.",

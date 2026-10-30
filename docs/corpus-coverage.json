@@ -1,8 +1,8 @@
 {
-  "corpus_commit": "21a4128664a0118914c0863e60c9345a7770c317",
+  "corpus_commit": "2db2dbd573ca73423971f82ea7160a62a3d76e2f",
   "language": {
     "bc": "27-29",
-    "implemented": 1608,
+    "implemented": 1615,
     "methods": [
       {
         "bc": [
@@ -519,28 +519,28 @@
         "bc": [
           29
         ],
-        "id": null,
+        "id": "DataSourceContext.AppId#1",
         "ms_uses": 0,
         "name": "AppId",
         "pinned": false,
         "scope": "",
         "sig": "()",
         "site": null,
-        "state": "unknown",
+        "state": "refused",
         "type": "DataSourceContext"
       },
       {
         "bc": [
           29
         ],
-        "id": null,
+        "id": "DataSourceContext.CodeunitId#1",
         "ms_uses": 0,
         "name": "CodeunitId",
         "pinned": false,
         "scope": "",
         "sig": "()",
         "site": null,
-        "state": "unknown",
+        "state": "implemented",
         "type": "DataSourceContext"
       },
       {
@@ -12712,7 +12712,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Joker, [Joker...])",
-        "site": "platform/lt-platform-members/PlTRowVersionValue.al:487",
+        "site": "platform/lt-platform-members/PlTRowVersionValue.al:507",
         "state": "implemented",
         "type": "Record"
       },
@@ -17856,7 +17856,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "lt-o-system-onprem/ODatabaseOps.al:211",
+        "site": "lt-o-system-onprem/ODatabaseOps.al:212",
         "state": "implemented",
         "type": "System"
       },
@@ -18064,7 +18064,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "lt-o-system-onprem/ODatabaseOps.al:210",
+        "site": "lt-o-system-onprem/ODatabaseOps.al:211",
         "state": "implemented",
         "type": "System"
       },
@@ -18464,7 +18464,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(InStream, Text, [Integer])",
-        "site": "lt-o-system-onprem/ODatabaseOps.al:304",
+        "site": "lt-o-system-onprem/ODatabaseOps.al:305",
         "state": "refused",
         "type": "System"
       },
@@ -19384,84 +19384,84 @@
         "bc": [
           29
         ],
-        "id": null,
+        "id": "TestHandlerContext.CodeunitId#1",
         "ms_uses": 0,
         "name": "CodeunitId",
         "pinned": false,
         "scope": "",
         "sig": "()",
         "site": null,
-        "state": "unknown",
+        "state": "implemented",
         "type": "TestHandlerContext"
       },
       {
         "bc": [
           29
         ],
-        "id": null,
+        "id": "TestHandlerContext.CodeunitName#1",
         "ms_uses": 0,
         "name": "CodeunitName",
         "pinned": false,
         "scope": "",
         "sig": "()",
         "site": null,
-        "state": "unknown",
+        "state": "implemented",
         "type": "TestHandlerContext"
       },
       {
         "bc": [
           29
         ],
-        "id": null,
+        "id": "TestHandlerContext.ProcedureName#1",
         "ms_uses": 0,
         "name": "ProcedureName",
         "pinned": false,
         "scope": "",
         "sig": "()",
         "site": null,
-        "state": "unknown",
+        "state": "implemented",
         "type": "TestHandlerContext"
       },
       {
         "bc": [
           29
         ],
-        "id": null,
+        "id": "TestHandlerContext.Skip#1",
         "ms_uses": 0,
         "name": "Skip",
         "pinned": false,
         "scope": "",
         "sig": "(Text)",
         "site": null,
-        "state": "unknown",
+        "state": "implemented",
         "type": "TestHandlerContext"
       },
       {
         "bc": [
           29
         ],
-        "id": null,
+        "id": "TestHandlerContext.Success#1",
         "ms_uses": 0,
         "name": "Success",
         "pinned": false,
         "scope": "",
         "sig": "()",
         "site": null,
-        "state": "unknown",
+        "state": "implemented",
         "type": "TestHandlerContext"
       },
       {
         "bc": [
           29
         ],
-        "id": null,
+        "id": "TestHandlerContext.TestCaseName#1",
         "ms_uses": 0,
         "name": "TestCaseName",
         "pinned": false,
         "scope": "",
         "sig": "()",
         "site": null,
-        "state": "unknown",
+        "state": "implemented",
         "type": "TestHandlerContext"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 114,
+    "refused": 115,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",
@@ -27980,9 +27980,9 @@
       "XmlReadOptions.PreserveWhitespace#1",
       "XmlWriteOptions.PreserveWhitespace#1"
     ],
-    "unknown": 28
+    "unknown": 20
   },
-  "overloads": 1732,
+  "overloads": 1740,
   "pinned": 1692,
   "types": [
     {
@@ -28232,6 +28232,25 @@
       "overloads": 7,
       "pinned": 7,
       "type": "Cookie"
+    },
+    {
+      "methods": [
+        {
+          "id": "DataSourceContext.AppId#1",
+          "pinned": false,
+          "signature": "DataSourceContext.AppId inst () -> Guid @18.0",
+          "site": null
+        },
+        {
+          "id": "DataSourceContext.CodeunitId#1",
+          "pinned": false,
+          "signature": "DataSourceContext.CodeunitId inst () -> Integer @18.0",
+          "site": null
+        }
+      ],
+      "overloads": 2,
+      "pinned": 0,
+      "type": "DataSourceContext"
     },
     {
       "methods": [
@@ -32925,7 +32944,7 @@
           "id": "Record.CalcSums#1",
           "pinned": true,
           "signature": "Record.CalcSums inst (Field1: Any, ?Field2: Any*) -> Boolean?",
-          "site": "platform/lt-platform-members/PlTRowVersionValue.al:487"
+          "site": "platform/lt-platform-members/PlTRowVersionValue.al:507"
         },
         {
           "id": "Record.ChangeCompany#1",
@@ -34926,7 +34945,7 @@
           "id": "System.CreateEncryptionKey#1",
           "pinned": true,
           "signature": "System.CreateEncryptionKey static () -> Boolean?",
-          "site": "lt-o-system-onprem/ODatabaseOps.al:211"
+          "site": "lt-o-system-onprem/ODatabaseOps.al:212"
         },
         {
           "id": "System.CreateGuid#1",
@@ -35004,7 +35023,7 @@
           "id": "System.EncryptionEnabled#1",
           "pinned": true,
           "signature": "System.EncryptionEnabled static () -> Boolean",
-          "site": "lt-o-system-onprem/ODatabaseOps.al:210"
+          "site": "lt-o-system-onprem/ODatabaseOps.al:211"
         },
         {
           "id": "System.EncryptionKeyExists#1",
@@ -35154,7 +35173,7 @@
           "id": "System.ImportStreamWithUrlAccess#1",
           "pinned": true,
           "signature": "System.ImportStreamWithUrlAccess static (InStream: InStream, Filename: Text, ?MinutesToExpire: Integer) -> Guid",
-          "site": "lt-o-system-onprem/ODatabaseOps.al:304"
+          "site": "lt-o-system-onprem/ODatabaseOps.al:305"
         },
         {
           "id": "System.IsCollectingErrors#1",
@@ -35530,6 +35549,49 @@
       "overloads": 5,
       "pinned": 5,
       "type": "TestFilter"
+    },
+    {
+      "methods": [
+        {
+          "id": "TestHandlerContext.CodeunitId#1",
+          "pinned": false,
+          "signature": "TestHandlerContext.CodeunitId inst () -> Integer @18.0",
+          "site": null
+        },
+        {
+          "id": "TestHandlerContext.CodeunitName#1",
+          "pinned": false,
+          "signature": "TestHandlerContext.CodeunitName inst () -> Text @18.0",
+          "site": null
+        },
+        {
+          "id": "TestHandlerContext.ProcedureName#1",
+          "pinned": false,
+          "signature": "TestHandlerContext.ProcedureName inst () -> Text @18.0",
+          "site": null
+        },
+        {
+          "id": "TestHandlerContext.Skip#1",
+          "pinned": false,
+          "signature": "TestHandlerContext.Skip inst (Reason: Text) @18.0",
+          "site": null
+        },
+        {
+          "id": "TestHandlerContext.Success#1",
+          "pinned": false,
+          "signature": "TestHandlerContext.Success inst () -> Boolean @18.0",
+          "site": null
+        },
+        {
+          "id": "TestHandlerContext.TestCaseName#1",
+          "pinned": false,
+          "signature": "TestHandlerContext.TestCaseName inst () -> Text @18.0",
+          "site": null
+        }
+      ],
+      "overloads": 6,
+      "pinned": 0,
+      "type": "TestHandlerContext"
     },
     {
       "methods": [
