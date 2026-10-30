@@ -206,6 +206,10 @@ writes them (`--update-baseline` is refused with `--stability`). What differs be
   section 4), and each variant starts from the same install baseline. With `isolation.alone` or a shuffled order,
   the replay of one test runs the same tests before it in the same order. A difference is a runtime bug.
 - `ALRUNNER_REAL_CLOCK=1` is refused with `--stability`: the wall clock breaks replay.
+- Amended by ADR-061 section 5 (2026-10-30): the variant id includes the run seed (`29.0-w1/3@4271833`), and
+  `--stability-replay` with such an id sets the run seed from it. A config without `masterSeed` uses the run seed as
+  its master seed, so a stability run prints one seed. The defaults of `random.hostSeed`, `guid.seed` and
+  `random.librarySeed` are the values derived from the run seed; a variant's own value replaces them.
 
 ### 5. Output
 

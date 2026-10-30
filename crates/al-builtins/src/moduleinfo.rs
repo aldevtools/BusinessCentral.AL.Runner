@@ -453,7 +453,19 @@ fn get_resource(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out 
 fn get_resource_as_text(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let name = name_arg(a)?;
     let enc = encoding_arg(a, 1)?;
-    Ok(Value::Text(enc.decode(&resource(c, &name)?).into()))
+    let bytes = resource(c, &name)?;
+    // Without an encoding BC reads one character per byte (corpus al-language-testlibraries/lt-bi-test-framework/
+    // BiDataDriven.al:481-482: 47 characters for the 45 of UTF-8, corpus PR 861). Which character a byte from 128 up
+    // becomes is not pinned.
+    if a.get(1).is_none() {
+        if !bytes.is_ascii() {
+            return unsupported(format!(
+                "GetResourceAsText of `{name}` without a text encoding: one character per byte is pinned, which characters the bytes from 128 up become is not pinned"
+            ));
+        }
+        return Ok(Value::Text(String::from_utf8_lossy(&bytes).into_owned().into()));
+    }
+    Ok(Value::Text(enc.decode(&bytes).into()))
 }
 
 fn get_resource_as_json(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {

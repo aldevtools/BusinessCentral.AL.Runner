@@ -1075,9 +1075,22 @@ pub fn parse_values_text(text: &str) -> Result<Variant, String> {
     variant_of(0, &assignment)
 }
 
+/// A variant id with the run seed it ran under (`<cell>/<n>@<seed>`, ADR-061 section 5): the id without the seed,
+/// and the seed. Printed values (`company.name=A@1`) are not an id and keep their `@`.
+pub fn split_replay_seed(arg: &str) -> (&str, Option<i32>) {
+    if let Some((head, tail)) = arg.rsplit_once('@')
+        && let Some(seed) = al_host::seed::parse(tail).filter(|_| !tail.trim().is_empty() && tail == tail.trim())
+        && head.rsplit('/').next().is_some_and(|n| n.parse::<usize>().is_ok())
+    {
+        return (head, Some(seed));
+    }
+    (arg, None)
+}
+
 /// The variant `--stability-replay` names: an id `<cell>/<n>` (or `<n>`) of the config's variants, else printed
 /// values.
 pub fn replay(arg: &str, variants: Option<&[Variant]>) -> Result<Variant, String> {
+    let arg = split_replay_seed(arg).0;
     let number = arg.rsplit('/').next().unwrap_or(arg);
     if let (Ok(n), Some(vs)) = (number.parse::<usize>(), variants) {
         return vs
@@ -1305,6 +1318,10 @@ mod tests {
         let vs = variants(&c, 4711, 1000).unwrap();
         assert_eq!(replay("29.0-w1/3", Some(&vs)).unwrap(), vs[3]);
         assert_eq!(replay("3", Some(&vs)).unwrap(), vs[3]);
+        // ADR-061: the id carries the run seed.
+        assert_eq!(replay("29.0-w1/3@4271833", Some(&vs)).unwrap(), vs[3]);
+        assert_eq!(split_replay_seed("29.0-w1/3@4271833"), ("29.0-w1/3", Some(4271833)));
+        assert_eq!(split_replay_seed("company.name=A@1"), ("company.name=A@1", None));
         assert!(replay("29.0-w1/9", Some(&vs)).unwrap_err().contains("no variant 9"));
         let from_text = replay(&vs[1].describe(), None).unwrap();
         assert_eq!(from_text.perturb, vs[1].perturb);

@@ -43,6 +43,7 @@ tests](writing-tests.md) has the details.
 `al-runner` is built for:
 
 - Linux x64
+- Linux arm64
 - Windows x64
 - macOS arm64
 
@@ -55,5 +56,5 @@ There are no builds for other platforms. The core needs no .NET. Tests that use 
   version you can name in a bug report.
 - **`edge`**: rebuilt every night from the newest commit of `main` that passed CI.
 
-AL Runner 3 is an alpha. Results can change between builds. [Getting
+AL Runner is an alpha. Results can change between builds. [Getting
 started](getting-started.md) shows how to install each channel.

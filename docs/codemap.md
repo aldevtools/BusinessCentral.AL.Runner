@@ -138,6 +138,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `lib.rs` (350): The host seam: clock, identity, client type, file system (ADR-006). Entry: `Clock` 21, `Identity` 70, `ClientType` 54, `Host` 258.
 - `testdata.rs` (330): Test data capability (ADR-020): `TableProvider`, `Cell`, `TestData` (reads each table once for all threads) and `LoadStats` (the counts behind the summary line). Entry: `TableProvider`, `TestData`, `LoadStats`, `Summary`.
 - `random.rs` (112): .NET's seeded `System.Random` for `Random` and `Randomize`. Entry: `NetRandom` 15.
+- `seed.rs`: the run seed's derivations per test method (ADR-061): `derive` (v2's FNV-1a), `derive_library`, `guid_key`.
 
 ### al-ir
 
@@ -258,6 +259,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `runtime/corpus.rs` (927): `CorpusRuntime`: compiling suites of apps and running them. A selection of pure tests is compiled lean (`compile_suites_with`, `Roots::lean`) and run again on the complete compile when a test met what was left out (`met_left_out`). Entry: `run_suites_with` 89, `compile_suites` 127, `run_compiled` 448.
 - `runtime/cache.rs` (226): Compiling through the compile cache. Entry: `compile_with_cache` 70, `lazy_index` 7.
 - `runtime/run.rs` (741): Running the test codeunits of one compiled program, each test on a session of its own. Entry: `run_codeunit` 5, `run_codeunit_isolated` 21, `run_codeunit_observed` 46, `run_codeunit_core` 156.
+- `runtime/data_driven.rs`: Data-driven tests (`[TestDataSource]`, ADR-059): the run order (plain tests, then data-driven procedures by name), `ListTestCases` and the identifier rules, one result per case named `Procedure[identifier]`. Entry: `queue`, `list`, `run_case` (called from the test loop of `run.rs`).
 - `runtime/written.rs` (824): What a test that did not run to its end can change that a later test of the codeunit reads (static reach: tables, codeunit globals, session state; `unknown` for a refused construct or a run by a run-time id), for the trust of later failures. Entry: `ReachFacts`, `changes_read_by`, `ReachIndex`, `reach_facts`, `remainder_reach_facts` (a test a statement of its own body refused: its writes plus the rest of its body), `settled_flags`.
 - `runtime/runner_reset.rs` (130): What BC's AL test runner does around each test method: runs codeunits 131006, 130301, 130302 (TestPermissions not Disabled) and 132553 when loaded, in Microsoft's order. Entry: `RunnerReset::of`, `before`, `after`, `test_permissions`.
 - `runtime/handlers.rs` (92): The handler functions a test declares, bound for the length of the test. Entry: `resolve_handlers` 8, `bind_handlers` 77.

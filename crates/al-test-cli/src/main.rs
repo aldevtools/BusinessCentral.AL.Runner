@@ -659,6 +659,11 @@ fn run_version(
         v
     });
     let opts = runtime::RunOptions {
+        // ADR-061 section 5: the fixed run seed 1 keeps the ratchet repeatable; `--seed N` is for local checks.
+        run_seed: match args.seed {
+            Some(n) => al_testrun::seed::RunSeed::new(n, al_testrun::seed::SeedSource::Option),
+            None => Default::default(),
+        },
         only,
         trace: explained.is_some(),
         // The corpus has no test data: its oracle is a database the cases fill themselves.

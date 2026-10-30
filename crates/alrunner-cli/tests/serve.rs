@@ -20,6 +20,8 @@ impl Server {
         let mut child = Command::new(env!("CARGO_BIN_EXE_al-runner"))
             .arg("serve")
             .args(extra)
+            .env_remove("ALRUNNER_SEED")
+            .env_remove("AL_RUNNER_SEED")
             .envs(env.iter().copied())
             .env("AL_CHECK_THREADS", "2")
             .env("AL_LOWER_THREADS", "2")
@@ -1825,4 +1827,52 @@ fn every_entry_and_request_starts_without_the_state_an_earlier_one_set() {
     }
     s.send(json!({"command": "shutdown"}));
     assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+const DRAWS: &str = r#"
+codeunit 50310 "Draw Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Draws()
+    begin
+        Error('%1 %2', Random(1000000), CreateGuid());
+    end;
+}
+"#;
+
+/// ADR-061 section 3: `seed` replays a request's values; a request without one gets a fresh seed; the summary says
+/// which. The warm slot is reused across seeds.
+#[test]
+fn a_request_may_set_the_run_seed_and_the_summary_names_it() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "draws", DRAWS);
+    let mut s = Server::start_with(&["--no-download", "--no-test-data"], &[]);
+    assert_eq!(s.line(), json!({"ready": true}));
+    let mut run = |seed: Option<i64>| {
+        let mut req = json!({"command": "runTests", "sourcePaths": [a]});
+        if let Some(n) = seed {
+            req["seed"] = n.into();
+        }
+        s.send(req);
+        let lines = s.until_summary();
+        let message = lines.iter().find(|l| l["type"] == "test").unwrap()["message"].clone();
+        (message, lines.last().unwrap().clone())
+    };
+    let (first, summary) = run(Some(4271833));
+    assert_eq!(
+        (summary["seed"].as_i64(), summary["seedSource"].as_str()),
+        (Some(4271833), Some("option"))
+    );
+    let (again, summary) = run(Some(4271833));
+    assert_eq!(again, first);
+    assert_eq!(
+        summary["cached"], true,
+        "the seed is not part of the warm slot: {summary}"
+    );
+    let (other, _) = run(Some(4271834));
+    assert_ne!(other, first);
+    let (_, summary) = run(None);
+    assert_eq!(summary["seedSource"], "fresh", "{summary}");
 }

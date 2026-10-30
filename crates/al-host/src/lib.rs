@@ -18,6 +18,7 @@
 pub mod dotnet;
 pub mod inproc;
 pub mod random;
+pub mod seed;
 pub mod testdata;
 pub mod time_zone_table;
 pub mod tz;
@@ -858,6 +859,10 @@ pub struct Host {
     pub random_seed: i32,
     /// The seed of `CreateGuid` and new SystemIds; `None` follows [`Host::random_seed`] (ADR-058 `guid.seed`).
     pub guid_seed: Option<i32>,
+    /// The run seed (ADR-061): what [`seed::derive`] and [`seed::guid_key`] derive each test method's `Random` seed
+    /// and Guid key from. The caller picks it (the CLI from the OS, `al-test-cli` [`seed::FIXED_RUN_SEED`]); install
+    /// code does not use it.
+    pub run_seed: i32,
     /// How far each read of the clock by AL code moves it, in milliseconds (ADR-045: 1; ADR-058 `clock.stepMs`).
     /// Always positive: two reads must differ.
     pub clock_step_ms: i64,
@@ -874,6 +879,7 @@ impl Host {
             files: Box::new(MemFileSystem::default()),
             random_seed: DEFAULT_RANDOM_SEED,
             guid_seed: None,
+            run_seed: seed::FIXED_RUN_SEED,
             clock_step_ms: 1,
         }
     }

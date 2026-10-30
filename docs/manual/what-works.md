@@ -17,23 +17,24 @@ There are two kinds of reason:
 
 - **By design.** The surface needs a process, a network or a service tier that AL
   Runner does not have. It will stay refused.
-- **Not measured yet.** AL Runner will not guess behavior that no corpus test pins
-  on real Business Central. This group shrinks as tests are added.
+- **Not measured yet.** AL Runner will not guess behavior that no corpus test has
+  measured on real Business Central. This group shrinks as tests are added.
 
 ## Status
 
-Measured on 2026-10-21 against the AL language test corpus (commit `f3fe6c99`). A
+Measured on 2026-10-30 against the AL language test corpus (commit `2db2dbd5`). A
 test counts as passing only when it passes here and passed on real Business Central.
 
 | Business Central | Passing | Failing | Not run |
 |---|---|---|---|
-| 27.5 | 13964 of 17050 (81.9%) | 0 | 3086 |
-| 28.5 | 14002 of 17140 (81.7%) | 0 | 3138 |
-| 29.0 | 14023 of 17234 (81.4%) | 0 | 3211 |
+| 27.5 | 17065 of 19125 (89.2%) | 2 | 2058 |
+| 28.5 | 17140 of 19219 (89.2%) | 2 | 2077 |
+| 29.0 | 17192 of 19320 (89.0%) | 2 | 2126 |
 
 "Failing" is a case where real Business Central passed and AL Runner gave a
-different result or an error. About 435 passes on each version run through an
-unprobed assumption and are counted as flagged. Most of Microsoft's own Base
+different result or an error. About 480 passes on each version run through an
+unprobed assumption and are counted as flagged. The numbers change with every
+build; treat them as a snapshot. Most of Microsoft's own Base
 Application tests do not run yet; see [Running Microsoft's tests](microsoft-tests.md#how-many-of-microsofts-tests-run).
 
 ## Runs as Business Central does
@@ -45,7 +46,7 @@ Application tests do not run yet; see [Running Microsoft's tests](microsoft-test
   events; subscribers; manual binding; order.
 - Errors: `asserterror`, `TryFunction`, `GetLastError*`, error text and code.
 - Collections and data: `List`, `Dictionary`, JSON, XML, streams, BLOBs,
-  `TextBuilder`, queries (the shapes the corpus pins), XmlPort import and export.
+  `TextBuilder`, queries (the shapes the corpus checks), XmlPort import and export.
 - Reports, processing only: `Run`, `RunModal`, `Execute`, `RunRequestPage`, data
   items, the triggers from `OnPreReport` to `OnPostReport`, and the dataset as XML.
 - Pages, headless: the test client opens pages, sets values, validates, runs
@@ -94,8 +95,8 @@ Application tests do not run yet; see [Running Microsoft's tests](microsoft-test
   read as the AL compiler reads them.
 - The `logo` of `app.json` (a PNG) is served as the Logo of the app's Published
   Application row. A logo that is not a PNG is refused.
-- `TestHandlers` codeunits and data-driven tests (`[TestDataSource]`) are refused
-  as not run. See [Writing tests](writing-tests.md#test-framework-features-of-bc-29).
+- Data-driven tests (`[TestDataSource]`) run with one result per case.
+  `TestHandlers` codeunits are refused as not run. See [Writing tests](writing-tests.md#test-framework-features-of-bc-29).
 
 ## DotNet
 

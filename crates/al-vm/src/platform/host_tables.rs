@@ -236,6 +236,12 @@ const LANGUAGES: &[(i32, &str, &str, &str, &str)] = &[
     (11290, "Serbian (Latin, Montenegro)", "SRP", "852", "sr-Latn-ME"),
     (13321, "English (Philippines)", "ENP", "437", "en-PH"),
 ];
+/// Rows the corpus pins without their code page and tag (a read of either is refused), as (LCID, name, abbreviated name):
+/// 12297 English (Zimbabwe), ENW, Globally Enabled, no STX file (types/lt-wc/WcUnpinnedSingles.al:148-173). They are not in
+/// [`LANGUAGES`], so a filter on their abbreviated name alone is not taken as naming one row.
+const NAME_ONLY_LANGUAGES: &[(i32, &str, &str)] = &[(12297, "English (Zimbabwe)", "ENW")];
+/// "STX File Exist" is pinned false for these rows (WcUnpinnedSingles.al:160, :169).
+const STX_FILE_ABSENT: [i32; 1] = [12297];
 /// The abbreviated names a filter may name alone: the table holds exactly one row with each (`count=1` at
 /// AgWindowsLanguage.al:167-268), so a filter on one of them takes in no language beyond the row listed.
 /// Every listed row but 1025 (ARA, whose count is not pinned).
@@ -292,7 +298,7 @@ fn language_filter_refusal(t: &TableDef, filters: &[FieldFilter]) -> Result<(), 
     }
 }
 
-fn language_row(t: &TableDef, lcid: i32, name: &str, abbr: &str, code_page: &str, tag: &str) -> Row {
+fn language_row(t: &TableDef, lcid: i32, name: &str, abbr: &str, code_page: Option<&str>, tag: Option<&str>) -> Row {
     let mut r = blank(t);
     for f in &t.fields {
         if !LANGUAGE_PINNED.contains(&f.id) && f.id < al_builtins::platform::SYSTEM_OBJECT_BASE {
@@ -307,6 +313,8 @@ fn language_row(t: &TableDef, lcid: i32, name: &str, abbr: &str, code_page: &str
     r[pos(t, GLOBALLY_ENABLED)] = Value::Boolean(true);
     r[pos(t, STX_FILE_EXIST)] = if STX_FILE_EXISTS.contains(&lcid) {
         Value::Boolean(true)
+    } else if STX_FILE_ABSENT.contains(&lcid) {
+        Value::Boolean(false)
     } else {
         super::unknown(t, STX_FILE_EXIST, &format!("language {lcid}"))
     };
@@ -315,8 +323,14 @@ fn language_row(t: &TableDef, lcid: i32, name: &str, abbr: &str, code_page: &str
     } else {
         super::unknown(t, LOCALIZATION_EXIST, &format!("language {lcid}"))
     };
-    r[pos(t, 30)] = Value::Text(code_page.into());
-    r[pos(t, 35)] = Value::Text(tag.into());
+    r[pos(t, 30)] = match code_page {
+        Some(v) => Value::Text(v.into()),
+        None => super::unknown(t, 30, &format!("language {lcid}")),
+    };
+    r[pos(t, 35)] = match tag {
+        Some(v) => Value::Text(v.into()),
+        None => super::unknown(t, 35, &format!("language {lcid}")),
+    };
     let _ = option;
     r
 }
@@ -325,11 +339,25 @@ fn known(t: &TableDef, lcid: i64) -> Option<Row> {
     LANGUAGES
         .iter()
         .find(|l| i64::from(l.0) == lcid)
-        .map(|l| language_row(t, l.0, l.1, l.2, l.3, l.4))
+        .map(|l| language_row(t, l.0, l.1, l.2, Some(l.3), Some(l.4)))
+        .or_else(|| {
+            NAME_ONLY_LANGUAGES
+                .iter()
+                .find(|l| i64::from(l.0) == lcid)
+                .map(|l| language_row(t, l.0, l.1, l.2, None, None))
+        })
+}
+
+/// The ids of every pinned row: [`LANGUAGES`] and [`NAME_ONLY_LANGUAGES`].
+fn known_ids() -> impl Iterator<Item = i64> {
+    LANGUAGES
+        .iter()
+        .map(|l| i64::from(l.0))
+        .chain(NAME_ONLY_LANGUAGES.iter().map(|l| i64::from(l.0)))
 }
 
 fn unknown_in(set: &[ranges::Iv]) -> Option<i64> {
-    let known_ids: Vec<i64> = LANGUAGES.iter().map(|l| i64::from(l.0)).collect();
+    let known_ids: Vec<i64> = known_ids().collect();
     for &(a, b) in set {
         let (a, b) = (a.max(1), b.min(MAX_LCID));
         if a > b {
@@ -384,10 +412,9 @@ fn language_listing(t: &TableDef, filters: &[FieldFilter]) -> Result<Mat, StoreE
             )));
         }
     }
-    let rows = LANGUAGES
-        .iter()
-        .filter(|l| only.is_none_or(|id| id == i64::from(l.0)))
-        .filter_map(|l| known(t, i64::from(l.0)))
+    let rows = known_ids()
+        .filter(|&id| only.is_none_or(|o| o == id))
+        .filter_map(|id| known(t, id))
         .map(Entry::ok)
         .collect();
     Ok(Mat::new(t, rows))

@@ -1022,6 +1022,12 @@ fn run_two_apps(dep_src: &str, main_src: &str, routine: &str) -> Result<Value, S
         ("greeting.txt".into(), b"Hello from packaged resource".to_vec()),
         ("sub/nested.txt".into(), b"nested-resource-content".to_vec()),
         ("data.json".into(), b"{\"a\": 1}".to_vec()),
+        // BiDataDriven.al (corpus PR 861) res/cases.csv and res/bom.csv.
+        (
+            "cases.csv".into(),
+            b"id,value\nfirst,one\nsecond,two\nthird,three \xC3\xA4\xC3\xB6\n".to_vec(),
+        ),
+        ("bom.csv".into(), b"\xEF\xBB\xBFid,value\r\nbom,1\r\n".to_vec()),
     ];
     let blocked = l
         .unsupported
@@ -1056,7 +1062,7 @@ const CALLEE: &str = "codeunit 60384 Callee {
 
 fn module_text(body: &str) -> Result<String, Signal> {
     let main = format!(
-        "codeunit 50100 T {{ procedure F(): Text var c: Codeunit Callee; i: ModuleInfo; j: ModuleInfo; v: Version; a: Text; t2: Text; ids: List of [ModuleInfo]; g: Guid; ins: InStream; o: JsonObject; names: List of [Text]; begin {body} end; }}"
+        "codeunit 50100 T {{ procedure F(): Text var c: Codeunit Callee; i: ModuleInfo; j: ModuleInfo; v: Version; a: Text; t2: Text; ids: List of [ModuleInfo]; g: Guid; ins: InStream; o: JsonObject; names: List of [Text]; b1: Byte; b2: Byte; b3: Byte; i1: Integer; i2: Integer; i3: Integer; begin {body} end; }}"
     );
     match run_two_apps(CALLEE, &main, "F")? {
         Value::Text(s) => Ok(s.to_string()),
@@ -1142,6 +1148,36 @@ fn packaged_resources_read_back_exactly() {
 }
 
 #[test]
+fn utf8_resource_text_keeps_the_byte_order_mark() {
+    // BiDataDriven.al:480-486 (codeunit 81611 BiDd_Resource_TextEncodings): 45 characters for cases.csv; bom.csv is 18
+    // characters and starts with U+FEFF.
+    let r = module_text(
+        "a := NavApp.GetResourceAsText('bom.csv', TextEncoding::UTF8); t2 := NavApp.GetResourceAsText('cases.csv', TextEncoding::UTF8);
+         exit(Format(StrLen(a)) + '|' + Format(a[1] = 65279) + '|' + Format(StrLen(t2)));",
+    );
+    assert_eq!(r.unwrap(), "18|Yes|45");
+}
+
+#[test]
+fn resource_bytes_without_an_encoding() {
+    // BiDataDriven.al:491-516 (BiDd_Resource_RawStream): GetResource without an encoding hands the raw bytes over.
+    let r = module_text(
+        "NavApp.GetResource('cases.csv', ins); ins.Read(b1); ins.Read(b2); ins.Read(b3); i1 := b1; i2 := b2; i3 := b3;
+         exit(Format(i1) + ',' + Format(i2) + ',' + Format(i3));",
+    );
+    assert_eq!(r.unwrap(), "105,100,44");
+    // BiDataDriven.al:481-482: without an encoding GetResourceAsText reads one character per byte (47 for cases.csv, whose
+    // two UTF-8 pairs count twice); which characters the bytes from 128 up become is not pinned, so that is refused.
+    let r = module_text("exit(Format(StrLen(NavApp.GetResourceAsText('cases.csv'))));");
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(w)) if w.contains("not pinned")),
+        "{r:?}"
+    );
+    let r = module_text("exit(Format(StrLen(NavApp.GetResourceAsText('greeting.txt'))));");
+    assert_eq!(r.unwrap(), "28");
+}
+
+#[test]
 fn a_missing_resource_is_named_in_the_error() {
     // session/TestNavAppGetResource.al:62-85: "A resource matching 'missing.txt' could not be found in app".
     let r = module_text(
@@ -1166,7 +1202,7 @@ fn resources_are_listed_with_an_optional_wildcard_filter() {
          names := NavApp.ListResources('*.xml');
          exit(a + Format(names.Count()));",
     );
-    assert_eq!(r.unwrap(), "31data.json0");
+    assert_eq!(r.unwrap(), "51data.json0");
 }
 
 // ---------------------------------------------------------------- Error(ErrorInfo), ExecutionContext

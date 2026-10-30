@@ -86,7 +86,7 @@ passing. CI fails a pull request that loses one.
 Do not update the baselines (`metrics/<major>/passing*.txt`), the coverage maps
 (`docs/corpus-coverage.*`, `docs/corpus-behavior-coverage.*`) or the assumptions table in
 `docs/probes-needed.md`. A bot commits them to `main` after your pull request is merged, so new
-passes are added to the baseline then. CI does not fail when these files are out of date in a pull
+passes are added to the baseline then. Say in your pull request which corpus cases newly pass. CI does not fail when these files are out of date in a pull
 request. One generated file still belongs in your pull request: if you add a builtin, run
 `cargo run -p al-builtins --example gen_builtin_ids` and commit `crates/al-builtins/src/builtin_ids.rs`.
 

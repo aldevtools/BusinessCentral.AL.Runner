@@ -1514,6 +1514,10 @@ impl Session {
                     if let Value::Unknown(why) = &v {
                         return unsupported(why.to_string());
                     }
+                    if let Value::Guid(_) = &v {
+                        let table = rec.borrow().table as usize;
+                        self.note_field_row_system_id(table, pos, &rec.borrow().fields, &v);
+                    }
                     // A coverage Test ID read by number: no pinned shape (platform::coverage_test_id_refusal).
                     if !rec.borrow().temporary && self.is_coverage_test_id(&t, field.id) {
                         return unsupported(al_builtins::platform::coverage_test_id_refusal(

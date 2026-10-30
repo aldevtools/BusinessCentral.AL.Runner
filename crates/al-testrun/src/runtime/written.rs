@@ -38,6 +38,10 @@ pub(crate) mod state {
     /// What an HTTP server outside the session received (`HttpClient`). Only a test that sends a request itself can see
     /// it (al-runner issue 5610: a refused HttpClient.Get made every later failure of the codeunit not trusted).
     pub const HTTP: u16 = 1 << 8;
+    /// `Randomize(n)` with a seed: the sequence then goes on into the next test of the codeunit
+    /// (types/TestRandomSeededContracts.al:111-131), past the run seed's restart of each test (ADR-061). Set with
+    /// [`RANDOM`].
+    pub const RANDOM_SEED: u16 = 1 << 9;
     /// State every test is taken to read: what AL code reads without naming it (the posting date defaults to
     /// `WorkDate`, `Format` follows the language, any event can reach a bound subscriber).
     pub const READ_BY_ALL: u16 = WORK_DATE | LANGUAGE | BINDING | OTHER;
@@ -52,6 +56,7 @@ pub(crate) mod state {
             BINDING => "the bound event subscribers",
             FILES => "files",
             HTTP => "what an HTTP server received",
+            RANDOM_SEED => "the Random seed",
             _ => "session state the analysis does not follow",
         }
     }
@@ -128,6 +133,12 @@ impl ReachFacts {
     /// Whether the reach can draw from or reseed the session's `Random` sequence.
     pub fn random(&self) -> bool {
         self.state_writes & state::RANDOM != 0 || self.unknown.is_some()
+    }
+
+    /// Whether the reach can seed the session's `Random` sequence (`Randomize(n)`), so that a later test goes on with it
+    /// instead of the run seed's restart (ADR-061).
+    pub fn seeds_random(&self) -> bool {
+        self.state_writes & state::RANDOM_SEED != 0 || self.unknown.is_some()
     }
 
     /// What this reach (of a test that did not run to its end) can change that the reach `later` reads, named for the
@@ -1193,6 +1204,7 @@ impl Rec<'_> {
                 }
             }
             "System" => match method {
+                "Randomize" if has_args => self.out.state_writes |= RANDOM | RANDOM_SEED,
                 "Random" | "Randomize" => self.out.state_writes |= RANDOM,
                 "WorkDate" if has_args => self.out.state_writes |= WORK_DATE,
                 "GlobalLanguage" if has_args => self.out.state_writes |= LANGUAGE,

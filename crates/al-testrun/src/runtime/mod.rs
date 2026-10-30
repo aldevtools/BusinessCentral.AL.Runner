@@ -490,6 +490,8 @@ pub(crate) struct Unit {
     ignore_permission_mock: bool,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
+    /// See `RunOptions::run_seed`.
+    run_seed: crate::seed::RunSeed,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -532,6 +534,8 @@ pub(crate) struct Scratch {
     ignore_permission_mock: bool,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
+    /// See `RunOptions::run_seed`.
+    run_seed: crate::seed::RunSeed,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -614,6 +618,7 @@ fn run_unit(
             on_run_rows: u.on_run_rows,
             ignore_permission_mock: u.ignore_permission_mock,
             perturb: u.perturb.clone(),
+            run_seed: u.run_seed,
             ..Default::default()
         };
         if u.coverage {
@@ -809,6 +814,7 @@ mod blocked;
 mod cache;
 mod compiled;
 mod corpus;
+mod data_driven;
 mod handlers;
 mod run;
 mod runner_reset;

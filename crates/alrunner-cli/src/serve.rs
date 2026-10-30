@@ -32,6 +32,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "includeFailing",
     "strictEnvironment",
     "entries",
+    "seed",
 ];
 /// The fields of an entry of `runTests` (issue 5635).
 const ENTRY_FIELDS: &[&str] = &["id", "resources", "test", "excludeTests"];
@@ -326,6 +327,20 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
         a.include_failing = false;
         a.strict_environment = false;
     }
+    // ADR-061 section 3: `seed` replays a run; a request without one gets the server's `--seed` or environment seed,
+    // else a fresh one (`run::test_inner`). The warm slot's compile and install baseline do not depend on it.
+    a.run_seed = None;
+    match fields.get("seed") {
+        None | Some(Value::Null) => {}
+        Some(v) => {
+            let n = v
+                .as_i64()
+                .and_then(|n| i32::try_from(n).ok())
+                .filter(|n| *n >= 0)
+                .ok_or_else(|| format!("`seed` is a whole number from 0 to 2147483647, not `{v}`"))?;
+            a.seed = Some(n);
+        }
+    }
     a.quiet = true;
     Ok((a, warnings))
 }
@@ -470,7 +485,14 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
                 summary["cancelled"] = json!(true);
             }
             // `--tdd` (ADR-051 decision 8): the stubbed counts and every stub of the program, as in `--output-json`.
-            for key in ["stubbed", "generatedStubs", "compilationErrors", "selection"] {
+            for key in [
+                "stubbed",
+                "generatedStubs",
+                "compilationErrors",
+                "selection",
+                "seed",
+                "seedSource",
+            ] {
                 if let Some(v) = doc.get(key) {
                     summary[key] = v.clone();
                 }
@@ -826,6 +848,21 @@ mod tests {
             "var x: Integer; begin end;",
         ] {
             assert!(!is_object_declaration(statements), "{statements}");
+        }
+    }
+
+    #[test]
+    fn a_request_may_set_the_run_seed_and_a_bad_one_is_an_error() {
+        let run = |v: Value| {
+            request_args(
+                &base(),
+                &fields(json!({"command": "runTests", "sourcePaths": ["/a"], "seed": v})),
+            )
+        };
+        assert_eq!(run(json!(4271833)).unwrap().0.seed, Some(4271833));
+        assert_eq!(run(Value::Null).unwrap().0.seed, None);
+        for bad in [json!(-1), json!(2147483648_i64), json!("7"), json!(1.5)] {
+            assert!(run(bad).unwrap_err().contains("`seed`"));
         }
     }
 
