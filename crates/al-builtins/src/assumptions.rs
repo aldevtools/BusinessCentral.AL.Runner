@@ -624,12 +624,15 @@ registry! {
     },
     EvaluateDateBlankTabs => {
         id: "evaluate-blank-tabs",
-        assumed: "Evaluate of a TAB, two TABs or one space into a Date (format 0) succeeds with the empty date; into a Boolean it fails with the error text showing the value as \"\". Pinned on corpus master by misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date and NP4_Evaluate_Tab_Boolean (corpus PR 871), which the pinned corpus does not hold yet.",
+        assumed: "Evaluate of a TAB, two TABs or one space into a Date (format 0) succeeds with the empty date; into a Boolean it fails with the error text showing the value as \"\". With format 9, white space alone (TAB, blanks, CR, LF, VT, FF, no-break space) reads as the empty date, TAB, CR, LF and no-break space around a date are dropped, and a TAB inside one rejects it with the Date format error. Pinned on corpus master by misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date and NP4_Evaluate_Tab_Boolean (corpus PR 871) and types/lt-evaluate-format-lasterror-setview/EvaluateDateFormat9Space.al (corpus PR 886), which the pinned corpus does not hold yet.",
         tests: "No Microsoft test: a partner app's tests evaluate a TAB into a Date with the result unused.",
-        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        probe: "Pinned on corpus master (corpus PRs 871 and 886); delete this entry when the corpus bump brings them.",
         awaiting: Awaiting {
             issues: &[],
-            files: &["tests/al-language/misc/lt-np4-probes/Np4Misc.al"],
+            files: &[
+                "tests/al-language/misc/lt-np4-probes/Np4Misc.al",
+                "tests/al-language/types/lt-evaluate-format-lasterror-setview/EvaluateDateFormat9Space.al",
+            ],
             since: "2026-10-30",
         },
     },
@@ -657,12 +660,15 @@ registry! {
     },
     DateFormulaLetterFirstForms => {
         id: "date-formula-letter-first-forms",
-        assumed: "CalcDate with `<D15>`, `<D28>`, `<D29>`, `<D31>`, `<W17>`, `<Q3>`, and `<Mn>` on the first day of month n: day n of the month (cut back to its length) while the date's day is below n, else of the next month; the Monday of ISO week 17 or the first day of quarter 3 after the date; the next year's month n. Pinned on corpus master by misc/lt-np4-probes/Np4DateFormulas.al (corpus PR 871), which the pinned corpus does not hold yet.",
+        assumed: "CalcDate with `<D1>`, `<D15>`, `<D28>`, `<D29>`, `<D31>`, `<-D1>`, `<W17>`, `<W21>`, `<W25>`, `<Q3>`, and `<Mn>` on the first day of month n: day n of the month (cut back to its length) while the date's day is below n, else of the next month (`<-D1>`: day 1 of the month while the date is after it, else of the month before); the Monday of ISO week n or the first day of quarter 3 after the date, from a date inside the period the next year's; the next year's month n. Pinned on corpus master by misc/lt-np4-probes/Np4DateFormulas.al (corpus PR 871) and types/lt-date-formula-edges/DateFormulaInsidePeriod.al (corpus PR 886), which the pinned corpus does not hold yet.",
         tests: "No Microsoft test: a partner app's booking date tests.",
-        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        probe: "Pinned on corpus master (corpus PRs 871 and 886); delete this entry when the corpus bump brings them.",
         awaiting: Awaiting {
             issues: &[],
-            files: &["tests/al-language/misc/lt-np4-probes/Np4DateFormulas.al"],
+            files: &[
+                "tests/al-language/misc/lt-np4-probes/Np4DateFormulas.al",
+                "tests/al-language/types/lt-date-formula-edges/DateFormulaInsidePeriod.al",
+            ],
             since: "2026-10-30",
         },
     },
@@ -670,7 +676,7 @@ registry! {
         id: "format-comma-precision-forms",
         assumed: "Format of a Decimal with `<Precision,3:3><Sign><Integer><Decimals><Comma,X>` (X a dot, semicolon, space or letter), the same with `<Precision,0:3>`, `<Precision,3:5>` or `<Integer Thousand>`: the character X is the decimal point. Pinned on corpus master by misc/lt-np4-probes/Np4FormatJson.al NP4_Format_Precision33_* (corpus PR 871), which the pinned corpus does not hold yet.",
         tests: "No Microsoft test: a partner app's receipt printing tests.",
-        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        probe: "Pinned on corpus master (corpus PRs 871 and 886); delete this entry when the corpus bump brings them.",
         awaiting: Awaiting {
             issues: &[],
             files: &["tests/al-language/misc/lt-np4-probes/Np4FormatJson.al"],

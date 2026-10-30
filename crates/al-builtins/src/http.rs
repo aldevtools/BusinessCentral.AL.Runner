@@ -931,11 +931,37 @@ fn is_entity_tag(item: &str) -> bool {
     item == "*" || (t.len() >= 2 && t.starts_with('"') && t.ends_with('"') && !t[1..t.len() - 1].contains('"'))
 }
 
-/// The tokens of a User-Agent: products `name/version` and comments `(...)`, each a value of its own. `Ok(None)` for an
-/// unbalanced comment (`((((`: P87Values.al:330-336). A product that is neither `token` nor `token/token` (a lone `/`, spaces
-/// around `/`, a second `/`) is not measured (only valid products are: SeHeaderValues.al:302-311), so it is refused.
-fn user_agent_parts(v: &str) -> Result<Option<Vec<String>>, Signal> {
-    let chars: Vec<char> = v.chars().collect();
+/// The probe that would pin the error a User-Agent with a product that is not `name` or `name/version` raises as a statement, and
+/// the last error an Add of one sets when its result is used (it answers false: UserAgentProductForms.al:110-121).
+const UA_BAD_PRODUCT_PROBE: &str = "http-user-agent-bad-product-error";
+
+/// The tokens of a User-Agent (`ua`) or Server: products `name/version` and comments `(...)`, each a value of its own. `Ok(None)`
+/// for an unbalanced comment (`((((`: P87Values.al:330-336). Valid products: SeHeaderValues.al:302-311.
+/// User-Agent: blanks around a `/` are dropped (`a / b`, `a /1`, `a/ 1` read `[a/b]`, `[a/1]`; `A B / C D 365 E` reads five values
+/// `[A][B/C][D][365][E]`), and a product that is still not `token` or `token/token` (`/`, `a/b/c`, `a@b`) makes Add answer false
+/// with nothing stored (network/lt-se-header-values/UserAgentProductForms.al:110-121, :132-143, :154-165): an error marked with
+/// [`UA_BAD_PRODUCT_PROBE`], whose text and code are not pinned. Server: neither is measured, so such a product is refused.
+fn user_agent_parts(v: &str, ua: bool) -> Result<Option<Vec<String>>, Signal> {
+    let mut chars: Vec<char> = v.chars().collect();
+    if ua {
+        // Drop the blanks next to a `/` outside comments.
+        let (mut out, mut depth) = (Vec::with_capacity(chars.len()), 0i32);
+        for (i, &c) in chars.iter().enumerate() {
+            match c {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                _ => {}
+            }
+            if depth == 0 && c.is_whitespace() {
+                let next = chars[i + 1..].iter().find(|c| !c.is_whitespace());
+                if out.last() == Some(&'/') || next == Some(&'/') {
+                    continue;
+                }
+            }
+            out.push(c);
+        }
+        chars = out;
+    }
     let (mut i, mut out) = (0, Vec::new());
     while i < chars.len() {
         if chars[i].is_whitespace() {
@@ -965,6 +991,11 @@ fn user_agent_parts(v: &str) -> Result<Option<Vec<String>>, Signal> {
                 Some((n, ver)) => is_token(n) && is_token(ver),
                 None => is_token(&product),
             };
+            if !ok && ua {
+                return Err(Signal::Error(Box::new(crate::native::unpinned_error_for(
+                    UA_BAD_PRODUCT_PROBE,
+                ))));
+            }
             if !ok {
                 return unsupported(format!(
                     "User-Agent or Server value `{v}`: a product that is not `name` or `name/version` (not pinned)"
@@ -1138,7 +1169,7 @@ fn typed_add(bag: &HeaderBag, name: &str, value: &str) -> Result<Option<Typed>, 
                 None => fail(),
             }
         }
-        "user-agent" => match user_agent_parts(value)? {
+        "user-agent" => match user_agent_parts(value, true)? {
             Some(parts) => list(parts),
             None => fail(),
         },
@@ -1651,7 +1682,7 @@ fn typed_add_se(bag: &HeaderBag, lower: &str, value: &str) -> Result<Option<Type
         }
         // Products and comments, each a value, as User-Agent: `a/1.0 (x)` reads `[a/1.0][(x)]`, `a b` reads `[a][b]`; `(` refused
         // (SE_Untyped_Response).
-        (HeaderKind::Response, "server") => match user_agent_parts(value)? {
+        (HeaderKind::Response, "server") => match user_agent_parts(value, false)? {
             Some(parts) => list(parts),
             None => fail(),
         },
@@ -1817,6 +1848,12 @@ fn headers_add(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
             c.set_last_error(*e);
             Ok(Value::Boolean(false))
         }
+        // A User-Agent product that is not `name` or `name/version`: false, nothing stored (UserAgentProductForms.al:110-121); the
+        // last error it leaves is not pinned, so reading it refuses.
+        Err(Signal::Error(e)) if ret_used && e.message.ends_with(UA_BAD_PRODUCT_PROBE) => {
+            c.set_last_error(*e);
+            Ok(Value::Boolean(false))
+        }
         Err(e) => Err(e),
     }
 }
@@ -1903,12 +1940,12 @@ fn headers_get_values(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
     let name = text(a, 0)?;
     // A content header name asked of request, response or client headers is no header there: GetValues answers false
     // (lt-http-header-rules/P87Matrix.al `get=No/n=0`), where Contains raises.
-    let (values, kind) = with_bag(r.as_deref(), |b| {
+    let (values, kind, restricted) = with_bag(r.as_deref(), |b| {
         unnamed_secret_header(b, Some(&name))?;
         if restricted_lookup(b, &name).is_err() {
-            return Ok::<_, Signal>((None, b.kind));
+            return Ok::<_, Signal>((None, b.kind, true));
         }
-        Ok((find(&b.items, &name).map(|(_, v)| v.clone()), b.kind))
+        Ok((find(&b.items, &name).map(|(_, v)| v.clone()), b.kind, false))
     })??;
     let Some(values) = values else {
         let error = crate::native::AlError {
@@ -1916,7 +1953,11 @@ fn headers_get_values(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
             code: "InvalidHeader".into(),
             ..Default::default()
         };
-        if kind != HeaderKind::Content {
+        // A statement on request and client headers for a token name that is not there raises the same text and code as on content
+        // headers: its first 80 characters and the code are pinned by network/lt-se-header-values/UserAgentProductForms.al:116-118,
+        // :138-140 (`get=E[Exception of type '...NavNclInvalidHeaderEx|InvalidHeader]` after an Add answered false).
+        let pinned_missing = matches!(kind, HeaderKind::Request | HeaderKind::Default) && !restricted && !c.ret_used();
+        if kind != HeaderKind::Content && !pinned_missing {
             // On request, response and client headers a statement raises too, for a name that is not there, no token or a content
             // header (network/lt-ay-http/AyHeaderAddResult.al `get=E` after every refused Add, :88 to :383). The text and code are
             // measured on content headers only: the error carries none, and any read of them is refused (probe
@@ -3250,7 +3291,7 @@ mod tests {
     }
 
     #[test]
-    fn a_user_agent_product_outside_the_pinned_shapes_is_refused() {
+    fn a_user_agent_product_outside_the_pinned_shapes_answers_false() {
         // Pinned: `A/1 (comment) B/2` and `((((` (P87Values.al:329-336), `a b`, `a/1 b/2`, `Mozilla/5.0 (X11; Linux) Foo/1`
         // (SeHeaderValues.al:302-311). A product that is not `token` or `token/token` (a lone `/`, spaces around `/`) is not
         // measured: .NET may read `a / b` as one product. Refused, not answered with an invented Format error.
@@ -3261,10 +3302,18 @@ mod tests {
             add_header(&mut b, "User-Agent", "((((", false),
             Err(Signal::Error(_))
         ));
-        for v in ["Shop App / Product 365", "a /1", "a/ 1", "/", "a/b/c"] {
+        // Blanks around `/` are dropped; `/`, `a/b/c`, `a@b` raise an error marked with the probe (Add answers false):
+        // UserAgentProductForms.al:110-121.
+        let mut b = HeaderBag::default();
+        assert!(add_header(&mut b, "User-Agent", "A B / C D 365 E", false).is_ok());
+        assert_eq!(
+            find(&b.items, "User-Agent").unwrap().1,
+            vec!["A", "B/C", "D", "365", "E"]
+        );
+        for v in ["/", "a/b/c", "a@b"] {
             let mut b = HeaderBag::default();
             assert!(
-                matches!(add_header(&mut b, "User-Agent", v, false), Err(Signal::Unsupported(_))),
+                matches!(add_header(&mut b, "User-Agent", v, false), Err(Signal::Error(e)) if e.message.ends_with(UA_BAD_PRODUCT_PROBE)),
                 "{v}"
             );
         }

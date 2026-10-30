@@ -7,7 +7,7 @@
 
 use crate::dataset::{self, Column, Dataset};
 use crate::pages::RequestClosed;
-use crate::transactions::{TxModel, al_error};
+use crate::transactions::TxModel;
 use crate::ui::UiKind;
 use crate::{Session, Signal};
 use al_builtins::builtin_id::ids;
@@ -632,28 +632,17 @@ impl Session {
                 let is = |list: &Vec<std::rc::Weak<RefCell<Instance>>>| {
                     list.iter().any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)))
                 };
-                // A second Execute of a variable when either of the two has a parameters string is not pinned (the corpus
-                // clears the variable between them, report/lt-wd/WdReportExecuteParams.al:58-75): refused.
-                if is(&self.report.report_executed_with_parameters)
-                    || (parameters.is_some() && is(&self.report.report_executed))
-                {
-                    return unsupported(format!(
-                        "{id}: a second Execute of a report variable, one of them with a parameters string (not pinned)"
-                    ));
-                }
-                // handlers/TestReportRuntimeContracts.al:395-414: Execute keeps the globals, and a
-                // second Execute on the same variable is refused.
+                // handlers/TestReportRuntimeContracts.al:395-414: Execute keeps the globals, and a second Execute on the same
+                // variable raises, with or without a parameters string in either call, and runs nothing; after Clear it runs
+                // again (corpus master, corpus PR 886: report/lt-report-requestpage/ExecuteParamsTwiceAndViews.al:146-183).
                 if is(&self.report.report_executed) {
-                    return Err(al_error("The object has been run. Use the function CLEAR(Report)."));
+                    return Err(crate::transactions::al_error_code(
+                        "The object has been run. Use the function CLEAR(Report).",
+                        "ObjectHasAlreadyBeenRun",
+                    ));
                 }
                 self.report.report_executed.retain(|w| w.strong_count() > 0);
                 self.report.report_executed.push(Rc::downgrade(&inst));
-                if parameters.is_some() {
-                    self.report
-                        .report_executed_with_parameters
-                        .retain(|w| w.strong_count() > 0);
-                    self.report.report_executed_with_parameters.push(Rc::downgrade(&inst));
-                }
                 let result = if quit {
                     Ok(())
                 } else {
@@ -1157,13 +1146,9 @@ impl Session {
         // (`apply_request_parameters`).
         let parameters = match parameters {
             Some(Value::Text(s)) if s.is_empty() => None,
-            // Data item views in the string are not pinned for Execute (a later run of the report in the codeunit read
-            // other filters than BC: report/lt-report-requestpage/RptFilters.al:594 SetTableView_AndRequestFilter_Combined).
-            Some(Value::Text(s)) if s.contains("<DataItem ") => {
-                return unsupported(format!(
-                    "{id} with data item views in the parameters (only <Options> fields are pinned)"
-                ));
-            }
+            // A `<DataItem name="..">VIEW</DataItem>` replaces the item's view for this run only, over a SetTableView; an
+            // unknown item name is skipped and an empty view clears it (corpus master, corpus PR 886:
+            // report/lt-report-requestpage/ExecuteParamsTwiceAndViews.al:185-235; `apply_request_parameters`).
             Some(Value::Text(s)) => Some(s.to_string()),
             other => {
                 return unsupported(format!(
