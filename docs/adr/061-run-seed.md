@@ -1,6 +1,6 @@
 # ADR-061: Run seed and `--seed`
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-10-30)
 - Date: 2026-10-30
 - Related: ADR-006 (no OS access in core crates), ADR-009 (match BC where observable), ADR-013 (the runner's steps
   around each test), ADR-028 (`serve`), ADR-045 (stepping test clock), ADR-050 (`--affected`), ADR-057 (debugging
@@ -63,13 +63,13 @@ One run seed derives each of these values. Each has its own derivation key, so t
 | The session's `Random` at the start of each test method | `Derive(runSeed, codeunitId, methodName)`, v2's FNV-1a formula | Before each test method, unless AL code in this session called `Randomize(n)` with a seed. Then the sequence goes on, as BC does (`types/TestRandomSeededContracts.al:111-131`). |
 | `Randomize()` without a seed | the test's derived seed plus the count of such calls | Inside a test method |
 | `CreateGuid` and new SystemIds | a 64-bit key of `(runSeed, codeunitId, methodName, "guid")` and a counter | Inside a test method. The 64-bit key keeps two methods from getting the same Guids. |
-| `Library - Random` seed | `Derive(runSeed, codeunitId, methodName, "library")`, applied through ADR-058's `random.librarySeed` hook (the runner calls `LibraryRandom.SetSeed(n)` after codeunit 130301) | Only with `--seed-library` or a stability variant (open question 2). By default the runner keeps `SetSeed(1)`. |
+| `Library - Random` seed | `Derive(runSeed, codeunitId, methodName, "library")`, applied through ADR-058's `random.librarySeed` hook (the runner calls `LibraryRandom.SetSeed(n)` after codeunit 130301) | Only with `--seed-library` or a stability variant (owner decision 2). By default the runner keeps `SetSeed(1)`. |
 
 Why per test method, as in v2: `--seed N --test X` must give test X the same values as in the full run, even when
 the tests before it in the codeunit do not run.
 
 The install code (the install baseline, ADR-046) does not use the run seed. It keeps the fixed seed 1, so the
-install baseline is the same in every run and its cache stays valid (open question 4).
+install baseline is the same in every run and its cache stays valid (owner decision 4).
 
 What the run seed does **not** change:
 
@@ -131,7 +131,7 @@ shows `--baseline-diff` with no lost case, for every major.
 - A test that depends on its random values now fails in some runs and passes in others. That is the point: the
   seed in the log makes the failure repeatable.
 - With `Library - Random` loaded, the reset step's `SetSeed(1)` still fixes the numbers of Microsoft's libraries, so
-  most Microsoft tests see different Guids per run but the same `Library - Random` numbers (open question 2).
+  most Microsoft tests see different Guids per run but the same `Library - Random` numbers (owner decision 2).
 - Text built from Guids (`Any.AlphanumericText`, `LibraryRandom.RandText`) is now repeatable with the seed. In v2
   it was not.
 - Parity row SEL-9 and the `Seed:` part of OUT-4, OUT-6 and ENV-2 become Done when built.
@@ -149,22 +149,24 @@ shows `--baseline-diff` with no lost case, for every major.
   exit 2 for a bad `--seed`.
 - The corpus ratchet with `al-test-cli`'s fixed seed shows no lost case.
 
-## Open questions
+## Owner decisions (2026-10-30)
+
+The owner accepted the ADR with the recommended answer to each question.
 
 1. **Default: a fresh seed per run, or a fixed seed that is printed?** A fixed printed seed (for example 1) makes
    every run repeatable without any flag, but it never finds a test that depends on its values, and printing it adds
-   little. A fresh seed is v2's behavior and what the owner described. Recommended: a fresh seed per run in
+   little. A fresh seed is v2's behavior and what the owner described. Decided: a fresh seed per run in
    `al-runner` and `serve`; a fixed seed in `al-test-cli` (section 5).
 2. **Does a normal run change the `Library - Random` seed?** Real BC's test runner sets `SetSeed(1)` before every
    test, and v2 did not change it. Changing it by default would make Microsoft's own tests fail in some normal runs
-   where real BC never fails. Recommended: no. The derived library seed is used only with `--seed-library` and in
+   where real BC never fails. Decided: no. The derived library seed is used only with `--seed-library` and in
    ADR-058 variants.
 3. **Use v2's exact `Derive` formula?** Our `Random` is the same .NET generator as v2's, so the same formula lets a
-   seed from a v2 run reproduce the same `Random` numbers after migration. Recommended: yes, for `Random`. Guids use
+   seed from a v2 run reproduce the same `Random` numbers after migration. Decided: yes, for `Random`. Guids use
    a 64-bit key of our own, because v2's Guids were not seeded.
 4. **Does install code use the run seed?** Using it would make the install baseline differ per run, so the cached
    baseline (ADR-022) and the warm `serve` slot could not be reused. Recommended: no, install code keeps seed 1. A
    test of install code that depends on random values is covered by ADR-058's `guid.seed`, which builds its own
    baseline.
-5. **Is the seed part of the `--affected` stored-result check?** Recommended: no (section 5). A changed seed alone
+5. **Is the seed part of the `--affected` stored-result check?** Decided: no (section 5). A changed seed alone
    is no reason to rerun unchanged tests.
