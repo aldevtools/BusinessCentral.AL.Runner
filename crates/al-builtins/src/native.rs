@@ -1008,6 +1008,7 @@ fn derived() -> &'static std::collections::HashMap<String, NativeFn> {
                     .or_else(|| crate::file::native_for(sig))
                     .or_else(|| crate::textfns::native_for(sig))
                     .or_else(|| crate::wsac::native_for(sig))
+                    .or_else(|| crate::testcontexts::native_for(sig))
                     .or_else(|| crate::errorinfo::native_for(sig))
                     .or_else(|| crate::version::native_for(sig))
                     .or_else(|| crate::datatransfer::native_for(sig))
