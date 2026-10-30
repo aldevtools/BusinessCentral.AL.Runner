@@ -156,6 +156,7 @@ pub fn outcomes_in(src: &str, codeunit: &str) -> Vec<(String, al_testrun::Outcom
 }
 
 /// [`outcomes_in`] for an app the caller describes (for example one with a GUID id, whose module is readable).
+#[cfg(feature = "runner")]
 pub fn outcomes_in_app(app: AppSource, codeunit: &str) -> Vec<(String, al_testrun::Outcome)> {
     let l = compile_apps(vec![app]);
     let engine = Engine::new(l.program.clone(), blocked(&l));
