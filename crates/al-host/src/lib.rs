@@ -460,6 +460,87 @@ impl Identity for InServerUrl {
     }
 }
 
+/// Identity values a stability run sets (ADR-058 `identity.*`); `None` keeps the inner identity's value.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct IdentityOverrides {
+    pub user_id: Option<String>,
+    pub user_security_id: Option<[u8; 16]>,
+    pub session_id: Option<i32>,
+    pub service_instance_id: Option<i32>,
+    pub tenant_id: Option<String>,
+}
+
+/// An identity with some of its values replaced ([`IdentityOverrides`]).
+struct WithOverrides {
+    inner: Box<dyn Identity>,
+    o: IdentityOverrides,
+}
+
+impl Identity for WithOverrides {
+    fn server_base_url(&self) -> String {
+        self.inner.server_base_url()
+    }
+    fn environment(&self) -> Environment {
+        self.inner.environment()
+    }
+    fn user_id(&self) -> String {
+        self.o.user_id.clone().unwrap_or_else(|| self.inner.user_id())
+    }
+    fn user_security_id(&self) -> [u8; 16] {
+        self.o.user_security_id.unwrap_or_else(|| self.inner.user_security_id())
+    }
+    fn company_name(&self) -> String {
+        self.inner.company_name()
+    }
+    fn session_id(&self) -> i32 {
+        self.o.session_id.unwrap_or_else(|| self.inner.session_id())
+    }
+    fn service_instance_id(&self) -> i32 {
+        self.o
+            .service_instance_id
+            .unwrap_or_else(|| self.inner.service_instance_id())
+    }
+    fn tenant_id(&self) -> String {
+        self.o.tenant_id.clone().unwrap_or_else(|| self.inner.tenant_id())
+    }
+    fn gui_allowed(&self) -> bool {
+        self.inner.gui_allowed()
+    }
+    fn is_service_tier(&self) -> bool {
+        self.inner.is_service_tier()
+    }
+    fn windows_language(&self) -> i32 {
+        self.inner.windows_language()
+    }
+    fn global_language(&self) -> i32 {
+        self.inner.global_language()
+    }
+    fn locale_id(&self) -> i32 {
+        self.inner.locale_id()
+    }
+    fn time_zone(&self) -> String {
+        self.inner.time_zone()
+    }
+    fn current_client_type(&self) -> ClientType {
+        self.inner.current_client_type()
+    }
+    fn default_client_type(&self) -> ClientType {
+        self.inner.default_client_type()
+    }
+    fn company_id(&self) -> [u8; 16] {
+        self.inner.company_id()
+    }
+    fn host_name(&self) -> String {
+        self.inner.host_name()
+    }
+    fn time_zones(&self) -> Vec<TimeZoneInfo> {
+        self.inner.time_zones()
+    }
+    fn companies(&self) -> Companies {
+        self.inner.companies()
+    }
+}
+
 /// An identity whose database holds the companies given (`--companies`).
 struct WithCompanies {
     inner: Box<dyn Identity>,
@@ -775,6 +856,11 @@ pub struct Host {
     /// The seed of the session's `Random` before AL calls `Randomize(seed)`. BC seeds it from the
     /// clock; AL sees only the range of the numbers, so the host fixes it (ADR-009).
     pub random_seed: i32,
+    /// The seed of `CreateGuid` and new SystemIds; `None` follows [`Host::random_seed`] (ADR-058 `guid.seed`).
+    pub guid_seed: Option<i32>,
+    /// How far each read of the clock by AL code moves it, in milliseconds (ADR-045: 1; ADR-058 `clock.stepMs`).
+    /// Always positive: two reads must differ.
+    pub clock_step_ms: i64,
 }
 
 /// The seed a session's `Random` starts from on the default host.
@@ -787,6 +873,8 @@ impl Host {
             identity: Box::new(identity),
             files: Box::new(MemFileSystem::default()),
             random_seed: DEFAULT_RANDOM_SEED,
+            guid_seed: None,
+            clock_step_ms: 1,
         }
     }
 
@@ -826,6 +914,18 @@ impl Host {
         self.identity = Box::new(InServerUrl {
             inner: self.identity,
             url: url.to_string(),
+        });
+        self
+    }
+
+    /// The same host with some identity values replaced (ADR-058 `identity.*`).
+    pub fn with_identity_overrides(mut self, o: IdentityOverrides) -> Host {
+        if o == IdentityOverrides::default() {
+            return self;
+        }
+        self.identity = Box::new(WithOverrides {
+            inner: self.identity,
+            o,
         });
         self
     }

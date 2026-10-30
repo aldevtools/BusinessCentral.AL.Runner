@@ -148,6 +148,44 @@ impl CorpusRuntime {
         Ok(rt)
     }
 
+    /// A stability run (ADR-058 section 7): one compile, then one run phase per variant `perturbs` names, one after
+    /// the other, each from its own install baseline over the same program. `each` is called before each variant
+    /// runs, with its index. The callbacks of `opts.hooks` run for the first variant only.
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_run_variants(
+        apps: Vec<al_sema::workspace::AppSource>,
+        kinds: Vec<al_sema::AppKind>,
+        manifests: &[Manifest],
+        symbols: &BTreeSet<String>,
+        target: Option<&al_version::Target>,
+        dotnet: al_vm::dotnet::DotNetConfig,
+        suites: &[SuiteRun],
+        opts: &RunOptions,
+        perturbs: &[crate::stability::Perturb],
+        mut each: impl FnMut(usize),
+    ) -> Result<Vec<CorpusRuntime>, String> {
+        // A complete compile: a lean one may need a second compile when a test meets what it left out.
+        let compiled = Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, false)?;
+        let mut out = Vec::with_capacity(perturbs.len());
+        for (i, p) in perturbs.iter().enumerate() {
+            each(i);
+            let o = RunOptions {
+                perturb: p.clone(),
+                process_ends_after: false,
+                hooks: if i == 0 { opts.hooks.clone() } else { Default::default() },
+                ..opts.clone()
+            };
+            let mut rt = Self::run_compiled(&compiled, target, dotnet.clone(), &o);
+            if i > 0 {
+                // The compile counts once, for the base variant.
+                rt.phases.compile = std::time::Duration::ZERO;
+            }
+            out.push(rt);
+        }
+        retire_at_end(compiled, opts.process_ends_after);
+        Ok(out)
+    }
+
     /// The compile phase of a run: the workspace, the lowered program and what the run phase needs
     /// to know about it ([`run_compiled`](Self::run_compiled)). A warm server keeps this between requests.
     #[allow(clippy::too_many_arguments)]
@@ -858,6 +896,7 @@ impl CorpusRuntime {
                         lowered,
                         opts.impact_trace || opts.narrow.is_some(),
                         opts.company_data.as_ref(),
+                        &opts.perturb,
                     )
                 })
             } else {
@@ -1149,6 +1188,7 @@ impl CorpusRuntime {
                             leak: None,
                             on_run_rows: OnRunRows::PerTest,
                             ignore_permission_mock: false,
+                            perturb: Default::default(),
                         });
                     }
                     continue;
@@ -1196,6 +1236,7 @@ impl CorpusRuntime {
                             run_only: pass.run_only.clone(),
                             on_run_rows: opts.on_run_rows,
                             ignore_permission_mock: opts.ignore_permission_mock,
+                            perturb: opts.perturb.clone(),
                         }),
                         Err(why) => {
                             if suite.runner.is_none()
@@ -1247,6 +1288,29 @@ impl CorpusRuntime {
                     }
                 }
             }
+            // `isolation.alone` of a stability run (ADR-058): each test method runs as the only selected test of its
+            // codeunit, on a session of its own, as `--run-selected-only` with that one test.
+            if opts.perturb.alone && !opts.execute {
+                units = units
+                    .into_iter()
+                    .flat_map(|u| {
+                        let names: Vec<String> = test_routines(&lowered.program.objects[u.oi])
+                            .map(|r| r.name.to_lowercase())
+                            .filter(|n| u.run_only.as_ref().is_none_or(|k| k.contains(&(u.id, n.clone()))))
+                            .collect();
+                        if names.len() < 2 {
+                            return vec![u];
+                        }
+                        names
+                            .into_iter()
+                            .map(|n| Unit {
+                                run_only: Some(Arc::new([(u.id, n)].into_iter().collect())),
+                                ..u.clone()
+                            })
+                            .collect()
+                    })
+                    .collect();
+            }
             // AL_CHECK_BASELINE_RULE=1: the verification of `observe.rs`. The baseline runs as usual, but
             // each test codeunit the rule calls free of it starts on an empty store. A run compared with a
             // normal one must show no outcome that differs (`tools/baseline_rule_check.sh`).
@@ -1289,10 +1353,32 @@ impl CorpusRuntime {
                         .map(|(si, id, oi, why)| (si, 0, id, Link::Refused(oi, why))),
                 )
                 .collect();
-            chain.sort_by_key(|(si, leg, id, _)| (*si, *leg, *id));
+            // `order.codeunits` of a stability run (ADR-058): under al-runner's `--isolation disabled` the runner picks the
+            // order of the test codeunits, so a variant may run them in another order. The TestRunnerHub's ascending id
+            // order (RequiredTestIsolation = Disabled, QuCommitIsolation.al:18-20) is BC's and stays.
+            let mut place: std::collections::HashMap<(usize, u32), u32> = std::collections::HashMap::new();
+            if opts.isolation == Some(TestIsolation::Disabled)
+                && opts.perturb.codeunit_order != crate::stability::MethodOrder::Declared
+            {
+                let mut suites: Vec<usize> = chain.iter().map(|c| c.0).collect();
+                suites.sort_unstable();
+                suites.dedup();
+                for si in suites {
+                    let mut ids: Vec<u32> = chain.iter().filter(|c| c.0 == si).map(|c| c.2).collect();
+                    ids.sort_unstable();
+                    ids.dedup();
+                    for (pos, k) in opts.perturb.codeunit_order.arrange(ids.len()).into_iter().enumerate() {
+                        place.insert((si, ids[k]), pos as u32);
+                    }
+                }
+            }
+            let place = |si: usize, id: u32| place.get(&(si, id)).copied().unwrap_or(id);
+            chain.sort_by_key(|(si, leg, id, _)| (*si, *leg, place(*si, *id)));
             // Whether a codeunit sees what a chain member (suite, id, leg) left: a later id, and for an OnRun carry one that
             // runner 130450 runs too.
-            let sees = |si: usize, id: u32, leg: u8, u: &Unit| si == u.si && id < u.id && (leg == 0 || !u.hub_leg);
+            let sees = |si: usize, id: u32, leg: u8, u: &Unit| {
+                si == u.si && place(si, id) < place(u.si, u.id) && (leg == 0 || !u.hub_leg)
+            };
             let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
             // Per suite, in id order: the codeunit id and what it left, with the tables of every one before it.
             let mut carried: Vec<(usize, u32, u8, super::run::Carried)> = Vec::new();
@@ -1409,8 +1495,14 @@ impl CorpusRuntime {
                                             None => b.backed_by(e),
                                         })
                                         .or_else(|| {
-                                            crate::baseline::run(e, lowered, opts.company_data.as_ref())
-                                                .map(|b| b.baseline)
+                                            crate::baseline::run_traced(
+                                                e,
+                                                lowered,
+                                                false,
+                                                opts.company_data.as_ref(),
+                                                &opts.perturb,
+                                            )
+                                            .map(|b| b.baseline)
                                         })
                                 });
                                 let took = reset_started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
@@ -1957,6 +2049,11 @@ fn baseline_key(
         return None;
     }
     let mut key = crate::baseline_cache::KeyBuilder::new();
+    // A variant of a stability run (ADR-058 section 7) runs the install code under its own host values.
+    let host_values = opts.perturb.host_key();
+    if !host_values.is_empty() {
+        key.text("stability_host", &host_values);
+    }
     // The restored database: which backup, as the provider says (file, length, modification time, company). A
     // provider that cannot say gets nothing kept.
     match &opts.test_data {
