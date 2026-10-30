@@ -293,6 +293,26 @@ impl al_builtins::native::Ctx for Session {
                 out.extend(self.module_of_app(app));
             }
         }
+        // While a test method runs, Microsoft's Test Runner app called it: its frames are below the test's, as
+        // `SessionInformation.Callstack` shows them (session/TestSessionInformationCallstackContracts.al:89-97), so its
+        // module comes last (al-runner issue 6248). Its manifest when the run loaded it; else its id, name and publisher
+        // and no version (a read of the version is refused).
+        if !self.runner_frames.is_empty() {
+            let runner = al_builtins::moduleinfo::TEST_RUNNER_APP_ID;
+            let loaded = (self.engine.program.apps.iter()).position(|a| a.id.eq_ignore_ascii_case(runner));
+            match loaded {
+                Some(app) if seen.contains(&app) => {}
+                Some(app) => out.extend(self.module_of_app(app)),
+                None => out.extend(ops::parse_guid(runner).map(|id| al_builtins::value::ModuleInfoState {
+                    id,
+                    name: "Test Runner".into(),
+                    publisher: "Microsoft".into(),
+                    version: None,
+                    dependencies: Vec::new(),
+                    synthesized: true,
+                })),
+            }
+        }
         out
     }
     fn application_module(&self) -> al_builtins::value::ModuleInfoState {

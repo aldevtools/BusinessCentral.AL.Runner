@@ -9,7 +9,7 @@ use al_sema::workspace::AppSource;
 use std::path::{Path, PathBuf};
 
 /// Microsoft's Test Runner app (`TestFramework/TestRunner/Test Runner.Source.zip`).
-pub const TEST_RUNNER_APP_ID: &str = "23de40a6-dfe8-4f80-80db-d70f83ce8caf";
+pub const TEST_RUNNER_APP_ID: &str = al_builtins::moduleinfo::TEST_RUNNER_APP_ID;
 
 pub struct Dependencies {
     /// Dependency apps in dependency order.
