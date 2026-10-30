@@ -15,7 +15,7 @@
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 use al_sema::lower::Lowered;
-use al_sema::workspace::AppSource;
+pub use al_sema::workspace::AppSource;
 use al_vm::{Engine, Session};
 use std::sync::Arc;
 
@@ -152,7 +152,12 @@ pub fn run_with(src: &str, object: &str, routine: &str, args: Vec<Value>) -> Res
 /// (one session per codeunit, the install code first), giving each test's name and outcome.
 #[cfg(feature = "runner")]
 pub fn outcomes_in(src: &str, codeunit: &str) -> Vec<(String, al_testrun::Outcome)> {
-    let l = compile(src);
+    outcomes_in_app(app(src), codeunit)
+}
+
+/// [`outcomes_in`] for an app the caller describes (for example one with a GUID id, whose module is readable).
+pub fn outcomes_in_app(app: AppSource, codeunit: &str) -> Vec<(String, al_testrun::Outcome)> {
+    let l = compile_apps(vec![app]);
     let engine = Engine::new(l.program.clone(), blocked(&l));
     let oi = l
         .program
