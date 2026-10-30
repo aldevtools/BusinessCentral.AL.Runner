@@ -430,6 +430,10 @@ pub struct PageState {
     /// The open read of a descending find list without row triggers stopped a full window of rows above the row it opened on,
     /// the last row of the view, with rows above still unread: `First` reads them (see `first_above_the_find_list_window`).
     pub window_top_unread: bool,
+    /// A modal list in a key other than the primary key opened on the last row of its descending view and read the rows above it
+    /// (see `read_rows_up_from_the_landed_last_row` in al-vm): `Some(false)` after that open, `Some(true)` after the GoToKey that
+    /// walked its rows from the first one. Other moves from there are not pinned.
+    pub read_up_from_last: Option<bool>,
     /// The open read of a list with OnFindRecord and OnNextRecord stepped back from a full first window over the rows above it
     /// (assumption list-open-full-window-rows-before, al-runner issue 5887): the client holds those rows and the window, this
     /// many in all. Next and Previous inside them read nothing; other moves are refused. Stale once the window has another length.
@@ -859,6 +863,7 @@ impl PageState {
             window_read_up: false,
             window_held_above: None,
             window_top_unread: false,
+            read_up_from_last: None,
             landing_first: false,
             open_reads_above: false,
             opened_on_moved_rec: false,

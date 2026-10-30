@@ -611,12 +611,57 @@ pub(crate) fn build_shared<'a>(
                     && p.value_text().trim().eq_ignore_ascii_case("true")
             })
         });
-        // Its variables would follow the base items' records in the extension's globals, which the
-        // slots the request page binds to do not account for.
-        for (e, _) in &exts {
-            if changing.get(&oi).is_some_and(|c| c.contains(e)) {
+        // A reportextension that changes the run and extends the request page binds its controls to its variables after the
+        // base items' records (`ext_slot_table`): a value the request page handler sets reaches the extension's triggers
+        // (report/lt-wd/WdReportExtRequestPage.al:98 WD_ReportExt_RequestPageFieldsReachTheRun, corpus master 930653fe, al-runner issue 6302).
+        // Pinned there for fields bound to the extension's own variables on a page without SaveValues. A field of such an
+        // extension bound to a variable of the report reads apart from the report's own control (reportext/
+        // W3RpExtRequestPage.al:214 Run_ExtensionControls_ReachTheVariablesAndTheRunIsUnchanged `after ext after=6: main=[5]`),
+        // and SaveValues keeps the extension's variables (report/lt-aq/AqTests.al:479 SavedExt_2_NextRunShows): neither is
+        // built, so both stay refused, as does a field bound to anything else, and a trigger on the extension's request page
+        // or its fields (none in the pin).
+        let save_values = request_section.as_ref().is_some_and(|s| {
+            s.properties().any(|p| {
+                p.name().eq_ignore_ascii_case("SaveValues") && p.value_text().trim().eq_ignore_ascii_case("true")
+            })
+        });
+        for (e, ext) in &exts {
+            if !changing.get(&oi).is_some_and(|c| c.contains(e)) {
+                continue;
+            }
+            let own: std::collections::HashSet<String> = ext
+                .var_decls()
+                .flat_map(|v| v.names())
+                .map(|n| n.to_lowercase())
+                .collect();
+            let foreign = request.controls.iter().find(|c| {
+                c.owner == Some(*e)
+                    && c.kind == ir::ControlKind::Field
+                    && !c.section.name().eq_ignore_ascii_case("label")
+                    && !c
+                        .section
+                        .args_raw()
+                        .get(1)
+                        .and_then(|a| crate::pages::plain_name(a))
+                        .is_some_and(|n| own.contains(&n.to_lowercase()))
+            });
+            // Triggers on the extension's request page or its fields are not pinned with an extension that changes the run.
+            fn has_trigger(s: &ast::Section) -> bool {
+                s.triggers().next().is_some() || s.sections().any(|c| has_trigger(&c))
+            }
+            let triggers = ext
+                .sections()
+                .filter(|s| s.name().eq_ignore_ascii_case("requestpage"))
+                .any(|s| has_trigger(&s));
+            let why = match (save_values, foreign, triggers) {
+                (true, _, _) => Some("a request page with SaveValues".to_string()),
+                (false, Some(c), _) => Some(format!("field {} not bound to a variable of the extension", c.name)),
+                (false, None, true) => Some("a trigger on the extension's request page".to_string()),
+                (false, None, false) => None,
+            };
+            if let Some(why) = why {
                 page_reasons[oi].push(format!(
-                    "reportextension `{}` changes the run and extends the request page (not supported yet)",
+                    "reportextension `{}` changes the run and extends the request page: {why} (not supported yet)",
                     ws.objects[*e].name
                 ));
             }
@@ -781,11 +826,23 @@ pub(crate) fn build_shared<'a>(
                 }
                 let lw = make_lowerer(&shared, &local, &seq, e);
                 let mut slots = HashMap::default();
+                // A reportextension that changes a run names the base items' records and its own items before its
+                // variables (`shared.rs`, the globals of an object), so its request page binds after them.
+                let mut items_before = 0;
+                if let (Some(base), Some(l)) = (seq.ext_base(e), seq.ext(e)) {
+                    let base_items = seq.report(base).map_or(&[][..], |b| &b.items[..]);
+                    let mut seen = std::collections::HashSet::new();
+                    for i in base_items.iter().chain(&l.items) {
+                        if seen.insert(i.name.to_lowercase()) {
+                            items_before += 1;
+                        }
+                    }
+                }
                 for v in ws.object_ast(e).var_decls() {
                     let ty = v.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
                     for n in v.names() {
                         if lw.rt(&ty).is_ok() {
-                            let next = slots.len();
+                            let next = items_before + slots.len();
                             slots.insert(n.to_lowercase(), next);
                         }
                     }
