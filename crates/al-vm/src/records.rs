@@ -393,14 +393,7 @@ impl Session {
             return None;
         }
         let facts = self.engine.install_facts.get()?;
-        let o = object as usize;
-        // Decision 4c holds in the default mode only: under the opt-in the code ran once in each declared company.
-        if self.companies.is_empty() {
-            if let Some(why) = facts.per_company_shared.get(&o) {
-                return Some(why);
-            }
-        }
-        facts.unknown.get(&o).map(String::as_str)
+        facts.unknown.get(&(object as usize)).map(String::as_str)
     }
 
     /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.

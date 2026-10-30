@@ -216,6 +216,25 @@ fn a_base_table_pinned_empty_in_my_company_starts_empty_there() {
     );
 }
 
+// "My Company" of the corpus CI database holds no CRM Connection Setup row either
+// (install/lt-bf-install-probes/BfInstallTests.al, SecondCompany_CrmConnectionSetup_ComparedWithSessionCompany, corpus
+// issue 811): under the opt-in a run without test data answers it as empty there.
+#[test]
+fn crm_connection_setup_starts_empty_in_my_company() {
+    let base = "table 5330 \"CRM Connection Setup\" { fields { field(1; \"Primary Key\"; Code[20]) { } } }";
+    let main = format!(
+        "{COMPANY_TABLE}
+        codeunit 60102 T {{ Subtype = Test;
+            [Test] procedure CrmInMyCompany() var Crm: Record \"CRM Connection Setup\"; begin
+                Crm.ChangeCompany('My Company');
+                if not Crm.IsEmpty() then Error('not empty');
+                if Crm.Count() <> 0 then Error('count %1', Crm.Count());
+            end; }}"
+    );
+    let o = outcomes_of_apps(&[(BASE_APP, &[], base), ("main", &[BASE_APP], &main)]);
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
+}
+
 // The same inside install code: per-company install code of the app under test that reads CDS Connection Setup (as Base
 // Application's database trigger setup does on every insert) runs in "My Company" too, and its writes there are answered.
 #[test]

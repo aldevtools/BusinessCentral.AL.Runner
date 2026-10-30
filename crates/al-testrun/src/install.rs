@@ -216,7 +216,7 @@ fn order_of(lowered: &Lowered, a: (usize, usize), b: (usize, usize)) -> Option<a
     }
 }
 
-/// The tables whose install rows a test may not read (ADR-046 decision 4c and amendment 1, A2 items a to d), from the
+/// The tables whose install rows a test may not read (ADR-046 amendment 1, A2 items a to d), from the
 /// static closures of the install routines of the apps under test. The answer depends on the sources only.
 ///
 /// The owner decided that the dependency apps get the refusals of A2 too, whatever they cost. Applied, they lose the
@@ -251,22 +251,6 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
             for part in [Part::Company, Part::Database] {
                 let routines = app.part(part);
                 let closures: Vec<Closure> = routines.iter().map(|&(o, r)| closure(lowered, o, r)).collect();
-                // Decision 4c: BC runs the per-company code once in each company of the database, the runtime in one.
-                if !dependency && part == Part::Company {
-                    for c in &closures {
-                        for &t in &c.written {
-                            if objs.heads().get(t as usize).is_some_and(|o| !per_company(o)) {
-                                add(
-                                    &mut out.per_company_shared,
-                                    t,
-                                    format!(
-                                        "per-company install code of {name} writes this DataPerCompany = false table, and BC runs that code once in each company of the database; this runtime runs one company (ADR-046 decision 4c)"
-                                    ),
-                                );
-                            }
-                        }
-                    }
-                }
                 // A4 item 4 (owner decision 2026-10-19): the Company Triggers subscribers of the other installed apps run in
                 // the install session ([`company_open`]), an assumption until probe Q3. What they write, and what a
                 // per-company routine that reads it or shares a SingleInstance codeunit with them writes, relies on it: a
