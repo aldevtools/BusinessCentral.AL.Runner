@@ -949,6 +949,8 @@ subscribers still run there (install/lt-ug-install-trigger-setup/UgInstallTests.
 
 ## Amendment 6 (2026-10-30): one app at a time, for every app
 
+Status: Accepted (owner, 2026-10-30), including the corpus listed-order exception (item 3).
+
 Owner direction (2026-10-30): BC installs apps one at a time in dependency order. While an app installs, only the apps
 installed before it and the app itself are installed. Measured on BC 29 (corpus branch al-runtime-rs-staging-y3:
 tests/al-language-xapp-a/Y3XaInstallEvents.al, tests/al-language-xapp-b/Y3XbInstallEvents.al,
