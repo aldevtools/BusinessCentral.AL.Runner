@@ -1144,3 +1144,25 @@ fn cookie_name_setter_rejects_separators_dollar_and_blanks() {
     end;"#,
     );
 }
+
+// HttpCookieForms.al:122 Response_MaxAgeForms pins `99999999999` (the parse error) and small values only: a number past the
+// Integer range other than that one is refused.
+#[test]
+fn set_cookie_max_age_past_the_integer_range_is_refused() {
+    for v in ["2147483648", "9999999999", "999999999999", "-2147483649"] {
+        let why = not_run(
+            "",
+            &format!(
+                r#"
+    [Test] procedure T()
+    var Resp: HttpResponseMessage; H: HttpHeaders; L: List of [Text];
+    begin
+        H := Resp.Headers;
+        H.Add('Set-Cookie', 'sid=a; Max-Age={v}');
+        L := Resp.GetCookieNames();
+    end;"#
+            ),
+        );
+        assert!(why.contains("Max-Age"), "{v}: {why}");
+    }
+}

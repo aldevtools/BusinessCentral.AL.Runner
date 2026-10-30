@@ -2683,7 +2683,7 @@ fn split_set_cookie(header: &str) -> Result<Vec<String>, Signal> {
 ///   gives the path `` (:193 Response_OtherAttributes). `Version=1` and `Port="443"` make the default path empty; `Secure=false`
 ///   and `HttpOnly=0` set neither; Comment, Discard, Priority, Partitioned, SameSite and unknown attributes are ignored.
 /// - Max-Age is an Integer (a sign `+` allowed) of seconds from now; 0 and -1 drop the cookie; `abc`, `1.5`, empty and
-///   `99999999999` raise the parse error. Of Max-Age and Expires the first one decides (`Max-Age=3600; Expires=<1970>` stays,
+///   `99999999999` raise the parse error; another whole number past the Integer range is not pinned and is refused. Of Max-Age and Expires the first one decides (`Max-Age=3600; Expires=<1970>` stays,
 ///   `Expires=<1970>; Max-Age=3600` and `Max-Age=0; Expires=<2037>` are gone) (:122 Response_MaxAgeForms). Two of the same
 ///   kind are not pinned.
 /// - A later cookie of the same name in any case takes the place of the earlier one (`SID` then `sid` leaves `sid`, :222
@@ -2754,7 +2754,16 @@ fn response_cookies(ctx: &dyn Ctx, headers: &HttpHeaderList) -> Result<Vec<Cooki
                         }
                     },
                     ("max-age", Some(v)) => {
-                        let Ok(secs) = v.strip_prefix('+').unwrap_or(v).parse::<i32>() else {
+                        let digits = v.strip_prefix('+').unwrap_or(v);
+                        let Ok(secs) = digits.parse::<i32>() else {
+                            // Only `99999999999` is pinned past the Integer range (:122 Response_MaxAgeForms `huge`); other
+                            // whole numbers out of range are not.
+                            let whole = digits.strip_prefix('-').unwrap_or(digits);
+                            if v != "99999999999" && !whole.is_empty() && whole.bytes().all(|b| b.is_ascii_digit()) {
+                                return unsupported(format!(
+                                    "a cookie Max-Age of `{v}`, a whole number past the Integer range (only 99999999999 is pinned)"
+                                ));
+                            }
                             return Err(cookie_parse_error());
                         };
                         if max_age.replace(i64::from(secs)).is_some() {
