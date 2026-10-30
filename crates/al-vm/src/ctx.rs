@@ -295,7 +295,9 @@ impl al_builtins::native::Ctx for Session {
         }
         // While a test method runs, Microsoft's Test Runner app called it: its frames are below the test's, as
         // `SessionInformation.Callstack` shows them (session/TestSessionInformationCallstackContracts.al:89-97), so its
-        // module comes last (al-runner issue 6248). Its manifest when the run loaded it; else its id, name and publisher
+        // module comes last (al-runner issue 6248). Pinned by lt-ss1030/SsCallerModulesTestRunner.al:25-52 (corpus PR 830) on
+        // the CI leg that runs tests through the Test Runner app; runs through the server's test runner hub list nothing, a
+        // difference of the test runner and not of BC (docs/owner-review.md, 2026-10-30). Its manifest when the run loaded it; else its id, name and publisher
         // and no version (a read of the version is refused).
         if !self.runner_frames.is_empty() {
             let runner = al_builtins::moduleinfo::TEST_RUNNER_APP_ID;
