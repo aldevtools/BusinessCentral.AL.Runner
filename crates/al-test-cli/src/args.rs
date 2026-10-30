@@ -215,7 +215,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--junit" => a.junit = Some(text()?.into()),
             "--update-baseline" => a.update_baseline = true,
             "--no-ratchet" => a.no_ratchet = true,
-            "--deps" => a.deps.push(text()?.into()),
+            "--deps" | "--dep" => a.deps.push(text()?.into()),
             "--no-deps" => a.no_deps = true,
             "--all-versions" => a.all_versions = true,
             "--bc-version" => a.bc_version = Some(text()?),
@@ -297,7 +297,7 @@ INPUT
   --oracle FILE               the oracle table (default: ROOT/oracle/oracle.toml)
   --bc-version PREFIX         which BC version's oracle to run, e.g. 28 or 28.5 (default: the newest)
   --all-versions              run every version in the oracle table, then compare them
-  --deps DIR                  extra directory of .app packages for the dependencies (repeatable)
+  --deps DIR, --dep DIR       extra directory of .app packages for the dependencies (repeatable)
   --no-deps                   run the corpus alone, without Microsoft's apps
   --no-download               never fetch a dependency app from the artifact feed
   --environment ENV           the server Environment Information describes: saas (default, as probed) or
@@ -392,6 +392,13 @@ mod tests {
             Parsed::Run(a) => Ok(a),
             Parsed::Help => Err("help".into()),
         }
+    }
+
+    #[test]
+    fn dep_is_accepted_as_well_as_deps() {
+        // The shared missing-dependency hint names al-runner's `--dep DIR`; al-test-cli takes it too.
+        let a = run(&["--dep", "d1", "--deps", "d2"]).unwrap();
+        assert_eq!(a.deps, vec![PathBuf::from("d1"), PathBuf::from("d2")]);
     }
 
     #[test]
