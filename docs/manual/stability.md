@@ -7,9 +7,6 @@ Stability mode runs your tests again under changes that real Business Central ca
 also show. A test that passes in the normal run and fails in a changed run depends
 on something it should not depend on: an earlier test, a fixed seed, today's date.
 
-It is built on pull requests that were not merged when this page was written. If
-`al-runner test --help` does not list `--stability`, your build does not have it yet.
-
 ## Run it
 
 ```bash
@@ -64,6 +61,46 @@ it as a starting point for your own file, then run `--stability my-config.json`.
   clock and prints it, so you can repeat the run.
 - **selection.** The same choices as `--codeunit`, `--filter` and `--exclude-test`.
   The command line wins over the file.
+
+### Matrix axes
+
+A config can also name the BC versions, countries, environments and company lists
+to run on. Every combination is a cell, and every cell runs all variants:
+
+```json
+{
+  "format": 1,
+  "matrix": {
+    "bcVersion": ["28.5", "29.0"],
+    "country": ["w1", "us"],
+    "environment": ["saas", "onprem"],
+    "companies": [null, ["CRONUS International Ltd.", "Second Company"]]
+  },
+  "dimensions": { "order.methods": ["declared", "reverse"] }
+}
+```
+
+| Axis | Values | How the cells run |
+|---|---|---|
+| `bcVersion` | Versions as `--bc-version` takes them: `"29.0"`, `"29"` or a full build | One process per cell, as `--bc-version 28.5,29.0` |
+| `country` | Country codes such as `"w1"`, `"us"` | One process per cell, as `--country w1,us` |
+| `companies` | `null` for one company (the default), `"all"`, or a list of company names with the session company first | One process per cell, as `--companies` |
+| `environment` | `"saas"`, `"onprem"` | Inside the cell's process. The environments share one compile; each gets its own install baseline. |
+
+- Each cell compiles once. All variants of a cell share that compile.
+- A cell is compared only with its own base variant. A test that fails on BC 28.5
+  and passes on BC 29.0 in the base variants is a difference between cells, not a
+  flip.
+- Versions and countries are found the same way as for `--bc-version` and `--country`
+  lists. All cells are checked before the first one starts.
+- With several company names, the database holds all of them, as a multi-company
+  database in Business Central does. Without the axis, the database holds one company.
+- `--matrix-parallel` and `--matrix-memory` work as for any matrix run.
+- A config that names an axis cannot be combined with the same option on the command
+  line: `bcVersion` with `--bc-version` or `--matrix`, `country` with `--country` or
+  `--matrix`, `environment` with `--environment`, `companies` with `--companies`.
+- A config without matrix axes still works with `--bc-version 28.5,29.0` or
+  `--country w1,us`: each cell runs all variants.
 
 ### Dimensions
 
@@ -126,8 +163,11 @@ Stability: 120 tests, 119 stable, 1 flipped, 0 changed to or from not run; maste
 
 How to read it:
 
-- **Variant ids** have the shape `<BC version>-<country>/<number>`. Number 0 is the
-  base variant. The line next to the id lists every value that changed.
+- **Variant ids** have the shape `<cell>/<number>@<run seed>`. The cell is
+  `<BC version>-<country>`, then `-companies<n>` (the n-th value of the `companies`
+  axis) and `-<environment>` when the config names those axes, for example
+  `29.0-w1-companies2-onprem`. Number 0 is the base variant of its cell. The line
+  next to the id lists every value that changed.
 - **A flip** is a test that passes in the base variant and fails in another one. The
   line names the variant and the dimension. With `oneAtATime`, that dimension is the
   cause.
@@ -139,6 +179,28 @@ How to read it:
   test refused in the base variant is refused in every variant.
 - A flip that only happens where an unprobed assumption ran is marked "relies on an
   unprobed assumption". The runtime may be wrong there, not the test.
+
+### With matrix axes
+
+The matrix report lists each cell's exit code, then a table per cell and the tests
+that changed within each cell:
+
+```text
+Stability per cell
+  cell                       variants  tests  stable  flipped  to/from not run
+  28.5-w1-companies1-saas    2         2      1       1        0
+  28.5-w1-companies1-onprem  2         2      1       1        0
+  ...
+
+Tests whose outcome changed within a cell (8):
+  Codeunit50710.SecondNeedsFirst  pass -> fail under 28.5-w1-companies1-saas/1@5  order.methods=reverse
+  ...
+```
+
+Each cell writes its own JUnit file (`results.28.5-w1-companies2.xml` for
+`--junit results.xml`). The `--output-json` document has one entry per cell process;
+its `run.stability` object lists that process's cells under `cells`, and every flip
+names its `cell`.
 
 ## Repeat one variant
 
@@ -152,6 +214,13 @@ Or give the printed values, without a config:
 
 ```bash
 al-runner test ./MyApp ./MyApp.Test --stability-replay "order.methods=reverse workDate.offset=+1Y"
+```
+
+With matrix axes in the config, the id also picks the cell. The runner then runs only
+that cell, in one process:
+
+```bash
+al-runner test ./MyApp ./MyApp.Test --stability my-config.json --stability-replay 28.5-w1-companies2-onprem/1@5
 ```
 
 Add `--filter` to repeat one test. The result is the same as in the full run, because
@@ -168,7 +237,10 @@ the runtime is deterministic.
 
 ## Limits
 
-- Not with `--affected`, `--matrix`, version or country lists, `--recipe`,
-  `--explain`, `serve` or `ALRUNNER_REAL_CLOCK=1`.
-- Version, country and environment as matrix axes in the same file are planned.
-  Use `--bc-version` and `--country` lists for those today.
+- Not with `--affected`, `--recipe`, `--explain`, `serve` or
+  `ALRUNNER_REAL_CLOCK=1`.
+- A replay runs one cell. It cannot be combined with a version or country list or
+  `--matrix`.
+- Differences between cells are not flips. The matrix report lists the tests whose
+  base outcome differs between the cell processes (version, country, companies). It
+  does not compare the environment cells of one process with each other.

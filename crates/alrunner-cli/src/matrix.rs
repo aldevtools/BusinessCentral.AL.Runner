@@ -19,13 +19,82 @@ use std::path::{Path, PathBuf};
 pub struct Cell {
     pub version: Option<String>,
     pub country: String,
+    /// The `companies` axis of a stability config (ADR-058 section 3): which of its values this cell runs with.
+    pub companies: Option<CellCompanies>,
+}
+
+/// One value of the `companies` axis of a stability config.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CellCompanies {
+    /// Its place in the axis, from 1: the cell is named `companies<n>`.
+    pub n: usize,
+    /// What the cell passes to `--companies`; `None`: one company, the default.
+    pub value: Option<String>,
 }
 
 impl Cell {
-    /// `28.5 w1`; a cell without a version is named by its build once it is resolved.
+    /// `28.5 w1`, `28.5 w1 companies2`; a cell without a version is named by its build once it is resolved.
     fn label(&self, build: &str) -> String {
-        format!("{} {}", self.version.as_deref().unwrap_or(build), self.country)
+        format!(
+            "{} {}{}",
+            self.version.as_deref().unwrap_or(build),
+            self.country,
+            self.companies_suffix(" ")
+        )
     }
+
+    /// `<sep>companies<n>`, or nothing without a `companies` axis.
+    fn companies_suffix(&self, sep: &str) -> String {
+        self.companies
+            .as_ref()
+            .map(|c| format!("{sep}companies{}", c.n))
+            .unwrap_or_default()
+    }
+}
+
+/// The cells of a stability config's matrix axes (ADR-058 section 3): its versions (or `cli`'s cells when it names
+/// none) times its countries times its company lists. The environment axis is not a cell of its own here: the
+/// environments of one cell share its compile, in its process.
+pub fn stability_cells(axes: &al_testrun::stability::MatrixAxes, cli: Option<&[Cell]>) -> Vec<Cell> {
+    let base: Vec<Cell> = match cli {
+        Some(cells) => cells.to_vec(),
+        None => {
+            let versions: Vec<Option<String>> = if axes.bc_versions.is_empty() {
+                vec![None]
+            } else {
+                axes.bc_versions.iter().cloned().map(Some).collect()
+            };
+            let countries: Vec<String> = if axes.countries.is_empty() {
+                vec!["w1".to_string()]
+            } else {
+                axes.countries.clone()
+            };
+            versions
+                .iter()
+                .flat_map(|v| {
+                    countries.iter().map(move |c| Cell {
+                        version: v.clone(),
+                        country: c.clone(),
+                        companies: None,
+                    })
+                })
+                .collect()
+        }
+    };
+    if axes.companies.is_empty() {
+        return base;
+    }
+    base.iter()
+        .flat_map(|cell| {
+            axes.companies.iter().enumerate().map(move |(i, v)| Cell {
+                companies: Some(CellCompanies {
+                    n: i + 1,
+                    value: v.clone(),
+                }),
+                ..cell.clone()
+            })
+        })
+        .collect()
 }
 
 /// The cells of a run, or none for a single run. A list (a comma) in `--bc-version` or `--country` makes every
@@ -55,6 +124,7 @@ pub fn cells(bc: Option<&str>, country: Option<&str>, matrix: Option<&str>) -> R
             out.push(Cell {
                 version: Some(v.to_string()),
                 country: country_of(c)?,
+                companies: None,
             });
         }
     } else {
@@ -78,6 +148,7 @@ pub fn cells(bc: Option<&str>, country: Option<&str>, matrix: Option<&str>) -> R
                 out.push(Cell {
                     version: v.clone(),
                     country: c.clone(),
+                    companies: None,
                 });
             }
         }
@@ -106,12 +177,13 @@ impl Resolved {
         self.cell.label(&self.build)
     }
 
-    /// `28.5-w1`, for file names.
+    /// `28.5-w1`, `28.5-w1-companies2`, for file names.
     fn file_tag(&self) -> String {
         format!(
-            "{}-{}",
+            "{}-{}{}",
             self.cell.version.as_deref().unwrap_or(&self.build),
-            self.cell.country
+            self.cell.country,
+            self.cell.companies_suffix("-")
         )
     }
 }
@@ -299,9 +371,10 @@ fn peaks_file(a: &TestArgs) -> PathBuf {
 /// The key of a cell in the peaks file: the build, country and whether the `microsoft` source is part of the run.
 fn peak_key(r: &Resolved, microsoft: bool) -> String {
     format!(
-        "{}-{}-{}",
+        "{}-{}{}-{}",
         r.build,
         r.cell.country,
+        r.cell.companies_suffix("-"),
         if microsoft { "microsoft" } else { "plain" }
     )
 }
@@ -475,9 +548,10 @@ pub fn run(a: &TestArgs, cells: &[Cell], microsoft: bool) -> Result<u8, String> 
         match preflight(a, c, floor) {
             Ok(r) => resolved.push(r),
             Err(e) => bad.push(format!(
-                "  cell {} {}: {}",
+                "  cell {} {}{}: {}",
                 c.version.as_deref().unwrap_or("(default version)"),
                 c.country,
+                c.companies_suffix(" "),
                 e.lines().next().unwrap_or_default()
             )),
         }
@@ -565,6 +639,10 @@ pub fn run(a: &TestArgs, cells: &[Cell], microsoft: bool) -> Result<u8, String> 
             );
             // ADR-061 section 5: every cell runs with the run's seed.
             cargs.extend(["--seed".to_string(), crate::seed::of(a).seed.to_string()]);
+            // The `companies` axis of a stability config (ADR-058 section 3): the cell's database.
+            if let Some(Some(v)) = r.cell.companies.as_ref().map(|c| &c.value) {
+                cargs.extend(["--companies".to_string(), v.clone()]);
+            }
             let out_path = dir.join("stdout.txt");
             let err_path = dir.join("stderr.txt");
             let file = |p: &Path| std::fs::File::create(p).map_err(|e| format!("{}: {e}", p.display()));
@@ -716,6 +794,88 @@ fn short_lines(output: &str) -> Vec<&str> {
         .collect()
 }
 
+/// The stability cells of a matrix run (ADR-058 section 5, per cell): one row per cell the cell processes ran (an
+/// environment axis gives several per process), then the tests whose outcome changed against their cell's base
+/// variant.
+fn stability_report(runs: &[CellRun], verbose: bool) {
+    let docs: Vec<&serde_json::Value> = runs
+        .iter()
+        .flat_map(|r| r.documents.iter().map(|(_, d)| &d["stability"]))
+        .filter(|s| s.is_object())
+        .collect();
+    if docs.is_empty() {
+        return;
+    }
+    let mut rows = vec![vec![
+        "cell".to_string(),
+        "variants".into(),
+        "tests".into(),
+        "stable".into(),
+        "flipped".into(),
+        "to/from not run".into(),
+    ]];
+    let mut flips: Vec<String> = Vec::new();
+    for st in &docs {
+        for c in st["cells"].as_array().into_iter().flatten() {
+            let n = |k: &str| c["summary"][k].as_u64().unwrap_or(0).to_string();
+            rows.push(vec![
+                c["cell"].as_str().unwrap_or_default().to_string(),
+                n("variants"),
+                n("tests"),
+                n("stable"),
+                n("flipped"),
+                n("notRunChanges"),
+            ]);
+        }
+        let values_of = |id: &str| -> String {
+            st["variants"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|v| v["id"] == id)
+                .and_then(|v| v["values"].as_object())
+                .map(|o| {
+                    o.iter()
+                        .map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or_default()))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default()
+        };
+        for f in st["flips"].as_array().into_iter().flatten() {
+            if f["finding"] != true {
+                continue;
+            }
+            let id = f["variant"].as_str().unwrap_or_default();
+            let mut line = format!(
+                "  {}  {} -> {} under {id}  {}",
+                f["test"].as_str().unwrap_or_default(),
+                f["base"].as_str().unwrap_or_default(),
+                f["outcome"].as_str().unwrap_or_default(),
+                values_of(id)
+            );
+            if f["reliesOnAssumption"] == true {
+                line.push_str("  (relies on an unprobed assumption)");
+            }
+            flips.push(line);
+        }
+    }
+    println!("\nStability per cell");
+    for l in table(&rows) {
+        println!("{l}");
+    }
+    if !flips.is_empty() {
+        println!("\nTests whose outcome changed within a cell ({}):", flips.len());
+        let limit = if verbose { usize::MAX } else { 100 };
+        for l in flips.iter().take(limit) {
+            println!("{l}");
+        }
+        if flips.len() > limit {
+            println!("  ... {} more (--verbose lists them)", flips.len() - limit);
+        }
+    }
+}
+
 fn report(a: &TestArgs, runs: &[CellRun], symbols: &[String]) -> Result<u8, String> {
     for r in runs {
         println!(
@@ -837,6 +997,7 @@ fn report(a: &TestArgs, runs: &[CellRun], symbols: &[String]) -> Result<u8, Stri
             }
         }
     }
+    stability_report(runs, a.verbose);
     let code = sources_report::worst(runs.iter().map(|r| r.code));
     let worst = runs.iter().find(|r| r.code == code);
     let verdict = match code {
@@ -858,6 +1019,7 @@ fn report(a: &TestArgs, runs: &[CellRun], symbols: &[String]) -> Result<u8, Stri
                 "bcVersion": r.resolved.cell.version,
                 "build": r.resolved.build,
                 "country": r.resolved.cell.country,
+                "companies": r.resolved.cell.companies.as_ref().map(|c| c.value.clone().unwrap_or_default()),
                 "symbols": symbols,
                 "commandLine": command_line(&r.args),
                 "exitCode": r.code,
@@ -906,6 +1068,7 @@ mod tests {
         Cell {
             version: Some(v.into()),
             country: cc.into(),
+            companies: None,
         }
     }
 
@@ -919,6 +1082,7 @@ mod tests {
         assert_eq!(
             cells(None, Some("w1,de"), None).unwrap().unwrap()[1],
             Cell {
+                companies: None,
                 version: None,
                 country: "de".into()
             }
