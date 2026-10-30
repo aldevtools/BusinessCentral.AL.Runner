@@ -302,9 +302,12 @@ impl License {
 /// Test helpers: a synthetic license file (made-up licensee and ranges, no signature), as UTF-16 LE bytes. No real
 /// license file is ever used as a fixture (ADR-060, Conformance).
 pub mod synthetic {
+    /// A permission list: its name and its ranges `(first, last, mask)`.
+    pub type List<'a> = (&'a str, &'a [(i64, i64, u32)]);
+
     /// A license file with the header values given and one permission list per `(list, ranges)` entry, each range
     /// `(first, last, mask)`.
-    pub fn file(licensee: &str, expires: &str, lists: &[(&str, &[(i64, i64, u32)])]) -> Vec<u8> {
+    pub fn file(licensee: &str, expires: &str, lists: &[List]) -> Vec<u8> {
         let mut text = String::from("Synthetic License Information\r\n****\r\n");
         text.push_str(&format!(
             "Licensed to             : {licensee}\r\n                          Somewhere\r\n"

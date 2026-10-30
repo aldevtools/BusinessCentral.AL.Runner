@@ -80,7 +80,7 @@ impl LicenseUse {
                 };
                 format!(
                     "license: {whose}, expires {expires}, from {from}, SHA-256 {}; signature not checked",
-                    &l.sha256
+                    l.sha256
                 )
             }
             (None, Source::None(why)) => {

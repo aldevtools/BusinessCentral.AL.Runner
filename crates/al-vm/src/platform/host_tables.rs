@@ -989,7 +989,7 @@ fn license_row_of(t: &TableDef, object_type: i64, number: i64, perms: [i32; 5], 
     r
 }
 
-/// The row of a pinned object, without a license: what the corpus pins, nothing else (ADR-060 decision 2, "No license
+/// The row of a pinned object, when no license file is loaded: what the corpus pins, nothing else (ADR-060 decision 2, "No license
 /// available").
 fn license_pinned(t: &TableDef, object_type: i64, number: i64, target: Option<&al_version::Target>) -> Option<Row> {
     let (perms, limited_pinned) = license_pinned_perms(object_type, number, target)?;
@@ -1109,7 +1109,7 @@ fn license_num(v: &Value) -> Option<i64> {
 
 fn license_unpinned(object_type: i64, number: i64) -> StoreError {
     refused(format!(
-        "License Permission: whether object type {object_type} number {number} is a row is not pinned, and no license is loaded (ADR-060: without a license only the rows the corpus pins are served)"
+        "License Permission: whether object type {object_type} number {number} is a row is not pinned (ADR-060: with no license file loaded, only the rows the corpus pins are served)"
     ))
 }
 

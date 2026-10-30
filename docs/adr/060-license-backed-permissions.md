@@ -258,3 +258,22 @@ The owner accepted the recommended answer to each question.
 - A parser unit test on a synthetic file built in the test (made-up ranges, unsigned) that covers ranges, gaps, every
   object type list and a mask with unknown bits.
 - The corpus pass-rate report: the License Permission and `CheckLicenseFile` cases stay passing.
+
+## Implementation notes (phase 1, 2026-10-30)
+
+Phase 1 (the license reader) is built: `al-host/src/license.rs` (parser), `al-deps/src/license.rs` (the artifacts'
+license), `al-testrun/src/license.rs` (which license a run uses, report values), the License Permission provider in
+`al-vm/src/platform/host_tables.rs`. Choices made within the decisions above, without owner review:
+
+- The default license is read from the platform artifact the run already uses (`ServiceTier/.../Service/*.bclicense`,
+  the same bytes as the country artifact's `Cronus.bclicense`), or from an extracted artifact on disk. It is read by
+  range for every run and never written anywhere; `serve` keeps it in memory between requests.
+- Execute is bit 16. A mask that sets only some of the bits 1, 2, 4 and 8 is answered as not pinned (which bit is
+  Read, Insert, Modify or Delete is not known from the Cronus license); a row of such a range is refused.
+- In the system range, a pinned row is narrowed by the license (a permission the pin or the license leaves blank is
+  blank); a system number without a pin is refused (decision 3).
+- Limited Usage is blank when the license's limited-usage list is the Cronus one (compared by a hash of the list) and
+  unknown otherwise (decision 2).
+- Range reads and counts are served within one object type over 0 to 1999999999; a scan of the whole table starts at
+  TableData 0 (pinned first row). A negative number is refused (not pinned).
+- `Database.CheckLicenseFile` (decision 4) is not built in this phase; it stays refused.

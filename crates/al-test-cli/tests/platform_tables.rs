@@ -2700,7 +2700,7 @@ codeunit 50000 "T" { Subtype = Test;
 ///   by major (:103-115) and is refused.
 ///
 /// TableData and Table at eight numbers of the ISV and customer ranges are pinned (lt-ss1030/SsLicensePermissionObjects.al:56-87,
-/// corpus PR 852). Without a license (ADR-060) no other number is served: other numbers, other types and a negative number
+/// corpus PR 852). When the run has loaded no license file (ADR-060), no other number is served: other numbers, other types and a negative number
 /// are refused. With a license, see `license_permission_answers_from_the_loaded_license`.
 const ISSUE_6214_OBJECTS: &str = "
 codeunit 50000 \"T\" {
@@ -2848,7 +2848,7 @@ fn issue_6214_license_permission_of_any_object_number() {
     ] {
         passes(&o, t);
     }
-    // ADR-060: without a license, only the pinned rows are served; `license-permission-any-object` is retired.
+    // ADR-060: with no license file loaded, only the pinned rows are served; `license-permission-any-object` is retired.
     for t in [
         "OtherNumberOfTheIsvRange",
         "OtherTableNumber",
@@ -3209,5 +3209,75 @@ fn license_permission_answers_from_the_loaded_license() {
     ] {
         let why = not_run(&o, t);
         assert!(why.contains(why_has), "{t}: {why}");
+    }
+}
+
+/// The license files of the extracted BC artifacts on this machine (`~/.bcartifacts.cache/sandbox/<build>/w1/*.bclicense`),
+/// or the files `AL_ARTIFACT_LICENSES` names (separated by `:`). Read in place, never copied (ADR-060).
+fn artifact_licenses() -> Vec<PathBuf> {
+    if let Some(v) = std::env::var_os("AL_ARTIFACT_LICENSES") {
+        return std::env::split_paths(&v).filter(|p| p.is_file()).collect();
+    }
+    let Some(root) = al_deps::cache::bcartifacts_sandbox_from_env() else {
+        return Vec::new();
+    };
+    let mut out: Vec<PathBuf> = std::fs::read_dir(&root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .flat_map(|b| std::fs::read_dir(b.path().join("w1")).into_iter().flatten().flatten())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("bclicense")))
+        .collect();
+    out.sort();
+    out
+}
+
+/// ADR-060 Conformance: the reader, given the license of the BC artifacts, produces every row the corpus pins (with the
+/// pinned overrides of the system range), for each major. Runs only where an artifact license is on this machine;
+/// skipped with a reason otherwise (no license file is ever a fixture).
+#[test]
+fn the_artifact_license_gives_every_pinned_row() {
+    let files = artifact_licenses();
+    if files.is_empty() {
+        eprintln!("skipped: no license of an extracted BC artifact on this machine (set AL_ARTIFACT_LICENSES)");
+        return;
+    }
+    for f in files {
+        let bytes = std::fs::read(&f).unwrap();
+        for bc in ["27.5.0.0", "28.5.0.0", "29.0.0.0"] {
+            let o = outcomes_licensed(ISSUE_6214_OBJECTS, &bytes, bc);
+            for t in [
+                "IsvAndCustomerRanges",
+                "OtherNumberOfTheIsvRange",
+                "PinnedUnusedNumbers",
+                "TopOfTheRange",
+                "LimitedUsageAtTheTop",
+                "PageAtTheTop",
+                "BetweenTheRanges",
+                "OtherTableNumber",
+                "IsvTableDataNumbers",
+                "OtherTableDataNumber",
+                "OtherXmlPortNumber",
+            ] {
+                match o.iter().find(|(n, _)| n == t).map(|(_, o)| o) {
+                    Some(Outcome::Pass) => {}
+                    other => panic!("{} on {bc}: {t} got {other:?}", f.display()),
+                }
+            }
+            let why = not_run(&o, "NegativeNumber");
+            assert!(why.contains("number -1"), "{why}");
+            let first = outcomes_licensed(
+                r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure FirstRows() var L: Record "License Permission"; begin L.FindSet(); if (L."Object Number" <> 0) or (L."Read Permission" <> L."Read Permission"::" ") then Error('row 1'); L.Next(); if (L."Object Number" <> 1) or (L."Execute Permission" <> L."Execute Permission"::Yes) or (L."Limited Usage Permission" <> L."Limited Usage Permission"::" ") then Error('row 2'); end;
+  [Test] procedure CodeunitRange() var L: Record "License Permission"; begin L.SetRange("Object Type", L."Object Type"::Codeunit); L.SetRange("Object Number", 400, 420); if L.Count() <> 21 then Error('count'); end;
+  [Test] procedure Table18() var L: Record "License Permission"; begin L.Get(L."Object Type"::TableData, 18); if L."Limited Usage Permission" <> L."Limited Usage Permission"::" " then Error('limited'); end; }"#,
+                &bytes,
+                bc,
+            );
+            for t in ["FirstRows", "CodeunitRange", "Table18"] {
+                passes(&first, t);
+            }
+        }
     }
 }

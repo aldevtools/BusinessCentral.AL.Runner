@@ -2219,7 +2219,7 @@ fn test_inner(
             say!("{line}");
         }
     }
-    // ADR-060: the license the run used, when it can matter (Microsoft's apps, or a license given).
+    // ADR-060: the license the run used, when it can matter (Microsoft's apps, or --license).
     if !a.quiet && (a.verbose || microsoft || a.license.is_some()) {
         say!("{}", license.line());
     }

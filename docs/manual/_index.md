@@ -33,6 +33,7 @@ between builds. [Reading results](results.md) explains what a pass, a failure an
 - **[How results are checked](how-it-works.md)**: why results can be trusted, and the known risks.
 - **[Command line reference](cli-reference.md)**: every command and flag.
 - **[Test data](test-data.md)**: the CRONUS demo company, other countries, the RapidStart package company.
+- **[BC license](license.md)**: which license a run uses, `--license FILE`, and what License Permission answers.
 - **[Running Microsoft's tests](microsoft-tests.md)**: `test-microsoft`, the recipe, and the Microsoft tests your extension can affect.
 - **[Continuous integration](ci.md)**: GitHub Actions, caching, exit codes.
 - **[Editor and tool integration](editor-tools.md)**: the `serve` protocol, coverage output.
