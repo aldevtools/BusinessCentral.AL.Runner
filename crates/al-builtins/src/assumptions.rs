@@ -664,6 +664,20 @@ registry! {
 
 
 
+    RowVersionNextAndFindForms => {
+        id: "row-version-next-and-find-forms",
+        assumed: "While the open transaction holds inserted rows not yet sent, Next and Find('='/'>'/'<'/'-'/'+') of another table send nothing, and Find('>') of the inserted table sends its rows, as a FindFirst does (LastUsedRowVersion stays, then grows). Pinned on corpus master by platform/lt-platform-members/PlTRowVersionValue.al NP4_RowVersions_InsertA_FindSetNextOfB, _InsertA_FindFormsOfB and _InsertA_FindSetNextAndFindGreaterOfA (corpus PR 871), which the pinned corpus does not hold yet.",
+        tests: "No Microsoft test: a partner app's API tests read MinimumActiveRowVersion after FindSet and Next of another table.",
+        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/platform/lt-platform-members/PlTRowVersionValue.al",
+                "tests/al-language/misc/lt-np4-probes/Np4Misc.al",
+            ],
+            since: "2026-10-30",
+        },
+    },
     BigTextValueCopy => {
         id: "bigtext-value-copy",
         assumed: "A BigText given as an event parameter by value gets a copy the subscriber's AddText does not reach, and a returned BigText is a copy. Assignment, a by-value and a var procedure parameter and Clear of a copy are pinned (text/TestBigText.al:108-160); the marker cannot tell those from the unpinned uses and fires on every copy.",

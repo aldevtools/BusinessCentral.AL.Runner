@@ -177,6 +177,57 @@ codeunit 50160 C
         exit(Log + Format(F.Total));
     end;
 
+    procedure Np4OtherTable(): Text
+    var
+        A: Record "Rv A";
+        B: Record "Rv B";
+    begin
+        Start();
+        B.Id := 2;
+        B.Insert();
+        B.Id := 3;
+        B.Insert();
+        Commit();
+        Prev := LastUsedRowVersion();
+        A.Id := 1;
+        A.Insert();
+        Snap('insert');
+        B.FindSet();
+        B.Next();
+        B.Next();
+        Snap('next-other');
+        B.Id := 2;
+        B.Find('=');
+        B.Find('>');
+        B.Find('<');
+        B.Find('-');
+        B.Find('+');
+        Snap('finds-other');
+        Commit();
+        Snap('commit');
+        exit(Log);
+    end;
+
+    procedure Np4FindGreaterOwn(): Text
+    var
+        A: Record "Rv A";
+    begin
+        Start();
+        A.Id := 1;
+        A.Insert();
+        A.Id := 2;
+        A.Insert();
+        Snap('insert');
+        A.Id := 1;
+        A.Find('>');
+        Snap('find-greater');
+        A.Find('<');
+        A.FindSet();
+        A.Next();
+        Snap('later');
+        exit(Log + Format(A.Id));
+    end;
+
     procedure ReadKinds(): Text
     var
         A: Record "Rv A";
@@ -278,5 +329,25 @@ fn calcfields_of_an_inserted_table_sends_its_rows() {
     assert_eq!(
         text(al_testkit::run_in(SRC, "C", "CalcFieldsOwn")),
         "insert= calcfields> 1"
+    );
+}
+
+// PlTRowVersionValue.al (corpus master, corpus PR 871) NP4_RowVersions_InsertA_FindSetNextOfB and _InsertA_FindFormsOfB:
+// Next and Find('='/'>'/'<'/'-'/'+') of another table send nothing.
+#[test]
+fn next_and_find_forms_of_another_table_send_nothing() {
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "Np4OtherTable")),
+        "insert= next-other= finds-other= commit> "
+    );
+}
+
+// PlTRowVersionValue.al (corpus master) NP4_RowVersions_InsertA_FindSetNextAndFindGreaterOfA: Find('>') of the inserted
+// table sends its rows; reads after that send nothing.
+#[test]
+fn find_greater_of_the_inserted_table_sends_its_rows() {
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "Np4FindGreaterOwn")),
+        "insert= find-greater> later= 2"
     );
 }
