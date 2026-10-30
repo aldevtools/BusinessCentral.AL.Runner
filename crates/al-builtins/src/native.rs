@@ -1547,10 +1547,9 @@ fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Res
             )
         );
     // Standard format 9 of a Record or a RecordRef gives the text of standard format 0, and an unopened RecordRef formats as
-    // the empty text with 0 and 9 (corpus master errors/lt-ms-refusals-133/P133DateEvaluateFormat.al:441-566
+    // the empty text with 0 and 9 (errors/lt-ms-refusals-133/P133DateEvaluateFormat.al:441-566
     // NP3_FormatRecord_StandardFormats_0And9, _Temporary_AndFlowField_0And9, NP3_FormatRecordRef_StandardFormats_0And9,
-    // NP3_FormatRecordRef_NotOpen; not yet in the pinned corpus: assumption format-record-standard-nine until the bump). A
-    // FieldRef with a number other than 0 is handled below.
+    // NP3_FormatRecordRef_NotOpen). A FieldRef with a number other than 0 is handled below.
     let record_or_ref = match &args[0] {
         Value::Record(_) => Some(true),
         Value::Library(crate::library_kind::LibraryKind::RecordRef, l) => {
@@ -1559,7 +1558,6 @@ fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Res
         _ => None,
     };
     if record_or_ref == Some(false) && matches!(std, 0 | 9) {
-        crate::assumptions::assume(crate::assumptions::Assumption::FormatRecordStandard9);
         return Ok(Value::Text(crate::format::pad(String::new(), len).into()));
     }
     // A FieldRef with a format number other than 0 formats its value as `Format(FieldRef.Value, Length, Number)` does, which
@@ -1635,9 +1633,6 @@ fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Res
     let std9 = std == 9 && record_or_ref == Some(true);
     if composite && (std == 0 || std9) {
         if let Some(r) = ctx.format_composite(&args[0]) {
-            if std9 {
-                crate::assumptions::assume(crate::assumptions::Assumption::FormatRecordStandard9);
-            }
             return r.map(|t| Value::Text(crate::format::pad(t, len).into()));
         }
     }

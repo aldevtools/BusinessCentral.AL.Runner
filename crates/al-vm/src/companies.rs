@@ -23,8 +23,9 @@ const CORPUS_OTHER_COMPANY: &str = "My Company";
 const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
 
 /// The Base Application tables that hold no row in [`CORPUS_OTHER_COMPANY`] (see [`Session::starts_empty_in`]): Company
-/// Information, General Ledger Setup, Source Code Setup, Sales & Receivables Setup, CDS Connection Setup.
-const EMPTY_IN_CORPUS_OTHER_COMPANY: [u32; 5] = [79, 98, 242, 311, 7200];
+/// Information, General Ledger Setup, Source Code Setup, Sales & Receivables Setup, CDS Connection Setup, CRM Connection
+/// Setup.
+const EMPTY_IN_CORPUS_OTHER_COMPANY: [u32; 6] = [79, 98, 242, 311, 5330, 7200];
 
 fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(what.into()))
@@ -155,7 +156,8 @@ impl Session {
     /// - Without test data the run models the corpus CI database, whose "My Company" holds no row of these Base
     ///   Application tables, the same on the three supported majors: CDS Connection Setup
     ///   (install/lt-bf-install-probes/BfInstallTests.al `SecondCompany_CdsConnectionSetup_ComparedWithSessionCompany`,
-    ///   corpus PR 804), General Ledger Setup, Sales & Receivables Setup and Company Information (the same file,
+    ///   corpus PR 804), CRM Connection Setup (the same file, `SecondCompany_CrmConnectionSetup_ComparedWithSessionCompany` at :317-318,
+    ///   corpus issue 811), General Ledger Setup, Sales & Receivables Setup and Company Information (the same file,
     ///   `SecondCompany_SetupTablesReadByCompanyInitialize_ComparedWithSessionCompany`), Source Code Setup
     ///   (`BfInstallTests.al:74-95`). Every other table there holds rows no test pins (Report Selections, No. Series, Job
     ///   Queue Entry) or is not pinned, and stays refused (decision 5).
