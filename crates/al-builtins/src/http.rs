@@ -2974,7 +2974,10 @@ mod tests {
         let mut b = HeaderBag::default();
         assert!(add_header(&mut b, "User-Agent", "a/1 b/2", false).is_ok());
         let mut b = HeaderBag::default();
-        assert!(matches!(add_header(&mut b, "User-Agent", "((((", false), Err(Signal::Error(_))));
+        assert!(matches!(
+            add_header(&mut b, "User-Agent", "((((", false),
+            Err(Signal::Error(_))
+        ));
         for v in ["NP Retail / Dynamics 365", "a /1", "a/ 1", "/", "a/b/c"] {
             let mut b = HeaderBag::default();
             assert!(
