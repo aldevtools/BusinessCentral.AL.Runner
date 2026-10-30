@@ -37,7 +37,9 @@ the tables and the messages.
 ## The first run takes a long time
 
 The first run that uses Microsoft's apps downloads them, restores the demo backup
-(about 520 MB) and compiles the apps once (about 10 seconds). Progress shows on
+(about 520 MB) and compiles the apps once (about 10 seconds). Any app that names a
+`platform` in `app.json` uses Microsoft's System app, so this also applies to a small
+app. Add `--no-test-data` if your tests need no CRONUS data. Progress shows on
 stderr. Later runs load the compile cache. In CI, cache the folder named by
 `ALRUNNER_CACHE`. See [Continuous integration](ci.md).
 

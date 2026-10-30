@@ -154,13 +154,12 @@ Answered on 2026-10-13 and recorded in ADR-013 (and, for `DotNet`, on 2026-10-13
 
 The user-facing roadmap is `docs/manual/roadmap.md`. A deferred or experimental item goes on both pages.
 
-- **App translations** (issue 5772, ADR-053): applying an app's own `Translations/*.xlf` under another `GlobalLanguage`. Today a read that a translation could change, after a switch away from 1033, is refused. Full support waits for more user feedback, or for a time when the issue queue is empty.
+- **App translations** (issue 5772, ADR-053): the `Translations/*.xlf` files of an app folder are applied under another `GlobalLanguage` (labels, enum captions, field captions). The files inside a package and the reads not built yet are still refused.
 
 ## Next targets (owner, 2026-10-13; state on 2026-10-14)
 
 1. **Microsoft's own Base App test buckets.** Started. `al-runner` runs them
-   (`docs/alrunner-buckets.md`). All 32 buckets together hold 40300 tests; without test data
-   1083 pass, 858 fail and 38359 are not run. With `--test-data`, Tests-ERM has 487 passing
-   and 5 failing. The refusal reasons are ranked with `--top-refusals`.
+   (`docs/alrunner-buckets.md`, which holds the dated measurements). The refusal reasons are
+   ranked with `--top-refusals`.
 2. **CRONUS demo data in native Rust.** Done: `al-bcdb` is the Rust port of bcdb, and
    `al-runner test --test-data` loads CRONUS into the store, table by table (ADR-020).

@@ -19,7 +19,7 @@ those in any hotfix or release, without notice. Such a runner needs one engine p
 Business Central minor version. AL Runner is one binary for all supported versions.
 
 Where observable behavior differs between versions (an error text, a column of a
-system table), it is measured on every major and pinned per version. A change in a
+system table), it is measured on every major and recorded per version. A change in a
 new release then shows up as a failing check with a known cause. The one part that
 still loads Microsoft's internals is the optional .NET helper for `DotNet` code. It
 is kept small on purpose.
@@ -34,7 +34,7 @@ are free to be better.
 
 - **The AL language test corpus.** The
   [corpus](https://github.com/aldevtools/BusinessCentral.AL.Language.Tests) is a
-  collection of small AL tests, each of which pins one behavior. Its CI runs it on
+  collection of small AL tests, each of which checks one behavior. Its CI runs it on
   real Business Central 27.5, 28.5 and 29.0. The result of each run is the reference
   for that version. A corpus test counts as passing only when it passes in AL Runner
   **and** passed on real Business Central.

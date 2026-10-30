@@ -26,7 +26,8 @@ al-runner test-microsoft --bc-version 28.5 --country us
 
 `test-microsoft` reads the list of test apps from the build's artifact (the
 `Test/*.Source.zip` entries, and the country's own), fetches each app when it runs,
-and runs it with `--recipe microsoft`.
+and runs it with `--recipe microsoft`. Test apps that Microsoft's CI runs but the
+artifact lacks (such as AlCosting) run from their BCApps source.
 
 - **Build and country.** The default is the newest build of the newest Business
   Central major, taken from the cache first, as for `test`. `--bc-version` and
@@ -174,14 +175,13 @@ JUnit file. Add `--parity` to skip them.
 
 ## How many of Microsoft's tests run
 
-Measured on 2026-10-16 with all of Microsoft's Base Application test apps together,
-on Business Central 27.5, with the demo data:
+Many of Microsoft's tests are still refused, and the share changes with every build.
+To see the numbers for one test app on your build, run it and read the summary:
 
-| Tests | Passed | Failed | Not run |
-|---:|---:|---:|---:|
-| 40300 | 16848 | 2508 | 20944 |
+```bash
+al-runner test-microsoft --app Tests-ERM --top-refusals
+```
 
-Most of Microsoft's tests are still refused. These numbers are the result of AL
-Runner. They are not compared with real Business Central test by test, so a pass
+These numbers are the result of AL Runner. They are not compared with real Business Central test by test, so a pass
 here is not a measured match. Many failures come from setup data the demo backup
 lacks; see [Known gaps in the demo data](test-data.md#known-gaps-in-the-demo-data).

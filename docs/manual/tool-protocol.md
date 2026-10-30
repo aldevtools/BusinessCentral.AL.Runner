@@ -52,7 +52,7 @@ Accepted with the v2 meaning unless the "Difference" column says otherwise.
 | `--test TEXT` (also `--filter`) | Case-insensitive substring. TEXT with a dot, such as `Codeunit50011.Foo`, is matched against the qualified name `Codeunit<ID>.<Method>`; TEXT without a dot against the method name. v2 matched the qualified name for both. A bare name that is also a part of the word `Codeunit` is not special. |
 | `--test-exact NAME` | New in v3 for the tools: the test whose method name or qualified name is exactly NAME (any case). Repeatable. Given with `--test`, it narrows: only the tests that both match are selected, as in v2. A name is the AL name as written, without quotes: `--test-exact "Codeunit50650.Space Step"`. |
 | `--exclude-test TEXT` | Removes the tests TEXT matches (the same matching as `--test`). Wins over every selecting option. Repeatable. Use whole qualified names to exclude exactly one test. |
-| `--define SYMBOL` | Adds a preprocessor symbol (`#if SYMBOL`) for the APPs. Repeatable. `--preprocessor-symbols A,B` adds several. v3 defines its own predefined symbols: they are not v2's list. v2 defined `CLEANSCHEMA1` to `CLEANSCHEMA25` for every app; the AL compiler defines none of them, and neither does v3. A tool that relied on them passes them with `--define` (or the app lists them in `preprocessorSymbols`). |
+| `--define SYMBOL` | Adds a preprocessor symbol (`#if SYMBOL`) for the APPs. Repeatable. `--preprocessor-symbols A,B` adds several. v3 predefines no symbol. v2 defined `CLEANSCHEMA1` to `CLEANSCHEMA25` for every app; the AL compiler defines none of them, and neither does v3. A tool that relied on them passes them with `--define` (or the app lists them in `preprocessorSymbols`). |
 | `--package-cache DIR` | Same. Repeatable. |
 | `--test-timeout N`, `--test-timeout-secs N` | Seconds. Differences: v3 counts **CPU time** of the test (the load of the machine does not count) and a test that hangs without computing is stopped at 10 times N of wall time. `Sleep` does not wait, but the time it asks for, summed over the test, counts toward N; a test whose Sleep calls go past N gets the same timeout row. Default 20 seconds. `0` means no limit. A test codeunit's `OnRun` trigger has a limit of its own, counted the same way; its time counts toward no test method. An `OnRun` that goes past it is stopped, and every test of the codeunit gets the timeout row (the full reason in `--junit` and `--explain` names the trigger). |
 | `--auto-provision` | Accepted and ignored. v3 always fetches Microsoft's apps from the artifact feed unless `--no-download`. |
@@ -106,14 +106,14 @@ last `{` in column 0 to the end" still works). Null and empty fields are left ou
 | `tests[].notRun` | absent | `true` on a test that did not run | New. v3 refuses what it cannot answer instead of running it. Count these separately. |
 | not-run tests | no such thing in v2 | a row with `status: "error"`, `notRun: true`, `message: "NotRun: out-of-scope: <reason>"` | The prefix `<Type>: out-of-scope: ` is the form LethAL reads as "the runner refused" (not a killed mutant). Treat it as "unknown", not "killed". |
 | timed-out test | row with `Test exceeded <N>s timeout.` | the same sentence, `status: "error"`, `notRun: true`, and `clock`: `virtual` when the test's `Sleep` time passed the limit, `cpu` when its CPU time did | `Sleep` does not wait in v3, so a `virtual` stop takes less real time than the limit names; `durationMs` stays the real time. A `virtual` stop is not evidence that the test hangs on BC. |
-| `OnRun` rows | absent | absent, on every BC version, as Microsoft's Test Runner app reports them (runner codeunit 130450, the way BcContainerHelper and AL-Go run tests; ADR-055, al-runner issue 5859). A test codeunit's `OnRun` trigger runs before its tests but has no row of its own. When `OnRun` raises an error, the codeunit is skipped: it has no rows at all, nothing in the console, JSON or JUnit names it, and the run is not failed by it. This rests on a measurement, not a corpus pin: a pass of a test in a codeunit that declares `OnRun` is a flagged pass (assumption `test-codeunit-onrun-rows`). | Do not expect a row whose method is `OnRun`. A codeunit with no rows may have been skipped because its `OnRun` raised. |
+| `OnRun` rows | absent | absent, on every BC version, as Microsoft's Test Runner app reports them (runner codeunit 130450, the way BcContainerHelper and AL-Go run tests; ADR-055, al-runner issue 5859). A test codeunit's `OnRun` trigger runs before its tests but has no row of its own. When `OnRun` raises an error, the codeunit is skipped: it has no rows at all, nothing in the console, JSON or JUnit names it, and the run is not failed by it. This rests on a measurement, not a corpus test: a pass of a test in a codeunit that declares `OnRun` is a flagged pass (assumption `test-codeunit-onrun-rows`). | Do not expect a row whose method is `OnRun`. A codeunit with no rows may have been skipped because its `OnRun` raised. |
 | `passed`, `failed`, `total`, `wallSeconds` | present | present | none |
 | `errors` | tests that errored | **the tests not run** (the same number as `notRun`) | Read `notRun` for the meaning. |
 | `skipped` | present | always 0 | none |
 | `seed` | present | absent | v3 has no random seed in the document. |
 | `exitCode` | present | present | See section 5. |
 | `warnings` | absent | only when the selection matches no test (exit 6): the document has no rows, all counts 0, and `warnings` says why, as the `serve` summary does | none: v2 wrote the same empty document |
-| `compilationErrors` | present when non-empty | present on exit 3: no rows, every count 0, `[{file, errors[]}]` as in v2 | Exit 3 covers the AL compiler errors the must-not-compile corpus pins, and source of an app under test that AL Runner's parser does not accept (that line has the parser's message and no AL code, `<file>(<line>,<column>): error: <message>`). Other code AL Runner cannot compile becomes `notRun` rows: treat all-rows-`notRun` as "not scorable" too (see LethAL, below). |
+| `compilationErrors` | present when non-empty | present on exit 3: no rows, every count 0, `[{file, errors[]}]` as in v2 | Exit 3 covers the AL compiler errors the corpus has checked against the real compiler, and source of an app under test that AL Runner's parser does not accept (that line has the parser's message and no AL code, `<file>(<line>,<column>): error: <message>`). Other code AL Runner cannot compile becomes `notRun` rows: treat all-rows-`notRun` as "not scorable" too (see LethAL, below). |
 | `executionErrors`, `suiteErrors`, `companyInitFailures` | present when non-empty | absent | none |
 | `codeunit`, `codeunitName`, `method` | absent | present | New. Use them instead of splitting `name`. |
 | `tests[].generatedStubs` | with `--tdd`, on a test that reaches a stub | the same, only on a test that **ran** a stub; plus `tests[].stubbed: true` | The form is v2's: `"<Object>: procedure \"<Name>\"(Arg1: <Type>, ...): <Type>"`, and for declarations `"<Table>: field \"<Name>\": <Type>"`, `"<Enum>: value \"<Name>\""` and `"<kind> \"<Name>\" (id N)"`. `status` is the test's own outcome; a stubbed pass is `pass`. |
@@ -230,7 +230,7 @@ Differences a client must adapt to:
    entry that matches no test gives the same signal on its `entrySummary`, and the request's exit code is 6.
 6. While a run is in progress `cancel` is answered at once. `shutdown` takes effect after the current test (see the
    table). Other requests are queued and run in order, as in v2.
-7. `testIsolation: "test"` means TestIsolation Function (section 3), `"disabled"` runs nothing. `"required"` (not in v2)
+7. `testIsolation: "test"` means TestIsolation Function (section 3), `"disabled"` rolls nothing back (as `--isolation disabled`). `"required"` (not in v2)
    runs each test codeunit under its own `RequiredTestIsolation`, as `--isolation required` does.
 
 ## 5. Exit codes
@@ -240,7 +240,7 @@ Differences a client must adapt to:
 | 0 | all passed | all selected tests passed |
 | 1 | a test failed or errored | a test failed |
 | 2 | bundle could not execute, bad flag | bad invocation or the run could not start |
-| 3 | bundle could not compile, or suite error | the APPs do not compile: an AL compiler error that the must-not-compile corpus pins, or source of an app under test that AL Runner's parser does not accept (no AL code on that line); no test ran (`compilationErrors` in `--output-json`). Other code AL Runner cannot compile gives `notRun` rows and exit 7. |
+| 3 | bundle could not compile, or suite error | the APPs do not compile: an AL compiler error that the corpus has checked against the real compiler, or source of an app under test that AL Runner's parser does not accept (no AL code on that line); no test ran (`compilationErrors` in `--output-json`). Other code AL Runner cannot compile gives `notRun` rows and exit 7. |
 | 6 | `--test` matched nothing | the selection matched nothing |
 | 7 | (none) | some tests were not run. `--allow-not-run` makes it 0. |
 | 8 | (none) | tests were not run because the .NET helper could not be used (a problem of the machine). |
@@ -289,7 +289,7 @@ Changes in LethAL:
    `NotRun: out-of-scope: <reason>`. Also read `notRun: true`. A row with `notRun` is "runner refused", never "killed".
 5. **Timeouts** (`al-runner-backend.ts:79-93`): unchanged sentence. The limit is CPU time in v3.
 6. **Compile failure** (`al-runner-contract.ts` fact `compile-failure-not-scorable`): a mutant that the AL compiler
-   rejects gives exit 3 when the must-not-compile corpus pins the error or AL Runner's parser rejects the source, else rows with `notRun: true`. Score both as "not scorable".
+   rejects gives exit 3 when the corpus has checked that error against the real compiler or AL Runner's parser rejects the source, else rows with `notRun: true`. Score both as "not scorable".
 7. **Assertion screen** (`assertion-screen.ts:36-44, 78-90`): do not depend on `NavNCLDialogException: ` or
    `InvalidOperationException: out-of-scope:`. Messages are the BC text.
 8. **Stderr** (`al-runner-transport.ts:106-210`): see section 7.

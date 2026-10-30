@@ -26,7 +26,9 @@ Commands (not case sensitive): `runTests`, `execute`, `cancel`, `shutdown`.
 
 A `runTests` request carries `sourcePaths`, `packagePaths`, `test`, `excludeTests`,
 `testIsolation`, `coverage`, `perTestCoverage`, `captureValues`, `iterationTracking`,
-`announceStart`, `serverUrl` and `tdd`. `serve --tdd` makes `tdd` the default.
+`announceStart`, `serverUrl`, `tdd`, `runSelectedOnly`, `ignorePermissionMock`,
+`affectedOnly`, `includeFailing`, `strictEnvironment` and `entries` (several runs on
+one compile). `serve --tdd` makes `tdd` the default.
 
 ### Warm state
 

@@ -30,7 +30,7 @@ or an `.app` that carries its source.
 | `--package-cache DIR` | A folder of `.app` files. Repeatable. |
 | `--bc-version V` | A Business Central major, major.minor, or an exact build (four numbers). An exact build also fills Microsoft's `$(app_...)` variables in source archives outside a folder named for their build. |
 | `--no-download` | Never fetch from the artifact feed (apps, `System.app`, demo data). |
-| `--cache-dir DIR` | Where downloads and the compile cache live. Else `$ALRUNNER_CACHE`, else `$XDG_CACHE_HOME/al-runtime`, else `~/.cache/al-runtime`. |
+| `--cache-dir DIR` | Where downloads and the compile cache live. Else `$ALRUNNER_CACHE`, else `$XDG_CACHE_HOME/al-runtime`, else `~/.cache/al-runtime` (on Windows `%USERPROFILE%\.cache\al-runtime`). |
 | `--country CODE` | The Business Central country version (`us`, `gb`, `de`, ...). Default `w1`. See [Test data](test-data.md). |
 | `--define SYMBOL` | A preprocessor symbol for `#if SYMBOL`. Repeatable. `--preprocessor-symbols A,B` names several. Like the AL compiler, AL Runner predefines no symbol (no `CLEANSCHEMA<n>`, no `BC<n>PLUS`). |
 
@@ -114,8 +114,8 @@ See [Writing tests](writing-tests.md#several-versions-and-countries).
 
 | Flag | Effect |
 |---|---|
-| `--verbose` | Setup details first, then one line per test (PASS, FAIL, NOT RUN with reason) with its run time, the test data rows line, and the full `Time:` line. |
-| `--quiet` | Summary only. |
+| `--verbose`, `-v` | Setup details first, then one line per test (PASS, FAIL, NOT RUN with reason) with its run time, the test data rows line, and the full `Time:` line. |
+| `--quiet`, `-q` | Summary only. |
 | `--color auto\|always\|never` | PASS green, FAIL red, NOT RUN yellow, flagged passes cyan. `auto` colors only on a terminal and never when `NO_COLOR` is set. JUnit and JSON are never colored. |
 | `--top-refusals [N]` | The N most common reasons tests were not run (default 10). |
 | `--top-failures [N]` | The N most common failure messages (default 10), numbers and quoted values folded. |
@@ -143,7 +143,7 @@ See [Editor and tool integration](editor-tools.md) for the formats.
 | `--no-test-data` | Run without company data. |
 | `--test-data [PATH]` | Name a backup (`.bak`, `.bacpac`), or insist on test data: a missing backup then stops the run. Write `--test-data=PATH`, or end the name in `.bak` or `.bacpac`, because a bare name after `--test-data` is an APP. |
 | `--test-data-company NAME` | The company to restore (exact name or prefix). Default: the only company, else `CRONUS International Ltd.`. |
-| `--company-data bak\|package` | `bak` (default) restores the CRONUS company of the backup. `package` builds the company from the RapidStart package, the way Microsoft's Legacy test lane does. The other values build Microsoft's demo company; they are experimental and off by default. |
+| `--company-data bak\|package` | `bak` (default) restores the CRONUS company of the backup. `package` builds the company from the RapidStart package, the way Microsoft's Legacy test lane does. The other values (`demotool`, `contoso-setup`, `contoso-all`) build Microsoft's demo company; they are experimental and need `--experimental-company-builds`. |
 | `--package PATH` | The `.rapidstart` file to use. Implies `--company-data package`. |
 | `--disabled-tests DIR` | Microsoft's list of disabled tests (BCApps `src/DisabledTests`, or one app's folder). Those tests still run and are marked `disabled_by_microsoft`. |
 | `--parity` | With `--disabled-tests`: do not run those tests. |
@@ -157,9 +157,9 @@ See [Editor and tool integration](editor-tools.md) for the formats.
 |---|---|
 | `--server-url URL` | The base address that `GetUrl(ClientType::Web)` answers with. Default `http://localhost:8080/BC`, else `$ALRUNNER_SERVER_URL`. |
 | `--environment saas\|onprem` | The server that `Environment Information` describes. Default `saas`. The on-prem values are an unprobed assumption. |
-| `--companies NAMES` | The companies of the database, comma separated, the session company first, or `all` (every company of the restored test data, the session company first). The per-company install code of your apps runs once in each company, then the per-database part runs once. Microsoft's apps stay in the session company: a test that reads one of their per-company tables in another company is not run. Without the flag the run has one company. See [Writing tests](writing-tests.md#companies) and ADR-046. |
+| `--companies NAMES` | The companies of the database, comma separated, the session company first, or `all` (every company of the restored test data, the session company first). The per-company install code of your apps runs once in each company, then the per-database part runs once. Microsoft's apps stay in the session company: a test that reads one of their per-company tables in another company is not run. Without the flag the run has one company. See [Writing tests](writing-tests.md#companies). |
 | `--files-dir DIR` | Let the `File` data type read and write real files under DIR. |
-| `--auto-provision` | Accepted and ignored. Version 3 always downloads unless `--no-download`. |
+| `--auto-provision` | Accepted and ignored. AL Runner always downloads unless `--no-download`. |
 
 ## Test first
 
@@ -201,7 +201,7 @@ Protocol server. See [Editor and tool integration](editor-tools.md#debugging).
 | 7 | Some tests were not run (a refusal). `--allow-not-run` makes this 0. |
 | 8 | Some tests were not run because the .NET helper could not be used (not found, or no .NET 8 runtime). `--allow-not-run` makes this 0. |
 
-Order when several apply: 2, 6, 1, 8, 7. Exit code 3 means no test ran; the errors are on stderr and in `compilationErrors` of `--output-json`. The check covers the AL compiler errors that the must-not-compile corpus pins, not all of them. Source of an app under test that the parser does not accept also exits 3; that line has the parser's message and no AL code. A dependency app's file the parser does not accept is not judged: the tests that need it are not run (exit 7). An impact run has its own codes; see
+Order when several apply: 2, 6, 1, 8, 7. Exit code 3 means no test ran; the errors are on stderr and in `compilationErrors` of `--output-json`. The check covers the AL compiler errors that the corpus has checked against the real compiler, not all of them. Source of an app under test that the parser does not accept also exits 3; that line has the parser's message and no AL code. A dependency app's file the parser does not accept is not judged: the tests that need it are not run (exit 7). An impact run has its own codes; see
 [Impact analysis](impact.md).
 
 ## Environment variables

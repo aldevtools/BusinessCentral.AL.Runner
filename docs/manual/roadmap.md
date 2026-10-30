@@ -18,11 +18,10 @@ issue exists, open one (see [Reporting a problem](feedback.md)).
 These are understood, but they wait for more user demand. Tests that need them are
 reported as not run, with the reason.
 
-- **App translations under another language**
-  ([issue 5772](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/5772)).
-  AL Runner does not apply an app's own `Translations/*.xlf` files. After a test
-  switches `GlobalLanguage` away from English (1033), a read whose text a translation
-  could change, such as `Format` of an enum value or a label, is refused.
+- **App translations from packages.** The `Translations/*.xlf` files of an app folder
+  are applied after a test switches `GlobalLanguage` away from English (1033): labels,
+  enum value captions and field captions. The translation files inside a package (`.app` or source
+  archive), and the reads not built yet, are still refused.
 - **`Image.Resize` of the System Application**
   ([issue 5590](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/5590)).
   Tests that resize an image are refused.
@@ -33,8 +32,8 @@ reported as not run, with the reason.
 - **Test handlers (BC 29)**
   (ADR-059). Codeunits with `TestHandlers` are not run. Planned: a "skipped" result
   for tests that a handler skips.
-- **License-backed permissions** (ADR-060, planned). Today `License Permission`
-  answers from a few pinned rows and one assumption for the rest. Planned: read the
+- **License-backed permissions** (ADR-060, planned). Today `License Permission` answers from a
+  few rows measured on real Business Central and one assumption for the rest. Planned: read the
   rows from a Business Central license file, by default the one in the artifact, and
   a `--license FILE` flag for a developer, partner or customer license. The flag does
   not exist yet. Permissions stay unenforced; enforcement is a later step.
@@ -59,7 +58,7 @@ that runs those checks. Until they can, their tests are not run:
 
 ## Not available yet
 
-These features of version 2 do not exist in version 3 yet:
+These features of version 2 do not exist in this version yet:
 
 - Finding the app by climbing up from any folder below an `app.json`. Today a folder
   without an `app.json` is an error.
@@ -72,8 +71,9 @@ These features of version 2 do not exist in version 3 yet:
   8 into 0.
 - A note under a failure that names a test-data table that is empty, or the real
   error behind "The TestPage is not open."
-- Signed binaries. Releases carry `SHA256SUMS` and build provenance attestations.
-- Builds for platforms other than Linux x64, Windows x64 and macOS arm64.
+- Signed macOS and Linux binaries. The Windows binary is signed. Every release carries
+  `SHA256SUMS` and build provenance attestations.
+- Builds for platforms other than Linux x64, Linux arm64, Windows x64 and macOS arm64.
 
 ## Decided against
 

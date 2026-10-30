@@ -139,7 +139,7 @@ What each value of `RequiredTestIsolation` does in this mode:
   in object id order).
 - `Codeunit`, or no property: as `--isolation codeunit`.
 
-Some cases are not pinned yet. Their tests are reported as not run, with the
+Some cases are not measured on real Business Central yet. Their tests are reported as not run, with the
 reason:
 
 - a codeunit with `Function` or `Disabled` that has handler functions or an
@@ -257,8 +257,8 @@ With `--companies`, the run behaves like Business Central with several companies
 - `all` means every company of the restored test data, the session company first.
   Without test data it gives only the session company, as the default does.
 - Microsoft's apps stay in the session company. A test that reads one of their
-  per-company tables in another company is not run, with the reason, except for the
-  few setup tables that the corpus shows are empty there.
+  per-company tables in another company is not run, with the reason, except for a
+  few setup tables that are known to be empty there on Business Central.
 
 Use the default for most work. Use `--companies` when your install or event code
 depends on how many companies exist.
