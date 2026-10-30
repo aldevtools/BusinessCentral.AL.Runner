@@ -4,6 +4,48 @@ impl Session {
     /// The value a control shows: its binding, read now.
     pub(super) fn control_value(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
         let engine = self.engine();
+        // A page variable, or an element of a page array variable (`Control::array_element`), which shows as a plain page
+        // variable does (al-runner issue 6379).
+        if let Some((slot, owner, element)) = Self::control_var(page_of(&engine, st), idx) {
+            // A control of a list's repeater over a page variable: BC's client shows the value the variable had when
+            // OnAfterGetRecord ran for the row it stands on (each row keeps its own); the runtime keeps one value. A
+            // read on a row other than the one OnAfterGetRecord ran with last is refused (per-row values not
+            // modelled; Tests-ERM 134760 Empl. Ledger Entries Preview AmountFCY after First()). A row OnAfterGetRecord
+            // never ran with (a new row the test typed) shows what the variable holds.
+            if self.in_repeater(st, idx)
+                && self.declares(st, "onaftergetrecord")
+                && st.borrow().cursor == Cursor::Row
+                && !st.borrow().draft
+            {
+                let rec = self.page_rec(st);
+                let key = self.row_key(&rec)?;
+                let s = st.borrow();
+                let ran_for_it = s.agr_rows.iter().any(|k| Self::same_key(k, &key));
+                let last = s.agr_row.as_ref().is_some_and(|k| Self::same_key(k, &key));
+                drop(s);
+                // A row other than the one OnAfterGetRecord ran with last shows what the variable held for it (pages/
+                // lt-qi-row-page-var/QiRowPageVar.al:312 QI_RV_Part_Navigation `after-action = 2 | agr 2 | cur 2`); the row
+                // OnAfterGetRecord ran with last shows the variable as it is, as before.
+                if ran_for_it && !last {
+                    let s = st.borrow();
+                    let shown = s
+                        .row_vars
+                        .iter()
+                        .find(|(k, _)| Self::same_key(k, &key))
+                        .and_then(|(_, v)| v.iter().find(|(c, _)| *c == idx).map(|(_, v)| v.clone()));
+                    drop(s);
+                    return match shown {
+                        Some(v) => Ok(v),
+                        None => unsupported(
+                            "a page-variable control of a list row other than the one OnAfterGetRecord ran with last, with no value noted for that row (not pinned)",
+                        ),
+                    };
+                }
+            }
+            let inst = self.owner_instance(st, owner);
+            let v = Self::var_or_element(&inst.borrow().globals[slot], element);
+            return Ok(v);
+        }
         match page_of(&engine, st).controls[idx].binding.clone() {
             ir::Binding::Field(pos) => {
                 if st.borrow().stale {
@@ -18,53 +60,30 @@ impl Session {
                 }
                 Ok(v)
             }
-            b @ (ir::Binding::Var(_) | ir::Binding::BaseVar(_)) => {
-                let (slot, owner) = b
-                    .var_slot(page_of(&engine, st).controls[idx].owner)
-                    .expect("a variable binding");
-                // A control of a list's repeater over a page variable: BC's client shows the value the variable had when
-                // OnAfterGetRecord ran for the row it stands on (each row keeps its own); the runtime keeps one value. A
-                // read on a row other than the one OnAfterGetRecord ran with last is refused (per-row values not
-                // modelled; Tests-ERM 134760 Empl. Ledger Entries Preview AmountFCY after First()). A row OnAfterGetRecord
-                // never ran with (a new row the test typed) shows what the variable holds.
-                if self.in_repeater(st, idx)
-                    && self.declares(st, "onaftergetrecord")
-                    && st.borrow().cursor == Cursor::Row
-                    && !st.borrow().draft
-                {
-                    let rec = self.page_rec(st);
-                    let key = self.row_key(&rec)?;
-                    let s = st.borrow();
-                    let ran_for_it = s.agr_rows.iter().any(|k| Self::same_key(k, &key));
-                    let last = s.agr_row.as_ref().is_some_and(|k| Self::same_key(k, &key));
-                    drop(s);
-                    // A row other than the one OnAfterGetRecord ran with last shows what the variable held for it (pages/
-                    // lt-qi-row-page-var/QiRowPageVar.al:312 QI_RV_Part_Navigation `after-action = 2 | agr 2 | cur 2`); the row
-                    // OnAfterGetRecord ran with last shows the variable as it is, as before.
-                    if ran_for_it && !last {
-                        let s = st.borrow();
-                        let shown = s
-                            .row_vars
-                            .iter()
-                            .find(|(k, _)| Self::same_key(k, &key))
-                            .and_then(|(_, v)| v.iter().find(|(c, _)| *c == idx).map(|(_, v)| v.clone()));
-                        drop(s);
-                        return match shown {
-                            Some(v) => Ok(v),
-                            None => unsupported(
-                                "a page-variable control of a list row other than the one OnAfterGetRecord ran with last, with no value noted for that row (not pinned)",
-                            ),
-                        };
-                    }
-                }
-                let inst = self.owner_instance(st, owner);
-                let v = inst.borrow().globals[slot].clone();
-                Ok(v)
-            }
+            ir::Binding::Var(_) | ir::Binding::BaseVar(_) => unreachable!("read above as a page variable"),
             ir::Binding::Expr(r) => self.shown_value(st, idx, |s| s.control_routine(st, idx, r)),
             // A label shows its caption (handlers/TestPageLabelControlContracts.al:Label_IsATestPageMember_WithItsCaption).
             ir::Binding::Caption => Ok(Value::Text(self.control_caption(st, idx)?.into())),
             ir::Binding::None => unsupported("a control without a source"),
+        }
+    }
+
+    /// The page variable control `idx` shows: its slot among the globals, the owner whose instance holds it, and for an
+    /// element of a page array (`Control::array_element`) the element's 0-based position.
+    pub(super) fn control_var(page: &ir::Page, idx: usize) -> Option<(usize, Option<usize>, Option<usize>)> {
+        let c = &page.controls[idx];
+        match &c.binding {
+            b @ (ir::Binding::Var(_) | ir::Binding::BaseVar(_)) => b.var_slot(c.owner).map(|(s, o)| (s, o, None)),
+            ir::Binding::Expr(_) => c.array_element.map(|(s, i)| (s, c.owner, Some(i))),
+            _ => None,
+        }
+    }
+
+    /// A page variable's value, or the element `element` of it (an array).
+    pub(super) fn var_or_element(v: &Value, element: Option<usize>) -> Value {
+        match (element, v) {
+            (Some(i), Value::Array(a)) => a.borrow().get(i).cloned().unwrap_or(Value::Null),
+            _ => v.clone(),
         }
     }
 
