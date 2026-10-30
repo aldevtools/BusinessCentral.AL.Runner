@@ -1334,6 +1334,11 @@ fn rfc1123(t: &str) -> Option<Parsed> {
     Some(Parsed::Value(Value::DateTime(v)))
 }
 
+/// A TAB, two TABs or one space: the texts Evaluate reads as an empty Date and shows as `""` in a Boolean's error.
+fn is_blank_tabs(text: &str) -> bool {
+    matches!(text, "\t" | "\t\t" | " ")
+}
+
 /// The value of a Date or a Guid in the form `Evaluate` reads it (and `Format` writes it), for a reader that has no
 /// variable to evaluate into: `None` for any other type, a text that is no such value, or a form not pinned.
 pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
@@ -1957,6 +1962,13 @@ fn evaluate_with_max(
         Value::Byte(_) | Value::Char(_) if number == 0 => byte_or_char(&a[0], &text)?,
         // Every number but 9 reads a Date as the default does (types/lt-datetime/Evaluate.al:Date_Other_Formats `fmt 1` to `fmt 8`,
         // `fmt 10`, `fmt -1`; errors/lt-ms-refusals-130/P130EvaluateDate.al:P130_EvaluateDate_EveryFormat_*).
+        // Evaluate reads a TAB, two TABs and one space as the empty date (corpus master, corpus PR 871:
+        // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date; assumption evaluate-blank-tabs awaits the bump). Pinned for
+        // Evaluate only: `read_text` and the other readers of `date` do not take it.
+        Value::Date(..) if number != 9 && is_blank_tabs(&text) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
+            Parsed::Value(Value::Date(0, false))
+        }
         Value::Date(..) => date(
             &text,
             if number == 9 { 9 } else { 0 },
@@ -2201,6 +2213,15 @@ fn evaluate_with_max(
                 Value::DateTime(_) => "DateTime",
                 _ => "Boolean",
             };
+            // A Boolean's error shows a TAB, two TABs or a space as the empty value `""` (corpus master, corpus PR 871:
+            // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Boolean; assumption evaluate-blank-tabs awaits the bump).
+            // Integer and Decimal show them as written (NP4_Evaluate_Tab_Integer, _Decimal).
+            let text = if ty == "Boolean" && is_blank_tabs(&text) {
+                crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
+                String::new()
+            } else {
+                text.to_string()
+            };
             // In German the text is pinned for Decimal only (types/lt-evaluate-decimal-text/EvalDecimalDe.al:
             // P175_De_StatementErrorText, P175_De_Format9StatementErrorText).
             match (c.session_locale().map(|l| l.0), ty) {
@@ -2276,6 +2297,27 @@ fn evaluate_with_max(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Corpus master (corpus PR 871) misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date: a TAB, two TABs and a space read as
+    /// the empty date in format 0.
+    #[test]
+    fn tabs_and_a_space_read_as_the_empty_date() {
+        for t in ["\t", "\t\t", " "] {
+            assert!(is_blank_tabs(t), "{t:?}");
+        }
+    }
+
+    /// The TAB rule is pinned for Evaluate only: `date` and `read_text` do not read a TAB or a space as the empty date.
+    #[test]
+    fn a_reader_other_than_evaluate_does_not_read_tabs_as_the_empty_date() {
+        for t in ["\t", "\t\t", " "] {
+            assert!(
+                !matches!(date(t, 0, None, None, false), Ok(Parsed::Value(Value::Date(0, false)))),
+                "{t:?}"
+            );
+            assert!(read_text(&crate::value::RtType::Date, t).is_none(), "{t:?}");
+        }
+    }
 
     /// types/lt-datetime/Evaluate.al:209,233 Time_Format9: `13:45:06.1234` with format 9 is 13:45:06.123; a fourth digit of 5 or
     /// more and longer fractions are refused (rounding not pinned).
