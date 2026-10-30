@@ -2528,7 +2528,8 @@ codeunit 50000 "T" { Subtype = Test;
 /// finds a row with Read, Insert, Modify, Delete and Execute `Yes`; Codeunit 0 a row with every permission blank. Pins
 /// (corpus branch al-runtime-rs-staging-uq at d651ec93, bump PR 809): platform/lt-ag-contoso/AgLicensePermission.al
 /// LicensePermission_ByKey_CustomerAndIsvRanges. Other Report, Codeunit and Page numbers are assumed
-/// (`license-permission-any-object`); another Table number and a negative number are not pinned and stay refused.
+/// (`license-permission-any-object`), and since the issue's follow-up other Table numbers too; a negative number and other
+/// numbers of TableData, XMLport, Query and System are not pinned and stay refused.
 const ISSUE_6214_OBJECTS: &str = "
 codeunit 50000 \"T\" {
     Subtype = Test;
@@ -2569,7 +2570,16 @@ codeunit 50000 \"T\" {
     var
         ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
     begin
-        Describe(ObjType::Table, 70012345);
+        if Describe(ObjType::Table, 70000456) <> 'R=Yes I=Yes M=Yes D=Yes X=Yes' then
+            Error('got %1', Describe(ObjType::Table, 70000456));
+    end;
+
+    [Test]
+    procedure OtherXmlPortNumber()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::XMLport, 70012345);
     end;
 
     [Test]
@@ -2586,10 +2596,15 @@ fn issue_6214_license_permission_of_any_object_number() {
     let o = outcomes(ISSUE_6214_OBJECTS);
     passes(&o, "IsvAndCustomerRanges");
     passes(&o, "OtherNumberOfTheIsvRange");
-    for t in ["NegativeNumber", "OtherTableNumber"] {
+    // al-runner issue 6214 follow-up: a Table number is assumed on the same evidence as a Codeunit (Table 18, 50000 and
+    // 70000123 are pinned rows with every permission Yes).
+    passes(&o, "OtherTableNumber");
+    for t in ["NegativeNumber", "OtherXmlPortNumber"] {
         let why = not_run(&o, t);
         assert!(why.contains("License Permission"), "{t}: {why}");
     }
+    // The refusal names the types whose other numbers are assumed.
+    assert!(not_run(&o, "OtherXmlPortNumber").contains("Table, Report, Codeunit and Page"), "{o:?}");
 }
 
 /// Issue 6218: a lookup by `ID` of a Windows time zone finds one row, also for a zone outside the runtime's default rows;

@@ -869,9 +869,11 @@ const LICENSE_ROWS_UQ: &[(i32, i32, i32)] = &[
     (5, 0, 0),
 ];
 
-/// The object types whose other numbers are assumed to be rows: Report, Codeunit and Page. For TableData, Table, XMLport,
-/// Query and System only the rows above are served; another number of those types is refused (not pinned).
-const LICENSE_TYPES: &[i64] = &[3, 5, 8];
+/// The object types whose other numbers are assumed to be rows: Table, Report, Codeunit and Page. Table joined on the same
+/// evidence as Codeunit: every pinned Table row (18, 50000, 70000123) has every permission `Yes` (al-runner issue 6214
+/// follow-up: an install routine checks `HasExecutePermission(ObjType::Table, ...)` of the app's own tables). For TableData,
+/// XMLport, Query and System only the rows above are served; another number of those types is refused (not pinned).
+const LICENSE_TYPES: &[i64] = &[1, 3, 5, 8];
 
 fn license_known(t: &TableDef, object_type: i64, number: i64) -> Option<Row> {
     if let Some(&(ot, n, p)) = LICENSE_ROWS
@@ -883,8 +885,8 @@ fn license_known(t: &TableDef, object_type: i64, number: i64) -> Option<Row> {
     let uq = LICENSE_ROWS_UQ
         .iter()
         .find(|(ot, n, _)| i64::from(*ot) == object_type && i64::from(*n) == number);
-    // Every other Report, Codeunit or Page numbered 1 to 2000000000 is assumed to be a row with every permission `Yes`, as
-    // each pinned row of such a number is (al-runner issue 6214). Other numbers of TableData, Table, XMLport, Query and
+    // Every other Table, Report, Codeunit or Page numbered 1 to 2000000000 is assumed to be a row with every permission `Yes`,
+    // as each pinned row of such a number is (al-runner issue 6214). Other numbers of TableData, XMLport, Query and
     // System, number 0 of another type than TableData and Codeunit, and a negative number are not pinned and stay refused.
     let (ot, n, p) = match uq {
         Some(&row) => row,
@@ -907,7 +909,7 @@ fn license_num(v: &Value) -> Option<i64> {
 
 fn license_unpinned(object_type: i64, number: i64) -> StoreError {
     refused(format!(
-        "License Permission: whether object type {object_type} number {number} is a row is not pinned (only the rows platform/lt-platform-tables/PtCloudTables.al and platform/lt-ag-contoso/AgLicensePermission.al read are, and numbers from 1 to 2000000000 are assumed)"
+        "License Permission: whether object type {object_type} number {number} is a row is not pinned (only the rows platform/lt-platform-tables/PtCloudTables.al and platform/lt-ag-contoso/AgLicensePermission.al read are, and numbers from 1 to 2000000000 are assumed for Table, Report, Codeunit and Page)"
     ))
 }
 
