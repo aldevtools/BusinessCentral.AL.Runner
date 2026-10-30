@@ -1,2 +1,6 @@
 # Corpus cases the runtime passes. CI fails if any of these stops passing.
 # Regenerate with `al-test-cli --update-baseline`; never edit by hand to hide a regression.
+81552 BiTpEnv_AppArea1_Set
+81552 BiTpEnv_AppArea2_SeenByNextTest
+81552 BiTpEnv_InstalledFrameworkCodeunits
+81564 BiIp_RequiredPermissionsRaise
