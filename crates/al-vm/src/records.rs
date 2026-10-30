@@ -1465,6 +1465,9 @@ impl Session {
         if let Some(why) = rv.unpinned {
             return Err(why);
         }
+        if rv.assumed_send {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RowVersionSentByMoreReads);
+        }
         if rv.handed_out != rv.accounted {
             return Err("row versions handed out by a write other than an Insert or a Modify");
         }
@@ -3391,7 +3394,7 @@ impl Session {
                 _ => false,
             };
             if more && own_pending() {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RowVersionSentByMoreReads);
+                self.tx.row_versions.assumed_send = true;
             }
             self.note_read_for_row_versions(
                 t.object,
