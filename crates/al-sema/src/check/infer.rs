@@ -899,6 +899,13 @@ impl<'a> Checker<'a> {
                 if char_and_one_char_literal(&op, kids.as_slice(), &l, &r, &ty_at) {
                     return E::Val(Ty::Integer);
                 }
+                if crate::check::integer_and_one_char_literal(&op, kids.as_slice(), &l, &r) {
+                    return E::Val(if matches!(op.as_str(), "+" | "-") {
+                        Ty::Integer
+                    } else {
+                        Ty::Boolean
+                    });
+                }
                 E::Val(binary_ty(&op, &l, &r))
             }
             TernaryExpr => {
