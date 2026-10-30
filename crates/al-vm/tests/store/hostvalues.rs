@@ -1309,3 +1309,49 @@ fn randomize_with_a_seed_carries_over_to_the_next_test_for_every_run_seed() {
         );
     }
 }
+
+// platform/lt-system-database-members/GetUrlBookmarkEnumKey.al:80-170: the bookmark of a key of an Enum or Option field and a
+// Code[20] field: the first field as 0x00 0x8b and the enum's value (the option's ordinal) in four bytes, an empty Code after it
+// as nothing.
+#[test]
+fn geturl_bookmarks_a_key_of_an_enum_or_option_and_a_code() {
+    let src = r#"
+enum 91260 "LT SC Url Kind" { value(0; First) { } value(1; Second) { } value(5; Fifth) { } }
+table 91261 "LT SC Url Enum Row" { fields { field(1; Kind; Enum "LT SC Url Kind") { } field(2; Code; Code[20]) { } } keys { key(PK; Kind, Code) { } } }
+table 91262 "LT SC Url Option Row" { fields { field(1; Kind; Option) { OptionMembers = First,Second,Fifth; } field(2; Code; Code[20]) { } } keys { key(PK; Kind, Code) { } } }
+table 91265 "LT SC Url Enum Only" { fields { field(1; Kind; Enum "LT SC Url Kind") { } } keys { key(PK; Kind) { } } }
+codeunit 50100 C
+{
+    local procedure Tail(Url: Text): Text begin exit(CopyStr(Url, StrPos(Url, 'bookmark='))); end;
+    procedure E(): Text
+    var Row: Record "LT SC Url Enum Row"; R: Text;
+    begin
+        Row.Kind := Row.Kind::First; Row.Code := 'A1';
+        R := Tail(GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false));
+        Row.Kind := Row.Kind::Fifth; Row.Code := '';
+        exit(R + ' ' + Tail(GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false)));
+    end;
+    procedure O(): Text
+    var Row: Record "LT SC Url Option Row";
+    begin
+        Row.Kind := Row.Kind::Fifth; Row.Code := 'A1';
+        exit(Tail(GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false)));
+    end;
+    procedure Only(): Text
+    var Row: Record "LT SC Url Enum Only";
+    begin
+        exit(Tail(GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false)));
+    end;
+}
+"#;
+    assert_eq!(
+        al_testkit::text(al_testkit::run(src, "E")),
+        "bookmark=21%3bfWQBAACLAAAAAAJ7%2f0EAMQ%3d%3d bookmark=17%3bfWQBAACLBQAAAAJ7"
+    );
+    assert_eq!(
+        al_testkit::text(al_testkit::run(src, "O")),
+        "bookmark=21%3bfmQBAACLAgAAAAJ7%2f0EAMQ%3d%3d"
+    );
+    // An enum as the only key field is not pinned.
+    assert!(matches!(al_testkit::run(src, "Only"), Err(Signal::Unsupported(_))));
+}
