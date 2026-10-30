@@ -165,7 +165,7 @@ fn test_handlers_refusal(lowered: &Lowered, object: usize) -> Option<String> {
         .iter()
         .any(|(k, _)| k.eq_ignore_ascii_case("TestHandlers"))
     {
-        return Some("a test codeunit with TestHandlers (BC 29 ITestHandler callbacks) is not supported yet".into());
+        return Some("a test codeunit with TestHandlers (ITestHandler callbacks) is not supported yet".into());
     }
     let default_handler = lowered
         .program
@@ -174,7 +174,7 @@ fn test_handlers_refusal(lowered: &Lowered, object: usize) -> Option<String> {
         .iter()
         // The heads only: reading every object would decode all of a lazy compile.
         .any(|o| o.kind == al_ir::ObjKind::EnumExtension && o.extends_id == Some(2000000024));
-    default_handler.then(|| "an extension of the enum DefaultTestHandler (BC 29 ITestHandler callbacks for every test codeunit) is not supported yet".into())
+    default_handler.then(|| "an extension of the enum DefaultTestHandler (ITestHandler callbacks for every test codeunit) is not supported yet".into())
 }
 
 /// The data-driven tests of a codeunit: procedures with `[TestDataSource(Codeunit, DataSet)]`. BC runs each once per
