@@ -92,6 +92,10 @@ pub const MEDIA_SET_FILE_REENCODED: &str = "MediaSet.ExportFile";
 /// does not pin (`Gate::DocxMediaRezippedFrom29`).
 pub const MEDIA_DOCX_REZIPPED: &str = "Media.ImportFile of a .docx";
 
+/// The mark on the Tenant Media Content of an imported PNG: BC stores the picture re-encoded (the Guided Experience Icon an
+/// app's logo is imported into, onprem session/UsAppLogo.al:7; an exported PNG, types/W7Media.al:141-145), bytes not pinned.
+pub const MEDIA_PNG_STORED_REENCODED: &str = "the Tenant Media Content of an imported PNG";
+
 /// The mark on the Tenant Media Content of a .jpg file holding a PNG (`media::jpg_holding_png`): BC re-encodes it.
 pub const MEDIA_JPG_HOLDING_PNG: &str = "Media.ImportFile of a .jpg holding a PNG";
 
@@ -199,6 +203,12 @@ pub fn render_pending_error(report: &str) -> Signal {
     if report == MEDIA_REENCODED {
         return Signal::Unsupported(
             "the bytes Media.ExportStream gives on a major that re-encodes an imported PNG (not pinned)".into(),
+        );
+    }
+    if report == MEDIA_PNG_STORED_REENCODED {
+        return Signal::Unsupported(
+            "the stored Tenant Media content of an imported PNG (BC re-encodes it; UsAppLogo.al and W7Media.al do not pin the bytes)"
+                .into(),
         );
     }
     if report == MEDIA_JPG_HOLDING_PNG {
@@ -788,6 +798,11 @@ fn blob_has_value(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> 
     let b = blob_of(r)?;
     let buf = b.borrow();
     if buf.render_pending.as_deref() == Some(QUERY_METADATA) {
+        return Ok(Value::Boolean(true));
+    }
+    // The stored content of an imported PNG has a value (platform/W6TenantMedia.al:95-104,
+    // onprem media/MediaFiles.al:145-146 `hascontent=Yes`); its bytes are not pinned.
+    if buf.render_pending.as_deref() == Some(MEDIA_PNG_STORED_REENCODED) {
         return Ok(Value::Boolean(true));
     }
     // Content carried unread in the company build is never empty (Temp Blob.FromFieldRef asks, TempBlobImpl.Codeunit.al:76).
