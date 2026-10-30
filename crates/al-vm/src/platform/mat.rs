@@ -88,6 +88,16 @@ pub(crate) fn single_value(e: &al_builtins::filter::FilterExpr) -> bool {
     }
 }
 
+/// The value a filter of a single value ([`single_value`]) keeps; `None` for any other filter.
+pub(crate) fn single_value_of(e: &al_builtins::filter::FilterExpr) -> Option<Value> {
+    use al_builtins::filter::FilterExpr;
+    match e {
+        FilterExpr::Eq(v) => Some(v.clone()),
+        FilterExpr::Range(Some(a), Some(_)) if single_value(e) => Some(a.clone()),
+        _ => None,
+    }
+}
+
 /// All rows of one table, sorted by primary key.
 pub(crate) struct Mat {
     rows: Vec<Row>,

@@ -156,11 +156,11 @@ registry! {
         probe: "Pinned on corpus master by install/lt-ug-install-trigger-setup/UgInstallTests.al (corpus PR 805), but the runtime does not run TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart and PerDatabasePart_IsEmptyOfPerCompanyTable_NoCompany yet (the per-database install routine reads GetLastErrorCode of an error whose text is not pinned): run them, then retire.",
     },
 
-    PublishedApplicationLogoBlankWithoutManifestLogo => {
-        id: "published-application-logo-blank-without-manifest-logo",
-        assumed: "The Logo (column 20) of the Published Application row of an app whose app.json declares no logo is blank (no value, null MediaId, no Media row). The Logo of any other app (Microsoft's apps, an app that declares a logo, an app whose manifest was not read) stays refused: its content is not pinned.",
+    PublishedApplicationLogoIsTheLogoFile => {
+        id: "published-application-logo-is-the-logo-file",
+        assumed: "The Logo (column 20) of the Published Application row of an app whose manifest declares a PNG logo (app.json `logo`, NavxManifest.xml `Logo` of a package) is a media with a value and the same id on every read, whose Media row holds the logo file's bytes unchanged, Mime Type image/png, the picture's Height and Width, Description, Company Name, Expiration Date, File Name, Security Token and Creating User empty and Prohibit Cache No. An app whose manifest declares no logo has a blank Logo (no value, null MediaId, no Media row; pinned by onprem session/PZPublishedApplicationColumns.al:162-163). A logo that is no PNG and an app whose manifest was not read stay refused.",
         tests: "No Microsoft test: an outside report (Company-Initialize reaches Guided Experience Impl.GetIconInStream for the apps that register assisted setup entries; it runs on the reporter's real-BC run).",
-        probe: "Pinned on corpus master by onprem session/PZPublishedApplicationColumns.al Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps (corpus PR 805), but the runtime does not run it yet (the Logo of Microsoft's apps is not pinned): run it, then retire. Still wanted: an app with a logo in app.json, and whether the Media content is the logo file's bytes.",
+        probe: "Pinned on corpus master by onprem session/UsAppLogo.al UsLogo_TinyPng_AppD and UsLogo_BigPng_AppC (corpus PR 816), not yet in the submodule pin: retire when the pin includes them. The Guided Experience Icon bytes (BC re-encodes the PNG) are not pinned and stay refused.",
     },
     ReportLayoutListBuiltInNotUserDefined => {
         id: "report-layout-list-built-in-not-user-defined",

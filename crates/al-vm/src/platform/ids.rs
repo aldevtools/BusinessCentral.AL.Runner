@@ -12,6 +12,14 @@ pub(crate) fn package_id(app: [u8; 16]) -> [u8; 16] {
     al_builtins::moduleinfo::package_id_of(app)
 }
 
+/// The Media id of an app's logo (Published Application's Logo): not null, the same on every read
+/// (onprem session/UsAppLogo.al:93-96), and one per app. Its value is not pinned.
+pub(crate) fn logo_media_id(app: [u8; 16]) -> [u8; 16] {
+    let mut salted = package_id(app);
+    salted[14] ^= 0x4c;
+    package_id(salted)
+}
+
 /// The runtime package id of an app: its package id for the app under test, another one for a dependency app (Base
 /// Application), as AllObj reports it for the app's objects and Published Application lists it
 /// (metadata/W6AllObj.al:AllObj_PackageIds_ThisApp_BaseApp_Platform).

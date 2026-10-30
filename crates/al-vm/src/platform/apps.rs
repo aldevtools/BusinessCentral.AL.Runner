@@ -65,21 +65,57 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
             // Description holds the manifest's description (onprem session/PZPublishedApplicationColumns.al:55, :59);
             // the program does not keep it (`AppInfo`), so the column is unknown rather than a blank Blob.
             r[pos(t, 15)] = super::unknown(t, 15, "an app: the runtime does not keep the manifest's description");
-            // Logo (20): blank (null MediaId, no Media row) for an app whose app.json declares no logo (corpus branch
-            // al-runtime-rs-staging-ug eff7eb2a, onprem session/PZPublishedApplicationColumns.al
-            // Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps; assumption
-            // published-application-logo-blank-without-manifest-logo until the bump). Microsoft's apps have a logo whose
-            // content the corpus pins only as present, and an app that declares one is not pinned: unknown.
-            if a.logo != Some(false) {
-                let whose = match a.logo {
-                    Some(_) => format!("app '{}', whose app.json declares a logo (its content is not pinned)", a.name),
-                    None => format!(
-                        "app '{}': its manifest was not read, and an app with a logo (Microsoft's apps) has content the corpus does not pin",
+            // Logo (20): blank (null MediaId, no Media row) for an app whose app.json declares no logo (onprem
+            // session/PZPublishedApplicationColumns.al:162-163). An app whose manifest declares a PNG logo has a media with a
+            // value whose Media row holds the file's bytes ([`logo_media_rows`]; onprem session/UsAppLogo.al:79-148, corpus PR
+            // 816; assumption published-application-logo-is-the-logo-file until the pin includes it).
+            // A logo that is no PNG and an app whose manifest was not read are not pinned: unknown.
+            match &a.logo {
+                Some(al_ir::AppLogo::None) => {}
+                Some(al_ir::AppLogo::File(bytes)) if al_builtins::media::png_size(bytes).is_some() => {
+                    r[pos(t, 20)] = Value::Guid(ids::logo_media_id(id));
+                }
+                Some(al_ir::AppLogo::File(_)) => {
+                    let whose = format!(
+                        "app '{}', whose logo is no PNG (the Media row of another picture format is not pinned)",
                         a.name
-                    ),
-                };
-                r[pos(t, 20)] = super::unknown(t, 20, &whose);
+                    );
+                    r[pos(t, 20)] = super::unknown(t, 20, &whose);
+                }
+                None => {
+                    let whose = format!("app '{}': its manifest's logo was not read", a.name);
+                    r[pos(t, 20)] = super::unknown(t, 20, &whose);
+                }
             }
+            Some(Entry::ok(r))
+        })
+        .collect()
+}
+
+/// Media (2000000181): one row per app whose manifest declares a PNG logo, under the id its Published Application Logo
+/// holds. The row holds the logo file's bytes unchanged, `image/png`, the picture's height and width, and every other
+/// column empty (Description, Company Name, Expiration Date, File Name, Security Token, Creating User; Prohibit Cache No):
+/// onprem session/UsAppLogo.al:110-116 (a 1 x 1 PNG of 67 bytes) and :140-145 (a 300 x 300 PNG of 90393 bytes, same SHA-256).
+pub(super) fn logo_media_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
+    let field = |name: &str| t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name));
+    p.engine()
+        .program
+        .apps
+        .iter()
+        .filter_map(|a| {
+            let id = al_builtins::ops::parse_guid(&a.id)?;
+            let Some(al_ir::AppLogo::File(bytes)) = &a.logo else {
+                return None;
+            };
+            let (width, height) = al_builtins::media::png_size(bytes)?;
+            let mut r = blank(t);
+            r[pos(t, 1)] = Value::Guid(ids::logo_media_id(id));
+            let blob = al_builtins::stream::new_blob();
+            al_builtins::stream::write_bytes(&blob, bytes);
+            r[field("Content")?] = Value::Blob(blob);
+            r[field("Mime Type")?] = Value::Text("image/png".into());
+            r[field("Height")?] = Value::Integer(height);
+            r[field("Width")?] = Value::Integer(width);
             Some(Entry::ok(r))
         })
         .collect()

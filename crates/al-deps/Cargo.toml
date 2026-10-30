@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+al-ir.workspace = true
 al-sema.workspace = true
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 crc32fast = "1"
