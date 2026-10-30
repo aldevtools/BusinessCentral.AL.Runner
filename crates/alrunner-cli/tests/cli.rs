@@ -2572,3 +2572,152 @@ fn duplicate_ids_exit_values_and_missing_arguments_stop_the_run() {
         text(&o)
     );
 }
+
+/// ADR-058: `--stability microsoft` runs the tests once per variant over one compile and reports the tests whose
+/// outcome changes: an order-dependent test flips under "each test alone" and "reverse order", a test that needs the
+/// work date to be today flips under "work date plus one year". A flip is exit 1; `--stability-allow-flips` keeps 0.
+#[test]
+fn stability_mode_reports_order_and_date_dependent_tests() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("stab");
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005800", "Stability", &[]),
+    );
+    write(
+        &dir,
+        "src/Tests.al",
+        "codeunit 50800 \"Stability Tests\"\n{\n    Subtype = Test;\n\n    var\n        Counter: Integer;\n\n    [Test]\n    procedure First()\n    begin\n        Counter += 1;\n    end;\n\n    [Test]\n    procedure SecondNeedsFirst()\n    begin\n        if Counter <> 1 then\n            Error('counter=%1', Counter);\n    end;\n\n    [Test]\n    procedure WorkDateIsToday()\n    begin\n        if WorkDate() <> Today() then\n            Error('work date %1', WorkDate());\n    end;\n\n    [Test]\n    procedure NotOnLeapDay()\n    begin\n        if (Date2DMY(Today(), 1) = 29) and (Date2DMY(Today(), 2) = 2) then\n            Error('leap day');\n    end;\n}\n",
+    );
+    let a = dir.to_str().unwrap();
+    let json = d.path().join("r.json");
+    let junit = d.path().join("r.xml");
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--stability",
+        "microsoft",
+        "--output-json",
+        json.to_str().unwrap(),
+        "--junit",
+        junit.to_str().unwrap(),
+    ]);
+    let t = text(&o);
+    assert_eq!(code(&o), 1, "{t}");
+    assert!(t.contains("Codeunit50800.SecondNeedsFirst  (base: pass)"), "{t}");
+    assert!(t.contains("isolation.alone=true"), "{t}");
+    assert!(t.contains("order.methods=reverse"), "{t}");
+    assert!(
+        t.contains("pass -> fail under") && t.contains("workDate.offset=+1Y"),
+        "{t}"
+    );
+    assert!(t.contains("4 tests, 2 stable, 2 flipped"), "{t}");
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    assert_eq!(doc["stability"]["summary"]["variants"], 5, "{doc}");
+    assert_eq!(doc["stability"]["summary"]["flipped"], 2, "{doc}");
+    assert_eq!(doc["stability"]["flips"].as_array().unwrap().len(), 3, "{doc}");
+    let x = std::fs::read_to_string(&junit).unwrap();
+    assert_eq!(x.matches("<testsuite ").count(), 5, "{x}");
+    assert!(x.contains("outcome changed from pass under"), "{x}");
+    // A report-only run.
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--stability",
+        "microsoft",
+        "--stability-allow-flips",
+    ]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    // One variant again, as a normal run, from its printed values.
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--stability-replay",
+        "order.methods=reverse",
+    ]);
+    assert_eq!(code(&o), 1, "{}", text(&o));
+    assert!(text(&o).contains("counter=0"), "{}", text(&o));
+    // A config file: the run clock on a leap day.
+    let cfg = d.path().join("leap.json");
+    std::fs::write(&cfg, r#"{"format":1,"dimensions":{"clock.date":["2028-02-29"]}}"#).unwrap();
+    let o = alrunner(&["test", a, "--no-download", "--stability", cfg.to_str().unwrap()]);
+    let t = text(&o);
+    assert_eq!(code(&o), 1, "{t}");
+    assert!(t.contains("Codeunit50800.NotOnLeapDay  (base: pass)"), "{t}");
+    assert!(t.contains("4 tests, 3 stable, 1 flipped"), "{t}");
+}
+
+/// ADR-058 section 3: a config that names a "never" or a "pin first" dimension is refused with exit 2 before anything
+/// compiles; the preset prints.
+#[test]
+fn stability_configs_with_forbidden_dimensions_are_refused() {
+    let d = tempfile::tempdir().unwrap();
+    let never = d.path().join("never.json");
+    std::fs::write(
+        &never,
+        r#"{"format":1,"dimensions":{"events.subscriberOrder":["reverse"]}}"#,
+    )
+    .unwrap();
+    let o = alrunner(&["test", "nothing-here", "--stability", never.to_str().unwrap()]);
+    assert_eq!(code(&o), 2, "{}", text(&o));
+    assert!(text(&o).contains("may never be changed"), "{}", text(&o));
+    let pin = d.path().join("pin.json");
+    std::fs::write(
+        &pin,
+        r#"{"format":1,"dimensions":{"session.timeZone":["Europe/Berlin"]}}"#,
+    )
+    .unwrap();
+    let o = alrunner(&["test", "nothing-here", "--stability", pin.to_str().unwrap()]);
+    assert_eq!(code(&o), 2, "{}", text(&o));
+    assert!(text(&o).contains("needs a corpus pin"), "{}", text(&o));
+    let o = alrunner(&["test", "--stability-print-preset", "microsoft"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert!(text(&o).contains("\"random.librarySeed\""), "{}", text(&o));
+}
+
+/// ADR-058 phase 2: host-value dimensions (identity, company, clock) flip the tests that read them, a value with spaces
+/// replays from its printed form, and `order.codeunits` without `--isolation disabled` says it cannot change anything.
+#[test]
+fn stability_mode_moves_host_values() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("stab2");
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005801", "Stability2", &[]),
+    );
+    write(
+        &dir,
+        "src/Tests.al",
+        "codeunit 50810 \"Stability Host Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure UserIsTestUser()\n    begin\n        if UserId() <> 'TESTUSER' then\n            Error('user %1', UserId());\n    end;\n\n    [Test]\n    procedure CompanyIsCronus()\n    begin\n        if CompanyName() <> 'CRONUS International Ltd.' then\n            Error('company %1', CompanyName());\n    end;\n\n    [Test]\n    procedure BeforeEvening()\n    begin\n        if Time() > 180000T then\n            Error('evening');\n    end;\n}\n",
+    );
+    let a = dir.to_str().unwrap();
+    let cfg = d.path().join("host.json");
+    std::fs::write(
+        &cfg,
+        r#"{"format":1,"dimensions":{"identity.userId":["OTHER"],"company.name":["Other Company"],"clock.timeOfDay":["23:00:00.000"],"order.codeunits":["reverse"]}}"#,
+    )
+    .unwrap();
+    let o = alrunner(&["test", a, "--no-download", "--stability", cfg.to_str().unwrap()]);
+    let t = text(&o);
+    assert_eq!(code(&o), 1, "{t}");
+    assert!(t.contains("3 tests, 0 stable, 3 flipped"), "{t}");
+    assert!(t.contains("company.name=Other Company"), "{t}");
+    assert!(
+        t.contains("order.codeunits cannot change an outcome in this run"),
+        "{t}"
+    );
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--stability-replay",
+        "company.name=Other Company",
+    ]);
+    assert_eq!(code(&o), 1, "{}", text(&o));
+    assert!(text(&o).contains("company Other Company"), "{}", text(&o));
+}

@@ -453,6 +453,7 @@ pub struct CodeunitTime {
 pub const SLOWEST: usize = 8;
 
 /// A test codeunit to run: its object, id and the isolation of the runner it belongs to.
+#[derive(Clone)]
 pub(crate) struct Unit {
     si: usize,
     oi: usize,
@@ -487,6 +488,8 @@ pub(crate) struct Unit {
     on_run_rows: OnRunRows,
     /// See `RunOptions::ignore_permission_mock`.
     ignore_permission_mock: bool,
+    /// See `RunOptions::perturb`.
+    perturb: crate::stability::Perturb,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -527,6 +530,8 @@ pub(crate) struct Scratch {
     on_run_rows: OnRunRows,
     /// See `RunOptions::ignore_permission_mock`.
     ignore_permission_mock: bool,
+    /// See `RunOptions::perturb`.
+    perturb: crate::stability::Perturb,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -608,6 +613,7 @@ fn run_unit(
             onrun_carry: u.onrun_carry,
             on_run_rows: u.on_run_rows,
             ignore_permission_mock: u.ignore_permission_mock,
+            perturb: u.perturb.clone(),
             ..Default::default()
         };
         if u.coverage {

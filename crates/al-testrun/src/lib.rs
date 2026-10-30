@@ -31,6 +31,7 @@ pub mod observe;
 pub mod reach;
 pub mod refusals;
 pub mod runtime;
+pub mod stability;
 pub mod target;
 
 /// What one test did.
