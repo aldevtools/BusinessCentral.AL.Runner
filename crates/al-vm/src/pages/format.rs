@@ -1129,6 +1129,47 @@ impl Session {
             .unwrap_or_else(|| o.name.clone())
     }
 
+    /// The caption of a page with `DataCaptionExpression`: the page caption, ` - ` and the expression's value, evaluated now.
+    /// Pinned on a card with a source table, standing on a stored row (pages/lt-page-autoformat-lookups/P113DataCaption.al:83-88,
+    /// :264-279, P113_DC_DataCaptionExpression: `P113 Expr - EXPR-Alpha`, after GoToKey `P113 Expr - EXPR-Beta`). A page with
+    /// no source table is assumed to show the same join (`data-caption-expression-no-source-table`, al-runner issue 6320). A
+    /// list, a new row, no row, and an expression whose value is empty are not pinned and are refused.
+    fn data_caption_expression_caption(&mut self, st: &St, base: String) -> Result<String, Signal> {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        if self.is_list(st) {
+            return unsupported("the caption of a list page with DataCaptionExpression (not pinned)");
+        }
+        let has_source = self.has_source(st);
+        if has_source {
+            let s = st.borrow();
+            if s.draft || s.mode == PageMode::New {
+                return unsupported("the caption of a page with DataCaptionExpression on a new row (not pinned)");
+            }
+            if s.cursor == Cursor::None {
+                return unsupported("the caption of a page with DataCaptionExpression and no row (not pinned)");
+            }
+        }
+        let Some(r) = engine.program.objects[object]
+            .routines
+            .iter()
+            .position(|x| x.name == ir::DATA_CAPTION_ROUTINE)
+        else {
+            return unsupported("the caption of a page with DataCaptionExpression (the expression was not compiled)");
+        };
+        let value = match self.owner_routine(st, None, r)? {
+            Value::Text(t) | Value::Code(t) => t.to_string(),
+            _ => return unsupported("the caption of a page with DataCaptionExpression (the expression is no text)"),
+        };
+        if value.is_empty() {
+            return unsupported("the caption of a page with DataCaptionExpression whose value is empty (not pinned)");
+        }
+        if !has_source {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DataCaptionExpressionNoSourceTable);
+        }
+        Ok(format!("{base} - {value}"))
+    }
+
     /// The caption a TestPage shows: the page caption, then ` - ` and the values of the data caption fields of the row, joined
     /// by ` ∙ `, empty ones left out; a new record has `New - ` in front. A list shows its caption alone. The fields are the
     /// page's `DataCaptionFields` when it names some, else the table's. Pinned by pages/lt-page-autoformat-lookups/
@@ -1162,7 +1203,7 @@ impl Session {
             return Ok(base);
         }
         if has_prop("DataCaptionExpression") {
-            return unsupported("the caption of a page with DataCaptionExpression (the expression is not evaluated)");
+            return self.data_caption_expression_caption(st, base);
         }
         // A caption the page assigned still gets the record's values behind it (pages/lt-page-runtime/P82CurrPage.al:
         // Caption_ReadAndAssign: `Changed caption - A`); on no row it stands alone (handlers/TestPageCaption_Tests.al).

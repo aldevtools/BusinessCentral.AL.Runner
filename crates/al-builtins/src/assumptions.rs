@@ -107,6 +107,17 @@ pub fn awaiting_text(w: &Awaiting) -> String {
 }
 
 registry! {
+    DataCaptionExpressionNoSourceTable => {
+        id: "data-caption-expression-no-source-table",
+        assumed: "The caption a TestPage shows for a page with DataCaptionExpression and no source table is the page caption, ' - ' and the expression's value, as on a card with a source table standing on a row.",
+        tests: "No Microsoft test: an outside ISV suite asserts '<page caption> - <expression value>' on an editor page with no source table on BC 29 (al-runner issue 6320).",
+        probe: "Pinned on a card with a source table: pages/lt-page-autoformat-lookups/P113DataCaption.al P113_DC_DataCaptionExpression. Still wanted: a page with no source table, an expression whose value is empty, a new row, and a list page.",
+        awaiting: Awaiting {
+            issues: &[6320],
+            files: &["tests/al-language/pages/lt-page-autoformat-lookups/P113DataCaption.al::P113_DC_DataCaptionExpressionNoSourceTable"],
+            since: "2026-10-30",
+        },
+    },
     LicensePermissionAnyObject => {
         id: "license-permission-any-object",
         assumed: "License Permission read by object type and number answers, for a Report, Codeunit or Page numbered 1 to 99999999 that no pinned row names, a row with Read, Insert, Modify, Delete and Execute Yes and Limited Usage blank. The range stops at Codeunit 99999999, the highest number pinned Yes below 1999999999, which is pinned as a row with every permission blank.",

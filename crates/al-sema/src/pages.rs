@@ -215,6 +215,13 @@ pub fn synthetic_name(prop: &str, offset: usize) -> String {
     format!("__{}_{offset}", prop.to_ascii_lowercase())
 }
 
+/// Name of the synthetic routine that returns a page's `DataCaptionExpression`.
+pub fn data_caption_routine() -> String {
+    let name = synthetic_name("datacaption", 0);
+    debug_assert_eq!(name, al_ir::DATA_CAPTION_ROUTINE);
+    name
+}
+
 /// Whether `name` is the name of a routine made by `expand`.
 pub fn is_synthetic(name: &str) -> bool {
     name.strip_prefix("__")
@@ -645,6 +652,19 @@ fn expansion(src: &str, parse: &al_syntax::Parse) -> Option<Vec<(usize, String)>
                     .map(|(_, l)| l)
                     .sum::<usize>()
         };
+        // A page's DataCaptionExpression becomes a routine of the page; the caption a TestPage shows evaluates it
+        // (pages/lt-page-autoformat-lookups/P113DataCaption.al:88, al-runner issue 6320; `data_caption_routine`).
+        if kind == "page"
+            && let Some(p) = obj
+                .properties()
+                .find(|p| p.name().eq_ignore_ascii_case("DataCaptionExpression"))
+        {
+            text.push_str(&format!(
+                "\nprocedure {}(): Text begin exit({}); end;",
+                data_caption_routine(),
+                p.value_text()
+            ));
+        }
         for sec in control_sections(&obj) {
             for (prop, ty, offset, expr) in needed(&sec, base, &globals, extension_routines.as_ref()) {
                 let offset = shifted(offset);
