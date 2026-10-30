@@ -111,7 +111,7 @@ registry! {
         id: "license-permission-any-object",
         assumed: "License Permission read by object type and number answers, for a Table, Report, Codeunit or Page numbered 1 to 99999999 that no pinned row names, a row with Read, Insert, Modify, Delete and Execute Yes and Limited Usage blank. The range stops at Codeunit 99999999, the highest number pinned Yes below 1999999999, which is pinned as a row with every permission blank.",
         tests: "No Microsoft test: two outside ISV suites check their own codeunits this way from a per-company install routine; they pass on the reporter's real-BC run.",
-        probe: "Pinned rows are served without this assumption: platform/lt-ag-contoso/AgLicensePermission.al (Codeunit 50000, 50123, 99999, 70000123, 2000000000 and 0, Table 50000 and 70000123, TableData 70000123, Page 50100, Report 70000001) and lt-ss1030/SsLicensePermissionObjects.al (seven object types at 50123, 99999, 70000456, 100000, 1999999999, 2000000000, 2000000001, 2147483647). Still wanted: where between 100000 and 1999999999 the rows turn blank (the license ranges), and a negative number.",
+        probe: "Pinned rows are served without this assumption: platform/lt-ag-contoso/AgLicensePermission.al (Codeunit 50000, 50123, 99999, 70000123, 2000000000 and 0, Table 50000 and 70000123, TableData 70000123, Page 50100, Report 70000001) and lt-ss1030/SsLicensePermissionObjects.al (seven object types at 50123, 99999, 70000456, 100000, 1999999999, 2000000000, 2000000001, 2147483647; Table and TableData at 50001, 60000, 70000000, 70000500, 74999999, 80000, 99999998, 99999999). Still wanted: where between 100000 and 1999999999 the rows turn blank (the license ranges), and a negative number.",
     },
 
 
