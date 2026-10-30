@@ -247,6 +247,10 @@ const STX_FILE_EXISTS: [i32; 5] = [1030, 1031, 1033, 1036, 2057];
 /// "Localization Exist" is pinned true for these rows (errors/lt-ms-refusals-128/P128WindowsLanguage.al:46-50); for every
 /// other row it is not known.
 const LOCALIZATION_EXISTS: [i32; 5] = [1031, 1033, 1036, 1040, 2057];
+/// Ids of the Windows range that are no row: 1, 127 and 4096 (errors/lt-ms-refusals-129/P129WindowsLanguage.al:63-96),
+/// 1, 2, 7, 9, 10 and 12 (errors/lt-ms-refusals-137/P137WindowsLanguage.al:24-54, every version). Every other id that is
+/// not listed above stays unknown.
+const NO_ROW: [i64; 8] = [1, 2, 7, 9, 10, 12, 127, 4096];
 /// The ids a culture can have: a number above this is no language (TestWindowsLanguageTable.al:63-70
 /// asks for 999999 and expects no row).
 const MAX_LCID: i64 = 0xFFFF;
@@ -331,7 +335,7 @@ fn unknown_in(set: &[ranges::Iv]) -> Option<i64> {
         // The first id of the interval that is not a known row.
         let mut id = a;
         while id <= b {
-            if !known_ids.contains(&id) {
+            if !known_ids.contains(&id) && !NO_ROW.contains(&id) {
                 return Some(id);
             }
             id += 1;
@@ -391,7 +395,7 @@ pub(super) fn windows_language_get(t: &TableDef, pk: &[Value]) -> Result<Option<
         .first()
         .and_then(num)
         .ok_or_else(|| refused("Windows Language: a key that is not a number"))?;
-    if !(1..=MAX_LCID).contains(&id) {
+    if !(1..=MAX_LCID).contains(&id) || NO_ROW.contains(&id) {
         return Ok(None);
     }
     match known(t, id) {
