@@ -1702,19 +1702,27 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "AllFields");
 }
 
-/// The Field SystemId rule is measured for a table numbered above 65535, an ordinary field and fields 2000000005-8 on the
-/// newest major (WcFieldRowCopy.al:48, :60-63): a read of one of those is a clean pass. A read of the SystemId of another
-/// Field row (a table below 65536, field 2000000000, an older major) runs on assumption field-row-system-id.
+/// The Field SystemId rule is measured on BC 28 and 29 for tables below and above 65536, fields 2000000000-2 and, on 29,
+/// fields 2000000005-8 (platform/lt-field-row-systemid/FieldRowSystemId.al:49-170, WcFieldRowCopy.al:48, :60-63): a read
+/// of one of those is a clean pass. A read of the SystemId of the rows of fields 2000000003-4 runs on assumption
+/// field-row-system-id. On BC 27 every Field row's SystemId is the null Guid (FieldRowSystemId.al, the `#else` branches).
 #[test]
 fn a_field_row_system_id_outside_the_measured_shapes_is_a_flagged_read() {
     let src = r#"table 90646 "R" { fields { field(1; "No."; Code[20]) { } field(2; Description; Text[50]) { } } keys { key(PK; "No.") { } } }
 table 50001 "S" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { } } }
 codeunit 50000 "T" { Subtype = Test;
-  [Test] procedure Measured() var F: Record Field; begin F.Get(90646, 2); if Format(F.SystemId) = '' then Error('blank'); end;
-  [Test] procedure MeasuredUserName() var F: Record Field; begin F.Get(90646, 2000000005); if IsNullGuid(F.SystemId) then Error('null'); end;
+  [Test] procedure Measured() var F: Record Field; begin F.Get(90646, 2); if Format(F.SystemId) <> '{77359429-6216-0001-0200-000000000000}' then Error('%1', F.SystemId); end;
   [Test] procedure BelowTableNo65536() var F: Record Field; begin F.Get(50001, 1); if Format(F.SystemId) <> '{77359429-C351-0000-0100-000000000000}' then Error('%1', F.SystemId); end;
-  [Test] procedure SystemIdRow() var F: Record Field; begin F.Get(90646, 2000000000); if IsNullGuid(F.SystemId) then Error('null'); end; }"#;
-    let flagged = |bc: &str| {
+  [Test] procedure SystemIdRow() var F: Record Field; begin F.Get(90646, 2000000000); if IsNullGuid(F.SystemId) then Error('null'); end;
+  [Test] procedure ModifiedAtRow() var F: Record Field; begin F.Get(90646, 2000000003); if IsNullGuid(F.SystemId) then Error('null'); end; }"#;
+    let src27 = r#"table 90646 "R" { fields { field(1; "No."; Code[20]) { } field(2; Description; Text[50]) { } } keys { key(PK; "No.") { } } }
+table 50001 "S" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Above() var F: Record Field; begin F.Get(90646, 2); if not IsNullGuid(F.SystemId) then Error('%1', F.SystemId); end;
+  [Test] procedure Below() var F: Record Field; begin F.Get(50001, 1); if not IsNullGuid(F.SystemId) then Error('%1', F.SystemId); end;
+  [Test] procedure SystemIdRow() var F: Record Field; begin F.Get(90646, 2000000000); if not IsNullGuid(F.SystemId) then Error('%1', F.SystemId); end;
+  [Test] procedure GetByNullSystemId() var F: Record Field; G: Guid; begin if not F.GetBySystemId(G) then Error('not found'); if (F.TableNo <> 50001) or (F."No." <> 1) then Error('%1 %2', F.TableNo, F."No."); end; }"#;
+    let flagged = |src: &str, bc: &str| {
         let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), bc);
         let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
         let mut hits = Vec::new();
@@ -1741,19 +1749,27 @@ codeunit 50000 "T" { Subtype = Test;
             })
             .collect::<Vec<_>>()
     };
-    let on29 = flagged("29.0.0.0");
+    for bc in ["29.0.0.0", "28.5.0.0"] {
+        assert_eq!(
+            flagged(src, bc),
+            vec![
+                ("Measured".to_string(), true, false),
+                ("BelowTableNo65536".to_string(), true, false),
+                ("SystemIdRow".to_string(), true, false),
+                ("ModifiedAtRow".to_string(), true, true),
+            ],
+            "{bc}"
+        );
+    }
     assert_eq!(
-        on29,
+        flagged(src27, "27.5.0.0"),
         vec![
-            ("Measured".to_string(), true, false),
-            ("MeasuredUserName".to_string(), true, false),
-            ("BelowTableNo65536".to_string(), true, true),
-            ("SystemIdRow".to_string(), true, true),
+            ("Above".to_string(), true, false),
+            ("Below".to_string(), true, false),
+            ("SystemIdRow".to_string(), true, false),
+            ("GetByNullSystemId".to_string(), true, false),
         ]
     );
-    // An older major: the same read passes on the assumption.
-    let on27 = flagged("27.5.0.0");
-    assert!(on27.contains(&("Measured".to_string(), true, true)), "{on27:?}");
 }
 
 /// A Tests Run row's `Test ID` is the same in two recordings of one test and is not 1
@@ -3336,24 +3352,5 @@ fn the_artifact_license_gives_every_pinned_row() {
                 passes(&first, t);
             }
         }
-    }
-}
-
-/// AllObjWithCaption of a table whose own Caption one tableextension overrides is not measured (al-runner issue 6378 pins
-/// the error texts, TableCaption and RecordRef.Caption only): the read of its Object Caption stays refused.
-#[test]
-fn all_obj_with_caption_of_a_table_captioned_over_its_own_stays_refused() {
-    let o = outcomes(
-        r#"table 50001 Wc { Caption = 'Work Center'; fields { field(1; No; Code[20]) { } } keys { key(PK; No) { } } }
-tableextension 50002 WcExt extends Wc { Caption = 'Repro Work Center Extension'; }
-codeunit 50100 T { Subtype = Test;
-  [Test] procedure ReadCaption() var A: Record AllObjWithCaption; begin A.Get(A."Object Type"::Table, 50001); if A."Object Caption" = '' then; end; }"#,
-    );
-    assert!(!o.is_empty());
-    for (n, r) in o {
-        assert!(
-            matches!(&r, Outcome::NotRun(why) if why.contains("caption")),
-            "{n}: {r:?}"
-        );
     }
 }

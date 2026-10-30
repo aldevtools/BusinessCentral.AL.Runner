@@ -624,7 +624,7 @@ impl Session {
                                     self.tx.note_isolation_lock(key.0, key.1);
                                 }
                                 (ISOLATION_REPEATABLE_READ, false) => {
-                                    self.tx.lock_unpinned = Some(crate::records::REPEATABLE_READ_SET_WITHOUT_READ)
+                                    self.tx.lock_unpinned = Some("a ReadIsolation RepeatableRead set without a read")
                                 }
                                 (ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK, true) => {
                                     self.tx.lock_unpinned = Some("a locking ReadIsolation on a temporary table")
@@ -1595,7 +1595,11 @@ impl Session {
                 other => unsupported(format!("GetBySystemId of {}", other.describe())),
             };
         };
-        let found = if *g == [0; 16] {
+        // On BC 27 every row of the platform table Field has the null Guid as its SystemId, and GetBySystemId of the null Guid finds
+        // the first row, table 3 field 1 (platform/lt-field-row-systemid/FieldRowSystemId.al:146-172, the `#else` branch).
+        let null_field_rows = self.engine.program.objects[t.object as usize].id == Some(2_000_000_041)
+            && !self.has(al_version::Gate::FieldRowSystemIdFrom28);
+        let found = if *g == [0; 16] && !null_field_rows {
             None
         } else {
             let filters = [al_builtins::filter::FieldFilter {
