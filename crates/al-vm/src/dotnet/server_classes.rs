@@ -262,6 +262,43 @@ fn is_user_delegated_helpdesk(_: &mut Session, _: Option<&Rc<DotNetObject>>, arg
     Ok(Value::Boolean(false))
 }
 
+/// The service tier's credential type, which System Application `Identity Management.IsWindowsAuthentication`,
+/// `IsUserNamePasswordAuthentication` and `IsAccessControlServiceAuthentication` read (al-runner issue 6380). Measured on the
+/// corpus CI containers by corpus writer Y5 (branch al-runtime-rs-staging-y5): user name and password, so Windows No, user
+/// name and password Yes, Access Control Service No (al-language-onprem/lt-y5/Y5AuthenticationTypeOnPrem.al:29-31, an OnPrem
+/// app; al-language/session/lt-y5/Y5AuthenticationType.al:29-30, a Cloud app). Both of the runner's environments are such a
+/// container (the SaaS-like sandbox is the corpus CI tier). A real SaaS sandbox answers No for user name and password
+/// (Y5AuthenticationType.al:9-10, measured, not asserted); the runner has no environment for it.
+fn credential_type_is(_: &mut Session, args: Args, member: &str, user_password: bool) -> Result<Value, Signal> {
+    no_args(args, member)?;
+    Ok(Value::Boolean(user_password))
+}
+
+fn is_windows_authentication(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    credential_type_is(s, args, "NavUserAccountHelper.IsWindowsAuthentication", false)
+}
+
+fn is_user_name_password_authentication(
+    s: &mut Session,
+    _: Option<&Rc<DotNetObject>>,
+    args: Args,
+) -> Result<Value, Signal> {
+    credential_type_is(s, args, "NavUserAccountHelper.IsUserNamePasswordAuthentication", true)
+}
+
+fn is_access_control_service_authentication(
+    s: &mut Session,
+    _: Option<&Rc<DotNetObject>>,
+    args: Args,
+) -> Result<Value, Signal> {
+    credential_type_is(
+        s,
+        args,
+        "NavUserAccountHelper.IsAccessControlServiceAuthentication",
+        false,
+    )
+}
+
 /// `NavUserAccountHelper.GetEffectivePermissionForObject(user, company, objectType, objectId)`:
 /// five comma-separated Permission ordinals (Read, Insert, Modify, Delete, Execute) of the
 /// session user. A test session is SUPER; on table data it holds the four data rights and no
@@ -645,6 +682,9 @@ fn environment_variable(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Arg
     Ok(Value::Null)
 }
 
+/// The credential-type members, measured on the corpus CI containers (`credential_type_is`).
+const CREDENTIAL_PIN: &str = "probe tests/al-language/session/lt-y5/Y5AuthenticationType.al (corpus branch al-runtime-rs-staging-y5, codeunit 90987)";
+
 fn probe(what: &str) -> Pin {
     Pin::Probe(format!("{ENV_PROBE}:{what}"))
 }
@@ -760,6 +800,21 @@ fn own_types() -> Vec<RegistryType> {
                     "IsUserDelegatedHelpdesk",
                     Pin::Corpus("al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:63".into()),
                     is_user_delegated_helpdesk,
+                ),
+                member(
+                    "IsWindowsAuthentication",
+                    Pin::Probe(CREDENTIAL_PIN.into()),
+                    is_windows_authentication,
+                ),
+                member(
+                    "IsUserNamePasswordAuthentication",
+                    Pin::Probe(CREDENTIAL_PIN.into()),
+                    is_user_name_password_authentication,
+                ),
+                member(
+                    "IsAccessControlServiceAuthentication",
+                    Pin::Probe(CREDENTIAL_PIN.into()),
+                    is_access_control_service_authentication,
                 ),
                 member(
                     "IsPermissionSetAssigned",

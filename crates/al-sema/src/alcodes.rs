@@ -1005,6 +1005,8 @@ fn page_extension_triggers(ws: &Workspace, oi: usize, obj: &ast::Object, out: &m
 /// (corpus must-not-compile 0305, 0310, 0312, over the 3,500 codeunit properties of the corpus: none else occurs).
 /// `TestType` compiles on a Test codeunit (corpus al-language/codeunit/lt-x-object-props/XObjectProps.al:11); on a
 /// codeunit without Subtype = Test and with an invalid value it does not (must-not-compile 0781, 0782), which this list does not judge.
+/// `TestHandlers` compiles on BC 29 (corpus al-language-testlibraries/lt-bi-test-framework/BiTestHandler.al:98); on BC 27 the
+/// compiler answers AL0666 and AL0928 for it, not AL0124 (must-not-compile 0784), which this list does not judge either.
 // behavior-coverage: validation-only begin
 const CODEUNIT_PROPERTIES: &[&str] = &[
     "Access",
@@ -1020,6 +1022,7 @@ const CODEUNIT_PROPERTIES: &[&str] = &[
     "SingleInstance",
     "Subtype",
     "TableNo",
+    "TestHandlers",
     "TestHttpRequestPolicy",
     "TestIsolation",
     "TestPermissions",
@@ -3349,6 +3352,15 @@ mod tests {
             ..cloud()
         };
         assert!(ctx_codes(file, &onprem).is_empty());
+    }
+
+    // TestHandlers is a codeunit property: BC 29 compiles a test codeunit that names one (corpus
+    // al-language-testlibraries/lt-bi-test-framework/BiTestHandler.al:98, CI job test-testlibraries on BC 29), and on BC 27 the
+    // compiler answers AL0666 and AL0928 for it, never AL0124 (must-not-compile 0784).
+    #[test]
+    fn testhandlers_is_a_codeunit_property() {
+        let src = "codeunit 50000 C { Subtype = Test; TestHandlers = \"My Handler\"; }";
+        assert!(!codes(&[src]).contains(&"AL0124".to_string()), "{:?}", codes(&[src]));
     }
 
     #[test]

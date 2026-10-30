@@ -32,9 +32,10 @@ impl Session {
     pub(super) fn mark_closed(&mut self, st: &St) {
         st.borrow_mut().open = false;
         let parts = std::mem::take(&mut st.borrow_mut().parts);
-        for (_, child) in parts {
-            self.mark_closed(&child);
+        for (_, child) in &parts {
+            self.mark_closed(child);
         }
+        st.borrow_mut().closed_parts = parts;
     }
 
     /// Creates the page of every part control, before the host's own triggers run: the host's
@@ -228,6 +229,30 @@ impl Session {
                 // The page's own code reaching a part after the page ran and closed is not a TestPage the test closed (Posted Purchase
                 // Document Lines.CopyLineToDoc reads `CurrPage.PostedRcpts.PAGE` after its RunModal returned): refused, as the other
                 // calls of such a page are (see test_page_op).
+                // After its RunModal returned, the page's code reaches a part that was shown: a procedure of the part reads the
+                // rows the part's record holds, after OK and after Cancel alike (pages/lt-wd/WdPartAfterRunModal.al:75-100
+                // WD_Part_ReadAfterRunModalOK `count` 1 `value` A, WD_Part_ReadAfterRunModalCancel `count` 1 `value` B;
+                // corpus branch al-runtime-rs-staging-1030c, al-runner issue 6321). Pinned for a page that ran modally and
+                // a part that was created while it was open; anything else stays refused.
+                Err(Signal::Error(e))
+                    if runtime
+                        && e.code == "TestPageNotOpened"
+                        && st.borrow().ran
+                        && st.borrow().last_run_modal == Some(true) =>
+                {
+                    let kept = st
+                        .borrow()
+                        .closed_parts
+                        .iter()
+                        .find(|(i, _)| *i == control)
+                        .map(|(_, c)| c.clone());
+                    if let Some(c) = kept {
+                        return Ok(c);
+                    }
+                    return unsupported(
+                        "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)",
+                    );
+                }
                 Err(Signal::Error(e)) if runtime && e.code == "TestPageNotOpened" => {
                     return unsupported(
                         "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)",
@@ -920,6 +945,40 @@ impl Session {
         self.insert_draft(st)
     }
 
+    /// A field typed on the current row of part `child`: the parts that take their link from it (`Provider`) and link on that
+    /// field read their rows again with the typed value, before the row is stored (al-runner issue 6377; corpus writer Y5,
+    /// branch al-runtime-rs-staging-y5, pages/lt-y5/Y5ProviderEditLink.al:155 (plain field), :191 (OnValidate calls
+    /// CurrPage.Update), :223, :244, :268; codeunit 90980: a plain field and one whose
+    /// OnValidate calls CurrPage.Update; a part linked on another field keeps its rows). A linked field another field's
+    /// validation changes is not measured and keeps the earlier behavior.
+    fn resync_dependents_linked_by(&mut self, child: &St, control: usize) -> Result<(), Signal> {
+        let Some((host, idx)) = child.borrow().host.clone() else {
+            return Ok(());
+        };
+        let Some(host) = host.upgrade() else { return Ok(()) };
+        if !child.borrow().open || !host.borrow().open {
+            return Ok(());
+        }
+        let engine = self.engine();
+        let ir::Binding::Field(pos) = page_of(&engine, child).controls[control].binding else {
+            return Ok(());
+        };
+        let page = page_of(&engine, &host);
+        let parts = host.borrow().parts.clone();
+        for (i, sibling) in &parts {
+            let follows = page.controls[*i].part_link.as_ref().is_some_and(|l| {
+                l.provider == Some(idx)
+                    && l.entries
+                        .iter()
+                        .any(|e| matches!(e, ir::LinkEntry::Field(_, hf) if *hf == pos))
+            });
+            if follows {
+                self.sync_part(&host, *i, sibling)?;
+            }
+        }
+        Ok(())
+    }
+
     /// After part `child` moved, the parts that take their link from it follow.
     pub(super) fn sync_dependents(&mut self, child: &St) -> Result<(), Signal> {
         let Some((host, idx)) = child.borrow().host.clone() else {
@@ -1104,6 +1163,7 @@ impl Session {
     /// A field the host just changed is read by the link of some parts: they follow the new value
     /// (corpus handlers/TestPageOpenNewPartLink.al:OpenNew_NumberTyped_PartWriteCarriesTheNumber).
     pub(super) fn resync_parts_linked_by(&mut self, st: &St, control: usize) -> Result<(), Signal> {
+        self.resync_dependents_linked_by(st, control)?;
         if st.borrow().parts.is_empty() || !st.borrow().open {
             return Ok(());
         }

@@ -197,7 +197,7 @@ Triggered by a tag `v3.*`. Stages:
 2. **test**: `./check.sh`, then the corpus ratchet, then the perf budgets, on
    Linux. Same as `ci.yml`.
 3. **build**: matrix over the targets above on native runners
-   (`ubuntu-latest`, `ubuntu-24.04-arm`, `macos-14`, `windows-latest`), with
+   (`ubuntu-latest`, `ubuntu-24.04-arm`, `macos-15`, `windows-latest`), with
    `--locked` and stripped, LTO release profile.
 4. **smoke test** each built binary: `--version`, then `alrunner test` on a
    small fixture project that lives in the repo (not Microsoft code).
