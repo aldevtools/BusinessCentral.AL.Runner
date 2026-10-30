@@ -876,15 +876,24 @@ impl Session {
             if let Some(Value::BigInteger(theirs)) = stored.as_ref().map(|r| r[i].clone()) {
                 let verdict = self.stale_verdict(t, rec, &cx, &pk, theirs, true)?;
                 if verdict != StaleVerdict::Fresh {
-                    let mut hooks = run && self.table_trigger(t, "OnDelete").is_some();
+                    let mut ext = false;
                     for n in ["OnBeforeDelete", "OnDelete", "OnAfterDelete"] {
-                        hooks |= run && !self.ext_triggers(t, n).is_empty();
+                        ext |= run && !self.ext_triggers(t, n).is_empty();
                     }
-                    if hooks
+                    let hooks = run && self.table_trigger(t, "OnDelete").is_some()
                         || self.listened(t, "onbeforedeleteevent", None)?
                         || self.listened(t, "onafterdeleteevent", None)?
-                        || self.global_enabled(t, GlobalOp::Delete)?
-                    {
+                        || self.global_enabled(t, GlobalOp::Delete)?;
+                    // A stale own-Insert buffer deleted after the new transaction deleted other rows of the table only (the
+                    // neighbour shape, written): the row is deleted and the table's OnDelete trigger, OnBeforeDeleteEvent,
+                    // OnAfterDeleteEvent and the OnDatabaseDelete global trigger run as for a fresh buffer
+                    // (al-language-testlibraries/lt-wb-6286/WbStaleDeleteTests.al:13-53, al-runner issue 6286). A table
+                    // extension's delete triggers and a RecordChanged verdict are not pinned.
+                    let company = rec.borrow().company.clone();
+                    let pinned = verdict == StaleVerdict::Written
+                        && !ext
+                        && self.stale_after_other_deletes_only(t, &company, &pk);
+                    if (hooks || ext) && !pinned {
                         return unsupported(format!(
                             "a Delete through a stale {} buffer, with triggers or events: not pinned",
                             t.name
@@ -1760,6 +1769,18 @@ impl Session {
         // An Insert and a Rename of another row are measured at one to three Commits only (TE_*_InsertOtherRow_*,
         // TE_*_RenameOtherRow_*).
         other_rows_of_one_kind.then_some(StaleVerdict::Written)
+    }
+
+    /// Whether the open transaction's only writes are Deletes of other rows of `t` and it took no lock: the neighbour shape
+    /// `stale_neighbour_shape` decides as written (record/lt-sb-stale-own-modify/SbStaleOwnModify.al TeDeleteOther).
+    fn stale_after_other_deletes_only(&self, t: &TableDef, company: &Option<String>, pk: &[Value]) -> bool {
+        !self.tx.writes.is_empty()
+            && self
+                .tx
+                .writes
+                .iter()
+                .all(|w| w.kind == crate::state::TxWriteKind::Delete && w.table == t.object && w.company == *company)
+            && self.stale_neighbour_shape(t, company, pk) == Some(StaleVerdict::Written)
     }
 
     fn bump_row_version(&mut self, t: &TableDef, rec: &Rec) -> Option<(usize, Value)> {
