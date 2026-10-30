@@ -2130,6 +2130,15 @@ fn baseline_key(
     key.text("company_name", crate::host::company_name().as_deref().unwrap_or(""));
     // The companies the per-company install code of the apps under test runs in (ADR-046 decision 2).
     key.text("companies", &crate::host::companies().key_text());
+    // Whether the apps under test install in the listed order (`install::InstallView`).
+    key.text(
+        "publish_order_known",
+        if crate::host::publish_order_known() {
+            "yes"
+        } else {
+            "no"
+        },
+    );
     // Read the wall clock without starting the run clock: a run that finds its baseline starts the clock at the
     // instant the baseline's run began (`SystemClock::begin_at`).
     let day = crate::host::SystemClock::wall().div_euclid(86_400_000);

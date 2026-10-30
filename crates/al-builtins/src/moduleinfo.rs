@@ -190,6 +190,7 @@ fn get_module(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         ModuleLookup::OutsideWorkspace => {
             unsupported("GetModuleInfo of an app outside the workspace (Microsoft apps, ADR-013)")
         }
+        ModuleLookup::OrderUnknown(why) => unsupported(why),
         ModuleLookup::NotInstalled if c.ret_used() => Ok(Value::Boolean(false)),
         ModuleLookup::NotInstalled => Err(Signal::Error(Box::new(AlError {
             message: format!("No installed extension was found with ID '{}'.", plain_guid(&id)),
