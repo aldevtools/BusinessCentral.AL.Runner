@@ -233,6 +233,9 @@ public sealed class Server
         if (ex is not TargetInvocationException { InnerException: not null } tie)
             return new JsonObject { ["ok"] = false, ["kind"] = "refused", ["reason"] = ex.Message };
         ex = tie.InnerException!;
+        // A refusal raised inside the called code (a write over a seeded bridge) stays a refusal.
+        if (ex is Refusal r)
+            return new JsonObject { ["ok"] = false, ["kind"] = "refused", ["reason"] = r.Message };
         var inner = new JsonArray();
         for (var e = ex.InnerException; e != null; e = e.InnerException)
             inner.Add(new JsonArray(e.GetType().FullName, e.Message));
