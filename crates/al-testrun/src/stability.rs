@@ -391,7 +391,7 @@ impl Perturb {
             k.push(format!("user={t}"));
         }
         if let Some(t) = &i.user_security_id {
-            k.push(format!("usid={t:?}"));
+            k.push(format!("usid={}", al_builtins::format::format_guid(t)));
         }
         if let Some(t) = i.session_id {
             k.push(format!("session={t}"));
