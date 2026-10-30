@@ -2,7 +2,7 @@
   "corpus_commit": "2db2dbd573ca73423971f82ea7160a62a3d76e2f",
   "language": {
     "bc": "27-29",
-    "implemented": 1600,
+    "implemented": 1608,
     "methods": [
       {
         "bc": [
@@ -5099,7 +5099,7 @@
         "scope": "",
         "sig": "(Text, List of [SecretText])",
         "site": "network/lt-cz-http-leads/CzHttpOutbound.al:332",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpHeaders"
       },
       {
@@ -5115,7 +5115,7 @@
         "scope": "",
         "sig": "(Text, array[] of SecretText)",
         "site": "xml/lt-xml-attr-doc-http-members/P97HdrSecretValues.al:34",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpHeaders"
       },
       {
@@ -5307,7 +5307,7 @@
         "scope": "",
         "sig": "()",
         "site": "xml/lt-xml-attr-doc-http-members/P97ReqSecretUri.al:38",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpRequestMessage"
       },
       {
@@ -5403,7 +5403,7 @@
         "scope": "",
         "sig": "(SecretText)",
         "site": "xml/lt-xml-attr-doc-http-members/P97ReqSecretUri.al:24",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpRequestMessage"
       },
       {
@@ -26373,7 +26373,7 @@
         "scope": "",
         "sig": "(Text, var Text)",
         "site": "misc/lt-cx-odd-leads/CxVariants.al:438",
-        "state": "refused",
+        "state": "implemented",
         "type": "XmlNamespaceManager"
       },
       {
@@ -26405,7 +26405,7 @@
         "scope": "",
         "sig": "()",
         "site": "xml/lt-xml-remaining-node-methods/P104NsManager.al:43",
-        "state": "refused",
+        "state": "implemented",
         "type": "XmlNamespaceManager"
       },
       {
@@ -26421,7 +26421,7 @@
         "scope": "",
         "sig": "()",
         "site": "xml/lt-xml-remaining-node-methods/P104NsManager.al:97",
-        "state": "refused",
+        "state": "implemented",
         "type": "XmlNamespaceManager"
       },
       {
@@ -26437,7 +26437,7 @@
         "scope": "",
         "sig": "(Text, Text)",
         "site": "xml/lt-xml-remaining-node-methods/P104NsManager.al:49",
-        "state": "refused",
+        "state": "implemented",
         "type": "XmlNamespaceManager"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 122,
+    "refused": 114,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",

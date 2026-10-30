@@ -64,7 +64,7 @@ pub struct Provision {
 
 fn app_json(dir: &Path) -> Result<AppJson, String> {
     let p = dir.join("app.json");
-    let text = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let text = al_deps::load::read_text(&p)?;
     parse_app_json(&text).map_err(|e| format!("{}: {e}", p.display()))
 }
 

@@ -284,9 +284,13 @@ pub fn read_package_with(app: &[u8], vars: &Vars) -> Result<(Manifest, Sources),
             .map(|e| {
                 let bytes = zip.read(e)?;
                 // The decoded bytes become the text without a copy when they are valid UTF-8.
-                let mut text = match String::from_utf8(bytes) {
-                    Ok(text) => text,
-                    Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+                // A UTF-16 file (byte-order mark first) is decoded as alc reads it (`load::decode_text`).
+                let mut text = match bytes.as_slice() {
+                    [0xff, 0xfe, ..] | [0xfe, 0xff, ..] => crate::load::decode_text_lossy(&bytes),
+                    _ => match String::from_utf8(bytes) {
+                        Ok(text) => text,
+                        Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+                    },
                 };
                 if text.starts_with('\u{feff}') {
                     text.drain(..'\u{feff}'.len_utf8());

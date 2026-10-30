@@ -1476,6 +1476,9 @@ pub fn new_header_list(kind: HeaderKind) -> HttpHeaderList {
 pub struct HttpRequestState {
     pub method: Option<String>,
     pub uri: Option<String>,
+    /// The uri came from `SetSecretRequestUri`: `GetRequestUri` then reads empty
+    /// (xml/lt-xml-attr-doc-http-members/P97ReqSecretUri.al:79, :110).
+    pub uri_secret: bool,
     /// The `Content` set on the request: the `HttpContent` handle itself, so the request and the
     /// variable it was set from share it (nothing pins a copy; no corpus test tells them apart).
     pub content: Option<Value>,
@@ -1487,6 +1490,7 @@ impl Default for HttpRequestState {
         HttpRequestState {
             method: None,
             uri: None,
+            uri_secret: false,
             content: None,
             headers: new_header_list(HeaderKind::Request),
         }
@@ -1780,8 +1784,8 @@ pub enum LibraryValue {
     },
     /// A `File` that was created or opened, or had a mode set (an untouched one is `Empty`).
     File(crate::file::FileState),
-    /// An XmlNamespaceManager: the (prefix, namespace) pairs added to it.
-    XmlNamespaces(Vec<(String, String)>),
+    /// An XmlNamespaceManager: its declarations and scopes.
+    XmlNamespaces(crate::xml::NsScopes),
     /// An InStream: a snapshot being read.
     InStream(crate::stream::InState),
     /// An OutStream: appends to a Blob buffer.

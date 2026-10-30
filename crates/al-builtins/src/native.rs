@@ -1515,6 +1515,28 @@ fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Res
             ..Default::default()
         })));
     }
+    // A TestPage control formats as the text it shows, cut or padded after it as a Text is; the format number changes nothing
+    // (errors/lt-ms-refusals-132/P132TestPageFormatRisky.al:64-89 P132_FormatOfControl_Standard0 and :92-125 _StandardNumbers:
+    // Integer, Decimal, Text, Boolean and DateTime controls with 0, 1, 2 and 9 and a length of 8; errors/lt-ms-refusals-129/
+    // P129FormatTestPageControl.al:94-138 P129_FormatTestPageControl_BooleanOptionCodeTextEnum: Boolean, Option, Code, Text and Enum controls with 0, 2 and 9 and a
+    // length of 5). Other format numbers are not pinned.
+    if matches!(&args[0], Value::TestControl(_)) {
+        if !matches!(std, 0 | 1 | 2 | 9) {
+            return Err(Signal::Unsupported(format!(
+                "Format of a TestPage control with standard format {std} (only 0, 1, 2 and 9 are pinned)"
+            )));
+        }
+        let mut control = args[0].clone();
+        let shown = ctx.page(crate::page_op::PageOp::TestFieldValue, Some(&mut control), &mut [])?;
+        if !matches!(shown, Value::Text(_)) {
+            return Err(Signal::Unsupported(format!(
+                "Format of a TestPage control whose value is {} (not pinned)",
+                shown.describe()
+            )));
+        }
+        let mut inner = [shown, Value::Integer(len), Value::Integer(0)];
+        return format_1(ctx, None, &mut inner);
+    }
     // A record as a whole, a RecordRef and a FieldRef need the table's schema.
     let composite = matches!(&args[0], Value::Record(_))
         || matches!(
@@ -1527,7 +1549,7 @@ fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Res
     // Standard format 9 of a Record or a RecordRef gives the text of standard format 0, and an unopened RecordRef formats as
     // the empty text with 0 and 9 (errors/lt-ms-refusals-133/P133DateEvaluateFormat.al:441-566
     // NP3_FormatRecord_StandardFormats_0And9, _Temporary_AndFlowField_0And9, NP3_FormatRecordRef_StandardFormats_0And9,
-    // NP3_FormatRecordRef_NotOpen). A FieldRef with 9 is not pinned.
+    // NP3_FormatRecordRef_NotOpen). A FieldRef with a number other than 0 is handled below.
     let record_or_ref = match &args[0] {
         Value::Record(_) => Some(true),
         Value::Library(crate::library_kind::LibraryKind::RecordRef, l) => {
@@ -1537,6 +1559,76 @@ fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Res
     };
     if record_or_ref == Some(false) && matches!(std, 0 | 9) {
         return Ok(Value::Text(crate::format::pad(String::new(), len).into()));
+    }
+    // A FieldRef with a format number other than 0 formats its value as `Format(FieldRef.Value, Length, Number)` does, which
+    // differs from the field's own Format: a Decimal ignores the field's DecimalPlaces, an Option still shows its caption with 1
+    // (errors/lt-ms-refusals-129/P129FormatFieldRef.al:114-149 P129_FormatFieldRef_Numbers 1, 2 and 9 of Integer, BigInteger,
+    // Decimal and Duration; :176-208 _BooleanOptionCodeTextEnum 2 and 9; :321-358 BT_FormatFieldRef_AgainstFormatValue and
+    // :360-380 _BlobOptionEnum, `FR 0,1` = `FR.Value 0,1` and `FR 0,9` = `FR.Value 0,9` for Decimals with DecimalPlaces, a Date,
+    // an Option with captions and an Enum). Other format numbers are not pinned.
+    if std != 0 {
+        if let Value::Library(_, l) = &args[0] {
+            if matches!(
+                &*l.borrow(),
+                crate::value::LibraryValue::FieldRef(..) | crate::value::LibraryValue::KeyFieldRef(..)
+            ) {
+                if !matches!(std, 1 | 2 | 9) {
+                    return Err(Signal::Unsupported(format!(
+                        "Format of a FieldRef with standard format {std} (only 1, 2 and 9 are pinned)"
+                    )));
+                }
+                let mut fr = args[0].clone();
+                let value = ctx.ref_op("FieldRef.Value#1", Some(&mut fr), &mut [])?;
+                let mut inner = [value, Value::Integer(len), Value::Integer(std)];
+                return format_1(ctx, None, &mut inner);
+            }
+        }
+    }
+    // A FieldRef with a length and format number 0 cuts the field's text to the length; a shorter text is padded with blanks,
+    // after a Text or a Code and before an Integer (P129FormatFieldRef.al:214-237 P129_FormatFieldRef_WithLength: Text 5 `Hello`
+    // and 20, Code 5 `ABC  `, Integer 2 `12` and 8 `    1234`, Decimal 4 `1,23`, Option 2 `Do`, Date 5 `03/05`). Padding of
+    // other types, the cut of other types and a negative length are not pinned.
+    if std == 0 && len != 0 {
+        if let Value::Library(_, l) = &args[0] {
+            if matches!(
+                &*l.borrow(),
+                crate::value::LibraryValue::FieldRef(..) | crate::value::LibraryValue::KeyFieldRef(..)
+            ) {
+                let mut fr = args[0].clone();
+                let value = ctx.ref_op("FieldRef.Value#1", Some(&mut fr), &mut [])?;
+                let Some(Ok(t)) = ctx.format_composite(&args[0]) else {
+                    return Err(Signal::Unsupported(
+                        "Format of a FieldRef with a length (not pinned)".into(),
+                    ));
+                };
+                let n = t.chars().count();
+                let want = usize::try_from(len).unwrap_or(0);
+                let text_like = matches!(value, Value::Text(_) | Value::Code(_));
+                let cut_pinned = text_like
+                    || matches!(
+                        value,
+                        Value::Integer(_) | Value::Decimal(_) | Value::Option(..) | Value::Date(..)
+                    );
+                let out = if len < 0 {
+                    None
+                } else if n > want && cut_pinned {
+                    Some(t.chars().take(want).collect::<String>())
+                } else if n <= want && text_like {
+                    Some(format!("{t:<want$}"))
+                } else if n <= want && matches!(value, Value::Integer(_)) {
+                    Some(format!("{t:>want$}"))
+                } else {
+                    None
+                };
+                return match out {
+                    Some(o) => Ok(Value::Text(o.into())),
+                    None => Err(Signal::Unsupported(format!(
+                        "Format of a FieldRef of {} with length {len} (only the cut and the padding of P129FormatFieldRef.al are pinned)",
+                        value.describe()
+                    ))),
+                };
+            }
+        }
     }
     let std9 = std == 9 && record_or_ref == Some(true);
     if composite && (std == 0 || std9) {
