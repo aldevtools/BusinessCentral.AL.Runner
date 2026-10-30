@@ -677,12 +677,6 @@ registry! {
             since: "2026-10-30",
         },
     },
-    BigTextValueCopy => {
-        id: "bigtext-value-copy",
-        assumed: "A BigText given as an event parameter by value gets a copy the subscriber's AddText does not reach, and a returned BigText is a copy. Assignment, a by-value and a var procedure parameter and Clear of a copy are pinned (text/TestBigText.al:108-160); the marker cannot tell those from the unpinned uses and fires on every copy.",
-        tests: "No Microsoft test: a partner app's tests (A=2;B=1;C=0 after `B := A`, a by-value AddText and Clear of a copy).",
-        probe: "A BigText passed by value to an event subscriber that calls AddText: the publisher's length; a procedure that returns a BigText the caller then grows: the callee's copy.",
-    },
     GroupEnabledDisablesField => {
         id: "group-enabled-disables-field",
         assumed: "A control inside a group whose Enabled reads No is disabled whatever its own Enabled says on a page type other than a card or a request page, and for a group Enabled bound to an expression. Pinned: a request page (misc/lt-object-properties-runtime-effect/ReportRequestPageGroupEditable.al:P194_ReportGroup_EditableEnabled) and a card's field with or without an Enabled of its own in a group with `Enabled = false` (pages/lt-ap-testpage-642/ApTestPageTests.al:895 Ap16_GroupEnabledFalse_Card, :1082 Ap16_GroupEnabledFalse_FieldEnabledTrue).",
