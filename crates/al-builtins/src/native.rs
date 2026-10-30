@@ -335,6 +335,12 @@ pub trait Ctx: FormatCtx {
     fn module_at_frame(&self, _depth: usize) -> Option<crate::value::ModuleInfoState> {
         None
     }
+    /// The app of the outermost frame on the call stack (the root routine the session called). While an install
+    /// routine runs, that is the app being installed: each install root belongs to its own app (al-testrun
+    /// `install::plan`). `None` when there is no frame or the app's manifest has no readable id.
+    fn module_at_root(&self) -> Option<crate::value::ModuleInfoState> {
+        None
+    }
     /// The distinct apps of the frames on the call stack, innermost first, leaving out the
     /// `skip` innermost frames.
     fn module_callstack(&self, _skip: usize) -> Vec<crate::value::ModuleInfoState> {
