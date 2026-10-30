@@ -14364,6 +14364,7 @@
 77502 AC_EnumOrdinals
 77504 AC_IsDirty_FindAndRename
 77504 AC_IsDirty_Lifecycle
+77506 AC_DataSourceContext_CodeunitId
 77510 AC_HttpRequestType_Case
 77510 AC_HttpRequestType_Format
 77510 AC_HttpRequestType_Variable
@@ -14393,6 +14394,12 @@
 77540 TZ_PageExtensionUserControl_CallFromExtAction
 77540 TZ_TryFunctionAroundCall_InsideAction
 77540 TZ_TwoProceduresFromActions_PageStaysUsable
+77541 AC_TestHandlerContext_CodeunitId
+77542 AC_TestHandlerContext_Skip_Outside
+77543 AC_TestHandlerContext_CodeunitName
+77544 AC_TestHandlerContext_ProcedureName
+77545 AC_TestHandlerContext_TestCaseName
+77546 AC_TestHandlerContext_Success
 78000 Letters_Dec31_A
 78000 Letters_July1_A
 78000 Letters_March18_A

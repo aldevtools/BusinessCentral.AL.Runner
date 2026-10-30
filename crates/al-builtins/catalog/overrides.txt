@@ -38,3 +38,16 @@
 # Record.IsDirty() exists from BC 29 (runtime 18.0) but is not in the scrape. Corpus lt-ac/ACRecordIsDirty.al:30
 # `Format(Row.IsDirty())` compiles on BC 29.0 (guarded `#if BC29PLUS`; must-not-compile 0960 pins the BC 27 and 28 refusal).
 + Record.IsDirty inst () -> Boolean @18.0
+
+# TestHandlerContext and DataSourceContext exist from BC 29 (runtime 18.0) but are not in the scrape. Corpus
+# lt-ac/ACContexts.al:22, :47, :68, :89, :110, :131, :167 compile on BC 29.0 (guarded `#if BC29PLUS`; must-not-compile
+# 0961, 0962, 0995 and 0996 pin the refusal before). The ITestHandler and ITestDataSource signatures in the BC 29
+# System.app symbols use them (members: System.app SymbolReference.json, namespaces System.Testability and System.Test).
++ TestHandlerContext.CodeunitId inst () -> Integer @18.0
++ TestHandlerContext.CodeunitName inst () -> Text @18.0
++ TestHandlerContext.ProcedureName inst () -> Text @18.0
++ TestHandlerContext.TestCaseName inst () -> Text @18.0
++ TestHandlerContext.Success inst () -> Boolean @18.0
++ TestHandlerContext.Skip inst (Reason: Text) @18.0
++ DataSourceContext.CodeunitId inst () -> Integer @18.0
++ DataSourceContext.AppId inst () -> Guid @18.0
