@@ -1329,7 +1329,15 @@ codeunit 50100 C
         Row.Kind := Row.Kind::First; Row.Code := 'A1';
         R := Tail(GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false));
         Row.Kind := Row.Kind::Fifth; Row.Code := '';
+        R += ' ' + Tail(GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false));
+        Row.Kind := Row.Kind::Second; Row.Code := '106001';
         exit(R + ' ' + Tail(GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false)));
+    end;
+    procedure Digits()
+    var Row: Record "LT SC Url Enum Row"; T: Text;
+    begin
+        Row.Code := '12';
+        T := GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false);
     end;
     procedure O(): Text
     var Row: Record "LT SC Url Option Row";
@@ -1346,8 +1354,10 @@ codeunit 50100 C
 "#;
     assert_eq!(
         al_testkit::text(al_testkit::run(src, "E")),
-        "bookmark=21%3bfWQBAACLAAAAAAJ7%2f0EAMQ%3d%3d bookmark=17%3bfWQBAACLBQAAAAJ7"
+        "bookmark=21%3bfWQBAACLAAAAAAJ7%2f0EAMQ%3d%3d bookmark=17%3bfWQBAACLBQAAAAJ7 bookmark=29%3bfWQBAACLAQAAAAJ7BjEAMAA2ADAAMAAx"
     );
+    // Purchase Header `order 106001` (GetUrlBookmarkEnumKey.al:149) on the own table; other digit codes are not pinned.
+    assert!(matches!(al_testkit::run(src, "Digits"), Err(Signal::Unsupported(_))));
     assert_eq!(
         al_testkit::text(al_testkit::run(src, "O")),
         "bookmark=21%3bfmQBAACLAgAAAAJ7%2f0EAMQ%3d%3d"

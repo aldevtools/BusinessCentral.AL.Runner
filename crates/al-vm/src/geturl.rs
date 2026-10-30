@@ -511,8 +511,21 @@ impl Session {
                         return unsupported("GetUrl bookmark of an empty Code in a two-field key (not pinned)");
                     }
                     // A non-empty Code is marked 0xff, an empty one 0x00 (TGetUrl.al:446-447 `two second empty`,
-                    // `two first empty`).
-                    data.extend_from_slice(&[0x02, 0x7b, if s.is_empty() { 0x00 } else { 0xff }]);
+                    // `two first empty`). A Code of six digits is marked 0x06 (GetUrlBookmarkEnumKey.al:149-150
+                    // `order 106001`); a Code that starts with a digit in another form is not pinned.
+                    let marker = if s.is_empty() {
+                        0x00
+                    } else if s.starts_with(|c: char| c.is_ascii_digit()) {
+                        if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_digit()) {
+                            return unsupported(
+                                "GetUrl bookmark of a Code value that starts with a digit (pinned only for six digits)",
+                            );
+                        }
+                        0x06
+                    } else {
+                        0xff
+                    };
+                    data.extend_from_slice(&[0x02, 0x7b, marker]);
                     for b in s.bytes() {
                         data.extend_from_slice(&[b, 0]);
                     }
