@@ -1707,6 +1707,12 @@ codeunit 50100 C
         R.SetFilter(Id, '*');
         exit(R.GetFilter(Id));
     end;
+    procedure PlaceholderStar(): Text
+    var R: Record FRow;
+    begin
+        R.SetFilter(Id, '%1*', 8);
+        exit(R.GetFilter(Id));
+    end;
 }
 "#;
 
@@ -2163,4 +2169,14 @@ fn dependency_apps_run_in_dependency_order_and_unrelated_ones_keep_ascending_cod
         order_app("t", &["a", "x", "y"], &t),
     ];
     assert_eq!(run(apps), "X2;Y;X1;T;");
+}
+
+// A placeholder kept as written next to a wildcard (`%1*`) raises BC's error without subscribers (filters/W4Filters.al:694); whether
+// BC raises `MakeIntFilter` for it first is not pinned, so with a subscriber present it is refused.
+#[test]
+fn a_placeholder_next_to_a_wildcard_with_a_make_int_filter_subscriber_is_refused() {
+    match run(INT_FILTER, "PlaceholderStar") {
+        Err(Signal::Unsupported(m)) => assert!(m.contains("makeintfilter"), "{m}"),
+        other => panic!("{other:?}"),
+    }
 }

@@ -615,6 +615,17 @@ impl Lowerer<'_> {
                                     rt,
                                     Box::new(ir::Expr::DotNetOperand(Box::new(self.expr(a)?), ir::OperandUse::Strict)),
                                 ),
+                                // A variable declared `DotNet String` into a Text or Code slot: it reads as a Text and
+                                // nothing as '' (tests/al-language-onprem-dotnet/lt-dotnet-interop/DotNetOperandStringEq.al),
+                                // then fits the slot like a DotNet result. System Application Uri.GetSegments adds one to a
+                                // List of [Text] (al-runner issue 6298).
+                                Some(rt @ RtType::Text(None))
+                                    if !p.by_var
+                                        && pty == "Text"
+                                        && self.declared_clr_type(&alias).as_deref() == Some("System.String") =>
+                                {
+                                    ir::Expr::DotNetCoerce(rt, Box::new(self.operand(a, ir::OperandUse::Strict)?))
+                                }
                                 _ => {
                                     return Err(format!(
                                         "a DotNet value passed to builtin {id}: its type is only known at run time; assign it to a typed variable first"
