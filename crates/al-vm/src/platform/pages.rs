@@ -395,17 +395,14 @@ fn page_metadata_row(
     t: &TableDef,
     mut r: Row,
 ) -> Result<(Row, Option<al_builtins::assumptions::Assumption>), String> {
-    let page_type = match prop(o, "PageType") {
-        None => 0,
-        Some(v) => {
-            let name = member(&PAGE_TYPES.iter().map(|(n, _)| *n).collect::<Vec<_>>(), v)
-                .ok_or_else(|| format!("page '{}': PageType `{v}` is not pinned", o.name))?;
-            PAGE_TYPES
-                .iter()
-                .find(|(n, _)| *n == name)
-                .map(|(_, i)| *i)
-                .unwrap_or(0)
-        }
+    // A page type that is not pinned leaves only this column unknown: a read of it, or a filter on it the row's other
+    // columns do not already rule out, is refused (al-runner issue 6251: System Application's "Power BI Element Addin Host"
+    // is a `UserControlHost`).
+    let page_type: Result<i32, String> = match prop(o, "PageType") {
+        None => Ok(0),
+        Some(v) => member(&PAGE_TYPES.iter().map(|(n, _)| *n).collect::<Vec<_>>(), v)
+            .and_then(|name| PAGE_TYPES.iter().find(|(n, _)| *n == name).map(|(_, i)| *i))
+            .ok_or_else(|| format!("Page Metadata: page '{}': PageType `{v}` is not pinned", o.name)),
     };
     let src_id = source_table_id(c, o)?;
     let src = c.table_by_id(src_id).filter(|_| src_id != 0);
@@ -433,7 +430,10 @@ fn page_metadata_row(
     // a List with Editable = false reads No, a Card that declares none Yes). Other page types without the property are not
     // pinned (docs/probes-needed.md).
     r[pos(t, 4)] = Value::Boolean(allowed(c, o, "Editable")?);
-    r[pos(t, 5)] = option(t, 5, page_type);
+    r[pos(t, 5)] = match page_type {
+        Ok(n) => option(t, 5, n),
+        Err(why) => Value::Unknown(why.into()),
+    };
     // BC's own placeholder for a declared DataCaptionExpression (TestPageMetadataProperties.al:23-26).
     r[pos(t, 7)] = Value::Text(
         if prop(o, "DataCaptionExpression").is_some() {

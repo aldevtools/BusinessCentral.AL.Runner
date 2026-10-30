@@ -2684,3 +2684,28 @@ codeunit 50000 "T" { Subtype = Test;
     assert!(not_run(&o, "ViewRead").contains("filter(Quote)"), "{o:?}");
     assert!(not_run(&o, "FilterOnView").contains("filter(Quote)"), "{o:?}");
 }
+
+/// al-runner issue 6251 follow-up: a page whose PageType is not pinned (System Application's "Power BI Element Addin Host" is a
+/// `UserControlHost`) leaves only its PageType column unknown. A read that filters on PageType and on SourceTable, which the
+/// page does not match, is served; a read of its PageType is refused.
+#[test]
+fn page_metadata_serves_the_rows_beside_a_page_whose_page_type_is_not_pinned() {
+    let o = outcomes(
+        r#"table 50100 "PM Document" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+page 50100 "PM Host" { PageType = UserControlHost; layout { area(Content) { } } }
+page 50101 "PM Documents API" { PageType = API; APIPublisher = 'repro'; APIGroup = 'repro'; APIVersion = 'v1.0'; EntityName = 'document';
+    EntitySetName = 'documents'; SourceTable = "PM Document"; DelayedInsert = true;
+    layout { area(Content) { repeater(Lines) { field(number; Rec."No.") { } } } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure FilterOnApiPagesOfATable() var M: Record "Page Metadata"; begin
+    M.SetRange(PageType, M.PageType::API); M.SetRange(SourceTable, Database::"PM Document"); M.FindFirst();
+    if M.ID <> Page::"PM Documents API" then Error('got %1', M.ID); end;
+  [Test] procedure GetReadsName() var M: Record "Page Metadata"; begin
+    M.Get(Page::"PM Host"); if M.Name <> 'PM Host' then Error('got %1', M.Name); end;
+  [Test] procedure TypeRead() var M: Record "Page Metadata"; begin
+    M.Get(Page::"PM Host"); if M.PageType = M.PageType::API then Error('api'); end; }"#,
+    );
+    passes(&o, "FilterOnApiPagesOfATable");
+    passes(&o, "GetReadsName");
+    assert!(not_run(&o, "TypeRead").contains("UserControlHost"), "{o:?}");
+}
