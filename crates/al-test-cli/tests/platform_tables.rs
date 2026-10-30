@@ -498,6 +498,24 @@ fn windows_language_answers_the_pinned_columns_and_refuses_the_rest() {
     }
 }
 
+// Windows Language ids the corpus pins as no row: 1, 127 and 4096 (errors/lt-ms-refusals-129/P129WindowsLanguage.al:63-96),
+// 1, 2, 7, 9, 10 and 12 (errors/lt-ms-refusals-137/P137WindowsLanguage.al:24-54). Get of one of them is false; an id next to
+// them (3, 4095) is still refused.
+#[test]
+fn windows_language_get_of_a_pinned_absent_id_is_false() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Absent() var W: Record "Windows Language"; begin if W.Get(1) then Error('1'); if W.Get(2) then Error('2'); if W.Get(7) then Error('7'); if W.Get(9) then Error('9'); if W.Get(10) then Error('10'); if W.Get(12) then Error('12'); if W.Get(127) then Error('127'); if W.Get(4096) then Error('4096'); end;
+  [Test] procedure NextToAbsent() var W: Record "Windows Language"; begin if W.Get(3) then; end;
+  [Test] procedure Below4096() var W: Record "Windows Language"; begin if W.Get(4095) then; end; }"#,
+    );
+    passes(&o, "Absent");
+    for t in ["NextToAbsent", "Below4096"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("whether language"), "{t}: {why}");
+    }
+}
+
 // License Permission: the two rows platform/lt-platform-tables/PtCloudTables.al:60-76 pins, and the rows
 // platform/lt-ag-contoso/AgLicensePermission.al:43-67 reads by key (Codeunit 410 'Update Analysis View', which Cash Flow
 // Wksh.-Register Batch reads while the Contoso company is built). Any other object is refused, because the table lists
@@ -2671,4 +2689,34 @@ fn issue_6218_time_zone_lookup_by_windows_id() {
     passes(&o, "OtherWindowsZone");
     let why = not_run(&o, "NumberOfAZoneOutsideTheDefaultRows");
     assert!(why.contains("Time Zone"), "{why}");
+}
+
+/// al-runner issue 6251: a page whose SourceTableView has a shape that is not pinned (`filter(<option name>)`) leaves only its
+/// SourceTableView column unknown. A filtered read that leaves the page out, and a Get of it that reads other columns, are
+/// served; a read of its SourceTableView is still refused (only the shapes in `view_text` are pinned).
+#[test]
+fn page_metadata_serves_the_rows_beside_a_page_whose_view_is_not_pinned() {
+    let o = outcomes(
+        r#"table 50100 "PM Document" { fields { field(1; "Document Type"; Option) { OptionMembers = Quote,Order,Invoice; } field(2; "No."; Code[20]) { } }
+    keys { key(PK; "Document Type", "No.") { Clustered = true; } } }
+page 50100 "PM Quotes" { PageType = List; SourceTable = "PM Document"; SourceTableView = where("Document Type" = filter(Quote));
+    layout { area(Content) { repeater(Lines) { field("No."; Rec."No.") { } } } } }
+page 50101 "PM Documents API" { PageType = API; APIPublisher = 'repro'; APIGroup = 'repro'; APIVersion = 'v1.0'; EntityName = 'document';
+    EntitySetName = 'documents'; SourceTable = "PM Document"; DelayedInsert = true;
+    layout { area(Content) { repeater(Lines) { field(number; Rec."No.") { } } } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure FilterOnApiPagesOfATable() var M: Record "Page Metadata"; begin
+    M.SetRange(PageType, M.PageType::API); M.SetRange(SourceTable, Database::"PM Document"); M.FindFirst();
+    if M.ID <> Page::"PM Documents API" then Error('got %1', M.ID); end;
+  [Test] procedure GetReadsOtherColumns() var M: Record "Page Metadata"; begin
+    M.Get(Page::"PM Quotes"); if M.SourceTable <> Database::"PM Document" then Error('got %1', M.SourceTable); end;
+  [Test] procedure ViewRead() var M: Record "Page Metadata"; begin
+    M.Get(Page::"PM Quotes"); if M.SourceTableView = '' then Error('empty view'); end;
+  [Test] procedure FilterOnView() var M: Record "Page Metadata"; begin
+    M.SetRange(SourceTable, Database::"PM Document"); M.SetFilter(SourceTableView, '<>%1', ''); if M.FindFirst() then; end; }"#,
+    );
+    passes(&o, "FilterOnApiPagesOfATable");
+    passes(&o, "GetReadsOtherColumns");
+    assert!(not_run(&o, "ViewRead").contains("filter(Quote)"), "{o:?}");
+    assert!(not_run(&o, "FilterOnView").contains("filter(Quote)"), "{o:?}");
 }
