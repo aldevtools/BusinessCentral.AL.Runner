@@ -65,7 +65,7 @@ jobs:
             os: windows-latest
             ext: zip
           - target: aarch64-apple-darwin
-            os: macos-14
+            os: macos-15
             ext: tar.xz
     steps:
       - uses: actions/checkout@v4
