@@ -277,6 +277,9 @@ impl Session {
         self.random_draws += 1;
         if !self.reseeded_in_test {
             self.inherited_draws += 1;
+            if !self.run_seeded_in_test {
+                self.carried_draws += 1;
+            }
         }
         Ok(Value::Integer(self.rng.next_below(bound) + 1))
     }

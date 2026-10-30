@@ -185,6 +185,8 @@ codeunit 50406 "Random After Failure"
     [Test]
     procedure A_DrawsAndFails()
     begin
+        // The seed carries the sequence into the next test, past the run seed's restart (ADR-061).
+        Randomize(3);
         if Random(10) > 0 then Error('first');
     end;
     [Test]
