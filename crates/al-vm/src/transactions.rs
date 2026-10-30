@@ -250,7 +250,7 @@ impl Session {
         if self.pages.bg_worker.is_some() {
             return Ok(false);
         }
-        if self.store.has_uncommitted() || self.tx.tx_phase == TX_WRITE || self.tx.lock_tx {
+        if self.store.has_uncommitted() || self.tx.tx_phase == TX_WRITE || self.tx.lock_tx || self.tx.recref_lock_tx {
             return Ok(true);
         }
         match self.tx.lock_unpinned {

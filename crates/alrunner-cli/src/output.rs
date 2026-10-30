@@ -155,9 +155,9 @@ pub fn first_line(s: &str, max: usize) -> String {
     al_testrun::refusals::clip(&shown, max)
 }
 
-/// `Tests: 12 total, 5 passed, 1 failed, 6 not run`, and the warning that goes with a run that
-/// has no test data.
-pub fn summary_line(c: &Counts, test_data: bool) -> String {
+/// `Tests: 12 total, 5 passed, 1 failed, 6 not run`, and with `no_data_note` the warning that goes
+/// with a run that needed test data and has none (see [`needs_no_data_note`]).
+pub fn summary_line(c: &Counts, no_data_note: bool) -> String {
     let mut pass_notes = Vec::new();
     if c.stubbed_pass > 0 {
         pass_notes.push(format!("{} stubbed", c.stubbed_pass));
@@ -190,12 +190,19 @@ pub fn summary_line(c: &Counts, test_data: bool) -> String {
         stubbed(c.stubbed_fail),
         c.not_run,
         stubbed(c.stubbed_not_run),
-        if test_data {
-            ""
-        } else {
+        if no_data_note {
             " (no test data: failures are mostly missing setup data and are not trusted; the not-run counts and reasons are)"
+        } else {
+            ""
         }
     )
+}
+
+/// Whether the summary warns that the run has no test data: only when the run uses a Microsoft app
+/// (its tests expect a CRONUS company) and no data is open. An app with no Microsoft dependency (no
+/// `platform` or `application` in its app.json) never looks for test data, so the warning does not apply.
+pub fn needs_no_data_note(uses_microsoft_apps: bool, has_test_data: bool) -> bool {
+    uses_microsoft_apps && !has_test_data
 }
 
 /// The compact time line of the default output, under the totals table: the total wall time, then
@@ -827,6 +834,22 @@ mod tests {
     }
 
     #[test]
+    fn the_no_test_data_note_is_only_for_a_run_on_microsoft_apps_without_data() {
+        assert!(
+            needs_no_data_note(true, false),
+            "Microsoft apps and no data: the note applies"
+        );
+        assert!(!needs_no_data_note(true, true), "data is open");
+        assert!(
+            !needs_no_data_note(false, false),
+            "no Microsoft app: no CRONUS company is needed"
+        );
+        let c = Counts::of([r(1, "A", "T1", Outcome::Fail("x".into()))].iter());
+        assert!(summary_line(&c, true).ends_with("(no test data: failures are mostly missing setup data and are not trusted; the not-run counts and reasons are)"));
+        assert!(!summary_line(&c, false).contains("no test data"));
+    }
+
+    #[test]
     fn a_pass_that_ran_through_an_assumption_is_flagged_in_the_summary_and_junit_and_still_a_pass() {
         let mut flagged = r(1, "A", "T1", Outcome::Pass);
         flagged.assumptions = vec![
@@ -841,12 +864,12 @@ mod tests {
         let c = Counts::of(rs.iter());
         assert_eq!((c.pass, c.flagged), (2, 1));
         assert_eq!(
-            summary_line(&c, true),
+            summary_line(&c, false),
             "Tests: 3 total, 2 passed (1 flagged: rely on unprobed assumptions), 1 failed, 0 not run"
         );
         let clean = Counts::of(rs[1..].iter());
         assert_eq!(
-            summary_line(&clean, true),
+            summary_line(&clean, false),
             "Tests: 2 total, 1 passed, 1 failed, 0 not run"
         );
         let refs: Vec<&TestResult> = rs.iter().collect();

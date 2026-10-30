@@ -941,6 +941,7 @@ fn test_inner(
     .map_err(|e| e.to_string())?;
     // Each app under test sees the builtins of the runtime its own app.json declares (al-runner issue 5573): the AL
     // compiler rejects a call newer than that runtime with AL0666.
+    chosen.widen_runtime(inputs.iter().filter_map(|i| i.versions.runtime));
     chosen.target.app_runtimes = inputs
         .iter()
         .filter_map(|i| Some((i.source.id.clone(), i.versions.runtime?)))
@@ -2149,7 +2150,13 @@ fn test_inner(
             say!("{line}");
         }
     }
-    say!("{}", style::bold(&output::summary_line(&counts, test_data.is_some())));
+    say!(
+        "{}",
+        style::bold(&output::summary_line(
+            &counts,
+            output::needs_no_data_note(microsoft, test_data.is_some())
+        ))
+    );
     if !a.quiet && counts.total > 0 {
         for line in output::summary_table(&counts) {
             say!("{line}");

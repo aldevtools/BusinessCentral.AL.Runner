@@ -387,7 +387,9 @@ impl Session {
     ///   LookupWithoutUpdateShowsThePickedResource); `Update(true)` there is not pinned;
     /// - with parts: no Update, `Update(false)` or `Update(true)` (:469, :493, :517, :541, :565, :589), when every other page
     ///   of the tree is a ListPart hosted by `root` with no SubPageView or provider and a SubPageLink that is absent or one
-    ///   `field(..)` entry (pages 89631 and 89632). A filter entry, more entries, a view or a provider are not pinned.
+    ///   `field(..)` entry (pages 89631 and 89632) or two (pages/lt-wb-6290/WbLookupListPartTests.al:21-31
+    ///   OnePartWithTwoLinkedFieldsShowsThePickedResource, al-runner issue 6290). A filter entry, three or more entries, a view
+    ///   or a provider are not pinned.
     fn lookup_refresh_pinned(&self, root: &St, tree: &[St], notes: &[ShownNote]) -> bool {
         let with_parts = tree.len() > 1;
         let root_ptr = Rc::as_ptr(root);
@@ -420,7 +422,11 @@ impl Session {
             let link_ok = page_of(&engine, &h).controls[i].part_link.as_ref().is_none_or(|l| {
                 l.view.is_none()
                     && l.provider.is_none()
-                    && (l.entries.is_empty() || matches!(l.entries.as_slice(), [ir::LinkEntry::Field(..)]))
+                    && (l.entries.is_empty()
+                        || matches!(
+                            l.entries.as_slice(),
+                            [ir::LinkEntry::Field(..)] | [ir::LinkEntry::Field(..), ir::LinkEntry::Field(..)]
+                        ))
             });
             Rc::ptr_eq(&h, root) && list_part && link_ok
         })

@@ -7,7 +7,10 @@ use al_data::TableDef;
 
 /// The Time Zone table lists the host's zones, `No.` from 1 (record/TestTimeZoneVirtualTable.al:
 /// more than one row, `No.` running 1 to N without gaps, a non-blank `ID`, `Get(1)` the first row of
-/// a scan, `Get` past the end finds nothing).
+/// a scan, `Get` past the end finds nothing). The default host serves the 144 rows of the corpus CI
+/// (record/lt-uv-time-zone-table/UvTimeZoneRows.al:42-240; `al_host::time_zone_table`). The real table depends
+/// on the host Windows version (UvTimeZoneRows.al:7-11: a Windows SaaS sandbox lists 141 rows); the corpus CI
+/// answer is served.
 pub(super) fn time_zone_rows(t: &TableDef, i: &Ident) -> Vec<Entry> {
     i.time_zones
         .iter()
@@ -879,6 +882,8 @@ const LICENSE_TYPES_SS: &[i64] = &[0, 1, 3, 5, 6, 8, 9];
 /// The Read, Insert, Modify, Delete and Execute permissions lt-ss1030/SsLicensePermissionObjects.al pins for an object of
 /// [`LICENSE_TYPES_SS`] that no app declares, and whether it pins Limited Usage (blank) too:
 /// - 50123, 99999 and 70000456: every permission `Yes`, Limited Usage blank (:22-33, the `UnusedNumbers` tests).
+/// - TableData and Table at 50001, 60000, 70000000, 70000500, 74999999, 80000, 99999998 and 99999999: every permission `Yes`,
+///   Limited Usage blank (:56-87, LicensePermission_Table_IsvRangeNumbers and _TableData_IsvRangeNumbers; al-runner issue 6214).
 /// - 100000: every permission `Yes`; 1999999999 and 2147483647: every permission blank (:99-103, the `Top` tests, which
 ///   do not read Limited Usage).
 /// - 2000000000: every permission `Yes`; 2000000001: every permission `Yes`, but Table has Delete blank (:104-120). Page
@@ -890,6 +895,11 @@ fn license_pinned_ss(object_type: i64, number: i64) -> Option<([i32; 5], bool)> 
     const YES: [i32; 5] = [1; 5];
     match number {
         50123 | 99999 | 70_000_456 => Some((YES, true)),
+        50001 | 60000 | 80000 | 70_000_000 | 70_000_500 | 74_999_999 | 99_999_998 | 99_999_999
+            if matches!(object_type, 0 | 1) =>
+        {
+            Some((YES, true))
+        }
         100_000 => Some((YES, false)),
         1_999_999_999 | 2_147_483_647 => Some(([0; 5], false)),
         2_000_000_000 | 2_000_000_001 if object_type == 8 => None,
@@ -899,8 +909,12 @@ fn license_pinned_ss(object_type: i64, number: i64) -> Option<([i32; 5], bool)> 
     }
 }
 
-/// The object types whose other numbers are assumed to be rows with every permission `Yes`: Report, Codeunit and Page.
-const LICENSE_TYPES: &[i64] = &[3, 5, 8];
+/// The object types whose other numbers are assumed to be rows with every permission `Yes`: Table, Report, Codeunit and
+/// Page. Table rests on the same evidence as Codeunit (al-runner issue 6214, reopened) for the numbers no test pins: every pinned Table row of a number
+/// from 1 to 99999999 has every permission `Yes` (platform/lt-ag-contoso/AgLicensePermission.al Table 50000 and 70000123;
+/// lt-ss1030/SsLicensePermissionObjects.al:37-45 LicensePermission_Table_UnusedNumbers, Table 50123, 99999 and 70000456,
+/// and :141-149 LicensePermission_Table_Top, Table 100000).
+const LICENSE_TYPES: &[i64] = &[1, 3, 5, 8];
 
 /// The highest number the assumption covers: Codeunit 99999999 is the highest number pinned `Yes` below 1999999999, which
 /// lt-ss1030/SsLicensePermissionObjects.al:102-103 pins as a row with every permission blank, so "every number up to
@@ -935,7 +949,7 @@ fn license_known(t: &TableDef, object_type: i64, number: i64) -> Option<Row> {
         }
         return Some(r);
     }
-    // Every other Report, Codeunit or Page numbered 1 to 99999999 is assumed to be a row with every permission `Yes`, as
+    // Every other Table, Report, Codeunit or Page numbered 1 to 99999999 is assumed to be a row with every permission `Yes`, as
     // each pinned row of such a number is (al-runner issue 6214). Other numbers and types, number 0 of another type than
     // TableData and Codeunit, and a negative number are not pinned and stay refused.
     if LICENSE_TYPES.contains(&object_type) && (1..=LICENSE_ASSUMED_MAX).contains(&number) {
@@ -955,7 +969,7 @@ fn license_num(v: &Value) -> Option<i64> {
 
 fn license_unpinned(object_type: i64, number: i64) -> StoreError {
     refused(format!(
-        "License Permission: whether object type {object_type} number {number} is a row is not pinned (only the rows platform/lt-platform-tables/PtCloudTables.al and platform/lt-ag-contoso/AgLicensePermission.al read are, lt-ss1030/SsLicensePermissionObjects.al pins a sample of numbers, and numbers from 1 to 99999999 are assumed for Report, Codeunit and Page)"
+        "License Permission: whether object type {object_type} number {number} is a row is not pinned (only the rows platform/lt-platform-tables/PtCloudTables.al and platform/lt-ag-contoso/AgLicensePermission.al read are, lt-ss1030/SsLicensePermissionObjects.al pins a sample of numbers, and numbers from 1 to 99999999 are assumed only for Table, Report, Codeunit and Page)"
     ))
 }
 
@@ -1010,19 +1024,9 @@ pub(super) fn license_permission_count(t: &TableDef, filters: &[FieldFilter]) ->
     Ok(usize::from(filters.iter().all(|f| f.expr.matches(&r[f.field]))))
 }
 
-/// Why `Get(No.)` of the Time Zone table is refused, if it is. BC lists the 144 Windows time zones, numbered as Windows
-/// sorts them (record/lt-at-partner-gaps/AtTimeZoneNumbering.al:41-47: `count = 144`, `2 = UTC-11`, `3 = Aleutian Standard
-/// Time`); the runtime lists a few host zones in another order, so which zone a number from 2 to 144 names is not known
-/// here. Get(1) keeps the first row of a scan (record/TestTimeZoneVirtualTable.al:GetOne_AgreesWithTheFirstRowOfFindSet)
-/// and a number past 144 finds nothing (:GetOnANumberPastTheEnd_ReturnsFalse).
-pub(crate) fn time_zone_get_refusal(no: &Value) -> Option<&'static str> {
-    matches!(no, Value::Integer(n) if (2..=144).contains(n)).then_some(
-        "Get of a Time Zone row by a number from 2 to 144: BC lists 144 Windows time zones in Windows order, the runtime only a few host zones (not pinned which zone a number names)",
-    )
-}
-
 /// A read of the Time Zone table filtered to one Windows time zone id that is not among the host rows: one row with that
-/// ID, whose `No.` and `Display Name` are unknown (refused when read). BC on Windows lists every Windows zone, the runtime
+/// ID, whose `No.` and `Display Name` are unknown (refused when read). The default host lists every Windows id of CLDR's
+/// list (record/lt-uv-time-zone-table/UvTimeZoneRows.al), so this only matters for a host that lists fewer zones. BC on Windows lists every Windows zone, the runtime
 /// a few host zones; Pacific, UTC, Arabian, GMT, Eastern and Tokyo each find one row and an unknown id none (corpus branch
 /// al-runtime-rs-staging-uq at d651ec93, bump PR 809: record/lt-at-partner-gaps/AtTimeZoneNumbering.al
 /// UQ_TimeZone_LookupById). That every other Windows id of CLDR's list is a row is assumed (`time-zone-windows-id-is-a-row`,
@@ -1080,18 +1084,4 @@ pub(crate) fn time_zone_by_id(t: &TableDef, i: &Ident, filters: &[FieldFilter]) 
 /// of that language (ADR-053 decision 3).
 pub(crate) fn culture_name(id: i32) -> Option<&'static str> {
     LANGUAGES.iter().find(|l| l.0 == id).map(|l| l.4)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn get_of_a_time_zone_number_after_the_first_is_refused() {
-        assert!(time_zone_get_refusal(&Value::Integer(1)).is_none());
-        assert!(time_zone_get_refusal(&Value::Integer(2)).is_some());
-        assert!(time_zone_get_refusal(&Value::Integer(144)).is_some());
-        assert!(time_zone_get_refusal(&Value::Integer(145)).is_none());
-        assert!(time_zone_get_refusal(&Value::Integer(999_999)).is_none());
-    }
 }

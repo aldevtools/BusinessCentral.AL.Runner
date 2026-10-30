@@ -46,8 +46,8 @@ on the main machine or as a remote worker (`docs/agents/remote-worker.md`).
   How: add an entry (id, assumed behavior, Microsoft tests, probe wanted) to
   `crates/al-builtins/src/assumptions.rs` and call `assumptions::assume(Assumption::YourId)` on the
   path (at runtime, or `Lowerer::assume` in `al-sema/src/lower.rs` for a compile-time choice, which becomes
-  an `ir::Stmt::Assume`). Mark only the part no corpus test pins. Regenerate the table in
-  `docs/probes-needed.md` with `UPDATE_ASSUMPTIONS_DOC=1 cargo test -p al-builtins assumptions`.
+  an `ir::Stmt::Assume`). Mark only the part no corpus test pins. Do not regenerate the table in
+  `docs/probes-needed.md`: the regen bot does that on main after the merge (see "Generated files" below).
   When a probe pins it, delete the entry: the compiler lists the marker sites that remain.
   `al-runner test --top-assumptions` ranks the entries by flagged passes; `--list-assumptions`
   prints the registry with the counts of the last run (also in `al-test-cli`).
@@ -194,15 +194,42 @@ you run the corpus again.
 - Timing measurements need a quiet machine. Note the load average with every
   number you report.
 
+## Generated files
+
+The regen bot (`.github/workflows/regen-bot.yml`) keeps these files current on
+`main`. After every green CI run on a push to `main`, it commits them straight
+to `main` with `[skip ci]` in the message. A pull request does not regenerate
+or commit them, and CI does not fail when they are out of date:
+
+- `metrics/<major>/passing*.txt`, the baselines. The bot only adds cases.
+  CI still fails a pull request that loses a baseline case, and removing a
+  case stays a human decision (CLAUDE.md hard rule 2).
+- `docs/corpus-coverage.md` and `.json` (`al-test-cli --coverage-map`).
+- `docs/corpus-behavior-coverage.md` and `.json`
+  (`al-test-cli --behavior-coverage-map`).
+- The assumptions table in `docs/probes-needed.md`
+  (`al-test-cli --assumptions-doc`). The text outside the table is still
+  yours to edit.
+
+These are still regenerated in the pull request, because the build or a
+reviewed list depends on them, and CI fails while they are stale:
+
+- `crates/al-builtins/src/builtin_ids.rs`
+  (`cargo run -p al-builtins --example gen_builtin_ids`): the VM dispatches on
+  these ids, so a new builtin does not work without them.
+- `crates/al-builtins/src/pinned_columns.rs` and `catalog/signatures.txt`
+  (`UPDATE_GOLDEN=1`): compiled into the runtime; a corpus bump regenerates them.
+- `crates/al-sema/tests/expected-unresolved.txt`: a reviewed list that never
+  grows without a decision.
+
 ## Finishing
 
 Run these in order. Do not skip any.
 
-1. Regenerate the baseline for every major, never by hand:
-   `./target/release/al-test-cli --root . --update-baseline --bc-version N`
-   for N in 27, 28 and 29. It refuses while a selection is active or while a
-   baseline case regresses. Commit the `metrics/<major>/passing.txt` files with
-   the code.
+1. Do not regenerate the generated files (see "Generated files" below). Run
+   `./target/release/al-test-cli --root . --baseline-diff` once over the whole
+   corpus: no baseline case may stop passing. Leave `metrics/<major>/passing*.txt`
+   alone; new passes reach the baseline after the merge.
 2. `./check.sh` must be green. It runs fmt, clippy with `-D warnings`, all
    tests and the corpus ratchet. The two tests that run `al-test-cli` over the
    whole corpus run against the release build, which step 1 has already made,

@@ -333,3 +333,103 @@ fn not_wildcard_in_a_view() {
         "VERSION(1) SORTING(Field1) WHERE(Field1=1(<>*))|<>*|<>*"
     );
 }
+
+const PH_WILD: &str = r#"
+table 50420 "Ph Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Cd; Code[20]) { }
+        field(3; Txt; Text[30]) { }
+        field(4; Num; Integer) { }
+    }
+    keys { key(PK; Id) { } }
+}
+codeunit 50421 C
+{
+    local procedure Add(Id: Integer; Cd: Code[20]; Txt: Text[30]; Num: Integer)
+    var
+        R: Record "Ph Row";
+    begin
+        R.Init(); R.Id := Id; R.Cd := Cd; R.Txt := Txt; R.Num := Num; R.Insert();
+    end;
+
+    local procedure Ids(var R: Record "Ph Row") Result: Text
+    begin
+        if R.FindSet() then
+            repeat
+                Result += Format(R.Id) + ',';
+            until R.Next() = 0;
+    end;
+
+    [TryFunction]
+    local procedure TrySet(var R: Record "Ph Row"; FieldNo: Integer; Pattern: Text; Value: Text)
+    begin
+        case FieldNo of
+            2:
+                R.SetFilter(Cd, Pattern, Value);
+            3:
+                R.SetFilter(Txt, Pattern, Value);
+        end;
+    end;
+
+    [TryFunction]
+    local procedure TrySetNum(var R: Record "Ph Row"; Pattern: Text; Value: Integer)
+    begin
+        R.SetFilter(Num, Pattern, Value);
+    end;
+
+    local procedure Pat(FieldNo: Integer; Pattern: Text; Value: Text): Text
+    var
+        R: Record "Ph Row";
+    begin
+        if TrySet(R, FieldNo, Pattern, Value) then
+            exit('filter=[' + R.GetFilters() + '] ids=' + Ids(R));
+        exit('error:' + GetLastErrorText() + '|' + GetLastErrorCode());
+    end;
+
+    local procedure NumPat(Pattern: Text; Value: Integer): Text
+    var
+        R: Record "Ph Row";
+    begin
+        if TrySetNum(R, Pattern, Value) then
+            exit('filter=[' + R.GetFilters() + '] ids=' + Ids(R));
+        exit('error:' + GetLastErrorText() + '|' + GetLastErrorCode());
+    end;
+
+    procedure Forms(): Text
+    var
+        R: Record "Ph Row";
+    begin
+        R.DeleteAll();
+        Add(1, 'ABC', 'abc', 18); Add(2, 'XA', 'xa', 8); Add(3, 'B', 'b', 28);
+        Add(4, 'A', 'a', 80); Add(5, '*8', '*8', 0); Add(6, 'BA', 'Ba', 5);
+        exit(Pat(3, '*%1*', 'a') + '\' + Pat(3, '@*%1*', 'A') + '\' + Pat(3, '%1*', 'a') + '\' + Pat(3, '*%1', 'a') + '\'
+            + Pat(3, '?%1', 'a') + '\' + Pat(3, '*%1', '8') + '\' + Pat(2, '*%1*', 'a') + '\' + Pat(2, '%1*', 'B') + '\'
+            + Pat(3, '%1&*a*', 'a') + '\' + NumPat('%1*', 8) + '\' + NumPat('*%1', 8));
+    end;
+}
+"#;
+
+/// filters/W4Filters.al:656-700 (SetFilterPercent1_WildcardsAroundThePlaceholder_BQ): a placeholder right before or right after
+/// a wildcard is not put in; the filter keeps `%1` as written, and on an Integer field it raises BC's errors.
+#[test]
+fn placeholder_next_to_a_wildcard_stays_as_written() {
+    assert_eq!(
+        lines(run(PH_WILD, "Forms")),
+        [
+            "filter=[Txt: *%1*] ids=",
+            "filter=[Txt: @*%1*] ids=",
+            "filter=[Txt: %1*] ids=",
+            "filter=[Txt: *%1] ids=",
+            "filter=[Txt: ?%1] ids=",
+            "filter=[Txt: *%1] ids=",
+            "filter=[Cd: *%1*] ids=",
+            "filter=[Cd: %1*] ids=",
+            "filter=[Txt: a&*a*] ids=4,",
+            "error:The filter \"%1*\" is not valid for the Num field on the Ph Row table. The variable \"%1*\" was not understood.|Filter:CSide",
+            "error:The filter \"*%1\" is not valid for the Num field on the Ph Row table. The value \"*%1\" can't be evaluated into type Integer.|Filter:CSide",
+        ]
+    );
+}

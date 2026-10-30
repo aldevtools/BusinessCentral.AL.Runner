@@ -794,6 +794,11 @@ impl Lowerer<'_> {
                     self.ty_ref(&kids[0]),
                     self.ty_ref(&kids[1]),
                     &|n| Some(self.ty_of(n)),
+                ) || crate::check::integer_and_one_char_literal(
+                    &op,
+                    &kids,
+                    self.ty_ref(&kids[0]),
+                    self.ty_ref(&kids[1]),
                 ) {
                     let text = Ty::Text(None);
                     if crate::check::one_char_literal(&kids[0]) {
