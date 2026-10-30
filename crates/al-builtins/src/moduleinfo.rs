@@ -16,6 +16,9 @@ type Out = Result<Value, Signal>;
 /// The id of the Microsoft "Application" app, which every app under test depends on through `application` in its manifest.
 pub const APPLICATION_APP_ID: &str = "c1335042-3002-4257-bf8a-75c898ccb1b8";
 
+/// The id of Microsoft's "Test Runner" app, whose codeunits call a test method on BC.
+pub const TEST_RUNNER_APP_ID: &str = "23de40a6-dfe8-4f80-80db-d70f83ce8caf";
+
 pub const REGISTRY: &[(&str, NativeFn)] = &[
     ("NavApp.GetCurrentModuleInfo#1", get_current),
     ("NavApp.GetCallerModuleInfo#1", get_caller),
@@ -291,7 +294,12 @@ fn package_id(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
 }
 
 fn dependencies(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
-    let items = state(r)?
+    let m = state(r)?;
+    // The Test Runner module of a run that did not load its app (al-runner issue 6248): its manifest is not known.
+    if m.synthesized && m.name == "Test Runner" {
+        return unsupported("the dependencies of the Test Runner app, which this run did not load");
+    }
+    let items = m
         .dependencies
         .iter()
         .map(|d| {
