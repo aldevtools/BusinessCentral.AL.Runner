@@ -1,6 +1,6 @@
 # ADR-058: Stability testing mode: run the same tests under declared changes of the environment
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-10-30)
 - Date: 2026-10-30
 - Related: ADR-009 (match BC where observable), ADR-013 (identity values, the runner's steps around each test),
   ADR-028 (`serve`), ADR-043 (impact trace), ADR-045 (stepping test clock), ADR-046 (install baseline, `--companies`),
@@ -59,7 +59,7 @@ A perturbation is allowed only when both hold:
   positive, so any positive value is as correct as 1.
 
 What BC defines deterministically is never perturbed: the sequence after `Randomize(n)` (pinned by
-`types/TestRandomSeededContracts.al`), record order on a key, trigger and event order where pinned, error texts,
+`types/TestRandomSeededContracts.al`), record order on a key, trigger order, event subscriber order (also across apps), error texts,
 transaction behavior, AutoIncrement counters, `Format` results for a given language and region. Changing those makes
 the runtime differ from BC (ADR-009), so a failure under them says nothing about the test.
 
@@ -97,7 +97,7 @@ as separate cells (section 3).
 | `data.setup` | A user-supplied AL codeunit that runs after the install baseline and before the tests (for example to add 10 000 items) | safe, opt-in only | The rows come from the user's AL code through the normal triggers, so no state BC could not reach. AL Runner never generates rows itself (see "never"). |
 | `session.timeZone` | The session time zone (`SessionSettings`, `Format` of a DateTime) | pin first | The runtime's time model is UTC. Needs pins of `Format` and `Evaluate` of DateTime in other zones, and the 144-zone list (row "Time Zone"). |
 | `session.language`, `session.region` | `GlobalLanguage`, `WindowsLanguage`, the locale | pin first | Translated reads are refused today (ADR-053, deferred); `Format` of numbers and dates in other regions needs pins. |
-| `events.subscriberOrder` | Order of subscribers to one event across apps | pin first | BC documents no order across apps, but the corpus has not shown which orders BC actually produces. A probe must show the order is not fixed before the runtime may vary it. |
+| `events.subscriberOrder` | Order of subscribers to one event across apps | never | The corpus pins the order across apps as fixed: ascending app id, dependencies first (runner pull request 6202, "Order cross-app event subscribers by app id"). Changing it would make the runtime differ from BC. |
 | `environment` | `saas` or `onprem` (`--environment`) | safe as a matrix axis | Same compile; values of `Environment Information`. The on-prem values are an unprobed assumption today, so passes are flagged (section 6). |
 | `bcVersion` | The BC major or build | matrix axis | Changes the compiled Microsoft apps and the gates (ADR-015). |
 | `country` | The country version | matrix axis | Changes the compiled Microsoft apps and the test data. |
@@ -304,7 +304,7 @@ The runner is in-process. A variant must not compile again.
 - New host values (`guid.seed` apart from the random seed, a configurable clock step and start time, configurable
   identity) become seams of `al-host`. These are additive (defaulted `Host` fields), so no further ADR is needed.
 - The table in section 2 becomes a list the project keeps current. Each "pin first" row is a corpus probe to queue
-  (`docs/probes-needed.md` gets rows for time zone, language and region, subscriber order, filter characters in
+  (`docs/probes-needed.md` gets rows for time zone, language and region, filter characters in
   company and user names).
 - Risk: a flip under a dimension where the runtime is wrong reads as a test defect. The rule in section 1 and the
   assumption marking in section 6 limit that; a reported flip that real BC does not show is a runtime bug with a
@@ -321,20 +321,18 @@ The runner is in-process. A variant must not compile again.
 - A differential test: the base variant's outcomes equal a normal run's outcomes, on the corpus for each major.
 - A perf test on the corpus for the `microsoft` preset (section 7).
 
-## Open questions for the owner
+## Owner decisions (2026-10-30)
 
-1. **Exit code on a flip.** Recommended: exit 1 when any test flips, with `--stability-allow-flips` for report-only
-   runs. A stability run is asked for on purpose, so a flip should stop a pipeline by default.
-2. **How to change the library seed.** Recommended: after codeunit 130301 runs, call Microsoft's own
-   `LibraryRandom.SetSeed(n)` with the variant's seed. It uses Microsoft's code, changes nothing in the platform, and
-   matches what Microsoft's runner has to do. When Microsoft publishes how its mode sets the seed, follow that exactly.
-3. **Data axes (`numberSeries.offset`, `data.setup`).** Recommended: include them, opt-in only, labeled as data axes
-   in the report, and never in a preset. They find real defects in partner tests, but a flip may only show that the
-   test was written for the demo company.
-4. **Should corpus CI run the `microsoft` preset on the corpus?** Recommended: no, not in the first step. Runner time
-   is the bottleneck. Run it locally and in a weekly job once the feature exists; a corpus test that flips is a corpus
-   bug to fix in the corpus repository.
-5. **Coverage across variants.** Recommended: base variant only for now. Coverage per variant would show code that
-   only a perturbation reaches, but it multiplies the output size.
-6. **Config format.** Recommended: JSON, as the other AL Runner inputs (`--output-json`, serve). A `stability`
-   section in an existing settings file can come later.
+The owner accepted the ADR with the recommended answer to each open question, and one change from review.
+
+1. **Exit code on a flip.** Exit 1 when any test changes outcome between variants. `--stability-allow-flips` keeps 0
+   for report-only runs.
+2. **Library seed.** After codeunit 130301 runs, the runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with the
+   variant's seed. When Microsoft publishes how its mode sets the seed, the runner follows that exactly.
+3. **Data axes.** `numberSeries.offset` and `data.setup` are opt-in only, labeled as data axes in the report, and never
+   part of a preset.
+4. **Corpus CI.** Corpus CI does not run the `microsoft` preset. It runs locally, and later in a weekly job.
+5. **Coverage.** `--coverage` records the base variant only.
+6. **Config format.** JSON.
+7. **Change from review.** `events.subscriberOrder` is "never", not "pin first": the corpus pins the order of
+   subscribers across apps as fixed (ascending app id, dependencies first).
