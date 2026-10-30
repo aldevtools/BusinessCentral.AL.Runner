@@ -103,6 +103,8 @@ pub(crate) struct RowVersionTx {
     pub(crate) accounted: u64,
     pub(crate) last: i64,
     pub(crate) unpinned: Option<&'static str>,
+    /// A read the assumption row-version-sent-by-more-reads covers sent inserted rows: a value read from now on rests on it.
+    pub(crate) assumed_send: bool,
 }
 
 /// One Record write to the database store: the store's change counter before and after it.

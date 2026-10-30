@@ -1617,9 +1617,14 @@ codeunit 50111 T
     );
 }
 
-/// Runs the test codeunit `T` of a workspace app with id `main_id` (its app.json declares a logo as `logo` says, `None`
-/// when no manifest was read) over the platform's System app and an optional dependency app `dep` (id `DEP_ID`).
-fn run_over_system(main_id: &str, logo: Option<bool>, dep: Option<&str>, main: &str) -> Vec<(String, Outcome)> {
+/// Runs the test codeunit `T` of a workspace app with id `main_id` (its manifest declares the logo `logo`, `None` when no
+/// manifest was read) over the platform's System app and an optional dependency app `dep` (id `DEP_ID`).
+fn run_over_system(
+    main_id: &str,
+    logo: Option<al_ir::AppLogo>,
+    dep: Option<&str>,
+    main: &str,
+) -> Vec<(String, Outcome)> {
     use al_deps::package::read_package;
     let packages = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/al-language/.alpackages");
     let system = read_package(&std::fs::read(packages.join("System.app")).expect("corpus submodule checked out"))
@@ -1655,7 +1660,7 @@ fn run_over_system(main_id: &str, logo: Option<bool>, dep: Option<&str>, main: &
     for a in program.apps.iter_mut() {
         a.version = "1.0.0.0".into();
         if a.id == main_id {
-            a.logo = logo;
+            a.logo = logo.clone();
         }
     }
     let engine = Engine::new(std::sync::Arc::new(program), blocked);
@@ -1689,14 +1694,14 @@ codeunit 50000 T { Subtype = Test;
     if A.Get(A."Object Type"::TableData, 73199) then Error('row');
     A.SetRange("Object Type", A."Object Type"::TableData); A.SetRange("Object ID", 73199);
     if not A.IsEmpty() then Error('not empty'); end; }"#;
-    all_pass(run_over_system(MAIN_ID, Some(false), Some(dep), main));
+    all_pass(run_over_system(MAIN_ID, Some(al_ir::AppLogo::None), Some(dep), main));
 }
 
 /// al-runner issue 6148, cause 2: Company-Initialize reaches Guided Experience Impl.GetExtensionLogo for an app that
 /// registers assisted setup: the Published Application row's Logo, then the Media row by its MediaId. An app whose
 /// app.json declares no logo has a blank Logo and no Media row; an app whose manifest was not read stays refused.
 /// Pin: onprem session/PZPublishedApplicationColumns.al Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps
-/// (corpus branch al-runtime-rs-staging-ug eff7eb2a; assumption `published-application-logo-blank-without-manifest-logo`).
+/// (corpus branch al-runtime-rs-staging-ug eff7eb2a).
 #[test]
 fn issue_6148_extension_logo_of_an_app_without_a_logo() {
     let main = format!(
@@ -1711,9 +1716,121 @@ codeunit 50000 T {{ Subtype = Test;
     Media.SetRange(ID, App.Logo.MediaId());
     if Media.FindFirst() then Error('media row'); end; }}"#
     );
-    all_pass(run_over_system(MAIN_ID, Some(false), None, &main));
+    all_pass(run_over_system(MAIN_ID, Some(al_ir::AppLogo::None), None, &main));
     let o = run_over_system(MAIN_ID, None, None, &main);
     assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
+}
+
+/// The 67-byte 1 x 1 gray PNG of cross-app fixture D (onprem session/UsAppLogo.al:15).
+const TINY_PNG: [u8; 67] = [
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x00, 0x00, 0x00, 0x00, 0x3a, 0x7e, 0x9b, 0x55, 0x00, 0x00, 0x00, 0x0a, 0x49,
+    0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0x68, 0x00, 0x00, 0x00, 0x82, 0x00, 0x81, 0xda, 0x45, 0x08, 0x3b, 0x00, 0x00,
+    0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+/// al-runner issue 6148, the rest of cause 2: the Published Application Logo of an app whose manifest declares a logo is a
+/// media with a value, the same id on every read, and a Media row that holds the logo file's bytes unchanged: image/png, the
+/// picture's height and width, every other column empty, Prohibit Cache No. Pin: onprem session/UsAppLogo.al:79-117
+/// UsLogo_TinyPng_AppD and :120-148 UsLogo_BigPng_AppC (corpus PR 816; assumption `published-application-logo-is-the-logo-file`
+/// until the pin includes it). A logo that is no PNG stays refused.
+#[test]
+fn issue_6148_extension_logo_of_an_app_with_a_logo() {
+    let main = format!(
+        r#"
+codeunit 50000 T {{ Subtype = Test;
+  [Test] procedure GetExtensionLogo() var App: Record "Published Application"; Media: Record Media; First: Guid; InS: InStream; B: Byte; N: Integer; begin
+    App.SetRange(ID, '{MAIN_ID}');
+    App.SetRange("Tenant Visible", true);
+    if not App.FindFirst() then Error('no row');
+    if not App.Logo.HasValue() then Error('no logo');
+    if IsNullGuid(App.Logo.MediaId()) then Error('null media id');
+    First := App.Logo.MediaId();
+    App.FindFirst();
+    if App.Logo.MediaId() <> First then Error('other media id');
+    Media.SetRange(ID, App.Logo.MediaId());
+    if not Media.FindFirst() then Error('no media row');
+    if Media.Count() <> 1 then Error('count %1', Media.Count());
+    if Media.Description <> '' then Error('description');
+    if Media."Mime Type" <> 'image/png' then Error('mime %1', Media."Mime Type");
+    if (Media.Height <> 1) or (Media.Width <> 1) then Error('size %1 x %2', Media.Height, Media.Width);
+    if Media."Company Name" <> '' then Error('company');
+    if Media."Expiration Date" <> 0DT then Error('expiration');
+    if Media."Prohibit Cache" then Error('prohibit cache');
+    if Media."File Name" <> '' then Error('file name');
+    if Media."Security Token" <> '' then Error('token');
+    if Media."Creating User" <> '' then Error('user');
+    if not Media.Content.HasValue() then Error('content');
+    Media.CalcFields(Content);
+    Media.Content.CreateInStream(InS);
+    while not InS.EOS() do begin InS.Read(B); N += 1; if N = 2 then if B <> 80 then Error('byte 2 %1', B); end;
+    if N <> 67 then Error('length %1', N);
+    if not Media.Get(App.Logo.MediaId()) then Error('get'); end; }}"#
+    );
+    all_pass(run_over_system(
+        MAIN_ID,
+        Some(al_ir::AppLogo::File(TINY_PNG.to_vec())),
+        None,
+        &main,
+    ));
+    // A logo that is no PNG: its MIME type and size are not pinned.
+    let o = run_over_system(MAIN_ID, Some(al_ir::AppLogo::File(b"GIF89a".to_vec())), None, &main);
+    assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
+}
+
+/// al-runner issue 6148: Guided Experience Impl.InsertGuidedExperienceItem imports the app's logo with the extension id (a
+/// Guid) as the description: `Icon.ImportStream(IconInStream, ExtensionId)`. The Tenant Media row's Description is the
+/// Guid's text form in braces and upper case, MIME type image/png, the picture's size, no file name. Pin: onprem
+/// session/UsAppLogo.al:170-186 UsLogo_GuidedExperienceIcon_CallerD (corpus PR 816). Its bytes (re-encoded) stay refused.
+#[test]
+fn issue_6148_media_import_stream_with_a_guid_description() {
+    let main = format!(
+        r#"
+table 50100 "UR Icon" {{ fields {{ field(1; Code; Code[10]) {{ }} field(2; Icon; Media) {{ }} }} keys {{ key(PK; Code) {{ Clustered = true; }} }} }}
+codeunit 50000 T {{ Subtype = Test;
+  [Test] procedure ImportWithGuid() var App: Record "Published Application"; Media: Record Media; R: Record "UR Icon"; TM: Record "Tenant Media"; InS: InStream; Id: Guid; begin
+    Id := '{MAIN_ID}';
+    App.SetRange(ID, Id);
+    App.FindFirst();
+    Media.SetRange(ID, App.Logo.MediaId());
+    Media.FindFirst();
+    Media.CalcFields(Content);
+    Media.Content.CreateInStream(InS);
+    R.Code := 'A';
+    R.Icon.ImportStream(InS, Id);
+    R.Insert();
+    TM.Get(R.Icon.MediaId());
+    if TM.Description <> '{{5D86850B-0D76-4ECA-BD7B-951AD998E997}}' then Error('description %1', TM.Description);
+    if TM."Mime Type" <> 'image/png' then Error('mime %1', TM."Mime Type");
+    if (TM.Width <> 1) or (TM.Height <> 1) then Error('size'); end; }}"#
+    );
+    all_pass(run_over_system(
+        MAIN_ID,
+        Some(al_ir::AppLogo::File(TINY_PNG.to_vec())),
+        None,
+        &main,
+    ));
+    // BC re-encodes the picture it imports (UsAppLogo.al:7; types/W7Media.al:141-145): a look at the Tenant Media bytes is refused.
+    let look = main
+        .replace(
+            "if (TM.Width <> 1) or (TM.Height <> 1) then Error('size'); end;",
+            "TM.CalcFields(Content); TM.Content.CreateInStream(InS); InS.Read(B); end;",
+        )
+        .replace("InS: InStream;", "InS: InStream; B: Byte;");
+    let o = run_over_system(MAIN_ID, Some(al_ir::AppLogo::File(TINY_PNG.to_vec())), None, &look);
+    assert!(matches!(&o[0].1, Outcome::NotRun(_)), "{o:?}");
+}
+
+/// Media rows other than an app's logo and the null id are not pinned: a read of another id is refused.
+#[test]
+fn media_row_of_another_id_stays_refused() {
+    let main = r#"
+codeunit 50000 T { Subtype = Test;
+  [Test] procedure Other() var Media: Record Media; begin
+    Media.SetRange(ID, '{11111111-2222-3333-4444-555555555555}');
+    if Media.FindFirst() then; end; }"#;
+    let o = run_over_system(MAIN_ID, Some(al_ir::AppLogo::File(TINY_PNG.to_vec())), None, main);
+    assert!(matches!(&o[0].1, Outcome::NotRun(_)), "{o:?}");
 }
 
 /// al-runner issue 6191: ForNAV's GetBuiltInLayout reads "User Defined" (column 14) of the Report Layout List rows of a
@@ -1737,7 +1854,7 @@ codeunit 50000 T { Subtype = Test;
   [Test] procedure NoLayout() var L: Record "Report Layout List"; begin
     L.SetRange("Report ID", Report::"UR No Layout");
     if not L.IsEmpty() then Error('rows'); end; }"#;
-    all_pass(run_over_system(MAIN_ID, Some(false), None, main));
+    all_pass(run_over_system(MAIN_ID, Some(al_ir::AppLogo::None), None, main));
 }
 
 /// Issue 6213: a conditional expression with a Text[N] true branch and an unbounded Text false branch (a Text variable or a
@@ -1849,6 +1966,114 @@ fn issue_6213_text_n_true_branch_and_unbounded_text_false_branch() {
         if name.ends_with("OtherLength") {
             assert!(
                 matches!(&outcome, Outcome::NotRun(why) if why.contains("Text[30] and Text") && why.contains("not pinned")),
+                "{outcome:?}"
+            );
+        } else {
+            assert_eq!(outcome, Outcome::Pass, "{name}");
+        }
+    }
+}
+
+/// Issue 6213 (reopened): a Text[50] true branch and a built-in function returning Text as false branch (CompanyName(),
+/// UserId(), Format(x)) compiles; a false value that fits is returned unchanged, and the result assigned to a shorter Text
+/// fails as that assignment does. Pins: lt-ss1030/SsTernaryBuiltinText.al (corpus branch al-runtime-rs-staging-ss1030 at
+/// c36d14ea, not yet on master): Ternary_TextNTrue_BuiltinFalse_ValuesAndLengths (:47-69) and _IntoShorterTarget (:71-98).
+/// A false value longer than 50 is not pinned for this length: refused when the branch is taken.
+const ISSUE_6213B_OBJECTS: &str = "
+codeunit 50100 \"TB Holder\"
+{
+    var
+        Named: Text[50];
+
+    procedure SetNamed(NewName: Text[50])
+    begin
+        Named := NewName;
+    end;
+
+    procedure Company(): Text
+    var
+        Result: Text;
+    begin
+        Result := Named <> '' ? Named : CompanyName();
+        exit(Result);
+    end;
+
+    procedure User(): Text
+    begin
+        exit(Named <> '' ? Named : UserId());
+    end;
+
+    procedure Formatted(Value: Integer): Text
+    begin
+        exit(Named <> '' ? Named : Format(Value));
+    end;
+
+    procedure CompanyIntoText10(var Target: Text[10])
+    begin
+        Target := Named <> '' ? Named : CompanyName();
+    end;
+
+    procedure Long(): Text
+    begin
+        exit(Named <> '' ? Named : PadStr('', 60, 'x'));
+    end;
+}
+
+codeunit 50101 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ValuesAndLengths()
+    var
+        Holder: Codeunit \"TB Holder\";
+    begin
+        if Holder.Company() <> CompanyName() then
+            Error('company %1', Holder.Company());
+        if Holder.User() <> UserId() then
+            Error('user %1', Holder.User());
+        if Holder.Formatted(12345) <> '12345' then
+            Error('format %1', Holder.Formatted(12345));
+        Holder.SetNamed('Named Company');
+        if (Holder.Company() <> 'Named Company') or (Holder.User() <> 'Named Company') or (Holder.Formatted(12345) <> 'Named Company') then
+            Error('set');
+        if StrLen(Holder.Company()) <> 13 then
+            Error('len');
+    end;
+
+    [Test]
+    procedure IntoShorterTarget()
+    var
+        Holder: Codeunit \"TB Holder\";
+        Target: Text[10];
+    begin
+        Holder.SetNamed('Short');
+        Holder.CompanyIntoText10(Target);
+        if Target <> 'Short' then
+            Error('fits %1', Target);
+        Holder.SetNamed('');
+        asserterror Holder.CompanyIntoText10(Target);
+        if GetLastErrorText() <> StrSubstNo('The length of the string is %1, but it must be less than or equal to 10 characters. Value: %2', StrLen(CompanyName()), CompanyName()) then
+            Error('text %1', GetLastErrorText());
+        if (Target <> 'Short') or (MaxStrLen(Target) <> 10) then
+            Error('target %1', Target);
+    end;
+
+    [Test]
+    procedure LongerThanTheTrueBranch()
+    var
+        Holder: Codeunit \"TB Holder\";
+    begin
+        Holder.Long();
+    end;
+}";
+
+#[test]
+fn issue_6213_text_50_true_branch_and_builtin_text_false_branch() {
+    for (name, outcome) in run_with_deps(&[], ISSUE_6213B_OBJECTS) {
+        if name.ends_with("LongerThanTheTrueBranch") {
+            assert!(
+                matches!(&outcome, Outcome::NotRun(why) if why.contains("not pinned")),
                 "{outcome:?}"
             );
         } else {

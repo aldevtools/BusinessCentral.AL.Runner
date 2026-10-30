@@ -1049,12 +1049,18 @@ impl Workspace {
     }
 
     /// Whether `app` or an app it sees declares a dependency that is not among the loaded apps.
+    /// The `Application` aggregate is never loaded (it has no source) and declares no objects: it hides nothing once Base
+    /// Application, which depends on the rest of the aggregate, is among the apps `app` sees.
     pub fn has_unloaded_dependency(&self, app: usize) -> bool {
+        let loaded = |id: &str| self.apps.iter().any(|x| x.id.eq_ignore_ascii_case(id));
+        let sees_base = self.visible[app]
+            .iter()
+            .any(|&a| self.apps[a].id.eq_ignore_ascii_case(BASE_APPLICATION_APP_ID));
         self.visible[app].iter().any(|&a| {
             self.apps[a]
                 .dependencies
                 .iter()
-                .any(|d| !self.apps.iter().any(|x| x.id.eq_ignore_ascii_case(d)))
+                .any(|d| !loaded(d) && !(sees_base && d.eq_ignore_ascii_case(APPLICATION_AGGREGATE_APP_ID)))
         })
     }
 
@@ -1474,6 +1480,13 @@ fn pick(c: Vec<usize>) -> Resolution {
         _ => Resolution::Ambiguous(c),
     }
 }
+
+/// Id of Microsoft's `Application` aggregate: a package without source or objects that only depends on System
+/// Application, Business Foundation and Base Application (al-deps `select::APPLICATION_APP_ID`).
+pub const APPLICATION_AGGREGATE_APP_ID: &str = "c1335042-3002-4257-bf8a-75c898ccb1b8";
+
+/// Id of Microsoft's Base Application.
+pub const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
 
 /// Id of the platform app `System`, which declares the system tables. BC always provides it, so it
 /// is an implicit dependency of every app (ADR-013 decision 4).

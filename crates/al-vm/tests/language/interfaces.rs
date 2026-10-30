@@ -403,3 +403,30 @@ fn an_enum_value_from_frominteger_converts_to_the_interface_directly() {
     let Ok(Value::Text(s)) = r else { panic!("{r:?}") };
     assert_eq!(s, "OWN|DEFAULT|UNKNOWN");
 }
+
+// al-runner issue 6249: an interface that extends another and declares a method of the same name with other parameters. A
+// call of the base interface's overload through the derived interface resolves to the base overload, as alc compiles it (the
+// reporter's run). That base procedures are callable through the derived interface is pinned by
+// codeunit/TestInterfaceRuntimeContracts.al (Interface_ExtendedInterface_IsAndAs).
+#[test]
+fn a_base_overload_is_called_through_a_derived_interface_that_declares_the_name_again() {
+    let fixtures = "interface IEBase { procedure SetValue(Value: Text; Count: Integer); procedure GetValue(): Text; } \
+        interface IEDerived extends IEBase { procedure SetValue(Value: Text; Extra: Text; Count: Integer); } \
+        interface IEFactory { procedure GetSetup(): Interface IEDerived; } \
+        codeunit 60394 IEImpl implements IEDerived { SingleInstance = true; var Stored: Text; \
+          procedure SetValue(Value: Text; Count: Integer) begin Stored := Value; end; \
+          procedure SetValue(Value: Text; Extra: Text; Count: Integer) begin Stored := Value + Extra; end; \
+          procedure GetValue(): Text begin exit(Stored); end; } \
+        codeunit 60395 IEFactoryImpl implements IEFactory { procedure GetSetup(): Interface IEDerived var Impl: Codeunit IEImpl; begin exit(Impl); end; }";
+    let r = run(
+        fixtures,
+        "procedure P(): Text var F: Codeunit IEFactoryImpl; I: Interface IEFactory; D: Interface IEDerived; s: Text; begin \
+         I := F; D := I.GetSetup(); \
+         D.SetValue('a', 1); s := D.GetValue(); \
+         D.SetValue('b', 'c', 2); s += '|' + D.GetValue(); \
+         I.GetSetup().SetValue('d', 3); s += '|' + D.GetValue(); \
+         exit(s); end;",
+        "P",
+    );
+    assert_eq!(text(r), "a|bc|d");
+}

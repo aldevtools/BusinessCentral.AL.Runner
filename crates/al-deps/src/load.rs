@@ -253,6 +253,8 @@ pub struct DependencyApp {
     pub resources: Resources,
     /// The package ships a translation file (`crate::package::is_translation_file`), ADR-053 step 1.
     pub translations: bool,
+    /// The logo the manifest declares ([`crate::package::read_logo`], [`folder_logo`]); `None` when not known.
+    pub logo: Option<al_ir::AppLogo>,
 }
 
 #[derive(Debug, Default)]
@@ -444,11 +446,23 @@ pub fn plan_dependencies_labeled(
 /// Packaged resources: name relative to the resource folder, content.
 pub type Resources = Vec<(String, Vec<u8>)>;
 
-/// The packaged resources of the package at `path`, and whether it ships a translation file ([`ships_translations`]). A
-/// folder has no resources; a package file is read a second time here.
-fn read_resources_at(path: &Path, hint: Option<&str>) -> Result<(Resources, bool), String> {
+/// What [`read_resources_at`] reads besides the sources: resources, whether a translation file ships, the logo.
+type PackageExtras = (Resources, bool, Option<al_ir::AppLogo>);
+
+/// The packaged resources of the package at `path`, whether it ships a translation file ([`ships_translations`]) and
+/// its logo ([`crate::package::read_logo`], [`folder_logo`]). A folder has no resources; a package file is read a second
+/// time here.
+fn read_resources_at(path: &Path, hint: Option<&str>) -> Result<PackageExtras, String> {
     if !path.is_file() {
-        return Ok((Vec::new(), ships_translations(path)));
+        let declared = std::fs::read_to_string(path.join("app.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(t.trim_start_matches('\u{feff}')).ok())
+            .and_then(|v| v["logo"].as_str().map(String::from));
+        return Ok((
+            Vec::new(),
+            ships_translations(path),
+            folder_logo(path, declared.as_deref()),
+        ));
     }
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let vars = vars_for(path, hint);
@@ -456,7 +470,24 @@ fn read_resources_at(path: &Path, hint: Option<&str>) -> Result<(Resources, bool
     Ok((
         crate::package::read_resources(&bytes, &vars).map_err(at)?,
         crate::package::ships_translations(&bytes, &vars).map_err(at)?,
+        crate::package::read_logo(&bytes, &vars).map_err(at)?,
     ))
+}
+
+/// The logo of the app folder `dir` whose app.json declares `declared` (its `logo`): none when the name is absent or
+/// blank, else the content of the file it names relative to the folder; `None` when that file cannot be read.
+pub fn folder_logo(dir: &Path, declared: Option<&str>) -> Option<al_ir::AppLogo> {
+    match declared.map(str::trim).filter(|n| !n.is_empty()) {
+        None => Some(al_ir::AppLogo::None),
+        Some(name) => std::fs::read(dir.join(name)).ok().map(al_ir::AppLogo::File),
+    }
+}
+
+/// The logo of the package file at `path` ([`crate::package::read_logo`]); `None` when it is not known or the package
+/// cannot be read (reading its sources reports that error).
+pub fn package_logo_at(path: &Path, hint: Option<&str>) -> Option<al_ir::AppLogo> {
+    let bytes = std::fs::read(path).ok()?;
+    crate::package::read_logo(&bytes, &vars_for(path, hint)).ok().flatten()
 }
 
 /// Whether the app at `path` ships a translation file (`crate::package::is_translation_file`): a folder's `Translations/`
@@ -548,7 +579,7 @@ pub fn read_planned(planned: Planned, req: &Request<'_>) -> Result<Loaded, Strin
         })
         .collect();
     // The resources of the same packages (`NavApp.GetResource` of a dependency app reads its own).
-    let mut resources: std::collections::VecDeque<Result<(Resources, bool), String>> = to_read
+    let mut resources: std::collections::VecDeque<Result<PackageExtras, String>> = to_read
         .par_iter()
         .map(|path| read_resources_at(path, req.source_build))
         .collect();
@@ -580,7 +611,7 @@ pub fn read_planned(planned: Planned, req: &Request<'_>) -> Result<Loaded, Strin
                 Read::Eager(m, s) => (*m, Some(s), None),
                 Read::Lazy(l) => (l.manifest.clone(), None, Some(*l)),
             };
-        let (app_resources, translations) = resources.pop_front().expect("one read per package")?;
+        let (app_resources, translations, logo) = resources.pop_front().expect("one read per package")?;
         let role = if manifest.id.eq_ignore_ascii_case(SYSTEM_APP_ID) {
             Role::Platform
         } else {
@@ -620,6 +651,7 @@ pub fn read_planned(planned: Planned, req: &Request<'_>) -> Result<Loaded, Strin
             preprocessor_symbols: manifest.preprocessor_symbols.clone(),
             resources: app_resources,
             translations,
+            logo,
         });
     }
     loaded.notes = notes;

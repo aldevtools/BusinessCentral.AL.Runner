@@ -1742,6 +1742,65 @@ codeunit 69952 C
     assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "F")), "No01|Yes11");
 }
 
+/// `filter(= 0D)` and `filter(=0D)` on a Date field match the empty rows, in count and exist, and a FlowField over a
+/// FlowField that counts with that filter reads it (corpus master record/lt-calcformula-date-literal/
+/// CalcFormulaDateLiteral.al:47-61,76-95 and :205-240 EqualsEmptyDate_Rows_Result, _OnlyDatedRows_Result, :243-280
+/// EqualsEmptyDate_Chained_GroupOverFlowField; assumption calcformula-filter-equals-empty-date, awaiting the bump).
+#[test]
+fn a_calcformula_filter_equals_the_empty_date_counts_the_empty_rows_also_through_a_chained_flowfield() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let src = r#"
+table 69953 "DE Row"
+{
+    fields { field(1; "Entry No."; Integer) { } field(2; "Owner No."; Code[10]) { } field(3; "Posting Date"; Date) { } }
+    keys { key(PK; "Entry No.") { } }
+}
+table 69954 "DE Owner"
+{
+    fields
+    {
+        field(1; "No."; Code[10]) { }
+        field(2; "Eq Count"; Integer) { FieldClass = FlowField; CalcFormula = count("DE Row" where("Owner No." = field("No."), "Posting Date" = filter(= 0D))); }
+        field(3; "Eq Nospace"; Integer) { FieldClass = FlowField; CalcFormula = count("DE Row" where("Owner No." = field("No."), "Posting Date" = filter(=0D))); }
+        field(4; "Eq Exist"; Boolean) { FieldClass = FlowField; CalcFormula = exist("DE Row" where("Owner No." = field("No."), "Posting Date" = filter(= 0D))); }
+        field(5; "Group No."; Code[10]) { }
+    }
+    keys { key(PK; "No.") { } }
+}
+table 69955 "DE Group"
+{
+    fields
+    {
+        field(1; "No."; Code[10]) { }
+        field(2; "With Empty"; Integer) { FieldClass = FlowField; CalcFormula = count("DE Owner" where("Group No." = field("No."), "Eq Exist" = filter(true))); }
+        field(3; "Without Empty"; Integer) { FieldClass = FlowField; CalcFormula = count("DE Owner" where("Group No." = field("No."), "Eq Count" = filter(0))); }
+        field(4; "Names"; Code[10]) { FieldClass = FlowField; CalcFormula = lookup("DE Owner"."No." where("Group No." = field("No."), "Eq Count" = filter(> 0))); }
+    }
+    keys { key(PK; "No.") { } }
+}
+codeunit 69956 C
+{
+    procedure F(): Text
+    var O: Record "DE Owner"; R: Record "DE Row"; G: Record "DE Group"; T: Text;
+    begin
+        O."No." := 'O1'; O."Group No." := 'G1'; O.Insert();
+        G."No." := 'G1'; G.Insert();
+        G.CalcFields("With Empty", "Without Empty", Names);
+        T := Format(G."With Empty") + Format(G."Without Empty") + G.Names + '|';
+        R."Entry No." := 1; R."Owner No." := 'O1'; R.Insert();
+        R."Entry No." := 2; R."Owner No." := 'O1'; R."Posting Date" := 20240305D; R.Insert();
+        O.CalcFields("Eq Count", "Eq Nospace", "Eq Exist");
+        T += Format(O."Eq Count") + Format(O."Eq Nospace") + Format(O."Eq Exist") + '|';
+        G.CalcFields("With Empty", "Without Empty", Names);
+        exit(T + Format(G."With Empty") + Format(G."Without Empty") + G.Names);
+    end;
+}
+"#;
+    take_hits();
+    assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "F")), "01|11Yes|10O1");
+    assert!(take_hits().contains(&Assumption::CalcformulaFilterEqualsEmptyDate));
+}
+
 /// A CalcFormula filter written as one quoted literal is read as the filter its content spells: `'<>'''''` is `<>''`,
 /// `''''''` is `''`, `'''x|y'''` the literal x|y, `'x|y'` the union, and `*` stays a wildcard inside quotes
 /// (corpus calcfields/W4CalcFields.al:396 QZ_CalcFormula_QuotedLiteralFilters, fixtures QzCalcFormulaQuotedFilter.al).

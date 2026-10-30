@@ -745,6 +745,7 @@ fn walk_field<V: RefVisitor>(f: &mut Field, v: &mut V) {
             table,
             field,
             conds,
+            assumes: _,
         } = c;
         let source = TableOf::object(Some(*table));
         field_opt(v, field, source);
