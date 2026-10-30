@@ -2,7 +2,7 @@
   "corpus_commit": "21a4128664a0118914c0863e60c9345a7770c317",
   "language": {
     "bc": "27-29",
-    "implemented": 1604,
+    "implemented": 1608,
     "methods": [
       {
         "bc": [
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 118,
+    "refused": 114,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",
