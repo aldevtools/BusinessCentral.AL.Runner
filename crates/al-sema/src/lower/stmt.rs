@@ -1364,11 +1364,17 @@ impl Lowerer<'_> {
             let member = kids[0].kind() == SyntaxKind::MemberExpr;
             // Without a receiver the member is a global function (`WorkDate := d`) or a Record
             // member of the implicit Rec of table, page and dataitem code (`FilterGroup := 2`).
+            // A bare page property in a page or page extension (`Caption := ...`) is `CurrPage.<property>`, as for the bare
+            // page methods (al-runner issues 6021 and 6250; the checker resolves the name in `check/calls.rs`).
+            let current_page = !member
+                && sig.as_ref().is_some_and(|s| s.instance && s.receiver == "Page")
+                && matches!(self.ws.objects[self.oi].kind, ObjKind::Page | ObjKind::PageExtension);
             let implicit = !member
                 && sig.as_ref().is_some_and(|s| {
                     !s.instance
                         || (s.receiver == "Record" && (self.rec_slot.is_some() || self.supplied_by_with(&kids[0])))
-                });
+                })
+                || current_page;
             if let Some(sig) = sig.filter(|_| member || implicit) {
                 // A test page control's setter form is run by the test client, not a native builtin.
                 if al_builtins::native::lookup(&id).is_none() && !id.starts_with("TestField.") {
@@ -1419,6 +1425,12 @@ impl Lowerer<'_> {
                             Err(_) => ir::Arg::Value(self.expr(&recv)?),
                         }))
                     }
+                } else if current_page {
+                    let slot = self
+                        .globals
+                        .get("currpage")
+                        .ok_or("`CurrPage` is not lowered for this object")?;
+                    Some(Box::new(ir::Arg::Ref(ir::Place::Global(*slot))))
                 } else if sig.instance {
                     Some(Box::new(ir::Arg::Ref(self.implicit_rec(&kids[0])?)))
                 } else {

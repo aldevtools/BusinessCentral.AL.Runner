@@ -768,15 +768,28 @@ impl Session {
                     // handlers/TestPageControlEditableRoutes.al:536-555, TestPageEditable_Tests.al:150-180;
                     // their effect on Rec-bound controls is docs/probes-needed.md).
                     Some(v) => {
-                        if st.borrow().opening && !ops::truthy(v)? {
-                            let mut s = st.borrow_mut();
-                            if !s.editable_off {
-                                s.editable_off_in_open = true;
+                        let on = ops::truthy(v)?;
+                        if st.borrow().opening {
+                            if !on {
+                                let mut s = st.borrow_mut();
+                                if !s.editable_off {
+                                    s.editable_off_in_open = true;
+                                }
+                                s.editable_off = true;
                             }
-                            s.editable_off = true;
+                        } else if st.borrow().in_action {
+                            st.borrow_mut().editable_set_later = Some(on);
                         }
                         Ok(Value::Null)
                     }
+                    // After `CurrPage.Editable(false)` in an action, page code in the same action reads No
+                    // (pages/lt-tc-bare-page-methods/TcBarePageObjects.al:309-310, TcBarePageMethodsTests.al:359); the next
+                    // action reads the page's own value (pages/lt-page-runtime/P82CurrPage.al:196-219). What
+                    // `Editable(true)` there reads back is not pinned: on an editable page it reads Yes as before, on a read-only page it is refused.
+                    None if st.borrow().editable_set_later == Some(false) => Ok(Value::Boolean(false)),
+                    None if st.borrow().editable_set_later == Some(true) && !self.page_editable(st) => unsupported(
+                        "CurrPage.Editable() read after CurrPage.Editable(true) on a read-only page (not pinned)",
+                    ),
                     // Read from page code on an OpenNew page after CurrPage.Editable(false): only TestPage.Editable() is
                     // pinned there (pages/lt-cd-testpage-leads/CdTestPageLeads.al:117).
                     None if self.open_lock(st) == Some(PageMode::New) => unsupported(

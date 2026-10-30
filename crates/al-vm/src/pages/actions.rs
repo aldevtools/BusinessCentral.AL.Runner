@@ -915,9 +915,12 @@ impl Session {
             s.marking_action = !marked_only_before || again_with_part;
             s.marked_rows_held = false;
         }
+        let was_in_action = std::mem::replace(&mut st.borrow_mut().in_action, true);
         let r = self.action_invoke_body(st, idx);
         let held = {
             let mut s = st.borrow_mut();
+            s.in_action = was_in_action;
+            s.editable_set_later = None;
             s.marking_action = false;
             std::mem::take(&mut s.marked_rows_held)
         };
