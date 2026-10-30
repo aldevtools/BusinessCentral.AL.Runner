@@ -35,7 +35,7 @@ table 68403 "CL Blob" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Data; Bl
 codeunit 50100 C
 {{
     procedure F(): Text
-    var B: Record "CL Blob"; O: OutStream; I: InStream; Text: Text; Ok: Boolean; Rep: Report "CL Report"; Row: Record "CL Row";
+    var B: Record "CL Blob"; O: OutStream; I: InStream; Text: Text; Ok: Boolean; Rep: Report "CL Report"; Row: Record "CL Row"; RecRef: RecordRef;
     begin
         B.Insert();
         B.Data.CreateOutStream(O);
@@ -58,11 +58,15 @@ fn run(subscriber_body: &str) -> Result<Value, Signal> {
 const STATIC_SAVE: &str = "Ok := Report.SaveAs(Report::\"CL Report\", '', ReportFormat::Pdf, O);";
 
 fn run_save(subscriber_body: &str, save: &str) -> Result<Value, Signal> {
+    run_src(fixtures(subscriber_body, save))
+}
+
+fn run_src(src: String) -> Result<Value, Signal> {
     let apps = vec![AppSource {
         id: "a".into(),
         name: "a".into(),
         dependencies: vec![],
-        files: vec![("f.al".into(), fixtures(subscriber_body, save))],
+        files: vec![("f.al".into(), src)],
     }];
     let (ws, mut l) = al_sema::lower::compile(apps, &Default::default());
     assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
@@ -115,17 +119,71 @@ fn the_payload_holds_the_pinned_keys_and_values() {
     }
 }
 
-/// The filterviews of a SaveAs whose data item has a view the caller set (SetTableView) are not pinned: the payload is
-/// refused on use, and a subscriber that does not read it still renders.
+/// The filterviews of a SaveAs whose data item has a descending view the caller set (SetTableView) are not pinned (only an
+/// ascending view on the primary key is, ReportMergerUnmasked.al:262-286): the payload is refused on use, and a subscriber
+/// that does not read it still renders.
 #[test]
-fn the_payload_of_a_save_after_set_table_view_is_refused_on_use() {
-    let save = "Row.SetRange(Id, 1); Rep.SetTableView(Row); Ok := Rep.SaveAs('', ReportFormat::Pdf, O);";
+fn the_payload_of_a_save_after_a_descending_set_table_view_is_refused_on_use() {
+    let save =
+        "Row.SetRange(Id, 1); Row.Ascending(false); Rep.SetTableView(Row); Ok := Rep.SaveAs('', ReportFormat::Pdf, O);";
     match run_save("if ObjectPayload.Get('layoutname', Probe) then;", save) {
         Err(Signal::Unsupported(why)) => assert!(why.contains("filterviews"), "{why}"),
         other => panic!("{other:?}"),
     }
     match run_save("", save) {
         Ok(Value::Text(t)) => assert_eq!(t.to_string(), "Yes|rendered:LAYOUT-TEXT"),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// What a subscriber reads of one payload key, as raw JSON.
+const RAW_KEY: &str = "ObjectPayload.Get(KEYNAME, Probe); Probe.WriteTo(Line); Layout := Line;";
+
+fn raw_key(key: &str, save: &str) -> String {
+    match run_save(&RAW_KEY.replace("KEYNAME", &format!("'{key}'")), save) {
+        Ok(Value::Text(t)) => t.to_string(),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// invokeddatetime is the clock as `yyyy-mm-ddThh:mm:ss.fff+hh:mm`, an offset and not `Z`
+/// (report/lt-report-layout-merger/ReportMergerUnmasked.al:229-245, Payload_Unmasked_InvokedDateTime).
+#[test]
+fn invokeddatetime_has_an_offset() {
+    let t = raw_key("invokeddatetime", STATIC_SAVE);
+    let shape: String = t.chars().map(|c| if c.is_ascii_digit() { 'd' } else { c }).collect();
+    assert_eq!(shape, "Yes|rendered:\"dddd-dd-ddTdd:dd:dd.ddd+dd:dd\"", "{t}");
+}
+
+/// filterviews after SetTableView: one object per data item with its name, table id and view
+/// (ReportMergerUnmasked.al:262-286, Payload_FilterViews_AfterSetTableView).
+#[test]
+fn filterviews_after_set_table_view() {
+    let save = "Row.SetRange(Id, 1); Rep.SetTableView(Row); Ok := Rep.SaveAs('', ReportFormat::Pdf, O);";
+    assert_eq!(
+        raw_key("filterviews", save),
+        "Yes|rendered:[{\"name\":\"R\",\"tableid\":68400,\"view\":\"VERSION(1) SORTING(Field1) WHERE(Field1=1(1))\"}]"
+    );
+}
+
+/// filterviews of a SaveAs with a RecordRef (ReportMergerUnmasked.al:288-310, Payload_FilterViews_WithRecordRef).
+#[test]
+fn filterviews_with_a_record_ref() {
+    let save = "RecRef.Open(68400); RecRef.Field(1).SetRange(2); \
+                Ok := Report.SaveAs(Report::\"CL Report\", '', ReportFormat::Pdf, O, RecRef);";
+    assert_eq!(
+        raw_key("filterviews", save),
+        "Yes|rendered:[{\"name\":\"R\",\"tableid\":68400,\"view\":\"VERSION(1) SORTING(Field1) WHERE(Field1=1(2))\"}]"
+    );
+}
+
+/// A report without a Caption gives its object name as objectname (ReportMergerUnmasked.al:398-425,
+/// Payload_ReportWithoutCaption).
+#[test]
+fn objectname_of_a_report_without_caption_is_its_name() {
+    let src = fixtures(&RAW_KEY.replace("KEYNAME", "'objectname'"), STATIC_SAVE).replace("Caption = 'CL Caption';", "");
+    match run_src(src) {
+        Ok(Value::Text(t)) => assert_eq!(t.to_string(), "Yes|rendered:\"CL Report\""),
         other => panic!("{other:?}"),
     }
 }

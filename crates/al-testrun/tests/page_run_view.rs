@@ -107,8 +107,8 @@ fn a_page_run_on_a_record_shows_the_rows_its_source_table_view_admits() {
         name: "RunOnARecord".into(),
     });
     assert_eq!(o, Outcome::Pass);
-    // A view with order(descending) on a page run on a record is read as the view alone is (an assumption,
-    // page-run-record-view-order-applies); P145PageRunView.al pins SORTING and the record's direction only.
+    // A view with order(descending) on a page run on a record is read as the view alone is
+    // (types/lt-code-digits-page-run-view/P145PageRunView.al:228-467, SF_B_*, SF_C_*).
     let o = rt.first_outcome(&CaseId {
         codeunit: 50102,
         name: "RunOnARecordWithAnOrderInTheView".into(),

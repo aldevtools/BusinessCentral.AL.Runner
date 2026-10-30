@@ -74,3 +74,64 @@ fn a_provider_factbox_follows_a_linked_field_typed_on_the_providers_row() {
             if D.ToBin.Code.Value() <> 'B2' then Error('back %1', D.ToBin.Code.Value()); D.Close(); end;"#,
     );
 }
+
+const INDIRECT: &str = r#"
+table 62580 "PFI Header" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { } } }
+table 62581 "PFI Line" { fields { field(1; "Document No."; Code[20]) { } field(2; "Line No."; Integer) { }
+    field(3; Quantity; Decimal) { trigger OnValidate() begin "Qty. (Base)" := Quantity * 2; end; }
+    field(4; "Qty. (Base)"; Decimal) { } field(5; "Page Qty"; Decimal) { } } keys { key(PK; "Document No.", "Line No.") { } } }
+table 62582 "PFI Bucket" { fields { field(1; Qty; Decimal) { } field(2; Label; Text[30]) { } } keys { key(PK; Qty) { } } }
+page 62583 "PFI Document" { PageType = Document; SourceTable = "PFI Header";
+    layout { area(Content) { field("No."; Rec."No.") { } part(Lines; "PFI Lines") { SubPageLink = "Document No." = field("No."); } }
+        area(FactBoxes) { part(Bucket; "PFI Buckets") { Provider = Lines; SubPageLink = Qty = field("Qty. (Base)"); } } } }
+page 62584 "PFI Lines" { PageType = ListPart; SourceTable = "PFI Line"; InsertAllowed = false;
+    layout { area(Content) { repeater(Rows) { field("Line No."; Rec."Line No.") { } field(Quantity; Rec.Quantity) { }
+        field("Page Qty"; Rec."Page Qty") { trigger OnValidate() begin Rec."Qty. (Base)" := Rec."Page Qty" * 3; end; }
+        field("Qty. (Base)"; Rec."Qty. (Base)") { Editable = false; } } } } }
+page 62585 "PFI Buckets" { PageType = ListPart; SourceTable = "PFI Bucket"; Editable = false;
+    layout { area(Content) { repeater(Rows) { field(Label; Rec.Label) { } } } } }
+codeunit 62586 "PFI Seed" {
+    procedure Seed() var H: Record "PFI Header"; L: Record "PFI Line"; B: Record "PFI Bucket"; begin
+        H.DeleteAll(); L.DeleteAll(); B.DeleteAll();
+        B.Qty := 2; B.Label := 'base 2'; B.Insert(); B.Qty := 4; B.Label := 'base 4'; B.Insert(); B.Qty := 9; B.Label := 'base 9'; B.Insert();
+        H."No." := 'D1'; H.Insert();
+        L."Document No." := 'D1'; L."Line No." := 10000; L.Quantity := 1; L."Qty. (Base)" := 2; L.Insert(); end; }
+"#;
+
+// The linked field changes through another field's OnValidate, of the table field or of the page control: the FactBox
+// follows at once (corpus writer Y5, branch al-runtime-rs-staging-y5b, pages/lt-y5/Y5ProviderIndirectLink.al:157 table
+// OnValidate `base 4`, :191 page control OnValidate `base 9`, :221 a value with no matching row: First No, Label '').
+#[test]
+fn a_provider_factbox_follows_a_linked_field_changed_through_validation() {
+    let src = format!(
+        "{INDIRECT}\ncodeunit 62590 T {{ Subtype = Test; {} }}",
+        r#"[Test] procedure TableValidate() var S: Codeunit "PFI Seed"; D: TestPage "PFI Document"; L: Record "PFI Line"; begin
+            S.Seed(); D.OpenEdit(); D.GoToKey('D1');
+            if not D.Bucket.First() then Error('before'); if D.Bucket.Label.Value() <> 'base 2' then Error('before %1', D.Bucket.Label.Value());
+            D.Lines.Quantity.SetValue(2);
+            if D.Lines."Line No.".Value() <> '10000' then Error('line'); if D.Lines."Qty. (Base)".Value() <> '4.00' then Error('provider %1', D.Lines."Qty. (Base)".Value());
+            L.Get('D1', 10000); if L."Qty. (Base)" <> 2 then Error('stored %1', L."Qty. (Base)");
+            if D.Bucket.Label.Value() <> 'base 4' then Error('after %1', D.Bucket.Label.Value());
+            if not D.Bucket.First() then Error('after first'); if D.Bucket.Label.Value() <> 'base 4' then Error('after first %1', D.Bucket.Label.Value());
+            D.Close(); end;
+        [Test] procedure PageValidate() var S: Codeunit "PFI Seed"; D: TestPage "PFI Document"; L: Record "PFI Line"; begin
+            S.Seed(); D.OpenEdit(); D.GoToKey('D1');
+            if D.Bucket.Label.Value() <> 'base 2' then Error('before %1', D.Bucket.Label.Value());
+            D.Lines."Page Qty".SetValue(3);
+            if D.Lines."Qty. (Base)".Value() <> '9.00' then Error('provider %1', D.Lines."Qty. (Base)".Value());
+            L.Get('D1', 10000); if L."Qty. (Base)" <> 2 then Error('stored %1', L."Qty. (Base)");
+            if D.Bucket.Label.Value() <> 'base 9' then Error('after %1', D.Bucket.Label.Value());
+            if not D.Bucket.First() then Error('after first'); if D.Bucket.Label.Value() <> 'base 9' then Error('after first %1', D.Bucket.Label.Value());
+            D.Close(); end;
+        [Test] procedure NoBucket() var S: Codeunit "PFI Seed"; D: TestPage "PFI Document"; begin
+            S.Seed(); D.OpenEdit(); D.GoToKey('D1');
+            D.Lines.Quantity.SetValue(5);
+            if D.Lines."Qty. (Base)".Value() <> '10.00' then Error('provider %1', D.Lines."Qty. (Base)".Value());
+            if D.Bucket.First() then Error('first'); if D.Bucket.Label.Value() <> '' then Error('label %1', D.Bucket.Label.Value());
+            D.Close(); end;"#
+    );
+    let o = al_testkit::outcomes_in(&src, "T");
+    assert!(!o.is_empty());
+    let bad: Vec<_> = o.into_iter().filter(|(_, r)| *r != Outcome::Pass).collect();
+    assert!(bad.is_empty(), "{bad:?}");
+}

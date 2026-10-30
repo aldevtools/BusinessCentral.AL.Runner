@@ -57,10 +57,9 @@ impl Session {
             }
         }
         // A view writes a DateTime in UTC as `yyyy-mm-ddThh:mm:ssZ`, with the milliseconds after a dot without trailing zeros
-        // (`2025-01-15T17:45:10.5Z`) (P136Filter.al UN_DateTimeFilter_* `view=` on writer UN's corpus branch, commit d3bcc580).
+        // (`2025-01-15T17:45:10.5Z`) (P136Filter.al UN_DateTimeFilter_* `view=` errors/lt-ms-refusals-136/P136Filter.al:447-586).
         if let (true, Value::DateTime(d)) = (iso, v) {
             if *d != 0 {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DatetimeFilterDayAndHours);
                 let t = d - 1;
                 let (day, ms) = (t.div_euclid(86_400_000), t.rem_euclid(86_400_000));
                 let (y, m, dd) = al_builtins::format::civil_from_day((day + 1) as i32);
@@ -123,9 +122,8 @@ impl Session {
                 return al_builtins::format::try_format(v, 0, 1, self).map_err(Signal::Unsupported);
             }
             // The last second of a day, the end of a date-alone filter, shows its seconds (`01/15/25 11:59:59 PM`, P136Filter.al
-            // UN_DateTimeFilter_DateAlone on writer UN's corpus branch, commit d3bcc580).
+            // UN_DateTimeFilter_DateAlone errors/lt-ms-refusals-136/P136Filter.al:447-586).
             if *d != 0 && (d - 1) % 86_400_000 == 86_399_000 {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DatetimeFilterDayAndHours);
                 return al_builtins::format::try_format(v, 0, 1, self).map_err(Signal::Unsupported);
             }
             // Other seconds without milliseconds: not pinned.

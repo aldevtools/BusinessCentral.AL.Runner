@@ -108,15 +108,11 @@ pub fn awaiting_text(w: &Awaiting) -> String {
 
 registry! {
 
-
-
-
-
     JsonOtherTextAsBooleanConversionError => {
         id: "json-other-text-as-boolean-conversion-error",
-        assumed: "JsonValue.AsBoolean (and the other Boolean getters) of a JSON string that is not a spelling of true or false and is not made of letters only (blanks, digits or punctuation, as 'not a boolean') raises the same conversion error as a text of letters (json/JsonValueGetters.al:172 `text_asboolean` 'hello').",
+        assumed: "JsonValue.AsBoolean (and the other Boolean getters) of a JSON string that is not a spelling of true or false and is made of other characters than letters only or digits only (blanks inside, punctuation, a mix, as 'not a boolean') raises the same conversion error as a text of letters. Letters, digits and the empty text are pinned (json/JsonValueGetters.al:172 `text_asboolean`, UN_BooleanTextGetters_2 to _4).",
         tests: "No Microsoft test: an outside ISV app test that feeds a JSON property of the wrong type to a TryFunction around AsBoolean; it passes on the reporter's real-BC run.",
-        probe: "JsonValue.AsBoolean of the strings 'not a boolean', '1', '', ' true', 'True', 'false': the result or the error text and code.",
+        probe: "JsonValue.AsBoolean of the strings 'not a boolean', 'a1', '-', 'true!': the result or the error text and code.",
     },
 
     ReadUncommittedReadOpensNoWriteTransaction => {
@@ -182,9 +178,6 @@ registry! {
         probe: "UeTriggerTests.al with the base page's OnInsertRecord and OnModifyRecord answering false and both extensions true: the stored row and the trigger log.",
     },
 
-
-
-
     PageExtSiblingProtectedVarCrossApp => {
         id: "pageext-sibling-protected-var-cross-app",
         assumed: "The same holds when the declaring page extension is in another app that the using extension's app depends on (directly or through other apps), and that extension's OnOpenPage runs first.",
@@ -229,9 +222,9 @@ registry! {
     },
     EvaluateTimeDigitForms => {
         id: "evaluate-time-digit-forms",
-        assumed: "Evaluate into a Time (format 0) reads six digits as hhmmss and one or two digits as an hour; an hour from 24, minutes or seconds from 60 are rejected.",
+        assumed: "Evaluate into a Time (format 0) of six digits whose minutes or seconds are 60 or more is rejected, as an hour from 24 is. Six digits as hhmmss, one or two digits as an hour, and an hour of 24 rejected are pinned (types/lt-ax-text-format-dates/AxEvaluateText.al:44-118).",
         tests: "Calendar Management CalcTimeDelta tests (Evaluate of '085606') and Evaluate(RandomTime, Format(RandInt(23))); 11 Tests-SCM-Manufacturing tests.",
-        probe: "Evaluate(T, '085606'), '23', '5', '246000', '24', '0856', '8:56' into a Time: the result and the return value; with and without a format number. Asked in corpus #649.",
+        probe: "Evaluate(T, '086000') and Evaluate(T, '085960') into a Time: the result and the return value.",
     },
     CodeCoverageSnapshotWhileLogging => {
         id: "code-coverage-snapshot-while-logging",
@@ -253,9 +246,9 @@ registry! {
     },
     CustomLayoutMerger => {
         id: "custom-layout-merger",
-        assumed: "A SaveAs (Pdf, Word, Excel, Html) of a report whose DefaultRenderingLayout has Type = Custom raises the platform's CustomDocumentMergerEx. Pinned (report/lt-report-layout-merger/*.al, handlers/TestReportLayoutByNameMergerCapture.al): ObjectID; ReportAction SaveAsPdf 0, SaveAsWord 1, SaveAsExcel 2, SaveAsHtml 5, and no call for Xml (ReportMergerAction.al, ReportMergerStatic.al); the 19 ObjectPayload keys in order with filterviews [] for a SaveAs without a view, version 1, objectname the report caption, objectid, documenttype the format's mime type, printername empty, duplex and color false, defaultcopies 1, papertray null, intent Save, layoutmodel Custom, layoutname and layoutmimetype of the layout (ReportMergerPayload.al, ReportMergerLayoutChoice.al); XmlData with the Labels and Columns of the Xml dataset (ReportMergerLabelsSM.al); LayoutData the layout file; the static subscriber runs before the bound ones, each sees IsHandled true once one handled, all write to one DocumentStream, and a handled call makes SaveAs answer true (ReportMergerSubscribers.al). Assumed: the exact text of the values the corpus masks (invokedby the user security id, reportrunid a new id and layoutapplicationid the app id as lower-case GUIDs without braces; invokeddatetime the clock as yyyy-mm-ddThh:mm:ss.fffZ; companyname the company), filterviews [] also for a report with DataItemTableView or with request parameters without a data item view, the dataset header in XmlData, and UTF-8 for DocumentStream. A payload with a view the caller gave (SetTableView, a RecordRef, a data item view in the request parameters) or of a report without a Caption is refused on use; a SaveAs no subscriber handles is refused.",
+        assumed: "A SaveAs (Pdf, Word, Excel, Html) of a report whose DefaultRenderingLayout has Type = Custom raises the platform's CustomDocumentMergerEx. Pinned (report/lt-report-layout-merger/*.al, handlers/TestReportLayoutByNameMergerCapture.al): ObjectID; ReportAction SaveAsPdf 0, SaveAsWord 1, SaveAsExcel 2, SaveAsHtml 5, and no call for Xml; the 19 ObjectPayload keys in order and their values (ReportMergerPayload.al, ReportMergerLayoutChoice.al), including invokedby, layoutapplicationid, reportrunid, companyname, invokeddatetime, objectname of a report without a Caption and filterviews after SetTableView, with a RecordRef, with a data item view in the request parameters, with options only and with DataItemTableView only (ReportMergerUnmasked.al); XmlData with the Labels and Columns of the Xml dataset (ReportMergerLabelsSM.al); LayoutData the layout file; the subscriber order and IsHandled (ReportMergerSubscribers.al). Assumed: the dataset header in XmlData, UTF-8 for DocumentStream, and the offset +00:00 of invokeddatetime (the session time zone is UTC here; the corpus pins only the shape). A filterviews of a report with several data items, of a view given twice or of a view other than filters in group 0 on the primary key, ascending, is refused on use; a SaveAs no subscriber handles is refused.",
         tests: "The owner's own repositories (91 tests of one suite), Pageworks (about 50 tests whose first refusal is SaveAs as Pdf); the corpus cases of report/lt-report-layout-merger pass flagged.",
-        probe: "Unmasked payload values next to UserSecurityId(), CompanyName() and the app id; a report with DataItemTableView and with request parameters that hold only options; SaveAs after SetTableView; a report without a Caption; a SaveAs no subscriber handles (needs an app without the static subscriber 60532).",
+        probe: "The dataset header in XmlData next to the Xml SaveAs; a DocumentStream written with non-ASCII text; invokeddatetime in a session with another time zone; filterviews of a report with two data items and of a descending view; a SaveAs no subscriber handles (needs an app without the static subscriber 60532).",
     },
     PageExpressionControlLiveReadAfterNextFilterActivate => {
         id: "page-expression-control-live-read-after-next-filter-activate",
@@ -305,12 +298,6 @@ registry! {
         assumed: "In a filter on a DateFormula field the empty text is the empty formula, so a filter of not-equal and the empty text selects the rows that have a formula.",
         tests: "Library - ERM GetDiscountPaymentTerm (PaymentTerms.SetFilter(Due Date Calculation, not-equal and the empty text)): about 170 Tests-ERM tests.",
         probe: "Payment Terms rows with and without Due Date Calculation; SetFilter on it with the empty text, not-equal and the empty text, then Count. Asked in corpus #644.",
-    },
-    RequestPageOnInitAtFirstUse => {
-        id: "request-page-oninit-at-first-use",
-        assumed: "A report variable whose procedure runs before its run has its request page's OnInit run at that first use, right after OnInitReport and before the procedure's body; the run then does not run the OnInit again, whether the page is shown or not.",
-        tests: "Tests-SCM 137402 SCM Costing Batch CapacityCostPostedToGLForTwoItemsInOneProductionOrder (Library - Manufacturing RefreshProdOrder calls Refresh Production Order's InitializeRequest(CalcLines = false); the request page OnInit sets CalcLines := true). Refusing the path instead blocks 2031 Tests-SCM tests (measured 2026-10-21 on the oldest supported BC major).",
-        probe: "A report with a request page whose OnInit sets a global and logs it, and a procedure that sets the same global: call the procedure, then Run with UseRequestPage(false) and with a request page handler; log the global in OnPreReport and in the handler.",
     },
     UpdateRefreshOnFindRecord => {
         id: "update-refresh-onfindrecord",
@@ -378,12 +365,6 @@ registry! {
         tests: "Segment Line.RunCreateInteraction (PAGE.RunModal(PAGE::\"Create Interaction\", Rec, \"Interaction Template Code\")) in Tests-Marketing: CampaignAndInteractionsLinked and about 32 more, answered by Page-typed handlers that leave Response alone.",
         probe: "Page.RunModal(Page::P, Rec, Rec.F) with a ModalPageHandler that (a) invokes OK, (b) Cancel, (c) does nothing, (d) a Page-typed handler leaving Response; with P a card and a list in lookup mode, for LookupOK: what Rec.F holds and what the call returns. Asked in corpus #652.",
     },
-    SubPageLinkEmptyTerm => {
-        id: "subpagelink-empty-term-selects-blank",
-        assumed: "An empty const('') or filter('') term of a SubPageLink or RunPageLink selects the rows whose field is blank, as the same term of a TableRelation where() does (pinned there, not for links).",
-        tests: "Microsoft's Production BOM page (part ProdBOMLine: SubPageLink \"Version Code\" = const('')), opened by SCM Manufacturing 7.0 CalculateProdOrderWithSKUWithRoutingAndProdBOMNo and about 10 more Tests-SCM-Manufacturing tests.",
-        probe: "A part page with SubPageLink F = const('') and another with F = filter(''), over rows with blank and non-blank F: which rows show; the same for RunPageLink. Asked in corpus #641.",
-    },
     DateToDateTime => {
         id: "date-to-datetime-is-midnight",
         assumed: "A Date assigned or converted to a DateTime is that day at midnight; the blank Date is the blank DateTime.",
@@ -425,23 +406,11 @@ registry! {
         tests: "Microsoft and NP Retail code that sets SetBaseAddress and then Get('/orders').",
         probe: "SetBaseAddress('https://example.invalid/api') (no trailing slash) then Get('orders'); SetBaseAddress('https://example.invalid/api/v1/') then Get('a/b'), Get('./x'), Get('a/../b'), Get('../../x'), Get('orders?x=1#f') with a handler printing Request.Path.",
     },
-    HttpContentLengthAfterRead => {
-        id: "http-content-length-after-read",
-        assumed: "A Content-Length added by hand stays as it is when WriteFrom then writes a body of another length. (Pinned: one a read put there stays through WriteFrom, network/lt-ay-http/AyContentLength.al PY_ContentLength_*; one added by hand stays through ReadAs, SE_ContentLength_AddedByHandBeforeRead.)",
-        tests: "Code that sets Content-Length by hand and then rewrites the content.",
-        probe: "Add('Content-Length', '3') then WriteFrom('a longer text') and GetValues, and the length a request sends.",
-    },
     HttpTypedHeaderValueShapes => {
         id: "http-typed-header-value-shapes",
-        assumed: "A value of a typed header (other than Cache-Control) in a shape no probe measured follows the rule of the shapes measured for that header (network/lt-ay-http/AyHeaderAddResult.al, the lt-http-header-rules/P87 files and lt-se-header-values/SeHeaderValues.al measured a few valid and invalid values of each); a name of the other kind of message the probes did not add is stored as written there, and one the probes did not add to the client's default headers checks there as on request headers.",
+        assumed: "A value of a typed header (other than Cache-Control) in a shape no probe measured follows the rule of the shapes measured for that header (network/lt-ay-http/AyHeaderAddResult.al, the lt-http-header-rules/P87 files and lt-se-header-values/SeHeaderValues.al measured a few valid and invalid values of each, Y2_* also two-digit years, numeric offsets, case and spacing); a request-only name the probes did not add to response headers is stored as written there, and one the probes did not add to the client's default headers checks there as on request headers (SeHeaderValues.al Y2_RequestOnlyNames_* measured all ten request-only names).",
         tests: "Every Microsoft or NP Retail test that builds a request with headers (Authorization, Accept, Content-Type, custom X- headers).",
-        probe: "More value shapes per typed header on request, response, content and client headers (lists, parameters, spacing, case, two-digit years, negative offsets), and the request-only names Accept-Charset, Accept-Encoding, Accept-Language, From, If-Modified-Since, If-None-Match, If-Range, If-Unmodified-Since, Proxy-Authorization and TE on response headers. Split from http-header-rules (2026-10-25).",
-    },
-    OpenNewSkipsOnFindRecord => {
-        id: "open-new-skips-onfindrecord",
-        assumed: "TestPage.OpenNew on a page with an OnFindRecord trigger does not run that trigger: the page finds its last row for xRec by itself (as for a page without the trigger) and goes to OnNewRecord.",
-        tests: "Service Credit Memo, Service Invoice and Service Order pages (OnFindRecord: Rec.Find(Which), else SetRange(\"No.\") and Find again): ServiceCreditMemoByPage, ServiceInvoiceByPage and about 30 more Tests-SCM-Service tests, and the 24 that follow them in their codeunits.",
-        probe: "A list or card with OnFindRecord(Which) that notes Which in a trace, a source table with and without rows: OpenNew, then the trace, xRec of OnNewRecord and the first Rec. Asked in corpus #641.",
+        probe: "More value shapes per typed header on request, response, content and client headers (lists with parameters, quoted strings, two-digit years other than 49 and 50, dates without a weekday and with an offset other than -0500 and +0000). Split from http-header-rules (2026-10-25).",
     },
     NewLineStampsAllBeforeValidating => {
         id: "new-line-stamps-all-before-validating",
@@ -449,30 +418,11 @@ registry! {
         tests: "Library - Service.CreateServiceOrderHeaderUsingPage (Service Order Subform: key Document Type, Document No., Line No.; the relation of Document No. filters on Document Type). Kept because refusing it costs 7 corpus baseline cases (handlers/TestPageActionRunPageView.al 67007, misc/lt-probes-needed-7/PnGRefresh.al 70177).",
         probe: "A part whose source table's key is (Type, Document No., Line No.), SourceTableView where(Type = const(B)), SubPageLink Document No. = field(No.), the relation of Document No. filtering on Type and an OnValidate of Document No. that reads Type: open the host on a header of Type B and A, New(), read the draft line and what the OnValidate saw.",
     },
-    GroupedQueryTiesInGroupingOrder => {
-        id: "grouped-query-ties-in-grouping-order",
-        assumed: "Groups of an aggregated query that tie on every OrderBy column are read in the order of the query's grouping columns (column declaration order, each ascending).",
-        tests: "Create Pick's CalcQtyInWhseEntries (OrderBy Block_Movement, ten grouping columns): SCM Extend Warehouse CheckItemAvailabilityWhenCreatingPickAndExistReservedQtyForProdOrder and the tests that create a pick for a directed put-away location; about 77 Tests-SCM tests.",
-        probe: "An aggregated query with an OrderBy on a column most groups share and several grouping columns, rows inserted in non-key order: the order of the tied groups on Read. Asked in corpus #651.",
-        note: "Confirmed by writer SG on corpus bump PR 738 (branch al-runtime-rs-staging-pub-sg 37b221b7, green on every supported BC major): query/lt-az-query/AzQueryTests.al SG_OrderByTies_GroupingSubThenCat, _GroupingCatThenSub, _DescendingKind, _DescendingSum. No al-runner issue, so no `awaiting` field: remove this entry when that bump lands.",
-    },
     TableRelationSeveralWhereNonKey => {
         id: "table-relation-several-where-non-key",
         assumed: "A TableRelation check that fails, with several where() conditions none of which is on a primary key field of the related table, raises DB:NothingInsideFilter, as one condition on a non-key field does. (A mix with key fields stays refused.)",
         tests: "Item Blocked Test and Item Variant Blocked Test (Item where(Blocked = const(false), \"Service Blocked\" = const(false)) and the sales and purchase variants), SCM Dedicated Bins; about 26 Tests-SCM tests. They compare the message only.",
         probe: "A relation with two non-key where() conditions and a value that fails one of them, and one that is missing: GetLastErrorCode; the same with one key and one non-key condition.",
-    },
-    TestFilterSetFilterEmptyClears => {
-        id: "testfilter-setfilter-empty-clears",
-        assumed: "TestFilter.SetFilter(Field, '') (a text empty or of spaces) on a page or request page filter removes the user's filter on that field, as FieldRef.SetFilter does (pinned: P134DateTextFilters.al:P134_FieldRef_Date_EmptyAndBlankForms).",
-        tests: "SCM Inventory Misc. II (Inventory Pick and Put-away \"WithAdditionalFilters\"), SCM Invt Item Tracking III, SCM Plan-Req. Wksht, SCM Inventory Journals, SCM Inventory Miscellaneous: about 17 Tests-SCM tests that clear a request page filter with an empty text.",
-        probe: "TestPage.Filter.SetFilter(F, '') and (F, ' ') after a filter on F: GetFilter(F) and the rows; the same on a request page's data item filter. Asked in corpus #641.",
-    },
-    PageRunRecordViewOrderApplies => {
-        id: "page-run-record-view-order-applies",
-        assumed: "Page.Run with a record on a page whose SourceTableView names an ORDER(ascending|descending): the page runs in the view's direction, as the view alone does. (P145PageRunView.al pins the view's SORTING and the record's direction when the view names none.)",
-        tests: "Pages with SourceTableView = sorting(...) order(descending), such as Item Ledger Entries, opened with a record: SCM Item Journal and SCM Warehouse tests; about 11 Tests-SCM tests.",
-        probe: "Page.Run(Page, Rec) with Rec ascending and the page's view order(descending), and the reverse: the first row the page shows. Asked in corpus #641.",
     },
     ReportRenderDiscarded => {
         id: "report-render-discarded",
@@ -570,7 +520,6 @@ registry! {
         tests: "No Microsoft test and no user report: the reported shape (a Code[20] true branch and a Locked Label false branch) is pinned; other lengths take the same lowering.",
         probe: "The TI_Ternary_* tests of TestTernaryContracts.al with Code[10], Code[50] and Text[30] branches, and an unbounded Text branch against a Label either way.",
     },
-
 
     ResourceFileNameCase => {
         id: "resource-file-name-case",
@@ -728,12 +677,6 @@ registry! {
             since: "2026-10-30",
         },
     },
-    BigTextValueCopy => {
-        id: "bigtext-value-copy",
-        assumed: "A BigText given as an event parameter by value gets a copy the subscriber's AddText does not reach, and a returned BigText is a copy. Assignment, a by-value and a var procedure parameter and Clear of a copy are pinned (text/TestBigText.al:108-160); the marker cannot tell those from the unpinned uses and fires on every copy.",
-        tests: "No Microsoft test: a partner app's tests (A=2;B=1;C=0 after `B := A`, a by-value AddText and Clear of a copy).",
-        probe: "A BigText passed by value to an event subscriber that calls AddText: the publisher's length; a procedure that returns a BigText the caller then grows: the callee's copy.",
-    },
     GroupEnabledDisablesField => {
         id: "group-enabled-disables-field",
         assumed: "A control inside a group whose Enabled reads No is disabled whatever its own Enabled says on a page type other than a card or a request page, and for a group Enabled bound to an expression. Pinned: a request page (misc/lt-object-properties-runtime-effect/ReportRequestPageGroupEditable.al:P194_ReportGroup_EditableEnabled) and a card's field with or without an Enabled of its own in a group with `Enabled = false` (pages/lt-ap-testpage-642/ApTestPageTests.al:895 Ap16_GroupEnabledFalse_Card, :1082 Ap16_GroupEnabledFalse_FieldEnabledTrue).",
@@ -742,15 +685,9 @@ registry! {
     },
     StaleOwnInsertTwoCommitsOtherInsert => {
         id: "stale-own-insert-two-commits-other-insert",
-        assumed: "A stale buffer from the variable's own Insert, or its own Modify after it, made in the transaction before the last Commit or the one before it, is written whole (the stale buffer wins) when the transaction after the last Commit inserted another row of the table and did not touch the row itself, lock the table or roll back. Pinned for an own Insert and Modify, one or two Commits, and an Insert of another row as the only write of the new transaction (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:666-745); an own Insert without the Modify, and other writes of the table beside the Insert, are not told apart and stay assumed. The marker fires on the pinned shape too.",
+        assumed: "A stale buffer from the variable's own Insert, or its own Modify after it, made in the transaction before the last Commit or the one before it, is written whole (the stale buffer wins) when the transaction after the last Commit inserted another row of the table and wrote beside that Insert something other than Inserts and Modifies of other rows of the table (a Delete or a Rename, a write of another table). Pinned for an own Insert with and without the own Modify, one, two and three Commits, and Inserts and a Modify of other rows of the table as the only writes of the new transaction (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:666-745, :2484-2580), which do not mark it.",
         tests: "No Microsoft test: a partner app's tests (Library - Manufacturing.RefreshProdOrder commits before and after Refresh Production Order).",
-        probe: "The SH_OwnModify_ tests of SbStaleOwnModify.al with an own Insert only, with a Modify of another row beside the Insert, and with three Commits.",
-    },
-    StaleOwnWriteNeighbourAnyCommits => {
-        id: "stale-own-write-neighbour-any-commits",
-        assumed: "A stale buffer from the variable's own Insert (or its own Modify after it), any number of Commits later, when the new transaction did not write that row: (1) LockTable on other tables only with no write, or Inserts into other tables only (locked or not) and a FindSet of the buffer's table: a Modify or Delete through the buffer raises DB:RecordChanged; (2) LockTable on the buffer's table only with no write: a Modify writes the whole buffer and a Delete deletes the row; (3) only Modifies, only Deletes, only Inserts or only Renames of other rows of the table, with no lock: a Modify writes the whole buffer and a Delete deletes the row. With nothing in between it stays refused as pinned. Pinned for 1, 2, 3, 4, 5, 7, 8 and 10 Commits, not every form at every count (record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_* and TH_*); every other count and form is assumed to behave the same. A ModifyAll or DeleteAll, a Rename whose triggers or related fields write, a mix of write kinds, a write beside a lock, a rollback and a ReadIsolation lock stay refused.",
-        tests: "No Microsoft test and no user report: the reported counts and forms are pinned (SbStaleOwnModify.al); the other counts take the same rule.",
-        probe: "The forms of SbStaleOwnModify.al that are not pinned at every count (Inserts and Renames of other rows, LockTable on other tables only) at 4, 5 and 10 Commits, and one count above 10.",
+        probe: "The Y2_SH_ tests of SbStaleOwnModify.al with a Delete, a Rename of another row or an Insert into another table beside the Insert of another row.",
     },
     ViewBlankDateFilter => {
         id: "view-blank-date-filter",
@@ -783,7 +720,6 @@ registry! {
         probe: "TestFilter.GetFilter of an Enum field after SetRange(First, Third) on the record handed to Page.Run, and after a SourceTableView range over three values.",
     },
 
-
     IsolatedStorageOverwriteTx => {
         id: "isolated-storage-overwrite-tx",
         assumed: "IsolatedStorage.SetEncrypted over a key that already exists, or Set over a key stored encrypted, outside a write transaction, opens the write transaction (Database.IsInWriteTransaction is true after it), as a plain Set over a plain key does (pinned: session/lt-cn-session-leads/CnIsolatedStorageLeads.al TO_IsoOverwrite_OutsideWriteTransaction).",
@@ -791,27 +727,12 @@ registry! {
         probe: "The SetEncrypted forms of TO_IsoOverwrite_OutsideWriteTransaction (left out of the corpus: the Linux CI containers have no encryption key), run on a Windows BC.",
     },
 
-
-
     XmlportSelfClosedLeafAssignTwice => {
         id: "xmlport-self-closed-leaf-assign-twice",
         assumed: "XmlPort import of a leaf text element (no attributes or elements in the schema) written `<x />` runs its OnAfterAssignVariable twice, the variable set to the empty text before each run; `<x></x>`, `<x> </x>` and `<x>v</x>` run it once, and white space alone (`<x> </x>`) gives the empty text. Pinned below the root, below a table element and inside a text element below a table element (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TR_EmptyLeaf_Import); assumed also for leaf text elements inside deeper text elements read the same way. Whether the variable is set again before the second run is not pinned (the corpus triggers only read it).",
         tests: "No Microsoft test: a partner app's SOAP XmlPorts import replies with empty leaf elements whose triggers log or count.",
         probe: "TR_EmptyLeaf_Import with the leaf two text elements deep, and a trigger that changes its own variable on the first run.",
     },
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     InstallCompanyTriggersAllApps => {
         id: "install-company-triggers-all-apps",
@@ -826,16 +747,6 @@ registry! {
         probe: "Install codeunits of one app with ids such as 60100, 70000 and 130000 (and one in the millions) sharing a log table and a SingleInstance codeunit, as in UrBlockOrderTests.al; it needs a BC environment that accepts ids above 99999 (the sandbox refused to publish id 120000).",
     },
 
-
-
-
-
-
-
-
-
-
-
     SqlReadCostUnmeasuredShape => {
         id: "sql-read-cost-unmeasured-shape",
         assumed: "The SQL statements and rows read of one record method with nothing buffered (Get 1/1, FindSet 1/0 or 1/1 and each Next 0/1, Modify right after the Get of its row 1/1, FindFirst that finds nothing 1/0, FindLast that finds a row 1/1, IsEmpty 1/0 or 1/1, Count 1/1) are the same on any table, filter and FindSet row count as on the ones measured (session/lt-bl-sql-counters/SkSqlBudget.al, writer TX: a table of Code[20], Integer, Text[50], Integer filtered on its key fields, FindSet loops of 0, 1, 3 and 10 rows; SqlCounters.al: 1, 2, 5, 10, 20 rows).",
@@ -849,29 +760,17 @@ registry! {
         probe: "One Insert(true) and one Insert(false) into a committed table with an AutoIncrement field between two counter reads, as the first write of the session and as a later one; the same with two and five Inserts in a row.",
     },
 
-
-
-
-
-
-
-
-
-
-
-    DatetimeFilterDayAndHours => {
-        id: "datetime-filter-day-and-hours",
-        assumed: "In an English session a DateTime filter text that is a date alone (`01/15/25`, `1/15/25`, `2025-01-15`) covers the whole day from 00:00:00 to 23:59:59 (as a range end: the start of the day below, its end above; after `<`: before the start of the day), and GetFilter shows its end as `11:59:59 PM`; a clock reads any hour (`08:30`, `17:45`, `00:00` on a 24-hour clock, `08:30 AM`, `05:45:10.5 PM`); `15.01.25` alone or with a clock raises the evaluate error of DateTime.",
-        tests: "No Microsoft test: a partner app's tests (DateTime filters of a date alone and of other hours).",
-        probe: "Pinned on corpus master by errors/lt-ms-refusals-136/P136Filter.al UN_DateTimeFilter_HourNotTwelve (passes) and UN_DateTimeFilter_DateAlone (corpus PR 806), which the runtime does not run yet (SetFilter on a DateTime field with MakeDateTimeFilter subscribers is not pinned): run it, then retire. Refused: an hour past 12 with AM or PM (an error whose texts are not built), other operators before a date alone, a range of a date alone and a value with a clock.",
-    },    ActionViewChangeListRereads => {
+    ActionViewChangeListRereads => {
         id: "action-view-change-list-rereads",
-        assumed: "On a list without OnAfterGetRecord, OnFindRecord and OnNextRecord, an action that changes the filters, key or sort order of the page's record drops the rows the client read under the old view: the next move reads the new view from its first row, and a row the new filters leave out moves to the next row of the new view. Measured on real BC (corpus writer Y5, branch al-runtime-rs-staging-y5); flagged until the file is in the pinned corpus. A key or sort order change is not measured.",
+        assumed: "On a list without OnAfterGetRecord, OnFindRecord and OnNextRecord, an action that changes the filters, key or sort order of the page's record drops the rows the client read under the old view: the next move reads the new view from its first row, and a row the new filters leave out moves to the next row of the new view; SetCurrentKey keeps the row and the next move follows the new key; SetAscending of one field changes nothing visible. Measured on real BC (corpus writer Y5, branches al-runtime-rs-staging-y5 and -y5b); flagged until the files are in the pinned corpus.",
         tests: "No Microsoft test: a partner app's field picker (al-runner issue 6381) walks a Field list whose action changes the table filter, then calls GoToKey.",
-        probe: "Pinned by pages/lt-y5/Y5GoToKeyAfterActionFilter.al once the corpus bump brings it in; then also an action that only calls SetCurrentKey or SetAscending, followed by GoToKey, Next and First.",
+        probe: "Pinned by pages/lt-y5/Y5GoToKeyAfterActionFilter.al and Y5GoToKeyAfterActionKeyAndTriggers.al once the corpus bump brings them in.",
         awaiting: Awaiting {
             issues: &[6381],
-            files: &["tests/al-language/pages/lt-y5/Y5GoToKeyAfterActionFilter.al"],
+            files: &[
+                "tests/al-language/pages/lt-y5/Y5GoToKeyAfterActionFilter.al",
+                "tests/al-language/pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al",
+            ],
             since: "2026-10-30",
         },
     },

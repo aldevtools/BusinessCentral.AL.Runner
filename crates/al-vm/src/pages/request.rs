@@ -291,9 +291,9 @@ impl Session {
             s.modal = true;
             s.parameters_wanted = want_parameters;
         }
-        // The OnInit ran at the procedure that used the variable first (request-page-oninit-at-first-use).
+        // The OnInit ran at the procedure that used the variable first and does not run again when the page opens
+        // (report/lt-request-page-oninit/RequestPageOnInitFirstUse.al:104-185).
         if self.request_page_init_done(inst) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageOnInitAtFirstUse);
             st.borrow_mut().inited = true;
         }
         inst.borrow_mut().globals[page.curr_page_slot] = Value::TestPage(st.clone());
@@ -653,13 +653,20 @@ impl Session {
                     other => return unsupported(format!("TestFilter.SetFilter with {}", other.describe())),
                 };
                 let ty = table.fields[pos].ty.clone();
-                // An empty text takes the filter off the field (see pages/filter.rs).
-                if text.trim().is_empty() {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::TestFilterSetFilterEmptyClears,
-                    );
+                // An empty text takes the filter off the field: GetFilter reads empty and the report runs unfiltered
+                // (pages/lt-ao-testpage/AoTests.al:734-742, RequestPage_SetFilterEmpty).
+                if text.is_empty() {
                     rec.borrow_mut().filters.retain(|f| !(f.field == pos && f.group == 0));
                     return Ok(Value::Null);
+                }
+                // A text of spaces leaves GetFilter on the request page at the old filter while the report runs unfiltered
+                // (AoTests.al:722-731 RequestPage_SetFilterSpace, :918-928 SF_RequestPage_SetFilterTwoSpaces): the page does not
+                // keep a filter apart from the one the report gets, so it is refused.
+                if text.trim().is_empty() {
+                    return unsupported(
+                        "TestRequestPage filter SetFilter with a text of spaces (BC keeps GetFilter at the old filter while the \
+                         report runs unfiltered; this runtime keeps one filter for both)",
+                    );
                 }
                 let expr = self
                     .parse_filter_text(&text, &ty)
@@ -967,7 +974,7 @@ impl Session {
     }
 
     /// The inverse of `parameter_view`.
-    fn apply_parameter_view(&mut self, rec: &Rec, view: &str) -> Result<(), Signal> {
+    pub(crate) fn apply_parameter_view(&mut self, rec: &Rec, view: &str) -> Result<(), Signal> {
         let t = self.table(rec)?;
         let by_id = |text: &str| {
             text.trim()
@@ -1051,7 +1058,7 @@ impl Session {
     /// in filter group 0 are written: those of the item's DataItemTableView are not
     /// (report/W3ReportSaveAsExecute.al:209). The leading `VERSION(1)` and the key clause are docs/probes-needed.md.
     /// Not pinned, and refused: a filter in another group, a Boolean filter on No, a direction per key field.
-    fn parameter_view(&mut self, rec: &Rec) -> Result<String, Signal> {
+    pub(crate) fn parameter_view(&mut self, rec: &Rec) -> Result<String, Signal> {
         let t = self.table(rec)?;
         let (key, ascending, field_descending, mut filters) = {
             let r = rec.borrow();
@@ -1125,6 +1132,16 @@ fn owner_inst(report: &Inst, exts: &[(usize, Inst)], owner: Option<usize>) -> In
             .map(|(_, i)| i.clone())
             .expect("an extension of the request page has an instance"),
     }
+}
+
+/// The data item views of a request parameters text: (data item name, view text) of each `DataItem` element.
+pub(crate) fn parameter_item_views(xml: &str) -> Vec<(String, String)> {
+    let items = xml
+        .split("<DataItems>")
+        .nth(1)
+        .and_then(|r| r.split("</DataItems>").next())
+        .unwrap_or("");
+    named_elements(items, "DataItem")
 }
 
 /// The text between `<tag ...>` and `</tag>` pairs of `xml`, as (attribute `name`, unescaped text).
