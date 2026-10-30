@@ -25,21 +25,22 @@ pub fn read_app_versions(dir: &Path) -> Result<AppVersions, String> {
 pub fn app_versions_from_json(text: &str) -> Result<AppVersions, String> {
     let json: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
     let field = |k: &str| json.get(k).and_then(serde_json::Value::as_str);
-    // AL1039: alc reads `runtime` as `X.Y` only. A one-part string, more than two parts, letters and a JSON number are
-    // refused before anything compiles (al-runner issue 5506, alc measured by the owner; text from that measurement,
-    // no corpus case pins it yet: docs/probes-needed.md). An empty string stays "not declared" (not measured).
-    if let Some(v) = json.get("runtime").filter(|v| !v.is_null()) {
-        let shown = v.as_str().map_or_else(|| v.to_string(), str::to_string);
-        let x_y = shown.split_once('.').is_some_and(|(x, y)| {
-            [x, y]
-                .iter()
-                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
-        });
-        if !shown.is_empty() && !x_y {
+    // al-runner issue 5506: alc refuses the runtime "14" and the JSON number 14 before it compiles; the runner read the
+    // first as 14.0 and the second as no runtime. Only these two shapes are refused (a string of digits without a dot, a
+    // JSON whole number). No corpus case pins alc's code or text yet (docs/probes-needed.md), so the reason is our own.
+    // Every other form (blanks, "0.0", the JSON number 14.0, an empty string) behaves as before.
+    match json.get("runtime") {
+        Some(serde_json::Value::String(s)) if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) => {
             return Err(format!(
-                "app.json: error AL1039: The version number '{shown}' for the property 'runtime' does not match the expected format: X.Y where X and Y represent positive integers."
+                "app.json: the runtime '{s}' has no minor version; the AL compiler refuses it (al-runner issue 5506), so the app is not compiled"
             ));
         }
+        Some(serde_json::Value::Number(n)) if n.is_u64() || n.is_i64() => {
+            return Err(format!(
+                "app.json: the runtime is the number {n}, not a text; the AL compiler refuses it (al-runner issue 5506), so the app is not compiled"
+            ));
+        }
+        _ => {}
     }
     AppVersions::parse(field("runtime"), field("platform"), field("application")).map_err(|e| format!("app.json: {e}"))
 }
@@ -69,26 +70,30 @@ mod tests {
         assert!(app_versions_from_json("{").is_err());
     }
 
-    // al-runner issue 5506 (alc measured by the owner): a `runtime` that is not `X.Y` is AL1039, also a one-part string
-    // and a JSON number, which the runner used to read as 14.0 or as no runtime at all.
+    // al-runner issue 5506: alc refuses the runtime "14" and the JSON number 14 (the issue's measurement), which the
+    // runner read as 14.0 and as "no runtime". Both are refused now; every other form behaves as before (not pinned).
     #[test]
-    fn a_runtime_not_in_x_y_form_is_al1039() {
-        for (json, shown) in [
-            (r#"{"runtime":"14"}"#, "14"),
-            (r#"{"runtime":"abc"}"#, "abc"),
-            (r#"{"runtime":14}"#, "14"),
-            (r#"{"runtime":"14.0.0"}"#, "14.0.0"),
-            (r#"{"runtime":"15.0.0.0"}"#, "15.0.0.0"),
-        ] {
+    fn a_runtime_without_a_minor_version_is_refused() {
+        for json in [r#"{"runtime":"14"}"#, r#"{"runtime":14}"#] {
             let e = app_versions_from_json(json).unwrap_err();
             assert!(
-                e.contains(&format!(
-                    "AL1039: The version number '{shown}' for the property 'runtime' does not match the expected format: X.Y where X and Y represent positive integers."
-                )),
+                e.contains("runtime") && e.contains("14") && e.contains("issue 5506"),
                 "{json}: {e}"
             );
+            assert!(!e.contains("AL1039"), "{json}: no alc text without a corpus pin: {e}");
         }
-        assert!(app_versions_from_json(r#"{"runtime":"14.0"}"#).is_ok());
+        // Unchanged: refused before (parse errors), accepted before.
+        assert!(app_versions_from_json(r#"{"runtime":"abc"}"#).is_err());
+        assert!(app_versions_from_json(r#"{"runtime":"14.0.0"}"#).is_err());
+        for ok in [
+            r#"{"runtime":"14.0"}"#,
+            r#"{"runtime":14.0}"#,
+            r#"{"runtime":"0.0"}"#,
+            r#"{"runtime":" 14.0"}"#,
+            r#"{"runtime":""}"#,
+        ] {
+            assert!(app_versions_from_json(ok).is_ok(), "{ok}");
+        }
     }
 
     fn chosen(requested: Option<&str>, json: &str) -> (Chosen, AppVersions) {
