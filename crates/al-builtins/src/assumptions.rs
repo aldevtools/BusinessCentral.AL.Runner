@@ -676,12 +676,6 @@ registry! {
         tests: "No Microsoft test: a partner app's card test (a field with Enabled = true inside a group with Enabled = false reads Enabled No on the TestPage).",
         probe: "A list and a document page with a field (Enabled = true, and without Enabled) in a group with Enabled = false, and with the group's Enabled bound to a variable that OnOpenPage sets: Enabled() of the field on the TestPage.",
     },
-    RelationErrorExtCaption => {
-        id: "relation-error-ext-caption",
-        assumed: "The TableRelation error of a Validate (`... cannot be found in the related table (<caption>).`) names the related table by the Caption of the one tableextension that sets a Caption over the table's own Caption. A table without a Caption of its own is pinned (tableextension/TestTableExtFieldTableRelation.al TableExt_CaptionOfRelatedTable_InValidateErrorText); the corpus could not pin a Caption over the table's own (AL0839 in one app). TableCaption, RecordRef.Caption and other error texts of such a table stay refused.",
-        tests: "No Microsoft test: a partner app's tests (Validate of a field related to Work Center, extended with a Caption).",
-        probe: "A table with a Caption in one app and a tableextension with a Caption in another app: the TableRelation error of a Validate, TableCaption, RecordRef.Caption.",
-    },
     StaleOwnInsertTwoCommitsOtherInsert => {
         id: "stale-own-insert-two-commits-other-insert",
         assumed: "A stale buffer from the variable's own Insert, or its own Modify after it, made in the transaction before the last Commit or the one before it, is written whole (the stale buffer wins) when the transaction after the last Commit inserted another row of the table and did not touch the row itself, lock the table or roll back. Pinned for an own Insert and Modify, one or two Commits, and an Insert of another row as the only write of the new transaction (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:666-745); an own Insert without the Modify, and other writes of the table beside the Insert, are not told apart and stay assumed. The marker fires on the pinned shape too.",
