@@ -1974,6 +1974,114 @@ fn issue_6213_text_n_true_branch_and_unbounded_text_false_branch() {
     }
 }
 
+/// Issue 6213 (reopened): a Text[50] true branch and a built-in function returning Text as false branch (CompanyName(),
+/// UserId(), Format(x)) compiles; a false value that fits is returned unchanged, and the result assigned to a shorter Text
+/// fails as that assignment does. Pins: lt-ss1030/SsTernaryBuiltinText.al (corpus branch al-runtime-rs-staging-ss1030 at
+/// c36d14ea, not yet on master): Ternary_TextNTrue_BuiltinFalse_ValuesAndLengths (:47-69) and _IntoShorterTarget (:71-98).
+/// A false value longer than 50 is not pinned for this length: refused when the branch is taken.
+const ISSUE_6213B_OBJECTS: &str = "
+codeunit 50100 \"TB Holder\"
+{
+    var
+        Named: Text[50];
+
+    procedure SetNamed(NewName: Text[50])
+    begin
+        Named := NewName;
+    end;
+
+    procedure Company(): Text
+    var
+        Result: Text;
+    begin
+        Result := Named <> '' ? Named : CompanyName();
+        exit(Result);
+    end;
+
+    procedure User(): Text
+    begin
+        exit(Named <> '' ? Named : UserId());
+    end;
+
+    procedure Formatted(Value: Integer): Text
+    begin
+        exit(Named <> '' ? Named : Format(Value));
+    end;
+
+    procedure CompanyIntoText10(var Target: Text[10])
+    begin
+        Target := Named <> '' ? Named : CompanyName();
+    end;
+
+    procedure Long(): Text
+    begin
+        exit(Named <> '' ? Named : PadStr('', 60, 'x'));
+    end;
+}
+
+codeunit 50101 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ValuesAndLengths()
+    var
+        Holder: Codeunit \"TB Holder\";
+    begin
+        if Holder.Company() <> CompanyName() then
+            Error('company %1', Holder.Company());
+        if Holder.User() <> UserId() then
+            Error('user %1', Holder.User());
+        if Holder.Formatted(12345) <> '12345' then
+            Error('format %1', Holder.Formatted(12345));
+        Holder.SetNamed('Named Company');
+        if (Holder.Company() <> 'Named Company') or (Holder.User() <> 'Named Company') or (Holder.Formatted(12345) <> 'Named Company') then
+            Error('set');
+        if StrLen(Holder.Company()) <> 13 then
+            Error('len');
+    end;
+
+    [Test]
+    procedure IntoShorterTarget()
+    var
+        Holder: Codeunit \"TB Holder\";
+        Target: Text[10];
+    begin
+        Holder.SetNamed('Short');
+        Holder.CompanyIntoText10(Target);
+        if Target <> 'Short' then
+            Error('fits %1', Target);
+        Holder.SetNamed('');
+        asserterror Holder.CompanyIntoText10(Target);
+        if GetLastErrorText() <> StrSubstNo('The length of the string is %1, but it must be less than or equal to 10 characters. Value: %2', StrLen(CompanyName()), CompanyName()) then
+            Error('text %1', GetLastErrorText());
+        if (Target <> 'Short') or (MaxStrLen(Target) <> 10) then
+            Error('target %1', Target);
+    end;
+
+    [Test]
+    procedure LongerThanTheTrueBranch()
+    var
+        Holder: Codeunit \"TB Holder\";
+    begin
+        Holder.Long();
+    end;
+}";
+
+#[test]
+fn issue_6213_text_50_true_branch_and_builtin_text_false_branch() {
+    for (name, outcome) in run_with_deps(&[], ISSUE_6213B_OBJECTS) {
+        if name.ends_with("LongerThanTheTrueBranch") {
+            assert!(
+                matches!(&outcome, Outcome::NotRun(why) if why.contains("not pinned")),
+                "{outcome:?}"
+            );
+        } else {
+            assert_eq!(outcome, Outcome::Pass, "{name}");
+        }
+    }
+}
+
 /// Issue 6215: an interface true branch and a codeunit false branch that implements it compiles and the false branch calls
 /// the codeunit's implementation. Pin: types/lt-up-ternary/UpTernary.al (corpus PR 808, branch commit 910da83e)
 /// UP_Ternary_InterfaceTrueCodeunitFalse.
