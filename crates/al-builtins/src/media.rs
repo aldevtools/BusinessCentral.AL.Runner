@@ -90,7 +90,7 @@ pub fn jpg_holding_png(o: &MediaObject) -> bool {
     o.mime == "image/jpeg" && png_size(&o.bytes).is_some()
 }
 
-fn png_size(b: &[u8]) -> Option<(i32, i32)> {
+pub fn png_size(b: &[u8]) -> Option<(i32, i32)> {
     if b.len() < 24 || b[..8] != PNG_SIGNATURE {
         return None;
     }

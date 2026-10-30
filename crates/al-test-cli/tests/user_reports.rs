@@ -1617,9 +1617,14 @@ codeunit 50111 T
     );
 }
 
-/// Runs the test codeunit `T` of a workspace app with id `main_id` (its app.json declares a logo as `logo` says, `None`
-/// when no manifest was read) over the platform's System app and an optional dependency app `dep` (id `DEP_ID`).
-fn run_over_system(main_id: &str, logo: Option<bool>, dep: Option<&str>, main: &str) -> Vec<(String, Outcome)> {
+/// Runs the test codeunit `T` of a workspace app with id `main_id` (its manifest declares the logo `logo`, `None` when no
+/// manifest was read) over the platform's System app and an optional dependency app `dep` (id `DEP_ID`).
+fn run_over_system(
+    main_id: &str,
+    logo: Option<al_ir::AppLogo>,
+    dep: Option<&str>,
+    main: &str,
+) -> Vec<(String, Outcome)> {
     use al_deps::package::read_package;
     let packages = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/al-language/.alpackages");
     let system = read_package(&std::fs::read(packages.join("System.app")).expect("corpus submodule checked out"))
@@ -1655,7 +1660,7 @@ fn run_over_system(main_id: &str, logo: Option<bool>, dep: Option<&str>, main: &
     for a in program.apps.iter_mut() {
         a.version = "1.0.0.0".into();
         if a.id == main_id {
-            a.logo = logo;
+            a.logo = logo.clone();
         }
     }
     let engine = Engine::new(std::sync::Arc::new(program), blocked);
@@ -1689,14 +1694,14 @@ codeunit 50000 T { Subtype = Test;
     if A.Get(A."Object Type"::TableData, 73199) then Error('row');
     A.SetRange("Object Type", A."Object Type"::TableData); A.SetRange("Object ID", 73199);
     if not A.IsEmpty() then Error('not empty'); end; }"#;
-    all_pass(run_over_system(MAIN_ID, Some(false), Some(dep), main));
+    all_pass(run_over_system(MAIN_ID, Some(al_ir::AppLogo::None), Some(dep), main));
 }
 
 /// al-runner issue 6148, cause 2: Company-Initialize reaches Guided Experience Impl.GetExtensionLogo for an app that
 /// registers assisted setup: the Published Application row's Logo, then the Media row by its MediaId. An app whose
 /// app.json declares no logo has a blank Logo and no Media row; an app whose manifest was not read stays refused.
 /// Pin: onprem session/PZPublishedApplicationColumns.al Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps
-/// (corpus branch al-runtime-rs-staging-ug eff7eb2a; assumption `published-application-logo-blank-without-manifest-logo`).
+/// (corpus branch al-runtime-rs-staging-ug eff7eb2a).
 #[test]
 fn issue_6148_extension_logo_of_an_app_without_a_logo() {
     let main = format!(
@@ -1711,9 +1716,78 @@ codeunit 50000 T {{ Subtype = Test;
     Media.SetRange(ID, App.Logo.MediaId());
     if Media.FindFirst() then Error('media row'); end; }}"#
     );
-    all_pass(run_over_system(MAIN_ID, Some(false), None, &main));
+    all_pass(run_over_system(MAIN_ID, Some(al_ir::AppLogo::None), None, &main));
     let o = run_over_system(MAIN_ID, None, None, &main);
     assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
+}
+
+/// The 67-byte 1 x 1 gray PNG of cross-app fixture D (onprem session/UsAppLogo.al:15).
+const TINY_PNG: [u8; 67] = [
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x00, 0x00, 0x00, 0x00, 0x3a, 0x7e, 0x9b, 0x55, 0x00, 0x00, 0x00, 0x0a, 0x49,
+    0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0x68, 0x00, 0x00, 0x00, 0x82, 0x00, 0x81, 0xda, 0x45, 0x08, 0x3b, 0x00, 0x00,
+    0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+/// al-runner issue 6148, the rest of cause 2: the Published Application Logo of an app whose manifest declares a logo is a
+/// media with a value, the same id on every read, and a Media row that holds the logo file's bytes unchanged: image/png, the
+/// picture's height and width, every other column empty, Prohibit Cache No. Pin: onprem session/UsAppLogo.al:79-117
+/// UsLogo_TinyPng_AppD and :120-148 UsLogo_BigPng_AppC (corpus PR 816; assumption `published-application-logo-is-the-logo-file`
+/// until the pin includes it). A logo that is no PNG stays refused.
+#[test]
+fn issue_6148_extension_logo_of_an_app_with_a_logo() {
+    let main = format!(
+        r#"
+codeunit 50000 T {{ Subtype = Test;
+  [Test] procedure GetExtensionLogo() var App: Record "Published Application"; Media: Record Media; First: Guid; InS: InStream; B: Byte; N: Integer; begin
+    App.SetRange(ID, '{MAIN_ID}');
+    App.SetRange("Tenant Visible", true);
+    if not App.FindFirst() then Error('no row');
+    if not App.Logo.HasValue() then Error('no logo');
+    if IsNullGuid(App.Logo.MediaId()) then Error('null media id');
+    First := App.Logo.MediaId();
+    App.FindFirst();
+    if App.Logo.MediaId() <> First then Error('other media id');
+    Media.SetRange(ID, App.Logo.MediaId());
+    if not Media.FindFirst() then Error('no media row');
+    if Media.Count() <> 1 then Error('count %1', Media.Count());
+    if Media.Description <> '' then Error('description');
+    if Media."Mime Type" <> 'image/png' then Error('mime %1', Media."Mime Type");
+    if (Media.Height <> 1) or (Media.Width <> 1) then Error('size %1 x %2', Media.Height, Media.Width);
+    if Media."Company Name" <> '' then Error('company');
+    if Media."Expiration Date" <> 0DT then Error('expiration');
+    if Media."Prohibit Cache" then Error('prohibit cache');
+    if Media."File Name" <> '' then Error('file name');
+    if Media."Security Token" <> '' then Error('token');
+    if Media."Creating User" <> '' then Error('user');
+    if not Media.Content.HasValue() then Error('content');
+    Media.CalcFields(Content);
+    Media.Content.CreateInStream(InS);
+    while not InS.EOS() do begin InS.Read(B); N += 1; if N = 2 then if B <> 80 then Error('byte 2 %1', B); end;
+    if N <> 67 then Error('length %1', N);
+    if not Media.Get(App.Logo.MediaId()) then Error('get'); end; }}"#
+    );
+    all_pass(run_over_system(
+        MAIN_ID,
+        Some(al_ir::AppLogo::File(TINY_PNG.to_vec())),
+        None,
+        &main,
+    ));
+    // A logo that is no PNG: its MIME type and size are not pinned.
+    let o = run_over_system(MAIN_ID, Some(al_ir::AppLogo::File(b"GIF89a".to_vec())), None, &main);
+    assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
+}
+
+/// Media rows other than an app's logo and the null id are not pinned: a read of another id is refused.
+#[test]
+fn media_row_of_another_id_stays_refused() {
+    let main = r#"
+codeunit 50000 T { Subtype = Test;
+  [Test] procedure Other() var Media: Record Media; begin
+    Media.SetRange(ID, '{11111111-2222-3333-4444-555555555555}');
+    if Media.FindFirst() then; end; }"#;
+    let o = run_over_system(MAIN_ID, Some(al_ir::AppLogo::File(TINY_PNG.to_vec())), None, main);
+    assert!(matches!(&o[0].1, Outcome::NotRun(_)), "{o:?}");
 }
 
 /// al-runner issue 6191: ForNAV's GetBuiltInLayout reads "User Defined" (column 14) of the Report Layout List rows of a
@@ -1737,7 +1811,7 @@ codeunit 50000 T { Subtype = Test;
   [Test] procedure NoLayout() var L: Record "Report Layout List"; begin
     L.SetRange("Report ID", Report::"UR No Layout");
     if not L.IsEmpty() then Error('rows'); end; }"#;
-    all_pass(run_over_system(MAIN_ID, Some(false), None, main));
+    all_pass(run_over_system(MAIN_ID, Some(al_ir::AppLogo::None), None, main));
 }
 
 /// Issue 6213: a conditional expression with a Text[N] true branch and an unbounded Text false branch (a Text variable or a

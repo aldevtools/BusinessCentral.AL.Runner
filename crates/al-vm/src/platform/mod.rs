@@ -769,7 +769,7 @@ impl VirtualTables for Providers {
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.get(t, pk),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.get(t, pk),
             Virtual::Field => Ok(self.field_get_by_key(t, pk)?.map(|r| fields::field_get(t, r))),
-            Virtual::Media => media_null_id(t, pk.first()).map(|_| None),
+            Virtual::Media => self.media_of_id(t, pk.first())?.get(t, pk),
             k => self.listed(t, k)?.get(t, pk),
         }
     }
@@ -842,7 +842,9 @@ impl VirtualTables for Providers {
                 }
                 Ok(found)
             }
-            Virtual::Media => media_filtered_to_null_id(t, scan.filters).map(|_| None),
+            Virtual::Media => self
+                .media_of_id(t, media_id_filter(t, scan.filters).as_ref())?
+                .next(t, scan),
             k => self.listed(t, k)?.next(t, scan),
         }
     }
@@ -880,37 +882,52 @@ impl VirtualTables for Providers {
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.count(t, filters),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.count(t, filters),
-            Virtual::Media => media_filtered_to_null_id(t, filters).map(|_| 0),
+            Virtual::Media => self
+                .media_of_id(t, media_id_filter(t, filters).as_ref())?
+                .count(t, filters),
             k => self.listed(t, k)?.count(t, filters),
         }
     }
 }
 
-/// Media (2000000181): no row has the null ID. Guided Experience Impl looks up the Logo of an app whose app.json declares
-/// none by its null MediaId and finds nothing (corpus branch al-runtime-rs-staging-ug eff7eb2a, onprem
-/// session/PZPublishedApplicationColumns.al Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps, `media row=none`).
-/// The other rows (Microsoft's logos, media AL imports) are not pinned: any other read is refused.
-fn media_null_id(t: &TableDef, id: Option<&Value>) -> Result<(), StoreError> {
-    if matches!(id, Some(Value::Guid(g)) if *g == [0; 16]) {
-        return Ok(());
+impl Providers {
+    /// Media (2000000181) read by one ID. No row has the null ID: Guided Experience Impl looks up the Logo of an app whose
+    /// app.json declares none by its null MediaId and finds nothing (onprem session/PZPublishedApplicationColumns.al
+    /// Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps, `media row=none`). The id of an app's PNG logo finds its row
+    /// ([`apps::logo_media_rows`], onprem session/UsAppLogo.al). The other rows (media AL imports, other ids) are not
+    /// pinned: any other read is refused.
+    fn media_of_id(&self, t: &TableDef, id: Option<&Value>) -> Result<mat::Mat, StoreError> {
+        match id {
+            Some(Value::Guid(g)) if *g == [0; 16] => Ok(mat::Mat::new(t, Vec::new())),
+            Some(Value::Guid(g)) => {
+                let rows: Vec<_> = apps::logo_media_rows(self, t)
+                    .into_iter()
+                    .filter(|e| matches!(&e.row[pos_of(t, 1)], Value::Guid(r) if r == g))
+                    .collect();
+                if rows.is_empty() {
+                    return Err(refused(format!(
+                        "{}: a read of an ID that is no app's logo (the rows of other media are not pinned)",
+                        t.name
+                    )));
+                }
+                Ok(mat::Mat::new(t, rows))
+            }
+            _ => Err(refused(format!(
+                "{}: only a read of one ID is pinned (the null ID finds nothing, an app's logo its row); the rows of other media are not",
+                t.name
+            ))),
+        }
     }
-    Err(refused(format!(
-        "{}: only a read of the null ID is pinned (it finds nothing); the rows of other media are not",
-        t.name
-    )))
 }
 
-/// [`media_null_id`] for a scan: one of its filters keeps only the null ID.
-fn media_filtered_to_null_id(t: &TableDef, filters: &[FieldFilter]) -> Result<(), StoreError> {
+/// The one ID a scan of Media keeps: a filter on ID with a single value that is the null ID or the id of an app's logo.
+/// `None` when no filter keeps a single ID.
+fn media_id_filter(t: &TableDef, filters: &[FieldFilter]) -> Option<Value> {
     let id = pos_of(t, 1);
-    let null = Value::Guid([0; 16]);
-    if filters
+    filters
         .iter()
-        .any(|f| f.field == id && mat::single_value(&f.expr) && f.expr.matches(&null))
-    {
-        return Ok(());
-    }
-    media_null_id(t, None)
+        .filter(|f| f.field == id && mat::single_value(&f.expr))
+        .find_map(|f| mat::single_value_of(&f.expr))
 }
 
 /// A key of the Field table with what a `Get` of it answers from the full listing and from the rows of that key alone.
