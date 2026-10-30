@@ -23,6 +23,7 @@ mod findlist_desc_window;
 mod findlist_update_first;
 mod findrecord_view;
 mod flowfield_drilldown;
+mod format_test_control;
 mod gone_row;
 mod gone_row_key_filter;
 mod goto_next_call;
