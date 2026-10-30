@@ -325,10 +325,19 @@ pub fn layout(obj: &ast::Object) -> Layout {
     // one without is imported (xmlport/lt-xmlport-query-datatransfer/XpTNamespaces.al:Import_DefaultNs*, xmlport 73418;
     // pages/lt-report-page-properties/06-xmlport-dnsfalse.al:45-49). What an export writes is not pinned (both read only that
     // the UTF-16 output is no UTF-8); UseDefaultNamespace = true is not supported yet. Without DefaultNamespace it is inert.
+    // An Xml export with Encoding = UTF8 writes the same as without PreserveWhiteSpace, white space of a text element and a
+    // field element, a line end inside one included, with and without DefaultNamespace + UseDefaultNamespace
+    // (misc/lt-np4-probes/Np4XmlPort.al:280 NP4_XmlPort_PreserveWhiteSpace_WithNamespace, :300 _DefaultWhiteSpace_WithNamespace,
+    // :320 _PreserveWhiteSpace_NoNamespace, corpus master). Another encoding is not pinned for an export.
+    let utf8 = out.encoding.as_deref().is_some_and(|e| e.eq_ignore_ascii_case("utf8"));
     if out.preserve_whitespace {
         if out.format == ir::XmlFormat::Xml {
-            out.export_reasons
-                .push("xmlport property preservewhitespace = true (what an export writes is not pinned)".into());
+            if !utf8 {
+                out.export_reasons.push(
+                    "xmlport property preservewhitespace = true without Encoding = UTF8 (what an export writes is not pinned)"
+                        .into(),
+                );
+            }
         } else {
             out.preserve_whitespace = false;
             out.run_reasons
@@ -408,7 +417,8 @@ pub fn layout(obj: &ast::Object) -> Layout {
             Some("InlineSchema")
         } else if out.xml_v11 {
             Some("XmlVersionNo = V11")
-        } else if out.preserve_whitespace {
+        } else if out.preserve_whitespace && (own_namespace.is_none() || !utf8) {
+            // With DefaultNamespace on an UTF8 export it is pinned (above); the VM refuses an import with both.
             Some("PreserveWhiteSpace")
         } else if (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some()) {
             Some("a NamespacePrefix")
@@ -705,6 +715,10 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
             let unlinked_pair = match (occurs("MinOccurs").as_deref(), occurs("MaxOccurs").as_deref()) {
                 (Some("once"), Some("unbounded")) => Some((&["once"][..], &["unbounded"][..])),
                 (Some("zero"), Some("once")) => Some((&["zero"][..], &["once"][..])),
+                // MinOccurs = Once with MaxOccurs = Once: the first row of each pass, and a pass without rows writes the record as
+                // it stands (misc/lt-np4-probes/Np4XmlPort.al:364 NP4_XmlPort_OnceOnce_ZeroAndOneRows, :381 _TwoRows, corpus
+                // master; export only, the VM refuses the import as for the other unlinked pairs).
+                (Some("once"), Some("once")) => Some((&["once"][..], &["once"][..])),
                 _ => None,
             };
             if layout.direction == ir::XmlDirection::Export || saves {
@@ -1178,11 +1192,12 @@ mod tests {
         for ok in [
             "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Once; MaxOccurs = Unbounded; fieldelement(N; L.X) { } } } } } }",
             "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Zero; MaxOccurs = Once; fieldelement(N; L.X) { } } } } } }",
+            // Corpus master misc/lt-np4-probes/Np4XmlPort.al:364, :381 (NP4_XmlPort_OnceOnce_*, xmlport 93416).
+            "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Once; MaxOccurs = Once; fieldelement(N; L.X) { } } } } } }",
         ] {
             assert!(layout_of(ok).run_reasons.is_empty(), "{ok}");
         }
         for refused in [
-            "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Once; MaxOccurs = Once; fieldelement(N; L.X) { } } } } } }",
             "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Once; fieldelement(N; L.X) { } } } } } }",
         ] {
             assert!(!layout_of(refused).run_reasons.is_empty(), "{refused}");

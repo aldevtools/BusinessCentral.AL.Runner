@@ -768,6 +768,10 @@ impl Session {
             return self.xp_import_text(inst, schema, top, &text);
         }
 
+        // PreserveWhiteSpace with a default namespace is pinned for an export only (al-sema xmlports.rs).
+        if xp.preserve_whitespace && xp.default_ns.is_some() {
+            return unsupported("XmlPort import with PreserveWhiteSpace and UseDefaultNamespace (not pinned)");
+        }
         let parsed = match &xp.default_ns {
             None => al_builtins::xmlport::parse(&text),
             Some(ns) => self.xp_parse_in_namespace(schema, top, table_root, &text, ns)?,
@@ -2670,6 +2674,10 @@ impl Session {
     // ---------------------------------------------------------------- export
 
     fn xp_export(&mut self, inst: &Inst, schema: &Schema, guarded: bool) -> Result<Value, Signal> {
+        // PreserveWhiteSpace changes nothing an Xml export writes (al-sema xmlports.rs, Np4XmlPort.al on corpus master).
+        if schema.xp().preserve_whitespace && schema.xp().format == ir::XmlFormat::Xml {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlPortPreserveWhiteSpaceExport);
+        }
         inst.borrow_mut().xp_text.push((6, String::new()));
         let addr = Rc::as_ptr(inst) as usize;
         self.xp_pass_views.retain(|(a, _, _)| *a != addr);
@@ -2779,7 +2787,27 @@ impl Session {
                 }
                 root
             }) {
-                Ok(root) if xp.xml_utf8 => al_builtins::xmlport::serialize_as(&root, "UTF-8").into_bytes(),
+                // A line feed in a text value is written as CR LF: pinned on an UTF8 export with PreserveWhiteSpace or a default
+                // namespace (misc/lt-np4-probes/Np4XmlPort.al:280, :300, :320 on corpus master). Another shape is not pinned.
+                Ok(root)
+                    if al_builtins::xmlport::has_bare_line_feed(&root)
+                        && !(xp.xml_utf8 && (xp.preserve_whitespace || xp.default_ns.is_some())) =>
+                {
+                    return unsupported(
+                        "XmlPort export of a text value with a line feed (not pinned for this port's Encoding, PreserveWhiteSpace and namespace)",
+                    );
+                }
+                Ok(root) if xp.xml_utf8 => {
+                    let text = al_builtins::xmlport::serialize_as(&root, "UTF-8");
+                    if al_builtins::xmlport::has_bare_line_feed(&root) {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::XmlPortPreserveWhiteSpaceExport,
+                        );
+                        al_builtins::xmlport::line_feeds_to_crlf(&text).into_bytes()
+                    } else {
+                        text.into_bytes()
+                    }
+                }
                 Ok(root) => al_builtins::xmlport::utf16_bom_bytes(&al_builtins::xmlport::serialize(&root)),
                 Err(Signal::Error(_)) if guarded => {
                     return unsupported("an error inside an Export whose result is used (not pinned)");
@@ -3440,7 +3468,16 @@ impl Session {
                 nested_after = true;
             }
         } else if n.max_unbounded == Some(false) && rows.len() > 1 {
-            if export_triggers_below(schema, node) {
+            // Without export triggers, a table element without LinkTable below another one with MinOccurs = Once holds the second of
+            // two rows afterwards: the next pass without rows writes it (misc/lt-np4-probes/Np4XmlPort.al:381
+            // NP4_XmlPort_OnceOnce_TwoRows `<Child cid="12">` under head 2, corpus master). Of three or more rows it is not pinned.
+            let once_once = unlinked_below_table(schema, node) && !n.min_zero && !export_triggers_below(schema, node);
+            if once_once && rows.len() == 2 {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlPortOnceOnceNested);
+                ends_on = rows.pop();
+            } else if once_once {
+                ends_unpinned = true;
+            } else if export_triggers_below(schema, node) {
                 if rows.len() > 2 && unlinked_below_table(schema, node) {
                     // Below another table element without LinkTable the record holds the second row afterwards, also of six
                     // (QrXpContainerOccurs.al TU_NestedReal_SlotNoFilter on writer TU's branch: `get slot 101;get item 12;pre slot
