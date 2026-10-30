@@ -1804,6 +1804,75 @@ fn a_call_newer_than_the_apps_declared_runtime_is_a_compile_error() {
     assert!(text(&o).contains("Result: COMPILE ERRORS (exit 3)"), "{}", text(&o));
 }
 
+/// The checks that depend on the app's `target` run on a real run, not only in the must-not-compile harness: a Cloud
+/// app (no `target`, the compiler's default) that calls `File.IsPathTemporary`, a method with scope OnPrem, does not
+/// compile (must-not-compile 1310-file-ispathtemporary-cloud.al:1), even in a procedure no test calls. The same app
+/// with `"target": "OnPrem"` compiles and its test runs.
+#[test]
+fn an_onprem_method_called_from_a_cloud_app_is_a_compile_error() {
+    let run = |target: Option<&str>| {
+        let d = tempfile::tempdir().unwrap();
+        let app = d.path().join("app");
+        let mut json = app_json("6f1d2f8e-5b0a-4c1e-9a43-0d6b8a2c5e21", "Scope Repro App", &[]);
+        if let Some(t) = target {
+            json = json.replacen('{', &format!(r#"{{"target":"{t}","#), 1);
+        }
+        write(&app, "app.json", &json);
+        write(
+            &app,
+            "src/Probe.Codeunit.al",
+            "codeunit 50100 \"Scope Probe\"\n{\n    Subtype = Test;\n\n    procedure Temporary(): Boolean\n    begin\n        exit(File.IsPathTemporary('x.tmp'));\n    end;\n\n    [Test]\n    procedure Plain()\n    begin\n        if UpperCase('a') <> 'A' then\n            Error('expected A');\n    end;\n}\n",
+        );
+        let o = alrunner(&["test", app.to_str().unwrap(), "--no-download"]);
+        (code(&o), text(&o))
+    };
+    let (exit, out) = run(None);
+    assert_eq!(exit, 3, "{out}");
+    assert!(
+        out.contains(
+            "src/Probe.Codeunit.al(7,14): error AL0296: The application object or method 'IsPathTemporary' has scope 'OnPrem' and cannot be used for 'Cloud' development."
+        ),
+        "{out}"
+    );
+    assert!(out.contains("Result: COMPILE ERRORS (exit 3)"), "{out}");
+    let (exit, out) = run(Some("OnPrem"));
+    assert_eq!(exit, 0, "{out}");
+}
+
+/// The call with scope OnPrem stops a Cloud app's run also when it sits in a test codeunit the selection leaves out:
+/// alc compiles the whole app (al-runner issue 5602), so the rule runs on the code the selection leaves out too.
+#[test]
+fn an_onprem_method_in_code_a_selection_leaves_out_is_a_compile_error() {
+    let d = tempfile::tempdir().unwrap();
+    let app = d.path().join("app");
+    write(
+        &app,
+        "app.json",
+        &app_json("6f1d2f8e-5b0a-4c1e-9a43-0d6b8a2c5e22", "Scope Repro App", &[]),
+    );
+    write(
+        &app,
+        "src/Probe.Codeunit.al",
+        "codeunit 50101 \"Scope Probe\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Temporary()\n    begin\n        if File.IsPathTemporary('x.tmp') then;\n    end;\n}\n",
+    );
+    write(
+        &app,
+        "src/Plain.Codeunit.al",
+        "codeunit 50100 \"Plain Test\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Plain()\n    begin\n        if UpperCase('a') <> 'A' then\n            Error('expected A');\n    end;\n}\n",
+    );
+    for extra in [&[][..], &["--test", "Plain"][..]] {
+        let mut args = vec!["test", app.to_str().unwrap(), "--no-download"];
+        args.extend_from_slice(extra);
+        let o = alrunner(&args);
+        assert_eq!(code(&o), 3, "{extra:?}: {}", text(&o));
+        assert!(
+            text(&o).contains("src/Probe.Codeunit.al(8,12): error AL0296: The application object or method 'IsPathTemporary' has scope 'OnPrem' and cannot be used for 'Cloud' development."),
+            "{extra:?}: {}",
+            text(&o)
+        );
+    }
+}
+
 /// Code the AL compiler rejects is not run (al-runner issue 5602): an AL0118 in a procedure no test calls, an error in a
 /// test codeunit the selection leaves out each stop the run with exit 3, the
 /// errors on stderr in the AL compiler's form, and `compilationErrors` in the JSON document. Before, the selected test

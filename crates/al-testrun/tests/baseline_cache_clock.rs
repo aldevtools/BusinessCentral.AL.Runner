@@ -50,6 +50,8 @@ fn run(cache: &Path) -> Outcome {
         id_ranges: Vec::new(),
         translations: false,
         translation_files: Vec::new(),
+        runtime: None,
+        app_json_keys: Vec::new(),
         symbols: vec![],
     };
     let rt = CorpusRuntime::try_run_suites_with(

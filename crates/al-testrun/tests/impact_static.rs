@@ -456,6 +456,8 @@ fn select_in_run(base: &str) -> (Vec<Option<String>>, Option<Vec<String>>) {
         id_ranges: Vec::new(),
         translations: false,
         translation_files: Vec::new(),
+        runtime: None,
+        app_json_keys: Vec::new(),
         symbols: vec![],
     };
     type Seen = Option<(Vec<Option<String>>, Option<Vec<String>>)>;
@@ -545,6 +547,8 @@ fn traced() -> CorpusRuntime {
         id_ranges: Vec::new(),
         translations: false,
         translation_files: Vec::new(),
+        runtime: None,
+        app_json_keys: Vec::new(),
         symbols: vec![],
     };
     CorpusRuntime::try_run_suites_with(

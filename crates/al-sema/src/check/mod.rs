@@ -238,6 +238,11 @@ pub struct Roots {
     /// `--affected` (ADR-050 decision 3): lowering hashes the symbolic form of each object it lowers, with its source
     /// positions, so the next run can tell which objects changed. Off, nothing is hashed.
     pub object_hashes: bool,
+    /// What the AL compiler knows of each app under test besides its source (its app.json: target, runtime, keys),
+    /// by app id. An app named here is also checked by the rules that depend on it (`alcodes::check_context`,
+    /// `alcodes::check_resolved_scope`: AL0296 for an OnPrem method a Cloud app calls), as the must-not-compile
+    /// harness checks its cases. A dependency app is never checked: its publisher compiled it. Empty: no app is.
+    pub app_contexts: Vec<(String, crate::alcodes::AppContext)>,
 }
 
 /// Members that platform enums do not have, as the AL compiler says (corpus must-not-compile 0010
@@ -267,6 +272,15 @@ pub fn check(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog) -> Ch
 }
 
 pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, roots: Roots) -> CheckResult {
+    let mut roots = roots;
+    // The apps under test that have a context, by index in `ws.apps`.
+    let contexts: Vec<(usize, crate::alcodes::AppContext)> = std::mem::take(&mut roots.app_contexts)
+        .into_iter()
+        .filter_map(|(id, ctx)| {
+            let app = ws.apps.iter().position(|a| a.id.eq_ignore_ascii_case(&id))?;
+            (ws.kinds.get(app) != Some(&crate::workspace::AppKind::Dependency)).then_some((app, ctx))
+        })
+        .collect();
     let t_start = std::time::Instant::now();
     let narrate = roots.only_objects.is_some() && std::env::var_os("ALRUNNER_INCR_TIMINGS").is_some();
     // With dependency apps, only what the workspace's code reaches in them is checked.
@@ -422,15 +436,20 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
     let rest_started = std::time::Instant::now();
     // What the selection left out of the check is still checked for its compile errors: the AL compiler rejects an app
     // for an error anywhere in it (al-runner issue 5602).
+    let mut left_out_resolutions: Option<PosMap<Res>> = None;
     if roots.only_tests.is_some() {
         let started = std::time::Instant::now();
-        let more = left_out_diagnostics(ws, members, catalog, &roots, &skip, &provided, &c.diags);
+        let (more, resolved) = left_out_diagnostics(ws, members, catalog, &roots, &skip, &provided, &c.diags);
         c.diags.extend(more);
+        left_out_resolutions = resolved;
         timings.workspace += started.elapsed();
     }
     let positions: HashMap<&str, usize> = ws.files.iter().enumerate().map(|(i, f)| (f.path.as_str(), i)).collect();
     let from_checker = c.diags.clone();
     let mut from_codes = crate::alcodes::check_workspace(ws);
+    for (app, ctx) in &contexts {
+        from_codes.extend(crate::alcodes::check_context(ws, *app, ctx));
+    }
     // Language features newer or older than an app's runtime (AL0666, al-runner issue 5573).
     from_codes.extend(crate::features::check(ws, catalog));
     c.diags.extend(from_codes.iter().cloned());
@@ -460,7 +479,7 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
         })
         .collect();
     timings.rest = rest_started.elapsed();
-    CheckResult {
+    let mut result = CheckResult {
         timings,
         diagnostics: c.diags,
         types: c.types,
@@ -475,7 +494,29 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
         tdd: c.tdd_apps.is_some(),
         tdd_decls: c.tdd_apps.is_some().then(|| std::sync::Arc::new(tdd_decl::decls(ws))),
         object_hashes: roots.object_hashes,
+    };
+    // The context rules that need what the check resolved. They count as the checker's (`from_checker`): an
+    // incremental compile resolves the changed objects only and keeps the earlier findings of the other files.
+    if !contexts.is_empty() {
+        let mut more = Vec::new();
+        for (app, ctx) in &contexts {
+            more.extend(crate::alcodes::check_resolved_scope(ws, *app, ctx, &result));
+            // What the selection left out is still compiled by alc (al-runner issue 5602).
+            if let Some(r) = &left_out_resolutions {
+                more.extend(crate::alcodes::resolved_scope(ws, *app, ctx, r));
+            }
+        }
+        more.sort_by_key(|d| (d.file.clone(), d.offset, d.code));
+        more.dedup_by(|a, b| a.file == b.file && a.offset == b.offset && a.code == b.code);
+        if !more.is_empty() {
+            result.from_checker.extend(more.iter().cloned());
+            result.diagnostics.extend(more);
+            result
+                .diagnostics
+                .sort_by_key(|d| (positions.get(d.file.as_str()).copied(), d.offset));
+        }
     }
+    result
 }
 
 /// The compile errors of the workspace code a selection left out of the check (`Roots::only_tests`): test codeunits it
@@ -490,7 +531,7 @@ fn left_out_diagnostics(
     skip: &dyn Fn(usize) -> bool,
     provided: &dyn Fn(usize) -> bool,
     found: &[Diagnostic],
-) -> Vec<Diagnostic> {
+) -> (Vec<Diagnostic>, Option<PosMap<Res>>) {
     let objects: Vec<usize> = (0..ws.objects.len())
         .filter(|&oi| !ws.is_dependency(oi) && !provided(oi))
         .filter(|oi| roots.only_objects.as_ref().is_none_or(|only| only.contains(oi)))
@@ -503,7 +544,7 @@ fn left_out_diagnostics(
         })
         .collect();
     if objects.is_empty() {
-        return Vec::new();
+        return (Vec::new(), None);
     }
     let mut c = Checker::new(ws, members, catalog, system_enums(catalog), false);
     c.tdd_apps = roots.tdd.then(|| std::sync::Arc::new(tdd::test_apps(ws)));
@@ -513,10 +554,12 @@ fn left_out_diagnostics(
         c.take_calls();
     }
     let seen: HashSet<(&str, usize, &str)> = found.iter().map(|d| (d.file.as_str(), d.offset, d.code)).collect();
-    c.diags
+    let diags = c
+        .diags
         .into_iter()
         .filter(|d| !seen.contains(&(d.file.as_str(), d.offset, d.code)))
-        .collect()
+        .collect();
+    (diags, Some(c.resolutions))
 }
 
 /// The complete check of fewer objects than this stays on the calling thread.

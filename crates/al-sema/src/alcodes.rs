@@ -1997,6 +1997,16 @@ pub fn check_resolved_scope(
     ctx: &AppContext,
     checked: &crate::check::CheckResult,
 ) -> Vec<Diagnostic> {
+    resolved_scope(ws, app, ctx, &checked.resolutions)
+}
+
+/// [`check_resolved_scope`] over the resolutions of one check (the check of the code a selection left out has its own).
+pub(crate) fn resolved_scope(
+    ws: &Workspace,
+    app: usize,
+    ctx: &AppContext,
+    resolutions: &crate::check::PosMap<crate::check::Res>,
+) -> Vec<Diagnostic> {
     use crate::check::Res;
     let mut out = Vec::new();
     if ctx.target != AppTarget::Cloud {
@@ -2016,7 +2026,7 @@ pub fn check_resolved_scope(
             match n.kind() {
                 SyntaxKind::CallExpr => {
                     let r = n.text_range();
-                    let Some(res) = checked.resolutions.get(&(fi, r.start().into(), r.end().into())) else {
+                    let Some(res) = resolutions.get(&(fi, r.start().into(), r.end().into())) else {
                         continue;
                     };
                     match res.inner() {
