@@ -13,7 +13,9 @@ page 62522 "AFG List" { PageType = List; SourceTable = "AFG Row";
     actions { area(Processing) {
         action(NextGroup) { trigger OnAction() begin Rec.SetRange(Grp, 2); if Rec.FindFirst() then; CurrPage.Update(false); end; }
         action(OnlyFilter) { trigger OnAction() begin Rec.SetRange(Grp, 2); end; }
-        action(SameFilter) { trigger OnAction() begin Rec.SetRange(Grp, 1); end; } } }
+        action(SameFilter) { trigger OnAction() begin Rec.SetRange(Grp, 1); end; }
+        action(Descending) { trigger OnAction() begin Rec.Ascending(false); end; }
+        action(FirstTen) { trigger OnAction() begin Rec.SetRange(No, 1, 10); end; } } }
     trigger OnOpenPage() begin Rec.SetRange(Grp, 1); end; }
 "#;
 
@@ -71,6 +73,29 @@ fn goto_key_after_an_action_changed_the_filter_finds_the_row_of_the_new_view() {
             if L.GoToKey(1, 50) then Error('row 1/50 is outside the new view');
             if (L.Grp.AsInteger() <> 2) or (L.No.AsInteger() <> 1) then Error('after miss %1/%2', L.Grp.Value, L.No.Value); end;"#,
     );
+}
+
+// A sort order change drops the rows read too: GoToKey walks the new order (not measured; the row stays in the view).
+#[test]
+fn goto_key_after_an_action_changed_the_sort_order_finds_the_row() {
+    passes(
+        r#"[Test] procedure Desc() var S: Codeunit "AFG Seed"; L: TestPage "AFG List"; begin
+            S.Seed(); L.OpenView(); L.GoToKey(1, 50); L.Descending.Invoke();
+            if L.No.AsInteger() <> 50 then Error('after action %1', L.No.Value);
+            if not L.GoToKey(1, 5) then Error('goto 1/5');
+            if L.No.AsInteger() <> 5 then Error('expected row 5, got %1', L.No.Value); end;"#,
+    );
+}
+
+// A filter that leaves no row of the view after the one the page stood on: the row before it is not measured without row
+// triggers, so it is refused.
+#[test]
+fn a_filter_change_with_no_row_after_the_current_one_is_refused() {
+    let o = outcomes(
+        r#"[Test] procedure NoRowAfter() var S: Codeunit "AFG Seed"; L: TestPage "AFG List"; begin
+            S.Seed(); L.OpenView(); L.GoToKey(1, 50); L.FirstTen.Invoke(); end;"#,
+    );
+    assert!(o.iter().all(|(_, r)| matches!(r, Outcome::NotRun(_))), "{o:?}");
 }
 
 // The same filter set again keeps the view: GoToKey back and forth in it passes as before (variants in the issue).
