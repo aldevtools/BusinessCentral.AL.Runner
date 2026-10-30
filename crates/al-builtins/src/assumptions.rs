@@ -664,6 +664,61 @@ registry! {
 
 
 
+    EvaluateDateBlankTabs => {
+        id: "evaluate-date-blank-tabs",
+        assumed: "Evaluate of a TAB, two TABs or one space into a Date (format 0) succeeds with the empty date. Pinned on corpus master by misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date (corpus PR 871), which the pinned corpus does not hold yet.",
+        tests: "No Microsoft test: a partner app's tests evaluate a TAB into a Date with the result unused.",
+        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-np4-probes/Np4Misc.al"],
+            since: "2026-10-30",
+        },
+    },
+    JsonAsIntegerFraction => {
+        id: "json-asinteger-fraction",
+        assumed: "JsonValue.AsInteger of a number with a fraction rounds to the nearest whole number, a tie to the even one. Pinned on corpus master by misc/lt-np4-probes/Np4FormatJson.al NP4_JsonValue_AsInteger_SetValueDecimal and _FromText (corpus PR 871), which the pinned corpus does not hold yet.",
+        tests: "No Microsoft test: a partner app's tests read an amount with cents as an Integer.",
+        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-np4-probes/Np4FormatJson.al"],
+            since: "2026-10-30",
+        },
+    },
+    WindowsLanguage1078 => {
+        id: "windows-language-afrikaans",
+        assumed: "Windows Language holds a row 1078 Afrikaans (South Africa), abbreviated name AFK, tag af-ZA (code page not known). Pinned on corpus master by misc/lt-np4-probes/Np4Misc.al NP4_WindowsLanguage_Get1078 (corpus PR 871), which the pinned corpus does not hold yet.",
+        tests: "No Microsoft test: a partner app's import test reads language 1078.",
+        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-np4-probes/Np4Misc.al"],
+            since: "2026-10-30",
+        },
+    },
+    DateFormulaLetterFirstNp4 => {
+        id: "date-formula-letter-first-forms",
+        assumed: "CalcDate with `<D15>`, `<D28>`, `<D29>`, `<D31>`, `<W17>`, `<Q3>`, and `<Mn>` on the first day of month n: day n of the month (cut back to its length) while the date's day is below n, else of the next month; the Monday of ISO week 17 or the first day of quarter 3 after the date; the next year's month n. Pinned on corpus master by misc/lt-np4-probes/Np4DateFormulas.al (corpus PR 871), which the pinned corpus does not hold yet.",
+        tests: "No Microsoft test: a partner app's booking date tests.",
+        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-np4-probes/Np4DateFormulas.al"],
+            since: "2026-10-30",
+        },
+    },
+    FormatCommaPrecisionForms => {
+        id: "format-comma-precision-forms",
+        assumed: "Format of a Decimal with `<Precision,3:3><Sign><Integer><Decimals><Comma,X>` (X a dot, semicolon, space or letter), the same with `<Precision,0:3>`, `<Precision,3:5>` or `<Integer Thousand>`: the character X is the decimal point. Pinned on corpus master by misc/lt-np4-probes/Np4FormatJson.al NP4_Format_Precision33_* (corpus PR 871), which the pinned corpus does not hold yet.",
+        tests: "No Microsoft test: a partner app's receipt printing tests.",
+        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-np4-probes/Np4FormatJson.al"],
+            since: "2026-10-30",
+        },
+    },
     BigTextValueCopy => {
         id: "bigtext-value-copy",
         assumed: "A BigText given as an event parameter by value gets a copy the subscriber's AddText does not reach, and a returned BigText is a copy. Assignment, a by-value and a var procedure parameter and Clear of a copy are pinned (text/TestBigText.al:108-160); the marker cannot tell those from the unpinned uses and fires on every copy.",

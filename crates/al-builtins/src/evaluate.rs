@@ -878,6 +878,12 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
     if text.is_empty() {
         return Ok(Parsed::Value(Value::Date(0, false)));
     }
+    // A TAB, two TABs and one space read as the empty date too (corpus master, corpus PR 871:
+    // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date; assumption evaluate-date-blank-tabs awaits the bump).
+    if matches!(text, "\t" | "\t\t" | " ") {
+        crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
+        return Ok(Parsed::Value(Value::Date(0, false)));
+    }
     if text.eq_ignore_ascii_case("t") {
         return match today {
             Some(d) => Ok(Parsed::Value(Value::Date(d, false))),
@@ -2246,6 +2252,18 @@ fn evaluate_with_max(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Corpus master (corpus PR 871) misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date: a TAB, two TABs and a space read as
+    /// the empty date in format 0.
+    #[test]
+    fn tabs_and_a_space_read_as_the_empty_date() {
+        for t in ["\t", "\t\t", " "] {
+            assert!(
+                matches!(date(t, 0, None, None, true), Ok(Parsed::Value(Value::Date(0, false)))),
+                "{t:?}"
+            );
+        }
+    }
 
     /// types/lt-datetime/Evaluate.al:209,233 Time_Format9: `13:45:06.1234` with format 9 is 13:45:06.123; a fourth digit of 5 or
     /// more and longer fractions are refused (rounding not pinned).

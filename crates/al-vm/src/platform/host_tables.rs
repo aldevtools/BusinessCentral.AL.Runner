@@ -240,6 +240,10 @@ const LANGUAGES: &[(i32, &str, &str, &str, &str)] = &[
 /// 12297 English (Zimbabwe), ENW, Globally Enabled, no STX file (types/lt-wc/WcUnpinnedSingles.al:148-173). They are not in
 /// [`LANGUAGES`], so a filter on their abbreviated name alone is not taken as naming one row.
 const NAME_ONLY_LANGUAGES: &[(i32, &str, &str)] = &[(12297, "English (Zimbabwe)", "ENW")];
+/// Rows pinned with their tag but not their code page (a read of it is refused), as (LCID, name, abbreviated name, tag):
+/// 1078 Afrikaans (South Africa), AFK, af-ZA (corpus master, corpus PR 871: misc/lt-np4-probes/Np4Misc.al
+/// NP4_WindowsLanguage_Get1078; assumption windows-language-afrikaans awaits the bump). Not in [`LANGUAGES`] either.
+const TAG_ONLY_LANGUAGES: &[(i32, &str, &str, &str)] = &[(1078, "Afrikaans (South Africa)", "AFK", "af-ZA")];
 /// "STX File Exist" is pinned false for these rows (WcUnpinnedSingles.al:160, :169).
 const STX_FILE_ABSENT: [i32; 1] = [12297];
 /// The abbreviated names a filter may name alone: the table holds exactly one row with each (`count=1` at
@@ -346,6 +350,15 @@ fn known(t: &TableDef, lcid: i64) -> Option<Row> {
                 .find(|l| i64::from(l.0) == lcid)
                 .map(|l| language_row(t, l.0, l.1, l.2, None, None))
         })
+        .or_else(|| {
+            TAG_ONLY_LANGUAGES.iter().find(|l| i64::from(l.0) == lcid).map(|l| {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WindowsLanguage1078);
+                let mut r = language_row(t, l.0, l.1, l.2, None, Some(l.3));
+                // Whether the row is globally enabled is not pinned for it.
+                r[pos(t, GLOBALLY_ENABLED)] = super::unknown(t, GLOBALLY_ENABLED, &format!("language {}", l.0));
+                r
+            })
+        })
 }
 
 /// The ids of every pinned row: [`LANGUAGES`] and [`NAME_ONLY_LANGUAGES`].
@@ -354,6 +367,7 @@ fn known_ids() -> impl Iterator<Item = i64> {
         .iter()
         .map(|l| i64::from(l.0))
         .chain(NAME_ONLY_LANGUAGES.iter().map(|l| i64::from(l.0)))
+        .chain(TAG_ONLY_LANGUAGES.iter().map(|l| i64::from(l.0)))
 }
 
 fn unknown_in(set: &[ranges::Iv]) -> Option<i64> {
