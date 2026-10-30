@@ -252,12 +252,21 @@ fn version_of(m: ModuleInfoState) -> Out {
 /// A freshly installed app's data version is its app version (not pinned further: the corpus asks
 /// only that a version comes back, session/TestMiscTypes.al).
 ///
-/// While its install code runs, the app's own data version is 0.0.0.0, per company and per database: the app was
-/// not installed before (install/lt-cm-install-leads/CmInstallLeads.al:Item43_ModuleInfoVersions_DuringInstall; this
-/// runtime always installs fresh).
+/// While its install code runs, an app's data version is 0.0.0.0, per company and per database: the app was not
+/// installed before (install/lt-cm-install-leads/CmInstallLeads.al:Item43_ModuleInfoVersions_DuringInstall; this runtime
+/// always installs fresh). The data version belongs to the app asked about, not to the app whose code asks: a dependency
+/// app's code that reads the installing app's data version (GetModuleInfo of its id, GetCallerModuleInfo) gets 0.0.0.0
+/// too, and its own data version is its app version (install/lt-x3-first-install/X3FirstInstallVersions.al:76-85 per
+/// company, :95-104 per database, al-runner issue 6367; corpus PR 874, branch al-runtime-rs-staging-x3 at 83d0857d, not
+/// yet on master). The app being installed is the app of the outermost frame: the install routine (al-testrun
+/// `install::plan` groups each install root under its own app).
 fn data_version(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let m = state_of(r, true)?;
-    if c.install_without_client() && c.module_at_frame(0).is_some_and(|own| own.id == m.id) {
+    if c.install_without_client()
+        && c.module_at_root()
+            .or_else(|| c.module_at_frame(0))
+            .is_some_and(|installing| installing.id == m.id)
+    {
         return Ok(version_value([0, 0, 0, 0]));
     }
     version_of(m)

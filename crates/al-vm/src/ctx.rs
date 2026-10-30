@@ -283,6 +283,10 @@ impl al_builtins::native::Ctx for Session {
             .find(|a| *a != inner)?;
         Some(self.engine.program.apps.get(caller as usize)?.publisher.clone())
     }
+    fn module_at_root(&self) -> Option<al_builtins::value::ModuleInfoState> {
+        let root = *self.frames.first()?;
+        self.module_of_app(self.engine.program.objects[root].app as usize)
+    }
     fn module_callstack(&self, skip: usize) -> Vec<al_builtins::value::ModuleInfoState> {
         let mut seen = Vec::new();
         let mut out = Vec::new();
