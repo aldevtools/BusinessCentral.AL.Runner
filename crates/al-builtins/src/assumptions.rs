@@ -917,6 +917,29 @@ pub fn markdown_table() -> String {
     s
 }
 
+/// The line before the generated table in `docs/probes-needed.md`.
+pub const PROBES_TABLE_BEGIN: &str = "<!-- assumptions:begin (generated from crates/al-builtins/src/assumptions.rs; UPDATE_ASSUMPTIONS_DOC=1 cargo test -p al-builtins assumptions rewrites it) -->";
+/// The line after it.
+pub const PROBES_TABLE_END: &str = "<!-- assumptions:end -->";
+
+/// `docs/probes-needed.md` (`text`) with the table between its two markers replaced by
+/// [`markdown_table`]; the rest of the file is kept. `al-test-cli --assumptions-doc` writes it, and the
+/// regen bot on main runs that after every green push (`.github/workflows/ci.yml`, job `regen-bot`).
+pub fn probes_needed_doc(text: &str) -> Result<String, String> {
+    let (Some(a), Some(b)) = (text.find("<!-- assumptions:begin"), text.find(PROBES_TABLE_END)) else {
+        return Err("docs/probes-needed.md has no assumptions block: add the two marker lines".into());
+    };
+    if b < a {
+        return Err("docs/probes-needed.md: the end marker comes before the begin marker".into());
+    }
+    Ok(format!(
+        "{}{PROBES_TABLE_BEGIN}\n{}{PROBES_TABLE_END}{}",
+        &text[..a],
+        markdown_table(),
+        &text[b + PROBES_TABLE_END.len()..]
+    ))
+}
+
 /// The registry for `--list-assumptions`; `counts` gives, per id, (flagged passes, other tests that hit it)
 /// of the last run.
 pub fn listing(counts: &dyn Fn(&str) -> Option<(usize, usize)>) -> String {
@@ -944,6 +967,22 @@ pub fn listing(counts: &dyn Fn(&str) -> Option<(usize, usize)>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probes_needed_doc_replaces_only_the_table_between_the_markers() {
+        let text = format!("# Probes\n\nintro\n{PROBES_TABLE_BEGIN}\n| old |\n{PROBES_TABLE_END}\n\nrest\n");
+        let new = probes_needed_doc(&text).unwrap();
+        assert_eq!(
+            new,
+            format!(
+                "# Probes\n\nintro\n{PROBES_TABLE_BEGIN}\n{}{PROBES_TABLE_END}\n\nrest\n",
+                markdown_table()
+            )
+        );
+        // Current text comes back unchanged.
+        assert_eq!(probes_needed_doc(&new).unwrap(), new);
+        assert!(probes_needed_doc("no markers here").is_err());
+    }
 
     #[test]
     fn marks_are_collected_per_thread_and_cleared() {
@@ -1136,7 +1175,7 @@ mod tests {
     /// The lines of `docs/probes-needed.md` outside the generated table that name the entry `id` (in backticks).
     fn doc_lines_naming<'a>(doc: &'a str, id: &str) -> Vec<&'a str> {
         let needle = format!("`{id}`");
-        let (a, b) = (doc.find("<!-- assumptions:begin"), doc.find(END));
+        let (a, b) = (doc.find("<!-- assumptions:begin"), doc.find(PROBES_TABLE_END));
         doc.lines()
             .filter(|l| l.contains(&needle))
             .filter(|l| {
@@ -1176,25 +1215,20 @@ mod tests {
         );
     }
 
-    const BEGIN: &str = "<!-- assumptions:begin (generated from crates/al-builtins/src/assumptions.rs; UPDATE_ASSUMPTIONS_DOC=1 cargo test -p al-builtins assumptions rewrites it) -->";
-    const END: &str = "<!-- assumptions:end -->";
-
+    /// The table is generated. A pull request does not need to regenerate it: the regen bot on main does
+    /// that after the merge (`.github/workflows/ci.yml`, job `regen-bot`). So a stale table is reported, not
+    /// failed; `UPDATE_ASSUMPTIONS_DOC=1` rewrites it locally.
     #[test]
     fn the_table_in_probes_needed_is_generated_from_the_registry() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/probes-needed.md");
         let text = std::fs::read_to_string(&path).expect("docs/probes-needed.md");
-        let want = format!("{BEGIN}\n{}{END}", markdown_table());
-        let (Some(a), Some(b)) = (text.find("<!-- assumptions:begin"), text.find(END)) else {
-            panic!("docs/probes-needed.md has no assumptions block: add the two marker lines");
-        };
-        let have = &text[a..b + END.len()];
-        if have != want {
+        let want = probes_needed_doc(&text).unwrap_or_else(|e| panic!("{e}"));
+        if want != text {
             if std::env::var_os("UPDATE_ASSUMPTIONS_DOC").is_some() {
-                let new = format!("{}{want}{}", &text[..a], &text[b + END.len()..]);
-                std::fs::write(&path, new).expect("write docs/probes-needed.md");
+                std::fs::write(&path, want).expect("write docs/probes-needed.md");
             } else {
-                panic!(
-                    "the assumptions table of docs/probes-needed.md is out of date: run UPDATE_ASSUMPTIONS_DOC=1 cargo test -p al-builtins assumptions"
+                eprintln!(
+                    "note: the assumptions table of docs/probes-needed.md is out of date; the regen bot updates it on main after the merge (locally: UPDATE_ASSUMPTIONS_DOC=1 cargo test -p al-builtins assumptions)"
                 );
             }
         }

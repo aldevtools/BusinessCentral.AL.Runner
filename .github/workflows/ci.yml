@@ -28,6 +28,11 @@ on:
   # release-tag.yml runs the same checks before it builds a numbered alpha.
   workflow_call:
 
+# Read-only token for every job; cache-cleanup asks for actions: write on its own. No job here writes
+# to the repository (the regen bot is .github/workflows/regen-bot.yml).
+permissions:
+  contents: read
+
 env:
   # The built sidecar, for the sidecar tests and the corpus run. A missing .NET fails, not skips.
   ALRT_DOTNET_SIDECAR: ${{ github.workspace }}/target/dotnet-sidecar/AlDotNetSidecar.dll
@@ -150,7 +155,14 @@ jobs:
         run: |
           step_start=$(date +%s)
           status=0
-          ./target/release/al-test-cli --all-versions --require-dotnet \
+          # On a push to main the same run also writes the baselines for the regen bot
+          # (.github/workflows/regen-bot.yml). It costs no extra run: the file is written only when no baseline case of
+          # that version regressed, so it only grows; a regression still exits 1 here.
+          update=()
+          if [ "${{ github.event_name }}" = push ] && [ "${{ github.ref }}" = refs/heads/main ]; then
+            update=(--update-baseline)
+          fi
+          ./target/release/al-test-cli --all-versions --require-dotnet "${update[@]}" \
             --json pass-rate.json --markdown pass-rate.md --junit runtime-junit.xml || status=1
           normal_end=$(date +%s)
           # The job summary is written by the step "Corpus job summary" below, from the files the
@@ -315,6 +327,26 @@ jobs:
             [ -e "$f" ] || continue
             echo "$used" | grep -qx "$f" || { echo "pruned $f"; rm -f "$f"; }
           done
+
+      # The regen bot (.github/workflows/regen-bot.yml) commits the generated files to main, so pull requests leave
+      # them alone. The baselines came from the corpus run above; the coverage maps and the table of
+      # docs/probes-needed.md are static and take seconds. Only on a push to main.
+      - name: Generated files for the regen bot
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          ./target/release/al-test-cli --root . --coverage-map
+          ./target/release/al-test-cli --root . --behavior-coverage-map
+          ./target/release/al-test-cli --root . --assumptions-doc
+          mkdir -p "$RUNNER_TEMP/regen"
+          cp --parents metrics/*/passing*.txt docs/corpus-coverage.md docs/corpus-coverage.json \
+            docs/corpus-behavior-coverage.md docs/corpus-behavior-coverage.json docs/probes-needed.md \
+            "$RUNNER_TEMP/regen/"
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: regen-${{ github.run_id }}
+          path: ${{ runner.temp }}/regen/
+          retention-days: 3
 
       - name: Date stamp
         if: always()

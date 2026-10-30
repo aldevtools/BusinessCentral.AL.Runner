@@ -84,9 +84,10 @@ fn unresolved_references_are_exactly_what_no_dependency_supplies() {
 }
 
 /// `docs/corpus-coverage.md` and `.json` are what `al-test-cli --coverage-map` writes for the pinned
-/// corpus (which builtin overloads some corpus test calls). They are committed, so a corpus bump or a
-/// catalog change that moves the map shows in the diff. Regenerate with
-/// `al-test-cli --root . --coverage-map` (or `UPDATE_GOLDEN=1` on this test).
+/// corpus (which builtin overloads some corpus test calls). They are committed; the regen bot on main
+/// rewrites them after each green push, so a pull request leaves them alone. This test checks that
+/// the map can be built. Regenerate locally with `al-test-cli --root . --coverage-map` (or
+/// `UPDATE_GOLDEN=1` on this test).
 #[test]
 #[ignore = "slow unoptimised: cargo test --release -p al-test-cli --test corpus_resolve_deps -- --ignored"]
 fn corpus_coverage_map_is_current() {
@@ -112,16 +113,20 @@ fn corpus_coverage_map_is_current() {
             std::fs::write(&path, &text).unwrap();
         }
         let committed = std::fs::read_to_string(&path).unwrap_or_default();
-        assert!(
-            committed == text,
-            "{name} is stale; run `al-test-cli --root . --coverage-map` and commit it"
-        );
+        // Generated docs: the regen bot rewrites them on main after the merge (ci.yml, job
+        // `regen-bot`), so a pull request does not regenerate them and a stale file is only noted.
+        if committed != text {
+            eprintln!(
+                "note: {name} is out of date; the regen bot updates it on main (locally: al-test-cli --root . --coverage-map)"
+            );
+        }
     }
 }
 
 /// `docs/corpus-behavior-coverage.md` and `.json`: which triggers, properties, platform events,
-/// syntax kinds and runtime error sites some corpus test pins. Regenerate with
-/// `al-test-cli --root . --behavior-coverage-map` (or `UPDATE_GOLDEN=1` on this test).
+/// syntax kinds and runtime error sites some corpus test pins. Kept current by the regen bot on main,
+/// like the map above. Regenerate locally with `al-test-cli --root . --behavior-coverage-map` (or
+/// `UPDATE_GOLDEN=1` on this test).
 #[test]
 #[ignore = "slow unoptimised: cargo test --release -p al-test-cli --test corpus_resolve_deps -- --ignored"]
 fn corpus_behavior_coverage_is_current() {
@@ -153,10 +158,13 @@ fn corpus_behavior_coverage_is_current() {
             std::fs::write(&path, &text).unwrap();
         }
         let committed = std::fs::read_to_string(&path).unwrap_or_default();
-        assert!(
-            committed == text,
-            "{name} is stale; run `al-test-cli --root . --behavior-coverage-map` and commit it"
-        );
+        // Generated docs: the regen bot rewrites them on main after the merge (ci.yml, job
+        // `regen-bot`), so a pull request does not regenerate them and a stale file is only noted.
+        if committed != text {
+            eprintln!(
+                "note: {name} is out of date; the regen bot updates it on main (locally: al-test-cli --root . --behavior-coverage-map)"
+            );
+        }
     }
 }
 
