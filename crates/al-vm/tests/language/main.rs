@@ -40,6 +40,7 @@ mod evaluate_boolean_german;
 mod evaluate_byte_char;
 mod evaluate_date_language;
 mod evaluate_duration;
+mod evaluate_option_captions;
 mod evaluate_option_rejects;
 mod evaluate_table_filter;
 mod event_recursion_code;
