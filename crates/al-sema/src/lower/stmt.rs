@@ -397,7 +397,7 @@ impl Lowerer<'_> {
         Ok(ir::Expr::Convert(RtType::Option(captions), Box::new(value)))
     }
 
-    /// Evaluate into an Option field with OptionCaptionML: which captions it accepts is not pinned, so it is refused.
+    /// Evaluate into an Option field whose OptionCaption is longer than its MaxLength is not pinned, so it is refused.
     pub(crate) fn refuse_evaluate_option_caption_ml(&mut self, arg: &SyntaxNode) -> L<()> {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
             return Ok(());
@@ -405,16 +405,6 @@ impl Lowerer<'_> {
         let Some(f) = self.members[table].fields.iter().find(|f| f.id == field) else {
             return Ok(());
         };
-        if matches!(f.ty, Ty::Option(_))
-            && f.properties
-                .iter()
-                .any(|(k, _)| k.eq_ignore_ascii_case("OptionCaptionML"))
-        {
-            return Err(format!(
-                "Evaluate into option field {} with OptionCaptionML (which captions it takes is not pinned)",
-                f.name
-            ));
-        }
         if matches!(f.ty, Ty::Option(_))
             && f.properties
                 .iter()
@@ -429,12 +419,22 @@ impl Lowerer<'_> {
     }
 
     /// The OptionCaption entries of an Option table field passed as `arg`, as a comma list, when the field has a literal
-    /// OptionCaption of as many entries as members that differs from them. `None` for any other argument.
-    pub(crate) fn option_field_captions(&mut self, arg: &SyntaxNode) -> Option<String> {
+    /// OptionCaption of as many entries as members that differs from them; for a field with OptionCaptionML, the property text
+    /// and `true` (the captions of the session language are taken when it runs, types/lt-option-evaluate-captions/
+    /// OptionEvaluateCaptions.al:236 CaptionML_ByLanguage). `None` for any other argument.
+    pub(crate) fn option_field_captions(&mut self, arg: &SyntaxNode) -> Option<(String, bool)> {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
             return None;
         };
         let f = self.members[table].fields.iter().find(|f| f.id == field)?;
+        if let (Ty::Option(_), Some((_, ml))) = (
+            &f.ty,
+            f.properties
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("OptionCaptionML")),
+        ) {
+            return Some((ml.trim().to_string(), true));
+        }
         let (Ty::Option(names), Some((_, text))) = (
             &f.ty,
             f.properties
@@ -445,7 +445,8 @@ impl Lowerer<'_> {
         };
         let list = crate::members::first_string_literal(text)?;
         let captions: Vec<&str> = list.split(',').collect();
-        (captions.len() == names.len() && captions.iter().zip(names).any(|(c, n)| c != n)).then(|| list.to_string())
+        (captions.len() == names.len() && captions.iter().zip(names).any(|(c, n)| c != n))
+            .then(|| (list.to_string(), false))
     }
 
     /// Whether `arg` is a Decimal table field that declares how it is formatted (`DecimalPlaces`, `AutoFormatType` or

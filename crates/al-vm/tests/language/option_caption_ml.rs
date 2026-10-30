@@ -63,5 +63,7 @@ fn a_language_or_entry_nothing_pins_is_refused() {
 
 #[test]
 fn evaluate_into_a_field_with_option_caption_ml_is_refused() {
-    refused(al_testkit::run_in(SRC, "C", "Eval"));
+    // Evaluate takes the captions of the session language (types/lt-option-evaluate-captions/OptionEvaluateCaptions.al:236
+    // CaptionML_ByLanguage): `Beta` is the ENU caption of B.
+    assert!(matches!(al_testkit::run_in(SRC, "C", "Eval"), Ok(Value::Boolean(true))));
 }
