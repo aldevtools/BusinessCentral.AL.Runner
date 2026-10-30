@@ -267,3 +267,115 @@ fn issue_6044_dependency_apps_on_a_workspace_app_through_other_dependency_apps_w
     run(&args, &[]);
     run(&args, &[]);
 }
+
+/// al-runner issue 6367: during an app's first install, `ModuleInfo.DataVersion()` of that app is 0.0.0.0 whoever
+/// reads it, also a helper in a dependency app that calls `NavApp.GetModuleInfo(<installing app id>)`
+/// (install/lt-x3-first-install/X3FirstInstallVersions.al:76-85, corpus PR 874).
+#[test]
+fn issue_6367_data_version_of_the_app_being_installed_is_zero_from_a_dependency_app() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path();
+    let lib = root.join("lib");
+    write(
+        &lib,
+        "app.json",
+        r#"{"id":"6d0c1b8e-1f6c-4a77-9a55-1e4b9b3ae7a5","name":"PX Lib","publisher":"Test","version":"5.0.0.0","runtime":"14.0","dependencies":[]}"#,
+    );
+    write(
+        &lib,
+        "src/Lib.al",
+        r#"codeunit 50150 "PX Env Info"
+{
+    procedure DataVersionOf(AppId: Guid): Text
+    var
+        Info: ModuleInfo;
+    begin
+        NavApp.GetModuleInfo(AppId, Info);
+        exit(Format(Info.DataVersion()));
+    end;
+}
+"#,
+    );
+    let main = root.join("main");
+    write(
+        &main,
+        "app.json",
+        r#"{"id":"6d0c1b8e-1f6c-4a77-9a55-1e4b9b3ae7a6","name":"PX Main","publisher":"Test","version":"30.0.0.0","runtime":"14.0","dependencies":[{"id":"6d0c1b8e-1f6c-4a77-9a55-1e4b9b3ae7a5","name":"PX Lib","publisher":"Test","version":"5.0.0.0"}]}"#,
+    );
+    write(
+        &main,
+        "src/Main.al",
+        r#"table 50100 "PX Install Log"
+{
+    fields
+    {
+        field(1; "Entry No."; Integer) { }
+        field(2; "Own Call"; Text[30]) { }
+        field(3; "Via Lib"; Text[30]) { }
+    }
+    keys
+    {
+        key(PK; "Entry No.") { Clustered = true; }
+    }
+}
+
+codeunit 50100 "PX Install"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        Entry: Record "PX Install Log";
+        EnvInfo: Codeunit "PX Env Info";
+        Current: ModuleInfo;
+        Info: ModuleInfo;
+    begin
+        NavApp.GetCurrentModuleInfo(Current);
+        NavApp.GetModuleInfo(Current.Id(), Info);
+        Entry."Entry No." := 1;
+        Entry."Own Call" := Format(Info.DataVersion());
+        Entry."Via Lib" := EnvInfo.DataVersionOf(Current.Id());
+        Entry.Insert();
+    end;
+}
+
+codeunit 50101 "PX Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FirstInstallDataVersionIsZeroFromAnyCaller()
+    var
+        Entry: Record "PX Install Log";
+    begin
+        Entry.Get(1);
+        if (Entry."Own Call" <> '0.0.0.0') or (Entry."Via Lib" <> '0.0.0.0') then
+            Error('own call %1, via another app %2; expected 0.0.0.0 for both', Entry."Own Call", Entry."Via Lib");
+    end;
+
+    [Test]
+    procedure TestTimeDataVersionIsTheAppVersion()
+    var
+        EnvInfo: Codeunit "PX Env Info";
+        Current: ModuleInfo;
+    begin
+        NavApp.GetCurrentModuleInfo(Current);
+        if EnvInfo.DataVersionOf(Current.Id()) <> '30.0.0.0' then
+            Error('test time via another app %1', EnvInfo.DataVersionOf(Current.Id()));
+    end;
+}
+"#,
+    );
+    let o = alrunner(&[
+        "test",
+        lib.to_str().unwrap(),
+        main.to_str().unwrap(),
+        "--no-download",
+        "--cache-dir",
+        root.join("cache").to_str().unwrap(),
+    ]);
+    let t = text(&o);
+    assert!(t.contains("Tests: 2 total, 2 passed"), "{t}");
+    assert!(!t.contains("flagged"), "{t}");
+    assert_eq!(o.status.code(), Some(0), "{t}");
+}
