@@ -155,9 +155,6 @@
 27 1120-testrequestpage-dataitem-setrange
 27 1170-commitbehavior-unknown-member
 27 1172-user-group-member-removed
-27 1190-boolean-to-text-assignment
-27 1191-boolean-to-code-assignment
-27 1193-date-to-datetime-assignment
 27 1212-testpage-delete-action
 27 1241-pageext-non-page-triggers
 27 1242-codeunit-var-and-value-parameter-same-name
@@ -165,8 +162,6 @@
 27 1244-appjson-assemblyprobingpaths-onprem-runtime-16_0
 27 1246-record-unknown-field-tableext-and-dependency-table
 27 1247-unknown-bare-call-reportext-tableext-query-xmlport
-27 1250-integer-text-code-assignments
-27 1251-biginteger-decimal-from-text-literal
 27 1310-file-ispathtemporary-cloud
 27 1311-file-download-cloud
 27 1312-database-datafileinformation-cloud
@@ -177,9 +172,6 @@
 28 1120-testrequestpage-dataitem-setrange
 28 1170-commitbehavior-unknown-member
 28 1172-user-group-member-removed
-28 1190-boolean-to-text-assignment
-28 1191-boolean-to-code-assignment
-28 1193-date-to-datetime-assignment
 28 1212-testpage-delete-action
 28 1240-cloud-app-onprem-platform-tables-bc28-bc29
 28 1241-pageext-non-page-triggers
@@ -188,8 +180,6 @@
 28 1244-appjson-assemblyprobingpaths-onprem-runtime-16_0
 28 1246-record-unknown-field-tableext-and-dependency-table
 28 1247-unknown-bare-call-reportext-tableext-query-xmlport
-28 1250-integer-text-code-assignments
-28 1251-biginteger-decimal-from-text-literal
 28 1310-file-ispathtemporary-cloud
 28 1311-file-download-cloud
 28 1312-database-datafileinformation-cloud
@@ -201,9 +191,6 @@
 29 1120-testrequestpage-dataitem-setrange
 29 1170-commitbehavior-unknown-member
 29 1172-user-group-member-removed
-29 1190-boolean-to-text-assignment
-29 1191-boolean-to-code-assignment
-29 1193-date-to-datetime-assignment
 29 1212-testpage-delete-action
 29 1240-cloud-app-onprem-platform-tables-bc28-bc29
 29 1241-pageext-non-page-triggers
@@ -212,8 +199,6 @@
 29 1244-appjson-assemblyprobingpaths-onprem-runtime-16_0
 29 1246-record-unknown-field-tableext-and-dependency-table
 29 1247-unknown-bare-call-reportext-tableext-query-xmlport
-29 1250-integer-text-code-assignments
-29 1251-biginteger-decimal-from-text-literal
 29 1310-file-ispathtemporary-cloud
 29 1311-file-download-cloud
 29 1312-database-datafileinformation-cloud
@@ -300,15 +285,12 @@
 # interface default method called through a codeunit variable).
 27 1691-subscriber-reads-rec-currfieldno
 27 1720-permissionsetextension-excludedpermissionsets
-27 1833-bigtext-to-text-assignment
 27 1864-testpage-cannot-reach-pending-special-controls
 28 1691-subscriber-reads-rec-currfieldno
 28 1720-permissionsetextension-excludedpermissionsets
-28 1833-bigtext-to-text-assignment
 28 1864-testpage-cannot-reach-pending-special-controls
 29 1691-subscriber-reads-rec-currfieldno
 29 1720-permissionsetextension-excludedpermissionsets
-29 1833-bigtext-to-text-assignment
 29 1864-testpage-cannot-reach-pending-special-controls
 # corpus bumps 31 and 32: new cases the front end does not decide yet
 27 1872-ternary-date-true-datetime-false
