@@ -28,6 +28,7 @@ between builds. [Reading results](results.md) explains what a pass, a failure an
 - **[Getting started](getting-started.md)**: install it and run your tests.
 - **[Supported versions](versions.md)**: Business Central versions, platforms and release channels.
 - **[Writing tests](writing-tests.md)**: apps, test codeunits, selecting tests, isolation, test-first work.
+- **[Stability mode](stability.md)**: run tests again under changed seeds, order and dates to find hidden dependencies.
 - **[Reading results](results.md)**: what you can trust, and how to find out why a test did not run.
 - **[How results are checked](how-it-works.md)**: why results can be trusted, and the known risks.
 - **[Command line reference](cli-reference.md)**: every command and flag.
