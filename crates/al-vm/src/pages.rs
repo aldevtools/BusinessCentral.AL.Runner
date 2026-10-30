@@ -171,7 +171,7 @@ mod background;
 pub(crate) use background::BgWorker;
 mod filter;
 mod parts;
-mod request;
+pub(crate) mod request;
 pub(crate) use request::RequestClosed;
 mod actions;
 mod controls;

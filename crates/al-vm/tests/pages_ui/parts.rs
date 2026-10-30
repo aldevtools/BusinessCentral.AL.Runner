@@ -752,9 +752,8 @@ fn a_part_filter_restricts_its_own_rowset_and_reads_back() {
     assert_eq!(text(r), "10..20[]2,4,|3,1,4,");
 }
 
-// TestFilter.SetFilter with an empty text takes the filter off the field, as Record.SetFilter and FieldRef.SetFilter do
-// (errors/lt-ms-refusals-134/P134DateTextFilters.al:P134_FieldRef_Date_EmptyAndBlankForms pins FieldRef; for a page filter it is an
-// assumption, testfilter-setfilter-empty-clears).
+// TestFilter.SetFilter with an empty text takes the filter off the field (pages/lt-ao-testpage/AoTests.al:673-695
+// TestFilter_SetFilterEmpty).
 #[test]
 fn an_empty_page_filter_text_clears_the_filter_of_the_field() {
     let r = run(

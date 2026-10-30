@@ -1607,8 +1607,10 @@ impl Session {
             // same rule (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:132-448, al-runner issue 5823).
             // One or two Commits after the buffer's own write, and the new transaction inserted another row of the table and did
             // nothing else to the row or the table's locks: written (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:666-745,
-            // SH_OwnModify_*); an Insert into another table only is refused. Other writes of the table beside the Insert are not told
-            // apart (assumption `stale-own-insert-two-commits-other-insert`).
+            // SH_OwnModify_*); an Insert into another table only is refused. Also for an own Insert without the Modify, a Modify
+            // of another row beside the Insert and three Commits (SbStaleOwnModify.al:2484-2580, Y2_SH_*). Other writes beside
+            // the Insert (a Delete or a Rename, a write of another table) are not told apart (assumption
+            // `stale-own-insert-two-commits-other-insert`).
             Some(o)
                 if o.own_write
                     && (o.commits + 1 == self.commits || o.commits + 2 == self.commits)
@@ -1622,14 +1624,29 @@ impl Session {
                         .iter()
                         .any(|(ob, c)| *ob == t.object && *c == company) =>
             {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::StaleOwnInsertTwoCommitsOtherInsert,
-                );
+                let pinned = self.writes_all_noted()
+                    && self.tx.writes.iter().all(|w| {
+                        matches!(
+                            w.kind,
+                            crate::state::TxWriteKind::Insert | crate::state::TxWriteKind::Modify
+                        ) && w.table == t.object
+                            && w.company == company
+                            && !(w.pk.len() == pk.len()
+                                && w.pk.iter().zip(pk).all(|(a, b)| {
+                                    al_builtins::ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal)
+                                }))
+                    });
+                if !pinned {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::StaleOwnInsertTwoCommitsOtherInsert,
+                    );
+                }
                 Ok(StaleVerdict::Written)
             }
             // Writers TE and TH measured the same neighbours at 1 to 10 Commits after the buffer's own write (al-runner issue 6040,
-            // record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_* and TH_* on the writer branch al-runtime-rs-staging-pub-th):
-            // see `stale_neighbour_shape`. The three shapes of 6028 keep their own assumption below.
+            // record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_* and TH_*), and writer Y2 every form at 4, 5, 10 and 12 Commits
+            // (SbStaleOwnModify.al:2096-2484, Y2_4C_*, Y2_5C_*, Y2_10C_*, Y2_12C_*): the same rule at every count. See
+            // `stale_neighbour_shape`. The three shapes of 6028 keep their own assumption below.
             Some(o)
                 if o.own_write
                     && !touched
@@ -1637,9 +1654,6 @@ impl Session {
                     && self.stale_6028_shape(t, &company, pk, o.commits, deleting).is_none()
                     && self.stale_neighbour_shape(t, &company, pk).is_some() =>
             {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::StaleOwnWriteNeighbourAnyCommits,
-                );
                 Ok(self.stale_neighbour_shape(t, &company, pk).expect("checked"))
             }
             Some(o) if o.own_write && o.commits + 1 == self.commits => {

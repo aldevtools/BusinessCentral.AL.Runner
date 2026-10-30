@@ -832,9 +832,13 @@ fn as_boolean(s: &Scalar) -> Result<Value, Signal> {
         Scalar::Val(Value::Text(t) | Value::Code(t)) if !t.is_empty() && t.bytes().all(|b| b.is_ascii_alphabetic()) => {
             Err(conversion(NAV_JSON_VALUE, "System.Boolean"))
         }
-        // Any other text that is no spelling of true or false (blanks, digits, punctuation, empty) raises the same error.
-        Scalar::Val(Value::Text(_) | Value::Code(_)) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::JsonOtherTextAsBooleanConversionError);
+        // An empty text and a text of digits raise the same error (json/JsonValueGetters.al UN_BooleanTextGetters_2 "0",
+        // UN_BooleanTextGetters_3 "1", UN_BooleanTextGetters_4 ""). Any other text (blanks inside, punctuation, a mix) is
+        // assumed to (json-other-text-as-boolean-conversion-error).
+        Scalar::Val(Value::Text(t) | Value::Code(t)) => {
+            if !t.bytes().all(|b| b.is_ascii_digit()) {
+                crate::assumptions::assume(crate::assumptions::Assumption::JsonOtherTextAsBooleanConversionError);
+            }
             Err(conversion(NAV_JSON_VALUE, "System.Boolean"))
         }
         // A JSON number 0 reads No and 1 reads Yes (json/JsonValueGetters.al UN_BooleanTextGetters_5, same branch and

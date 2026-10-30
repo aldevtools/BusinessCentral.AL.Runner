@@ -1,7 +1,8 @@
 //! BigText is a value: `B := A` copies it, a by-value parameter gets a copy, and Clear of a copy leaves the original
-//! (al-runner issue 5940, the reporter's repro on real BC; registered assumption `bigtext-value-copy`).
+//! (al-runner issue 5940, the reporter's repro on real BC; pinned by text/TestBigText.al:108-160 and, for an event parameter and a
+//! return value, text/lt-bigtext-copies/BigTextCopies.al:95-170).
 
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+use al_builtins::assumptions::{clear_hits, take_hits};
 
 #[test]
 fn assignment_and_by_value_parameter_copy_a_bigtext() {
@@ -13,5 +14,5 @@ fn assignment_and_by_value_parameter_copy_a_bigtext() {
             exit(StrSubstNo('A=%1;B=%2;C=%3;D=%4', A.Length(), B.Length(), C.Length(), D.Length())); end; }";
     clear_hits();
     assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "F")), "A=2;B=1;C=0;D=3");
-    assert!(take_hits().contains(&Assumption::BigTextValueCopy));
+    assert!(take_hits().is_empty());
 }
