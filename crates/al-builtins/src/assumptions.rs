@@ -761,6 +761,20 @@ registry! {
         tests: "No Microsoft test: owner decision for partner apps whose per-company install routine reads a table a dependency app's Company Triggers subscriber writes (a reporter's suite: 126 tests refused before).",
         probe: "Probe Q3 of ADR-046: a fixture app subscriber to OnCompanyOpen increments a SingleInstance counter; the main app's per-company install routine logs it, and a test counts how often the subscriber ran during the fixture app's own install.",
     },
+    FormatRecordStandard9 => {
+        id: "format-record-standard-nine",
+        assumed: "Format(Record, 0, 9) and Format(RecordRef, 0, 9) give the same text as standard format 0 (the fields in standard format 0, a Date as 03/05/24, joined by a TAB), for a database, temporary or FlowField record; an unopened RecordRef formats as the empty text with standard format 0 and 9 (pinned on corpus master by errors/lt-ms-refusals-133/P133DateEvaluateFormat.al NP3_FormatRecord_StandardFormats_0And9, _Temporary_AndFlowField_0And9, NP3_FormatRecordRef_StandardFormats_0And9 and NP3_FormatRecordRef_NotOpen, corpus PR 820; not yet in the pinned corpus).",
+        tests: "No Microsoft test: a partner app's suite that formats records and RecordRefs with standard format 9 (7 tests of the owner's partner measurement).",
+        probe: "None: the next corpus bump brings the pinning tests; delete this entry then.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/errors/lt-ms-refusals-133/P133DateEvaluateFormat.al::NP3_FormatRecord_StandardFormats_0And9",
+                "tests/al-language/errors/lt-ms-refusals-133/P133DateEvaluateFormat.al::NP3_FormatRecordRef_NotOpen",
+            ],
+            since: "2026-10-30",
+        },
+    },
     InstallOrderAscendingId => {
         id: "install-order-ascending-id",
         assumed: "The install routines of one app (install codeunit triggers and Extension Triggers subscribers) run as one sequence in ascending codeunit id in each company and in the per-database part, also across the 65536 id boundary, and a SingleInstance codeunit's state carries from one to the next within a company or part (ADR-046 amendment 3). Ascending id inside one block is pinned on corpus master (install/lt-um-install-order/UmInstallOrder.al, corpus PR 807); across the boundary it is pinned only on a writer branch, not yet in the pinned corpus (UrBlockOrderTests.al, 50300 to 90515). Two subscribers of one codeunit are not pinned and stay refused.",
