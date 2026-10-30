@@ -212,7 +212,7 @@ pub enum Gate {
     /// (`#if not BC28PLUS`, :7-9).
     TestRunnerHubRequiredIsolationFrom28,
     /// The License Permission row of a page object at the top of the object range (2000000000 and 2000000001) has execute
-    /// permission only from BC 28 (lt-ss1030/SsLicensePermissionObjects.al:106-109, :114-117, `#if BC28PLUS`). Not consumed yet.
+    /// permission only from BC 28 (lt-ss1030/SsLicensePermissionObjects.al:106-109, :114-117, `#if BC28PLUS`). Consumed by the License Permission provider (al-vm platform/host_tables.rs).
     LicensePermissionTopRangePageFrom28,
     /// `Media.ImportFile` of a .docx file keeps the file's bytes as Tenant Media content and gives them back on export on BC 27
     /// and 28; BC 29 on the Linux CI tier stores a re-zipped package (same parts, 919 bytes against 911), a Linux suspect the

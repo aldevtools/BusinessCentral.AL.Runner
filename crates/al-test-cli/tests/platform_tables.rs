@@ -2700,9 +2700,8 @@ codeunit 50000 "T" { Subtype = Test;
 ///   by major (:103-115) and is refused.
 ///
 /// TableData and Table at eight numbers of the ISV and customer ranges are pinned (lt-ss1030/SsLicensePermissionObjects.al:56-87,
-/// corpus PR 852). Other Table, Report, Codeunit and Page numbers from 1 to 99999999 are assumed (`license-permission-any-object`); 1999999999
-/// is a blank row, so the assumption stops at the highest number pinned `Yes` below it (Codeunit 99999999,
-/// AgLicensePermission.al:43-67). Other numbers, other types and a negative number stay refused.
+/// corpus PR 852). Without a license (ADR-060) no other number is served: other numbers, other types and a negative number
+/// are refused. With a license, see `license_permission_answers_from_the_loaded_license`.
 const ISSUE_6214_OBJECTS: &str = "
 codeunit 50000 \"T\" {
     Subtype = Test;
@@ -2841,16 +2840,18 @@ fn issue_6214_license_permission_of_any_object_number() {
     let o = outcomes(ISSUE_6214_OBJECTS);
     for t in [
         "IsvAndCustomerRanges",
-        "OtherNumberOfTheIsvRange",
         "PinnedUnusedNumbers",
         "TopOfTheRange",
-        "OtherTableNumber",
         "IsvTableDataNumbers",
+        // Page 2000000000 is all Yes before BC 28 (lt-ss1030/SsLicensePermissionObjects.al:106-109); this run is 27.5.
+        "PageAtTheTop",
     ] {
         passes(&o, t);
     }
+    // ADR-060: without a license, only the pinned rows are served; `license-permission-any-object` is retired.
     for t in [
-        "PageAtTheTop",
+        "OtherNumberOfTheIsvRange",
+        "OtherTableNumber",
         "BetweenTheRanges",
         "OtherTableDataNumber",
         "OtherXmlPortNumber",
@@ -2996,4 +2997,203 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "FilterOnApiPagesOfATable");
     passes(&o, "GetReadsName");
     assert!(not_run(&o, "TypeRead").contains("UserControlHost"), "{o:?}");
+}
+
+/// The engine of [`engine_over`] with a license loaded (ADR-060).
+fn outcomes_licensed(main: &str, license: &[u8], bc: &str) -> Vec<(String, Outcome)> {
+    let (mut engine, l) = engine_over("main", main, None, al_sema::check::Roots::default(), bc);
+    std::sync::Arc::get_mut(&mut engine).expect("a fresh engine").license =
+        Some(std::sync::Arc::new(al_host::license::parse(license).expect("the synthetic license parses")));
+    let oi = l.program.objects.iter().position(|o| o.name == "T").expect("test codeunit T");
+    run_codeunit(&engine, &l, oi)
+}
+
+/// A synthetic license (made-up ranges, no signature; no real license file is ever a fixture, ADR-060 Conformance).
+/// TableData and TableDescription differ, so a Table row shows which list answers it.
+fn synthetic_license() -> Vec<u8> {
+    al_host::license::synthetic::file(
+        "Synthetic Licensee",
+        "1/2/2040",
+        &[
+            ("Codeunit", &[(1, 999, 31), (5000, 5999, 16), (2000000000, 2000000300, 31)]),
+            ("TableData", &[(1, 50, 31), (2000000000, 2000000300, 31)]),
+            ("TableDescription", &[(1, 999, 31), (2000000000, 2000000300, 31)]),
+            ("Page", &[(1, 999, 31), (2000000000, 2000000300, 31)]),
+            ("Report", &[(1, 999, 3)]),
+            ("XMLPort", &[(1, 999, 31)]),
+            ("Query", &[(1, 999, 31)]),
+            ("System", &[(1, 999, 31)]),
+            ("LimitedUsageTable", &[(18, 18, 64)]),
+        ],
+    )
+}
+
+const LICENSED_OBJECTS: &str = "
+codeunit 50000 \"T\" {
+    Subtype = Test;
+
+    local procedure Describe(ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber; No: Integer): Text
+    var
+        L: Record \"License Permission\";
+    begin
+        if not L.Get(ObjType, No) then
+            exit('absent');
+        exit(StrSubstNo('%1%2%3%4%5', Format(L.\"Read Permission\", 0, 9), Format(L.\"Insert Permission\", 0, 9),
+            Format(L.\"Modify Permission\", 0, 9), Format(L.\"Delete Permission\", 0, 9), Format(L.\"Execute Permission\", 0, 9)));
+    end;
+
+    local procedure Ids(var L: Record \"License Permission\"): Text
+    var
+        R: Text;
+    begin
+        if L.FindSet() then
+            repeat
+                R += Format(L.\"Object Number\") + ',';
+            until L.Next() = 0;
+        exit(R);
+    end;
+
+    [Test]
+    procedure ByKey()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+        Res: Text;
+    begin
+        Res := Describe(ObjType::Codeunit, 999) + '|' + Describe(ObjType::Codeunit, 1000) + '|' + Describe(ObjType::Codeunit, 5500)
+            + '|' + Describe(ObjType::Codeunit, 0) + '|' + Describe(ObjType::Codeunit, 1999999999) + '|' + Describe(ObjType::Table, 500)
+            + '|' + Describe(ObjType::TableData, 500) + '|' + Describe(ObjType::Page, 70000123);
+        if Res <> '11111|00000|00001|00000|00000|11111|00000|00000' then
+            Error('got %1', Res);
+    end;
+
+    [Test]
+    procedure SystemRangeFromThePins()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+        Res: Text;
+    begin
+        Res := Describe(ObjType::Table, 2000000001) + '|' + Describe(ObjType::Codeunit, 2000000000) + '|' + Describe(ObjType::Page, 2000000000)
+            + '|' + Describe(ObjType::Codeunit, 2147483647) + '|' + Describe(ObjType::Query, 2000000001);
+        if Res <> '11101|11111|00001|00000|00000' then
+            Error('got %1', Res);
+    end;
+
+    [Test]
+    procedure RangeReadsAndCount()
+    var
+        L: Record \"License Permission\";
+    begin
+        L.SetRange(\"Object Type\", L.\"Object Type\"::Codeunit);
+        L.SetRange(\"Object Number\", 998, 1002);
+        if Ids(L) <> '998,999,1000,1001,1002,' then
+            Error('ids %1', Ids(L));
+        if L.Count() <> 5 then
+            Error('count %1', L.Count());
+        L.SetRange(\"Object Number\", 400, 420);
+        if L.Count() <> 21 then
+            Error('count 21: %1', L.Count());
+        L.FindLast();
+        if L.\"Object Number\" <> 420 then
+            Error('last %1', L.\"Object Number\");
+    end;
+
+    [Test]
+    procedure FirstRowsOfTheTable()
+    var
+        L: Record \"License Permission\";
+    begin
+        L.FindSet();
+        if (L.\"Object Type\" <> L.\"Object Type\"::TableData) or (L.\"Object Number\" <> 0) or (L.\"Read Permission\" <> L.\"Read Permission\"::\" \") then
+            Error('first');
+        L.Next();
+        if (L.\"Object Number\" <> 1) or (L.\"Read Permission\" <> L.\"Read Permission\"::Yes) then
+            Error('second');
+    end;
+
+    [Test]
+    procedure UnpinnedSystemNumber()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::Codeunit, 2000000005);
+    end;
+
+    [Test]
+    procedure NegativeNumber()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::Codeunit, -1);
+    end;
+
+    [Test]
+    procedure PartialMask()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::Report, 5);
+    end;
+
+    [Test]
+    procedure FieldNumberType()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::FieldNumber, 5);
+    end;
+
+    [Test]
+    procedure LimitedUsageOfAnotherLicense()
+    var
+        L: Record \"License Permission\";
+    begin
+        L.Get(L.\"Object Type\"::TableData, 18);
+        if Format(L.\"Limited Usage Permission\") = 'x' then
+            Error('unreachable');
+    end;
+
+    [Test]
+    procedure RangeIntoTheSystemRange()
+    var
+        L: Record \"License Permission\";
+    begin
+        L.SetRange(\"Object Type\", L.\"Object Type\"::Codeunit);
+        L.SetFilter(\"Object Number\", '>=1999999999');
+        if L.Count() = 0 then;
+    end;
+
+    [Test]
+    procedure FilterOnAPermission()
+    var
+        L: Record \"License Permission\";
+    begin
+        L.SetRange(\"Object Type\", L.\"Object Type\"::Codeunit);
+        L.SetRange(\"Read Permission\", L.\"Read Permission\"::Yes);
+        if L.FindFirst() then;
+    end;
+}";
+
+/// ADR-060: with a license loaded, License Permission answers every number below the system range from the license
+/// (a range's mask, every permission blank outside every range), Table from TableDescription, Execute alone from bit 16;
+/// the system range only where the corpus pins it (Table 2000000001 Delete blank, lt-ss1030/SsLicensePermissionObjects.al:118;
+/// Page 2000000000 Execute only from BC 28, :106-109; 2147483647 blank, :99-103), narrowed by the license (Query 2000000001
+/// is outside every Query range of this license). Range reads and counts within one object type are served.
+#[test]
+fn license_permission_answers_from_the_loaded_license() {
+    let o = outcomes_licensed(LICENSED_OBJECTS, &synthetic_license(), "29.0.0.0");
+    for t in ["ByKey", "SystemRangeFromThePins", "RangeReadsAndCount", "FirstRowsOfTheTable"] {
+        passes(&o, t);
+    }
+    for (t, why_has) in [
+        ("UnpinnedSystemNumber", "system object range"),
+        ("NegativeNumber", "number -1"),
+        ("PartialMask", "which bit is which"),
+        ("FieldNumberType", "FieldNumber"),
+        ("LimitedUsageOfAnotherLicense", "limited-usage list"),
+        ("RangeIntoTheSystemRange", "not served"),
+        ("FilterOnAPermission", "not served"),
+    ] {
+        let why = not_run(&o, t);
+        assert!(why.contains(why_has), "{t}: {why}");
+    }
 }
