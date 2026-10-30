@@ -93,6 +93,36 @@ impl<'a> Checker<'a> {
         true
     }
 
+    /// Whether an enum or codeunit argument implements the interface a procedure parameter is declared as: it then takes
+    /// that overload over a `var Record` one (codeunit/lt-sc-overload-record-interface/ScOverloadRecordInterface.al:97-107,
+    /// `enum plain`, `enum special`, `codeunit variable`).
+    fn implements_param(&self, file: usize, arg: &Ty, param: &str) -> bool {
+        let (kind, name) = match arg {
+            Ty::Enum(n) => (ObjKind::Enum, n),
+            Ty::Object(ObjKind::Codeunit, n) => (ObjKind::Codeunit, n),
+            _ => return false,
+        };
+        if !param.trim_start().to_ascii_lowercase().starts_with("interface") {
+            return false;
+        }
+        let Some(Ty::Object(ObjKind::Interface, iface)) = al_syntax::parse_type(param).map(|t| Ty::from_type_ref(&t))
+        else {
+            return false;
+        };
+        let (Resolution::Found(obj), Resolution::Found(iface)) = (
+            self.ws.resolve_ref(file, kind, &crate::types::qualified_parts(name)),
+            self.ws
+                .resolve_ref(file, ObjKind::Interface, &crate::types::qualified_parts(&iface)),
+        ) else {
+            return false;
+        };
+        let family = self.ws.interface_family(iface);
+        let ofile = self.ws.objects[obj].file;
+        self.ws.objects[obj].implements.iter().any(
+            |p| matches!(self.ws.resolve_ref(ofile, ObjKind::Interface, p), Resolution::Found(i) if family.contains(&i)),
+        )
+    }
+
     /// Chooses an overload: by arity, then by how many argument types fit the
     /// declared parameter types (first in catalog order on a tie). Records the
     /// choice on `node`.
@@ -123,7 +153,13 @@ impl<'a> Checker<'a> {
                 let fit = args
                     .iter()
                     .zip(&c.param_tys)
-                    .filter(|(a, p)| if is_proc { fits_proc(a, p) } else { fits(a, p) })
+                    .filter(|(a, p)| {
+                        if is_proc {
+                            fits_proc(a, p) || self.implements_param(sc.file, a, p)
+                        } else {
+                            fits(a, p)
+                        }
+                    })
                     .count();
                 // Only among the procedures AL code declares: the catalog's overloads keep their order.
                 let exact = if matches!(c.target, Res::Proc { .. }) {

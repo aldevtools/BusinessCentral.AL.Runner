@@ -139,6 +139,8 @@ pub struct HttpOutgoing {
     /// The client had `UseServerCertificateValidation` called on it: what the setting does to a request no
     /// `[HttpClientHandler]` answers is not pinned.
     pub cert_validation_set: bool,
+    /// The last `UseServerCertificateValidation` of the client was `false`.
+    pub cert_validation_off: bool,
 }
 
 /// A table as `Evaluate` into a TableFilter reads it (see [`Ctx::table_filter_table`]).

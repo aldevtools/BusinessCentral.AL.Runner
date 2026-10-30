@@ -256,7 +256,15 @@ fn integer(text: &str, number: i64) -> Result<Parsed, Signal> {
         return Ok(Parsed::Rejected);
     }
     let edged = text.trim_matches(EDGE_BLANKS);
-    if number == 0 && text.is_ascii() && !text.contains('$') && edged.chars().all(|c| !c.is_whitespace() || c == ' ') {
+    // A line feed or tab inside the number goes to the Decimal reading, which rejects it
+    // (types/lt-sc-eval-decimal-whitespace/ScEvalDecimalWhitespace.al:158,166).
+    if number == 0
+        && text.is_ascii()
+        && !text.contains('$')
+        && edged
+            .chars()
+            .all(|c| !c.is_whitespace() || matches!(c, ' ' | '\n' | '\t'))
+    {
         return Ok(match decimal(text, 0)? {
             Parsed::Value(Value::Decimal(d)) if d.fract().is_zero() => {
                 match d.to_i64().and_then(|n| i32::try_from(n).ok()).ok_or(()) {
@@ -409,7 +417,29 @@ fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
     }
     // Tab, carriage return and line feed around the number are dropped like spaces, with format number 0 and 9
     // (types/lt-evaluate-decimal/EvaluateDecimal.al:QR_Evaluate_WhiteSpace_Number0, _Number9). Inside it they are not pinned.
-    let t = text.trim_matches(EDGE_BLANKS);
+    let mut t = text.trim_matches(EDGE_BLANKS);
+    if number == 0 {
+        // A trailing vertical tab or form feed is dropped too (types/lt-sc-eval-decimal-whitespace/
+        // ScEvalDecimalWhitespace.al:58-59,69-70). Leading ones are not pinned and stay refused below.
+        t = t.trim_end_matches([' ', '\t', '\r', '\n', '\u{B}', '\u{C}']);
+        // A line feed or tab inside the number rejects it, like a space: `1<LF>5`, `1<TAB>5`, `-<LF>1.5`, `1<LF>.5`
+        // (ScEvalDecimalWhitespace.al:116-120,126-140; for an Integer :158,166). Before a trailing minus it is not pinned
+        // (`100 -` reads as -100), nor before a group of three digits (`1<TAB>000` might group thousands).
+        let inner = |c: char| c == '\n' || c == '\t';
+        let before_group = t.char_indices().filter(|(_, c)| inner(*c)).any(|(i, _)| {
+            let rest = &t.as_bytes()[i + 1..];
+            rest.len() >= 3
+                && rest[..3].iter().all(u8::is_ascii_digit)
+                && rest.get(3).is_none_or(|b| !b.is_ascii_digit())
+        });
+        if t.contains(inner)
+            && !t.ends_with('-')
+            && !before_group
+            && t.chars().all(|c| !c.is_whitespace() || c == ' ' || inner(c))
+        {
+            return Ok(Parsed::Rejected);
+        }
+    }
     if t.chars().any(|c| c.is_whitespace() && c != ' ') {
         return unsupported(format!(
             "Evaluate of `{text}` into Decimal with white space other than spaces (not pinned)"
@@ -2276,6 +2306,33 @@ mod tests {
         assert_eq!(int("2147483648", 9), None);
         assert_eq!(int("1.5", 0), None);
         assert_eq!(int("1 234", 0), None);
+    }
+
+    // types/lt-sc-eval-decimal-whitespace/ScEvalDecimalWhitespace.al:51-170 (format number 0): a trailing vertical tab or form
+    // feed is dropped, a line feed or tab inside the number rejects, for a Decimal and an Integer.
+    #[test]
+    fn decimals_and_integers_drop_edge_white_space_and_reject_inner_line_feeds() {
+        let dec = |s: &str| match decimal(s, 0) {
+            Ok(Parsed::Value(Value::Decimal(d))) => Some(Some(d.to_string())),
+            Ok(Parsed::Rejected) => Some(None),
+            _ => None,
+        };
+        assert_eq!(dec("1.5\u{B}"), Some(Some("1.5".into())));
+        assert_eq!(dec("1.5\u{C}"), Some(Some("1.5".into())));
+        assert_eq!(dec("1,234.5\n"), Some(Some("1234.5".into())));
+        assert_eq!(dec("1\n5"), Some(None));
+        assert_eq!(dec("1\t5"), Some(None));
+        assert_eq!(dec("-\n1.5"), Some(None));
+        assert_eq!(dec("1\n.5"), Some(None));
+        assert_eq!(dec("\n"), Some(None));
+        // Not pinned: a leading vertical tab, an inner carriage return, a line feed before a trailing minus.
+        assert_eq!(dec("\u{B}1.5"), None);
+        assert_eq!(dec("1\r5"), None);
+        assert_eq!(dec("100\n-"), None);
+        assert_eq!(dec("1\n000"), None);
+        assert!(matches!(integer("1\n5", 0), Ok(Parsed::Rejected)));
+        assert!(matches!(value(integer("\t15", 0)), Some(Value::Integer(15))));
+        assert!(matches!(integer("15\u{B}", 0), Err(Signal::Unsupported(_))));
     }
 
     // codeunit "LT P86 Eval Time"
