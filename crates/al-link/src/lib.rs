@@ -1854,6 +1854,7 @@ mod tests {
                 var_slot: None,
                 expr_source: None,
                 expr_call: false,
+                array_element: None,
             },
             pred,
             parent: None,

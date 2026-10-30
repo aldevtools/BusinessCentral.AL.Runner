@@ -286,23 +286,21 @@ impl Session {
         if self.caption_refused(t.object as usize).is_some() {
             return al_builtins::native::UNPINNED_ERROR.to_string();
         }
-        self.engine.program.objects[t.object as usize]
-            .properties
+        let o = &self.engine.program.objects[t.object as usize];
+        if let Some((_, v)) = o.properties.iter().find(|(k, _)| k == al_ir::EXT_CAPTION_OVER_OWN) {
+            return v.trim().trim_matches('\'').to_string();
+        }
+        o.properties
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case("Caption"))
             .map(|(_, v)| v.trim().trim_matches('\'').to_string())
             .unwrap_or_else(|| t.name.clone())
     }
 
-    /// The related table's caption in the TableRelation error of a Validate: [`Self::caption`], except that a table one
-    /// tableextension gives a Caption over its own is named by the extension's caption (al-runner issue 5955, the reporter's
-    /// real-BC repro; assumption `relation-error-ext-caption`).
+    /// The related table's caption in the TableRelation error of a Validate: [`Self::caption`] (a table one tableextension gives a
+    /// Caption over its own is named by the extension's caption: al-runner issue 5955; corpus writer Y5, branch
+    /// al-runtime-rs-staging-y5, tableextension/lt-y5/Y5TestFieldExtCaption.al, codeunit 90986).
     pub(crate) fn relation_error_caption(&self, t: &TableDef) -> String {
-        let o = &self.engine.program.objects[t.object as usize];
-        if let Some((_, v)) = o.properties.iter().find(|(k, _)| k == al_ir::EXT_CAPTION_OVER_OWN) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RelationErrorExtCaption);
-            return v.trim().trim_matches('\'').to_string();
-        }
         self.caption(t)
     }
 
@@ -350,7 +348,12 @@ impl Session {
 
     pub(crate) fn caption_refused(&self, object: usize) -> Option<String> {
         let o = &self.engine.program.objects[object];
-        if let Some((_, v)) = o.properties.iter().find(|(k, _)| k == al_ir::CAPTION_REFUSED) {
+        // One tableextension that sets a Caption over the table's own: every text that names the table, TableCaption and
+        // RecordRef.Caption give the extension's Caption (al-runner issues 5955 and 6378; corpus writer Y5, branch
+        // al-runtime-rs-staging-y5, tableextension/lt-y5/Y5TestFieldExtCaption.al, codeunit 90986, measured on Base
+        // Application's Machine Center). AllObjWithCaption of such a table is not measured and stays refused there.
+        let ext_over_own = o.properties.iter().any(|(k, _)| k == al_ir::EXT_CAPTION_OVER_OWN);
+        if !ext_over_own && let Some((_, v)) = o.properties.iter().find(|(k, _)| k == al_ir::CAPTION_REFUSED) {
             return Some(v.clone());
         }
         // A declared caption a translation file of its app could change in the language in force (ADR-053 step 1).
