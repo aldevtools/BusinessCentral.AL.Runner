@@ -268,6 +268,7 @@ impl Session {
             s.result = None;
             s.editable_off = false;
             s.editable_off_in_open = false;
+            s.editable_set_later = None;
             s.set_controls = Vec::new();
             s.agr_xrec = None;
             s.agcr_xrec = None;
@@ -468,6 +469,7 @@ impl Session {
                 let mut s = st.borrow_mut();
                 s.editable_off = s.editable_preset == Some(false);
                 s.editable_off_in_open = false;
+                s.editable_set_later = None;
             }
             // The parts' OnInit runs between the host's OnInit and its OnOpenPage (corpus
             // testpart/TestPartTriggerOrderAndRefresh.al:236-247).

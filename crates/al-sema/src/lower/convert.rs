@@ -450,6 +450,19 @@ impl<'a> Lowerer<'a> {
                 // Pinned by types/lt-up-ternary/UpTernary.al (was assumption `ternary-unbounded-text-false-branch`).
                 true
             }
+            // A Text[50] true branch and a built-in function returning Text as false branch (CompanyName(), UserId(),
+            // Format(x)): a value that fits is returned unchanged (lt-ss1030/SsTernaryBuiltinText.al:47-69, corpus branch
+            // al-runtime-rs-staging-ss1030 at c36d14ea, not yet on master; al-runner issue 6213 reopened). A longer value is
+            // not pinned for this length: refused when the branch is taken.
+            (Ty::Text(Some(50)), Ty::Text(None)) => {
+                return Ok(ir::Expr::FitOrRefuse {
+                    max: 50,
+                    why: format!(
+                        "a conditional expression whose false branch ({f}) holds a value longer than its true branch ({t}): the conversion is not pinned for this length"
+                    ),
+                    inner: Box::new(value),
+                });
+            }
             // An interface true branch takes a codeunit false branch that implements it, as an assignment to the interface does:
             // the false branch calls the codeunit's implementation (types/lt-up-ternary/UpTernary.al:60, :70, :81 with :216-227,
             // corpus PR 808 at branch commit 910da83e; al-runner issue 6215). The reverse order does not compile (AL0122,

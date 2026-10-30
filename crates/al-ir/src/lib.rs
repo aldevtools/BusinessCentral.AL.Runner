@@ -147,6 +147,15 @@ impl Program {
     }
 }
 
+/// The logo an app's manifest declares (Published Application's Logo column).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AppLogo {
+    /// The manifest declares none (a blank one is none).
+    None,
+    /// The content of the file the manifest names, as the package or folder holds it.
+    File(Vec<u8>),
+}
+
 /// What `NavApp.GetCurrentModuleInfo` reports about an app.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct AppInfo {
@@ -172,9 +181,10 @@ pub struct AppInfo {
     /// manifest was read.
     #[serde(default)]
     pub target: Option<String>,
-    /// Whether the manifest declares a `logo` (a blank one is none); `None` when no manifest was read (a package).
+    /// The app's logo as its manifest declares it (`logo` of app.json, `Logo` of a package's NavxManifest.xml); `None`
+    /// when no manifest was read or the declared file could not be read.
     #[serde(default)]
-    pub logo: Option<bool>,
+    pub logo: Option<AppLogo>,
     /// The files the app's reports name with `LayoutFile`: path relative to the app (`/` separators), content.
     #[serde(default)]
     pub layout_files: Vec<(String, Vec<u8>)>,
@@ -1279,6 +1289,9 @@ pub struct CalcFormula {
     /// Position of the aggregated or looked-up field in the source table.
     pub field: Option<usize>,
     pub conds: Vec<CalcCond>,
+    /// The unprobed assumptions the formula's conditions rest on; the VM marks them when it calculates the formula.
+    #[serde(default)]
+    pub assumes: Vec<al_builtins::assumptions::Assumption>,
 }
 
 /// One where-condition: a field of the source table against a value.

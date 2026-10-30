@@ -2542,11 +2542,18 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 // Outside issues (al-runner), kept as regression tests.
-/// Issue 6214: `License Permission.Get` of an object of the customer range, the ISV range or the range up to 2000000000
-/// finds a row with Read, Insert, Modify, Delete and Execute `Yes`; Codeunit 0 a row with every permission blank. Pins
-/// (corpus branch al-runtime-rs-staging-uq at d651ec93, bump PR 809): platform/lt-ag-contoso/AgLicensePermission.al
-/// LicensePermission_ByKey_CustomerAndIsvRanges. Other Report, Codeunit and Page numbers are assumed
-/// (`license-permission-any-object`); another Table number and a negative number are not pinned and stay refused.
+/// Issue 6214: `License Permission.Get` of an object number answers what the corpus pins, read by key:
+/// - platform/lt-ag-contoso/AgLicensePermission.al LicensePermission_ByKey_CustomerAndIsvRanges (corpus PR 809): Codeunit
+///   50000, 70000123, 2000000000 and Table 70000123 every permission `Yes`, Codeunit 0 every permission blank.
+/// - lt-ss1030/SsLicensePermissionObjects.al (corpus branch al-runtime-rs-staging-ss1030 at c36d14ea, not yet on master):
+///   TableData, Table, Report, Codeunit, XMLport, Page and Query at 50123, 99999 and 70000456 every permission `Yes` and
+///   Limited Usage blank (:22-33); at 100000 `Yes`, at 1999999999 and 2147483647 blank, at 2000000001 `Yes` but Table
+///   Delete blank (:94-117); Limited Usage is not read there and stays unknown. Page at 2000000000 and 2000000001 differs
+///   by major (:103-115) and is refused.
+///
+/// Other Report, Codeunit and Page numbers from 1 to 99999999 are assumed (`license-permission-any-object`); 1999999999
+/// is a blank row, so the assumption stops at the highest number pinned `Yes` below it (Codeunit 99999999,
+/// AgLicensePermission.al:43-67). Other numbers, other types and a negative number stay refused.
 const ISSUE_6214_OBJECTS: &str = "
 codeunit 50000 \"T\" {
     Subtype = Test;
@@ -2583,11 +2590,74 @@ codeunit 50000 \"T\" {
     end;
 
     [Test]
+    procedure PinnedUnusedNumbers()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+        LicensePermission: Record \"License Permission\";
+        Res: Text;
+    begin
+        Res := Describe(ObjType::Table, 70000456) + '|' + Describe(ObjType::XMLport, 50123) + '|' + Describe(ObjType::Query, 99999)
+            + '|' + Describe(ObjType::TableData, 70000456);
+        if Res <> 'R=Yes I=Yes M=Yes D=Yes X=Yes|R=Yes I=Yes M=Yes D=Yes X=Yes|R=Yes I=Yes M=Yes D=Yes X=Yes|R=Yes I=Yes M=Yes D=Yes X=Yes' then
+            Error('got %1', Res);
+        LicensePermission.Get(ObjType::Table, 70000456);
+        if Format(LicensePermission.\"Limited Usage Permission\") <> ' ' then
+            Error('limited %1', LicensePermission.\"Limited Usage Permission\");
+    end;
+
+    [Test]
+    procedure TopOfTheRange()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+        Res: Text;
+    begin
+        Res := Describe(ObjType::Report, 100000) + '|' + Describe(ObjType::Codeunit, 1999999999) + '|' + Describe(ObjType::Table, 2147483647)
+            + '|' + Describe(ObjType::Table, 2000000001) + '|' + Describe(ObjType::XMLport, 2000000000);
+        if Res <> 'R=Yes I=Yes M=Yes D=Yes X=Yes|R=  I=  M=  D=  X= |R=  I=  M=  D=  X= |R=Yes I=Yes M=Yes D=  X=Yes|R=Yes I=Yes M=Yes D=Yes X=Yes' then
+            Error('got %1', Res);
+    end;
+
+    [Test]
+    procedure LimitedUsageAtTheTop()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+        LicensePermission: Record \"License Permission\";
+    begin
+        LicensePermission.Get(ObjType::Codeunit, 1999999999);
+        if Format(LicensePermission.\"Limited Usage Permission\") = 'x' then
+            Error('unreachable');
+    end;
+
+    [Test]
+    procedure PageAtTheTop()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::Page, 2000000000);
+    end;
+
+    [Test]
+    procedure BetweenTheRanges()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::Codeunit, 150000000);
+    end;
+
+    [Test]
     procedure OtherTableNumber()
     var
         ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
     begin
         Describe(ObjType::Table, 70012345);
+    end;
+
+    [Test]
+    procedure OtherXmlPortNumber()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::XMLport, 70012345);
     end;
 
     [Test]
@@ -2602,12 +2672,26 @@ codeunit 50000 \"T\" {
 #[test]
 fn issue_6214_license_permission_of_any_object_number() {
     let o = outcomes(ISSUE_6214_OBJECTS);
-    passes(&o, "IsvAndCustomerRanges");
-    passes(&o, "OtherNumberOfTheIsvRange");
-    for t in ["NegativeNumber", "OtherTableNumber"] {
+    for t in [
+        "IsvAndCustomerRanges",
+        "OtherNumberOfTheIsvRange",
+        "PinnedUnusedNumbers",
+        "TopOfTheRange",
+    ] {
+        passes(&o, t);
+    }
+    for t in [
+        "PageAtTheTop",
+        "BetweenTheRanges",
+        "OtherTableNumber",
+        "OtherXmlPortNumber",
+        "NegativeNumber",
+    ] {
         let why = not_run(&o, t);
         assert!(why.contains("License Permission"), "{t}: {why}");
     }
+    let why = not_run(&o, "LimitedUsageAtTheTop");
+    assert!(why.contains("Limited Usage Permission"), "{why}");
 }
 
 /// Issue 6218: a lookup by `ID` of a Windows time zone finds one row, also for a zone outside the runtime's default rows;

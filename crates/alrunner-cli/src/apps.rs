@@ -39,7 +39,12 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
         include_source: false,
         // Not read here: a RecordRef.Open that depends on the target refuses.
         target: String::new(),
-        logo: None,
+        // A folder's app.json replaces this below.
+        logo: if path.is_file() {
+            al_deps::load::package_logo_at(path, build)
+        } else {
+            None
+        },
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         symbols: Vec::new(),
