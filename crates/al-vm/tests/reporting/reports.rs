@@ -1445,16 +1445,17 @@ fn use_request_page_overrides_the_report_property_and_the_getter_reads_it() {
     );
 }
 
-// Execute takes only the empty parameter string and no RecordRef (record/TestTxModelReportExec.al:138-211).
+// Execute takes no RecordRef (record/TestTxModelReportExec.al:138-211), and of a parameters string only the form RunRequestPage
+// writes, for a report with a request page (report/lt-wd/WdReportExecuteParams.al): `<xml/>` is refused.
 #[test]
 fn execute_with_parameters_or_a_record_ref_is_refused() {
     let why = refusal("var R: Report \"TxRpt Plain Marker\"; begin R.Execute('<xml/>'); exit('ran'); end;");
-    assert!(why.contains("only '' is pinned"), "{why}");
+    assert!(why.contains("parameters"), "{why}");
     let why =
         refusal("var R: Report \"TxRpt Plain Marker\"; RR: RecordRef; begin R.Execute('', RR); exit('ran'); end;");
     assert!(why.contains("RecordRef"), "{why}");
     let why = refusal("begin Report.Execute(Report::\"TxRpt Plain Marker\", '<xml/>'); exit('ran'); end;");
-    assert!(why.contains("only '' is pinned"), "{why}");
+    assert!(why.contains("parameters"), "{why}");
 }
 
 // "With the Run method, the variable is automatically cleared after the method is run"

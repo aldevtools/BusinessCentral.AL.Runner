@@ -711,6 +711,9 @@ pub struct PageState {
     /// The pages shown by the part controls of this page: (control index, child page). Only parts
     /// that are in the control tree at open have one.
     pub parts: Vec<(usize, Rc<RefCell<PageState>>)>,
+    /// The parts of the last run, kept when the page closed after a RunModal: the page's own code reaches them after its
+    /// RunModal returned (`parts.rs`, `part_page`).
+    pub closed_parts: Vec<(usize, Rc<RefCell<PageState>>)>,
     /// Parts dropped at open because their `Visible` came out false: the page's own code still reaches them
     /// (`CurrPage.<Part>.Page`), the test client does not.
     pub hidden_parts: Vec<(usize, Rc<RefCell<PageState>>)>,
@@ -947,6 +950,7 @@ impl PageState {
             editable_preset: None,
             caption: None,
             parts: Vec::new(),
+            closed_parts: Vec::new(),
             hidden_parts: Vec::new(),
             lower_key: None,
             placeholder_line: false,

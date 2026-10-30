@@ -332,6 +332,10 @@ pub(crate) struct ReportState {
     /// as the last error (report/lt-cj-report-leads/CjDataset.al:190-211).
     pub(crate) zero_date_view_failed: bool,
     pub(crate) report_executed: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// Report variables an `Execute` with a parameters string ran: what a second Execute of one does is not pinned.
+    pub(crate) report_executed_with_parameters: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// The parameters string of the `Execute` about to run (taken by `report_body`).
+    pub(crate) execute_parameters: Option<String>,
     /// Report variables whose `RunModal` ran to its end: a second `RunModal` and a `RunRequestPage` on one raise
     /// ObjectHasAlreadyBeenRun (see `reports.rs`, `REPORT_RUN_1 | REPORT_RUNMODAL_1`).
     pub(crate) report_run_modal_done: Vec<std::rc::Weak<RefCell<Instance>>>,
