@@ -15964,7 +15964,7 @@
         "code": "",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 1539,
+        "line": 1534,
         "pinned": true,
         "site": "records/W4PlatformAndMeta.al:632",
         "template": "The value \"%\" can't be evaluated into type TableFilter.%"
@@ -15973,7 +15973,7 @@
         "code": "Evaluate",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 2170,
+        "line": 2158,
         "pinned": true,
         "site": "codeunit/TestCrossAppDispatch.al:61",
         "template": "Evaluate"
@@ -15982,7 +15982,7 @@
         "code": "",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 2173,
+        "line": 2161,
         "pinned": true,
         "site": "codeunit/TestCrossAppDispatch.al:61",
         "template": "Evaluate"
@@ -16036,7 +16036,7 @@
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/json.rs",
         "generic": false,
-        "line": 2481,
+        "line": 2469,
         "pinned": true,
         "site": "json/JsonObjectBasics.al:377",
         "template": "The requested operation cannot be performed in this context."
@@ -16090,7 +16090,7 @@
         "code": "App",
         "file": "crates/al-builtins/src/moduleinfo.rs",
         "generic": false,
-        "line": 196,
+        "line": 195,
         "pinned": true,
         "site": "session/W5ModuleInfo.al:94",
         "template": "No installed extension was found with ID '%'."
@@ -16099,7 +16099,7 @@
         "code": "",
         "file": "crates/al-builtins/src/moduleinfo.rs",
         "generic": false,
-        "line": 423,
+        "line": 422,
         "pinned": true,
         "site": "session/W5NavAppResources.al:31",
         "template": "A resource matching '%' could not be found in app '%'."
@@ -16108,7 +16108,7 @@
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/native.rs",
         "generic": false,
-        "line": 923,
+        "line": 920,
         "pinned": true,
         "site": "codeunit/TestInterfaceRuntimeContracts.al:85",
         "template": "Interface not initialized"
@@ -16522,7 +16522,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 1990,
+        "line": 1982,
         "pinned": true,
         "site": "codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:95",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -16612,7 +16612,7 @@
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 5323,
+        "line": 5299,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
@@ -16702,7 +16702,7 @@
         "code": "Evaluate",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 1835,
+        "line": 1832,
         "pinned": true,
         "site": "errors/lt-ms-refusals-136/P136Report.al:349",
         "template": "The format of the Date '''' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
@@ -16711,7 +16711,7 @@
         "code": "",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 2708,
+        "line": 2697,
         "pinned": true,
         "site": "handlers/TestReportRuntimeContracts.al:462",
         "template": "The object has been run. Use the function CLEAR(Report)."
