@@ -1180,7 +1180,6 @@ impl Session {
                 request_only_page: false,
                 zero_date_view_failed: false,
                 report_executed: Vec::new(),
-                report_executed_with_parameters: Vec::new(),
                 execute_parameters: None,
                 report_run_modal_done: Vec::new(),
                 print_only_if_detail: false,

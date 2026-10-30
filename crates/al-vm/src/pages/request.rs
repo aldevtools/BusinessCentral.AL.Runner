@@ -903,6 +903,11 @@ impl Session {
                 .iter()
                 .find(|c| c.kind == ir::ControlKind::DataItem && c.name == name)
             else {
+                // An Execute skips a data item name the report does not have (corpus master, corpus PR 886:
+                // ExecuteParamsTwiceAndViews.al:217 `unknown data item name`).
+                if skip_unknown {
+                    continue;
+                }
                 return unsupported(format!(
                     "a parameter for the data item {name}, which the request page does not have"
                 ));
