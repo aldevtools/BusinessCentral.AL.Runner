@@ -2,7 +2,7 @@
   "corpus_commit": "21a4128664a0118914c0863e60c9345a7770c317",
   "language": {
     "bc": "27-29",
-    "implemented": 1600,
+    "implemented": 1604,
     "methods": [
       {
         "bc": [
@@ -5099,7 +5099,7 @@
         "scope": "",
         "sig": "(Text, List of [SecretText])",
         "site": "network/lt-cz-http-leads/CzHttpOutbound.al:332",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpHeaders"
       },
       {
@@ -5115,7 +5115,7 @@
         "scope": "",
         "sig": "(Text, array[] of SecretText)",
         "site": "xml/lt-xml-attr-doc-http-members/P97HdrSecretValues.al:34",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpHeaders"
       },
       {
@@ -5307,7 +5307,7 @@
         "scope": "",
         "sig": "()",
         "site": "xml/lt-xml-attr-doc-http-members/P97ReqSecretUri.al:38",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpRequestMessage"
       },
       {
@@ -5403,7 +5403,7 @@
         "scope": "",
         "sig": "(SecretText)",
         "site": "xml/lt-xml-attr-doc-http-members/P97ReqSecretUri.al:24",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpRequestMessage"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 122,
+    "refused": 118,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",
