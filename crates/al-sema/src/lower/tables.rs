@@ -755,7 +755,7 @@ impl Lowerer<'_> {
         };
         let field = f.field.as_deref().map(src_pos).transpose()?;
         let mut conds = Vec::new();
-        let mut assumes = Vec::new();
+        let assumes = Vec::new();
         for c in &f.conds {
             let pos = src_pos(&c.field)?;
             let decl = src_fields[pos].declared_in.map_or(file, |d| self.ws.objects[d].file);
