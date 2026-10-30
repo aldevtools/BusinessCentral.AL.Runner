@@ -453,23 +453,25 @@ fn page_metadata_row(
     // Caption and CardPageID come from the declaration (docs/probes-needed.md, probe batch 5): the
     // `Caption` (else the English `CaptionML`, else the name), and the id of the page `CardPageID`
     // names, 0 when none. Page Management reads the card page off the lookup page of a table.
-    r[pos(t, 3)] = Value::Text(
+    // A column whose value is not pinned is left unknown alone: a read of it, or a filter on it the row's other columns do
+    // not rule out, is refused, and the rest of the row is served (al-runner issue 6251).
+    let col = |v: Result<Value, String>| v.unwrap_or_else(|why| Value::Unknown(format!("Page Metadata: {why}").into()));
+    r[pos(t, 3)] = col(
         super::objects::declared_caption(prop(o, "Caption"), prop(o, "CaptionML"), &o.name)
-            .map_err(|e| format!("page '{}': {e}", o.name))?
-            .chars()
-            .take(80)
-            .collect(),
+            .map_err(|e| format!("page '{}': {e}", o.name))
+            .map(|c| Value::Text(c.chars().take(80).collect())),
     );
-    r[pos(t, 6)] = Value::Integer(match effective_prop(c, o, "CardPageID")? {
-        None => 0,
+    r[pos(t, 6)] = col(effective_prop(c, o, "CardPageID").and_then(|p| match p {
+        None => Ok(Value::Integer(0)),
         Some(v) => c
             .id_of(al_ir::ObjKind::Page, v)
-            .map_err(|e| format!("page '{}': CardPageID {e}", o.name))? as i32,
-    });
+            .map_err(|e| format!("page '{}': CardPageID {e}", o.name))
+            .map(|id| Value::Integer(id as i32)),
+    }));
     // Editable: the declared literal, Yes when undeclared (misc/W2PageMetadata.al:461 RP_LookupPageSortedBySecondaryKey_CardPageId:
     // a List with Editable = false reads No, a Card that declares none Yes). Other page types without the property are not
     // pinned (docs/probes-needed.md).
-    r[pos(t, 4)] = Value::Boolean(allowed(c, o, "Editable")?);
+    r[pos(t, 4)] = col(allowed(c, o, "Editable").map(Value::Boolean));
     r[pos(t, 5)] = match page_type {
         Ok(n) => option(t, 5, n),
         Err(why) => Value::Unknown(why.into()),
@@ -507,7 +509,7 @@ fn page_metadata_row(
         }
     };
     for (id, name) in [(16, "InsertAllowed"), (17, "ModifyAllowed"), (18, "DeleteAllowed")] {
-        r[pos(t, id)] = Value::Boolean(allowed(c, o, name)?);
+        r[pos(t, id)] = col(allowed(c, o, name).map(Value::Boolean));
     }
     r[pos(t, 19)] = Value::Boolean(has_source && lit_bool(o, "DelayedInsert", false));
     r[pos(t, 20)] = Value::Boolean(has_source && lit_bool(o, "ShowFilter", true));
@@ -519,7 +521,7 @@ fn page_metadata_row(
     r[pos(t, 24)] = if has_source {
         match caption_fields(o, src) {
             Ok(text) => Value::Text(text.into()),
-            Err(why) => Value::Unknown(format!("Page Metadata: {why}").into()),
+            Err(why) => col(Err(why)),
         }
     } else {
         Value::Text(String::new().into())

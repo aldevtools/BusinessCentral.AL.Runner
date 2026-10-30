@@ -785,7 +785,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// "Page Metadata" reads a property as the page's extensions leave it: one extension's value wins over the page's
 /// (pageext/lt-z-page-ext-props/ZPageExtProps.al:629, 685-1110), an extension of another page changes nothing, and two
-/// extensions that set it are not pinned, so the row is refused.
+/// extensions that set it are not pinned, so a read of that column is refused (the rest of the row is served, al-runner issue 6251).
 #[test]
 fn a_page_metadata_property_is_the_one_extension_value_and_two_extensions_are_refused() {
     let o = outcomes(
@@ -801,7 +801,7 @@ codeunit 50000 "T" { Subtype = Test;
     M.Get(50002); if M.InsertAllowed then Error('card'); if not M.ModifyAllowed then Error('card modify');
     M.Get(50003); if M.InsertAllowed then Error('other'); end;
   [Test] procedure TwoExtensions() var M: Record "Page Metadata"; begin
-    M.Get(50004); end; }"#,
+    M.Get(50004); if M.Name <> 'Twice' then Error('name'); if M.ModifyAllowed then; end; }"#,
     );
     passes(&o, "OneExtension");
     let why = match o.iter().find(|(n, _)| n == "TwoExtensions").map(|(_, o)| o) {
@@ -2706,7 +2706,10 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "GetReadsOtherColumns");
     passes(&o, "PinnedViewRead");
     assert!(not_run(&o, "ViewRead").contains("filter(Quote|Order|Invoice)"), "{o:?}");
-    assert!(not_run(&o, "FilterOnView").contains("filter(Quote|Order|Invoice)"), "{o:?}");
+    assert!(
+        not_run(&o, "FilterOnView").contains("filter(Quote|Order|Invoice)"),
+        "{o:?}"
+    );
 }
 
 /// al-runner issue 6251 follow-up: a page whose PageType is not pinned (System Application's "Power BI Element Addin Host" is a
