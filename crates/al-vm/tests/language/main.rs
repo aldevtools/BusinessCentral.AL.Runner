@@ -64,6 +64,7 @@ mod http_clear_evaluate_json;
 mod http_secret_values_uri;
 mod impact_trace;
 mod in_precedence;
+mod integer_char_literal;
 mod integer_to_text;
 mod interfaces;
 mod json_bool_integer;
