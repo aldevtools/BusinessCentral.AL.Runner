@@ -2381,11 +2381,70 @@ codeunit 50000 "T" { Subtype = Test;
     if Actual <> Expected then Error('Expected %1, got %2', Expected, Actual); end;
   [Test] procedure OtherExpressionRefused() var P: Record "Page Control Field"; begin
     P.SetRange(PageNo, Page::"Repro Cost Line List 50103");
-    P.FindFirst(); end; }"#,
+    P.FindFirst();
+    if P.SourceExpression = '' then; end;
+  [Test] procedure OtherExpressionRowIsServed() var P: Record "Page Control Field"; begin
+    P.SetRange(PageNo, Page::"Repro Cost Line List 50103");
+    P.FindFirst();
+    if (P.ControlName <> 'CostText') or (P.FieldNo <> 0) or (P.Sequence <> 0) then Error('row %1 %2 %3', P.ControlName, P.FieldNo, P.Sequence); end; }"#,
     );
     passes(&o, "HiddenControlReportsVisibleFalse");
     passes(&o, "ArrayElementControlRow");
-    not_run(&o, "OtherExpressionRefused");
+    passes(&o, "OtherExpressionRowIsServed");
+    let why = not_run(&o, "OtherExpressionRefused");
+    assert!(why.contains("SourceExpression"), "{why}");
+}
+
+// al-runner issue 6284: the row of a control bound to a built-in call (`field(companyName; CompanyName)`) is served with
+// FieldNo 0, so a walk over the page's controls or a filter on FieldNo finds the two table-bound controls
+// (record/lt-wb-6284/WbPageControlBuiltIn.al:46-70, corpus branch al-runtime-rs-staging-wb at a07787b2, not yet on master).
+// What BC stores in SourceExpression for a call is not pinned: a read of it is refused, as is an undeclared Editable.
+#[test]
+fn page_control_field_serves_the_row_of_a_control_bound_to_a_built_in_call() {
+    let o = outcomes(
+        r#"table 50100 "PX Entry" { fields { field(1; "No."; Code[20]) { } field(2; Amount; Decimal) { } } keys { key(PK; "No.") { Clustered = true; } } }
+page 50100 "PX Entries API"
+{
+    PageType = API; APIPublisher = 'repro'; APIGroup = 'repro'; APIVersion = 'v1.0'; EntityName = 'entry'; EntitySetName = 'entries';
+    SourceTable = "PX Entry"; DelayedInsert = true;
+    layout { area(Content) { repeater(Lines) {
+        field(number; Rec."No.") { }
+        field(amount; Rec.Amount) { }
+        field(companyName; CompanyName) { }
+    } } }
+}
+codeunit 50101 "T" { Subtype = Test;
+  [Test] procedure FieldNumbersOfAnApiPageWithABuiltInControl() var PageControlField: Record "Page Control Field"; Bound: Integer; begin
+    PageControlField.SetRange(PageNo, Page::"PX Entries API");
+    PageControlField.FindSet();
+    repeat
+        if PageControlField.FieldNo <> 0 then
+            Bound += 1;
+    until PageControlField.Next() = 0;
+    if Bound <> 2 then
+        Error('got %1', Bound); end;
+  [Test] procedure FilterToTableBoundControlsOnly() var PageControlField: Record "Page Control Field"; begin
+    PageControlField.SetRange(PageNo, Page::"PX Entries API");
+    PageControlField.SetFilter(FieldNo, '<>0');
+    if PageControlField.Count() <> 2 then
+        Error('got %1', PageControlField.Count()); end;
+  [Test] procedure SourceExpressionOfTheCallIsRefused() var P: Record "Page Control Field"; begin
+    P.SetRange(PageNo, Page::"PX Entries API");
+    P.SetRange(ControlName, 'companyName');
+    P.FindFirst();
+    if P.SourceExpression = '' then; end;
+  [Test] procedure EditableOfTheCallIsRefused() var P: Record "Page Control Field"; begin
+    P.SetRange(PageNo, Page::"PX Entries API");
+    P.SetRange(ControlName, 'companyName');
+    P.FindFirst();
+    if P.Editable = '' then; end; }"#,
+    );
+    passes(&o, "FieldNumbersOfAnApiPageWithABuiltInControl");
+    passes(&o, "FilterToTableBoundControlsOnly");
+    for t in ["SourceExpressionOfTheCallIsRefused", "EditableOfTheCallIsRefused"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("not pinned"), "{t}: {why}");
+    }
 }
 
 // The corpus writer's probe of al-runner issue 5842 (corpus branch al-runtime-rs-staging-pub-sc @2150ff97, green on BC 27.5, 28.5

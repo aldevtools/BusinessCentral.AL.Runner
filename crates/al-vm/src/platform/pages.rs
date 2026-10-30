@@ -693,6 +693,26 @@ fn control_row(
             r[pos(t, 7)] = bool_prop(o, ctl, "editable", if *editable { "True" } else { "False" })?;
             return Ok(true);
         }
+        // A single call (a built-in such as `field(companyName; CompanyName)`, `Control::expr_call`): the row is served with no
+        // source field, FieldNo 0 (record/lt-wb-6284/WbPageControlBuiltIn.al:46-70, al-runner issue 6284; corpus branch
+        // al-runtime-rs-staging-wb at a07787b2, not yet on master). What BC stores as its SourceExpression, and an undeclared
+        // Editable, are not pinned: a read of either is refused.
+        Binding::Expr(_) if ctl.expr_call => {
+            let unpinned = |col: &str| {
+                Value::Unknown(
+                    format!(
+                        "Page Control Field: page '{}' control '{}': an expression-bound control (its {col} is not pinned)",
+                        o.name, ctl.name
+                    )
+                    .into(),
+                )
+            };
+            r[pos(t, 9)] = unpinned("SourceExpression");
+            if !ctl.props.iter().any(|(k, _)| k == "editable") {
+                r[pos(t, 7)] = unpinned("Editable");
+            }
+            return Ok(true);
+        }
         _ => {
             return Err(format!(
                 "page '{}' control '{}': an expression-bound control (its SourceExpression is not pinned)",
