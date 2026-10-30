@@ -95,6 +95,14 @@ fixes that came with that work stay on. Details: [alrunner-buckets.md](alrunner-
   (`docs/alrunner-buckets.md`). `al-bcdb` reads `.bak` and `.bacpac` files, and
   `al-runner test --test-data` restores CRONUS from one (ADR-020, `docs/bcdb.md`).
 
+- **Company modes (ADR-046).** One company by default; `--companies LIST|all` runs the per-company install
+  code in each declared company and models BC with several companies. User text: `docs/manual/writing-tests.md`.
+- **Test framework, BC 29 (ADR-059, Proposed).** `TestHandlers` and `[TestDataSource]` are refused; the
+  `TestHandlerContext` and `DataSourceContext` members work on a fresh variable. A skipped outcome and per-case
+  results wait for the ADR and a Windows probe.
+- **Planned: license-backed permissions (ADR-060)** and the stability testing mode (ADR-058, Accepted; built in
+  open pull requests).
+
 ## Largest remaining blockers
 
 Run `al-test-cli --root . --top-refusals 15` for the current list. Each test is counted under the first thing that
