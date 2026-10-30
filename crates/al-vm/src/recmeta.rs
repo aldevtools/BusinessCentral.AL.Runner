@@ -1804,7 +1804,8 @@ impl Session {
         number: i64,
     ) -> Result<Option<Vec<Value>>, Signal> {
         let fields = &t.keys[0];
-        let mut parts: Vec<String> = Vec::new();
+        // Each value with whether it was quoted.
+        let mut parts: Vec<(String, bool)> = Vec::new();
         let mut rest = k;
         loop {
             if let Some(q) = rest.strip_prefix('"') {
@@ -1828,7 +1829,7 @@ impl Session {
                         }
                     }
                 };
-                parts.push(value);
+                parts.push((value, true));
                 match tail.strip_prefix(',') {
                     Some(more) => rest = more,
                     None if tail.is_empty() => break,
@@ -1839,18 +1840,14 @@ impl Session {
                     }
                 }
             } else {
-                if rest.is_empty() {
-                    return unsupported(
-                        "Evaluate into a RecordId of a key text with an empty value that is not quoted (not pinned)",
-                    );
-                }
+                // An empty value that is not quoted is checked per field type below.
                 match rest.split_once(',') {
                     Some((v, more)) => {
-                        parts.push(v.to_string());
+                        parts.push((v.to_string(), false));
                         rest = more;
                     }
                     None => {
-                        parts.push(rest.to_string());
+                        parts.push((rest.to_string(), false));
                         break;
                     }
                 }
@@ -1860,8 +1857,18 @@ impl Session {
             return Ok(None);
         }
         let mut key = Vec::new();
-        for (v, &p) in parts.iter().zip(fields) {
+        for ((v, quoted), &p) in parts.iter().zip(fields) {
             let ty = &t.fields[p].ty;
+            // An Option key field of a composite key (types/lt-wc/WcUnpinnedSingles.al:112-146, al-runner issue 6322).
+            if let (RtType::Option(members), true) = (ty, fields.len() > 1) {
+                key.push(self.evaluate_option_key_part(t, p, members, v, *quoted)?);
+                continue;
+            }
+            if v.is_empty() && !quoted {
+                return unsupported(
+                    "Evaluate into a RecordId of a key text with an empty value that is not quoted (not pinned)",
+                );
+            }
             match ty {
                 RtType::Code(_) | RtType::Integer | RtType::Enum(..) | RtType::Date => {
                     // The error of a value that is none is raised whether the result is used or not; the caller decides.
@@ -1894,6 +1901,63 @@ impl Session {
             }
         }
         Ok(Some(key))
+    }
+
+    /// The value of the Option key field at `p` of a composite key, read from `v` by `Evaluate` into a RecordId
+    /// (types/lt-wc/WcUnpinnedSingles.al:112-146, under languages 1033 and 1031 alike): a member name (`Invoice`, `Credit Memo`)
+    /// or an ordinal (`1`; `9`, past the members, is kept and Format shows `9`) gives that member; an empty value that is not
+    /// quoted gives ordinal 0 (Format shows `" "`); another text raises `'Quote' is not an option. The existing options are:
+    /// <members>` with code InvalidOptionString, and Evaluate answers false. Pinned only for a field whose members have no
+    /// captions, for values without blanks around them and for an exact-case name; the rest is refused.
+    fn evaluate_option_key_part(
+        &mut self,
+        t: &TableDef,
+        p: usize,
+        members: &[String],
+        v: &str,
+        quoted: bool,
+    ) -> Result<Value, Signal> {
+        let refuse = |what: &str| {
+            unsupported(format!(
+                "Evaluate into a RecordId of table `{}` with an Option key field: {what} (not pinned)",
+                t.name
+            ))
+        };
+        if let Some((_, list)) = self.members_of_field(t, p)? {
+            if list.iter().any(|(_, name, caption)| name != caption) {
+                return refuse("a field with OptionCaption");
+            }
+        }
+        let value = |o: i32| Ok(Value::Option(o, std::sync::Arc::from(members)));
+        if v.is_empty() {
+            return if quoted {
+                refuse("an empty quoted value")
+            } else {
+                value(0)
+            };
+        }
+        if v.trim() != v {
+            return refuse("a value with blanks around it");
+        }
+        if v.bytes().all(|b| b.is_ascii_digit()) {
+            return match v.parse::<i32>() {
+                Ok(n) => value(n),
+                Err(_) => refuse("an ordinal past the Integer range"),
+            };
+        }
+        if let Some(n) = members.iter().position(|m| m == v) {
+            return value(n as i32);
+        }
+        if members.iter().any(|m| m.eq_ignore_ascii_case(v)) {
+            return refuse("a member name in another case");
+        }
+        al_builtins::native::raise(
+            format!(
+                "'{v}' is not an option. The existing options are: {}",
+                members.join(",")
+            ),
+            "InvalidOptionString",
+        )
     }
 
     /// `FieldError(Field [, Text])`. With a text: `<caption> <text> in <table> <key>.`; without:
