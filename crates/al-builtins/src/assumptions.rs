@@ -109,9 +109,9 @@ pub fn awaiting_text(w: &Awaiting) -> String {
 registry! {
     LicensePermissionAnyObject => {
         id: "license-permission-any-object",
-        assumed: "License Permission read by object type and number answers, for a Report, Codeunit or Page numbered 1 to 2000000000 that no pinned row names, a row with Read, Insert, Modify, Delete and Execute Yes and Limited Usage blank; Codeunit 0 a row with every permission blank.",
-        tests: "No Microsoft test: two outside ISV suites check their own objects this way from a per-company install routine; they pass on the reporter's real-BC run.",
-        probe: "Pinned on corpus master by platform/lt-ag-contoso/AgLicensePermission.al LicensePermission_ByKey_CustomerAndIsvRanges (corpus PR 809: Codeunit 50000, 50123, 99999, 70000123, 2000000000 and 0, Table 50000 and 70000123, TableData 70000123, Page 50100, Report 70000001), but the runtime does not run it yet (an earlier test of its codeunit reads License Permission with a filter that names more than one object): run it, then retire. Still wanted: whether every number of the range is a row (the table lists the license), and a negative number.",
+        assumed: "License Permission read by object type and number answers, for a Report, Codeunit or Page numbered 1 to 99999999 that no pinned row names, a row with Read, Insert, Modify, Delete and Execute Yes and Limited Usage blank. The range stops at Codeunit 99999999, the highest number pinned Yes below 1999999999, which is pinned as a row with every permission blank.",
+        tests: "No Microsoft test: two outside ISV suites check their own codeunits this way from a per-company install routine; they pass on the reporter's real-BC run.",
+        probe: "Pinned rows are served without this assumption: platform/lt-ag-contoso/AgLicensePermission.al (Codeunit 50000, 50123, 99999, 70000123, 2000000000 and 0, Table 50000 and 70000123, TableData 70000123, Page 50100, Report 70000001) and lt-ss1030/SsLicensePermissionObjects.al (seven object types at 50123, 99999, 70000456, 100000, 1999999999, 2000000000, 2000000001, 2147483647). Still wanted: where between 100000 and 1999999999 the rows turn blank (the license ranges), and a negative number.",
     },
 
 
@@ -776,8 +776,35 @@ registry! {
             since: "2026-10-30",
         },
     },
-    InstallOrderAscendingId => {
-        id: "install-order-ascending-id",
+    CalcformulaFilterEqualsEmptyDate => {
+        id: "calcformula-filter-equals-empty-date",
+        assumed: "A CalcFormula filter(= 0D) or filter(=0D) on a Date field of the source table matches the rows with the empty date, as filter(0D) does, in count, exist and in a FlowField that filters on such a FlowField (pinned on corpus master by record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al EqualsEmptyDate_Rows_Result, _OnlyDatedRows_Result and _Chained_GroupOverFlowField, corpus PR 820; not yet in the pinned corpus).",
+        tests: "No Microsoft test: a partner app's suite whose FlowFields count rows with filter(= 0D) (13 tests of the owner's partner measurement).",
+        probe: "None: the next corpus bump brings the pinning tests; delete this entry then.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al::EqualsEmptyDate_Rows_Result",
+                "tests/al-language/record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al::EqualsEmptyDate_Chained_GroupOverFlowField",
+            ],
+            since: "2026-10-30",
+        },
+    },
+    FormatRecordStandard9 => {
+        id: "format-record-standard-nine",
+        assumed: "Format(Record, 0, 9) and Format(RecordRef, 0, 9) give the same text as standard format 0 (the fields in standard format 0, a Date as 03/05/24, joined by a TAB), for a database, temporary or FlowField record; an unopened RecordRef formats as the empty text with standard format 0 and 9 (pinned on corpus master by errors/lt-ms-refusals-133/P133DateEvaluateFormat.al NP3_FormatRecord_StandardFormats_0And9, _Temporary_AndFlowField_0And9, NP3_FormatRecordRef_StandardFormats_0And9 and NP3_FormatRecordRef_NotOpen, corpus PR 820; not yet in the pinned corpus).",
+        tests: "No Microsoft test: a partner app's suite that formats records and RecordRefs with standard format 9 (7 tests of the owner's partner measurement).",
+        probe: "None: the next corpus bump brings the pinning tests; delete this entry then.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/errors/lt-ms-refusals-133/P133DateEvaluateFormat.al::NP3_FormatRecord_StandardFormats_0And9",
+                "tests/al-language/errors/lt-ms-refusals-133/P133DateEvaluateFormat.al::NP3_FormatRecordRef_NotOpen",
+            ],
+            since: "2026-10-30",
+        },
+    },
+    InstallOrderAscendingId => {        id: "install-order-ascending-id",
         assumed: "The install routines of one app (install codeunit triggers and Extension Triggers subscribers) run as one sequence in ascending codeunit id in each company and in the per-database part, also across the 65536 id boundary, and a SingleInstance codeunit's state carries from one to the next within a company or part (ADR-046 amendment 3). Ascending id inside one block is pinned on corpus master (install/lt-um-install-order/UmInstallOrder.al, corpus PR 807); across the boundary it is pinned only on a writer branch, not yet in the pinned corpus (UrBlockOrderTests.al, 50300 to 90515). Two subscribers of one codeunit are not pinned and stay refused.",
         tests: "No Microsoft test: a partner app's suite whose install codeunits share tables and SingleInstance codeunits (the owner's partner measurement).",
         probe: "UmInstallOrder.al is in the pinned corpus, but the runtime does not run InstallCodeunits_OneApp_RunOrderPerPart yet (per-company install code writes a DataPerCompany = false table: ADR-046 decision 4c): run it. UrBlockOrderTests.al (writer UR, corpus PR 810), install codeunits and subscribers 50300 to 90515 across the 65536 boundary: wanted, the bump that puts it on corpus master.",

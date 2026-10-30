@@ -1413,6 +1413,7 @@ fn flow_filters_and_flow_fields_are_marked_and_lowered() {
                 field: 1,
                 value: ir::CalcValue::Field(0)
             }],
+            assumes: vec![],
         })
     );
     assert_eq!(t.calc_refusal, None);
