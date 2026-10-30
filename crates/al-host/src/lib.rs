@@ -17,6 +17,7 @@
 
 pub mod dotnet;
 pub mod inproc;
+pub mod license;
 pub mod random;
 pub mod seed;
 pub mod testdata;

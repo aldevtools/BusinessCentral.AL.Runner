@@ -149,6 +149,8 @@ pub struct TestArgs {
     pub test_timeout_secs: Option<u64>,
     pub require_dotnet: bool,
     pub files_dir: Option<PathBuf>,
+    /// `--license FILE` (serve: `license`): the BC license the run uses instead of the BC artifacts' (ADR-060).
+    pub license: Option<PathBuf>,
     /// `--environment saas|onprem`: what Environment Information answers (default saas, as probed).
     pub environment: Option<al_host::Environment>,
     /// `--companies NAME[,NAME...]|all` (ADR-046 decision 2): the companies of the database. `None`: one company.
@@ -274,7 +276,7 @@ fn stability_config(source: &str) -> Result<StabilityArg, String> {
 /// The checks of `--stability` and its options (ADR-058): exit 2 for a combination it cannot take. A config's
 /// selection applies when the command line selects nothing (command-line options win).
 fn stability_args(a: &mut TestArgs) -> Result<(), String> {
-    let Some(st) = &a.stability else {
+    if a.stability.is_none() {
         for (set, flag) in [
             (a.stability_max.is_some(), "--stability-max"),
             (a.stability_allow_flips, "--stability-allow-flips"),
@@ -289,14 +291,8 @@ fn stability_args(a: &mut TestArgs) -> Result<(), String> {
                 .map_err(|e| format!("--stability-replay {r}: {e} (an id such as 29.0-w1/3 needs --stability)"))?;
         }
         return Ok(());
-    };
-    let listed = |v: &Option<String>| v.as_deref().is_some_and(|v| v.contains(','));
+    }
     for (set, flag, why) in [
-        (
-            a.matrix.is_some() || listed(&a.bc_version) || listed(&a.country),
-            "--matrix or lists in --bc-version/--country",
-            "matrix axes are not built yet in the stability mode; run one cell per command",
-        ),
         (
             !a.impact_of.is_empty(),
             "--impact-of",
@@ -324,12 +320,121 @@ fn stability_args(a: &mut TestArgs) -> Result<(), String> {
             return Err(format!("--stability cannot be combined with {flag}: {why}"));
         }
     }
+    stability_matrix_args(a)?;
+    let Some(st) = &a.stability else { return Ok(()) };
     let sel = st.config.selection.clone();
     let cli_selects = !a.codeunits.is_empty() || !a.filters.is_empty() || !a.exact.is_empty() || !a.excludes.is_empty();
     if !cli_selects {
         a.codeunits = sel.codeunits;
         a.exact = sel.tests;
         a.excludes = sel.exclude_tests;
+    }
+    Ok(())
+}
+
+/// The matrix axes of a stability config (ADR-058 section 3, phase 3). Version, country and companies cells become a
+/// matrix run (`a.matrix`, ADR-052: one child process per cell, its build resolved as a matrix run resolves it); a
+/// cell process (`--matrix-cell`) takes its cell from its own command line; a replay of a variant id sets the cell
+/// the id names and runs it alone. The environment axis stays with the cell's process (its cells share the compile).
+fn stability_matrix_args(a: &mut TestArgs) -> Result<(), String> {
+    let Some(st) = &a.stability else { return Ok(()) };
+    let axes = st.config.matrix.clone();
+    let source = st.source.clone();
+    if a.matrix_cell.is_some() {
+        return Ok(());
+    }
+    // An axis the config names and the command line sets too (ADR-058 section 3).
+    for (named, set, flag, axis) in [
+        (
+            !axes.bc_versions.is_empty(),
+            a.bc_version.is_some() || a.matrix.is_some(),
+            "--bc-version or --matrix",
+            "bcVersion",
+        ),
+        (
+            !axes.countries.is_empty(),
+            a.country.is_some() || a.matrix.is_some(),
+            "--country or --matrix",
+            "country",
+        ),
+        (
+            !axes.environments.is_empty(),
+            a.environment.is_some(),
+            "--environment",
+            "environment",
+        ),
+        (
+            !axes.companies.is_empty(),
+            a.companies.is_some(),
+            "--companies",
+            "companies",
+        ),
+    ] {
+        if named && set {
+            return Err(format!(
+                "--stability {source}: the config names the matrix axis \"{axis}\"; it cannot be combined with {flag}"
+            ));
+        }
+    }
+    if let Some(arg) = a.stability_replay.clone() {
+        if a.matrix.is_some() {
+            return Err(format!(
+                "--stability-replay {arg} runs one cell: give that cell's --bc-version and --country instead of a list or --matrix"
+            ));
+        }
+        if !axes.has_child_axes() {
+            return Ok(());
+        }
+        let id = al_testrun::stability::split_replay_seed(&arg).0;
+        let cell = id
+            .rsplit_once('/')
+            .and_then(|(c, _)| crate::stability::parse_cell(c))
+            .ok_or_else(|| {
+                format!(
+                    "--stability-replay {arg}: the config has matrix axes; replay with a variant id the run printed (<cell>/<n>@<seed>)"
+                )
+            })?;
+        if !axes.bc_versions.is_empty() {
+            let v = &cell.version;
+            let e = axes
+                .bc_versions
+                .iter()
+                .find(|e| *e == v || e.starts_with(&format!("{v}.")) || v.starts_with(&format!("{e}.")))
+                .ok_or_else(|| {
+                    format!(
+                        "--stability-replay {arg}: the version {v} is not on the config's bcVersion axis ({})",
+                        axes.bc_versions.join(", ")
+                    )
+                })?;
+            a.bc_version = Some(e.clone());
+        }
+        if !axes.countries.is_empty() {
+            if !axes.countries.contains(&cell.country) {
+                return Err(format!(
+                    "--stability-replay {arg}: the country {} is not on the config's country axis ({})",
+                    cell.country,
+                    axes.countries.join(", ")
+                ));
+            }
+            a.country = Some(cell.country.clone());
+        }
+        if !axes.companies.is_empty() {
+            let value = cell
+                .companies
+                .and_then(|n| axes.companies.get(n - 1))
+                .ok_or_else(|| {
+                    format!(
+                        "--stability-replay {arg}: the cell names no value of the config's companies axis (companies1 to companies{})",
+                        axes.companies.len()
+                    )
+                })?;
+            a.companies = value.as_deref().map(al_host::Companies::parse).transpose()?;
+        }
+        return Ok(());
+    }
+    if axes.has_child_axes() || a.matrix.is_some() {
+        a.matrix = Some(crate::matrix::stability_cells(&axes, a.matrix.as_deref()));
+        matrix_checks(a)?;
     }
     Ok(())
 }
@@ -469,10 +574,14 @@ selects only the tests both match)
                          JSON config (or the preset `microsoft`: another Library - Random seed,
                          each test alone, reverse order, work date plus one year) over one
                          compile, and list the tests whose outcome changes. Exit 1 on a change
-                         between pass and fail.
+                         between pass and fail. The matrix object of the config (bcVersion, country,
+                         companies: one child process per cell, as --matrix; environment: cells
+                         that share the compile) runs every variant in every cell; a version or
+                         country list on the command line does the same.
     --stability-replay ID|VALUES
                          Run one variant as a normal run: its id (29.0-w1/3@4271833, which also sets
-                         the run seed) with --stability, or its printed values (order.methods=reverse).
+                         the run seed and, with matrix axes, the cell) with --stability, or its
+                         printed values (order.methods=reverse).
     --stability-max N    The most variants the matrix strategy forms (default 1000).
     --stability-allow-flips
                          Exit 0 although a test changed outcome (a report-only run).
@@ -895,6 +1004,11 @@ OTHER
                          per-company install code of the apps under test runs once in each company, then
                          the per-database part (ADR-046). Default: one company, the session company.
     --files-dir DIR      Let the File data type read and write real files under DIR.
+    --license FILE       The BC license file (.bclicense) the run uses: a developer, partner or
+                         customer license. Default: the license in the BC artifacts of the run's
+                         build. License Permission reads answer from it. The file is read for
+                         this run only, never copied or cached. A file that cannot be read stops
+                         the run. The summary names the license (licensee, expiry, SHA-256).
     --define SYMBOL      A preprocessor symbol (`#if SYMBOL`) for the APPs. Repeatable.
                          `--preprocessor-symbols A,B` names several. Like the AL compiler,
                          al-runner predefines no symbol (no `CLEANSCHEMA<n>`, no `BC<n>PLUS`):
@@ -1358,6 +1472,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--quiet" | "-q" => a.quiet = true,
             "--timings" => a.timings = true,
             "--files-dir" => a.files_dir = Some(text()?.into()),
+            "--license" => a.license = Some(text()?.into()),
             "--environment" => a.environment = Some(text()?.parse().map_err(|e| format!("--environment: {e}"))?),
             "--companies" => a.companies = Some(al_host::Companies::parse(&text()?)?),
             "--server-url" => {
@@ -1657,15 +1772,23 @@ fn matrix_args(a: &mut TestArgs, spec: Option<String>, country_list: Option<Stri
         let country = country_list.or_else(|| a.country.take());
         a.matrix = crate::matrix::cells(bc.as_deref(), country.as_deref(), spec.as_deref())?;
     }
-    let Some(cells) = &a.matrix else {
-        if a.matrix_parallel.is_some() || a.matrix_memory_gb.is_some() {
+    if a.matrix.is_none() {
+        if (a.matrix_parallel.is_some() || a.matrix_memory_gb.is_some())
+            && !a.stability.as_ref().is_some_and(|s| s.config.matrix.has_child_axes())
+        {
             return Err(
-                "--matrix-parallel and --matrix-memory need a matrix: a list in --bc-version or --country, or --matrix"
+                "--matrix-parallel and --matrix-memory need a matrix: a list in --bc-version or --country, --matrix, or matrix axes in a --stability config"
                     .into(),
             );
         }
         return Ok(());
-    };
+    }
+    matrix_checks(a)
+}
+
+/// The checks of a matrix run, whatever formed its cells.
+fn matrix_checks(a: &TestArgs) -> Result<(), String> {
+    let Some(cells) = &a.matrix else { return Ok(()) };
     if a.matrix_cell.is_some() {
         return Err("--matrix-cell is one cell of a matrix: it takes one --bc-version and --country".into());
     }

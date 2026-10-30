@@ -10,3 +10,4 @@ jiff = { version = "=0.2.38", default-features = false, features = ["std", "tzdb
 md-5 = "0.10"
 sha1 = "0.10"
 sha2 = "0.10"
+quick-xml.workspace = true

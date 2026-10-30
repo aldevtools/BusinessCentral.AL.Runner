@@ -491,10 +491,22 @@ impl<'a> Checker<'a> {
         let e = self.infer(sc, target);
         if let E::Callable(c) = &e {
             let visible: Vec<&Cand> = c.iter().filter(|c| c.hidden.is_none()).collect();
+            // A builtin whose only form takes the value is assigned as a property too when lowering knows it as a setter
+            // (`Client.UseResponseCookies := b`: network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:16-74).
+            let setter = |c: &Cand| match &c.target {
+                Res::Proc { .. } => true,
+                Res::Builtin(id) => self
+                    .catalog
+                    .by_id(id)
+                    .is_some_and(|s| crate::lower::is_property_setter(&s.receiver, &s.name)),
+                _ => false,
+            };
+            let builtin_setter = |c: &&Cand| {
+                matches!(&c.target, Res::Builtin(id)
+                    if id == "HttpClient.UseResponseCookies#1" || id == "HttpClient.UseServerCertificateValidation#1")
+            };
             if !visible.is_empty()
-                && visible
-                    .iter()
-                    .all(|c| matches!(c.target, Res::Proc { .. }) && c.min == 1 && c.max >= 1)
+                && (visible.iter().all(|c| setter(c) && c.min == 1 && c.max >= 1) || visible.iter().all(builtin_setter))
             {
                 let c = c.clone();
                 let arg = self.ty(sc, rhs);

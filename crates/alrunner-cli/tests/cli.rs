@@ -2870,3 +2870,62 @@ fn a_bad_run_seed_is_a_bad_invocation() {
     assert_eq!(code(&o), 2, "{}", text(&o));
     assert!(text(&o).contains("ALRUNNER_SEED"), "{}", text(&o));
 }
+
+/// ADR-060: `--license FILE` is the license of the run. The summary, the JUnit file and the JSON report name it
+/// (licensee, expiry, SHA-256, signature not checked); a file that is no license stops the run before any test.
+/// The file is synthetic (made-up values, no signature): no license file is ever a fixture.
+#[test]
+fn a_license_file_is_used_and_named_in_every_report() {
+    let d = tempfile::tempdir().unwrap();
+    let app = mixed_app(d.path());
+    let lic = d.path().join("Dev.bclicense");
+    std::fs::write(
+        &lic,
+        al_host::license::synthetic::file("Synthetic Partner", "1/2/2040", &[("Codeunit", &[(1, 99, 31)])]),
+    )
+    .unwrap();
+    let junit = d.path().join("junit.xml");
+    let json = d.path().join("out.json");
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--no-download",
+        "--license",
+        lic.to_str().unwrap(),
+        "--junit",
+        junit.to_str().unwrap(),
+        "--output-json",
+        json.to_str().unwrap(),
+    ]);
+    let t = text(&o);
+    assert_eq!(code(&o), 1, "{t}");
+    assert!(
+        t.contains("license: Synthetic Partner, expires 1/2/2040, from --license ")
+            && t.contains("signature not checked"),
+        "{t}"
+    );
+    let x = std::fs::read_to_string(&junit).unwrap();
+    assert!(x.contains("<property name=\"license.source\" value=\"flag\" />"), "{x}");
+    assert!(
+        x.contains("<property name=\"license.licensee\" value=\"Synthetic Partner\" />"),
+        "{x}"
+    );
+    let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    assert_eq!(j["license"]["source"], "flag");
+    assert_eq!(j["license"]["expires"], "1/2/2040");
+    assert_eq!(j["license"]["signatureChecked"], false);
+    assert_eq!(j["license"]["sha256"].as_str().map(str::len), Some(64));
+
+    std::fs::write(&lic, b"not a license").unwrap();
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--no-download",
+        "--license",
+        lic.to_str().unwrap(),
+    ]);
+    let t = text(&o);
+    assert_eq!(code(&o), 2, "{t}");
+    assert!(t.contains("--license") && t.contains("byte order mark"), "{t}");
+    assert!(!t.contains("PASS"), "no test ran: {t}");
+}

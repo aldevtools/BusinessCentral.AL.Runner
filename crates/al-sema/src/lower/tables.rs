@@ -96,6 +96,31 @@ impl Lowerer<'_> {
                         return Vec::new();
                     }
                 }
+                // `const("Enum"::Value)` on an Enum field of that enum names the member as `const(Value)` does
+                // (record/lt-sc-enum-const-relation/ScEnumConstRelation.al:52-53, :101-140). Another enum is not pinned.
+                let raw = a.condition_raw.get(k).map(String::as_str).unwrap_or_default();
+                let qualified = match (&own.fields[pos].ty, raw.split_once("::")) {
+                    (Ty::Enum(field_enum), Some((qualifier, member))) => {
+                        let parts: Vec<String> = vec![qualifier.trim().trim_matches('"').to_string()];
+                        let same = matches!(
+                            (
+                                self.ws.resolve_relation_target(file, ObjKind::Enum, &parts),
+                                self.ws.resolve_relation_target(
+                                    file,
+                                    ObjKind::Enum,
+                                    &crate::types::qualified_parts(field_enum),
+                                ),
+                            ),
+                            (Resolution::Found(a), Resolution::Found(b)) if a == b
+                        );
+                        if !same {
+                            return Vec::new();
+                        }
+                        Some(member.trim().trim_matches('"').to_string())
+                    }
+                    _ => None,
+                };
+                let value = qualified.as_deref().unwrap_or(value);
                 let Some(value) = self.condition_const(file, value, &own.fields[pos].ty) else {
                     return Vec::new();
                 };
