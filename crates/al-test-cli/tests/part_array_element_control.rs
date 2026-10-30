@@ -20,6 +20,10 @@ page 62542 "PAE Part" { PageType = ListPart; SourceTable = "PAE Row"; Editable =
     var PlainText: Text; ElementText: array[3] of Text; ElementNo: array[3] of Integer; }
 page 62543 "PAE Host" { PageType = Document; SourceTable = "PAE Host"; Editable = false;
     layout { area(Content) { group(General) { field("Code"; Rec."Code") { } } part(Cells; "PAE Part") { } } } }
+pageextension 62545 "PAE Part Ext" extends "PAE Part" {
+    layout { addlast(Rows) { field(ExtElement; ExtText[2]) { } } }
+    trigger OnAfterGetRecord() begin ExtText[2] := 'ext of ' + Rec."No."; end;
+    var ExtText: array[3] of Text; }
 codeunit 62544 "PAE Seed" {
     procedure Seed() var H: Record "PAE Host"; R: Record "PAE Row"; begin
         H.DeleteAll(); R.DeleteAll(); H.Code := 'H'; H.Insert();
@@ -56,5 +60,18 @@ fn an_array_element_control_of_a_list_part_shows_the_rows_value() {
             H.Cells.Last(); if H.Cells.Element.Value() <> 'cell of C' then Error('last %1', H.Cells.Element.Value());
             H.Cells.Previous(); if H.Cells.Element.Value() <> 'cell of B' then Error('previous %1', H.Cells.Element.Value());
             H.Cells.GoToKey(1); if H.Cells.Element.Value() <> 'cell of A' then Error('goto %1', H.Cells.Element.Value()); end;"#,
+    );
+}
+
+// A control a pageextension adds, bound to an element of the extension's own array: the lowering marks only the page's own
+// controls (`Control::array_element` looks up the page's globals), so the extension's control reads its own variable as an
+// expression, as before.
+#[test]
+fn an_array_element_control_of_a_page_extension_reads_the_extensions_variable() {
+    passes(
+        r#"[Test] procedure Ext() var S: Codeunit "PAE Seed"; H: TestPage "PAE Host"; begin
+            S.Seed(); H.OpenView();
+            if H.Cells.ExtElement.Value() <> 'ext of A' then Error('ext %1', H.Cells.ExtElement.Value());
+            if H.Cells.Element.Value() <> 'cell of A' then Error('base %1', H.Cells.Element.Value()); end;"#,
     );
 }

@@ -378,7 +378,9 @@ impl Lowerer<'_> {
                                     });
                                     // An element of a one-dimensional page array with a number index in its bounds
                                     // (`ElementText[2]`): shown as a plain page variable is (al-runner issue 6379; corpus
-                                    // branch al-runtime-rs-staging-y5, pages/lt-y5/Y5PartArrayElementControl.al).
+                                    // branch al-runtime-rs-staging-y5, pages/lt-y5/Y5PartArrayElementControl.al). Only a
+                                    // page's own control (owner None, this block): `globals` are the page's variables, not
+                                    // those of a pageextension that adds the control.
                                     array_element = args.get(1).and_then(|a| crate::pages::array_element(a)).and_then(
                                         |(v, text)| {
                                             let index: usize =
