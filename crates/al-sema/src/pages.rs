@@ -338,6 +338,41 @@ pub fn array_element(text: &str) -> Option<(String, String)> {
         .map(|n| (n, t.to_string()))
 }
 
+/// Text that is a single call written as a plain name, with or without one argument list that closes at the end
+/// (`CompanyName`, `CompanyName()`, `Format(Costs[1])`): a control bound to it has no source field (record/lt-wb-6284/
+/// WbPageControlBuiltIn.al, al-runner issue 6284). A member access (`Rec.Name`), an operator or a second call is not one.
+pub fn call_shape(text: &str) -> bool {
+    let t = text.trim();
+    let head = t
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(t.len());
+    let (name, rest) = t.split_at(head);
+    if name.is_empty() || name.starts_with(|c: char| c.is_ascii_digit()) {
+        return false;
+    }
+    if rest.is_empty() {
+        return true;
+    }
+    if !rest.starts_with('(') {
+        return false;
+    }
+    let (mut depth, mut quoted) = (0i32, false);
+    for (i, c) in rest.char_indices() {
+        match c {
+            '\'' | '"' => quoted = !quoted,
+            '(' | '[' if !quoted => depth += 1,
+            ')' | ']' if !quoted => {
+                depth -= 1;
+                if depth == 0 {
+                    return i + 1 == rest.len();
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 /// Text with no quote, no tab or line break and no two spaces in a row.
 pub fn plain_spacing(text: &str) -> bool {
     let t = text.trim();
@@ -2157,5 +2192,32 @@ mod tests {
         );
         assert!(parse_run_object("Table 18").is_err());
         assert!(parse_run_object("Page").is_err());
+    }
+}
+
+#[cfg(test)]
+mod call_shape_tests {
+    #[test]
+    fn a_single_call_is_a_call_shape_and_other_expressions_are_not() {
+        for t in [
+            "CompanyName",
+            "CompanyName()",
+            " Format(Costs[1]) ",
+            "StrSubstNo('%1 (x)', A)",
+        ] {
+            assert!(super::call_shape(t), "{t}");
+        }
+        for t in [
+            "Rec.Name",
+            "A + B",
+            "Format(A) + Format(B)",
+            "Costs[1]",
+            "",
+            "1abc",
+            "F(A)(B)",
+            "Rec.Name()",
+        ] {
+            assert!(!super::call_shape(t), "{t}");
+        }
     }
 }

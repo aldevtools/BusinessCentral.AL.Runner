@@ -342,15 +342,23 @@ impl<'a> Checker<'a> {
             c = all;
         }
         // A bare `RunModal(Page::X[, Rec])` in a page's code is the static Page.RunModal (pages/lt-uf-unqualified-runmodal/
-        // UfUnqualifiedRunModal.al:71-117, a field's OnDrillDown and two actions' OnAction; al-runner issue 6162). The page's
-        // own RunModal() without arguments, the other static Page methods and a page extension are not pinned.
+        // UfUnqualifiedRunModal.al:71-117, a field's OnDrillDown and two actions' OnAction; al-runner issue 6162). The other
+        // static Page methods and a page extension are not pinned.
+        // The bare `RunModal()` without arguments in a page procedure runs the page instance the procedure belongs to, as
+        // `CurrPage.RunModal()` (pages/lt-wb-6283/WbBareRunModal.al:35-43, PageProcedureRunsItselfModal, corpus branch
+        // al-runtime-rs-staging-wb at a07787b2, not yet on master; al-runner issue
+        // 6283; the lowering hands it `CurrPage` as the receiver).
         if c.is_empty() && n.eq_ignore_ascii_case("runmodal") && self.ws.objects[sc.oi].kind == ObjKind::Page {
+            let me = sc.globals.get("currpage").cloned();
             c = self
                 .catalog
                 .overloads("Page", n)
                 .into_iter()
-                .filter(|s| !s.instance)
-                .map(|s| sig_cand(s, &Ty::Unknown, self.catalog.id(s)))
+                .filter_map(|s| match (&me, s.instance) {
+                    (_, false) => Some(sig_cand(s, &Ty::Unknown, self.catalog.id(s))),
+                    (Some(page @ Ty::Object(ObjKind::Page, _)), true) => Some(sig_cand(s, page, self.catalog.id(s))),
+                    _ => None,
+                })
                 .collect();
         }
         if c.is_empty() {
