@@ -2653,6 +2653,91 @@ mod tests {
         }
     }
 
+    // must-not-compile 1250: `I := T`, `C := I` into a Code[20] and `T := I + 1` are AL0122. `exit(1 + 2)` in a procedure
+    // returning Text is the third shape through exit (al-runner issue 5588, comment of 2026-10-24).
+    #[test]
+    fn al0122_integer_text_code_assignments() {
+        let cu = |body: &str| {
+            format!(
+                "codeunit 50000 \"MNC BB Codeunit\" {{ procedure DoIt() var I: Integer; T: Text; C: Code[20]; begin {body} end;
+                   procedure Name(): Text begin exit(1 + 2); end; }}"
+            )
+        };
+        let only = |body: &str| -> Vec<String> {
+            messages(&cu(body))
+                .into_iter()
+                .filter(|m| m.starts_with("AL0122"))
+                .collect()
+        };
+        let exit_msg = "AL0122 Cannot implicitly convert type 'Integer' to 'Text'".to_string();
+        assert_eq!(
+            only("I := T;"),
+            vec![
+                "AL0122 Cannot implicitly convert type 'Text' to 'Integer'".to_string(),
+                exit_msg.clone()
+            ]
+        );
+        assert_eq!(
+            only("C := I;"),
+            vec![
+                "AL0122 Cannot implicitly convert type 'Integer' to 'Code[20]'".to_string(),
+                exit_msg.clone()
+            ]
+        );
+        assert_eq!(only("T := I + 1;"), vec![exit_msg.clone(), exit_msg.clone()]);
+        for ok in [
+            "T := Format(I + 1);",
+            "I := I + 1;",
+            "C := Format(I);",
+            "Evaluate(I, T);",
+        ] {
+            assert_eq!(only(ok), vec![exit_msg.clone()], "{ok}");
+        }
+    }
+
+    // must-not-compile 1190 (Boolean into Text), 1191 (Boolean into Code[10]), 1193 (Date into DateTime), 1251 (a text
+    // literal of two characters into a BigInteger and a Decimal) and 1833 (BigText into Text): AL0122.
+    #[test]
+    fn al0122_more_scalar_pairs() {
+        let cu = |body: &str| {
+            format!(
+                "codeunit 50000 \"MNC C\" {{ procedure DoIt() var B: Boolean; T: Text; C: Code[10]; D: Date; DT: DateTime;
+                   BI: BigInteger; Dec: Decimal; BT: BigText; begin {body} end; }}"
+            )
+        };
+        let only = |body: &str| -> Vec<String> {
+            messages(&cu(body))
+                .into_iter()
+                .filter(|m| m.starts_with("AL0122"))
+                .collect()
+        };
+        for (body, want) in [
+            ("T := B;", vec!["Boolean' to 'Text'"]),
+            ("C := B;", vec!["Boolean' to 'Code[10]'"]),
+            ("DT := D;", vec!["Date' to 'DateTime'"]),
+            (
+                "BI := 'xy'; Dec := 'xy';",
+                vec!["Text' to 'BigInteger'", "Text' to 'Decimal'"],
+            ),
+            ("T := BT;", vec!["BigText' to 'Text'"]),
+        ] {
+            let want: Vec<String> = want
+                .iter()
+                .map(|w| format!("AL0122 Cannot implicitly convert type '{w}"))
+                .collect();
+            assert_eq!(only(body), want, "{body}");
+        }
+        for ok in [
+            "T := Format(B);",
+            "DT := CreateDateTime(D, 0T);",
+            "BI := 'x';",
+            "BT.GetSubText(T, 1);",
+            "B := true;",
+        ] {
+            assert!(only(ok).is_empty(), "{ok}");
+        }
+    }
+
     // must-not-compile 0501: a Text literal and a Text variable assigned to a Decimal. AL0122.
     #[test]
     fn al0122_text_into_decimal() {

@@ -65,12 +65,24 @@ impl<'a> Checker<'a> {
         // two or more characters is a Text, so it cannot go into an Integer (must-not-compile 1041, `T := C - 'A'`, `I := C + 'AB'`).
         // Other operators, operand shapes and targets are not judged.
         if rhs.kind() == SyntaxKind::BinExpr {
-            if let Some(message) = self.char_literal_result(sc, rhs, target) {
+            if let Some(message) = self
+                .char_literal_result(sc, rhs, target)
+                .or_else(|| self.integer_sum_into_text(sc, rhs, target))
+            {
                 self.diag(sc, rhs, "AL0122", message);
             }
             return;
         }
         let message = match (target, source) {
+            // An Integer variable into a Code[N] (must-not-compile 1250, `C := I` into a Code[20]). Code without a length is
+            // not pinned.
+            (Ty::Code(Some(n)), Ty::Integer) if rhs.kind() == SyntaxKind::NameRef => {
+                format!("Cannot implicitly convert type 'Integer' to 'Code[{n}]'")
+            }
+            // A Text variable into an Integer (must-not-compile 1250, `I := T`). Text[N] is not pinned.
+            (Ty::Integer, Ty::Text(None)) if rhs.kind() == SyntaxKind::NameRef => {
+                "Cannot implicitly convert type 'Text' to 'Integer'".to_string()
+            }
             (Ty::Text(len), Ty::Integer) if rhs.kind() == SyntaxKind::NameRef => {
                 let t = len.map_or("Text".to_string(), |n| format!("Text[{n}]"));
                 format!("Cannot implicitly convert type 'Integer' to '{t}'")
@@ -108,6 +120,26 @@ impl<'a> Checker<'a> {
             _ => return,
         };
         self.diag(sc, rhs, "AL0122", message);
+    }
+
+    /// The message of AL0122 for an Integer sum into a Text: `T := I + 1` (must-not-compile 1250), also two integer literals
+    /// as in `exit(1 + 2)` of a procedure returning Text (al-runner issue 5588, alc measured by the reporter; the text is
+    /// 1250's). Only `+` with two operands that are Integer variables or literals is judged; a Text[N] target is not.
+    fn integer_sum_into_text(&self, sc: &Scope, bin: &SyntaxNode, target: &Ty) -> Option<String> {
+        if !matches!(target, Ty::Text(None)) || op_token(bin) != "+" {
+            return None;
+        }
+        let kids: Vec<SyntaxNode> = bin.children().collect();
+        let [left, right] = kids.as_slice() else { return None };
+        let integer = |n: &SyntaxNode| {
+            let r = n.text_range();
+            matches!(n.kind(), SyntaxKind::NameRef | SyntaxKind::Literal)
+                && matches!(
+                    self.types.get(&(sc.file, r.start().into(), r.end().into())),
+                    Some(Ty::Integer)
+                )
+        };
+        (integer(left) && integer(right)).then(|| "Cannot implicitly convert type 'Integer' to 'Text'".to_string())
     }
 
     /// The message of AL0122 for `Char var - 'A'` into a Text or `Char var + 'AB'` into an Integer, else `None`.
@@ -251,8 +283,18 @@ impl<'a> Checker<'a> {
                             Ty::Enum(_),
                             Ty::Decimal | Ty::Code(_) | Ty::Text(_) | Ty::Boolean | Ty::Date | Ty::Char
                         )
-                ) || (json(target, "JsonObject") && json(source, "JsonToken"));
-                pinned.then(|| source.to_string())
+                ) || (json(target, "JsonObject") && json(source, "JsonToken"))
+                    // Corpus must-not-compile 1190 (Boolean into Text), 1191 (Boolean into Code[10]), 1193 (Date into
+                    // DateTime) and 1833 (BigText into Text; al-runner issue 5588).
+                    || matches!(
+                        (target, source),
+                        (Ty::Text(None), Ty::Boolean) | (Ty::Code(Some(_)), Ty::Boolean) | (Ty::DateTime, Ty::Date)
+                    )
+                    || (matches!(target, Ty::Text(None)) && json(source, "BigText"));
+                pinned.then(|| match source {
+                    Ty::Builtin(b) if b.eq_ignore_ascii_case("BigText") => "BigText".to_string(),
+                    _ => source.to_string(),
+                })
             }
             SyntaxKind::Literal => {
                 // An integer literal to a Boolean (corpus must-not-compile 0432).
@@ -286,6 +328,9 @@ impl<'a> Checker<'a> {
                 match (target, chars) {
                     (Ty::Enum(_), Some(1)) => Some("Char".to_string()),
                     (Ty::Boolean, Some(n)) if n > 1 => Some("Text".to_string()),
+                    // A text literal of two characters into a BigInteger (must-not-compile 1251; the Decimal half of the
+                    // case is `al_integer_text_assignment`'s).
+                    (Ty::BigInteger, Some(n)) if n > 1 => Some("Text".to_string()),
                     _ => None,
                 }
             }
