@@ -215,7 +215,8 @@ impl<'a> Lowerer<'a> {
                 Some(i) => RtType::DotNet(i as u32),
                 None => {
                     return Err(format!(
-                        "DotNet '{alias}' has no dotnet {{ }} declaration in this app or its dependencies"
+                        "DotNet '{}' has no dotnet {{ }} declaration in this app or its dependencies",
+                        crate::types::display_name(alias)
                     ));
                 }
             },

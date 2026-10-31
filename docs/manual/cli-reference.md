@@ -216,6 +216,7 @@ Order when several apply: 2, 6, 1, 8, 7. Exit code 3 means no test ran; the erro
 | `ALRUNNER_NO_COMPILE_CACHE=1` | Same as `--no-compile-cache`. |
 | `ALRUNNER_NO_CACHE_PRUNE=1` | Turn off the automatic cache cleanup. |
 | `ALRUNNER_BCAPPS_URL` | The address `--recipe` fetches BCApps from. |
+| `ALRUNNER_REPORT_UNPINNED_ERRORS=1` | Opt-in: a test that ends on an error whose text is not pinned is failed, its message starting with `[error text not pinned]`, instead of not run. The summary line, `--junit` and `--output-json` say the switch is on. Not a conformance result. See [Reading results](results.md#errors-whose-text-is-not-pinned). |
 | `ALRUNNER_NO_PATH_NOTE=1` | No note about another `al-runner` on the `PATH`, and no list of them under `--version`. |
 | `ALRUNNER_TEST_TIMEOUT`, `AL_RUNNER_TEST_TIMEOUT_SEC` | The test time limit in seconds when `--test-timeout-secs` is not given (also for Microsoft's recipe). The second is version 2's name. |
 | `AL_CHECK_THREADS`, `AL_LOWER_THREADS`, `AL_TEST_THREADS` | Worker threads of the check, the lowering and the test codeunits. Default: one per core. |

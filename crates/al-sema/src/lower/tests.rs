@@ -728,6 +728,36 @@ fn a_dotnet_string_variable_added_to_a_list_of_text_is_converted() {
     );
 }
 
+// `DotNet A.B.C` names alias `C` declared in namespace `A.B`, not a .NET full type name: Microsoft's System Application declares
+// `type("System.DateTime"; "DateTime")` inside `namespace System;`, and its AFS Format Helper declares
+// `DateTimeDotNet: DotNet System.DateTime` (al-runner issue 6488; corpus writer Y20,
+// al-language-onprem-dotnet/lt-y20-dotnet-fullname/Y20DotNetFullTypeName.al). A quoted name is one alias, whatever dots it holds.
+// The .NET full name of a type declared under another alias does not compile (must-not-compile 2358, AL0185), nor quoted (2357).
+#[test]
+fn a_dotted_dotnet_type_name_is_a_namespace_and_an_alias() {
+    let ns = "namespace LtNs.Sub;\ndotnet { assembly(\"mscorlib\") { type(\"System.Text.StringBuilder\"; NsBuilder) { } \
+              type(\"System.Text.StringBuilder\"; \"System.Text.StringBuilder\") { } } }\n";
+    let code = "codeunit 50100 C { procedure P() var Q: DotNet LtNs.Sub.NsBuilder; B: DotNet NsBuilder; \
+                U: DotNet \"System.Text.StringBuilder\"; begin end; \
+                procedure Full() var F: DotNet System.Text.StringBuilder; begin end; \
+                procedure WrongNs() var W: DotNet Other.NsBuilder; begin end; }";
+    let (ws, l) = lower_files(&[("ns.al", ns), ("c.al", code)], false);
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let (p, r) = routine(&l, "P");
+    let at = |name: &str| routine(&l, name).0;
+    assert_eq!(l.unsupported[0][p], Vec::<String>::new());
+    assert_eq!(r.locals[0].ty, RtType::DotNet(0));
+    assert_eq!(r.locals[1].ty, RtType::DotNet(0));
+    assert_eq!(r.locals[2].ty, RtType::DotNet(1));
+    // Namespace System.Text has no alias StringBuilder: the full .NET name of a declared type is no name for it.
+    let full = &l.unsupported[0][at("Full")];
+    assert!(
+        full.iter().any(|m| m.contains("DotNet 'System.Text.StringBuilder'")),
+        "{full:?}"
+    );
+    assert!(!l.unsupported[0][at("WrongNs")].is_empty());
+}
+
 // Tests-ERM Document Service Management.CheckError: `Error(Service.LastError.Message)`. A DotNet result
 // fits the Text overload of Error, not the ErrorInfo one (ADR-024).
 #[test]
