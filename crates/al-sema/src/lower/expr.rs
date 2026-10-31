@@ -945,7 +945,10 @@ impl Lowerer<'_> {
                         return Err(format!("`{name}` is not a member of a DotNet value"));
                     };
                     let ty = self.ws.resolve_dotnet(self.file, &alias).ok_or_else(|| {
-                        format!("DotNet '{alias}' has no dotnet {{ }} declaration in this app or its dependencies")
+                        format!(
+                            "DotNet '{}' has no dotnet {{ }} declaration in this app or its dependencies",
+                            crate::types::display_name(&alias)
+                        )
                     })?;
                     Ok(ir::Expr::DotNet {
                         ty: Some(ty),

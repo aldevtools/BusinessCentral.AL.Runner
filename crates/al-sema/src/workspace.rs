@@ -937,13 +937,29 @@ impl Workspace {
     }
 
     /// The `DotNet` alias `alias` as seen from `file`: the file's own app first, then the apps
-    /// it depends on. Aliases are case-insensitive.
+    /// it depends on. Aliases are case-insensitive. `alias` holds the written parts joined by
+    /// `QUAL_SEP`: one part (bare or quoted, dots and all) is an alias in any namespace; `A.B.C` is
+    /// alias `C` declared in namespace `A.B`, never a .NET full type name (Microsoft's System
+    /// Application declares `type("System.DateTime"; "DateTime")` in `namespace System;` and its AFS
+    /// Format Helper `DotNet System.DateTime`; al-runner issue 6488, corpus writer Y20,
+    /// al-language-onprem-dotnet/lt-y20-dotnet-fullname/Y20DotNetFullTypeName.al, must-not-compile 2357, 2358).
     pub fn resolve_dotnet(&self, file: usize, alias: &str) -> Option<usize> {
         let app = self.files[file].app;
+        let (namespace, name) = match alias.rsplit_once(crate::types::QUAL_SEP) {
+            Some((ns, name)) => (Some(ns.replace(crate::types::QUAL_SEP, ".")), name),
+            None => (None, alias),
+        };
+        let in_namespace = |d: &DotNetSym| match &namespace {
+            None => true,
+            Some(ns) => self.files[d.file]
+                .namespace
+                .as_deref()
+                .is_some_and(|n| n.eq_ignore_ascii_case(ns)),
+        };
         let find = |a: usize| {
             self.dotnet
                 .iter()
-                .position(|d| d.app == a && d.decl.alias.eq_ignore_ascii_case(alias))
+                .position(|d| d.app == a && d.decl.alias.eq_ignore_ascii_case(name) && in_namespace(d))
         };
         find(app).or_else(|| self.visible[app].iter().find_map(|&a| find(a)))
     }
