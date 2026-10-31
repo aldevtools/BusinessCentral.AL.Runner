@@ -72,4 +72,5 @@ mod user_gaps_filters;
 mod userpersonalization;
 mod usertable;
 mod validate_xrec_table_procedure;
+mod variant_record_reassign_view;
 mod xrec;
