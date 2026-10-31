@@ -1,6 +1,6 @@
 # ADR-062: Permission enforcement: the session's permission sets, object grants and inherent permissions decide every access, in stages, refused where a denial is not pinned
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-10-31)
 - Date: 2026-10-31
 - Related: ADR-005 (access context on every data operation), ADR-007 (corpus is the oracle), ADR-009 (match BC where
   observable), ADR-013 (Microsoft's apps from their real source), ADR-027 (scope; section 2 "Permissions", owner
