@@ -213,6 +213,8 @@ pub enum Gate {
     TestRunnerHubRequiredIsolationFrom28,
     /// The License Permission row of a page object at the top of the object range (2000000000 and 2000000001) has execute
     /// permission only from BC 28 (lt-ss1030/SsLicensePermissionObjects.al:106-109, :114-117, `#if BC28PLUS`). Consumed by the License Permission provider (al-vm platform/host_tables.rs).
+    /// Pages 2000000002 and 2000000004 narrow the same way from BC 28 (platform/lt-license-permission/LicensePermissionRows.al:443,
+    /// :448); the provider does not serve those rows yet (ADR-060 decision 3), so SystemRange_Page stays refused.
     LicensePermissionTopRangePageFrom28,
     /// `Media.ImportFile` of a .docx file keeps the file's bytes as Tenant Media content and gives them back on export on BC 27
     /// and 28; BC 29 on the Linux CI tier stores a re-zipped package (same parts, 919 bytes against 911), a Linux suspect the
@@ -237,9 +239,9 @@ pub enum Gate {
     ExceptionTraceValueTaskFrameFrom29,
     /// A list action that deletes two or three worksheet lines of a filtered page and leaves Rec on a key no row has runs
     /// OnNewRecord and OnAfterGetCurrRecord once on BC 28, twice on BC 27 and from BC 29 (pages/lt-outside-worksheet-2/
-    /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`; two lines
-    /// from corpus writer Y1's branch: the same file's TD_LeavesKey_Line1WithUpdate_TwoLines and pages/lt-y1-6292/
-    /// Y1WorksheetPostLog.al, al-runner issue 6292). BC 28
+    /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`; two lines:
+    /// the same file's :685 TD_LeavesKey_Line1WithUpdate_TwoLines and pages/lt-y1-6292/Y1WorksheetPostLog.al:165,181,
+    /// al-runner issue 6292). BC 28
     /// only: [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`] ends it. Consumed by `al-vm` pages/actions.rs (the `rec_moved_other`
     /// settle of a list action).
     ThreeLineLeavesKeyOnceFrom28,
@@ -543,10 +545,16 @@ impl Gate {
                 file: "platform/lt-ug-report-layout-list/UgReportLayoutList.al",
                 lines: "116,119,150,153",
             }],
-            Gate::ThreeLineLeavesKeyOnceFrom28 | Gate::ThreeLineLeavesKeyTwiceAgainFrom29 => &[Evidence {
-                file: "pages/lt-outside-worksheet-2/RtFilteredGoneRow.al",
-                lines: "662",
-            }],
+            Gate::ThreeLineLeavesKeyOnceFrom28 | Gate::ThreeLineLeavesKeyTwiceAgainFrom29 => &[
+                Evidence {
+                    file: "pages/lt-outside-worksheet-2/RtFilteredGoneRow.al",
+                    lines: "662,685",
+                },
+                Evidence {
+                    file: "pages/lt-y1-6292/Y1WorksheetPostLog.al",
+                    lines: "165,181",
+                },
+            ],
             Gate::RecordRefIsDirtyFrom28 => &[
                 Evidence {
                     file: "record/lt-as-records/AsGetTableIsDirty.al",
@@ -685,6 +693,10 @@ impl Gate {
                 Evidence {
                     file: "lt-ac/ACRecordIsDirty.al",
                     lines: "7",
+                },
+                Evidence {
+                    file: "lt-ac/Y8RecordIsDirtyShapes.al",
+                    lines: "18",
                 },
             ],
             Gate::PartLineBeforeHostKeyFrom28 => &[Evidence {
@@ -1004,10 +1016,16 @@ impl Gate {
                     lines: "9",
                 },
             ],
-            Gate::LicensePermissionTopRangePageFrom28 => &[Evidence {
-                file: "lt-ss1030/SsLicensePermissionObjects.al",
-                lines: "106,114",
-            }],
+            Gate::LicensePermissionTopRangePageFrom28 => &[
+                Evidence {
+                    file: "lt-ss1030/SsLicensePermissionObjects.al",
+                    lines: "106,114",
+                },
+                Evidence {
+                    file: "platform/lt-license-permission/LicensePermissionRows.al",
+                    lines: "443,448",
+                },
+            ],
             Gate::QueryReadCommittedFrom29 => &[Evidence {
                 file: "query/TestQueryReadStateContracts.al",
                 lines: "56,120,146,151,155,159",
