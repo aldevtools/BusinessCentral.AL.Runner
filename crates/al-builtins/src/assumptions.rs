@@ -156,7 +156,7 @@ registry! {
         id: "installed-app-published-as",
         assumed: "\"Published As\" (column 16) of a NAV App Installed App row is Dev (2) for an app under test, and Global (0) for a dependency app published by Microsoft, as for apps published through the development endpoint next to Microsoft's apps. Another dependency app stays unknown (refused when read).",
         tests: "No Microsoft test: al-runner issue 6438 (an app's install code filters its installed apps on Published As = Global).",
-        probe: "Measured by corpus writer Y12 on BC 29 (record/lt-y12-published-as/Y12PublishedAs.al, corpus branch al-runtime-rs-staging-y12): this app and a corpus dependency app ' Dev' (2), System Application and Base Application Global (0). Retire when the corpus bump brings the file.",
+        probe: "Measured by corpus writer Y12 on the SaaS sandbox, newest major (record/lt-y12-published-as/Y12PublishedAs.al, corpus branch al-runtime-rs-staging-y12): this app and a corpus dependency app ' Dev' (2), System Application and Base Application Global (0). Retire when the corpus bump brings the file.",
         awaiting: Awaiting {
             issues: &[6438],
             files: &["tests/al-language/record/lt-y12-published-as/Y12PublishedAs.al"],
