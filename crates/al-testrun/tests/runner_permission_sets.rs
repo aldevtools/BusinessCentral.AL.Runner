@@ -1,9 +1,9 @@
 //! The permission sets BC's test runner assigns before each test method (Tests-TestLibraries 27.5: codeunit 130302 "Set
 //! State Test Run" -> Permission Test Catalog.InitializePermissionSetForTest -> Library - Lower Permissions
 //! .StartLoggingNAVPermissions('D365 Full Access') -> Permissions Mock.Set and Assign -> DotNet
-//! PermissionTestHelper.AddEffectivePermissionSet). Permissions are not enforced here (ADR-027, owner decision 2): the
-//! runner's step runs, and every test after it is a flagged pass (assumption `runner-permission-sets-grant-all`). A
-//! test that assigns a permission set itself is still refused.
+//! PermissionTestHelper.AddEffectivePermissionSet). The runner's sets are not composed: the runner's step runs, and every
+//! test after it is a flagged pass (assumption `runner-permission-sets-grant-all`, ADR-062 stage 4). The sets a test
+//! assigns itself are checked (ADR-062 stage 1, `permission_writes.rs`).
 
 use al_builtins::assumptions::Assumption;
 use al_sema::workspace::AppSource;
@@ -312,13 +312,14 @@ fn the_runners_permission_sets_give_a_flagged_pass() {
     assert_eq!(r.assumptions, vec![Assumption::RunnerPermissionSetsGrantAll]);
 }
 
+/// A set the test assigns on top of the runner's sets (ADR-062 stage 1): the test makes no access, so it runs to its end
+/// under the runner's assumption.
 #[test]
-fn a_test_that_assigns_a_permission_set_itself_is_still_refused() {
+fn a_test_that_assigns_a_permission_set_on_top_of_the_runners_sets_runs() {
     let rt = run();
-    match &result(&rt, "LowersItsOwnPermissions").outcome {
-        Outcome::NotRun(why) => assert!(why.contains("AddEffectivePermissionSet"), "{why}"),
-        other => panic!("{other:?}"),
-    }
+    let r = result(&rt, "LowersItsOwnPermissions");
+    assert_eq!(r.outcome, Outcome::Pass);
+    assert_eq!(r.assumptions, vec![Assumption::RunnerPermissionSetsGrantAll]);
 }
 
 #[test]
@@ -350,16 +351,6 @@ fn with_ignore_permission_mock_a_test_that_lowers_its_permissions_runs_and_is_fl
     assert!(result(&rt, "RunsWithoutTheRunnersSets").assumptions.is_empty());
 }
 
-fn not_run_lowered(rt: &CorpusRuntime, test: &str) {
-    match &result(rt, test).outcome {
-        Outcome::NotRun(why) => assert!(
-            why.contains("AddEffectivePermissionSet") && why.contains("lowers"),
-            "{why}"
-        ),
-        other => panic!("{test}: {other:?}"),
-    }
-}
-
 /// A pass flagged only by the assumption ADR-062 probe P0 confirms: sets that grant everything leave the session
 /// unrestricted.
 fn unrestricted_pass(rt: &CorpusRuntime, test: &str) {
@@ -381,18 +372,25 @@ fn a_session_lowered_to_super_is_unrestricted_and_passes_clean() {
     let rt = run();
     unrestricted_pass(&rt, "SetSuperThenWrite");
     unrestricted_pass(&rt, "AssignSuperThenWrite");
-    // Lowered first: the test's own call to add SUPER is already an access of a restricted session, refused while no
-    // access kind is enforced (on BC All Objects grants its Execute).
-    not_run_lowered(&rt, "NarrowThenSuperThenWrite");
+    // Lowered first: the call that adds SUPER is an Execute access All Objects grants (ADR-062 stage 1 lets an allowed
+    // access run).
+    unrestricted_pass(&rt, "NarrowThenSuperThenWrite");
 }
 
-/// A list that does not grant everything stays refused: All Objects with all table data lacks Execute on system
-/// objects, and a later `Set` of a narrow set lowers the session again.
+/// A list that does not grant everything is checked (ADR-062 stage 1): All Objects with all table data lets the insert
+/// run, a later `Set` of a read-only set raises the pinned denial (TestMockBasics.al:72-73).
 #[test]
-fn a_list_that_does_not_grant_everything_is_still_refused() {
+fn a_list_that_does_not_grant_everything_is_checked() {
     let rt = run();
-    not_run_lowered(&rt, "SetDataWithoutSystemThenWrite");
-    not_run_lowered(&rt, "SetSuperThenNarrowThenWrite");
+    let r = result(&rt, "SetDataWithoutSystemThenWrite");
+    assert_eq!(r.outcome, Outcome::Pass);
+    assert!(r.assumptions.is_empty(), "{:?}", r.assumptions);
+    assert_eq!(
+        result(&rt, "SetSuperThenNarrowThenWrite").outcome,
+        Outcome::Fail(
+            "Sorry, the current permissions prevented the action. (TableData 50990 PX Item Insert: main)".into()
+        )
+    );
 }
 
 /// SUPER assigned on top of the runner's sets (`Library - Lower Permissions.AddPermissionSet('SUPER')`): the runner's

@@ -617,26 +617,45 @@ pub(crate) struct RawSet {
     /// The Role ID: the upper-case object name cut to 20 characters (the `Permission Set` table's key, which
     /// `Permissions Mock.Assign` passes on).
     pub role: String,
-    /// The grants the set declares itself, wildcards included; an error for a grant the reader does not take.
+    /// The grants the set declares itself, wildcards included, with the grants of the permission set extensions of the
+    /// program merged in (Y19PermComposition.al:100-105, :124-125, P10); an error for a grant the reader does not take.
     pub declared: Result<crate::permissions::Content, String>,
-    /// `IncludedPermissionSets`, as lower-case object names.
+    /// `IncludedPermissionSets`, the set's and its extensions', as lower-case object names.
     pub includes: Vec<String>,
-    /// The set declares `ExcludedPermissionSets` (subtraction is not composed yet, ADR-062 probe P11).
-    pub excluded: bool,
-    /// A permission set extension of the program extends the set, or names a set the program does not hold (its
-    /// grants are not merged yet, ADR-062 probe P10).
-    pub extended: bool,
+    /// `ExcludedPermissionSets`, as lower-case object names (subtracted after the includes, ADR-062 P11).
+    pub excludes: Vec<String>,
+    /// Why the set's content is not known in full: an extension of it excludes sets, which is not pinned.
+    pub incomplete: Option<String>,
+}
+
+fn name_list<O: al_ir::ObjectInfo + ?Sized>(o: &O, property: &str) -> Vec<String> {
+    prop(o, property)
+        .map(|t| split_entries(t).iter().map(|n| last_name(n).to_lowercase()).collect())
+        .unwrap_or_default()
+}
+
+/// The grants of `o`'s `Permissions` property, wildcards included.
+fn content_of<O: al_ir::ObjectInfo + ?Sized>(
+    o: &O,
+    ids: &dyn Fn(al_ir::ObjKind, &str) -> Result<u32, String>,
+) -> Result<crate::permissions::Content, String> {
+    let mut wild = crate::permissions::Wildcards::default();
+    parse_grants_with(o, ids, Some(&mut wild)).map(|list| {
+        let mut explicit: Vec<(i32, u32, [u8; 5])> = list.into_iter().map(|g| (g.kind, g.id, g.level)).collect();
+        explicit.sort_unstable_by_key(|&(k, id, _)| (k, id));
+        crate::permissions::Content { wild, explicit }
+    })
 }
 
 /// The permission set objects of the program, and their indexes by lower-case object name.
 pub(crate) fn raw_sets(engine: &crate::Engine) -> (Vec<RawSet>, HashMap<String, Vec<usize>>) {
     let c = Catalog::new(engine);
     let ids = |ty: al_ir::ObjKind, name: &str| c.id_of(ty, name);
-    let extended: Vec<Option<u32>> = c
+    // An extension whose base set the program does not hold extends none of the sets composed here.
+    let extensions: Vec<&al_ir::ObjectHead> = c
         .objects
         .iter()
-        .filter(|o| o.kind == al_ir::ObjKind::PermissionSetExtension)
-        .map(|o| o.extends_id)
+        .filter(|o| o.kind == al_ir::ObjKind::PermissionSetExtension && o.extends_id.is_some())
         .collect();
     let mut sets = Vec::new();
     let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
@@ -645,23 +664,81 @@ pub(crate) fn raw_sets(engine: &crate::Engine) -> (Vec<RawSet>, HashMap<String, 
         .iter()
         .filter(|o| o.kind == al_ir::ObjKind::PermissionSet && o.id.is_some())
     {
-        let includes = prop(o, "IncludedPermissionSets")
-            .map(|t| split_entries(t).iter().map(|n| last_name(n).to_lowercase()).collect())
-            .unwrap_or_default();
-        let mut wild = crate::permissions::Wildcards::default();
-        let declared = parse_grants_with(o, &ids, Some(&mut wild)).map(|list| {
-            let mut explicit: Vec<(i32, u32, [u8; 5])> = list.into_iter().map(|g| (g.kind, g.id, g.level)).collect();
-            explicit.sort_unstable_by_key(|&(k, id, _)| (k, id));
-            crate::permissions::Content { wild, explicit }
-        });
+        let mut includes = name_list(o, "IncludedPermissionSets");
+        let mut declared = content_of(o, &ids);
+        let mut incomplete = None;
+        for e in extensions.iter().filter(|e| e.extends_id == o.id) {
+            includes.extend(name_list(*e, "IncludedPermissionSets"));
+            if prop(*e, "ExcludedPermissionSets").is_some() {
+                incomplete = Some(format!(
+                    "permission set '{}' has an extension that excludes sets (not pinned)",
+                    o.name
+                ));
+            }
+            match (&mut declared, content_of(*e, &ids)) {
+                (Ok(have), Ok(add)) => have.union(&add),
+                (Ok(_), Err(why)) => declared = Err(why),
+                (Err(_), _) => {}
+            }
+        }
         by_name.entry(o.name.to_lowercase()).or_default().push(sets.len());
         sets.push(RawSet {
             role: upper_trunc(&o.name, 20),
             declared,
             includes,
-            excluded: prop(o, "ExcludedPermissionSets").is_some(),
-            extended: extended.iter().any(|e| e.is_none_or(|id| Some(id) == o.id)),
+            excludes: name_list(o, "ExcludedPermissionSets"),
+            incomplete,
         });
     }
     (sets, by_name)
+}
+
+/// The grants of object `object`'s own `Permissions` property (an object grant, ADR-062 section 1 rule 3).
+pub(crate) fn object_grants(engine: &crate::Engine, object: usize) -> Result<crate::permissions::Content, String> {
+    let c = Catalog::new(engine);
+    let ids = |ty: al_ir::ObjKind, name: &str| c.id_of(ty, name);
+    content_of(&engine.program.objects.heads()[object], &ids)
+}
+
+/// One `[InherentPermissions(Type, Id, 'Mask'[, Scope])]` attribute: what it grants, as (object type ordinal, object id,
+/// levels). `Ok(None)` for scope Entitlements, which grants nothing (CpPermLeads.al:155-189, BiInherentPerms.al:172-288).
+pub(crate) fn inherent_attribute(
+    engine: &crate::Engine,
+    text: &str,
+) -> Result<Option<(i32, u32, [u8; 5])>, String> {
+    let bad = || format!("the attribute `{text}` is not read here");
+    let inner = text
+        .find('(')
+        .and_then(|a| text.rfind(')').map(|b| &text[a + 1..b]))
+        .ok_or_else(bad)?;
+    let args = split_entries(inner);
+    let word = |s: &str| s.rsplit("::").next().unwrap_or(s).trim().to_ascii_lowercase();
+    let (code, kind) = match args.first().map(|a| word(a)).as_deref() {
+        Some("tabledata") => (0, al_ir::ObjKind::Table),
+        Some("table") => (1, al_ir::ObjKind::Table),
+        Some("report") => (3, al_ir::ObjKind::Report),
+        Some("codeunit") => (5, al_ir::ObjKind::Codeunit),
+        Some("xmlport") => (6, al_ir::ObjKind::XmlPort),
+        Some("page") => (8, al_ir::ObjKind::Page),
+        Some("query") => (9, al_ir::ObjKind::Query),
+        _ => return Err(bad()),
+    };
+    let c = Catalog::new(engine);
+    let id = c.id_of(kind, args.get(1).ok_or_else(bad)?)?;
+    let mask = args.get(2).ok_or_else(bad)?.trim().trim_matches('\'');
+    let levels = parse_mask(mask).ok_or_else(bad)?;
+    match args.get(3).map(|a| word(a)).as_deref() {
+        None | Some("permissions") | Some("both") => Ok(Some((code, id, levels))),
+        Some("entitlements") => Ok(None),
+        Some(_) => Err(bad()),
+    }
+}
+
+/// The levels an object's `InherentPermissions` property gives (on a table `RIMD`, `R`: RiskyInherentPerms.al:53-122);
+/// `None` when the object declares none.
+pub(crate) fn table_inherent(engine: &crate::Engine, object: usize) -> Option<Result<[u8; 5], String>> {
+    let o = &engine.program.objects.heads()[object];
+    let v = prop(o, "InherentPermissions")?;
+    let v = super::objects::ident(v);
+    Some(parse_mask(&v).ok_or_else(|| format!("{} '{}' declares InherentPermissions = {v}", o.kind, o.name)))
 }
