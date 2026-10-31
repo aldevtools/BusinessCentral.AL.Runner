@@ -90,3 +90,47 @@ every read, and by n milliseconds on `Sleep(n)`.
    buffer holds a stamp rounded is not pinned; with such a value it reads the same either way, so a stamp copied into a
    DateTime field and read back is still equal.
 3. **Repeatability is kept.** The clock depends on the number of reads, sleeps and writes, not on load.
+
+## Amendment: after a catch-up the clock lands just past the stamp, by a seeded offset (2026-10-31)
+
+### Status: Accepted (owner, 2026-10-31)
+
+1. **What is wrong.** The 2026-10-27 amendment moves the clock onto each stamp, and a stamp lies on the 1/300 s grid of the SQL
+   datetime column. Every write therefore moves the clock 0 to 3 ms forward onto that grid, so a `Time`, `DateTime` or
+   `CurrentDateTime` read right after a write is always a value the column holds as it is, and a round trip through a Time or
+   DateTime field never changes it. On BC the clock is the wall clock: measured on BC 28.5 and BC 29.0 (al-runner issue 6524,
+   20 samples of Insert, read the clock, Modify, Get), 11 and 16 of 20 values came back changed. A test that compares a kept
+   clock value with the value read back fails on BC most of the time and passed here every time. It also happens with
+   `ALRUNNER_REAL_CLOCK=1`, because the catch-up offset is added on top of the wall clock.
+2. **Change (owner decision).** The stamp stays as it is: strictly increasing, on the column's grid, at or after the clock
+   (item 2 of the 2026-10-27 amendment). After a write, the clock lands just past the stamp: 0, 1 or 2 ms after it, an offset
+   drawn from the run seed (ADR-061). Grid milliseconds end in 0, 3 or 7, so they are at least 3 ms apart: an offset of 1 or
+   2 ms is never on the grid, and 0 is. So about two thirds of the clock reads right after a write are off the grid and
+   change in a round trip through a Time or DateTime field, close to BC's measured 55 to 80 %. The clock never reads earlier
+   than the last stamp.
+3. **Where the offset comes from.** Each write draws one offset from a key and a count: the key is FNV-1a (64 bit) over
+   `"{run_seed}|{codeunit}|{method}|clock"` (`al_host::seed::clock_key`), set when a test method begins, as the Guid key is
+   (ADR-061 section 2), with the count back at 0. A session outside a test method uses the key of the run seed with codeunit 0
+   and an empty method. The draw does not use the session's `Random`, so `Random` numbers do not change. The same run seed
+   gives the same clock values; `--seed N --test X` gives X the clock values of the full run.
+4. **What this replaces.** The sentence "A stamp still never steps the clock past itself, so a run with few writes is
+   unchanged" of item 1 of the 2026-10-27 amendment no longer holds: every write now moves the clock 0 to 5 ms forward (before:
+   0 to 3 ms). That sentence was already only half true, because the move onto the grid changed runs with few writes too.
+5. **What still holds.**
+   - A stamp written between two reads lies between them, and the clock never reads earlier than the last stamp (item 4;
+     record/TestSystemFieldStampsContracts.al:67).
+   - Stamps are strictly increasing (record/TestRecordSystemId.al:449, TestXRecStampFields.al:179).
+   - `SystemCreatedAt = SystemModifiedAt` on insert, and a stamp copied into a DateTime field reads back equal: the stamp
+     itself does not change.
+   - The rounding of a value written to a Time or DateTime column does not change (errors/lt-ms-refusals-130/P130DateFilters.al
+     `BT_DateTimeAndTime_MillisecondsAfterWrite`, `RH_TimeKey_Milliseconds_ModifyRenameDelete`).
+   - `ALRUNNER_REAL_CLOCK=1` keeps its meaning; the catch-up offset is added on top of the wall clock as before.
+6. **What does not match BC, and why it is accepted.** On BC whether a read right after a write is on the grid depends on the
+   wall clock; here it depends on the run seed. The share is about two thirds instead of BC's 55 to 80 % (70 % if the
+   millisecond is uniform). A test that compares an unsaved clock value with a stored one (the test bug of issue 6524) fails
+   here in most runs, as on BC, and a failing seed can be repeated.
+7. **Options not chosen.** Leave the clock on the stamp: hides the bug of issue 6524 in every run. Land 1 ms past the stamp
+   after every write: shows the bug in every run, more often than BC does.
+8. **Tests.** `crates/al-vm/tests/store/hostvalues.rs`: the reporter's repro (20 samples; at least one Time and one DateTime
+   come back changed) and 3000 reads right after a write with a fixed seed (share off the grid between 62 and 71 %, the same
+   values for the same seed, other values for another seed).

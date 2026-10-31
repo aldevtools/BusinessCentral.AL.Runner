@@ -1186,7 +1186,30 @@ impl Session {
             // (Name reads 'dirty' after the action in the same tests).
             self.save_row(st)?;
         }
-        if was_dirty && !self.declares(st, "onfindrecord") && !self.declares(st, "onnextrecord") && !dirty_reread_only {
+        // A top-level card with OnAfterGetCurrRecord and without OnAfterGetRecord saves the edit before the action and reads
+        // nothing before its trigger (corpus master 97c29f86, pages/lt-y17-save-row-gone/Y17SaveRowGone.al:632
+        // PgSave_ActionDeletesEditedRow_Card `invoke log` `P.OnModifyRecord:A/edited;T.OnModify:A/edited/No;P.Finish:A/edited;...`).
+        let card_saves_first = was_dirty
+            && !dirty_reread_only
+            && st.borrow().host.is_none()
+            && self.is_card(st)
+            && self.has_source(st)
+            && st.borrow().open
+            && st.borrow().cursor == Cursor::Row
+            && !st.borrow().draft
+            && self.declares(st, "onaftergetcurrrecord")
+            && !self.declares(st, "onaftergetrecord")
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord")
+            && page_of(&engine, st).controls[idx].run_object.is_none()
+            && page_of(&engine, st).controls[idx].trigger("onaction").is_some();
+        if card_saves_first {
+            self.save_row(st)?;
+        } else if was_dirty
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord")
+            && !dirty_reread_only
+        {
             // On a Document page this save runs the host's CaptionClass expressions and not the part's
             // (`fill_field_caption_expressions`, QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps).
             let doc = st.borrow().host.is_none()
@@ -1551,10 +1574,26 @@ impl Session {
                 let rec = self.page_rec(st);
                 // A change the action saved itself (`Rec.Modify()` in the action) is not saved again: the
                 // page runs no OnModify for it (misc/W2TableGlobals.al:Modify_ActionCallsModifyItself).
-                let saved_by_action = self
-                    .stored_row(&rec)?
-                    .is_some_and(|stored| Self::same_values(&rec.borrow().fields, &stored));
-                if !Self::same_values(&rec.borrow().fields, &before) && !saved_by_action {
+                let stored_now = self.stored_row(&rec)?;
+                let saved_by_action = stored_now
+                    .as_ref()
+                    .is_some_and(|stored| Self::same_values(&rec.borrow().fields, stored));
+                // A row the action changed and then deleted (a codeunit that modifies and deletes Rec: Make Order, Post) is not
+                // written again on a card: the card closes (`settle_after_action`) and nothing is re-inserted (corpus master 97c29f86,
+                // pages/lt-y17-save-row-gone/Y17SaveRowGone.al:632 PgSave_ActionDeletesEditedRow_Card `stored` `B/b/No;`, :638
+                // without the edit). A list then moves on with reads the gone-row path does not model yet (:711
+                // PgSave_ActionDeletesEditedRow_List_Next `P.AGR:B;P.AGR:B;P.AGCR:B/b;` twice, the row edited before the action):
+                // refused. Without an edit before the action a list keeps the path it had (no corpus test pins its reads; Microsoft's
+                // Sales and Purchase Batch Document Posting tests post a row of a list this way).
+                let gone = stored_before && !moved_other && stored_now.is_none();
+                let changed = !Self::same_values(&rec.borrow().fields, &before);
+                if gone && changed && was_dirty && self.is_list(st) {
+                    return unsupported(
+                        "a list whose row an action changed and then deleted (the reads after the action are not pinned)",
+                    );
+                }
+                let deleted_by_action = gone;
+                if !Self::same_values(&rec.borrow().fields, &before) && !saved_by_action && !deleted_by_action {
                     // Another row in Rec saves nothing on the pinned list (above; Tests-ERM 134918 Apply Customer Entries' Post
                     // Application `Rec := TempApplyingCustLedgEntry`). On another page that is not pinned.
                     if moved_other {
@@ -2504,7 +2543,12 @@ impl Session {
     /// else on the next row of the filtered view after the old key, else on the one before it; a view left without rows shows a
     /// blank row, and from the blank row a view with rows again opens on its first row (pages/lt-rz-outside-page-moves/
     /// RzUpdateFromValidate.al:27-99 the Worksheet, Update(false) and Update(true), :126 and :151 the filter removed again,
-    /// RZ_PlainList_* the List: `R:C;R:E;R:C;R:A;R:C;R:C;C:C`). `false` for every other page or call: the refresh runs as before.
+    /// RZ_PlainList_* the List: `R:C;R:E;R:C;R:A;R:C;R:C;C:C`). A page that offers the new-row line reads the same (an
+    /// insert-allowed Worksheet with AutoSplitKey and DelayedInsert whose OnValidate calls SaveRecord, sets the filter in filter
+    /// group 2 and moves Rec with Find('-') before the Update, the General Journal batch switch: corpus master 97c29f86,
+    /// pages/lt-y17-journal-batch/Y17JournalBatchSwitch.al:466 UpdWs_BatchSwitch_ToBatchWithRows `V:done 10000;R:B2/10000;
+    /// R:B2/20000;R:B2/10000;R:B2/10000;C:B2/10000`, :653 back to an earlier batch, :667 the same without the Find, which stands on
+    /// the previous row B1/30000). `false` for every other page or call: the refresh runs as before.
     fn refresh_after_validate_filter(
         &mut self,
         st: &St,
@@ -2517,8 +2561,10 @@ impl Session {
         };
         let shape = {
             let s = st.borrow();
-            s.open && !s.dirty && !s.draft && s.host.is_none() && !s.new_line
+            s.open && !s.dirty && !s.draft && s.host.is_none()
         };
+        // The new-row line is pinned on a Worksheet only (Y17JournalBatchSwitch.al); a List that offers it keeps the refresh below.
+        let shape = shape && (!st.borrow().new_line || self.is_worksheet(st));
         if !shape
             || !self.has_source(st)
             || !self.is_list(st)
@@ -2571,6 +2617,32 @@ impl Session {
         if self.view_row_count(st)? == 0 {
             if !on_row {
                 return Ok(false);
+            }
+            // A page that offers the new-row line (an insert-allowed Worksheet with AutoSplitKey and DelayedInsert, the journal
+            // batch switch) shows that line instead: OnNewRecord and OnAfterGetCurrRecord run twice, the key from the filters,
+            // nothing is inserted (corpus master 97c29f86, pages/lt-y17-journal-batch/Y17JournalBatchSwitch.al:485
+            // UpdWs_BatchSwitch_ToEmptyBatch `V:done 20000;N:B3/0 below=Yes;C:B3/0;N:B3/0 below=Yes;C:B3/0`, :560 without the Find in
+            // code).
+            if st.borrow().new_line {
+                if without_curr {
+                    return Ok(false);
+                }
+                {
+                    let mut s = st.borrow_mut();
+                    s.window = Vec::new();
+                    s.focus = None;
+                    s.focus_in_row = false;
+                }
+                let r = (|| {
+                    self.land_on_new_line(st)?;
+                    self.land_on_new_line(st)
+                })();
+                self.torn_down_on_error(st, r)?;
+                st.borrow_mut().refresh = false;
+                if !without_parts {
+                    self.sync_parts(st)?;
+                }
+                return Ok(true);
             }
             // No row left: a blank row, its key from a single-valued filter, and OnAfterGetCurrRecord on it (RZ_PlainWs_B_Empty
             // `A:filter B;A:done B;C:`).
@@ -3380,6 +3452,13 @@ impl Session {
             }
             self.page_trigger(st, "onclosepage", vec![])?;
             self.mark_closed(st);
+            // The close is left as the last error, code PageCloseRequest with no text; Invoke itself returns (corpus master
+            // 97c29f86, pages/lt-y17-save-row-gone/Y17SaveRowGone.al:632 PgSave_ActionDeletesEditedRow_Card `invoke|code`).
+            self.last_error = al_builtins::native::AlError {
+                message: String::new(),
+                code: "PageCloseRequest".into(),
+                ..Default::default()
+            };
             return Ok(());
         }
         if self.declares(st, "onfindrecord") {
