@@ -491,6 +491,7 @@ impl Session {
                 | [RtType::Code(Some(20)), RtType::Integer]
                 | [RtType::Code(Some(20)), RtType::Code(Some(20))]
                 | [RtType::Enum(_) | RtType::Option(_), RtType::Code(Some(20))]
+                | [RtType::Enum(_)]
         );
         if !ok {
             return unsupported(
@@ -500,6 +501,9 @@ impl Session {
         let two_codes = key.len() == 2 && matches!(shape[1], RtType::Code(_));
         // An empty Code after an Enum or Option field is pinned (GetUrlBookmarkEnumKey.al:102, :151).
         let enum_code = key.len() == 2 && matches!(shape[0], RtType::Enum(_) | RtType::Option(_));
+        // A key of one Code[20] field: every Code that starts with a digit is pinned (GetUrlBookmarkDigitCode.al:117-163,
+        // corpus master).
+        let one_code20 = matches!(shape.as_slice(), [RtType::Code(Some(20))]);
         for &p in key.iter() {
             match &r.fields[p] {
                 Value::Code(c) => {
@@ -512,9 +516,18 @@ impl Session {
                     }
                     // A non-empty Code is marked 0xff, an empty one 0x00 (TGetUrl.al:446-447 `two second empty`,
                     // `two first empty`). A Code of six digits is marked 0x06 (GetUrlBookmarkEnumKey.al:149-150
-                    // `order 106001`); a Code that starts with a digit in another form is not pinned.
+                    // `order 106001`); a Code that starts with a digit in another form is not pinned, except in a key of one
+                    // Code[20] field: there a Code of digits only is marked with its digit count (`1` 0x01, `007` 0x03, 20
+                    // digits 0x14) and digits followed by other characters (`1A`, `12345A`, `1-2`, `1 2`) 0xff
+                    // (platform/lt-system-database-members/GetUrlBookmarkDigitCode.al:117-163, corpus master).
                     let marker = if s.is_empty() {
                         0x00
+                    } else if one_code20 && s.starts_with(|c: char| c.is_ascii_digit()) {
+                        if s.bytes().all(|b| b.is_ascii_digit()) {
+                            s.len() as u8
+                        } else {
+                            0xff
+                        }
                     } else if s.starts_with(|c: char| c.is_ascii_digit()) {
                         if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_digit()) {
                             return unsupported(
@@ -533,7 +546,9 @@ impl Session {
                     size += 5 + 2 * s.len();
                 }
                 // An Enum field is marked 0x8b and carries the value's number, an Option field its ordinal
-                // (GetUrlBookmarkEnumKey.al:99-104 `fifth A1` = 5, :168-169 `fifth A1` = 2).
+                // (GetUrlBookmarkEnumKey.al:99-104 `fifth A1` = 5, :168-169 `fifth A1` = 2). An Enum as the only key field: its
+                // zero bytes at the end are dropped like any (`pWQBAACL` for 0, `...AQ==` for 1; GetUrlBookmarkDigitCode.al:166-184,
+                // corpus master). An Option as the only key field is not pinned (refused above).
                 Value::Enum(_, n) | Value::Option(n, _) => {
                     data.extend_from_slice(&[0x00, 0x8b]);
                     data.extend_from_slice(&n.to_le_bytes());

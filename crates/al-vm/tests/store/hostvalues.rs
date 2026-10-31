@@ -1362,6 +1362,57 @@ codeunit 50100 C
         al_testkit::text(al_testkit::run(src, "O")),
         "bookmark=21%3bfmQBAACLAgAAAAJ7%2f0EAMQ%3d%3d"
     );
-    // An enum as the only key field is not pinned.
-    assert!(matches!(al_testkit::run(src, "Only"), Err(Signal::Unsupported(_))));
+    // An enum as the only key field: GetUrlBookmarkDigitCode.al:166-184 (`geturl_bookmarks_a_digit_code_key_and_an_enum_only_key`).
+    assert_eq!(al_testkit::text(al_testkit::run(src, "Only")), "bookmark=12%3bgWQBAACL");
+}
+
+// platform/lt-system-database-members/GetUrlBookmarkDigitCode.al:117-184 (corpus master): the bookmark of a key of one Code[20]
+// field that starts with a digit. All digits: the marker byte is the digit count (`1` 01, `12345` 05, `007` 03), then the UTF-16
+// text. Digits followed by other characters: 0xff, as for a Code that starts with a letter. An Enum as the only key field: the
+// value's number with its zero bytes dropped (`pWQBAACL` for 0). An Option as the only key field is not pinned.
+#[test]
+fn geturl_bookmarks_a_digit_code_key_and_an_enum_only_key() {
+    let src = r#"
+table 91300 "LT Y6 Url Code Row" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { } } }
+enum 91302 "LT Y6 Url Kind" { value(0; First) { } value(1; Second) { } value(5; Fifth) { } }
+table 91301 "LT Y6 Url Enum Only" { fields { field(1; Kind; Enum "LT Y6 Url Kind") { } } keys { key(PK; Kind) { } } }
+table 91299 "LT Y6 Url Option Only" { fields { field(1; Kind; Option) { OptionMembers = First,Second; } } keys { key(PK; Kind) { } } }
+codeunit 50100 C
+{
+    local procedure Tail(Url: Text): Text begin exit(CopyStr(Url, StrPos(Url, 'bookmark='))); end;
+    local procedure Url(No: Code[20]): Text
+    var Row: Record "LT Y6 Url Code Row";
+    begin
+        Row.Code := No;
+        exit(Tail(GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false)));
+    end;
+    procedure Codes(): Text
+    begin
+        exit(Url('1') + ' ' + Url('007') + ' ' + Url('12345678901234567890') + ' ' + Url('1A') + ' ' + Url('1 2'));
+    end;
+    procedure Enums(): Text
+    var Row: Record "LT Y6 Url Enum Only"; R: Text;
+    begin
+        R := Tail(GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false));
+        Row.Kind := Row.Kind::Fifth;
+        exit(R + ' ' + Tail(GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false)));
+    end;
+    procedure Option()
+    var Row: Record "LT Y6 Url Option Only"; T: Text;
+    begin
+        T := GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false);
+    end;
+}
+"#;
+    assert_eq!(
+        al_testkit::text(al_testkit::run(src, "Codes")),
+        "bookmark=13%3bpGQBAAJ7ATE%3d bookmark=17%3bpGQBAAJ7AzAAMAA3 \
+         bookmark=51%3bpGQBAAJ7FDEAMgAzADQANQA2ADcAOAA5ADAAMQAyADMANAA1ADYANwA4ADkAMA%3d%3d \
+         bookmark=15%3bpGQBAAJ7%2fzEAQQ%3d%3d bookmark=17%3bpGQBAAJ7%2fzEAIAAy"
+    );
+    assert_eq!(
+        al_testkit::text(al_testkit::run(src, "Enums")),
+        "bookmark=12%3bpWQBAACL bookmark=12%3bpWQBAACLBQ%3d%3d"
+    );
+    assert!(matches!(al_testkit::run(src, "Option"), Err(Signal::Unsupported(_))));
 }

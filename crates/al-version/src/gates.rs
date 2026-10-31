@@ -214,7 +214,7 @@ pub enum Gate {
     /// The License Permission row of a page object at the top of the object range (2000000000 and 2000000001) has execute
     /// permission only from BC 28 (lt-ss1030/SsLicensePermissionObjects.al:106-109, :114-117, `#if BC28PLUS`). Consumed by the License Permission provider (al-vm platform/host_tables.rs).
     /// Pages 2000000002 and 2000000004 narrow the same way from BC 28 (platform/lt-license-permission/LicensePermissionRows.al:443,
-    /// :448); the provider does not serve those rows yet (ADR-060 decision 3), so SystemRange_Page stays refused.
+    /// :448).
     LicensePermissionTopRangePageFrom28,
     /// `Media.ImportFile` of a .docx file keeps the file's bytes as Tenant Media content and gives them back on export on BC 27
     /// and 28; BC 29 on the Linux CI tier stores a re-zipped package (same parts, 919 bytes against 911), a Linux suspect the

@@ -69,6 +69,7 @@ mod sessionops;
 mod sqlcount;
 mod sqltime;
 mod tasks;
+mod tenant_layouts;
 mod testdata;
 mod transactions;
 mod translations;

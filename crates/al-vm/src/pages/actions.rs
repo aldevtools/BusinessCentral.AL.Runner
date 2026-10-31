@@ -1836,26 +1836,32 @@ impl Session {
         Ok(true)
     }
 
-    /// After an action on a list opened for view that stands on the draft row New() started below its first row, untouched,
-    /// and called `CurrPage.Update(false)`: the client drops the draft and stands on the first row again, which it reads as
-    /// when it opens, and stores nothing (pages/lt-sc-update-empty-row/ScUpdateEmptyRow.al:215-241
-    /// OpenView_NewDraftRow_ActionUpdate `agcr id=1 count=2 ; agcr id=0 count=2 ; before id=0 ; after id=0 ; agcr id=1
-    /// count=2`, `rows after` 2). Pinned for a top-level list without OnFindRecord/OnNextRecord whose draft was started on the
-    /// first row of the view. Update(true), or a draft started on another row, is refused; an action without Update goes on as
-    /// before.
+    /// After an action on a list opened for view that stands on the draft row New() started, untouched: the client drops the
+    /// draft and stores nothing.
+    /// - `CurrPage.Update(false)`: it goes back to the row New() was started from, which it reads as when it opens
+    ///   (pages/lt-sc-update-empty-row/ScUpdateEmptyRow.al:215-241 OpenView_NewDraftRow_ActionUpdate `agcr id=1 count=2 ;
+    ///   agcr id=0 count=2 ; before id=0 ; after id=0 ; agcr id=1 count=2`, `rows after` 2; from the second and the last of three
+    ///   rows Y6UpdateDraftRow.al:200-242, corpus master).
+    /// - `CurrPage.Update(true)`: back to the first row, from the first and from the last row (Y6UpdateDraftRow.al:158-177,
+    ///   :244-264, corpus master). From another row it is not pinned: refused.
+    /// - An action without Update: as Update(false), from the first row (Y6UpdateDraftRow.al:179-198, corpus master). From
+    ///   another row it is not pinned: refused.
+    /// - Over an empty view `CurrPage.Update(true)` leaves the page on no row, with no trigger (Y6UpdateDraftRow.al:326-342,
+    ///   corpus master); the other actions there go on as before.
+    ///
+    /// Pinned for a top-level list without OnFindRecord/OnNextRecord.
     fn update_on_untouched_draft_row(&mut self, st: &St) -> Result<bool, Signal> {
-        let (shape, update_false, anchor) = {
+        let (shape, by_update, update_false, anchor) = {
             let s = st.borrow();
             (
                 s.open
                     && s.host.is_none()
                     && s.parts.is_empty()
-                    && s.refresh
-                    && s.refresh_by_update
                     && s.cursor == Cursor::NewLine
                     && s.draft
                     && !s.dirty
                     && s.mode == PageMode::View,
+                s.refresh && s.refresh_by_update,
                 s.refresh_update_false,
                 s.after_new.clone(),
             )
@@ -1869,31 +1875,7 @@ impl Session {
         {
             return Ok(false);
         }
-        if self.view_row_count(st)? == 0 {
-            return Ok(false);
-        }
-        let first = {
-            let rec = self.page_rec(st);
-            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-            self.ret_used = true;
-            match self.record_op(RecordOp::FindFirst, &probe, &mut [])? {
-                Value::Boolean(true) => Some(self.row_key(&probe)?),
-                _ => None,
-            }
-        };
-        let on_first = match (anchor, first) {
-            (Some(a), Some(f)) => {
-                let table = self.table(&self.page_rec(st))?;
-                Self::same_key(&table.primary_key(&a), &f)
-            }
-            _ => false,
-        };
-        if !update_false || !on_first {
-            return unsupported(
-                "CurrPage.Update on an untouched new row of a list opened for view (pinned only for Update(false) on a row started below the first row)",
-            );
-        }
-        {
+        let drop_draft = |st: &St, cursor: Option<Cursor>| {
             let mut s = st.borrow_mut();
             s.refresh = false;
             s.refresh_by_update = false;
@@ -1901,7 +1883,60 @@ impl Session {
             s.draft = false;
             s.new_by_call = false;
             s.after_new = None;
+            if let Some(c) = cursor {
+                s.cursor = c;
+            }
+        };
+        if self.view_row_count(st)? == 0 {
+            if by_update && !update_false && anchor.is_none() {
+                drop_draft(st, Some(Cursor::None));
+                return Ok(true);
+            }
+            return Ok(false);
         }
+        let ends = |s: &mut Self, op: RecordOp| -> Result<Option<Vec<Value>>, Signal> {
+            let rec = s.page_rec(st);
+            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+            s.ret_used = true;
+            Ok(match s.record_op(op, &probe, &mut [])? {
+                Value::Boolean(true) => Some(s.row_key(&probe)?),
+                _ => None,
+            })
+        };
+        let first = ends(self, RecordOp::FindFirst)?;
+        let last = ends(self, RecordOp::FindLast)?;
+        let table = self.table(&self.page_rec(st))?;
+        let is = |end: &Option<Vec<Value>>| {
+            anchor
+                .as_ref()
+                .zip(end.as_ref())
+                .is_some_and(|(a, e)| Self::same_key(&table.primary_key(a), e))
+        };
+        let (on_first, on_last) = (is(&first), is(&last));
+        let Some(anchor) = anchor else {
+            return unsupported(
+                "CurrPage.Update on an untouched new row of a list opened for view that was not started from a row (not pinned)",
+            );
+        };
+        match (by_update, update_false) {
+            (true, true) if !on_first => {
+                drop_draft(st, None);
+                self.page_rec(st).borrow_mut().fields = anchor;
+                self.page_first_row_from(st, "=", true)?;
+                return Ok(true);
+            }
+            (true, true) => {}
+            (true, false) if on_first || on_last => {}
+            (false, _) if on_first => {}
+            _ => {
+                return unsupported(if by_update {
+                    "CurrPage.Update(true) on an untouched new row of a list opened for view, started from a row between the first and the last (not pinned)"
+                } else {
+                    "an action without CurrPage.Update on an untouched new row of a list opened for view, started from a row other than the first (not pinned)"
+                });
+            }
+        }
+        drop_draft(st, None);
         self.page_first_row(st)?;
         Ok(true)
     }
