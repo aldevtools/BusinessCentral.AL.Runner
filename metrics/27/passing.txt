@@ -5225,6 +5225,7 @@
 68120 XmlPortExport_Document_FullText
 68120 XmlPortImport_AcceptsTheTextItExports
 68120 XmlPortImport_BadInteger_ThrowsEvaluate
+68120 XmlPortImport_DuplicateKey_IsReportedWhenTheTransactionCommits
 68120 XmlPortImport_EmptyIntegerElement_ImportsZero
 68120 XmlPortImport_MalformedXml_Throws
 68120 XmlPortImport_RunsTheTableInsertTriggersAndEvents
@@ -8021,6 +8022,7 @@
 70518 Error_RenamePoints
 70518 Error_RollsBackEarlierUncommitted
 70518 Error_TableTriggerInsert
+70518 Insert_DuplicateKey
 70518 Insert_Order
 70518 Insert_RecValuesInTrigger
 70518 ModifyAll_ErrorRollback
@@ -8034,6 +8036,7 @@
 70518 Plain_ModifyAllDeleteAll
 70518 Rename_Order
 70518 Rename_SameKey
+70518 Validate_ErrorInSubscriber
 70518 Validate_Events
 70518 Validate_XRecAfterModify
 70522 Clear_SystemFields
@@ -10356,6 +10359,7 @@
 72005 Transfer_Blob_Field_BQ
 72005 Transfer_DifferentPrimaryKey
 72005 Transfer_Fields_Count_Are_Set
+72005 Transfer_From_Another_Apps_Table_Type_Mismatch_BQ
 72005 Transfer_IgnoresFiltersAndTriggers
 72005 Transfer_InsertAfter
 72005 Transfer_OtherFieldsOfDst
@@ -11894,6 +11898,8 @@
 73257 P129_Array_Integer_ReadAndWrite_OutOfBounds
 73257 P129_Array_OtherTypes_OutOfBounds
 73257 P129_Array_TwoDimensions_OutOfBounds
+73258 P129_WriteCode_WriteTextN_WriteText_Accented
+73258 P129_WriteText_Accented_PerEncoding
 73258 P129_WriteText_Ascii_PerEncoding
 73258 P129_WriteText_Long_AndTwoWrites
 73259 P129_WindowsLanguage_Get_NordicAndWestern
@@ -12588,7 +12594,11 @@
 73705 P132_EvaluateCodeVariable
 73705 P132_EvaluateOptionField_WithOptionCaption
 73705 P132_EvaluateOptionVariable_Ordinals
+73707 P132_Write_PerEncoding_Japanese
+73707 P132_Write_RoundTrip_ReadText
+73711 P132_Dataset_DateTime_Milliseconds
 73711 P132_Dataset_Duration_Milliseconds
+73711 P132_Dataset_Time_Milliseconds
 73711 P132_SaveAs_ErrorInOnAfterGetRecord
 73711 P132_SaveAs_ErrorInOnPreReport
 73713 P132_FormatOfControl_Standard0
@@ -13699,7 +13709,10 @@
 74477 DataItemTableView_ThenSetTableViewOnOtherRange
 74477 DataItemTableView_WithoutSetTableView
 74477 NoDataItemTableView_SetTableView
+74505 P138_DuplicateInsert_AsserterrorStatementForm
 74505 P138_DuplicateInsert_ResultUsed
+74505 P138_DuplicateInsert_StatementFormWithTrigger
+74505 P138_DuplicateInsert_StatementFormWithoutTrigger
 74505 P138_FirstInsert_RunsEverything
 74509 P138_Get_IntegerLiteral_And_FromInteger_MissingRow
 74509 P138_Get_Integer_MissingRow
