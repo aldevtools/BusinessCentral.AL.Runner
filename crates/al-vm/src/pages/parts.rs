@@ -1901,6 +1901,90 @@ impl Session {
             && !self.declares(st, "onnextrecord")
     }
 
+    /// `part_view_held` for a part that declares OnFindRecord (not OnNextRecord), shown on a Document or Card page that links it
+    /// by fields and has no other part: the shape of pages/lt-y17-expr-refresh/Y17ExprRefresh.al (page 91752 in page 91753).
+    fn find_part_view_held(&self, st: &St) -> bool {
+        let shape = {
+            let s = st.borrow();
+            s.host.is_some()
+                && s.open
+                && s.new_line
+                && s.window_from_start
+                && (s.window.len() < Self::WINDOW || s.window_whole)
+        } && self.is_list(st)
+            && self.has_source(st)
+            && self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord")
+            && self.declares(st, "onaftergetcurrrecord");
+        if !shape {
+            return false;
+        }
+        let Some((host, idx)) = st
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, i)| h.upgrade().map(|h| (h, *i)))
+        else {
+            return false;
+        };
+        let engine = self.engine();
+        host.borrow().host.is_none()
+            && host.borrow().parts.len() == 1
+            && matches!(
+                engine.object_facts[host.borrow().object as usize].page_type,
+                Some(al_ir::PageType::Document | al_ir::PageType::Card)
+            )
+            && page_of(&engine, &host).controls[idx]
+                .part_link
+                .as_ref()
+                .is_some_and(|l| {
+                    l.view.is_none()
+                        && l.provider.is_none()
+                        && !l.entries.is_empty()
+                        && l.entries.iter().all(|e| matches!(e, ir::LinkEntry::Field(..)))
+                })
+    }
+
+    /// First and Last on a part of `find_part_view_held` that stands on a stored row it did not change:
+    /// - First on the first row runs nothing and the row keeps the values it shows, also when the table changed
+    ///   (Y17ExprRefresh.al:711 RF_PartFirst_Linked `first` `true/10000/10.00` after the test stored 100, `first log` empty);
+    /// - Last runs the blank line below the last row once (OnNewRecord, OnAfterGetCurrRecord) and comes back to the last row, read
+    ///   as a move onto a row the client holds, through OnFindRecord (:583 RF_PartNext_NewLineSaved `last log`
+    ///   `new 30000;agcr 30000;agr 20000;find;agr 20000;agcr 20000`, `last` `true/20000`).
+    ///
+    /// `None` (the usual move, as before) for any other state, and for First from another row.
+    fn find_part_last_first(&mut self, st: &St, how: PageMethod) -> Result<Option<bool>, Signal> {
+        let (cursor, draft, dirty, empty) = {
+            let s = st.borrow();
+            (s.cursor, s.draft, s.dirty, s.window.is_empty())
+        };
+        if cursor != Cursor::Row || draft || dirty || empty {
+            return Ok(None);
+        }
+        let rec = self.page_rec(st);
+        let key = self.row_key(&rec)?;
+        let window = st.borrow().window.clone();
+        let Some(at) = window.iter().position(|w| Self::same_key(&w.key, &key)) else {
+            return Ok(None);
+        };
+        if how == PageMethod::First {
+            if at != 0 {
+                return Ok(None);
+            }
+            return Ok(Some(true));
+        }
+        let last = window.len() - 1;
+        self.set_xrec_fields(st, window[last].stored.clone());
+        self.land_on_new_line(st)?;
+        {
+            let mut s = st.borrow_mut();
+            s.draft = false;
+            s.cursor = Cursor::Row;
+        }
+        self.read_client_row(st, last)?;
+        Ok(Some(true))
+    }
+
     fn observes_new_record(&self, st: &St) -> bool {
         let object = st.borrow().object as usize;
         self.declares(st, "onnewrecord") || self.engine().events.is_subscribed(object, "onnewrecordevent")
@@ -1960,6 +2044,9 @@ impl Session {
                 st.borrow_mut().blank_after_empty_last = true;
                 return Ok(Some(false));
             }
+        }
+        if matches!(how, PageMethod::Last | PageMethod::First) && self.find_part_view_held(st) {
+            return self.find_part_last_first(st, how);
         }
         if !matches!(how, PageMethod::Last | PageMethod::First) || !self.part_view_held(st) {
             return Ok(None);

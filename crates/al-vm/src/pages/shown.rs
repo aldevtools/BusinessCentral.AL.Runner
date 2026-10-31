@@ -140,10 +140,14 @@ impl Session {
                 {
                     0
                 }
-                PageMethod::Value if on_control && r.is_ok() => 0,
+                // Visible of a field or an action runs no trigger and changes no value (pages/lt-y17-expr-refresh/
+                // Y17ExprRefresh.al:517 RF_Visible_PartControl, :549 RF_Visible_CardControl `visible log` empty, totals kept).
+                PageMethod::Value | PageMethod::Visible if on_control && r.is_ok() => 0,
                 PageMethod::SetValue if is_p && on_control => DOUBT_SET_VALUE,
                 PageMethod::SetValue if on_root && on_control => DOUBT_HOST_SET_VALUE,
-                PageMethod::GoToRecord if on_root && target.is_none() => DOUBT_GO_TO_RECORD,
+                // GoToKey of the host as GoToRecord: on the row shown it runs the host's OnAfterGetCurrRecord only and the part's
+                // values stay (Y17ExprRefresh.al:517 `gotokey log` = `card agcr`, `totals before` 15.00/2).
+                PageMethod::GoToRecord | PageMethod::GoToKey if on_root && target.is_none() => DOUBT_GO_TO_RECORD,
                 PageMethod::First if is_p && target.is_none() => DOUBT_FIRST,
                 // A page the test caught with Trap() is pinned only for the values a list keeps per row (`row_exprs`, read before
                 // this is reached); a read computed now is pinned only on a page the test opened.
@@ -273,8 +277,24 @@ impl Session {
                 },
             )
         };
-        // A Value read changes nothing: the reads of the corpus cases agree with each other (:4676-4682).
-        if m == PageMethod::Value && matches!(target, Some(ControlTarget::Control(_))) {
+        // Every other page of the tree is a ListPart that `root` hosts, linked by fields only (no view, no provider).
+        let linked_list_parts = |root: &St| {
+            tree.iter().filter(|q| !Rc::ptr_eq(q, root)).all(|q| {
+                let host = q.borrow().host.as_ref().and_then(|(h, i)| h.upgrade().map(|h| (h, *i)));
+                let Some((h, i)) = host else { return false };
+                Rc::ptr_eq(&h, root)
+                    && other_type(q, "listpart")
+                    && page_of(&engine, &h).controls[i].part_link.as_ref().is_some_and(|l| {
+                        l.view.is_none()
+                            && l.provider.is_none()
+                            && !l.entries.is_empty()
+                            && l.entries.iter().all(|e| matches!(e, ir::LinkEntry::Field(..)))
+                    })
+            })
+        };
+        // A Value read changes nothing: the reads of the corpus cases agree with each other (:4676-4682). Nor does Visible
+        // (Y17ExprRefresh.al:517, :549).
+        if matches!(m, PageMethod::Value | PageMethod::Visible) && matches!(target, Some(ControlTarget::Control(_))) {
             return Effect::Keep;
         }
         // Only `CurrPage.Update(false)` of the page whose action runs is pinned inside its action (:4651).
@@ -291,6 +311,17 @@ impl Session {
                     && page_of(&engine, st).controls[*idx].run_object.is_none() =>
             {
                 if on_root && page_type(st) == Some(ir::PageType::Card) && only_update_false_of(st) {
+                    return Effect::Refresh;
+                }
+                // An action of a Document page whose parts are ListParts linked to it by fields refreshes the page and its
+                // parts, also when it calls a procedure of a part that writes the part's rows, with or without
+                // `CurrPage.Update(false)` (Y17ExprRefresh.al:653 RF_CardAction_CallsPartProcedure, :682 _Update: `invoke log`
+                // `proc;card agcr;find;agr 10000;...;agcr 10000`, totals recomputed).
+                if on_root
+                    && page_type(st) == Some(ir::PageType::Document)
+                    && only_update_false_of(st)
+                    && linked_list_parts(st)
+                {
                     return Effect::Refresh;
                 }
                 let propagates = st
@@ -312,6 +343,24 @@ impl Session {
                     return Effect::Refresh;
                 }
                 Effect::Doubt
+            }
+            // First, Next and Last on a ListPart linked by fields to its Document or Card host, the only part: the part refreshes
+            // (its OnAfterGetCurrRecord recomputed the values when it ran; First on the row shown runs nothing and keeps them),
+            // the host stays (Y17ExprRefresh.al:583 RF_PartNext_NewLineSaved `22.00/3`, :626 RF_PartNext_ExistingRows `60.00/2`,
+            // :711 RF_PartFirst_Linked `first log` empty, `15.00/2`).
+            (PageMethod::First | PageMethod::Next | PageMethod::Last, None)
+                if !on_root
+                    && notes.is_empty()
+                    && tree.len() == 2
+                    && other_type(st, "listpart")
+                    && matches!(page_type(root), Some(ir::PageType::Document | ir::PageType::Card))
+                    && linked_list_parts(root) =>
+            {
+                if is_p {
+                    Effect::Refresh
+                } else {
+                    Effect::Keep
+                }
             }
             (PageMethod::Next, None)
                 if on_root
@@ -472,24 +521,32 @@ impl Session {
             });
             Rc::ptr_eq(&h, root) && list_part && link_ok
         });
-        if !(pinned && three) {
-            return pinned;
+        if !pinned {
+            return false;
         }
-        // With three entries BC runs the refresh of the OnValidate's `CurrPage.Update(false)` later, not within the Lookup: the
-        // host's OnAfterGetCurrRecord is not logged after it, and runs before the next Lookup (corpus writer Y15,
+        // With two or three entries BC runs the refresh of the OnValidate's `CurrPage.Update(false)` later, not within the
+        // Lookup: the host's OnAfterGetCurrRecord is not logged after it, and runs before the next Lookup (corpus writer Y15,
         // pages/lt-y15/Y15LookupThreeFieldLink.al:194 `lookup log` `lookup;validate R2`, :278 `log`
         // `lookup;validate R2;agcr R1;lookup;validate R3`). Without row triggers the refresh shows nothing (al-runner issue
         // 6466, the reporter's page). With them the Lookup left the refresh for later (`defer_lookup_refresh`) and the reads
         // after it show the values as they are now (al-runner issue 6519; corpus writer Y26, branch al-runtime-rs-staging-y26,
-        // Y15LookupThreeFieldLink.al:314 Y26_ThreeLinkCurr_LookupRefresh); a Lookup that did not leave it is refused.
-        if self.declares(root, "onaftergetrecord") || self.declares(root, "onaftergetcurrrecord") {
+        // Y15LookupThreeFieldLink.al:314 Y26_ThreeLinkCurr_LookupRefresh, :379 Y26_TwoLinkCurr_LookupRefresh, :509
+        // Y26_TwoLinkPlain_LookupRefresh); a Lookup that did not leave it is refused, and so is a host with row triggers whose
+        // part links no field or one (not measured).
+        if with_parts && (self.declares(root, "onaftergetrecord") || self.declares(root, "onaftergetcurrrecord")) {
             if !root.borrow().lookup_refresh_deferred {
                 return false;
             }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupThreeFieldLinkDefersRefresh);
+            al_builtins::assumptions::assume(if three {
+                al_builtins::assumptions::Assumption::LookupThreeFieldLinkDefersRefresh
+            } else {
+                al_builtins::assumptions::Assumption::LookupTwoFieldLinkDefersRefresh
+            });
             return true;
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupThreeFieldLinkShowsPicked);
+        if three {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupThreeFieldLinkShowsPicked);
+        }
         true
     }
 
@@ -575,13 +632,14 @@ impl Session {
     }
 
     /// Before the refresh after the SetValue of TestField.Lookup on `st` (`control_set_value`): on a page with OnAfterGetRecord or OnAfterGetCurrRecord whose OnValidate
-    /// asked for `CurrPage.Update(false)` and whose every part is a ListPart it hosts with a SubPageLink of three `field(..)`
-    /// entries, BC leaves the refresh for later. The Lookup runs no OnAfterGetRecord or OnAfterGetCurrRecord on the host or
+    /// asked for `CurrPage.Update(false)` and whose one part is a ListPart it hosts with a SubPageLink of two or three
+    /// `field(..)` entries, BC leaves the refresh for later. The Lookup runs no OnAfterGetRecord or OnAfterGetCurrRecord on the host or
     /// the part, and reading a control after it runs no trigger: the field shows the picked value, the globals the row
     /// triggers set and the part keep what they showed before (corpus writer Y26, branch al-runtime-rs-staging-y26,
     /// pages/lt-y15/Y15LookupThreeFieldLink.al:314 Y26_ThreeLinkCurr_LookupRefresh `lookup log`
     /// `lookup;h-fn R1;validate R2;h-fn R1`, `current no` `R1/`, `part current` `R1/`, every read log empty; :574
-    /// Y26_ThreeLinkCurr_RegionsSet; al-runner issue 6519). BC computes the host's function controls within the Lookup (`h-fn`),
+    /// Y26_ThreeLinkCurr_RegionsSet; two entries the same: :379 Y26_TwoLinkCurr_LookupRefresh, :509 Y26_TwoLinkPlain_LookupRefresh;
+    /// al-runner issue 6519). Y26 measured one part; with more the Lookup is left as it was. BC computes the host's function controls within the Lookup (`h-fn`),
     /// which this runtime does not: a host with an expression control that calls anything is left as it was. The refresh
     /// runs at the next Lookup or Next (:639 Y26_ThreeLinkCurr_LookupTwice, :314 `next log`), which is not built:
     /// `lookup_refresh_deferred_call` refuses every call but a read and Close.
@@ -592,7 +650,7 @@ impl Session {
                 && s.open
                 && !s.draft
                 && s.cursor == Cursor::Row
-                && !s.parts.is_empty()
+                && s.parts.len() == 1
                 && s.refresh
                 && s.refresh_by_update
                 && s.refresh_update_false
@@ -625,11 +683,12 @@ impl Session {
                         && l.provider.is_none()
                         && matches!(
                             l.entries.as_slice(),
-                            [
-                                ir::LinkEntry::Field(..),
-                                ir::LinkEntry::Field(..),
-                                ir::LinkEntry::Field(..)
-                            ]
+                            [ir::LinkEntry::Field(..), ir::LinkEntry::Field(..)]
+                                | [
+                                    ir::LinkEntry::Field(..),
+                                    ir::LinkEntry::Field(..),
+                                    ir::LinkEntry::Field(..)
+                                ]
                         )
                 })
         });
@@ -678,8 +737,8 @@ impl Session {
             }
         }
         unsupported(format!(
-            "{method} after TestField.Lookup on a page with OnAfterGetRecord or OnAfterGetCurrRecord whose ListPart links three \
-             fields: BC runs the refresh of the OnValidate's CurrPage.Update(false) first (not built)"
+            "{method} after TestField.Lookup on a page with OnAfterGetRecord or OnAfterGetCurrRecord whose ListPart links two or \
+             three fields: BC runs the refresh of the OnValidate's CurrPage.Update(false) first (not built)"
         ))
     }
 
