@@ -1,0 +1,137 @@
+name: Corpus bump bot
+
+# Keeps the corpus pin close to the corpus branch master. Every 20 minutes the bot looks for a green corpus CI
+# run newer than the pin (tools/corpus_bump_bot.sh find). When there is one, it makes the mechanical part of the
+# bump on a branch corpus-bump/<commit> (the pin, oracle/ and the harness counts; tools/corpus_bump_bot.sh bump)
+# and opens a pull request to main. The pull request body lists what needs a person: lost baseline cases, cases
+# that newly fail, assumptions whose awaited pin landed, guards without a gate, harness counts.
+#
+#   - It never merges and never turns on auto-merge: that stays a person's call.
+#   - It writes no baseline. The regen bot (.github/workflows/regen-bot.yml) adds the new passes after the
+#     merge; removing a case stays a human decision (CLAUDE.md hard rule 2). tools/corpus_bump_bot.sh refuses to
+#     commit any change under metrics/ or any path outside the bump.
+#   - One open bot pull request at a time, and a branch corpus-bump/<commit> that exists is never pushed
+#     again: a person may be fixing it. It never force-pushes.
+#   - It pushes over SSH with the regen bot's deploy key (secret REGEN_BOT_DEPLOY_KEY); the workflow token only
+#     reads contents. A push with a deploy key starts CI (ci.yml runs on pushes to corpus-bump/**), so the
+#     branch gets the same checks as main. The pull request itself is opened with the workflow token
+#     (pull-requests: write), which starts no pull_request run.
+#   - Opening the pull request needs the repository setting "Allow GitHub Actions to create and approve pull
+#     requests" (Settings, Actions, General, Workflow permissions). Without it the branch is pushed and the step
+#     fails with that message.
+#   - The corpus run of a merge to master takes about an hour; the bump follows within 20 minutes of it.
+
+on:
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: corpus-bump-bot
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: corpus bump bot
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ALRT_DOTNET_SIDECAR: ${{ github.workspace }}/target/dotnet-sidecar/AlDotNetSidecar.dll
+      ALRT_REQUIRE_DOTNET: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          submodules: true
+          ssh-key: ${{ secrets.REGEN_BOT_DEPLOY_KEY }}
+
+      - name: Look for a green corpus run newer than the pin
+        id: find
+        run: |
+          if [ "$(git -C corpus rev-parse --is-shallow-repository)" = true ]; then
+            git -C corpus fetch --unshallow --quiet
+          fi
+          tools/corpus_bump_bot.sh find | tee -a "$GITHUB_OUTPUT"
+
+      - name: Leave existing work alone
+        id: free
+        if: steps.find.outputs.sha != ''
+        env:
+          SHA: ${{ steps.find.outputs.sha }}
+        run: |
+          branch="corpus-bump/${SHA:0:12}"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          open=$(gh pr list --state open --limit 100 --json headRefName \
+            --jq '[.[] | select(.headRefName | startswith("corpus-bump/"))] | map(.headRefName) | join(" ")')
+          if [ -n "$open" ]; then
+            echo "::notice::a bot pull request is open ($open); the next bump waits until it is merged or closed."
+            exit 0
+          fi
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            if [ "$(gh pr list --state all --head "$branch" --json number --jq length)" = 0 ]; then
+              echo "::error::the branch $branch exists without a pull request (the last run could not open one). Open it by hand or delete the branch."
+              exit 1
+            fi
+            echo "::notice::$branch was bumped before; nothing to do."
+            exit 0
+          fi
+          echo "go=true" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/setup
+        if: steps.free.outputs.go == 'true'
+      - name: Build release binary
+        if: steps.free.outputs.go == 'true'
+        run: cargo build --release -p al-test-cli
+      # As in the corpus job of ci.yml: the test-library apps from Microsoft's artifact feed, cached per BC build.
+      - name: Newest BC builds
+        id: bc
+        if: steps.free.outputs.go == 'true'
+        run: |
+          ./target/release/al-test-cli --all-versions --print-builds | tee "$RUNNER_TEMP/bc-builds.txt"
+          echo "key=$(tr ' \n' '--' < "$RUNNER_TEMP/bc-builds.txt")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        if: steps.free.outputs.go == 'true'
+        with:
+          path: ~/.cache/al-runtime/artifacts
+          key: bc-artifacts-${{ steps.bc.outputs.key }}
+      - name: Fetch dependency apps
+        if: steps.free.outputs.go == 'true'
+        run: ./target/release/al-test-cli --all-versions --fetch-deps
+
+      - name: Bump
+        id: bump
+        if: steps.free.outputs.go == 'true'
+        env:
+          RUN: ${{ steps.find.outputs.run }}
+        run: |
+          echo "before=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          tools/corpus_bump_bot.sh bump "$RUN" "$RUNNER_TEMP/bump"
+
+      - name: Pull request body in the job summary
+        if: always() && steps.free.outputs.go == 'true'
+        run: cat "$RUNNER_TEMP/bump/body.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      - name: Push the branch and open the pull request
+        if: steps.free.outputs.go == 'true'
+        env:
+          BRANCH: ${{ steps.free.outputs.branch }}
+          SHA: ${{ steps.find.outputs.sha }}
+          BEFORE: ${{ steps.bump.outputs.before }}
+        run: |
+          if [ "$(git rev-parse HEAD)" = "$BEFORE" ]; then
+            echo "::notice::the bump made no commit; nothing pushed."
+            exit 0
+          fi
+          git push origin "HEAD:refs/heads/corpus-bump/${SHA:0:12}"
+          if ! gh pr create --base main --head "$BRANCH" \
+            --title "Corpus bump to master ${SHA:0:12} (bump bot)" --body-file "$RUNNER_TEMP/bump/body.md"; then
+            echo "::error::$BRANCH is pushed, but the pull request could not be opened. The workflow token needs the repository setting 'Allow GitHub Actions to create and approve pull requests'."
+            exit 1
+          fi
