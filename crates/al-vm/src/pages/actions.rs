@@ -2373,6 +2373,13 @@ impl Session {
         Ok(())
     }
 
+    /// Whether the view of `rec` holds a row before the row it stands on (asked of the table; Rec is put back).
+    fn has_row_before(&mut self, rec: &Rec) -> Result<bool, Signal> {
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        Ok(matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(-1)])?, Value::Integer(n) if n != 0))
+    }
+
     /// The reads of an action that did not call `CurrPage.Update`, before the refresh's own (see
     /// `action_invoke`).
     pub(super) fn read_page_again(&mut self, st: &St) -> Result<(), Signal> {
@@ -2411,11 +2418,20 @@ impl Session {
         if self.declares(st, "onaftergetcurrrecord") && self.declares(st, "onaftergetrecord") {
             return self.read_list_again_from_row(st, &rec, &key);
         }
+        // The row the list stood on was the first of the old view; an action that changed the view can put rows before it, and
+        // then the list reads as on a later row (al-runner issue 6470: corpus writer Y15, branch al-runtime-rs-staging-y15,
+        // pages/lt-y15/Y15ActionWidensView.al:198 `after action` `A20/6 28:A20-A01`).
         let first = {
             let s = st.borrow();
             s.window_from_start
                 && s.window.len() < Self::WINDOW
                 && s.window.first().is_some_and(|w| Self::same_key(&w.key, &key))
+        } && {
+            let rows_before = self.view_changed_by_action(st) && self.has_row_before(&rec)?;
+            if rows_before {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionWidensViewHoldsAll);
+            }
+            !rows_before
         };
         if !first {
             return self.read_list_again_from_row(st, &rec, &key);
