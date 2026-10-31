@@ -436,7 +436,7 @@ fn name_arg(a: &[Value]) -> Result<String, Signal> {
 }
 
 /// The `TextEncoding` argument at `at`: UTF-8 when omitted (ordinals as documented: MSDos 0, UTF8 1,
-/// UTF16 2, Windows 3); only UTF-8 is pinned for resources.
+/// UTF16 2, Windows 3); only UTF-8 is pinned for GetResourceAsText and GetResourceAsJson.
 fn encoding_arg(a: &[Value], at: usize) -> Result<crate::stream::Encoding, Signal> {
     match a.get(at) {
         None | Some(Value::Option(1, _)) => Ok(crate::stream::Encoding::Utf8),
@@ -448,9 +448,33 @@ fn encoding_arg(a: &[Value], at: usize) -> Result<crate::stream::Encoding, Signa
 }
 
 fn get_resource(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
+    use crate::stream::Encoding;
     let name = name_arg(a)?;
-    let enc = encoding_arg(a, 2)?;
+    // UTF8 is pinned (session/TestNavAppGetResource.al:33). The other encodings read the bytes as a stream created with
+    // them does, and no encoding reads as MSDos (corpus branch al-runtime-rs-staging-y18, session/
+    // Y18NavAppResourceEncodings.al:46-56, :68-78, :90-100, :112-122, :134-144: ReadText lines and CopyStream of UTF-16LE
+    // with and without a byte order mark, UTF-8 and Windows-1252 bytes; awaited in the pinned corpus).
+    let enc = match a.get(2) {
+        Some(Value::Option(1, _)) => Encoding::Utf8,
+        None => Encoding::MsDos,
+        Some(_) => Encoding::from_arg(&a[1..])?,
+    };
+    if enc != Encoding::Utf8 {
+        crate::assumptions::assume(crate::assumptions::Assumption::ResourceStreamEncoding);
+    }
     let data = resource(c, &name)?;
+    // BC raises InvalidStreamData on the UTF-16 read of the Windows-1252 bytes (Y18NavAppResourceEncodings.al:138), which
+    // hold an unpaired surrogate (DFF6) and have an odd length; an odd length alone reads (:94). That the surrogate raises,
+    // and when, is not pinned.
+    if enc == Encoding::Utf16 {
+        let body = data.strip_prefix(&[0xFF, 0xFE][..]).unwrap_or(&data);
+        let units = body.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]]));
+        if char::decode_utf16(units).any(|c| c.is_err()) {
+            return unsupported(format!(
+                "a UTF-16 read of resource `{name}`, whose bytes hold an unpaired surrogate (not pinned)"
+            ));
+        }
+    }
     match a.get(1) {
         Some(Value::Library(_, cell)) => {
             *cell.borrow_mut() = LibraryValue::InStream(crate::stream::InState::snapshot(data, enc));
