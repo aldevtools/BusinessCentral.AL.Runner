@@ -21,6 +21,8 @@ pub struct Manifest {
     /// compiled the package (`<PreprocessorSymbols><PreprocessorSymbol Name=".."/>`; alc writes the
     /// app.json list there, in order, and defines no symbol of its own: al-runner issue 6048).
     pub preprocessor_symbols: Vec<String>,
+    /// `Description` of `NavxManifest.xml`, `description` of an `app.json`.
+    pub description: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,6 +97,7 @@ pub fn parse_manifest(xml: &str) -> Result<Manifest, PackageError> {
                         target: get(&a, "Target").unwrap_or_default(),
                         dependencies: Vec::new(),
                         preprocessor_symbols: Vec::new(),
+                        description: get(&a, "Description").unwrap_or_default(),
                     });
                 }
                 b"Dependencies" => in_dependencies = true,
@@ -219,6 +222,10 @@ pub(crate) fn manifest_of_source_zip(app_json: &str, vars: &Vars) -> Result<Mani
                     .filter_map(|s| s.as_str().map(str::to_string))
                     .collect()
             })
+            .unwrap_or_default(),
+        description: serde_json::from_str::<serde_json::Value>(text)
+            .ok()
+            .and_then(|v| v["description"].as_str().map(str::to_string))
             .unwrap_or_default(),
     })
 }
