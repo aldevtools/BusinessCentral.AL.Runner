@@ -615,6 +615,13 @@ pub(crate) enum EncryptionKey {
     Recreated,
 }
 
+/// The session language and WorkDate at the start of a test ([`Session::carried_state`]).
+#[derive(Debug, Clone, Copy)]
+pub struct CarriedState {
+    language: i32,
+    work_date: Option<i32>,
+}
+
 /// The isolated storage and the number sequences of a session at a test runner's checkpoint
 /// ([`Session::storage_checkpoint`]).
 #[derive(Debug, Clone, Default)]
@@ -1636,6 +1643,24 @@ impl Session {
     /// Not set while the company is built: Company-Initialize and the company data codeunit keep their own rules.
     pub fn set_install_without_client(&mut self, on: bool) {
         self.install_without_client = on;
+    }
+
+    /// The session state a test method can change for the next test besides the database and the globals: the language
+    /// (`GlobalLanguage`) and WorkDate. The test runner puts it back after a test refused while it ran (`restore_carried`).
+    pub fn carried_state(&self) -> CarriedState {
+        CarriedState {
+            language: self.global_language,
+            work_date: self.work_date,
+        }
+    }
+
+    /// Puts back what [`Session::carried_state`] took: a test refused while it ran leaves nothing of it behind, as its
+    /// database writes are rolled back (al-testrun `run.rs`).
+    pub fn restore_carried(&mut self, state: CarriedState) {
+        self.global_language = state.language;
+        self.events.event_stats.language.set(state.language);
+        al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(state.language));
+        self.work_date = state.work_date;
     }
 
     /// Sets the session's WorkDate to the day number `day`, as `WorkDate(d)` does.
