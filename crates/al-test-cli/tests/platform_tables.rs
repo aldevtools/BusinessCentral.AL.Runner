@@ -254,22 +254,47 @@ fn a_virtual_platform_table_is_read_but_cannot_be_written() {
 
 // Microsoft's Tests-ERM `Initialize` sets Feature Key ReminderTermsCommunicationTexts to None and calls Modify (243 tests were
 // refused with "Modify on virtual table 'Feature Key'"). Enabled is the only writable column; a change stays for later reads
-// (assumed, docs/probes-needed.md); another column is still refused.
+// (assumed, docs/probes-needed.md). A change to one read-only column raises the error naming its caption, code DB:Ok
+// (record/lt-loadfields-pagesource-validate/P81FeatureKeyModify.al:51-63); a change to two of them is not pinned: refused.
 #[test]
-fn a_feature_key_enabled_can_be_modified_and_reads_back_and_another_column_is_refused() {
+fn a_feature_key_enabled_can_be_modified_and_reads_back_and_another_column_raises() {
     let o = outcomes(
         r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure ModifyUnchanged() var K: Record "Feature Key"; begin K.FindFirst(); K.Enabled := K.Enabled; K.Modify(); end;
   [Test] procedure ModifyEnabledReadsBack() var K: Record "Feature Key"; W: Record "Feature Key"; N: Option; begin
     K.FindFirst(); if K.Enabled = K.Enabled::None then K.Enabled := K.Enabled::"All Users" else K.Enabled := K.Enabled::None;
     N := K.Enabled; K.Modify(); W.Get(K.ID); if W.Enabled <> N then Error('read back %1', W.Enabled); end;
-  [Test] procedure ModifyAnotherColumn() var K: Record "Feature Key"; begin K.FindFirst(); K."Is One Way" := not K."Is One Way"; K.Modify(); end; }"#,
+  [Test] procedure ModifyAnotherColumn() var K: Record "Feature Key"; begin K.FindFirst(); K."Is One Way" := not K."Is One Way";
+    asserterror K.Modify();
+    if GetLastErrorText() <> 'Sorry, but the task couldn''t be completed because it tried to change the "Is One Way" field of the feature key, which cannot be changed. Contact your administrator or application developer.' then Error(GetLastErrorText());
+    if GetLastErrorCode() <> 'DB:Ok' then Error(GetLastErrorCode());
+    K.FindFirst(); K."Mandatory By" := 'x'; asserterror K.Modify();
+    if StrPos(GetLastErrorText(), '"Approximate mandatory date"') = 0 then Error(GetLastErrorText()); end;
+  [Test] procedure ModifyTwoColumns() var K: Record "Feature Key"; begin K.FindFirst(); K."Is One Way" := not K."Is One Way";
+    K."Can Try" := not K."Can Try"; K.Modify(); end; }"#,
     );
-    for t in ["ModifyUnchanged", "ModifyEnabledReadsBack"] {
-        assert!(o.iter().any(|(n, o)| n == t && *o == Outcome::Pass), "{o:?}");
+    for t in ["ModifyUnchanged", "ModifyEnabledReadsBack", "ModifyAnotherColumn"] {
+        assert!(o.iter().any(|(n, o)| n == t && *o == Outcome::Pass), "{t}: {o:?}");
     }
-    let why = not_run(&o, "ModifyAnotherColumn");
-    assert!(why.contains("virtual table 'Feature Key'"), "{why}");
+    let why = not_run(&o, "ModifyTwoColumns");
+    assert!(why.contains("Feature Key"), "{why}");
+}
+
+/// Feature Key Description, "Learn More Link" and "Description In English" of the keys platform/lt-ba-columns/BaFeatureKeyTexts.al
+/// pins (the same on 27.5, 28.5 and 29.0); of another key they are unknown, so a read is refused.
+#[test]
+fn feature_key_texts_are_pinned_for_five_keys() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Pinned() var K: Record "Feature Key"; begin K.Get('SalesPrices');
+    if K.Description <> 'Feature Update: New sales pricing experience' then Error(K.Description);
+    if K."Learn More Link" <> 'https://go.microsoft.com/fwlink/?linkid=2136722' then Error(K."Learn More Link");
+    if K."Description In English" <> K.Description then Error(K."Description In English"); end;
+  [Test] procedure Other() var K: Record "Feature Key"; begin K.Get('AdvancedTellMe'); if K.Description = '' then; end; }"#,
+    );
+    passes(&o, "Pinned");
+    let why = not_run(&o, "Other");
+    assert!(why.contains("Description"), "{why}");
 }
 
 // platform/lt-aw-fresh-tenant/AwTests.al:557-576: on the corpus CI (Linux) a Feature Key change survives the rollback of an

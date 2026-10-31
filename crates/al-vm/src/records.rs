@@ -179,6 +179,43 @@ impl Session {
         Ok(())
     }
 
+    /// A Modify of a Feature Key row that changes one read-only column (every column but Enabled) raises the error naming the
+    /// column's caption, code `DB:Ok` (record/lt-loadfields-pagesource-validate/P81FeatureKeyModify.al:51-63;
+    /// record/TestFeatureKeyTable.al:64-78). A change to two of them, or to one together with Enabled, is not pinned: the store
+    /// refuses it. The error comes before the table events: P81FeatureKeyModify.al passes on real BC with Microsoft's
+    /// subscribers to the Feature Key events loaded.
+    fn feature_key_read_only_change(&self, t: &TableDef, rec: &Rec, stored: Option<&[Value]>) -> Result<(), Signal> {
+        let Some(old) = stored else { return Ok(()) };
+        let id = self.engine.program.objects[t.object as usize].id.unwrap_or(0);
+        if rec.borrow().temporary
+            || al_builtins::platform::virtual_table(id) != Some(al_builtins::platform::Virtual::FeatureKey)
+        {
+            return Ok(());
+        }
+        let changed: Vec<usize> = {
+            let r = rec.borrow();
+            (0..t.fields.len())
+                .filter(|&i| t.fields[i].id < 2_000_000_000)
+                .filter(|&i| match (&old[i], &r.fields[i]) {
+                    (Value::Unknown(_), Value::Unknown(_)) => false,
+                    (a, b) => !ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal),
+                })
+                .collect()
+        };
+        match changed.as_slice() {
+            [i] if t.fields[*i].id != 2 => Err(Signal::Error(Box::new(AlError {
+                message: format!(
+                    "Sorry, but the task couldn't be completed because it tried to change the \"{}\" field of the feature key, which cannot be changed. Contact your administrator or application developer.",
+                    self.field_caption(t, *i)
+                ),
+                code: "DB:Ok".into(),
+                call_stack: String::new(),
+                ..Default::default()
+            }))),
+            _ => Ok(()),
+        }
+    }
+
     pub(crate) fn table(&self, rec: &Rec) -> Result<Arc<TableDef>, Signal> {
         let r = rec.borrow();
         let t = self.engine.tables[r.table as usize]
@@ -4042,6 +4079,7 @@ impl Session {
                     .store_for(rec)
                     .get(&cx, &t, &pk)
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                self.feature_key_read_only_change(&t, rec, stored.as_deref())?;
                 // A buffer older than a committed change to its row cannot be saved
                 // (record/TestRecordStaleBufferWrite.al); before a commit the last writer wins.
                 if let (Some(row), Some(i)) = (&stored, t.fields.iter().position(|f| f.id == 2_000_000_005)) {

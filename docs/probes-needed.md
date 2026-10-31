@@ -1024,7 +1024,7 @@ FindSet and Count over the rows, run as usual. Writing the field replaces the un
 | Table | Column left unknown | Probe wanted | Where |
 |---|---|---|---|
 | Report Layout List (BC 29) | "Layout Subtype" (19), HeaderFooterPart (20) and ThemePart (21) of a layout that declares no `Subtype` (report/lt-y-report-props/YReportParts.al pins only layouts that declare one) | Read the three columns through a RecordRef for a layout with no Subtype, for a report with and without DefaultHeaderFooterPart | `platform/reports.rs` `layout_row` |
-| Feature Key | Description (3), "Learn More Link" (4) and "Description In English" (10) of every row | The three columns of two feature keys on 27.5, 28.5 and 29.0 | `platform/host_tables.rs` `feature_key_rows` |
+| Feature Key | Description (3), "Learn More Link" (4) and "Description In English" (10) of a key other than the five platform/lt-ba-columns/BaFeatureKeyTexts.al pins | The three columns of the other keys on 27.5, 28.5 and 29.0 | `platform/host_tables.rs` `feature_key_rows` |
 
 ## Outside user reports (issues 252, 253, 254, 2026-10-19)
 
