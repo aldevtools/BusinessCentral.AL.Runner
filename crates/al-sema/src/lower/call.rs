@@ -561,6 +561,27 @@ impl Lowerer<'_> {
                         let slot = self.globals.get("currpage").ok_or("`CurrPage` is not lowered for this object")?;
                         Some(Box::new(ir::Arg::Ref(ir::Place::Global(*slot))))
                     }
+                    // A bare `UseRequestPage(..)` or `RunModal()` in a report's procedure runs on the report's own
+                    // instance (the checker resolves it in `check/calls.rs`). Not pinned: the receiver form is
+                    // (codeunit/TestWriteTxTestBoundary.al:272); docs/probes-needed.md `bare-report-member-is-self`.
+                    None if sig.instance
+                        && sig.receiver == "Report"
+                        && callee.kind() == SyntaxKind::NameRef
+                        && self.ws.objects[self.oi].kind == ObjKind::Report =>
+                    {
+                        let in_trigger = node
+                            .ancestors()
+                            .find(|a| matches!(a.kind(), SyntaxKind::Procedure | SyntaxKind::Trigger))
+                            .is_none_or(|a| a.kind() == SyntaxKind::Trigger);
+                        if in_trigger {
+                            return Err(format!(
+                                "a bare `{}` in a trigger of the report runs while the report runs (not pinned)",
+                                sig.name
+                            ));
+                        }
+                        self.assume(al_builtins::assumptions::Assumption::BareReportMemberIsSelf);
+                        Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance)))
+                    }
                     // An unqualified record method in table code runs on the implicit Rec.
                     None if sig.instance && matches!(sig.receiver.as_str(), "Record" | "Query") => {
                         Some(Box::new(ir::Arg::Ref(self.implicit_rec(node)?)))

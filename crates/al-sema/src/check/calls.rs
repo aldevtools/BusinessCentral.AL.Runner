@@ -397,6 +397,23 @@ impl<'a> Checker<'a> {
                 })
                 .collect();
         }
+        // A bare `UseRequestPage(..)` or `RunModal()` in a report's procedure is a member of the report itself, as
+        // `this.` would make it (BC compiles it; Microsoft's bc2adls does it). The lowering hands it the report's own
+        // instance and marks the assumption `bare-report-member-is-self`; other bare report methods are not resolved.
+        if c.is_empty()
+            && (n.eq_ignore_ascii_case("userequestpage") || n.eq_ignore_ascii_case("runmodal"))
+            && self.ws.objects[sc.oi].kind == ObjKind::Report
+            && sc.self_obj == sc.oi
+        {
+            let me = Ty::Object(ObjKind::Report, self.ws.objects[sc.oi].name.as_str().into());
+            c = self
+                .catalog
+                .overloads("Report", n)
+                .into_iter()
+                .filter(|s| s.instance)
+                .map(|s| sig_cand(s, &me, self.catalog.id(s)))
+                .collect();
+        }
         if c.is_empty() {
             c = self.global_cands(n);
         }
