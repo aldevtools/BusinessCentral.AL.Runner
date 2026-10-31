@@ -160,6 +160,25 @@ fn a_failure_after_a_test_that_was_refused_mid_run_is_not_trusted() {
     assert_eq!(u[0].1, Outcome::Fail("real failure".into()));
 }
 
+/// A test refused while it ran leaves the session language and WorkDate as they were when it started, as its database
+/// writes are rolled back: corpus report/lt-bd-format-region/BdRegionTests.al BdSummaryML_1040 sets GlobalLanguage(1040) and
+/// is refused before its own `GlobalLanguage(Original)`; the BdSetterLanguage_* tests after it must not run in 1040.
+#[test]
+fn a_test_refused_while_it_ran_leaves_no_session_language_or_work_date_behind() {
+    let src = "table 60902 T8 { fields { field(1; K; Code[10]) { } } }
+            codeunit 60106 T { Subtype = Test; var Saved: Date; Lang: Integer;
+                [Test] procedure Remember() begin Saved := WorkDate(); Lang := GlobalLanguage(); end;
+                [Test] procedure Refused() var R: Record T8; begin GlobalLanguage(1040); WorkDate(Saved + 1); R.LockTable(true, true); end;
+                [Test] procedure Reads() begin
+                    if GlobalLanguage() <> Lang then Error('language %1', GlobalLanguage());
+                    if WorkDate() <> Saved then Error('work date %1', WorkDate());
+                end; }";
+    let o = outcomes_of(src, "T");
+    let by = |n: &str| o.iter().find(|(x, _)| x == n).map(|(_, x)| x.clone()).unwrap();
+    assert!(matches!(by("Refused"), Outcome::NotRun(_)), "{:?}", by("Refused"));
+    assert_eq!(by("Reads"), Outcome::Pass);
+}
+
 /// al-runner issue 5610: a test refused at an HttpClient call can change only what an HTTP server received, which a later
 /// test sees only by sending a request itself. A later failure that sends none is trusted.
 #[test]
