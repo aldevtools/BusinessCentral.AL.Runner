@@ -92,6 +92,10 @@ jobs:
 
   corpus:
     runs-on: ubuntu-latest
+    # actions: read lets the step time guard read main's earlier runs of this job (tools/step_time_guard.py).
+    permissions:
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -153,7 +157,12 @@ jobs:
       # slowed by other runs. Then one eager run per version goes side by side (a corpus run uses
       # one core, the runner has four). The runs share no files (the dependency cache is only read
       # after the step above) and each stays well under 3 GB.
+      #
+      # The normal run is also the work ratchet (docs/architecture.md, "Work ratchet and step time guard"): al-test-cli compares what each
+      # pass compiled and ran (routines lowered, objects loaded, dependency apps from source or from the cache, install
+      # baseline rows, tests run) with metrics/<major>/work.json and exits 1 when a count is more than 10% above it.
       - name: Corpus pass rate, and the demand-driven compile against the eager compile
+        id: corpus_step
         run: |
           step_start=$(date +%s)
           status=0
@@ -212,7 +221,17 @@ jobs:
               ./target/release/al-test-cli "${eager_reports[@]}"
             fi
           } | tee eager-summary.md
+          echo "seconds=$((step_end - step_start))" >> "$GITHUB_OUTPUT"
           exit $status
+
+      # The loose guard (docs/architecture.md, "Work ratchet and step time guard"): the step above fails the job when it took more than
+      # 1.5 times the median of the same step in main's last 10 successful runs; with fewer than 5 it only notes it.
+      - name: Corpus step time, against main's last runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/step_time_guard.py "${{ steps.corpus_step.outputs.seconds }}" \
+            --step "Corpus pass rate, and the demand-driven compile against the eager compile"
 
       # ADR-022. The measured run: every dependency app comes from the compile cache
       # (`--require-compile-cache` turns a miss into an error). Its outcomes must be those of the
@@ -277,6 +296,18 @@ jobs:
               fd = f"{b - a:+.1f} s" if a is not None and b is not None else "-"
               label = ((n or c).get("timings") or {}).get("bc_version") or v
               print(f"| BC {label} | {o['pass']} | {o['fail']} | {o['not_run']} | {fa} | {fb} | {fd} |")
+          # The work counts of the normal run, the totals of each version (metrics/<major>/work.json holds the expected).
+          rows = {v: (load(f"pass-rate-{v}.json") or {}).get("work") or {} for v in ("27", "28", "29")}
+          if any(rows.values()):
+              print()
+              print("Work counts of the normal run, every pass of a version added up (the work ratchet):")
+              print()
+              names = sorted({k for w in rows.values() for c in w.values() for k in c})
+              print("| Counter | " + " | ".join(f"BC {v}" for v in rows) + " |")
+              print("|---|" + "---:|" * len(rows))
+              for k in names:
+                  cells = [str(sum(c.get(k, 0) for c in w.values())) for w in rows.values()]
+                  print(f"| {k} | " + " | ".join(cells) + " |")
           PY
             echo
             echo "## Without the compile cache (demand-driven compile)"
