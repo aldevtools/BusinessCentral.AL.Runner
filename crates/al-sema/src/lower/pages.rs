@@ -160,6 +160,7 @@ impl Lowerer<'_> {
                     expr_source: None,
                     expr_call: false,
                     array_element: None,
+                    bare_quoted_ext_source: false,
                 });
                 continue;
             }
@@ -265,6 +266,7 @@ impl Lowerer<'_> {
             let mut expr_source = None;
             let mut expr_call = false;
             let mut array_element = None;
+            let mut bare_quoted_ext_source = false;
             if raw.kind == ir::ControlKind::Field && sec.name().eq_ignore_ascii_case("label") {
                 binding = ir::Binding::Caption;
             } else if raw.kind == ir::ControlKind::Field {
@@ -346,6 +348,13 @@ impl Lowerer<'_> {
                             ));
                         } else {
                             binding = ir::Binding::Field(p);
+                            // In a page extension, a bare quoted name of a table extension's field: a TestPage cannot read the
+                            // control from BC 28 (pages/lt-wd/WdBareQuotedField.al:185, al-runner issue 6314).
+                            let declared_in_ext =
+                                table.is_some_and(|t| self.members[t].fields[p].declared_in.is_some_and(|d| d != t));
+                            bare_quoted_ext_source = raw.owner.is_some()
+                                && declared_in_ext
+                                && raw_args.get(1).is_some_and(|a| a.trim_start().starts_with('"'));
                         }
                     }
                     Some(crate::pages::Source::Expr) => {
@@ -509,6 +518,7 @@ impl Lowerer<'_> {
                 expr_source,
                 expr_call,
                 array_element,
+                bare_quoted_ext_source,
             });
         }
         let base = owner_of(None);

@@ -919,6 +919,39 @@ impl Session {
         Ok(object)
     }
 
+    /// The bytes of the RDLC layout file report `object` names with `DefaultRenderingLayout`, when it declares no
+    /// `RDLCLayout`, `WordLayout`, `ExcelLayout` or `DefaultLayout` property and the app holds the file.
+    pub(crate) fn default_rdlc_layout_file(&self, object: usize) -> Option<Vec<u8>> {
+        let o = &self.engine.program.objects[object];
+        let r = o.report.as_ref()?;
+        let prop = |name: &str| {
+            o.properties
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                .map(|(_, v)| v.trim().trim_matches('"').to_string())
+        };
+        if ["RDLCLayout", "WordLayout", "ExcelLayout", "DefaultLayout"]
+            .iter()
+            .any(|p| prop(p).is_some())
+        {
+            return None;
+        }
+        let default = prop("DefaultRenderingLayout")?;
+        let layout = r
+            .rendering_layouts
+            .iter()
+            .find(|l| l.name.eq_ignore_ascii_case(&default))
+            .filter(|l| l.kind == "rdlc")?;
+        self.engine
+            .program
+            .apps
+            .get(o.app as usize)?
+            .layout_files
+            .iter()
+            .find(|(p, _)| *p == layout.path)
+            .map(|(_, b)| b.clone())
+    }
+
     /// `Report.RdlcLayout`, `WordLayout` and `ExcelLayout` (static with an id that names a report, or on a variable) of a
     /// report that declares no layout file: no rendering layout, none of the RDLCLayout, WordLayout and ExcelLayout
     /// properties and no reportextension.
@@ -955,6 +988,23 @@ impl Session {
             || ["RDLCLayout", "WordLayout", "ExcelLayout", "DefaultRenderingLayout"]
                 .iter()
                 .any(|p| prop(p).is_some());
+        // As a statement, RdlcLayout of a report whose DefaultRenderingLayout is an RDLC layout with a file gives the file
+        // (report/lt-sc-report-metadata-views/Y6TenantReportLayoutRows.al:35-89, corpus master: Layout.ImportStream of it has a
+        // value, and Tenant Report Layout takes it as the report's layout).
+        if kind == "RDLC" && !self.ret_used && r.extensions.is_empty() {
+            if let Some(bytes) = self.default_rdlc_layout_file(object) {
+                let Some(stream) = stream else {
+                    return unsupported("Report.RdlcLayout without a stream");
+                };
+                if !al_builtins::stream::create_in_of(stream, bytes) {
+                    return unsupported(
+                        "Report.RdlcLayout into a stream that was created (what it does to the stream is not pinned)",
+                    );
+                }
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RdlcLayoutStreamIsTheLayoutFile);
+                return Ok(Value::Boolean(true));
+            }
+        }
         if declares_file {
             return unsupported(format!(
                 "Report.{kind}Layout of a report that declares a layout file or a reportextension (the layout stream is not pinned)"

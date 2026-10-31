@@ -277,3 +277,24 @@ license), `al-testrun/src/license.rs` (which license a run uses, report values),
 - Range reads and counts are served within one object type over 0 to 1999999999; a scan of the whole table starts at
   TableData 0 (pinned first row). A negative number is refused (not pinned).
 - `Database.CheckLicenseFile` (decision 4) is not built in this phase; it stays refused.
+
+## Implementation notes (corpus PR 900, 2026-10-31)
+
+Corpus PR 900 (`platform/lt-license-permission/LicensePermissionRows.al`, `LicensePermissionIndirectWrite.al`) pins
+License Permission rows as the Cronus license of the CI containers gives them. What comes from where, decided without
+owner review:
+
+- **From the license file:** every row below the system range, including the ledger tables (all Yes, no Indirect), the
+  Table and TableData rows (equal), 100000000 (blank, between two ranges), FieldNumber (from the `FieldNo` list), and in
+  the system range the base levels (Cronus: all five on 2000000000..2000000300, blank after) and so the last number with
+  Execute (2000000300).
+- **Platform rules on top (pinned overrides):** Table 2000000001..2000000200 without Delete; Page 2000000000, 2000000001,
+  2000000002 and 2000000004 Execute only from BC 28; Page 2000000100 Execute only on every major; TableData 2000000110
+  without Execute. A negative number has no row, and a range skips negative numbers.
+- **Served only as far as pinned:** in the system range the whole row only at the probed numbers; between them, up to
+  2000001000, the Execute column alone (SystemRange_Bounds), not for MenuSuite and FieldNumber and not for TableData
+  2000000111..2000000299; everything else there stays refused. A filter on a permission column is answered from the
+  license ranges; a filter on another column or in FilterGroup(-1) is refused.
+- **No license loaded:** unchanged, only the rows pinned before.
+- The G/L Entry writes of `LicensePermissionIndirectWrite.al` pass because permissions are not enforced; nothing in the
+  runtime changes for them.

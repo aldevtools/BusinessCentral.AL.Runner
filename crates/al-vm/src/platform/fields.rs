@@ -129,9 +129,10 @@ pub(super) fn field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let blank = Blank::new(t);
     // Four more system fields per table from the gate on (see [`USER_NAME_SYSTEM_FIELDS`]).
     let user_name_fields = al_version::gate_on(engine.target.as_ref(), al_version::Gate::PlatformMetadataColumnsFrom29);
+    let system_ids = al_version::gate_on(engine.target.as_ref(), al_version::Gate::FieldRowSystemIdFrom28);
     let mut out = Vec::new();
     for o in c.objects {
-        table_entries(&c, o, t, &blank, user_name_fields, None, &mut out);
+        table_entries(&c, o, t, &blank, (user_name_fields, system_ids), None, &mut out);
     }
     out
 }
@@ -148,6 +149,7 @@ pub(super) fn field_key_rows(p: &Providers, t: &TableDef, pk: &[Value]) -> Optio
     let c = Catalog::new(&engine);
     let blank = Blank::new(t);
     let user_name_fields = al_version::gate_on(engine.target.as_ref(), al_version::Gate::PlatformMetadataColumnsFrom29);
+    let system_ids = al_version::gate_on(engine.target.as_ref(), al_version::Gate::FieldRowSystemIdFrom28);
     let mut out = Vec::new();
     // Every row of a table holds the table's id as TableNo (`table_entries`), so only the tables of that id can hold it.
     // Found by the heads, so that one lookup makes only those objects, not every object a cache supplies (ADR-054).
@@ -157,7 +159,15 @@ pub(super) fn field_key_rows(p: &Providers, t: &TableDef, pk: &[Value]) -> Optio
         .enumerate()
         .filter(|(_, h)| h.kind == al_ir::ObjKind::Table && h.id.is_some_and(|id| id as i32 == *tid))
     {
-        table_entries(&c, &c.objects[i], t, &blank, user_name_fields, Some(*no), &mut out);
+        table_entries(
+            &c,
+            &c.objects[i],
+            t,
+            &blank,
+            (user_name_fields, system_ids),
+            Some(*no),
+            &mut out,
+        );
     }
     out.retain(|e| {
         let key = t.primary_key(&e.row);
@@ -168,13 +178,15 @@ pub(super) fn field_key_rows(p: &Providers, t: &TableDef, pk: &[Value]) -> Optio
 }
 
 /// The Field rows of table object `o` (none for another kind of object). With `only`, the rows of the declared fields
-/// whose No. is not `only` are left out (the rowversion and user-name rows are always made; they are cheap).
+/// whose No. is not `only` are left out (the rowversion and user-name rows are always made; they are cheap). The flags are
+/// the gates PlatformMetadataColumnsFrom29 (the user-name system fields have rows) and FieldRowSystemIdFrom28 (the rows have
+/// their SystemId; before, the null Guid).
 fn table_entries(
     c: &Catalog,
     o: &Object,
     t: &TableDef,
     blank: &Blank,
-    user_name_fields: bool,
+    (user_name_fields, system_ids): (bool, bool),
     only: Option<i32>,
     out: &mut Vec<Entry>,
 ) {
@@ -208,7 +220,9 @@ fn table_entries(
         let mut r = blank.row();
         r[pos(t, 1)] = Value::Integer(tid as i32);
         r[pos(t, 2)] = Value::Integer(f.id as i32);
-        set_field_row_system_id(t, &mut r, tid, f.id);
+        if system_ids {
+            set_field_row_system_id(t, &mut r, tid, f.id);
+        }
         // IsPartOfPrimaryKey: the field is in the primary key (metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:
         // FieldTable_IsPartOfPrimaryKey_OwnTable and _BaseApp).
         if let Some(col) = t.fields.iter().position(|x| x.name == "IsPartOfPrimaryKey") {
@@ -374,10 +388,13 @@ fn set_field_row_system_id(t: &TableDef, r: &mut al_data::Row, table_no: u32, fi
 }
 
 /// Marks assumption field-row-system-id when a read of column SystemId of a Field row (`row`, in the columns of the Field
-/// table `schema`) gives the value of [`field_row_system_id`] for a row outside the measured shapes: a table numbered
-/// 65536 to 1999999999, a field below 2000000000 or one of 2000000005-8, on a major with `user_name_fields`
-/// (WcFieldRowCopy.al:48, :60-63). `v` is the value read; a value code wrote is not marked.
-pub(crate) fn note_field_row_system_id(schema: &al_ir::Table, row: &[Value], v: &Value, user_name_fields: bool) {
+/// table `schema`) gives the value of [`field_row_system_id`] for a row outside the measured shapes. Measured on BC 28 and 29
+/// (platform/lt-field-row-systemid/FieldRowSystemId.al:49-170): tables below 65536, a Base Application table, fields of
+/// tableextensions on an own and a Base Application table, the system fields 2000000000-2 and the system tables Company and
+/// Field; on BC 29 also a table numbered above 65535 and the user-name system fields 2000000005-8 (platform/lt-wc/
+/// WcFieldRowCopy.al:48, :60-63). Not measured: the rows of SystemModifiedAt and SystemModifiedBy (2000000003-4). `v` is the
+/// value read; a value code wrote is not marked.
+pub(crate) fn note_field_row_system_id(schema: &al_ir::Table, row: &[Value], v: &Value) {
     let col = |id: u32| schema.fields.iter().position(|f| f.id == id).and_then(|i| row.get(i));
     let (Some(Value::Integer(tid)), Some(Value::Integer(no))) = (col(1), col(2)) else {
         return;
@@ -388,10 +405,7 @@ pub(crate) fn note_field_row_system_id(schema: &al_ir::Table, row: &[Value], v: 
     if !matches!((v, field_row_system_id(tid, no)), (Value::Guid(a), Value::Guid(b)) if *a == b) {
         return;
     }
-    let measured = user_name_fields
-        && (65_536..2_000_000_000).contains(&tid)
-        && (no < 2_000_000_000 || (2_000_000_005..=2_000_000_008).contains(&no));
-    if !measured {
+    if (2_000_000_003..=2_000_000_004).contains(&no) {
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FieldRowSystemId);
     }
 }

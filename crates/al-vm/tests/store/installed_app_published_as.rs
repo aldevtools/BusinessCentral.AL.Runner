@@ -1,5 +1,5 @@
 //! "Published As" (column 16) of NAV App Installed App: Dev (2) for an app under test, Global (0) for a Microsoft dependency
-//! (record/lt-y12-published-as/Y12PublishedAs.al:31-80, corpus branch al-runtime-rs-staging-y12, al-runner issue 6438), and
+//! (record/lt-y12-published-as/Y12PublishedAs.al:31-80, al-runner issue 6438), and
 //! unknown for another publisher's dependency; against a fixture table with the platform's id and field ids.
 
 const SRC: &str = r#"
@@ -47,6 +47,15 @@ codeunit 50100 C
         R.FindFirst();
         exit(Format(R."Published As", 0, 2));
     end;
+
+    procedure PlatformRow(): Text
+    var
+        R: Record "NAV App Installed App";
+        Id: Guid;
+    begin
+        Evaluate(Id, '{8874ed3a-0643-4247-9ced-7a7002f7135d}');
+        exit(Format(R.Get(Id)));
+    end;
 }
 "#;
 
@@ -67,6 +76,7 @@ fn run(routine: &str) -> Result<al_builtins::value::Value, al_builtins::native::
         app("aa006438-a411-4309-b899-92353cc12b05", "Repro", false),
         app("63ca2fa4-4f03-4f2b-a480-172fef340d3f", "Microsoft", true),
         app("bb006438-a411-4309-b899-92353cc12b05", "Partner", true),
+        app("8874ed3a-0643-4247-9ced-7a7002f7135d", "Microsoft", true),
     ];
     al_testkit::Built::new(l).run_in("C", routine)
 }
@@ -79,4 +89,10 @@ fn an_app_under_test_is_dev_and_a_microsoft_dependency_global() {
 #[test]
 fn another_publishers_dependency_is_refused() {
     assert!(matches!(run("Other"), Err(al_builtins::native::Signal::Unsupported(_))));
+}
+
+/// The platform's System app (8874ed3a-...) has no NAV App Installed App row (Y12PublishedAs.al:41, :46 `no row`).
+#[test]
+fn the_platform_system_app_has_no_row() {
+    assert_eq!(al_testkit::text(run("PlatformRow")), "No");
 }

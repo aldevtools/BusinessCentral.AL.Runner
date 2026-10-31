@@ -213,6 +213,8 @@ pub enum Gate {
     TestRunnerHubRequiredIsolationFrom28,
     /// The License Permission row of a page object at the top of the object range (2000000000 and 2000000001) has execute
     /// permission only from BC 28 (lt-ss1030/SsLicensePermissionObjects.al:106-109, :114-117, `#if BC28PLUS`). Consumed by the License Permission provider (al-vm platform/host_tables.rs).
+    /// Pages 2000000002 and 2000000004 narrow the same way from BC 28 (platform/lt-license-permission/LicensePermissionRows.al:443,
+    /// :448).
     LicensePermissionTopRangePageFrom28,
     /// `Media.ImportFile` of a .docx file keeps the file's bytes as Tenant Media content and gives them back on export on BC 27
     /// and 28; BC 29 on the Linux CI tier stores a re-zipped package (same parts, 919 bytes against 911), a Linux suspect the
@@ -237,12 +239,17 @@ pub enum Gate {
     ExceptionTraceValueTaskFrameFrom29,
     /// A list action that deletes two or three worksheet lines of a filtered page and leaves Rec on a key no row has runs
     /// OnNewRecord and OnAfterGetCurrRecord once on BC 28, twice on BC 27 and from BC 29 (pages/lt-outside-worksheet-2/
-    /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`; two lines
-    /// from corpus writer Y1's branch: the same file's TD_LeavesKey_Line1WithUpdate_TwoLines and pages/lt-y1-6292/
-    /// Y1WorksheetPostLog.al, al-runner issue 6292). BC 28
+    /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`; two lines:
+    /// the same file's :685 TD_LeavesKey_Line1WithUpdate_TwoLines and pages/lt-y1-6292/Y1WorksheetPostLog.al:165,181,
+    /// al-runner issue 6292). BC 28
     /// only: [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`] ends it. Consumed by `al-vm` pages/actions.rs (the `rec_moved_other`
     /// settle of a list action).
     ThreeLineLeavesKeyOnceFrom28,
+    /// From BC 28 a TestPage read of `Value()` on a page-extension control whose source is a bare quoted name of a
+    /// table-extension field (`field("LT WD Profile"; "LT WD Profile Code")`, no `Rec.`) raises TestFieldNotFound; on BC 27
+    /// it raises no error (pages/lt-wd/WdBareQuotedField.al:185 WD_BareNameExt_ValueReadError, guarded `#if BC28PLUS`,
+    /// al-runner issue 6314). Consumed by `al-vm` pages/controls.rs.
+    ExtControlBareQuotedSourceNotFoundFrom28,
     /// The end of [`Gate::ThreeLineLeavesKeyOnceFrom28`]: from BC 29 the triggers run twice again, as on BC 27
     /// (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:662). Consumed with it.
     ThreeLineLeavesKeyTwiceAgainFrom29,
@@ -250,6 +257,11 @@ pub enum Gate {
     /// "HeaderFooterPart" and "ThemePart" from BC 29 (platform/lt-ug-report-layout-list/UgReportLayoutList.al:116-123,
     /// 150-157, corpus master 21a41286). Not consumed yet: ReportLayoutList_AllColumns_* are refused on every major.
     ReportLayoutListColumnsFrom28,
+    /// The SystemId of a row of the platform table Field is the Guid made of 2000000041, the table number and the field number
+    /// from BC 28; on BC 27 it is the null Guid for every row, and `GetBySystemId` of the null Guid finds the row of table 3,
+    /// field 1 (platform/lt-field-row-systemid/FieldRowSystemId.al:56-169, guarded `#if BC28PLUS`). Consumed by `al-vm`
+    /// platform/fields.rs.
+    FieldRowSystemIdFrom28,
 }
 
 impl Gate {
@@ -270,7 +282,9 @@ impl Gate {
         Gate::PartLineBeforeHostKeyFrom28,
         Gate::RecordRefIsDirtyFrom28,
         Gate::EmptyTableFindExcludeFlagFrom28,
+        Gate::FieldRowSystemIdFrom28,
         Gate::ThreeLineLeavesKeyOnceFrom28,
+        Gate::ExtControlBareQuotedSourceNotFoundFrom28,
         Gate::ReportLayoutListColumnsFrom28,
         Gate::ThreeLineLeavesKeyTwiceAgainFrom29,
         Gate::ReportLayoutSelectionPartNamesFrom29,
@@ -366,7 +380,9 @@ impl Gate {
             | Gate::GetTextArgumentEvaluateErrorFrom28
             | Gate::RecordRefIsDirtyFrom28
             | Gate::ThreeLineLeavesKeyOnceFrom28
+            | Gate::ExtControlBareQuotedSourceNotFoundFrom28
             | Gate::EmptyTableFindExcludeFlagFrom28
+            | Gate::FieldRowSystemIdFrom28
             | Gate::PartLineBeforeHostKeyFrom28
             | Gate::RequestPageExtensionRecordTriggerOrderFrom28
             | Gate::OptionFieldRefSetEvaluateErrorFrom28
@@ -524,6 +540,10 @@ impl Gate {
                     lines: "103,109,115,150,155",
                 },
             ],
+            Gate::FieldRowSystemIdFrom28 => &[Evidence {
+                file: "platform/lt-field-row-systemid/FieldRowSystemId.al",
+                lines: "56,74,94,115,136,160,163",
+            }],
             Gate::EmptyTableFindExcludeFlagFrom28 => &[Evidence {
                 file: "error-handling/lt-last-error-text-forms/FindEmptyTableExcludeFlag.al",
                 lines: "76",
@@ -532,10 +552,16 @@ impl Gate {
                 file: "platform/lt-ug-report-layout-list/UgReportLayoutList.al",
                 lines: "116,119,150,153",
             }],
-            Gate::ThreeLineLeavesKeyOnceFrom28 | Gate::ThreeLineLeavesKeyTwiceAgainFrom29 => &[Evidence {
-                file: "pages/lt-outside-worksheet-2/RtFilteredGoneRow.al",
-                lines: "662",
-            }],
+            Gate::ThreeLineLeavesKeyOnceFrom28 | Gate::ThreeLineLeavesKeyTwiceAgainFrom29 => &[
+                Evidence {
+                    file: "pages/lt-outside-worksheet-2/RtFilteredGoneRow.al",
+                    lines: "662,685",
+                },
+                Evidence {
+                    file: "pages/lt-y1-6292/Y1WorksheetPostLog.al",
+                    lines: "165,181",
+                },
+            ],
             Gate::RecordRefIsDirtyFrom28 => &[
                 Evidence {
                     file: "record/lt-as-records/AsGetTableIsDirty.al",
@@ -666,6 +692,10 @@ impl Gate {
                 file: "lt-ac/ACIsolatedStorageIsolation.al",
                 lines: "7",
             }],
+            Gate::ExtControlBareQuotedSourceNotFoundFrom28 => &[Evidence {
+                file: "pages/lt-wd/WdBareQuotedField.al",
+                lines: "185",
+            }],
             Gate::RecordIsDirtyFrom29 => &[
                 Evidence {
                     file: "events/lt-with-statement-scopes/WithStatementAmbiguous.al",
@@ -674,6 +704,10 @@ impl Gate {
                 Evidence {
                     file: "lt-ac/ACRecordIsDirty.al",
                     lines: "7",
+                },
+                Evidence {
+                    file: "lt-ac/Y8RecordIsDirtyShapes.al",
+                    lines: "18",
                 },
             ],
             Gate::PartLineBeforeHostKeyFrom28 => &[Evidence {
@@ -993,10 +1027,16 @@ impl Gate {
                     lines: "9",
                 },
             ],
-            Gate::LicensePermissionTopRangePageFrom28 => &[Evidence {
-                file: "lt-ss1030/SsLicensePermissionObjects.al",
-                lines: "106,114",
-            }],
+            Gate::LicensePermissionTopRangePageFrom28 => &[
+                Evidence {
+                    file: "lt-ss1030/SsLicensePermissionObjects.al",
+                    lines: "106,114",
+                },
+                Evidence {
+                    file: "platform/lt-license-permission/LicensePermissionRows.al",
+                    lines: "443,448",
+                },
+            ],
             Gate::QueryReadCommittedFrom29 => &[Evidence {
                 file: "query/TestQueryReadStateContracts.al",
                 lines: "56,120,146,151,155,159",

@@ -438,7 +438,7 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
                     ("<Precision,3:3><Sign><Integer><Decimals>", ',')
                 }
                 // Corpus master (corpus PR 871: misc/lt-np4-probes/Np4FormatJson.al NP4_Format_Precision33_CommaDot,
-                // _OtherCommaChars; assumption format-comma-precision-forms awaits the bump): the character after `Comma,` is
+                // _OtherCommaChars): the character after `Comma,` is
                 // the decimal point, whatever it is (`1234;568`, `1234 568`, `1234x568`).
                 t @ ("<Precision,3:3><Sign><Integer><Decimals><Comma,.>"
                 | "<Precision,3:3><Sign><Integer><Decimals><Comma,;>"
@@ -447,7 +447,6 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
                 | "<Precision,0:3><Sign><Integer><Decimals><Comma,.>"
                 | "<Precision,3:5><Sign><Integer><Decimals><Comma,.>"
                 | "<Precision,3:3><Sign><Integer Thousand><Decimals><Comma,.>") => {
-                    crate::assumptions::assume(crate::assumptions::Assumption::FormatCommaPrecisionForms);
                     let cut = t.len() - "<Comma,.>".len();
                     (&t[..cut], t[cut + "<Comma,".len()..].chars().next().unwrap_or('.'))
                 }

@@ -1052,6 +1052,10 @@ pub struct Control {
     /// al-runtime-rs-staging-y5, al-runner issue 6379).
     #[serde(default)]
     pub array_element: Option<(usize, usize)>,
+    /// A page extension's control whose source is a bare quoted name (no `Rec.`, warning AL0604) of a table extension's field
+    /// (`field("LT WD Profile"; "LT WD Profile Code")`): from BC 28 a TestPage cannot read it (pages/lt-wd/WdBareQuotedField.al:185).
+    #[serde(default)]
+    pub bare_quoted_ext_source: bool,
 }
 
 /// The action an `actionref` delegates to.

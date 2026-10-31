@@ -938,6 +938,19 @@ impl Session {
                         }
                     } else {
                         st.borrow_mut().cursor = Cursor::Row;
+                        // A modal list handed a record that names the first row of its unfiltered view reads it as a list
+                        // opened on its first row does (the window, the row once more, then OnAfterGetCurrRecord), and a GoToKey
+                        // then reads the new row twice (pages/lt-ai-list-order/LookupGoToKeyTypedReads.al:204-221
+                        // Y7_PageRunModalRecord_GoToKey_TypedReads_OK `open=R:A,R:B,R:C,R:A,R:A,C:A;goto=Yes;after goto=R:B,R:B,C:B`).
+                        // A page run without modal keeps the reads it had before (not pinned).
+                        if self.is_list(st) && st.borrow().modal && self.on_first_row_of_view(&rec)? {
+                            st.borrow_mut().landing_first = true;
+                            let r = self.arrive(st);
+                            st.borrow_mut().landing_first = false;
+                            r?;
+                            st.borrow_mut().window_from_start = true;
+                            return Ok(());
+                        }
                         return self.arrive(st);
                     }
                 }
@@ -1980,7 +1993,6 @@ impl Session {
                     "OK of the lookup page of Page.RunModal(Id, Rec) whose row left its view while it was open (not pinned)".into(),
                 ));
             }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupOkNoRowStatic);
         }
         Ok(true)
     }
@@ -2429,7 +2441,7 @@ impl Session {
 
     /// `page_first_row`, finding the first row with `which`. With `handed` (a `=><` from a handed record) a row other than the
     /// first of the view starts a window that does not begin at the view's start.
-    fn page_first_row_from(&mut self, st: &St, which: &str, handed: bool) -> Result<(), Signal> {
+    pub(super) fn page_first_row_from(&mut self, st: &St, which: &str, handed: bool) -> Result<(), Signal> {
         // The first row of the view, to tell whether a `=><` landed on it (a copy of the record, so the page's own is not moved).
         let first_key = if handed && self.is_list(st) {
             let rec = self.page_rec(st);

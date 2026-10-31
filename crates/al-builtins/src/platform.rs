@@ -274,6 +274,10 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     // Ordinary tables that a fresh tenant fills with pinned rows (al-vm `platform/seed.rs`): Insert(true) of an existing key
     // answers false and Modify(true) true (platform/lt-platform-tables/PtCloudTables.al:378-432 and :435-492).
     (2_000_000_233, "Tenant Report Layout Selection", Provider::Stored),
+    // A fresh tenant holds rows here that nothing pins (SaaS: 12), none of a report of the app under test; an Insert of a
+    // row whose Layout is the report's own RDLC layout is stored as given (report/lt-sc-report-metadata-views/
+    // Y6TenantReportLayoutRows.al, corpus master). What else is pinned: al-vm `tenant_layouts.rs`.
+    (2_000_000_232, "Tenant Report Layout", Provider::Stored),
     (2_000_000_179, "OData Edm Type", Provider::Stored),
 ];
 
@@ -585,13 +589,6 @@ pub const AWAITING_COLUMNS: &[(u32, u32, crate::assumptions::Assumption)] = &[
         2_000_000_206,
         20,
         crate::assumptions::Assumption::PublishedApplicationLogoIsTheLogoFile,
-    ),
-    // NAV App Installed App "Published As": Dev for an app under test, Global for a Microsoft dependency, unknown otherwise
-    // (al-vm apps.rs).
-    (
-        2_000_000_153,
-        16,
-        crate::assumptions::Assumption::InstalledAppPublishedAs,
     ),
     // Report Layout List "User Defined": No for an RDLC or Word layout declared in AL, unknown otherwise (al-vm reports.rs).
     (

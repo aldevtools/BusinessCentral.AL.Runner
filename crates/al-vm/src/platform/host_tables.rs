@@ -242,7 +242,7 @@ const LANGUAGES: &[(i32, &str, &str, &str, &str)] = &[
 const NAME_ONLY_LANGUAGES: &[(i32, &str, &str)] = &[(12297, "English (Zimbabwe)", "ENW")];
 /// Rows pinned with their tag but not their code page (a read of it is refused), as (LCID, name, abbreviated name, tag):
 /// 1078 Afrikaans (South Africa), AFK, af-ZA (corpus master, corpus PR 871: misc/lt-np4-probes/Np4Misc.al
-/// NP4_WindowsLanguage_Get1078; assumption windows-language-afrikaans awaits the bump). Not in [`LANGUAGES`] either.
+/// NP4_WindowsLanguage_Get1078). Not in [`LANGUAGES`] either.
 const TAG_ONLY_LANGUAGES: &[(i32, &str, &str, &str)] = &[(1078, "Afrikaans (South Africa)", "AFK", "af-ZA")];
 /// "STX File Exist" is pinned false for these rows (WcUnpinnedSingles.al:160, :169).
 const STX_FILE_ABSENT: [i32; 1] = [12297];
@@ -447,7 +447,6 @@ fn known(t: &TableDef, lcid: i64) -> Option<Row> {
         })
         .or_else(|| {
             TAG_ONLY_LANGUAGES.iter().find(|l| i64::from(l.0) == lcid).map(|l| {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WindowsLanguage1078);
                 let mut r = language_row(t, l.0, l.1, l.2, None, Some(l.3));
                 // Whether the row is globally enabled is not pinned for it.
                 r[pos(t, GLOBALLY_ENABLED)] = super::unknown(t, GLOBALLY_ENABLED, &format!("language {}", l.0));
@@ -1059,9 +1058,6 @@ pub(super) struct LicenseCx<'a> {
 /// license (ADR-060 decision 3): BC narrows some system objects itself, and which ones is pinned per number.
 const LICENSE_SYSTEM_FIRST: i64 = 2_000_000_000;
 
-/// The highest number a License Permission row can have below the system range.
-const LICENSE_BELOW_SYSTEM: i64 = LICENSE_SYSTEM_FIRST - 1;
-
 /// The pinned rows of the tables above, as Read, Insert, Modify, Delete and Execute, and whether Limited Usage is pinned
 /// (blank) too. Page at 2000000000 and 2000000001 has Execute only from BC 28, every permission before
 /// (lt-ss1030/SsLicensePermissionObjects.al:106-109, :114-117, gate `LicensePermissionTopRangePageFrom28`).
@@ -1115,7 +1111,7 @@ fn license_pinned(t: &TableDef, object_type: i64, number: i64, target: Option<&a
 }
 
 /// The license list that answers object type `object_type` (ADR-060, "Mapping to the License Permission columns"): the
-/// list named as the type, and `Table` from `TableDescription` (inferred: the file has no list named `Table`, and every
+/// list named as the type, `FieldNumber` from `FieldNo`, and `Table` from `TableDescription` (inferred: the file has no list named `Table`, and every
 /// pinned Table row agrees with TableDescription; docs/probes-needed.md). Other types are refused.
 fn license_list(t: &TableDef, object_type: i64) -> Result<&'static str, StoreError> {
     const LISTS: &[(&str, &str)] = &[
@@ -1128,6 +1124,9 @@ fn license_list(t: &TableDef, object_type: i64) -> Result<&'static str, StoreErr
         ("Page", "Page"),
         ("Query", "Query"),
         ("System", "System"),
+        // FieldNumber from FieldNo: the rows LicensePermissionRows.al:522-548 pins (FieldNumber 1 and the system numbers)
+        // are those of the FieldNo list.
+        ("FieldNumber", "FieldNo"),
     ];
     let name = match option(t, LICENSE_OBJECT_TYPE, 0) {
         Value::Option(_, m) => usize::try_from(object_type)
@@ -1147,20 +1146,97 @@ fn license_list(t: &TableDef, object_type: i64) -> Result<&'static str, StoreErr
         })
 }
 
+/// Where corpus PR 900 pins License Permission rows of the system range (2000000000 and up), Cronus license of the CI
+/// containers, platform/lt-license-permission/LicensePermissionRows.al (cited as `LPR` below):
+/// - every object type with a list at 2000000002, 4, 6, 20, 38, 43, 58, 100, 150, 200, 500, 1000, 2000100000, 2099999999
+///   and 2100000000 (`LPR`:280-290, the `SystemRange_*` tests :292-548; Table and TableData at 2000000001, 4, 43 also
+///   :135-160), System at 2000000000 and 2000000001 (:494-520);
+/// - the types of [`LICENSE_TYPES_SS`] at 2000000000, 2000000001 and 2147483647 (lt-ss1030/SsLicensePermissionObjects.al:99-120).
+const LICENSE_SYSTEM_POINTS: &[i64] = &[
+    2_000_000_002,
+    2_000_000_004,
+    2_000_000_006,
+    2_000_000_020,
+    2_000_000_038,
+    2_000_000_043,
+    2_000_000_058,
+    2_000_000_100,
+    2_000_000_150,
+    2_000_000_200,
+    2_000_000_500,
+    2_000_001_000,
+    2_000_100_000,
+    2_099_999_999,
+    2_100_000_000,
+];
+
+/// The last number of the system range over which `LPR` SystemRange_Bounds (:550-591) pins the Execute column of every
+/// number for [`LICENSE_BOUNDS_TYPES`]: Yes up to 2000000300 and blank after (the license's own range), except TableData
+/// 2000000110 (blank, [`license_system_narrow`]).
+const LICENSE_WINDOW_LAST: i64 = 2_000_001_000;
+
+/// The object types SystemRange_Bounds reads: TableData, Table, Report, Codeunit, XMLport, Page, Query and System.
+const LICENSE_BOUNDS_TYPES: &[i64] = &[0, 1, 3, 5, 6, 8, 9, 10];
+
+/// The numbers of TableData whose Execute column SystemRange_Bounds leaves open: the first number without Execute is
+/// 2000000110 and the last with Execute 2000000300 (`LPR`:574-575), so between them only the pinned numbers are known.
+const LICENSE_TABLEDATA_EXECUTE_OPEN: (i64, i64) = (2_000_000_111, 2_000_000_299);
+
+fn license_system_point(object_type: i64, number: i64) -> bool {
+    (LICENSE_SYSTEM_POINTS.contains(&number) && matches!(object_type, 0 | 1 | 3 | 5 | 6 | 7 | 8 | 9 | 10 | 11))
+        || (matches!(number, 2_000_000_000 | 2_000_000_001)
+            && (LICENSE_TYPES_SS.contains(&object_type) || object_type == 10))
+        || (number == i64::from(i32::MAX) && LICENSE_TYPES_SS.contains(&object_type))
+}
+
+/// BC's own narrowings of the license in the system range (ADR-060 decision 3); the license (Cronus) grants all five
+/// permissions on 2000000000..2000000300 for every list.
+/// - Table 2000000001 to 2000000200: Delete blank (`LPR`:316-338, :135-160; lt-ss1030/SsLicensePermissionObjects.al:118).
+///   Table 2000000000 keeps Delete (SsLicensePermissionObjects.al:104-110).
+/// - Page 2000000000, 2000000001, 2000000002 and 2000000004: Execute only from BC 28, all five before (`LPR`:438-457,
+///   `#if BC28PLUS`; SsLicensePermissionObjects.al:106-109, :114-117; gate `LicensePermissionTopRangePageFrom28`).
+/// - Page 2000000100: Execute only on every major (`LPR`:458).
+/// - TableData 2000000110: Execute blank (`LPR`:574); its other columns are not pinned.
+fn license_system_narrow(object_type: i64, number: i64, target: Option<&al_version::Target>, perms: &mut [i32; 5]) {
+    let execute_only = match (object_type, number) {
+        (1, 2_000_000_001..=2_000_000_200) => {
+            perms[3] = 0;
+            false
+        }
+        (8, 2_000_000_000 | 2_000_000_001 | 2_000_000_002 | 2_000_000_004) => {
+            al_version::gate_on(target, al_version::Gate::LicensePermissionTopRangePageFrom28)
+        }
+        (8, 2_000_000_100) => true,
+        (0, 2_000_000_110) => {
+            perms[4] = 0;
+            false
+        }
+        _ => false,
+    };
+    if execute_only {
+        perms[..4].fill(0);
+    }
+}
+
 /// The row of `object_type` `number` from the license (ADR-060 decisions 1 and 4): the levels of the range that holds
-/// the number, every level blank outside every range; in the system range only what the corpus pins, narrowed further
-/// by the pin. Limited Usage is blank for the license of the BC artifacts and unknown for any other (decision 2).
+/// the number, every level blank outside every range. A negative number has no row (`LPR`:164-190, Facts :10-11). In
+/// the system range: the whole row at the pinned numbers, narrowed by BC's rules; between them, within the window
+/// SystemRange_Bounds reads, the Execute column only (the others unknown); elsewhere refused. Limited Usage is blank for
+/// the license of the BC artifacts and unknown for any other (decision 2).
 fn license_from_file(
     t: &TableDef,
     object_type: i64,
     number: i64,
     lic: &al_host::license::License,
     target: Option<&al_version::Target>,
-) -> Result<Row, StoreError> {
+) -> Result<Option<Row>, StoreError> {
     use al_host::license::Level;
-    if !(0..=i64::from(i32::MAX)).contains(&number) {
+    if number < 0 {
+        return Ok(None);
+    }
+    if number > i64::from(i32::MAX) {
         return Err(refused(format!(
-            "License Permission: whether object type {object_type} number {number} is a row is not pinned (the first row of the table is number 0, platform/lt-platform-rows-fresh/PlatformRowsLicensePermission.al:66)"
+            "License Permission: object type {object_type} number {number} is not an Integer"
         )));
     }
     let list = license_list(t, object_type)?;
@@ -1173,18 +1249,6 @@ fn license_from_file(
         Level::Yes => 1,
         Level::Indirect => 2,
     });
-    if number >= LICENSE_SYSTEM_FIRST {
-        let Some((pin, _)) = license_pinned_perms(object_type, number, target) else {
-            return Err(refused(format!(
-                "License Permission: object type {object_type} number {number} is in the system object range, whose rows are served only where the corpus pins them (ADR-060 decision 3)"
-            )));
-        };
-        for (p, narrowed) in perms.iter_mut().zip(pin) {
-            if narrowed == 0 {
-                *p = 0;
-            }
-        }
-    }
     let limited_id = t
         .fields
         .iter()
@@ -1201,13 +1265,108 @@ fn license_from_file(
             )
         }
     });
-    Ok(license_row_of(t, object_type, number, perms, limited))
+    if number < LICENSE_SYSTEM_FIRST {
+        return Ok(Some(license_row_of(t, object_type, number, perms, limited)));
+    }
+    license_system_narrow(object_type, number, target, &mut perms);
+    if license_system_point(object_type, number) {
+        return Ok(Some(license_row_of(t, object_type, number, perms, limited)));
+    }
+    let (open_a, open_b) = LICENSE_TABLEDATA_EXECUTE_OPEN;
+    let execute_known = number <= LICENSE_WINDOW_LAST
+        && LICENSE_BOUNDS_TYPES.contains(&object_type)
+        && !(object_type == 0 && (open_a..=open_b).contains(&number));
+    if !execute_known {
+        return Err(refused(format!(
+            "License Permission: object type {object_type} number {number} is in the system object range, whose rows are served only where the corpus pins them (ADR-060 decision 3)"
+        )));
+    }
+    let whose = format!(
+        "object type {object_type} number {number}: in the system object range the corpus pins only the Execute column there (ADR-060 decision 3)"
+    );
+    let mut r = license_row_of(t, object_type, number, perms, None);
+    for f in LICENSE_PERMISSIONS[..4].iter().copied().chain(limited_id) {
+        r[pos(t, f)] = super::unknown(t, f, &whose);
+    }
+    Ok(Some(r))
 }
 
-fn license_known(t: &TableDef, object_type: i64, number: i64, cx: LicenseCx) -> Result<Row, StoreError> {
+/// The numbers around `number` (of type `object_type`, 0 or more) whose rows equal its row but for the number: the
+/// stretch between two neighbouring numbers where the license or a rule of [`license_from_file`] may change the row.
+fn license_segment(
+    t: &TableDef,
+    object_type: i64,
+    number: i64,
+    lic: &al_host::license::License,
+) -> Result<(i64, i64), StoreError> {
+    let list = license_list(t, object_type)?;
+    let mut breaks: Vec<i64> = vec![
+        0,
+        LICENSE_SYSTEM_FIRST,
+        LICENSE_WINDOW_LAST + 1,
+        LICENSE_TABLEDATA_EXECUTE_OPEN.0,
+        LICENSE_TABLEDATA_EXECUTE_OPEN.1 + 1,
+        2_000_000_201,
+        i64::from(i32::MAX) + 1,
+    ];
+    for p in
+        LICENSE_SYSTEM_POINTS
+            .iter()
+            .copied()
+            .chain([2_000_000_000, 2_000_000_001, 2_000_000_110, i64::from(i32::MAX)])
+    {
+        breaks.extend([p, p + 1]);
+    }
+    for r in lic.ranges(list).unwrap_or(&[]) {
+        breaks.extend([r.first, r.last.saturating_add(1)]);
+    }
+    let first = breaks.iter().copied().filter(|&b| b <= number).max().unwrap_or(0);
+    let next = breaks
+        .iter()
+        .copied()
+        .filter(|&b| b > number)
+        .min()
+        .unwrap_or(i64::from(i32::MAX) + 1);
+    Ok((first.max(0), next - 1))
+}
+
+/// Whether the row passes the filters on columns other than the key (`rest`). A filter on a column the row does not know
+/// is refused.
+fn license_row_passes(row: &Row, rest: &[FieldFilter]) -> Result<bool, StoreError> {
+    for f in rest {
+        if let Value::Unknown(why) = &row[f.field] {
+            return Err(refused(format!(
+                "License Permission: a filter on a column whose value is not known: {why}"
+            )));
+        }
+        if !f.expr.matches(&row[f.field]) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// Whether the row of a read that names one object passes its filters; a filter on a column the row does not know is
+/// refused.
+fn license_exact_passes(row: &Row, filters: &[FieldFilter]) -> Result<bool, StoreError> {
+    if let Some(Value::Unknown(why)) = filters
+        .iter()
+        .map(|f| &row[f.field])
+        .find(|v| matches!(v, Value::Unknown(_)))
+    {
+        return Err(refused(format!(
+            "License Permission: a filter on a column whose value is not known: {why}"
+        )));
+    }
+    Ok(al_builtins::filter::row_passes(row, filters))
+}
+
+fn license_known(t: &TableDef, object_type: i64, number: i64, cx: LicenseCx) -> Result<Option<Row>, StoreError> {
     match cx.license {
         Some(lic) => license_from_file(t, object_type, number, lic, cx.target),
-        None => license_pinned(t, object_type, number, cx.target).ok_or_else(|| license_unpinned(object_type, number)),
+        None => license_pinned(t, object_type, number, cx.target)
+            .map(Some)
+            .ok_or_else(|| license_unpinned(object_type, number)),
     }
 }
 
@@ -1238,26 +1397,45 @@ fn license_exact(t: &TableDef, filters: &[FieldFilter]) -> Result<Option<(i64, i
     Ok(one(LICENSE_OBJECT_TYPE)?.zip(one(LICENSE_OBJECT_NUMBER)?))
 }
 
-/// With a license: the object type a read covers and its numbers. Served: filters on the two key fields only, naming one
-/// object type; or no filter at all, which starts at TableData 0, the first row of the table
-/// (platform/lt-platform-rows-fresh/PlatformRowsLicensePermission.al:66-73).
-fn license_domain(t: &TableDef, filters: &[FieldFilter]) -> Result<(i64, ranges::Set), StoreError> {
+/// With a license: the object type a read covers, its numbers (0 and up: a negative number has no row, `LPR`:164-190),
+/// and the filters on the permission columns, which are answered from the rows (`LPR`:108-133, :195-262, :550-591).
+/// Served: filters on the two key fields naming one object type, plus filters on the permission columns; or no filter at
+/// all, which starts at TableData 0, the first row of the table (platform/lt-platform-rows-fresh/PlatformRowsLicensePermission.al:66-73).
+fn license_domain<'f>(
+    t: &TableDef,
+    filters: &'f [FieldFilter],
+) -> Result<(i64, ranges::Set, Vec<&'f FieldFilter>), StoreError> {
     let (ty, no) = (pos(t, LICENSE_OBJECT_TYPE), pos(t, LICENSE_OBJECT_NUMBER));
-    if filters.iter().any(|f| f.field != ty && f.field != no) {
+    if filters.iter().any(|f| f.group == al_builtins::filter::OR_GROUP) {
         return Err(refused(
-            "License Permission: a filter on a column other than Object Type and Object Number is not served",
+            "License Permission: a filter in FilterGroup(-1) (one of several columns) is not served",
         ));
     }
+    let limited = t
+        .fields
+        .iter()
+        .find(|f| f.name == "Limited Usage Permission")
+        .map(|f| pos(t, f.id));
+    let mut rest = Vec::new();
+    for f in filters.iter().filter(|f| f.field != ty && f.field != no) {
+        if !LICENSE_PERMISSIONS.iter().any(|&id| pos(t, id) == f.field) && Some(f.field) != limited {
+            return Err(refused(
+                "License Permission: a filter on a column other than Object Type, Object Number and the permission columns is not served",
+            ));
+        }
+        rest.push(f);
+    }
+    let all = vec![(0, i64::from(i32::MAX))];
     if filters.is_empty() {
         // The rows of TableData from number 0 on; a read past them is refused when it gets there.
-        return Ok((0, vec![(0, i64::MAX / 4)]));
+        return Ok((0, all, rest));
     }
     let numbers = ranges::of_field(filters, no, &license_num, i64::MIN / 4, i64::MAX / 4)
         .map_err(|e| refused(format!("License Permission: {e}")))?;
     let types = ranges::of_field(filters, ty, &license_num, i64::MIN / 4, i64::MAX / 4)
         .map_err(|e| refused(format!("License Permission: {e}")))?;
     match types.as_slice() {
-        [(a, b)] if a == b => Ok((*a, numbers)),
+        [(a, b)] if a == b => Ok((*a, ranges::intersect(&numbers, &all), rest)),
         _ => Err(refused(
             "License Permission: a read over several object types is not served (only one object type, or the first rows of the whole table)",
         )),
@@ -1266,7 +1444,7 @@ fn license_domain(t: &TableDef, filters: &[FieldFilter]) -> Result<(i64, ranges:
 
 fn license_out_of_domain(object_type: i64, number: i64) -> StoreError {
     refused(format!(
-        "License Permission: a read that reaches object type {object_type} number {number} is not served (with a license, a read over a range covers the numbers 0 to {LICENSE_BELOW_SYSTEM}; ADR-060 decision 3 for the system range)"
+        "License Permission: a read that reaches object type {object_type} number {number} is not served (a read over a range covers one object type)"
     ))
 }
 
@@ -1276,14 +1454,16 @@ pub(super) fn license_permission_get(t: &TableDef, pk: &[Value], cx: LicenseCx) 
             "License Permission: a key that is not an object type and a number",
         ));
     };
-    license_known(t, ot, n, cx).map(Some)
+    license_known(t, ot, n, cx)
 }
 
 pub(super) fn license_permission_next(t: &TableDef, scan: &Scan, cx: LicenseCx) -> Result<Option<Row>, StoreError> {
     if let Some((ot, n)) = license_exact(t, scan.filters)? {
-        let r = license_known(t, ot, n, cx)?;
+        let Some(r) = license_known(t, ot, n, cx)? else {
+            return Ok(None);
+        };
         let after_it = scan.after.is_some();
-        return Ok((!after_it && scan.filters.iter().all(|f| f.expr.matches(&r[f.field]))).then_some(r));
+        return Ok((!after_it && license_exact_passes(&r, scan.filters)?).then_some(r));
     }
     if scan.key == 0
         && let Some(lic) = cx.license
@@ -1293,23 +1473,28 @@ pub(super) fn license_permission_next(t: &TableDef, scan: &Scan, cx: LicenseCx) 
                 "License Permission: the last rows of the whole table are not pinned",
             ));
         }
-        let (ot, numbers) = license_domain(t, scan.filters)?;
-        let after = scan.after.and_then(|a| {
-            let at = (a.first().and_then(license_num)?, a.get(1).and_then(license_num)?);
-            Some(at)
-        });
-        let after_n = match after {
-            Some((a_ot, n)) if a_ot == ot => Some(n),
-            Some(_) => return Err(license_out_of_domain(ot, -1)),
+        let (ot, numbers, rest) = license_domain(t, scan.filters)?;
+        let rest: Vec<FieldFilter> = rest.into_iter().cloned().collect();
+        let mut after = match scan.after {
+            Some(a) => match (a.first().and_then(license_num), a.get(1).and_then(license_num)) {
+                (Some(a_ot), Some(n)) if a_ot == ot => Some(n),
+                _ => return Err(license_out_of_domain(ot, -1)),
+            },
             None => None,
         };
-        let Some(n) = ranges::step(&numbers, after_n, scan.ascending) else {
-            return Ok(None);
-        };
-        if !(0..=LICENSE_BELOW_SYSTEM).contains(&n) {
-            return Err(license_out_of_domain(ot, n));
+        loop {
+            let Some(n) = ranges::step(&numbers, after, scan.ascending) else {
+                return Ok(None);
+            };
+            let Some(r) = license_from_file(t, ot, n, lic, cx.target)? else {
+                return Ok(None);
+            };
+            if license_row_passes(&r, &rest)? {
+                return Ok(Some(r));
+            }
+            let (a, b) = license_segment(t, ot, n, lic)?;
+            after = Some(if scan.ascending { b } else { a });
         }
-        return license_from_file(t, ot, n, lic, cx.target).map(Some);
     }
     // Nothing else is pinned but the first row of the whole table.
     if scan.filters.is_empty() && scan.ascending && scan.after.is_none() {
@@ -1327,19 +1512,36 @@ pub(super) fn license_permission_count(
 ) -> Result<usize, StoreError> {
     if let Some((ot, n)) = license_exact(t, filters)? {
         let r = license_known(t, ot, n, cx)?;
-        return Ok(usize::from(filters.iter().all(|f| f.expr.matches(&r[f.field]))));
+        return Ok(match r {
+            Some(r) => usize::from(license_exact_passes(&r, filters)?),
+            None => 0,
+        });
     }
-    if cx.license.is_some() && !filters.is_empty() {
-        let (ot, numbers) = license_domain(t, filters)?;
-        if let Some(&(a, b)) = numbers.iter().find(|&&(a, b)| a < 0 || b > LICENSE_BELOW_SYSTEM) {
-            return Err(license_out_of_domain(ot, if a < 0 { a } else { b }));
-        }
+    if let Some(lic) = cx.license
+        && !filters.is_empty()
+    {
+        let (ot, numbers, rest) = license_domain(t, filters)?;
+        let rest: Vec<FieldFilter> = rest.into_iter().cloned().collect();
         // The object type must have a list, or the rows are not served.
         license_list(t, ot)?;
-        return Ok(ranges::size(&numbers) as usize);
+        let mut total = 0i64;
+        for &(a, b) in &numbers {
+            let mut n = a;
+            while n <= b {
+                let (_, last) = license_segment(t, ot, n, lic)?;
+                let end = last.min(b);
+                if let Some(r) = license_from_file(t, ot, n, lic, cx.target)?
+                    && license_row_passes(&r, &rest)?
+                {
+                    total += end - n + 1;
+                }
+                n = end + 1;
+            }
+        }
+        return Ok(total as usize);
     }
     Err(refused(
-        "License Permission: only a count that names one object by type and number, or one object type over numbers below the system range with a license loaded, is served",
+        "License Permission: only a count that names one object by type and number, or one object type with a license loaded, is served",
     ))
 }
 

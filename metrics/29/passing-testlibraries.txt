@@ -23,3 +23,38 @@
 81596 DatabaseTriggerDeleteFalseDeleted
 81596 DeleteEventsDeleteFalseDeleted
 81596 OnDeleteTriggerDeleteTrueDeleted
+81603 BiDd_Plain_Runs
+81603 Rows[alpha]
+81603 Rows[beta]
+81603 Rows[gamma]
+81604 BiDd_Empty_PlainRuns
+81605 Id[ padded ]
+81605 Id[Same]
+81605 Id[long xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]
+81605 Id[same]
+81605 Id[ä 日]
+81607 Alpha[alpha]
+81607 Alpha[beta]
+81607 Alpha[gamma]
+81607 Mid[alpha]
+81607 Mid[beta]
+81607 Mid[gamma]
+81607 PlainA
+81607 PlainZ
+81607 Zeta[alpha]
+81607 Zeta[beta]
+81607 Zeta[gamma]
+81608 BiDd_State_PlainRuns
+81608 Rows[alpha]
+81608 Rows[beta]
+81608 Rows[gamma]
+81611 BiDd_Resource_List
+81611 BiDd_Resource_RawStream
+81611 FromCsv[first]
+81611 FromCsv[second]
+81611 FromCsv[third]
+81611 FromJson[first]
+81611 FromJson[second]
+81611 FromJson[third]
+81639 SetupOrder_MicrosoftTestLibrariesAgainstPartnerApps
+81639 SetupOrder_UnrelatedPartnerAppsAroundTestLibraries

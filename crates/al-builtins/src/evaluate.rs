@@ -257,13 +257,15 @@ fn integer(text: &str, number: i64) -> Result<Parsed, Signal> {
     }
     let edged = text.trim_matches(EDGE_BLANKS);
     // A line feed or tab inside the number goes to the Decimal reading, which rejects it
-    // (types/lt-sc-eval-decimal-whitespace/ScEvalDecimalWhitespace.al:158,166).
+    // (types/lt-sc-eval-decimal-whitespace/ScEvalDecimalWhitespace.al:158,166). So do a carriage return, vertical tab and
+    // form feed: dropped before and after the number, rejected inside it and alone (Y6EvalWhitespaceMore.al:111-143, corpus
+    // master).
     if number == 0
         && text.is_ascii()
         && !text.contains('$')
         && edged
             .chars()
-            .all(|c| !c.is_whitespace() || matches!(c, ' ' | '\n' | '\t'))
+            .all(|c| !c.is_whitespace() || matches!(c, ' ' | '\n' | '\t' | '\r' | '\u{B}' | '\u{C}'))
     {
         return Ok(match decimal(text, 0)? {
             Parsed::Value(Value::Decimal(d)) if d.fract().is_zero() => {
@@ -420,12 +422,16 @@ fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
     let mut t = text.trim_matches(EDGE_BLANKS);
     if number == 0 {
         // A trailing vertical tab or form feed is dropped too (types/lt-sc-eval-decimal-whitespace/
-        // ScEvalDecimalWhitespace.al:58-59,69-70). Leading ones are not pinned and stay refused below.
+        // ScEvalDecimalWhitespace.al:58-59,69-70), and leading ones too: `<VT>1.5`, `<FF>1.5`, `<VT><FF>1.5`, `<FF>-1.5`
+        // (types/lt-sc-eval-decimal-whitespace/Y6EvalWhitespaceMore.al:49-73, corpus master).
         t = t.trim_end_matches([' ', '\t', '\r', '\n', '\u{B}', '\u{C}']);
+        t = t.trim_start_matches(['\u{B}', '\u{C}']);
         // A line feed or tab inside the number rejects it, like a space: `1<LF>5`, `1<TAB>5`, `-<LF>1.5`, `1<LF>.5`
         // (ScEvalDecimalWhitespace.al:116-120,126-140; for an Integer :158,166). Before a trailing minus it is not pinned
-        // (`100 -` reads as -100), nor before a group of three digits (`1<TAB>000` might group thousands).
-        let inner = |c: char| c == '\n' || c == '\t';
+        // (`100 -` reads as -100), nor before a group of three digits (`1<TAB>000` might group thousands). A carriage return,
+        // vertical tab or form feed inside rejects the same way: `1<CR>5`, `1<CR><LF>5`, `1<VT>5`, `1<FF>5`, `1<CR>.5`,
+        // `1.<CR>5`, `-<CR>1.5` (Y6EvalWhitespaceMore.al:75-109, corpus master).
+        let inner = |c: char| matches!(c, '\n' | '\t' | '\r' | '\u{B}' | '\u{C}');
         let before_group = t.char_indices().filter(|(_, c)| inner(*c)).any(|(i, _)| {
             let rest = &t.as_bytes()[i + 1..];
             rest.len() >= 3
@@ -896,18 +902,12 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
         }
         let t = text.trim_matches(PINNED_WS);
         if t.is_empty() {
-            if text.chars().any(|c| c != ' ') {
-                crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
-            }
             return Ok(Parsed::Value(Value::Date(0, false)));
         }
-        if t.len() != text.trim_matches(' ').len() {
-            if text.contains(['\u{B}', '\u{C}']) {
-                return unsupported(format!(
-                    "Evaluate of `{text}` into a Date with format 9: VT or FF next to a date (not pinned)"
-                ));
-            }
-            crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
+        if t.len() != text.trim_matches(' ').len() && text.contains(['\u{B}', '\u{C}']) {
+            return unsupported(format!(
+                "Evaluate of `{text}` into a Date with format 9: VT or FF next to a date (not pinned)"
+            ));
         }
         // Blanks inside keep their old reading (a rejected date, P86Eval.al:Fmt92_Return_F9 `Jan 15 2024`).
         if t.contains(|c: char| c != ' ' && PINNED_WS.contains(&c)) {
@@ -1662,6 +1662,21 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
                 }
             }
         };
+        // A field by its number when no name or caption matches (types/TestTableFilterEvaluate.al:26-36
+        // TableFilter_Evaluate_NumericIds_NormalizesValue: `67021: 2=1`). A number no field has is not pinned.
+        let found = match found {
+            None if !field.is_empty() && field.chars().all(|ch| ch.is_ascii_digit()) => {
+                match field
+                    .parse::<u32>()
+                    .ok()
+                    .and_then(|n| def.fields.iter().find(|f| f.number == n))
+                {
+                    Some(f) => Some(f),
+                    None => return refuse("a field number no field has"),
+                }
+            }
+            found => found,
+        };
         let Some(f) = found else {
             // The system fields' captions are refused; they are named as their names (SystemId, SystemCreatedAt, ...).
             if def
@@ -2021,12 +2036,9 @@ fn evaluate_with_max(
         // Every number but 9 reads a Date as the default does (types/lt-datetime/Evaluate.al:Date_Other_Formats `fmt 1` to `fmt 8`,
         // `fmt 10`, `fmt -1`; errors/lt-ms-refusals-130/P130EvaluateDate.al:P130_EvaluateDate_EveryFormat_*).
         // Evaluate reads a TAB, two TABs and one space as the empty date (corpus master, corpus PR 871:
-        // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date; assumption evaluate-blank-tabs awaits the bump). Pinned for
+        // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date). Pinned for
         // Evaluate only: `read_text` and the other readers of `date` do not take it.
-        Value::Date(..) if number != 9 && is_blank_tabs(&text) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
-            Parsed::Value(Value::Date(0, false))
-        }
+        Value::Date(..) if number != 9 && is_blank_tabs(&text) => Parsed::Value(Value::Date(0, false)),
         Value::Date(..) => date(
             &text,
             if number == 9 { 9 } else { 0 },
@@ -2280,10 +2292,9 @@ fn evaluate_with_max(
                 _ => "Boolean",
             };
             // A Boolean's error shows a TAB, two TABs or a space as the empty value `""` (corpus master, corpus PR 871:
-            // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Boolean; assumption evaluate-blank-tabs awaits the bump).
+            // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Boolean).
             // Integer and Decimal show them as written (NP4_Evaluate_Tab_Integer, _Decimal).
             let text = if ty == "Boolean" && is_blank_tabs(&text) {
-                crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
                 String::new()
             } else {
                 text.to_string()
@@ -2435,14 +2446,43 @@ mod tests {
         assert_eq!(dec("-\n1.5"), Some(None));
         assert_eq!(dec("1\n.5"), Some(None));
         assert_eq!(dec("\n"), Some(None));
-        // Not pinned: a leading vertical tab, an inner carriage return, a line feed before a trailing minus.
-        assert_eq!(dec("\u{B}1.5"), None);
-        assert_eq!(dec("1\r5"), None);
+        // Not pinned: a line feed before a trailing minus or before a group of three digits.
         assert_eq!(dec("100\n-"), None);
         assert_eq!(dec("1\n000"), None);
         assert!(matches!(integer("1\n5", 0), Ok(Parsed::Rejected)));
         assert!(matches!(value(integer("\t15", 0)), Some(Value::Integer(15))));
-        assert!(matches!(integer("15\u{B}", 0), Err(Signal::Unsupported(_))));
+    }
+
+    // types/lt-sc-eval-decimal-whitespace/Y6EvalWhitespaceMore.al (corpus master, format number 0): a leading vertical tab or form
+    // feed is dropped; one alone, or a carriage return, vertical tab or form feed inside the number, rejects. For an Integer the
+    // three are dropped on either side and reject inside.
+    #[test]
+    fn vertical_tab_form_feed_and_carriage_return_around_and_inside_a_number() {
+        let dec = |s: &str| match decimal(s, 0) {
+            Ok(Parsed::Value(Value::Decimal(d))) => Some(Some(d.to_string())),
+            Ok(Parsed::Rejected) => Some(None),
+            _ => None,
+        };
+        for s in ["\u{B}1.5", "\u{C}1.5", "\u{B}\u{C}1.5", "\u{B}1.5\u{B}"] {
+            assert_eq!(dec(s), Some(Some("1.5".into())), "{s:?}");
+        }
+        assert_eq!(dec("\u{C}-1.5"), Some(Some("-1.5".into())));
+        for s in [
+            "\u{B}", "\u{C}", "1\r5", "1\r\n5", "1\u{B}5", "1\u{C}5", "1\r.5", "1.\r5", "-\r1.5",
+        ] {
+            assert_eq!(dec(s), Some(None), "{s:?}");
+        }
+        let int = |s: &str| match integer(s, 0) {
+            Ok(Parsed::Value(Value::Integer(n))) => Some(Some(n)),
+            Ok(Parsed::Rejected) => Some(None),
+            _ => None,
+        };
+        for s in ["\u{B}15", "\u{C}15", "\r15", "15\u{B}", "15\u{C}", "15\r"] {
+            assert_eq!(int(s), Some(Some(15)), "{s:?}");
+        }
+        for s in ["1\r5", "1\u{B}5", "1\u{C}5", "\u{C}"] {
+            assert_eq!(int(s), Some(None), "{s:?}");
+        }
     }
 
     // codeunit "LT P86 Eval Time"
