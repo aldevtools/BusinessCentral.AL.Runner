@@ -305,6 +305,7 @@
 60064 Record_TransferFields_InitPKFalse_SkipsPK
 60064 Record_TransferFields_InitPKTrue_CopiesPK
 60064 Record_TransferFields_SameTable_CopiesAllFields
+60064 Record_TransferFields_SkipTypeMismatchFalse_ThrowsOnMismatch
 60064 Record_TransferFields_SkipTypeMismatchTrue_IgnoresMismatch
 60065 Record_FieldError_ErrorMessageContainsFieldName
 60065 Record_FieldError_ThrowsErrorWithCustomMessage
@@ -9114,6 +9115,7 @@
 71101 Find_OtherKey
 71102 FieldsNoKeyStartsWith
 71102 KeyAndFilter_Combine
+71102 NotStoredFields
 71103 Truncate_MediaTable
 71103 Truncate_MediaTable_Empty
 71103 Truncate_Plain_ThenCount
@@ -12807,6 +12809,7 @@
 73874 RK_Desc_Find_5Rows
 73874 SF_DayHost_RunWithFilter_OpensPart
 73874 SF_DayList_OpensOnDayTen_Next_Previous
+73880 Transfer_BooleanAndText
 73880 Transfer_EnumToEnum_SameType
 73880 Transfer_EnumToOption
 73880 Transfer_OptionToEnum
@@ -12817,6 +12820,7 @@
 73884 GetRecordId_Existing
 73884 GetRecordId_KeepsFilters
 73884 GetRecordId_Missing
+73884 GetRecordId_OtherTable
 73886 SetFilterEmpty_Group0
 73886 SetFilterEmpty_Group2
 73886 SetFilterEmpty_Group2_ClearedFromGroup0
