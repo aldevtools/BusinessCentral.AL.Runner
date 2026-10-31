@@ -17,7 +17,7 @@ fn version(v: &str) -> Option<[i32; 4]> {
     parts.try_into().ok()
 }
 
-/// NAV App Installed App: "App ID" (1), "Package ID" (2), Name (3), Publisher (4), version (5 to 8).
+/// NAV App Installed App: "App ID" (1), "Package ID" (2), Name (3), Publisher (4), version (5 to 8), "Published As" (16).
 pub(super) fn nav_app_installed_app_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     p.engine()
         .program
@@ -34,6 +34,21 @@ pub(super) fn nav_app_installed_app_rows(p: &Providers, t: &TableDef) -> Vec<Ent
             for (n, part) in v.iter().enumerate() {
                 r[pos(t, 5 + n as u32)] = Value::Integer(*part);
             }
+            // "Published As" follows how the app was published: an app under test, as the corpus apps through the development
+            // endpoint, is Dev (2); Microsoft's apps are Global (0) (record/lt-y12-published-as/Y12PublishedAs.al:31-80, corpus
+            // branch al-runtime-rs-staging-y12, al-runner issue 6438; assumption installed-app-published-as until the pin). How
+            // another dependency app was published is not known.
+            r[pos(t, 16)] = if !a.dependency {
+                super::option(t, 16, 2)
+            } else if a.publisher == "Microsoft" {
+                super::option(t, 16, 0)
+            } else {
+                let whose = format!(
+                    "app '{}' by '{}', a dependency not published by Microsoft",
+                    a.name, a.publisher
+                );
+                super::unknown(t, 16, &whose)
+            };
             Some(Entry::ok(r))
         })
         .collect()
