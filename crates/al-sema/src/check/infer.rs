@@ -550,6 +550,25 @@ impl<'a> Checker<'a> {
                 matches!(&c.target, Res::Builtin(id)
                     if id == "HttpClient.UseResponseCookies#1" || id == "HttpClient.UseServerCertificateValidation#1")
             };
+            // `M.AddNamespace := v`: a builtin whose only form needs two or more arguments is AL0135, and alc's text names the
+            // first parameter, as for a call with no arguments (must-not-compile 2369, corpus writer Y29, al-runner issue 6526).
+            if let [c] = visible.as_slice() {
+                if let Res::Builtin(id) = &c.target {
+                    let sig = self.catalog.by_id(id).cloned();
+                    if let Some(sig) =
+                        sig.filter(|s| c.min >= 2 && s.params.len() >= 2 && !self.ws.is_dependency(sc.oi))
+                    {
+                        let tys: Vec<&str> = sig.params.iter().map(|p| p.ty.as_str()).collect();
+                        let message = format!(
+                            "There is no argument given that corresponds to the required formal parameter '{}' of '{}({})'",
+                            sig.params[0].name,
+                            sig.name,
+                            tys.join(", ")
+                        );
+                        self.diag(sc, target, "AL0135", message);
+                    }
+                }
+            }
             if !visible.is_empty()
                 && (visible.iter().all(|c| setter(c) && c.min == 1 && c.max >= 1) || visible.iter().all(builtin_setter))
             {

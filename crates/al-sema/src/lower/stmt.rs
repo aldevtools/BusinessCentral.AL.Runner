@@ -1396,6 +1396,9 @@ impl Lowerer<'_> {
                 if compound {
                     return Err("compound assignment to a setter-form builtin is not lowered yet".into());
                 }
+                if id == "XmlNamespaceManager.NameTable#1" {
+                    self.assume(al_builtins::assumptions::Assumption::NametableAssignIsCall);
+                }
                 let receiver = if member {
                     let recv = kids[0].children().next().ok_or("member base")?;
                     // `CurrReport` is the running report: the VM takes it when a report builtin has
