@@ -133,7 +133,9 @@ fn a_text_element_with_only_text_attributes_below_a_text_element_runs_its_trigge
     );
     let out = text(run(&s, "Export"));
     assert!(
-        out.contains("|  <a:Party>|    <b:EndpointID schemeID=\"0088\">E1</b:EndpointID>|    <Plain>p</Plain>|  </a:Party>|"),
+        out.contains(
+            "|  <a:Party>|    <b:EndpointID schemeID=\"0088\">E1</b:EndpointID>|    <Plain>p</Plain>|  </a:Party>|"
+        ),
         "{out}"
     );
 }

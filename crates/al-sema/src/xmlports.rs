@@ -260,8 +260,9 @@ pub fn layout(obj: &ast::Object) -> Layout {
                         {
                             let prefix = crate::scan::unquote_xmlport(prefix);
                             if pairs.iter().any(|(p, _)| *p == prefix) {
-                                out.run_reasons
-                                    .push(format!("xmlport namespaces with the prefix `{prefix}` twice (not pinned)"));
+                                out.run_reasons.push(format!(
+                                    "xmlport namespaces with the prefix `{prefix}` twice (not pinned)"
+                                ));
                                 break;
                             }
                             pairs.push((prefix, crate::scan::unquote_xmlport(uri)));
@@ -427,8 +428,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         // With DefaultNamespace and a Namespaces list that holds the empty prefix, the default namespace takes the place of the
         // uri of `""`, and prefixed elements are written with their prefixes (xmlport/lt-y17-xmlport-ns/
         // Y17XmlPortNamespacesTests.al:82, an UTF8 export).
-        let empty_prefix_replaced =
-            own_namespace.is_some() && utf8 && out.namespaces.iter().any(|(p, _)| p.is_empty());
+        let empty_prefix_replaced = own_namespace.is_some() && utf8 && out.namespaces.iter().any(|(p, _)| p.is_empty());
         let unpinned = if out.format != ir::XmlFormat::Xml {
             Some("a text format")
         } else if !out.namespaces.is_empty() && !empty_prefix_replaced {
@@ -1111,10 +1111,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                 ) && n.ns_prefix.as_deref() == Some(prefix)
             })
         };
-        let any_used = layout
-            .namespaces
-            .iter()
-            .any(|(p, _)| p.is_empty() || element_uses(p));
+        let any_used = layout.namespaces.iter().any(|(p, _)| p.is_empty() || element_uses(p));
         for (prefix, _) in &layout.namespaces {
             if !any_used && !element_uses(prefix) {
                 run_reasons.push(format!(

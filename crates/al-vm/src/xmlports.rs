@@ -3959,10 +3959,8 @@ fn root_table_element(schema: &Schema, top: usize) -> bool {
 /// `<Root Ver="v1" xmlns="...">`), else the uri of the empty prefix `""`, whether `""` is listed first or last
 /// (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:60, :71); a used default namespace replaces that uri (:82).
 fn declare_namespaces(root: &mut Elem, namespaces: &[(String, String)], default_ns: Option<&str>) {
-    let mut at = 0;
-    for (prefix, uri) in namespaces.iter().filter(|(p, _)| !p.is_empty()) {
+    for (at, (prefix, uri)) in namespaces.iter().filter(|(p, _)| !p.is_empty()).enumerate() {
         root.attrs.insert(at, (format!("xmlns:{prefix}"), uri.clone()));
-        at += 1;
     }
     let empty = namespaces.iter().find(|(p, _)| p.is_empty()).map(|(_, u)| u.as_str());
     if let Some(ns) = default_ns.or(empty) {
