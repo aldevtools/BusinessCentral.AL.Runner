@@ -69,6 +69,11 @@ pub struct Manifest {
     pub translations: bool,
     /// The translation files of an app folder (ADR-053 step 2); empty for a package.
     pub translation_files: Vec<al_ir::TranslationFile>,
+    /// `runtime` of the app's own app.json as (major, minor); `None` when it names none or is not known (a package).
+    pub runtime: Option<(u32, u32)>,
+    /// The top-level keys of the app's own app.json; empty for a package. With `target` and `runtime`, what the AL
+    /// compiler's checks of the app's context need (`al_sema::alcodes::AppContext`).
+    pub app_json_keys: Vec<String>,
 }
 
 /// The components of `path` made absolute, with `.` and `..` resolved without touching the file system.
@@ -187,6 +192,14 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .flatten()
             .filter_map(|s| s.as_str().map(String::from))
             .collect(),
+        runtime: manifest["runtime"]
+            .as_str()
+            .and_then(|r| al_version::Runtime::parse(r).ok())
+            .map(|r| (u32::from(r.major), u32::from(r.minor))),
+        app_json_keys: manifest
+            .as_object()
+            .map(|o| o.keys().cloned().collect())
+            .unwrap_or_default(),
     })
 }
 

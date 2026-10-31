@@ -25,6 +25,8 @@ fn manifest(publisher: &str, resources: Vec<(String, Vec<u8>)>) -> Manifest {
         id_ranges: Vec::new(),
         translations: false,
         translation_files: Vec::new(),
+        runtime: None,
+        app_json_keys: Vec::new(),
         symbols: vec![],
     }
 }

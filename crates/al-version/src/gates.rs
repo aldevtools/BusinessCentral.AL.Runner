@@ -1090,10 +1090,11 @@ pub fn test_runner_root_scope(target: Option<&Target>) -> Option<&'static str> {
 }
 
 /// Whether the platform tables of System.app that are `Scope = OnPrem`, internal or removed are known for
-/// this BC major: corpus must-not-compile 0020 to 0024 hold the lists for the symbols of BC 27 only, so
-/// the AL0296 / AL0161 / AL0433 verdicts for them are not given for another major.
+/// this BC major: corpus must-not-compile 0020 to 0024 hold the lists for the symbols of BC 27, and 1240
+/// (`@from 28`, no `@until`) the same 123 tables with the same AL0296 / AL0161 / AL0433 verdicts for BC 28 and
+/// later. An unknown major is not judged.
 pub fn platform_table_scopes_known(bc_major: Option<u32>) -> bool {
-    bc_major == Some(27)
+    bc_major.is_some_and(|m| m >= 27)
 }
 
 #[cfg(test)]
