@@ -317,6 +317,8 @@ pub struct DependencyApp {
     pub translations: bool,
     /// The logo the manifest declares ([`crate::package::read_logo`], [`folder_logo`]); `None` when not known.
     pub logo: Option<al_ir::AppLogo>,
+    /// The description the manifest declares.
+    pub description: String,
 }
 
 #[derive(Debug, Default)]
@@ -714,6 +716,7 @@ pub fn read_planned(planned: Planned, req: &Request<'_>) -> Result<Loaded, Strin
             resources: app_resources,
             translations,
             logo,
+            description: manifest.description.clone(),
         });
     }
     loaded.notes = notes;

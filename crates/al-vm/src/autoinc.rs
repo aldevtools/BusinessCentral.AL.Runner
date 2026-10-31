@@ -147,6 +147,27 @@ impl Session {
             })));
         }
         // Corpus record/TestRecordTruncateTryScope.al:34: the scope is inherited by called frames.
+        // The computed tables Integer and AllObj: with the result used it answers false, keeps the rows and leaves the text in
+        // GetLastErrorText (record/TestCalcFieldsTruncateUniqueContracts.al:311-312; record/lt-truncate-guards/TruncateGuards.al:
+        // 222-237). The error code is not pinned; another computed table is refused by the store.
+        if matches!(
+            self.engine.program.objects[t.object as usize]
+                .id
+                .and_then(al_builtins::platform::virtual_table),
+            Some(al_builtins::platform::Virtual::Integer | al_builtins::platform::Virtual::AllObj)
+        ) {
+            let e = AlError {
+                message: "The table does not support truncation.".into(),
+                code: String::new(),
+                call_stack: String::new(),
+                ..Default::default()
+            };
+            if self.ret_used {
+                self.last_error = e;
+                return Ok(Value::Boolean(false));
+            }
+            return Err(Signal::Error(Box::new(e)));
+        }
         if self.tx.try_depth > 0 {
             return error("Truncate is not supported in try functions.");
         }

@@ -414,6 +414,35 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             out.push(Entry::poisoned(key, why));
             continue;
         }
+        // EnableHyperLinks (7) No, ShowPrintStatus (10) Yes and PreviewMode (15) Normal for a report that declares none of
+        // them (metadata/lt-report-metadata-columns/ReportMetadata.al:206, :209, :214; ReportMetadataWord.al:66, :69, :74).
+        // No corpus test pins a declared one: unknown, so a read of it is refused.
+        for (col, name, default) in [
+            (7, "EnableHyperlinks", "No"),
+            (10, "ShowPrintStatus", "Yes"),
+            (15, "PreviewMode", "Normal"),
+        ] {
+            let Some(i) = t.fields.iter().position(|f| f.id == col) else {
+                continue;
+            };
+            r[i] = match (prop(o, name), &r[i]) {
+                (Some(v), _) => unknown(
+                    t,
+                    col,
+                    &format!("report '{}', which declares {name} = {}", o.name, ident(v)),
+                ),
+                (None, Value::Boolean(_)) => Value::Boolean(default == "Yes"),
+                (None, Value::Option(_, m)) => match m.iter().position(|x| x.eq_ignore_ascii_case(default)) {
+                    Some(n) => Value::Option(n as i32, m.clone()),
+                    None => unknown(t, col, &format!("report '{}': {name} has no member {default}", o.name)),
+                },
+                (None, other) => unknown(
+                    t,
+                    col,
+                    &format!("report '{}': {name} is a {}", o.name, other.describe()),
+                ),
+            };
+        }
         // TransactionType (11): UpdateNoLocks for a report that declares none (metadata/lt-report-metadata-columns/
         // ReportMetadata.al:210, :236, :262; ReportMetadataWord.al:70). No corpus test pins the column for a declared
         // TransactionType: it stays unknown there, and a read of it is refused.
@@ -458,7 +487,8 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             );
         }
         // UseSystemPrinter (5): the property as declared, Yes for true and No for false (misc/lt-y13-triage/Y13ReportSystemPrinter.al:
-        // 530-543, corpus master). For a report that does not declare it no corpus test pins the column: unknown.
+        // 530-543, corpus master); No for a report that does not declare it (metadata/lt-report-metadata-columns/
+        // ReportMetadata.al:204, :230).
         if let Some(col) = t.fields.iter().position(|f| f.id == 5) {
             r[col] = match prop(o, "UseSystemPrinter") {
                 Some(v) if truthy(v) => Value::Boolean(true),
@@ -468,11 +498,7 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                     5,
                     &format!("report '{}', which declares UseSystemPrinter = {}", o.name, v.trim()),
                 ),
-                None => unknown(
-                    t,
-                    5,
-                    &format!("report '{}', which does not declare UseSystemPrinter", o.name),
-                ),
+                None => Value::Boolean(false),
             };
         }
         // BC 29: DefaultHeaderFooterPartName (30) and DefaultThemePartName (31) are the layout names the properties give

@@ -191,6 +191,10 @@ pub struct AppInfo {
     /// when no manifest was read or the declared file could not be read.
     #[serde(default)]
     pub logo: Option<AppLogo>,
+    /// The description the manifest declares (`description` of app.json, `Description` of a package's NavxManifest.xml);
+    /// `None` when no manifest was read.
+    #[serde(default)]
+    pub description: Option<String>,
     /// The files the app's reports name with `LayoutFile`: path relative to the app (`/` separators), content.
     #[serde(default)]
     pub layout_files: Vec<(String, Vec<u8>)>,

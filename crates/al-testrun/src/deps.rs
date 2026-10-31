@@ -380,6 +380,7 @@ pub fn load_project_with(
             // Not read from the package.
             target: String::new(),
             logo: d.logo.take(),
+            description: Some(d.description.clone()),
             layout_files: Vec::new(),
             id_ranges: Vec::new(),
             symbols: d.preprocessor_symbols.clone(),
