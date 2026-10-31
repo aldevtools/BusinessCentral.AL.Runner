@@ -545,6 +545,12 @@ pub struct PageState {
     /// (corpus pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al:422 covers only a page without them); every TestPage call
     /// but Close is refused until Close.
     pub marked_only_unpinned: bool,
+    /// A TestField.Lookup on this page, whose OnValidate called `CurrPage.Update(false)`, left that refresh for later, as BC
+    /// does on a host with row triggers whose ListPart links three fields (`Session::defer_lookup_refresh`): reads and Close
+    /// run no trigger; any other TestPage call on its tree is refused until Close.
+    pub lookup_refresh_deferred: bool,
+    /// TestField.Lookup writes the text its OnLookup returned through the control's SetValue (`defer_lookup_refresh`).
+    pub lookup_setting_value: bool,
     /// An action turned MarkedOnly on for a list with row triggers: the later moves are refused (not built).
     pub marked_only_by_action: bool,
     /// An action runs on a list whose Rec had MarkedOnly off: a refresh after it that finds MarkedOnly on holds the marked rows it
@@ -926,6 +932,8 @@ impl PageState {
             view_left: false,
             marked_only_unshown: false,
             marked_only_unpinned: false,
+            lookup_refresh_deferred: false,
+            lookup_setting_value: false,
             marked_only_by_action: false,
             marking_action: false,
             marked_rows_held: false,

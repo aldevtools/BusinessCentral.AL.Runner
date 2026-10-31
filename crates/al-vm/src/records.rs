@@ -150,7 +150,7 @@ fn arg_bool(args: &[Value], i: usize) -> Result<bool, Signal> {
     }
 }
 
-fn arg_pos(args: &[Value], i: usize) -> Result<usize, Signal> {
+pub(crate) fn arg_pos(args: &[Value], i: usize) -> Result<usize, Signal> {
     match args.get(i) {
         Some(Value::Integer(p)) => Ok(*p as usize),
         other => unsupported(format!("field argument {}", other.describe())),
@@ -538,9 +538,14 @@ impl Session {
     /// be "empty" or "fewer rows", which is not BC's. Rows this session wrote itself do not make
     /// the answer BC's, so they are not an exception. Temporary records are private to the session.
     /// Whether a `Get` that finds nothing, or a scan, on table object `object` is not BC's answer.
-    pub(crate) fn is_unseeded(&self, object: u32) -> bool {
-        let o = object as usize;
-        self.engine.unseeded.contains(&o) || (!self.install_scope && self.engine.platform_unseeded.contains(&o))
+    /// A platform table of `UNSEEDED_ROWS` stops being one once the session's own DeleteAll without filters emptied it (and
+    /// while that stands, `MemStore::emptied`): BC has then removed its fresh-tenant rows too, and what it holds is what the
+    /// session wrote (Power BI Blob: Microsoft's Power BI tests clear it before they insert, al-language-onprem/platform/
+    /// PtOnPremTables.al Y17_PowerBIBlob_BlobRoundTrip, corpus master 97c29f86).
+    pub(crate) fn is_unseeded(&self, t: &TableDef) -> bool {
+        let o = t.object as usize;
+        self.engine.unseeded.contains(&o)
+            || (!self.install_scope && self.engine.platform_unseeded.contains(&o) && !self.store.emptied(&self.cx, t))
     }
 
     /// Why the rows install code left in table `object` are not known (ADR-046: `InstallFacts::unknown`). Install code
@@ -644,7 +649,7 @@ impl Session {
                 return unsupported(format!("{what} on {}: {why}", t.name));
             }
         }
-        if !temporary && self.is_unseeded(t.object) {
+        if !temporary && self.is_unseeded(t) {
             return unsupported(format!(
                 "{what} on {}: BC holds rows here that an install trigger or Company-Initialize creates, and the install baseline could not create them (ADR-013 decision 5)",
                 t.name
@@ -665,7 +670,7 @@ impl Session {
                 return unsupported(format!("{} row not found: {why}", t.name));
             }
         }
-        if !exists && self.is_unseeded(t.object) {
+        if !exists && self.is_unseeded(t) {
             return unsupported(format!(
                 "{} row not found: the rows a dependency app's install and Company-Initialize create could not be created (ADR-013 decision 5)",
                 t.name
@@ -1885,6 +1890,28 @@ impl Session {
                     .stale_6028_shape(t, &company, pk, o.commits, deleting)
                     .expect("checked"))
             }
+            // Two or three Commits after the buffer's own write, another variable wrote the row in the transaction the last
+            // Commit closed, and the new transaction's only writes are Modifies of the buffer's row through other variables
+            // (changed or not, once or twice), with no lock: written whole, the stale buffer winning, OnModify once with xRec the
+            // buffer (record/lt-sb-stale-own-modify/Y27StaleOtherVarTests.al Y27_2C_*, Y27_3C_* on corpus branch
+            // al-runtime-rs-staging-y27, al-runner issue 6522; assumption `stale-own-insert-two-commits-row-written` until
+            // the file is on master). Y27_3C_* writes the row in both transactions between, so three Commits need it written in
+            // the one before too; a transaction between that left the row alone stays refused below, as does a row last written
+            // in the buffer's own transaction with an empty Commit after it.
+            Some(o)
+                if o.own_write
+                    && (o.commits + 2 == self.commits
+                        || (o.commits + 3 == self.commits
+                            && self.row_written_before_last_closed_tx(t, &company, pk)))
+                    && touched
+                    && committed.is_some_and(|c| c > self.tx.prior_committed_row_version)
+                    && self.stale_row_modified_only(t, &company, pk) =>
+            {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::StaleOwnInsertTwoCommitsRowWritten,
+                );
+                Ok(StaleVerdict::Written)
+            }
             Some(o) if o.own_write && contact => unsupported(format!(
                 "a stale {} buffer from an Insert older than the last Commit but one, written after the new transaction touched the table",
                 t.name
@@ -2011,6 +2038,42 @@ impl Session {
         // An Insert and a Rename of another row are measured at one to three Commits only (TE_*_InsertOtherRow_*,
         // TE_*_RenameOtherRow_*).
         other_rows_of_one_kind.then_some(StaleVerdict::Written)
+    }
+
+    /// Whether the transaction the Commit before the last one closed wrote the row `pk` of `t` by a Record write.
+    fn row_written_before_last_closed_tx(&self, t: &TableDef, company: &Option<String>, pk: &[Value]) -> bool {
+        self.tx.closed_tx_rows_before.as_ref().is_some_and(|rows| {
+            rows.iter().any(|(table, c, k)| {
+                *table == t.object
+                    && c == company
+                    && k.len() == pk.len()
+                    && k.iter()
+                        .zip(pk)
+                        .all(|(a, b)| al_builtins::ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal))
+            })
+        })
+    }
+
+    /// Whether the open transaction's only writes are Modifies of the row `pk` of `t`, with no rollback and no lock of any kind.
+    fn stale_row_modified_only(&self, t: &TableDef, company: &Option<String>, pk: &[Value]) -> bool {
+        let tx = &self.tx;
+        !tx.rolled_back
+            && !tx.lock_tx
+            && tx.lock_unpinned.is_none()
+            && !tx.isolation_lock
+            && tx.locked_tables.is_empty()
+            && self.writes_all_noted()
+            && !tx.writes.is_empty()
+            && tx.writes.iter().all(|w| {
+                w.kind == crate::state::TxWriteKind::Modify
+                    && w.table == t.object
+                    && w.company == *company
+                    && w.pk.len() == pk.len()
+                    && w.pk
+                        .iter()
+                        .zip(pk)
+                        .all(|(a, b)| al_builtins::ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal))
+            })
     }
 
     /// Whether the open transaction's only writes are Deletes of other rows of `t` and it took no lock: the neighbour shape
@@ -3347,6 +3410,7 @@ impl Session {
         self.crm_method_check(&t, rec, method, args)?;
         self.agent_task_check(&t, rec, method)?;
         self.tenant_report_layout_check(&t, rec, method)?;
+        self.tenant_layout_cfg_check(&t, rec, method, args)?;
         self.note_table(t.object, method.writes());
         if matches!(
             method,
@@ -4290,7 +4354,7 @@ impl Session {
                 }
                 // A Modify that changes no field leaves the row version as it is: Microsoft's tests Modify a record after a refresh report
                 // modified its row without a change (Create Prod. Order Lines.Copy) and pass, which a bumped version would make a
-                // stale write (record/lt-priority-assumptions/PriorityAssumptions.al:143-244, real BC 29: after a Modify that changes nothing and a Commit, the
+                // stale write (record/lt-priority-assumptions/PriorityAssumptions.al:143-244, real BC: after a Modify that changes nothing and a Commit, the
                 // other variable's Modify of a changed field is accepted, while a Modify that changed a field makes it fail with DB:RecordChanged).
                 self.check_code_storage(&t, &rec.borrow().fields, true)?;
                 self.sql_timestamp_before(&t, rec, stored_row.as_deref())?;
@@ -4492,6 +4556,30 @@ impl Session {
                     .store_for(rec)
                     .count(&cx, &t, &filters)
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                // A platform table whose fresh-tenant rows nothing pins (`UNSEEDED_ROWS`): a DeleteAll without filters removes
+                // them in BC too, so the store marks the table emptied (`Session::is_unseeded`), even when it holds no row
+                // itself. With delete events or database triggers BC would run them for those rows: not known, refused.
+                if !temporary
+                    && filters.is_empty()
+                    && !rec.borrow().marked_only
+                    && self.engine.platform_unseeded.contains(&(t.object as usize))
+                    && self.is_unseeded(&t)
+                {
+                    let per_row = self.listened(&t, "onbeforedeleteevent", None)?
+                        || self.listened(&t, "onafterdeleteevent", None)?
+                        || self.global_enabled(&t, GlobalOp::Delete)?;
+                    if per_row {
+                        return unsupported(format!(
+                            "DeleteAll on {} with delete events or database triggers: BC runs them for the rows a fresh tenant holds there, which nothing pins",
+                            t.name
+                        ));
+                    }
+                    self.store_for(rec)
+                        .delete_all(&cx, &t, &filters)
+                        .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                    self.deletes += 1;
+                    return Ok(Value::Null);
+                }
                 // No row, no trigger and no event.
                 if n == 0 {
                     return Ok(Value::Null);

@@ -22,6 +22,15 @@ pub(crate) struct TxState {
     pub(crate) lock_timeout_duration: i64,
     /// The highest rowversion handed out when the last `Commit` ran: rows at or below it are durable.
     pub(crate) committed_row_version: i64,
+    /// `committed_row_version` before the last `Commit`: a row whose committed version is above it was written in the
+    /// transaction the last Commit closed (`Session::stale_verdict`, al-runner issue 6522).
+    pub(crate) prior_committed_row_version: i64,
+    /// The rows (table object, company, primary key) the Record writes of the transaction the last Commit closed wrote, or
+    /// `None` when not every write of it was noted.
+    pub(crate) closed_tx_rows: Option<Vec<RowKey>>,
+    /// `closed_tx_rows` before the last Commit: the rows written by the transaction the Commit before it closed
+    /// (`Session::stale_verdict`, al-runner issue 6522, three Commits).
+    pub(crate) closed_tx_rows_before: Option<Vec<RowKey>>,
     /// The rows (table object, company, primary key) a Record Modify wrote, or a Get read while its table was locked by
     /// `LockTable`, since the last Commit or rollback: a stale buffer from the Insert of the transaction before may then be
     /// written (record/TestRecordStaleBufferWrite.al:495-584, `Session::stale_verdict`).
@@ -115,6 +124,9 @@ pub(crate) struct RowVersionTx {
     pub(crate) unpinned: Option<&'static str>,
 }
 
+/// A row by table object, company and primary key.
+pub(crate) type RowKey = (u32, Option<String>, Vec<Value>);
+
 /// One Record write to the database store: the store's change counter before and after it.
 #[derive(Clone, Debug)]
 pub(crate) struct TxWrite {
@@ -137,6 +149,9 @@ impl TxState {
             lock_timeout: true,
             lock_timeout_duration: 10,
             committed_row_version: 0,
+            prior_committed_row_version: 0,
+            closed_tx_rows: None,
+            closed_tx_rows_before: None,
             rows_touched: Vec::new(),
             tables_inserted: Vec::new(),
             locked_tables: Vec::new(),

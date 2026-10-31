@@ -476,12 +476,18 @@ impl Session {
             return pinned;
         }
         // With three entries BC runs the refresh of the OnValidate's `CurrPage.Update(false)` later, not within the Lookup: the
-        // host's OnAfterGetCurrRecord is not logged after it, and runs before the next Lookup (corpus writer Y15, branch
-        // al-runtime-rs-staging-y15, pages/lt-y15/Y15LookupThreeFieldLink.al:194 `lookup log` `lookup;validate R2`, :278 `log`
-        // `lookup;validate R2;agcr R1;lookup;validate R3`). This runtime refreshes within the Lookup, so a host with row
-        // triggers is refused; without them the refresh shows nothing (al-runner issue 6466, the reporter's page).
+        // host's OnAfterGetCurrRecord is not logged after it, and runs before the next Lookup (corpus writer Y15,
+        // pages/lt-y15/Y15LookupThreeFieldLink.al:194 `lookup log` `lookup;validate R2`, :278 `log`
+        // `lookup;validate R2;agcr R1;lookup;validate R3`). Without row triggers the refresh shows nothing (al-runner issue
+        // 6466, the reporter's page). With them the Lookup left the refresh for later (`defer_lookup_refresh`) and the reads
+        // after it show the values as they are now (al-runner issue 6519; corpus writer Y26, branch al-runtime-rs-staging-y26,
+        // Y15LookupThreeFieldLink.al:314 Y26_ThreeLinkCurr_LookupRefresh); a Lookup that did not leave it is refused.
         if self.declares(root, "onaftergetrecord") || self.declares(root, "onaftergetcurrrecord") {
-            return false;
+            if !root.borrow().lookup_refresh_deferred {
+                return false;
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupThreeFieldLinkDefersRefresh);
+            return true;
         }
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupThreeFieldLinkShowsPicked);
         true
@@ -566,6 +572,115 @@ impl Session {
                 page_of(&self.engine(), st).controls[idx].name
             )),
         }
+    }
+
+    /// Before the refresh after the SetValue of TestField.Lookup on `st` (`control_set_value`): on a page with OnAfterGetRecord or OnAfterGetCurrRecord whose OnValidate
+    /// asked for `CurrPage.Update(false)` and whose every part is a ListPart it hosts with a SubPageLink of three `field(..)`
+    /// entries, BC leaves the refresh for later. The Lookup runs no OnAfterGetRecord or OnAfterGetCurrRecord on the host or
+    /// the part, and reading a control after it runs no trigger: the field shows the picked value, the globals the row
+    /// triggers set and the part keep what they showed before (corpus writer Y26, branch al-runtime-rs-staging-y26,
+    /// pages/lt-y15/Y15LookupThreeFieldLink.al:314 Y26_ThreeLinkCurr_LookupRefresh `lookup log`
+    /// `lookup;h-fn R1;validate R2;h-fn R1`, `current no` `R1/`, `part current` `R1/`, every read log empty; :574
+    /// Y26_ThreeLinkCurr_RegionsSet; al-runner issue 6519). BC computes the host's function controls within the Lookup (`h-fn`),
+    /// which this runtime does not: a host with an expression control that calls anything is left as it was. The refresh
+    /// runs at the next Lookup or Next (:639 Y26_ThreeLinkCurr_LookupTwice, :314 `next log`), which is not built:
+    /// `lookup_refresh_deferred_call` refuses every call but a read and Close.
+    pub(super) fn defer_lookup_refresh(&mut self, st: &St) {
+        let shape = {
+            let s = st.borrow();
+            s.host.is_none()
+                && s.open
+                && !s.draft
+                && s.cursor == Cursor::Row
+                && !s.parts.is_empty()
+                && s.refresh
+                && s.refresh_by_update
+                && s.refresh_update_false
+        };
+        if !shape
+            || !self.has_source(st)
+            || !(self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord"))
+            || self.declares(st, "onfindrecord")
+            || self.declares(st, "onnextrecord")
+        {
+            return;
+        }
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let object = st.borrow().object as usize;
+        let calls_nothing = page.controls.iter().all(|c| match c.binding {
+            ir::Binding::Expr(r) => c.owner.is_none() && call_free_routine(&engine.program, object, r),
+            _ => true,
+        });
+        let parts_ok = st.borrow().parts.iter().all(|(i, q)| {
+            let q = q.borrow();
+            let list_part = matches!(
+                &engine.object_facts[q.object as usize].page_type,
+                Some(ir::PageType::Other(o)) if o == "listpart"
+            );
+            list_part
+                && q.parts.is_empty()
+                && page.controls[*i].part_link.as_ref().is_some_and(|l| {
+                    l.view.is_none()
+                        && l.provider.is_none()
+                        && matches!(
+                            l.entries.as_slice(),
+                            [
+                                ir::LinkEntry::Field(..),
+                                ir::LinkEntry::Field(..),
+                                ir::LinkEntry::Field(..)
+                            ]
+                        )
+                })
+        });
+        drop(engine);
+        if calls_nothing && parts_ok {
+            let mut s = st.borrow_mut();
+            s.refresh = false;
+            s.lookup_refresh_deferred = true;
+        }
+    }
+
+    /// TestPage call `method` on page `st` (of control `target`) while a Lookup of its tree left its refresh for later
+    /// (`defer_lookup_refresh`): reading a control that is a field, a variable or (on the host) an expression that calls nothing
+    /// runs no trigger (Y15LookupThreeFieldLink.al:314, every `.. log` of a read empty), and Close runs none either (`close log` empty);
+    /// any other call runs the refresh first (:639 `second lookup log`, :314 `next log`), which is not built.
+    pub(super) fn lookup_refresh_deferred_call(
+        &mut self,
+        method: PageOp,
+        st: &St,
+        target: Option<&ControlTarget>,
+    ) -> Result<(), Signal> {
+        let root = shown_root(st);
+        if !root.borrow().lookup_refresh_deferred {
+            return Ok(());
+        }
+        if method == PageOp::TestPageClose && Rc::ptr_eq(st, &root) {
+            root.borrow_mut().lookup_refresh_deferred = false;
+            return Ok(());
+        }
+        if method == PageOp::TestFieldValue
+            && let Some(ControlTarget::Control(i)) = target
+        {
+            let engine = self.engine();
+            let c = &page_of(&engine, st).controls[*i];
+            let read_ok = match c.binding {
+                // The host computed its expressions within the Lookup (`h-fn`); a part did not (`part fn` `R1/`, before the pick).
+                ir::Binding::Expr(r) => {
+                    Rc::ptr_eq(st, &root)
+                        && c.owner.is_none()
+                        && call_free_routine(&engine.program, st.borrow().object as usize, r)
+                }
+                _ => true,
+            };
+            if read_ok {
+                return Ok(());
+            }
+        }
+        unsupported(format!(
+            "{method} after TestField.Lookup on a page with OnAfterGetRecord or OnAfterGetCurrRecord whose ListPart links three \
+             fields: BC runs the refresh of the OnValidate's CurrPage.Update(false) first (not built)"
+        ))
     }
 
     /// The expression controls of `st` whose value the page keeps: the page's own controls (not an extension's) whose
@@ -671,6 +786,29 @@ fn pure_expr(program: &ir::Program, object: usize, routine: &ir::Routine, e: &ir
         }
         _ => false,
     }
+}
+
+/// Routine `r` of `object` only returns an expression of constants, variables, fields and operators: it calls nothing.
+fn call_free_routine(program: &ir::Program, object: usize, r: usize) -> bool {
+    fn call_free(e: &ir::Expr) -> bool {
+        match e {
+            ir::Expr::Const(_) | ir::Expr::Load(_) => true,
+            ir::Expr::Unary(_, a) | ir::Expr::Convert(_, a) | ir::Expr::FieldOf(a, _) => call_free(a),
+            ir::Expr::Binary(_, a, b) => call_free(a) && call_free(b),
+            ir::Expr::Ternary(a, b, c) => call_free(a) && call_free(b) && call_free(c),
+            _ => false,
+        }
+    }
+    let Some(routine) = program.objects[object].routines.get(r) else {
+        return false;
+    };
+    let mut body = routine
+        .body
+        .stmts()
+        .iter()
+        .filter(|s| !matches!(s, ir::Stmt::Pos(_)))
+        .peekable();
+    body.peek().is_some() && body.all(|s| matches!(s, ir::Stmt::Exit(Some(e)) if call_free(e)))
 }
 
 /// A TestPage call (`ok`: it succeeded and the page's code called no `CurrPage` method) pinned to leave the values a list
