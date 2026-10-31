@@ -711,6 +711,8 @@ pub struct PageState {
     /// when xRec is a blank row with the single-value key filters (the part link) on it (QiHostSaveParts.al:361
     /// `L.AGCR(D1/10000|d1 l1 x=D1/0)`, `U.AGCR(D1/10000 x=/0)`).
     pub agcr_xrec: Option<Vec<Value>>,
+    /// The row Rec stood on when OnAfterGetCurrRecord last started on a stored row (`marked_view_changed_by_move`).
+    pub agcr_started: Option<Vec<Value>>,
     /// OnAfterGetCurrRecord ran last on a row that is not stored (a new row): the next one on a stored row sees the xRec the
     /// page holds (misc/lt-probes-needed-7/PnGShowRow.al EmptyListInsertViaRec `List.AGCR(,);List.AGR(NEW1,Created);...;
     /// List.AGCR(NEW1,NEW1)`).
@@ -979,6 +981,7 @@ impl PageState {
             row_exprs_live: false,
             agr_xrec: None,
             agcr_xrec: None,
+            agcr_started: None,
             agcr_after_new: false,
             shows_sibling_save: None,
             part_accessed: false,
