@@ -588,7 +588,7 @@ fn copy_company_to_an_existing_destination_fails() {
 
 #[test]
 fn copy_company_with_the_result_used_still_raises_for_a_missing_source() {
-    // Y22CopyCompany.al Y22_CopyCompany_ReturnValueMissingSource (SaaS BC 29): `Ok :=` does not catch the error.
+    // Y22CopyCompany.al Y22_CopyCompany_ReturnValueMissingSource (SaaS, newest major): `Ok :=` does not catch the error.
     let out = text(
         "ok: Boolean; Co: Record Company;",
         "asserterror ok := CopyCompany('LT O No Such Company', 'X');
@@ -611,7 +611,7 @@ fn copy_company_with_the_result_used_and_an_existing_destination_is_refused() {
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-// ---- Database.CopyCompany that succeeds: session/lt-y22-copy-company/Y22CopyCompany.al (corpus writer Y22, BC 29) ------
+// ---- Database.CopyCompany that succeeds: session/lt-y22-copy-company/Y22CopyCompany.al (corpus writer Y22, newest major) ------
 
 const COPY_OBJECTS: &str = r#"
 table 50930 "CP Row"

@@ -240,7 +240,7 @@ impl Session {
     /// `Database.CopyCompany(SourceName, DestinationName)`. The errors: a source that is not a company is RecordNotFound
     /// on the Company table and makes no destination, also when the result is used; the source as its own destination is
     /// RecordExists (lt-o-small-builtins/OSmallBuiltins.al:92-112). The destination names that fail, and the result `true`
-    /// of a copy: session/lt-y22-copy-company/Y22CopyCompany.al (corpus writer Y22, SaaS BC 29). Every other shape is
+    /// of a copy: session/lt-y22-copy-company/Y22CopyCompany.al (corpus writer Y22, SaaS, newest major). Every other shape is
     /// refused.
     pub(crate) fn copy_company(&mut self, args: &[Value]) -> Result<Value, Signal> {
         let (Some(source), Some(destination)) = (
@@ -329,7 +329,7 @@ impl Session {
     }
 
     /// The copy of `Database.CopyCompany` (session/lt-y22-copy-company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows,
-    /// SaaS BC 29, corpus writer Y22): a new Company row with the destination's name, `Evaluation Company` as the source's,
+    /// SaaS, newest major, corpus writer Y22): a new Company row with the destination's name, `Evaluation Company` as the source's,
     /// `Display Name` and `Business Profile Id` empty, a new `Id` and `SystemId`; every per-company row of the source as it
     /// is (system fields included); tables that are not per company unchanged. No trigger or table event of a copied row
     /// and no database trigger runs; the Company's `OnAfterInsertEvent` runs once for the new row.
