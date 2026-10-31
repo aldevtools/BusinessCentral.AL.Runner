@@ -5,6 +5,7 @@ mod blob_calcfields_after_run;
 mod blob_write_unloaded;
 mod bump_36_transferfields_system_fields;
 mod clear_table_filter;
+mod tenant_layout_cfg;
 mod companies;
 mod crm_connection;
 mod delete_all_cascade;

@@ -150,7 +150,7 @@ fn arg_bool(args: &[Value], i: usize) -> Result<bool, Signal> {
     }
 }
 
-fn arg_pos(args: &[Value], i: usize) -> Result<usize, Signal> {
+pub(crate) fn arg_pos(args: &[Value], i: usize) -> Result<usize, Signal> {
     match args.get(i) {
         Some(Value::Integer(p)) => Ok(*p as usize),
         other => unsupported(format!("field argument {}", other.describe())),
@@ -3261,6 +3261,7 @@ impl Session {
         self.crm_method_check(&t, rec, method, args)?;
         self.agent_task_check(&t, rec, method)?;
         self.tenant_report_layout_check(&t, rec, method)?;
+        self.tenant_layout_cfg_check(&t, rec, method, args)?;
         self.note_table(t.object, method.writes());
         if matches!(
             method,

@@ -314,6 +314,9 @@ pub const UNSEEDED_ROWS: &[u32] = &[6710, 6711, 6712, 2_000_000_144];
 pub const LATER_MAJORS: &[(u32, &str, Provider)] = &[
     (2_000_000_297, "Agent Creation Control", Provider::Stored),
     (2_000_000_292, "MCP Configuration", Provider::Stored),
+    // BC 29 on. Empty on a fresh tenant and writable; an Insert checks the layout parts it names (al-vm
+    // tenant_layout_cfg.rs; platform/lt-platform-tables/PtCloudTables.al Y17_TenantReportLayoutCfg_*, corpus master 97c29f86).
+    (2_000_000_249, "Tenant Report Layout Cfg", Provider::Stored),
 ];
 
 /// The provider of platform table `id`, if it has one.
