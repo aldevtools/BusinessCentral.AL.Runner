@@ -474,6 +474,7 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | codeunit | `OnGlobalRename` | 0 | yes | 0 |
 | codeunit | `OnInstallAppPerCompany` | 0 | yes | 0 |
 | codeunit | `OnInstallAppPerDatabase` | 0 | yes | 0 |
+| codeunit | `SetupPrinters` | 0 | yes | 0 |
 | codeunit | `SubstituteReport` | 0 | yes | 0 |
 | codeunit | `ApplicationReportMergeStrategy` | 0 | no | 0 |
 | codeunit | `AutoFormatTranslate` | 0 | no | 0 |
@@ -539,7 +540,6 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | codeunit | `SelectReportLayoutCode` | 0 | no | 0 |
 | codeunit | `SelectReportLayoutUI` | 0 | no | 0 |
 | codeunit | `SetNotificationStatus` | 0 | no | 0 |
-| codeunit | `SetupPrinters` | 0 | no | 0 |
 | codeunit | `WordDocumentMergerAppMode` | 0 | no | 0 |
 
 ## Statements and expressions: unpinned items (4)
