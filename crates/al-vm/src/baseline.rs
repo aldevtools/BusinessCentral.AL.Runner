@@ -421,6 +421,7 @@ mod tests {
             workspace_installs: Some(vec![([50000_u32, 50001].into_iter().collect(), "why".to_string())]),
             company_built: true,
             company_unknown: vec![("My Company".into(), 311, "why".into())],
+            full_copies: vec!["Copy".into()],
             install_rows: None,
             origin: new_origin(),
         }
@@ -430,7 +431,7 @@ mod tests {
     fn summary(b: &Baseline) -> String {
         let rows = b.store.export_committed().expect("no backing");
         format!(
-            "{rows:?} {} {} {} {:?} {:?} {:?} {} {:?}",
+            "{rows:?} {} {} {} {:?} {:?} {:?} {} {:?} {:?} {:?}",
             b.next_guid,
             b.next_row_version,
             b.committed_row_version,
@@ -438,7 +439,9 @@ mod tests {
             b.isolated_storage.iter().collect::<std::collections::BTreeMap<_, _>>(),
             b.sequences.iter().collect::<std::collections::BTreeMap<_, _>>(),
             b.last_stamp,
-            b.workspace_installs
+            b.workspace_installs,
+            b.company_unknown,
+            b.full_copies
         )
     }
 
