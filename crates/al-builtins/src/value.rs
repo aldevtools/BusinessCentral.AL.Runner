@@ -514,6 +514,8 @@ pub struct PageState {
     pub last_run_modal: Option<bool>,
     /// The rows of a tree (a repeater with ShowAsTree) expanded with `Expand(true)`, by primary key.
     pub expanded: Vec<Vec<Value>>,
+    /// The rows a tree shows (its cut), by primary key, as last computed (`apply_tree_cut`).
+    pub tree_shown: Vec<Vec<Value>>,
     /// The rows a tree with row triggers read when it opened but does not show (below a collapsed row), in the view's order:
     /// they are not in `window`, and an Expand moves them there without reading them again.
     pub tree_hidden: Vec<WindowRow>,
@@ -546,7 +548,7 @@ pub struct PageState {
     /// but Close is refused until Close.
     pub marked_only_unpinned: bool,
     /// A TestField.Lookup on this page, whose OnValidate called `CurrPage.Update(false)`, left that refresh for later, as BC
-    /// does on a host with row triggers whose ListPart links three fields (`Session::defer_lookup_refresh`): reads and Close
+    /// does on a host with row triggers whose ListPart links two or three fields (`Session::defer_lookup_refresh`): reads and Close
     /// run no trigger; any other TestPage call on its tree is refused until Close.
     pub lookup_refresh_deferred: bool,
     /// TestField.Lookup writes the text its OnLookup returned through the control's SetValue (`defer_lookup_refresh`).
@@ -771,6 +773,8 @@ pub struct PageState {
     /// A `Page`-typed modal handler is running on this page: the page never opened, `GetRecord` and `SetRecord`
     /// read and write its Rec (handlers/PSModalPageHandlerTyped.al).
     pub typed_handler: bool,
+    /// The `Page`-typed handler that runs is a `[PageHandler]` of `Page.Run`, not a modal one.
+    pub typed_run_handler: bool,
     /// The last `Page`-typed modal handler on this page called `SetRecord`: GetRecord after the run hands that record back.
     pub handler_set_record: bool,
     /// The page opened on a source table with no row to show (a card over an empty table): its Rec was never a stored row.
@@ -918,6 +922,7 @@ impl PageState {
             modal: false,
             last_run_modal: None,
             expanded: Vec::new(),
+            tree_shown: Vec::new(),
             tree_hidden: Vec::new(),
             lookup: false,
             result: None,
@@ -1012,6 +1017,7 @@ impl PageState {
             set_view: false,
             new_by_call: false,
             typed_handler: false,
+            typed_run_handler: false,
             handler_set_record: false,
             never_stored: false,
             host: None,

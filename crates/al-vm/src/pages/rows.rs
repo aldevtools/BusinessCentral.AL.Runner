@@ -702,35 +702,55 @@ impl Session {
     pub(super) fn populate_window(&mut self, st: &St) -> Result<(), Signal> {
         // A tree with TreeInitialState = ExpandAll and row triggers reads the rows it does not show too when it opens
         // (`tree_expand_all_with_row_triggers`): the tree's cut is left out while the window is read.
-        if st.borrow().landing_first && self.tree_expand_all_with_row_triggers(st) {
-            let rec = self.page_rec(st);
-            let cut: Vec<_> = rec
-                .borrow()
-                .filters
-                .iter()
-                .filter(|f| f.group == super::open::TREE_GROUP)
-                .cloned()
-                .collect();
-            if !cut.is_empty() {
-                // Pinned by pages/lt-page-runtime/TwTreeExpandTriggers.al (was assumption `tree-expand-runs-no-row-trigger`).
-                rec.borrow_mut().filters.retain(|f| f.group != super::open::TREE_GROUP);
-                let r = self.populate_window_in_view(st);
-                rec.borrow_mut().filters.extend(cut);
-                r?;
-                // The rows below level 0 were read but do not show: the client's rows are the level-0 ones (the cut at open).
-                let Some(level) = self.tree_level_field(st)? else {
-                    return unsupported("a tree whose IndentationColumn is not an Integer field (not pinned)");
-                };
-                let mut s = st.borrow_mut();
-                let (shown, hidden): (Vec<_>, Vec<_>) = std::mem::take(&mut s.window)
-                    .into_iter()
-                    .partition(|w| matches!(w.stored.get(level), Some(Value::Integer(0))));
-                s.window = shown;
-                s.tree_hidden = hidden;
-                return Ok(());
-            }
+        // Pinned by pages/lt-page-runtime/TwTreeExpandTriggers.al (was assumption `tree-expand-runs-no-row-trigger`).
+        if st.borrow().landing_first
+            && self.tree_expand_all_with_row_triggers(st)
+            && self.read_tree_rows_whole(st, |this| this.populate_window_in_view(st))?
+        {
+            return Ok(());
         }
         self.populate_window_in_view(st)
+    }
+
+    /// Runs `read` (a read of the client's rows) with the tree's cut left out, then splits the rows read into the ones the cut shows
+    /// (`window`) and the ones it hides (`tree_hidden`). False, and `read` not run, when Rec holds no cut.
+    pub(super) fn read_tree_rows_whole(
+        &mut self,
+        st: &St,
+        read: impl FnOnce(&mut Self) -> Result<(), Signal>,
+    ) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let cut: Vec<_> = rec
+            .borrow()
+            .filters
+            .iter()
+            .filter(|f| f.group == super::open::TREE_GROUP)
+            .cloned()
+            .collect();
+        if cut.is_empty() {
+            return Ok(false);
+        }
+        rec.borrow_mut().filters.retain(|f| f.group != super::open::TREE_GROUP);
+        let r = read(self);
+        rec.borrow_mut().filters.extend(cut);
+        r?;
+        let Some(level) = self.tree_level_field(st)? else {
+            return unsupported("a tree whose IndentationColumn is not an Integer field (not pinned)");
+        };
+        // The rows the cut shows (`apply_tree_cut`), else the level-0 ones.
+        let mut s = st.borrow_mut();
+        let tree_shown = std::mem::take(&mut s.tree_shown);
+        let (shown, hidden): (Vec<_>, Vec<_>) = std::mem::take(&mut s.window).into_iter().partition(|w| {
+            if tree_shown.is_empty() {
+                matches!(w.stored.get(level), Some(Value::Integer(0)))
+            } else {
+                tree_shown.iter().any(|k| Self::same_key(k, &w.key))
+            }
+        });
+        s.tree_shown = tree_shown;
+        s.window = shown;
+        s.tree_hidden = hidden;
+        Ok(true)
     }
 
     fn populate_window_in_view(&mut self, st: &St) -> Result<(), Signal> {
@@ -3482,14 +3502,45 @@ impl Session {
         } else if !trapped && self.has_typed_page_handler(object) {
             // A Page-typed PageHandler of a Page.Run without a record: the handler runs on the page object, no page trigger runs
             // before it (no OnOpenPage) and GetRecord hands a blank record (misc/lt-y14-triage/Y14PageTriage.al:383
-            // PageTypedPageHandler_PageRun, corpus master). With a record, or on a Page variable already set up, it is not pinned.
-            if record.is_some() || field || st.borrow().instance.is_some() {
+            // PageTypedPageHandler_PageRun, corpus master).
+            // With a record no page trigger runs either, before or after the handler; the page's Rec holds the record's values
+            // (GetRecord and the page's procedures see it, also a row that is not stored) without its filters, and a field
+            // argument changes nothing (pages/lt-y17-page-handler-record/Y17PageHandlerRecord.al:218 _GetRecord, :249
+            // _EmptyHandler, :273 _PageProcedure, :301 _Close, :325 _FilteredRecord_List `filter=`, :352 _UnstoredRecord, :380
+            // _RecordAndField).
+            // A Page variable set up with SetRecord or SetTableView hands the handler its own instance (its globals, its Rec);
+            // after the run, set up or not, the variable starts again from a new instance with nothing set (:396 _SetUpVariable_Run `tag after
+            // run` = '', :426 _SetTableView_Run `reccode()`, :447 _RunTwice `handler2 tag=;reccode()`).
+            // A temporary record, and a variable set up without SetRecord or SetTableView, are not pinned.
+            // A static Page.Run(Id, Rec) made the instance already, to check the record's table (`page_op`).
+            let set_up = st.borrow().set_record.is_some();
+            if record.as_ref().is_some_and(|r| r.borrow().temporary)
+                || (st.borrow().instance.is_some() && record.is_none())
+            {
                 return unsupported(
-                    "a Page-typed PageHandler for Page.Run with a record or on a Page variable that was set up (not pinned)",
+                    "a Page-typed PageHandler for Page.Run with a temporary record, or on a Page variable set up without SetRecord or SetTableView (not pinned)",
                 );
             }
             let handler = self.take_typed_handler(UiKind::Page, object).expect("checked above");
-            self.answer_typed_page(&st, handler)?;
+            if !set_up {
+                if let Some(r) = &record {
+                    self.construct_page(&st)?;
+                    if self.has_source(&st) {
+                        let rec = self.page_rec(&st);
+                        rec.borrow_mut().fields = r.borrow().fields.clone();
+                    }
+                }
+            }
+            let r = self.answer_typed_page(&st, handler);
+            {
+                let mut s = st.borrow_mut();
+                s.instance = None;
+                s.ext_instances.clear();
+                s.inited = false;
+                s.set_record = None;
+                s.set_view = false;
+            }
+            r?;
             return Ok(Value::Null);
         }
         // A second non-modal Run of a Page variable runs its OnInit again (pages/lt-page-variable-lifecycle/
@@ -3610,6 +3661,7 @@ impl Session {
         {
             let mut s = st.borrow_mut();
             s.typed_handler = true;
+            s.typed_run_handler = true;
             s.handler_set_record = false;
             s.cursor = Cursor::Row;
         }
@@ -3620,6 +3672,7 @@ impl Session {
         {
             let mut s = st.borrow_mut();
             s.typed_handler = false;
+            s.typed_run_handler = false;
             s.cursor = Cursor::None;
         }
         handled.map(|_| ())
