@@ -1045,15 +1045,28 @@ impl<'a> Checker<'a> {
             BinExpr => {
                 let l = kids.first().map(|k| self.ty(sc, k)).unwrap_or(Ty::Unknown);
                 let r = kids.get(1).map(|k| self.ty(sc, k)).unwrap_or(Ty::Unknown);
-                self.al_char_minus_text(sc, node, kids.as_slice(), &l, &r);
+                if self.conv_binary(sc, node, kids.as_slice(), &l, &r).is_none() {
+                    self.al_char_minus_text(sc, node, kids.as_slice(), &l, &r);
+                }
                 let op = op_token(node);
                 if op == "in"
                     && let [a, set] = kids.as_slice()
                     && set.kind() == SyntaxKind::SetExpr
                 {
                     let elems: Vec<SyntaxNode> = set.children().collect();
+                    // Each element converts to the type of the left operand (compile matrix context in_set); the
+                    // elements that are not judged there keep the pinned Decimal-constant check.
+                    let mut rest = Vec::new();
+                    for e in &elems {
+                        let r = e.text_range();
+                        let et = self.types.get(&(sc.file, r.start().into(), r.end().into())).cloned();
+                        let judged = et.is_some_and(|et| self.conv_to_type_of(sc, a, &l, e, &et, false).is_some());
+                        if !judged {
+                            rest.push(e.clone());
+                        }
+                    }
                     if elems.iter().all(|e| e.kind() == SyntaxKind::Literal) {
-                        self.al_option_decimal_constants(sc, a, &l, &elems);
+                        self.al_option_decimal_constants(sc, a, &l, &rest);
                     }
                 }
                 if let [a, b] = kids.as_slice() {
@@ -1085,6 +1098,10 @@ impl<'a> Checker<'a> {
                 if let Some(e) = kids.get(2) {
                     let f = self.ty(sc, e);
                     self.al_ternary_interface_into_codeunit(sc, e, &t, &f);
+                    // The false branch converts to the type of the true branch (compile matrix context cond_branches).
+                    if let Some(tb) = kids.get(1) {
+                        self.conv_to_type_of(sc, tb, &t, e, &f, false);
+                    }
                 }
                 E::Val(t)
             }
@@ -1227,6 +1244,21 @@ impl<'a> Checker<'a> {
                     }
                     E::Callable(c) => {
                         let ret = self.pick(sc, node, &c, &arg_tys, &member_name(callee));
+                        // The arguments of a procedure without overloads (compile matrix contexts arg_byvalue, arg_var).
+                        if let [one] = c.as_slice()
+                            && let Res::Proc { object, offset } = one.target
+                        {
+                            let params: Option<Vec<(Ty, bool)>> = self.members[object]
+                                .procedures
+                                .iter()
+                                .find(|p| p.offset == offset && p.declared_in == object)
+                                .map(|p| p.params.iter().map(|q| (q.ty.clone(), q.by_var)).collect());
+                            if let Some(params) = params.filter(|p| p.len() == args.len()) {
+                                for (i, ((a, t), (p, by_var))) in args.iter().zip(&arg_tys).zip(&params).enumerate() {
+                                    self.conv_argument(sc, i, a, t, p, *by_var);
+                                }
+                            }
+                        }
                         if self.tdd_apps.is_some() {
                             self.tdd_settle_field_args(sc, callee, &args, &arg_tys);
                             self.tdd_settle_args(sc, node, callee, &c, &args, &arg_tys);

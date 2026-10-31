@@ -17,6 +17,8 @@
 //!
 //! The codes the checker itself reports (`check/`, where types are known) are AL0118, AL0122, AL0135, AL0139,
 //! AL0132, AL0161 and AL0398 (and AL0175 for Char - Text, AL0172 for unary minus on an Enum, Option or Duration; AL0126, AL0129 and AL0133 for the assignment form of a builtin method); they are listed in [`IMPLEMENTED`] or, where only some shapes are decided, [`NOT_CHECKED`].
+//! The implicit-conversion rules of `check/conv.rs` add AL0129, AL0130, AL0133, AL0174, AL0175, AL0369, AL0698 and AL0777
+//! for the shapes the compile matrix measured; those are listed in [`NOT_CHECKED`], with what is decided.
 
 use crate::workspace::{AppKind, Diagnostic, ObjKind, Resolution, Workspace};
 use al_syntax::{SyntaxKind, SyntaxNode, ast};
@@ -57,7 +59,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0122",
-        "an enum assigned to an enum of another type whose target does not state AssignmentCompatibility = true; an Integer variable assigned to a Text; a text literal of two or more characters assigned to an Integer; an Enum variable, enum value or Enum field to a Decimal; Decimal or Integer to Boolean, Date to Text, Boolean, Text or Decimal to Date, Variant or a one-character literal to an Enum, a Record to an Integer",
+        "an enum assigned to an enum of another type whose target does not state AssignmentCompatibility = true; an Integer variable assigned to a Text; a text literal of two or more characters assigned to an Integer; an Enum variable, enum value or Enum field to a Decimal; Decimal or Integer to Boolean, Date to Text, Boolean, Text or Decimal to Date, Variant or a one-character literal to an Enum, a Record to an Integer; and every rejected cell of the implicit-conversion compile matrix in the contexts `:=`, `+=`, `exit`, `x in [...]`, a case label and the false branch of `c ? a : b` (check/conv.rs, tests/conversion_matrix.rs)",
     ),
     (
         "AL0124",
@@ -156,8 +158,36 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
         "reported only for a bare call, without arguments, in a page extension of its own local or internal procedure without parameters that a procedure of the base page in the same app repeats (cases 2238-2240, 2244); other ambiguous calls need overload resolution the front end does not judge.",
     ),
     (
+        "AL0129",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for `:=` and `+=` into a Label, a TextConst or a test page control's Value; any other target is not decided.",
+    ),
+    (
+        "AL0130",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for a literal or option member passed to a `var` parameter of a procedure without overloads; other expressions are not decided.",
+    ),
+    (
+        "AL0133",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for an argument of a procedure without overloads and `:=` into a test page control's Value; a call argument, an overloaded procedure and a builtin method are not decided.",
+    ),
+    (
+        "AL0174",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for a one-character text literal plus or minus a Byte (and `+=`); other ambiguous operators are not decided.",
+    ),
+    (
         "AL0175",
-        "needs the .NET type behind the alias (an enum is comparable with `=`, a class object is not); the front end has no assembly metadata.",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for `=`, `<>`, `<`, `+`, `-` and `+=` (and `Char - Text` of must-not-compile 0500); a call operand, a literal right operand, other operators and DotNet operands (the .NET type behind the alias decides) are not decided.",
+    ),
+    (
+        "AL0369",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for a BigInteger literal outside the Integer range into an Integer, Char, Byte, Option or Enum; other constants are not decided.",
+    ),
+    (
+        "AL0698",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for a case statement whose selector is an interface; other selector types are not decided.",
+    ),
+    (
+        "AL0777",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for a Guid into a Text or Code of length 10 or less (and a test page control's Value or a short text literal as the type of a set or conditional expression); a Text or Code between 11 and 37 is not decided.",
     ),
     (
         "AL0185",
@@ -3037,7 +3067,8 @@ mod tests {
 
     // must-not-compile 0500 (corpus tests/must-not-compile/cases/0500-char-minus-text.al:1-2): `C - T` and `T - C`
     // with a Char variable and an unbounded Text variable. AL0175. A Text literal with a Char compiles (an
-    // Integer); Text[30], Code and other shapes are not pinned and not judged.
+    // Integer). `C - L` with a Text[30] is AL0175 too: the compile matrix (crates/al-sema/tests/fixtures/
+    // conversion-matrix/compile-matrix.csv, context sub, Char - Text10 and Text3) rejects a Char minus any Text.
     #[test]
     fn al0175_char_minus_text_variable() {
         let cu = |body: &str| {
@@ -3053,12 +3084,15 @@ mod tests {
             messages(&cu("I := T - C;")),
             vec!["AL0175 Operator '-' cannot be applied to operands of type 'Text' and 'Char'".to_string()]
         );
+        assert_eq!(
+            messages(&cu("I := C - L;")),
+            vec!["AL0175 Operator '-' cannot be applied to operands of type 'Char' and 'Text[30]'".to_string()]
+        );
         for ok in [
             "I := C - 'a';",
             "I := 'a' - C;",
             "I := C - I;",
             "I := C - C;",
-            "I := C - L;",
             "T := T + T;",
         ] {
             assert!(messages(&cu(ok)).iter().all(|m| !m.starts_with("AL0175")), "{ok}");

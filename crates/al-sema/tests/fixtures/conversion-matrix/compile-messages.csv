@@ -1,0 +1,129 @@
+context,code,source,target,first_message_on_the_line
+add,AL0174,lit.Char1,Byte,Operator '+' is ambiguous on operands of type 'Char' and 'Byte'
+add,AL0175,Boolean,Integer,Operator '+' cannot be applied to operands of type 'Boolean' and 'Integer'
+add,AL0175,Text,Integer,Operator '+' cannot be applied to operands of type 'Text' and 'Integer'
+add,AL0175,Text10,Integer,Operator '+' cannot be applied to operands of type 'Text[10]' and 'Integer'
+add,AL0603,Enum,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+add,AL0603,Enum2,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E2""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+add,AL0603,EnumImpl,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 EI""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+arg_byvalue,AL0133,Boolean,Integer,Argument 1: cannot convert from 'Boolean' to 'Integer'
+arg_byvalue,AL0133,Text,Integer,Argument 1: cannot convert from 'Text' to 'Integer'
+arg_byvalue,AL0133,Text10,Integer,Argument 1: cannot convert from 'Text[10]' to 'Integer'
+arg_byvalue,AL0369,lit.BigInteger,Integer,Constant value '10000000000' cannot be converted to a 'Integer'.
+arg_byvalue,AL0369,lit.BigInteger,Char,Constant value '10000000000' cannot be converted to a 'Char'.
+arg_byvalue,AL0369,lit.BigInteger,Byte,Constant value '10000000000' cannot be converted to a 'Byte'.
+arg_byvalue,AL0398,lit.Decimal,Option,Constant value '1.5' is outside of the valid ordinal range for this Option type
+arg_byvalue,AL0398,lit.Decimal,Option2,Constant value '1.5' is outside of the valid ordinal range for this Option type
+arg_byvalue,AL0603,Enum,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+arg_byvalue,AL0603,Enum2,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E2""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+arg_byvalue,AL0603,EnumImpl,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 EI""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+arg_var,AL0130,lit.Integer,Integer,"A 'var' argument must be an assignable variable (field, variable, or parameter), not a constant or expression."
+arg_var,AL0130,lit.BigInteger,Integer,"A 'var' argument must be an assignable variable (field, variable, or parameter), not a constant or expression."
+arg_var,AL0130,lit.OptionMember,Integer,"A 'var' argument must be an assignable variable (field, variable, or parameter), not a constant or expression."
+arg_var,AL0133,Decimal,Integer,Argument 1: cannot convert from 'Decimal' to 'var Integer'
+arg_var,AL0133,Boolean,Integer,Argument 1: cannot convert from 'Boolean' to 'var Integer'
+arg_var,AL0133,Char,Integer,Argument 1: cannot convert from 'Char' to 'var Integer'
+arg_var,AL0369,lit.BigInteger,Integer,"A 'var' argument must be an assignable variable (field, variable, or parameter), not a constant or expression."
+arg_var,AL0603,BigInteger,Integer,An implicit conversion is being performed from a value of type 'BigInteger' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues.
+arg_var,AL0603,F.BigInteger,Integer,An implicit conversion is being performed from a value of type 'BigInteger' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues.
+arg_var,AL0603,Integer,BigInteger,An implicit conversion is being performed from a value of type 'BigInteger' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues.
+assign,AL0122,Boolean,Integer,Cannot implicitly convert type 'Boolean' to 'Integer'. Use an explicit conversion or change the type.
+assign,AL0122,Text,Integer,Cannot implicitly convert type 'Text' to 'Integer'. Use an explicit conversion or change the type.
+assign,AL0122,Text10,Integer,Cannot implicitly convert type 'Text[10]' to 'Integer'. Use an explicit conversion or change the type.
+assign,AL0129,Integer,Label,The left-hand side of an assignment must be a variable or field
+assign,AL0129,BigInteger,Label,The left-hand side of an assignment must be a variable or field
+assign,AL0129,Decimal,Label,The left-hand side of an assignment must be a variable or field
+assign,AL0133,Integer,TestPage.Value,Argument 1: cannot convert from 'Integer' to 'Text'
+assign,AL0133,BigInteger,TestPage.Value,Argument 1: cannot convert from 'BigInteger' to 'Text'
+assign,AL0133,Decimal,TestPage.Value,Argument 1: cannot convert from 'Decimal' to 'Text'
+assign,AL0369,lit.BigInteger,Integer,Constant value '10000000000' cannot be converted to a 'Integer'.
+assign,AL0369,lit.BigInteger,Char,Constant value '10000000000' cannot be converted to a 'Char'.
+assign,AL0369,lit.BigInteger,Byte,Constant value '10000000000' cannot be converted to a 'Byte'.
+assign,AL0398,lit.Decimal,Option,Constant value '1.5' is outside of the valid ordinal range for this Option type
+assign,AL0398,lit.Decimal,Option2,Constant value '1.5' is outside of the valid ordinal range for this Option type
+assign,AL0398,lit.Decimal,F.Option,Constant value '1.5' is outside of the valid ordinal range for this Option type
+assign,AL0603,Enum,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+assign,AL0603,Enum2,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E2""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+assign,AL0603,EnumImpl,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 EI""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+assign,AL0777,Guid,Text10,The implicit conversion will overflow when converting from a 'Guid' to a 'Text[10]' which is shorter than the converted textual representation of a 'Guid'.
+assign,AL0777,F.Guid,Text10,The implicit conversion will overflow when converting from a 'Guid' to a 'Text[10]' which is shorter than the converted textual representation of a 'Guid'.
+assign,AL0777,MediaId,Text10,The implicit conversion will overflow when converting from a 'Guid' to a 'Text[10]' which is shorter than the converted textual representation of a 'Guid'.
+case_label,AL0122,Boolean,Integer,Cannot implicitly convert type 'Integer' to 'Boolean'. Use an explicit conversion or change the type.
+case_label,AL0122,Text,Integer,Cannot implicitly convert type 'Integer' to 'Text'. Use an explicit conversion or change the type.
+case_label,AL0122,Text10,Integer,Cannot implicitly convert type 'Integer' to 'Text[10]'. Use an explicit conversion or change the type.
+case_label,AL0603,Enum,Integer,"An implicit conversion is being performed from a value of type 'Integer' to a value of type 'Enum ""Y31 E""'. This conversion can lead to data loss and unexpected runtime issues."
+case_label,AL0603,Enum2,Integer,"An implicit conversion is being performed from a value of type 'Integer' to a value of type 'Enum ""Y31 E2""'. This conversion can lead to data loss and unexpected runtime issues."
+case_label,AL0603,EnumImpl,Integer,"An implicit conversion is being performed from a value of type 'Integer' to a value of type 'Enum ""Y31 EI""'. This conversion can lead to data loss and unexpected runtime issues."
+case_label,AL0698,Interface,Integer,"Type Interface ""Y31 I"" cannot be used in a 'case' statement."
+case_label,AL0698,Interface,BigInteger,"Type Interface ""Y31 I"" cannot be used in a 'case' statement."
+case_label,AL0698,Interface,Decimal,"Type Interface ""Y31 I"" cannot be used in a 'case' statement."
+compound_add,AL0122,Text,Char,Cannot implicitly convert type 'Text' to 'Char'. Use an explicit conversion or change the type.
+compound_add,AL0122,Text10,Char,Cannot implicitly convert type 'Text' to 'Char'. Use an explicit conversion or change the type.
+compound_add,AL0122,Text3,Char,Cannot implicitly convert type 'Text' to 'Char'. Use an explicit conversion or change the type.
+compound_add,AL0129,Integer,Label,The left-hand side of an assignment must be a variable or field
+compound_add,AL0129,BigInteger,Label,The left-hand side of an assignment must be a variable or field
+compound_add,AL0129,Decimal,Label,The left-hand side of an assignment must be a variable or field
+compound_add,AL0174,lit.Char1,Byte,Operator '+=' is ambiguous on operands of type 'Byte' and 'Char'
+compound_add,AL0175,Boolean,Integer,Operator '+=' cannot be applied to operands of type 'Integer' and 'Boolean'
+compound_add,AL0175,Text,Integer,Operator '+=' cannot be applied to operands of type 'Integer' and 'Text'
+compound_add,AL0175,Text10,Integer,Operator '+=' cannot be applied to operands of type 'Integer' and 'Text[10]'
+compound_add,AL0603,Enum,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+compound_add,AL0603,Enum2,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E2""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+compound_add,AL0603,EnumImpl,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 EI""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+cond_branches,AL0122,Boolean,Integer,Cannot implicitly convert type 'Integer' to 'Boolean'. Use an explicit conversion or change the type.
+cond_branches,AL0122,Text,Integer,Cannot implicitly convert type 'Integer' to 'Text'. Use an explicit conversion or change the type.
+cond_branches,AL0122,Text10,Integer,Cannot implicitly convert type 'Integer' to 'Text[10]'. Use an explicit conversion or change the type.
+cond_branches,AL0603,Enum,Integer,"An implicit conversion is being performed from a value of type 'Integer' to a value of type 'Enum ""Y31 E""'. This conversion can lead to data loss and unexpected runtime issues."
+cond_branches,AL0603,Enum2,Integer,"An implicit conversion is being performed from a value of type 'Integer' to a value of type 'Enum ""Y31 E2""'. This conversion can lead to data loss and unexpected runtime issues."
+cond_branches,AL0603,EnumImpl,Integer,"An implicit conversion is being performed from a value of type 'Integer' to a value of type 'Enum ""Y31 EI""'. This conversion can lead to data loss and unexpected runtime issues."
+cond_branches,AL0777,Text10,Guid,The implicit conversion will overflow when converting from a 'Guid' to a 'Text[10]' which is shorter than the converted textual representation of a 'Guid'.
+cond_branches,AL0777,Text3,Guid,The implicit conversion will overflow when converting from a 'Guid' to a 'Text[3]' which is shorter than the converted textual representation of a 'Guid'.
+cond_branches,AL0777,Code10,Guid,The implicit conversion will overflow when converting from a 'Guid' to a 'Code[10]' which is shorter than the converted textual representation of a 'Guid'.
+eq,AL0175,Boolean,Integer,Operator '=' cannot be applied to operands of type 'Boolean' and 'Integer'
+eq,AL0175,Text,Integer,Operator '=' cannot be applied to operands of type 'Text' and 'Integer'
+eq,AL0175,Text10,Integer,Operator '=' cannot be applied to operands of type 'Text[10]' and 'Integer'
+eq,AL0603,Enum,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+eq,AL0603,Enum2,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E2""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+eq,AL0603,EnumImpl,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 EI""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+exit,AL0122,Boolean,Integer,Cannot implicitly convert type 'Boolean' to 'Integer'. Use an explicit conversion or change the type.
+exit,AL0122,Text,Integer,Cannot implicitly convert type 'Text' to 'Integer'. Use an explicit conversion or change the type.
+exit,AL0122,Text10,Integer,Cannot implicitly convert type 'Text[10]' to 'Integer'. Use an explicit conversion or change the type.
+exit,AL0369,lit.BigInteger,Integer,Constant value '10000000000' cannot be converted to a 'Integer'.
+exit,AL0369,lit.BigInteger,Char,Constant value '10000000000' cannot be converted to a 'Char'.
+exit,AL0369,lit.BigInteger,Byte,Constant value '10000000000' cannot be converted to a 'Byte'.
+exit,AL0398,lit.Decimal,Option,Constant value '1.5' is outside of the valid ordinal range for this Option type
+exit,AL0398,lit.Decimal,Option2,Constant value '1.5' is outside of the valid ordinal range for this Option type
+exit,AL0603,Enum,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+exit,AL0603,Enum2,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E2""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+exit,AL0603,EnumImpl,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 EI""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+exit,AL0777,Guid,Text10,The implicit conversion will overflow when converting from a 'Guid' to a 'Text[10]' which is shorter than the converted textual representation of a 'Guid'.
+exit,AL0777,F.Guid,Text10,The implicit conversion will overflow when converting from a 'Guid' to a 'Text[10]' which is shorter than the converted textual representation of a 'Guid'.
+exit,AL0777,MediaId,Text10,The implicit conversion will overflow when converting from a 'Guid' to a 'Text[10]' which is shorter than the converted textual representation of a 'Guid'.
+in_set,AL0122,Boolean,Integer,Cannot implicitly convert type 'Integer' to 'Boolean'. Use an explicit conversion or change the type.
+in_set,AL0122,Text,Integer,Cannot implicitly convert type 'Integer' to 'Text'. Use an explicit conversion or change the type.
+in_set,AL0122,Text10,Integer,Cannot implicitly convert type 'Integer' to 'Text[10]'. Use an explicit conversion or change the type.
+in_set,AL0603,Enum,Integer,"An implicit conversion is being performed from a value of type 'Integer' to a value of type 'Enum ""Y31 E""'. This conversion can lead to data loss and unexpected runtime issues."
+in_set,AL0603,Enum2,Integer,"An implicit conversion is being performed from a value of type 'Integer' to a value of type 'Enum ""Y31 E2""'. This conversion can lead to data loss and unexpected runtime issues."
+in_set,AL0603,EnumImpl,Integer,"An implicit conversion is being performed from a value of type 'Integer' to a value of type 'Enum ""Y31 EI""'. This conversion can lead to data loss and unexpected runtime issues."
+in_set,AL0777,Text10,Guid,The implicit conversion will overflow when converting from a 'Guid' to a 'Text[10]' which is shorter than the converted textual representation of a 'Guid'.
+in_set,AL0777,Text3,Guid,The implicit conversion will overflow when converting from a 'Guid' to a 'Text[3]' which is shorter than the converted textual representation of a 'Guid'.
+in_set,AL0777,Code10,Guid,The implicit conversion will overflow when converting from a 'Guid' to a 'Code[10]' which is shorter than the converted textual representation of a 'Guid'.
+lt,AL0175,Boolean,Integer,Operator '<' cannot be applied to operands of type 'Boolean' and 'Integer'
+lt,AL0175,Text,Integer,Operator '<' cannot be applied to operands of type 'Text' and 'Integer'
+lt,AL0175,Text10,Integer,Operator '<' cannot be applied to operands of type 'Text[10]' and 'Integer'
+lt,AL0603,Enum,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+lt,AL0603,Enum2,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E2""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+lt,AL0603,EnumImpl,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 EI""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+ne,AL0175,Boolean,Integer,Operator '<>' cannot be applied to operands of type 'Boolean' and 'Integer'
+ne,AL0175,Text,Integer,Operator '<>' cannot be applied to operands of type 'Text' and 'Integer'
+ne,AL0175,Text10,Integer,Operator '<>' cannot be applied to operands of type 'Text[10]' and 'Integer'
+ne,AL0603,Enum,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+ne,AL0603,Enum2,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E2""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+ne,AL0603,EnumImpl,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 EI""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+sub,AL0174,lit.Char1,Byte,Operator '-' is ambiguous on operands of type 'Char' and 'Byte'
+sub,AL0175,Boolean,Integer,Operator '-' cannot be applied to operands of type 'Boolean' and 'Integer'
+sub,AL0175,Text,Integer,Operator '-' cannot be applied to operands of type 'Text' and 'Integer'
+sub,AL0175,Text10,Integer,Operator '-' cannot be applied to operands of type 'Text[10]' and 'Integer'
+sub,AL0603,Enum,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+sub,AL0603,Enum2,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 E2""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
+sub,AL0603,EnumImpl,Integer,"An implicit conversion is being performed from a value of type 'Enum ""Y31 EI""' to a value of type 'Integer'. This conversion can lead to data loss and unexpected runtime issues."
