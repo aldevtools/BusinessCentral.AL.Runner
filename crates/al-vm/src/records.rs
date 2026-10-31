@@ -1796,14 +1796,18 @@ impl Session {
                     .stale_6028_shape(t, &company, pk, o.commits, deleting)
                     .expect("checked"))
             }
-            // Two Commits after the buffer's own Insert, another variable wrote the row in the transaction between them, and the
-            // new transaction's only writes are Modifies of the buffer's row through other variables, with no lock: written, the
-            // stale buffer winning (al-runner issue 6522, the reporter's repro passed on real BC; assumption
-            // `stale-own-insert-two-commits-row-written` until the corpus pin lands). A row last written in the buffer's own
-            // transaction, with an empty Commit after it, stays refused below.
+            // Two or three Commits after the buffer's own write, another variable wrote the row in the transaction the last
+            // Commit closed, and the new transaction's only writes are Modifies of the buffer's row through other variables
+            // (changed or not, once or twice), with no lock: written whole, the stale buffer winning, OnModify once with xRec the
+            // buffer (record/lt-sb-stale-own-modify/Y27StaleOtherVarTests.al Y27_2C_*, Y27_3C_* on corpus branch
+            // al-runtime-rs-staging-y27, al-runner issue 6522; assumption `stale-own-insert-two-commits-row-written` until
+            // the file is on master). Y27_3C_* writes the row in both transactions between, so three Commits need it written in
+            // the one before too; a transaction between that left the row alone stays refused below, as does a row last written
+            // in the buffer's own transaction with an empty Commit after it.
             Some(o)
                 if o.own_write
-                    && o.commits + 2 == self.commits
+                    && (o.commits + 2 == self.commits
+                        || (o.commits + 3 == self.commits && self.row_written_before_last_closed_tx(t, &company, pk)))
                     && touched
                     && committed.is_some_and(|c| c > self.tx.prior_committed_row_version)
                     && self.stale_row_modified_only(t, &company, pk) =>
@@ -1939,6 +1943,20 @@ impl Session {
         // An Insert and a Rename of another row are measured at one to three Commits only (TE_*_InsertOtherRow_*,
         // TE_*_RenameOtherRow_*).
         other_rows_of_one_kind.then_some(StaleVerdict::Written)
+    }
+
+    /// Whether the transaction the Commit before the last one closed wrote the row `pk` of `t` by a Record write.
+    fn row_written_before_last_closed_tx(&self, t: &TableDef, company: &Option<String>, pk: &[Value]) -> bool {
+        self.tx.closed_tx_rows_before.as_ref().is_some_and(|rows| {
+            rows.iter().any(|(table, c, k)| {
+                *table == t.object
+                    && c == company
+                    && k.len() == pk.len()
+                    && k.iter()
+                        .zip(pk)
+                        .all(|(a, b)| al_builtins::ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal))
+            })
+        })
     }
 
     /// Whether the open transaction's only writes are Modifies of the row `pk` of `t`, with no rollback and no lock of any kind.
