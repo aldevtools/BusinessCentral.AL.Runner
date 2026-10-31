@@ -59,6 +59,7 @@ mod store_values;
 mod systemid_cleared_on_insert;
 mod table_globals;
 mod tableext_relation_modify;
+mod tableext_sibling_globals;
 mod temp_blob_rewrite_after_insert;
 mod temp_sums_by_ref;
 mod temp_tables;

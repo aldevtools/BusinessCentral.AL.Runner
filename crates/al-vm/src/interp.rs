@@ -954,7 +954,36 @@ impl Session {
 
     /// The instance of page extension `ext` on the page whose extension runs frame `f`: reached through the page's instance and
     /// its `CurrPage` (the open page holds every extension's instance).
-    pub(crate) fn sibling_instance(&self, f: &Frame, ext: usize) -> Result<Rc<RefCell<Instance>>, Signal> {
+    ///
+    /// In a table extension: the instance of table extension `ext` for the record the frame runs on, created when that
+    /// extension has not run on the record yet (al-runner issue 6485; corpus writer Y20, Y20TableExtSiblingGlobals.al: one
+    /// variable per record variable, shared by both extensions).
+    pub(crate) fn sibling_instance(&mut self, f: &Frame, ext: usize) -> Result<Rc<RefCell<Instance>>, Signal> {
+        let own = f.instance.borrow().object as usize;
+        if self.engine.program.objects[own].kind == al_ir::ObjKind::TableExtension {
+            let rec = self.engine.program.objects[own]
+                .rec_slot
+                .and_then(|slot| match f.instance.borrow().globals.get(slot) {
+                    Some(Value::Record(r)) => Some(r.clone()),
+                    _ => None,
+                })
+                .ok_or_else(|| {
+                    Signal::Unsupported(
+                        "internal error: table extension code named a variable of another extension of its table, but \
+                         its instance holds no record"
+                            .into(),
+                    )
+                })?;
+            let existing = rec.borrow().globals.instance(ext as u32);
+            return Ok(match existing {
+                Some(i) => i,
+                None => {
+                    let i = self.table_instance(ext);
+                    rec.borrow().globals.set_instance(ext as u32, i.clone());
+                    i
+                }
+            });
+        }
         let base = self.base_instance(f)?;
         let object = base.borrow().object as usize;
         let page = self.engine.program.objects[object].page.as_ref();
