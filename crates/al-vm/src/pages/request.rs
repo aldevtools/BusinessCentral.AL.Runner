@@ -688,17 +688,11 @@ impl Session {
                 // SetFilter on it; the run reads the handler's filter (report/lt-report-requestpage/lt-report-requestpage/RptFilters.al:594
                 // SetTableView_AndRequestFilter_Combined: `handler after grp=[2] id=[1..3]`, then `pre filters=[Id: >=3, ...]`).
                 // Pinned for a group 0 range filter on a field of the item's RequestFilterFields; nothing else is generalized.
-                let key = Rc::as_ptr(&rec) as usize;
-                let view_text = self
-                    .report
-                    .set_view_filters
-                    .iter()
-                    .find(|(k, _)| *k == key)
-                    .and_then(|(_, v)| {
-                        v.iter()
-                            .find(|(f, g, _)| *f == pos && *g == 0)
-                            .map(|(_, _, t)| t.clone())
-                    });
+                let view_text = self.report.view_filters_of(&rec).and_then(|v| {
+                    v.iter()
+                        .find(|(f, g, _)| *f == pos && *g == 0)
+                        .map(|(_, _, t)| t.clone())
+                });
                 if let Some(text) = view_text {
                     let current = {
                         let f = rec

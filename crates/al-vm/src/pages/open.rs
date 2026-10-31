@@ -1539,8 +1539,7 @@ impl Session {
             // Microsoft's "Suggest Fin. Charge Memo Lines" (SaveValues) is run once per memo with that memo as the record.
             if self.is_request_page(st) && matches!(&v, Value::Record(_)) {
                 if let Value::Record(cur) = &inst.borrow().globals[slot] {
-                    let key = Rc::as_ptr(cur) as usize;
-                    if !cur.borrow().filters.is_empty() && self.report.set_view_filters.iter().any(|(k, _)| *k == key) {
+                    if !cur.borrow().filters.is_empty() && self.report.view_filters_of(cur).is_some() {
                         al_builtins::assumptions::assume(
                             al_builtins::assumptions::Assumption::ReportViewOverStoredRequestFilters,
                         );

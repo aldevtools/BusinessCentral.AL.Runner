@@ -361,11 +361,30 @@ pub(crate) struct ReportState {
     pub(crate) report_preview_pinned: Vec<ReportStart>,
     /// The report running now was started by `RunModal` (its request page's Preview and Print are not pinned).
     pub(crate) run_modal: bool,
-    /// The filters each data item record got from a `SetTableView` (keyed by the record's address, as text): the request page shows
-    /// those and not the filters a procedure of the report set on the item.
-    pub(crate) set_view_filters: Vec<(usize, Vec<ViewFilterKey>)>,
+    /// The filters each data item record got from a `SetTableView`: the request page shows those and not the filters a procedure
+    /// of the report set on the item. Held by a `Weak` of the record and not by its address: a `Weak` keeps the allocation, so no
+    /// later record can get the address of one that is gone and read its view (al-runner CI flake of report/lt-report-requestpage/
+    /// RptFilters.al:510 RequestFilterFields_Handler_SetsFilters). The entries of dropped records go on each new SetTableView.
+    pub(crate) set_view_filters: Vec<(std::rc::Weak<RefCell<RecordState>>, Vec<ViewFilterKey>)>,
     /// The dataset a `Report.SaveAs(.., Xml, ..)` run is writing (al-vm reports.rs).
     pub(crate) dataset: Option<crate::dataset::Dataset>,
+}
+
+impl ReportState {
+    /// The `SetTableView` filters of `rec`, if it got any.
+    pub(crate) fn view_filters_of(&self, rec: &Rc<RefCell<RecordState>>) -> Option<&Vec<ViewFilterKey>> {
+        self.set_view_filters
+            .iter()
+            .find(|(w, _)| std::ptr::eq(w.as_ptr(), Rc::as_ptr(rec)))
+            .map(|(_, v)| v)
+    }
+
+    /// Records that `rec` got `origin` from a `SetTableView`, replacing its earlier entry and dropping those of records gone.
+    pub(crate) fn set_view_filters_of(&mut self, rec: &Rc<RefCell<RecordState>>, origin: Vec<ViewFilterKey>) {
+        self.set_view_filters
+            .retain(|(w, _)| w.strong_count() > 0 && !std::ptr::eq(w.as_ptr(), Rc::as_ptr(rec)));
+        self.set_view_filters.push((Rc::downgrade(rec), origin));
+    }
 }
 
 /// How a running report body was started (`report_preview_pinned`).

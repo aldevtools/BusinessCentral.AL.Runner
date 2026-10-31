@@ -1531,14 +1531,12 @@ impl Session {
         // filter (report/lt-dataitem-view/DataItemTableView.al:117-205, real BC 29: F 1..2 view and F 2..3 given: count 1, row 2).
         let target = self.base_item_record(inst, item)?;
         let mut t = target.borrow_mut();
-        let key = Rc::as_ptr(&target) as usize;
         let origin: Vec<crate::state::ViewFilterKey> = v
             .filters
             .iter()
             .map(|f| Ok((f.field, f.group, self.filter_text(&f.expr)?)))
             .collect::<Result<_, Signal>>()?;
-        self.report.set_view_filters.retain(|(k, _)| *k != key);
-        self.report.set_view_filters.push((key, origin));
+        self.report.set_view_filters_of(&target, origin);
         t.filters = v.filters.clone();
         t.filter_group = v.filter_group;
         t.key = v.key;
@@ -1868,14 +1866,8 @@ impl Session {
         let mut any = false;
         for r in run.all_items() {
             let rec = self.report_item_record(run, r)?;
-            let key = Rc::as_ptr(&rec) as usize;
-            let from_view: Vec<crate::state::ViewFilterKey> = self
-                .report
-                .set_view_filters
-                .iter()
-                .find(|(k, _)| *k == key)
-                .map(|(_, v)| v.clone())
-                .unwrap_or_default();
+            let from_view: Vec<crate::state::ViewFilterKey> =
+                self.report.view_filters_of(&rec).cloned().unwrap_or_default();
             let mut dropped = false;
             let mut kept = Vec::new();
             let filters = rec.borrow().filters.clone();
@@ -3312,16 +3304,8 @@ impl Session {
                 continue;
             }
             let rec = self.base_item_record(inst, item)?;
-            let key = Rc::as_ptr(&rec) as usize;
-            // The entries are keyed by the record's address, which a later record can reuse: an entry counts only while the
-            // record still holds the filters SetTableView gave it.
-            let Some(origin) = self
-                .report
-                .set_view_filters
-                .iter()
-                .find(|(k, _)| *k == key)
-                .map(|(_, o)| o.clone())
-            else {
+            // An entry counts only while the record still holds the filters SetTableView gave it.
+            let Some(origin) = self.report.view_filters_of(&rec).cloned() else {
                 continue;
             };
             if origin.is_empty() {
