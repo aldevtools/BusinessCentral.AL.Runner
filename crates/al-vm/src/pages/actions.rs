@@ -2889,6 +2889,15 @@ impl Session {
                 "CurrPage.Update on a page that shows no row (empty view or new line) while its view has rows (which row it shows then is not pinned)",
             );
         }
+        // A page without a source table refreshes its parts on CurrPage.Update: an unlinked ListPart reads its rows again and
+        // shows what its OnAfterGetRecord computes now (corpus writer Y15, branch al-runtime-rs-staging-y15, pages/lt-y15/
+        // Y15WorksheetPartRefresh.al:226 the Worksheet of al-runner issue 6465: SetValue runs the part's `AGR1;AGR1;AGCR1` and
+        // the part shows `(A)`; :287 two rows, the part stays on its row; :320 without CurrPage.Update no part trigger runs).
+        if by_update && st.borrow().open && !self.has_source(st) && !without_parts && !st.borrow().parts.is_empty() {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SourcelessHostUpdateRefreshesParts);
+            st.borrow_mut().refresh = false;
+            return self.sync_parts(st);
+        }
         if !st.borrow().open || !self.has_source(st) || st.borrow().cursor != Cursor::Row || st.borrow().draft {
             return Ok(());
         }
