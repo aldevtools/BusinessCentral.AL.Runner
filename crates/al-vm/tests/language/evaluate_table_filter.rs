@@ -260,3 +260,15 @@ fn a_text_assigned_through_a_fieldref_raises_and_keeps_the_value() {
         "The value \"Id: 1\" can't be evaluated into type TableFilter.|Evaluate:Argument|[]"
     );
 }
+
+/// A field given by its number: `89500: 2=1` is the Option field 2 with its ordinal 1, stored by the field's caption
+/// (types/TestTableFilterEvaluate.al:26-36 TableFilter_Evaluate_NumericIds_NormalizesValue, `67021: 2=1` stores
+/// `ALT TF Plain Target: Report Type=LGDIAM`). A number no field has is not pinned and is refused.
+#[test]
+fn a_field_given_by_its_number() {
+    assert_eq!(
+        function_form("89500: 2=1").unwrap(),
+        yes("SI TF Target: Kind Cap=LgDiam Cap")
+    );
+    assert!(matches!(function_form("89500: 9=1"), Err(Signal::Unsupported(_))));
+}
