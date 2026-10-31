@@ -397,6 +397,30 @@ pub struct Phases {
     pub passes: Vec<PassTime>,
     /// A warm server ran the request on the engines an earlier request over the same compile kept.
     pub engine_kept: bool,
+    /// What the run did, counted (the work ratchet of `al-test-cli`).
+    pub work: RunWork,
+}
+
+/// What one run did, as counts that are the same on every run of the same inputs: the work ratchet of the corpus run
+/// (`al-test-cli`, `metrics/<major>/work.json`) compares them, where times on a shared runner are too noisy.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RunWork {
+    /// How many times the apps were compiled ([`Phases::compiles`]).
+    pub compiles: usize,
+    /// What the compile the tests ran on lowered from source.
+    pub lower: al_sema::lower::LowerWork,
+    /// The dependency apps of the program.
+    pub dependency_apps: usize,
+    /// Those of them whose objects a compile cache supplied.
+    pub dependency_apps_from_cache: usize,
+    /// Layers of the compile cache found and used as they were.
+    pub cache_layers_hit: usize,
+    /// Layers of the compile cache this run built (a miss).
+    pub cache_layers_built: usize,
+    /// The rows the install baseline holds; `None` when no baseline ran.
+    pub baseline_rows: Option<usize>,
+    /// Tests that ran (passed or failed); a test that was not run does not count.
+    pub tests_run: usize,
 }
 
 /// The time of one pass over the test codeunits ([`Phases::passes`]).

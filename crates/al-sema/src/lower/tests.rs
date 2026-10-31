@@ -2342,3 +2342,55 @@ page 50100 P {
     let body = |r: &str| format!("{:?}", p.routines.iter().find(|x| x.name == r).unwrap().body);
     assert_eq!(body("Bare"), body("Qual"));
 }
+
+/// The work ratchet (`al-test-cli`, `metrics/<major>/work.json`): the compile counts what it lowered from source, the
+/// workspace's and the dependencies' apart. A dependency routine nothing reaches is a stub and does not count, and an
+/// object nothing reaches is a shell and does not count either.
+#[test]
+fn the_compile_counts_the_objects_and_routines_it_lowered_from_source() {
+    use crate::workspace::AppKind;
+    let src = |id: &str, deps: &[&str], files: &[(&str, &str)]| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps.iter().map(|d| d.to_string()).collect(),
+        files: files.iter().map(|(p, s)| (p.to_string(), s.to_string())).collect(),
+    };
+    let dep = src(
+        "dep",
+        &[],
+        &[
+            (
+                "d.al",
+                "codeunit 50200 D { procedure Used() begin end; procedure NotUsed() begin end; }",
+            ),
+            ("u.al", "codeunit 50201 Unreached { procedure P() begin end; }"),
+        ],
+    );
+    let main = src(
+        "main",
+        &["dep"],
+        &[(
+            "c.al",
+            "codeunit 50100 C { procedure A() var D: Codeunit D; begin D.Used(); end; procedure B() begin end; }",
+        )],
+    );
+    let ws = Workspace::load_apps(
+        vec![main, dep],
+        vec![AppKind::Workspace, AppKind::Dependency],
+        &Default::default(),
+    );
+    let members = crate::members::build(&ws);
+    let checked = crate::check::check(&ws, &members, &al_builtins::catalog::Catalog::load());
+    let l = lower_with_positions(&ws, &members, &checked, false);
+    assert_eq!(
+        l.work,
+        LowerWork {
+            objects: 3,
+            objects_lowered: 1,
+            routines_lowered: 2,
+            dependency_objects_lowered: 1,
+            dependency_routines_lowered: 1,
+            objects_from_cache: 0,
+        }
+    );
+}

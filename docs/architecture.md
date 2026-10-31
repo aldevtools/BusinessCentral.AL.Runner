@@ -198,6 +198,33 @@ next to the test app. No list of folders is kept in the runtime. Language covera
 | Full corpus run with Microsoft's apps (`perf_budget.rs`, BC 29, whole process tree) | ≤ 155 G instructions (the day's value plus 5 %); fallback without the counter: 45 s of child CPU time (CI measured 25.8 s and 34.7 s, owner-review 2026-10-16). Seconds are printed, not budgeted: with the same code 12 s was exceeded at 21.5 s on a machine with load 25 | 143.9 G with ADR-041 positions in the dependency IR (137.1 G before; stable to 0.02 % between runs) |
 | Serial parse throughput (`al-syntax/tests/perf_parse_throughput.rs`) | ≥ 50 MB/s | ~65–75 MB/s |
 
+### Work ratchet and step time guard
+
+GitHub's runners have no instruction counter, so the budgets above only warn there, and wall time on a shared runner
+varies by half between runs of the same code. Two checks of the corpus job catch a slower run anyway:
+
+- **Work ratchet** (`al-test-cli/src/work.rs`). The normal corpus run counts, per pass (`main`, and one per set of extra
+  apps such as `extra apps: Tests-TestLibraries, Data Archive`) and in `total`, what it did: `compiles`, `objects_loaded`,
+  `objects_lowered` and `routines_lowered` (the workspace's), `dependency_objects_lowered` and
+  `dependency_routines_lowered` (what the demand-driven compile reached), `objects_from_cache`, `dependency_apps`,
+  `dependency_apps_from_source`, `dependency_apps_from_cache`, `cache_layers_hit`, `cache_layers_built`,
+  `baseline_rows` (rows the install baseline holds) and `tests_run`. The counts are the same on every run of the same
+  inputs. `metrics/<major>/work.json` holds the expected counts. A count more than 10 % above the file fails the run
+  (exit 1) with a line that names the version, the pass, the counter, the old and the new value; a pass the file does not
+  have counts from 0. A count more than 10 % below prints a note asking to lower the file. The run's `--json` report has
+  the counts under `work`, and the job summary shows the totals.
+  - The check runs only on a run shaped like CI's normal run: the full corpus with the dependency apps, no selection, no
+    `--no-ratchet`, `--no-deps`, `--compile-cache`, `--baseline`, `--deps` or other `--seed`, and none of
+    `AL_EAGER_DEPENDENCIES`, `AL_FORCE_BASELINE`, `AL_NO_BASELINE`, `AL_CHECK_BASELINE_RULE`, `ALRUNNER_EAGER_DECODE`.
+  - A pull request that adds work on purpose regenerates the file and commits it in the same pull request, so the
+    reviewer sees the counts in the diff: `./target/release/al-test-cli --root . --all-versions --update-work`
+    (refused on any other shape of run). Do the same after a change that lowers counts by more than 10 %.
+  - The counts depend on the Microsoft build of the dependency apps; another build of the same minor changes them by
+    far less than 10 %. The file records the build it was made with.
+- **Step time guard** (`tools/step_time_guard.py`). The step of the normal run fails when it took more than 1.5 times
+  the median of the same step in main's last 10 successful CI runs (read with the workflow token through the GitHub
+  API). With fewer than 5 earlier runs, or when the API cannot be read, it prints a note and passes.
+
 `cargo run --release -p al-test-cli --example phases` prints timings per
 phase. `--example compile_dump` dumps every compile output so a performance
 change can be shown to change nothing.

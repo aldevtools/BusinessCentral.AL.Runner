@@ -986,6 +986,11 @@ pub(crate) fn lower_core(
         },
         object_hashes: Vec::new(),
         cached_objects: None,
+        work: LowerWork {
+            objects: ws.objects.len(),
+            objects_from_cache: (0..ws.objects.len()).filter(|&oi| prov(oi)).count(),
+            ..Default::default()
+        },
     };
     if positions {
         program.sources = ws
@@ -1160,6 +1165,15 @@ pub(crate) fn lower_core(
         .map(|p| p.as_ref().map_or_else(Vec::new, |p| p.embeds.clone()))
         .collect();
     for (oi, piece) in pieces.into_iter().enumerate() {
+        if let Some(p) = piece.as_ref().filter(|_| shared.active[oi]) {
+            if ws.is_dependency(oi) {
+                out.work.dependency_objects_lowered += 1;
+                out.work.dependency_routines_lowered += p.lowered_routines;
+            } else {
+                out.work.objects_lowered += 1;
+                out.work.routines_lowered += p.lowered_routines;
+            }
+        }
         let Some(piece) = piece else {
             // Supplied by the cache: its refusals and calls are read from the facts, or copied without them kept.
             let facts = src.expect("a supplied object has a source").facts(oi);
@@ -2463,6 +2477,8 @@ pub fn relower_objects(
 /// The lowering of one object: its IR, why each routine cannot run, and the routines each calls.
 pub(crate) struct Piece {
     pub(crate) object: ir::Object,
+    /// How many of its routines had their bodies lowered (`LowerWork`).
+    pub(crate) lowered_routines: usize,
     /// The source positions of its statements, numbered from 0.
     pub(crate) positions: Vec<ir::SrcPos>,
     pub(crate) unsupported: Vec<Vec<String>>,

@@ -3702,3 +3702,46 @@ fn seed_library_hands_library_random_the_derived_seed() {
     let want = al_host::seed::derive_library(4271833, 60990, "SeedIsOne");
     assert_eq!(message(&on, "SeedIsOne"), format!("seed {want}"));
 }
+
+/// The work ratchet (`al-test-cli`, `metrics/<major>/work.json`): a run counts what it compiled, the rows its install
+/// baseline holds and the tests it ran.
+#[test]
+fn a_run_counts_its_work() {
+    let dep = "table 60900 Setup { fields { field(1; K; Code[10]) { } } }
+        codeunit 60901 Inst { Subtype = Install;
+            trigger OnInstallAppPerCompany() var R: Record Setup; begin R.K := 'A'; R.Insert(); R.K := 'B'; R.Insert(); end; }
+        codeunit 60902 Unused { procedure P() begin end; }";
+    let main = "codeunit 60990 T { Subtype = Test;
+        [Test] procedure Reads() var R: Record Setup; begin if R.Count() <> 2 then Error('rows %1', R.Count()); end;
+        [Test] procedure Other() begin end; }";
+    let app = |id: &str, deps: &[&str], src: &str| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps.iter().map(|d| d.to_string()).collect(),
+        files: vec![(format!("{id}.al"), src.into())],
+    };
+    let rt = CorpusRuntime::run_suites_with(
+        vec![app("main", &["dep"], main), app("dep", &[], dep)],
+        vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+        &[],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions::default(),
+    );
+    assert!(
+        rt.results().iter().all(|r| r.outcome == Outcome::Pass),
+        "{:?}",
+        rt.results()
+    );
+    let w = rt.phases.work;
+    assert_eq!(w.compiles, 1);
+    assert_eq!(w.dependency_apps, 1);
+    assert_eq!(w.dependency_apps_from_cache, 0);
+    assert_eq!((w.cache_layers_hit, w.cache_layers_built), (0, 0));
+    assert_eq!(w.lower.objects_lowered, 1);
+    assert_eq!(w.lower.dependency_objects_lowered, 2, "{w:?}");
+    assert_eq!(w.baseline_rows, Some(2), "{w:?}");
+    assert_eq!(w.tests_run, 2);
+}

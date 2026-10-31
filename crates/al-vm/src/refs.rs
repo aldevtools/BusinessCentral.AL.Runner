@@ -1021,6 +1021,12 @@ impl Session {
                 LibraryValue::Empty => return Ok(Value::Integer(0)),
                 _ => {}
             },
+            // A RecordRef that is not open (never opened, closed, cleared) answers 2000000000 without an error (corpus
+            // branch al-runtime-rs-staging-y30, recordref/W4RecordRefGetUnopened.al:178-194, Y30_SystemIdNo_NotOpen).
+            "SystemIdNo" if matches!(&*lib.borrow(), LibraryValue::Empty) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RecordRefSystemIdNoNotOpen);
+                return Ok(Value::Integer(2_000_000_000));
+            }
             // A RecordRef never opened answers false (PXEnumRecordRef.al:293-298); with the result
             // unused nothing pins what it raises.
             "GetBySystemId" if matches!(&*lib.borrow(), LibraryValue::Empty) => {
@@ -1228,7 +1234,13 @@ impl Session {
                 ))
             }
             "IsEmpty" | "Count" | "Init" | "Insert" | "Modify" | "Delete" | "DeleteAll" | "Find" | "FindFirst"
-            | "FindLast" | "FindSet" | "Next" | "Reset" | "Rename" => self.record_op(record_method(method), &rec, args),
+            | "FindLast" | "FindSet" | "Next" | "Reset" | "Rename" => {
+                // ADR-062: a RecordRef write is checked like a record write (Y19PermWrites.al Y19_P6_RecordRef).
+                if self.permissions.is_some() {
+                    self.permission_from_al = true;
+                }
+                self.record_op(record_method(method), &rec, args)
+            }
             // As Record.Truncate: every row the filters select goes, with or without the argument
             // (recordref/lt-recordref-fieldref-members/P92Counts.al:124-186, Truncate_Unfiltered, Truncate_WithFilter,
             // Truncate_WithoutTriggerArgument).

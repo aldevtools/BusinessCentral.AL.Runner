@@ -1078,7 +1078,7 @@ impl Session {
     fn delete_row(&mut self, t: &TableDef, rec: &Rec, run: bool) -> Result<Value, Signal> {
         let cx = self.cx_for(rec, t)?;
         // A Delete through a stale buffer follows the rule of a Modify (record/TestRecordStaleBufferWrite.al:662, :676); with
-        // triggers or events, where the check falls among them is not pinned.
+        // triggers or events, where the check falls among them is pinned for the shapes below only.
         if !rec.borrow().temporary && t.fields.iter().any(|f| f.id == 2_000_000_005) {
             let pk = Self::sql_key(rec, t, &rec.borrow().fields.clone());
             let stored = self
@@ -1106,6 +1106,45 @@ impl Session {
                     let pinned = verdict == StaleVerdict::Written
                         && !ext
                         && self.stale_after_other_deletes_only(t, &company, &pk);
+                    // A stale buffer from the variable's own Insert two or three Commits back, deleted in a transaction that
+                    // wrote nothing and took no lock: the OnBeforeDeleteEvent subscribers run, then (Delete(true)) the table's
+                    // OnDelete trigger, then DB:RecordChanged; OnAfterDeleteEvent never runs and the row stays. When another
+                    // variable Modified that row in the new transaction (the Modify rule writes the buffer), the row is deleted
+                    // and the trigger and the events run as for a fresh buffer (record/lt-sb-stale-own-modify/
+                    // Y32StaleDeleteTests.al Y32_2C_*, Y32_3C_* on corpus branch al-runtime-rs-staging-y32, al-runner issue
+                    // 6546; assumption `stale-delete-event-before-record-changed` until the file is on master). A table
+                    // extension's delete triggers and the OnDatabaseDelete global trigger are not pinned.
+                    let own_insert = {
+                        let r = rec.borrow();
+                        let mine = if let Value::BigInteger(n) = &r.fields[i] { *n } else { 0 };
+                        r.row_origin.filter(|o| o.version == mine).is_some_and(|o| {
+                            o.own_write && (o.commits + 2 == self.commits || o.commits + 3 == self.commits)
+                        })
+                    };
+                    let y32 = own_insert && !ext && !self.global_enabled(t, GlobalOp::Delete)?;
+                    let untouched_tx = self.tx.writes.is_empty()
+                        && !self.tx.rolled_back
+                        && !self.tx.lock_tx
+                        && self.tx.lock_unpinned.is_none();
+                    if y32 && verdict == StaleVerdict::Refused && untouched_tx {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::StaleDeleteEventBeforeRecordChanged,
+                        );
+                        self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
+                        if run && let Some(tr) = self.table_trigger(t, "OnDelete") {
+                            let x = Self::xrec_handle(rec, rec.borrow().fields.clone());
+                            self.run_trigger(t.object as usize, tr, rec, Some(&x))?;
+                        }
+                        return Err(self.record_changed(t, rec)?);
+                    }
+                    let row_written =
+                        y32 && verdict == StaleVerdict::Written && self.stale_row_modified_only(t, &company, &pk);
+                    if row_written {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::StaleDeleteEventBeforeRecordChanged,
+                        );
+                    }
+                    let pinned = pinned || row_written;
                     if (hooks || ext) && !pinned {
                         return unsupported(format!(
                             "a Delete through a stale {} buffer, with triggers or events: not pinned",
@@ -3017,8 +3056,8 @@ impl Session {
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         // ADR-062: a record method of a restricted session; an unrestricted session pays one branch.
         if self.permissions.is_some() {
-            let object = rec.borrow().table as usize;
-            self.permission_gate_record(method, object)?;
+            let from_al = std::mem::take(&mut self.permission_from_al);
+            self.permission_gate_record(method, rec, args, from_al)?;
         }
         if self.sql.active {
             return self.record_op_counted(method, rec, args);
@@ -3314,6 +3353,10 @@ impl Session {
         }
         if !self.global_group1.is_empty() {
             self.global_group_check(rec, table, method.name())?;
+        }
+        // ADR-062: a denial of a method AL code calls raises BC's error where its shape is pinned.
+        if self.permissions.is_some() {
+            self.permission_from_al = true;
         }
         self.record_op(method, rec, args)
     }
@@ -5871,7 +5914,13 @@ impl Session {
                         }
                         if !same_key {
                             self.propagate_rename(rec, &t, &refs, &old_fields, &row)?;
-                            self.move_record_links(&t, rec, &old_fields)?;
+                            // The platform moves the record's links with system rights: a set without any grant on
+                            // Record Link renames (corpus permissions/lt-y19-perm-probes/Y19PermWrites.al
+                            // Y19_P1_Rename, rename_rim), so the session's sets do not apply here (ADR-062).
+                            let sets = self.permissions.take();
+                            let moved = self.move_record_links(&t, rec, &old_fields);
+                            self.permissions = sets;
+                            moved?;
                         }
                         self.run_ext_trigger(&t, "OnAfterRename", rec, Some(&xrec))?;
                         self.table_event(&t, "onafterrenameevent", rec, Some(&xrec), true, None)?;

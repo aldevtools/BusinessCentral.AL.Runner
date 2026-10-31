@@ -195,6 +195,7 @@ impl CorpusRuntime {
             rt.phases.lean_redone = true;
             rt.phases.compile += lean_time;
             rt.phases.compiles += 1;
+            rt.phases.work.compiles = rt.phases.compiles;
             retire_at_end(compiled, opts.process_ends_after);
             return Ok((rt, None));
         }
@@ -1224,6 +1225,7 @@ impl CorpusRuntime {
             }
         }
         let baseline_time = started.elapsed();
+        let baseline_rows = baseline_run.as_ref().map(|b| b.baseline.rows());
         let mut baseline_run = baseline_run;
         let baseline_trace = baseline_run.as_mut().and_then(|b| b.trace.take());
         let baseline = baseline_run.map(|b| b.baseline);
@@ -1969,6 +1971,27 @@ impl CorpusRuntime {
                 passes: pass_times,
                 engine_kept,
                 decoded_on_touch: lowered.cached_objects.as_ref().map(|c| c.decoded()),
+                work: RunWork {
+                    compiles: *compiles,
+                    lower: lowered.work,
+                    dependency_apps: ws.kinds.iter().filter(|k| **k == al_sema::AppKind::Dependency).count(),
+                    dependency_apps_from_cache: {
+                        let mut apps: Vec<usize> = (0..lowered.provided.len())
+                            .filter(|&oi| lowered.provided[oi])
+                            .map(|oi| ws.objects[oi].app)
+                            .collect();
+                        apps.dedup();
+                        apps.len()
+                    },
+                    cache_layers_hit: cache_report
+                        .as_ref()
+                        .map_or(0, |c| c.layers.iter().filter(|l| l.hit).count()),
+                    cache_layers_built: cache_report
+                        .as_ref()
+                        .map_or(0, |c| c.layers.iter().filter(|l| l.built).count()),
+                    baseline_rows,
+                    tests_run: list.iter().filter(|r| !matches!(r.outcome, Outcome::NotRun(_))).count(),
+                },
             },
             details,
             results: list,

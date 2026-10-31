@@ -279,6 +279,7 @@ pub(crate) fn lower_object<'a>(
         // and runs it as an empty object; the few lookups that would answer "no such object"
         // (`RecordRef.Open(18)`) look for the shell and refuse instead.
         return Piece {
+            lowered_routines: 0,
             object: ir::Object {
                 kind: o.kind,
                 uncompiled: true,
@@ -590,6 +591,7 @@ pub(crate) fn lower_object<'a>(
         );
     }
     let mut routines = Vec::new();
+    let mut lowered_routines = 0;
     let mut unsupported = Vec::new();
     let mut refusal_at = Vec::new();
     let mut calls = Vec::new();
@@ -643,6 +645,7 @@ pub(crate) fn lower_object<'a>(
         let routine = if let Some(why) = checked.panic_of(oi, routine_offsets[oi][ri]) {
             lw.refused(r, format!("internal error while checking: {why}"))
         } else if reached {
+            lowered_routines += 1;
             // A panic lowering one routine is a bug in the compiler; the routine refuses and the
             // run goes on.
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lw.routine(r))) {
@@ -809,6 +812,7 @@ pub(crate) fn lower_object<'a>(
     let embeds = lw.embeds.take().into_iter().collect();
     Piece {
         object,
+        lowered_routines,
         positions,
         unsupported,
         refusal_at,
