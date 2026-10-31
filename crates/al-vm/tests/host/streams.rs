@@ -629,3 +629,41 @@ fn read_into_a_text_of_a_utf8_stream_skips_a_byte_order_mark() {
         B.Data.CreateInStream(I, TextEncoding::UTF8); exit(Format(I.Read(T)));";
     assert!(refused(vars, used));
 }
+
+/// A temporary row inserted and read back (Get, FindFirst, FindSet) without CalcFields: its Blob copied with `:=` (directly or
+/// through FieldRef.Value) is empty and has no value; after CalcFields, or before any read, the copy has the content
+/// (record/lt-temporary-blob/TemporaryBlobAutoCalc.al:174-310, corpus branch al-runtime-rs-staging-y12; al-runner issue 6434).
+#[test]
+fn a_blob_copied_from_an_unloaded_temporary_row_is_empty() {
+    const VARS: &str = "B: Record \"ALT Blob\" temporary; X: Record \"ALT Blob\" temporary; O: OutStream; I: InStream; T: Text; R: RecordRef;";
+    const INSERT: &str = "B.Code := '1'; B.Data.CreateOutStream(O); O.WriteText('mdi test image'); B.Insert(false);";
+    const SHOW: &str = "exit('has=' + Format(X.Data.HasValue()) + '|len=' + Format(X.Data.Length()) + '|text=' + T);";
+    let copied = |read: &str| {
+        text(
+            VARS,
+            &format!("{INSERT} {read} X.Data := B.Data; X.Data.CreateInStream(I); I.ReadText(T); {SHOW}"),
+        )
+    };
+    assert_eq!(copied("B.FindFirst();"), "has=No|len=0|text=");
+    assert_eq!(copied("B.Get('1');"), "has=No|len=0|text=");
+    assert_eq!(copied("B.FindSet();"), "has=No|len=0|text=");
+    assert_eq!(
+        copied("B.FindFirst(); B.CalcFields(Data);"),
+        "has=Yes|len=14|text=mdi test image"
+    );
+    assert_eq!(copied(""), "has=Yes|len=14|text=mdi test image");
+    let source = text(
+        VARS,
+        &format!(
+            "{INSERT} B.FindFirst(); exit('len=' + Format(B.Data.Length()) + '|has=' + Format(B.Data.HasValue()));"
+        ),
+    );
+    assert_eq!(source, "len=14|has=Yes");
+    let via_field_ref = text(
+        VARS,
+        &format!(
+            "{INSERT} B.FindFirst(); R.GetTable(B); X.Data := R.Field(3).Value(); X.Data.CreateInStream(I); I.ReadText(T); {SHOW}"
+        ),
+    );
+    assert_eq!(via_field_ref, "has=No|len=0|text=");
+}
