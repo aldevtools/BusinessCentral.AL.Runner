@@ -95,6 +95,8 @@ pub struct LowerWork {
     pub dependency_routines_lowered: usize,
     /// Objects a compile cache supplied.
     pub objects_from_cache: usize,
+    /// Objects a kept compile supplied (ADR-063: a pass that grows the main pass's compile).
+    pub objects_from_kept: usize,
 }
 
 /// See [`Lowered::object_hashes`].

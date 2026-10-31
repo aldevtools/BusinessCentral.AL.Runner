@@ -16,6 +16,15 @@ pub struct KeptCompile {
     pub(crate) target: Option<al_version::Target>,
 }
 
+/// What a compile keeps for a later run (`Compiled::grow_kept`).
+pub(crate) struct GrowKept {
+    pub(crate) growable: al_sema::lower::Growable,
+    /// Per app of the compile: the preprocessor symbols of a dependency app.
+    pub(crate) app_symbols: Vec<Option<BTreeSet<String>>>,
+    /// How many apps, from the first, the later run also has.
+    pub(crate) shared: usize,
+}
+
 /// How a compile takes part in growing (`compile_suites_once`).
 pub(crate) enum Grow {
     /// A compile of its own, nothing kept.

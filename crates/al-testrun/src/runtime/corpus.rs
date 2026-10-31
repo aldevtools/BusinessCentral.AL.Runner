@@ -113,7 +113,8 @@ impl CorpusRuntime {
         suites: &[SuiteRun],
         opts: &RunOptions,
     ) -> Result<CorpusRuntime, String> {
-        Self::try_run_suites_inner(apps, kinds, manifests, symbols, target, dotnet, suites, opts, Grow::Off).map(|(rt, _)| rt)
+        Self::try_run_suites_inner(apps, kinds, manifests, symbols, target, dotnet, suites, opts, Grow::Off)
+            .map(|(rt, _)| rt)
     }
 
     /// [`try_run_suites_with`](Self::try_run_suites_with) that also gives back its compile, when it can be grown, for a
@@ -152,7 +153,8 @@ impl CorpusRuntime {
         opts: &RunOptions,
     ) -> Result<CorpusRuntime, String> {
         let grow = Grow::From(Box::new(kept));
-        Self::try_run_suites_inner(apps, kinds, manifests, symbols, target, dotnet, suites, opts, grow).map(|(rt, _)| rt)
+        Self::try_run_suites_inner(apps, kinds, manifests, symbols, target, dotnet, suites, opts, grow)
+            .map(|(rt, _)| rt)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -189,8 +191,17 @@ impl CorpusRuntime {
         if compiled.lean.is_some() && rt.met_left_out() {
             let lean_time = rt.phases.compile + rt.phases.tests;
             let (apps, kinds) = compiled.into_apps();
-            let compiled =
-                Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, false, &mut Grow::Off)?;
+            let compiled = Self::compile_suites_with(
+                apps,
+                kinds,
+                manifests,
+                symbols,
+                target,
+                suites,
+                opts,
+                false,
+                &mut Grow::Off,
+            )?;
             let mut rt = Self::run_compiled(&compiled, target, dotnet, opts);
             rt.phases.lean_redone = true;
             rt.phases.compile += lean_time;
@@ -200,7 +211,12 @@ impl CorpusRuntime {
             return Ok((rt, None));
         }
         // The compile a later run grows (ADR-063): its workspace and what the lowering kept; the rest goes.
-        if let Some((mut growable, mut app_symbols, shared)) = compiled.grow_kept.take() {
+        if let Some(GrowKept {
+            mut growable,
+            mut app_symbols,
+            shared,
+        }) = compiled.grow_kept.take()
+        {
             let Compiled { mut ws, lowered, .. } = compiled;
             retire(lowered);
             // The apps of this run alone leave the compile (they come last).
@@ -238,8 +254,17 @@ impl CorpusRuntime {
         mut each: impl FnMut(usize),
     ) -> Result<Vec<CorpusRuntime>, String> {
         // A complete compile: a lean one may need a second compile when a test meets what it left out.
-        let compiled =
-            Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, false, &mut Grow::Off)?;
+        let compiled = Self::compile_suites_with(
+            apps,
+            kinds,
+            manifests,
+            symbols,
+            target,
+            suites,
+            opts,
+            false,
+            &mut Grow::Off,
+        )?;
         let mut out = Vec::with_capacity(perturbs.len());
         for (i, p) in perturbs.iter().enumerate() {
             each(i);
@@ -272,7 +297,17 @@ impl CorpusRuntime {
         suites: &[SuiteRun],
         opts: &RunOptions,
     ) -> Result<Compiled, String> {
-        Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, false, &mut Grow::Off)
+        Self::compile_suites_with(
+            apps,
+            kinds,
+            manifests,
+            symbols,
+            target,
+            suites,
+            opts,
+            false,
+            &mut Grow::Off,
+        )
     }
 
     /// [`compile_suites`](Self::compile_suites); with `lean`, selected tests that are free of data are compiled without
@@ -314,8 +349,17 @@ impl CorpusRuntime {
             let files = tdd_decl::stub_files(&compiled.ws, &seen, &ranges);
             let (mut apps, kinds) = compiled.into_apps();
             tdd_decl::set_stub_files(&mut apps, files);
-            compiled =
-                Self::compile_suites_once(apps, kinds, manifests, symbols, target, suites, opts, lean, &mut Grow::Off)?;
+            compiled = Self::compile_suites_once(
+                apps,
+                kinds,
+                manifests,
+                symbols,
+                target,
+                suites,
+                opts,
+                lean,
+                &mut Grow::Off,
+            )?;
         }
         Ok(compiled)
     }
@@ -701,7 +745,11 @@ impl CorpusRuntime {
                                 Grow::Keep(shared) => {
                                     let (ws, lowered, growable) =
                                         al_sema::lower::compile_loaded_growable(ws, load, &catalog, roots.clone());
-                                    grow_kept = growable.map(|g| (g, dep_symbols.clone(), shared.len()));
+                                    grow_kept = growable.map(|growable| GrowKept {
+                                        growable,
+                                        app_symbols: dep_symbols.clone(),
+                                        shared: shared.len(),
+                                    });
                                     (ws, lowered)
                                 }
                                 _ => al_sema::lower::compile_loaded(ws, load, &catalog, roots.clone()),
@@ -1975,9 +2023,11 @@ impl CorpusRuntime {
                     compiles: *compiles,
                     lower: lowered.work,
                     dependency_apps: ws.kinds.iter().filter(|k| **k == al_sema::AppKind::Dependency).count(),
+                    // The dependency apps a compile cache supplied (objects a kept compile supplied are counted apart,
+                    // `LowerWork::objects_from_kept`).
                     dependency_apps_from_cache: {
                         let mut apps: Vec<usize> = (0..lowered.provided.len())
-                            .filter(|&oi| lowered.provided[oi])
+                            .filter(|&oi| lowered.provided[oi] && lowered.work.objects_from_kept == 0)
                             .map(|oi| ws.objects[oi].app)
                             .collect();
                         apps.dedup();

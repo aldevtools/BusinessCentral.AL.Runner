@@ -564,7 +564,8 @@ fn check_inner(
         let mut all = k;
         all.objects.extend(kept_codes.objects);
         all.contexts.retain(|d| d.app < n_old_apps);
-        all.contexts.extend(kept_codes.contexts.into_iter().filter(|d| d.app >= n_old_apps));
+        all.contexts
+            .extend(kept_codes.contexts.into_iter().filter(|d| d.app >= n_old_apps));
         all.features.extend(kept_codes.features);
         kept_codes = all;
     }

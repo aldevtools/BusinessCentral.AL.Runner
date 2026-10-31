@@ -876,8 +876,8 @@ pub(crate) mod written;
 pub use self::blocked::*;
 pub use self::cache::*;
 pub use self::compiled::*;
+use self::grow::{Grow, GrowKept};
 pub use self::grow::{KeptCompile, fresh_pass_compile};
-use self::grow::Grow;
 use self::handlers::*;
 pub use self::run::*;
 

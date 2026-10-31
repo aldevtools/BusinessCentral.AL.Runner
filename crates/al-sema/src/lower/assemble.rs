@@ -155,6 +155,8 @@ pub(crate) struct Provided<'a> {
     /// `src` shared, when the compile may keep it: the refusals and calls of the supplied objects are then read from its
     /// facts instead of copied (`routine_lists.rs`).
     pub shared: Option<std::sync::Arc<dyn crate::provided::DepSource + Send>>,
+    /// `src` is a kept compile (ADR-063, `extend.rs`), not a compile cache: for the work counts.
+    pub kept: bool,
 }
 
 impl Provided<'_> {
@@ -892,9 +894,9 @@ pub(crate) fn lower_core(
     let export = export_as == Export::Cache;
     let facts_too = export_as != Export::No;
     let catalog = al_builtins::catalog::Catalog::load();
-    let (src, mut blocks, kept) = match provided {
-        Some(p) => (Some(p.src), p.blocks, p.shared),
-        None => (None, Vec::new(), None),
+    let (src, mut blocks, kept, from_kept) = match provided {
+        Some(p) => (Some(p.src), p.blocks, p.shared, p.kept),
+        None => (None, Vec::new(), None, false),
     };
     let flags: Vec<bool> = (0..ws.objects.len())
         .map(|oi| blocks.get(oi).is_some_and(Option::is_some))
@@ -986,10 +988,14 @@ pub(crate) fn lower_core(
         },
         object_hashes: Vec::new(),
         cached_objects: None,
-        work: LowerWork {
-            objects: ws.objects.len(),
-            objects_from_cache: (0..ws.objects.len()).filter(|&oi| prov(oi)).count(),
-            ..Default::default()
+        work: {
+            let supplied = (0..ws.objects.len()).filter(|&oi| prov(oi)).count();
+            LowerWork {
+                objects: ws.objects.len(),
+                objects_from_cache: if from_kept { 0 } else { supplied },
+                objects_from_kept: if from_kept { supplied } else { 0 },
+                ..Default::default()
+            }
         },
     };
     if positions {

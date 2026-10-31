@@ -655,7 +655,7 @@ fn run_version_inner(
     }
     // The cases this run is about: everything, the selection, or the one `--explain` names.
     let explained = match &args.explain {
-        Some(pattern) => match find_explained(pattern, &args.select, &all_cases, &index, &suite_data, version)? {
+        Some(pattern) => match find_explained(pattern, &args.select, &all_cases, index, &suite_data, version)? {
             Some(found) => Some(found),
             None if multi => {
                 return Ok(VersionRun {
@@ -693,7 +693,7 @@ fn run_version_inner(
                 .collect(),
         ),
         None => (
-            args.select.filter(&all_cases, &index),
+            args.select.filter(&all_cases, index),
             suite_data.iter().map(|(c, ix)| args.select.filter(c, ix)).collect(),
         ),
     };
@@ -1208,7 +1208,7 @@ fn run_version_inner(
                 });
             }
         };
-        take(&cases, &index, "");
+        take(&cases, index, "");
         for ((suite, cases), (_, ix)) in version.suites.iter().zip(&suite_cases).zip(&suite_data) {
             take(cases, ix, &suite.name);
         }
@@ -1357,7 +1357,7 @@ fn run_version_inner(
         area_of: Box::new(|cu| index.area_of(cu).map(str::to_string)),
         selected: Box::new(|c| match &explained {
             Some((_, e)) => *c == e.id,
-            None => !args.select.is_active() || args.select.matches(c, &index),
+            None => !args.select.is_active() || args.select.matches(c, index),
         }),
     });
     // A pass without the main app's tests leaves its ratchet alone.

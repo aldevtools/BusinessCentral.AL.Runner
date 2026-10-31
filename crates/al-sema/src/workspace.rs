@@ -359,7 +359,11 @@ impl Workspace {
             self.visible[..n].iter().all(|v| v.iter().all(|&a| a < n)),
             "an app that stays sees an app that goes"
         );
-        let n_obj = self.objects.iter().position(|o| o.app >= n).unwrap_or(self.objects.len());
+        let n_obj = self
+            .objects
+            .iter()
+            .position(|o| o.app >= n)
+            .unwrap_or(self.objects.len());
         let n_file = self.files.iter().position(|f| f.app >= n).unwrap_or(self.files.len());
         assert!(
             self.objects[n_obj..].iter().all(|o| o.app >= n) && self.files[n_file..].iter().all(|f| f.app >= n),
@@ -2572,7 +2576,11 @@ mod tests {
                  codeunit 12 Pub { [IntegrationEvent(false, false)] procedure OnThing() begin end; }",
             )],
         );
-        let main = app("main", &["base"], &[("m.al", "codeunit 50 M { procedure P() var C: Record Cust; begin end; }")]);
+        let main = app(
+            "main",
+            &["base"],
+            &[("m.al", "codeunit 50 M { procedure P() var C: Record Cust; begin end; }")],
+        );
         let extra = app(
             "extra",
             &["base"],
@@ -2582,9 +2590,21 @@ mod tests {
                  codeunit 22 XSub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)] local procedure S() begin end; }",
             )],
         );
-        let suite = app("suite", &["main", "extra", "base"], &[("s.al", "codeunit 60 S { procedure P() var M: Codeunit M; begin y := ; end; }")]);
+        let suite = app(
+            "suite",
+            &["main", "extra", "base"],
+            &[(
+                "s.al",
+                "codeunit 60 S { procedure P() var M: Codeunit M; begin y := ; end; }",
+            )],
+        );
         let symbols = al_version::corpus_symbols(27);
-        let kinds = vec![AppKind::Workspace, AppKind::Dependency, AppKind::Dependency, AppKind::Workspace];
+        let kinds = vec![
+            AppKind::Workspace,
+            AppKind::Dependency,
+            AppKind::Dependency,
+            AppKind::Workspace,
+        ];
         let whole = Workspace::load_apps_symbols(
             vec![main.clone(), base.clone(), extra.clone(), suite.clone()],
             kinds,
@@ -2601,7 +2621,12 @@ mod tests {
         );
         grown.restrict_to(vec![false; grown.objects.len()]);
         grown
-            .append_apps_of(vec![extra, suite], vec![AppKind::Dependency, AppKind::Workspace], &symbols, &[])
+            .append_apps_of(
+                vec![extra, suite],
+                vec![AppKind::Dependency, AppKind::Workspace],
+                &symbols,
+                &[],
+            )
             .unwrap();
         assert_eq!(grown.kinds, whole.kinds);
         assert_eq!(grown.loaded_files(), whole.loaded_files());
@@ -2622,7 +2647,11 @@ mod tests {
                  codeunit 12 Pub { [IntegrationEvent(false, false)] procedure OnThing() begin end; }",
             )],
         );
-        let main = app("main", &["base"], &[("m.al", "codeunit 50 M { procedure P() var C: Record Cust; begin end; }")]);
+        let main = app(
+            "main",
+            &["base"],
+            &[("m.al", "codeunit 50 M { procedure P() var C: Record Cust; begin end; }")],
+        );
         let suite = app(
             "suite",
             &["main", "base"],
@@ -2638,7 +2667,8 @@ mod tests {
         );
         let symbols = al_version::corpus_symbols(27);
         let two = vec![AppKind::Workspace, AppKind::Dependency];
-        let alone = Workspace::load_apps_symbols(vec![main.clone(), base.clone()], two.clone(), &symbols, &[], Vec::new());
+        let alone =
+            Workspace::load_apps_symbols(vec![main.clone(), base.clone()], two.clone(), &symbols, &[], Vec::new());
         let mut cut = Workspace::load_apps_symbols(
             vec![main.clone(), base.clone(), suite.clone()],
             vec![AppKind::Workspace, AppKind::Dependency, AppKind::Workspace],
@@ -2651,7 +2681,8 @@ mod tests {
         assert_eq!(removed.len(), 1, "the cut apps are given back");
         assert_eq!(fingerprint(&cut), fingerprint(&alone));
         assert!(cut.compiled.get().is_none());
-        cut.append_apps_of(vec![suite.clone()], vec![AppKind::Workspace], &symbols, &[]).unwrap();
+        cut.append_apps_of(vec![suite.clone()], vec![AppKind::Workspace], &symbols, &[])
+            .unwrap();
         let whole = Workspace::load_apps_symbols(
             vec![main, base, suite],
             vec![AppKind::Workspace, AppKind::Dependency, AppKind::Workspace],

@@ -38,7 +38,11 @@ impl Growable {
     /// needs, see the module comment); an object whose lowered form embeds what they add (an extension, an
     /// implementer: `provided::relower_set`) is lowered again when the compile grows.
     pub fn truncate(&mut self, ws: &mut Workspace, apps: usize) -> Vec<AppSource> {
-        let n_obj = ws.objects.iter().position(|o| o.app >= apps).unwrap_or(ws.objects.len());
+        let n_obj = ws
+            .objects
+            .iter()
+            .position(|o| o.app >= apps)
+            .unwrap_or(ws.objects.len());
         let n_file = ws.files.iter().position(|f| f.app >= apps).unwrap_or(ws.files.len());
         let src = std::sync::Arc::get_mut(&mut self.source).expect("the kept program is not shared yet");
         src.facts.truncate(n_obj);
@@ -96,7 +100,9 @@ impl DepSource for KeptProgram {
         Ok(DepBlock {
             object: Some(o.clone()),
             pos_start: start,
-            positions: (start..start + len).map(|id| self.program.positions[id as usize]).collect(),
+            positions: (start..start + len)
+                .map(|id| self.program.positions[id as usize])
+                .collect(),
         })
     }
 }
@@ -151,7 +157,11 @@ pub fn compile_loaded_growable(
         cache_blocks: Default::default(),
     };
     let exported = lowered.exported.take().expect("the facts were exported");
-    let kept = match (checked.demand.take(), checked.kept_demand.take(), checked.kept_codes.take()) {
+    let kept = match (
+        checked.demand.take(),
+        checked.kept_demand.take(),
+        checked.kept_codes.take(),
+    ) {
         (Some(demand), Some(kept), Some(codes)) => Some(Growable {
             prev: crate::check::PrevCheck {
                 objects: ws.objects.len(),
@@ -250,9 +260,18 @@ pub fn grow(
         src: &*src,
         blocks,
         shared: Some(shared),
+        kept: true,
     };
-    let mut lowered = lower_core(&ws, &members, &checked, true, lower_workers(), Some(provided), Export::No)
-        .map_err(|why| (Vec::new(), why))?;
+    let mut lowered = lower_core(
+        &ws,
+        &members,
+        &checked,
+        true,
+        lower_workers(),
+        Some(provided),
+        Export::No,
+    )
+    .map_err(|why| (Vec::new(), why))?;
     lowered.timings = CompileTimings {
         load,
         members: members_time,
@@ -432,9 +451,18 @@ codeunit 80001 SBad { procedure P() var R: Record T; begin R.AlsoNoField := 1; e
         let ws = Workspace::load_apps(main.clone(), main_kinds.clone(), &symbols);
         let (ws, main_pass, kept) = compile_loaded_growable(ws, Default::default(), &catalog, Roots::default());
         let kept = kept.expect("the compile can be grown");
-        let (_, grown) = grow(ws, kept, more.clone(), more_kinds.clone(), &symbols, &[], &catalog, Roots::default())
-            .map_err(|e| e.1)
-            .expect("the apps can be added");
+        let (_, grown) = grow(
+            ws,
+            kept,
+            more.clone(),
+            more_kinds.clone(),
+            &symbols,
+            &[],
+            &catalog,
+            Roots::default(),
+        )
+        .map_err(|e| e.1)
+        .expect("the apps can be added");
         let mut all = main;
         all.extend(more);
         let mut kinds = main_kinds;
@@ -456,12 +484,29 @@ codeunit 80001 SBad { procedure P() var R: Record T; begin R.AlsoNoField := 1; e
         // compile found. (A fresh compile of all apps does not judge `R.NoSuchField` on a table an added app extends:
         // AL0132 skips a table any extension extends, also one of an app the code does not see. BC compiles the main
         // app without the added apps and reports it.)
-        assert_eq!(diags(&grown, 2..4), diags(&fresh, 2..4), "the added apps' compile errors");
-        assert_eq!(diags(&grown, 0..2), diags(&main_pass, 0..2), "the kept apps' compile errors");
+        assert_eq!(
+            diags(&grown, 2..4),
+            diags(&fresh, 2..4),
+            "the added apps' compile errors"
+        );
+        assert_eq!(
+            diags(&grown, 0..2),
+            diags(&main_pass, 0..2),
+            "the kept apps' compile errors"
+        );
         assert_eq!(diags(&main_pass, 0..2).len(), 1, "{:?}", main_pass.al_diagnostics);
         // The objects the added apps do not change are taken from the kept compile, not lowered again.
         let unused = ws.objects.iter().position(|o| o.name == "Unused").unwrap();
-        assert!(grown.provided[unused], "an object nothing changed is taken from the kept compile");
+        assert!(
+            grown.provided[unused],
+            "an object nothing changed is taken from the kept compile"
+        );
+        // The work ratchet counts them apart from what a compile cache supplies.
+        assert_eq!(
+            grown.work.objects_from_kept,
+            grown.provided.iter().filter(|&&p| p).count()
+        );
+        assert_eq!(grown.work.objects_from_cache, 0);
     }
 
     /// An app of the main pass that the later pass does not have: extends a table, implements an interface the code
@@ -491,9 +536,18 @@ codeunit 90002 OSub
         let mut kept = kept.expect("the compile can be grown");
         let gone = kept.truncate(&mut ws, main.len());
         assert_eq!(gone.len(), 1);
-        let (_, grown) = grow(ws, kept, more.clone(), more_kinds.clone(), &symbols, &[], &catalog, Roots::default())
-            .map_err(|e| e.1)
-            .expect("the apps can be added");
+        let (_, grown) = grow(
+            ws,
+            kept,
+            more.clone(),
+            more_kinds.clone(),
+            &symbols,
+            &[],
+            &catalog,
+            Roots::default(),
+        )
+        .map_err(|e| e.1)
+        .expect("the apps can be added");
         let mut all = main;
         all.extend(more);
         let mut kinds = main_kinds;
@@ -518,7 +572,16 @@ codeunit 90002 OSub
         let ws = Workspace::load_apps(main, main_kinds, &symbols);
         let (ws, _, kept) = compile_loaded_growable(ws, Default::default(), &catalog, Roots::default());
         let late = vec![app("late", &[], "codeunit 61000 Late { }")];
-        let refused = grow(ws, kept.expect("growable"), late, vec![AppKind::Dependency], &symbols, &[], &catalog, Roots::default());
+        let refused = grow(
+            ws,
+            kept.expect("growable"),
+            late,
+            vec![AppKind::Dependency],
+            &symbols,
+            &[],
+            &catalog,
+            Roots::default(),
+        );
         let (apps, why) = refused.err().expect("refused");
         assert_eq!(apps.len(), 1, "the apps are given back");
         assert!(why.contains("would see"), "{why}");

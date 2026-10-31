@@ -221,8 +221,7 @@ pub struct Compiled {
     pub(crate) kept: std::sync::Mutex<Option<KeptEngines>>,
     /// The part of the compile a later run grows by apps (ADR-063), with the symbols of each dependency app, when the
     /// run asked to keep it and the compile can be grown.
-    /// The third: how many apps, from the first, the later run also has.
-    pub(crate) grow_kept: Option<(al_sema::lower::Growable, Vec<Option<BTreeSet<String>>>, usize)>,
+    pub(crate) grow_kept: Option<super::grow::GrowKept>,
 }
 
 /// The engines of a request of a warm server, kept for the next one over the same compile ([`Compiled::kept`]).

@@ -2391,6 +2391,7 @@ fn the_compile_counts_the_objects_and_routines_it_lowered_from_source() {
             dependency_objects_lowered: 1,
             dependency_routines_lowered: 1,
             objects_from_cache: 0,
+            objects_from_kept: 0,
         }
     );
 }

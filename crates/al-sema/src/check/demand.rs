@@ -1294,8 +1294,7 @@ impl Checker<'_> {
                     let at = (o, usize::from(r.syntax().text_range().start()));
                     let reached = self.demand.borrow().as_ref().is_some_and(|st| st.reached.contains(&at));
                     if reached
-                        && r
-                            .attributes()
+                        && r.attributes()
                             .any(|a| EVENT_ATTRS.iter().any(|e| a.name().eq_ignore_ascii_case(e)))
                     {
                         raised.push(r.name());
