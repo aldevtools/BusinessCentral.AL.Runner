@@ -62,7 +62,8 @@ pub(super) fn nav_app_installed_app_rows(p: &Providers, t: &TableDef) -> Vec<Ent
 /// only pins that the row of Base Application satisfies `SetFilter("Tenant ID", '%1|%2', '', TenantId)`, which blank does
 /// for every app (docs/probes-needed.md: per-tenant apps may carry the tenant id on a real tier).
 pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
-    p.engine()
+    let mut rows = p
+        .engine()
         .program
         .apps
         .iter()
@@ -79,9 +80,21 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
             for (n, part) in v.iter().enumerate() {
                 r[pos(t, 6 + n as u32)] = Value::Integer(*part);
             }
-            // Description holds the manifest's description (onprem session/PZPublishedApplicationColumns.al:55, :59);
-            // the program does not keep it (`AppInfo`), so the column is unknown rather than a blank Blob.
-            r[pos(t, 15)] = super::unknown(t, 15, "an app: the runtime does not keep the manifest's description");
+            // Description holds the manifest's description as UTF-8 text (onprem session/PZPublishedApplicationColumns.al:55-59:
+            // a value for the corpus app, Base Application, System Application and Application; the corpus app's text). An app
+            // whose manifest was not read, or whose description is empty, is not pinned: unknown rather than a blank Blob.
+            r[pos(t, 15)] = match a.description.as_deref() {
+                Some(d) if !d.is_empty() => {
+                    let blob = al_builtins::stream::new_blob();
+                    al_builtins::stream::write_bytes(&blob, d.as_bytes());
+                    Value::Blob(blob)
+                }
+                _ => super::unknown(
+                    t,
+                    15,
+                    &format!("app '{}': its manifest's description is not known", a.name),
+                ),
+            };
             // Logo (20): blank (null MediaId, no Media row) for an app whose app.json declares no logo (onprem
             // session/PZPublishedApplicationColumns.al:162-163). An app whose manifest declares a PNG logo has a media with a
             // value whose Media row holds the file's bytes ([`logo_media_rows`]; onprem session/UsAppLogo.al:79-148, corpus PR
@@ -106,7 +119,33 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
             }
             Some(Entry::ok(r))
         })
-        .collect()
+        .collect::<Vec<_>>();
+    // The `Application` aggregate holds no source, so the program has no app for it; a tier always publishes it (onprem
+    // session/PZPublishedApplicationColumns.al:53, :58 reads its row). Its columns are not known here: a read that may land
+    // on it refuses, while a filter on another ID, Name or Publisher passes it by.
+    let application = al_builtins::moduleinfo::APPLICATION_APP_ID;
+    if !p
+        .engine()
+        .program
+        .apps
+        .iter()
+        .any(|a| a.id.eq_ignore_ascii_case(application))
+    {
+        if let Some(id) = al_builtins::ops::parse_guid(application) {
+            let mut k = blank(t);
+            k[pos(t, 3)] = Value::Guid(id);
+            k[pos(t, 4)] = Value::Text("Application".into());
+            k[pos(t, 5)] = Value::Text("Microsoft".into());
+            rows.push(
+                Entry::poisoned(
+                    k,
+                    "the row of the Application app (it holds no source, so its columns are not known)".into(),
+                )
+                .with_known_cols(vec![pos(t, 3), pos(t, 4), pos(t, 5)]),
+            );
+        }
+    }
+    rows
 }
 
 /// Media (2000000181): one row per app whose manifest declares a PNG logo, under the id its Published Application Logo

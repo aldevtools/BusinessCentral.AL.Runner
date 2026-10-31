@@ -57,6 +57,8 @@ pub struct Manifest {
     /// The logo app.json declares (a blank one is none) with the file's content; `None` when not known (a package whose
     /// logo was not read, a declared file that cannot be read).
     pub logo: Option<al_ir::AppLogo>,
+    /// The description the manifest declares; `None` when not known.
+    pub description: Option<String>,
     /// `preprocessorSymbols` of the app's own app.json. A dependency app is compiled with these;
     /// the project's symbols apply to the workspace apps only (the publisher compiled the dependency).
     pub symbols: Vec<String>,
@@ -186,6 +188,7 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .collect(),
         target: manifest["target"].as_str().unwrap_or("Cloud").to_string(),
         logo: al_deps::load::folder_logo(dir, manifest["logo"].as_str()),
+        description: Some(s("description")),
         symbols: manifest["preprocessorSymbols"]
             .as_array()
             .into_iter()

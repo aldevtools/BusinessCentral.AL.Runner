@@ -25,6 +25,36 @@ pub(super) fn time_zone_rows(t: &TableDef, i: &Ident) -> Vec<Entry> {
         .collect()
 }
 
+/// (ID, Description and "Description In English", "Learn More Link") of a Feature Key (platform/lt-ba-columns/
+/// BaFeatureKeyTexts.al:14-76).
+const FEATURE_KEY_TEXTS: &[(&str, &str, &str)] = &[
+    (
+        "FinancialReportDefaults",
+        "Feature Update: Provides functionality for having default values for financial reports",
+        "https://learn.microsoft.com/en-us/dynamics365/release-plan/2025wave2/smb/dynamics365-business-central/use-enhanced-financial-reporting",
+    ),
+    (
+        "DisableSoapWebServicesOnMicrosoftUIPages",
+        "Feature: Disable SOAP web services on Microsoft UI pages",
+        "https://go.microsoft.com/fwlink/?linkid=2312202",
+    ),
+    (
+        "SalesPrices",
+        "Feature Update: New sales pricing experience",
+        "https://go.microsoft.com/fwlink/?linkid=2136722",
+    ),
+    (
+        "FullTextSearch",
+        "Feature: Use optimized text search in lists",
+        "https://go.microsoft.com/fwlink/?linkid=2280603",
+    ),
+    (
+        "ConcurrentJobPosting",
+        "Feature Update: Enable multiple users to post job ledger entries at the same time",
+        "https://go.microsoft.com/fwlink/?linkid=2299833",
+    ),
+];
+
 /// The Feature Key table: ID, `Enabled` (None or All Users per row), `Mandatory By` (the wave the mandatory-by version falls in),
 /// `Mandatory By Version`, `Can Try`, `Is One Way` and `Data Update Required`, per major from record/PFFeatureKeyColumns.al
 /// (FeatureKey_RowsPerId_PerMeasuredVersion; the state is per tenant); `Enabled` and `Data Update Required` of the first major
@@ -155,10 +185,16 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
             r[pos(t, 7)] = Value::Boolean(one_way);
             r[pos(t, 8)] = Value::Boolean(data_update);
             r[pos(t, 9)] = Value::Text(format!("{version}.0").into());
-            // Description (3), "Learn More Link" (4) and "Description In English" (10): no corpus test reads them.
+            // Description (3), "Learn More Link" (4) and "Description In English" (10) of the keys
+            // platform/lt-ba-columns/BaFeatureKeyTexts.al pins (the same on 27.5, 28.5 and 29.0); unknown for any other key.
+            let texts = FEATURE_KEY_TEXTS.iter().find(|(k, _, _)| *k == id);
             for col in [3, 4, 10] {
                 if t.fields.iter().any(|f| f.id == col) {
-                    r[pos(t, col)] = super::unknown(t, col, &format!("feature key '{id}'"));
+                    r[pos(t, col)] = match texts {
+                        Some((_, desc, _)) if col != 4 => Value::Text((*desc).into()),
+                        Some((_, _, link)) => Value::Text((*link).into()),
+                        None => super::unknown(t, col, &format!("feature key '{id}'")),
+                    };
                 }
             }
             Entry::ok(r)
