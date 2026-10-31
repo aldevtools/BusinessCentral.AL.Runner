@@ -384,6 +384,7 @@ impl CorpusRuntime {
             only_tests: only.clone(),
             tdd: opts.tdd,
             object_hashes: opts.object_hashes,
+            app_contexts: app_contexts(&apps, &kinds, manifests, target),
             ..Default::default()
         };
         // Whether the install baseline runs, and why it does when it was weighed.
@@ -2274,4 +2275,40 @@ fn not_run_link(lowered: &Lowered, oi: usize, why: String) -> super::run::Carrie
         storage_why: None,
         everything: false,
     }
+}
+
+/// What the AL compiler knows of each app under test from its app.json (`target`, `runtime`, keys), for the checks that
+/// depend on it (`al_sema::alcodes::check_context`: AL0296 for an OnPrem method a Cloud app calls). The app compiles for
+/// the run's BC major. A dependency app, or an app whose manifest was not read (no `target`), has none: alc vetted the
+/// first, and the second's target is not known.
+fn app_contexts(
+    apps: &[al_sema::workspace::AppSource],
+    kinds: &[al_sema::AppKind],
+    manifests: &[Manifest],
+    target: Option<&al_version::Target>,
+) -> Vec<(String, al_sema::alcodes::AppContext)> {
+    use al_sema::alcodes::{AppContext, AppTarget};
+    apps.iter()
+        .zip(kinds)
+        .zip(manifests)
+        .filter(|((_, k), _)| **k != al_sema::AppKind::Dependency)
+        .filter_map(|((a, _), m)| {
+            let app_target = match m.target.to_ascii_lowercase().as_str() {
+                "cloud" => AppTarget::Cloud,
+                "onprem" => AppTarget::OnPrem,
+                "extension" => AppTarget::Extension,
+                "internal" => AppTarget::Internal,
+                _ => return None,
+            };
+            Some((
+                a.id.clone(),
+                AppContext {
+                    target: app_target,
+                    runtime: m.runtime,
+                    app_json_keys: m.app_json_keys.clone(),
+                    bc_major: target.map(|t| u32::from(t.bc.major)),
+                },
+            ))
+        })
+        .collect()
 }

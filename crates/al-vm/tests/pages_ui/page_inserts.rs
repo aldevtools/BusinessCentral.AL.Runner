@@ -15,7 +15,8 @@ page 69891 "PI Worksheet Open"
 {
     PageType = Worksheet; SourceTable = "PI Num"; SourceTableTemporary = true; ApplicationArea = All; UsageCategory = None;
     layout { area(Content) { repeater(Rows) { field(Number; Rec.Number) { } } } }
-    trigger OnOpenPage() begin end;
+    trigger OnInit() begin Error('OnInit ran'); end;
+    trigger OnOpenPage() begin Error('OnOpenPage ran'); end;
 }
 codeunit 69892 C
 {
@@ -25,10 +26,11 @@ codeunit 69892 C
         asserterror P.OpenNew();
         exit(GetLastErrorText() + ' [' + GetLastErrorCode() + ']');
     end;
-    procedure OpenNewWithTrigger()
+    procedure OpenNewWithTrigger(): Text
     var P: TestPage "PI Worksheet Open";
     begin
-        P.OpenNew();
+        asserterror P.OpenNew();
+        exit(GetLastErrorCode());
     end;
 }
 "#;
@@ -42,11 +44,13 @@ fn worksheet_open_new_is_not_supported() {
     );
 }
 
-/// Whether OnInit or OnOpenPage run before the error is not pinned: such a worksheet is refused.
+/// The error comes before OnInit and OnOpenPage run (pageext/lt-bl-implicit-creation/Y8OpenNewPageTypes.al:306-317).
 #[test]
-fn worksheet_open_new_with_open_triggers_is_refused() {
-    let r = al_testkit::run_in(WORKSHEET, "C", "OpenNewWithTrigger");
-    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+fn worksheet_open_new_with_open_triggers_fails_before_them() {
+    assert_eq!(
+        text(al_testkit::run_in(WORKSHEET, "C", "OpenNewWithTrigger")),
+        "NotSupportedPageViewMode"
+    );
 }
 
 const API: &str = r#"

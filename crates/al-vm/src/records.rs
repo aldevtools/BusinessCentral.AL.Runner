@@ -82,14 +82,25 @@ pub(crate) const RUN_PAGE_LINK_COPY: &str = "a by-value copy of Rec of a page an
 /// SetCurrentKey_NotStoredFields `media` `ok:[Id]`, read in `Outcome(Ok, R: Record)`). Its methods in [`Session::media_key_op`].
 pub(crate) const MEDIA_KEY: &str = "after SetCurrentKey on a Media or MediaSet field only CurrentKey is pinned (the record answers the field, a by-value copy the primary key): the order of the rows and the rest of the view are not";
 
-/// Whether `rec` carries [`MEDIA_KEY`].
+/// The `RecordState::unpinned_buffer` reason of a record after `SetCurrentKey` on a FlowField whose value depends on the row (a
+/// `field()` condition), alone or after normal fields. Only `CurrentKey` is pinned: it names the fields
+/// (record/Y8SetCurrentKeyNotStored.al:84-106 `flowfield` `key=Total`, `name_then_flowfield` `key=Name,Total`;
+/// record/lt-set-current-key/SetCurrentKeyFlowFieldOrder.al:109-113 `currentKey` `Cnt`). The order of the rows is pinned for
+/// one shape only (SetCurrentKeyFlowFieldOrder.al) and not built: every method that reads rows refuses, as for [`MEDIA_KEY`].
+pub(crate) const FLOWFIELD_KEY: &str = "after SetCurrentKey on a FlowField whose value depends on the row only CurrentKey is pinned: the order of the rows by the FlowField's value is not built";
+
+/// Whether `rec` carries [`MEDIA_KEY`] or [`FLOWFIELD_KEY`].
 pub(crate) fn media_key_marked(rec: &Rec) -> bool {
-    rec.borrow().unpinned_buffer == Some(MEDIA_KEY)
+    matches!(rec.borrow().unpinned_buffer, Some(w) if w == MEDIA_KEY || w == FLOWFIELD_KEY)
 }
 
 /// Whether field reads of a record whose buffer has the reason `why` run.
 pub(crate) fn run_page_link_fields_read(why: &str) -> bool {
-    why == RUN_PAGE_LINK_OPEN_FILLED || why == RUN_PAGE_LINK_COPY || why == MEDIA_KEY || why == XP_VIEW_AFTER_EXPORT
+    why == RUN_PAGE_LINK_OPEN_FILLED
+        || why == RUN_PAGE_LINK_COPY
+        || why == MEDIA_KEY
+        || why == FLOWFIELD_KEY
+        || why == XP_VIEW_AFTER_EXPORT
 }
 
 /// Whether two filter lists are the same filters, in any order.
@@ -318,12 +329,12 @@ impl Session {
 
     /// Why the caption of the table with object index `object` is not pinned, if it is not.
     /// `Get` with the RecordId of table `other` (record/lt-record-conversion-assumptions/GetRecordId.al:123-164, al-runner
-    /// issue 5795): with the result used it answers false and raises nothing (P98_Get_RecordId_OtherTable_ResultUsed); unused,
-    /// also in a TryFunction, it raises the error below with code `DB:Ok` (P98_Get_RecordId_OtherTable). What a used Get leaves
-    /// in GetLastErrorText is not pinned, nor whether the text names a table with a caption by its name or by its caption.
+    /// issue 5795): with the result used it answers false and raises nothing (P98_Get_RecordId_OtherTable_ResultUsed) and
+    /// sets no last error: after ClearLastError both texts stay empty, an earlier error stays the last one
+    /// (Y8GetRecordIdCaption.al:65-86). Unused, also in a TryFunction, it raises the error below with code `DB:Ok`
+    /// (P98_Get_RecordId_OtherTable), naming both tables by their captions (Y8GetRecordIdCaption.al:48-63).
     fn get_other_tables_record_id(&mut self, t: &TableDef, other: usize) -> Result<Value, Signal> {
         if self.ret_used {
-            self.last_error = al_builtins::native::unpinned_error();
             return Ok(Value::Boolean(false));
         }
         let Some(o) = self.engine.tables.get(other).cloned().flatten() else {
@@ -331,13 +342,7 @@ impl Session {
         };
         let mut names = Vec::new();
         for d in [&*o, t] {
-            let caption = self.caption(d);
-            if caption != d.name || self.caption_refused(d.object as usize).is_some() {
-                return unsupported(
-                    "the error of a Get with the RecordId of another table, for a table with a caption: name or caption is not pinned",
-                );
-            }
-            names.push(caption);
+            names.push(self.caption_checked(d)?);
         }
         Err(Signal::Error(Box::new(AlError {
             message: format!(
@@ -1345,8 +1350,12 @@ impl Session {
     }
 
     fn run_trigger(&mut self, object: usize, routine: usize, rec: &Rec, xrec: Option<&Rec>) -> Result<(), Signal> {
-        self.call_on_record(object, routine, rec.clone(), xrec, Vec::new())
-            .map(|_| ())
+        let entered = !self.dirty_frames.is_empty() && self.dirty_trigger_enter(rec, xrec);
+        let r = self
+            .call_on_record(object, routine, rec.clone(), xrec, Vec::new())
+            .map(|_| ());
+        self.dirty_trigger_exit(entered);
+        r
     }
 
     /// Every write gets a new, increasing SystemRowVersion.
@@ -2517,8 +2526,8 @@ impl Session {
         if why == RUN_PAGE_LINK_COPY {
             return self.run_page_link_copy_op(method, rec, args);
         }
-        if why == MEDIA_KEY {
-            return self.media_key_op(method, rec, args);
+        if why == MEDIA_KEY || why == FLOWFIELD_KEY {
+            return self.media_key_op(method, rec, args, why);
         }
         let refill = match method {
             RecordOp::Get | RecordOp::FindFirst | RecordOp::FindLast | RecordOp::FindSet => true,
@@ -2723,10 +2732,10 @@ impl Session {
     }
 
     /// A record method on a record with a key on a Media or MediaSet field, or on a by-value copy of it ([`MEDIA_KEY`]):
-    /// `CurrentKey` and the methods that do not depend on the key or the order of the rows run; `SetCurrentKey` and `Reset` give
-    /// the record a key of its own again; every other method refuses.
-    fn media_key_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
-        let rekeys = matches!(method, RecordOp::Reset | RecordOp::SetCurrentKey);
+    /// and on a FlowField key ([`FLOWFIELD_KEY`], `why`): `CurrentKey` and the methods that do not depend on the key or the order
+    /// of the rows run; `SetCurrentKey`, `Reset` and `Clear` give the record a key of its own again; every other method refuses.
+    fn media_key_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value], why: &str) -> Result<Value, Signal> {
+        let rekeys = matches!(method, RecordOp::Reset | RecordOp::SetCurrentKey | RecordOp::Clear);
         let runs = rekeys
             || matches!(
                 method,
@@ -2745,7 +2754,7 @@ impl Session {
                     | RecordOp::Init
             );
         if !runs {
-            return unsupported(format!("Record.{}(): {MEDIA_KEY}", method.name()));
+            return unsupported(format!("Record.{}(): {why}", method.name()));
         }
         let flag = rec.borrow_mut().unpinned_buffer.take();
         let r = self.record_op_inner(method, rec, args);
@@ -3547,7 +3556,12 @@ impl Session {
                         fresh[i] = r.fields[i].clone();
                     }
                     let old = std::mem::replace(&mut r.fields, fresh);
-                    r.is_dirty_base = al_builtins::value::DirtyBase::Row { base: old, alt: None };
+                    r.is_dirty_base = al_builtins::value::DirtyBase::Row {
+                        base: old,
+                        alt: None,
+                        dirty_only: false,
+                        stale_store: false,
+                    };
                     return Ok(Value::Null);
                 }
                 for (i, v) in fresh.into_iter().enumerate() {
@@ -5126,27 +5140,59 @@ impl Session {
                                     )
                                 )
                         };
-                        // A FlowField whose value depends on the row (a `field()` condition) sorts the rows by that value and is
-                        // reported as the key (record/lt-set-current-key/SetCurrentKeyFlowFieldOrder.al:109-113), against the
-                        // FlowField without conditions above (W4SortKeys.al:471). The deciding rule is not pinned: refused.
-                        if let Some(&p) = wanted.iter().find(|&&p| {
-                            let f = &schema.fields[p];
-                            f.calc_refusal.is_some()
-                                || f.calc.as_ref().is_some_and(|c| {
-                                    c.conds.iter().any(|k| {
-                                        matches!(
-                                            k.value,
-                                            al_ir::CalcValue::Field(_)
-                                                | al_ir::CalcValue::UpperLimit(_)
-                                                | al_ir::CalcValue::FieldFilter(_)
-                                        )
-                                    })
+                        let row_dependent = |p: usize| {
+                            schema.fields[p].calc.as_ref().is_some_and(|c| {
+                                c.conds.iter().any(|k| {
+                                    matches!(
+                                        k.value,
+                                        al_ir::CalcValue::Field(_)
+                                            | al_ir::CalcValue::UpperLimit(_)
+                                            | al_ir::CalcValue::FieldFilter(_)
+                                    )
                                 })
-                        }) {
+                            })
+                        };
+                        if let Some(&p) = wanted.iter().find(|&&p| schema.fields[p].calc_refusal.is_some()) {
                             return unsupported(format!(
-                                "SetCurrentKey on the FlowField {}, whose value depends on the row: whether it orders the rows is not pinned (probe wanted)",
+                                "SetCurrentKey on the FlowField {}, whose formula is not lowered (probe wanted)",
                                 t.fields[p].name
                             ));
+                        }
+                        // A FlowField whose value depends on the row (a `field()` condition) is reported as the key, alone and
+                        // after a normal field (record/Y8SetCurrentKeyNotStored.al:84-106; SetCurrentKeyFlowFieldOrder.al:
+                        // 109-113 also pins the order of the rows, not built: [`FLOWFIELD_KEY`]), against the FlowField without
+                        // conditions below (W4SortKeys.al:471). Together with a Media field or a FlowField without conditions:
+                        // not pinned.
+                        if wanted.iter().any(|&p| row_dependent(p)) {
+                            let is_media = |p: usize| {
+                                matches!(
+                                    &t.fields[p].ty,
+                                    RtType::Library(
+                                        al_builtins::library_kind::LibraryKind::Media
+                                            | al_builtins::library_kind::LibraryKind::MediaSet
+                                    )
+                                )
+                            };
+                            if let Some(&p) = wanted
+                                .iter()
+                                .find(|&&p| !row_dependent(p) && (unordered(p) || is_media(p) || !t.fields[p].stored))
+                            {
+                                return unsupported(format!(
+                                    "SetCurrentKey on a FlowField whose value depends on the row together with {}: not pinned (probe wanted)",
+                                    t.fields[p].name
+                                ));
+                            }
+                            let index = self.engine.tables[t.object as usize]
+                                .as_ref()
+                                .map_or(0, |e| e.keys.len());
+                            let mut r = rec.borrow_mut();
+                            r.field_descending = 0;
+                            r.key = index;
+                            r.adhoc = Some((index, wanted));
+                            if r.unpinned_buffer.is_none() {
+                                r.unpinned_buffer = Some(FLOWFIELD_KEY);
+                            }
+                            return Ok(Value::Boolean(true));
                         }
                         let media = |p: usize| {
                             matches!(

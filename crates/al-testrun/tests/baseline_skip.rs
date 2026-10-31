@@ -63,6 +63,8 @@ fn run(only: &[u32], cache: Option<&std::path::Path>) -> CorpusRuntime {
         id_ranges: Vec::new(),
         translations: false,
         translation_files: Vec::new(),
+        runtime: None,
+        app_json_keys: Vec::new(),
         symbols: vec![],
     };
     CorpusRuntime::try_run_suites_with(
@@ -213,6 +215,8 @@ fn run_lazy(only: &[u32], cache: &std::path::Path, base: &str) -> (CorpusRuntime
         id_ranges: Vec::new(),
         translations: false,
         translation_files: Vec::new(),
+        runtime: None,
+        app_json_keys: Vec::new(),
         symbols: vec![],
     };
     let loader = std::sync::Arc::new(TextLoader {

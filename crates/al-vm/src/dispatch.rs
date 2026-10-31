@@ -571,6 +571,11 @@ impl Session {
         // Still not pinned, so still refused where it changes the order (`visit_orders`): whether BC walks from every
         // app or only from the apps no other app depends on, and whether it sorts those apps by publisher first. Both
         // probes give the same order under each of these readings.
+        // Measured pairs of apps that do not depend on each other, for one event (`MEASURED_PAIRS`): when they and the
+        // dependencies order every pair of apps here, that order is served; anything else falls through to the readings.
+        if let Some(measured) = measured_order(program, object, event, &order, &depends) {
+            return Ok(sorted(&measured, targets));
+        }
         let models = visit_orders(&program.apps);
         let mut results = models.iter().map(|(what, full)| {
             let order: Vec<usize> = full.iter().copied().filter(|a| order.contains(a)).collect();
@@ -714,6 +719,113 @@ impl Session {
 /// dependencies themselves in ascending app id (writer UI: not in declared order, and not by publisher). The others
 /// start the walk only from the apps no other app depends on, in ascending app id or sorted by publisher first: both
 /// probes give the same order under these readings, so they do not tell them apart.
+/// One measured order of two apps that do not depend on each other, on one event: `first` runs before `later`.
+struct MeasuredPair {
+    /// The app that publishes the event, its object id and the event name (lowercase).
+    publisher_app: &'static str,
+    publisher_object: u32,
+    event: &'static str,
+    first: &'static str,
+    later: &'static str,
+}
+
+const BASE_APPLICATION: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
+const TESTS_TESTLIBRARIES: &str = "5d86850b-0d76-4eca-bd7b-951ad998e997";
+
+/// Measured on BC 27.5, 28.5 and 29.0, not derived from a rule (the order of apps that do not depend on each other is not
+/// predictable across the probes: corpus PR 883 and BwSubscriberOrderTests.al:253). Base Application's
+/// GlobalTriggerManagement (codeunit 49) .OnAfterGetDatabaseTableTriggerSetup, in the corpus TestLibraries job:
+/// - XApp D (e92be076-...) runs, then Tests-TestLibraries' 130011 "Backup Management", then the main corpus app
+///   (a1b2c3d4-...): corpus PR 883, tests/al-language-testlibraries/lt-y3-setup-order/Y3SetupOrderTests.al:38-46
+///   (`M: seq=2 in=YesYesYesYes | D: seq=1 in=NoNoNoNo`; in the corpus pin from the next bump);
+/// - 130011 runs before the corpus testlibraries app (a93b8636-...): tests/al-language-testlibraries/lt-bi-trigger-setup/
+///   BiTriggerSetup.al:21-22.
+const MEASURED_PAIRS: &[MeasuredPair] = &[
+    MeasuredPair {
+        publisher_app: BASE_APPLICATION,
+        publisher_object: 49,
+        event: "onaftergetdatabasetabletriggersetup",
+        first: "e92be076-de11-44ed-895e-17031341df29",
+        later: TESTS_TESTLIBRARIES,
+    },
+    MeasuredPair {
+        publisher_app: BASE_APPLICATION,
+        publisher_object: 49,
+        event: "onaftergetdatabasetabletriggersetup",
+        first: TESTS_TESTLIBRARIES,
+        later: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    },
+    MeasuredPair {
+        publisher_app: BASE_APPLICATION,
+        publisher_object: 49,
+        event: "onaftergetdatabasetabletriggersetup",
+        first: TESTS_TESTLIBRARIES,
+        later: "a93b8636-cd55-4966-b98c-98f1e70e13f9",
+    },
+];
+
+/// The order of the apps in `apps` (indexes into `program.apps`) when the dependencies (`depends(a, b)`: a depends on b)
+/// and the measured pairs of this event order every pair of them, else `None`.
+fn measured_order(
+    program: &al_ir::Program,
+    object: usize,
+    event: &str,
+    apps: &[usize],
+    depends: &dyn Fn(usize, usize) -> bool,
+) -> Option<Vec<usize>> {
+    let obj = program.objects.get(object)?;
+    let publisher = program.apps.get(obj.app as usize)?;
+    let pairs: Vec<&MeasuredPair> = MEASURED_PAIRS
+        .iter()
+        .filter(|p| {
+            p.event == event && obj.id == Some(p.publisher_object) && publisher.id.eq_ignore_ascii_case(p.publisher_app)
+        })
+        .collect();
+    if pairs.is_empty() {
+        return None;
+    }
+    let id = |a: usize| program.apps.get(a).map_or("", |x| x.id.as_str());
+    // `before(a, b)`: a must run before b.
+    let before = |a: usize, b: usize| {
+        depends(b, a)
+            || pairs
+                .iter()
+                .any(|p| p.first.eq_ignore_ascii_case(id(a)) && p.later.eq_ignore_ascii_case(id(b)))
+    };
+    let mut order = Vec::with_capacity(apps.len());
+    let mut left = apps.to_vec();
+    while !left.is_empty() {
+        let at = left
+            .iter()
+            .position(|&a| !left.iter().any(|&b| b != a && before(b, a)))?;
+        let a = left.remove(at);
+        // A pair the dependencies and the measured pairs leave open (no chain of them orders it): not served.
+        if !left.iter().all(|&b| reaches(a, b, apps, &before)) {
+            return None;
+        }
+        order.push(a);
+    }
+    Some(order)
+}
+
+/// Whether `a` must run before `b` through a chain of `before` steps over `apps`.
+fn reaches(a: usize, b: usize, apps: &[usize], before: &dyn Fn(usize, usize) -> bool) -> bool {
+    let mut seen = vec![a];
+    let mut stack = vec![a];
+    while let Some(x) = stack.pop() {
+        if x == b {
+            return true;
+        }
+        for &y in apps {
+            if !seen.contains(&y) && before(x, y) {
+                seen.push(y);
+                stack.push(y);
+            }
+        }
+    }
+    false
+}
+
 pub(crate) fn visit_orders(apps: &[al_ir::AppInfo]) -> Vec<(&'static str, Vec<usize>)> {
     let key = |a: usize| apps[a].id.to_ascii_lowercase();
     let deps_of = |a: usize| -> Vec<usize> {
