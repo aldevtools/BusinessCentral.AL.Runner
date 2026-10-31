@@ -1184,7 +1184,30 @@ impl Session {
             // (Name reads 'dirty' after the action in the same tests).
             self.save_row(st)?;
         }
-        if was_dirty && !self.declares(st, "onfindrecord") && !self.declares(st, "onnextrecord") && !dirty_reread_only {
+        // A top-level card with OnAfterGetCurrRecord and without OnAfterGetRecord saves the edit before the action and reads
+        // nothing before its trigger (corpus master 97c29f86, pages/lt-y17-save-row-gone/Y17SaveRowGone.al:632
+        // PgSave_ActionDeletesEditedRow_Card `invoke log` `P.OnModifyRecord:A/edited;T.OnModify:A/edited/No;P.Finish:A/edited;...`).
+        let card_saves_first = was_dirty
+            && !dirty_reread_only
+            && st.borrow().host.is_none()
+            && self.is_card(st)
+            && self.has_source(st)
+            && st.borrow().open
+            && st.borrow().cursor == Cursor::Row
+            && !st.borrow().draft
+            && self.declares(st, "onaftergetcurrrecord")
+            && !self.declares(st, "onaftergetrecord")
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord")
+            && page_of(&engine, st).controls[idx].run_object.is_none()
+            && page_of(&engine, st).controls[idx].trigger("onaction").is_some();
+        if card_saves_first {
+            self.save_row(st)?;
+        } else if was_dirty
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord")
+            && !dirty_reread_only
+        {
             // On a Document page this save runs the host's CaptionClass expressions and not the part's
             // (`fill_field_caption_expressions`, QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps).
             let doc = st.borrow().host.is_none()
@@ -1531,10 +1554,23 @@ impl Session {
                 let rec = self.page_rec(st);
                 // A change the action saved itself (`Rec.Modify()` in the action) is not saved again: the
                 // page runs no OnModify for it (misc/W2TableGlobals.al:Modify_ActionCallsModifyItself).
-                let saved_by_action = self
-                    .stored_row(&rec)?
-                    .is_some_and(|stored| Self::same_values(&rec.borrow().fields, &stored));
-                if !Self::same_values(&rec.borrow().fields, &before) && !saved_by_action {
+                let stored_now = self.stored_row(&rec)?;
+                let saved_by_action =
+                    stored_now.as_ref().is_some_and(|stored| Self::same_values(&rec.borrow().fields, stored));
+                // A row the action changed and then deleted (a codeunit that modifies and deletes Rec: Make Order, Post) is not
+                // written again on a card: the card closes (`settle_after_action`) and nothing is re-inserted (corpus master 97c29f86,
+                // pages/lt-y17-save-row-gone/Y17SaveRowGone.al:632 PgSave_ActionDeletesEditedRow_Card `stored` `B/b/No;`, :638
+                // without the edit). A list then moves on with reads the gone-row path does not model yet (:711
+                // PgSave_ActionDeletesEditedRow_List_Next `P.AGR:B;P.AGR:B;P.AGCR:B/b;` twice): refused.
+                let gone = stored_before && !moved_other && stored_now.is_none();
+                let changed = !Self::same_values(&rec.borrow().fields, &before);
+                if gone && changed && self.is_list(st) {
+                    return unsupported(
+                        "a list whose row an action changed and then deleted (the reads after the action are not pinned)",
+                    );
+                }
+                let deleted_by_action = gone;
+                if !Self::same_values(&rec.borrow().fields, &before) && !saved_by_action && !deleted_by_action {
                     // Another row in Rec saves nothing on the pinned list (above; Tests-ERM 134918 Apply Customer Entries' Post
                     // Application `Rec := TempApplyingCustLedgEntry`). On another page that is not pinned.
                     if moved_other {
@@ -3363,6 +3399,13 @@ impl Session {
             }
             self.page_trigger(st, "onclosepage", vec![])?;
             self.mark_closed(st);
+            // The close is left as the last error, code PageCloseRequest with no text; Invoke itself returns (corpus master
+            // 97c29f86, pages/lt-y17-save-row-gone/Y17SaveRowGone.al:632 PgSave_ActionDeletesEditedRow_Card `invoke|code`).
+            self.last_error = al_builtins::native::AlError {
+                message: String::new(),
+                code: "PageCloseRequest".into(),
+                ..Default::default()
+            };
             return Ok(());
         }
         if self.declares(st, "onfindrecord") {

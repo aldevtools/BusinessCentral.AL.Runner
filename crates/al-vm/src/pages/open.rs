@@ -1654,6 +1654,53 @@ impl Session {
         r
     }
 
+    /// A StandardDialog in lookup mode whose code changed the primary key of its stored row (a field's OnValidate sets
+    /// `Rec.Code := 'CUSTOM'`, the Select Sending Options shape): LookupOK and LookupCancel rename the row, with the other
+    /// fields as the page holds them. The table's OnRename runs (xRec the old key), not OnModifyRecord or OnModify, before
+    /// OnQueryClosePage; after LookupCancel OnAfterGetCurrRecord runs once more (corpus master 97c29f86,
+    /// pages/lt-y17-save-row-gone/Y17SaveRowGone.al:459 PgSave_TempKeyChangedByValidate_LookupOK `T.OnRename:CUSTOM x=DEF
+    /// temp=Yes;P.OnQueryClosePage:LookupOK:CUSTOM`, :480 after a Copy from a stored row, :530 _Cancel `T.OnRename:CUSTOM x=DEF
+    /// temp=Yes;P.AGCR:CUSTOM;P.OnQueryClosePage:LookupCancel:CUSTOM`, :551 a database source). Another page type, close action
+    /// or a page with parts keeps the refusal of `save_row`.
+    fn rename_changed_key_at_close(&mut self, st: &St, action: &str) -> Result<(), Signal> {
+        let shape = {
+            let s = st.borrow();
+            s.dirty && !s.draft && s.cursor == Cursor::Row && s.host.is_none() && s.parts.is_empty()
+        };
+        let object = st.borrow().object as usize;
+        if !shape
+            || !self.has_source(st)
+            || self.engine.object_facts[object].page_type != Some(al_ir::PageType::StandardDialog)
+            || !matches!(action, "LookupOK" | "LookupCancel")
+        {
+            return Ok(());
+        }
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        let held = self.page_xrec_fields(st);
+        let old_key = table.primary_key(&held);
+        let mut new_key = table.primary_key(&rec.borrow().fields);
+        if Self::same_key(&old_key, &new_key) {
+            return Ok(());
+        }
+        // The row is renamed from the key the page read it under.
+        {
+            let mut r = rec.borrow_mut();
+            for (&field, v) in table.keys[0].iter().zip(old_key.iter()) {
+                r.fields[field] = v.clone();
+            }
+        }
+        self.ret_used = false;
+        self.record_op(RecordOp::Rename, &rec, &mut new_key)?;
+        st.borrow_mut().dirty = false;
+        self.set_xrec(st);
+        if action == "LookupCancel" {
+            self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+            self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+        }
+        Ok(())
+    }
+
     /// OK on a request page with a changed row writes the row, and the report reads it through Rec (corpus
     /// report/lt-y-request-page/YRequestPageTests.al:471 RS_RequestPageRec_ReadInReportTriggers: `typed` set on a control bound to
     /// Rec, then `rows` `A/20000/typed` and `pre_rec` `[A/20000/typed]`). Pinned for a row of a table that runs no code when it is
@@ -1779,6 +1826,7 @@ impl Session {
             self.tx.immediate_errors = false;
             inserted?;
         }
+        self.rename_changed_key_at_close(st, action)?;
         let host_saves = st.borrow().dirty || st.borrow().draft;
         let save = self.close_denied_modify(st).and_then(|()| self.save_row(st));
         match save {
