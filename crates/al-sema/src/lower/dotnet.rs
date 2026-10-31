@@ -47,7 +47,10 @@ impl Lowerer<'_> {
             None
         } else {
             Some(self.ws.resolve_dotnet(self.file, &alias).ok_or_else(|| {
-                format!("DotNet '{alias}' has no dotnet {{ }} declaration in this app or its dependencies")
+                format!(
+                    "DotNet '{}' has no dotnet {{ }} declaration in this app or its dependencies",
+                    crate::types::display_name(&alias)
+                )
             })?)
         };
         // A `[RunOnClient]` variable: BC runs its calls on the client and a test session has none, so the constructor, a

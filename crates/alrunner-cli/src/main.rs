@@ -25,6 +25,7 @@ mod sources_report;
 mod stability;
 mod style;
 mod testdata;
+mod unpinned;
 mod version;
 
 use args::Command;
