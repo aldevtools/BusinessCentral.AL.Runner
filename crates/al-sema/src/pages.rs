@@ -1230,8 +1230,9 @@ impl Tree {
             // Actions move the same way, one or several at once, into an action group or an area of `actions` too (al-runner
             // issue 6483): a test page names an action and never lists them, and no table reports their order, so the order a
             // move gives them is not observable (ADR-009); each one stays in the tree with what it holds. Several controls of
-            // the layout in one move are not pinned: "Page Control Field" reports their order (QZ_PageExtMoves_PageControlFieldRows).
-            // A move of the layout into an area is not pinned.
+            // the layout in one move keep the order they are written in, which "Page Control Field" reports (corpus writer Y20,
+            // pageext/lt-y20-moves/Y20PageExtMoves.al:178, measured on BC; assumption until it is pinned). A move of the layout
+            // into an area is not pinned.
             "movefirst" | "movelast" | "moveafter" | "movebefore" => {
                 let args = op.section.args();
                 let [_, moved] = args.as_slice() else {
@@ -1256,7 +1257,8 @@ impl Tree {
                     return Err(format!("{kind}({target}) of no control"));
                 }
                 if !op.in_actions && ms.len() > 1 {
-                    return Err(format!("{kind}({target}; {moved}) of several controls is not pinned"));
+                    self.assumes
+                        .push(al_builtins::assumptions::Assumption::PageExtMoveSeveralControlsWrittenOrder);
                 }
                 let first_last = kind == "movefirst" || kind == "movelast";
                 let area = if op.in_actions && first_last {
@@ -2039,9 +2041,15 @@ mod tests {
         let l = merged(base, &[e]);
         assert!(l.reasons.is_empty(), "{:?}", l.reasons);
         assert_eq!(names(&l), ["G", "G>B", "G>Id", "G>C", "D2", "D2>E", "D2>D", "D2>A"]);
-        // Several controls of the layout in one move: their order is observable and not pinned.
-        let several = "pageextension 50102 E2 extends P { layout { movefirst(G; B, A) } }";
-        assert!(merged(base, &[several]).reasons.iter().any(|r| r.contains("several")));
+        // Several controls of the layout in one move keep the order written (Y20PageExtMoves.al:178, al-runner issue 6483).
+        let several = "pageextension 50102 E2 extends P { layout { movefirst(G; B, A) moveafter(D; E, C) } }";
+        let l = merged(base, &[several]);
+        assert!(l.reasons.is_empty(), "{:?}", l.reasons);
+        assert_eq!(names(&l), ["G", "G>B", "G>A", "G>Id", "D2", "D2>D", "D2>E", "D2>C"]);
+        assert_eq!(
+            l.assumes,
+            [al_builtins::assumptions::Assumption::PageExtMoveSeveralControlsWrittenOrder]
+        );
         // A group moved into itself or into a control it holds is refused.
         let nested = "page 50100 P { layout { area(Content) { group(G) { group(H) { field(A; Rec.A) { } } } } } }";
         let into_child = "pageextension 50102 E2 extends P { layout { movefirst(H; G) } }";
