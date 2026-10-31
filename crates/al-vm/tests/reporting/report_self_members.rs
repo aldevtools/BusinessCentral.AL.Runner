@@ -110,3 +110,107 @@ fn a_bare_run_modal_in_a_trigger_of_the_report_is_refused() {
         other => panic!("{other:?}"),
     }
 }
+
+/// The bare report methods are the `CurrReport.` form, also on a report variable never run and from a report extension
+/// (report/lt-y36-bare-report-member/Y36BareReportMember.al:206-357): UseRequestPage is No for `UseRequestPage = false`,
+/// a variable setter is seen by the bare getter, the bare setter in an extension is seen by the variable, ObjectId names
+/// the report, and a bare SetTableView filters the next run.
+const BARE: &str = r#"
+table 50966 "RSM Row3"
+{
+    fields { field(1; Id; Integer) { } }
+    keys { key(PK; Id) { } }
+}
+
+report 50967 "RSM Bare"
+{
+    ProcessingOnly = true;
+    UseRequestPage = false;
+    dataset
+    {
+        dataitem(Row; "RSM Row3")
+        {
+            trigger OnAfterGetRecord()
+            begin
+                Log.Add(Format(Row.Id) + ';');
+            end;
+        }
+    }
+    var
+        Log: Codeunit "RSM Log";
+
+    procedure GetUseRp(): Boolean
+    begin
+        exit(UseRequestPage());
+    end;
+
+    procedure Id(): Text
+    begin
+        exit(ObjectId(false) + ' ' + Format(IsReadOnly()) + ' ' + Format(PrintOnlyIfDetail()));
+    end;
+
+    procedure SetView(var R: Record "RSM Row3")
+    begin
+        SetTableView(R);
+    end;
+}
+
+codeunit 50970 "RSM Log"
+{
+    SingleInstance = true;
+    var
+        Seen: Text;
+
+    procedure Add(Entry: Text)
+    begin
+        Seen += Entry;
+    end;
+
+    procedure Take(): Text
+    begin
+        exit(Seen);
+    end;
+}
+
+reportextension 50968 "RSM Bare Ext" extends "RSM Bare"
+{
+    procedure ExtSetUseRp(Value: Boolean)
+    begin
+        UseRequestPage(Value);
+    end;
+}
+
+codeunit 50969 "RSM Caller3"
+{
+    procedure Go(): Text
+    var
+        Rep: Report "RSM Bare";
+        Log: Codeunit "RSM Log";
+        R: Record "RSM Row3";
+        Result: Text;
+        I: Integer;
+    begin
+        for I := 1 to 3 do begin
+            R.Id := I;
+            R.Insert();
+        end;
+        Result := Format(Rep.GetUseRp());
+        Rep.UseRequestPage(true);
+        Result += ' ' + Format(Rep.GetUseRp());
+        Rep.ExtSetUseRp(false);
+        Result += ' ' + Format(Rep.UseRequestPage()) + ' ' + Rep.Id();
+        R.SetRange(Id, 2);
+        Rep.SetView(R);
+        Rep.Run();
+        exit(Result + ' ' + Log.Take());
+    end;
+}
+"#;
+
+#[test]
+fn bare_report_methods_are_the_currreport_form() {
+    assert_eq!(
+        al_testkit::text(run_in(BARE, "RSM Caller3", "Go")),
+        "No Yes No Report 50967 No No 2;"
+    );
+}

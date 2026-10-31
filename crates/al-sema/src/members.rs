@@ -163,6 +163,20 @@ impl<'a> MemberTable<'a> {
         self.cells[i].get_or_init(|| merged_members(self.ws, i))
     }
 
+    /// The members computed so far, by object, for a later table of the same objects ([`MemberTable::with_known`]).
+    pub fn into_known(self) -> Vec<std::sync::OnceLock<Members>> {
+        self.cells
+    }
+
+    /// The table of `ws`, starting from the members `known` computed for its first objects: an object's members are a
+    /// function of its source and its extensions' (ADR-063: a compile that grows by apps keeps them for the objects
+    /// whose extensions did not change, which the caller has cleared in `known`).
+    pub fn with_known(ws: &'a Workspace, mut known: Vec<std::sync::OnceLock<Members>>) -> MemberTable<'a> {
+        known.truncate(ws.objects.len());
+        known.resize_with(ws.objects.len(), std::sync::OnceLock::new);
+        MemberTable { ws, cells: known }
+    }
+
     /// Every object's members, computing the ones not asked for yet.
     pub fn iter(&self) -> impl Iterator<Item = &Members> {
         (0..self.cells.len()).map(|i| self.get(i))

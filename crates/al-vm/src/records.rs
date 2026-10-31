@@ -4720,6 +4720,28 @@ impl Session {
                     _ => None,
                 };
                 let args = from_id.as_deref().unwrap_or(args);
+                // More values than the primary key has fields raise, with the result used and unused
+                // (record/lt-bm-builtin-name-procedures/Y36BuiltinNameSameArity.al:146-172 Y36_SameArity_Get_IntegerArgs: two
+                // Integers on a one-field key of a table without a Caption). A table with a Caption is not pinned (name or caption).
+                if from_id.is_none() && args.len() > t.keys[0].len() {
+                    let o = &self.engine.program.objects[t.object as usize];
+                    if o.properties
+                        .iter()
+                        .any(|(k, _)| k.eq_ignore_ascii_case("Caption") || k == al_ir::EXT_CAPTION_OVER_OWN)
+                    {
+                        return unsupported(
+                            "Get with more values than the primary key has fields, on a table with a Caption (not pinned)",
+                        );
+                    }
+                    return Err(crate::transactions::al_error_code(
+                        &format!(
+                            "Too many key fields were specified, so \"{}\" could not be retrieved. The number of fields in the primary key is {}.",
+                            t.name,
+                            t.keys[0].len()
+                        ),
+                        "AL:ToManyKeyFields",
+                    ));
+                }
                 let mut pk = Vec::new();
                 for (n, &field) in t.keys[0].iter().enumerate() {
                     let ty = t.fields[field].ty.clone();

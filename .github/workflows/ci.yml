@@ -12,6 +12,13 @@ name: CI
 #   release-tests  everything that needs an optimised build: the perf budgets, the tests that run
 #                  the finished `al-test-cli` over the whole corpus, and the network tests
 #
+# Owner amendment, 2026-10-31: the four comparisons that cost runner time and have not failed on a pull request
+# since they were added run on a push to main, on the nightly schedule and on manual dispatch, not on a pull request.
+# They are: the demand-driven compile against the eager compile, the compile cache against the uncached run, the
+# install baseline rule against the normal run, and the release-only perf budgets. The jobs keep their names (they
+# are required checks of the main ruleset); on a pull request the steps are skipped and a step says why. A merge
+# train runs as a pull request, so its comparisons run on main after the train merges.
+#
 # Nothing is dropped by the split. The two test files that run the `al-test-cli` binary over the
 # whole pinned corpus (`corpus_harness`, `dev_tooling`) are gated behind the `cli-e2e` feature of
 # al-test-cli, which is on by default (so `cargo test` and `check.sh` still run them). The `test` job
@@ -129,6 +136,7 @@ jobs:
       # entry file's own key also holds a hash of the executable, so a build that differs misses
       # and rebuilds). No restore-keys: an entry of another build is never usable.
       - name: Compile cache, restore
+        if: github.event_name != 'pull_request'
         uses: actions/cache@v4
         with:
           path: ~/.cache/al-runtime/compile
@@ -137,6 +145,7 @@ jobs:
       # the one that is. The measured run below is then always a cache hit, and the time of the
       # build is reported on its own line.
       - name: Compile cache, build or verify
+        if: github.event_name != 'pull_request'
         run: |
           ./target/release/al-test-cli --all-versions --build-compile-cache | tee cache-build.txt
 
@@ -173,35 +182,58 @@ jobs:
           if [ "${{ github.event_name }}" = push ] && [ "${{ github.ref }}" = refs/heads/main ]; then
             update=(--update-baseline)
           fi
+          # Its output also goes to normal.log, which the comparison of the passes below reads (ADR-063).
           ./target/release/al-test-cli --all-versions --require-dotnet "${update[@]}" \
-            --json pass-rate.json --markdown pass-rate.md --junit runtime-junit.xml || status=1
+            --json pass-rate.json --markdown pass-rate.md --junit runtime-junit.xml 2>&1 | tee normal.log
+          [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
           normal_end=$(date +%s)
           # The job summary is written by the step "Corpus job summary" below, from the files the
           # runs write (pass-rate-<v>.md and .json, eager-summary.md).
 
-          # --no-ratchet: the allow-listed differences fail the ratchet; compare_junit is the check.
-          # --json keeps each eager run's phase times (every report has them).
-          eager_pids=()
-          for v in 27 28 29; do
-            AL_EAGER_DEPENDENCIES=1 ./target/release/al-test-cli --bc-version $v --require-dotnet --no-ratchet \
-              --junit eager-junit-$v.xml --json eager-report-$v.json > eager-$v.log 2>&1 &
-            eager_pids+=($!)
-          done
-          i=0
+          eager_end=$normal_end
           eager_reports=()
-          for v in 27 28 29; do
-            wait "${eager_pids[$i]}" || { echo "::error::the eager run for BC $v failed"; status=1; }
-            i=$((i + 1))
-            echo "::group::Eager run output, BC $v"
-            cat eager-$v.log
-            echo "::endgroup::"
-            if [ -f eager-report-$v.json ]; then
-              eager_reports+=(--timings-table eager-report-$v.json)
-            fi
-          done
-          eager_end=$(date +%s)
-          # The main app of each version and every extra suite (OnPrem, the isolation probes).
-          tools/demand_vs_eager.sh compare . || status=1
+          # Owner amendment, 2026-10-31: the eager comparison runs on main and nightly, not on a pull request.
+          if [ "${{ github.event_name }}" != pull_request ]; then
+            # --no-ratchet: the allow-listed differences fail the ratchet; compare_junit is the check.
+            # --json keeps each eager run's phase times (every report has them).
+            eager_pids=()
+            for v in 27 28 29; do
+              AL_EAGER_DEPENDENCIES=1 ./target/release/al-test-cli --bc-version $v --require-dotnet --no-ratchet \
+                --junit eager-junit-$v.xml --json eager-report-$v.json > eager-$v.log 2>&1 &
+              eager_pids+=($!)
+            done
+            i=0
+            eager_reports=()
+            for v in 27 28 29; do
+              wait "${eager_pids[$i]}" || { echo "::error::the eager run for BC $v failed"; status=1; }
+              i=$((i + 1))
+              echo "::group::Eager run output, BC $v"
+              cat eager-$v.log
+              echo "::endgroup::"
+              if [ -f eager-report-$v.json ]; then
+                eager_reports+=(--timings-table eager-report-$v.json)
+              fi
+            done
+            eager_end=$(date +%s)
+            # The main app of each version and every extra suite (OnPrem, the isolation probes).
+            tools/demand_vs_eager.sh compare . || status=1
+            # Main and nightly only, like the eager comparison: it is three more full corpus runs (owner, 2026-10-31).
+            # ADR-063: a pass after the main one grows the main pass's compile by its own apps. One run per version that
+            # compiles every pass from source (AL_FRESH_PASS_COMPILE=1) must report the same outcomes, reasons and install
+            # baselines as the normal run. The three runs go side by side; each stays under 3 GB.
+            fresh_pids=()
+            for v in 27 28 29; do
+              AL_FRESH_PASS_COMPILE=1 ./target/release/al-test-cli --bc-version $v --require-dotnet --no-ratchet \
+                --junit fresh-junit-$v.xml > fresh-$v.log 2>&1 &
+              fresh_pids+=($!)
+            done
+            i=0
+            for v in 27 28 29; do
+              wait "${fresh_pids[$i]}" || { echo "::error::the run that compiles every pass from source failed for BC $v"; status=1; }
+              i=$((i + 1))
+            done
+            tools/fresh_vs_grown.sh compare . || status=1
+          fi
           step_end=$(date +%s)
 
           {
@@ -210,7 +242,7 @@ jobs:
             echo
             echo "- The normal run of all versions, alone on the runner: $((normal_end - step_start)) s."
             echo "- The three runs that compile every dependency, side by side: $((eager_end - normal_end)) s."
-            echo "- The comparison of the two: $((step_end - eager_end)) s."
+            echo "- The comparison of the two, and the three runs that compile every pass from source with theirs: $((step_end - eager_end)) s."
             echo "- The step in total: $((step_end - step_start)) s."
             echo
             echo "The times without the compile cache are from the normal run, which had the runner to itself."
@@ -239,6 +271,7 @@ jobs:
       # list tools/demand-eager-known-differences.txt is empty). The job summary has the times
       # with the cache on; the time to build the cache is a line of its own.
       - name: Corpus with the compile cache, against the uncached run
+        if: github.event_name != 'pull_request'
         run: |
           status=0
           ./target/release/al-test-cli --all-versions --require-dotnet --no-ratchet --require-compile-cache \
@@ -251,6 +284,15 @@ jobs:
 
       # The job summary, from the files the two steps above write. It runs even when one of them
       # failed, so a regression still shows its numbers.
+      - name: Comparisons skipped on a pull request
+        if: github.event_name == 'pull_request'
+        run: |
+          {
+            echo "## Comparisons that run on main and nightly only"
+            echo
+            echo "Owner amendment, 2026-10-31: the demand-driven against eager compile, the compile cache against the uncached run, the install baseline rule and the perf budgets do not run on a pull request. They run on the push to main (after a merge train merges) and on the nightly schedule."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Corpus job summary
         if: always()
         run: |
@@ -345,6 +387,7 @@ jobs:
       # install baseline must never change an outcome. This run starts every test codeunit the rule
       # calls free of the baseline on an empty store; no test may come out differently.
       - name: Install baseline rule, against the normal run
+        if: github.event_name != 'pull_request'
         run: |
           status=0
           AL_CHECK_BASELINE_RULE=1 ./target/release/al-test-cli --all-versions --require-dotnet --no-ratchet \
@@ -354,6 +397,7 @@ jobs:
       # Keeps the entries this run used and drops the rest, so the cache that is saved at the end of
       # the job holds only what the next run can use.
       - name: Compile cache, prune
+        if: github.event_name != 'pull_request'
         run: |
           used=$(grep -o '[^ ]*deps-[0-9a-f]*\.alcc' cache-build.txt | sort -u)
           for f in ~/.cache/al-runtime/compile/*.alcc; do
@@ -415,15 +459,22 @@ jobs:
       # allows no hardware counter it falls back to CPU time with wider limits). #[ignore]d in plain `cargo test` because they only mean something in release.
       # This job runs nothing else at the same time, so the numbers are not disturbed.
       # CI has no instruction counter, so the CPU-time fallback only warns here (owner, 2026-10-20); with a counter the budgets fail.
+      # Owner amendment, 2026-10-31: the budgets run on main and nightly, not on a pull request. The two checks
+      # that are not budgets (corpus_resolve_deps, platform_tables) stay on every pull request.
       - name: Perf budgets
+        if: github.event_name != 'pull_request'
         run: |
           cargo test --release --no-fail-fast \
             -p al-syntax --test perf_parse_throughput \
             -p al-test-cli --test perf_budget \
             -p al-test-cli --test perf_vm \
+            -p al-data --lib \
+            -- --ignored --nocapture
+      - name: Ignored release checks (corpus_resolve_deps, platform_tables)
+        run: |
+          cargo test --release --no-fail-fast \
             -p al-test-cli --test corpus_resolve_deps \
             -p al-test-cli --test platform_tables \
-            -p al-data --lib \
             -- --ignored --nocapture
 
       # The tests that run `al-test-cli` over the whole pinned corpus and its oracle (`--no-deps`),
