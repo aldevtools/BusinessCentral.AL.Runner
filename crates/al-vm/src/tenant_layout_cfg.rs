@@ -33,7 +33,10 @@ const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
 const TENANT_REPORT_DEFAULTS: u32 = 2_000_000_001;
 
 fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(format!("Tenant Report Layout Cfg: {}", what.into())))
+    Err(Signal::Unsupported(format!(
+        "Tenant Report Layout Cfg: {}",
+        what.into()
+    )))
 }
 
 /// What a part of a row names.
@@ -90,11 +93,20 @@ impl Session {
     }
 
     fn cfg_insert(&mut self, t: &TableDef, rec: &Rec) -> Result<(), Signal> {
-        let report = match t.fields.iter().position(|f| f.id == 1).map(|p| rec.borrow().fields[p].clone()) {
+        let report = match t
+            .fields
+            .iter()
+            .position(|f| f.id == 1)
+            .map(|p| rec.borrow().fields[p].clone())
+        {
             Some(Value::Integer(id)) => id,
             _ => return unsupported("an Insert whose Report ID is not an integer"),
         };
-        let (body, header, theme) = (Self::cfg_text(t, rec, 2), Self::cfg_text(t, rec, 4), Self::cfg_text(t, rec, 5));
+        let (body, header, theme) = (
+            Self::cfg_text(t, rec, 2),
+            Self::cfg_text(t, rec, 4),
+            Self::cfg_text(t, rec, 5),
+        );
         if header.is_empty() {
             return unsupported("an Insert with a blank Header Part Name (not pinned)");
         }
@@ -123,7 +135,9 @@ impl Session {
             ),
             // 'body layout by plain name', 'default subtype layout', 'undeclared layout'.
             (Part::Valid, Part::Wrong, Part::Valid) => {
-                format!("The Body part '{body}' must reference a Body-subtype layout in the tenants Report Layout List.")
+                format!(
+                    "The Body part '{body}' must reference a Body-subtype layout in the tenants Report Layout List."
+                )
             }
             _ => return unsupported("an Insert with more than one wrong part, or a wrong theme part (not pinned)"),
         };
@@ -150,16 +164,16 @@ impl Session {
         let mut seen_elsewhere = false;
         for o in program.objects.iter() {
             let own = report != 0 && o.kind == al_ir::ObjKind::Report && o.id == Some(report as u32);
-            let defaults = !body
-                && o.kind == al_ir::ObjKind::ReportExtension
-                && o.extends_id == Some(TENANT_REPORT_DEFAULTS);
-            let ext_of_report = report != 0
-                && o.kind == al_ir::ObjKind::ReportExtension
-                && o.extends_id == Some(report as u32);
+            let defaults =
+                !body && o.kind == al_ir::ObjKind::ReportExtension && o.extends_id == Some(TENANT_REPORT_DEFAULTS);
+            let ext_of_report =
+                report != 0 && o.kind == al_ir::ObjKind::ReportExtension && o.extends_id == Some(report as u32);
             if !(own || defaults || ext_of_report || o.id == Some(TENANT_REPORT_DEFAULTS)) {
                 continue;
             }
-            let Some(app) = program.apps.get(o.app as usize) else { continue };
+            let Some(app) = program.apps.get(o.app as usize) else {
+                continue;
+            };
             let app_id = app.id.to_ascii_lowercase();
             for l in &o.layouts {
                 let name = format!("{app_id}::{}", l.name);
@@ -188,8 +202,16 @@ impl Session {
         }
         // PtCloudTables.al Y17_TenantReportLayoutCfg_Shapes 'unknown report': a report the program does not hold takes the
         // default parts, a body there is not pinned.
-        if body && report != 0 && !program.objects.iter().any(|o| o.kind == al_ir::ObjKind::Report && o.id == Some(report as u32)) {
-            return Part::Unknown(format!("a Layout Name for report {report}, which the program does not hold"));
+        if body
+            && report != 0
+            && !program
+                .objects
+                .iter()
+                .any(|o| o.kind == al_ir::ObjKind::Report && o.id == Some(report as u32))
+        {
+            return Part::Unknown(format!(
+                "a Layout Name for report {report}, which the program does not hold"
+            ));
         }
         Part::Wrong
     }
@@ -221,7 +243,9 @@ impl Session {
             return Ok(());
         };
         for id in [4, 5] {
-            let Some(p) = t.fields.iter().position(|f| f.id == id) else { continue };
+            let Some(p) = t.fields.iter().position(|f| f.id == id) else {
+                continue;
+            };
             let new = Self::cfg_text(t, rec, id);
             let old = match &stored[p] {
                 Value::Text(v) | Value::Code(v) => v.to_string(),

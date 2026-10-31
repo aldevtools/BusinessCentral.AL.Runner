@@ -785,7 +785,11 @@ pub(super) fn table_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             // Y17_TableMetadata_InherentPermissions, corpus master 97c29f86); another value is not pinned.
             r[pos(t, 19)] = match ident(prop(o, "InherentPermissions").unwrap_or("")) {
                 v if v.is_empty() || v == "X" => Value::Text(v.into()),
-                v => super::unknown(t, 19, &format!("table '{}', which declares InherentPermissions = {v}", o.name)),
+                v => super::unknown(
+                    t,
+                    19,
+                    &format!("table '{}', which declares InherentPermissions = {v}", o.name),
+                ),
             };
             r[pos(t, 20)] = Value::Text(truncate(&ident(prop(o, "InherentEntitlements").unwrap_or("")), 5).into());
             r[pos(t, 21)] = option(t, 21, opt("Scope", SCOPES, 0)?);

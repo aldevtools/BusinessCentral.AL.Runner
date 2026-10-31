@@ -100,7 +100,8 @@ pub(super) fn user_layout_rows(p: &Providers, t: &TableDef, tenant: &TableDef, s
     let engine = p.engine();
     let c = Catalog::new(&engine);
     let col = |name: &str| tenant.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name));
-    let (Some(report_col), Some(name_col), Some(format_col)) = (col("Report ID"), col("Name"), col("Layout Format")) else {
+    let (Some(report_col), Some(name_col), Some(format_col)) = (col("Report ID"), col("Name"), col("Layout Format"))
+    else {
         return Vec::new();
     };
     let description_col = col("Description");
@@ -131,7 +132,11 @@ pub(super) fn user_layout_rows(p: &Providers, t: &TableDef, tenant: &TableDef, s
             let Some(o) = report.filter(|_| rdlc) else {
                 for f in &t.fields {
                     if ![1, 2, 5].contains(&f.id) {
-                        r[pos(t, f.id)] = unknown(t, f.id, &format!("{whose}, not an RDLC layout of a report of the program"));
+                        r[pos(t, f.id)] = unknown(
+                            t,
+                            f.id,
+                            &format!("{whose}, not an RDLC layout of a report of the program"),
+                        );
                     }
                 }
                 return Entry::ok(r);

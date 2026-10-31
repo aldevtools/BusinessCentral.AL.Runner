@@ -480,9 +480,7 @@ impl Session {
     pub(crate) fn is_unseeded(&self, t: &TableDef) -> bool {
         let o = t.object as usize;
         self.engine.unseeded.contains(&o)
-            || (!self.install_scope
-                && self.engine.platform_unseeded.contains(&o)
-                && !self.store.emptied(&self.cx, t))
+            || (!self.install_scope && self.engine.platform_unseeded.contains(&o) && !self.store.emptied(&self.cx, t))
     }
 
     /// Why the rows install code left in table `object` are not known (ADR-046: `InstallFacts::unknown`). Install code

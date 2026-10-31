@@ -2448,6 +2448,10 @@ codeunit 50000 T { Subtype = Test;
     let get = |n: &str| o.iter().find(|(t, _)| t.ends_with(n)).map(|(_, o)| o.clone()).expect(n);
     assert_eq!(get("Cleared"), Outcome::Pass);
     for t in ["Fresh", "FilteredDeleteAll", "ClearedThenRolledBack"] {
-        assert!(matches!(get(t), Outcome::NotRun(m) if m.contains("Power BI Blob")), "{t}: {:?}", get(t));
+        assert!(
+            matches!(get(t), Outcome::NotRun(m) if m.contains("Power BI Blob")),
+            "{t}: {:?}",
+            get(t)
+        );
     }
 }

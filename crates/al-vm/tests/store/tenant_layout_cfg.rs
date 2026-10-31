@@ -76,10 +76,14 @@ fn built() -> Built {
 }
 
 fn refused(r: Result<al_builtins::value::Value, Signal>) {
-    assert!(matches!(&r, Err(Signal::Unsupported(m)) if m.contains("Tenant Report Layout Cfg")), "{r:?}");
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("Tenant Report Layout Cfg")),
+        "{r:?}"
+    );
 }
 
-const HF_ERR: &str = "The Header/Footer part '{}' must reference a Header/Footer-subtype layout in the tenants Report Layout List.";
+const HF_ERR: &str =
+    "The Header/Footer part '{}' must reference a Header/Footer-subtype layout in the tenants Report Layout List.";
 const BODY_ERR: &str = "The Body part '{}' must reference a Body-subtype layout in the tenants Report Layout List.";
 
 #[test]
@@ -92,12 +96,30 @@ fn valid_rows_insert_and_take_a_blank_part_by_modify_all() {
 fn a_wrong_header_or_body_part_raises_the_pinned_error() {
     let app = "5d86850b-0d76-4eca-bd7b-951ad998e997";
     let mut b = built();
-    assert_eq!(error_message(b.run_in("C", "WrongHeader")), HF_ERR.replace("{}", "x::A"));
-    assert_eq!(error_message(b.run_in("C", "ThemeAsHeader")), HF_ERR.replace("{}", &format!("{app}::DefTheme")));
-    assert_eq!(error_message(b.run_in("C", "OwnPartsOnGlobal")), HF_ERR.replace("{}", &format!("{app}::HF")));
-    assert_eq!(error_message(b.run_in("C", "PlainBody")), BODY_ERR.replace("{}", "Body"));
-    assert_eq!(error_message(b.run_in("C", "DefaultSubtypeBody")), BODY_ERR.replace("{}", &format!("{app}::Rdl")));
-    assert_eq!(error_message(b.run_in("C", "UndeclaredBody")), BODY_ERR.replace("{}", &format!("{app}::NoSuch")));
+    assert_eq!(
+        error_message(b.run_in("C", "WrongHeader")),
+        HF_ERR.replace("{}", "x::A")
+    );
+    assert_eq!(
+        error_message(b.run_in("C", "ThemeAsHeader")),
+        HF_ERR.replace("{}", &format!("{app}::DefTheme"))
+    );
+    assert_eq!(
+        error_message(b.run_in("C", "OwnPartsOnGlobal")),
+        HF_ERR.replace("{}", &format!("{app}::HF"))
+    );
+    assert_eq!(
+        error_message(b.run_in("C", "PlainBody")),
+        BODY_ERR.replace("{}", "Body")
+    );
+    assert_eq!(
+        error_message(b.run_in("C", "DefaultSubtypeBody")),
+        BODY_ERR.replace("{}", &format!("{app}::Rdl"))
+    );
+    assert_eq!(
+        error_message(b.run_in("C", "UndeclaredBody")),
+        BODY_ERR.replace("{}", &format!("{app}::NoSuch"))
+    );
 }
 
 #[test]
