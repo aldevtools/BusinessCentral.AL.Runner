@@ -32,6 +32,8 @@ pub struct Baseline {
     /// (company, table, why): per-company tables whose rows in a company other than the session company are not known,
     /// because install code stopped there (ADR-046 decision 6, `--companies`). Sorted.
     pub company_unknown: Vec<(String, u32, String)>,
+    /// The companies `Database.CopyCompany` made from the session company (`Session::full_copies`). Sorted.
+    pub full_copies: Vec<String>,
     /// Names what the baseline holds: baselines with the same origin hold the same data. Each baseline made gets a
     /// number of its own; [`Baseline::with_origin`] gives a copy read from another's bytes that one's.
     origin: u64,
@@ -45,7 +47,7 @@ fn new_origin() -> u64 {
 }
 
 /// The first bytes of a snapshot: what it is and which layout it has. A change of the layout changes the last digit.
-const MAGIC: &[u8; 8] = b"ALBASE\0\x03";
+const MAGIC: &[u8; 8] = b"ALBASE\0\x04";
 
 impl Baseline {
     /// The baseline as bytes, to keep on disk or to hand to another thread (a `Baseline` holds `Rc`s and cannot go
@@ -127,6 +129,10 @@ impl Baseline {
             put_u32(&mut out, *table);
             put_str(&mut out, why);
         }
+        put_u32(&mut out, self.full_copies.len() as u32);
+        for company in &self.full_copies {
+            put_str(&mut out, company);
+        }
         Some(out)
     }
 
@@ -199,6 +205,10 @@ impl Baseline {
             let table = r.u32()?;
             company_unknown.push((company, table, r.str()?));
         }
+        let mut full_copies = Vec::new();
+        for _ in 0..r.u32()? {
+            full_copies.push(r.str()?);
+        }
         if !r.is_empty() {
             return None;
         }
@@ -214,6 +224,7 @@ impl Baseline {
             workspace_installs,
             company_built,
             company_unknown,
+            full_copies,
             install_rows: None,
             origin: new_origin(),
         })
@@ -286,6 +297,7 @@ impl Session {
                 v.sort();
                 v
             },
+            full_copies: self.full_copies.iter().cloned().collect(),
             install_rows: None,
             origin: new_origin(),
         }
@@ -354,6 +366,7 @@ impl Session {
             .iter()
             .map(|(c, t, why)| ((c.clone(), *t), why.clone()))
             .collect();
+        self.full_copies = b.full_copies.iter().cloned().collect();
         self.baseline_origin = Some((b.origin, self.store.change_counter()));
     }
 
@@ -409,6 +422,7 @@ mod tests {
             workspace_installs: Some(vec![([50000_u32, 50001].into_iter().collect(), "why".to_string())]),
             company_built: true,
             company_unknown: vec![("My Company".into(), 311, "why".into())],
+            full_copies: vec!["Copy".into()],
             install_rows: None,
             origin: new_origin(),
         }
@@ -418,7 +432,7 @@ mod tests {
     fn summary(b: &Baseline) -> String {
         let rows = b.store.export_committed().expect("no backing");
         format!(
-            "{rows:?} {} {} {} {:?} {:?} {:?} {} {:?}",
+            "{rows:?} {} {} {} {:?} {:?} {:?} {} {:?} {:?} {:?}",
             b.next_guid,
             b.next_row_version,
             b.committed_row_version,
@@ -426,7 +440,9 @@ mod tests {
             b.isolated_storage.iter().collect::<std::collections::BTreeMap<_, _>>(),
             b.sequences.iter().collect::<std::collections::BTreeMap<_, _>>(),
             b.last_stamp,
-            b.workspace_installs
+            b.workspace_installs,
+            b.company_unknown,
+            b.full_copies
         )
     }
 

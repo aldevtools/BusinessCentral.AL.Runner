@@ -732,6 +732,10 @@ impl Session {
         // A temporary record raises the table events and runs the triggers like any other
         // (corpus record/TestTableEventSequenceContracts.al:TemporaryRecord_RaisesTheEventsAndRunsTheTriggers).
         let (names, tail): (&[&str], Value) = match event {
+            "onbeforeinsertevent" | "onafterinsertevent" if self.run_trigger_unknown.is_some() => (
+                &["Rec", "RunTrigger"],
+                Value::Unknown(self.run_trigger_unknown.unwrap_or_default().into()),
+            ),
             "onbeforeinsertevent" | "onafterinsertevent" | "onbeforedeleteevent" | "onafterdeleteevent" => {
                 (&["Rec", "RunTrigger"], Value::Boolean(run_trigger))
             }
@@ -5687,6 +5691,9 @@ impl Session {
                                 al_builtins::native::text_of(&row[0]).unwrap_or_default(),
                             );
                             self.store.rename_company(&from, &to);
+                            if self.full_copies.remove(from.as_str()) {
+                                self.full_copies.insert(to.to_string());
+                            }
                         }
                         if !same_key {
                             self.propagate_rename(rec, &t, &refs, &old_fields, &row)?;
