@@ -1,7 +1,6 @@
 //! Record.Get with the RecordId of another table (al-runner issue 5795): false with the result used, an error otherwise
 //! (record/lt-record-conversion-assumptions/GetRecordId.al:123-164).
 
-use al_builtins::native::Signal;
 use al_testkit::{run_in, text};
 
 const SRC: &str = r#"
@@ -39,11 +38,15 @@ codeunit 70340 C
     end;
 
     procedure UsedThenLastErrorText(): Text
-    var R: Record "LT P98 GetRow"; O: Record "LT P98 GetOther";
+    var R: Record "LT P98 GetRow"; O: Record "LT P98 GetOther"; T: Text;
     begin
         O.Id := 5; O.Insert();
+        ClearLastError();
         if R.Get(O.RecordId) then;
-        exit(GetLastErrorText());
+        T := GetLastErrorText() + '|' + GetLastErrorCode() + '#';
+        asserterror Error('earlier');
+        if R.Get(O.RecordId) then;
+        exit(T + GetLastErrorText() + '|' + GetLastErrorCode());
     end;
 
     procedure Unused(): Text
@@ -88,13 +91,16 @@ fn an_unused_get_raises_the_pinned_error() {
 }
 
 #[test]
-fn what_a_used_get_leaves_in_the_last_error_is_not_pinned() {
-    let r = run_in(SRC, "C", "UsedThenLastErrorText");
-    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+fn a_used_get_sets_no_last_error() {
+    // record/lt-record-conversion-assumptions/Y8GetRecordIdCaption.al:65-86 Y8_Get_OtherTable_Used_LastError.
+    assert_eq!(text(run_in(SRC, "C", "UsedThenLastErrorText")), "|#earlier|Dialog");
 }
 
 #[test]
-fn a_table_with_a_caption_is_not_pinned_by_name_or_caption() {
-    let r = run_in(SRC, "C", "UnusedCaptioned");
-    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+fn the_error_names_the_tables_by_their_captions() {
+    // Y8GetRecordIdCaption.al:48-63 Y8_Get_OtherTable_Unused_WithCaptions.
+    assert_eq!(
+        text(run_in(SRC, "C", "UnusedCaptioned")),
+        "A RecordID from table 'Some Caption' cannot be used with a record from table 'LT P98 GetRow'."
+    );
 }

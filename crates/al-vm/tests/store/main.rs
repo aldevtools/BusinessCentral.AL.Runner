@@ -33,6 +33,7 @@ mod query_read_state;
 mod record_builtins;
 mod record_id_filter_text;
 mod record_is_dirty;
+mod record_is_dirty_shapes;
 mod record_ref_into_record;
 mod record_ref_lock_table_tx;
 mod record_ref_set_table_variant;

@@ -108,14 +108,8 @@ fn find_and_rename_match_the_corpus() {
 fn unpinned_paths_are_refused() {
     let seed = "        Row.Id := 1;\n        Row.Insert();\n";
     for (case, body) in [
-        ("findset", "        Row.FindSet();\n"),
-        ("next", "        Row.FindFirst();\n        Row.Next();\n"),
-        (
-            "copy",
-            "        Row.Get(1);\n        Other.Copy(Row);\n        Row := Other;\n",
-        ),
-        ("clear", "        Row.Get(1);\n        Clear(Row);\n"),
-        ("trigger", "        Row.Get(1);\n        Row.Modify(true);\n"),
+        // Copy of a record into itself (Y8RecordIsDirtyShapes.al pins Copy from another variable only).
+        ("copy from itself", "        Row.Get(1);\n        Row.Copy(Row);\n"),
         ("failed get", "        if Row.Get(2) then;\n"),
     ] {
         let why = refused(&format!("{seed}{body}        S := Format(Row.IsDirty());"));
@@ -137,49 +131,6 @@ fn another_variable_writing_the_row_is_refused() {
         S := Format(Row.IsDirty());"#,
     );
     assert!(why.contains("stored row"), "{why}");
-}
-
-#[test]
-fn a_temporary_record_is_refused() {
-    let src = format!(
-        "{TABLE}\ncodeunit 50101 \"Dirty Probe\"\n{{\n    procedure Probe(): Text\n    var\n        Row: Record \"Dirty Row\" temporary;\n    begin\n        Row.Id := 1;\n        Row.Insert();\n        exit(Format(Row.IsDirty()));\n    end;\n}}\n"
-    );
-    match run(&src, "Probe") {
-        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("temporary"), "{why}"),
-        other => panic!("expected a refusal, got {other:?}"),
-    }
-}
-
-#[test]
-fn is_dirty_inside_a_trigger_is_refused() {
-    let src = r#"
-table 50100 "Dirty Trig"
-{
-    fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } }
-    keys { key(PK; Id) { Clustered = true; } }
-    trigger OnModify()
-    begin
-        if Rec.IsDirty() then;
-    end;
-}
-codeunit 50101 "Dirty Probe"
-{
-    procedure Probe(): Text
-    var
-        Row: Record "Dirty Trig";
-    begin
-        Row.Id := 1;
-        Row.Insert();
-        Row.Name := 'x';
-        Row.Modify(true);
-        exit('ran');
-    end;
-}
-"#;
-    match run(src, "Probe") {
-        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("inside a trigger"), "{why}"),
-        other => panic!("expected a refusal, got {other:?}"),
-    }
 }
 
 #[test]

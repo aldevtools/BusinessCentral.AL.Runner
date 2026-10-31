@@ -50,6 +50,8 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
         symbols: Vec::new(),
         translations: al_deps::load::ships_translations(path),
         translation_files: Vec::new(),
+        runtime: None,
+        app_json_keys: Vec::new(),
     };
     let mut versions = AppVersions::parse(
         None,
