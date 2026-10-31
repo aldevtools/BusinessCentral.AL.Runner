@@ -263,6 +263,7 @@ fn run_codeunit_inner(
     }
     session.trace_faults(observe.is_some());
     session.ignore_permission_mock = scratch.ignore_permission_mock;
+    session.permissions_off = scratch.permissions_off;
     let covering = crate::coverage::enabled();
     if covering {
         session.enable_coverage();
@@ -829,6 +830,15 @@ fn run_codeunit_inner(
                             "the test used more than the time limit of {} s of CPU time and was stopped (--test-timeout-secs); BC may have ended it differently or not at all",
                             limit.map_or(0, |l| l.as_secs())
                         ))),
+                        r => r,
+                    };
+                    // ADR-062: a test that lowered its permissions to sets that do not grant everything, and made no
+                    // access since that the gate refused, is not run either: no access kind is enforced yet.
+                    let result = match result {
+                        Ok(_) | Err(Signal::Error(_)) => match session.permissions_lowered_at_end() {
+                            Some(why) => Err(Signal::Unsupported(why)),
+                            None => result,
+                        },
                         r => r,
                     };
                     session.tx_model = al_vm::TxModel::AutoCommit;

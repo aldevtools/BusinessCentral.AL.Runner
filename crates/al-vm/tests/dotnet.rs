@@ -1750,6 +1750,20 @@ fn a_dotnet_result_is_added_to_a_collection_as_its_element_type() {
     assert_eq!(text(r), "AbcAbc");
 }
 
+/// After `Clear` no set is assigned: the user's own permissions apply again (TestPermissionsMockEnforcement.al:74-97),
+/// and the insert goes through.
+#[test]
+fn clearing_the_assigned_sets_makes_the_session_unrestricted_again() {
+    let host = Fake::new(|r| panic!("the host must not be called: {r:?}"));
+    let r = run(
+        &host,
+        "H: DotNet PermissionTestHelper; R: Record \"ALT Blob\";",
+        "H := H.PermissionTestHelper(); H.AddEffectivePermissionSet('D365 BASIC'); H.Clear(); R.Code := 'A'; R.Insert(); exit('done');",
+        ": Text",
+    );
+    assert_eq!(text(r), "done");
+}
+
 /// `Permissions Mock`.Start/Stop/ClearAssignments (codeunit 131006) construct, clear and dispose the platform's
 /// `PermissionTestHelper`. With no permission set assigned the user's own permissions apply (corpus
 /// permissions/TestPermissionsMockEnforcement.al:74-97), and Start, Stop and ClearAssignments are accepted
@@ -1769,14 +1783,15 @@ fn the_permission_test_helper_starts_clears_and_stops_without_the_host() {
 }
 
 /// Assigning a permission set lowers the session's permissions (enforced on BC: corpus
-/// permissions/TestPermissionsMockEnforcement.al:28-47); permissions are not enforced here, so it is refused.
+/// permissions/TestPermissionsMockEnforcement.al:28-47); no access kind is enforced here (ADR-062), so the next access
+/// of the restricted session, a record method, is refused.
 #[test]
 fn adding_an_effective_permission_set_is_refused() {
     let host = Fake::new(|r| panic!("the host must not be called: {r:?}"));
     let r = run(
         &host,
-        "H: DotNet PermissionTestHelper;",
-        "H := H.PermissionTestHelper(); H.AddEffectivePermissionSet('D365 BASIC');",
+        "H: DotNet PermissionTestHelper; R: Record \"ALT Blob\";",
+        "H := H.PermissionTestHelper(); H.AddEffectivePermissionSet('D365 BASIC'); R.Code := 'A'; R.Insert();",
         "",
     );
     let why = unsupported(&r);

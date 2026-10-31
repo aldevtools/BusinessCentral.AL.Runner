@@ -876,6 +876,7 @@ fn run_version(
         process_ends_after,
         // The corpus checks permissions where it pins them: a test that lowers its own is never run without them.
         ignore_permission_mock: false,
+        permissions_off: false,
         perturb: Default::default(),
     };
     let load_time = started.elapsed();

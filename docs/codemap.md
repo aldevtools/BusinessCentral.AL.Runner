@@ -338,6 +338,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `pages/actions.rs` (676): Control navigation, lookups, invoking actions, refresh after an action.
 - `pages/format.rs` (435): Reading a control: value, text, type, caption, editable, enabled, visible.
 - `pages/areas.rs` (104): Application areas on the test client.
+- `permissions.rs` (330): The session's permission sets (ADR-062): `SetModel` composes the Role IDs `PermissionTestHelper.AddEffectivePermissionSet` assigned from the permission set objects' source (`platform::raw_sets`: wildcards, IncludedPermissionSets), once per engine and set list; a list that grants everything (SUPER) leaves `Session::permissions` at `None` (unrestricted). A restricted session is refused at its next routine call (`Session::call_with_facts`) or record method (`records::record_op`) outside codeunit 131006, or at the end of the test (al-testrun `run.rs`). Entry: `SetModel::compose`, `Session::assign_permission_set`, `permission_gate`, `permissions_lowered_at_end`.
 - `pages/background.rs` (257): Page background tasks under the test client. Entry: `BgWorker` 11.
 - `pages/filter.rs` (135): `TestPage.Filter` / `TestPart.Filter` (the `TestFilter` handle).
 - `pages/parts.rs` (324): Page parts (ADR-012 follow-up).
