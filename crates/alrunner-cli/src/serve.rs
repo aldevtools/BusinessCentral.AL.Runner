@@ -14,6 +14,7 @@ use std::sync::mpsc;
 /// The request fields of `runTests` and what each becomes.
 const RUN_TESTS_FIELDS: &[&str] = &[
     "command",
+    "permissions",
     "sourcePaths",
     "packagePaths",
     "coverage",
@@ -307,6 +308,13 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     }
     // Issue 5996: tests that lower their own permissions run with every access granted, as `--ignore-permission-mock`.
     a.ignore_permission_mock = flag(fields, "ignorePermissionMock")?;
+    // ADR-062 section 5: `permissions: "off"` is `--permissions off`.
+    a.permissions_off = match fields.get("permissions") {
+        None | Some(Value::Null) => false,
+        Some(Value::String(v)) if v.eq_ignore_ascii_case("on") => false,
+        Some(Value::String(v)) if v.eq_ignore_ascii_case("off") => true,
+        Some(_) => return Err("`permissions` is \"on\" or \"off\"".into()),
+    };
     // ADR-050 decision 1: `affectedOnly` runs the test codeunits a change since the stored result can affect.
     a.affected = flag(fields, "affectedOnly")?;
     a.include_failing = flag(fields, "includeFailing")?;
@@ -963,6 +971,21 @@ mod tests {
                 .ignore_permission_mock
         );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.ignore_permission_mock);
+        // ADR-062 section 5: `permissions: "off"` is `--permissions off` for one request.
+        assert!(
+            run(json!({"sourcePaths": ["/a"], "permissions": "off"}))
+                .unwrap()
+                .0
+                .permissions_off
+        );
+        assert!(
+            !run(json!({"sourcePaths": ["/a"], "permissions": "on"}))
+                .unwrap()
+                .0
+                .permissions_off
+        );
+        assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.permissions_off);
+        assert!(run(json!({"sourcePaths": ["/a"], "permissions": true})).is_err());
         assert!(run(json!({"sourcePaths": ["/a"], "runSelectedOnly": "yes"})).is_err());
         assert!(
             run(json!({"sourcePaths": ["/a"], "frobnicate": 1}))
