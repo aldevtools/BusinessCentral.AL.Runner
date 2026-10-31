@@ -282,6 +282,12 @@ impl Session {
                     };
                     set(&mut f.locals[d as usize], v);
                 }
+                Op::ConvertFieldValue { d, a, t } => {
+                    let v = take(f, a, nl);
+                    let ty = &chunk.types[t as usize];
+                    ops::fieldref_number_into_text_refused(&v, ty)?;
+                    set(&mut f.locals[d as usize], ops::convert_plain(v, ty)?);
+                }
                 Op::DbgHit { p } => self.debug_hit(p, &f.locals[..nl as usize]),
                 Op::CapHit { p } => self.cap_stmt_hit(p),
                 Op::CapBegin { p } => self.cap_push_stmt(p),

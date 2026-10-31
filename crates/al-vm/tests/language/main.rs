@@ -48,6 +48,7 @@ mod event_var_nested;
 mod events;
 mod exec;
 mod failed_insert_system_id;
+mod fieldref_number_into_text_variable;
 mod fieldref_option_ordinal_arg;
 mod fieldref_text_into_integer;
 mod filtergroup_assign;

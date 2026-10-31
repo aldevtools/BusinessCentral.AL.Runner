@@ -801,6 +801,28 @@ fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
     }
 }
 
+/// A number or an Enum `FieldRef.Value()` returns, converted straight into a Text or Code variable or a by-value parameter: refused.
+/// Into a record's field it is the Format text (`number_into_text_field`), and a Variant variable holding a number raises
+/// TypeConversion into a Text variable (types/lt-variant/VaTCompare.al:Concat_After_Conversion); which of the two BC does for the
+/// direct `FieldRef.Value()` is not pinned (only a Date, a Time and a DateTime are: report/lt-requestpage-savevalues-date-text-setvalue/
+/// P147DateToText.al QO_*FieldRef_EachConversion). docs/probes-needed.md "FieldRef.Value of a number into a Text or Code variable".
+#[cold]
+pub fn fieldref_number_into_text_refused(v: &Value, t: &RtType) -> Result<(), Signal> {
+    if matches!(t, RtType::Text(_) | RtType::Code(_))
+        && matches!(
+            v,
+            Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Enum(..)
+        )
+    {
+        return unsupported(format!(
+            "FieldRef.Value of {} into a {} variable (whether it is its Format text or raises TypeConversion is not pinned)",
+            v.describe(),
+            t.describe()
+        ));
+    }
+    Ok(())
+}
+
 /// A number `FieldRef.Value()` returns, assigned to a Text or Code field of a record: its default `Format` text (types/lt-variant-to-text-fields/
 /// VariantFieldRefBigIntToText.al:TextField_FromFieldRefValue_Numbers); an Enum goes in as its caption (types/lt-enum-to-text-fieldref/EnumToTextFieldRef.al:FieldRefValue_EnumToTextField_PerMember). Base Application's Workflow Table Relation Value.CreateNew does `Value := FieldRef.Value()` into
 /// a Text[250] field (114 Tests-Workflow tests). A Variant into a Text *variable* is not this: it raises (VaTCompare.al:af117).
