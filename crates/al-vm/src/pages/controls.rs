@@ -956,6 +956,9 @@ impl Session {
                 st.borrow_mut().trigger_errors.retain(|(i, _)| *i != idx);
                 let saved = std::mem::take(&mut st.borrow_mut().save_record_called);
                 let update_asked = st.borrow().refresh;
+                if update_asked && st.borrow().lookup_setting_value {
+                    self.defer_lookup_refresh(st);
+                }
                 if !(update_asked && self.host_after_part_update(st)?) {
                     self.run_refresh(st)?;
                 }

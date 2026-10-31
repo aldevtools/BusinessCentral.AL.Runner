@@ -2423,3 +2423,35 @@ codeunit 50000 T { Subtype = Test;
     if R.Count() <> 0 then Error('stored'); end; }"#;
     all_pass(run_over_system(MAIN_ID, None, None, main));
 }
+
+/// Gap cycle G8: Power BI Blob takes every write and keeps its Blob File (al-language-onprem/platform/PtOnPremTables.al
+/// Y17_PowerBIBlob_InsertModifyDelete, Y17_PowerBIBlob_BlobRoundTrip, corpus master 97c29f86). A fresh tenant holds demo rows
+/// nothing pins: a read is refused until the test's own DeleteAll without filters has emptied the table, as Microsoft's Power
+/// BI tests do before they insert (Tests-Integration PowerBIEmbeddedReportTests, PowerBISynchronizerTests SetupSystemBlob).
+#[test]
+fn power_bi_blob_is_answered_once_the_test_emptied_it() {
+    let main = r#"
+codeunit 50000 T { Subtype = Test;
+  [Test] procedure Fresh() var B: Record "Power BI Blob"; begin if B.Count() = 0 then; end;
+  [Test] procedure FilteredDeleteAll() var B: Record "Power BI Blob"; begin B.SetRange(Version, 2); B.DeleteAll(); B.Reset(); if B.IsEmpty() then; end;
+  [Test] procedure ClearedThenRolledBack() var B: Record "Power BI Blob"; begin asserterror begin B.DeleteAll(); Error('x'); end; if B.IsEmpty() then; end;
+  [Test] procedure Cleared() var B: Record "Power BI Blob"; R: Record "Power BI Blob"; OutS: OutStream; InS: InStream; Id: Guid; Line: Text; begin
+    B.DeleteAll(); Evaluate(Id, '{77777777-7777-7777-7777-777777777777}');
+    B.Init(); B.Id := Id; B.Name := 'LT'; B.Version := 3; B."Blob File".CreateOutStream(OutS); OutS.WriteText('This is not really relevant');
+    if not B.Insert() then Error('insert'); if B.Insert() then Error('duplicate');
+    if not R.Get(Id) then Error('get'); if not R."Blob File".HasValue() then Error('has value');
+    Clear(R); R.SetAutoCalcFields("Blob File"); R.Get(Id); R."Blob File".CreateInStream(InS); InS.ReadText(Line);
+    if Line <> 'This is not really relevant' then Error('text %1', Line);
+    Clear(R); R.SetRange("GP Enabled", false); if not R.FindFirst() then Error('find'); R.SetRange("GP Enabled", true); if not R.IsEmpty() then Error('empty');
+    B.Name := 'Renamed'; B.Modify(); B.Delete(); if B.Count() <> 0 then Error('count'); end; }"#;
+    let o = run_over_system(MAIN_ID, None, None, main);
+    let get = |n: &str| o.iter().find(|(t, _)| t.ends_with(n)).map(|(_, o)| o.clone()).expect(n);
+    assert_eq!(get("Cleared"), Outcome::Pass);
+    for t in ["Fresh", "FilteredDeleteAll", "ClearedThenRolledBack"] {
+        assert!(
+            matches!(get(t), Outcome::NotRun(m) if m.contains("Power BI Blob")),
+            "{t}: {:?}",
+            get(t)
+        );
+    }
+}

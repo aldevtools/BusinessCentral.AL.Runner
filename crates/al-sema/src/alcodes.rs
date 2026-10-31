@@ -3536,6 +3536,25 @@ mod tests {
         );
     }
 
+    // must-not-compile 2369 (corpus writer Y29, al-runner issue 6526): `X.M := v` is checked as the call `X.M(v)`, so a
+    // builtin whose only form takes two arguments is AL0135; the one-argument setter compiles.
+    #[test]
+    fn al0135_assignment_form_of_a_two_parameter_builtin() {
+        assert_eq!(
+            messages(
+                "codeunit 50000 \"MNC C2369\" { procedure Run1() var M: XmlNamespaceManager; begin M.AddNamespace := 'urn:x'; end; }"
+            ),
+            vec![
+                "AL0135 There is no argument given that corresponds to the required formal parameter 'Prefix' of 'AddNamespace(Text, Text)'"
+                    .to_string()
+            ]
+        );
+        assert!(codes(&[
+            "codeunit 50000 C { procedure Run1() var M: XmlNamespaceManager; D: XmlDocument; begin M.NameTable := D.NameTable; end; }"
+        ])
+        .is_empty());
+    }
+
     #[test]
     fn al0197_every_declaration_of_a_repeated_name_is_reported() {
         let cu = "codeunit 50000 \"Same\" { } codeunit 50001 \"same\" { }";

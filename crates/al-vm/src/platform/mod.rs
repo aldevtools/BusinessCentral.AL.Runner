@@ -13,6 +13,8 @@ mod apps;
 
 /// The platform table Media Resources (`al_builtins::platform::REGISTRY`).
 pub(crate) const MEDIA_RESOURCES: u32 = 2_000_000_182;
+/// Table "Tenant Report Layout", whose rows are the user-defined rows of Report Layout List.
+const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
 pub(crate) mod coverage;
 mod date;
 mod fields;
@@ -469,6 +471,31 @@ impl Providers {
         Ok(Listed::Own(Rc::new(mat::Mat::new(t, entries))))
     }
 
+    /// Report Layout List: the layouts the program declares, and a user-defined row per stored Tenant Report Layout row
+    /// ([`reports::user_layout_rows`]).
+    fn report_layout_listing(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
+        let stored = self
+            .tenant_report_layout_def()
+            .map(|tenant| (store.stored_rows(cx, &tenant), tenant))
+            .filter(|(rows, _)| !rows.is_empty());
+        let Some((rows, tenant)) = stored else {
+            return self.listed(t, Virtual::ReportLayoutList);
+        };
+        let mut entries = reports::layout_list_rows(self, t);
+        entries.extend(reports::user_layout_rows(self, t, &tenant, &rows));
+        mark_unpinned(t, &mut entries);
+        Ok(Listed::Own(Rc::new(mat::Mat::new(t, entries))))
+    }
+
+    /// The schema of the stored Tenant Report Layout table, if the program compiled it.
+    fn tenant_report_layout_def(&self) -> Option<Arc<TableDef>> {
+        let engine = self.engine();
+        let oi = engine.program.objects.heads().iter().position(|o| {
+            o.is_kind(al_ir::ObjKind::Table) && o.id == Some(TENANT_REPORT_LAYOUT) && o.table.is_some()
+        })?;
+        engine.tables[oi].clone()
+    }
+
     fn feature_key_listing(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
         let stored = store.stored_rows(cx, t);
         if stored.is_empty() {
@@ -784,6 +811,7 @@ impl VirtualTables for Providers {
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.get(t, pk),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.get(t, pk),
+            Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.get(t, pk),
             Virtual::Field => Ok(self.field_get_by_key(t, pk)?.map(|r| fields::field_get(t, r))),
             Virtual::Media => self.media_of_id(t, pk.first())?.get(t, pk),
             k => self.listed(t, k)?.get(t, pk),
@@ -821,6 +849,7 @@ impl VirtualTables for Providers {
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.next(t, scan),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.next(t, scan),
+            Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.next(t, scan),
             // The rows of one page come in ControlId order, an id the compiler derives, which the runtime's ids do not follow
             // (record/TestPageControlFieldPageExtension.al:148): what a read in key order that chooses between two controls of a
             // page gives is not pinned. It is kept as it was before the expression texts were pinned, because a baseline case
@@ -904,6 +933,7 @@ impl VirtualTables for Providers {
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.count(t, filters),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.count(t, filters),
+            Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.count(t, filters),
             Virtual::Media => self
                 .media_of_id(t, media_id_filter(t, filters).as_ref())?
                 .count(t, filters),
