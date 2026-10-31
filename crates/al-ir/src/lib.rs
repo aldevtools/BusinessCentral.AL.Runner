@@ -1132,6 +1132,19 @@ pub enum LinkEntry {
     Field(usize, usize),
     /// Position of the part's field, the filter text (`const(x)` and `filter(x)` alike).
     Filter(usize, String),
+    /// `PartField = field(filter(HostField))`: position of the part's field, position of the host (or provider) field whose
+    /// value is read as a filter text.
+    FieldFilter(usize, usize),
+}
+
+impl LinkEntry {
+    /// The host (or provider) field the entry reads, for `field(F)` and `field(filter(F))`.
+    pub fn host_field(&self) -> Option<usize> {
+        match self {
+            LinkEntry::Field(_, hf) | LinkEntry::FieldFilter(_, hf) => Some(*hf),
+            LinkEntry::Filter(..) => None,
+        }
+    }
 }
 
 impl Control {
