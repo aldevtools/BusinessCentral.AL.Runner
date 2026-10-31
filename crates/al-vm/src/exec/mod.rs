@@ -198,6 +198,13 @@ pub(crate) enum Op {
         a: u16,
         t: u32,
     },
+    /// `Convert` of a `FieldRef.Value()` result into a Text or Code variable or parameter: a number or an Enum is refused there
+    /// (`ops::fieldref_number_into_text_refused`), anything else converts as `Convert` does.
+    ConvertFieldValue {
+        d: u16,
+        a: u16,
+        t: u32,
+    },
     Jump {
         t: u32,
     },
