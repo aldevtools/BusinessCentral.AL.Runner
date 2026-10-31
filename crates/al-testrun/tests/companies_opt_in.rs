@@ -308,3 +308,66 @@ fn with_test_data_a_dependency_table_without_rows_in_the_other_company_starts_em
         "{o:?}"
     );
 }
+
+/// A database whose session company holds one Company Information row.
+struct CompanyInfo;
+
+impl al_host::testdata::TableProvider for CompanyInfo {
+    fn company(&self) -> &str {
+        SESSION
+    }
+    fn source(&self) -> String {
+        "info.bak".into()
+    }
+    fn read(
+        &self,
+        t: &al_host::testdata::TableRequest,
+    ) -> Result<Arc<al_host::testdata::TableRows>, al_host::testdata::TableError> {
+        use al_host::testdata::Cell;
+        if t.name != "Company Information" {
+            return Err(al_host::testdata::TableError::Absent);
+        }
+        Ok(Arc::new(al_host::testdata::TableRows {
+            columns: vec!["Primary Key".into(), "Name".into()],
+            rows: vec![vec![Cell::Text("".into()), Cell::Text("CRONUS Info".into())]],
+        }))
+    }
+    fn companies(&self) -> Vec<String> {
+        vec![SESSION.into(), OTHER.into()]
+    }
+    fn holds_rows_in(&self, company: &str, table: &al_host::testdata::TableRequest) -> Option<bool> {
+        Some(company == SESSION && table.name == "Company Information")
+    }
+}
+
+// al-runner issue 6507 (comment of 2026-10-31, the reporter's repro): install code copies the session company; the copy
+// holds the restored database's Company Information row as it is (corpus
+// session/lt-y22-copy-company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows), and a test reads and modifies it
+// there, as report 357 Copy Company does.
+#[test]
+fn a_copy_of_the_session_company_holds_its_restored_company_information() {
+    let base = "table 79 \"Company Information\" { fields { field(1; \"Primary Key\"; Code[10]) { } field(2; Name; Text[100]) { } } }";
+    let main = format!(
+        "{COMPANY_TABLE}
+        codeunit 50100 \"CC Install\" {{ Subtype = Install;
+            trigger OnInstallAppPerCompany() var Company: Record Company; begin
+                if CompanyName() = 'Second Co' then exit;
+                if not Company.Get('Second Co') then CopyCompany(CompanyName(), 'Second Co');
+            end; }}
+        codeunit 50101 \"CC Tests\" {{ Subtype = Test;
+            [Test] procedure CopyHasCompanyInformation() var Source: Record \"Company Information\"; Copy: Record \"Company Information\"; begin
+                Source.Get();
+                Copy.ChangeCompany('Second Co');
+                Copy.Get();
+                if Copy.Name <> Source.Name then Error('source=[%1] copy=[%2]', Source.Name, Copy.Name);
+                Copy.Name := 'Second Co'; Copy.Modify();
+                Source.Get();
+                if Source.Name <> 'CRONUS Info' then Error('source changed: %1', Source.Name);
+            end; }}"
+    );
+    let o = outcomes_with_data(
+        &[(BASE_APP, &[], base), ("main", &[BASE_APP], &main)],
+        Some(Arc::new(CompanyInfo)),
+    );
+    all_pass(&o);
+}

@@ -244,10 +244,15 @@ impl Session {
             self.first_part_access(st, name, false)?;
         } else if st.borrow().new_host_part_rows
             && st.borrow().host.is_none()
-            && !matches!(name, PageMethod::Close | PageMethod::New | PageMethod::OK)
+            && !matches!(
+                name,
+                PageMethod::Close | PageMethod::New | PageMethod::OK | PageMethod::Next | PageMethod::Last
+            )
         {
             // A new host whose part shows rows of the blank key: Close and New() are pinned (PartLineBeforeHostKey.al:1725
-            // QH_BlankRows_OpenNew_CloseOnly, :1909 QH_BlankRows_HostNew_ThenClose), nothing else.
+            // QH_BlankRows_OpenNew_CloseOnly, :1909 QH_BlankRows_HostNew_ThenClose), and Next and Last, which answer No, run no
+            // trigger and store nothing (pages/lt-y17-activate-new-host/Y17ActivateNewHost.al:573 QH_BlankRows_HostNext, :602
+            // QH_BlankRows_HostLast); nothing else.
             return unsupported(format!(
                 "TestPage.{name} on a new, unsaved host whose part shows rows of the blank key (not pinned)"
             ));
@@ -1235,6 +1240,13 @@ impl Session {
             // `Close()` of a Page variable whose modal page closed: after its handler failed (ClosedPageVariableCurrPageClose.al:70
             // Close_AfterModalClosed) and after it closed with OK (pages/lt-page-runtime/P82PageVar.al:138 AfterRunModal_Members).
             PageMethod::Close if method.recv() == PageRecv::Page && self.page_var_not_shown(st) => Ok(Value::Null),
+            // In a Page-typed PageHandler of Page.Run the handler's Close does nothing: no trigger, and the handler goes on
+            // (pages/lt-y17-page-handler-record/Y17PageHandlerRecord.al:301 PageTypedHandler_RunWithRecord_Close `handler;closed;`).
+            PageMethod::Close
+                if method.recv() == PageRecv::Page && st.borrow().typed_run_handler && !st.borrow().open =>
+            {
+                Ok(Value::Null)
+            }
             PageMethod::Close if method.recv() == PageRecv::Page => {
                 self.require_open(st)?;
                 self.restore_shown_row_on_close(st)?;

@@ -910,6 +910,10 @@ pub struct Session {
     pub(crate) render_pending_files: std::collections::HashMap<String, Arc<str>>,
     /// The instant of the last system stamp (milliseconds since the Unix epoch).
     pub(crate) last_stamp: i64,
+    /// The key and count of the draws of how far past a stamp the clock lands (`Session::stamp_millis`): the run seed's
+    /// (`al_host::seed::clock_key`), per test method once `Session::seed_test_method` ran (ADR-045 amendment 2026-10-31).
+    pub(crate) clock_key: u64,
+    pub(crate) clock_draws: u64,
     /// The date `WorkDate(Date)` set; today until then.
     pub(crate) work_date: Option<i32>,
     /// The language `GlobalLanguage(Id)` set.
@@ -999,6 +1003,7 @@ impl Session {
         let (company, user) = (host.identity.company_name(), host.identity.user_id());
         let random_seed = host.random_seed;
         let guid_seed = host.guid_seed;
+        let clock_key = al_host::seed::clock_key(host.run_seed, 0, "");
         let mut ident = platform::Ident::of(&host);
         let declared = host.identity.companies();
         let restored = match declared {
@@ -1045,6 +1050,8 @@ impl Session {
             temp_files: 0,
             render_pending_files: std::collections::HashMap::new(),
             last_stamp: i64::MIN / 2,
+            clock_key,
+            clock_draws: 0,
             work_date: None,
             engine,
             last_error: AlError::default(),
@@ -1787,6 +1794,8 @@ impl Session {
             self.guid_key = al_host::seed::guid_key(run_seed, codeunit, method);
             self.next_guid = 0;
         }
+        self.clock_key = al_host::seed::clock_key(run_seed, codeunit, method);
+        self.clock_draws = 0;
     }
 
     /// A test method begins, before the test runner's reset: until something reseeds the `Random` sequence (the reset's

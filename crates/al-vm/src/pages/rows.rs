@@ -1053,14 +1053,12 @@ impl Session {
         // A refill from the first row (a TestPage filter change) after such an open reads the same: the window, then the first row
         // three times before OnAfterGetCurrRecord (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:299 Name_Filter_Refill `filter`
         // `4:R4;R2;R3;R4;R4;R4;C4;` against :409 Id_Filter_Refill `2:R2;R3;R4;R2;R2;C2;`; SyKeyMoves.al:209 Name_FilterMoves).
+        // A view of one row and one of more rows than a window holds read the same: the window from the first row of the view,
+        // then that row three more times (corpus master 97c29f86, pages/lt-y17-refill-key/Y17RefillKey.al:341 Refill_Desc_OneRow
+        // `10:R10;R10;R10;C10;`, :364 Refill_Desc_MoreThanWindow `29:R29;R28;...;R7;R29;R29;R29;C29;`, :392 and :415 ascending,
+        // :443 and :466 a Worksheet keyed in OnOpenPage, :311 Refill_Desc_ManyThenOne the Customer Ledger Entries path).
         let refill_in_key = opening && !st.borrow().open_read && self.still_reads_once_more(st);
         if refill_in_key {
-            // Pinned for views that end inside the window.
-            if !end_reached || st.borrow().window.len() < 2 {
-                return unsupported(
-                    "a refill of a list in a key other than the primary key with one row or more rows than a window holds (not pinned)",
-                );
-            }
             self.page_trigger(st, "onaftergetrecord", vec![])?;
         } else if opening && st.borrow().open_read && self.reads_once_more_in_its_key(st) {
             // The rows above a row OnOpenPage left Rec on count (QrMovedTests.al QS_KeyAsc_List_FindLast, Rec on the last row:
@@ -2098,7 +2096,9 @@ impl Session {
         }
         // Last on such a list in its primary key whose cursor stands on the last row of a view that ends inside the window reads
         // nothing either (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:409 Id_Filter_Refill `last` `Yes/4:`, after a GoToRecord
-        // miss left the cursor on row 4). In another key it is not pinned and reads the row as before.
+        // miss left the cursor on row 4). In another key the same holds for a view of one row (corpus master 97c29f86,
+        // pages/lt-y17-refill-key/Y17RefillKey.al:311 Refill_Desc_ManyThenOne `last` `Yes/10:` after a refill to one row); with more
+        // rows it is not pinned and reads the row as before.
         if how == PageMethod::Last
             && at + 1 == window.len()
             && window.len() < Self::WINDOW
@@ -2108,7 +2108,7 @@ impl Session {
             && !self.declares(st, "onnextrecord")
             && self.declares(st, "onaftergetcurrrecord")
             && self.declares(st, "onaftergetrecord")
-            && rec.borrow().key == 0
+            && (rec.borrow().key == 0 || window.len() == 1)
         {
             return Ok(Some(true));
         }
@@ -3502,14 +3502,45 @@ impl Session {
         } else if !trapped && self.has_typed_page_handler(object) {
             // A Page-typed PageHandler of a Page.Run without a record: the handler runs on the page object, no page trigger runs
             // before it (no OnOpenPage) and GetRecord hands a blank record (misc/lt-y14-triage/Y14PageTriage.al:383
-            // PageTypedPageHandler_PageRun, corpus master). With a record, or on a Page variable already set up, it is not pinned.
-            if record.is_some() || field || st.borrow().instance.is_some() {
+            // PageTypedPageHandler_PageRun, corpus master).
+            // With a record no page trigger runs either, before or after the handler; the page's Rec holds the record's values
+            // (GetRecord and the page's procedures see it, also a row that is not stored) without its filters, and a field
+            // argument changes nothing (pages/lt-y17-page-handler-record/Y17PageHandlerRecord.al:218 _GetRecord, :249
+            // _EmptyHandler, :273 _PageProcedure, :301 _Close, :325 _FilteredRecord_List `filter=`, :352 _UnstoredRecord, :380
+            // _RecordAndField).
+            // A Page variable set up with SetRecord or SetTableView hands the handler its own instance (its globals, its Rec);
+            // after the run, set up or not, the variable starts again from a new instance with nothing set (:396 _SetUpVariable_Run `tag after
+            // run` = '', :426 _SetTableView_Run `reccode()`, :447 _RunTwice `handler2 tag=;reccode()`).
+            // A temporary record, and a variable set up without SetRecord or SetTableView, are not pinned.
+            // A static Page.Run(Id, Rec) made the instance already, to check the record's table (`page_op`).
+            let set_up = st.borrow().set_record.is_some();
+            if record.as_ref().is_some_and(|r| r.borrow().temporary)
+                || (st.borrow().instance.is_some() && record.is_none())
+            {
                 return unsupported(
-                    "a Page-typed PageHandler for Page.Run with a record or on a Page variable that was set up (not pinned)",
+                    "a Page-typed PageHandler for Page.Run with a temporary record, or on a Page variable set up without SetRecord or SetTableView (not pinned)",
                 );
             }
             let handler = self.take_typed_handler(UiKind::Page, object).expect("checked above");
-            self.answer_typed_page(&st, handler)?;
+            if !set_up {
+                if let Some(r) = &record {
+                    self.construct_page(&st)?;
+                    if self.has_source(&st) {
+                        let rec = self.page_rec(&st);
+                        rec.borrow_mut().fields = r.borrow().fields.clone();
+                    }
+                }
+            }
+            let r = self.answer_typed_page(&st, handler);
+            {
+                let mut s = st.borrow_mut();
+                s.instance = None;
+                s.ext_instances.clear();
+                s.inited = false;
+                s.set_record = None;
+                s.set_view = false;
+            }
+            r?;
             return Ok(Value::Null);
         }
         // A second non-modal Run of a Page variable runs its OnInit again (pages/lt-page-variable-lifecycle/
@@ -3630,6 +3661,7 @@ impl Session {
         {
             let mut s = st.borrow_mut();
             s.typed_handler = true;
+            s.typed_run_handler = true;
             s.handler_set_record = false;
             s.cursor = Cursor::Row;
         }
@@ -3640,6 +3672,7 @@ impl Session {
         {
             let mut s = st.borrow_mut();
             s.typed_handler = false;
+            s.typed_run_handler = false;
             s.cursor = Cursor::None;
         }
         handled.map(|_| ())
