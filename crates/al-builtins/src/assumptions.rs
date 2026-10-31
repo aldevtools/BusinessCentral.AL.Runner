@@ -170,12 +170,6 @@ registry! {
         tests: "No Microsoft test: corpus PR 891 (Y6TenantReportLayoutRows.al) reads the stream only through Media.ImportStream.",
         probe: "Report.RdlcLayout of a report with an RDLC layout file, the stream read with ReadText and compared with the file's text (and its length).",
     },
-    ReportLayoutListBuiltInNotUserDefined => {
-        id: "report-layout-list-built-in-not-user-defined",
-        assumed: "\"User Defined\" (column 14) of a Report Layout List row of an RDLC or Word layout declared in AL is No; a report without layouts has no rows. Excel and Custom layouts stay refused.",
-        tests: "No Microsoft test: an outside report (ForNAV Rep Lay Sel Core.GetBuiltInLayout, reached from an app's install code; it runs on the reporter's real-BC run).",
-        probe: "Pinned on corpus master by platform/lt-ug-report-layout-list/UgReportLayoutList.al (corpus PR 805), but the runtime does not run ReportLayoutList_AllColumns_RdlcLayout and _WordLayout yet (CaptionML of Report Layout List is not pinned): run them, then retire. Still wanted: an Excel and a Custom layout.",
-    },
     GetUrlWebBaseAddress => {
         id: "geturl-web-base-address",
         assumed: "The host part (host name and port) and the instance of every GetUrl(ClientType::Web), Default, SOAP, OData, ODataV4 and Api answer come from the host's server base address as set (--server-url, default http://localhost:8080/BC; the corpus tool uses http://bcserver:8080/BC); GetUrl(ClientType::Web) alone returns the address unchanged (ADR-042); SOAP uses it with port 7047, OData, ODataV4 and Api with port 7048 (BC's default service ports; the pins show only that the service host part differs from the web one, TGetUrl.al:95-102 and 487-538). The scheme http, the port, the path /BC without a trailing slash, the Default forms dynamicsnav://<host>/BC/<company>/[runpage?page=N[&bookmark=...]|runreport?report=N] and the query after the address, and the paths /WS/[<company>/]Services, /ODataV4[/Company('<company>')] and /api/ after the masked host and instance, are pinned by the corpus (session/lt-geturl-shape/GetUrlShape.al:270, platform/lt-t-geturl/TGetUrl.al:203-210 and 481-559, platform/lt-system-database-members/GetUrl*.al) and are not part of the assumption.",

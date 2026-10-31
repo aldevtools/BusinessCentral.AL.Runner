@@ -179,6 +179,29 @@ impl Session {
         Ok(())
     }
 
+    /// A write of the platform table Device (2000000130): an Insert with triggers raises the license error of a fresh
+    /// tenant and stores nothing (al-language-onprem/platform/PtOnPremTables.al:172-190, Device_InsertModifyDelete: the
+    /// text at :184; its code is not pinned). Every other write, and an Insert that event subscribers would see, is not
+    /// pinned. Answers the signal the write ends with.
+    fn device_write(&mut self, t: &TableDef, method: RecordOp, args: &[Value]) -> Result<Signal, Signal> {
+        let listened =
+            self.listened(t, "onbeforeinsertevent", None)? || self.listened(t, "onafterinsertevent", None)?;
+        if method != RecordOp::Insert || !arg_bool(args, 0)? || listened {
+            return Ok(Signal::Unsupported(format!(
+                "{method} on the platform table Device (only an Insert with triggers and no event subscribers is pinned, \
+                 al-language-onprem/platform/PtOnPremTables.al:172-190)"
+            )));
+        }
+        Ok(Signal::Error(Box::new(AlError {
+            message: "The new devices do not meet the terms of the current license. The current license allows 0 full \
+                      devices, 0 limited devices, 0 ISV devices, 0 ISV functional devices and 1 devices."
+                .into(),
+            code: al_builtins::native::UNPINNED_ERROR.into(),
+            call_stack: String::new(),
+            ..Default::default()
+        })))
+    }
+
     pub(crate) fn table(&self, rec: &Rec) -> Result<Arc<TableDef>, Signal> {
         let r = rec.borrow();
         let t = self.engine.tables[r.table as usize]
@@ -3452,6 +3475,9 @@ impl Session {
         {
             self.bg_refuse_write(t.object as usize, method.name())?;
             self.gate_write(method)?;
+            if self.engine.program.objects[t.object as usize].id == Some(2_000_000_130) {
+                return Err(self.device_write(&t, method, args)?);
+            }
             // Inside a TryFunction whose result is used only Insert is pinned (misc/lt-cu-odd-leads/CuTryTests.al:83-150);
             // writes to a temporary record are allowed (:153-171), and never reach here.
             if method == RecordOp::Insert {
