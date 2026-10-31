@@ -4238,3 +4238,45 @@ fn every_read_and_insert_of_the_agent_tables_reports_agents_unavailable() {
         passes(&o, t);
     }
 }
+
+// Webhook Subscription, Webhook Notification, MCP Configuration Tool and Privacy Notice Approval are ordinary stored tables,
+// empty on the corpus containers (corpus master onprem platform/lt-y35-stored-tables/Y35StoredTables.al, main
+// platform/lt-y35-privacy-approval/Y35PrivacyApproval.al). The platform fills a blank "Application ID" of a webhook
+// subscription with 'NAV' (C303_Webhook_RowsAndWrites); one AL sets is not pinned. A Delete of an MCP Configuration that has
+// tools deletes them on BC 27.5 and keeps them from BC 28 (C303_McpTool_ParentChecks): on the BC 27 table set (the tool table
+// has no "API Version") it is refused. Privacy Notice's FlowFields read the approvals per exact User SID (C303_PrivacyNotice_
+// FlowFields).
+#[test]
+fn the_webhook_mcp_tool_and_privacy_approval_tables_are_stored() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Webhook() var S: Record "Webhook Subscription"; R: Record "Webhook Subscription"; begin
+      if not S.IsEmpty() then Error('start');
+      S."Subscription ID" := 'A'; S.Endpoint := 'e'; S."Created By" := 'X PAYPAL Y'; if not S.Insert() then Error('insert');
+      if S.Insert() then Error('duplicate');
+      R.Get('A', 'e'); if R."Application ID" <> 'NAV' then Error('%1', R."Application ID");
+      R.SetFilter("Created By", '@*paypal*'); if R.Count() <> 1 then Error('filter'); R.Reset(); R.DeleteAll(); if not R.IsEmpty() then Error('left'); end;
+  [Test] procedure WebhookAppId() var S: Record "Webhook Subscription"; begin S."Subscription ID" := 'B'; S."Application ID" := 'OWN'; S.Insert(); end;
+  [Test] procedure Notification() var N: Record "Webhook Notification"; begin N.ID := CreateGuid(); N."Subscription ID" := 'S'; N."Sequence Number" := 7; N.Insert(); N.Reset(); if N.Count() <> 1 then Error('count'); end;
+  [Test] procedure Tool() var T: Record "MCP Configuration Tool"; R: Record "MCP Configuration Tool"; begin
+      T.ID := CreateGuid(); T."Object Type" := T."Object Type"::Page; T."Object ID" := 1; T."Allow Read" := true; T.Insert();
+      if not R.GetBySystemId(T.SystemId) then Error('systemid'); R."Allow Delete" := true; R.Modify(); R.SetRange(ID, T.ID); R.ModifyAll("Allow Read", false);
+      R.Get(T.ID, T."Object Type", 1); if R."Allow Read" or not R."Allow Delete" then Error('row'); R.Delete(); end;
+  [Test] procedure ConfigDeleteWithTools() var C: Record "MCP Configuration"; T: Record "MCP Configuration Tool"; begin
+      C.Name := 'LT'; C.Insert(); T.ID := C.SystemId; T."Object ID" := 1; T.Insert(); C.Delete(); end;
+  [Test] procedure ConfigDeleteWithoutTools() var C: Record "MCP Configuration"; begin C.Name := 'LT'; C.Insert(); C.Delete(); end;
+  [Test] procedure Approval() var A: Record "Privacy Notice Approval"; N: Record "Privacy Notice"; Admin: Guid; begin
+      N.ID := 'LT'; N.Insert(); A.ID := 'LT'; A."User SID" := Admin; A.Approved := true; A.Insert();
+      if not IsNullGuid(A."Approver User SID") then Error('approver');
+      N.SetRange("User SID Filter", Admin); N.CalcFields(Enabled, Disabled); if not N.Enabled or N.Disabled then Error('admin');
+      N.SetRange("User SID Filter", UserSecurityId()); N.CalcFields(Enabled, Disabled); if N.Enabled or N.Disabled then Error('user');
+      A.SetRange(ID, 'LT'); A.DeleteAll(); if not A.IsEmpty() then Error('left'); end;
+  [Test] procedure TenantProfileSettingStaysRefused() var S: Record "Tenant Profile Setting"; begin if S.IsEmpty() then; end; }"#,
+    );
+    for t in ["Webhook", "Notification", "Tool", "ConfigDeleteWithoutTools", "Approval"] {
+        passes(&o, t);
+    }
+    assert!(not_run(&o, "WebhookAppId").contains("Application ID"), "{o:?}");
+    assert!(not_run(&o, "ConfigDeleteWithTools").contains("MCP Configuration"), "{o:?}");
+    assert!(not_run(&o, "TenantProfileSettingStaysRefused").contains("has no provider"), "{o:?}");
+}
