@@ -2998,3 +2998,36 @@ fn a_license_file_is_used_and_named_in_every_report() {
     assert!(t.contains("--license") && t.contains("byte order mark"), "{t}");
     assert!(!t.contains("PASS"), "no test ran: {t}");
 }
+
+/// Two app folders with the same app id (a copy of an app kept in another folder) are refused before the compile, with
+/// both folders and the id named: the link step cannot tell their objects apart, and a panic is not an answer.
+#[test]
+fn two_app_folders_with_one_app_id_are_refused_before_the_compile() {
+    let d = tempfile::tempdir().unwrap();
+    let id = "11111111-0000-0000-0000-0000000000d1";
+    let mut dirs = Vec::new();
+    for name in ["current", "archived"] {
+        let dir = d.path().join(name);
+        write(&dir, "app.json", &app_json(id, "Twice", &[]));
+        write(
+            &dir,
+            "src/Perm.al",
+            "permissionset 50100 \"Twice Perm\"\n{\n    Assignable = true;\n}\n",
+        );
+        write(&dir, "src/Tests.al", MIXED);
+        dirs.push(dir);
+    }
+    let o = alrunner(&[
+        "test",
+        dirs[0].to_str().unwrap(),
+        dirs[1].to_str().unwrap(),
+        "--no-download",
+    ]);
+    let t = text(&o);
+    assert_eq!(code(&o), 2, "{t}");
+    assert!(!t.contains("panicked"), "{t}");
+    assert!(t.contains(id), "{t}");
+    for dir in &dirs {
+        assert!(t.contains(dir.to_str().unwrap()), "{}: {t}", dir.display());
+    }
+}
