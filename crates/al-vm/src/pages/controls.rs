@@ -1382,7 +1382,23 @@ impl Session {
         // is not on the runtime page at all (corpus handlers/TestPageFieldVisibleGroup_Tests.al:1-30).
         // Neither is one that application areas removed.
         self.check_areas_pinned(st, idx)?;
-        if self.control_eliminated(st, idx) || self.area_removed(st, idx) || self.action_without_behaviour(st, idx) {
+        // From BC 28 a page extension's control whose source is a bare quoted name of a table extension's field is not found
+        // by a TestPage read of its Value (pages/lt-wd/WdBareQuotedField.al:185-198 WD_BareNameExt_ValueReadError, `The field
+        // with ID = n is not found on the page.`, TestFieldNotFound). Its other methods are not pinned (Editable() raises the
+        // same error on real BC, the file's header; not asserted).
+        let bare_ext = self.has(al_version::Gate::ExtControlBareQuotedSourceNotFoundFrom28)
+            && page_of(&self.engine(), st).controls[idx].bare_quoted_ext_source;
+        if bare_ext && !(m == PageMethod::Value && args.is_empty()) {
+            return unsupported(format!(
+                "TestPage.{}() of a page extension control whose source is a bare quoted name of a table extension field (not pinned)",
+                m.name()
+            ));
+        }
+        if bare_ext
+            || self.control_eliminated(st, idx)
+            || self.area_removed(st, idx)
+            || self.action_without_behaviour(st, idx)
+        {
             let engine = self.engine();
             let ctl = &page_of(&engine, st).controls[idx];
             let what = match ctl.kind {

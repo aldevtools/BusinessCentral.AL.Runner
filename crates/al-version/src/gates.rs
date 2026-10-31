@@ -243,6 +243,11 @@ pub enum Gate {
     /// only: [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`] ends it. Consumed by `al-vm` pages/actions.rs (the `rec_moved_other`
     /// settle of a list action).
     ThreeLineLeavesKeyOnceFrom28,
+    /// From BC 28 a TestPage read of `Value()` on a page-extension control whose source is a bare quoted name of a
+    /// table-extension field (`field("LT WD Profile"; "LT WD Profile Code")`, no `Rec.`) raises TestFieldNotFound; on BC 27
+    /// it raises no error (pages/lt-wd/WdBareQuotedField.al:185 WD_BareNameExt_ValueReadError, guarded `#if BC28PLUS`,
+    /// al-runner issue 6314). Consumed by `al-vm` pages/controls.rs.
+    ExtControlBareQuotedSourceNotFoundFrom28,
     /// The end of [`Gate::ThreeLineLeavesKeyOnceFrom28`]: from BC 29 the triggers run twice again, as on BC 27
     /// (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:662). Consumed with it.
     ThreeLineLeavesKeyTwiceAgainFrom29,
@@ -277,6 +282,7 @@ impl Gate {
         Gate::EmptyTableFindExcludeFlagFrom28,
         Gate::FieldRowSystemIdFrom28,
         Gate::ThreeLineLeavesKeyOnceFrom28,
+        Gate::ExtControlBareQuotedSourceNotFoundFrom28,
         Gate::ReportLayoutListColumnsFrom28,
         Gate::ThreeLineLeavesKeyTwiceAgainFrom29,
         Gate::ReportLayoutSelectionPartNamesFrom29,
@@ -372,6 +378,7 @@ impl Gate {
             | Gate::GetTextArgumentEvaluateErrorFrom28
             | Gate::RecordRefIsDirtyFrom28
             | Gate::ThreeLineLeavesKeyOnceFrom28
+            | Gate::ExtControlBareQuotedSourceNotFoundFrom28
             | Gate::EmptyTableFindExcludeFlagFrom28
             | Gate::FieldRowSystemIdFrom28
             | Gate::PartLineBeforeHostKeyFrom28
@@ -676,6 +683,10 @@ impl Gate {
             Gate::IsolatedStorageIsolationLevelOverloadsFrom29 => &[Evidence {
                 file: "lt-ac/ACIsolatedStorageIsolation.al",
                 lines: "7",
+            }],
+            Gate::ExtControlBareQuotedSourceNotFoundFrom28 => &[Evidence {
+                file: "pages/lt-wd/WdBareQuotedField.al",
+                lines: "185",
             }],
             Gate::RecordIsDirtyFrom29 => &[
                 Evidence {
