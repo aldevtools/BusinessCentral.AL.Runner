@@ -4273,10 +4273,22 @@ fn the_webhook_mcp_tool_and_privacy_approval_tables_are_stored() {
       A.SetRange(ID, 'LT'); A.DeleteAll(); if not A.IsEmpty() then Error('left'); end;
   [Test] procedure TenantProfileSettingStaysRefused() var S: Record "Tenant Profile Setting"; begin if S.IsEmpty() then; end; }"#,
     );
-    for t in ["Webhook", "Notification", "Tool", "ConfigDeleteWithoutTools", "Approval"] {
+    for t in [
+        "Webhook",
+        "Notification",
+        "Tool",
+        "ConfigDeleteWithoutTools",
+        "Approval",
+    ] {
         passes(&o, t);
     }
     assert!(not_run(&o, "WebhookAppId").contains("Application ID"), "{o:?}");
-    assert!(not_run(&o, "ConfigDeleteWithTools").contains("MCP Configuration"), "{o:?}");
-    assert!(not_run(&o, "TenantProfileSettingStaysRefused").contains("has no provider"), "{o:?}");
+    assert!(
+        not_run(&o, "ConfigDeleteWithTools").contains("MCP Configuration"),
+        "{o:?}"
+    );
+    assert!(
+        not_run(&o, "TenantProfileSettingStaysRefused").contains("has no provider"),
+        "{o:?}"
+    );
 }

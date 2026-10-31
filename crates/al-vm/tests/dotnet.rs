@@ -3032,10 +3032,15 @@ fn the_credential_type_is_user_name_and_password() {
 fn get_platform_version_is_the_parsed_platform_file_version_of_codeunit_9015() {
     let host = Fake::new(|r| match r {
         Req::Invoke(DotNetTarget::Static(t), m, a) if t.name == "System.Version" && m == "Parse" => {
-            assert!(matches!(&a[0].value, DotNetValue::Str(s) if s == "29.0.55782.0"), "{a:?}");
+            assert!(
+                matches!(&a[0].value, DotNetValue::Str(s) if s == "29.0.55782.0"),
+                "{a:?}"
+            );
             reply(handle(7, "System.Version"))
         }
-        Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "ToString" => reply(DotNetValue::Str("29.0.55782.0".into())),
+        Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "ToString" => {
+            reply(DotNetValue::Str("29.0.55782.0".into()))
+        }
         other => panic!("unexpected request {other:?}"),
     });
     let src = format!(
@@ -3060,10 +3065,17 @@ codeunit 50100 C {{ procedure F(): Text var T: DotNet NavTenantSettingsHelper; V
         .map(|o| o.iter().map(|r| r.first().cloned()).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
-    let ri = l.program.objects[oi].routines.iter().position(|r| r.name == "F").unwrap();
+    let ri = l.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == "F")
+        .unwrap();
     let engine = Engine::with_dotnet(l.program, blocked, cfg(&host));
     let mut s = Session::new(engine);
     let inst = s.instance(oi);
     let r = s.call(oi, ri, inst, vec![]).map(|(v, _)| v);
-    assert!(matches!(&r, Ok(Value::Text(t)) if t.as_str() == "29.0.55782.0"), "{r:?}");
+    assert!(
+        matches!(&r, Ok(Value::Text(t)) if t.as_str() == "29.0.55782.0"),
+        "{r:?}"
+    );
 }

@@ -564,7 +564,10 @@ impl Checker<'_> {
                 && self.ws.usable(i)
             {
                 for r in self.routines_of(i).iter() {
-                    if !r.is_trigger() && r.name().eq_ignore_ascii_case(al_builtins::dotnet_sigs::PLATFORM_FILE_VERSION) {
+                    if !r.is_trigger()
+                        && r.name()
+                            .eq_ignore_ascii_case(al_builtins::dotnet_sigs::PLATFORM_FILE_VERSION)
+                    {
                         self.reach(i, usize::from(r.syntax().text_range().start()));
                     }
                 }

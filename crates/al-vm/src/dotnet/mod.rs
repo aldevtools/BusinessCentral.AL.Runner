@@ -998,10 +998,11 @@ impl Session {
     pub(crate) fn host_static_call(&mut self, ty: DotNetType, member: &str, args: &[&str]) -> Result<Value, Signal> {
         let shown = format!("{}.{member}", ty.name);
         let engine = self.engine.clone();
-        if let Err(why) = engine
-            .dotnet
-            .policy
-            .check(Some(ty.assembly.as_str()), &ty.name, Access::MemberWithText(member))
+        if let Err(why) =
+            engine
+                .dotnet
+                .policy
+                .check(Some(ty.assembly.as_str()), &ty.name, Access::MemberWithText(member))
         {
             return unsupported(format!("DotNet {shown}: {why}"));
         }

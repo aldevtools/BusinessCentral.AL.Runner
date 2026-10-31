@@ -15,11 +15,11 @@
 
 use super::registry::{MemberFn, MemberKind, MemberRefFn, Pin, RegistryMember, RegistryType};
 use crate::Session;
+use al_builtins::describe::Describe;
 use al_builtins::dotnet_sigs::{
     AKV_PROVIDER, AL_CONFIG_SETTINGS, COPILOT_FUNCTIONS, ENVIRONMENT, GRAPH_QUERY, PERMISSION_TEST_HELPER, TENANT_INFO,
     TENANT_SETTINGS_HELPER, TEST_EXECUTION, USER_ACCOUNT_HELPER,
 };
-use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
 use al_builtins::value::{DotNetKind, DotNetObject, Value};
 use std::cell::RefCell;
@@ -227,7 +227,8 @@ fn platform_version(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -
         }
         let ri = o.routines.iter().position(|r| {
             !r.is_trigger
-                && r.name.eq_ignore_ascii_case(al_builtins::dotnet_sigs::PLATFORM_FILE_VERSION)
+                && r.name
+                    .eq_ignore_ascii_case(al_builtins::dotnet_sigs::PLATFORM_FILE_VERSION)
                 && r.params == 0
         })?;
         Some((oi, ri))
