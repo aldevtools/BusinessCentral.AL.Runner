@@ -161,6 +161,15 @@ codeunit 50785 "SR Tests"
         if Session.IsSessionActive(Sid) then Error('still active');
         Expect('quick= ');
     end;
+    [Test] procedure SleepsWithoutTimeout()
+    var
+        Row: Record "SR Row";
+        Sid: Integer;
+    begin
+        Seed();
+        Row.Get(10);
+        StartSession(Sid, Codeunit::"SR Sleeper", CompanyName(), Row);
+    end;
     [Test] procedure TimeoutPassed()
     var
         Row: Record "SR Row";
@@ -230,6 +239,18 @@ fn a_timeout_the_session_does_not_reach_runs_and_one_it_reaches_is_refused() {
     assert!(quick.2.contains(&"startsession-timeout-not-reached"), "{quick:?}");
     assert!(
         matches!(&of(&r, "TimeoutPassed").1, Outcome::NotRun(m) if m.contains("Timeout")),
+        "{r:?}"
+    );
+}
+
+/// A session that waits (Sleep) is still active while the starting session runs on (Y30StartSessionIsolDisabled.al
+/// Y30_StartSession_NoTimeout_Control: `active_after_start` true while the session sleeps): a session that runs alongside
+/// the starting one is not modelled, so it is refused.
+#[test]
+fn a_session_that_sleeps_is_refused() {
+    let r = results();
+    assert!(
+        matches!(&of(&r, "SleepsWithoutTimeout").1, Outcome::NotRun(m) if m.contains("Sleep")),
         "{r:?}"
     );
 }

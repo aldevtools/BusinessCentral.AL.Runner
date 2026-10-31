@@ -9,7 +9,7 @@
 //! filter group, no last error, a transaction of its own and its own id. Whatever no probe measures is refused: a start
 //! while the starting session holds an uncommitted write or a lock (whether the new session waits, and what it sees), a
 //! start into another company, a record with filters of another filter group or another key or order, a session that
-//! still runs at its Timeout, an error in the new session, a
+//! waits with Sleep or still runs at its Timeout, an error in the new session, a
 //! session started from it, and its reads of session state a new session sets up for itself (WorkDate, GlobalLanguage,
 //! GuiAllowed, CurrentClientType). Its UI calls are refused as UI outside a test method.
 //!
@@ -132,6 +132,7 @@ impl Session {
         args.extend(record);
         // The guarded form: the run is a transaction of its own and commits when it succeeds.
         let started_at = self.waited_ms;
+        let slept_before = self.slept_in_test;
         let ran = self.codeunit_run(ids::CODEUNIT_RUN_3, None, &args, true);
         // The session's time is what it waited (Sleep) and the clock steps of its reads: its code takes no time.
         let reached_timeout = timeout_ms.is_some_and(|t| self.waited_ms - started_at >= t);
@@ -171,6 +172,11 @@ impl Session {
         // outlives its Timeout).
         if reached_timeout && !matches!(ran, Err(Signal::Unsupported(_))) {
             return refuse("a session that still runs at its Timeout (it would run alongside the starting session)");
+        }
+        // A session that waits (Sleep) is still active while the starting session runs on
+        // (Y30StartSessionIsolDisabled.al Y30_StartSession_NoTimeout_Control: `active_after_start` true while it sleeps).
+        if self.slept_in_test != slept_before && !matches!(ran, Err(Signal::Unsupported(_))) {
+            return refuse("a session that waits with Sleep (it would run alongside the starting session)");
         }
         if timeout_ms.is_some() {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::StartSessionTimeoutNotReached);
