@@ -43,6 +43,16 @@ pub trait FormatCtx {
         let _ = (id, ordinal);
         None
     }
+    /// The field numbers, in key order, of key `key` (0-based) of the table `rec` holds, for the text of a KeyRef; None where
+    /// the context does not know the program or the key is not one the table declares.
+    fn key_ref_fields(
+        &self,
+        rec: &std::rc::Rc<std::cell::RefCell<crate::value::RecordState>>,
+        key: usize,
+    ) -> Option<Vec<i32>> {
+        let _ = (rec, key);
+        None
+    }
 }
 
 /// A context without the format region, for the plain en-US text a region then rewrites.
@@ -63,6 +73,13 @@ impl FormatCtx for WithoutRegion<'_> {
     }
     fn carries_unread(&self) -> bool {
         self.0.carries_unread()
+    }
+    fn key_ref_fields(
+        &self,
+        rec: &std::rc::Rc<std::cell::RefCell<crate::value::RecordState>>,
+        key: usize,
+    ) -> Option<Vec<i32>> {
+        self.0.key_ref_fields(rec, key)
     }
     fn enum_caption_refused(&self, id: u32, ordinal: Option<i32>) -> Option<String> {
         self.0.enum_caption_refused(id, ordinal)
@@ -746,6 +763,37 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             }
             _ => String::new(),
         },
+        // A KeyRef reads `Field<no>` for each field of the key, in key order, joined by commas; format numbers 0, 1, 2 and 9 give
+        // the same text, and a length shorter than the text cuts it (recordref/lt-y12-keyref-format/Y12KeyRefFormat.al:33-87, corpus
+        // branch al-runtime-rs-staging-y12, al-runner issue 6437). Other numbers, a length that would pad, and the implicit
+        // SystemId key are not pinned.
+        Value::Library(crate::library_kind::LibraryKind::KeyRef, l) => {
+            let crate::value::LibraryValue::KeyRef(rec, key) = &*l.borrow() else {
+                return Err(format!(
+                    "Format of a KeyRef that was never assigned (standard format {standard}) is not pinned yet"
+                )
+                .into());
+            };
+            if !matches!(standard, 0 | 1 | 2 | 9) {
+                return Err(format!("Format of a KeyRef (standard format {standard}) is not pinned yet").into());
+            }
+            let Some(fields) = ctx.key_ref_fields(rec, *key) else {
+                return Err(
+                    "Format of a KeyRef of a key the table does not declare (the SystemId key) is not pinned yet"
+                        .to_string()
+                        .into(),
+                );
+            };
+            let text = fields.iter().map(|f| format!("Field{f}")).collect::<Vec<_>>().join(",");
+            let n = text.chars().count();
+            if length == 0 || (length > 0 && n == length as usize) {
+                return Ok(text);
+            }
+            if length > 0 && n > length as usize {
+                return Ok(text.chars().take(length as usize).collect());
+            }
+            return Err(format!("Format of a KeyRef with length {length} (padding is not pinned yet)").into());
+        }
         // A BigText formats as its text (streams/StTBigText.al:ConvertTextAndBack `format` direct).
         Value::Library(name, l) if name.as_str() == "BigText" && standard == 0 => match &*l.borrow() {
             crate::value::LibraryValue::Text(t) => t.clone(),
