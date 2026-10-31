@@ -64,8 +64,14 @@ impl Session {
         self.last_stamp = at;
         // Many writes between two reads move the stamps past the clock. A stamp lies between the reads around it
         // (ADR-045 item 4) and SystemCreatedAt is the current time (record/TestSystemFieldStampsContracts.al:67), so the
-        // clock catches up with the stamp: the next read is not earlier than it.
-        self.waited_ms += at - now;
+        // clock catches up with the stamp: the next read is not earlier than it. It lands 0, 1 or 2 ms past the stamp,
+        // drawn from the run seed (ADR-045 amendment 2026-10-31, owner): grid milliseconds are at least 3 apart, so two
+        // reads in three right after a write are off the grid and change in a round trip through a Time or DateTime
+        // field, as BC's wall clock does in 55 to 80 % of reads (al-runner issue 6524).
+        self.clock_draws += 1;
+        let draw = crate::ctx::raw_guid_for(self.clock_key, self.clock_draws);
+        let past = (u64::from_be_bytes(draw[..8].try_into().expect("8 bytes")) % 3) as i64;
+        self.waited_ms += at + past - now;
         at
     }
 
