@@ -464,6 +464,9 @@ impl Session {
                     && method.recv() == PageRecv::Page
                     && !matches!(name, PageMethod::Run | PageMethod::RunModal) =>
             {
+                if matches!(name, PageMethod::Update | PageMethod::SaveRecord) && self.closed_after_modal_ok(st) {
+                    return Ok(Value::Null);
+                }
                 return unsupported(format!(
                     "{} called by the code of a page that is not open (what it does then is not pinned)",
                     method.method()

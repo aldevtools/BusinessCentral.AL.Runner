@@ -764,8 +764,8 @@ impl Session {
         st.borrow_mut().window_eof = false;
         st.borrow_mut().window_whole = false;
         st.borrow_mut().view_read_to_end = false;
-        st.borrow_mut().window_read_up = false;
         st.borrow_mut().window_top_unread = false;
+        st.borrow_mut().moved_rec_open_partial = None;
         st.borrow_mut().read_up_from_last = None;
         st.borrow_mut().opened_on_moved_rec = false;
         let rec = self.page_rec(st);
@@ -1233,19 +1233,22 @@ impl Session {
     /// _SetRangeFindLast `O:D;R:D;R:C;R:B;R:D;R:D;C:D;`, :370 _GetThenFilterExcludes `O:C;R:B;R:A;R:B;R:B;C:B;`): the row is read
     /// again before the step back only when rows followed it. Pinned for a view that ends inside the window, with rows above
     /// the row, on a page of its own; more rows than a window holds are refused.
+    ///
+    /// With more rows the client reads at most a window of 20 rows from the row on, and steps back over at most 20 rows above
+    /// it (pages/lt-y37-long-list-open/Y37LongListTests.al:101 Get(25) of 30 `R:25..R:30;R:25;R:24..R:5;R:25;R:25;C:25`, :141
+    /// FindLast, :180 a temporary list, :241 Get(5) `R:5..R:24;R:5;R:4..R:1;...`, :281 and :304 21 rows); `First` and `Last`
+    /// then read on from the edge of the rows it holds (`PageState::moved_rec_open_partial`).
     fn read_rows_above_the_moved_rec(&mut self, st: &St, start: Vec<Value>, end_reached: bool) -> Result<(), Signal> {
-        if !end_reached || st.borrow().host.is_some() {
-            return unsupported(
-                "the open read of a list on the row its OnOpenPage left Rec on, with more rows after it than a window holds (not pinned)",
-            );
+        if st.borrow().host.is_some() {
+            return unsupported("the open read of a part on the row its OnOpenPage left Rec on (not pinned)");
         }
         let rec = self.page_rec(st);
         let mut above = Vec::new();
+        let mut top_unread = false;
         while self.nav_next(st, -1)? {
-            if above.len() + st.borrow().window.len() >= Self::WINDOW {
-                return unsupported(
-                    "the open read of a list on the row its OnOpenPage left Rec on, with more rows than a window holds (not pinned)",
-                );
+            if above.len() == Self::WINDOW {
+                top_unread = true;
+                break;
             }
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
@@ -1275,6 +1278,7 @@ impl Session {
         let forward = std::mem::take(&mut s.window);
         above.extend(forward);
         s.window = above;
+        s.moved_rec_open_partial = (s.window.len() > Self::WINDOW).then_some((top_unread, !end_reached));
         drop(s);
         Ok(())
     }
@@ -1957,6 +1961,10 @@ impl Session {
     /// `next`, `last`, `previous`, `first`, pinned for a table of 3 rows). `None` when the move is not
     /// one of those.
     pub(super) fn move_in_client_rows(&mut self, st: &St, how: PageMethod) -> Result<Option<bool>, Signal> {
+        let partial = st.borrow().moved_rec_open_partial;
+        if let Some(edges) = partial {
+            return self.move_after_long_moved_rec_open(st, how, edges).map(Some);
+        }
         let find_page = self.declares(st, "onfindrecord");
         if !(self.declares(st, "onaftergetrecord") || self.filtered_find_list_without_row_triggers(st))
             || !self.is_list(st)
@@ -2176,6 +2184,93 @@ impl Session {
             self.read_client_row(st, target)?;
         }
         Ok(Some(true))
+    }
+
+    /// A move on a plain list whose open read on the row its OnOpenPage left Rec on held more rows than a window
+    /// (`PageState::moved_rec_open_partial`: rows above its top row, rows below its bottom row left unread). Next and Previous
+    /// inside the rows it holds read the row twice, then OnAfterGetCurrRecord; First and Last onto a held row the same; First
+    /// with rows above left unread reads the top row it holds, steps up reading each row to the first of the view, reads that
+    /// one again and runs OnAfterGetCurrRecord, and Last below the bottom row likewise (pages/lt-y37-long-list-open/
+    /// Y37LongListTests.al:103-109 `next log` `R:26;R:26;C:26;`, `first log` `R:5;R:4;R:3;R:2;R:1;R:1;C:1;`, :142-149 Next on the
+    /// last row `No` with an empty log, :246-249 `last log` `R:24;R:25;...;R:30;R:30;C:30;`). Moves past an edge with a second
+    /// block of 20 unread rows, and Next or Previous off the rows held, are not pinned.
+    fn move_after_long_moved_rec_open(
+        &mut self,
+        st: &St,
+        how: PageMethod,
+        edges: (bool, bool),
+    ) -> Result<bool, Signal> {
+        let (top_unread, bottom_unread) = edges;
+        let rec = self.page_rec(st);
+        let key = self.row_key(&rec)?;
+        let len = st.borrow().window.len();
+        let Some(at) = st.borrow().window.iter().position(|w| Self::same_key(&w.key, &key)) else {
+            return unsupported("a move on a list that opened on a moved Rec, off the rows it holds (not pinned)");
+        };
+        let walk = |s: &mut Self, up: bool| -> Result<bool, Signal> {
+            let before = s.xrec_before_move(st);
+            let edge = if up { 0 } else { len - 1 };
+            let stored = st.borrow().window[edge].stored.clone();
+            rec.borrow_mut().fields = stored;
+            s.populate_current(st)?;
+            let mut new_rows = Vec::new();
+            while s.nav_next(st, if up { -1 } else { 1 })? {
+                if new_rows.len() == Self::WINDOW {
+                    return unsupported(
+                        "First or Last on a list that opened on a moved Rec, past a second block of 20 rows (not pinned)",
+                    );
+                }
+                let key = s.row_key(&rec)?;
+                let stored = rec.borrow().fields.clone();
+                s.populate_current(st)?;
+                new_rows.push(al_builtins::value::WindowRow {
+                    key,
+                    stored,
+                    shown: rec.borrow().fields.clone(),
+                });
+            }
+            s.populate_current(st)?;
+            let shown = rec.borrow().fields.clone();
+            {
+                let mut b = st.borrow_mut();
+                if let Some(last) = new_rows.last_mut() {
+                    last.shown = shown;
+                }
+                if up {
+                    new_rows.reverse();
+                    new_rows.append(&mut b.window);
+                    b.window = new_rows;
+                } else {
+                    b.window.append(&mut new_rows);
+                }
+                if let Some((t, d)) = b.moved_rec_open_partial.as_mut() {
+                    if up {
+                        *t = false;
+                    } else {
+                        *d = false;
+                    }
+                }
+            }
+            s.current_record_trigger(st, before)?;
+            Ok(true)
+        };
+        let target = match how {
+            PageMethod::First if top_unread => return walk(self, true),
+            PageMethod::Last if bottom_unread => return walk(self, false),
+            PageMethod::First => 0,
+            PageMethod::Last => len - 1,
+            PageMethod::Next if at + 1 < len => at + 1,
+            PageMethod::Previous if at > 0 => at - 1,
+            PageMethod::Next if !bottom_unread => return Ok(false),
+            PageMethod::Previous if !top_unread => return Ok(false),
+            _ => {
+                return unsupported(format!(
+                    "{how}() past the rows a list that opened on a moved Rec holds (not pinned)"
+                ));
+            }
+        };
+        self.read_client_row(st, target)?;
+        Ok(true)
     }
 
     /// `Last` on a list whose window of 20 rows is full: the client reads the last row it holds again, then the rows after it in
