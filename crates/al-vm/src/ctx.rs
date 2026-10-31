@@ -422,7 +422,16 @@ impl al_builtins::native::Ctx for Session {
         company: Option<String>,
         record: Option<Value>,
     ) -> Result<i32, Signal> {
-        Session::start_background_session(self, codeunit, company, record)
+        Session::start_background_session(self, codeunit, company, record, None)
+    }
+    fn start_background_session_timeout(
+        &mut self,
+        codeunit: i32,
+        company: Option<String>,
+        record: Option<Value>,
+        timeout_ms: i64,
+    ) -> Result<i32, Signal> {
+        Session::start_background_session(self, codeunit, company, record, Some(timeout_ms))
     }
     fn enum_members(&self, id: u32) -> Option<Vec<(i32, String)>> {
         self.note_enum(id);

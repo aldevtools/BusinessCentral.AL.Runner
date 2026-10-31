@@ -845,6 +845,7 @@ fn test_inner(
         .iter()
         .map(|p| apps::load(p, a.bc_version.as_deref()))
         .collect::<Result<Vec<AppInput>, String>>()?;
+    apps::distinct_ids(&inputs)?;
 
     // Which test codeunits there are, and which of them this run is about.
     let mut found: Vec<Found> = Vec::new();
