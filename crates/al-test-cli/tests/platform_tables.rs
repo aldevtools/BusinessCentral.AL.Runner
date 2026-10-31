@@ -3800,3 +3800,46 @@ codeunit 50000 "T" { Subtype = Test;
     assert!(not_run(&o, "Unfiltered").contains("Tenant Report Layout"));
     assert!(not_run(&o, "OtherLayout").contains("Tenant Report Layout"));
 }
+
+// Gap cycle G9: a user-defined layout (a Tenant Report Layout row) is a row of Report Layout List: Caption the layout's name,
+// Runtime Package ID and Application ID the null guid, Description as stored, Report Name the report's Caption, Layout
+// Publisher blank, User Defined Yes, ReportIsInstalled Yes (platform/lt-ug-report-layout-list/UgReportLayoutList.al
+// Y17_ReportLayoutList_UserDefinedRow, corpus master 97c29f86).
+#[test]
+fn a_tenant_report_layout_row_is_a_user_defined_row_of_report_layout_list() {
+    let main = r#"
+report 50001 "R" { Caption = 'R Caption'; DefaultRenderingLayout = L; dataset { dataitem(I; Integer) { } } rendering { layout(L) { Type = RDLC; LayoutFile = './r.rdlc'; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure UserRow() var L: Record "Tenant Report Layout"; R: Record "Report Layout List"; InS: InStream; begin
+    L.Init(); L."Report ID" := 50001; L.Name := 'User'; L."Layout Format" := L."Layout Format"::RDLC; L.Description := 'Desc';
+    Report.RdlcLayout(50001, InS); L.Layout.ImportStream(InS, 'x'); L.Insert();
+    R.SetRange("Report ID", 50001); if R.Count() <> 2 then Error('count %1', R.Count());
+    R.SetRange(Name, 'User'); R.FindFirst();
+    if R.Caption <> 'User' then Error('caption %1', R.Caption);
+    if not IsNullGuid(R."Runtime Package ID") or not IsNullGuid(R."Application ID") then Error('ids');
+    if R.Description <> 'Desc' then Error('description %1', R.Description);
+    if R."Report Name" <> 'R Caption' then Error('report name %1', R."Report Name");
+    if R."Layout Publisher" <> '' then Error('publisher %1', R."Layout Publisher");
+    if not R."User Defined" or not R.ReportIsInstalled then Error('flags');
+    if R."Layout Format" <> R."Layout Format"::RDLC then Error('format');
+    if (R.CaptionML <> '') or (R."MIME Type" <> '') or not IsNullGuid(R."Custom Type") then Error('blank');
+    L.SetRange("Report ID", 50001); L.DeleteAll(); R.SetRange(Name); if R.Count() <> 1 then Error('after delete %1', R.Count()); end;
+}"#;
+    let rdlc = b"<?xml version=\"1.0\"?><Report xmlns=\"http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition\"></Report>".to_vec();
+    let (engine, l) = engine_with_layouts(
+        "main",
+        main,
+        None,
+        al_sema::check::Roots::default(),
+        "27.5.0.0",
+        vec![("r.rdlc".into(), rdlc)],
+    );
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
+    let o = run_codeunit(&engine, &l, oi);
+    passes(&o, "UserRow");
+}
