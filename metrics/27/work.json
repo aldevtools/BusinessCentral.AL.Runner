@@ -31,7 +31,7 @@
       "objects_loaded": 19294,
       "objects_lowered": 9575,
       "routines_lowered": 41565,
-      "tests_run": 17958
+      "tests_run": 17973
     },
     "total": {
       "baseline_rows": 4660,
@@ -47,7 +47,7 @@
       "objects_loaded": 38638,
       "objects_lowered": 18940,
       "routines_lowered": 52635,
-      "tests_run": 17997
+      "tests_run": 18012
     }
   }
 }
