@@ -67,9 +67,94 @@ fn merge(a: u8, b: u8) -> u8 {
     if a == 1 || b == 1 { 1 } else { a.max(b) }
 }
 
+/// The order of the levels: blank, Indirect, Yes.
+fn rank(level: u8) -> u8 {
+    match level {
+        1 => 2,
+        2 => 1,
+        _ => 0,
+    }
+}
+
+/// `have` with `excluded` taken away, for one permission (Y19PermComposition.al:124-129, :151-162, P11): an excluded
+/// Yes removes the permission, an excluded Indirect leaves Indirect of a Yes. `None` for Indirect minus Indirect, which
+/// no probe pins.
+fn subtract_level(have: u8, excluded: u8) -> Option<u8> {
+    match (have, excluded) {
+        (h, 0) => Some(h),
+        (_, 1) | (0, _) => Some(0),
+        (1, 2) => Some(2),
+        _ => None,
+    }
+}
+
 impl Content {
+    /// The level the content gives permission `p` on object `(kind, id)`: the better of the kind's wildcard and the
+    /// object's own grant.
+    pub(crate) fn level_of(&self, kind: i32, id: u32, p: usize) -> u8 {
+        let wild = kind_slot(kind).map_or(0, |slot| self.wild[slot][p]);
+        let own = self
+            .explicit
+            .binary_search_by_key(&(kind, id), |&(k, id, _)| (k, id))
+            .map_or(0, |i| self.explicit[i].2[p]);
+        merge(wild, own)
+    }
+
+    /// Takes away what the excluded sets grant (`ExcludedPermissionSets`, ADR-062 section 3, probe P11), per permission.
+    /// Where the result is not pinned or cannot be held (a wildcard minus one object), it keeps less than BC may: the
+    /// content stays a lower bound, and the error names why.
+    pub(crate) fn subtract(&mut self, ex: &Content) -> Result<(), String> {
+        let mut why = None;
+        let mut wild = self.wild;
+        for (slot, lv) in wild.iter_mut().enumerate() {
+            for (p, h) in lv.iter_mut().enumerate() {
+                *h = subtract_level(*h, ex.wild[slot][p]).unwrap_or_else(|| {
+                    why = Some("an excluded set takes an indirect permission from an indirect one (not pinned)");
+                    0
+                });
+            }
+        }
+        let mut ids: Vec<(i32, u32)> = self
+            .explicit
+            .iter()
+            .chain(&ex.explicit)
+            .map(|&(k, id, _)| (k, id))
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        let mut explicit = Vec::new();
+        for (k, id) in ids {
+            let mut lv = [0u8; 5];
+            for (p, l) in lv.iter_mut().enumerate() {
+                *l = subtract_level(self.level_of(k, id, p), ex.level_of(k, id, p)).unwrap_or_else(|| {
+                    why = Some("an excluded set takes an indirect permission from an indirect one (not pinned)");
+                    0
+                });
+                // A wildcard that grants more than this object keeps: the wildcard cannot leave one object out.
+                if let Some(slot) = kind_slot(k)
+                    && rank(wild[slot][p]) > rank(*l)
+                {
+                    wild[slot][p] = 0;
+                    why = Some("an excluded set takes one object out of a wildcard grant (not held here)");
+                }
+            }
+            if lv != [0; 5] {
+                explicit.push((k, id, lv));
+            }
+        }
+        self.wild = wild;
+        self.explicit = explicit;
+        why.map_or(Ok(()), |w| Err(w.to_string()))
+    }
+
+    /// The content without entries that grant nothing, to compare two contents.
+    fn normalized(mut self) -> Content {
+        self.explicit.retain(|e| e.2 != [0; 5]);
+        self
+    }
+
     /// Adds what `other` grants: per permission, Yes beats Indirect beats blank (ADR-062 section 3).
-    fn union(&mut self, other: &Content) {
+    pub(crate) fn union(&mut self, other: &Content) {
         for (have, add) in self.wild.iter_mut().zip(&other.wild) {
             for (h, a) in have.iter_mut().zip(add) {
                 *h = merge(*h, *a);
@@ -108,13 +193,20 @@ pub(crate) struct EffectivePermissions {
 }
 
 /// The permission set objects of the program, read once per engine, and the composed lists, shared by every session
-/// (the runner assigns the same sets before thousands of tests).
+/// (the runner assigns the same sets before thousands of tests). Also the object grants and inherent attributes, read
+/// on first use.
 pub(crate) struct SetModel {
     sets: Vec<crate::platform::RawSet>,
     by_name: HashMap<String, Vec<usize>>,
     by_role: HashMap<String, Vec<usize>>,
     composed: Mutex<HashMap<Vec<String>, Option<Arc<EffectivePermissions>>>>,
+    /// Per object index: its `Permissions` property.
+    grants: Mutex<HashMap<usize, Arc<Result<Content, String>>>>,
+    /// Per (object index, routine): its `[InherentPermissions]` attributes.
+    inherent: Mutex<HashMap<(usize, usize), InherentGrants>>,
 }
+
+type InherentGrants = Arc<Vec<Result<Option<(i32, u32, Levels)>, String>>>;
 
 impl SetModel {
     pub(crate) fn of(engine: &Engine) -> Arc<SetModel> {
@@ -129,40 +221,81 @@ impl SetModel {
                 by_name,
                 by_role,
                 composed: Mutex::new(HashMap::new()),
+                grants: Mutex::new(HashMap::new()),
+                inherent: Mutex::new(HashMap::new()),
             }
         })
     }
 
-    /// Set `i` with its included sets merged in, and whether it is complete (the reasons when not).
-    fn expanded(&self, i: usize, visiting: &mut Vec<usize>, why: &mut Vec<String>) -> Result<Content, String> {
+    fn one_set(&self, name: &str) -> Option<usize> {
+        match self.by_name.get(name).map(Vec::as_slice) {
+            Some([t]) => Some(*t),
+            _ => None,
+        }
+    }
+
+    /// Set `i` with its included sets merged in and, with `exclude`, its excluded sets taken away (P11: an excluded set's
+    /// own includes are excluded too, Y19PermComposition.al:126-127, :151-156). A reason goes to `why` wherever the
+    /// result is only a lower bound of what BC grants.
+    fn expanded(
+        &self,
+        i: usize,
+        exclude: bool,
+        visiting: &mut Vec<usize>,
+        why: &mut Vec<String>,
+    ) -> Result<Content, String> {
         let set = &self.sets[i];
         if visiting.contains(&i) {
             return Err(format!("permission set '{}' includes itself", set.role));
         }
         let mut all = set.declared.clone()?;
-        if set.excluded {
-            why.push(format!(
-                "permission set '{}' excludes sets (ADR-062 probe P11)",
-                set.role
-            ));
-        }
-        if set.extended {
-            why.push(format!(
-                "permission set '{}' is extended by a permission set extension (ADR-062 probe P10)",
-                set.role
-            ));
+        if let Some(w) = &set.incomplete {
+            why.push(w.clone());
         }
         visiting.push(i);
         for inc in &set.includes {
-            match self.by_name.get(inc).map(Vec::as_slice) {
-                Some([t]) => match self.expanded(*t, visiting, why) {
+            match self.one_set(inc) {
+                // An included set that excludes sets: whether its exclusion reaches beyond it is not pinned, so it adds
+                // nothing here.
+                Some(t) if !self.sets[t].excludes.is_empty() => why.push(format!(
+                    "permission set '{}' includes `{inc}`, which excludes sets (not pinned)",
+                    set.role
+                )),
+                Some(t) => match self.expanded(t, true, visiting, why) {
                     Ok(c) => all.union(&c),
                     Err(e) => why.push(e),
                 },
-                _ => why.push(format!(
+                None => why.push(format!(
                     "permission set '{}' includes `{inc}`, which is not one set",
                     set.role
                 )),
+            }
+        }
+        if exclude {
+            for ex in &set.excludes {
+                let taken = match self.one_set(ex) {
+                    Some(t) if self.sets[t].excludes.is_empty() => self.expanded(t, true, visiting, why),
+                    Some(_) => Err(format!(
+                        "permission set '{}' excludes `{ex}`, which excludes sets too (not pinned)",
+                        set.role
+                    )),
+                    None => Err(format!(
+                        "permission set '{}' excludes `{ex}`, which is not one set",
+                        set.role
+                    )),
+                };
+                match taken {
+                    Ok(c) => {
+                        if let Err(w) = all.subtract(&c) {
+                            why.push(format!("permission set '{}': {w}", set.role));
+                        }
+                    }
+                    // What is excluded is not known: nothing of the set is kept.
+                    Err(e) => {
+                        why.push(e);
+                        all = Content::default();
+                    }
+                }
             }
         }
         visiting.pop();
@@ -172,10 +305,10 @@ impl SetModel {
     /// The session level of a session whose assigned sets are `roles` (Role IDs, in assignment order): `None` when the
     /// union grants everything (unrestricted), else what it gives.
     ///
-    /// The union only adds (pin 2 of ADR-062), so a set that cannot be composed, or whose exclusions and extensions are
-    /// not applied, cannot take away what the others grant: when the sets that compose grant everything, the session
-    /// is unrestricted whatever the others hold. An excluding set is left out of the union (subtraction could remove
-    /// what it grants), and the result is incomplete.
+    /// The union of the sets (pin 2 of ADR-062), each with its own exclusions taken away. Whether one assigned set's
+    /// exclusions also take from another assigned set is not pinned; where the two readings differ, the session holds the
+    /// smaller (exclusions taken from the union) and is incomplete. A set that cannot be composed adds nothing, so the
+    /// content is always a lower bound of what BC grants, and complete only when every set composed in full.
     pub(crate) fn compose(&self, roles: &[String]) -> Option<Arc<EffectivePermissions>> {
         let mut key = roles.to_vec();
         key.sort_unstable();
@@ -186,21 +319,44 @@ impl SetModel {
         }
         let mut content = Content::default();
         let mut why = Vec::new();
+        let mut found = Vec::new();
         for role in &key {
             match self.by_role.get(role).map(Vec::as_slice) {
                 Some([i]) => {
-                    let mut own_why = Vec::new();
-                    match self.expanded(*i, &mut Vec::new(), &mut own_why) {
-                        Ok(c) if !self.sets[*i].excluded => content.union(&c),
-                        Ok(_) => {}
-                        Err(e) => own_why.push(e),
+                    found.push(*i);
+                    match self.expanded(*i, true, &mut Vec::new(), &mut why) {
+                        Ok(c) => content.union(&c),
+                        Err(e) => why.push(e),
                     }
-                    why.extend(own_why);
                 }
                 Some(_) => why.push(format!(
                     "more than one permission set has the Role ID '{role}' (ADR-062 probe P9)"
                 )),
                 None => why.push(format!("no permission set of the program has the Role ID '{role}'")),
+            }
+        }
+        if found.len() > 1 && found.iter().any(|&i| !self.sets[i].excludes.is_empty()) {
+            let mut whole = Content::default();
+            let mut taken = Content::default();
+            let mut ignored = Vec::new();
+            for &i in &found {
+                if let Ok(c) = self.expanded(i, false, &mut Vec::new(), &mut ignored) {
+                    whole.union(&c);
+                }
+                for ex in &self.sets[i].excludes {
+                    if let Some(Ok(c)) = self
+                        .one_set(ex)
+                        .map(|t| self.expanded(t, true, &mut Vec::new(), &mut ignored))
+                    {
+                        taken.union(&c);
+                    }
+                }
+            }
+            let _ = whole.subtract(&taken);
+            let whole = whole.normalized();
+            if whole != content.clone().normalized() {
+                why.push("an assigned set excludes what another assigned set grants (not pinned)".into());
+                content = whole;
             }
         }
         let result = (!content.grants_everything()).then(|| {
@@ -212,6 +368,39 @@ impl SetModel {
         });
         lock().insert(key, result.clone());
         result
+    }
+
+    /// The `Permissions` property of object `object` (read once per engine).
+    fn object_grants(&self, engine: &Engine, object: usize) -> Arc<Result<Content, String>> {
+        let lock = || self.grants.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(g) = lock().get(&object) {
+            return g.clone();
+        }
+        let g = Arc::new(crate::platform::object_grants(engine, object));
+        lock().insert(object, g.clone());
+        g
+    }
+
+    /// The `[InherentPermissions]` attributes of routine `routine` of object `object`.
+    fn inherent_of(&self, engine: &Engine, object: usize, routine: usize) -> InherentGrants {
+        let lock = || self.inherent.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(g) = lock().get(&(object, routine)) {
+            return g.clone();
+        }
+        let list: Vec<_> = engine.program.objects[object]
+            .routines
+            .get(routine)
+            .map(|r| {
+                r.attributes
+                    .iter()
+                    .filter(|a| a.name.eq_ignore_ascii_case("InherentPermissions"))
+                    .map(|a| crate::platform::inherent_attribute(engine, &a.text))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let g = Arc::new(list);
+        lock().insert((object, routine), g.clone());
+        g
     }
 }
 
@@ -268,10 +457,13 @@ impl Stage {
         }
     }
 
-    /// Whether the stage is on unless `--permissions off` says otherwise. None is yet.
+    /// Whether the stage raises the pinned denials of its access kind unless `--permissions off` says otherwise.
+    /// Writes is on: its probes P1-P13 are merged in the corpus (master, PR 914). An access the sets allow runs in every
+    /// stage (an allowed access needs no probe, ADR-062 section 2); a denial of a stage that is off refuses the test.
     pub(crate) const fn on_by_default(self) -> bool {
         match self {
-            Stage::Writes | Stage::Reads | Stage::Execute => false,
+            Stage::Writes => true,
+            Stage::Reads | Stage::Execute => false,
         }
     }
 }
@@ -346,18 +538,28 @@ fn execute_target(kind: al_ir::ObjKind, id: Option<u32>, extends: Option<u32>) -
 impl EffectivePermissions {
     /// The session level for `access`: the better of the kind's wildcard and the object's own grant.
     pub(crate) fn level(&self, access: Access) -> u8 {
-        let Some(slot) = kind_slot(access.kind) else {
+        if kind_slot(access.kind).is_none() {
             return 0;
-        };
-        let p = access.op as usize;
-        let wild = self.content.wild[slot][p];
-        let own = self
-            .content
-            .explicit
-            .binary_search_by_key(&(access.kind, access.id), |&(k, id, _)| (k, id))
-            .map_or(0, |i| self.content.explicit[i].2[p]);
-        merge(wild, own)
+        }
+        self.content.level_of(access.kind, access.id, access.op as usize)
     }
+}
+
+/// AllObj and Field: a narrow set reads them (Y19PermSystemTables.al, P13).
+const ALWAYS_READABLE: [u32; 2] = [2_000_000_038, 2_000_000_041];
+/// Tenant Media: the one system table whose write denial is pinned (Y19PermSystemTables.al, P13: Insert error).
+const TENANT_MEDIA: u32 = 2_000_000_184;
+
+/// What the decision function says about one access of a restricted session.
+enum Verdict {
+    Allow,
+    /// Denied by complete inputs: BC raises its permission error. `by` is the object whose code makes the access.
+    Deny {
+        indirect: bool,
+        by: usize,
+    },
+    /// The outcome is not known: the test is not run.
+    Refuse(String),
 }
 
 impl Session {
@@ -370,6 +572,20 @@ impl Session {
         self.permissions = SetModel::of(&self.engine).compose(&self.permission_roles);
         if self.permissions.is_none() {
             assume(Assumption::PermissionSetsGrantingEverythingUnrestricted);
+        } else if self.runner_permission_sets {
+            // The runner's sets are not composed: the session holds at least what the test's own sets give, and an
+            // access they do not grant may be granted by the runner's (ADR-062 stage 4, probe P25).
+            let eff = self.permissions.take().expect("restricted");
+            let mut why = eff.why_incomplete.clone();
+            why.push(
+                "the sets were assigned on top of the test runner's permission sets, which are not composed (ADR-062 probe P25, stage 4)"
+                    .into(),
+            );
+            self.permissions = Some(Arc::new(EffectivePermissions {
+                content: eff.content.clone(),
+                complete: false,
+                why_incomplete: why,
+            }));
         }
     }
 
@@ -378,82 +594,189 @@ impl Session {
     pub(crate) fn clear_permission_sets(&mut self) {
         self.permission_roles.clear();
         self.permissions = None;
+        self.runner_permission_sets = false;
     }
 
-    /// An access of a restricted session (the caller checked `self.permissions.is_some()`). The code of "Permissions
-    /// Mock" itself is not checked: between its `Assign` calls the list is not final (`Set('SUPER')` assigns All Objects
-    /// first), and Microsoft's mock runs on BC under every list it builds (TestMockBasics.al:20-79, 143-163). Nor is a
-    /// call the runner makes from outside AL code (its steps around the test method, al-testrun `runner_reset.rs`).
+    /// The decision function of ADR-062 section 1 for an access of a restricted session (the caller checked
+    /// `self.permissions.is_some()`). `target` is the object index of the accessed object (the table of a TableData
+    /// access, the called object of an Execute access); `flowfield` makes
+    /// the object grant hold (a FlowField calculation counts as an indirect read, CpPermLeads.al:29-63).
     ///
-    /// The gate per access kind (ADR-062 section 2): an access whose stage is not enforced refuses the test, as before
-    /// the gate existed. An enforced access runs the decision; a denial is raised only in a pinned shape, so until a
-    /// stage brings its pinned errors it refuses too (the safety rule of section 2).
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn permission_gate(&mut self, access: Access) -> Result<(), Signal> {
+    /// The code of "Permissions Mock" itself is not checked: between its `Assign` calls the list is not final
+    /// (`Set('SUPER')` assigns All Objects first), and Microsoft's mock runs on BC under every list it builds
+    /// (TestMockBasics.al:20-79, 143-163). Nor is a call the runner makes from outside AL code (its steps around the
+    /// test method, al-testrun `runner_reset.rs`).
+    fn permission_verdict(&mut self, access: Access, target: Option<usize>, flowfield: bool) -> Verdict {
         let Some(&caller) = self.frames.last() else {
-            return Ok(());
+            return Verdict::Allow;
         };
-        let o = &self.engine.program.objects.heads()[caller];
+        let engine = self.engine.clone();
+        let o = &engine.program.objects.heads()[caller];
         if o.kind == al_ir::ObjKind::Codeunit && o.id == Some(PERMISSIONS_MOCK) {
-            return Ok(());
+            return Verdict::Allow;
         }
         if self.ignore_permission_mock {
             assume(Assumption::PermissionsNotEnforced);
-            return Ok(());
+            return Verdict::Allow;
         }
-        if !self.enforces(access.op) {
-            return Err(Signal::Unsupported(LOWERED.into()));
+        if self.permissions_off {
+            return Verdict::Refuse(LOWERED.into());
         }
         let Some(eff) = self.permissions.clone() else {
-            return Ok(());
+            return Verdict::Allow;
         };
-        // The object grant `G` (the caller's own `Permissions` property) comes with stage 1.
-        match decide(eff.level(access), false) {
-            Decision::Allow => Ok(()),
-            Decision::Deny { .. } if !eff.complete => Err(Signal::Unsupported(format!(
-                "{LOWERED}; the assigned sets are not fully composed: {}",
+        let p = access.op as usize;
+        let mut u = eff.level(access);
+        if u == 1 {
+            return Verdict::Allow;
+        }
+        let model = SetModel::of(&engine);
+        // Inherent permissions merge into the session level (pin 5): the table's property and the attributes of every
+        // routine on the stack, each for that call and the calls it makes (CpPermLeads.al:155-189). Only Yes is pinned.
+        let mut unpinned: Option<String> = None;
+        // The level the accessed object's own InherentPermissions adds where no probe pins it (an indirect letter on a
+        // table, Execute on any object): used only when the access is not allowed without it, under assumption
+        // `inherent-permissions-indirect-and-objects`.
+        let mut assumed = 0;
+        if let Some(t) = target {
+            match crate::platform::table_inherent(&engine, t) {
+                Some(Ok(l)) if access.kind == 0 && l[p] == 1 => u = merge(u, 1),
+                Some(Ok(l)) => assumed = l[p],
+                Some(Err(why)) => unpinned = Some(why),
+                None => {}
+            }
+        }
+        for (&object, frame) in self.frames.iter().zip(&self.call_stack) {
+            for g in model.inherent_of(&engine, object, frame.routine).iter() {
+                match g {
+                    Ok(Some((k, id, l))) if *k == access.kind && *id == access.id => {
+                        if l[p] == 2 {
+                            unpinned = Some("an indirect [InherentPermissions] attribute".into());
+                        } else {
+                            u = merge(u, l[p]);
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(why) => unpinned = Some(why.clone()),
+                }
+            }
+        }
+        if u == 1 {
+            return Verdict::Allow;
+        }
+        // The object grant `G`: the caller's own `Permissions` property (pin 4: Y19PermComposition.al:45-58, the frame's
+        // object only). Code of an extension object: which property applies is not pinned.
+        let grant = if flowfield {
+            true
+        } else if o.kind.extended().is_some() {
+            return Verdict::Refuse(format!(
+                "the code of {} {} makes an access the assigned permission sets do not grant directly; which Permissions property covers an extension object's code is not pinned (ADR-062)",
+                o.kind, o.name
+            ));
+        } else {
+            match &*model.object_grants(&engine, caller) {
+                Ok(c) => c.level_of(access.kind, access.id, p) != 0,
+                Err(why) => {
+                    return Verdict::Refuse(format!(
+                        "the Permissions property of {} {} is not read: {why}",
+                        o.kind, o.name
+                    ));
+                }
+            }
+        };
+        let decision = match decide(u, grant) {
+            Decision::Deny { .. } if assumed != 0 && decide(merge(u, assumed), grant) == Decision::Allow => {
+                assume(Assumption::InherentPermissionsIndirectAndObjects);
+                Decision::Allow
+            }
+            d => d,
+        };
+        match decision {
+            Decision::Allow => Verdict::Allow,
+            Decision::Deny { .. } if unpinned.is_some() => Verdict::Refuse(format!(
+                "a permission denial ({}) where an inherent permission is not read: {}",
+                access.describe(),
+                unpinned.unwrap_or_default()
+            )),
+            Decision::Deny { .. } if !eff.complete => Verdict::Refuse(format!(
+                "a permission denial ({}) under assigned permission sets that are not fully composed, so BC may allow it: {}",
+                access.describe(),
                 eff.why_incomplete.join("; ")
-            ))),
-            Decision::Deny { .. } => Err(Signal::Unsupported(format!(
-                "a permission denial ({} permission on object type {} id {}) whose error is not pinned yet (ADR-062 section 2)",
-                access.op.describe(),
-                access.kind,
-                access.id
-            ))),
+            )),
+            Decision::Deny { indirect } => Verdict::Deny { indirect, by: caller },
         }
     }
 
-    /// Whether the gate decides accesses of this kind (`--permissions off` turns every stage off).
-    fn enforces(&self, op: Op) -> bool {
-        !self.permissions_off && Stage::of(op).on_by_default()
-    }
-
-    /// The gate for a call of a routine of `object` (an Execute access, stage 3).
+    /// The gate for a call of a routine of `object` (an Execute access, stage 3): an allowed call runs; a denial is not
+    /// pinned yet (probe P20), so it refuses the test.
     #[cold]
     #[inline(never)]
     pub(crate) fn permission_gate_call(&mut self, object: usize) -> Result<(), Signal> {
         let o = &self.engine.program.objects.heads()[object];
         let (kind, id) = execute_target(o.kind, o.id, o.extends_id);
-        self.permission_gate(Access {
+        if kind < 0 {
+            return Ok(());
+        }
+        let access = Access {
             kind,
             id,
             op: Op::Execute,
-        })
+        };
+        match self.permission_verdict(access, Some(object), false) {
+            Verdict::Allow => Ok(()),
+            Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
+            Verdict::Deny { .. } => Err(Signal::Unsupported(unpinned_denial(
+                access,
+                "ADR-062 stage 3, probe P20",
+            ))),
+        }
     }
 
-    /// The gate for record method `method` on a record of the table with object index `object`; a method that reads
-    /// or writes no row (filters, keys, field metadata) is no access.
+    /// The gate for the calculation of a FlowField over table `table` (object index): an indirect read the session level
+    /// allows runs (pin 6); a denial is stage 2 (probe P15), so it refuses the test.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn permission_gate_flowfield(&mut self, table: usize) -> Result<(), Signal> {
+        let id = self.engine.program.objects.heads()[table].id.unwrap_or(0);
+        let access = Access {
+            kind: 0,
+            id,
+            op: Op::Read,
+        };
+        match self.permission_verdict(access, Some(table), true) {
+            Verdict::Allow => Ok(()),
+            Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
+            Verdict::Deny { .. } => Err(Signal::Unsupported(unpinned_denial(
+                access,
+                "ADR-062 stage 2, probe P15",
+            ))),
+        }
+    }
+
+    /// The gate for record method `method` on `rec`; a method that reads or writes no row (filters, keys, field
+    /// metadata) is no access. `from_al`: AL code calls the method (a Record or RecordRef method), not the runtime on
+    /// behalf of a page, report, xmlport or validation.
     #[cold]
     #[inline(never)]
     pub(crate) fn permission_gate_record(
         &mut self,
         method: al_builtins::record_op::RecordOp,
-        object: usize,
+        rec: &crate::records::Rec,
+        args: &[al_builtins::value::Value],
+        from_al: bool,
     ) -> Result<(), Signal> {
         let Some(op) = record_access(method) else {
             return Ok(());
         };
+        let (object, temporary) = {
+            let r = rec.borrow();
+            (r.table as usize, r.temporary)
+        };
+        // A temporary record is never checked, its writes nor its Count: Y19PermWrites.al Y19_P6_Temporary (Temporary
+        // variable, TableType = Temporary, RecordRef.Open(.., true); ops 64-70 under a set without a grant).
+        if temporary {
+            return Ok(());
+        }
         let id = self
             .engine
             .program
@@ -462,18 +785,156 @@ impl Session {
             .get(object)
             .and_then(|o| o.id)
             .unwrap_or(0);
-        self.permission_gate(Access { kind: 0, id, op })
+        if op == Op::Read && ALWAYS_READABLE.contains(&id) {
+            return Ok(());
+        }
+        let access = Access { kind: 0, id, op };
+        match self.permission_verdict(access, Some(object), false) {
+            Verdict::Allow => Ok(()),
+            Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
+            Verdict::Deny { indirect, by } => self.write_denied(method, rec, args, access, indirect, by, from_al),
+        }
     }
 
-    /// At the end of a test method: the refusal when the session is still restricted (the test lowered its permissions
-    /// and made no access the gate saw since). Under `--ignore-permission-mock` the test is flagged instead.
+    /// A denied TableData access: BC's error where its shape is pinned, else the refusal (the safety rule of ADR-062
+    /// section 2).
+    ///
+    /// `Sorry, the current permissions prevented the action. (TableData <id> <name> <Op>: <app>)` with the code
+    /// `DB:Client<Op>Denied`: Insert, Modify and Delete (TestMockBasics.al:72-78), Rename as Modify (Y19PermWrites.al
+    /// Y19_P1_Rename), DeleteAll and ModifyAll as Delete and Modify on a table with rows, whatever the filter matches
+    /// (Y19_P2_SetR, Y19_P2_SetRI), RecordRef writes the same (Y19_P6_RecordRef), trigger writes (Y19_P3_*);
+    /// `Indirect<Op>` when the code's object grants the access (Y19_P4_IndirectDeleteAndModify, TestIndirect.al:80-103);
+    /// `<app>` the app of the code (Y19PermCrossApp.al). DeleteAll and ModifyAll without triggers on an empty table raise
+    /// nothing (TestMockBasics.al:47-50).
+    #[allow(clippy::too_many_arguments)]
+    fn write_denied(
+        &mut self,
+        method: al_builtins::record_op::RecordOp,
+        rec: &crate::records::Rec,
+        args: &[al_builtins::value::Value],
+        access: Access,
+        indirect: bool,
+        by: usize,
+        from_al: bool,
+    ) -> Result<(), Signal> {
+        use al_builtins::record_op::RecordOp as R;
+        use al_builtins::value::Value;
+        let refuse = |why: &str| Err(Signal::Unsupported(unpinned_denial(access, why)));
+        if !Stage::of(access.op).on_by_default() {
+            return refuse(match access.op {
+                Op::Read => "ADR-062 stage 2, probes P14-P19",
+                _ => "ADR-062 stage 3, probes P20-P22",
+            });
+        }
+        if !from_al {
+            return refuse("made by the runtime for a page, report, xmlport or validation; ADR-062 probes P16-P18");
+        }
+        if access.id >= 2_000_000_000 && access.id != TENANT_MEDIA {
+            return refuse("on a system table; probe P13 pins Tenant Media only");
+        }
+        let word = match access.op {
+            Op::Insert => "Insert",
+            Op::Modify => "Modify",
+            Op::Delete => "Delete",
+            _ => return refuse("ADR-062 section 2"),
+        };
+        match method {
+            R::Insert if self.row_exists(rec)? => {
+                return refuse("an Insert of a key that exists (which error comes first is not pinned)");
+            }
+            R::Modify | R::Delete | R::Rename if !self.row_exists(rec)? => {
+                return refuse("on a row that does not exist (which error comes first is not pinned)");
+            }
+            R::Insert | R::Modify | R::Delete | R::Rename => {}
+            R::ModifyAll | R::DeleteAll => {
+                let t = self.table(rec)?;
+                let cx = self.cx_for(rec, &t)?;
+                let rows = al_data::Store::count(&*self.store_for(rec), &cx, &t, &[])
+                    .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+                let triggers = match method {
+                    R::ModifyAll => args.len() > 2 && matches!(args.last(), Some(Value::Boolean(true))),
+                    _ => matches!(args.last(), Some(Value::Boolean(true))),
+                };
+                if rows == 0 {
+                    return if triggers {
+                        refuse("on an empty table with triggers (TestMockBasics.al:47-50 pins it without)")
+                    } else {
+                        Ok(())
+                    };
+                }
+            }
+            _ => return refuse("ADR-062 section 2"),
+        }
+        let heads = self.engine.program.objects.heads();
+        let name = &heads[rec.borrow().table as usize].name;
+        let app = self
+            .engine
+            .program
+            .apps
+            .get(heads[by].app as usize)
+            .map(|a| a.name.as_str())
+            .unwrap_or_default();
+        let op = if indirect {
+            format!("Indirect{word}")
+        } else {
+            word.to_string()
+        };
+        Err(crate::transactions::al_error_code(
+            &format!(
+                "Sorry, the current permissions prevented the action. (TableData {} {name} {op}: {app})",
+                access.id
+            ),
+            &format!("DB:Client{word}Denied"),
+        ))
+    }
+
+    /// Whether the row with `rec`'s primary key is stored.
+    fn row_exists(&mut self, rec: &crate::records::Rec) -> Result<bool, Signal> {
+        let t = self.table(rec)?;
+        let cx = self.cx_for(rec, &t)?;
+        let pk: Vec<al_builtins::value::Value> = {
+            let r = rec.borrow();
+            t.keys[0].iter().map(|&i| r.fields[i].clone()).collect()
+        };
+        let found = al_data::Store::get(&*self.store_for(rec), &cx, &t, &pk)
+            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+        Ok(found.is_some())
+    }
+
+    /// At the end of a test method: the refusal when the session is still restricted and `--permissions off` turned the
+    /// checks off (the test lowered its permissions and made no access the gate refused since). With the checks on,
+    /// every access the test made was decided, so it ends as it ran. Under `--ignore-permission-mock` the test is
+    /// flagged instead.
     pub fn permissions_lowered_at_end(&mut self) -> Option<String> {
         self.permissions.as_ref()?;
         if self.ignore_permission_mock {
             assume(Assumption::PermissionsNotEnforced);
             return None;
         }
+        if !self.permissions_off && Stage::Writes.on_by_default() {
+            return None;
+        }
         Some(LOWERED.into())
+    }
+}
+
+/// The refusal of a denial whose error is not pinned.
+fn unpinned_denial(access: Access, probe: &str) -> String {
+    format!(
+        "a permission denial ({}) whose error is not pinned yet ({probe}); the test is not run",
+        access.describe()
+    )
+}
+
+impl Access {
+    /// The access in plain words, for messages.
+    fn describe(self) -> String {
+        format!(
+            "{} permission on object type {} id {}",
+            self.op.describe(),
+            self.kind,
+            self.id
+        )
     }
 }
 
@@ -558,10 +1019,13 @@ mod tests {
         );
     }
 
-    /// No stage is on before its probes land (ADR-062 section 5): the skeleton changes nothing.
+    /// Writes is on once probes P1-P13 landed; reads and Execute wait for theirs (ADR-062 section 5).
     #[test]
-    fn no_stage_is_on_by_default_yet() {
-        for op in [Op::Read, Op::Insert, Op::Modify, Op::Delete, Op::Execute] {
+    fn only_the_write_stage_is_on_by_default() {
+        for op in [Op::Insert, Op::Modify, Op::Delete] {
+            assert!(Stage::of(op).on_by_default(), "{op:?}");
+        }
+        for op in [Op::Read, Op::Execute] {
             assert!(!Stage::of(op).on_by_default(), "{op:?}");
         }
     }

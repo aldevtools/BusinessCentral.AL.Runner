@@ -296,7 +296,7 @@ fn a_rerun_job_leaves_two_artifacts_of_a_role_and_the_newest_wins() {
     );
 }
 
-/// A leg has a fourth artifact since the corpus added the TestLibraries job: it is not part of the oracle.
+/// A leg has five artifacts since the corpus added the Isolation Disabled job; a fourth since the corpus added the TestLibraries job: it is not part of the oracle.
 #[test]
 fn the_test_libraries_artifact_of_a_leg_is_the_oracle_of_the_testlibraries_suite() {
     let f = fixture();
@@ -312,6 +312,8 @@ fn the_test_libraries_artifact_of_a_leg_is_the_oracle_of_the_testlibraries_suite
         // The TestLibraries job (corpus tests/al-language-testlibraries) runs with Microsoft's Tests-TestLibraries
         // installed: its file is the oracle of the suite testlibraries, which runs in an environment of its own.
         roles.push(("junit-al-language-testlibraries.xml", 900, "2026-10-19T18:42:00Z"));
+        // The Isolation Disabled job (corpus tests/al-language-isolation-disabled, runner 130451): a fifth artifact.
+        roles.push(("junit-al-language-isolation-disabled.xml", 400, "2026-10-19T18:43:00Z"));
         for (xml, size, at) in roles {
             id += 1;
             let src = d.join(format!("z{id}"));
@@ -345,11 +347,11 @@ fn the_test_libraries_artifact_of_a_leg_is_the_oracle_of_the_testlibraries_suite
     let (code, out) = bump(&f, &gh, &["--dry-run", "123"]);
     assert_eq!(code, 0, "{out}");
     assert!(
-        out.contains("27.5: oracle artifact 201, onprem artifact 202, dotnet artifact 203, testlibraries artifact 204"),
+        out.contains("27.5: oracle artifact 201, onprem artifact 202, dotnet artifact 203, testlibraries artifact 204, isolation-disabled artifact 205"),
         "{out}"
     );
     assert!(
-        out.contains("28.5: oracle artifact 205, onprem artifact 206, dotnet artifact 207, testlibraries artifact 208"),
+        out.contains("28.5: oracle artifact 206, onprem artifact 207, dotnet artifact 208, testlibraries artifact 209, isolation-disabled artifact 210"),
         "{out}"
     );
 }
@@ -517,4 +519,66 @@ fn the_bump_prints_the_assumptions_whose_pin_landed_after_the_baselines() {
     assert!(check > baseline, "the check runs after the baseline step");
     let line = script[check..].lines().next().unwrap();
     assert!(line.contains("||"), "a landed pin must not stop the bump: {line}");
+}
+
+// ISOL_IDS names the artifact of each leg's Isolation Disabled file. A version without the suite gets it (the suite
+// cannot be in oracle.toml before the pinned corpus holds its app); a version with it moves it to the run.
+#[test]
+fn a_new_pin_adds_the_isolation_disabled_suite_and_moves_it_afterwards() {
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let legs = [
+        ["27", "1", "2", "5600", "72"],
+        ["28", "3", "4", "5598", "72"],
+        ["29", "5", "6", "5598", "72"],
+    ];
+    let (d, toml, _) = edit_copy_with(sha, "999", &legs, &[("ISOL_IDS", "27=81 28=82 29=83")]);
+    let v: toml::Value = toml::from_str(&toml).unwrap();
+    for ver in v["version"].as_array().unwrap() {
+        let major = ver["major"].as_integer().unwrap();
+        let s = ver["suite"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| s["name"].as_str() == Some("isolation-disabled"))
+            .collect::<Vec<_>>();
+        assert_eq!(s.len(), 1, "{toml}");
+        assert_eq!(s[0]["artifact_id"].as_integer(), Some(54 + major), "{toml}");
+        assert_eq!(s[0]["workflow_run"].as_integer(), Some(999), "{toml}");
+        assert_eq!(s[0]["runner"].as_integer(), Some(130451), "{toml}");
+        assert_eq!(
+            s[0]["app"].as_str(),
+            Some("corpus/tests/al-language-isolation-disabled")
+        );
+        // Another suite is left as it was (the isolation probe keeps its own run).
+        assert!(
+            ver["suite"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s["name"].as_str() == Some("onprem"))
+        );
+    }
+    // A second bump moves the suite instead of adding another.
+    let again = Command::new("python3")
+        .env("ISOL_IDS", "27=91 28=92 29=93")
+        .arg(root().join("tools/corpus_bump_edit.py"))
+        .arg(d.path())
+        .arg(sha)
+        .arg("1000")
+        .args(legs.iter().flatten())
+        .output()
+        .unwrap();
+    assert!(again.status.success(), "{}", String::from_utf8_lossy(&again.stderr));
+    let v: toml::Value =
+        toml::from_str(&std::fs::read_to_string(d.path().join("oracle/oracle.toml")).unwrap()).unwrap();
+    for ver in v["version"].as_array().unwrap() {
+        let s: Vec<_> = ver["suite"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| s["name"].as_str() == Some("isolation-disabled"))
+            .collect();
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0]["workflow_run"].as_integer(), Some(1000));
+    }
 }

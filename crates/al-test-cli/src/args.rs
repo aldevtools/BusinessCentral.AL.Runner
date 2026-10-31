@@ -15,6 +15,8 @@ pub struct Args {
     pub markdown: Option<PathBuf>,
     pub junit: Option<PathBuf>,
     pub update_baseline: bool,
+    /// `--update-work`: rewrite `metrics/<major>/work.json` from this run's counts (the work ratchet, `work.rs`).
+    pub update_work: bool,
     /// `--no-ratchet`: report only; do not compare with the baseline (for running the corpus
     /// without the dependency apps its baseline needs).
     pub no_ratchet: bool,
@@ -217,6 +219,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--markdown" => a.markdown = Some(text()?.into()),
             "--junit" => a.junit = Some(text()?.into()),
             "--update-baseline" => a.update_baseline = true,
+            "--update-work" => a.update_work = true,
             "--no-ratchet" => a.no_ratchet = true,
             "--deps" | "--dep" => a.deps.push(text()?.into()),
             "--no-deps" => a.no_deps = true,
@@ -292,6 +295,13 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--update-baseline needs the fixed run seed {} (ADR-061 section 5); leave out --seed",
             al_host::seed::FIXED_RUN_SEED
         ));
+    }
+    if a.update_work {
+        if let Some(why) = crate::work::not_full_corpus(&a) {
+            return Err(format!(
+                "--update-work needs a run of the full corpus the way CI's normal run makes it, not one with {why}"
+            ));
+        }
     }
     if a.update_baseline && a.explain.is_some() {
         return Err("--update-baseline cannot be combined with --explain".into());
@@ -374,6 +384,8 @@ BASELINE AND REPORTS
   --baseline FILE             ratchet against this file instead of metrics/<major>/passing.txt
   --suite-baseline NAME=FILE  the ratchet file of an extra test app (repeatable)
   --update-baseline           rewrite the baseline files from this run (refused on any regression)
+  --update-work               rewrite metrics/<major>/work.json, the expected work counts, from this run
+                              (refused unless the run is the full corpus without the compile cache)
   --no-ratchet                report only; do not compare with the baseline
   --json FILE                 write the pass-rate report as JSON
   --markdown FILE             write the pass-rate report as Markdown
@@ -484,6 +496,21 @@ mod tests {
     fn update_baseline_refuses_a_selection() {
         let e = run(&["--update-baseline", "--area", "json"]).err().unwrap();
         assert!(e.contains("--update-baseline") && e.contains("--area json"), "{e}");
+    }
+
+    #[test]
+    fn update_work_refuses_a_run_that_is_not_the_full_corpus() {
+        assert!(run(&["--update-work"]).unwrap().update_work);
+        for (flags, named) in [
+            (&["--update-work", "--area", "json"][..], "--area json"),
+            (&["--update-work", "--no-deps"][..], "--no-deps"),
+            (&["--update-work", "--no-ratchet"][..], "--no-ratchet"),
+            (&["--update-work", "--compile-cache"][..], "--compile-cache"),
+            (&["--update-work", "--seed", "7"][..], "--seed"),
+        ] {
+            let e = run(flags).err().unwrap();
+            assert!(e.contains("--update-work") && e.contains(named), "{e}");
+        }
     }
 
     #[test]
