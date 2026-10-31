@@ -930,7 +930,9 @@ pub(crate) fn duplicate_id_objects(ws: &Workspace) -> Vec<usize> {
 /// The longest object name the AL compiler accepts, from alc's text (must-not-compile 0055-object-name-too-long.al:1,
 /// 2120-codeunit-name-31-characters.al:1).
 const AL0305_LIMIT: usize = 30;
-/// The longest permission set name alc accepts (2131-permissionset-name-21-characters.al:1: 21 is refused, 20 compiles).
+/// The longest name of a permission set with `Assignable = true` (2131-permissionset-name-21-characters.al:3-5:
+/// 21 is refused, 20 compiles). Other permission sets are not judged: alc accepts 21 characters there (al-runner
+/// issue 6445), and no corpus case pins their limit yet (docs/probes-needed.md).
 const AL0305_PERMISSION_SET_LIMIT: usize = 20;
 
 /// The name limit AL0305 applies to an object type, where a case pins it: codeunits (0055, 2115, 2120, 2121), tables
@@ -957,24 +959,33 @@ fn name_limit(kind: ObjKind) -> Option<usize> {
 
 /// AL0305: an object name longer than its type allows (al-runner issues 5845, 5588; see `name_limit`).
 fn long_object_names(ws: &Workspace, out: &mut Vec<Diagnostic>) {
-    for o in &ws.objects {
+    for (oi, o) in ws.objects.iter().enumerate() {
         if ws.kinds[o.app] == AppKind::Dependency {
             continue;
         }
         let Some(limit) = name_limit(o.kind) else { continue };
-        if o.name.chars().count() > limit {
-            push(
-                out,
-                ws,
-                o.file,
-                o.offset,
-                "AL0305",
-                format!(
-                    "The length of the application object identifier '{}' cannot exceed {limit} characters.",
-                    o.name
-                ),
-            );
+        if o.name.chars().count() <= limit {
+            continue;
         }
+        // The 20-character limit is pinned only with an explicit `Assignable = true` (case 2131, issue 6445).
+        if o.kind == ObjKind::PermissionSet
+            && !ws.object_ast(oi).properties().any(|p| {
+                p.name().eq_ignore_ascii_case("Assignable") && p.value_text().trim().eq_ignore_ascii_case("true")
+            })
+        {
+            continue;
+        }
+        push(
+            out,
+            ws,
+            o.file,
+            o.offset,
+            "AL0305",
+            format!(
+                "The length of the application object identifier '{}' cannot exceed {limit} characters.",
+                o.name
+            ),
+        );
     }
 }
 
@@ -2959,6 +2970,27 @@ mod tests {
             "enum 50001 \"MNC SH Enum Name That Is Rather Long Ok\" { value(0; A) { } }",
         ] {
             assert!(codes(&[ok]).iter().all(|c| c != "AL0305"), "{ok}");
+        }
+    }
+
+    // al-runner issue 6445: the 20-character permission set limit is pinned only with `Assignable = true` (case
+    // 2131). Every other permission set is not judged: alc accepts 21 characters there.
+    #[test]
+    fn al0305_permission_set_limit_only_when_assignable_true() {
+        for ok in [
+            "permissionset 50100 \"ABC-DEF Process Files\" { Access = Internal; Assignable = false; }",
+            "permissionset 50100 \"ABC-DEF Process Files\" { Assignable = false; }",
+            "permissionset 50100 \"ABC-DEF Process Files\" { Access = Internal; }",
+            "permissionset 50100 \"ABC-DEF Process Files\" { }",
+            "permissionset 50100 \"ABC-DEF Process Files Thirty One\" { Assignable = false; }",
+        ] {
+            assert!(codes(&[ok]).iter().all(|c| c != "AL0305"), "{ok}");
+        }
+        for bad in [
+            "permissionset 50100 \"ABC-DEF Process Files\" { Assignable = true; }",
+            "permissionset 50100 \"ABC-DEF Process Files\" { Access = Public; Assignable = true; }",
+        ] {
+            assert_eq!(codes(&[bad]), vec!["AL0305"], "{bad}");
         }
     }
 
