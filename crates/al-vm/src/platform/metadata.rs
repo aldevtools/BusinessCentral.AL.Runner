@@ -213,7 +213,13 @@ fn subscription_row(
         )
         .into(),
     );
-    let mut known = vec![11u32, 12u32];
+    // "Originating Package ID": a Guid that changes with every publish of the subscriber's app, so the corpus scrubs it
+    // (misc/lt-probes-needed-5/PnE11EventSub.al:99, :128, :130; _fixtures/ProbeObserver.Codeunit.al:88). The runtime gives
+    // the package id it gives the app's objects in AllObj (`ids::package_id`).
+    if let Some(col) = t.fields.iter().position(|f| f.id == 10) {
+        r[col] = Value::Guid(super::objects::package_ids(c, o).0);
+    }
+    let mut known = vec![10u32, 11u32, 12u32];
     let args = crate::events::split_args(&a.text);
     if args.len() < 3 {
         return Err((
@@ -287,7 +293,7 @@ fn subscription_row(
             r[pos(t, 3)] = option(t, 3, 0);
             r[pos(t, 4)] = option(t, 4, object_type);
             r[pos(t, 5)] = Value::Integer(publisher_id as i32);
-            r[pos(t, 6)] = match action_control_id(c, publisher_id, &element) {
+            r[pos(t, 6)] = match control_id(c, publisher_id, &element, al_ir::ControlKind::Action) {
                 Some(id) => Value::Text(truncate(&format!("{event} - {id}"), 250).into()),
                 None => super::unknown(
                     t,
@@ -299,28 +305,30 @@ fn subscription_row(
             return Ok(None);
         }
         // A page trigger event's row has Event Type = Trigger and Active = Yes. A field's validate event publishes as
-        // `<event> - <number>`, the number not following from anything pinned: only that column is refused when read
-        // (misc/lt-probes-needed-5/PnE11EventSub.al:99 for OnAfterValidateEvent). A page-level trigger event publishes
-        // under its own name (PnE11EventSub.al:130 for OnOpenPageEvent). The other events of the list are measured by
-        // writer Y11 (corpus branch al-runtime-rs-staging-y11, events/lt-event-subscription-trigger-rows/
-        // PageTriggerEventRows.al; al-runner #6411) and run on assumption page-trigger-event-subscription-row until the
-        // pinned corpus has them.
+        // `<event> - <number>`, the number the id of the field's control as for an action (`pages::control_id` of the declaring
+        // object, the page extension's for a field it adds, and the control name), the same for Before and After
+        // (events/lt-event-subscription-trigger-rows/PageTriggerEventRows.al:241-259; events/lt-page-event-numbers/
+        // PageEventNumbers.al; misc/lt-probes-needed-5/PnE11EventSub.al:99). A page-level trigger event publishes under its
+        // own name (PageTriggerEventRows.al:271-303; PnE11EventSub.al:130). A field the runtime cannot find on the page leaves
+        // that column refused.
         None if kind == al_ir::ObjKind::Page && page_trigger_event(&event).is_some() => {
-            let (field_bound, pinned) = page_trigger_event(&event).expect("checked");
             r[pos(t, 3)] = option(t, 3, 0);
             r[pos(t, 4)] = option(t, 4, object_type);
             r[pos(t, 5)] = Value::Integer(publisher_id as i32);
-            r[pos(t, 6)] = if field_bound {
-                super::unknown(
-                    t,
-                    6,
-                    &format!("{} (the number in `{event} - <number>` of a page field event)", what()),
-                )
+            r[pos(t, 6)] = if page_trigger_event(&event) == Some(true) {
+                match control_id(c, publisher_id, &element, al_ir::ControlKind::Field) {
+                    Some(id) => Value::Text(truncate(&format!("{event} - {id}"), 250).into()),
+                    None => super::unknown(
+                        t,
+                        6,
+                        &format!("{} (the number in `{event} - <number>` of a page field event)", what()),
+                    ),
+                }
             } else {
                 Value::Text(truncate(&event, 250).into())
             };
             r[pos(t, 7)] = Value::Boolean(true);
-            return Ok((!pinned).then_some(al_builtins::assumptions::Assumption::PageTriggerEventSubscriptionRow));
+            return Ok(None);
         }
         None => return Err((format!("{}: the kind of event `{event}` is not known", what()), known)),
     };
@@ -333,39 +341,39 @@ fn subscription_row(
     Ok(None)
 }
 
-/// A page trigger event a subscriber can name: whether it is bound to a field (its element is a control), and whether
-/// its row is pinned by the corpus (the others are measured on corpus branch al-runtime-rs-staging-y11 only).
-fn page_trigger_event(event: &str) -> Option<(bool, bool)> {
-    const EVENTS: &[(&str, bool, bool)] = &[
-        ("OnAfterValidateEvent", true, true),
-        ("OnBeforeValidateEvent", true, false),
-        ("OnOpenPageEvent", false, true),
-        ("OnClosePageEvent", false, false),
-        ("OnAfterGetCurrRecordEvent", false, false),
-        ("OnAfterGetRecordEvent", false, false),
-        ("OnNewRecordEvent", false, false),
-        ("OnInsertRecordEvent", false, false),
-        ("OnModifyRecordEvent", false, false),
-        ("OnDeleteRecordEvent", false, false),
-        ("OnQueryClosePageEvent", false, false),
+/// A page trigger event a subscriber can name, and whether it is bound to a field (its element is a control).
+fn page_trigger_event(event: &str) -> Option<bool> {
+    const EVENTS: &[(&str, bool)] = &[
+        ("OnAfterValidateEvent", true),
+        ("OnBeforeValidateEvent", true),
+        ("OnOpenPageEvent", false),
+        ("OnClosePageEvent", false),
+        ("OnAfterGetCurrRecordEvent", false),
+        ("OnAfterGetRecordEvent", false),
+        ("OnNewRecordEvent", false),
+        ("OnInsertRecordEvent", false),
+        ("OnModifyRecordEvent", false),
+        ("OnDeleteRecordEvent", false),
+        ("OnQueryClosePageEvent", false),
     ];
     EVENTS
         .iter()
-        .find(|(n, _, _)| n.eq_ignore_ascii_case(event))
-        .map(|&(_, field, pinned)| (field, pinned))
+        .find(|(n, _)| n.eq_ignore_ascii_case(event))
+        .map(|&(_, field)| field)
 }
 
-/// The control id of the action `name` of page `page_id` (`pages::control_id` of the object that declares it): `None` when the
-/// page is not compiled or does not hold exactly one action of that name.
-fn action_control_id(c: &Catalog, page_id: u32, name: &str) -> Option<i64> {
+/// The control id of the action or field `name` of page `page_id` (`pages::control_id` of the object that declares it): `None`
+/// when the page is not compiled or does not hold exactly one control of that kind and name.
+fn control_id(c: &Catalog, page_id: u32, name: &str, kind: al_ir::ControlKind) -> Option<i64> {
     let index = c
         .objects
         .iter()
         .position(|h| h.kind == al_ir::ObjKind::Page && h.id == Some(page_id))?;
     let page = c.full[index].page.as_ref()?;
-    let mut found = page.controls.iter().filter(|ctl| {
-        ctl.kind == al_ir::ControlKind::Action && ctl.action_ref.is_none() && ctl.name.eq_ignore_ascii_case(name)
-    });
+    let mut found = page
+        .controls
+        .iter()
+        .filter(|ctl| ctl.kind == kind && ctl.action_ref.is_none() && ctl.name.eq_ignore_ascii_case(name));
     let ctl = found.next()?;
     if found.next().is_some() {
         return None;
@@ -553,6 +561,12 @@ pub(super) fn table_relations_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 r[pos(t, 5)] = Value::Integer(2_000_000_120);
                 r[pos(t, 6)] = Value::Integer(1);
                 r[pos(t, 10)] = Value::Boolean(true);
+                // The names of these rows are not pinned (misc/lt-probes-needed-5/PnE09Platform.al pins own relations only).
+                for col in 12..=15 {
+                    if t.fields.iter().any(|x| x.id == col) {
+                        r[pos(t, col)] = super::unknown(t, col, &format!("the {} row of table '{}'", f.name, o.name));
+                    }
+                }
                 out.push(Entry::ok(r));
                 continue;
             }
@@ -703,6 +717,24 @@ fn field_relations(
         row[pos(t, 5)] = Value::Integer(arm.related_table as i32);
         row[pos(t, 6)] = Value::Integer(arm.related_field as i32);
         row[pos(t, 11)] = Value::Boolean(validate);
+        // The declared names of the own table and field and of the related ones (misc/lt-probes-needed-5/PnE09Platform.al:
+        // 122-125, `Table Name=LT PnE Rel Source;Field Name=Ref;Related Table Name=LT PnE Rel Target;Related Field Name=Code`).
+        let related = c
+            .objects
+            .iter()
+            .find(|x| x.kind == al_ir::ObjKind::Table && x.id == Some(arm.related_table));
+        let related_field = related
+            .and_then(|x| x.table.as_ref())
+            .and_then(|rt| rt.fields.iter().find(|rf| rf.id == arm.related_field))
+            .map(|rf| rf.name.clone());
+        let (Some(related), Some(related_field)) = (related, related_field) else {
+            return Err(format!("{what}: the related table or field is not compiled"));
+        };
+        for (col, name) in [(12, &o.name), (13, &f.name), (14, &related.name), (15, &related_field)] {
+            if t.fields.iter().any(|x| x.id == col) {
+                row[pos(t, col)] = Value::Text(truncate(name, 30).into());
+            }
+        }
         // An arm with no condition is one row with Condition No. 1, Condition Field No. 0, type CONST and
         // an empty value (ibid.).
         if arm.conditions.is_empty() {

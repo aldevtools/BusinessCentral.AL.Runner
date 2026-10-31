@@ -354,6 +354,30 @@ impl Session {
 
     /// `Code=ABC` style identification of the row's primary key, as in TestField errors
     /// (corpus record/TestRecordTestFieldLookupPageId_Tests.al:54-72 pins the single-field form).
+    /// The platform's insert trigger of Document Service (2000000114): with an empty Folder it raises the TestField error of
+    /// the Folder, code TestField (al-language-onprem/platform/PtOnPremTables.al:103-123, `Folder must have a value in
+    /// Document Service: Service ID=LTPT. It cannot be zero or empty.`). What it does with a Folder is not pinned: refused.
+    pub(crate) fn document_service_insert(&self, t: &TableDef, rec: &crate::records::Rec) -> Result<(), Signal> {
+        if self.engine.program.objects[t.object as usize].id != Some(2_000_000_114) || rec.borrow().temporary {
+            return Ok(());
+        }
+        let Some(pos) = t.fields.iter().position(|f| f.id == 13) else {
+            return unsupported("Document Service has no Folder field");
+        };
+        let row = rec.borrow().fields.clone();
+        if !is_blank(&row[pos])? {
+            return unsupported(
+                "Insert(true) of a Document Service with a Folder: what the platform's trigger does is not pinned",
+            );
+        }
+        let (caption, table, key) = (self.field_caption(t, pos), self.caption(t), self.key_text(t, &row)?);
+        Err(error_redacted(
+            format!("{caption} must have a value in {table}: {key}. It cannot be zero or empty."),
+            "TestField",
+            format!("{caption} must have a value in {table}: <redacted>. It cannot be zero or empty."),
+        ))
+    }
+
     fn key_text(&self, t: &TableDef, fields: &[Value]) -> Result<String, Signal> {
         let mut parts = Vec::new();
         for &i in &t.keys[0] {

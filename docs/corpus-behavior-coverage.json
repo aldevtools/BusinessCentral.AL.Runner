@@ -16439,6 +16439,15 @@
       },
       {
         "code": "",
+        "file": "crates/al-vm/src/autoinc.rs",
+        "generic": false,
+        "line": 160,
+        "pinned": true,
+        "site": "record/TestCalcFieldsTruncateUniqueContracts.al:312",
+        "template": "The table does not support truncation."
+      },
+      {
+        "code": "",
         "file": "crates/al-vm/src/control_add_in.rs",
         "generic": false,
         "line": 31,
@@ -16657,7 +16666,7 @@
         "code": "DB:NoFilter",
         "file": "crates/al-vm/src/recmeta.rs",
         "generic": false,
-        "line": 455,
+        "line": 479,
         "pinned": true,
         "site": "fieldref/lt-range-min-max-types/RangeMinMaxTypes.al:204",
         "template": "Specify a filter for the % field in the % table."
@@ -16666,16 +16675,25 @@
         "code": "DB:Ok",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 177,
+        "line": 188,
         "pinned": true,
         "site": "record/TestPlatformTablesWritableContracts.al:107",
         "template": "It is not possible to % any record in the Tenant License State table."
       },
       {
+        "code": "DB:Ok",
+        "file": "crates/al-vm/src/records.rs",
+        "generic": false,
+        "line": 207,
+        "pinned": true,
+        "site": "platform/PtOnPremTables.al:134",
+        "template": "The % table is read-only."
+      },
+      {
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 5521,
+        "line": 5619,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
@@ -16843,8 +16861,8 @@
         "template": "The date is not valid."
       }
     ],
-    "pinned": 95,
-    "sites": 99
+    "pinned": 97,
+    "sites": 101
   },
   "language": {
     "bc": "27-29",
