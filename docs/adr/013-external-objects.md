@@ -1156,6 +1156,8 @@ the corpus a second time with `AL_EAGER_DEPENDENCIES=1` for every BC version and
 difference in outcome (about twice the cost of the first run, 8 s against 15 s of CPU for one
 version, so it runs on every push). `Roots::eager` does the same inside a unit test.
 
+**Amendment (owner, 2026-10-31): runs on main and nightly only.** The eager comparison and the install baseline rule check (`tools/baseline_rule_check.sh`, `AL_CHECK_BASELINE_RULE=1`) run in CI on a push to main and on the nightly schedule, not on a pull request. Neither had failed on a pull request since 2026-10-14 apart from one catch of the eager comparison (2026-10-23), and together they cost about 3 runner minutes per run. The normal corpus run with its ratchet and work ratchet stays on every pull request, so a case already in `passing.txt` is still caught there. A merge train runs as a pull request, so its comparisons run on main after the train merges. A difference fails the CI run of main, and the regen bot and the nightly edge advance only from green main commits.
+
 ## "Outside the workspace" on Microsoft's test buckets: root causes (branch `bucket-demand`, 2026-10-14)
 
 Over the 32 BaseApp test buckets (40300 tests), 2939 tests were refused as "outside the workspace": a global

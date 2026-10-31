@@ -92,6 +92,22 @@ impl Demand {
     }
 }
 
+/// The rest of the demand state, kept with [`Demand`] by a compile that a later pass grows by apps (ADR-063,
+/// `Roots::keep_demand`): plain data, no syntax.
+#[derive(Debug, Clone, Default)]
+pub struct KeptDemand {
+    ops: Vec<u8>,
+    global_ops: u8,
+    recref_ops: u8,
+    caption_class: bool,
+    reporting_triggers: bool,
+    filter_helper: bool,
+    save_as_events: bool,
+    catalogs: u8,
+    mentions: Vec<u8>,
+    run_targets: Vec<bool>,
+}
+
 pub(super) struct State {
     level: Vec<u8>,
     reached: HashSet<(usize, usize)>,
@@ -154,6 +170,56 @@ impl State {
             catalogs: 0,
             mentions: vec![0; objects],
             run_targets: vec![false; objects],
+        }
+    }
+}
+
+impl KeptDemand {
+    /// The state of the first `objects` objects only (ADR-063: the others left the workspace).
+    pub fn truncate(&mut self, objects: usize) {
+        self.ops.truncate(objects);
+        self.mentions.truncate(objects);
+        self.run_targets.truncate(objects);
+    }
+}
+
+impl State {
+    /// The state a kept compile ended with (`demand`, `kept`), for a workspace of `objects` objects that holds the
+    /// kept compile's objects first.
+    pub(super) fn restore(demand: Demand, kept: KeptDemand, objects: usize) -> State {
+        let mut st = State::new(objects);
+        let grow = |mut v: Vec<u8>| {
+            v.resize(objects, 0);
+            v
+        };
+        st.level = grow(demand.level);
+        st.reached = demand.reached;
+        st.ops = grow(kept.ops);
+        st.global_ops = kept.global_ops;
+        st.recref_ops = kept.recref_ops;
+        st.caption_class = kept.caption_class;
+        st.reporting_triggers = kept.reporting_triggers;
+        st.filter_helper = kept.filter_helper;
+        st.save_as_events = kept.save_as_events;
+        st.catalogs = kept.catalogs;
+        st.mentions = grow(kept.mentions);
+        st.run_targets = kept.run_targets;
+        st.run_targets.resize(objects, false);
+        st
+    }
+
+    fn keep(&mut self) -> KeptDemand {
+        KeptDemand {
+            ops: std::mem::take(&mut self.ops),
+            global_ops: self.global_ops,
+            recref_ops: self.recref_ops,
+            caption_class: self.caption_class,
+            reporting_triggers: self.reporting_triggers,
+            filter_helper: self.filter_helper,
+            save_as_events: self.save_as_events,
+            catalogs: self.catalogs,
+            mentions: std::mem::take(&mut self.mentions),
+            run_targets: std::mem::take(&mut self.run_targets),
         }
     }
 }
@@ -416,11 +482,16 @@ impl Checker<'_> {
                 first
             });
             if first {
-                for i in 0..self.ws.objects.len() {
-                    if self.ws.objects[i].kind == kind && self.ws.is_dependency(i) && self.ws.usable(i) {
-                        self.raise(i, SCHEMA);
-                    }
-                }
+                self.raise_catalog_kind(kind, 0);
+            }
+        }
+    }
+
+    /// Every dependency object of `kind` from object `from` on is compiled to its shape (`touch_object_catalog`).
+    fn raise_catalog_kind(&self, kind: ObjKind, from: usize) {
+        for i in from..self.ws.objects.len() {
+            if self.ws.objects[i].kind == kind && self.ws.is_dependency(i) && self.ws.usable(i) {
+                self.raise(i, SCHEMA);
             }
         }
     }
@@ -922,13 +993,17 @@ impl Checker<'_> {
             first
         });
         if first {
-            for (o, k) in self.ws.caption_class_subscribers() {
-                if self.ws.objects[o].subscribers[k]
-                    .event
-                    .eq_ignore_ascii_case("OnResolveCaptionClass")
-                {
-                    self.reach_subscriber(o, k);
-                }
+            self.reach_caption_class_subscribers();
+        }
+    }
+
+    fn reach_caption_class_subscribers(&self) {
+        for (o, k) in self.ws.caption_class_subscribers() {
+            if self.ws.objects[o].subscribers[k]
+                .event
+                .eq_ignore_ascii_case("OnResolveCaptionClass")
+            {
+                self.reach_subscriber(o, k);
             }
         }
     }
@@ -948,13 +1023,17 @@ impl Checker<'_> {
             first
         });
         if first {
-            for (o, k) in self.ws.reporting_triggers_subscribers() {
-                if self.ws.objects[o].subscribers[k]
-                    .event
-                    .eq_ignore_ascii_case("CustomDocumentMergerEx")
-                {
-                    self.reach_subscriber(o, k);
-                }
+            self.reach_reporting_triggers_subscribers();
+        }
+    }
+
+    fn reach_reporting_triggers_subscribers(&self) {
+        for (o, k) in self.ws.reporting_triggers_subscribers() {
+            if self.ws.objects[o].subscribers[k]
+                .event
+                .eq_ignore_ascii_case("CustomDocumentMergerEx")
+            {
+                self.reach_subscriber(o, k);
             }
         }
     }
@@ -972,14 +1051,18 @@ impl Checker<'_> {
             first
         });
         if first {
-            for (o, k) in self.ws.reporting_triggers_subscribers() {
-                let event = &self.ws.objects[o].subscribers[k].event;
-                if event.eq_ignore_ascii_case("SubstituteReport")
-                    || event.eq_ignore_ascii_case("OnDocumentReady")
-                    || event.eq_ignore_ascii_case("SetupPrinters")
-                {
-                    self.reach_subscriber(o, k);
-                }
+            self.reach_save_as_subscribers();
+        }
+    }
+
+    fn reach_save_as_subscribers(&self) {
+        for (o, k) in self.ws.reporting_triggers_subscribers() {
+            let event = &self.ws.objects[o].subscribers[k].event;
+            if event.eq_ignore_ascii_case("SubstituteReport")
+                || event.eq_ignore_ascii_case("OnDocumentReady")
+                || event.eq_ignore_ascii_case("SetupPrinters")
+            {
+                self.reach_subscriber(o, k);
             }
         }
     }
@@ -996,13 +1079,17 @@ impl Checker<'_> {
             first
         });
         if first {
-            for (o, k) in self.ws.filter_helper_triggers_subscribers() {
-                if al_ir::RAISED_FILTER_EVENTS
-                    .iter()
-                    .any(|e| self.ws.objects[o].subscribers[k].event.eq_ignore_ascii_case(e))
-                {
-                    self.reach_subscriber(o, k);
-                }
+            self.reach_filter_helper_subscribers();
+        }
+    }
+
+    fn reach_filter_helper_subscribers(&self) {
+        for (o, k) in self.ws.filter_helper_triggers_subscribers() {
+            if al_ir::RAISED_FILTER_EVENTS
+                .iter()
+                .any(|e| self.ws.objects[o].subscribers[k].event.eq_ignore_ascii_case(e))
+            {
+                self.reach_subscriber(o, k);
             }
         }
     }
@@ -1130,6 +1217,101 @@ impl Checker<'_> {
         }
     }
 
+    /// Continues a kept demand on a workspace that grew by apps (ADR-063): the objects from `n_old` on are new. Every
+    /// rule that reached something from the lists of the workspace (the extensions, subscribers and implementers of an
+    /// object, the values of an enum, the subscribers of a platform event, the objects of a kind) runs again, so what
+    /// the new apps add to those lists is reached as a compile of all the apps from the start reaches it. What the rules
+    /// reached before is reached already; only the new is queued.
+    pub(super) fn refire(&mut self, n_old: usize) {
+        let (flags, catalogs) = {
+            let mut guard = self.demand.borrow_mut();
+            let Some(st) = guard.as_mut() else { return };
+            st.fresh = (0..st.level.len())
+                .filter(|&i| st.level[i] != NONE)
+                .map(|i| (i, st.level[i]))
+                .collect();
+            st.fresh_ops = (0..st.ops.len())
+                .filter(|&i| st.ops[i] != 0)
+                .map(|i| (i, st.ops[i]))
+                .collect();
+            st.fresh_global = st.global_ops;
+            st.fresh_recref = st.recref_ops;
+            (
+                [
+                    st.caption_class,
+                    st.reporting_triggers,
+                    st.save_as_events,
+                    st.filter_helper,
+                ],
+                st.catalogs,
+            )
+        };
+        // The subscribers of the platform events a reached object raises.
+        if flags[0] {
+            self.reach_caption_class_subscribers();
+        }
+        if flags[1] {
+            self.reach_reporting_triggers_subscribers();
+        }
+        if flags[2] {
+            self.reach_save_as_subscribers();
+        }
+        if flags[3] {
+            self.reach_filter_helper_subscribers();
+        }
+        // The catalog tables in use list the new objects too (`touch_object_catalog`).
+        for kind in [
+            ObjKind::Table,
+            ObjKind::Report,
+            ObjKind::Page,
+            ObjKind::Codeunit,
+            ObjKind::Query,
+        ] {
+            if catalogs & (1u8 << (kind as u8 % 8)) != 0 {
+                self.raise_catalog_kind(kind, n_old);
+            }
+        }
+        // A new subscriber to an event whose publisher was reached (`check_reached`).
+        for p in 0..n_old {
+            if !self.ws.is_dependency(p) || !self.demand.borrow().as_ref().is_some_and(|st| st.level[p] != NONE) {
+                continue;
+            }
+            let new: Vec<(usize, usize)> = self
+                .ws
+                .subscribers_of(p)
+                .into_iter()
+                .filter(|&(o, _)| o >= n_old)
+                .collect();
+            if new.is_empty() {
+                continue;
+            }
+            let mut raised: Vec<String> = Vec::new();
+            for o in std::iter::once(p).chain(self.ws.extensions_of(p).iter().copied().filter(|&e| e < n_old)) {
+                if !self.ws.usable(o) {
+                    continue;
+                }
+                for r in self.routines_of(o).iter() {
+                    let at = (o, usize::from(r.syntax().text_range().start()));
+                    let reached = self.demand.borrow().as_ref().is_some_and(|st| st.reached.contains(&at));
+                    if reached
+                        && r.attributes()
+                            .any(|a| EVENT_ATTRS.iter().any(|e| a.name().eq_ignore_ascii_case(e)))
+                    {
+                        raised.push(r.name());
+                    }
+                }
+            }
+            for (o, k) in new {
+                if raised
+                    .iter()
+                    .any(|e| self.ws.objects[o].subscribers[k].event.eq_ignore_ascii_case(e))
+                {
+                    self.reach_subscriber(o, k);
+                }
+            }
+        }
+    }
+
     /// Checks one reached routine, and queues what it uses.
     fn check_reached(&mut self, object: usize, offset: usize) {
         if !self.ws.usable(object) {
@@ -1228,7 +1410,10 @@ impl Checker<'_> {
             self.types = PosMap::union(types);
             self.resolutions = PosMap::union(resolutions);
         }
-        let st = self.demand.borrow_mut().take()?;
+        let mut st = self.demand.borrow_mut().take()?;
+        if self.keep_demand {
+            self.kept_demand = Some(st.keep());
+        }
         Some(Demand {
             level: st.level,
             reached: st.reached,
@@ -1244,6 +1429,7 @@ impl Checker<'_> {
         let (ws, members, catalog) = (self.ws, self.members, self.catalog);
         let enums = self.system_enums.clone();
         let tdd_apps = &self.tdd_apps;
+        let all_routines = self.all_routines;
         let next = std::sync::atomic::AtomicUsize::new(0);
         let outs: Vec<WorkerOut> = std::thread::scope(|scope| {
             let handles: Vec<_> = (0..workers)
@@ -1255,6 +1441,7 @@ impl Checker<'_> {
                         .spawn_scoped(scope, move || {
                             let mut c = Checker::new(ws, members, catalog, enums, false);
                             c.tdd_apps = tdd_apps.clone();
+                            c.all_routines = all_routines;
                             loop {
                                 let k = next.fetch_add(OBJECT_CHUNK, std::sync::atomic::Ordering::Relaxed);
                                 if k >= objects.len() {

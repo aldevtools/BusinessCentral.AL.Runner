@@ -84,7 +84,7 @@ before you open a source file.
 - Perf budgets (cold compile of the corpus ≤ 695 000 instructions per KiB of corpus source; the full corpus run with Microsoft's apps ≤ 83.2 G instructions for the Microsoft apps plus 4 210 000 per KiB of the corpus source it compiles; wall time printed for information only; parser ≥ 50 MB/s) are
   `#[ignore]`d tests that need release:
   `cargo test --release --no-fail-fast -p al-syntax --test perf_parse_throughput -p al-test-cli --test perf_budget -p al-test-cli --test perf_vm -p al-data --lib -- --ignored --nocapture`.
-  CI runs them. CI has no instruction counter, so there the CPU-time fallback only warns; with a counter (locally) the instruction budgets fail as before. `cargo run --release -p al-test-cli --example phases` prints
+  CI runs them on a push to main and nightly, not on a pull request (owner, 2026-10-31). CI has no instruction counter, so there the CPU-time fallback only warns; with a counter (locally) the instruction budgets fail as before. `cargo run --release -p al-test-cli --example phases` prints
   timings per phase. `--example compile_dump` dumps every compile output, to
   diff before and after a performance change.
 - Work ratchet: the full corpus run compares what each pass compiled and ran (routines lowered, objects loaded,
@@ -94,7 +94,7 @@ before you open a source file.
   `./target/release/al-test-cli --root . --all-versions --update-work` and commits the file in the same PR.
 - The install baseline is skipped when no selected test can observe it (ADR-013 note): after a change to `al-testrun/src/observe.rs`
   or the baseline, `tools/baseline_rule_check.sh run` must show 0 differences (`AL_FORCE_BASELINE=1` turns the skip off).
-- Demand-driven against eager compile of the Microsoft apps (ADR-013, CI runs it): `tools/demand_vs_eager.sh run`
+- Demand-driven against eager compile of the Microsoft apps (ADR-013; CI runs it on a push to main and nightly, not on a pull request): `tools/demand_vs_eager.sh run`
   (about 3 min, release binary needed) compares the main app and the OnPrem and isolation suites for BC 27, 28, 29.
 - Core crates do no OS access (ADR-006).
 - Parallel work: one `git worktree` and branch per area, inside the main

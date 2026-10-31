@@ -393,6 +393,8 @@ The owner accepted every recommendation above and answered question 5:
 6. CI caches the cache files with `actions/cache`; a separate step builds or verifies the cache; the measured run is a
    cache hit; the job summary reports the run time with the cache on and the cache build time apart.
 
+**Amendment (owner, 2026-10-31): runs on main and nightly only.** The cache restore, the cache build, the cached run against the uncached run (decisions 6 and 7 of this list and of the CI step order) and the cache prune run in CI on a push to main and on the nightly schedule, not on a pull request. The comparison had no failure in about 2 000 runs since 2026-10-14. A merge train runs as a pull request, so its comparison runs on main after the train merges. The step order is unchanged; the steps carry an `if:` condition.
+
 Decided without owner review (2026-10-14): see `docs/owner-review.md` (the file layout of an entry, the way a block is
 lowered again from source, the corruption handling, and the CLI spelling).
 
