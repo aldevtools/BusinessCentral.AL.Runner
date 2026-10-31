@@ -429,3 +429,42 @@ fn under_runner_130450_what_onrun_wrote_reaches_the_later_codeunits() {
         "{o:?}"
     );
 }
+
+// Under runner 130450 only what a test codeunit's OnRun writes reaches the later codeunits; its tests' writes are rolled
+// back with the codeunit (RqIsolationModes.al:357-369 #else, RQ_C11 on BC 27). When OnRun does not run to its end here,
+// a later codeunit that reads a table OnRun can write is not run; one that reads only a table the tests name runs.
+#[test]
+fn an_unfinished_onrun_under_runner_130450_blocks_only_readers_of_what_onrun_writes() {
+    let o = run(
+        r#"
+table 50602 "Other" { fields { field(1; K; Code[20]) { } } keys { key(PK; K) { Clustered = true; } } }
+codeunit 50670 "OnRun Unfinished"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    trigger OnRun() var R: Record "Row"; begin R.K := 'OR'; R.Insert(); R.Consistent(false); end;
+    [Test] procedure OU1() var X: Record "Other"; begin X.K := 'T'; X.Insert(); end;
+}
+codeunit 50671 "Reads Row"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    var Rows: Codeunit "Rows";
+    [Test] procedure RR1() begin if Rows.Count() <> 1 then Error('rows: %1', Rows.Count()); end;
+}
+codeunit 50672 "Reads Other"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure RO1() var X: Record "Other"; begin if not X.IsEmpty() then Error('other'); end;
+}
+"#,
+        false,
+    );
+    assert!(not_run(outcome(&o, "OU1"), "Consistent"), "{o:?}");
+    assert!(
+        not_run(outcome(&o, "RR1"), "OnRun Unfinished, whose OnRun trigger"),
+        "{o:?}"
+    );
+    assert_eq!(outcome(&o, "RO1"), &Outcome::Pass, "{o:?}");
+}
