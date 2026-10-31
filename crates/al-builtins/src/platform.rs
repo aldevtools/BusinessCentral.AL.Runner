@@ -554,7 +554,8 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         "al-language/metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:187, :210",
     ),
     // Report Layout List of a layout declared in AL, read through a RecordRef (al-vm reports.rs): CaptionML (4) blank for a
-    // layout that declares none, Runtime Package ID (5) a non-null guid other than the app id, Report Name (12) the name of a
+    // layout that declares none, Runtime Package ID (5) a non-null guid other than the app id, Custom Type (8) the null guid
+    // and MIME Type (9) blank for an RDLC, Word or Excel layout, Report Name (12) the name of a
     // report that declares no caption, Layout Publisher (13) "<app> by <publisher>", User Defined (14) No for an RDLC, Word or
     // Excel layout, ReportIsInstalled (15) Yes, Layout Status (18, BC 28+) Approved for a layout without a Subtype
     // (platform/lt-ug-report-layout-list/UgReportLayoutList.al:94-150; platform/lt-aw-fresh-tenant/AwTests.al:220-300).
@@ -567,6 +568,16 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         2_000_000_234,
         "5",
         "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:101, :135",
+    ),
+    (
+        2_000_000_234,
+        "8",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:105, :139; platform/lt-aw-fresh-tenant/AwTests.al:228",
+    ),
+    (
+        2_000_000_234,
+        "9",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:106, :140; platform/lt-aw-fresh-tenant/AwTests.al:228",
     ),
     (
         2_000_000_234,

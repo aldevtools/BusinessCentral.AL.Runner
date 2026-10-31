@@ -592,6 +592,37 @@ impl Session {
                 }
             }
         }
+        // The OnPrem tables the runtime serves (al_builtins::platform REGISTRY, PtOnPremTables.al:57-213) opened from a
+        // Cloud-target app: Document Service Scenario fails from BC 28 on and opens on BC 27 (onprem platform/PtOnPremTables.al:
+        // 290-312, CloudRunner_RefusesOnPremTables). The other four, and a caller whose target is not known, are not pinned.
+        if matches!(
+            no,
+            2_000_000_115 | 2_000_000_130 | 2_000_000_170 | 2_000_000_177 | 2_000_000_228
+        ) && self.table_object(no).is_some()
+        {
+            match self.caller_target() {
+                Some(t) if t.eq_ignore_ascii_case("OnPrem") => {}
+                Some(t) if t.eq_ignore_ascii_case("Cloud") && no == 2_000_000_115 => {
+                    if self.engine.target.as_ref().map_or(29, |t| t.bc.major) >= 28 {
+                        return Err(Signal::Error(Box::new(al_builtins::native::AlError {
+                            message: format!(
+                                "You cannot open record {no} from a RecordRef data type when you are using target Cloud."
+                            ),
+                            code: "NotAllowedForCompilationTarget".into(),
+                            call_stack: String::new(),
+                            ..Default::default()
+                        })));
+                    }
+                }
+                other => {
+                    return unsupported(format!(
+                        "RecordRef.Open({no}), an OnPrem platform table, from an app whose target is {} (only OnPrem, and \
+                         Cloud for 2000000115, are pinned)",
+                        other.unwrap_or("not known")
+                    ));
+                }
+            }
+        }
         if no == 2_000_000_071 {
             return Err(al_error(format!(
                 "You cannot open record {no} from a RecordRef data type when you are using target Cloud."

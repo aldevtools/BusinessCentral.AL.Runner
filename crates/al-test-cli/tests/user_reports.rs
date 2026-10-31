@@ -2409,3 +2409,17 @@ codeunit 50000 T { Subtype = Test;
     let o = run_over_system(MAIN_ID, None, None, main);
     assert!(matches!(&o[0].1, Outcome::NotRun(m) if m.contains("Device")), "{o:?}");
 }
+
+/// Gap cycle G8: a guarded Codeunit.Run does not trap the license error of a Device Insert: it reaches the asserterror
+/// around the call (al-language-onprem/platform/PtOnPremTables.al:177-185).
+#[test]
+fn device_license_error_passes_a_guarded_codeunit_run() {
+    let main = r#"
+codeunit 50001 Ins { trigger OnRun() var R: Record Device; begin R."MAC Address" := 'LTPT0001'; R.Insert(true); end; }
+codeunit 50000 T { Subtype = Test;
+  [Test] procedure Guarded() var R: Record Device; begin
+    asserterror if Codeunit.Run(Codeunit::Ins) then Error('ran');
+    if GetLastErrorText() <> 'The new devices do not meet the terms of the current license. The current license allows 0 full devices, 0 limited devices, 0 ISV devices, 0 ISV functional devices and 1 devices.' then Error('text %1', GetLastErrorText());
+    if R.Count() <> 0 then Error('stored'); end; }"#;
+    all_pass(run_over_system(MAIN_ID, None, None, main));
+}

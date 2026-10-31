@@ -1,6 +1,6 @@
 //! The columns of a Report Layout List row of a layout declared in AL: CaptionML (4), Runtime Package ID (5), Report Name
 //! (12), Layout Publisher (13), User Defined (14), ReportIsInstalled (15), Layout Status (18) and, for a layout without a
-//! Subtype, Layout Subtype (19), HeaderFooterPart (20) and ThemePart (21). Pins: platform/lt-ug-report-layout-list/
+//! Subtype, Layout Subtype (19), HeaderFooterPart (20) and ThemePart (21); Custom Type (8) and MIME Type (9). Pins: platform/lt-ug-report-layout-list/
 //! UgReportLayoutList.al:94-150 (an RDLC and a Word layout) and platform/lt-aw-fresh-tenant/AwTests.al:220-300 (Excel
 //! layouts). The platform table is not in the test workspace: a table of its number and name stands in.
 
@@ -51,6 +51,7 @@ codeunit 50202 C {
     end;
     procedure Rdlc4(): Text begin exit(Col(50200, 'Rdlc', 4)); end;
     procedure Rdlc5(): Text begin exit(Col(50200, 'Rdlc', 5)); end;
+    procedure Rdlc8(): Text begin exit(Col(50200, 'Rdlc', 8) + '|' + Col(50200, 'Xl', 9)); end;
     procedure Rdlc12(): Text begin exit(Col(50200, 'Rdlc', 12)); end;
     procedure Rdlc13(): Text begin exit(Col(50200, 'Rdlc', 13)); end;
     procedure Rdlc15(): Text begin exit(Col(50200, 'Rdlc', 15)); end;
@@ -92,6 +93,7 @@ fn the_pinned_columns_of_a_layout_declared_in_al() {
     let mut b = built();
     assert_eq!(text(call(&mut b, "Rdlc4")), "");
     assert_eq!(text(call(&mut b, "Rdlc5")), "No,No");
+    assert_eq!(text(call(&mut b, "Rdlc8")), "{00000000-0000-0000-0000-000000000000}|");
     assert_eq!(text(call(&mut b, "Rdlc12")), "RL Probe");
     assert_eq!(text(call(&mut b, "Rdlc13")), "RL App by RL Publisher");
     assert_eq!(text(call(&mut b, "Rdlc15")), "Yes");

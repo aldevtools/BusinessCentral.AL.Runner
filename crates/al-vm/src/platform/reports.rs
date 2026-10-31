@@ -147,6 +147,13 @@ fn layout_row(
     } else {
         unknown(t, 14, &format!("{}, a {} layout", what(), FORMATS[format]))
     };
+    // "Custom Type" (8) the null guid and "MIME Type" (9) blank for an RDLC, Word and Excel layout (UgReportLayoutList.al:105-106,
+    // :139-140; AwTests.al:228). A Custom layout is not pinned.
+    if !pinned_format {
+        for id in [8, 9] {
+            r[pos(t, id)] = unknown(t, id, &format!("{}, a Custom layout", what()));
+        }
+    }
     // The rest is pinned for the RDLC, Word and Excel layouts of a report (UgReportLayoutList.al:94-150, AwTests.al:220-300),
     // not for the layouts of a report extension.
     let of_report = o.kind == al_ir::ObjKind::Report;
