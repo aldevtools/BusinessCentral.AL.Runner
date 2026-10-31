@@ -1844,8 +1844,7 @@ codeunit 50000 T { Subtype = Test;
 
 /// al-runner issue 6191: ForNAV's GetBuiltInLayout reads "User Defined" (column 14) of the Report Layout List rows of a
 /// report while an app installs. A built-in RDLC or Word layout is not user defined; a report without layouts has no
-/// rows. Pin: platform/lt-ug-report-layout-list/UgReportLayoutList.al (corpus branch al-runtime-rs-staging-ug eff7eb2a;
-/// assumption `report-layout-list-built-in-not-user-defined` until the bump).
+/// rows. Pin: platform/lt-ug-report-layout-list/UgReportLayoutList.al:112, :146.
 #[test]
 fn issue_6191_built_in_layout_is_not_user_defined() {
     let main = r#"
@@ -2363,4 +2362,64 @@ codeunit 69644 T { Subtype = Test;
     if L.Take() <> 'row 1;row 2;row 3;row 4;row 5;' then Error('ten');
   end; }";
     all_pass(run_with_deps(&[], main));
+}
+
+/// Gap cycle G8: OnPrem platform tables that a fresh tenant leaves empty and that take every write
+/// (al-language-onprem/platform/PtOnPremTables.al:57-78, :80-101, :149-170, :192-213), and Device, whose Insert raises the
+/// license error and stores nothing (:172-190).
+#[test]
+fn empty_writable_onprem_platform_tables() {
+    let main = r#"
+codeunit 50000 T { Subtype = Test;
+  [Test] procedure ConfigurationPackageFile() var R: Record "Configuration Package File"; begin
+    if not R.IsEmpty() then Error('rows');
+    R.Code := 'LTPT'; R.Name := 'LT PT Package'; if not R.Insert(true) then Error('insert');
+    if R.Insert(true) then Error('duplicate');
+    R.Name := 'Renamed'; R.Modify(true); R.Get('LTPT'); if R.Name <> 'Renamed' then Error('modify');
+    R.Delete(true); if R.Count() <> 0 then Error('delete');
+    R.Insert(false); R.DeleteAll(false); if R.Count() <> 0 then Error('delete all'); end;
+  [Test] procedure DocumentServiceScenario() var R: Record "Document Service Scenario"; begin
+    if R.FindFirst() then Error('rows');
+    R."Document Service" := 'LTPT'; R."Use for Application" := true; R.Insert(true);
+    R.FindFirst(); if R."Service Integration" <> R."Service Integration"::OneDrive then Error('option'); end;
+  [Test] procedure ReportSettingsOverride() var R: Record "Report Settings Override"; begin
+    if not R.IsEmpty() then Error('rows');
+    R."Object ID" := 99999; R."Company Name" := 'LTPT'; R.Timeout := 30; R.Insert(true);
+    R.Timeout := 60; R.Modify(true); R.Get(99999, 'LTPT'); if R.Timeout <> 60 then Error('modify'); end;
+  [Test] procedure TenantProfile() var R: Record "Tenant Profile"; begin
+    if not R.IsEmpty() then Error('rows');
+    R."Profile ID" := 'LTPTPROFILE'; R.Description := 'LT PT Profile'; R.Insert(true);
+    R.FindFirst(); if R."Customization Status" <> R."Customization Status"::Updated then Error('status'); end;
+  [Test] procedure Device() var R: Record Device; begin
+    if not R.IsEmpty() then Error('rows');
+    R."MAC Address" := 'LTPT0001'; R.Name := 'LT PT Device';
+    asserterror R.Insert(true);
+    if GetLastErrorText() <> 'The new devices do not meet the terms of the current license. The current license allows 0 full devices, 0 limited devices, 0 ISV devices, 0 ISV functional devices and 1 devices.' then Error('text %1', GetLastErrorText());
+    if R.Count() <> 0 then Error('stored'); end; }"#;
+    all_pass(run_over_system(MAIN_ID, None, None, main));
+}
+
+/// Gap cycle G8: a Device Insert without triggers is not pinned (PtOnPremTables.al:180 inserts with triggers).
+#[test]
+fn device_insert_without_triggers_is_refused() {
+    let main = r#"
+codeunit 50000 T { Subtype = Test;
+  [Test] procedure NoTriggers() var R: Record Device; begin
+    R."MAC Address" := 'LTPT0001'; if R.Insert(false) then; end; }"#;
+    let o = run_over_system(MAIN_ID, None, None, main);
+    assert!(matches!(&o[0].1, Outcome::NotRun(m) if m.contains("Device")), "{o:?}");
+}
+
+/// Gap cycle G8: a guarded Codeunit.Run does not trap the license error of a Device Insert: it reaches the asserterror
+/// around the call (al-language-onprem/platform/PtOnPremTables.al:177-185).
+#[test]
+fn device_license_error_passes_a_guarded_codeunit_run() {
+    let main = r#"
+codeunit 50001 Ins { trigger OnRun() var R: Record Device; begin R."MAC Address" := 'LTPT0001'; R.Insert(true); end; }
+codeunit 50000 T { Subtype = Test;
+  [Test] procedure Guarded() var R: Record Device; begin
+    asserterror if Codeunit.Run(Codeunit::Ins) then Error('ran');
+    if GetLastErrorText() <> 'The new devices do not meet the terms of the current license. The current license allows 0 full devices, 0 limited devices, 0 ISV devices, 0 ISV functional devices and 1 devices.' then Error('text %1', GetLastErrorText());
+    if R.Count() <> 0 then Error('stored'); end; }"#;
+    all_pass(run_over_system(MAIN_ID, None, None, main));
 }
