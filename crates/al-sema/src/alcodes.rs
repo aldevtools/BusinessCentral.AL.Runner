@@ -167,6 +167,17 @@ pub fn not_checked_reason(code: &str) -> Option<&'static str> {
     )
 }
 
+/// Why an expected diagnostic `code` with text `text` is not checked, if it is not: [`not_checked_reason`], and AL0301 for any
+/// list but a Label declaration's. AL0301 is decided only for a trailing comma after a Label property (must-not-compile 2330,
+/// 2331, corpus branch al-runtime-rs-staging-y12: "A list must end with a member; not a separator ,."); alc's AL0301 from its
+/// recovery elsewhere (0357: "... separator ;.") is not reproduced.
+pub fn not_checked_reason_for(code: &str, text: &str) -> Option<&'static str> {
+    if code == "AL0301" && !text.starts_with("A list must end with a member; not a separator ,.") {
+        return Some("AL0301 is decided only for a trailing comma after a property of a Label declaration");
+    }
+    not_checked_reason(code)
+}
+
 /// The target of an app (`app.json` `target`; the compiler's default is Cloud).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppTarget {
@@ -2323,6 +2334,15 @@ mod tests {
         assert!(codes(&[&cu("Label 'Document Setup',")]).is_empty());
         assert!(codes(&[&cu("Label 'x' ,")]).is_empty());
         assert!(codes(&[&cu("Label 'x', Locked = true")]).is_empty());
+    }
+
+    #[test]
+    fn al0301_is_checked_only_for_a_label_trailing_comma() {
+        assert_eq!(
+            not_checked_reason_for("AL0301", "A list must end with a member; not a separator ,."),
+            None
+        );
+        assert!(not_checked_reason_for("AL0301", "A list must end with a member; not a separator ;.").is_some());
     }
 
     fn ctx_codes(src: &str, ctx: &AppContext) -> Vec<String> {
