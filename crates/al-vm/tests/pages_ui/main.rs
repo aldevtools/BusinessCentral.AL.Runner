@@ -74,6 +74,7 @@ mod rp1_temp_refill;
 mod rp2_close_veto_last_error;
 mod run_record_group2;
 mod temp_refill_to_fewer_rows;
+mod refill_in_key_one_or_many;
 mod temp_refill_to_one_row;
 mod test_filter_enum_range;
 mod trap_reopen;

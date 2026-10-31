@@ -1033,14 +1033,12 @@ impl Session {
         // A refill from the first row (a TestPage filter change) after such an open reads the same: the window, then the first row
         // three times before OnAfterGetCurrRecord (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:299 Name_Filter_Refill `filter`
         // `4:R4;R2;R3;R4;R4;R4;C4;` against :409 Id_Filter_Refill `2:R2;R3;R4;R2;R2;C2;`; SyKeyMoves.al:209 Name_FilterMoves).
+        // A view of one row and one of more rows than a window holds read the same: the window from the first row of the view,
+        // then that row three more times (corpus master 97c29f86, pages/lt-y17-refill-key/Y17RefillKey.al:341 Refill_Desc_OneRow
+        // `10:R10;R10;R10;C10;`, :364 Refill_Desc_MoreThanWindow `29:R29;R28;...;R7;R29;R29;R29;C29;`, :392 and :415 ascending,
+        // :443 and :466 a Worksheet keyed in OnOpenPage, :311 Refill_Desc_ManyThenOne the Customer Ledger Entries path).
         let refill_in_key = opening && !st.borrow().open_read && self.still_reads_once_more(st);
         if refill_in_key {
-            // Pinned for views that end inside the window.
-            if !end_reached || st.borrow().window.len() < 2 {
-                return unsupported(
-                    "a refill of a list in a key other than the primary key with one row or more rows than a window holds (not pinned)",
-                );
-            }
             self.page_trigger(st, "onaftergetrecord", vec![])?;
         } else if opening && st.borrow().open_read && self.reads_once_more_in_its_key(st) {
             // The rows above a row OnOpenPage left Rec on count (QrMovedTests.al QS_KeyAsc_List_FindLast, Rec on the last row:
@@ -2078,7 +2076,9 @@ impl Session {
         }
         // Last on such a list in its primary key whose cursor stands on the last row of a view that ends inside the window reads
         // nothing either (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:409 Id_Filter_Refill `last` `Yes/4:`, after a GoToRecord
-        // miss left the cursor on row 4). In another key it is not pinned and reads the row as before.
+        // miss left the cursor on row 4). In another key the same holds for a view of one row (corpus master 97c29f86,
+        // pages/lt-y17-refill-key/Y17RefillKey.al:311 Refill_Desc_ManyThenOne `last` `Yes/10:` after a refill to one row); with more
+        // rows it is not pinned and reads the row as before.
         if how == PageMethod::Last
             && at + 1 == window.len()
             && window.len() < Self::WINDOW
@@ -2088,7 +2088,7 @@ impl Session {
             && !self.declares(st, "onnextrecord")
             && self.declares(st, "onaftergetcurrrecord")
             && self.declares(st, "onaftergetrecord")
-            && rec.borrow().key == 0
+            && (rec.borrow().key == 0 || window.len() == 1)
         {
             return Ok(Some(true));
         }
