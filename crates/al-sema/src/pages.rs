@@ -1114,6 +1114,29 @@ impl Tree {
         self.nodes.iter().position(|n| n.name.eq_ignore_ascii_case(name))
     }
 
+    /// The node named `name` among those reachable from an area of `layout` (`in_actions` false) or of `actions`.
+    fn find_in(&self, name: &str, in_actions: bool) -> Option<usize> {
+        let mut stack: Vec<usize> = self
+            .areas
+            .iter()
+            .filter(|a| a.in_actions == in_actions)
+            .flat_map(|a| a.children.iter().copied())
+            .collect();
+        let mut found = None;
+        while let Some(n) = stack.pop() {
+            if self.nodes[n].name.eq_ignore_ascii_case(name) && found.is_none_or(|f| n < f) {
+                found = Some(n);
+            }
+            stack.extend(self.nodes[n].children.iter().copied());
+        }
+        found
+    }
+
+    /// Whether node `inner` is `outer` or one of the controls it holds, at any depth.
+    fn holds(&self, outer: usize, inner: usize) -> bool {
+        outer == inner || self.nodes[outer].children.iter().any(|&c| self.holds(c, inner))
+    }
+
     fn list(&self, id: ListId) -> &Vec<usize> {
         match id {
             ListId::Area(a) => &self.areas[a].children,
@@ -1204,46 +1227,100 @@ impl Tree {
             // movefirst / movelast into a group, moveafter / movebefore next to a control, of one control of the layout, inside one
             // group and from one group into another (record/TestPageControlFieldPageExtension.al:104
             // QZ_PageExtMoves_PageOpensAndControlsWork, :134 QZ_PageExtMoves_PageControlFieldRows, fixtures QzPageExtMoves.al).
-            // Several controls in one move, a move into an area and a move of actions are not pinned.
+            // Actions move the same way, one or several at once, into an action group or an area of `actions` too (al-runner
+            // issue 6483): a test page names an action and never lists them, and no table reports their order, so the order a
+            // move gives them is not observable (ADR-009); each one stays in the tree with what it holds. Several controls of
+            // the layout in one move are not pinned: "Page Control Field" reports their order (QZ_PageExtMoves_PageControlFieldRows).
+            // A move of the layout into an area is not pinned.
             "movefirst" | "movelast" | "moveafter" | "movebefore" => {
                 let args = op.section.args();
                 let [_, moved] = args.as_slice() else {
                     return Err(format!("{kind}({target}) of other than one control is not pinned"));
                 };
-                if op.in_actions || moved.contains(',') {
-                    return Err(format!(
-                        "{kind}({target}; {moved}) of actions or of several controls is not pinned"
-                    ));
-                }
-                let (Some(anchor), Some(m)) = (self.find_node(&target), self.find_node(moved)) else {
-                    return Ok(false);
-                };
-                if anchor == m {
-                    return Err(format!("{kind}({target}; {moved}) moves a control next to itself"));
-                }
-                let Some((from, at)) = self.parent_list(m) else {
-                    return Ok(false);
-                };
-                if kind == "movefirst" || kind == "movelast" {
-                    if self.nodes[anchor].kind != al_ir::ControlKind::Group {
-                        return Err(format!(
-                            "{kind}({target}; {moved}) into other than a group is not pinned"
-                        ));
+                let names: Vec<&str> = moved
+                    .split(',')
+                    .map(|n| n.trim().trim_matches('"'))
+                    .filter(|n| !n.is_empty())
+                    .collect();
+                let mut ms = Vec::with_capacity(names.len());
+                for name in &names {
+                    let Some(m) = self.find_in(name, op.in_actions) else {
+                        return Ok(false);
+                    };
+                    if self.parent_list(m).is_none() {
+                        return Ok(false);
                     }
+                    ms.push(m);
+                }
+                if ms.is_empty() {
+                    return Err(format!("{kind}({target}) of no control"));
+                }
+                if !op.in_actions && ms.len() > 1 {
+                    return Err(format!("{kind}({target}; {moved}) of several controls is not pinned"));
+                }
+                let first_last = kind == "movefirst" || kind == "movelast";
+                let area = if op.in_actions && first_last {
+                    self.areas
+                        .iter()
+                        .position(|a| a.in_actions && a.name.eq_ignore_ascii_case(&target))
+                } else {
+                    None
+                };
+                let anchor = match area {
+                    Some(_) => None,
+                    None => match self.find_in(&target, op.in_actions) {
+                        Some(a) => Some(a),
+                        None => return Ok(false),
+                    },
+                };
+                if let Some(a) = anchor {
+                    if ms.contains(&a) {
+                        return Err(format!("{kind}({target}; {moved}) moves a control next to itself"));
+                    }
+                    if ms.iter().any(|&m| self.holds(m, a)) {
+                        return Err(format!("{kind}({target}; {moved}) moves a control into itself"));
+                    }
+                }
+                let holder = if first_last {
+                    Some(match (anchor, area) {
+                        (_, Some(a)) => ListId::Area(a),
+                        (Some(a), None) => {
+                            let group = match self.nodes[a].kind {
+                                al_ir::ControlKind::Group => !op.in_actions,
+                                al_ir::ControlKind::ActionGroup => op.in_actions,
+                                _ => false,
+                            };
+                            if !group {
+                                return Err(format!(
+                                    "{kind}({target}; {moved}) into other than a group is not pinned"
+                                ));
+                            }
+                            ListId::Node(a)
+                        }
+                        (None, None) => return Ok(false),
+                    })
+                } else {
+                    None
+                };
+                for &m in &ms {
+                    let (from, at) = self.parent_list(m).expect("checked above");
                     self.list_mut(from).remove(at);
-                    let list = self.list_mut(ListId::Node(anchor));
+                }
+                if let Some(holder) = holder {
+                    let list = self.list_mut(holder);
                     if kind == "movefirst" {
-                        list.insert(0, m);
+                        list.splice(0..0, ms);
                     } else {
-                        list.push(m);
+                        list.extend(ms);
                     }
                 } else {
-                    self.list_mut(from).remove(at);
-                    let Some((id, at)) = self.parent_list(anchor) else {
+                    // The anchor's list is looked up after the moved controls left theirs.
+                    let a = anchor.expect("moveafter and movebefore name a control");
+                    let Some((id, at)) = self.parent_list(a) else {
                         return Err(format!("{kind}({target}; {moved}): `{target}` is in no list"));
                     };
                     let at = if kind == "moveafter" { at + 1 } else { at };
-                    self.list_mut(id).insert(at, m);
+                    self.list_mut(id).splice(at..at, ms);
                 }
                 Ok(true)
             }
@@ -1962,8 +2039,42 @@ mod tests {
         let l = merged(base, &[e]);
         assert!(l.reasons.is_empty(), "{:?}", l.reasons);
         assert_eq!(names(&l), ["G", "G>B", "G>Id", "G>C", "D2", "D2>E", "D2>D", "D2>A"]);
+        // Several controls of the layout in one move: their order is observable and not pinned.
         let several = "pageextension 50102 E2 extends P { layout { movefirst(G; B, A) } }";
         assert!(merged(base, &[several]).reasons.iter().any(|r| r.contains("several")));
+        // A group moved into itself or into a control it holds is refused.
+        let nested = "page 50100 P { layout { area(Content) { group(G) { group(H) { field(A; Rec.A) { } } } } } }";
+        let into_child = "pageextension 50102 E2 extends P { layout { movefirst(H; G) } }";
+        assert!(!merged(nested, &[into_child]).reasons.is_empty());
+    }
+
+    // al-runner issue 6483: actions move like controls, also several at once and into an area; each stays reachable by name.
+    #[test]
+    fn moves_of_an_extension_reorder_actions_and_promoted_groups() {
+        let base = "page 50100 P { actions { area(Processing) { action(First) { } action(Second) { } action(Third) { } } \
+                    area(Promoted) { group(Category_Process) { actionref(First_Promoted; First) { } actionref(Second_Promoted; Second) { } \
+                    actionref(Third_Promoted; Third) { } } group(Category_Category4) { } } } }";
+        let e = "pageextension 50101 E extends P { actions { moveafter(Third; First) movefirst(Category_Category4; Second_Promoted, Third_Promoted) \
+                 moveafter(Category_Process; Category_Category4) } }";
+        let l = merged(base, &[e]);
+        assert!(l.reasons.is_empty(), "{:?}", l.reasons);
+        assert_eq!(
+            names(&l),
+            [
+                "Second",
+                "Third",
+                "First",
+                "Category_Process",
+                "Category_Process>First_Promoted",
+                "Category_Category4",
+                "Category_Category4>Second_Promoted",
+                "Category_Category4>Third_Promoted"
+            ]
+        );
+        let into_area = "pageextension 50101 E extends P { actions { movelast(Processing; First) } }";
+        let l = merged(base, &[into_area]);
+        assert!(l.reasons.is_empty(), "{:?}", l.reasons);
+        assert_eq!(&names(&l)[..3], ["Second", "Third", "First"]);
     }
 
     #[test]
