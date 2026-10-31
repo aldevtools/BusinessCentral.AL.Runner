@@ -703,8 +703,10 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
             // MaxOccurs = Once on a linked one without LinkFields and with MinOccurs = Zero: export writes the first row of each
             // pass (writer TT's branch al-runtime-rs-staging-tt, QrXpContainerOccurs.al TT_Confirm_Export_*; the VM registers
             // `xmlport-linked-once` and refuses its import).
+            // With LinkFields the same pair runs on an export port: the lowest key of each pass, a pass without rows writes no
+            // element (misc/lt-y14-triage/Y14XmlPortLink.al:136 LinkedZeroOnce_ZeroOneTwoChildren, corpus master).
             let once_ok = linked
-                && layout.property(i, "LinkFields").is_none()
+                && (layout.property(i, "LinkFields").is_none() || layout.direction == ir::XmlDirection::Export)
                 && layout
                     .property(i, "MinOccurs")
                     .is_some_and(|v| v.trim().eq_ignore_ascii_case("zero"));

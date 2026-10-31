@@ -98,6 +98,11 @@ fn typed_modal(kind: UiKind, params: usize, by_var: &[bool], p: Option<&RtType>,
         && matches!(response, Some(RtType::Option(_)) | Some(RtType::Enum(_)))
 }
 
+/// A `[PageHandler]` whose only parameter is `var P: Page X` (misc/lt-y14-triage/Y14PageTriage.al:383, corpus master).
+fn typed_page(kind: UiKind, params: usize, by_var: &[bool], p: Option<&RtType>) -> bool {
+    kind == UiKind::Page && params == 1 && by_var == [true] && matches!(p, Some(RtType::Page(_)))
+}
+
 /// A page handler found for a page: (object, routine, instance).
 pub(crate) type BoundHandler = (usize, usize, Rc<RefCell<Instance>>);
 
@@ -146,6 +151,7 @@ impl Session {
             UiKind::Page | UiKind::ModalPage | UiKind::RequestPage => {
                 (r.params == 1 && r.by_var == [true] && matches!(ty(0), Some(RtType::TestPage(_))))
                     || (typed_modal(kind, r.params, &r.by_var, ty(0), ty(1)))
+                    || typed_page(kind, r.params, &r.by_var, ty(0))
             }
             // ReportHandler(var R: Report "X") (report/lt-ae-reporthandler/AeReportHandler.al:43; must-not-compile 0985 rejects
             // any other shape).
@@ -203,13 +209,19 @@ impl Session {
             Some(RtType::TestPage(p)) if matches!(kind, UiKind::Page | UiKind::ModalPage | UiKind::RequestPage) => {
                 Some(*p)
             }
-            Some(RtType::Page(p)) if typed_modal(kind, r.params, &r.by_var, ty(0), ty(1)) => Some(*p),
+            Some(RtType::Page(p))
+                if typed_modal(kind, r.params, &r.by_var, ty(0), ty(1))
+                    || typed_page(kind, r.params, &r.by_var, ty(0)) =>
+            {
+                Some(*p)
+            }
             Some(RtType::Codeunit(p)) if kind == UiKind::Report => Some(*p),
             _ => None,
         };
         // A ModalPageHandler whose parameter is a `Page` and a `var Response: Action` is pinned by
-        // handlers/PSModalPageHandlerTyped.al. Any other page handler of a `Page` is a shape BC accepts that no
-        // corpus test has, so what it is handed is not pinned (docs/probes-needed.md, "Page handlers").
+        // handlers/PSModalPageHandlerTyped.al, a PageHandler with only `var P: Page` by misc/lt-y14-triage/Y14PageTriage.al:383.
+        // Any other page handler of a `Page` is a shape BC accepts that no corpus test has, so what it is handed is not pinned
+        // (docs/probes-needed.md, "Page handlers").
         if !ok && matches!(kind, UiKind::Page | UiKind::ModalPage) && matches!(ty(0), Some(RtType::Page(_))) {
             return Err(format!(
                 "{} takes a Page instead of a TestPage: what a {} handler of that shape is handed and how its Response: Action is read are not pinned (docs/probes-needed.md)",
@@ -238,7 +250,7 @@ impl Session {
             routine,
             instance,
             fired: optional,
-            typed: typed_modal(kind, r.params, &r.by_var, ty(0), ty(1)),
+            typed: typed_modal(kind, r.params, &r.by_var, ty(0), ty(1)) || typed_page(kind, r.params, &r.by_var, ty(0)),
         })
     }
 
@@ -563,13 +575,18 @@ impl Session {
 
     /// The bound `Page`-typed `[ModalPageHandler]` of `page`, marked as used, when the test bound one.
     pub(crate) fn take_typed_modal_handler(&mut self, page: u32) -> Option<BoundHandler> {
+        self.take_typed_handler(UiKind::ModalPage, page)
+    }
+
+    /// The bound `Page`-typed handler of `kind` for `page`, marked as used, when the test bound one.
+    pub(crate) fn take_typed_handler(&mut self, kind: UiKind, page: u32) -> Option<BoundHandler> {
         let h = self
             .ui_state
             .scope
             .as_mut()?
             .handlers
             .iter_mut()
-            .find(|h| h.kind == UiKind::ModalPage && h.typed && h.page == Some(page))?;
+            .find(|h| h.kind == kind && h.typed && h.page == Some(page))?;
         h.fired = true;
         Some((h.object, h.routine, h.instance.clone()))
     }
@@ -584,6 +601,15 @@ impl Session {
             call_stack: String::new(),
             ..Default::default()
         }))
+    }
+
+    /// Whether the test bound a `Page`-typed `[PageHandler]` for `page`.
+    pub(crate) fn has_typed_page_handler(&self, page: u32) -> bool {
+        self.ui_state.scope.as_ref().is_some_and(|s| {
+            s.handlers
+                .iter()
+                .any(|h| h.kind == UiKind::Page && h.typed && h.page == Some(page))
+        })
     }
 
     pub(crate) fn has_page_handler(&self, kind: UiKind, page: u32) -> bool {

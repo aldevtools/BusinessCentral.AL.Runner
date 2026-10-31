@@ -365,6 +365,14 @@ impl Session {
         let text = match &arg {
             _ if old_ordinal.is_some() => old_ordinal.clone().unwrap_or_default().into(),
             Value::Text(t) | Value::Code(t) => t.clone(),
+            // A Decimal handed to a text control is its Format text: 1.11, 1,234,567.5, 0, -3.5
+            // (misc/lt-y14-triage/Y14Small.al:237, en-US, corpus master).
+            Value::Decimal(_) if matches!(ty, RtType::Text(_)) => {
+                match al_builtins::format::format_value(&arg, 0, 0, &*self) {
+                    Ok(t) => t.into(),
+                    Err(_) => return unsupported("SetValue of a Decimal on a text control whose Format fails"),
+                }
+            }
             // A whole number handed to a text or code control is its digits (WhseItemTrackingPageHandler of SCM RTAM Item Tracking-II sets
             // `Serial No.` to `TrackingQuantity2 + AssignTracking`, a Decimal); unprobed (assumption setvalue-whole-number-into-text-control).
             // Beyond 999 Format adds a thousands separator, which is not pinned for a control, so that stays refused.

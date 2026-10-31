@@ -175,6 +175,7 @@ impl Session {
                     s.lookup = used;
                     s.lookup_set = used;
                     s.static_lookup = used;
+                    s.lookup_page_from_table = n == 0;
                     s.statement_run = !used && record.is_some();
                     s.field_run = used && record.is_some() && field;
                 }

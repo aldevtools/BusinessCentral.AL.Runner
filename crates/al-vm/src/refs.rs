@@ -351,6 +351,25 @@ impl Session {
             })
             .map(|(i, _)| i)
             .collect();
+        // `Table <number>` names the table by its id when no table has that name (misc/lt-y14-triage/Y14Small.al:205
+        // `eval table id`: `Table 91690: a b` reads back `LT Y14 SM Key: a b`, corpus master).
+        let tables = match (
+            tables.is_empty(),
+            qualified,
+            name.strip_prefix("Table ").map(str::parse::<u32>),
+        ) {
+            (true, None, Some(Ok(id))) => self
+                .engine
+                .program
+                .objects
+                .heads()
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| o.table.is_some() && o.id == Some(id))
+                .map(|(i, _)| i)
+                .collect(),
+            _ => tables,
+        };
         if let (Some(q), [one]) = (qualified, tables.as_slice()) {
             if !self.engine.program.objects[*one].name.contains(' ') {
                 return unsupported(format!(
@@ -374,7 +393,6 @@ impl Session {
         }
         let table_no = o.id.unwrap_or(0);
         let table_name = o.name.clone();
-        let schema = o.table.as_ref().expect("filtered on a table");
         let key = match key_text {
             None => Vec::new(),
             Some(k) => {
@@ -383,13 +401,9 @@ impl Session {
                     return unsupported("Evaluate into a RecordId of a table without a compiled schema");
                 };
                 // No values after the colon: a RecordId with no key (types/lt-evaluate-recordid/EvaluateRecordIdComposite.al:
-                // Evaluate_WrongNumberOfValues `noValues`; pinned for a table with a two-field key only).
+                // Evaluate_WrongNumberOfValues `noValues`, a two-field key; misc/lt-y14-triage/Y14Small.al:205 `eval empty key`,
+                // a one-field Text key, corpus master).
                 if k.is_empty() {
-                    if schema.keys[0].len() == 1 {
-                        return unsupported(
-                            "Evaluate into a RecordId with an empty key text of a one-field key (not pinned)",
-                        );
-                    }
                     Vec::new()
                 } else {
                     match self.evaluate_record_key(&t, k, number)? {

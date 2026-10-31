@@ -716,6 +716,9 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                                 || (matches!(k, Value::Option(..)) && t.trim().is_empty())
                                 || (matches!(k, Value::Text(_) | Value::Code(_))
                                     && (t.contains(',') || t.starts_with('"')))
+                                // A Text key that starts with a blank is quoted: `" lead"` (misc/lt-y14-triage/Y14Small.al:173,
+                                // corpus master). A trailing blank is not pinned.
+                                || (matches!(k, Value::Text(_)) && t.starts_with(' '))
                             {
                                 format!("\"{}\"", t.replace('"', "\"\""))
                             } else {

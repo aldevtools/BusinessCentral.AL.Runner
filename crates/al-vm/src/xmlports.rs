@@ -2382,24 +2382,6 @@ impl Session {
             self.tx.deferred_raised += 1;
             return Err(Signal::Error(Box::new(e)));
         }
-        // A temporary table element saves without the table's triggers: pinned for a nested one with AutoReplace
-        // (XmlPortTriggerFlow.al:551 TempChild_AutoReplace, trace :561: no `tC+` or `tC~`). Elsewhere the triggers of a temporary
-        // table element are not pinned: refused where the table has one.
-        let nested = n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table);
-        let run_triggers = !(temporary && nested && n.auto_replace);
-        if temporary
-            && n.auto_save
-            && !(nested && n.auto_replace)
-            && (self.table_trigger(&t, "OnInsert").is_some()
-                || self.table_trigger(&t, "OnModify").is_some()
-                || !self.ext_triggers(&t, "OnInsert").is_empty()
-                || !self.ext_triggers(&t, "OnModify").is_empty())
-        {
-            return unsupported(format!(
-                "XmlPort import into the temporary table element {} whose table has an insert or modify trigger (whether it runs is not pinned)",
-                n.xml_name
-            ));
-        }
         let cx = self.cx.clone();
         let pk = t.primary_key(&rec.borrow().fields);
         let stored = self
@@ -2413,6 +2395,27 @@ impl Session {
             ));
         }
         let modify = stored.is_some() && (again || n.auto_update || n.auto_replace);
+        // A temporary table element saves without the table's triggers: pinned for a nested one with AutoReplace
+        // (XmlPortTriggerFlow.al:551 TempChild_AutoReplace, trace :561: no `tC+` or `tC~`) and for the insert of a new row
+        // (misc/lt-y14-triage/Y14Small.al:419, a top-level element: no OnInsert, corpus master). The modify of a row a
+        // temporary table element already holds is not pinned: refused where the table has a trigger.
+        let nested = n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table);
+        let pinned_temp = nested && n.auto_replace;
+        let run_triggers = !(temporary && (pinned_temp || !modify));
+        if temporary
+            && n.auto_save
+            && modify
+            && !pinned_temp
+            && (self.table_trigger(&t, "OnInsert").is_some()
+                || self.table_trigger(&t, "OnModify").is_some()
+                || !self.ext_triggers(&t, "OnInsert").is_empty()
+                || !self.ext_triggers(&t, "OnModify").is_empty())
+        {
+            return unsupported(format!(
+                "XmlPort import into the temporary table element {} of a row it already holds, whose table has an insert or modify trigger (whether it runs is not pinned)",
+                n.xml_name
+            ));
+        }
         let (before, after) = if modify {
             ("onbeforemodifyrecord", "onaftermodifyrecord")
         } else {

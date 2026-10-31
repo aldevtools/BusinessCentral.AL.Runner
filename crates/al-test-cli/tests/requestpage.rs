@@ -1137,7 +1137,8 @@ codeunit 61301 "RQ Substitute"
 "#;
 
 // events/lt-platform-events-v/PeVTests.al:465, :660: the static Report.RunRequestPage raises SubstituteReport with RunMode
-// ParametersOnly before the page opens. A subscriber that sets another report is not pinned for it: refused.
+// ParametersOnly before the page opens. A subscriber that sets another report swaps it (misc/lt-y14-triage/Y14ReportSubstitute.al,
+// corpus master; `y14_pins.rs`); an id no report has is refused, as the error text for it is not pinned.
 #[test]
 fn static_run_request_page_raises_substitute_report_and_refuses_another_report() {
     let tests = format!(
@@ -1156,7 +1157,7 @@ fn static_run_request_page_raises_substitute_report_and_refuses_another_report()
     let get = |n: &str| o.iter().find(|(t, _)| t == n).map(|(_, r)| r.clone()).unwrap();
     assert_eq!(get("Logged"), Outcome::Pass);
     match get("Changed") {
-        Outcome::NotRun(r) => assert!(r.contains("SubstituteReport set report 61299"), "{r}"),
+        Outcome::NotRun(r) => assert!(r.contains("of id 61299, which no report declares"), "{r}"),
         other => panic!("{other:?}"),
     }
 }

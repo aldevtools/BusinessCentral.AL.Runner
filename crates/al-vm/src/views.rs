@@ -96,6 +96,11 @@ impl Session {
                 // record/TestFilterQuotedLiterals.al:95-105: an apostrophe in a quoted value is doubled.
                 return Ok(format!("'{}'", s.replace('\'', "''")));
             }
+            // The text `@` alone, from `SetFilter(F, '%1', '@')`, reads back quoted (misc/lt-y14-triage/Y14Small.al:309, corpus
+            // master).
+            if &**s == "@" {
+                return Ok("'@'".into());
+            }
             if s.contains(FILTER_UNPINNED) || s.starts_with('@') {
                 return unsupported("a filter value that needs quoting");
             }
@@ -176,7 +181,8 @@ impl Session {
             FilterExpr::Le(v) => format!("<={}", self.filter_value_with(v, iso)?),
             FilterExpr::Gt(v) => format!(">{}", self.filter_value_with(v, iso)?),
             FilterExpr::Ge(v) => format!(">={}", self.filter_value_with(v, iso)?),
-            FilterExpr::Like(p, ci) if needs_quotes(p) && !p.contains(['*', '?', '\'', '>']) => {
+            // With `>` too: `'@a>b@x.com'` (misc/lt-y14-triage/Y14Small.al:309, corpus master).
+            FilterExpr::Like(p, ci) if needs_quotes(p) && !p.contains(['*', '?', '\'']) => {
                 format!("'{}{p}'", if *ci { "@" } else { "" })
             }
             FilterExpr::Like(p, ci) => format!("{}{p}", if *ci { "@" } else { "" }),

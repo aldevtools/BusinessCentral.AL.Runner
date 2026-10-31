@@ -1288,7 +1288,9 @@ fn object_get(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result
             Ok(Value::Boolean(true))
         }
         None if c.ret_used() => Ok(Value::Boolean(false)),
-        None => unsupported("JsonObject.Get of a missing key without using the result (error text not pinned yet)"),
+        // As a statement a missing key raises JsonPropertyNotFound and leaves the token as it was
+        // (misc/lt-y14-triage/Y14Small.al:389, corpus master).
+        None => Err(missing_key(&a[0])),
     }
 }
 

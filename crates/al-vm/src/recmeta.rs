@@ -1912,6 +1912,14 @@ impl Session {
                     self.ret_used = used;
                     key.push(r?);
                 }
+                // A one-field Text key value that is not quoted is read trimmed: `Key:  lead` and `Key: a b ` give `lead` and
+                // `a b` (misc/lt-y14-triage/Y14Small.al:205 `eval leading blank`, `eval trailing blank`, corpus master).
+                RtType::Text(_) if fields.len() == 1 && !quoted => {
+                    match al_builtins::evaluate::evaluate_typed(self, ty, v.trim(), number)? {
+                        Some(x) => key.push(x),
+                        None => return Ok(None),
+                    }
+                }
                 _ if fields.len() == 1 => match al_builtins::evaluate::evaluate_typed(self, ty, v, number)? {
                     Some(x) => key.push(x),
                     None => return Ok(None),

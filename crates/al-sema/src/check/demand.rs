@@ -119,7 +119,8 @@ pub(super) struct State {
     reporting_triggers: bool,
     /// The `MakeDateFilter` subscribers are reached (code that sets filters is compiled).
     filter_helper: bool,
-    /// The `SubstituteReport` and `OnDocumentReady` subscribers are reached (code that calls `SaveAs` is compiled).
+    /// The `SubstituteReport`, `OnDocumentReady` and `SetupPrinters` subscribers are reached (code that calls `SaveAs` or names a
+    /// report is compiled).
     save_as_events: bool,
     /// Bits per object kind: the catalog tables that list the objects of that kind are used, and
     /// every object of the kind is compiled to its shape (`touch_object_catalog`).
@@ -165,30 +166,34 @@ pub(super) const SAVE_AS: u8 = 8;
 pub(super) const SET_FILTER: u8 = 16;
 /// `Report.GetSubstituteReportId` raises `SubstituteReport` when it has a subscriber (P91Unsure.al:112).
 pub(super) const SUBSTITUTE: u8 = 32;
+/// The static `Report.Run`, `RunModal`, `Execute` and `RunRequestPage` raise `SubstituteReport`, and `RunRequestPage`
+/// `SetupPrinters` (misc/lt-y14-triage/Y14ReportSubstitute.al, events/lt-platform-events-v/PeVTests.al:450, :665).
+pub(super) const REPORT: u8 = 64;
 /// The object's text has been searched.
 const SCANNED: u8 = 128;
 /// The names `mentions` looks for, for its test against `ast::text_contains_ignore_case`.
 #[cfg(test)]
-pub(super) const MENTION_NAMES: [(u8, &str); 6] = [
+pub(super) const MENTION_NAMES: [(u8, &str); 7] = [
     (CAPTION_CLASS, "captionclass"),
     (RENDERING, "rendering"),
     (CUSTOM, "custom"),
     (SAVE_AS, "saveas"),
     (SET_FILTER, "setfilter"),
     (SUBSTITUTE, "getsubstitutereportid"),
+    (REPORT, "report"),
 ];
 
 /// The gating names (`CAPTION_CLASS` ... `SET_FILTER`) the source text of `node` holds, whatever the case, in one pass. As with
 /// `ast::text_contains_ignore_case`, a name is a run of letters and so cannot span two tokens.
 pub(super) fn mentions(node: &SyntaxNode) -> u8 {
-    const ALL: u8 = CAPTION_CLASS | RENDERING | CUSTOM | SAVE_AS | SET_FILTER | SUBSTITUTE;
+    const ALL: u8 = CAPTION_CLASS | RENDERING | CUSTOM | SAVE_AS | SET_FILTER | SUBSTITUTE | REPORT;
     let mut found = 0u8;
     let _ = node.text().try_for_each_chunk(|chunk| {
         let b = chunk.as_bytes();
         for i in 0..b.len() {
             let candidates: &[(u8, &[u8])] = match b[i].to_ascii_lowercase() {
                 b'c' => &[(CAPTION_CLASS, b"captionclass"), (CUSTOM, b"custom")],
-                b'r' => &[(RENDERING, b"rendering")],
+                b'r' => &[(RENDERING, b"rendering"), (REPORT, b"report")],
                 b's' => &[(SAVE_AS, b"saveas"), (SET_FILTER, b"setfilter")],
                 b'g' => &[(SUBSTITUTE, b"getsubstitutereportid")],
                 _ => continue,
@@ -958,7 +963,7 @@ impl Checker<'_> {
     /// (events/lt-platform-events-v/PeVTests.al:432), so their subscribers are reached. So does `Report.GetSubstituteReportId`,
     /// which raises `SubstituteReport` (report/lt-report-members-testrequestpage/P91Unsure.al:112).
     pub(super) fn reach_save_as_events_if_used(&self, i: usize) {
-        if !self.pending(|st| st.save_as_events) || self.mentions(i) & (SAVE_AS | SUBSTITUTE) == 0 {
+        if !self.pending(|st| st.save_as_events) || self.mentions(i) & (SAVE_AS | SUBSTITUTE | REPORT) == 0 {
             return;
         }
         let first = self.demand.borrow_mut().as_mut().is_some_and(|st| {
@@ -969,7 +974,10 @@ impl Checker<'_> {
         if first {
             for (o, k) in self.ws.reporting_triggers_subscribers() {
                 let event = &self.ws.objects[o].subscribers[k].event;
-                if event.eq_ignore_ascii_case("SubstituteReport") || event.eq_ignore_ascii_case("OnDocumentReady") {
+                if event.eq_ignore_ascii_case("SubstituteReport")
+                    || event.eq_ignore_ascii_case("OnDocumentReady")
+                    || event.eq_ignore_ascii_case("SetupPrinters")
+                {
                     self.reach_subscriber(o, k);
                 }
             }
