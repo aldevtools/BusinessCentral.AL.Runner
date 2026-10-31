@@ -532,10 +532,51 @@ impl<'a> Checker<'a> {
     /// none: AL reads it as the call `Proc(value)` (Base Application's Service Statistics writes
     /// `CurrPage.SubForm.PAGE.SetParentControl := PAGE::"Service Statistics"`). The call is picked with the value's type
     /// and recorded on the target; the type of the target is unknown. Assumption `procedure-assign-is-call`.
-    pub(crate) fn assign_target_ty(&mut self, sc: &mut Scope, target: &SyntaxNode, rhs: &SyntaxNode) -> Ty {
+    ///
+    /// `plain` is false for a compound assignment (`X.M += v`), which only reports AL0129 for a builtin method `M`.
+    pub(crate) fn assign_target_ty(
+        &mut self,
+        sc: &mut Scope,
+        target: &SyntaxNode,
+        rhs: &SyntaxNode,
+        plain: bool,
+    ) -> Ty {
         let e = self.infer(sc, target);
         if let E::Callable(c) = &e {
             let visible: Vec<&Cand> = c.iter().filter(|c| c.hidden.is_none()).collect();
+            let builtins = !visible.is_empty() && visible.iter().all(|c| matches!(c.target, Res::Builtin(_)));
+            if builtins && !self.ws.is_dependency(sc.oi) {
+                if !plain {
+                    // `C.Timeout += 1`: a compound assignment to a builtin method, also one whose plain assignment form
+                    // compiles (must-not-compile 2367, corpus writer Y29, al-runner issue 6526).
+                    self.diag(sc, target, "AL0129", AL0129_TEXT.to_string());
+                } else if let Some((code, message)) = self.al_assign_form(sc, target, rhs, &visible) {
+                    self.diag(sc, target, code, message);
+                    let r = target.text_range();
+                    self.types
+                        .insert((sc.file, r.start().into(), r.end().into()), Ty::Unknown);
+                    return Ty::Unknown;
+                }
+            }
+            if !plain {
+                return self.ty_of_inferred(sc, target, e);
+            }
+            // `Row.Get := 2` (record/ProbePropertyAssignmentForms.al:612, corpus writer Y29): a builtin with a variadic
+            // form takes the value as its argument; its result type is not the target's.
+            // A form lowering knows as a setter or an assign call (`E.Add := v`, XmlElement) takes the setter path below.
+            let known_form = visible.iter().any(|c| match &c.target {
+                Res::Builtin(id) => self.catalog.by_id(id).is_some_and(|s| {
+                    crate::lower::is_property_setter(&s.receiver, &s.name)
+                        || crate::lower::is_assign_call(&s.receiver, &s.name)
+                }),
+                _ => false,
+            });
+            if builtins && !known_form && visible.iter().any(|c| c.max == usize::MAX && c.min <= 1) {
+                let r = target.text_range();
+                self.types
+                    .insert((sc.file, r.start().into(), r.end().into()), Ty::Unknown);
+                return Ty::Unknown;
+            }
             // A builtin whose only form takes the value is assigned as a property too when lowering knows it as a setter
             // (`Client.UseResponseCookies := b`: network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:16-74).
             let setter = |c: &Cand| match &c.target {
@@ -583,6 +624,65 @@ impl<'a> Checker<'a> {
             }
         }
         self.ty_of_inferred(sc, target, e)
+    }
+
+    /// The compile error of the assignment form `X.M := v` of the builtin method `M` (the candidates `visible`), where alc
+    /// gives one. alc reads the form as the call `X.M(v)` when exactly one form of `M` takes one argument, and else as
+    /// `X.M()` (record/ProbePropertyAssignmentForms.al:375-377, corpus writer Y29, al-runner issue 6526). Only the shapes
+    /// the must-not-compile corpus pins are judged; a builtin of a form the catalog cannot tell apart (an optional
+    /// parameter is a getter and setter pair as often as a real optional argument) is left alone.
+    fn al_assign_form(
+        &mut self,
+        sc: &mut Scope,
+        target: &SyntaxNode,
+        rhs: &SyntaxNode,
+        visible: &[&Cand],
+    ) -> Option<(&'static str, String)> {
+        let lowered = |s: &Self, c: &Cand| match &c.target {
+            Res::Builtin(id) => s.catalog.by_id(id).is_some_and(|s| {
+                crate::lower::is_property_setter(&s.receiver, &s.name)
+                    || crate::lower::is_assign_call(&s.receiver, &s.name)
+            }),
+            _ => false,
+        };
+        if visible.iter().any(|c| lowered(self, c)) {
+            return None;
+        }
+        // No form takes an argument (XmlDocument.NameTable, XmlElement.InnerText, XmlNamespaceManager.PushScope:
+        // must-not-compile 2365, 2366, 2371), or one form with only optional parameters, two or more of them
+        // (Record.LockTable: 2370).
+        let no_value = visible.iter().all(|c| c.max == 0)
+            || matches!(visible, [c] if c.min == 0 && c.max >= 2 && c.max != usize::MAX);
+        if no_value {
+            return Some(("AL0129", AL0129_TEXT.to_string()));
+        }
+        // Several forms, each needing an argument (JsonObject.ReadFrom(Text) and ReadFrom(InStream): 2368). alc goes on
+        // with the candidates, in an order the catalog does not keep; the first sentence is reported.
+        if visible.len() >= 2 && visible.iter().all(|c| c.min >= 1) {
+            return Some((
+                "AL0126",
+                format!("No overload for method '{}' takes 0 arguments.", member_name(target)),
+            ));
+        }
+        // The one form takes one argument, and the value is an XML collection where another XML type is wanted
+        // (`D.SetDeclaration := D.GetChildNodes()`: 2372). A collection never converts to a single XML value.
+        if let [c] = visible {
+            if c.min == 1 && c.max == 1 {
+                let param = c.param_tys.first().cloned().unwrap_or_default();
+                if let Ty::Builtin(arg) = self.ty(sc, rhs) {
+                    let collection = ["XmlNodeList", "XmlAttributeCollection"]
+                        .iter()
+                        .any(|t| arg.eq_ignore_ascii_case(t));
+                    if collection && param.starts_with("Xml") && !param.eq_ignore_ascii_case(&arg) {
+                        return Some((
+                            "AL0133",
+                            format!("Argument 1: cannot convert from '{arg}' to '{param}'"),
+                        ));
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn ty_of_inferred(&mut self, sc: &mut Scope, node: &SyntaxNode, e: E) -> Ty {
@@ -1689,6 +1789,9 @@ impl Checker<'_> {
         true
     }
 }
+
+/// The text of AL0129, as must-not-compile 2365-2367, 2370 and 2371 record it.
+const AL0129_TEXT: &str = "The left-hand side of an assignment must be a variable or field";
 
 /// A parameter type as alc writes it in the signature of an AL0135 text, for the types the must-not-compile cases pin
 /// (0242, 0066, 2167-2188); `None` for any other.
