@@ -29,7 +29,8 @@ fn lprop<'a>(l: &'a al_ir::LayoutDecl, name: &str) -> Option<&'a str> {
 const FORMATS: &[&str] = &["RDLC", "Word", "Excel", "Custom"];
 
 /// Report Layout List: "Report ID" (1), Name (2), "Layout Format" (7), IsObsolete (16),
-/// ExcelLayoutMultipleDataSheets (17); the key also holds "Runtime Package ID" (5).
+/// ExcelLayoutMultipleDataSheets (17), and the columns `layout_row` cites; the key also holds "Runtime Package ID" (5):
+/// a non-null guid other than the app id (platform/lt-ug-report-layout-list/UgReportLayoutList.al:101, :135).
 pub(super) fn layout_list_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
@@ -82,68 +83,23 @@ fn layout_row(
     language: i32,
 ) -> Result<(), String> {
     let what = || format!("layout '{}' of report '{}'", l.name, o.name);
-    // An RDLC, Word or Excel layout: the formats the corpus pins the columns below for.
-    let pinned_format = lprop(l, "Type")
-        .map(ident)
-        .is_some_and(|f| ["RDLC", "Word", "Excel"].iter().any(|x| x.eq_ignore_ascii_case(&f)));
-    // CaptionML (4) is blank for a layout that declares none, with or without a Caption (platform/lt-aw-fresh-tenant/
-    // AwTests.al:222-260, Excel; platform/lt-ug-report-layout-list/UgReportLayoutList.al:103, :137, RDLC and Word). A declared
-    // CaptionML, or another format, is pinned by no corpus test: unknown.
-    if let Some(col) = t.fields.iter().position(|f| f.id == 4) {
-        r[col] = match lprop(l, "CaptionML") {
-            None if pinned_format => Value::Text("".into()),
-            None => unknown(t, 4, &format!("{}, which is not an RDLC, Word or Excel layout", what())),
-            Some(_) => unknown(t, 4, &format!("{}, which declares CaptionML", what())),
-        };
-    }
-    // Custom Type (8) the null Guid, MIME Type (9) blank, Layout Publisher (13) `<app name> by <publisher>` and ReportIsInstalled
-    // (15) Yes, for a layout of a report of the app under test (platform/lt-ug-report-layout-list/UgReportLayoutList.al:106-113,
-    // :140-147, RDLC and Word; platform/lt-aw-fresh-tenant/AwTests.al:222-260, Excel). A layout of a dependency app or of a
-    // report extension is not pinned: unknown.
-    let app = c.apps.get(o.app as usize);
-    let own = o.kind == al_ir::ObjKind::Report && pinned_format && app.is_some_and(|a| !a.dependency);
-    for col in [8, 9, 13, 15] {
-        let Some(i) = t.fields.iter().position(|f| f.id == col) else {
-            continue;
-        };
-        r[i] = match (col, app) {
-            (8, _) if own => Value::Guid([0; 16]),
-            (9, _) if own => Value::Text("".into()),
-            (13, Some(a)) if own && !a.name.is_empty() && !a.publisher.is_empty() => {
-                Value::Text(format!("{} by {}", a.name, a.publisher).chars().take(250).collect())
-            }
-            (15, _) if own => Value::Boolean(true),
-            _ => unknown(
-                t,
-                col,
-                &format!(
-                    "{}, which is not an RDLC, Word or Excel layout of the app under test",
-                    what()
-                ),
-            ),
-        };
-    }
     // BC 29: "Layout Subtype" (19), HeaderFooterPart (20), ThemePart (21)
     // (report/lt-y-report-props/YReportParts.al:75-80). The enum is HeaderFooter 1, Theme 2, Body 3; the parts a layout
-    // does not declare are blank. A layout that declares no Subtype reads Default (0) and blank parts, whatever parts the
-    // report declares (platform/lt-ba-columns/BaLayoutNoSubtype.al:94, :109, RDLC and Word; platform/lt-aw-fresh-tenant/
-    // AwTests.al:226-260, Excel). For another format the three columns stay unknown.
+    // does not declare are blank. The corpus pins only layouts that declare a Subtype: for one that declares none the
+    // three columns stay unknown (a read through a RecordRef is refused, the rest of the row reads), and static reads of
+    // them are refused where they are lowered (not in PINNED_COLUMNS).
+    // A layout that declares no Subtype reads Default with blank parts (platform/lt-ug-report-layout-list/UgReportLayoutList.al:
+    // 119-121, :153-155; platform/lt-aw-fresh-tenant/AwTests.al:228, all RDLC, Word or Excel layouts of a report).
     if t.fields.iter().any(|f| f.id == 19) {
         'subtype: {
             let subtype = match lprop(l, "Subtype").map(ident) {
-                None if pinned_format => {
+                None => {
                     r[pos(t, 19)] = match &t.fields[pos(t, 19)].ty {
                         RtType::Enum(e) => Value::Enum(*e, 0),
                         other => return Err(format!("field 19 is a {}, not an enum", other.describe())),
                     };
                     for id in [20, 21] {
                         r[pos(t, id)] = Value::default_for(&t.fields[pos(t, id)].ty);
-                    }
-                    break 'subtype;
-                }
-                None => {
-                    for id in [19, 20, 21] {
-                        r[pos(t, id)] = unknown(t, id, &format!("{}, which declares no Subtype", what()));
                     }
                     break 'subtype;
                 }
@@ -183,15 +139,66 @@ fn layout_row(
         .position(|f| f.eq_ignore_ascii_case(&ident(format)))
         .ok_or_else(|| format!("{}: Type `{format}` is not pinned", what()))?;
     r[pos(t, 7)] = option(t, 7, format as i32);
-    // "User Defined" (14): No for an RDLC and a Word layout declared in AL (corpus branch al-runtime-rs-staging-ug eff7eb2a,
-    // platform/lt-ug-report-layout-list/UgReportLayoutList.al ReportLayoutList_AllColumns_RdlcLayout and _WordLayout;
-    // assumption report-layout-list-built-in-not-user-defined until the bump). An Excel or Custom layout is not pinned.
-    // An Excel layout is not user defined either (platform/lt-aw-fresh-tenant/AwTests.al:226-260).
-    r[pos(t, 14)] = if format <= 2 {
+    // "User Defined" (14): No for an RDLC, a Word and an Excel layout declared in AL (platform/lt-ug-report-layout-list/
+    // UgReportLayoutList.al:112, :146; platform/lt-aw-fresh-tenant/AwTests.al:228). A Custom layout is not pinned.
+    let pinned_format = format <= 2;
+    r[pos(t, 14)] = if pinned_format {
         Value::Boolean(false)
     } else {
-        unknown(t, 14, &format!("{}, an {} layout", what(), FORMATS[format]))
+        unknown(t, 14, &format!("{}, a {} layout", what(), FORMATS[format]))
     };
+    // "Custom Type" (8) the null guid and "MIME Type" (9) blank for an RDLC, Word and Excel layout (UgReportLayoutList.al:105-106,
+    // :139-140; AwTests.al:228). A Custom layout is not pinned.
+    if !pinned_format {
+        for id in [8, 9] {
+            r[pos(t, id)] = unknown(t, id, &format!("{}, a Custom layout", what()));
+        }
+    }
+    // The rest is pinned for the RDLC, Word and Excel layouts of a report (UgReportLayoutList.al:94-150, AwTests.al:220-300),
+    // not for the layouts of a report extension.
+    let of_report = o.kind == al_ir::ObjKind::Report;
+    let whose = |why: &str| format!("{}, {why}", what());
+    // CaptionML (4): blank for a layout that declares none (UgReportLayoutList.al:103, :137; AwTests.al:228).
+    if lprop(l, "CaptionML").is_some() {
+        r[pos(t, 4)] = unknown(t, 4, &whose("which declares a CaptionML"));
+    }
+    // "Report Name" (12): the name of a report that declares no Caption and no CaptionML (UgReportLayoutList.al:110, :144;
+    // AwTests.al:228). Whether a caption replaces the name is not pinned.
+    r[pos(t, 12)] = if !of_report {
+        unknown(t, 12, &whose("a layout of a report extension"))
+    } else if prop(o, "Caption").is_some() || prop(o, "CaptionML").is_some() {
+        unknown(t, 12, &whose("whose report declares a caption"))
+    } else {
+        Value::Text(o.name.chars().take(250).collect())
+    };
+    // "Layout Publisher" (13): the app's name, " by " and its publisher (UgReportLayoutList.al:111, :145; AwTests.al:228:
+    // `AL Language Coverage Tests by AL Language`, the corpus app's name and publisher).
+    r[pos(t, 13)] = match c.apps.get(o.app as usize) {
+        Some(app) if of_report => Value::Text(format!("{} by {}", app.name, app.publisher).chars().take(250).collect()),
+        _ => unknown(t, 13, &whose("a layout of a report extension")),
+    };
+    // ReportIsInstalled (15): Yes (UgReportLayoutList.al:113, :147; AwTests.al:228).
+    r[pos(t, 15)] = if of_report {
+        Value::Boolean(true)
+    } else {
+        unknown(t, 15, &whose("a layout of a report extension"))
+    };
+    // "Layout Status" (18, BC 28+): Approved for a layout without a Subtype (UgReportLayoutList.al:117, :151; AwTests.al:228).
+    // A layout part, a Custom layout and a layout of a report extension are not pinned.
+    if t.fields.iter().any(|f| f.id == 18) {
+        if !(of_report && pinned_format && lprop(l, "Subtype").is_none()) {
+            r[pos(t, 18)] = unknown(
+                t,
+                18,
+                &whose("a layout part, a Custom layout or a layout of a report extension"),
+            );
+        } else {
+            r[pos(t, 18)] = match &t.fields[pos(t, 18)].ty {
+                RtType::Enum(e) => Value::Enum(*e, 0),
+                other => return Err(format!("field 18 is a {}, not an enum", other.describe())),
+            };
+        }
+    }
     // Caption is the Caption literal, else the layout's name; Description the Summary literal, else the layout's name.
     let literal = |name: &str| -> Result<Option<String>, String> {
         lprop(l, name)

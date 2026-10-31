@@ -20,7 +20,9 @@ name: CI
 
 on:
   push:
-    branches: [main, release]
+    # corpus-bump/**: the corpus bump bot (.github/workflows/corpus-bump-bot.yml) opens its pull request with the
+    # workflow token, which starts no pull_request run; the push of its branch (deploy key) runs CI instead.
+    branches: [main, release, 'corpus-bump/**']
   pull_request:
   schedule:
     - cron: "17 5 * * *"

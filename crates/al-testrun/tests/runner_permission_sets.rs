@@ -63,6 +63,49 @@ codeunit 131006 "Permissions Mock"
     end;
 }
 
+// Own declarations with the grants ADR-062 derives for System Application's sets: SUPER grants everything.
+permissionset 131006 "All Objects"
+{
+    Assignable = true;
+    Permissions = table * = X, report * = X, codeunit * = X, page * = X, xmlport * = X, query * = X;
+}
+
+permissionset 50990 "PX Data"
+{
+    Assignable = true;
+    Permissions = tabledata * = RIMD;
+}
+
+permissionset 50991 "PX System"
+{
+    Assignable = false;
+    Permissions = system * = X;
+}
+
+permissionset 31 SUPER
+{
+    Assignable = true;
+    IncludedPermissionSets = "All Objects", "PX Data", "PX System";
+}
+
+permissionset 50992 "PX Read"
+{
+    Assignable = true;
+    Permissions = tabledata "PX Item" = R;
+}
+
+table 50990 "PX Item"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+    }
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
 codeunit 130302 "Set State Test Run"
 {
     SingleInstance = true;
@@ -92,6 +135,95 @@ codeunit 50930 "Perm Sets"
         PermissionsMock: Codeunit "Permissions Mock";
     begin
         PermissionsMock.Assign('D365 READ');
+    end;
+}
+
+codeunit 50932 "Perm Sets Super"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure SetSuperThenWrite()
+    var
+        PXItem: Record "PX Item";
+        PermissionsMock: Codeunit "Permissions Mock";
+    begin
+        PermissionsMock.Start();
+        PermissionsMock.Set('SUPER');
+        PXItem."No." := 'A';
+        PXItem.Insert();
+        if not PXItem.Get('A') then
+            Error('row not found');
+        PermissionsMock.Stop();
+    end;
+
+    [Test]
+    procedure AssignSuperThenWrite()
+    var
+        PXItem: Record "PX Item";
+        PermissionsMock: Codeunit "Permissions Mock";
+    begin
+        PermissionsMock.Start();
+        PermissionsMock.Assign('SUPER');
+        PXItem."No." := 'B';
+        PXItem.Insert();
+        PermissionsMock.Stop();
+    end;
+
+    [Test]
+    procedure SetDataWithoutSystemThenWrite()
+    var
+        PXItem: Record "PX Item";
+        PermissionsMock: Codeunit "Permissions Mock";
+    begin
+        PermissionsMock.Start();
+        PermissionsMock.Set('PX Data');
+        PXItem."No." := 'C';
+        PXItem.Insert();
+    end;
+
+    [Test]
+    procedure SetSuperThenNarrowThenWrite()
+    var
+        PXItem: Record "PX Item";
+        PermissionsMock: Codeunit "Permissions Mock";
+    begin
+        PermissionsMock.Start();
+        PermissionsMock.Set('SUPER');
+        PermissionsMock.Set('PX Read');
+        PXItem."No." := 'D';
+        PXItem.Insert();
+    end;
+
+    [Test]
+    procedure NarrowThenSuperThenWrite()
+    var
+        PXItem: Record "PX Item";
+        PermissionsMock: Codeunit "Permissions Mock";
+    begin
+        PermissionsMock.Start();
+        PermissionsMock.Set('PX Read');
+        PermissionsMock.Assign('SUPER');
+        PXItem."No." := 'E';
+        PXItem.Insert();
+        PermissionsMock.Stop();
+    end;
+}
+
+codeunit 50933 "Perm Sets Super On Runner"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure AddSuperToTheRunnersSets()
+    var
+        PXItem: Record "PX Item";
+        PermissionsMock: Codeunit "Permissions Mock";
+    begin
+        PermissionsMock.Assign('SUPER');
+        PXItem."No." := 'F';
+        PXItem.Insert();
     end;
 }
 
@@ -216,4 +348,66 @@ fn with_ignore_permission_mock_a_test_that_lowers_its_permissions_runs_and_is_fl
     let r = result(&rt, "RunsUnderTheRunnersSets");
     assert_eq!(r.assumptions, vec![Assumption::RunnerPermissionSetsGrantAll]);
     assert!(result(&rt, "RunsWithoutTheRunnersSets").assumptions.is_empty());
+}
+
+fn not_run_lowered(rt: &CorpusRuntime, test: &str) {
+    match &result(rt, test).outcome {
+        Outcome::NotRun(why) => assert!(
+            why.contains("AddEffectivePermissionSet") && why.contains("lowers"),
+            "{why}"
+        ),
+        other => panic!("{test}: {other:?}"),
+    }
+}
+
+/// A pass flagged only by the assumption ADR-062 probe P0 confirms: sets that grant everything leave the session
+/// unrestricted.
+fn unrestricted_pass(rt: &CorpusRuntime, test: &str) {
+    let r = result(rt, test);
+    assert_eq!(r.outcome, Outcome::Pass, "{test}");
+    assert_eq!(
+        r.assumptions,
+        vec![Assumption::PermissionSetsGrantingEverythingUnrestricted],
+        "{test}"
+    );
+}
+
+/// al-runner issue 6296: `Permissions Mock.Set('SUPER')` (Clear, Assign('All Objects'), Assign('SUPER')) and
+/// `Assign('SUPER')` leave a session whose sets grant everything (ADR-062 section 1: the union of the assigned sets,
+/// TestPermissionsMockEnforcement.al:28-72; SUPER's content from its source). The test runs, flagged only by
+/// `permission-sets-granting-everything-unrestricted` until probe P0 lands, never by `permissions-not-enforced`.
+#[test]
+fn a_session_lowered_to_super_is_unrestricted_and_passes_clean() {
+    let rt = run();
+    unrestricted_pass(&rt, "SetSuperThenWrite");
+    unrestricted_pass(&rt, "AssignSuperThenWrite");
+    // Lowered first: the test's own call to add SUPER is already an access of a restricted session, refused while no
+    // access kind is enforced (on BC All Objects grants its Execute).
+    not_run_lowered(&rt, "NarrowThenSuperThenWrite");
+}
+
+/// A list that does not grant everything stays refused: All Objects with all table data lacks Execute on system
+/// objects, and a later `Set` of a narrow set lowers the session again.
+#[test]
+fn a_list_that_does_not_grant_everything_is_still_refused() {
+    let rt = run();
+    not_run_lowered(&rt, "SetDataWithoutSystemThenWrite");
+    not_run_lowered(&rt, "SetSuperThenNarrowThenWrite");
+}
+
+/// SUPER assigned on top of the runner's sets (`Library - Lower Permissions.AddPermissionSet('SUPER')`): the runner's
+/// sets keep their assumption, and the test's own SUPER adds the unrestricted one.
+#[test]
+fn super_added_to_the_runners_sets_passes_under_the_two_permission_assumptions() {
+    let rt = run();
+    let r = result(&rt, "AddSuperToTheRunnersSets");
+    assert_eq!(r.outcome, Outcome::Pass);
+    let mut got = r.assumptions.clone();
+    got.sort();
+    let mut want = vec![
+        Assumption::RunnerPermissionSetsGrantAll,
+        Assumption::PermissionSetsGrantingEverythingUnrestricted,
+    ];
+    want.sort();
+    assert_eq!(got, want);
 }

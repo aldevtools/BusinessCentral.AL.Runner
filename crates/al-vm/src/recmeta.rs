@@ -398,6 +398,7 @@ impl Session {
         args: &mut [Value],
     ) -> Result<Value, Signal> {
         self.connection_check(rec)?;
+        self.crm_method_check(t, rec, method, args)?;
         match method {
             RecordOp::AddLink
             | RecordOp::DeleteLink
