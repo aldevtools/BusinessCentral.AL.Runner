@@ -1831,7 +1831,8 @@ impl Session {
             Some(o)
                 if o.own_write
                     && (o.commits + 2 == self.commits
-                        || (o.commits + 3 == self.commits && self.row_written_before_last_closed_tx(t, &company, pk)))
+                        || (o.commits + 3 == self.commits
+                            && self.row_written_before_last_closed_tx(t, &company, pk)))
                     && touched
                     && committed.is_some_and(|c| c > self.tx.prior_committed_row_version)
                     && self.stale_row_modified_only(t, &company, pk) =>

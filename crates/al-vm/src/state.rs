@@ -27,10 +27,10 @@ pub(crate) struct TxState {
     pub(crate) prior_committed_row_version: i64,
     /// The rows (table object, company, primary key) the Record writes of the transaction the last Commit closed wrote, or
     /// `None` when not every write of it was noted.
-    pub(crate) closed_tx_rows: Option<Vec<(u32, Option<String>, Vec<Value>)>>,
+    pub(crate) closed_tx_rows: Option<Vec<RowKey>>,
     /// `closed_tx_rows` before the last Commit: the rows written by the transaction the Commit before it closed
     /// (`Session::stale_verdict`, al-runner issue 6522, three Commits).
-    pub(crate) closed_tx_rows_before: Option<Vec<(u32, Option<String>, Vec<Value>)>>,
+    pub(crate) closed_tx_rows_before: Option<Vec<RowKey>>,
     /// The rows (table object, company, primary key) a Record Modify wrote, or a Get read while its table was locked by
     /// `LockTable`, since the last Commit or rollback: a stale buffer from the Insert of the transaction before may then be
     /// written (record/TestRecordStaleBufferWrite.al:495-584, `Session::stale_verdict`).
@@ -123,6 +123,9 @@ pub(crate) struct RowVersionTx {
     pub(crate) last: i64,
     pub(crate) unpinned: Option<&'static str>,
 }
+
+/// A row by table object, company and primary key.
+pub(crate) type RowKey = (u32, Option<String>, Vec<Value>);
 
 /// One Record write to the database store: the store's change counter before and after it.
 #[derive(Clone, Debug)]
