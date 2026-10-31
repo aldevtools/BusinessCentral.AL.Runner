@@ -15,6 +15,7 @@ mod apps;
 pub(crate) const MEDIA_RESOURCES: u32 = 2_000_000_182;
 /// Table "Tenant Report Layout", whose rows are the user-defined rows of Report Layout List.
 const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
+const TENANT_REPORT_LAYOUT_OVERRIDE: u32 = 2_000_000_248;
 pub(crate) mod coverage;
 mod date;
 mod fields;
@@ -474,25 +475,37 @@ impl Providers {
     /// Report Layout List: the layouts the program declares, and a user-defined row per stored Tenant Report Layout row
     /// ([`reports::user_layout_rows`]).
     fn report_layout_listing(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
-        let stored = self
-            .tenant_report_layout_def()
-            .map(|tenant| (store.stored_rows(cx, &tenant), tenant))
-            .filter(|(rows, _)| !rows.is_empty());
-        let Some((rows, tenant)) = stored else {
-            return self.listed(t, Virtual::ReportLayoutList);
+        let rows_of = |id: u32| {
+            self.compiled_platform_def(id)
+                .map(|def| (store.stored_rows(cx, &def), def))
+                .filter(|(rows, _)| !rows.is_empty())
         };
+        let stored = rows_of(TENANT_REPORT_LAYOUT);
+        let overrides = rows_of(TENANT_REPORT_LAYOUT_OVERRIDE);
+        if stored.is_none() && overrides.is_none() {
+            return self.listed(t, Virtual::ReportLayoutList);
+        }
         let mut entries = reports::layout_list_rows(self, t);
-        entries.extend(reports::user_layout_rows(self, t, &tenant, &rows));
+        if let Some((rows, over)) = &overrides {
+            reports::apply_layout_overrides(t, over, rows, &cx.company, &mut entries);
+        }
+        if let Some((rows, tenant)) = &stored {
+            entries.extend(reports::user_layout_rows(self, t, tenant, rows));
+        }
         mark_unpinned(t, &mut entries);
         Ok(Listed::Own(Rc::new(mat::Mat::new(t, entries))))
     }
 
-    /// The schema of the stored Tenant Report Layout table, if the program compiled it.
-    fn tenant_report_layout_def(&self) -> Option<Arc<TableDef>> {
+    /// The schema of the stored platform table `id` (Tenant Report Layout, Tenant Report Layout Override), if the program
+    /// compiled it.
+    fn compiled_platform_def(&self, id: u32) -> Option<Arc<TableDef>> {
         let engine = self.engine();
-        let oi = engine.program.objects.heads().iter().position(|o| {
-            o.is_kind(al_ir::ObjKind::Table) && o.id == Some(TENANT_REPORT_LAYOUT) && o.table.is_some()
-        })?;
+        let oi = engine
+            .program
+            .objects
+            .heads()
+            .iter()
+            .position(|o| o.is_kind(al_ir::ObjKind::Table) && o.id == Some(id) && o.table.is_some())?;
         engine.tables[oi].clone()
     }
 

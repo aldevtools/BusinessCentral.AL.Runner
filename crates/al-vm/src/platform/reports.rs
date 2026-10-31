@@ -96,6 +96,43 @@ pub(super) fn layout_list_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     out
 }
 
+/// Tenant Report Layout Override (BC 29) on the layouts declared in AL: a row joins a layout by Report ID, Name and Runtime
+/// Package ID; the row of the current company wins over the global one ('' company), and Description (10), Layout Status (18)
+/// and IsObsolete (16) take the row's value where its Override flag is set, else keep the layout's own (platform/
+/// lt-platform-tables/PtCloudTables.al:901, Y40_TenantReportLayoutOverride_SeenByReportLayoutList, corpus master ac3499d6).
+pub(super) fn apply_layout_overrides(t: &TableDef, over: &TableDef, rows: &[al_data::Row], company: &str, entries: &mut [Entry]) {
+    let at = |id: u32| over.fields.iter().position(|f| f.id == id);
+    let same = |a: &Value, b: &Value| al_builtins::ops::compare(a, b).is_ok_and(|o| o.is_eq());
+    let text = |v: &Value| match v {
+        Value::Text(s) => s.to_string(),
+        _ => String::new(),
+    };
+    let (Some(report), Some(name), Some(package), Some(company_col)) = (at(1), at(2), at(3), at(4)) else {
+        return;
+    };
+    for e in entries.iter_mut().filter(|e| e.poison.is_none()) {
+        let joins = |r: &&al_data::Row| {
+            same(&r[report], &e.row[pos(t, 1)]) && same(&r[name], &e.row[pos(t, 2)]) && same(&r[package], &e.row[pos(t, 5)])
+        };
+        let mut joined = rows.iter().filter(joins);
+        let Some(row) = joined.clone().find(|r| text(&r[company_col]) == company).or_else(|| joined.find(|r| text(&r[company_col]).is_empty()))
+        else {
+            continue;
+        };
+        // (value field, flag field) of the override, the Report Layout List field it replaces.
+        for (value, flag, target) in [(9, 10, 10), (7, 8, 18), (5, 6, 16)] {
+            let (Some(v), Some(f)) = (at(value), at(flag)) else { continue };
+            if !matches!(row[f], Value::Boolean(true)) || !t.fields.iter().any(|x| x.id == target) {
+                continue;
+            }
+            e.row[pos(t, target)] = match (&row[v], &t.fields[pos(t, target)].ty) {
+                (Value::Enum(_, ordinal), RtType::Enum(e)) => Value::Enum(*e, *ordinal),
+                (other, _) => other.clone(),
+            };
+        }
+    }
+}
+
 /// "Report Name" (12) of a layout of report `o`: its name when it declares no Caption and no CaptionML, its Caption when it
 /// declares one; a CaptionML is not pinned.
 fn report_name(t: &TableDef, o: &Object, what: &str) -> Value {
