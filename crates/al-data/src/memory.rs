@@ -751,6 +751,12 @@ impl MemStore {
         s
     }
 
+    /// How many committed rows the store holds, over every table and company (a count for the work ratchet of the
+    /// corpus run; it marks nothing as read).
+    pub fn committed_row_count(&self) -> usize {
+        self.committed.iter().map(|(_, t)| t.len()).sum()
+    }
+
     pub fn nonempty_tables(&self) -> std::collections::BTreeSet<u32> {
         self.seen_all();
         self.committed

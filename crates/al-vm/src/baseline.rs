@@ -242,6 +242,11 @@ impl Baseline {
         self
     }
 
+    /// How many rows the baseline holds, over every table and company.
+    pub fn rows(&self) -> usize {
+        self.store.committed_row_count()
+    }
+
     /// The number that names what the baseline holds ([`Session::baseline_origin`]).
     pub fn origin(&self) -> u64 {
         self.origin
