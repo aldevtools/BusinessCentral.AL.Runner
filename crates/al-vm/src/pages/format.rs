@@ -1292,6 +1292,19 @@ impl Session {
                 if !pinned_type || filters.len() > 1 {
                     return refused();
                 }
+                // A caption field with a TableRelation shows more than its value on BC (Base Application's Apply Customer
+                // Entries, DataCaptionFields = "Customer No.": the customer's name too, Tests-General Journal
+                // ApplyCustomerEntriesMPH); the corpus pins fields without one only.
+                let related = engine.program.objects[table.object as usize]
+                    .table
+                    .as_ref()
+                    .and_then(|t| t.fields.get(i))
+                    .is_none_or(|f| f.relation);
+                if related {
+                    return unsupported(
+                        "the caption of a list whose record has a filter on a data caption field with a TableRelation (not pinned)",
+                    );
+                }
                 let one = match &filters[0] {
                     al_builtins::filter::FilterExpr::Eq(v) => Some(v.clone()),
                     al_builtins::filter::FilterExpr::Range(Some(a), Some(b))

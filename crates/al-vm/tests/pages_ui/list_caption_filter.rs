@@ -17,8 +17,14 @@ table 61950 "Probe Bin"
         field(3; "Area"; Code[10]) { }
         field(4; Dt; Date) { }
         field(5; Kind; Option) { OptionMembers = A,B; }
+        field(6; "Zone Rel"; Code[20]) { TableRelation = "Probe Bin"; }
     }
     keys { key(PK; "Code") { } }
+}
+page 61956 "Probe Bin Related"
+{
+    Caption = 'Probe Bin Related'; DataCaptionFields = "Zone Rel"; PageType = List; SourceTable = "Probe Bin"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { field("Code"; Rec."Code") { } } } }
 }
 page 61951 "Probe Bin List"
 {
@@ -132,6 +138,18 @@ codeunit 61952 C
         exit(L.Caption());
     end;
 
+    procedure RelatedField(): Text
+    var
+        Bin: Record "Probe Bin";
+        L: TestPage "Probe Bin Related";
+    begin
+        Seed(Bin);
+        Bin.SetRange("Zone Rel", 'B1');
+        L.Trap();
+        Page.Run(Page::"Probe Bin Related", Bin);
+        exit(L.Caption());
+    end;
+
     procedure NoFilter(): Text
     var
         Bin: Record "Probe Bin";
@@ -176,6 +194,16 @@ fn an_option_caption_field_shows_the_member_name() {
 fn a_date_caption_field_with_one_date_filtered_is_refused() {
     match al_testkit::run_in(SRC, "C", "DateFilter") {
         Err(Signal::Unsupported(why)) => assert!(why.contains("data caption field"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+/// Base Application's Apply Customer Entries (DataCaptionFields = "Customer No.", a field with a TableRelation) shows the related
+/// customer's name too (Tests-General Journal ApplyCustomerEntriesMPH); the corpus pins fields without a TableRelation only.
+#[test]
+fn a_caption_field_with_a_table_relation_is_refused() {
+    match al_testkit::run_in(SRC, "C", "RelatedField") {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("TableRelation"), "{why}"),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }
