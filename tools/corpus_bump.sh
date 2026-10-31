@@ -21,7 +21,7 @@
 #
 # --dry-run checks the run and prints what it would do, changing nothing.
 # For tests: CORPUS_BUMP_GH (the gh to call), CORPUS_BUMP_CORPUS (the corpus repository),
-# CORPUS_BUMP_NO_FETCH=1 (do not fetch the corpus branch).
+# CORPUS_BUMP_NO_FETCH=1 (do not fetch the corpus branch), CORPUS_BUMP_BASELINES=0 (do not write the baselines).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(dirname "$here")"
@@ -219,9 +219,13 @@ DOTNET_IDS="27=${dotnet_id[27.5]} 28=${dotnet_id[28.5]} 29=${dotnet_id[29.0]}" \
 # 6. Baselines (al-test-cli refuses while a baseline case regresses).
 cd "$root"
 cargo build --release -q
-for major in 27 28 29; do
-  ./target/release/al-test-cli --root . --update-baseline --bc-version "$major" | grep -E "^BC [0-9.]+: " || die "baseline for BC $major"
-done
+# CORPUS_BUMP_BASELINES=0 leaves the baselines alone: the bump bot (tools/corpus_bump_bot.sh) writes none, the
+# regen bot adds the new passes after the merge.
+if [ "${CORPUS_BUMP_BASELINES:-1}" != 0 ]; then
+  for major in 27 28 29; do
+    ./target/release/al-test-cli --root . --update-baseline --bc-version "$major" | grep -E "^BC [0-9.]+: " || die "baseline for BC $major"
+  done
+fi
 
 # 6b. The assumptions that waited for a corpus pin now in the corpus (Info::awaiting in
 # crates/al-builtins/src/assumptions.rs): each must go (the pin agrees) or its code be fixed (the pin disagrees).
