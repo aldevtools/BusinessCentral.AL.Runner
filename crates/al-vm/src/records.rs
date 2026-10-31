@@ -1078,7 +1078,7 @@ impl Session {
     fn delete_row(&mut self, t: &TableDef, rec: &Rec, run: bool) -> Result<Value, Signal> {
         let cx = self.cx_for(rec, t)?;
         // A Delete through a stale buffer follows the rule of a Modify (record/TestRecordStaleBufferWrite.al:662, :676); with
-        // triggers or events, where the check falls among them is not pinned.
+        // triggers or events, where the check falls among them is pinned for the shapes below only.
         if !rec.borrow().temporary && t.fields.iter().any(|f| f.id == 2_000_000_005) {
             let pk = Self::sql_key(rec, t, &rec.borrow().fields.clone());
             let stored = self
@@ -1106,22 +1106,45 @@ impl Session {
                     let pinned = verdict == StaleVerdict::Written
                         && !ext
                         && self.stale_after_other_deletes_only(t, &company, &pk);
-                    // A Delete(false) that a Modify would refuse, on a table whose only delete hooks are OnBeforeDeleteEvent
-                    // subscribers: the subscribers run, then DB:RecordChanged, the row stays (al-runner issue 6546, the
-                    // reporter's repro passed on real BC; assumption `stale-delete-event-before-record-changed` until corpus
-                    // writer Y32's file is on master). Delete(true), OnAfterDeleteEvent and the global trigger stay refused.
-                    if verdict == StaleVerdict::Refused
-                        && !run
-                        && self.listened(t, "onbeforedeleteevent", None)?
-                        && !self.listened(t, "onafterdeleteevent", None)?
-                        && !self.global_enabled(t, GlobalOp::Delete)?
-                    {
+                    // A stale buffer from the variable's own Insert two or three Commits back, deleted in a transaction that
+                    // wrote nothing and took no lock: the OnBeforeDeleteEvent subscribers run, then (Delete(true)) the table's
+                    // OnDelete trigger, then DB:RecordChanged; OnAfterDeleteEvent never runs and the row stays. When another
+                    // variable Modified that row in the new transaction (the Modify rule writes the buffer), the row is deleted
+                    // and the trigger and the events run as for a fresh buffer (record/lt-sb-stale-own-modify/
+                    // Y32StaleDeleteTests.al Y32_2C_*, Y32_3C_* on corpus branch al-runtime-rs-staging-y32, al-runner issue
+                    // 6546; assumption `stale-delete-event-before-record-changed` until the file is on master). A table
+                    // extension's delete triggers and the OnDatabaseDelete global trigger are not pinned.
+                    let own_insert = {
+                        let r = rec.borrow();
+                        let mine = if let Value::BigInteger(n) = &r.fields[i] { *n } else { 0 };
+                        r.row_origin.filter(|o| o.version == mine).is_some_and(|o| {
+                            o.own_write && (o.commits + 2 == self.commits || o.commits + 3 == self.commits)
+                        })
+                    };
+                    let y32 = own_insert && !ext && !self.global_enabled(t, GlobalOp::Delete)?;
+                    let untouched_tx = self.tx.writes.is_empty()
+                        && !self.tx.rolled_back
+                        && !self.tx.lock_tx
+                        && self.tx.lock_unpinned.is_none();
+                    if y32 && verdict == StaleVerdict::Refused && untouched_tx {
                         al_builtins::assumptions::assume(
                             al_builtins::assumptions::Assumption::StaleDeleteEventBeforeRecordChanged,
                         );
                         self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
+                        if run && let Some(tr) = self.table_trigger(t, "OnDelete") {
+                            let x = Self::xrec_handle(rec, rec.borrow().fields.clone());
+                            self.run_trigger(t.object as usize, tr, rec, Some(&x))?;
+                        }
                         return Err(self.record_changed(t, rec)?);
                     }
+                    let row_written =
+                        y32 && verdict == StaleVerdict::Written && self.stale_row_modified_only(t, &company, &pk);
+                    if row_written {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::StaleDeleteEventBeforeRecordChanged,
+                        );
+                    }
+                    let pinned = pinned || row_written;
                     if (hooks || ext) && !pinned {
                         return unsupported(format!(
                             "a Delete through a stale {} buffer, with triggers or events: not pinned",

@@ -45,6 +45,12 @@ codeunit 50381 "Delete Log"
     begin
         Add('OnBeforeDeleteEvent;');
     end;
+
+    [EventSubscriber(ObjectType::Table, Database::"Run Entry", 'OnAfterDeleteEvent', '', false, false)]
+    local procedure LogAfterDelete(var Rec: Record "Run Entry"; RunTrigger: Boolean)
+    begin
+        Add('OnAfterDeleteEvent;');
+    end;
 }
 codeunit 50391 C
 {
@@ -77,7 +83,19 @@ codeunit 50391 C
     begin
         MakeStaleBuffer(RunEntry);
         asserterror RunEntry.Delete(true);
-        exit(GetLastErrorCode() + ' / ' + DeleteLog.Take());
+        exit(GetLastErrorCode() + ' / ' + DeleteLog.Take() + ' / rows ' + Format(RunEntry.Count()));
+    end;
+
+    procedure OtherModifiesThenDelete(RunTrigger: Boolean): Text
+    var RunEntry: Record "Run Entry";
+        Other: Record "Run Entry";
+    begin
+        MakeStaleBuffer(RunEntry);
+        Other.Get(1);
+        Other."Ending Time" := 180000T;
+        Other.Modify();
+        RunEntry.Delete(RunTrigger);
+        exit(DeleteLog.Take() + ' / rows ' + Format(RunEntry.Count()));
     end;
 }
 "#;
@@ -97,11 +115,29 @@ fn the_before_delete_event_runs_and_then_the_delete_raises_record_changed() {
     assert!(take_hits().contains(&Assumption::StaleDeleteEventBeforeRecordChanged));
 }
 
-/// Delete(true): where the OnDelete trigger falls against the check is not pinned yet.
+/// Delete(true): OnBeforeDeleteEvent, then the OnDelete trigger, then DB:RecordChanged; OnAfterDeleteEvent never runs
+/// (Y32StaleDeleteTests.al Y32_2C_Nothing_Sub_DeleteTrue).
 #[test]
-fn a_stale_delete_with_the_delete_trigger_stays_refused() {
-    match run("StaleDeleteTrue") {
-        Err(Signal::Unsupported(m)) => assert!(m.contains("not pinned"), "{m}"),
-        other => panic!("{other:?}"),
+fn a_stale_delete_with_the_delete_trigger_runs_it_before_the_error() {
+    assert_eq!(
+        text(run("StaleDeleteTrue")),
+        "DB:RecordChanged / OnBeforeDeleteEvent;OnDelete; / rows 1"
+    );
+}
+
+/// Another variable modified the row in the new transaction: the Delete goes through with the order of a fresh Delete
+/// (Y32StaleDeleteTests.al Y32_2C_Other_*).
+#[test]
+fn a_stale_delete_after_another_variable_modified_the_row_deletes_it() {
+    for (run_trigger, log) in [
+        (false, "OnBeforeDeleteEvent;OnAfterDeleteEvent; / rows 0"),
+        (true, "OnBeforeDeleteEvent;OnDelete;OnAfterDeleteEvent; / rows 0"),
+    ] {
+        let mut b = al_testkit::Built::from_source(SRC);
+        let (oi, ri) = b.routine_in("C", "OtherModifiesThenDelete");
+        let v = b
+            .call(oi, ri, vec![al_builtins::value::Value::Boolean(run_trigger)])
+            .map(|(v, _)| v);
+        assert_eq!(text(v), log, "{run_trigger}");
     }
 }
