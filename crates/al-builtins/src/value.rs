@@ -1620,6 +1620,10 @@ pub struct HttpClientState {
     pub cert_validation_set: bool,
     /// The value of the last `UseServerCertificateValidation` since the client was made or cleared.
     pub cert_validation_last: Option<bool>,
+    /// A setting call left the defaults and rebuilt the client (`http::client_settings_change`).
+    pub rebuilt: bool,
+    /// The client was rebuilt and then cleared: whether a later setting call rebuilds it again is not pinned.
+    pub cleared_after_rebuild: bool,
 }
 
 impl Default for HttpClientState {
@@ -1630,6 +1634,8 @@ impl Default for HttpClientState {
             default_headers: new_header_list(HeaderKind::Default),
             cert_validation_set: false,
             cert_validation_last: None,
+            rebuilt: false,
+            cleared_after_rebuild: false,
         }
     }
 }

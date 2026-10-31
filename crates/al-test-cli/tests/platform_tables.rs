@@ -142,6 +142,18 @@ fn engine_over(
     roots: al_sema::check::Roots,
     bc: &str,
 ) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
+    engine_with_layouts(app_id, main, dep, roots, bc, Vec::new())
+}
+
+/// [`engine_over`] with layout files (path as `LayoutFile` writes it, content) in the app under test.
+fn engine_with_layouts(
+    app_id: &str,
+    main: &str,
+    dep: Option<&str>,
+    roots: al_sema::check::Roots,
+    bc: &str,
+    layouts: Vec<(String, Vec<u8>)>,
+) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
     use al_sema::workspace::{AppKind, AppSource};
     let app = |id: &str, name: &str, deps: &[&str], files: Vec<(String, String)>| AppSource {
         id: id.into(),
@@ -177,6 +189,9 @@ fn engine_over(
         .filter(|a| a.id == app_id && app_id.starts_with("ms-"))
     {
         a.publisher = "Microsoft".into();
+    }
+    if let Some(a) = program.apps.iter_mut().find(|a| a.id == app_id) {
+        a.layout_files = layouts;
     }
     let engine = Engine::with_target(
         std::sync::Arc::new(program),
@@ -3486,4 +3501,48 @@ codeunit 50000 "T" { Subtype = Test;
         Outcome::NotRun(why) => assert!(why.contains("Published Function"), "{why}"),
         o => panic!("FieldEventNumber: {o:?}"),
     }
+}
+
+// report/lt-sc-report-metadata-views/Y6TenantReportLayoutRows.al:16-89 (corpus master): Tenant Report Layout holds no row of a
+// report of the app under test on a fresh tenant; a row whose Layout is the report's own RDLC layout (Report.RdlcLayout) inserts
+// (true), keeps a blank Company Name and MIME Type and the null App ID, and a second Insert answers false. The rows a fresh
+// tenant holds for other reports, and an Insert of another layout, are not pinned.
+#[test]
+fn tenant_report_layout_takes_a_row_with_the_reports_own_rdlc_layout() {
+    let main = r#"
+report 50001 "R" { DefaultRenderingLayout = L; dataset { dataitem(I; Integer) { } } rendering { layout(L) { Type = RDLC; LayoutFile = './r.rdlc'; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Fresh() var L: Record "Tenant Report Layout"; begin L.SetRange("Report ID", 50001);
+    if L.Count() <> 0 then Error('count'); if L.FindFirst() then Error('first'); end;
+  [Test] procedure Insert() var L: Record "Tenant Report Layout"; InS: InStream; begin
+    L.Init(); L."Report ID" := 50001; L.Name := 'N'; L."Layout Format" := L."Layout Format"::RDLC;
+    Report.RdlcLayout(50001, InS); L.Layout.ImportStream(InS, 'x');
+    if not L.Layout.HasValue() then Error('value');
+    if not L.Insert() then Error('insert'); L.SetRange("Report ID", 50001); if L.Count() <> 1 then Error('rows');
+    L.FindFirst(); if (L."Company Name" <> '') or (L."MIME Type" <> '') or not IsNullGuid(L."App ID") then Error('stored');
+    if L.Insert() then Error('second'); L.DeleteAll(); if L.Count() <> 0 then Error('deleted'); end;
+  [Test] procedure Unfiltered() var L: Record "Tenant Report Layout"; begin if L.Count() = 0 then; end;
+  [Test] procedure OtherLayout() var L: Record "Tenant Report Layout"; begin
+    L.Init(); L."Report ID" := 50001; L.Name := 'N'; L."Layout Format" := L."Layout Format"::RDLC; L.Insert(); end;
+}"#;
+    let rdlc = b"<?xml version=\"1.0\"?><Report xmlns=\"http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition\"></Report>".to_vec();
+    let (engine, l) = engine_with_layouts(
+        "main",
+        main,
+        None,
+        al_sema::check::Roots::default(),
+        "27.5.0.0",
+        vec![("r.rdlc".into(), rdlc)],
+    );
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
+    let o = run_codeunit(&engine, &l, oi);
+    passes(&o, "Fresh");
+    passes(&o, "Insert");
+    assert!(not_run(&o, "Unfiltered").contains("Tenant Report Layout"));
+    assert!(not_run(&o, "OtherLayout").contains("Tenant Report Layout"));
 }
