@@ -47,6 +47,7 @@ mod event_recursion_code;
 mod event_var_nested;
 mod events;
 mod exec;
+mod ext_validate_across_apps;
 mod failed_insert_system_id;
 mod fieldref_number_into_text_variable;
 mod fieldref_option_ordinal_arg;

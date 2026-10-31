@@ -778,7 +778,10 @@ impl Session {
     /// (record/lt-modify-field-two/ModifyFieldTwoExtensions.al:148-169, P163_Validate_TwoExtensionsOnOneField_Order: 73328 "Ext A"
     /// then 73329 "Ext B"; events/W4ValidateOrderAndCurrFieldNo.al:331 `ext1.before;ext2.before;base.onvalidate;ext1.after;ext2.after;`,
     /// 68065 "Ext One" then 68066 "Ext Two"). In both pins the id order is also the order of the names; when the two orders differ,
-    /// or with more than two extensions or extensions of different apps, the order is not pinned and the Validate is refused.
+    /// or with more than two extensions in one app, the order is not pinned and the Validate is refused. Extensions of different
+    /// apps run app by app, an app before the apps that depend on it (al-runner issue 6486; corpus writer Y20,
+    /// tableextension/lt-bw-cross-app/Y20CrossAppValidateOrder.al:36, measured on BC; assumption until it is pinned). Two apps
+    /// of which neither depends on the other have no pinned order: refused.
     #[allow(clippy::type_complexity)]
     fn ext_validate_order(
         &self,
@@ -795,26 +798,47 @@ impl Session {
                 t.name, field.name
             ))
         };
-        let objects = &self.engine.program.objects;
+        let program = &self.engine.program;
+        let objects = &program.objects;
         let mut involved: Vec<usize> = before.iter().chain(&after).map(|&(o, _)| o).collect();
         involved.sort_unstable();
         involved.dedup();
-        if involved.len() > 2
-            || before.len() > 2
-            || after.len() > 2
-            || involved.iter().any(|&o| objects[o].app != objects[involved[0]].app)
-            || [&before, &after].iter().any(|l| l.len() == 2 && l[0].0 == l[1].0)
+        if [&before, &after]
+            .iter()
+            .any(|l| (1..l.len()).any(|i| l[..i].iter().any(|x| x.0 == l[i].0)))
         {
             return refuse();
         }
-        let mut by_id = involved.clone();
-        by_id.sort_by_key(|&o| objects[o].id);
-        let mut by_name = involved.clone();
-        by_name.sort_by_key(|&o| objects[o].name.to_ascii_lowercase());
-        if by_id != by_name || by_id.windows(2).any(|w| objects[w[0]].id == objects[w[1]].id) {
-            return refuse();
+        let mut apps: Vec<u32> = involved.iter().map(|&o| objects[o].app).collect();
+        apps.sort_unstable();
+        apps.dedup();
+        // Within one app: at most two extensions, whose id order is their name order.
+        for &app in &apps {
+            let mut by_id: Vec<usize> = involved.iter().copied().filter(|&o| objects[o].app == app).collect();
+            if by_id.len() > 2 {
+                return refuse();
+            }
+            by_id.sort_by_key(|&o| objects[o].id);
+            let mut by_name = by_id.clone();
+            by_name.sort_by_key(|&o| objects[o].name.to_ascii_lowercase());
+            if by_id != by_name || by_id.windows(2).any(|w| objects[w[0]].id == objects[w[1]].id) {
+                return refuse();
+            }
         }
-        let rank = |o: usize| by_id.iter().position(|&x| x == o);
+        // Across apps: every two of them must be ordered by a dependency.
+        if apps.len() > 1 {
+            let depends = |a: u32, b: u32| app_depends_on(&program.apps, a as usize, b as usize);
+            // An app that depends on more of the others comes later; the check below refuses any pair left unordered.
+            let all = apps.clone();
+            apps.sort_by_key(|&a| all.iter().filter(|&&b| depends(a, b)).count());
+            if apps.windows(2).any(|w| !depends(w[1], w[0])) {
+                return refuse();
+            }
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::ExtValidateAcrossAppsDependencyOrder,
+            );
+        }
+        let rank = |o: usize| (apps.iter().position(|&a| a == objects[o].app), objects[o].id);
         before.sort_by_key(|&(o, _)| rank(o));
         after.sort_by_key(|&(o, _)| rank(o));
         Ok((before, after))
@@ -5750,4 +5774,24 @@ pub(crate) fn state_with_fields(rec: &Rec, fields: Vec<Value>) -> RecordState {
     };
     st.fields = fields;
     st
+}
+
+/// Whether app `a` depends on app `b`, directly or through other apps (indexes into `apps`, dependencies by app id).
+fn app_depends_on(apps: &[al_ir::AppInfo], a: usize, b: usize) -> bool {
+    let mut seen = vec![false; apps.len()];
+    let mut stack = vec![a];
+    while let Some(x) = stack.pop() {
+        for dep in &apps[x].dependencies {
+            if let Some(i) = apps.iter().position(|p| p.id.eq_ignore_ascii_case(dep)) {
+                if i == b {
+                    return true;
+                }
+                if !seen[i] {
+                    seen[i] = true;
+                    stack.push(i);
+                }
+            }
+        }
+    }
+    false
 }
