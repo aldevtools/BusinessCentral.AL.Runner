@@ -844,6 +844,21 @@ impl MemStore {
         }
     }
 
+    /// Whether table `t` changed in the open transaction, in the company of `cx`.
+    pub fn table_changed(&self, cx: &AccessContext, t: &TableDef) -> bool {
+        let slot = slot(cx, t);
+        self.versions.get(&slot) != self.committed_versions.get(&slot)
+    }
+
+    /// Whether a table of `company` changed in the open transaction.
+    pub fn company_changed(&self, company: &str) -> bool {
+        self.versions
+            .iter()
+            .chain(self.committed_versions.iter())
+            .filter(|((c, _), _)| !c.is_empty() && &**c == company)
+            .any(|(slot, _)| self.versions.get(slot) != self.committed_versions.get(slot))
+    }
+
     /// A number that changes whenever the rows of table `t` change (a rollback included). Queries
     /// compare it to tell whether their result set is stale (corpus query/TestQueryReadAfterWrite.al).
     pub fn table_stamp(&self, cx: &AccessContext, t: &TableDef) -> u64 {
@@ -1956,6 +1971,34 @@ mod tests {
         );
         s.rollback();
         assert_eq!(s.count(&cx("C"), &t, &[]).unwrap(), 0);
+    }
+
+    #[test]
+    fn tells_whether_a_company_changed_in_the_open_transaction() {
+        let cx = |c: &str| AccessContext {
+            company: c.into(),
+            user: "U".into(),
+        };
+        let t = TableDef {
+            object: 7,
+            name: "T".into(),
+            fields: vec![FieldDef {
+                id: 1,
+                name: "K".into(),
+                ty: al_builtins::value::RtType::Integer,
+                stored: true,
+                code_storage: Default::default(),
+            }],
+            keys: vec![vec![0]],
+            per_company: true,
+        };
+        let mut s = MemStore::default();
+        s.insert(&cx("A"), &t, vec![Value::Integer(1)]).unwrap();
+        assert!(s.company_changed("A") && !s.company_changed("B"));
+        s.commit();
+        assert!(!s.company_changed("A"));
+        s.insert(&cx("B"), &t, vec![Value::Integer(1)]).unwrap();
+        assert!(!s.company_changed("A") && s.company_changed("B"));
     }
 
     #[test]

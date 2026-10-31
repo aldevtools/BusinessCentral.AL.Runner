@@ -237,15 +237,12 @@ impl Session {
         Ok(Value::Boolean(true))
     }
 
-    /// `Database.CopyCompany(SourceName, DestinationName)`. Only the two errors are pinned
-    /// (lt-o-small-builtins/OSmallBuiltins.al:92-112, the statement form at :129): a source that is not a company is
-    /// RecordNotFound on the Company table and makes no destination; a destination that is already a company is
-    /// RecordExists. A copy that would succeed is refused: what it copies, and whether it runs triggers or events, is
-    /// not pinned (BC's test runner cannot run one, :87-90).
+    /// `Database.CopyCompany(SourceName, DestinationName)`. The errors: a source that is not a company is RecordNotFound
+    /// on the Company table and makes no destination, also when the result is used; the source as its own destination is
+    /// RecordExists (lt-o-small-builtins/OSmallBuiltins.al:92-112). The destination names that fail, and the result `true`
+    /// of a copy: session/lt-y22-copy-company/Y22CopyCompany.al (corpus writer Y22, SaaS BC 29). Every other shape is
+    /// refused.
     pub(crate) fn copy_company(&mut self, args: &[Value]) -> Result<Value, Signal> {
-        if self.ret_used {
-            return unsupported("Database.CopyCompany with the result used (only the statement form is pinned)");
-        }
         let (Some(source), Some(destination)) = (
             args.first().and_then(al_builtins::native::text_of),
             args.get(1).and_then(al_builtins::native::text_of),
@@ -255,22 +252,78 @@ impl Session {
         let (source, destination) = (source.to_string(), destination.to_string());
         let source_is = self.company_spelled(&source)?;
         let destination_is = self.company_spelled(&destination)?;
-        match (source_is, destination_is) {
-            // Pinned with a destination that is not a company (OSmallBuiltins.al:98, :106-108).
-            (Some(false), Some(false)) => Err(crate::transactions::al_error_code(
-                &format!("The Company does not exist. Identification fields and values: Name='{source}'"),
-                "DB:RecordNotFound",
-            )),
-            // Pinned with the source as its own destination (OSmallBuiltins.al:102, :109-110).
-            (Some(true), Some(true)) => Err(crate::transactions::al_error_code(
-                &format!(
-                    "The record in table Company already exists. Identification fields and values: Name='{destination}'"
-                ),
-                "DB:RecordExists",
-            )),
-            (Some(true), Some(false)) => self.copy_company_rows(&source, &destination),
+        // Errors whose result form is not pinned.
+        // What only Y22's probe shows, not yet in the pinned corpus, marks the assumption.
+        let measured_by_y22 = |e: Signal| {
+            assume(Assumption::CopyCompanyInSaas);
+            e
+        };
+        let statement_only = |s: &Self, e: Signal| {
+            if s.ret_used {
+                unsupported("Database.CopyCompany with the result used, on an error only its statement form pins")
+            } else {
+                Err(e)
+            }
+        };
+        match source_is {
+            // OSmallBuiltins.al:98, :106-108; with the result used: Y22CopyCompany.al Y22_CopyCompany_ReturnValueMissingSource.
+            Some(false) if destination_is == Some(false) => {
+                let e = crate::transactions::al_error_code(
+                    &format!("The Company does not exist. Identification fields and values: Name='{source}'"),
+                    "DB:RecordNotFound",
+                );
+                Err(if self.ret_used { measured_by_y22(e) } else { e })
+            }
+            Some(true) if destination == source => {
+                // OSmallBuiltins.al:102, :109-110.
+                let e = crate::transactions::al_error_code(
+                    &format!(
+                        "The record in table Company already exists. Identification fields and values: Name='{destination}'"
+                    ),
+                    "DB:RecordExists",
+                );
+                statement_only(self, e)
+            }
+            // Y22CopyCompany.al Y22_CopyCompany_DestinationNames ('').
+            Some(true) if destination.is_empty() => {
+                let e = crate::transactions::al_error_code(
+                    "Company name cannot be empty or only consist of spaces.",
+                    "DB:Ok",
+                );
+                statement_only(self, measured_by_y22(e))
+            }
+            // Y22CopyCompany.al Y22_CopyCompany_DestinationNames (31 characters; the Company name holds 30).
+            Some(true) if destination.chars().count() > 30 && destination_is.is_none() => {
+                let e = crate::transactions::al_error_code(
+                    &format!(
+                        "The length of the string is {}, but it must be less than or equal to 30 characters. Value: {destination}",
+                        destination.chars().count()
+                    ),
+                    "StringLengthExceeded",
+                );
+                statement_only(self, measured_by_y22(e))
+            }
+            // Y22CopyCompany.al Y22_CopyCompany_DestinationNames (the source's name in lower case).
+            Some(true) if destination != source && destination.to_lowercase() == source.to_lowercase() => {
+                let e = crate::transactions::al_error_code(
+                    &format!(
+                        "Cannot rename or create a new company with the name ({destination}) because a company with the same name already exists"
+                    ),
+                    "DB:Ok",
+                );
+                statement_only(self, measured_by_y22(e))
+            }
+            Some(true) if destination_is == Some(false) && !destination.trim().is_empty() => {
+                self.copy_company_rows(&source, &destination)?;
+                // Y22CopyCompany.al Y22_CopyCompany_ReturnValue: true.
+                Ok(if self.ret_used {
+                    Value::Boolean(true)
+                } else {
+                    Value::Null
+                })
+            }
             _ => unsupported(
-                "Database.CopyCompany with a missing source and an existing destination, a name in another case than the Company table's, or a name longer than the Company table's key (not pinned)",
+                "Database.CopyCompany with these names (not pinned: a missing source with an existing destination, another existing company as the destination, a name in another case, a name of spaces)",
             ),
         }
     }
@@ -282,16 +335,19 @@ impl Session {
     /// and no database trigger runs; the Company's `OnAfterInsertEvent` runs once for the new row.
     fn copy_company_rows(&mut self, source: &str, destination: &str) -> Result<Value, Signal> {
         assume(Assumption::CopyCompanyInSaas);
-        // On BC the copy runs beside the session's transaction: copying the session company inside a test meets the test
-        // runner's own row (lt-o-small-builtins/OSmallBuiltins.al:87-90).
+        // Copying the session company inside a test meets the test runner's own row on BC
+        // (lt-o-small-builtins/OSmallBuiltins.al:87-90).
         if self.in_test_codeunit && source == &*self.cx.company {
             return unsupported(
                 "Database.CopyCompany of the session company while a test runs: on BC it meets the test runner's own row in Test Method Line (lt-o-small-builtins/OSmallBuiltins.al:87-90; the error is not pinned)",
             );
         }
-        if self.store.has_uncommitted() {
+        // The copy is part of the session's transaction (Y22CopyCompany.al Y22_CopyCompany_InWriteTransaction: a rollback
+        // removes it). That probe wrote only a shared table before the copy; whether the copy takes the source's own
+        // uncommitted rows, or a Company row written in the transaction, is not pinned.
+        if self.store.company_changed(source) {
             return unsupported(
-                "Database.CopyCompany inside a write transaction (not pinned: Y22CopyCompany.al commits before every copy)",
+                "Database.CopyCompany of a company with rows written in the open transaction (not pinned)",
             );
         }
         if !self.companies.is_empty() && source != &*self.cx.company {
@@ -302,6 +358,11 @@ impl Session {
         let Some(t) = self.company_table() else {
             return unsupported("Database.CopyCompany without the Company table");
         };
+        if self.store.table_changed(&self.cx, &t) {
+            return unsupported(
+                "Database.CopyCompany after a write to the Company table in the open transaction (not pinned)",
+            );
+        }
         // The Company's OnBeforeInsertEvent and its database trigger were not observed (Y22CopyCompany.al binds neither).
         if self.has_listeners(t.object as usize, "onbeforeinsertevent", None)? {
             return unsupported(

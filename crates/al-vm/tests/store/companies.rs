@@ -587,12 +587,26 @@ fn copy_company_to_an_existing_destination_fails() {
 }
 
 #[test]
-fn copy_company_with_the_result_used_is_refused() {
-    // Only the statement form is pinned (OSmallBuiltins.al:129).
+fn copy_company_with_the_result_used_still_raises_for_a_missing_source() {
+    // Y22CopyCompany.al Y22_CopyCompany_ReturnValueMissingSource (SaaS BC 29): `Ok :=` does not catch the error.
+    let out = text(
+        "ok: Boolean; Co: Record Company;",
+        "asserterror ok := CopyCompany('LT O No Such Company', 'X');
+         exit(GetLastErrorText() + '|' + GetLastErrorCode() + '|' + Format(Co.Get('X')));",
+    );
+    assert_eq!(
+        out,
+        "The Company does not exist. Identification fields and values: Name='LT O No Such Company'|DB:RecordNotFound|No"
+    );
+}
+
+#[test]
+fn copy_company_with_the_result_used_and_an_existing_destination_is_refused() {
+    // Only the statement form of this error is pinned (OSmallBuiltins.al:102, :129).
     let r = run_with(
         TABLES,
         "ok: Boolean;",
-        "ok := CopyCompany('LT O No Such Company', 'X');",
+        "ok := CopyCompany(CompanyName(), CompanyName());",
     );
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
@@ -718,8 +732,36 @@ codeunit 50932 "CP Run Trigger"
 }
 
 #[test]
-fn copy_company_with_uncommitted_writes_is_refused() {
-    // Y22CopyCompany.al commits before every copy; a copy inside a write transaction is not pinned.
+fn copy_company_returns_true_when_the_result_is_used() {
+    // Y22CopyCompany.al Y22_CopyCompany_ReturnValue: Yes, the company is made, no last error.
+    let out = copy_text(
+        "",
+        "ok: Boolean;",
+        "ClearLastError(); ok := CopyCompany('Source', 'Dst');
+         exit(Format(ok) + '|' + Format(Dst.Get('Dst')) + '|' + GetLastErrorText());",
+    );
+    assert_eq!(out, "Yes|Yes|");
+}
+
+#[test]
+fn copy_company_inside_a_write_transaction_is_rolled_back_with_it() {
+    // Y22CopyCompany.al Y22_CopyCompany_InWriteTransaction: the copy is part of the session's transaction.
+    let out = copy_text(
+        "",
+        "",
+        "L.Id := 7; L.Insert();
+         CopyCompany('Source', 'Dst');
+         s := Format(Dst.Get('Dst')) + '|' + Format(L.Get(7)) + '|';
+         asserterror Error('roll back');
+         exit(s + Format(Dst.Get('Dst')) + '|' + Format(L.Get(7)));",
+    );
+    assert_eq!(out, "Yes|Yes|No|No");
+}
+
+#[test]
+fn copy_company_of_a_source_with_uncommitted_rows_is_refused() {
+    // Y22CopyCompany.al writes only a shared table before the copy in the transaction: whether the copy takes the
+    // source's own uncommitted rows is not pinned.
     let tables = format!("{TABLES}{COPY_OBJECTS}");
     let r = run_with(
         &tables,
@@ -727,6 +769,27 @@ fn copy_company_with_uncommitted_writes_is_refused() {
         &format!("{COPY_SETUP} Row.No := 9; Row.Insert(); CopyCompany('Source', 'Dst');"),
     );
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+}
+
+#[test]
+fn copy_company_destination_name_errors() {
+    // Y22CopyCompany.al Y22_CopyCompany_DestinationNames: too long, empty, the source's name in another case.
+    let out = copy_text(
+        "",
+        "",
+        "asserterror CopyCompany('Source', 'LT Y22 C Destination Name 31ChX');
+         s := GetLastErrorText() + '|' + GetLastErrorCode() + '|' + Format(Dst.Get('LT Y22 C Destination Name 31Ch')) + '#';
+         asserterror CopyCompany('Source', '');
+         s += GetLastErrorText() + '|' + GetLastErrorCode() + '#';
+         asserterror CopyCompany('Source', 'source');
+         exit(s + GetLastErrorText() + '|' + GetLastErrorCode());",
+    );
+    assert_eq!(
+        out,
+        "The length of the string is 31, but it must be less than or equal to 30 characters. Value: LT Y22 C Destination Name 31ChX|StringLengthExceeded|No#\
+         Company name cannot be empty or only consist of spaces.|DB:Ok#\
+         Cannot rename or create a new company with the name (source) because a company with the same name already exists|DB:Ok"
+    );
 }
 
 const BASELINE_CODE: &str = r#"
