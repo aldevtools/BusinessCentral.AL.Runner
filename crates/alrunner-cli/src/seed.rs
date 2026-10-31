@@ -145,7 +145,7 @@ pub fn junit_license(xml: &str, license: &al_testrun::license::LicenseUse) -> St
 }
 
 /// `prop` (one or more `<property>` elements) added to the properties of every `testsuite` of a JUnit file.
-fn with_properties(xml: &str, prop: &str) -> String {
+pub(crate) fn with_properties(xml: &str, prop: &str) -> String {
     let mut out = String::with_capacity(xml.len() + 64);
     let mut rest = xml;
     while let Some(at) = rest.find("<testsuite ") {
