@@ -9,19 +9,21 @@ impl Session {
     /// TestPageReadOnlySetValue.al:1-30, TestPageBooleanSpelling_Tests.al).
     pub(super) fn control_set_value(&mut self, st: &St, idx: usize, args: &mut [Value]) -> Result<Value, Signal> {
         // A filter field (a page variable) whose OnValidate refills a temporary Worksheet: the client reads the new rows
-        // (`reread_after_refill_by_validate`, RmTempRefill.al:215-:320).
+        // (`reread_after_refill_by_validate`, RmTempRefill.al:215-:320), on a collapsed tree too (al-runner issue 6550).
         let engine = self.engine();
         let refill_held = (matches!(
             page_of(&engine, st).controls[idx].binding,
             ir::Binding::Var(_) | ir::Binding::BaseVar(_)
         ) && page_of(&engine, st).controls[idx].trigger("onvalidate").is_some()
-            && self.temp_refill_shape(st))
+            && self.temp_refill_shape_or_tree(st))
         .then(|| self.row_key(&self.page_rec(st)))
         .transpose()?;
+        // The rows of a tree the client had expanded: putting the cut back after OnValidate may expand the parent of Rec's row.
+        let expanded = st.borrow().expanded.clone();
         let r = self.control_set_value_now(st, idx, args);
         if let (Ok(_), Some(held)) = (&r, refill_held) {
-            if !st.borrow().refresh && self.temp_refill_shape(st) && self.held_rows_changed(st)? {
-                self.reread_after_refill_by_validate(st, &held)?;
+            if !st.borrow().refresh && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
+                self.reread_after_refill_by_validate(st, &held, expanded)?;
             }
         }
         // The control now holds an explicit value (see `PageState::set_controls`).

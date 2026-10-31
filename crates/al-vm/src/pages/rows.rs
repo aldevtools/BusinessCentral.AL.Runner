@@ -737,6 +737,12 @@ impl Session {
         let Some(level) = self.tree_level_field(st)? else {
             return unsupported("a tree whose IndentationColumn is not an Integer field (not pinned)");
         };
+        self.split_tree_window(st, level);
+        Ok(true)
+    }
+
+    /// Splits the rows the client read into the ones the tree's cut shows (`window`) and the ones it hides (`tree_hidden`).
+    pub(super) fn split_tree_window(&mut self, st: &St, level: usize) {
         // The rows the cut shows (`apply_tree_cut`), else the level-0 ones.
         let mut s = st.borrow_mut();
         let tree_shown = std::mem::take(&mut s.tree_shown);
@@ -750,7 +756,6 @@ impl Session {
         s.tree_shown = tree_shown;
         s.window = shown;
         s.tree_hidden = hidden;
-        Ok(true)
     }
 
     fn populate_window_in_view(&mut self, st: &St) -> Result<(), Signal> {
