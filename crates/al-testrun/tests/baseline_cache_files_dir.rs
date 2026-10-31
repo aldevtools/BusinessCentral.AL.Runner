@@ -44,6 +44,7 @@ fn run(cache: &Path) -> String {
         include_source: false,
         target: String::new(),
         logo: None,
+        description: None,
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         translations: false,

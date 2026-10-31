@@ -142,7 +142,7 @@ fn engine_over(
     roots: al_sema::check::Roots,
     bc: &str,
 ) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
-    engine_with_layouts(app_id, main, dep, roots, bc, Vec::new())
+    engine_with_layouts(app_id, main, dep, roots, bc, Vec::new(), None)
 }
 
 /// [`engine_over`] with layout files (path as `LayoutFile` writes it, content) in the app under test.
@@ -153,6 +153,7 @@ fn engine_with_layouts(
     roots: al_sema::check::Roots,
     bc: &str,
     layouts: Vec<(String, Vec<u8>)>,
+    description: Option<&str>,
 ) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
     use al_sema::workspace::{AppKind, AppSource};
     let app = |id: &str, name: &str, deps: &[&str], files: Vec<(String, String)>| AppSource {
@@ -192,6 +193,7 @@ fn engine_with_layouts(
     }
     if let Some(a) = program.apps.iter_mut().find(|a| a.id == app_id) {
         a.layout_files = layouts;
+        a.description = description.map(String::from);
     }
     let engine = Engine::with_target(
         std::sync::Arc::new(program),
@@ -199,6 +201,30 @@ fn engine_with_layouts(
         Some(al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap())),
     );
     (engine, l)
+}
+
+/// [`engine_over`] (BC 27.5, no dependency) with the manifest description of the app under test.
+fn engine_described(app_id: &str, main: &str, description: &str) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
+    engine_with_layouts(
+        app_id,
+        main,
+        None,
+        al_sema::check::Roots::default(),
+        "27.5.0.0",
+        Vec::new(),
+        Some(description),
+    )
+}
+
+/// The outcomes of the test codeunit `T` of `l`.
+fn run_all(engine: &std::sync::Arc<Engine>, l: &al_sema::lower::Lowered) -> Vec<(String, Outcome)> {
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
+    run_codeunit(engine, l, oi)
 }
 
 fn not_run(o: &[(String, Outcome)], test: &str) -> String {
@@ -1789,21 +1815,37 @@ fn code_coverage_tests_run_method_id_is_the_one_number_of_a_test_procedure() {
     passes(&o, "Ids");
 }
 
-/// Published Application.Description (15) holds the manifest's description (onprem
-/// session/PZPublishedApplicationColumns.al:55, :59). The runtime does not keep the description of an app yet, so a read
-/// of the column is refused rather than answered blank; the other columns read as before.
+/// Published Application.Description (15) holds the manifest's description as UTF-8 text (onprem
+/// session/PZPublishedApplicationColumns.al:55, :59). An app whose manifest description is not known (here the System app,
+/// whose source carries no manifest) is refused rather than answered blank, and so is a read of the row of the Application
+/// aggregate, which the program has no app for.
 #[test]
-fn published_application_description_is_refused_until_the_manifest_text_is_kept() {
-    let o = outcomes_app(
-        "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+fn published_application_description_is_the_manifest_text() {
+    let mut src = String::from(
         r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Name() var A: Record "Published Application"; begin A.SetRange(ID, 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'); A.FindFirst(); if A.Name <> 'main' then Error('%1', A.Name); end;
-  [Test] procedure Description() var A: Record "Published Application"; begin A.SetRange(ID, 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'); A.FindFirst(); A.CalcFields(Description); if A.Description.HasValue() then; end; }"#,
-        al_sema::check::Roots::default(),
+  [Test] procedure Description() var A: Record "Published Application"; InS: InStream; T: Text; begin A.SetRange(ID, 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'); A.FindFirst();
+    A.CalcFields(Description); if not A.Description.HasValue() then Error('no value');
+    A.Description.CreateInStream(InS, TextEncoding::UTF8); InS.ReadText(T, 40); if T <> 'Ground-up test suite covering the in-sco' then Error(T); end;
+  [Test] procedure NotKnown() var A: Record "Published Application"; begin A.SetRange(Name, 'System'); A.FindFirst(); A.CalcFields(Description); if A.Description.HasValue() then; end;
+  [Test] procedure ApplicationRow() var A: Record "Published Application"; begin A.SetRange(ID, 'c1335042-3002-4257-bf8a-75c898ccb1b8'); if A.FindFirst() then; end;
+  [Test] procedure OtherName() var A: Record "Published Application"; begin A.SetRange(Name, 'main'); if A.Count() <> 1 then Error('count'); end; }"#,
     );
+    src.push('\n');
+    let (engine, l) = engine_described(
+        "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        &src,
+        "Ground-up test suite covering the in-scope AL language",
+    );
+    let o = run_all(&engine, &l);
     passes(&o, "Name");
-    let why = not_run(&o, "Description");
+    passes(&o, "Description");
+    let why = not_run(&o, "NotKnown");
     assert!(why.contains("Description"), "{why}");
+    // The Application aggregate has no app in the program; a tier always publishes it (PZPublishedApplicationColumns.al:58).
+    let why = not_run(&o, "ApplicationRow");
+    assert!(why.contains("Application app"), "{why}");
+    passes(&o, "OtherName");
 }
 
 /// AllObjWithCaption: a table whose TableType the runtime has no pinned Object Subtype for (CDS) still lists its
@@ -3996,6 +4038,7 @@ codeunit 50000 "T" { Subtype = Test;
         al_sema::check::Roots::default(),
         "27.5.0.0",
         vec![("r.rdlc".into(), rdlc)],
+        None,
     );
     let oi = l
         .program
