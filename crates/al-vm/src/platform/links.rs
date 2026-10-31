@@ -64,6 +64,9 @@ impl Session {
             )?;
         }
         if !al_builtins::ops::truthy(&self.record_op(RecordOp::IsEmpty, &link, &mut [])?)? {
+            if rec.borrow().crm && !rec.borrow().temporary {
+                return unsupported("Rename of a row of a TableType = CRM table that has record links (not pinned)");
+            }
             self.record_op(
                 RecordOp::ModifyAll,
                 &link,
