@@ -1001,11 +1001,6 @@ impl Session {
                             "an error with an empty text out of a list control's OnValidate (what the test client does with it is not pinned)",
                         );
                     }
-                    if self.is_list(st) {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::EmptyErrorListControlValidate,
-                        );
-                    }
                     let mut e = e;
                     e.code = format!("NSValidateField:{}", e.code);
                     self.error_finals = None;

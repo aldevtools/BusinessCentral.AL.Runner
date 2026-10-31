@@ -125,23 +125,13 @@ registry! {
         id: "windows-language-primary-language-id",
         assumed: "Windows Language.\"Primary Language ID\" answers the numbers writer Y11 measured on real BC for 83 LCIDs (a culture family's LCID: 3079 -> 1031, 2052 -> 1028, 9242 -> 1050); any other row leaves the column unknown. The pinned corpus has only that two English cultures share it and German does not (record/TestWindowsLanguageTable.al:70-73).",
         tests: "No Microsoft test in the runner's suites: an outside report (two tests of a partner suite map the user's language to a culture through it; Subscription Billing's Field Translation passes it to Language.GetLanguageCode).",
-        probe: "Written: record/lt-y11-windows-language/Y11WindowsLanguagePrimary.al on corpus branch al-runtime-rs-staging-y11; retire when it is in the pinned corpus.",
-        awaiting: Awaiting {
-            issues: &[6410],
-            files: &["tests/al-language/record/lt-y11-windows-language/Y11WindowsLanguagePrimary.al"],
-            since: "2026-10-30",
-        },
+        probe: "Pinned: record/lt-y11-windows-language/Y11WindowsLanguagePrimary.al is in the corpus, but 6 of its 7 tests read rows the runtime does not serve (7177, 6 and others are not rows of AgWindowsLanguage.al): serve those rows, compare every value with the file, then retire.",
     },
     PageTriggerEventSubscriptionRow => {
         id: "page-trigger-event-subscription-row",
         assumed: "The Event Subscription row of a subscriber to a page trigger event other than a field's OnAfterValidateEvent and OnOpenPageEvent (OnBeforeValidateEvent of a field; OnClosePageEvent, OnAfterGetCurrRecordEvent, OnAfterGetRecordEvent, OnNewRecordEvent, OnInsertRecordEvent, OnModifyRecordEvent, OnDeleteRecordEvent, OnQueryClosePageEvent) has Event Type Trigger, Publisher Object Type Page and Active Yes; a page-level event's Published Function is its own name. OnAfterValidateEvent of a page field and OnOpenPageEvent are pinned (misc/lt-probes-needed-5/PnE11EventSub.al:99, :130). The number in a field event's Published Function stays refused when read.",
         tests: "No Microsoft test in the runner's suites: an outside report (a partner suite checks at the start of its tests that none of its subscribers is inactive; its range includes page trigger subscribers).",
-        probe: "Written: events/lt-event-subscription-trigger-rows/PageTriggerEventRows.al on corpus branch al-runtime-rs-staging-y11; retire when it is in the pinned corpus.",
-        awaiting: Awaiting {
-            issues: &[6411],
-            files: &["tests/al-language/events/lt-event-subscription-trigger-rows/PageTriggerEventRows.al"],
-            since: "2026-10-30",
-        },
+        probe: "Pinned: events/lt-event-subscription-trigger-rows/PageTriggerEventRows.al is in the corpus, but 4 of its tests stay refused (the number in a field event's Published Function; OnAfterGetRecordEvent from the test client): make them run, then retire.",
     },
     PageFieldFollowsSourceFieldEditableFalse => {
         id: "page-field-follows-source-field-editable-false",
@@ -647,82 +637,6 @@ registry! {
 
 
 
-    RowVersionNextAndFindForms => {
-        id: "row-version-next-and-find-forms",
-        assumed: "While the open transaction holds inserted rows not yet sent, Next and Find('='/'>'/'<'/'-'/'+') of another table send nothing, and Find('>') of the inserted table sends its rows, as a FindFirst does (LastUsedRowVersion stays, then grows). Pinned on corpus master by platform/lt-platform-members/PlTRowVersionValue.al NP4_RowVersions_InsertA_FindSetNextOfB, _InsertA_FindFormsOfB and _InsertA_FindSetNextAndFindGreaterOfA (corpus PR 871), which the pinned corpus does not hold yet.",
-        tests: "No Microsoft test: a partner app's API tests read MinimumActiveRowVersion after FindSet and Next of another table.",
-        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/platform/lt-platform-members/PlTRowVersionValue.al::NP4_RowVersions_InsertA_FindSetNextOfB",
-                "tests/al-language/platform/lt-platform-members/PlTRowVersionValue.al::NP4_RowVersions_InsertA_FindFormsOfB",
-                "tests/al-language/platform/lt-platform-members/PlTRowVersionValue.al::NP4_RowVersions_InsertA_FindSetNextAndFindGreaterOfA",
-            ],
-            since: "2026-10-30",
-        },
-    },
-    EvaluateDateBlankTabs => {
-        id: "evaluate-blank-tabs",
-        assumed: "Evaluate of a TAB, two TABs or one space into a Date (format 0) succeeds with the empty date; into a Boolean it fails with the error text showing the value as \"\". With format 9, white space alone (TAB, blanks, CR, LF, VT, FF, no-break space) reads as the empty date, TAB, CR, LF and no-break space around a date are dropped, and a TAB inside one rejects it with the Date format error. Pinned on corpus master by misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date and NP4_Evaluate_Tab_Boolean (corpus PR 871) and types/lt-evaluate-format-lasterror-setview/EvaluateDateFormat9Space.al (corpus PR 886), which the pinned corpus does not hold yet.",
-        tests: "No Microsoft test: a partner app's tests evaluate a TAB into a Date with the result unused.",
-        probe: "Pinned on corpus master (corpus PRs 871 and 886); delete this entry when the corpus bump brings them.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/misc/lt-np4-probes/Np4Misc.al",
-                "tests/al-language/types/lt-evaluate-format-lasterror-setview/EvaluateDateFormat9Space.al",
-            ],
-            since: "2026-10-30",
-        },
-    },
-    JsonAsIntegerFraction => {
-        id: "json-asinteger-fraction",
-        assumed: "JsonValue.AsInteger of a number with a fraction rounds to the nearest whole number, a tie to the even one. Pinned on corpus master by misc/lt-np4-probes/Np4FormatJson.al NP4_JsonValue_AsInteger_SetValueDecimal and _FromText (corpus PR 871), which the pinned corpus does not hold yet.",
-        tests: "No Microsoft test: a partner app's tests read an amount with cents as an Integer.",
-        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/misc/lt-np4-probes/Np4FormatJson.al"],
-            since: "2026-10-30",
-        },
-    },
-    WindowsLanguage1078 => {
-        id: "windows-language-afrikaans",
-        assumed: "Windows Language holds a row 1078 Afrikaans (South Africa), abbreviated name AFK, tag af-ZA (code page not known). Pinned on corpus master by misc/lt-np4-probes/Np4Misc.al NP4_WindowsLanguage_Get1078 (corpus PR 871), which the pinned corpus does not hold yet.",
-        tests: "No Microsoft test: a partner app's import test reads language 1078.",
-        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/misc/lt-np4-probes/Np4Misc.al"],
-            since: "2026-10-30",
-        },
-    },
-    DateFormulaLetterFirstForms => {
-        id: "date-formula-letter-first-forms",
-        assumed: "CalcDate with `<D1>`, `<D15>`, `<D28>`, `<D29>`, `<D31>`, `<-D1>`, `<W17>`, `<W21>`, `<W25>`, `<Q3>`, and `<Mn>` on the first day of month n: day n of the month (cut back to its length) while the date's day is below n, else of the next month (`<-D1>`: day 1 of the month while the date is after it, else of the month before); the Monday of ISO week n or the first day of quarter 3 after the date, from a date inside the period the next year's; the next year's month n. Pinned on corpus master by misc/lt-np4-probes/Np4DateFormulas.al (corpus PR 871) and types/lt-date-formula-edges/DateFormulaInsidePeriod.al (corpus PR 886), which the pinned corpus does not hold yet.",
-        tests: "No Microsoft test: a partner app's booking date tests.",
-        probe: "Pinned on corpus master (corpus PRs 871 and 886); delete this entry when the corpus bump brings them.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/misc/lt-np4-probes/Np4DateFormulas.al",
-                "tests/al-language/types/lt-date-formula-edges/DateFormulaInsidePeriod.al",
-            ],
-            since: "2026-10-30",
-        },
-    },
-    FormatCommaPrecisionForms => {
-        id: "format-comma-precision-forms",
-        assumed: "Format of a Decimal with `<Precision,3:3><Sign><Integer><Decimals><Comma,X>` (X a dot, semicolon, space or letter), the same with `<Precision,0:3>`, `<Precision,3:5>` or `<Integer Thousand>`: the character X is the decimal point. Pinned on corpus master by misc/lt-np4-probes/Np4FormatJson.al NP4_Format_Precision33_* (corpus PR 871), which the pinned corpus does not hold yet.",
-        tests: "No Microsoft test: a partner app's receipt printing tests.",
-        probe: "Pinned on corpus master (corpus PRs 871 and 886); delete this entry when the corpus bump brings them.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/misc/lt-np4-probes/Np4FormatJson.al"],
-            since: "2026-10-30",
-        },
-    },
     GroupEnabledDisablesField => {
         id: "group-enabled-disables-field",
         assumed: "A control inside a group whose Enabled reads No is disabled whatever its own Enabled says on a page type other than a card or a request page, and for a group Enabled bound to an expression. Pinned: a request page (misc/lt-object-properties-runtime-effect/ReportRequestPageGroupEditable.al:P194_ReportGroup_EditableEnabled) and a card's field with or without an Enabled of its own in a group with `Enabled = false` (pages/lt-ap-testpage-642/ApTestPageTests.al:895 Ap16_GroupEnabledFalse_Card, :1082 Ap16_GroupEnabledFalse_FieldEnabledTrue).",
@@ -806,93 +720,11 @@ registry! {
         probe: "One Insert(true) and one Insert(false) into a committed table with an AutoIncrement field between two counter reads, as the first write of the session and as a later one; the same with two and five Inserts in a row.",
     },
 
-    ActionViewChangeListRereads => {
-        id: "action-view-change-list-rereads",
-        assumed: "On a list without OnAfterGetRecord, OnFindRecord and OnNextRecord, an action that changes the filters, key or sort order of the page's record drops the rows the client read under the old view: the next move reads the new view from its first row, and a row the new filters leave out moves to the next row of the new view; SetCurrentKey keeps the row and the next move follows the new key; SetAscending of one field changes nothing visible. Measured on real BC (corpus writer Y5, branches al-runtime-rs-staging-y5 and -y5b); flagged until the files are in the pinned corpus.",
-        tests: "No Microsoft test: a partner app's field picker (al-runner issue 6381) walks a Field list whose action changes the table filter, then calls GoToKey.",
-        probe: "Pinned by pages/lt-y5/Y5GoToKeyAfterActionFilter.al and Y5GoToKeyAfterActionKeyAndTriggers.al once the corpus bump brings them in.",
-        awaiting: Awaiting {
-            issues: &[6381],
-            files: &[
-                "tests/al-language/pages/lt-y5/Y5GoToKeyAfterActionFilter.al",
-                "tests/al-language/pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al",
-            ],
-            since: "2026-10-30",
-        },
-    },
     FieldRowSystemId => {
         id: "field-row-system-id",
         assumed: "The SystemId of the Field rows of SystemModifiedAt and SystemModifiedBy (fields 2000000003-4) follows the rule measured for the other rows on the majors of gate FieldRowSystemIdFrom28: the Guid of the bytes of 2000000041, the table number and the field number, each little-endian, then four zero bytes (platform/lt-field-row-systemid/FieldRowSystemId.al:49-170, platform/lt-wc/WcFieldRowCopy.al:48, :60-63). Before that gate every row has the null Guid (pinned).",
         tests: "No Microsoft test: a partner app's field picker page buffers Field rows of any table in a temporary Field record.",
         probe: "The SystemId of the Field rows of fields 2000000003 and 2000000004 of an own table, on every supported major.",
-    },
-    ReadIsolationAssignmentOpensWriteTransaction => {
-        id: "read-isolation-assignment-opens-write-transaction",
-        assumed: "The assignment of ReadIsolation UpdLock or RepeatableRead on a database table opens the write transaction when the record had another level; assigning the same level again opens none, and a Get, Find('='), IsEmpty, Count, Next or CalcFields under an isolation set in an earlier transaction opens none either (a guarded Codeunit.Run then runs). Pinned by misc/lt-np4-probes/Np4Misc.al Y9_UpdLock_SetBeforeCommit_FirstRead, Y9_RepeatableRead_SetBeforeCommit_FirstRead, Y9_UpdLock_SetAfterCommit_FirstRead, Y9_RepeatableRead_SetAfterCommit_FirstRead, Y9_ReadIsolation_ValueAcrossCommit and Y9_ReadIsolation_SetAgainAfterCommit (corpus PR 896) and NP4_ReadIsolation_RepeatableRead_Reads (corpus PR 871), which the pinned corpus does not hold yet.",
-        tests: "No Microsoft test: a partner app's tests set UpdLock on a record before a Commit and then run a guarded Codeunit.Run.",
-        probe: "Pinned by corpus PR 896 and PR 871; delete this entry when the corpus bump brings them.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/misc/lt-np4-probes/Np4Misc.al::Y9_UpdLock_SetBeforeCommit_FirstRead",
-                "tests/al-language/misc/lt-np4-probes/Np4Misc.al::Y9_RepeatableRead_SetAfterCommit_FirstRead",
-                "tests/al-language/misc/lt-np4-probes/Np4Misc.al::Y9_ReadIsolation_SetAgainAfterCommit",
-            ],
-            since: "2026-10-30",
-        },
-    },
-    EmptyErrorListControlValidate => {
-        id: "empty-error-list-control-validate",
-        assumed: "Error('') out of a control's own OnValidate during TestPage SetValue on a List or a Worksheet page opened on its own, and on a ListPart inside a Card or a Document page, ends the SetValue quietly: the test goes on, the last error has the empty text and code NSValidateField:Dialog, the control shows the old value and the row keeps it. Pinned by misc/lt-np4-probes/Np4EmptyError.al NP4_EE_ControlValidate_List and _Worksheet (corpus PR 871) and Y9_EE_ControlValidate_ListPartInCard and _DocumentLinePart (corpus PR 896), which the pinned corpus does not hold yet.",
-        tests: "No Microsoft test: a partner app's worksheet tests set a value whose validation ends with an empty error.",
-        probe: "Pinned by corpus PR 871 and PR 896; delete this entry when the corpus bump brings them.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/misc/lt-np4-probes/Np4EmptyError.al::NP4_EE_ControlValidate_List",
-                "tests/al-language/misc/lt-np4-probes/Np4EmptyError.al::Y9_EE_ControlValidate_ListPartInCard",
-            ],
-            since: "2026-10-30",
-        },
-    },
-    LookupOkNoRowStatic => {
-        id: "lookup-ok-no-row-static",
-        assumed: "OK on the list page of a static Page.RunModal(Id, Rec) whose view shows no row fails with 'The built-in action = OK is not found on the page.' (code TestActionNotFound), as on a page variable in lookup mode. Pinned by errors/lt-ms-refusals-129/Y9LookupNoRow.al (corpus PR 896), which the pinned corpus does not hold yet.",
-        tests: "No Microsoft test: a partner app's tests press OK on a lookup that shows no row.",
-        probe: "Pinned by corpus PR 896; delete this entry when the corpus bump brings it.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/errors/lt-ms-refusals-129/Y9LookupNoRow.al"],
-            since: "2026-10-30",
-        },
-    },
-    XmlPortOnceOnceNested => {
-        id: "xmlport-once-once-nested",
-        assumed: "An XmlPort export of a table element below another table element with MinOccurs = Once and MaxOccurs = Once (without LinkTable, or with LinkTable and LinkFields) writes the first row of each pass; a pass without rows writes the record as it stands, which after a pass of two rows (unlinked: two or three) holds the second row. Pinned by misc/lt-np4-probes/Np4XmlPort.al NP4_XmlPort_OnceOnce_ZeroAndOneRows and _TwoRows (corpus PR 871) and Y9_XmlPort_OnceOnce_ThreeRowsThenNone and Y9_XmlPort_LinkedOnceOnce_* (corpus PR 896), which the pinned corpus does not hold yet.",
-        tests: "No Microsoft test: a partner app's export of a document with one optional line.",
-        probe: "Pinned by corpus PR 871 and PR 896; delete this entry when the corpus bump brings them.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/misc/lt-np4-probes/Np4XmlPort.al::NP4_XmlPort_OnceOnce_TwoRows",
-                "tests/al-language/misc/lt-np4-probes/Np4XmlPort.al::Y9_XmlPort_LinkedOnceOnce_ZeroOneTwoRows",
-            ],
-            since: "2026-10-30",
-        },
-    },
-    XmlPortPreserveWhiteSpaceExport => {
-        id: "xmlport-preserve-white-space-export",
-        assumed: "An Xml XmlPort export with Encoding = UTF8 and PreserveWhiteSpace = true writes the same as without it, also with DefaultNamespace and UseDefaultNamespace; a line end in a text value (LF, CR LF, a lone CR) is written as CR LF on an UTF8 port and on an UTF16 port without PreserveWhiteSpace and namespace. Pinned by misc/lt-np4-probes/Np4XmlPort.al NP4_XmlPort_PreserveWhiteSpace_WithNamespace, _DefaultWhiteSpace_WithNamespace and _PreserveWhiteSpace_NoNamespace (corpus PR 871) and Y9_XmlPort_Export_LineFeed_* (corpus PR 896), which the pinned corpus does not hold yet.",
-        tests: "No Microsoft test: a partner app's export in its own namespace.",
-        probe: "Pinned by corpus PR 871 and PR 896; delete this entry when the corpus bump brings them.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/misc/lt-np4-probes/Np4XmlPort.al::NP4_XmlPort_PreserveWhiteSpace_WithNamespace",
-                "tests/al-language/misc/lt-np4-probes/Np4XmlPort.al::Y9_XmlPort_Export_LineFeed_Plain",
-            ],
-            since: "2026-10-30",
-        },
     },
 }
 

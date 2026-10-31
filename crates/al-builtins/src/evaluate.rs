@@ -896,9 +896,6 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
         }
         let t = text.trim_matches(PINNED_WS);
         if t.is_empty() {
-            if text.chars().any(|c| c != ' ') {
-                crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
-            }
             return Ok(Parsed::Value(Value::Date(0, false)));
         }
         if t.len() != text.trim_matches(' ').len() {
@@ -907,7 +904,6 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
                     "Evaluate of `{text}` into a Date with format 9: VT or FF next to a date (not pinned)"
                 ));
             }
-            crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
         }
         // Blanks inside keep their old reading (a rejected date, P86Eval.al:Fmt92_Return_F9 `Jan 15 2024`).
         if t.contains(|c: char| c != ' ' && PINNED_WS.contains(&c)) {
@@ -2021,10 +2017,9 @@ fn evaluate_with_max(
         // Every number but 9 reads a Date as the default does (types/lt-datetime/Evaluate.al:Date_Other_Formats `fmt 1` to `fmt 8`,
         // `fmt 10`, `fmt -1`; errors/lt-ms-refusals-130/P130EvaluateDate.al:P130_EvaluateDate_EveryFormat_*).
         // Evaluate reads a TAB, two TABs and one space as the empty date (corpus master, corpus PR 871:
-        // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date; assumption evaluate-blank-tabs awaits the bump). Pinned for
+        // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date). Pinned for
         // Evaluate only: `read_text` and the other readers of `date` do not take it.
         Value::Date(..) if number != 9 && is_blank_tabs(&text) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
             Parsed::Value(Value::Date(0, false))
         }
         Value::Date(..) => date(
@@ -2280,10 +2275,9 @@ fn evaluate_with_max(
                 _ => "Boolean",
             };
             // A Boolean's error shows a TAB, two TABs or a space as the empty value `""` (corpus master, corpus PR 871:
-            // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Boolean; assumption evaluate-blank-tabs awaits the bump).
+            // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Boolean).
             // Integer and Decimal show them as written (NP4_Evaluate_Tab_Integer, _Decimal).
             let text = if ty == "Boolean" && is_blank_tabs(&text) {
-                crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
                 String::new()
             } else {
                 text.to_string()

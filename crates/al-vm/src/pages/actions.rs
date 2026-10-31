@@ -2214,12 +2214,12 @@ impl Session {
 
     /// An action that changed the view of a list's record (its filters, its key or its sort order): the rows the client read
     /// under the old view are not the rows of the new one, so they leave the window and the next move reads the new view from
-    /// its first row. Measured on real BC by corpus writer Y5 (branch al-runtime-rs-staging-y5,
+    /// its first row. Pinned by (
     /// pages/lt-y5/Y5GoToKeyAfterActionFilter.al:115-141 NextGroup: after the action the row is 2/1, GoToKey(2,50) Yes, Next,
     /// Previous, GoToKey(2,10), First and Last walk the new view; :143-156 GoToKey(1,50) No and the row stays; :158-174 an
-    /// action with only `Rec.SetRange`: the row is 2/1; al-runner issue 6381). Until that file is in the pinned corpus the
-    /// path is a registered assumption (`action-view-change-list-rereads`). A key change (SetCurrentKey) keeps the row and
-    /// the next move follows the new key at once (branch al-runtime-rs-staging-y5b,
+    /// action with only `Rec.SetRange`: the row is 2/1; al-runner issue 6381).
+    /// A key change (SetCurrentKey) keeps the row and
+    /// the next move follows the new key at once (
     /// pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al:199-231): it drops the window too.
     ///
     /// Done only on a list without OnAfterGetRecord, OnFindRecord and OnNextRecord; with those triggers the refresh after the
@@ -2276,7 +2276,6 @@ impl Session {
         if same_filters && before.key == now.key && before.ascending == now.ascending {
             return Ok(());
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionViewChangeListRereads);
         {
             let mut s = st.borrow_mut();
             s.window.clear();
@@ -2733,12 +2732,11 @@ impl Session {
             s.window_whole = true;
         } else if read_first && self.view_changed_by_action(st) {
             // An action that changed the filters or the key: the client holds the rows of the new view this refresh read, from
-            // the row it settled on, and the rows before it; the rows of the old view are gone (corpus writer Y5, branch
-            // al-runtime-rs-staging-y5b, pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al:273-303 with OnAfterGetRecord,
+            // the row it settled on, and the rows before it; the rows of the old view are gone (
+            // pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al:273-303 with OnAfterGetRecord,
             // :308-342 with OnAfterGetCurrRecord too: GoToKey(2,50) and Next after the filter change show their rows; al-runner
-            // issue 6381; registered assumption action-view-change-list-rereads until the file is in the corpus). With more rows
+            // issue 6381). With more rows
             // than a window before the row, what the client holds is not pinned: the next move is refused.
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionViewChangeListRereads);
             let mut s = st.borrow_mut();
             if back.len() + rows.len() > Self::WINDOW {
                 s.window = Vec::new();

@@ -2694,9 +2694,6 @@ impl Session {
 
     fn xp_export(&mut self, inst: &Inst, schema: &Schema, guarded: bool) -> Result<Value, Signal> {
         // PreserveWhiteSpace changes nothing an Xml export writes (al-sema xmlports.rs, Np4XmlPort.al on corpus master).
-        if schema.xp().preserve_whitespace && schema.xp().format == ir::XmlFormat::Xml {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlPortPreserveWhiteSpaceExport);
-        }
         inst.borrow_mut().xp_text.push((6, String::new()));
         let addr = Rc::as_ptr(inst) as usize;
         self.xp_pass_views.retain(|(a, _, _)| *a != addr);
@@ -2834,9 +2831,6 @@ impl Session {
                     );
                 }
                 Ok(mut root) if al_builtins::xmlport::has_line_end(&root) => {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::XmlPortPreserveWhiteSpaceExport,
-                    );
                     al_builtins::xmlport::line_ends_to_lf(&mut root);
                     let enc = if xp.xml_utf8 { "UTF-8" } else { "UTF-16" };
                     let text =
@@ -3511,7 +3505,6 @@ impl Session {
             let pinned_two =
                 rows.len() == 2 && !n.link_fields.is_empty() && !n.min_zero && !export_triggers_below(schema, node);
             if pinned_two {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlPortOnceOnceNested);
                 ends_on = rows.pop();
             } else if rows.len() > 1 {
                 rows.truncate(1);
@@ -3524,7 +3517,6 @@ impl Session {
             // PR 896, Np4XmlPort.al Y9_XmlPort_OnceOnce_ThreeRowsThenNone `<Child cid="12">`). Of four or more it is not pinned.
             let once_once = unlinked_below_table(schema, node) && !n.min_zero && !export_triggers_below(schema, node);
             if once_once && (rows.len() == 2 || rows.len() == 3) {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlPortOnceOnceNested);
                 ends_on = Some(rows[1].clone());
             } else if once_once {
                 ends_unpinned = true;

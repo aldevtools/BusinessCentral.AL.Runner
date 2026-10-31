@@ -1980,7 +1980,6 @@ impl Session {
                     "OK of the lookup page of Page.RunModal(Id, Rec) whose row left its view while it was open (not pinned)".into(),
                 ));
             }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupOkNoRowStatic);
         }
         Ok(true)
     }

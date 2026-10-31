@@ -629,18 +629,9 @@ impl Session {
                                         && self.tx.lock_unpinned.is_none()
                                     {
                                         self.tx.lock_unpinned = Some(crate::records::REPEATABLE_READ_ASSIGNED_AGAIN);
-                                    } else if *i == ISOLATION_UPDLOCK {
-                                        al_builtins::assumptions::assume(
-                                            al_builtins::assumptions::Assumption::ReadIsolationAssignmentOpensWriteTransaction,
-                                        );
                                     }
                                 }
                                 (ISOLATION_UPDLOCK | ISOLATION_REPEATABLE_READ, false) => {
-                                    if *i == ISOLATION_REPEATABLE_READ || before != 0 {
-                                        al_builtins::assumptions::assume(
-                                            al_builtins::assumptions::Assumption::ReadIsolationAssignmentOpensWriteTransaction,
-                                        );
-                                    }
                                     self.tx.lock_tx = true;
                                     self.tx.isolation_lock = true;
                                     let key = (r.table, r.company.clone());
