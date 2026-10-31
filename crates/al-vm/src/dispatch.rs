@@ -737,10 +737,19 @@ const TESTS_TESTLIBRARIES: &str = "5d86850b-0d76-4eca-bd7b-951ad998e997";
 /// GlobalTriggerManagement (codeunit 49) .OnAfterGetDatabaseTableTriggerSetup, in the corpus TestLibraries job:
 /// - XApp D (e92be076-...) runs, then Tests-TestLibraries' 130011 "Backup Management", then the main corpus app
 ///   (a1b2c3d4-...): corpus PR 883, tests/al-language-testlibraries/lt-y3-setup-order/Y3SetupOrderTests.al:38-46
-///   (`M: seq=2 in=YesYesYesYes | D: seq=1 in=NoNoNoNo`; in the corpus pin from the next bump);
+///   (`M: seq=2 in=YesYesYesYes | D: seq=1 in=NoNoNoNo`);
 /// - 130011 runs before the corpus testlibraries app (a93b8636-...): tests/al-language-testlibraries/lt-bi-trigger-setup/
-///   BiTriggerSetup.al:21-22.
+///   BiTriggerSetup.al:21-22;
+/// - XApp C (0df0fadc-...) runs before 130011: Y3SetupOrderTests.al:22-25 (`C: seq=2 in=NoNoNoNo | A: seq=1 in=NoNoNoNo`,
+///   neither saw 130011's flags). XApp A and XApp D come before C through C's dependencies.
 const MEASURED_PAIRS: &[MeasuredPair] = &[
+    MeasuredPair {
+        publisher_app: BASE_APPLICATION,
+        publisher_object: 49,
+        event: "onaftergetdatabasetabletriggersetup",
+        first: "0df0fadc-d339-4b0f-a1d5-51dc51f10900",
+        later: TESTS_TESTLIBRARIES,
+    },
     MeasuredPair {
         publisher_app: BASE_APPLICATION,
         publisher_object: 49,
