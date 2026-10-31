@@ -814,6 +814,12 @@ pub struct Session {
     /// What the assigned sets give; `None` when the session is unrestricted (no set assigned, or sets that grant
     /// everything such as SUPER). Every access point checks only `is_some()` (`permissions.rs`).
     pub(crate) permissions: Option<Arc<permissions::EffectivePermissions>>,
+    /// The test runner's step assigned its sets since the last `Clear` (they are not composed: assumption
+    /// `runner-permission-sets-grant-all`); a set the test assigns on top of them leaves a session that is not fully
+    /// composed (ADR-062 probe P25).
+    pub(crate) runner_permission_sets: bool,
+    /// Set by AL code's record method call right before `record_op` of a restricted session, taken there (ADR-062).
+    pub(crate) permission_from_al: bool,
     /// The object index of the test codeunit being run (set by the test runner).
     pub test_object: Option<usize>,
     /// The `TestHttpRequestPolicy` of the running test codeunit (`None`: the property is absent).
@@ -1133,6 +1139,8 @@ impl Session {
             ignore_permission_mock: false,
             permissions_off: false,
             permission_roles: Vec::new(),
+            runner_permission_sets: false,
+            permission_from_al: false,
             permissions: None,
             test_object: None,
             http_policy: None,
@@ -1252,8 +1260,12 @@ impl Session {
     /// runtime with the install-code row (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:798 QF_GLSetup_CorpusRow).
     pub fn start_test_method(&mut self) {
         // A test method starts with no permission set of its own assigned: the runner's mock step (131006 OnRun) and
-        // its set step clear the assignment first; a test whose lowering was refused leaves none behind.
+        // its set step clear the assignment first; a test whose lowering was refused leaves none behind. The runner's
+        // sets, which its set step assigned just before, stay (`runner_permission_sets`; the test runner calls this
+        // again after its steps).
+        let runner = self.runner_permission_sets;
         self.clear_permission_sets();
+        self.runner_permission_sets = runner;
         self.application_areas.clear();
         self.isolated_set_in_test.clear();
         self.demo_written.clear();

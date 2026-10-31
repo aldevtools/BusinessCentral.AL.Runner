@@ -649,6 +649,7 @@ fn permission_helper_dispose(s: &mut Session, _: Option<&Rc<DotNetObject>>, args
 fn permission_helper_add_set(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     if s.runner_permission_step {
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RunnerPermissionSetsGrantAll);
+        s.runner_permission_sets = true;
         return Ok(Value::Null);
     }
     let [Value::Text(role) | Value::Code(role)] = args else {
