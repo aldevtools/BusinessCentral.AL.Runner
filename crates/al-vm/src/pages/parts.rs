@@ -217,6 +217,25 @@ impl Session {
         page_of(&engine, &host).controls[idx].part_link.as_ref()?.view.clone()
     }
 
+    /// Whether `st` is a page that ran modally and closed with OK (or LookupOK), or a part it showed while open. Its code may
+    /// still call `CurrPage.Update` and `CurrPage.SaveRecord` then: they do nothing and raise no error (pages/
+    /// lt-y37-part-after-close/Y37PartAfterClose.al:416-441 LT_C314_AfterRunModalOK_UpdateAndSave, the stored row unchanged).
+    pub(super) fn closed_after_modal_ok(&self, st: &St) -> bool {
+        let closed_ok = |p: &St| {
+            let s = p.borrow();
+            !s.open && s.ran && s.last_run_modal == Some(true) && matches!(s.result.as_deref(), Some("OK" | "LookupOK"))
+        };
+        let host = st.borrow().host.clone();
+        match host {
+            None => closed_ok(st),
+            Some((h, _)) => h.upgrade().is_some_and(|h| {
+                h.borrow().host.is_none()
+                    && closed_ok(&h)
+                    && h.borrow().closed_parts.iter().any(|(_, c)| Rc::ptr_eq(c, st))
+            }),
+        }
+    }
+
     /// The page shown by part control `control` of `st`.
     pub(super) fn part_page(&mut self, st: &St, control: usize, runtime: bool) -> Result<St, Signal> {
         // A Page variable's procedure that reaches a part before the page ever ran (Check Credit Limit.PopulateDataOnNotification,
@@ -247,6 +266,19 @@ impl Session {
                         .find(|(i, _)| *i == control)
                         .map(|(_, c)| c.clone());
                     if let Some(c) = kept {
+                        return Ok(c);
+                    }
+                    // A part a Visible expression hid while the page was open (it opened with the page) hands out its row at
+                    // close too (pages/lt-y37-part-after-close/Y37PartAfterClose.al:376-395 LT_C314_AfterRunModalOK_OtherPartShown:
+                    // part A, hidden when an option switched to part B, gives its row 10000).
+                    let hidden = st
+                        .borrow()
+                        .hidden_parts
+                        .iter()
+                        .find(|(i, _)| *i == control)
+                        .map(|(_, c)| c.clone())
+                        .filter(|_| !(self.control_eliminated(st, control) || self.area_removed(st, control)));
+                    if let Some(c) = hidden {
                         return Ok(c);
                     }
                     return unsupported(
