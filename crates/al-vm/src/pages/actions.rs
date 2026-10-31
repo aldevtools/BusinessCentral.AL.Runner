@@ -2393,7 +2393,13 @@ impl Session {
             s.window_from_start
                 && s.window.len() < Self::WINDOW
                 && s.window.first().is_some_and(|w| Self::same_key(&w.key, &key))
-        } && !(self.view_changed_by_action(st) && self.has_row_before(&rec)?);
+        } && {
+            let rows_before = self.view_changed_by_action(st) && self.has_row_before(&rec)?;
+            if rows_before {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionWidensViewHoldsAll);
+            }
+            !rows_before
+        };
         if !first {
             return self.read_list_again_from_row(st, &rec, &key);
         }
@@ -2781,19 +2787,19 @@ impl Session {
             // pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al:273-303 with OnAfterGetRecord,
             // :308-342 with OnAfterGetCurrRecord too: GoToKey(2,50) and Next after the filter change show their rows; al-runner
             // issue 6381). With more rows
-            // than a window before the row, what the client holds is not pinned: the next move is refused.
-            // When the refresh read the whole new view (the rows after the row end inside a window, and the way back reached the
-            // first row), the client holds all of it: First reads nothing and lands on the first row (pages/lt-y15/
-            // Y15ActionWidensView.al:198 `first` `true/A01/0 0:-`, 19 rows before the row and 6 from it; al-runner issue 6470).
-            let whole = !find && rows.len() < Self::WINDOW;
-            if whole && back.len() + rows.len() > Self::WINDOW {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionWidensViewHoldsAll);
+            // than a window, a page that reads its rows from the table holds what the refresh read: the way back reached the
+            // first row of the view, so the rows are the new view's from its start (al-runner issue 6469, a regression of the
+            // refusal below: First goes to A01 and Next walks the whole view, as on real BC; assumption
+            // `action-refresh-holds-read-rows`). With OnFindRecord the rows are not pinned: the next move is refused.
+            let held = back.len() + rows.len() > Self::WINDOW;
+            if held && !find {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionRefreshHoldsReadRows);
             }
             let mut s = st.borrow_mut();
-            if back.len() + rows.len() > Self::WINDOW && !whole {
+            if held && find {
                 s.window = Vec::new();
                 s.window_from_start = false;
-                s.validate_refresh_unheld = true;
+                s.action_refresh_unheld = true;
             } else {
                 back.reverse();
                 back.extend(rows);
