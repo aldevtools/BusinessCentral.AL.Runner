@@ -48,6 +48,7 @@ mod xmlport_linked_pass_key;
 mod xmlport_linked_zero_once;
 mod xmlport_max_once;
 mod xmlport_namespace_root;
+mod xmlport_namespaces_several;
 mod xmlport_nested_flow;
 mod xmlport_nested_import;
 mod xmlport_nested_text_in_table;

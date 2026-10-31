@@ -108,8 +108,11 @@ fn is_big_text(layout: &Layout, i: usize) -> bool {
 
 fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
     match kind {
+        // `NamespacePrefix` on a table or text element: exported with the prefix (xmlport/lt-y17-xmlport-ns/
+        // Y17XmlPortNamespacesTests.al:60, `<a:Party>`, `<a:Line>`); the import of such a port is refused when it runs.
         ir::XmlNodeKind::Table => &[
             "xmlname",
+            "namespaceprefix",
             "linktable",
             "linkfields",
             "autosave",
@@ -147,7 +150,7 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
         // `occurrence` is checked in `visit`: Required or Optional on a text attribute of a text or table element.
         ir::XmlNodeKind::TextAttr => &["xmlname", "namespaceprefix", "width", "unbound", "occurrence"],
         // `texttype` is checked in `visit`: BigText or Text on a text element without children.
-        ir::XmlNodeKind::Text => &["xmlname", "minoccurs", "maxoccurs", "texttype"],
+        ir::XmlNodeKind::Text => &["xmlname", "namespaceprefix", "minoccurs", "maxoccurs", "texttype"],
     }
 }
 
@@ -244,22 +247,36 @@ pub fn layout(obj: &ast::Object) -> Layout {
             // YXmlPortProps.al:641: grant permissions the runtime does not enforce; an export runs as without them. The values
             // read back through the XmlPort Metadata row (platform/objects.rs).
             "inherentpermissions" | "inherententitlements" => {}
-            // xmlport/lt-y-xmlport-props/YXmlPortProps.al:213: one `prefix = 'uri'` pair.
-            "namespaces" => match crate::scan::split_double(&value, ',').as_slice() {
-                [one] => match one.split_once('=') {
-                    Some((prefix, uri)) if !prefix.trim().is_empty() && uri.trim().starts_with('\'') => {
-                        out.namespaces
-                            .push((crate::scan::unquote_xmlport(prefix), crate::scan::unquote_xmlport(uri)));
+            // xmlport/lt-y-xmlport-props/YXmlPortProps.al:213: one `prefix = 'uri'` pair; several in declaration order
+            // (xmlport/lt-bd-xmlport/BdXmlPort.al:407), among them the empty prefix `""` written as the default namespace
+            // (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:60, :71; kept here with the prefix "").
+            "namespaces" => {
+                let mut pairs: Vec<(String, String)> = Vec::new();
+                for one in crate::scan::split_double(&value, ',') {
+                    match one.split_once('=') {
+                        Some((prefix, uri))
+                            if (!prefix.trim().is_empty() && !prefix.trim().starts_with('\''))
+                                && uri.trim().starts_with('\'') =>
+                        {
+                            let prefix = crate::scan::unquote_xmlport(prefix);
+                            if pairs.iter().any(|(p, _)| *p == prefix) {
+                                out.run_reasons
+                                    .push(format!("xmlport namespaces with the prefix `{prefix}` twice (not pinned)"));
+                                break;
+                            }
+                            pairs.push((prefix, crate::scan::unquote_xmlport(uri)));
+                        }
+                        _ => {
+                            out.run_reasons.push(format!(
+                                "xmlport namespaces `{}` is not a list of prefix = 'uri' pairs (not pinned)",
+                                value.trim()
+                            ));
+                            break;
+                        }
                     }
-                    _ => out.run_reasons.push(format!(
-                        "xmlport namespaces `{}` is not a single prefix = 'uri' pair (not pinned)",
-                        value.trim()
-                    )),
-                },
-                _ => out
-                    .run_reasons
-                    .push("xmlport namespaces with several entries (not pinned)".into()),
-            },
+                }
+                out.namespaces.extend(pairs);
+            }
             "fieldseparator" => out.field_separator = Some(crate::scan::unquote_xmlport(&value)),
             "fielddelimiter" => out.field_delimiter = Some(crate::scan::unquote_xmlport(&value)),
             "recordseparator" => out.record_separator = Some(crate::scan::unquote_xmlport(&value)),
@@ -407,9 +424,14 @@ pub fn layout(obj: &ast::Object) -> Layout {
         }
     }
     if bc_namespace {
+        // With DefaultNamespace and a Namespaces list that holds the empty prefix, the default namespace takes the place of the
+        // uri of `""`, and prefixed elements are written with their prefixes (xmlport/lt-y17-xmlport-ns/
+        // Y17XmlPortNamespacesTests.al:82, an UTF8 export).
+        let empty_prefix_replaced =
+            own_namespace.is_some() && utf8 && out.namespaces.iter().any(|(p, _)| p.is_empty());
         let unpinned = if out.format != ir::XmlFormat::Xml {
             Some("a text format")
-        } else if !out.namespaces.is_empty() {
+        } else if !out.namespaces.is_empty() && !empty_prefix_replaced {
             Some("Namespaces")
         } else if out.use_lax {
             Some("UseLax")
@@ -420,7 +442,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         } else if out.preserve_whitespace && (own_namespace.is_none() || !utf8) {
             // With DefaultNamespace on an UTF8 port it is pinned (above: export; corpus PR 896 Np4XmlPort.al Y9_XmlPort_Import_*: import).
             Some("PreserveWhiteSpace")
-        } else if (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some()) {
+        } else if !empty_prefix_replaced && (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some()) {
             Some("a NamespacePrefix")
         } else {
             None
@@ -791,6 +813,18 @@ fn text_in_table_shape(layout: &Layout, i: usize) -> bool {
     let kids: Vec<usize> = (0..layout.nodes.len())
         .filter(|&k| layout.nodes[k].parent == Some(i))
         .collect();
+    // One text element further down (below a text element right below a table element) with only text attributes below it
+    // (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:60, `<b:EndpointID schemeID="0088">E1</b:EndpointID>`).
+    let below_text_in_table = layout.nodes[i].parent.is_some_and(|p| {
+        layout.nodes[p].kind == K::Text && layout.nodes[p].parent.is_some_and(|g| layout.nodes[g].kind == K::Table)
+    });
+    if layout.nodes[i].kind == K::Text
+        && below_text_in_table
+        && !kids.is_empty()
+        && kids.iter().all(|&k| layout.nodes[k].kind == K::TextAttr)
+    {
+        return true;
+    }
     layout.nodes[i].kind == K::Text
         && layout.nodes[i].parent.is_some_and(|p| layout.nodes[p].kind == K::Table)
         && !kids.is_empty()
@@ -1062,15 +1096,27 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         nodes.push(node);
     }
     reasons.extend(layout.reasons.iter().cloned());
-    // Pinned: one declared namespace that a field element of the port uses. A prefix that is not declared, a namespace nobody
-    // uses and a prefix on an attribute alone are not (YXmlPortProps.al:NodeProperties_Export_NamesPrefixesAutoCalc).
+    // Pinned: one declared namespace that a field element of the port uses (YXmlPortProps.al:
+    // NodeProperties_Export_NamesPrefixesAutoCalc); beside a used one or the empty prefix `""`, also a namespace no element uses:
+    // the root still declares it (xmlport/lt-bd-xmlport/BdXmlPort.al:407 `q`; xmlport/lt-y17-xmlport-ns/
+    // Y17XmlPortNamespacesTests.al:60 `u`). A prefix that is not declared, every namespace unused, and a prefix on an
+    // attribute alone are not pinned.
     {
         let used: Vec<&str> = nodes.iter().filter_map(|n| n.ns_prefix.as_deref()).collect();
+        let element_uses = |prefix: &str| {
+            nodes.iter().any(|n| {
+                matches!(
+                    n.kind,
+                    ir::XmlNodeKind::Field | ir::XmlNodeKind::Text | ir::XmlNodeKind::Table
+                ) && n.ns_prefix.as_deref() == Some(prefix)
+            })
+        };
+        let any_used = layout
+            .namespaces
+            .iter()
+            .any(|(p, _)| p.is_empty() || element_uses(p));
         for (prefix, _) in &layout.namespaces {
-            if !nodes
-                .iter()
-                .any(|n| n.kind == ir::XmlNodeKind::Field && n.ns_prefix.as_deref() == Some(prefix.as_str()))
-            {
+            if !any_used && !element_uses(prefix) {
                 run_reasons.push(format!(
                     "xmlport namespace `{prefix}` that no field element uses (not pinned)"
                 ));
