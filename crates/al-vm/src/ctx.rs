@@ -19,6 +19,14 @@ impl al_builtins::format::FormatCtx for Session {
     fn region(&self) -> Option<String> {
         self.report.format_region.clone()
     }
+    fn key_ref_fields(
+        &self,
+        rec: &std::rc::Rc<std::cell::RefCell<al_builtins::value::RecordState>>,
+        key: usize,
+    ) -> Option<Vec<i32>> {
+        let t = self.table(rec).ok()?;
+        Some(t.keys.get(key)?.iter().map(|&p| t.fields[p].id as i32).collect())
+    }
     fn record_id_table(&self, table: u32) -> Option<(String, Option<String>)> {
         let t = self.engine.tables.get(table as usize)?.clone()?;
         let caption = self.caption_checked(&t).ok()?;

@@ -20,6 +20,7 @@ mod general_journal;
 mod get_recordid_other_table;
 mod global_filter_group;
 mod hostvalues;
+mod installed_app_published_as;
 mod key_ties;
 mod lane_codeunit_run;
 mod linked_object;

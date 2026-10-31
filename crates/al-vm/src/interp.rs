@@ -1383,10 +1383,12 @@ impl Session {
                     // A Blob of a record read from the database without CalcFields holds none of its content: assigned to
                     // another field it gives an empty Blob (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:404,
                     // 'target after assign' has=No|len=0, and the Modify after it stores nothing). The write-back of a
-                    // method call on the field itself keeps the buffer.
+                    // method call on the field itself keeps the buffer. A temporary row read back (Get, FindFirst, FindSet)
+                    // without CalcFields gives the same empty copy (record/lt-temporary-blob/TemporaryBlobAutoCalc.al:174-310,
+                    // corpus branch al-runtime-rs-staging-y12, al-runner issue 6434).
                     let v = match v {
                         Value::Blob(b)
-                            if b.borrow().db_row
+                            if (b.borrow().db_row || b.borrow().temp_row)
                                 && !b.borrow().loaded
                                 && !matches!(&r.fields[*pos], Value::Blob(cur) if std::sync::Arc::ptr_eq(cur, &b)) =>
                         {

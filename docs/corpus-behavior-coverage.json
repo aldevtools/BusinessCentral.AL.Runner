@@ -13876,7 +13876,7 @@
       "pinned": 805
     },
     {
-      "catalog": 123,
+      "catalog": 130,
       "dimension": "events",
       "items": [
         {
@@ -14031,6 +14031,69 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "events/lt-system-events-upgrade-subs/P118RiskyGetUserToken.al:54"
+        },
+        {
+          "corpus_uses": 0,
+          "group": "(any)",
+          "ms_uses": 0,
+          "name": "OnAfterGetCurrRecordEvent",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
+          "corpus_uses": 0,
+          "group": "(any)",
+          "ms_uses": 0,
+          "name": "OnClosePageEvent",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
+          "corpus_uses": 0,
+          "group": "(any)",
+          "ms_uses": 0,
+          "name": "OnInsertRecordEvent",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
+          "corpus_uses": 0,
+          "group": "(any)",
+          "ms_uses": 0,
+          "name": "OnModifyRecordEvent",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
+          "corpus_uses": 0,
+          "group": "(any)",
+          "ms_uses": 0,
+          "name": "OnNewRecordEvent",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
+          "corpus_uses": 0,
+          "group": "(any)",
+          "ms_uses": 0,
+          "name": "OnOpenPageEvent",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
+          "corpus_uses": 0,
+          "group": "(any)",
+          "ms_uses": 0,
+          "name": "OnQueryClosePageEvent",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
         },
         {
           "corpus_uses": 0,
@@ -16495,7 +16558,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1593,
+        "line": 1595,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16504,7 +16567,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1670,
+        "line": 1672,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16513,7 +16576,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1680,
+        "line": 1682,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16711,7 +16774,7 @@
         "code": "",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 2732,
+        "line": 2765,
         "pinned": true,
         "site": "handlers/TestReportRuntimeContracts.al:462",
         "template": "The object has been run. Use the function CLEAR(Report)."
