@@ -3502,14 +3502,45 @@ impl Session {
         } else if !trapped && self.has_typed_page_handler(object) {
             // A Page-typed PageHandler of a Page.Run without a record: the handler runs on the page object, no page trigger runs
             // before it (no OnOpenPage) and GetRecord hands a blank record (misc/lt-y14-triage/Y14PageTriage.al:383
-            // PageTypedPageHandler_PageRun, corpus master). With a record, or on a Page variable already set up, it is not pinned.
-            if record.is_some() || field || st.borrow().instance.is_some() {
+            // PageTypedPageHandler_PageRun, corpus master).
+            // With a record no page trigger runs either, before or after the handler; the page's Rec holds the record's values
+            // (GetRecord and the page's procedures see it, also a row that is not stored) without its filters, and a field
+            // argument changes nothing (pages/lt-y17-page-handler-record/Y17PageHandlerRecord.al:218 _GetRecord, :249
+            // _EmptyHandler, :273 _PageProcedure, :301 _Close, :325 _FilteredRecord_List `filter=`, :352 _UnstoredRecord, :380
+            // _RecordAndField).
+            // A Page variable set up with SetRecord or SetTableView hands the handler its own instance (its globals, its Rec);
+            // after the run, set up or not, the variable starts again from a new instance with nothing set (:396 _SetUpVariable_Run `tag after
+            // run` = '', :426 _SetTableView_Run `reccode()`, :447 _RunTwice `handler2 tag=;reccode()`).
+            // A temporary record, and a variable set up without SetRecord or SetTableView, are not pinned.
+            // A static Page.Run(Id, Rec) made the instance already, to check the record's table (`page_op`).
+            let set_up = st.borrow().set_record.is_some();
+            if record.as_ref().is_some_and(|r| r.borrow().temporary)
+                || (st.borrow().instance.is_some() && record.is_none())
+            {
                 return unsupported(
-                    "a Page-typed PageHandler for Page.Run with a record or on a Page variable that was set up (not pinned)",
+                    "a Page-typed PageHandler for Page.Run with a temporary record, or on a Page variable set up without SetRecord or SetTableView (not pinned)",
                 );
             }
             let handler = self.take_typed_handler(UiKind::Page, object).expect("checked above");
-            self.answer_typed_page(&st, handler)?;
+            if !set_up {
+                if let Some(r) = &record {
+                    self.construct_page(&st)?;
+                    if self.has_source(&st) {
+                        let rec = self.page_rec(&st);
+                        rec.borrow_mut().fields = r.borrow().fields.clone();
+                    }
+                }
+            }
+            let r = self.answer_typed_page(&st, handler);
+            {
+                let mut s = st.borrow_mut();
+                s.instance = None;
+                s.ext_instances.clear();
+                s.inited = false;
+                s.set_record = None;
+                s.set_view = false;
+            }
+            r?;
             return Ok(Value::Null);
         }
         // A second non-modal Run of a Page variable runs its OnInit again (pages/lt-page-variable-lifecycle/
@@ -3630,6 +3661,7 @@ impl Session {
         {
             let mut s = st.borrow_mut();
             s.typed_handler = true;
+            s.typed_run_handler = true;
             s.handler_set_record = false;
             s.cursor = Cursor::Row;
         }
@@ -3640,6 +3672,7 @@ impl Session {
         {
             let mut s = st.borrow_mut();
             s.typed_handler = false;
+            s.typed_run_handler = false;
             s.cursor = Cursor::None;
         }
         handled.map(|_| ())
