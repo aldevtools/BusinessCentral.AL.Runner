@@ -315,6 +315,25 @@ impl Session {
                 }
             }
         }
+        if method.recv() != PageRecv::Page
+            && matches!(
+                name,
+                PageMethod::Next
+                    | PageMethod::Previous
+                    | PageMethod::Last
+                    | PageMethod::GoToKey
+                    | PageMethod::GoToRecord
+                    | PageMethod::FindFirstField
+                    | PageMethod::FindNextField
+                    | PageMethod::FindPreviousField
+            )
+            && self.tree_over_variable(st)?
+        {
+            return unsupported(format!(
+                "TestPage.{}() on a tree whose IndentationColumn is not a field of the source table (which rows it shows is not modelled)",
+                name.name()
+            ));
+        }
         // See `PageState::action_landed_on_new_row`: a move then is not pinned; Close and the rest leave the mark behind.
         if method.recv() != PageRecv::Page
             && std::mem::take(&mut st.borrow_mut().action_landed_on_new_row)
