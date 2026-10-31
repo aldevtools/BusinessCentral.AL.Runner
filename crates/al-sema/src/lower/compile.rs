@@ -86,7 +86,7 @@ pub fn lower_for_cache_with(
         ..Default::default()
     };
     let checked = crate::check::check_with(&ws, &members, &catalog, roots);
-    let mut set = lower_core(&ws, &members, &checked, true, lower_workers(), None, true)
+    let mut set = lower_core(&ws, &members, &checked, true, lower_workers(), None, Export::Cache)
         .expect("no cache, no cache error")
         .exported
         .expect("exported");
@@ -226,7 +226,7 @@ impl LayerBuilder {
             .map(|oi| provided.has(oi).then(|| below.facts(oi).query.clone()).flatten())
             .collect();
         let checked = crate::check::check_with(ws, &members, catalog, roots);
-        let lowered = lower_core(ws, &members, &checked, true, lower_workers(), Some(provided), true)?;
+        let lowered = lower_core(ws, &members, &checked, true, lower_workers(), Some(provided), Export::Cache)?;
         let all = lowered.exported.expect("exported");
         let mut layer = crate::provided::DepLayer {
             base_len: n_prov,
@@ -317,7 +317,7 @@ pub fn compile_loaded_cached(
         .collect();
     let checked = crate::check::check_with(&ws, &members, catalog, roots);
     let started = std::time::Instant::now();
-    let mut lowered = lower_core(&ws, &members, &checked, true, lower_workers(), Some(provided), false)
+    let mut lowered = lower_core(&ws, &members, &checked, true, lower_workers(), Some(provided), Export::No)
         .expect("a cache that passed its checks lowers");
     lowered.timings = CompileTimings {
         load,

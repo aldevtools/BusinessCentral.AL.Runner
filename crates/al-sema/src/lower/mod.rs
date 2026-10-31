@@ -548,6 +548,8 @@ mod convert;
 mod coverage_ids;
 mod dotnet;
 mod expr;
+mod extend;
+
 mod localize;
 #[cfg(test)]
 mod object_hash_tests;
@@ -573,6 +575,8 @@ pub(crate) enum StreamScope {
 
 pub use self::assemble::*;
 pub use self::compile::*;
+pub use self::extend::*;
+
 pub use self::routine_lists::{Calls, Refusals};
 pub use self::shared::dependency_positions;
 pub(crate) use self::shared::*;

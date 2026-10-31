@@ -841,6 +841,7 @@ mod cache;
 mod compiled;
 mod corpus;
 mod data_driven;
+mod grow;
 mod handlers;
 mod run;
 mod runner_reset;
@@ -851,6 +852,8 @@ pub(crate) mod written;
 pub use self::blocked::*;
 pub use self::cache::*;
 pub use self::compiled::*;
+pub use self::grow::{KeptCompile, fresh_pass_compile};
+use self::grow::Grow;
 use self::handlers::*;
 pub use self::run::*;
 

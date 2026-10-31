@@ -57,6 +57,22 @@ pub struct CheckResult {
     pub tdd_decls: Option<std::sync::Arc<tdd_decl::TddDecls>>,
     /// `Roots::object_hashes`: lowering hashes the symbolic form of each object it lowers (`Lowered::object_hashes`).
     pub object_hashes: bool,
+    /// With `Roots::keep_demand`: the rest of the demand state, which a later pass that grows the compile by apps
+    /// continues ([`check_grown`]).
+    pub kept_demand: Option<demand::KeptDemand>,
+}
+
+/// A check a later pass continues on a workspace that grew by apps (ADR-063): what the check of the objects before the
+/// new ones found, and the demand it ended with. See [`check_grown`].
+pub struct PrevCheck {
+    /// How many objects the workspace had: the new ones follow.
+    pub objects: usize,
+    pub demand: demand::Demand,
+    pub kept: demand::KeptDemand,
+    pub types: PosMap<Ty>,
+    pub resolutions: PosMap<Res>,
+    pub from_checker: Vec<Diagnostic>,
+    pub panicked: HashMap<(usize, usize), String>,
 }
 
 /// Why a routine of an object a lean compile left out (`Roots::lean`) does not run. A run that meets it was compiled for
@@ -243,6 +259,9 @@ pub struct Roots {
     /// `alcodes::check_resolved_scope`: AL0296 for an OnPrem method a Cloud app calls), as the must-not-compile
     /// harness checks its cases. A dependency app is never checked: its publisher compiled it. Empty: no app is.
     pub app_contexts: Vec<(String, crate::alcodes::AppContext)>,
+    /// Keep the whole demand state (`CheckResult::kept_demand`) for a later pass that grows the compile by apps
+    /// (ADR-063). Changes nothing else.
+    pub keep_demand: bool,
 }
 
 /// Members that platform enums do not have, as the AL compiler says (corpus must-not-compile 0010
@@ -272,6 +291,33 @@ pub fn check(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog) -> Ch
 }
 
 pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, roots: Roots) -> CheckResult {
+    check_inner(ws, members, catalog, roots, None)
+}
+
+/// The check of a workspace that grew by apps after `prev` checked the objects before them (ADR-063): the result is the
+/// one [`check_with`] gives for the whole workspace, except that it may hold more than that one does (what `prev`'s roots
+/// reached that `roots` do not; a compile of more than the demand needs runs the same, as the eager compile does). The
+/// objects of `prev` are not checked again: their types, resolutions, diagnostics and what they reached are kept, the
+/// demand continues from where `prev` ended with the new apps' objects and roots, and every rule that reads the lists of
+/// the workspace runs again (`Checker::refire`). Only with dependency apps (a demand) and when `prev` checked every
+/// object it had (no selection).
+pub fn check_grown(
+    ws: &Workspace,
+    members: &MemberTable<'_>,
+    catalog: &Catalog,
+    roots: Roots,
+    prev: PrevCheck,
+) -> CheckResult {
+    check_inner(ws, members, catalog, roots, Some(prev))
+}
+
+fn check_inner(
+    ws: &Workspace,
+    members: &MemberTable<'_>,
+    catalog: &Catalog,
+    roots: Roots,
+    prev: Option<PrevCheck>,
+) -> CheckResult {
     let mut roots = roots;
     // The apps under test that have a context, by index in `ws.apps`.
     let contexts: Vec<(usize, crate::alcodes::AppContext)> = std::mem::take(&mut roots.app_contexts)
@@ -346,6 +392,20 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
     let mut timings = CheckTimings::default();
     let mut c = Checker::new(ws, members, catalog, system_enums(catalog), demand_mode);
     c.tdd_apps = roots.tdd.then(|| std::sync::Arc::new(tdd::test_apps(ws)));
+    c.keep_demand = roots.keep_demand;
+    // A grown check starts where the kept one ended: the objects before `n_old` are checked, their findings are kept.
+    let n_old = match prev {
+        Some(prev) => {
+            assert!(demand_mode, "a grown check continues a demand");
+            c.types = prev.types;
+            c.resolutions = prev.resolutions;
+            c.diags = prev.from_checker;
+            c.panicked = prev.panicked;
+            *c.demand.borrow_mut() = Some(demand::State::restore(prev.demand, prev.kept, ws.objects.len()));
+            prev.objects
+        }
+        None => 0,
+    };
     if roots.baseline {
         c.company_data_apps = (0..ws.objects.len())
             .filter(|&oi| {
@@ -379,7 +439,7 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
             c.prefetch = Some(tx);
             // The workspace's own objects are the first round of the demand: they are checked
             // with everything else, on the worker threads.
-            let objects: Vec<usize> = (0..ws.objects.len())
+            let objects: Vec<usize> = (n_old..ws.objects.len())
                 .filter(|&oi| !ws.is_dependency(oi) && !skip(oi))
                 .collect();
             let started = std::time::Instant::now();
@@ -404,6 +464,9 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
             c.reach_dependencies_on_workspace();
             if !roots.no_login_root {
                 c.reach_login_work_date();
+            }
+            if n_old > 0 {
+                c.refire(n_old);
             }
             timings.baseline = started.elapsed();
             let started = std::time::Instant::now();
@@ -439,7 +502,9 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
     let mut left_out_resolutions: Option<PosMap<Res>> = None;
     if roots.only_tests.is_some() {
         let started = std::time::Instant::now();
-        let (more, resolved) = left_out_diagnostics(ws, members, catalog, &roots, &skip, &provided, &c.diags);
+        // A grown check: the kept check checked every object it had, so only the new ones are left out of anything.
+        let skip_new = |oi: usize| oi >= n_old && skip(oi);
+        let (more, resolved) = left_out_diagnostics(ws, members, catalog, &roots, &skip_new, &provided, &c.diags);
         c.diags.extend(more);
         left_out_resolutions = resolved;
         timings.workspace += started.elapsed();
@@ -494,6 +559,7 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
         tdd: c.tdd_apps.is_some(),
         tdd_decls: c.tdd_apps.is_some().then(|| std::sync::Arc::new(tdd_decl::decls(ws))),
         object_hashes: roots.object_hashes,
+        kept_demand: c.kept_demand.take(),
     };
     // The context rules that need what the check resolved. They count as the checker's (`from_checker`): an
     // incremental compile resolves the changed objects only and keeps the earlier findings of the other files.
@@ -956,6 +1022,9 @@ pub(crate) struct Checker<'a> {
     /// The apps (indexes) of the company data codeunits (`Roots::company_data`): their code reaches the reports it
     /// hands to a call, as workspace code does (`reach_named_object`).
     company_data_apps: Vec<usize>,
+    /// Keep the whole demand state when the demand ends (`Roots::keep_demand`), in `kept_demand`.
+    keep_demand: bool,
+    kept_demand: Option<demand::KeptDemand>,
 }
 
 /// Names resolved so far, by (file, kind) and then name; see [`Checker::resolved`].
