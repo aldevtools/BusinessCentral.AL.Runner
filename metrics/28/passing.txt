@@ -10870,6 +10870,7 @@
 72323 P123_ViewsDeclaredOnly
 72332 P123_ShowAsTreeRows
 72334 P123_MaskTypeValues
+72340 P123_PageFieldValuesAllowed
 72347 P123_FileUploadActionDeclaredOnly
 72352 P123_LabelCaptionClass
 72363 P123_RunPageLink
@@ -10883,7 +10884,9 @@
 72410 P106_RunModal_Group_Variants
 72410 P106_RunModal_LiteralNumbers
 72410 P106_RunModal_NumRecFieldAny
+72410 P106_RunModal_NumRecFieldNo_Card
 72410 P106_RunModal_NumRecFieldNo_CardEdit
+72410 P106_RunModal_NumRecFieldNo_Filtered
 72410 P106_RunModal_NumRecFieldNo_List
 72410 P106_RunModal_NumRecFieldNo_Pick
 72410 P106_RunModal_NumRecFieldRef
@@ -17106,7 +17109,9 @@
 89240 SaveAs_Pdf_TwoRows_MergerXmlData_LabelsAndColumns
 89240 SaveAs_Xml_NoRows_LabelsAndColumns
 89240 SaveAs_Xml_TwoRows_LabelsAndColumns
+89242 AfterRunModal_UpdateNoArg_UpdateTrue
 89242 Shown_ActivateFalse_AfterDatabaseChange
+89242 Shown_ActivateNoArg_AfterDatabaseChange
 89242 Shown_ActivateTrue_AfterDatabaseChange
 89242 Shown_UpdateFalse_AfterDatabaseChange
 89244 StaticLayoutMembers_OnInitReport
