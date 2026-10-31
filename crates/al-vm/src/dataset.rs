@@ -329,11 +329,11 @@ pub(crate) fn decimal_formatter(places: Option<&str>) -> Result<String, Signal> 
 
 /// A Time as the dataset writes it: `h:mm:ss`, a plain space, `AM` or `PM`
 /// (handlers/TestReportSaveAsColumnTypesContracts.al:12-14, 12:34:56 PM). The hour is not padded
-/// (the culture's pattern; no single-digit hour is measured) and milliseconds are refused.
+/// (the culture's pattern; no single-digit hour is measured). Milliseconds are cut off, not rounded: a stored field shows the
+/// value the SQL column rounded (`sqltime`, 13:30:00.999 is stored as 13:30:01), a column bound to a variable its own value
+/// (errors/lt-ms-refusals-132/P132ReportTimeMs.al:181 P132_Dataset_Time_Milliseconds, Y38_P132_Dataset_Time_NearNextSecond,
+/// Y38_P132_Dataset_Time_OtherMilliseconds, and the global-variable column of the Y38 tests: 23:59:59.999 is 11:59:59 PM).
 pub(crate) fn time_text(ms_of_day: i64) -> Result<String, Signal> {
-    if ms_of_day % 1000 != 0 {
-        return unsupported("a Time with milliseconds in a dataset (not pinned)");
-    }
     let (h, m, s) = (ms_of_day / 3_600_000, ms_of_day / 60_000 % 60, ms_of_day / 1000 % 60);
     let h12 = if h % 12 == 0 { 12 } else { h % 12 };
     Ok(format!("{h12}:{m:02}:{s:02} {}", if h < 12 { "AM" } else { "PM" }))
@@ -1164,7 +1164,10 @@ mod tests {
     fn time_and_date_follow_the_en_us_pattern() {
         assert_eq!(time_text(45_296_000).unwrap(), "12:34:56 PM");
         assert_eq!(time_text(0).unwrap(), "12:00:00 AM");
-        assert!(time_text(1).is_err());
+        // Milliseconds are cut off (errors/lt-ms-refusals-132/P132ReportTimeMs.al P132_Dataset_Time_Milliseconds, Y38_*).
+        assert_eq!(time_text(1).unwrap(), "12:00:00 AM");
+        assert_eq!(time_text(48_600_999).unwrap(), "1:30:00 PM");
+        assert_eq!(time_text(86_399_999).unwrap(), "11:59:59 PM");
     }
 
     #[test]

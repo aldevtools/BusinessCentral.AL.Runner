@@ -1353,6 +1353,27 @@ impl Session {
         let same_kind = |a: &al_builtins::value::RtType, b: &al_builtins::value::RtType| {
             std::mem::discriminant(a) == std::mem::discriminant(b)
         };
+        let cross_app = {
+            let objects = &self.engine.program.objects;
+            objects[t.object as usize].app != objects[from.object as usize].app
+        };
+        // The kinds the probes of a skipped field across apps cover (Y38TransferXApp.al, RcBTransfer.al:553); others stay refused.
+        let skipped_across_apps = |a: &RtType, b: &RtType| {
+            let probed = |ty: &RtType| {
+                matches!(
+                    ty,
+                    RtType::Boolean
+                        | RtType::Integer
+                        | RtType::Decimal
+                        | RtType::Option(_)
+                        | RtType::Date
+                        | RtType::DateTime
+                        | RtType::Text(_)
+                        | RtType::Code(_)
+                )
+            };
+            probed(a) && probed(b)
+        };
         let mut updates = Vec::new();
         let engine = self.engine.clone();
         let schema = engine.program.objects[t.object as usize].table.as_ref().expect("table");
@@ -1400,7 +1421,27 @@ impl Session {
                 updates.push((dp, moved));
                 continue;
             }
-            if !same_kind(&from.fields[sp].ty, &df.ty) {
+            // A Code field moves into a Text field and a Text field into a Code field, within one app and across apps, with
+            // and without SkipFieldsWithoutCheck (record/lt-y38-transfer-xapp/Y38TransferXApp.al:449-512 `Cod`, `Txt`; :549 p41,
+            // :565 p43, :589-591; RcBTransfer.al:553 `search`).
+            let textual = |ty: &RtType| matches!(ty, RtType::Text(_) | RtType::Code(_));
+            let text_pair = textual(&from.fields[sp].ty) && textual(&df.ty);
+            if let (RtType::Text(_), RtType::Code(Some(to_len)), Value::Text(s)) =
+                (&from.fields[sp].ty, &df.ty, &src_fields[sp])
+                && Value::text_len(s) > *to_len as usize
+            {
+                return unsupported(format!(
+                    "TransferFields of a Text too long for the Code field {} of {} (not pinned)",
+                    df.name, t.name
+                ));
+            }
+            if !same_kind(&from.fields[sp].ty, &df.ty) && !text_pair {
+                // Across apps BC skips a field of another kind, whatever SkipFieldsWithoutCheck says: the target keeps its value
+                // (Y38TransferXApp.al:449-499 X1-X5: Boolean, Integer into Decimal, Option into Integer, Date into DateTime,
+                // Decimal into Boolean; RcBTransfer.al:553 Transfer_From_Another_Apps_Table_Type_Mismatch_BQ: Text into Integer).
+                if cross_app && skipped_across_apps(&from.fields[sp].ty, &df.ty) {
+                    continue;
+                }
                 if skip_mismatch {
                     continue;
                 }
@@ -1419,10 +1460,27 @@ impl Session {
                 updates.push((dp, src_fields[sp].clone()));
                 continue;
             }
-            if let (RtType::Text(Some(_)), RtType::Text(Some(to_len)), Value::Text(s)) =
-                (&from.fields[sp].ty, &df.ty, &src_fields[sp])
+            // A Code value too long for the Text field: across apps (both flags) and with SkipFieldsWithoutCheck the field is
+            // skipped and keeps its value; within one app without it the size error below (Y38TransferXApp.al:504-512
+            // XA_TF_LongCode, :569 and :594 p41_long). A Text one across apps with SkipFieldsWithoutCheck is skipped too
+            // (RcBTransfer.al:553 `longAddressSkip`); across apps without it is not pinned.
+            if let (
+                RtType::Text(Some(_)) | RtType::Code(Some(_)),
+                RtType::Text(Some(to_len)),
+                Value::Text(s) | Value::Code(s),
+            ) = (&from.fields[sp].ty, &df.ty, &src_fields[sp])
                 && Value::text_len(s) > *to_len as usize
             {
+                let from_code = matches!(from.fields[sp].ty, RtType::Code(_));
+                if (from_code && (cross_app || skip_mismatch)) || (cross_app && skip_mismatch) {
+                    continue;
+                }
+                if cross_app {
+                    return unsupported(format!(
+                        "TransferFields across apps of a text too long for field {} of {} (not pinned)",
+                        df.name, t.name
+                    ));
+                }
                 // A --tdd stub field of unknown length refuses first.
                 tdd_fits(&schema.fields[dp], &src_fields[sp])?;
                 let from_schema = engine.program.objects[from.object as usize]
@@ -1490,7 +1548,7 @@ impl Session {
     /// (record/lt-record-write/RcBTransfer.al:265-357, Transfer_TypeDifferences_Narrowing, _DecimalFraction, _Widening,
     /// Transfer_DifferentPrimaryKey). Pinned for Decimal into Integer or BigInteger, Integer into Code, and Boolean and Text either way, between tables whose
     /// captions are their names; anything else gives `None` and stays refused. Between tables of different apps BC skips the field
-    /// instead (Transfer_From_Another_Apps_Table_Type_Mismatch_BQ), which is not implemented.
+    /// instead (Transfer_From_Another_Apps_Table_Type_Mismatch_BQ; `transfer_fields`).
     fn transfer_type_mismatch(
         &mut self,
         rec: &Rec,
@@ -1510,13 +1568,25 @@ impl Session {
             RtType::Code(_) => Some("Code"),
             RtType::Text(_) => Some("Text"),
             RtType::Boolean => Some("Boolean"),
+            RtType::Option(_) => Some("Option"),
+            RtType::Date => Some("Date"),
+            RtType::DateTime => Some("DateTime"),
             _ => None,
         };
         let (to_ty, from_ty) = (name(&t.fields[dp].ty)?, name(&from.fields[sp].ty)?);
         // Text and Boolean either way: misc/lt-probes-needed-6/PnF07TransferEnumOption.al:185-206 Transfer_BooleanAndText.
+        // Boolean or Integer into Decimal, Option into Integer, Date into DateTime, Decimal into Boolean:
+        // record/lt-y38-transfer-xapp/Y38TransferXApp.al:517-523 S1, :539-570 p33, p40, p42, p44, p45.
         if !matches!(
             (to_ty, from_ty),
-            ("Integer" | "BigInteger", "Decimal") | ("Code", "Integer") | ("Text", "Boolean") | ("Boolean", "Text")
+            ("Integer" | "BigInteger", "Decimal")
+                | ("Code", "Integer")
+                | ("Text", "Boolean")
+                | ("Boolean", "Text")
+                | ("Decimal", "Boolean" | "Integer")
+                | ("Integer", "Option")
+                | ("DateTime", "Date")
+                | ("Boolean", "Decimal")
         ) {
             return None;
         }
@@ -1548,10 +1618,11 @@ impl Session {
         ))
     }
 
-    /// A Text value longer than the target Text field: DB:TypeMisMatch with the size text, the target field keeps its value, and
-    /// the primary key fields copied before it stay copied (errors/lt-ms-refusals-130/P130TransferTypes.al:424-480
-    /// RN_Transfer_Text100ToText10_ByValueLength, al-runner issue 5773; :366 for the text). The text names fields and tables by
-    /// name; a field or table whose caption differs, and other fields copied before the failure, are not pinned.
+    /// A Text or Code value longer than the target Text field: DB:TypeMisMatch with the size text, the target field keeps its value,
+    /// and the fields copied before it stay copied (errors/lt-ms-refusals-130/P130TransferTypes.al:424-480
+    /// RN_Transfer_Text100ToText10_ByValueLength, al-runner issue 5773; :366 for the text; record/lt-y38-transfer-xapp/
+    /// Y38TransferXApp.al:569 p41_long, where CustNo stays copied). The text names fields and tables by name; a field or table
+    /// whose caption differs is not pinned.
     fn transfer_too_small(
         &mut self,
         rec: &Rec,
@@ -1576,22 +1647,21 @@ impl Session {
                 "the TransferFields size error of a field or table whose caption is not its name (not pinned)".into(),
             );
         }
-        if updates.iter().any(|(p, _)| !t.keys[0].contains(p)) {
-            return Signal::Unsupported(
-                "a TransferFields that fails on a field after other fields than the primary key were copied (which stay copied is not pinned)"
-                    .into(),
-            );
-        }
         let mut r = rec.borrow_mut();
         for (p, v) in updates {
             r.fields[p] = v;
         }
         let (to, src) = (&t.fields[dp].name, &from.fields[sp].name);
-        let len = |ty: &RtType| if let RtType::Text(Some(n)) = ty { *n } else { 0 };
-        let (from_len, to_len) = (len(&from.fields[sp].ty), len(&t.fields[dp].ty));
+        // `Type: Text5 <-- Code10` for a Code source (Y38TransferXApp.al:569 p41_long).
+        let kind = |ty: &RtType| match ty {
+            RtType::Text(Some(n)) => format!("Text{n}"),
+            RtType::Code(Some(n)) => format!("Code{n}"),
+            _ => "Text0".into(),
+        };
+        let (from_len, to_len) = (kind(&from.fields[sp].ty), kind(&t.fields[dp].ty));
         crate::transactions::al_error_code(
             &format!(
-                "The contents of the {src} field cannot be copied to the {to} field because the size of the {to} field is too small.\\\\Type: Text{to_len} <-- Text{from_len}\\Field: {to} <-- {src}\\Table: {} <-- {}",
+                "The contents of the {src} field cannot be copied to the {to} field because the size of the {to} field is too small.\\\\Type: {to_len} <-- {from_len}\\Field: {to} <-- {src}\\Table: {} <-- {}",
                 t.name, from.name
             ),
             "DB:TypeMisMatch",
