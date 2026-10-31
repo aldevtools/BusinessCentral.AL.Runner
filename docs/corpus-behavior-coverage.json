@@ -6397,6 +6397,15 @@
           "corpus_uses": 1,
           "group": "report",
           "ms_uses": 2,
+          "name": "UseSystemPrinter",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-report-page-properties/03-report-props.al:12"
+        },
+        {
+          "corpus_uses": 1,
+          "group": "report",
+          "ms_uses": 2,
           "name": "WordLayout",
           "pinned": true,
           "runtime_reads": true,
@@ -6482,15 +6491,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "codeunit/lt-u-test-isolation/UTestIsolation.al:91"
-        },
-        {
-          "corpus_uses": 1,
-          "group": "report",
-          "ms_uses": 2,
-          "name": "UseSystemPrinter",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-report-page-properties/03-report-props.al:12"
         },
         {
           "corpus_uses": 0,
@@ -16135,7 +16135,7 @@
         "code": "AL:DivideByZero",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 877,
+        "line": 911,
         "pinned": true,
         "site": "errors/lt-az-error-texts/AzErrorTexts.al:533",
         "template": "Attempted to divide by zero."
@@ -16144,7 +16144,7 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1078,
+        "line": 1112,
         "pinned": true,
         "site": "misc/lt-probes-needed-6/PnF31TimeArithmetic.al:81",
         "template": "Adding to an undefined (0T) time."
@@ -16153,7 +16153,7 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1142,
+        "line": 1176,
         "pinned": true,
         "site": "misc/lt-probes-needed-6/PnF31TimeArithmetic.al:116",
         "template": "Subtracting from an undefined (0T) time."
@@ -16162,7 +16162,7 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1145,
+        "line": 1179,
         "pinned": true,
         "site": "misc/lt-probes-needed-6/PnF31TimeArithmetic.al:115",
         "template": "Subtracting an undefined (0T) time."
@@ -16171,7 +16171,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1170,
+        "line": 1204,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16180,7 +16180,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1178,
+        "line": 1212,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16189,7 +16189,7 @@
         "code": "AL:DivideByZero",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1215,
+        "line": 1249,
         "pinned": true,
         "site": "errors/lt-az-error-texts/AzErrorTexts.al:533",
         "template": "Attempted to divide by zero."
@@ -16198,7 +16198,7 @@
         "code": "AL:DivideByZero",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1240,
+        "line": 1274,
         "pinned": true,
         "site": "errors/lt-az-error-texts/AzErrorTexts.al:533",
         "template": "Attempted to divide by zero."
@@ -16207,7 +16207,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1294,
+        "line": 1328,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16216,7 +16216,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1299,
+        "line": 1333,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16225,7 +16225,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1346,
+        "line": 1380,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -16414,7 +16414,7 @@
         "code": "AssertError",
         "file": "crates/al-vm/src/exec/run.rs",
         "generic": false,
-        "line": 464,
+        "line": 479,
         "pinned": true,
         "site": "types/TestFormatEvaluateTextContracts.al:228",
         "template": "An error was expected inside an ASSERTERROR statement."
@@ -16423,7 +16423,7 @@
         "code": "AL:InvalidOperation",
         "file": "crates/al-vm/src/exec/run.rs",
         "generic": false,
-        "line": 611,
+        "line": 626,
         "pinned": true,
         "site": "TestDotNetValueKindsContracts.al:314",
         "template": "Collection was modified; enumeration operation may not execute."
@@ -16549,7 +16549,7 @@
         "code": "FormCloseNotAllowed",
         "file": "crates/al-vm/src/pages/rows.rs",
         "generic": false,
-        "line": 3798,
+        "line": 3799,
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."
@@ -16702,7 +16702,7 @@
         "code": "Evaluate",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 1819,
+        "line": 1865,
         "pinned": true,
         "site": "errors/lt-ms-refusals-136/P136Report.al:349",
         "template": "The format of the Date '''' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
@@ -16711,7 +16711,7 @@
         "code": "",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 2686,
+        "line": 2732,
         "pinned": true,
         "site": "handlers/TestReportRuntimeContracts.al:462",
         "template": "The object has been run. Use the function CLEAR(Report)."
@@ -27023,7 +27023,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-report-page-properties/03-report-props.al:12",
-        "state": "refused"
+        "state": "implemented"
       },
       {
         "area": "properties",

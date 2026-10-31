@@ -12,7 +12,7 @@ The catalog of each area is what the AL language server offers in probe files (`
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | attributes | 42 | 33 | 78.6% | 31 | 73.8% | 0 | 11 | 1 |
 | events | 23 | 16 | 69.6% | 23 | 100.0% | 0 | 0 | 0 |
-| properties | 720 | 671 | 93.2% | 608 | 84.4% | 7 | 105 | 2 |
+| properties | 720 | 671 | 93.2% | 609 | 84.6% | 6 | 105 | 2 |
 | syntax | 16 | 16 | 100.0% | 16 | 100.0% | 0 | 0 | 0 |
 | triggers | 128 | 128 | 100.0% | 118 | 92.2% | 1 | 9 | 0 |
 
@@ -86,7 +86,7 @@ Left out: 293 presentation-only properties (Caption, ToolTip, ApplicationArea, .
 | QueryColumn | 6 | 6 | 100.0% | 6 | 100.0% | 0 | 0 | 0 |
 | QueryDataItem | 3 | 3 | 100.0% | 3 | 100.0% | 0 | 0 | 0 |
 | QueryFilter | 4 | 4 | 100.0% | 4 | 100.0% | 0 | 0 | 0 |
-| Report | 36 | 34 | 94.4% | 32 | 88.9% | 4 | 0 | 0 |
+| Report | 36 | 34 | 94.4% | 33 | 91.7% | 3 | 0 | 0 |
 | ReportColumn | 11 | 11 | 100.0% | 11 | 100.0% | 0 | 0 | 0 |
 | ReportDataItem | 13 | 13 | 100.0% | 13 | 100.0% | 0 | 0 | 0 |
 | ReportExtension | 3 | 3 | 100.0% | 3 | 100.0% | 0 | 0 | 0 |
