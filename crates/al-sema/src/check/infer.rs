@@ -540,10 +540,10 @@ impl<'a> Checker<'a> {
             // (`Client.UseResponseCookies := b`: network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:16-74).
             let setter = |c: &Cand| match &c.target {
                 Res::Proc { .. } => true,
-                Res::Builtin(id) => self
-                    .catalog
-                    .by_id(id)
-                    .is_some_and(|s| crate::lower::is_property_setter(&s.receiver, &s.name)),
+                Res::Builtin(id) => self.catalog.by_id(id).is_some_and(|s| {
+                    crate::lower::is_property_setter(&s.receiver, &s.name)
+                        || crate::lower::is_assign_call(&s.receiver, &s.name)
+                }),
                 _ => false,
             };
             let builtin_setter = |c: &&Cand| {

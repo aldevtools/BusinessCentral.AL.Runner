@@ -511,6 +511,29 @@ pub(crate) fn is_property_setter(receiver: &str, name: &str) -> bool {
     )
 }
 
+/// The builtin methods whose assignment form `X.M := v` is the call `X.M(v)` though M is no property: alc accepts
+/// `X.M := v` where M has one form that takes one value. Pinned by corpus writer Y29 on the SaaS sandbox
+/// (record/ProbePropertyAssignmentForms.al on branch al-runtime-rs-staging-y29, al-runner issue 6526): the result is the
+/// one of the call form, for TextBuilder.Append, List.Add, Dictionary.Remove, Text.Contains (the text is unchanged),
+/// XmlElement.Add, HttpClient.SetBaseAddress, HttpRequestMessage.SetRequestUri, RecordRef.CurrentKeyIndex and
+/// Dialog.HideSubsequentDialogs (tests Y29_TextBuilder_AssignForms, Y29_Collections_Text_Sleep_AssignForms,
+/// Y29_XmlNodes_AssignForms, Y29_HttpClient_AssignForms, Y29_HttpRequestMessage_AssignForms,
+/// Y29_RecordRef_FilterPage_Session_AssignForms). Other members stay refused ("is not assignable").
+pub(crate) fn is_assign_call(receiver: &str, name: &str) -> bool {
+    matches!(
+        (receiver, name),
+        ("TextBuilder", "Append")
+            | ("List", "Add")
+            | ("Dictionary", "Remove")
+            | ("Text", "Contains")
+            | ("XmlElement", "Add")
+            | ("HttpClient", "SetBaseAddress")
+            | ("HttpRequestMessage", "SetRequestUri")
+            | ("RecordRef", "CurrentKeyIndex")
+            | ("Dialog", "HideSubsequentDialogs")
+    )
+}
+
 fn sig_tokens(n: &SyntaxNode) -> Vec<al_syntax::SyntaxToken> {
     n.children_with_tokens()
         .filter_map(|e| e.into_token())
