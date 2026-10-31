@@ -587,13 +587,6 @@ fn copy_company_to_an_existing_destination_fails() {
 }
 
 #[test]
-fn copy_company_that_would_succeed_is_refused_until_pinned() {
-    // A successful copy is not pinned (OSmallBuiltins.al:87-90: it cannot run inside BC's test runner).
-    let r = run_with(TABLES, "", "CopyCompany(CompanyName(), 'Second Co');");
-    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
-}
-
-#[test]
 fn copy_company_with_the_result_used_is_refused() {
     // Only the statement form is pinned (OSmallBuiltins.al:129).
     let r = run_with(
@@ -602,4 +595,212 @@ fn copy_company_with_the_result_used_is_refused() {
         "ok := CopyCompany('LT O No Such Company', 'X');",
     );
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+}
+
+// ---- Database.CopyCompany that succeeds: session/lt-y22-copy-company/Y22CopyCompany.al (corpus writer Y22, BC 29) ------
+
+const COPY_OBJECTS: &str = r#"
+table 50930 "CP Row"
+{
+    fields { field(1; No; Integer) { } field(2; Name; Text[30]) { } field(3; ByTrigger; Boolean) { } }
+    keys { key(PK; No) { } }
+    trigger OnInsert()
+    var
+        L: Record "CC Tenant";
+    begin
+        ByTrigger := true;
+        L.Id := 1000 + No;
+        L.Insert();
+    end;
+}
+codeunit 50931 "CP Subs"
+{
+    [EventSubscriber(ObjectType::Table, Database::"CP Row", 'OnAfterInsertEvent', '', false, false)]
+    local procedure RowAfterInsert(var Rec: Record "CP Row")
+    var
+        L: Record "CC Tenant";
+    begin
+        L.Id := 2000 + Rec.No;
+        L.Insert();
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::Company, 'OnAfterInsertEvent', '', false, false)]
+    local procedure CompanyAfterInsert(var Rec: Record Company)
+    var
+        L: Record "CC Tenant";
+    begin
+        L.Id := 3000 + StrLen(Rec.Name);
+        L.Insert();
+    end;
+}
+"#;
+
+const COPY_VARS: &str = "Src: Record Company; Dst: Record Company; Row: Record \"CP Row\"; Other: Record \"CP Row\"; L: Record \"CC Tenant\"; s: Text;";
+
+const COPY_SETUP: &str = "Src.Name := 'Source'; Src.\"Display Name\" := 'Disp'; Src.\"Evaluation Company\" := true;
+     Src.\"Business Profile Id\" := 'Prof'; Src.Insert();
+     Row.ChangeCompany('Source');
+     Row.No := 1; Row.Name := 'r1'; Row.Insert(true);
+     Row.No := 2; Row.Name := 'r2'; Row.Insert(true);
+     Commit();";
+
+fn copy_text(extra: &str, vars: &str, body: &str) -> String {
+    let tables = format!("{TABLES}{COPY_OBJECTS}{extra}");
+    match run_with(&tables, &format!("{COPY_VARS}{vars}"), &format!("{COPY_SETUP}{body}")) {
+        Ok(Value::Text(s)) | Ok(Value::Code(s)) => s.to_string(),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn copy_company_makes_the_company_and_copies_its_rows_as_they_are() {
+    // Y22CopyCompany.al Y22_CopyCompany_CopiesCompanyAndRows: the rows come over with the same values, SystemId and
+    // stamps; no trigger or table event of the copied rows runs; only the Company's OnAfterInsertEvent, once. The new
+    // Company row: Display Name and Business Profile Id empty, Evaluation Company copied, a new Id and SystemId.
+    let out = copy_text(
+        "",
+        "",
+        "s := Format(L.Count()) + '|';
+         CopyCompany('Source', 'Dst');
+         s += Format(L.Count()) + Format(L.Get(3003)) + '|';
+         Src.Get('Source');
+         s += Format(Dst.Get('Dst')) + '|' + Dst.Name + '|' + Dst.\"Display Name\" + '|' + Format(Dst.\"Evaluation Company\") + '|'
+             + Dst.\"Business Profile Id\" + '|' + Format(IsNullGuid(Dst.Id)) + Format(Dst.Id = Src.Id) + Format(Dst.SystemId = Src.SystemId) + '|';
+         Other.ChangeCompany('Dst');
+         s += Format(Other.Count()) + '|';
+         Other.Get(2); Row.Get(2);
+         s += Other.Name + Format(Other.ByTrigger) + Format(Other.SystemId = Row.SystemId) + Format(Other.SystemCreatedAt = Row.SystemCreatedAt) + '|';
+         s += Format(Row.Count());
+         exit(s);",
+    );
+    assert_eq!(out, "5|6Yes|Yes|Dst||Yes||NoNoNo|2|r2YesYesYes|2");
+}
+
+#[test]
+fn copy_company_rows_are_apart_from_the_source_after_the_copy() {
+    // Y22CopyCompany.al: the copy is a company of its own; a write there leaves the source alone.
+    let out = copy_text(
+        "",
+        "",
+        "CopyCompany('Source', 'Dst');
+         Other.ChangeCompany('Dst'); Other.No := 3; Other.Insert();
+         exit(Format(Other.Count()) + Format(Row.Count()));",
+    );
+    assert_eq!(out, "32");
+}
+
+#[test]
+fn copy_company_refuses_a_company_subscriber_that_reads_run_trigger() {
+    // Y22CopyCompany.al logs the Company OnAfterInsertEvent but not its RunTrigger.
+    let extra = r#"
+codeunit 50932 "CP Run Trigger"
+{
+    [EventSubscriber(ObjectType::Table, Database::Company, 'OnAfterInsertEvent', '', false, false)]
+    local procedure CompanyAfterInsert(var Rec: Record Company; RunTrigger: Boolean)
+    var
+        L: Record "CC Tenant";
+    begin
+        if RunTrigger then
+            L.Id := 4000
+        else
+            L.Id := 4001;
+        L.Insert();
+    end;
+}
+"#;
+    let tables = format!("{TABLES}{COPY_OBJECTS}{extra}");
+    let r = run_with(
+        &tables,
+        COPY_VARS,
+        &format!("{COPY_SETUP} CopyCompany('Source', 'Dst');"),
+    );
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+}
+
+#[test]
+fn copy_company_with_uncommitted_writes_is_refused() {
+    // Y22CopyCompany.al commits before every copy; a copy inside a write transaction is not pinned.
+    let tables = format!("{TABLES}{COPY_OBJECTS}");
+    let r = run_with(
+        &tables,
+        COPY_VARS,
+        &format!("{COPY_SETUP} Row.No := 9; Row.Insert(); CopyCompany('Source', 'Dst');"),
+    );
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+}
+
+const BASELINE_CODE: &str = r#"
+codeunit 50100 C
+{
+    procedure Install()
+    var
+        Co: Record Company;
+        Row: Record "CP Row";
+    begin
+        Co.Name := CompanyName();
+        if Co.Insert() then;
+        Row.No := 1;
+        if Row.Insert() then;
+    end;
+
+    procedure InstallAndCopy()
+    begin
+        Install();
+        Commit();
+        CopyCompany(CompanyName(), 'Copy');
+    end;
+
+    procedure ReadFresh(): Text
+    var
+        Co: Record Company;
+        Other: Record "CP Row";
+    begin
+        Co.Name := 'Fresh'; Co.Insert(); Commit();
+        Other.ChangeCompany('Fresh');
+        exit(Format(Other.Count()));
+    end;
+
+    procedure CopyAndRead(): Text
+    begin
+        CopyCompany(CompanyName(), 'Copy');
+        exit(ReadCopy());
+    end;
+
+    procedure ReadCopy(): Text
+    var
+        Other: Record "CP Row";
+    begin
+        Other.ChangeCompany('Copy');
+        exit(Format(Other.Count()));
+    end;
+}
+"#;
+
+fn baseline_built() -> al_testkit::Built {
+    al_testkit::Built::from_source(&format!("{TABLES}{COPY_OBJECTS}{BASELINE_CODE}"))
+}
+
+#[test]
+fn a_copy_of_the_session_company_holds_the_rows_install_code_wrote() {
+    // A new company would hold the install rows too, which the runtime made only for the session company: refused. A copy
+    // holds the session company's rows as they are (Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows): answered.
+    let mut b = baseline_built();
+    b.run_in("C", "Install").unwrap();
+    let baseline = b.session.capture_baseline();
+    b.session.restore_baseline(&baseline);
+    let fresh = b.run_in("C", "ReadFresh");
+    assert!(matches!(fresh, Err(Signal::Unsupported(_))), "{fresh:?}");
+    b.session.restore_baseline(&baseline);
+    assert_eq!(al_testkit::text(b.run_in("C", "CopyAndRead")), "1");
+}
+
+#[test]
+fn a_copy_made_by_install_code_stays_a_copy_through_the_baseline_bytes() {
+    let mut b = baseline_built();
+    b.run_in("C", "InstallAndCopy").unwrap();
+    let bytes = b.session.capture_baseline().to_bytes().expect("plain rows");
+    let baseline = al_vm::Baseline::from_bytes(&bytes).expect("the same layout");
+    let mut fresh = baseline_built();
+    fresh.session.restore_baseline(&baseline);
+    assert_eq!(al_testkit::text(fresh.run_in("C", "ReadCopy")), "1");
 }

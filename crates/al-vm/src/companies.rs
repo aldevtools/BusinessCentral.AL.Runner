@@ -7,6 +7,7 @@
 
 use crate::Session;
 use crate::records::Rec;
+use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
 use al_builtins::ops;
@@ -131,10 +132,13 @@ impl Session {
         let Some(company) = r.company.as_ref().filter(|_| !r.temporary) else {
             return Ok(self.cx.clone());
         };
+        // A company `Database.CopyCompany` made from the session company holds its rows as they were
+        // (session/lt-y22-copy-company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows), install rows included.
+        let full_copy = self.full_copies.contains(company.as_str());
         if t.per_company
             && !r.temporary
             && (self.engine.unseeded.contains(&(t.object as usize))
-                || self.baseline_rows.contains(&t.object)
+                || (self.baseline_rows.contains(&t.object) && !full_copy)
                 || self.backs_rows(t.object))
         {
             return unsupported(format!(
@@ -264,13 +268,102 @@ impl Session {
                 ),
                 "DB:RecordExists",
             )),
-            (Some(true), Some(false)) => unsupported(
-                "Database.CopyCompany that would copy a company: which tables it copies and whether triggers or events run is not pinned",
-            ),
+            (Some(true), Some(false)) => self.copy_company_rows(&source, &destination),
             _ => unsupported(
                 "Database.CopyCompany with a missing source and an existing destination, a name in another case than the Company table's, or a name longer than the Company table's key (not pinned)",
             ),
         }
+    }
+
+    /// The copy of `Database.CopyCompany` (session/lt-y22-copy-company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows,
+    /// SaaS BC 29, corpus writer Y22): a new Company row with the destination's name, `Evaluation Company` as the source's,
+    /// `Display Name` and `Business Profile Id` empty, a new `Id` and `SystemId`; every per-company row of the source as it
+    /// is (system fields included); tables that are not per company unchanged. No trigger or table event of a copied row
+    /// and no database trigger runs; the Company's `OnAfterInsertEvent` runs once for the new row.
+    fn copy_company_rows(&mut self, source: &str, destination: &str) -> Result<Value, Signal> {
+        assume(Assumption::CopyCompanyInSaas);
+        // On BC the copy runs beside the session's transaction: copying the session company inside a test meets the test
+        // runner's own row (lt-o-small-builtins/OSmallBuiltins.al:87-90).
+        if self.in_test_codeunit && source == &*self.cx.company {
+            return unsupported(
+                "Database.CopyCompany of the session company while a test runs: on BC it meets the test runner's own row in Test Method Line (lt-o-small-builtins/OSmallBuiltins.al:87-90; the error is not pinned)",
+            );
+        }
+        if self.store.has_uncommitted() {
+            return unsupported(
+                "Database.CopyCompany inside a write transaction (not pinned: Y22CopyCompany.al commits before every copy)",
+            );
+        }
+        if !self.companies.is_empty() && source != &*self.cx.company {
+            return unsupported(
+                "Database.CopyCompany of a company other than the session company under --companies (ADR-046 decision 5: its rows are not all known)",
+            );
+        }
+        let Some(t) = self.company_table() else {
+            return unsupported("Database.CopyCompany without the Company table");
+        };
+        // The Company's OnBeforeInsertEvent and its database trigger were not observed (Y22CopyCompany.al binds neither).
+        if self.has_listeners(t.object as usize, "onbeforeinsertevent", None)? {
+            return unsupported(
+                "Database.CopyCompany with a subscriber to the Company's OnBeforeInsertEvent (not pinned)",
+            );
+        }
+        if self.global_enabled(&t, crate::globaltriggers::GlobalOp::Insert)? {
+            return unsupported(
+                "Database.CopyCompany with the database insert trigger on for the Company table (not pinned)",
+            );
+        }
+        let key = ops::convert(Value::Text(source.to_string().into()), &t.fields[0].ty)
+            .map_err(|_| Signal::Unsupported("Database.CopyCompany: a source name that is no Company key".into()))?;
+        let Some(source_row) = self
+            .store
+            .get(&self.cx, &t, &[key])
+            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?
+        else {
+            return unsupported("Database.CopyCompany of a company that has no row in the Company table");
+        };
+        let at = |id: u32| t.fields.iter().position(|f| f.id == id);
+        let (Some(name_at), Some(evaluation_at), Some(id_at)) = (at(1), at(2), at(8000)) else {
+            return unsupported("Database.CopyCompany on a Company table without Name, Evaluation Company and Id");
+        };
+        // Only these fields were observed; a source with any other field set (system fields aside) is not pinned.
+        for (i, f) in t.fields.iter().enumerate() {
+            let observed = [1, 2, 3, 8000, 8005].contains(&f.id) || f.id >= 2_000_000_000;
+            let default = self.default_value(&f.ty);
+            if !observed && !ops::compare(&source_row[i], &default).is_ok_and(|o| o.is_eq()) {
+                return unsupported(format!(
+                    "Database.CopyCompany of a company whose field {} is set (what the copy holds there is not pinned)",
+                    f.name
+                ));
+            }
+        }
+        self.store.copy_company(source, destination);
+        if source == &*self.cx.company || self.full_copies.contains(source) {
+            self.full_copies.insert(destination.to_string());
+        }
+        let Value::Record(company) = self.default_value(&al_builtins::value::RtType::Record(t.object, false)) else {
+            unreachable!("a record type makes a record")
+        };
+        {
+            let mut c = company.borrow_mut();
+            c.fields[name_at] = ops::convert(Value::Text(destination.to_string().into()), &t.fields[name_at].ty)
+                .map_err(|_| {
+                    Signal::Unsupported("Database.CopyCompany: a destination name that is no Company key".into())
+                })?;
+            c.fields[evaluation_at] = source_row[evaluation_at].clone();
+            c.fields[id_at] = Value::Guid(self.fresh_guid());
+        }
+        self.run_trigger_unknown = Some(
+            "the RunTrigger of the Company insert that Database.CopyCompany makes is not pinned (Y22CopyCompany.al does not log it)",
+        );
+        let inserted = self.record_op(
+            al_builtins::record_op::RecordOp::Insert,
+            &company,
+            &mut [Value::Boolean(false)],
+        );
+        self.run_trigger_unknown = None;
+        inserted?;
+        Ok(Value::Null)
     }
 
     /// Whether `name` is a company spelled exactly so (`Some(true)`), no company in any case (`Some(false)`), or a
@@ -327,5 +420,6 @@ impl Session {
     /// After a Company row went: the company's rows are gone.
     pub(crate) fn after_company_row_delete(&mut self, name: &str) {
         self.store.drop_company(name);
+        self.full_copies.remove(name);
     }
 }

@@ -827,6 +827,23 @@ impl MemStore {
         }
     }
 
+    /// Copies every row of company `from` to company `to`, as they are (system fields included), as
+    /// `Database.CopyCompany` does. Part of the open transaction.
+    pub fn copy_company(&mut self, from: &str, to: &str) {
+        let copied: Vec<(Slot, Table)> = self
+            .tables
+            .iter()
+            .filter(|((c, _), _)| !c.is_empty() && &**c == from)
+            .map(|((_, object), table)| ((std::sync::Arc::from(to), *object), table.clone()))
+            .collect();
+        for (target, table) in copied {
+            self.tables.insert(target.clone(), table);
+            self.counter = next_stamp();
+            self.versions.insert(target.clone(), self.counter);
+            self.shapes.insert(target, self.counter);
+        }
+    }
+
     /// A number that changes whenever the rows of table `t` change (a rollback included). Queries
     /// compare it to tell whether their result set is stale (corpus query/TestQueryReadAfterWrite.al).
     pub fn table_stamp(&self, cx: &AccessContext, t: &TableDef) -> u64 {
@@ -1893,6 +1910,52 @@ mod tests {
         assert_eq!(s.count(&cx("C"), &t, &[]).unwrap(), 1);
         s.rollback();
         assert_eq!(s.count(&cx("B"), &t, &[]).unwrap(), 1);
+    }
+
+    #[test]
+    fn copying_a_company_copies_its_rows_as_they_are_and_a_rollback_removes_them() {
+        let cx = |c: &str| AccessContext {
+            company: c.into(),
+            user: "U".into(),
+        };
+        let field = |id| FieldDef {
+            id,
+            name: "K".into(),
+            ty: al_builtins::value::RtType::Integer,
+            stored: true,
+            code_storage: Default::default(),
+        };
+        let t = TableDef {
+            object: 7,
+            name: "T".into(),
+            fields: vec![field(1), field(2)],
+            keys: vec![vec![0]],
+            per_company: true,
+        };
+        let mut s = MemStore::default();
+        s.insert(&cx("A"), &t, vec![Value::Integer(1), Value::Integer(10)])
+            .unwrap();
+        s.insert(&cx("A"), &t, vec![Value::Integer(2), Value::Integer(20)])
+            .unwrap();
+        s.insert(&cx("B"), &t, vec![Value::Integer(9), Value::Integer(90)])
+            .unwrap();
+        s.commit();
+        let before = s.table_stamp(&cx("C"), &t);
+        s.copy_company("A", "C");
+        assert_eq!(s.count(&cx("C"), &t, &[]).unwrap(), 2);
+        let row = s.get(&cx("C"), &t, &[Value::Integer(2)]).unwrap().unwrap();
+        assert!(matches!(row[1], Value::Integer(20)), "the row is copied as it is");
+        assert_eq!(s.count(&cx("A"), &t, &[]).unwrap(), 2, "the source keeps its rows");
+        assert_ne!(s.table_stamp(&cx("C"), &t), before, "queries see the change");
+        s.insert(&cx("C"), &t, vec![Value::Integer(3), Value::Integer(30)])
+            .unwrap();
+        assert_eq!(
+            s.count(&cx("A"), &t, &[]).unwrap(),
+            2,
+            "the copy is apart from the source"
+        );
+        s.rollback();
+        assert_eq!(s.count(&cx("C"), &t, &[]).unwrap(), 0);
     }
 
     #[test]
