@@ -151,7 +151,6 @@
 27 1684-subscriber-table-instead-of-database
 27 1696-tableext-rec-currfieldno
 27 1714-permissionset-internal-codeunit-other-app
-27 1769-interface-from-unrelated-enum
 28 1410-overloads-differ-only-in-text-length-or-return-type
 28 1412-local-procedure-through-own-object-handle
 28 1413-internal-procedure-of-another-app
@@ -172,7 +171,6 @@
 28 1684-subscriber-table-instead-of-database
 28 1696-tableext-rec-currfieldno
 28 1714-permissionset-internal-codeunit-other-app
-28 1769-interface-from-unrelated-enum
 29 1410-overloads-differ-only-in-text-length-or-return-type
 29 1412-local-procedure-through-own-object-handle
 29 1413-internal-procedure-of-another-app
@@ -193,7 +191,6 @@
 29 1684-subscriber-table-instead-of-database
 29 1696-tableext-rec-currfieldno
 29 1714-permissionset-internal-codeunit-other-app
-29 1769-interface-from-unrelated-enum
 # corpus bump 30: new cases the front end does not decide yet (Rec.CurrFieldNo in an event subscriber, ExcludedPermissionSets
 # in a permission set extension, BigText assigned to Text, test page access to pending special controls, and on BC 29 an
 # interface default method called through a codeunit variable).
@@ -207,13 +204,10 @@
 29 1720-permissionsetextension-excludedpermissionsets
 29 1864-testpage-cannot-reach-pending-special-controls
 # corpus bumps 31 and 32: new cases the front end does not decide yet
-27 1872-ternary-date-true-datetime-false
 27 1873-one-char-literal-in-text-variable-range
 27 1874-one-char-literal-in-code-variable-range
-28 1872-ternary-date-true-datetime-false
 28 1873-one-char-literal-in-text-variable-range
 28 1874-one-char-literal-in-code-variable-range
-29 1872-ternary-date-true-datetime-false
 29 1873-one-char-literal-in-text-variable-range
 29 1874-one-char-literal-in-code-variable-range
 # corpus bump 50: AL0104, AL0105, AL0107, AL0111 and AL0224 are checked for the keyword-name shapes of cases 2016-2040; these
