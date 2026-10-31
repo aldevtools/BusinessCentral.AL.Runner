@@ -2804,12 +2804,19 @@ impl Session {
             // pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al:273-303 with OnAfterGetRecord,
             // :308-342 with OnAfterGetCurrRecord too: GoToKey(2,50) and Next after the filter change show their rows; al-runner
             // issue 6381). With more rows
-            // than a window before the row, what the client holds is not pinned: the next move is refused.
+            // than a window, a page that reads its rows from the table holds what the refresh read: the way back reached the
+            // first row of the view, so the rows are the new view's from its start (al-runner issue 6469, a regression of the
+            // refusal below: First goes to A01 and Next walks the whole view, as on real BC; assumption
+            // `action-refresh-holds-read-rows`). With OnFindRecord the rows are not pinned: the next move is refused.
+            let held = back.len() + rows.len() > Self::WINDOW;
+            if held && !find {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionRefreshHoldsReadRows);
+            }
             let mut s = st.borrow_mut();
-            if back.len() + rows.len() > Self::WINDOW {
+            if held && find {
                 s.window = Vec::new();
                 s.window_from_start = false;
-                s.validate_refresh_unheld = true;
+                s.action_refresh_unheld = true;
             } else {
                 back.reverse();
                 back.extend(rows);
