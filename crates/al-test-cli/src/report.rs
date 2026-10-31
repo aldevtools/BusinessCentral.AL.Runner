@@ -54,6 +54,8 @@ pub struct Report {
     /// The assumptions the tests of every test app ran through, ranked by flagged passes
     /// (`--top-assumptions`); empty when none was hit.
     pub assumptions: Vec<AssumptionCount>,
+    /// What each pass of the run did, counted (`work.rs`, the work ratchet), by pass name. Empty where no run happened.
+    pub work: BTreeMap<String, crate::work::Counts>,
 }
 
 /// A passing test that ran through unprobed assumptions.
@@ -302,6 +304,7 @@ pub fn build_with(
         bc_build: None,
         suites: Vec::new(),
         timings: None,
+        work: BTreeMap::new(),
     };
     for case in oracle {
         if case.bc_failed {

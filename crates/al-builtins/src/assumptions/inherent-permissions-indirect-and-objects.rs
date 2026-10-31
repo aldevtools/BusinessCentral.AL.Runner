@@ -1,0 +1,6 @@
+InherentPermissionsIndirectAndObjects => {
+    id: "inherent-permissions-indirect-and-objects",
+    assumed: "In a session whose permissions a test lowered (ADR-062), an object's InherentPermissions property grants like a permission set line of the same letters: a lower-case letter on a table (InherentPermissions = rimd) gives the indirect level, which the Permissions property of the code's object turns into an allowed access, and InherentPermissions = X on a codeunit, page, report, xmlport or query grants its Execute. The corpus pins only upper-case letters on a table (RiskyInherentPerms.al:53-122).",
+    tests: "Business Foundation Tests: codeunit 134530 \"No. Series Tests\" (TestGetNextNo_Sequence and the other tests under SetExactPermissionSet('No. Series Test'), which call codeunit 310 \"No. Series\", InherentPermissions = X) and codeunit 134370 \"ERM No. Series Tests\" (NoSeriesPage_DrillDown, table 7775 with indirect InherentPermissions); they pass in Microsoft's CI.",
+    probe: "SetExactPermissionSet of an own set without Execute grants: call a codeunit with InherentPermissions = X and one without; a table with InherentPermissions = rimd: read and insert directly and from a codeunit whose Permissions property names the table. Observe errors or not.",
+}

@@ -1234,7 +1234,13 @@ impl Session {
                 ))
             }
             "IsEmpty" | "Count" | "Init" | "Insert" | "Modify" | "Delete" | "DeleteAll" | "Find" | "FindFirst"
-            | "FindLast" | "FindSet" | "Next" | "Reset" | "Rename" => self.record_op(record_method(method), &rec, args),
+            | "FindLast" | "FindSet" | "Next" | "Reset" | "Rename" => {
+                // ADR-062: a RecordRef write is checked like a record write (Y19PermWrites.al Y19_P6_RecordRef).
+                if self.permissions.is_some() {
+                    self.permission_from_al = true;
+                }
+                self.record_op(record_method(method), &rec, args)
+            }
             // As Record.Truncate: every row the filters select goes, with or without the argument
             // (recordref/lt-recordref-fieldref-members/P92Counts.al:124-186, Truncate_Unfiltered, Truncate_WithFilter,
             // Truncate_WithoutTriggerArgument).

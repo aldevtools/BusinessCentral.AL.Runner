@@ -7,7 +7,8 @@ use al_host::dotnet::DotNetHost;
 use al_test_cli::args::{self, Args, Parsed};
 use al_test_cli::dotnet::{SidecarConfig, SidecarHost};
 use al_test_cli::{
-    config, corpus, deps, drift, explain, insight, oracle, output, pin, report, runner::Runner, runtime, select, target,
+    config, corpus, deps, drift, explain, insight, oracle, output, pin, report, runner::Runner, runtime, select,
+    target, work,
 };
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -395,7 +396,7 @@ fn run_version_passes(
             }
         });
     }
-    let Some(joined) = joined else {
+    let Some(mut joined) = joined else {
         // No pass has a selected test: what a version without other passes says.
         if args.explain.is_some() && args.all_versions {
             println!(
@@ -408,6 +409,7 @@ fn run_version_passes(
         return Err(unmatched.into_iter().next().unwrap_or_default());
     };
     if let Some(rep) = &joined.rep {
+        joined.code = joined.code.max(work_ratchet(args, root, version, rep)?);
         let all = args.all_versions;
         if let Some(p) = &args.json {
             write(
@@ -422,9 +424,69 @@ fn run_version_passes(
     Ok(joined)
 }
 
+/// The work ratchet (`work.rs`): the counts of every pass of `version` against `metrics/<major>/work.json`, or written to
+/// it with `--update-work`. The exit code: 1 when a count is more than the tolerance above the file.
+fn work_ratchet(args: &Args, root: &Path, version: &config::VersionEntry, rep: &report::Report) -> Result<u8, String> {
+    let rel = format!("metrics/{}/work.json", version.major);
+    let path = root.join(&rel);
+    let passes: Vec<(String, work::Counts)> = rep.work.clone().into_iter().collect();
+    let actual = work::WorkFile::of(rep.bc_build.clone(), &passes);
+    let skip = work::not_full_corpus(args).or_else(|| work::not_full_corpus_env(|v| std::env::var_os(v).is_some()));
+    if args.update_work {
+        if let Some(why) = skip {
+            return Err(format!(
+                "--update-work needs a run of the full corpus, not one with {why}"
+            ));
+        }
+        write(&path, &actual.to_text())?;
+        println!("work ratchet: BC {}: wrote {rel}", version.bc_version);
+        return Ok(0);
+    }
+    if skip.is_some() || args.fetch_deps || args.build_compile_cache {
+        return Ok(0);
+    }
+    let annotate = std::env::var_os("GITHUB_ACTIONS").is_some();
+    let expected = match std::fs::read_to_string(&path) {
+        Ok(text) => work::WorkFile::parse(&text).map_err(|e| format!("{rel}: {e}"))?,
+        Err(_) => {
+            println!(
+                "{}work ratchet: BC {}: {rel} is missing; make it with `al-test-cli --root . --update-work --bc-version {}`",
+                if annotate { "::error::" } else { "" },
+                version.bc_version,
+                version.bc_version
+            );
+            return Ok(1);
+        }
+    };
+    let findings = work::compare(&expected, &actual);
+    for f in &findings {
+        let tag = match (annotate, f.fails()) {
+            (false, _) => "",
+            (true, true) => "::error::",
+            (true, false) => "::notice::",
+        };
+        println!("{tag}{}", f.line(&version.bc_version, &rel));
+    }
+    if findings.iter().any(work::Finding::fails) {
+        println!(
+            "work ratchet: BC {}: the run did more work than {rel} allows. If that is meant, run `al-test-cli --root . --all-versions --update-work` and commit the file in the same pull request; the reviewer sees the counts in the diff.",
+            version.bc_version
+        );
+        return Ok(1);
+    }
+    let n: usize = actual.passes.values().map(|c| c.len()).sum();
+    println!(
+        "work ratchet: BC {}: {n} counts within {}% of {rel}",
+        version.bc_version,
+        work::TOLERANCE_PERCENT
+    );
+    Ok(0)
+}
+
 /// `b`, the report of another pass of the same version, added to `a`: its suites, and its times.
 fn join_reports(a: &mut report::Report, b: report::Report) {
     a.suites.extend(b.suites);
+    a.work.extend(b.work);
     if let (Some(ta), Some(tb)) = (&mut a.timings, b.timings) {
         ta.load_s += tb.load_s;
         ta.compile_s += tb.compile_s;
@@ -1006,6 +1068,11 @@ fn run_version(
     rep.dependencies = dependency_summary;
     rep.bc_build = bc_build.clone();
     rep.timings = Some(timings);
+    let extra_names: Vec<String> = pass.extra_apps.iter().map(|(_, name)| name.clone()).collect();
+    rep.work.insert(
+        work::pass_name(pass.main, &extra_names),
+        work::counts_of(&rt.phases.work),
+    );
     if !rep.unmapped.is_empty() {
         return Err(format!(
             "{} oracle case(s) have no test codeunit in the corpus, e.g. {}",

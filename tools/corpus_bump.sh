@@ -4,11 +4,12 @@
 #   1. check the run: completed and green, and its head commit on the corpus branch master (the default
 #      branch; it moves only through a pull request from al-runtime-rs-staging, merged with a merge commit);
 #      when a merge commit brought the commit into master, that merge must hold exactly the commit's files;
-#   2. find the artifacts: per leg (27.5, 28.5, 29.0) two to four named junit-test-results-<leg>: the oracle
-#      (junit-al-language.xml), the OnPrem file, the OnPrem DotNet file and the TestLibraries file;
+#   2. find the artifacts: per leg (27.5, 28.5, 29.0) two to five named junit-test-results-<leg>: the oracle
+#      (junit-al-language.xml), the OnPrem file, the OnPrem DotNet file, the TestLibraries file and the
+#      Isolation Disabled file;
 #   3. move the corpus submodule to the run's commit;
 #   4. download each artifact by id and copy its XML unchanged to oracle/<major>/junit.xml,
-#      oracle/<major>/junit-onprem.xml, junit-dotnet.xml and junit-testlibraries.xml;
+#      oracle/<major>/junit-onprem.xml, junit-dotnet.xml, junit-testlibraries.xml and junit-isolation-disabled.xml;
 #   5. write the new pin, run and artifact ids into oracle/oracle.toml and oracle/README.md;
 #   6. build release and regenerate the baselines (al-test-cli refuses when a baseline case regresses), then
 #      print the assumptions whose awaited corpus pin is now in the corpus (al-test-cli --awaiting-assumptions);
@@ -84,11 +85,11 @@ xml_of() {
   "$gh" api "repos/$repo/actions/artifacts/$1/zip" > "$d/a.zip"
   unzip -Z1 "$d/a.zip" | grep '\.xml$' | head -n 1
 }
-declare -A oracle_id onprem_id dotnet_id testlib_id
+declare -A oracle_id onprem_id dotnet_id testlib_id isol_id
 for leg in $legs; do
   # Two artifacts: the oracle (larger) and the OnPrem file. Three (since the OnPrem DotNet app runs in CI): the DotNet file is the smallest.
   # Four (since the TestLibraries job): the roles are read from the XML file names below.
-  tl=0
+  tl=0 isol=0
   read -r n big mid small < <(python3 -c '
 import json, sys
 a = [x for x in json.loads(sys.argv[1]).get("artifacts", []) if x.get("name") == "junit-test-results-" + sys.argv[2]]
@@ -103,7 +104,7 @@ else:
   if [ "$n" -gt 3 ]; then
     # A job rerun (corpus run 39303760055, attempt 2) keeps the first attempt's artifact under the same name.
     # The role is the XML file each artifact holds; per role the newest artifact is the rerun's.
-    big=0 mid=0 small=0 tl=0
+    big=0 mid=0 small=0 tl=0 isol=0
     while read -r id; do
       case "$(xml_of "$id")" in
         junit-al-language.xml) [ "$big" != 0 ] || big=$id ;;
@@ -112,6 +113,9 @@ else:
         # The TestLibraries job runs with Microsoft's Tests-TestLibraries and Data Archive installed: the oracle of the
         # suite testlibraries, which runs in an environment of its own (oracle.toml `extra_apps`).
         junit-al-language-testlibraries.xml) [ "$tl" != 0 ] || tl=$id ;;
+        # The Isolation Disabled job (corpus tests/al-language-isolation-disabled, test runner 130451): the oracle of the
+        # suite isolation-disabled. It runs in the main environment under its own runner, so it needs no pass of its own.
+        junit-al-language-isolation-disabled.xml) [ "$isol" != 0 ] || isol=$id ;;
         *) die "artifact $id of junit-test-results-$leg holds no known JUnit file" ;;
       esac
     done < <(python3 -c '
@@ -121,14 +125,16 @@ a.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 print("\n".join(str(x["id"]) for x in a))' "$arts" "$leg")
     { [ "$big" != 0 ] && [ "$mid" != 0 ]; } || die "run $run: junit-test-results-$leg lacks the oracle or the OnPrem file"
   fi
-  { [ "$n" -ge 2 ]; } || die "run $run has $n artifact(s) named junit-test-results-$leg, expected 2 to 4 (the oracle, the OnPrem file, the OnPrem DotNet file and the TestLibraries file)"
+  { [ "$n" -ge 2 ]; } || die "run $run has $n artifact(s) named junit-test-results-$leg, expected 2 to 5 (the oracle, the OnPrem file, the OnPrem DotNet file, the TestLibraries file and the Isolation Disabled file)"
   oracle_id[$leg]=$big
   onprem_id[$leg]=$mid
   dotnet_id[$leg]=$small
   testlib_id[$leg]=$tl
+  isol_id[$leg]=$isol
   line="$leg: oracle artifact $big, onprem artifact $mid"
   [ "$small" = 0 ] || line="$line, dotnet artifact $small"
   [ "$tl" = 0 ] || line="$line, testlibraries artifact $tl"
+  [ "$isol" = 0 ] || line="$line, isolation-disabled artifact $isol"
   echo "$line"
 done
 
@@ -194,6 +200,8 @@ for leg in $legs; do
   if [ "${dotnet_id[$leg]}" != 0 ]; then fetch_xml "${dotnet_id[$leg]}" "$root/oracle/$major/junit-dotnet.xml"; fi
   # The TestLibraries file is the oracle of the testlibraries suite.
   if [ "${testlib_id[$leg]}" != 0 ]; then fetch_xml "${testlib_id[$leg]}" "$root/oracle/$major/junit-testlibraries.xml"; fi
+  # The Isolation Disabled file is the oracle of the isolation-disabled suite (corpus_bump_edit.py adds the suite).
+  if [ "${isol_id[$leg]}" != 0 ]; then fetch_xml "${isol_id[$leg]}" "$root/oracle/$major/junit-isolation-disabled.xml"; fi
 done
 
 # 5. oracle.toml and README.md.
@@ -214,7 +222,8 @@ for leg in $legs; do
   args+=("$major" "${oracle_id[$leg]}" "${onprem_id[$leg]}" "$(cases "$root/oracle/$major/junit.xml")" "$(cases "$root/oracle/$major/junit-onprem.xml")")
 done
 DOTNET_IDS="27=${dotnet_id[27.5]} 28=${dotnet_id[28.5]} 29=${dotnet_id[29.0]}" \
-  TESTLIB_IDS="27=${testlib_id[27.5]} 28=${testlib_id[28.5]} 29=${testlib_id[29.0]}" python3 "$here/corpus_bump_edit.py" "$root" "$sha" "$run" "${args[@]}"
+  TESTLIB_IDS="27=${testlib_id[27.5]} 28=${testlib_id[28.5]} 29=${testlib_id[29.0]}" \
+  ISOL_IDS="27=${isol_id[27.5]} 28=${isol_id[28.5]} 29=${isol_id[29.0]}" python3 "$here/corpus_bump_edit.py" "$root" "$sha" "$run" "${args[@]}"
 
 # 6. Baselines (al-test-cli refuses while a baseline case regresses).
 cd "$root"
