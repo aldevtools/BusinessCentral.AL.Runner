@@ -595,6 +595,9 @@ pub struct PageState {
     /// A refresh after a control's OnValidate changed a list's filters read more rows than a window holds: what the client holds
     /// then is not pinned, a move is refused (assumption validate-filter-refresh-window, al-runner issue 5914).
     pub validate_refresh_unheld: bool,
+    /// The refresh after an action that changed the view of a list with OnFindRecord read more rows than a window holds: a
+    /// move is refused (al-runner issue 6469).
+    pub action_refresh_unheld: bool,
     /// The page was run by the static `Page.RunModal` with its return value used (lookup mode set by the call, not by
     /// `LookupMode(true)` on a page variable).
     pub static_lookup: bool,
@@ -711,6 +714,8 @@ pub struct PageState {
     /// when xRec is a blank row with the single-value key filters (the part link) on it (QiHostSaveParts.al:361
     /// `L.AGCR(D1/10000|d1 l1 x=D1/0)`, `U.AGCR(D1/10000 x=/0)`).
     pub agcr_xrec: Option<Vec<Value>>,
+    /// The row Rec stood on when OnAfterGetCurrRecord last started on a stored row (`marked_view_changed_by_move`).
+    pub agcr_started: Option<Vec<Value>>,
     /// OnAfterGetCurrRecord ran last on a row that is not stored (a new row): the next one on a stored row sees the xRec the
     /// page holds (misc/lt-probes-needed-7/PnGShowRow.al EmptyListInsertViaRec `List.AGCR(,);List.AGR(NEW1,Created);...;
     /// List.AGCR(NEW1,NEW1)`).
@@ -938,6 +943,7 @@ impl PageState {
             empty_list_row_behind: false,
             action_landed_on_new_row: false,
             validate_refresh_unheld: false,
+            action_refresh_unheld: false,
             static_lookup: false,
             lookup_page_from_table: false,
             triggers_run: 0,
@@ -979,6 +985,7 @@ impl PageState {
             row_exprs_live: false,
             agr_xrec: None,
             agcr_xrec: None,
+            agcr_started: None,
             agcr_after_new: false,
             shows_sibling_save: None,
             part_accessed: false,

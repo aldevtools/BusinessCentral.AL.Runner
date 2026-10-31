@@ -326,6 +326,24 @@ impl Session {
                 name.name()
             ));
         }
+        // See `PageState::action_refresh_unheld`.
+        if method.recv() != PageRecv::Page
+            && std::mem::take(&mut st.borrow_mut().action_refresh_unheld)
+            && matches!(
+                name,
+                PageMethod::First
+                    | PageMethod::Last
+                    | PageMethod::Next
+                    | PageMethod::Previous
+                    | PageMethod::GoToKey
+                    | PageMethod::GoToRecord
+            )
+        {
+            return unsupported(format!(
+                "TestPage.{}() after an action changed the view of a list with OnFindRecord and its refresh read more rows than the client holds (not pinned)",
+                name.name()
+            ));
+        }
         // See `PageState::validate_refresh_unheld`.
         if method.recv() != PageRecv::Page
             && std::mem::take(&mut st.borrow_mut().validate_refresh_unheld)
