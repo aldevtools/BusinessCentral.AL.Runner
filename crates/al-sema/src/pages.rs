@@ -914,6 +914,8 @@ struct Tree {
     reasons: Vec<String>,
     /// The areas of `layout` an extension may add to although the page declares none (`implicit_layout_areas`).
     implicit_areas: &'static [&'static str],
+    /// The assumption an addition to one of `implicit_areas` rests on, if any.
+    implicit_assume: Option<al_builtins::assumptions::Assumption>,
     /// The unprobed assumptions the merge rests on.
     assumes: Vec<al_builtins::assumptions::Assumption>,
 }
@@ -926,14 +928,26 @@ const IMPLICIT_CARD_AREAS: &[&str] = &["Content", "FactBoxes"];
 /// (pageext/lt-bc-implicit-areas/BcImplicitAreas.al:93-136, AL Runner issue 5674). Content on a List without a layout is not pinned.
 const IMPLICIT_LIST_AREAS: &[&str] = &["FactBoxes"];
 
-/// The implicit `layout` areas of a page of type `page_type`; other page types are not pinned.
-fn implicit_layout_areas(page_type: &str) -> &'static [&'static str] {
+/// The implicit `layout` areas of a page of type `page_type`; other page types are not pinned. A Worksheet, a Document and a
+/// ListPlus take FactBoxes as a List does (al-runner issue 6490; corpus writer Y20, pageext/lt-bc-implicit-areas/Y20ImplicitFactBoxes.al);
+/// a part page does not (must-not-compile 2351, 2352). On a StandardDialog, a ConfirmationDialog and a NavigatePage the extension
+/// compiles but the part is not on the page, which is not modeled: refused. The three new page types are measured on BC, not
+/// yet pinned: the assumption that comes back is marked when an extension adds to the area.
+fn implicit_layout_areas(page_type: &str) -> (&'static [&'static str], Option<al_builtins::assumptions::Assumption>) {
     if page_type.eq_ignore_ascii_case("Card") {
-        IMPLICIT_CARD_AREAS
+        (IMPLICIT_CARD_AREAS, None)
     } else if page_type.eq_ignore_ascii_case("List") {
-        IMPLICIT_LIST_AREAS
+        (IMPLICIT_LIST_AREAS, None)
+    } else if ["Worksheet", "Document", "ListPlus"]
+        .iter()
+        .any(|t| page_type.eq_ignore_ascii_case(t))
+    {
+        (
+            IMPLICIT_LIST_AREAS,
+            Some(al_builtins::assumptions::Assumption::PageExtImplicitFactBoxesMorePageTypes),
+        )
     } else {
-        &[]
+        (&[], None)
     }
 }
 
@@ -951,25 +965,28 @@ pub fn layout_with(obj: &ast::Object, exts: &[(usize, ast::Object)]) -> Layout {
         .find(|p| p.name().eq_ignore_ascii_case("PageType"))
         .map(|p| p.value_text().trim().to_string())
         .unwrap_or_default();
-    layout_of(obj.sections(), &exts, implicit_layout_areas(&page_type))
+    let (areas, assume) = implicit_layout_areas(&page_type);
+    layout_of(obj.sections(), &exts, areas, assume)
 }
 
 /// The control tree among `sections` (the top-level sections of a page, or the sections of a
 /// report's `requestpage`) with the sections of the extensions `exts` merged in, in the order given.
 pub fn layout_from(sections: impl Iterator<Item = ast::Section>, exts: &[(usize, Vec<ast::Section>)]) -> Layout {
-    layout_of(sections, exts, &[])
+    layout_of(sections, exts, &[], None)
 }
 
 fn layout_of(
     sections: impl Iterator<Item = ast::Section>,
     exts: &[(usize, Vec<ast::Section>)],
     implicit_areas: &'static [&'static str],
+    implicit_assume: Option<al_builtins::assumptions::Assumption>,
 ) -> Layout {
     let mut tree = Tree {
         nodes: Vec::new(),
         areas: Vec::new(),
         reasons: Vec::new(),
         implicit_areas,
+        implicit_assume,
         assumes: Vec::new(),
     };
     for top in sections {
@@ -1308,6 +1325,7 @@ impl Tree {
                     in_actions: false,
                     children: Vec::new(),
                 });
+                self.assumes.extend(self.implicit_assume);
             }
         }
         // The promoted category groups that every page has. Only `Category_Process` is listed: it is the one
@@ -2031,9 +2049,24 @@ mod tests {
         let list = "page 50100 P { PageType = List; layout { area(Content) { repeater(R) { field(Number; Rec.Number) { } } } } }";
         let l = merged(list, &[part]);
         assert!(l.reasons.is_empty(), "{:?}", l.reasons);
-        let document =
-            "page 50100 P { PageType = Document; layout { area(Content) { field(Number; Rec.Number) { } } } }";
-        let l = merged(document, &[part]);
+        // Worksheet, Document and ListPlus take FactBoxes too (al-runner issue 6490; corpus writer Y20,
+        // pageext/lt-bc-implicit-areas/Y20ImplicitFactBoxes.al). A part page does not (must-not-compile 2351, 2352).
+        for ty in ["Worksheet", "Document", "ListPlus"] {
+            let page = format!(
+                "page 50100 P {{ PageType = {ty}; layout {{ area(Content) {{ field(Number; Rec.Number) {{ }} }} }} }}"
+            );
+            let l = merged(&page, &[part]);
+            assert!(l.reasons.is_empty(), "{ty}: {:?}", l.reasons);
+            assert_eq!(names(&l), ["Number", "BCPart"], "{ty}");
+            assert_eq!(
+                l.assumes,
+                [al_builtins::assumptions::Assumption::PageExtImplicitFactBoxesMorePageTypes],
+                "{ty}"
+            );
+        }
+        let list_part =
+            "page 50100 P { PageType = ListPart; layout { area(Content) { field(Number; Rec.Number) { } } } }";
+        let l = merged(list_part, &[part]);
         assert_eq!(l.reasons.len(), 1, "{:?}", l.reasons);
     }
 
