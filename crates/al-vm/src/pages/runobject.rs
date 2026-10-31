@@ -150,7 +150,13 @@ impl Session {
         // fields and GetFilters() reads '' (corpus issue 712), the runtime holds the link as a filter. The corpus pins GetFilter
         // per filter group there (handlers/TestActionRunPageLinkFilterGroup.al:119-131); the other reads refuse
         // (records.rs run_page_link_open_op).
-        if !ro.on_rec && ro.link.as_ref().is_some_and(|l| !l.entries.is_empty()) {
+        // A link of field(filter(...)) entries only is a filter in group 0 there, which GetFilters reads (pages/lt-y37-link-filter/
+        // Y37LinkFilterTests.al:357-383 `LL.open f0=[No.: A1|A3]`).
+        let field_filters_only = ro
+            .link
+            .as_ref()
+            .is_some_and(|l| l.entries.iter().all(|e| matches!(e, ir::LinkEntry::FieldFilter(..))));
+        if !ro.on_rec && !field_filters_only && ro.link.as_ref().is_some_and(|l| !l.entries.is_empty()) {
             let fill = match &record {
                 Some(r) => self.run_page_link_fill(r, ro, &page_type)?,
                 None => None,
@@ -232,7 +238,7 @@ impl Session {
             let pf = match entry {
                 ir::LinkEntry::Field(pf, _) => *pf,
                 ir::LinkEntry::Filter(pf, _) if link.consts.contains(&i) => *pf,
-                ir::LinkEntry::Filter(..) => return Ok(None),
+                ir::LinkEntry::Filter(..) | ir::LinkEntry::FieldFilter(..) => return Ok(None),
             };
             if !matches!(table.fields[pf].ty, RtType::Code(_) | RtType::Text(_) | RtType::Integer) {
                 return Ok(None);
@@ -327,6 +333,28 @@ impl Session {
         }
         if let Some(link) = &ro.link {
             for entry in &link.entries {
+                // `field(filter(F))`: the host's value as a filter text in filter group 0, no filter when it is blank
+                // (pages/lt-y37-link-filter/Y37LinkFilterTests.al:357-383 `LL.open f0=[No.: A1|A3]`).
+                if let ir::LinkEntry::FieldFilter(pf, hf) = entry {
+                    let Some(host_rec) = &host_rec else {
+                        return unsupported("RunPageLink from a page without a source table");
+                    };
+                    if host.borrow().cursor == Cursor::None {
+                        return unsupported("a RunPageLink field(filter(...)) from a host that shows no row (not pinned)");
+                    }
+                    let ty = table.fields[*pf].ty.clone();
+                    let expr = self.link_filter_of_host_field(host_rec, *hf, &ty)?;
+                    let mut r = rec.borrow_mut();
+                    r.filters.retain(|f| !(f.group == RUN_LINK_GROUP && f.field == *pf));
+                    if let Some(expr) = expr {
+                        r.filters.push(FieldFilter {
+                            field: *pf,
+                            expr,
+                            group: RUN_LINK_GROUP,
+                        });
+                    }
+                    continue;
+                }
                 let (field, expr) = match entry {
                     ir::LinkEntry::Field(pf, hf) => {
                         let ty = table.fields[*pf].ty.clone();
@@ -353,6 +381,7 @@ impl Session {
                             .map_err(|e| Signal::Unsupported(format!("RunPageLink filter: {e}")))?;
                         (*pf, expr)
                     }
+                    ir::LinkEntry::FieldFilter(..) => unreachable!("handled above"),
                 };
                 let mut r = rec.borrow_mut();
                 r.filters.retain(|f| !(f.group == RUN_LINK_GROUP && f.field == field));
