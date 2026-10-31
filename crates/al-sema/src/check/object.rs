@@ -852,13 +852,18 @@ impl<'a> Checker<'a> {
             }
             if let [(target, lhs), (source, rhs)] = tys.as_slice() {
                 let plain = node.children_with_tokens().any(|t| t.kind() == SyntaxKind::Assign);
-                if plain {
+                // The conversion rules of the compile matrix judge the operand shapes they cover (`conv.rs`); the
+                // pinned checks judge the others.
+                if plain && self.conv_assign(sc, lhs, target, rhs, source).is_none() {
                     self.al_enum_assignment(sc, rhs, target, source);
                     self.al_integer_text_assignment(sc, rhs, target, source);
                     self.al_scalar_assignment(sc, rhs, target, source);
                     self.al_enum_decimal_assignment(sc, rhs, target, source);
                     self.al_no_result_assignment(sc, rhs, target, source);
                     self.al_interface_assignment(sc, rhs, target, source);
+                }
+                if node.children_with_tokens().any(|t| t.kind() == SyntaxKind::PlusAssign) {
+                    self.conv_compound_add(sc, lhs, target, rhs, source);
                 }
                 // `X := Target.Missing()` and `X += Target.Missing()`: the type of the target (ADR-051 decision 3).
                 let (target, rhs) = (target.clone(), rhs.clone());
@@ -911,7 +916,17 @@ impl<'a> Checker<'a> {
                     .filter(|c| c.kind() == SyntaxKind::CaseBranch)
                     .flat_map(|b| b.children().filter(|c| is_expr(c.kind())).collect::<Vec<_>>())
                     .collect();
-                self.al_option_decimal_constants(sc, &sel, &sel_ty, &labels);
+                // Each label converts to the selector's type (compile matrix context case_label); the labels that are
+                // not judged there keep the pinned Decimal-constant check.
+                let mut rest = Vec::new();
+                for l in &labels {
+                    let r = l.text_range();
+                    let lt = self.types.get(&(sc.file, r.start().into(), r.end().into())).cloned();
+                    if !lt.is_some_and(|lt| self.conv_to_type_of(sc, &sel, &sel_ty, l, &lt, true).is_some()) {
+                        rest.push(l.clone());
+                    }
+                }
+                self.al_option_decimal_constants(sc, &sel, &sel_ty, &rest);
                 self.tdd_settle_case(sc, node, &sel);
             }
             return;
@@ -946,9 +961,11 @@ impl<'a> Checker<'a> {
                     }
                     if let Some(ret) = self.cur_ret.clone() {
                         // exit(value) of an enum of another type (corpus must-not-compile 0405).
-                        self.al_enum_assignment(sc, &child, &ret, &t);
-                        self.al_integer_text_assignment(sc, &child, &ret, &t);
-                        self.al_scalar_assignment(sc, &child, &ret, &t);
+                        if self.conv_exit(sc, &ret, &child, &t).is_none() {
+                            self.al_enum_assignment(sc, &child, &ret, &t);
+                            self.al_integer_text_assignment(sc, &child, &ret, &t);
+                            self.al_scalar_assignment(sc, &child, &ret, &t);
+                        }
                         // `exit(Target.Missing())`: the result type of the routine (ADR-051 decision 3).
                         self.tdd_settle(sc, &child, &ret);
                     }
