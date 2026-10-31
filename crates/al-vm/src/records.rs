@@ -558,8 +558,16 @@ impl Session {
         facts.unknown.get(&(object as usize)).map(String::as_str)
     }
 
-    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.
+    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code. Every
+    /// persistent read and write passes here, so it also marks the platform tables that are stored on an assumption: Webhook
+    /// Subscription and Webhook Notification (`webhook-tables-stored`, al-builtins platform.rs).
     pub(crate) fn install_assumed(&self, object: u32) {
+        if matches!(
+            self.engine.program.objects[object as usize].id,
+            Some(2_000_000_194 | 2_000_000_199)
+        ) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WebhookTablesStored);
+        }
         if self.install_scope {
             return;
         }

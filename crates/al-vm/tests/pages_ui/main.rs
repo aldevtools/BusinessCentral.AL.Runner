@@ -44,6 +44,7 @@ mod gone_row_rec_on_unheld_key;
 mod journal_batch_switch;
 mod listpart_table_validate_empty_error;
 mod marked_view_changed_by_page_code;
+mod new_record_key_xrec;
 mod no_source_card;
 mod open_moved_find_which;
 mod open_onopenpage_moves_rec;
