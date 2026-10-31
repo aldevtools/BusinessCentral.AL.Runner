@@ -43,12 +43,14 @@ on the main machine or as a remote worker (`docs/agents/remote-worker.md`).
   lands. This is evidence, not a guess: a behavior no test requires is still refused.
   The code path must mark the assumption when it runs (its probes-needed row id),
   so a test that passes through it is reported as a flagged pass, never as a clean one.
-  How: add an entry (id, assumed behavior, Microsoft tests, probe wanted) to
-  `crates/al-builtins/src/assumptions.rs` and call `assumptions::assume(Assumption::YourId)` on the
+  How: add an entry (id, assumed behavior, Microsoft tests, probe wanted) as a new file of its own,
+  `crates/al-builtins/src/assumptions/<id>.rs`, holding `YourId => { id: "<id>", assumed: ..., tests: ...,
+  probe: ... }` (copy any file there; the file name must be the id; `build.rs` collects the files, so two
+  branches that each add one do not conflict), and call `assumptions::assume(Assumption::YourId)` on the
   path (at runtime, or `Lowerer::assume` in `al-sema/src/lower.rs` for a compile-time choice, which becomes
   an `ir::Stmt::Assume`). Mark only the part no corpus test pins. Do not regenerate the table in
   `docs/probes-needed.md`: the regen bot does that on main after the merge (see "Generated files" below).
-  When a probe pins it, delete the entry: the compiler lists the marker sites that remain.
+  When a probe pins it, delete the entry's file: the compiler lists the marker sites that remain.
   `al-runner test --top-assumptions` ranks the entries by flagged passes; `--list-assumptions`
   prints the registry with the counts of the last run (also in `al-test-cli`).
 - **A runtime fix for a user issue from a repro** (FAST FLOW: the corpus pin is not on `master` yet)

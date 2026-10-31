@@ -1,0 +1,6 @@
+ExceptionToStringStackFrames => {
+    id: "exception-tostring-stack-frames",
+    assumed: "ToString and Format of the exception GetLastErrorObject answers, for a trace the corpus does not pin (an error caught by a TryFunction or asserterror, a record-not-found or division error, a dialog error raised deeper than one procedure below a Codeunit.Run's OnRun): the lines after the first are the AL frames of the error. BC writes .NET frames there (pinned shapes: GetLastErrorObjectKinds.al:384, AzLastErrorObject.al:180, :199), so a read of those lines would differ; only the first line and the `   at ` marker are pinned (GetLastErrorObject.al:85-87). Kept for the four baseline cases that read only those.",
+    tests: "Corpus baseline cases 61471 GetLastErrorObject_AfterErrorInTryFunction, _AfterErrorInAsserterror, _AfterGetWithoutRow, _AfterDivisionByZero (onprem-dotnet suite; refusing them loses them). Microsoft tests that read ToString or Format of a last-error exception.",
+    probe: "Format(GetLastErrorObject()) split into lines after Error('x') caught by a TryFunction, by asserterror, after Get of a missing row and after a division by zero, each on every supported BC major: every line. Asked in corpus #652.",
+}

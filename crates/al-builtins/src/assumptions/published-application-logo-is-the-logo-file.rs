@@ -1,0 +1,6 @@
+PublishedApplicationLogoIsTheLogoFile => {
+    id: "published-application-logo-is-the-logo-file",
+    assumed: "The Logo (column 20) of the Published Application row of an app whose manifest declares a PNG logo (app.json `logo`, NavxManifest.xml `Logo` of a package) is a media with a value and the same id on every read, whose Media row holds the logo file's bytes unchanged, Mime Type image/png, the picture's Height and Width, Description, Company Name, Expiration Date, File Name, Security Token and Creating User empty and Prohibit Cache No. An app whose manifest declares no logo has a blank Logo (no value, null MediaId, no Media row; pinned by onprem session/PZPublishedApplicationColumns.al:162-163). A logo that is no PNG and an app whose manifest was not read stay refused.",
+    tests: "No Microsoft test: an outside report (Company-Initialize reaches Guided Experience Impl.GetIconInStream for the apps that register assisted setup entries; it runs on the reporter's real-BC run).",
+    probe: "Pinned on corpus master by onprem session/UsAppLogo.al UsLogo_TinyPng_AppD and UsLogo_BigPng_AppC (corpus PR 816), not yet in the submodule pin: retire when the pin includes them. The Guided Experience Icon bytes (BC re-encodes the PNG) are not pinned and stay refused.",
+}
