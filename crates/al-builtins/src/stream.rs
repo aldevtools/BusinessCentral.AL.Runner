@@ -978,6 +978,20 @@ pub fn mark_not_initialized(v: &Value) -> bool {
     true
 }
 
+/// A stream that was never created becomes one that reads `bytes` (`Report.RdlcLayout` of a report with an RDLC layout file).
+/// Answers false, and changes nothing, for a stream that was created.
+pub fn create_in_of(v: &Value, bytes: Vec<u8>) -> bool {
+    let Value::Library(_, h) = v else {
+        return false;
+    };
+    let mut g = h.borrow_mut();
+    if !matches!(&*g, LibraryValue::Empty) {
+        return false;
+    }
+    *g = LibraryValue::InStream(InState::snapshot(bytes, Encoding::default()));
+    true
+}
+
 /// A `Report.RdlcLayout` call as a statement on a report whose only layout is `DefaultLayout = RDLC` without a file: a stream
 /// that was never created becomes an empty one (report/lt-report-members-testrequestpage/P91Static.al:126 `eos=Yes`). Answers
 /// false, and changes nothing, for a stream that was created.

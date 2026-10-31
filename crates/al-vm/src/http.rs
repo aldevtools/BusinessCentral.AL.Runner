@@ -66,12 +66,11 @@ impl Session {
         let policy = self.http_policy;
         // After UseServerCertificateValidation only a request a handler answers is pinned (al-language-onprem/network/
         // HttpClientAuthConfig.al:117-126): with no handler, or a relative path the handler never sees, it is refused.
-        // A request no handler answers, after `false`, under BlockOutboundRequests with an absolute uri is blocked as any other
-        // (network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:33-35,40-41).
-        let blocked_after_off = request.cert_validation_off
-            && !self.has_http_handler()
-            && policy == Some("BlockOutboundRequests")
-            && request.url.contains("://");
+        // A request no handler answers, after `false` or `true`, under BlockOutboundRequests with an absolute uri is blocked as
+        // any other (network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:33-35,40-41; Y6HttpSettingChanges.al:134-163,
+        // corpus master, also a relative uri joined to a base address).
+        let blocked_after_off =
+            !self.has_http_handler() && policy == Some("BlockOutboundRequests") && request.url.contains("://");
         if request.cert_validation_set
             && !blocked_after_off
             && (!self.has_http_handler() || !request.url.contains("://"))

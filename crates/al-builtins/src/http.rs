@@ -2333,29 +2333,47 @@ fn client_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out 
         // Whether Clear also resets the certificate setting is not pinned: the mark stays, so a request no handler answers
         // stays refused.
         let cert_validation_set = s.cert_validation_set;
+        let cleared_after_rebuild = s.rebuilt || s.cleared_after_rebuild;
         *s = HttpClientState {
             cert_validation_set,
+            cleared_after_rebuild,
             ..HttpClientState::default()
         };
     })
     .map(|()| Value::Null)
 }
 
-/// `UseServerCertificateValidation(false)` gives the client new default request headers: an HttpHeaders taken earlier from
-/// `DefaultRequestHeaders` no longer reaches the client, one taken after the call does; `true` keeps the link
-/// (network/lt-cz-http-leads/CzHttpNoNetwork.al:98-121 DefaultRequestHeaders_ReferenceLost_AfterValidationOff and :123-143,
-/// BC 27, 28, 29). Pinned only on a client with empty default headers, no base address and the default timeout: whether the
-/// new client keeps them is not, so that detach is refused. The result is not pinned either: a used result is refused
-/// (lowering drops the result of `if ... then;` with no branches). A request of the client that no handler answers is
-/// refused (`cert_validation_set`); with a handler it is answered as before
+/// The first setting call that leaves the defaults (`UseServerCertificateValidation(false)`, `UseResponseCookies(true)`, call
+/// or property-assign form) rebuilds the client: the default timeout (1 minute 40 seconds), no base address and new default
+/// request headers, so the headers added before are gone and an HttpHeaders taken earlier no longer reaches the client. A
+/// call that keeps a default (validation `true`, cookies `false`) on a client never rebuilt, and every call after the
+/// rebuild, change nothing (network/lt-httpclient-property-assign/Y6HttpSettingChanges.al:30-132, :165-207, corpus master;
+/// network/lt-cz-http-leads/CzHttpNoNetwork.al:98-143 for the headers reference, HttpClientPropertyAssign.al:73-77 for the
+/// timeout). After a `Clear` of a rebuilt client whether a call rebuilds it again is not pinned: refused.
+fn client_settings_change(s: &mut HttpClientState, leaves_default: bool, what: &str) -> Result<(), Signal> {
+    if !leaves_default || s.rebuilt {
+        return Ok(());
+    }
+    if s.cleared_after_rebuild {
+        return unsupported(format!(
+            "HttpClient.{what} on a client cleared after a setting rebuilt it: whether it is rebuilt again is not pinned"
+        ));
+    }
+    s.default_headers = crate::value::new_header_list(crate::value::HeaderKind::Default);
+    s.timeout_ms = HttpClientState::default().timeout_ms;
+    s.base_address.clear();
+    s.rebuilt = true;
+    Ok(())
+}
+
+/// `UseServerCertificateValidation` rebuilds the client as [`client_settings_change`] says. The call answers its argument
+/// (Y6HttpSettingChanges.al:30-54: `true` on a fresh client Yes, `false` No, `false` again No, `true` after `false` Yes,
+/// corpus master). A request of the client that no handler answers is refused outside BlockOutboundRequests
+/// (`cert_validation_set`); with a handler it is answered as before
 /// (al-language-onprem/network/HttpClientAuthConfig.al:117-126 `after_certificate_validation_off`).
-///
-/// The call answers its argument when that repeats the setting made last (network/lt-httpclient-property-assign/
-/// HttpClientPropertyAssign.al:24-27,36-37); any other used result stays refused. `false` on a client whose only change is its
-/// timeout gives it the default timeout back (HttpClientPropertyAssign.al:73-77).
 fn client_use_cert_validation(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    let off = match a.first() {
-        Some(Value::Boolean(b)) => !*b,
+    let on = match a.first() {
+        Some(Value::Boolean(b)) => *b,
         other => {
             return unsupported(format!(
                 "HttpClient.UseServerCertificateValidation of {}",
@@ -2365,31 +2383,29 @@ fn client_use_cert_validation(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [V
     };
     let ret_used = c.ret_used();
     with_client(r, |s| {
-        if ret_used && s.cert_validation_last != Some(!off) {
-            return unsupported("the result of HttpClient.UseServerCertificateValidation (not pinned)");
-        }
-        if off {
-            let filled = {
-                let b = s.default_headers.borrow();
-                !b.items.is_empty() || !b.secret.is_empty()
-            };
-            if filled || !s.base_address.is_empty() {
-                return unsupported(
-                    "HttpClient.UseServerCertificateValidation(false) on a client with default request headers, a base address or a timeout: whether the client keeps them is not pinned",
-                );
-            }
-            s.default_headers = crate::value::new_header_list(crate::value::HeaderKind::Default);
-            s.timeout_ms = HttpClientState::default().timeout_ms;
-        }
+        client_settings_change(s, !on, "UseServerCertificateValidation")?;
         s.cert_validation_set = true;
-        s.cert_validation_last = Some(!off);
-        Ok(if ret_used { Value::Boolean(!off) } else { Value::Null })
+        s.cert_validation_last = Some(on);
+        Ok(if ret_used { Value::Boolean(on) } else { Value::Null })
     })?
 }
 
-/// `UseResponseCookies` takes a Boolean and changes nothing a test can see (network/lt-http/HttpClient.al:BooleanSettings).
-fn client_use_cookies(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
-    with_client(r, |_| ()).map(|()| Value::Null)
+/// `UseResponseCookies` takes a Boolean; `true` rebuilds the client as [`client_settings_change`] says
+/// (Y6HttpSettingChanges.al:83-110, :165-207, corpus master). Its result is not pinned.
+fn client_use_cookies(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    let on = match a.first() {
+        Some(Value::Boolean(b)) => *b,
+        other => {
+            return unsupported(format!(
+                "HttpClient.UseResponseCookies of {}",
+                other.map_or("nothing".into(), |v| v.describe())
+            ));
+        }
+    };
+    if c.ret_used() {
+        return unsupported("the result of HttpClient.UseResponseCookies (not pinned)");
+    }
+    with_client(r, |s| client_settings_change(s, on, "UseResponseCookies"))?.map(|()| Value::Null)
 }
 
 /// Hands `(method, url)` to the session and writes the response it returns into the `var Response` argument.
