@@ -1652,7 +1652,7 @@ impl Session {
                 t.name,
                 self.install_unknown(t.object).unwrap_or_default()
             )),
-            None if self.is_unseeded(t.object) && !rec.borrow().temporary => unsupported(format!(
+            None if self.is_unseeded(&t) && !rec.borrow().temporary => unsupported(format!(
                 "{} row not found by GetBySystemId: the rows a dependency app's install and Company-Initialize create could not be created (ADR-013 decision 5)",
                 t.name
             )),

@@ -473,9 +473,16 @@ impl Session {
     /// be "empty" or "fewer rows", which is not BC's. Rows this session wrote itself do not make
     /// the answer BC's, so they are not an exception. Temporary records are private to the session.
     /// Whether a `Get` that finds nothing, or a scan, on table object `object` is not BC's answer.
-    pub(crate) fn is_unseeded(&self, object: u32) -> bool {
-        let o = object as usize;
-        self.engine.unseeded.contains(&o) || (!self.install_scope && self.engine.platform_unseeded.contains(&o))
+    /// A platform table of `UNSEEDED_ROWS` stops being one once the session's own DeleteAll without filters emptied it (and
+    /// while that stands, `MemStore::emptied`): BC has then removed its fresh-tenant rows too, and what it holds is what the
+    /// session wrote (Power BI Blob: Microsoft's Power BI tests clear it before they insert, al-language-onprem/platform/
+    /// PtOnPremTables.al Y17_PowerBIBlob_BlobRoundTrip, corpus master 97c29f86).
+    pub(crate) fn is_unseeded(&self, t: &TableDef) -> bool {
+        let o = t.object as usize;
+        self.engine.unseeded.contains(&o)
+            || (!self.install_scope
+                && self.engine.platform_unseeded.contains(&o)
+                && !self.store.emptied(&self.cx, t))
     }
 
     /// Why the rows install code left in table `object` are not known (ADR-046: `InstallFacts::unknown`). Install code
@@ -579,7 +586,7 @@ impl Session {
                 return unsupported(format!("{what} on {}: {why}", t.name));
             }
         }
-        if !temporary && self.is_unseeded(t.object) {
+        if !temporary && self.is_unseeded(t) {
             return unsupported(format!(
                 "{what} on {}: BC holds rows here that an install trigger or Company-Initialize creates, and the install baseline could not create them (ADR-013 decision 5)",
                 t.name
@@ -600,7 +607,7 @@ impl Session {
                 return unsupported(format!("{} row not found: {why}", t.name));
             }
         }
-        if !exists && self.is_unseeded(t.object) {
+        if !exists && self.is_unseeded(t) {
             return unsupported(format!(
                 "{} row not found: the rows a dependency app's install and Company-Initialize create could not be created (ADR-013 decision 5)",
                 t.name
@@ -4366,6 +4373,30 @@ impl Session {
                     .store_for(rec)
                     .count(&cx, &t, &filters)
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                // A platform table whose fresh-tenant rows nothing pins (`UNSEEDED_ROWS`): a DeleteAll without filters removes
+                // them in BC too, so the store marks the table emptied (`Session::is_unseeded`), even when it holds no row
+                // itself. With delete events or database triggers BC would run them for those rows: not known, refused.
+                if !temporary
+                    && filters.is_empty()
+                    && !rec.borrow().marked_only
+                    && self.engine.platform_unseeded.contains(&(t.object as usize))
+                    && self.is_unseeded(&t)
+                {
+                    let per_row = self.listened(&t, "onbeforedeleteevent", None)?
+                        || self.listened(&t, "onafterdeleteevent", None)?
+                        || self.global_enabled(&t, GlobalOp::Delete)?;
+                    if per_row {
+                        return unsupported(format!(
+                            "DeleteAll on {} with delete events or database triggers: BC runs them for the rows a fresh tenant holds there, which nothing pins",
+                            t.name
+                        ));
+                    }
+                    self.store_for(rec)
+                        .delete_all(&cx, &t, &filters)
+                        .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                    self.deletes += 1;
+                    return Ok(Value::Null);
+                }
                 // No row, no trigger and no event.
                 if n == 0 {
                     return Ok(Value::Null);

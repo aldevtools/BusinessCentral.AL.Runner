@@ -153,6 +153,10 @@ pub struct MemStore {
     /// equal stamps mean the same rows in the same places in every key.
     shapes: crate::pmap::PMap<Slot, u64>,
     committed_shapes: crate::pmap::PMap<Slot, u64>,
+    /// The tables a DeleteAll without filters emptied ([`MemStore::emptied`]). It follows `tables` through commit and
+    /// rollback (and a snapshot), so it holds exactly while that DeleteAll stands.
+    emptied: crate::pmap::PMap<Slot, ()>,
+    committed_emptied: crate::pmap::PMap<Slot, ()>,
     /// The primary keys of a big table in the order of one of its other keys, as of a shape stamp. Shared by the clones
     /// of the store, so a session restored to a snapshot finds the orders built since the snapshot was taken (al-runner
     /// issue 5884: each test session asks for the last G/L entry by Posting Date). Safe to share because a stamp is
@@ -1417,6 +1421,9 @@ impl Store for MemStore {
         if !doomed.is_empty() {
             self.touch_shape(cx, t);
         }
+        if f.is_empty() {
+            self.emptied.insert(slot(cx, t), ());
+        }
         Ok(doomed.len())
     }
 
@@ -1426,6 +1433,7 @@ impl Store for MemStore {
         self.committed = self.tables.clone();
         self.committed_versions = self.versions.clone();
         self.committed_shapes = self.shapes.clone();
+        self.committed_emptied = self.emptied.clone();
     }
 
     fn rollback(&mut self) {
@@ -1434,10 +1442,17 @@ impl Store for MemStore {
         self.tables = self.committed.clone();
         self.versions = self.committed_versions.clone();
         self.shapes = self.committed_shapes.clone();
+        self.emptied = self.committed_emptied.clone();
     }
 }
 
 impl MemStore {
+    /// Whether a DeleteAll without filters emptied table `t` and still stands: the rows it held before (rows of the tenant
+    /// the store does not hold) are gone, and what it holds now is what was written since.
+    pub fn emptied(&self, cx: &AccessContext, t: &TableDef) -> bool {
+        self.emptied.contains_key(&slot(cx, t))
+    }
+
     /// Whether table `t` is computed by a provider that keeps the rows an Insert adds ([`crate::VirtualTables::takes_inserts`]).
     pub fn takes_inserts(&self, t: &TableDef) -> bool {
         self.virtual_of(t).is_some_and(|v| v.takes_inserts(t))
@@ -1958,6 +1973,53 @@ mod tests {
         assert_eq!(s1, s.table_stamp(&cx, &t), "a rollback restores the committed stamp");
         s.insert(&cx, &t, vec![Value::Integer(3)]).unwrap();
         assert_ne!(s2, s.table_stamp(&cx, &t), "a stamp is never reused for other content");
+    }
+
+    // Gap cycle G8: a DeleteAll without filters marks the table emptied (its rows from before are known to be gone); the mark
+    // follows the rows through commit, rollback and a snapshot. A DeleteAll with filters does not mark it.
+    #[test]
+    fn a_delete_all_without_filters_marks_the_table_emptied_until_a_rollback() {
+        let cx = AccessContext {
+            company: "C".into(),
+            user: "U".into(),
+        };
+        let t = TableDef {
+            object: 0,
+            name: "T".into(),
+            fields: vec![FieldDef {
+                id: 1,
+                name: "K".into(),
+                ty: al_builtins::value::RtType::Integer,
+                stored: true,
+                code_storage: Default::default(),
+            }],
+            keys: vec![vec![0]],
+            per_company: true,
+        };
+        let mut s = MemStore::default();
+        assert!(!s.emptied(&cx, &t));
+        let filter = FieldFilter {
+            field: 0,
+            expr: al_builtins::filter::FilterExpr::Eq(Value::Integer(1)),
+            group: 0,
+        };
+        s.delete_all(&cx, &t, &[filter]).unwrap();
+        assert!(!s.emptied(&cx, &t), "a filtered DeleteAll");
+        s.delete_all(&cx, &t, &[]).unwrap();
+        assert!(s.emptied(&cx, &t));
+        s.insert(&cx, &t, vec![Value::Integer(1)]).unwrap();
+        assert!(s.emptied(&cx, &t), "rows written after it are known");
+        s.rollback();
+        assert!(!s.emptied(&cx, &t), "a rollback takes it back");
+        s.delete_all(&cx, &t, &[]).unwrap();
+        let snap = s.snapshot();
+        s.commit();
+        s.rollback();
+        assert!(s.emptied(&cx, &t), "a commit keeps it");
+        let mut fresh = MemStore::default();
+        assert!(!fresh.emptied(&cx, &t));
+        fresh.restore(snap);
+        assert!(fresh.emptied(&cx, &t), "a snapshot holds it");
     }
 
     /// Rows a table holds before anything wrote to it: three rows for company `C`, table 7.
