@@ -556,14 +556,20 @@ impl Session {
             let (min, max) = self.auto_format_places(&kind, &code)?;
             return Ok(format!("{min}:{max}"));
         }
+        // A procedure of the table under types 1 and 2: BC calls it once per Format (StrSubstNo and Format(x, 0, n) too) on the
+        // formatted record itself, a local one too; the record variable's table globals keep their values between calls, and
+        // an error in it is the error of the Format (types/lt-auto-format-currency/Y17AfProcedure.al:275, :300, :325, :350,
+        // :377, :511).
+        let procedure = !is_field_reference(&text) && text.contains('(');
         let pinned = match kind.as_str() {
-            "1" | "2" | "4" | "5" => is_field_reference(&text),
-            "10" => text.contains('('),
+            "1" | "2" => is_field_reference(&text) || procedure,
+            "4" | "5" => is_field_reference(&text),
+            "10" => procedure,
             _ => false,
         };
         if !pinned {
             return unsupported(format!(
-                "Format in code of field {} with AutoFormatType {kind} and the AutoFormatExpression `{text}` (only a field of the row for types 1, 2, 4 and 5 and a procedure for type 10 are pinned)",
+                "Format in code of field {} with AutoFormatType {kind} and the AutoFormatExpression `{text}` (only a field of the row for types 1, 2, 4 and 5 and a procedure for types 1, 2 and 10 are pinned)",
                 f.name
             ));
         }
@@ -573,8 +579,12 @@ impl Session {
                 f.name
             ));
         };
-        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-        let expr = match self.call_on_record(object, routine, probe, None, Vec::new())?.0 {
+        let on = if procedure && kind != "10" {
+            rec.clone()
+        } else {
+            Rc::new(RefCell::new(rec.borrow().clone()))
+        };
+        let expr = match self.call_on_record(object, routine, on, None, Vec::new())?.0 {
             Value::Text(t) | Value::Code(t) => t.into_string(),
             other => {
                 return unsupported(format!(
