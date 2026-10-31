@@ -1,7 +1,10 @@
 //! `HttpClient.UseServerCertificateValidation`. Pinned by network/lt-cz-http-leads/CzHttpNoNetwork.al (codeunit 85600,
 //! BC 27, 28, 29): `false` detaches an HttpHeaders taken earlier from DefaultRequestHeaders, `true` keeps the link.
-//! What is not pinned is refused: its result, a detach of headers that are not empty or of a client with a base address or
-//! a timeout, and a request of such a client that no handler answers.
+//! network/lt-httpclient-property-assign/Y6HttpSettingChanges.al (codeunit 91311, corpus master): the first call that leaves
+//! the defaults (validation `false`, cookies `true`) rebuilds the client: default timeout, no base address, new default headers;
+//! a call that keeps a default and every later call change nothing; the call answers its argument.
+//! What is not pinned is refused: a setting call on a client cleared after its rebuild, and a request of such a client that
+//! no handler answers outside BlockOutboundRequests.
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -118,6 +121,55 @@ codeunit 50191 C
         exit(Format(Client.Timeout()));
     end;
 
+    // Y6HttpSettingChanges.al:30-132, :165-207 (corpus master).
+    local procedure Prepare(var Client: HttpClient)
+    begin
+        Client.Timeout := 5000;
+        Client.SetBaseAddress('https://example.invalid/base/');
+        Client.DefaultRequestHeaders().Add('X-Before', '1');
+    end;
+
+    local procedure State(var Client: HttpClient): Text
+    begin
+        exit(Format(Client.Timeout()) + '|' + Client.GetBaseAddress() + '|' + Format(Client.DefaultRequestHeaders().Contains('X-Before')));
+    end;
+
+    procedure Rebuilds(): Text
+    var
+        A: HttpClient;
+        B: HttpClient;
+        C: HttpClient;
+        R: Text;
+    begin
+        Prepare(A);
+        R := Format(A.UseServerCertificateValidation(true)) + ' ' + State(A);
+        Prepare(A);
+        R += ' / ' + Format(A.UseServerCertificateValidation(false)) + ' ' + State(A);
+        Prepare(A);
+        R += ' / ' + Format(A.UseServerCertificateValidation(true)) + ' ' + State(A);
+        Prepare(B);
+        B.UseResponseCookies(false);
+        R += ' / ' + State(B);
+        B.UseResponseCookies := true;
+        R += ' / ' + State(B);
+        Prepare(B);
+        B.UseServerCertificateValidation := false;
+        R += ' / ' + State(B);
+        C.UseServerCertificateValidation(false);
+        C.Timeout := 2000;
+        C.UseResponseCookies(true);
+        exit(R + ' / ' + Format(C.Timeout()));
+    end;
+
+    procedure AfterClear()
+    var
+        Client: HttpClient;
+    begin
+        Client.UseResponseCookies(true);
+        Client.Clear();
+        Client.UseServerCertificateValidation(false);
+    end;
+
     procedure SendWithoutHandler()
     var
         Client: HttpClient;
@@ -136,15 +188,25 @@ fn false_detaches_an_earlier_headers_reference_and_true_keeps_the_link() {
 }
 
 #[test]
-fn an_unpinned_detach_is_refused() {
-    assert!(refused(run(SRC, "DetachFilled")).contains("UseServerCertificateValidation"));
-    assert!(refused(run(SRC, "DetachWithBase")).contains("UseServerCertificateValidation"));
+fn a_rebuild_drops_filled_headers_and_the_base_address() {
+    assert!(run(SRC, "DetachFilled").is_ok());
+    assert!(run(SRC, "DetachWithBase").is_ok());
 }
 
 #[test]
-fn the_result_is_refused_unless_an_empty_if_drops_it() {
-    assert!(refused(run(SRC, "ResultUsed")).contains("result"));
+fn the_result_is_the_argument() {
+    assert!(!al_testkit::boolean(run(SRC, "ResultUsed")));
     assert_eq!(text(run(SRC, "ResultInEmptyIf")), "No");
+}
+
+#[test]
+fn the_first_call_that_leaves_the_defaults_rebuilds_the_client_once() {
+    assert_eq!(
+        text(run(SRC, "Rebuilds")),
+        "Yes 5 seconds|https://example.invalid/base/|Yes / No 1 minute 40 seconds||No / Yes 5 seconds|https://example.invalid/base/|Yes \
+         / 5 seconds|https://example.invalid/base/|Yes / 1 minute 40 seconds||No / 5 seconds|https://example.invalid/base/|Yes / 2 seconds"
+    );
+    assert!(refused(run(SRC, "AfterClear")).contains("cleared"));
 }
 
 #[test]
@@ -155,7 +217,7 @@ fn a_request_no_handler_answers_is_refused_after_the_call() {
 #[test]
 fn the_property_assign_form_sets_the_value_and_the_call_answers_the_setting_it_repeats() {
     assert_eq!(text(run(SRC, "PropertyAssign")), "No Yes");
-    assert!(refused(run(SRC, "ResultOfAChange")).contains("result"));
+    assert!(al_testkit::boolean(run(SRC, "ResultOfAChange")));
 }
 
 #[test]
