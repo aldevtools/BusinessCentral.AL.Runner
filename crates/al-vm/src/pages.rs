@@ -341,6 +341,10 @@ impl Session {
         } else {
             None
         };
+        if declared && name == "onaftergetcurrrecord" && stored_row && self.has_source(st) {
+            let started = self.page_rec(st).borrow().fields.clone();
+            st.borrow_mut().agcr_started = Some(started);
+        }
         // OnAfterGetCurrRecord changes what the current row shows only for the variables it sets.
         let vars_before = (declared && name == "onaftergetcurrrecord" && stored_row).then(|| self.row_var_values(st));
         if let Some(r) = page.triggers.iter().find(|(n, _)| n == name).map(|(_, r)| *r) {

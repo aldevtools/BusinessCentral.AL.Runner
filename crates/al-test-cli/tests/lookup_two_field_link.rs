@@ -1,6 +1,7 @@
 //! TestField.Lookup through OnLookup on a page whose ListPart has a SubPageLink of two `field(..)` entries shows the picked
 //! value (pages/lt-wb-6290/WbLookupListPartTests.al:21-31 OnePartWithTwoLinkedFieldsShowsThePickedResource; one entry:
-//! pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al; al-runner issue 6290). Three entries are not pinned and are refused.
+//! pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al; al-runner issue 6290). Three entries on a host without row triggers:
+//! al-runner issue 6466 (corpus writer Y15, pages/lt-y15/Y15LookupThreeFieldLink.al:194).
 
 use al_testkit::outcomes_in;
 
@@ -116,9 +117,6 @@ fn a_lookup_on_a_page_whose_part_links_two_fields_shows_the_picked_value() {
     let get = |n: &str| format!("{:?}", o.iter().find(|(name, _)| name == n).map(|(_, x)| x));
     assert_eq!(get("LinkOne"), "Some(Pass)");
     assert_eq!(get("LinkTwo"), "Some(Pass)");
-    let g = get("LinkThree");
-    assert!(
-        g.contains("NotRun") && g.contains("whose refresh of the page is not pinned"),
-        "{g}"
-    );
+    // Three entries: al-runner issue 6466 (assumption `lookup-three-field-link-shows-picked`).
+    assert_eq!(get("LinkThree"), "Some(Pass)");
 }
