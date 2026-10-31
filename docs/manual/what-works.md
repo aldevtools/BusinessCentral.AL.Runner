@@ -68,7 +68,7 @@ Application tests do not run yet; see [Running Microsoft's tests](microsoft-test
 | Environment | `--environment saas` (default) or `onprem` | Server topology is fixed. |
 | Clock | Starts at the system time and moves forward 1 ms on every read. `Sleep(n)` moves it n ms and does not wait. | A test sees a jump, not a delay. |
 | Client UI | Handlers and the `TestPage` client | No pixels, no layout, no add-ins. |
-| Permissions | Everything is granted | A test that expects "access denied" fails here. A test that lowers its own permissions is not run, unless you pass `--ignore-permission-mock`; it is then a flagged pass. |
+| Permissions | Everything is granted | A test that expects "access denied" fails here. A test that lowers its own permissions is not run, unless you pass `--ignore-permission-mock`; it is then a flagged pass. A test that assigns only sets that grant everything (`SUPER`) runs, flagged until probed. |
 | Task scheduler | `CanCreateTask` is false. `CreateTask` returns an id and never runs the task. | A task never executes. |
 | `StartSession` | Starts nothing during an install; raises Business Central's error in a test run under `codeunit` or `test` isolation; under `disabled` (or `RequiredTestIsolation = Disabled` with `--isolation required`) runs the session's codeunit to its end inside the call and commits what it wrote | No session runs at the same time as the test. A start while the test holds an uncommitted write, an error in the session, a Timeout, another company, and reads of WorkDate, GlobalLanguage, GuiAllowed or CurrentClientType in the session are reported as not run. |
 | Isolated storage | One store per app | User scopes are refused. |
