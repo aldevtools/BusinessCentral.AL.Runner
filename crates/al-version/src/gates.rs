@@ -86,7 +86,9 @@ pub enum Gate {
     /// compiled from BC 28 on, and BC 27 refuses the methods at compile time (json/lt-json-selecttokens/SelectTokensList.al,
     /// corpus bump 27). Not consumed yet.
     JsonSelectTokensListFrom28,
-    /// The system table Windows Language has 212 rows from BC 29 (208 before) (platform/lt-ag-contoso/AgWindowsLanguage.al, corpus bump 26). Not consumed yet.
+    /// The system table Windows Language has 212 rows from BC 29 (208 before) (platform/lt-ag-contoso/AgWindowsLanguage.al, corpus bump 26).
+    /// The flag columns count the same rows (platform/lt-y21-env-columns/Y21EnvColumns.al:120 Y21_WindowsLanguage_Flags). Not
+    /// consumed yet.
     WindowsLanguageRowsFrom29,
     /// The platform table Language Selection has the row ff-NG and other rows from BC 29 (platform/lt-platform-rows-fresh/PlatformRowsLanguageSelection.al, corpus bump 26). Consumed by the Language Selection provider (al-vm platform/host_tables.rs).
     LanguageSelectionRowsFrom29,
@@ -166,7 +168,9 @@ pub enum Gate {
     /// (report/lt-am-rdlc-output/AMRdlcOutput.al:9-11). Corpus bump 34 lifts the RDLC holds of
     /// report/lt-ci-report-leads/CiReportRunLeads.al, which then has no guard left. Corpus bump 36 asserts the control add-in
     /// error of pages/lt-f3-pages/F3ValidationAddinFilter.al:409,447 only from BC 29, the one major checked on Windows; BC 27
-    /// and 28 stay held on Linux there (BC 27.5 gives a client callback error, :417-420). Not consumed yet.
+    /// and 28 stay held on Linux there (BC 27.5 gives a client callback error, :417-420). From BC 29 the Max FlowField of an Enum
+    /// field into an Option field formats as the Option member (or the number the Option lacks), BC 27 and 28 as the Enum member
+    /// (record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al:190 Y20_Max_EnumIntoOption_Result). Not consumed yet.
     ProbedValuesDifferFrom29,
     /// `Base64Convert.ToBase64` of a Text with `TextEncoding::Windows` or `MSDos` and no code page gives the code page 1252
     /// bytes from BC 28 (`äöü` is `5Pb8`); before, the UTF-8 bytes (`w6TDtsO8`) (types/PVBase64.al, corpus bump 13).
@@ -257,6 +261,14 @@ pub enum Gate {
     /// "HeaderFooterPart" and "ThemePart" from BC 29 (platform/lt-ug-report-layout-list/UgReportLayoutList.al:116-123,
     /// 150-157, corpus master 21a41286). Not consumed yet: ReportLayoutList_AllColumns_* are refused on every major.
     ReportLayoutListColumnsFrom28,
+    /// In a list in a secondary key whose OnDrillDown turned MarkedOnly on, First and Next without an outside refresh give
+    /// `true/1/1` and `false/1/1` on BC 28, and `true/2/2` and `true/1/1` on BC 27 and from BC 29 (pages/lt-y15/
+    /// Y15ReapplyMarksSecondaryKey.al:336 Y15_SK_MovesWithoutRefresh, checked on Windows BC 28.5). BC 28 only:
+    /// [`Gate::MarkedSecondaryKeyMovesAgainFrom29`] ends it. Not consumed yet: the test is refused on every major.
+    MarkedSecondaryKeyMovesFrom28,
+    /// The end of [`Gate::MarkedSecondaryKeyMovesFrom28`]: from BC 29 the moves give the BC 27 values again
+    /// (pages/lt-y15/Y15ReapplyMarksSecondaryKey.al:336). Not consumed yet.
+    MarkedSecondaryKeyMovesAgainFrom29,
     /// The SystemId of a row of the platform table Field is the Guid made of 2000000041, the table number and the field number
     /// from BC 28; on BC 27 it is the null Guid for every row, and `GetBySystemId` of the null Guid finds the row of table 3,
     /// field 1 (platform/lt-field-row-systemid/FieldRowSystemId.al:56-169, guarded `#if BC28PLUS`). Consumed by `al-vm`
@@ -286,6 +298,8 @@ impl Gate {
         Gate::ThreeLineLeavesKeyOnceFrom28,
         Gate::ExtControlBareQuotedSourceNotFoundFrom28,
         Gate::ReportLayoutListColumnsFrom28,
+        Gate::MarkedSecondaryKeyMovesFrom28,
+        Gate::MarkedSecondaryKeyMovesAgainFrom29,
         Gate::ThreeLineLeavesKeyTwiceAgainFrom29,
         Gate::ReportLayoutSelectionPartNamesFrom29,
         Gate::ReportPartNamePropertiesFrom29,
@@ -366,6 +380,7 @@ impl Gate {
             | Gate::OtherRecordOptionCaptionFrom29
             | Gate::JpegMediaSetKeptFrom29
             | Gate::ThreeLineLeavesKeyTwiceAgainFrom29
+            | Gate::MarkedSecondaryKeyMovesAgainFrom29
             | Gate::ExceptionTraceValueTaskFrameFrom29 => 29,
             Gate::ReportSaveAsDataItemIdentity
             | Gate::FeatureKeyListChangedFrom28
@@ -396,7 +411,8 @@ impl Gate {
             | Gate::AutoFormatAmountFieldRoundsFrom28
             | Gate::TestRunnerHubRequiredIsolationFrom28
             | Gate::LicensePermissionTopRangePageFrom28
-            | Gate::ReportLayoutListColumnsFrom28 => 28,
+            | Gate::ReportLayoutListColumnsFrom28
+            | Gate::MarkedSecondaryKeyMovesFrom28 => 28,
         }
     }
 
@@ -552,6 +568,10 @@ impl Gate {
                 file: "platform/lt-ug-report-layout-list/UgReportLayoutList.al",
                 lines: "116,119,150,153",
             }],
+            Gate::MarkedSecondaryKeyMovesFrom28 | Gate::MarkedSecondaryKeyMovesAgainFrom29 => &[Evidence {
+                file: "pages/lt-y15/Y15ReapplyMarksSecondaryKey.al",
+                lines: "336",
+            }],
             Gate::ThreeLineLeavesKeyOnceFrom28 | Gate::ThreeLineLeavesKeyTwiceAgainFrom29 => &[
                 Evidence {
                     file: "pages/lt-outside-worksheet-2/RtFilteredGoneRow.al",
@@ -660,10 +680,16 @@ impl Gate {
                     lines: "8",
                 },
             ],
-            Gate::WindowsLanguageRowsFrom29 => &[Evidence {
-                file: "platform/lt-ag-contoso/AgWindowsLanguage.al",
-                lines: "58",
-            }],
+            Gate::WindowsLanguageRowsFrom29 => &[
+                Evidence {
+                    file: "platform/lt-ag-contoso/AgWindowsLanguage.al",
+                    lines: "58",
+                },
+                Evidence {
+                    file: "platform/lt-y21-env-columns/Y21EnvColumns.al",
+                    lines: "120",
+                },
+            ],
             Gate::LanguageSelectionRowsFrom29 => &[Evidence {
                 file: "platform/lt-platform-rows-fresh/PlatformRowsLanguageSelection.al",
                 lines: "238,377,401,489,581",
@@ -901,6 +927,10 @@ impl Gate {
                 },
             ],
             Gate::ProbedValuesDifferFrom29 => &[
+                Evidence {
+                    file: "record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al",
+                    lines: "190",
+                },
                 Evidence {
                     file: "report/lt-am-report-output/AMReportOutputTests.al",
                     lines: "286",
