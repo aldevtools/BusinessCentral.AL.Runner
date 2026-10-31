@@ -951,6 +951,12 @@ fn restored_sequences(
 }
 
 impl Session {
+    /// How many `SetTableView` views the session still holds (tests only: an entry must not outlive its record).
+    #[doc(hidden)]
+    pub fn set_view_filter_entries(&self) -> usize {
+        self.report.set_view_filters.len()
+    }
+
     /// A session on the deterministic test host: a frozen clock and AL Runner's identity.
     pub fn new(engine: Arc<Engine>) -> Session {
         Session::with_host(engine, al_host::Host::default())
