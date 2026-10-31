@@ -108,6 +108,7 @@ impl Session {
         running: Inst,
     ) -> Result<Value, Signal> {
         match id {
+            ids::REPORT_LAYOUTLISTEXPORTSTREAM_1 => self.report_layout_list_export(receiver, args),
             ids::REPORT_QUIT_1 => self.report_quit_builtin(&running),
             ids::REPORT_SHOWOUTPUT_1
             | ids::REPORT_SHOWOUTPUT_2
@@ -388,8 +389,8 @@ impl Session {
             }
             // `en-US`, the session's own region, reads back empty and leaves Format as it was while the report keeps the
             // session's language (misc/lt-probes-needed-8/PnH4CurrReport.al:244 `region=[]`). After `CurrReport.Language :=` the
-            // pinned pairs are `de-DE` after 1031 (PnC06ReportLanguage.al:58-65) and `en-US` after 1031, 1036 and 1033; any other
-            // region there is refused (docs/probes-needed.md).
+            // pinned pairs are `de-DE` after 1031 (PnC06ReportLanguage.al:58-65), `en-US` after 1031, 1036 and 1033, and a region
+            // after its own language (BdRegionTests.al:1346-1440); any other region there is refused (docs/probes-needed.md).
             ids::REPORT_FORMATREGION_1 => match args.first() {
                 Some(Value::Text(t) | Value::Code(t))
                     if self.report.report_preview_pinned.last() == Some(&crate::state::ReportStart::Run) =>
@@ -404,9 +405,17 @@ impl Session {
                         // following the language (report/lt-bd-format-region/BdRegionTests.al:942, :1036, :1065
                         // `after=... language=N region=[]`).
                         Some(1031 | 1036 | 1033) if t == "en-US" => self.report.format_region = None,
+                        // A region after its own language is kept and reads back: `es-ES_tradnl` after 1034, `en-GB` after 2057,
+                        // `nl-NL` after 1043, `da-DK` after 1030 (report/lt-bd-format-region/BdRegionTests.al:1346-1440, corpus
+                        // master: `language=1034 region=[es-ES_tradnl]`). What Format writes then is decided in al-builtins format.rs
+                        // `format_in_region`, which refuses the regions and shapes it has no pin for.
+                        Some(1034) if t == "es-ES_tradnl" => self.report.format_region = Some(t),
+                        Some(2057) if t == "en-GB" => self.report.format_region = Some(t),
+                        Some(1043) if t == "nl-NL" => self.report.format_region = Some(t),
+                        Some(1030) if t == "da-DK" => self.report.format_region = Some(t),
                         Some(l) => {
                             return unsupported(format!(
-                                "CurrReport.FormatRegion := '{t}' after CurrReport.Language := {l} (only 'de-DE' after 1031 and 'en-US' after 1031, 1036 and 1033 are pinned)"
+                                "CurrReport.FormatRegion := '{t}' after CurrReport.Language := {l} (only 'de-DE' after 1031, 'en-US' after 1031, 1036 and 1033, and a region after its own language for 1034, 2057, 1043 and 1030 are pinned)"
                             ));
                         }
                     }
@@ -922,6 +931,93 @@ impl Session {
             ));
         }
         Ok(object)
+    }
+
+    /// `Media.ExportStream` of the Layout of a Report Layout List row (`Report.LayoutListExportStream#1`, al-sema call.rs): the bytes
+    /// of the layout's file as the app's package holds them, the answer true, the row unchanged (HasValue stays No), the same bytes
+    /// on a second export (report/lt-y17-layout-export/Y17LayoutExportTests.al:70 RDLC, :88 Word, :129 Excel, :146 twice; corpus
+    /// master). The package's file is the one the app's folder holds: the compiler writes the DataSet section of an RDLC file into
+    /// the folder at build, so the two do not differ (Y17LayoutExportTests.al:5-9). Refused: a row that names no layout of a
+    /// report's rendering section (a layout a reportextension declares, a row that is not read), and a layout whose file the app
+    /// does not hold (a Microsoft app read from its package keeps no layout files).
+    fn report_layout_list_export(&mut self, receiver: Option<Value>, args: &[Value]) -> Result<Value, Signal> {
+        let Some(Value::Record(row)) = receiver else {
+            return unsupported("Media.ExportStream of a Report Layout List Layout without its row");
+        };
+        let t = self.table(&row)?;
+        let field = |id: u32| t.fields.iter().position(|f| f.id == id);
+        let (report_id, name) = {
+            let r = row.borrow();
+            let id = field(1).and_then(|p| match r.fields.get(p) {
+                Some(Value::Integer(n)) => Some(*n),
+                _ => None,
+            });
+            let name = field(2).and_then(|p| match r.fields.get(p) {
+                Some(Value::Text(n) | Value::Code(n)) => Some(n.to_string()),
+                _ => None,
+            });
+            (id, name)
+        };
+        let engine = self.engine.clone();
+        // A layout of the rendering section by its name, or one of the legacy RDLCLayout, WordLayout and ExcelLayout properties by
+        // its LayoutFile as written (Y17LayoutExportTests.al:105 Export_LegacyProperties: the same bytes as the file).
+        let found = engine.program.objects.iter().find_map(|o| {
+            let r = o.report.as_ref()?;
+            (o.kind == ir::ObjKind::Report && report_id.is_some() && o.id.map(|i| i as i32) == report_id)
+                .then_some(())?;
+            let name = name.as_deref()?;
+            if let Some(l) = r
+                .rendering_layouts
+                .iter()
+                .find(|l| l.name == name && ["rdlc", "word", "excel"].contains(&l.kind.as_str()))
+            {
+                return Some((o.app as usize, l.name.clone(), l.path.clone()));
+            }
+            o.properties
+                .iter()
+                .filter(|(k, _)| {
+                    ["RDLCLayout", "WordLayout", "ExcelLayout"]
+                        .iter()
+                        .any(|p| k.eq_ignore_ascii_case(p))
+                })
+                .filter_map(|(_, v)| crate::recmeta::string_literal(v))
+                .find(|file| file == name)
+                .map(|file| (o.app as usize, file.clone(), layout_file_path(&file)))
+        });
+        let Some((app, layout_name, layout_path)) = found else {
+            return unsupported(format!(
+                "Media.ExportStream of the Layout of a Report Layout List row that names no RDLC, Word or Excel layout of a report's rendering section (report {}, layout '{}'; not pinned)",
+                report_id.unwrap_or(0),
+                name.unwrap_or_default()
+            ));
+        };
+        let Some(bytes) = engine
+            .program
+            .apps
+            .get(app)
+            .and_then(|a| a.layout_files.iter().find(|(p, _)| *p == layout_path))
+            .map(|(_, b)| b)
+        else {
+            return unsupported(format!(
+                "Media.ExportStream of the Layout of a Report Layout List row: the layout file {layout_path} of layout '{layout_name}' is not held by its app (a Microsoft app read from its package keeps no layout files)"
+            ));
+        };
+        match args.first() {
+            Some(Value::Library(_, h)) => match &*h.borrow() {
+                al_builtins::value::LibraryValue::OutStream(blob, _) => al_builtins::stream::write_bytes(blob, bytes),
+                _ => {
+                    return unsupported(
+                        "Media.ExportStream of a Report Layout List Layout into something not an OutStream",
+                    );
+                }
+            },
+            _ => {
+                return unsupported(
+                    "Media.ExportStream of a Report Layout List Layout into something not an OutStream",
+                );
+            }
+        }
+        Ok(Value::Boolean(true))
     }
 
     /// The bytes of the RDLC layout file report `object` names with `DefaultRenderingLayout`, when it declares no
@@ -1575,6 +1671,24 @@ impl Session {
         }
     }
 
+    /// "The <report> report does not have a DataItem that uses the table ..." (errors/lt-ms-refusals-136/P136Report.al:
+    /// P136_Report_ViewOverTableWithoutDataItem).
+    fn report_no_data_item(&self, schema: &Schema, table: u32) -> Signal {
+        let (id, name) = {
+            let o = &self.engine.program.objects[table as usize];
+            (o.id.unwrap_or(0), o.name.clone())
+        };
+        Signal::Error(Box::new(al_builtins::native::AlError {
+            message: format!(
+                "The {} report does not have a DataItem that uses the table (Table {id} {name}) specified in the function SetTableView.",
+                schema.name()
+            ),
+            code: "ReportNoDataItem".into(),
+            call_stack: String::new(),
+            ..Default::default()
+        }))
+    }
+
     /// `SetTableView` and the record parameter of the static `Run`: the filters of the given record
     /// go to the one data item over its table
     /// (handlers/TestReportSetTableView.al:72-86, handlers/TestReportGetFilterInTriggers.al:58-89).
@@ -1599,34 +1713,73 @@ impl Session {
         // No data item over the table is an error; with several the view filters the first
         // (corpus errors/lt-ms-refusals-136/P136Report.al:P136_Report_ViewOverTableWithoutDataItem and
         // P136_Report_ViewWithTwoDataItemsOverTheTable: `A:a;A:b;B:a;B:b;B:c;`).
-        let Some(&item) = items.first() else {
-            // A data item a reportextension adds over the table: what the view does there is not pinned (Microsoft's Get
-            // Source Documents, whose Serv. Get Source Documents extension adds the Service Header item).
+        let target = if let Some(&item) = items.first() {
+            self.base_item_record(inst, item)?
+        } else {
+            // A data item a reportextension adds over the table: the view reaches it as it reaches a base item
+            // (report/lt-y17-ext-settableview/Y17ExtSetTableViewTests.al:83, corpus master; Microsoft's Get Source Documents,
+            // whose Serv. Get Source Documents extension adds the Service Header and Service Line items).
             let engine = self.engine.clone();
-            let added = schema.report().extensions.iter().any(|&e| {
-                engine.program.objects[e]
-                    .report_ext
-                    .as_ref()
-                    .is_some_and(|x| x.added.iter().any(|a| a.item.table == Some(table as usize)))
-            });
-            if added {
-                return unsupported("SetTableView on a data item a reportextension adds (not pinned)");
+            let added: Vec<(usize, &ir::ReportItem)> = schema
+                .report()
+                .extensions
+                .iter()
+                .flat_map(|&e| {
+                    engine.program.objects[e]
+                        .report_ext
+                        .as_ref()
+                        .into_iter()
+                        .flat_map(move |x| x.added.iter().map(move |a| (e, &a.item)))
+                })
+                .filter(|(_, i)| i.table == Some(table as usize))
+                .collect();
+            match added.as_slice() {
+                [] => return Err(self.report_no_data_item(schema, table)),
+                [(e, item)] => {
+                    let v = view.borrow();
+                    // Pinned: filters (:83, :101, :145), a temporary record's filters without its rows (:182), and a key of
+                    // the view under an added item whose DataItemTableView sorts, which wins (:163). A key over an added item
+                    // without a sorting, a direction and marks are not pinned there.
+                    let sorts = item
+                        .view
+                        .as_deref()
+                        .is_some_and(|w| w.to_ascii_lowercase().contains("sorting"));
+                    if (v.key != 0 || v.adhoc.is_some()) && !sorts {
+                        return unsupported(
+                            "SetTableView with a key on a data item a reportextension adds without a sorting (not pinned)",
+                        );
+                    }
+                    if !v.ascending
+                        || v.field_descending != 0
+                        || (!v.temporary && (v.marked_only || !v.marks.is_empty()))
+                    {
+                        return unsupported(
+                            "SetTableView with a direction or marks on a data item a reportextension adds (not pinned)",
+                        );
+                    }
+                    drop(v);
+                    let ext_inst = self.report_extension_instance(inst, *e)?;
+                    let slot = item.slot;
+                    match slot.map(|s| ext_inst.borrow().globals[s].clone()) {
+                        Some(Value::Record(rc)) => rc,
+                        other => {
+                            return unsupported(format!(
+                                "dataitem {} holds {other}",
+                                item.name,
+                                other = other.describe()
+                            ));
+                        }
+                    }
+                }
+                _ => {
+                    return unsupported(
+                        "SetTableView on a table that several data items reportextensions add use (not pinned)",
+                    );
+                }
             }
-            let (id, name) = {
-                let o = &self.engine.program.objects[table as usize];
-                (o.id.unwrap_or(0), o.name.clone())
-            };
-            return Err(Signal::Error(Box::new(al_builtins::native::AlError {
-                message: format!(
-                    "The {} report does not have a DataItem that uses the table (Table {id} {name}) specified in the function SetTableView.",
-                    schema.name()
-                ),
-                code: "ReportNoDataItem".into(),
-                call_stack: String::new(),
-                ..Default::default()
-            })));
         };
         let v = view.borrow();
+
         // The data item reads the table itself, so a temporary record's rows do not count, only its filters do; the marks of a
         // marked-only record, its key and its direction carry over (corpus errors/lt-ms-refusals-136/P136Report.al:
         // temporary, temporaryFiltered, markedOnly, markedNotOnly, keyQty, keyQtyDescending, descendingPrimary, keyQtyFiltered).
@@ -1634,7 +1787,6 @@ impl Session {
         // (handlers/TestReportRuntimeContracts.al:393-410 "Probe Rep Order"). Over one that filters, both apply
         // (the item's filters live in the report's own filter group); GetFilters in OnPreDataItem shows only the SetTableView
         // filter (report/lt-dataitem-view/DataItemTableView.al:117-205, real BC 29: F 1..2 view and F 2..3 given: count 1, row 2).
-        let target = self.base_item_record(inst, item)?;
         let mut t = target.borrow_mut();
         let origin: Vec<crate::state::ViewFilterKey> = v
             .filters
@@ -2424,6 +2576,12 @@ impl Session {
         rec = self.report_item_record(run, r)?;
         self.ret_used = true;
         let mut more = !no_rows && matches!(self.record_op(RecordOp::FindSet, &rec, &mut [])?, Value::Boolean(true));
+        // Where this item's rows start in the dataset, and whether it read any: a SaveAsXml data file writes a Result for an item
+        // that ran and read no row (dataset.rs `finish_data_set`).
+        let dataset_mark = match &self.report.dataset {
+            Some(d) if run.dataset && !no_rows => Some((d.mark(), more)),
+            _ => None,
+        };
         let mut iterations = 0u32;
         'rows: while more {
             iterations += 1;
@@ -2492,6 +2650,9 @@ impl Session {
             self.ret_used = true;
             more = !matches!(self.record_op(RecordOp::Next, &rec, &mut [])?, Value::Integer(0));
         }
+        if let (Some((since, read_any)), Some(d)) = (dataset_mark, self.report.dataset.as_mut()) {
+            d.item_done(since, read_any);
+        }
         // `OnPostDataItem` of the base, with the extensions' OnBefore/OnAfterPostDataItem around it
         // (reportext/W3RpExtProcedures.al:SaveAs_AddedItem_RunsAfterTheParentsNestedItems_Order, BC 27.5 and 29.0).
         for &(k, m) in &modifies {
@@ -2513,6 +2674,23 @@ impl Session {
         }
         Ok(false)
     }
+}
+
+/// A `LayoutFile` relative to the app folder, as al-sema reports.rs `resolve_layout_path` writes `RenderingLayout::path`: `/`
+/// separators, `.` and `..` resolved.
+fn layout_file_path(file: &str) -> String {
+    let file = file.replace('\\', "/");
+    let mut parts: Vec<&str> = Vec::new();
+    for c in file.split('/') {
+        match c {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            c => parts.push(c),
+        }
+    }
+    parts.join("/")
 }
 
 /// A data item of the running report: one of its own, or one its reportextension adds.
@@ -3962,13 +4140,10 @@ impl Session {
         self.calc_fields(rec, &calc)
     }
 
-    /// Opens the `DataItem` element of the current row of item `r` with its columns, evaluated now:
-    /// after `OnAfterGetRecord` and before the nested items.
-    fn dataset_begin(&mut self, run: &Run, r: ItemRef, rec: &Rec) -> Result<(), Signal> {
-        let item = run.item(r);
-        let mut name = dataset::dataset_name(&item.name)?;
-        // Items of one parent whose names give the same element get a number in dataset order: X_Y, X_Y1, X_Y2
-        // (ReportDatasetNames.al:SaveAsXml_Names_MappingToTheSameElement).
+    /// The element name of item `r` in the dataset. Items of one parent whose names give the same element get a number in dataset
+    /// order: X_Y, X_Y1, X_Y2 (ReportDatasetNames.al:SaveAsXml_Names_MappingToTheSameElement).
+    fn dataset_item_name(run: &Run, r: ItemRef) -> Result<String, Signal> {
+        let mut name = dataset::dataset_name(&run.item(r).name)?;
         if let ItemRef::Base(i) = r {
             let items = &run.report().items;
             let earlier = (0..i)
@@ -3980,6 +4155,71 @@ impl Session {
                 name = format!("{name}{earlier}");
             }
         }
+        Ok(name)
+    }
+
+    /// The data items of a run as a SaveAsXml data file declares them: depth first in run order (the base's nested items, then
+    /// those extensions add), each with its columns and the extensions' columns on it, as `dataset_begin` writes them
+    /// (al-language-onprem/handlers/Y17SaveAsXmlTrees.al:644 C1 lists the nested item's columns before the second top item's). A
+    /// column's type without a row is known for a table field of type Integer, Text, Code, Decimal, Boolean or Date (:726 D2,
+    /// :685 D1; the types: al-language-onprem/report/lt-aq/AqSaveAsXml.al:247).
+    pub(crate) fn data_file_items(&self, run: &Run) -> Result<Vec<dataset::DeclaredItem>, Signal> {
+        fn walk(vm: &Session, run: &Run, r: ItemRef, out: &mut Vec<dataset::DeclaredItem>) -> Result<(), Signal> {
+            let item = run.item(r);
+            let table = item.table.and_then(|t| vm.engine.tables.get(t).cloned().flatten());
+            let ty = |c: &ir::ReportColumn| -> Result<(String, Option<&'static str>), Signal> {
+                let ty = match (c.field, &table) {
+                    (Some(pos), Some(t)) => match t.fields.get(pos).map(|f| &f.ty) {
+                        Some(al_builtins::value::RtType::Integer) => Some("xs:int"),
+                        Some(al_builtins::value::RtType::Text(_) | al_builtins::value::RtType::Code(_)) => {
+                            Some("xs:string")
+                        }
+                        Some(al_builtins::value::RtType::Decimal) => Some("xs:decimal"),
+                        Some(al_builtins::value::RtType::Boolean) => Some("xs:boolean"),
+                        Some(al_builtins::value::RtType::Date) => Some("xs:dateTime"),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                Ok((dataset::dataset_name(&c.name)?, ty))
+            };
+            let mut columns = Vec::new();
+            for c in &item.columns {
+                columns.push(ty(c)?);
+            }
+            if let ItemRef::Base(i) = r {
+                for k in 0..run.exts.len() {
+                    let Some(x) = run.ext_ir(k) else { continue };
+                    for add in x.adds.iter().filter(|a| a.item == i) {
+                        for c in &add.columns {
+                            columns.push(ty(c)?);
+                        }
+                    }
+                }
+            }
+            out.push(dataset::DeclaredItem {
+                name: Session::dataset_item_name(run, r)?,
+                columns,
+            });
+            for child in run.children(r) {
+                walk(vm, run, child, out)?;
+            }
+            Ok(())
+        }
+        let mut out = Vec::new();
+        for i in 0..run.report().items.len() {
+            if run.report().items[i].parent.is_none() {
+                walk(self, run, ItemRef::Base(i), &mut out)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Opens the `DataItem` element of the current row of item `r` with its columns, evaluated now:
+    /// after `OnAfterGetRecord` and before the nested items.
+    fn dataset_begin(&mut self, run: &Run, r: ItemRef, rec: &Rec) -> Result<(), Signal> {
+        let item = run.item(r);
+        let name = Self::dataset_item_name(run, r)?;
         let (owner, object) = run.owner(r);
         let owner = owner.clone();
         let table = rec.borrow().table as usize;
@@ -4015,11 +4255,13 @@ impl Session {
             ItemRef::Base(i) => run.report().items.iter().any(|it| it.parent == Some(i)),
             ItemRef::Added(..) => false,
         };
+        let has_children = !run.children(r).is_empty();
         self.report.dataset.as_mut().expect("a SaveAs run has a dataset").begin(
             &name,
             identity.as_ref().map(|(t, g)| (*t, g.as_str())),
             &columns,
             declares_children,
+            has_children,
         );
         Ok(())
     }
@@ -4205,6 +4447,7 @@ impl Session {
         }
         let mut attribute = None;
         let mut schema_type = None;
+        let mut data = dataset::DataFileText::Same;
         let region = self.report.dataset.as_ref().and_then(|d| d.region.clone());
         // In German the values of a Decimal, Date, Time, DateTime, Integer, Boolean and text column read as in en-US
         // (report/W3ReportObjectIdPreviewLanguage.al:870, :893); an Option or Enum column is not pinned there.
@@ -4249,9 +4492,24 @@ impl Session {
                 schema_type = Some("xs:string");
                 dataset::escape(s)?
             }
-            Value::Boolean(b) => if *b { "True" } else { "False" }.to_string(),
-            Value::Date(0, false) => String::new(),
-            Value::Date(d, false) => dataset::date_text(*d),
+            // A SaveAsXml data file writes a Boolean as `xs:boolean`, `true` or `false`, and a Date as `xs:dateTime` at midnight
+            // UTC, leaving out a blank one (al-language-onprem/report/lt-aq/AqSaveAsXml.al:247 SaveAsXml_ColumnTypes_DataFile).
+            Value::Boolean(b) => {
+                schema_type = Some("xs:boolean");
+                data = dataset::DataFileText::Text(b.to_string());
+                if *b { "True" } else { "False" }.to_string()
+            }
+            Value::Date(0, false) => {
+                schema_type = Some("xs:dateTime");
+                data = dataset::DataFileText::Omit;
+                String::new()
+            }
+            Value::Date(d, false) => {
+                schema_type = Some("xs:dateTime");
+                let (y, m, day) = al_builtins::format::civil_from_day(*d);
+                data = dataset::DataFileText::Text(format!("{y:04}-{m:02}-{day:02}T00:00:00+00:00"));
+                dataset::date_text(*d)
+            }
             // An undefined Time or DateTime is blank like an undefined Date (docs/probes-needed.md).
             Value::Time(0) | Value::DateTime(0) => String::new(),
             Value::Time(t) => dataset::time_text(t - 1)?,
@@ -4293,8 +4551,15 @@ impl Session {
             Value::Option(n, _) if t.is_some() && c.field.is_some() => {
                 let (t, pos) = (t.as_ref().expect("checked"), c.field.expect("checked"));
                 match self.members_of_field_in(t, pos, true)? {
-                    Some((_, members)) => match members.iter().find(|(ord, _, _)| ord == n) {
-                        Some((_, _, caption)) => dataset::escape(caption)?,
+                    Some((enum_field, members)) => match members.iter().find(|(ord, _, _)| ord == n) {
+                        Some((_, name, caption)) => {
+                            // A SaveAsXml data file: `xs:string`, the member, pinned for an Option field without captions
+                            // (AqSaveAsXml.al:247 `<KindC>Gamma</KindC>`).
+                            if !enum_field && name == caption {
+                                schema_type = Some("xs:string");
+                            }
+                            dataset::escape(caption)?
+                        }
                         None => n.to_string(),
                     },
                     None => n.to_string(),
@@ -4335,6 +4600,7 @@ impl Session {
             attribute,
             text,
             schema_type,
+            data,
         })
     }
 

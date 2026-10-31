@@ -843,6 +843,20 @@ impl Session {
                 );
             }
         }
+        // An import port with the empty prefix `""` among its Namespaces fails on BC with a schema error that names an element
+        // (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:178, `The 'urn:lt-d:Name' element is not declared.`); which
+        // element it names is not modelled.
+        if xp.namespaces.iter().any(|(p, _)| p.is_empty()) {
+            return unsupported("XmlPort import with the empty prefix \"\" among its Namespaces (not modelled)");
+        }
+        // A prefix on a text or table element is pinned for the export only (Y17XmlPortNamespacesTests.al:60).
+        if xp
+            .nodes
+            .iter()
+            .any(|n| n.ns_prefix.is_some() && matches!(n.kind, ir::XmlNodeKind::Text | ir::XmlNodeKind::Table))
+        {
+            return unsupported("XmlPort import with a NamespacePrefix on a text or table element (not pinned)");
+        }
         // A port without namespaces ignores a prefix that the root declares and no element uses
         // (XpTNamespaces.al:Import_NoNamespaceXmlportWithUnusedPrefixDecl, `xmlns:z` on the root: imported).
         let mut root = root;
@@ -2767,7 +2781,11 @@ impl Session {
             return unsupported("XmlPort export with more than one top-level element (not pinned)");
         };
         let table_top = xp.format != ir::XmlFormat::Xml && xp.nodes[top].kind == ir::XmlNodeKind::Table;
-        let table_root = root_table_element(schema, top);
+        // A table element root written once with any content below it, in a port that declares namespaces: the PEPPOL BIS 3.0
+        // shape (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespaces.al, an Integer root with MaxOccurs = Once, an OnAfterGetRecord,
+        // text and table elements below; Y17XmlPortNamespacesTests.al:60-93). Without namespaces it is not pinned.
+        let declares = !xp.namespaces.is_empty() || xp.default_ns.is_some();
+        let table_root = root_table_element(schema, top) || (declares && once_root(schema, top));
         if !table_top && !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty())
         {
             return unsupported("XmlPort export whose root is not a text element with content (not pinned)");
@@ -2781,17 +2799,33 @@ impl Session {
             // A table element as the root is written once per row, one root element after the other; with no row, once with
             // the record as it stands (platform/lt-ag-contoso/AgXmlPortImport.al:557 QX_RootTableElement_Export, :584 _TwoRows).
             if table_root {
-                if xp.inline_schema || !xp.namespaces.is_empty() || xp.default_ns.is_some() {
+                // Namespaces on a table element root that is written once (MaxOccurs = Once over Integer, the PEPPOL shape):
+                // xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:60, :71, :82, :93 (UTF8). Several roots, UTF16 or
+                // InlineSchema with them are not pinned.
+                if xp.inline_schema || (declares && (!xp.xml_utf8 || xp.preserve_whitespace)) {
                     return unsupported(
                         "XmlPort export of a table element root with InlineSchema or namespaces (not pinned)",
                     );
                 }
-                let rows = match self.xp_export_table(inst, schema, top) {
+                let mut rows = match self.xp_export_table(inst, schema, top) {
                     Err(Signal::Error(_)) if guarded => {
                         return unsupported("an error inside an Export whose result is used (not pinned)");
                     }
                     other => other?,
                 };
+                if declares {
+                    let [root] = rows.as_mut_slice() else {
+                        return unsupported(
+                            "XmlPort export of a table element root with namespaces written other than once (not pinned)",
+                        );
+                    };
+                    if al_builtins::xmlport::has_line_end(root) {
+                        return unsupported(
+                            "XmlPort export of a text value with a line end under a table element root with namespaces (not pinned)",
+                        );
+                    }
+                    declare_namespaces(root, &xp.namespaces, xp.default_ns.as_deref());
+                }
                 let encoding = if xp.xml_utf8 { "UTF-8" } else { "UTF-16" };
                 let text = al_builtins::xmlport::serialize_roots(&rows, encoding);
                 let bytes = if xp.xml_utf8 {
@@ -2808,16 +2842,7 @@ impl Session {
                 return Ok(if guarded { Value::Boolean(true) } else { Value::Null });
             }
             match self.xp_export_container(inst, schema, top).map(|mut root| {
-                for (i, (prefix, uri)) in xp.namespaces.iter().enumerate() {
-                    root.attrs.insert(i, (format!("xmlns:{prefix}"), uri.clone()));
-                }
-                // UseDefaultNamespace = true without DefaultNamespace: the root declares BC's namespace of the port as the default
-                // and the elements below inherit it (xmlport/lt-bd-xmlport/BdXmlPort.al:511, DgXmlPortLeads.al:290).
-                // It follows the root's own attributes (writer TF's branch al-runtime-rs-staging-pub-tf,
-                // xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al TF_NsAttr_Export: `<Root Ver="v1" xmlns="...">`).
-                if let Some(ns) = &xp.default_ns {
-                    root.attrs.push(("xmlns".into(), ns.clone()));
-                }
+                declare_namespaces(&mut root, &xp.namespaces, xp.default_ns.as_deref());
                 root
             }) {
                 // A line end in a text value (LF, CR LF, a lone CR) is written as CR LF: pinned on an UTF8 export, with and without
@@ -3043,7 +3068,7 @@ impl Session {
 
     /// A text element with content: its attributes, then its children in schema order.
     fn xp_export_container(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<Elem, Signal> {
-        let mut out = Elem::new(&schema.node(node).xml_name);
+        let mut out = Elem::new(&doc_name(schema, node));
         match self.xp_export_content(inst, schema, node, &mut out) {
             Err(Signal::Exit(None)) if Self::xp_quit(inst) => {}
             other => other?,
@@ -3115,7 +3140,14 @@ impl Session {
                 }
                 ir::XmlNodeKind::Text if schema.children(child).is_empty() => {
                     let v = got!(self.xp_pass_variable(inst, schema, child));
-                    let mut e = Elem::new(&c.xml_name);
+                    // currXMLport.Skip() in its OnBeforePassVariable leaves the element out (xmlport/lt-y17-xmlport-ns/
+                    // Y17XmlPortNamespaces.al `Opt`, Y17XmlPortNamespacesTests.al:60: no `<b:Opt />`). Break, BreakUnbound and
+                    // Quit are handled where the flow is read (lt-ay-xmlport/AyXmlPortFlowTriggers.al Export_head_*).
+                    if Self::xp_flow(inst) == Some(Flow::Skip) {
+                        Self::xp_clear_flow(inst);
+                        continue;
+                    }
+                    let mut e = Elem::new(&doc_name(schema, child));
                     e.children.push(Node::Text(v));
                     out.children.push(Node::Elem(e));
                 }
@@ -3139,7 +3171,7 @@ impl Session {
                             "XmlPort export of a text element below a table element with both its own text and elements below it (not pinned)",
                         );
                     }
-                    let mut e = Elem::new(&c.xml_name);
+                    let mut e = Elem::new(&doc_name(schema, child));
                     let r = self.xp_export_content(inst, schema, child, &mut e);
                     // Only a Required text attribute of the inner element is pinned empty (`option_value=""`, TP_Nested_Export R3).
                     if r.is_ok() && nested_inner(schema, child) {
@@ -3214,7 +3246,8 @@ impl Session {
                 ir::XmlNodeKind::Text
                     if schema.node(node).kind == ir::XmlNodeKind::Table
                         && !linked_container(schema, child, node)
-                        && !attr_container(schema, child) =>
+                        && !attr_container(schema, child)
+                        && !plain_container(schema, child) =>
                 {
                     return unsupported("XmlPort export of a text element with content inside a table element");
                 }
@@ -3484,7 +3517,10 @@ impl Session {
                 other?;
             }
         }
-        self.xp_rows(inst, schema, node, &mut rows)?;
+        // MaxOccurs = Once keeps the first row and below tells two, three and more rows apart: four are enough to read, which
+        // also ends the read of an Integer root over `Number = filter(1 ..)` (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespaces.al).
+        let cap = if n.max_unbounded == Some(false) { 4 } else { usize::MAX };
+        self.xp_rows_upto(inst, schema, node, &mut rows, cap)?;
         // MaxOccurs = Once writes the first row only (xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:259 SG_OnceTemp_Export_TwoRowsEach,
         // :390 SG_OnceReal_Export `two`). Pinned without export triggers; whether a trigger sees the rows after the first is not.
         // With export triggers and two rows (QrXpContainerOccurs.al TR_Booking_TwoReplyRows on branch al-runtime-rs-staging-tr):
@@ -3551,7 +3587,7 @@ impl Session {
         // values of the record as it stands (xmlport/lt-xmlport-query-datatransfer/XpTExportBasic.al:Export_StaticWithRecordNoRows,
         // Export_EmptyTable: 462 bytes, a row of `0`, empty text, `0.00`, `No`).
         if rows.is_empty() && !n.min_zero {
-            let mut e = Elem::new(&n.xml_name);
+            let mut e = Elem::new(&doc_name(schema, node));
             let r = self.xp_export_content(inst, schema, node, &mut e);
             out.push(e);
             match r {
@@ -3602,7 +3638,7 @@ impl Session {
                 Err(e) => return Err(e),
                 Ok(_) => {}
             }
-            let mut e = Elem::new(&n.xml_name);
+            let mut e = Elem::new(&doc_name(schema, node));
             let r = self.xp_export_content(inst, schema, node, &mut e);
             out.push(e);
             match r {
@@ -3755,6 +3791,18 @@ impl Session {
 
     /// The rows of table element `node` in export order.
     fn xp_rows(&mut self, inst: &Inst, schema: &Schema, node: usize, rows: &mut Vec<Vec<Value>>) -> Result<(), Signal> {
+        self.xp_rows_upto(inst, schema, node, rows, usize::MAX)
+    }
+
+    /// As `xp_rows`, reading at most `cap` rows.
+    fn xp_rows_upto(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        node: usize,
+        rows: &mut Vec<Vec<Value>>,
+        cap: usize,
+    ) -> Result<(), Signal> {
         let n = schema.node(node);
         let rec = self.xp_record(inst, n)?;
         let t = self.table(&rec)?;
@@ -3764,7 +3812,9 @@ impl Session {
             (r.key, r.ascending)
         };
         let mut after = None;
-        while let Some(row) = self.scan(&rec, &t, asc, after.take())? {
+        while rows.len() < cap
+            && let Some(row) = self.scan(&rec, &t, asc, after.take())?
+        {
             after = Some(position(&t, key, &row));
             rows.push(row);
         }
@@ -3877,6 +3927,17 @@ fn for_each_row(
 /// A `Format = Xml` port whose root is a table element of plain field elements, without triggers, attributes, a link or
 /// a MinOccurs (xmlports 87562 and 87563 of platform/lt-ag-contoso/AgXmlPortImport.al:784-833, the DemoTool's xmlport
 /// 101899). Other shapes of a table element root are not pinned.
+/// A table element root with MaxOccurs = Once, not linked and not optional (see `xp_export` for where it is pinned).
+fn once_root(schema: &Schema, top: usize) -> bool {
+    let n = schema.node(top);
+    schema.xp().format == ir::XmlFormat::Xml
+        && n.kind == ir::XmlNodeKind::Table
+        && n.max_unbounded == Some(false)
+        && n.link_node.is_none()
+        && !n.min_zero
+        && !schema.children(top).is_empty()
+}
+
 fn root_table_element(schema: &Schema, top: usize) -> bool {
     let n = schema.node(top);
     schema.xp().format == ir::XmlFormat::Xml
@@ -3891,10 +3952,28 @@ fn root_table_element(schema: &Schema, top: usize) -> bool {
         })
 }
 
+/// The namespace declarations of an exported root. The prefixed entries come first, in declaration order, before the root's
+/// own attributes (xmlport/lt-bd-xmlport/BdXmlPort.al:407). The default namespace follows the root's own attributes, last:
+/// with UseDefaultNamespace the port's (BC's namespace of the port without DefaultNamespace: BdXmlPort.al:511,
+/// DgXmlPortLeads.al:290; after the root's attributes: xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al TF_NsAttr_Export
+/// `<Root Ver="v1" xmlns="...">`), else the uri of the empty prefix `""`, whether `""` is listed first or last
+/// (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:60, :71); a used default namespace replaces that uri (:82).
+fn declare_namespaces(root: &mut Elem, namespaces: &[(String, String)], default_ns: Option<&str>) {
+    for (at, (prefix, uri)) in namespaces.iter().filter(|(p, _)| !p.is_empty()).enumerate() {
+        root.attrs.insert(at, (format!("xmlns:{prefix}"), uri.clone()));
+    }
+    let empty = namespaces.iter().find(|(p, _)| p.is_empty()).map(|(_, u)| u.as_str());
+    if let Some(ns) = default_ns.or(empty) {
+        root.attrs.push(("xmlns".into(), ns.to_string()));
+    }
+}
+
 fn doc_name(schema: &Schema, c: usize) -> String {
     let n = schema.node(c);
     match (&n.ns_prefix, n.kind) {
-        (Some(p), ir::XmlNodeKind::Field) => format!("{p}:{}", n.xml_name),
+        (Some(p), ir::XmlNodeKind::Field | ir::XmlNodeKind::Text | ir::XmlNodeKind::Table) => {
+            format!("{p}:{}", n.xml_name)
+        }
         _ => n.xml_name.clone(),
     }
 }
@@ -4187,6 +4266,15 @@ fn text_in_table(schema: &Schema, c: usize) -> Option<TextInTable> {
     let n = schema.node(c);
     let kids = schema.children(c);
     let below_table = n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table);
+    // One text element further down, only text attributes below it: `<a:Party><b:EndpointID schemeID="0088">E1</b:EndpointID>`
+    // with an OnBeforePassVariable on both (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:60, the PEPPOL shape).
+    let below_text_in_table = n.parent.is_some_and(|p| {
+        let p = schema.node(p);
+        p.kind == ir::XmlNodeKind::Text && p.parent.is_some_and(|g| schema.node(g).kind == ir::XmlNodeKind::Table)
+    });
+    if n.kind == ir::XmlNodeKind::Text && below_text_in_table && attrs_only(schema, c) {
+        return Some(TextInTable::Attrs);
+    }
     if n.kind != ir::XmlNodeKind::Text || !below_table || kids.is_empty() {
         return None;
     }
@@ -4208,6 +4296,26 @@ fn text_in_table(schema: &Schema, c: usize) -> Option<TextInTable> {
         (0, false, false) => Some(TextInTable::Attrs),
         _ => None,
     }
+}
+
+/// A text element right below a table element with no triggers and no attributes, whose elements are leaf text and field
+/// elements and text elements with only text attributes, at least one of those: written as any container
+/// (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:60, `<a:Party><b:EndpointID schemeID="0088">E1</b:EndpointID>
+/// <Plain>p</Plain></a:Party>`).
+fn plain_container(schema: &Schema, c: usize) -> bool {
+    let n = schema.node(c);
+    let kids = schema.children(c);
+    n.kind == ir::XmlNodeKind::Text
+        && n.triggers.is_empty()
+        && kids.iter().any(|&k| attrs_only(schema, k))
+        && kids.iter().all(|&k| {
+            let m = schema.node(k);
+            match m.kind {
+                ir::XmlNodeKind::Text | ir::XmlNodeKind::Field if schema.children(k).is_empty() => true,
+                ir::XmlNodeKind::Text => attrs_only(schema, k),
+                _ => false,
+            }
+        })
 }
 
 /// A text element whose nodes are only text attributes (at least one).

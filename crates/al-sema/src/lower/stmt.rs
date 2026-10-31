@@ -514,6 +514,10 @@ impl Lowerer<'_> {
             // A unit amount whose expression is no text: the AutoFormat wins (misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al
             // `A2Dp`, DecimalPlaces 0:1: `1,234.5000` with a currency of 4:4 unit-amount places).
             (Some("2"), Some(e)) if !e.starts_with('\'') => None,
+            // The same for an amount whose expression is a field of the row or a procedure: `DecimalPlaces = 2 : 5` or `0 : 5`
+            // beside it, the currency's places win (types/lt-auto-format-currency/Y17AfProcedure.al:405 AF_DecimalPlaces_T1_FieldOfRow
+            // `0.010` with a currency of 3:3, `0.00` without one; :441 AF_DecimalPlaces_T1_Procedure).
+            (Some("1"), Some(e)) if !e.starts_with('\'') => None,
             _ => Some(format!(
                 "Format of Decimal field {} with DecimalPlaces and an AutoFormat beside it (not pinned: only AutoFormatType = 1 \
                  with a blank AutoFormatExpression is)",
@@ -550,8 +554,9 @@ impl Lowerer<'_> {
             return Some(("2:2".into(), 0));
         }
         // A unit amount whose expression is no text: its places come from the expression when it runs, DecimalPlaces beside it
-        // or not (`auto_format_expression_field`; SaUnitAmountSubst.al `A2Dp`).
-        if prop("AutoFormatType").as_deref() == Some("2")
+        // or not (`auto_format_expression_field`; SaUnitAmountSubst.al `A2Dp`). The same for an amount (types/
+        // lt-auto-format-currency/Y17AfProcedure.al:405, :441).
+        if matches!(prop("AutoFormatType").as_deref(), Some("1" | "2"))
             && prop("AutoFormatExpression").is_some_and(|e| !e.starts_with('\''))
         {
             return None;
@@ -902,28 +907,7 @@ impl Lowerer<'_> {
     }
 
     fn expr_stmt(&mut self, e: &SyntaxNode) -> L<ir::Stmt> {
-        self.expr(e).map(|e| match e {
-            ir::Expr::Builtin { id, receiver, args, .. } => ir::Stmt::Expr(ir::Expr::Builtin {
-                id,
-                receiver,
-                args,
-                ret_used: false,
-            }),
-            ir::Expr::Call {
-                object,
-                routine,
-                instance,
-                args,
-                ..
-            } => ir::Stmt::Expr(ir::Expr::Call {
-                object,
-                routine,
-                instance,
-                args,
-                try_call: false,
-            }),
-            e => ir::Stmt::Expr(e),
-        })
+        self.expr(e).map(unused_result)
     }
 
     pub(crate) fn stmt_plain(&mut self, n: &SyntaxNode) -> Vec<ir::Stmt> {
@@ -1299,6 +1283,14 @@ impl Lowerer<'_> {
         {
             return self.call(&kids[0], &kids[0], &kids[1..2]).map(ir::Stmt::Expr);
         }
+        // `B.Append := 'abc'` is the call statement `B.Append('abc')` (`is_assign_call`).
+        if kids[0].kind() == SyntaxKind::MemberExpr
+            && sig_tokens(n).iter().any(|t| t.kind() == SyntaxKind::Assign)
+            && matches!(self.res(&kids[0]), Some(Res::Builtin(id))
+                if self.catalog.by_id(id).is_some_and(|s| super::is_assign_call(&s.receiver, &s.name)))
+        {
+            return self.call(&kids[0], &kids[0], &kids[1..2]).map(unused_result);
+        }
         // `Proc := value` calls a procedure of this object that takes one value parameter (Base Application's Service
         // Line writes `SetHideWarrantyWarning := true`; corpus codeunit/lt-procedure-assignment/ProcedureAssignmentOneParameter.al). The checker leaves the
         // name unresolved (it looks for a call with no arguments), so the procedure is found here by its name.
@@ -1395,6 +1387,9 @@ impl Lowerer<'_> {
                 });
                 if compound {
                     return Err("compound assignment to a setter-form builtin is not lowered yet".into());
+                }
+                if id == "XmlNamespaceManager.NameTable#1" {
+                    self.assume(al_builtins::assumptions::Assumption::NametableAssignIsCall);
                 }
                 let receiver = if member {
                     let recv = kids[0].children().next().ok_or("member base")?;
@@ -2081,6 +2076,32 @@ impl Lowerer<'_> {
                     .unwrap_or_else(|| format!("`{}` is not assignable", n.text()))),
             },
         }
+    }
+}
+
+/// A call as a statement: its result is not used.
+fn unused_result(e: ir::Expr) -> ir::Stmt {
+    match e {
+        ir::Expr::Builtin { id, receiver, args, .. } => ir::Stmt::Expr(ir::Expr::Builtin {
+            id,
+            receiver,
+            args,
+            ret_used: false,
+        }),
+        ir::Expr::Call {
+            object,
+            routine,
+            instance,
+            args,
+            ..
+        } => ir::Stmt::Expr(ir::Expr::Call {
+            object,
+            routine,
+            instance,
+            args,
+            try_call: false,
+        }),
+        e => ir::Stmt::Expr(e),
     }
 }
 

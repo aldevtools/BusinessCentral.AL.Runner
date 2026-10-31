@@ -71,6 +71,7 @@ mod sessionops;
 mod sqlcount;
 mod sqltime;
 mod tasks;
+mod tenant_layout_cfg;
 mod tenant_layouts;
 mod testdata;
 mod transactions;
@@ -1152,6 +1153,7 @@ impl Session {
             application_areas: String::new(),
             tx: TxState {
                 committed_row_version: restored_row_version,
+                prior_committed_row_version: restored_row_version,
                 ..TxState::fresh()
             },
             ui_state: UiState {
@@ -1269,7 +1271,16 @@ impl Session {
         self.sql.committed();
         self.truncate_undo.clear();
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
+        self.tx.prior_committed_row_version = self.tx.committed_row_version;
         self.tx.committed_row_version = self.next_row_version;
+        let closed = (!self.tx.rolled_back && self.writes_all_noted()).then(|| {
+            self.tx
+                .writes
+                .iter()
+                .map(|w| (w.table, w.company.clone(), w.pk.clone()))
+                .collect()
+        });
+        self.tx.closed_tx_rows_before = std::mem::replace(&mut self.tx.closed_tx_rows, closed);
         self.tx.row_versions = Default::default();
         self.tx.rows_touched.clear();
         self.tx.tables_inserted.clear();

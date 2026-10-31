@@ -297,6 +297,10 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     // Empty on a fresh tenant; an Insert raises the license error and stores nothing (PtOnPremTables.al:172-190). Only that
     // Insert, with triggers, is pinned: the others refuse (al-vm records.rs).
     (2_000_000_130, "Device", Provider::Stored),
+    // OnPrem; takes Insert, a duplicate Insert (false), Modify, Delete, an Insert without triggers and DeleteAll, and keeps
+    // the Blob File it is given (al-language-onprem/platform/PtOnPremTables.al Y17_PowerBIBlob_InsertModifyDelete,
+    // Y17_PowerBIBlob_BlobRoundTrip, corpus master 97c29f86). A fresh tenant holds demo rows nothing pins: `UNSEEDED_ROWS`.
+    (2_000_000_144, "Power BI Blob", Provider::Stored),
 ];
 
 /// Stored tables that a fresh tenant fills with rows no corpus test pins. The runtime starts them empty, so it treats them as
@@ -305,7 +309,10 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
 /// PtWebServiceRows.al:39-73, PlatformRowsWebService.al:66-215). Their System Application neighbours are not: Tenant Web
 /// Service OData (6710) holds 29 rows and Tenant Web Service Columns (6711) 402 on a fresh tenant, only the counts are pinned
 /// (onprem platform/PtWebServiceRows.al:237, :267 'counts before'); what Tenant Web Service Filter (6712) holds is not pinned.
-pub const UNSEEDED_ROWS: &[u32] = &[6710, 6711, 6712];
+/// Power BI Blob (2000000144) holds demo rows on a fresh tenant (8 on the Linux CI containers, recorded and not asserted:
+/// PtOnPremTables.al Y17_PowerBIBlob_BlobRoundTrip); once the session's own DeleteAll without filters has emptied it, it is
+/// answered (al-vm `Session::is_unseeded`).
+pub const UNSEEDED_ROWS: &[u32] = &[6710, 6711, 6712, 2_000_000_144];
 
 /// Platform tables that only the System app of a later major declares (the registry above is checked against the System app
 /// of the first major the corpus pins, `tests/platform_tables.rs`). Ordinary stored tables here, written by install code:
@@ -315,6 +322,9 @@ pub const UNSEEDED_ROWS: &[u32] = &[6710, 6711, 6712];
 pub const LATER_MAJORS: &[(u32, &str, Provider)] = &[
     (2_000_000_297, "Agent Creation Control", Provider::Stored),
     (2_000_000_292, "MCP Configuration", Provider::Stored),
+    // BC 29 on. Empty on a fresh tenant and writable; an Insert checks the layout parts it names (al-vm
+    // tenant_layout_cfg.rs; platform/lt-platform-tables/PtCloudTables.al Y17_TenantReportLayoutCfg_*, corpus master 97c29f86).
+    (2_000_000_249, "Tenant Report Layout Cfg", Provider::Stored),
 ];
 
 /// The provider of platform table `id`, if it has one.
@@ -589,6 +599,19 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         2_000_000_139,
         "31",
         "al-language/report/lt-y-report-props/YReportParts.al:65-70, YReportPropsTests.al:45",
+    ),
+    // Table Metadata InherentPermissions: `X` or blank as declared; another value is unknown (al-vm objects.rs).
+    (
+        2_000_000_136,
+        "19",
+        "al-language/permissions/W6PermissionColumns.al Y17_TableMetadata_InherentPermissions (corpus master 97c29f86)",
+    ),
+    // Metadata Permission "Security Filter": blank for every row of an app permission set (a permissionset object has no
+    // syntax for one), plain and with format 9.
+    (
+        2_000_000_251,
+        "14",
+        "al-language/permissions/W6PermissionColumns.al Y17_MetadataPermission_SecurityFilter_OwnSet, _AllSets (corpus master 97c29f86)",
     ),
     (
         2_000_000_136,
