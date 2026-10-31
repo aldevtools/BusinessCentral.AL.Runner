@@ -279,6 +279,16 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     // Y6TenantReportLayoutRows.al, corpus master). What else is pinned: al-vm `tenant_layouts.rs`.
     (2_000_000_232, "Tenant Report Layout", Provider::Stored),
     (2_000_000_179, "OData Edm Type", Provider::Stored),
+    // OnPrem tables that a fresh tenant leaves empty and that take Insert, a duplicate Insert (false), Modify, Delete, an Insert
+    // without triggers and DeleteAll (al-language-onprem/platform/PtOnPremTables.al:57-78, :80-101, :149-170, :192-213).
+    // Tenant Profile reads "Customization Status" Updated after an Insert (:200), its first option and so its default.
+    (2_000_000_170, "Configuration Package File", Provider::Stored),
+    (2_000_000_115, "Document Service Scenario", Provider::Stored),
+    (2_000_000_228, "Report Settings Override", Provider::Stored),
+    (2_000_000_177, "Tenant Profile", Provider::Stored),
+    // Empty on a fresh tenant; an Insert raises the license error and stores nothing (PtOnPremTables.al:172-190). Only that
+    // Insert, with triggers, is pinned: the others refuse (al-vm records.rs).
+    (2_000_000_130, "Device", Provider::Stored),
 ];
 
 /// Stored tables that a fresh tenant fills with rows no corpus test pins. The runtime starts them empty, so it treats them as
@@ -543,8 +553,59 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         "5",
         "al-language/metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:187, :210",
     ),
-    // BC 29 only: "Layout Subtype" (19), HeaderFooterPart (20), ThemePart (21), read by field name, for layouts
-    // that declare a Subtype; unknown for one that declares none (al-vm reports.rs). By id, as above.
+    // Report Layout List of a layout declared in AL, read through a RecordRef (al-vm reports.rs): CaptionML (4) blank for a
+    // layout that declares none, Runtime Package ID (5) a non-null guid other than the app id, Custom Type (8) the null guid
+    // and MIME Type (9) blank for an RDLC, Word or Excel layout, Report Name (12) the name of a
+    // report that declares no caption, Layout Publisher (13) "<app> by <publisher>", User Defined (14) No for an RDLC, Word or
+    // Excel layout, ReportIsInstalled (15) Yes, Layout Status (18, BC 28+) Approved for a layout without a Subtype
+    // (platform/lt-ug-report-layout-list/UgReportLayoutList.al:94-150; platform/lt-aw-fresh-tenant/AwTests.al:220-300).
+    (
+        2_000_000_234,
+        "4",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:103, :137",
+    ),
+    (
+        2_000_000_234,
+        "5",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:101, :135",
+    ),
+    (
+        2_000_000_234,
+        "8",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:105, :139; platform/lt-aw-fresh-tenant/AwTests.al:228",
+    ),
+    (
+        2_000_000_234,
+        "9",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:106, :140; platform/lt-aw-fresh-tenant/AwTests.al:228",
+    ),
+    (
+        2_000_000_234,
+        "12",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:110, :144; platform/lt-aw-fresh-tenant/AwTests.al:228",
+    ),
+    (
+        2_000_000_234,
+        "13",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:111, :145; platform/lt-aw-fresh-tenant/AwTests.al:228",
+    ),
+    (
+        2_000_000_234,
+        "14",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:112, :146; platform/lt-aw-fresh-tenant/AwTests.al:228",
+    ),
+    (
+        2_000_000_234,
+        "15",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:113, :147; platform/lt-aw-fresh-tenant/AwTests.al:228",
+    ),
+    (
+        2_000_000_234,
+        "18",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:117, :151; platform/lt-aw-fresh-tenant/AwTests.al:228",
+    ),
+    // BC 29 only: "Layout Subtype" (19), HeaderFooterPart (20), ThemePart (21), read by field name, for layouts that declare
+    // a Subtype, and through a RecordRef as Default and blank for one that declares none (UgReportLayoutList.al:119-121). By id.
     (
         2_000_000_234,
         "19",
@@ -589,12 +650,6 @@ pub const AWAITING_COLUMNS: &[(u32, u32, crate::assumptions::Assumption)] = &[
         2_000_000_206,
         20,
         crate::assumptions::Assumption::PublishedApplicationLogoIsTheLogoFile,
-    ),
-    // Report Layout List "User Defined": No for an RDLC or Word layout declared in AL, unknown otherwise (al-vm reports.rs).
-    (
-        2_000_000_234,
-        14,
-        crate::assumptions::Assumption::ReportLayoutListBuiltInNotUserDefined,
     ),
 ];
 
