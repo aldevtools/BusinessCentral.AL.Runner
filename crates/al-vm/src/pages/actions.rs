@@ -2340,6 +2340,13 @@ impl Session {
         )
     }
 
+    /// Whether the view of `rec` holds a row before the row it stands on (asked of the table; Rec is put back).
+    fn has_row_before(&mut self, rec: &Rec) -> Result<bool, Signal> {
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        Ok(matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(-1)])?, Value::Integer(n) if n != 0))
+    }
+
     /// The reads of an action that did not call `CurrPage.Update`, before the refresh's own (see
     /// `action_invoke`).
     pub(super) fn read_page_again(&mut self, st: &St) -> Result<(), Signal> {
@@ -2378,12 +2385,15 @@ impl Session {
         if self.declares(st, "onaftergetcurrrecord") && self.declares(st, "onaftergetrecord") {
             return self.read_list_again_from_row(st, &rec, &key);
         }
+        // The row the list stood on was the first of the old view; an action that changed the view can put rows before it, and
+        // then the list reads as on a later row (al-runner issue 6470: corpus writer Y15, branch al-runtime-rs-staging-y15,
+        // pages/lt-y15/Y15ActionWidensView.al:198 `after action` `A20/6 28:A20-A01`).
         let first = {
             let s = st.borrow();
             s.window_from_start
                 && s.window.len() < Self::WINDOW
                 && s.window.first().is_some_and(|w| Self::same_key(&w.key, &key))
-        };
+        } && !(self.view_changed_by_action(st) && self.has_row_before(&rec)?);
         if !first {
             return self.read_list_again_from_row(st, &rec, &key);
         }
@@ -2772,8 +2782,15 @@ impl Session {
             // :308-342 with OnAfterGetCurrRecord too: GoToKey(2,50) and Next after the filter change show their rows; al-runner
             // issue 6381). With more rows
             // than a window before the row, what the client holds is not pinned: the next move is refused.
+            // When the refresh read the whole new view (the rows after the row end inside a window, and the way back reached the
+            // first row), the client holds all of it: First reads nothing and lands on the first row (pages/lt-y15/
+            // Y15ActionWidensView.al:198 `first` `true/A01/0 0:-`, 19 rows before the row and 6 from it; al-runner issue 6470).
+            let whole = !find && rows.len() < Self::WINDOW;
+            if whole && back.len() + rows.len() > Self::WINDOW {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionWidensViewHoldsAll);
+            }
             let mut s = st.borrow_mut();
-            if back.len() + rows.len() > Self::WINDOW {
+            if back.len() + rows.len() > Self::WINDOW && !whole {
                 s.window = Vec::new();
                 s.window_from_start = false;
                 s.validate_refresh_unheld = true;

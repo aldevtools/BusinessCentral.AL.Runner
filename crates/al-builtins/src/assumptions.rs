@@ -732,6 +732,17 @@ registry! {
         tests: "No Microsoft test: a partner app's field picker page buffers Field rows of any table in a temporary Field record.",
         probe: "The SystemId of the Field rows of fields 2000000003 and 2000000004 of an own table, on every supported major.",
     },
+    ActionWidensViewHoldsAll => {
+        id: "action-widens-view-holds-all",
+        assumed: "An action that changes the filters of a list with OnAfterGetRecord so that more rows than a window holds lie before and from the row it stands on, while the rows from it end inside a window: the client holds the whole new view the refresh read, so First lands on the first row without reading.",
+        tests: "No Microsoft test: al-runner issue 6470, the reporter's run on real BC (25 bins, the page on A20, ShowAll: First gives A01, Next walks 25 rows). Measured by corpus writer Y15 (Y15ActionWidensView.al, on the SaaS sandbox, newest major).",
+        probe: "Y15ActionWidensView.al on branch al-runtime-rs-staging-y15: the reads of the action, First, Next to the end, Last.",
+        awaiting: Awaiting {
+            issues: &[6470],
+            files: &["tests/al-language/pages/lt-y15/Y15ActionWidensView.al"],
+            since: "2026-10-31",
+        },
+    },
 }
 
 /// The words of a [`HitBits`]: room for 256 assumptions.
