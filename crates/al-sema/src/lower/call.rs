@@ -326,19 +326,29 @@ impl Lowerer<'_> {
                     "builtin {id}: what a media export writes to the server's file system is not pinned (docs/probes-needed.md)"
                 )))
             }
-            // The Layout of a Report Layout List row: the corpus pins its HasValue as No for a built-in layout
-            // (report/PZReportLayoutMedia.al:51-53), not what its export writes (Custom Report Layout.InitBuiltInLayout exports it).
-            // Refused when it runs; an empty Media field of another table exports nothing (al-builtins media.rs `media_export`).
+            // The Layout of a Report Layout List row: its HasValue is No for a built-in layout (report/PZReportLayoutMedia.al:51-53),
+            // and its export writes the layout file of the app's package (report/lt-y17-layout-export/Y17LayoutExportTests.al:70,
+            // corpus master). The VM looks the layout up by the row's report id and name (`Report.LayoutListExportStream#1`, the row
+            // as its receiver); an empty Media field of another table exports nothing (al-builtins media.rs `media_export`).
             Some(Res::Builtin(id))
                 if id == "Media.ExportStream#1"
                     && receiver_node
                         .as_ref()
                         .is_some_and(|r| self.report_layout_list_field(r)) =>
             {
-                Ok(ir::Expr::Refused(
-                    "Media.ExportStream of the Layout of a Report Layout List row: what a built-in layout exports is not pinned (docs/probes-needed.md)"
-                        .into(),
-                ))
+                let row = receiver_node
+                    .as_ref()
+                    .and_then(|r| r.children().next())
+                    .ok_or("the Layout field without its record")?;
+                let [stream] = args else {
+                    return Err("Media.ExportStream of a Report Layout List Layout without one OutStream".into());
+                };
+                Ok(ir::Expr::Builtin {
+                    id: builtin_id("Report.LayoutListExportStream#1")?,
+                    receiver: Some(Box::new(ir::Arg::Value(self.expr(&row)?))),
+                    args: vec![ir::Arg::Value(self.expr(stream)?)],
+                    ret_used: true,
+                })
             }
             Some(Res::Builtin(id)) if id == "System.GetDotNetType#1" => self.get_dotnet_type_call(args),
             Some(Res::Builtin(id)) => {

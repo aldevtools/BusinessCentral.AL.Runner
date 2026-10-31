@@ -52,6 +52,28 @@ pub(super) fn layout_list_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
         };
         let Some(id) = id else { continue };
         let pkg = ids::package_id(c.owner(o));
+        // A layout of the legacy RDLCLayout, WordLayout or ExcelLayout property is a row named with the LayoutFile as written
+        // (report/lt-y17-layout-export/Y17LayoutExportTests.al:105 Export_LegacyProperties, corpus master: `rows 1`, layout name
+        // `./report/lt-y17-layout-export/Y17LayR2.rdl`, HasValue of Layout No). Its other columns are not pinned.
+        if o.kind == al_ir::ObjKind::Report {
+            for (property, format) in [("RDLCLayout", 0), ("WordLayout", 1), ("ExcelLayout", 2)] {
+                let Some(file) = prop(o, property).and_then(string_lit) else {
+                    continue;
+                };
+                let mut r = blank(t);
+                r[pos(t, 1)] = Value::Integer(id as i32);
+                r[pos(t, 2)] = Value::Text(file.chars().take(250).collect());
+                r[pos(t, 5)] = Value::Guid(pkg);
+                r[pos(t, 7)] = option(t, 7, format);
+                let whose = format!("the layout of the {property} property of report '{}'", o.name);
+                for f in &t.fields {
+                    if ![1, 2, 5, 6, 7].contains(&f.id) {
+                        r[pos(t, f.id)] = unknown(t, f.id, &whose);
+                    }
+                }
+                out.push(Entry::ok(r));
+            }
+        }
         for l in &o.layouts {
             let mut r = blank(t);
             r[pos(t, 1)] = Value::Integer(id as i32);
