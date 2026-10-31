@@ -907,28 +907,7 @@ impl Lowerer<'_> {
     }
 
     fn expr_stmt(&mut self, e: &SyntaxNode) -> L<ir::Stmt> {
-        self.expr(e).map(|e| match e {
-            ir::Expr::Builtin { id, receiver, args, .. } => ir::Stmt::Expr(ir::Expr::Builtin {
-                id,
-                receiver,
-                args,
-                ret_used: false,
-            }),
-            ir::Expr::Call {
-                object,
-                routine,
-                instance,
-                args,
-                ..
-            } => ir::Stmt::Expr(ir::Expr::Call {
-                object,
-                routine,
-                instance,
-                args,
-                try_call: false,
-            }),
-            e => ir::Stmt::Expr(e),
-        })
+        self.expr(e).map(unused_result)
     }
 
     pub(crate) fn stmt_plain(&mut self, n: &SyntaxNode) -> Vec<ir::Stmt> {
@@ -1304,6 +1283,14 @@ impl Lowerer<'_> {
         {
             return self.call(&kids[0], &kids[0], &kids[1..2]).map(ir::Stmt::Expr);
         }
+        // `B.Append := 'abc'` is the call statement `B.Append('abc')` (`is_assign_call`).
+        if kids[0].kind() == SyntaxKind::MemberExpr
+            && sig_tokens(n).iter().any(|t| t.kind() == SyntaxKind::Assign)
+            && matches!(self.res(&kids[0]), Some(Res::Builtin(id))
+                if self.catalog.by_id(id).is_some_and(|s| super::is_assign_call(&s.receiver, &s.name)))
+        {
+            return self.call(&kids[0], &kids[0], &kids[1..2]).map(unused_result);
+        }
         // `Proc := value` calls a procedure of this object that takes one value parameter (Base Application's Service
         // Line writes `SetHideWarrantyWarning := true`; corpus codeunit/lt-procedure-assignment/ProcedureAssignmentOneParameter.al). The checker leaves the
         // name unresolved (it looks for a call with no arguments), so the procedure is found here by its name.
@@ -1400,6 +1387,9 @@ impl Lowerer<'_> {
                 });
                 if compound {
                     return Err("compound assignment to a setter-form builtin is not lowered yet".into());
+                }
+                if id == "XmlNamespaceManager.NameTable#1" {
+                    self.assume(al_builtins::assumptions::Assumption::NametableAssignIsCall);
                 }
                 let receiver = if member {
                     let recv = kids[0].children().next().ok_or("member base")?;
@@ -2086,6 +2076,32 @@ impl Lowerer<'_> {
                     .unwrap_or_else(|| format!("`{}` is not assignable", n.text()))),
             },
         }
+    }
+}
+
+/// A call as a statement: its result is not used.
+fn unused_result(e: ir::Expr) -> ir::Stmt {
+    match e {
+        ir::Expr::Builtin { id, receiver, args, .. } => ir::Stmt::Expr(ir::Expr::Builtin {
+            id,
+            receiver,
+            args,
+            ret_used: false,
+        }),
+        ir::Expr::Call {
+            object,
+            routine,
+            instance,
+            args,
+            ..
+        } => ir::Stmt::Expr(ir::Expr::Call {
+            object,
+            routine,
+            instance,
+            args,
+            try_call: false,
+        }),
+        e => ir::Stmt::Expr(e),
     }
 }
 
