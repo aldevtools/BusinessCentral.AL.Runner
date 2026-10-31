@@ -1562,10 +1562,12 @@ impl Session {
                 // written again on a card: the card closes (`settle_after_action`) and nothing is re-inserted (corpus master 97c29f86,
                 // pages/lt-y17-save-row-gone/Y17SaveRowGone.al:632 PgSave_ActionDeletesEditedRow_Card `stored` `B/b/No;`, :638
                 // without the edit). A list then moves on with reads the gone-row path does not model yet (:711
-                // PgSave_ActionDeletesEditedRow_List_Next `P.AGR:B;P.AGR:B;P.AGCR:B/b;` twice): refused.
+                // PgSave_ActionDeletesEditedRow_List_Next `P.AGR:B;P.AGR:B;P.AGCR:B/b;` twice, the row edited before the action):
+                // refused. Without an edit before the action a list keeps the path it had (no corpus test pins its reads; Microsoft's
+                // Sales and Purchase Batch Document Posting tests post a row of a list this way).
                 let gone = stored_before && !moved_other && stored_now.is_none();
                 let changed = !Self::same_values(&rec.borrow().fields, &before);
-                if gone && changed && self.is_list(st) {
+                if gone && changed && was_dirty && self.is_list(st) {
                     return unsupported(
                         "a list whose row an action changed and then deleted (the reads after the action are not pinned)",
                     );
