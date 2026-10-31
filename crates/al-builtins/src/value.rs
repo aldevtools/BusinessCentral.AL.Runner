@@ -434,6 +434,10 @@ pub struct PageState {
     /// The open read of a descending find list without row triggers stopped a full window of rows above the row it opened on,
     /// the last row of the view, with rows above still unread: `First` reads them (see `first_above_the_find_list_window`).
     pub window_top_unread: bool,
+    /// The open read of a plain list on the row its OnOpenPage left Rec on held more rows than a window: (rows above the top row
+    /// it holds were left unread, rows below its bottom row were left unread). `First` and `Last` read on from that edge (al-vm
+    /// `read_rows_above_the_moved_rec`).
+    pub moved_rec_open_partial: Option<(bool, bool)>,
     /// A modal list in a key other than the primary key opened on the last row of its descending view and read the rows above it
     /// (see `read_rows_up_from_the_landed_last_row` in al-vm): `Some(false)` after that open, `Some(true)` after the GoToKey that
     /// walked its rows from the first one. Other moves from there are not pinned.
@@ -895,6 +899,7 @@ impl PageState {
             window_read_up: false,
             window_held_above: None,
             window_top_unread: false,
+            moved_rec_open_partial: None,
             read_up_from_last: None,
             landing_first: false,
             open_reads_above: false,
