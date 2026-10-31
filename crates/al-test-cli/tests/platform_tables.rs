@@ -3404,3 +3404,86 @@ codeunit 50100 T { Subtype = Test;
         );
     }
 }
+
+/// al-runner #6410: Windows Language."Primary Language ID" is the LCID of the primary culture, measured on the reporter's
+/// real-BC run and by writer Y11 (corpus branch al-runtime-rs-staging-y11, Y11WindowsLanguagePrimary.al), which is not in
+/// the pinned corpus yet: the values run on assumption windows-language-primary-language-id. A row not measured (9226)
+/// leaves the column unknown.
+#[test]
+fn windows_language_primary_language_id_is_the_primary_culture_lcid_on_an_assumption() {
+    let src = r#"codeunit 50000 "T" { Subtype = Test;
+  procedure Check(Id: Integer; Expected: Integer) var W: Record "Windows Language"; begin W.Get(Id); W.TestField("Primary Language ID", Expected); end;
+  [Test] procedure Measured() begin Check(1030, 1030); Check(1031, 1031); Check(1033, 1033); Check(3079, 1031); Check(2057, 1033); Check(2070, 1046); Check(1044, 1044); end;
+  [Test] procedure ByFilter() var W: Record "Windows Language"; begin W.SetRange("Primary Language ID", 1031); W.SetRange("Language ID", 3079); if W.Count() <> 1 then Error('count %1', W.Count()); end;
+  [Test] procedure NotMeasured() var W: Record "Windows Language"; begin W.Get(9226); if W."Primary Language ID" = 0 then; end; }"#;
+    let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), "29.0.0.0");
+    let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
+    let mut hits = Vec::new();
+    let out = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Disabled,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    let a = al_builtins::assumptions::Assumption::WindowsLanguagePrimaryLanguageId;
+    for (n, o) in &out {
+        if n == "NotMeasured" {
+            assert!(matches!(o, Outcome::NotRun(_)), "{n}: {o:?}");
+            continue;
+        }
+        assert_eq!(*o, Outcome::Pass, "{n}: {o:?}");
+        assert!(hits.iter().any(|(h, m)| h == n && m.contains(&a)), "{n} not flagged");
+    }
+}
+
+/// al-runner #6411: the Event Subscription row of a subscriber to a page trigger event. A page field's OnAfterValidateEvent
+/// and OnOpenPageEvent are pinned (misc/lt-probes-needed-5/PnE11EventSub.al:99, :130); OnBeforeValidateEvent and
+/// OnAfterGetCurrRecordEvent are measured on corpus branch al-runtime-rs-staging-y11 (PageTriggerEventRows.al) and run on
+/// assumption page-trigger-event-subscription-row. The number in a field event's Published Function is refused when read.
+#[test]
+fn page_trigger_event_subscription_rows_serve_the_measured_columns() {
+    let src = r#"table 50100 "ES Row" { fields { field(1; Code; Code[10]) { } field(2; Name; Text[30]) { } } keys { key(PK; Code) { Clustered = true; } } }
+page 50100 "ES Card" { PageType = Card; SourceTable = "ES Row"; layout { area(Content) { field(Code; Rec.Code) { } field(Name; Rec.Name) { } } } }
+codeunit 50100 "ES After" {
+  [EventSubscriber(ObjectType::Page, Page::"ES Card", OnAfterValidateEvent, 'Name', true, true)] local procedure OnAfterValidateName(var Rec: Record "ES Row") begin end;
+  [EventSubscriber(ObjectType::Page, Page::"ES Card", OnOpenPageEvent, '', true, true)] local procedure OnOpen() begin end; }
+codeunit 50101 "ES Before" {
+  [EventSubscriber(ObjectType::Page, Page::"ES Card", OnBeforeValidateEvent, 'Name', true, true)] local procedure OnBeforeValidateName(var Rec: Record "ES Row") begin end;
+  [EventSubscriber(ObjectType::Page, Page::"ES Card", OnAfterGetCurrRecordEvent, '', true, true)] local procedure OnCurr() begin end; }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure PinnedRows() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50100); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); E.SetRange(Active, true); E.SetRange("Event Type", E."Event Type"::Trigger); E.SetRange("Publisher Object Type", E."Publisher Object Type"::Page); if E.Count() <> 2 then Error('count %1', E.Count()); E.Get(50100, 'OnOpen'); if E."Published Function" <> 'OnOpenPageEvent' then Error('pf %1', E."Published Function"); end;
+  [Test] procedure MeasuredRows() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50101); E.SetRange(Active, true); E.SetRange("Event Type", E."Event Type"::Trigger); if E.Count() <> 2 then Error('count %1', E.Count()); E.Get(50101, 'OnCurr'); if E."Published Function" <> 'OnAfterGetCurrRecordEvent' then Error('pf %1', E."Published Function"); if E."Publisher Object ID" <> 50100 then Error('id'); end;
+  [Test] procedure FieldEventNumber() var E: Record "Event Subscription"; begin E.Get(50100, 'OnAfterValidateName'); if E."Published Function" = '' then; end; }"#;
+    let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), "29.0.0.0");
+    let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
+    let mut hits = Vec::new();
+    let out = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Disabled,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    let a = al_builtins::assumptions::Assumption::PageTriggerEventSubscriptionRow;
+    let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && m.contains(&a));
+    let get = |n: &str| out.iter().find(|(x, _)| x == n).map(|(_, o)| o.clone()).expect(n);
+    assert_eq!(get("PinnedRows"), Outcome::Pass);
+    assert!(!flagged("PinnedRows"));
+    assert_eq!(get("MeasuredRows"), Outcome::Pass);
+    assert!(flagged("MeasuredRows"));
+    match get("FieldEventNumber") {
+        Outcome::NotRun(why) => assert!(why.contains("Published Function"), "{why}"),
+        o => panic!("FieldEventNumber: {o:?}"),
+    }
+}

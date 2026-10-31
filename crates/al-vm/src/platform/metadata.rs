@@ -177,7 +177,8 @@ pub(super) fn event_subscription_rows(p: &Providers, t: &TableDef) -> Vec<Entry>
             key[pos(t, 2)] = Value::Text(truncate(&r.name, 250).into());
             let mut row = key.clone();
             match subscription_row(&c, o, &r.name, a, t, &mut row) {
-                Ok(()) => out.push(Entry::ok(row)),
+                Ok(None) => out.push(Entry::ok(row)),
+                Ok(Some(a)) => out.push(Entry::ok(row).assuming(a)),
                 // The columns worked out before the refusal are real: a filter on the publisher's
                 // object type rules the row out without reading the part that is not pinned.
                 Err((why, cols)) => {
@@ -196,7 +197,7 @@ fn subscription_row(
     a: &al_ir::Attribute,
     t: &TableDef,
     r: &mut al_data::Row,
-) -> Result<(), (String, Vec<u32>)> {
+) -> Result<Option<al_builtins::assumptions::Assumption>, (String, Vec<u32>)> {
     let what = || format!("subscriber '{}' of codeunit '{}'", routine, o.name);
     let manual = al_ir::ObjectFacts::of_properties(&o.properties).manual_subscriber;
     // "Subscriber Instance" reads Static-Automatic or Manual, "Error Information" is blank (record/
@@ -295,7 +296,31 @@ fn subscription_row(
                 ),
             };
             r[pos(t, 7)] = Value::Boolean(true);
-            return Ok(());
+            return Ok(None);
+        }
+        // A page trigger event's row has Event Type = Trigger and Active = Yes. A field's validate event publishes as
+        // `<event> - <number>`, the number not following from anything pinned: only that column is refused when read
+        // (misc/lt-probes-needed-5/PnE11EventSub.al:99 for OnAfterValidateEvent). A page-level trigger event publishes
+        // under its own name (PnE11EventSub.al:130 for OnOpenPageEvent). The other events of the list are measured by
+        // writer Y11 (corpus branch al-runtime-rs-staging-y11, events/lt-event-subscription-trigger-rows/
+        // PageTriggerEventRows.al; al-runner #6411) and run on assumption page-trigger-event-subscription-row until the
+        // pinned corpus has them.
+        None if kind == al_ir::ObjKind::Page && page_trigger_event(&event).is_some() => {
+            let (field_bound, pinned) = page_trigger_event(&event).expect("checked");
+            r[pos(t, 3)] = option(t, 3, 0);
+            r[pos(t, 4)] = option(t, 4, object_type);
+            r[pos(t, 5)] = Value::Integer(publisher_id as i32);
+            r[pos(t, 6)] = if field_bound {
+                super::unknown(
+                    t,
+                    6,
+                    &format!("{} (the number in `{event} - <number>` of a page field event)", what()),
+                )
+            } else {
+                Value::Text(truncate(&event, 250).into())
+            };
+            r[pos(t, 7)] = Value::Boolean(true);
+            return Ok((!pinned).then_some(al_builtins::assumptions::Assumption::PageTriggerEventSubscriptionRow));
         }
         None => return Err((format!("{}: the kind of event `{event}` is not known", what()), known)),
     };
@@ -305,7 +330,29 @@ fn subscription_row(
     r[pos(t, 6)] = Value::Text(truncate(&published, 250).into());
     // A statically bound subscriber that resolved is active (TestEventSubscriptionVirtualTable.al:`_Row_DescribesTheSubscription`).
     r[pos(t, 7)] = Value::Boolean(true);
-    Ok(())
+    Ok(None)
+}
+
+/// A page trigger event a subscriber can name: whether it is bound to a field (its element is a control), and whether
+/// its row is pinned by the corpus (the others are measured on corpus branch al-runtime-rs-staging-y11 only).
+fn page_trigger_event(event: &str) -> Option<(bool, bool)> {
+    const EVENTS: &[(&str, bool, bool)] = &[
+        ("OnAfterValidateEvent", true, true),
+        ("OnBeforeValidateEvent", true, false),
+        ("OnOpenPageEvent", false, true),
+        ("OnClosePageEvent", false, false),
+        ("OnAfterGetCurrRecordEvent", false, false),
+        ("OnAfterGetRecordEvent", false, false),
+        ("OnNewRecordEvent", false, false),
+        ("OnInsertRecordEvent", false, false),
+        ("OnModifyRecordEvent", false, false),
+        ("OnDeleteRecordEvent", false, false),
+        ("OnQueryClosePageEvent", false, false),
+    ];
+    EVENTS
+        .iter()
+        .find(|(n, _, _)| n.eq_ignore_ascii_case(event))
+        .map(|&(_, field, pinned)| (field, pinned))
 }
 
 /// The control id of the action `name` of page `page_id` (`pages::control_id` of the object that declares it): `None` when the
