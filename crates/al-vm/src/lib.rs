@@ -883,6 +883,13 @@ pub struct Session {
     /// (company, table) -> why the rows of a per-company table in a company other than the session company are not known
     /// (ADR-046 decision 6, `Session::mark_company_unknown`).
     pub(crate) company_unknown: std::collections::HashMap<(String, u32), String>,
+    /// The companies made by `Database.CopyCompany` from the session company (or from another such company): they hold
+    /// the session company's rows as they were, so the rows install code wrote there are known
+    /// (`Session::copy_company`, `Session::cx_for`).
+    pub(crate) full_copies: std::collections::BTreeSet<String>,
+    /// While `Database.CopyCompany` inserts the Company row: why the `RunTrigger` of the Company's insert events is not
+    /// known. The subscribers get it as an unknown value (`Session::table_event`).
+    pub(crate) run_trigger_unknown: Option<&'static str>,
     /// The time `Sleep` has waited, added to every clock reading.
     pub(crate) waited_ms: i64,
     /// The running test's time limit in milliseconds, which its `Sleep` calls count toward (al-runner issue 5605), and
@@ -1028,6 +1035,8 @@ impl Session {
             waited_ms: 0,
             companies,
             company_unknown: Default::default(),
+            full_copies: Default::default(),
+            run_trigger_unknown: None,
             sleep_budget: None,
             slept_in_test: 0,
             encrypted: Default::default(),

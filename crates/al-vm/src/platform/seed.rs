@@ -341,8 +341,34 @@ impl Session {
             let _ = self.store.insert(&self.cx, t, row);
             wrote = true;
         }
+        wrote |= self.restore_company_rows();
         if wrote {
             self.commit_transaction();
         }
+    }
+
+    /// A run with test data: each company's row of the Company table takes every column the restored database's own row
+    /// of that company holds (`Evaluation Company`, `Display Name`, `Id`, ...), not the runner's default (al-runtime
+    /// issue 6505; data of the database, not a language rule). Which companies there are stays the runner's (ADR-046): a
+    /// row of the database for a company the run has none for is not added. True when a row changed.
+    fn restore_company_rows(&mut self) -> bool {
+        let (Some(td), Some(t)) = (self.engine.test_data.clone(), self.company_table()) else {
+            return false;
+        };
+        let Some(name_at) = t.fields.iter().position(|f| f.id == 1) else {
+            return false;
+        };
+        let (fields, restored) = crate::testdata::TestBacking::new(&self.engine, td).company_rows(t.object, &t);
+        let mut changed = false;
+        for b in restored {
+            let Ok(Some(mut row)) = self.store.get(&self.cx, &t, std::slice::from_ref(&b[name_at])) else {
+                continue;
+            };
+            for &f in &fields {
+                row[f] = b[f].clone();
+            }
+            changed |= self.store.modify(&self.cx, &t, row).is_ok();
+        }
+        changed
     }
 }
