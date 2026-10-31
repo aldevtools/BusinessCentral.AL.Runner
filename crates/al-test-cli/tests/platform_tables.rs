@@ -750,6 +750,50 @@ fn the_id_of_a_platform_table_with_no_provider_can_be_named() {
     assert!(why.contains("has no provider"), "{why}");
 }
 
+/// Report Layout List CaptionML (4) is blank for an RDLC, Word or Excel layout that declares none, with or without a Caption
+/// (platform/lt-aw-fresh-tenant/AwTests.al:222-260; platform/lt-ug-report-layout-list/UgReportLayoutList.al:103, :137); a
+/// declared CaptionML is pinned by no corpus test: refused.
+#[test]
+fn report_layout_list_caption_ml_is_blank_when_not_declared() {
+    let o = outcomes(
+        r#"report 50002 "R" { UseRequestPage = false; dataset { dataitem(I; Integer) { } }
+  rendering { layout(L1) { Type = Excel; LayoutFile = 'a.xlsx'; Caption = 'Captioned'; } layout(L2) { Type = RDLC; LayoutFile = 'b.rdl'; }
+    layout(L3) { Type = Word; LayoutFile = 'c.docx'; CaptionML = ENU = 'x'; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Blank() var L: Record "Report Layout List"; begin L.SetRange("Report ID", 50002);
+    L.SetRange(Name, 'L1'); L.FindFirst(); if L.CaptionML <> '' then Error('l1');
+    L.SetRange(Name, 'L2'); L.FindFirst(); if L.CaptionML <> '' then Error('l2'); end;
+  [Test] procedure Declared() var L: Record "Report Layout List"; begin L.SetRange("Report ID", 50002);
+    L.SetRange(Name, 'L3'); L.FindFirst(); if L.CaptionML <> '' then; end; }"#,
+    );
+    passes(&o, "Blank");
+    let why = not_run(&o, "Declared");
+    assert!(why.contains("CaptionML"), "{why}");
+}
+
+/// Report Layout List of an RDLC, Word or Excel layout of a report of the app under test: Custom Type (8) the null Guid, MIME Type
+/// (9) blank, Layout Publisher (13) `<app name> by <publisher>`, ReportIsInstalled (15) Yes (platform/lt-ug-report-layout-list/
+/// UgReportLayoutList.al:106-113, :140-147; platform/lt-aw-fresh-tenant/AwTests.al:222-260); User Defined (14) No for an Excel
+/// layout too (AwTests.al:226).
+#[test]
+fn report_layout_list_columns_of_an_own_layout() {
+    let o = outcomes_app(
+        "ms-own",
+        r#"report 50002 "R" { UseRequestPage = false; dataset { dataitem(I; Integer) { } }
+  rendering { layout(L1) { Type = Excel; LayoutFile = 'a.xlsx'; } layout(L2) { Type = RDLC; LayoutFile = 'b.rdl'; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Columns() var L: Record "Report Layout List"; N: Text; begin L.SetRange("Report ID", 50002); L.FindSet();
+    repeat
+      if not IsNullGuid(L."Custom Type") then Error('custom type'); if L."MIME Type" <> '' then Error('mime');
+      if L."Layout Publisher" <> 'main by Microsoft' then Error('publisher %1', L."Layout Publisher");
+      if not L.ReportIsInstalled then Error('installed'); if L."User Defined" then Error('user defined'); N += L.Name;
+    until L.Next() = 0;
+    if N <> 'L1L2' then Error(N); end; }"#,
+        al_sema::check::Roots::default(),
+    );
+    passes(&o, "Columns");
+}
+
 /// Report Layout List, Report Metadata and Report Data Items (handlers/TestSourceReportLayoutFlags.al,
 /// TestPrecompiledReportLayouts.al, TestReportMetadataColumns.al).
 #[test]

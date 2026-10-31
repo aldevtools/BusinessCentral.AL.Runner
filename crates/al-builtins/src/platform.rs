@@ -560,8 +560,38 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         "5",
         "al-language/metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:187, :210",
     ),
+    // Report Layout List CaptionML: blank for an RDLC, Word or Excel layout that declares none, read through the helpers'
+    // FieldIndex loops (al-vm reports.rs).
+    (
+        2_000_000_234,
+        "4",
+        "al-language/platform/lt-aw-fresh-tenant/AwTests.al:222-260; al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:103, :137",
+    ),
+    // Report Layout List Custom Type, MIME Type, Layout Publisher and ReportIsInstalled of an RDLC, Word or Excel layout of a
+    // report of the app under test, read through the helpers' FieldIndex loops (al-vm reports.rs).
+    (
+        2_000_000_234,
+        "8",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:106, :140; al-language/platform/lt-aw-fresh-tenant/AwTests.al:226",
+    ),
+    (
+        2_000_000_234,
+        "9",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:107, :141; al-language/platform/lt-aw-fresh-tenant/AwTests.al:226",
+    ),
+    (
+        2_000_000_234,
+        "13",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:111, :145; al-language/platform/lt-aw-fresh-tenant/AwTests.al:226",
+    ),
+    (
+        2_000_000_234,
+        "15",
+        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:113, :147; al-language/platform/lt-aw-fresh-tenant/AwTests.al:226",
+    ),
     // BC 29 only: "Layout Subtype" (19), HeaderFooterPart (20), ThemePart (21), read by field name, for layouts
-    // that declare a Subtype; unknown for one that declares none (al-vm reports.rs). By id, as above.
+    // that declare a Subtype, and Default with blank parts for an RDLC, Word or Excel layout that declares none
+    // (platform/lt-ba-columns/BaLayoutNoSubtype.al:94, :109; al-vm reports.rs). By id, as above.
     (
         2_000_000_234,
         "19",
