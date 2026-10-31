@@ -54,6 +54,7 @@ mod fieldref_number_into_text_variable;
 mod fieldref_option_ordinal_arg;
 mod fieldref_text_into_integer;
 mod filtergroup_assign;
+mod recordref_property_assign;
 mod for_date;
 mod format_auto_format_field;
 mod format_auto_format_procedure;

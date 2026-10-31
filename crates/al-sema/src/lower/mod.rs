@@ -503,7 +503,9 @@ pub(crate) fn is_property_setter(receiver: &str, name: &str) -> bool {
             )
             | ("Record" | "RecordRef", "ReadIsolation" | "SecurityFiltering")
             | ("Record", "FilterGroup" | "Ascending" | "Mark" | "MarkedOnly")
-            | ("RecordRef", "FilterGroup")
+            // record/ProbePropertyAssignmentForms.al:709-842 (Y36_RecordRef_Mark_AssignInLoop_ThenMarkedOnly, _AssignThenReadBothForms,
+            // _Ascending_MarkedOnly_Assign, _Mark_AfterDuplicate): on a RecordRef the assignment is the call form, as on a Record.
+            | ("RecordRef", "FilterGroup" | "Ascending" | "Mark" | "MarkedOnly")
             | (
                 "Report",
                 "UseRequestPage" | "Language" | "FormatRegion" | "PrintOnlyIfDetail"
@@ -550,6 +552,11 @@ pub(crate) fn is_assign_call(receiver: &str, name: &str) -> bool {
             | ("HttpClient", "SetBaseAddress")
             | ("HttpRequestMessage", "SetRequestUri")
             | ("RecordRef", "CurrentKeyIndex")
+            // `RR.ChangeCompany := CompanyName()` and `FR.Validate := 'v'` (record/ProbePropertyAssignmentForms.al:845-878
+            // Y36_RecordRef_Other_AssignForms). `RR.LockTable :=`, `RR.ReadConsistency :=`, `FR.SetRange :=` and
+            // `FR.SetFilter :=` do not compile (must-not-compile 2501-2504).
+            | ("RecordRef", "ChangeCompany")
+            | ("FieldRef", "Validate")
             | ("Dialog", "HideSubsequentDialogs")
     )
 }
