@@ -144,7 +144,10 @@ codeunit 61952 C
 
 #[test]
 fn a_list_caption_adds_the_one_value_of_a_page_data_caption_field() {
-    assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "ZoneFilter")), "Probe Bin List - Z1");
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(SRC, "C", "ZoneFilter")),
+        "Probe Bin List - Z1"
+    );
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "Kinds")),
         "Probe Bin List - Z1 \u{2219} A1|Probe Bin List|Probe Bin List|Probe Bin List|Probe Bin List - Z2|Probe Bin List - A1"
@@ -155,12 +158,18 @@ fn a_list_caption_adds_the_one_value_of_a_page_data_caption_field() {
 
 #[test]
 fn the_table_data_caption_fields_do_not_count_on_a_list() {
-    assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "TableFieldOnly")), "Probe Bin Plain");
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(SRC, "C", "TableFieldOnly")),
+        "Probe Bin Plain"
+    );
 }
 
 #[test]
 fn an_option_caption_field_shows_the_member_name() {
-    assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "Option")), "Probe Bin Kinds - B");
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(SRC, "C", "Option")),
+        "Probe Bin Kinds - B"
+    );
 }
 
 #[test]

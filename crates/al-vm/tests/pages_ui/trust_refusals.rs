@@ -11,9 +11,10 @@ fn refused(r: Result<Value, Signal>, needle: &str) {
     }
 }
 
-/// pageext/lt-page-ext-properties/PageFieldValuesAllowed.al:64-73: a value outside the control's ValuesAllowed is rejected.
+/// pageext/lt-page-ext-properties/PageFieldValuesAllowed.al:64-73: a value outside the control's ValuesAllowed is rejected with
+/// a TestValidation error that names the entry (and the card's Refresh hint).
 #[test]
-fn set_value_on_a_control_with_values_allowed_is_refused() {
+fn set_value_on_a_control_with_values_allowed_rejects_a_value_outside_it() {
     let src = r#"
 table 69990 "VA Row" { fields { field(1; Id; Integer) { } field(2; Kind; Option) { OptionMembers = Open,Released,Closed; } } keys { key(PK; Id) { } } }
 page 69991 "VA Card"
@@ -40,7 +41,10 @@ codeunit 69992 C
     end;
 }
 "#;
-    refused(al_testkit::run_in(src, "C", "F"), "ValuesAllowed");
+    assert_eq!(
+        al_testkit::error_message(al_testkit::run_in(src, "C", "F")),
+        "Validation error for Field: Kind,  Message = 'Your entry of 'Closed' is not an acceptable value for 'Kind'. (Select Refresh to discard errors)'"
+    );
     assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "G")), "Open");
 }
 

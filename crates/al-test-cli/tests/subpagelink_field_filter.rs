@@ -122,5 +122,8 @@ fn a_host_value_is_read_as_a_filter_text() {
     let got = outcomes_in(SRC, "C");
     assert!(matches!(got[0], (_, Outcome::Pass)), "{got:?}");
     // The part follows a SetValue of the host field at once; an action while the edit is held is refused.
-    assert!(matches!(&got[1], (_, Outcome::NotRun(why)) if why.contains("field(filter")), "{got:?}");
+    assert!(
+        matches!(&got[1], (_, Outcome::NotRun(why)) if why.contains("field(filter")),
+        "{got:?}"
+    );
 }

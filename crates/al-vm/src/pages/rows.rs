@@ -1240,9 +1240,7 @@ impl Session {
     /// then read on from the edge of the rows it holds (`PageState::moved_rec_open_partial`).
     fn read_rows_above_the_moved_rec(&mut self, st: &St, start: Vec<Value>, end_reached: bool) -> Result<(), Signal> {
         if st.borrow().host.is_some() {
-            return unsupported(
-                "the open read of a part on the row its OnOpenPage left Rec on (not pinned)",
-            );
+            return unsupported("the open read of a part on the row its OnOpenPage left Rec on (not pinned)");
         }
         let rec = self.page_rec(st);
         let mut above = Vec::new();
@@ -2196,7 +2194,12 @@ impl Session {
     /// Y37LongListTests.al:103-109 `next log` `R:26;R:26;C:26;`, `first log` `R:5;R:4;R:3;R:2;R:1;R:1;C:1;`, :142-149 Next on the
     /// last row `No` with an empty log, :246-249 `last log` `R:24;R:25;...;R:30;R:30;C:30;`). Moves past an edge with a second
     /// block of 20 unread rows, and Next or Previous off the rows held, are not pinned.
-    fn move_after_long_moved_rec_open(&mut self, st: &St, how: PageMethod, edges: (bool, bool)) -> Result<bool, Signal> {
+    fn move_after_long_moved_rec_open(
+        &mut self,
+        st: &St,
+        how: PageMethod,
+        edges: (bool, bool),
+    ) -> Result<bool, Signal> {
         let (top_unread, bottom_unread) = edges;
         let rec = self.page_rec(st);
         let key = self.row_key(&rec)?;

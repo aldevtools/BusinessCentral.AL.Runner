@@ -259,8 +259,13 @@ impl Session {
                 }
             }
         } else {
-            let filters: Vec<FilterExpr> =
-                host.borrow().filters.iter().filter(|f| f.field == hf).map(|f| f.expr.clone()).collect();
+            let filters: Vec<FilterExpr> = host
+                .borrow()
+                .filters
+                .iter()
+                .filter(|f| f.field == hf)
+                .map(|f| f.expr.clone())
+                .collect();
             match filters.as_slice() {
                 [] => String::new(),
                 [one] => self.filter_text(one)?,
@@ -281,14 +286,18 @@ impl Session {
                 if text.chars().all(|c| c.is_ascii_alphanumeric()) {
                     return Ok(Some(FilterExpr::Or(Vec::new())));
                 }
-                return unsupported("a link field(filter(...)) whose value is longer than the part's field (not pinned)");
+                return unsupported(
+                    "a link field(filter(...)) whose value is longer than the part's field (not pinned)",
+                );
             }
         }
         // A RecordId target reads the text as SetFilter does (filters/lt-wc/WcRecordIdFilter.al; Y37LinkFilterTests.al:298-311).
         if matches!(ty, RtType::Library(al_builtins::library_kind::LibraryKind::RecordId)) {
             return match self.record_id_filter_text(&text)? {
                 Some(Ok(expr)) => Ok(Some(expr)),
-                _ => unsupported("a link field(filter(...)) on a RecordId field of a text other than one RecordId (not pinned)"),
+                _ => unsupported(
+                    "a link field(filter(...)) on a RecordId field of a text other than one RecordId (not pinned)",
+                ),
             };
         }
         self.parse_filter_text(&text, ty)
@@ -1110,10 +1119,7 @@ impl Session {
         let parts = host.borrow().parts.clone();
         for (i, sibling) in &parts {
             let follows = page.controls[*i].part_link.as_ref().is_some_and(|l| {
-                l.provider == Some(idx)
-                    && l.entries
-                        .iter()
-                        .any(|e| e.host_field().is_some_and(|hf| changed(hf)))
+                l.provider == Some(idx) && l.entries.iter().any(|e| e.host_field().is_some_and(&changed))
             });
             if follows {
                 self.sync_part(&host, *i, sibling)?;
@@ -1400,22 +1406,19 @@ impl Session {
         let parts = st.borrow().parts.clone();
         for (i, child) in &parts {
             if key_of_stored_row
-                && page.controls[*i].part_link.as_ref().is_some_and(|l| {
-                    l.entries
-                        .iter()
-                        .any(|e| e.host_field() == Some(pos))
-                })
+                && page.controls[*i]
+                    .part_link
+                    .as_ref()
+                    .is_some_and(|l| l.entries.iter().any(|e| e.host_field() == Some(pos)))
             {
                 return unsupported(
                     "a key field typed on a new host row stored after a field outside its key was typed, with parts linked on it (not pinned)",
                 );
             }
-            let reads = page.controls[*i].part_link.as_ref().is_some_and(|l| {
-                l.provider.is_none()
-                    && l.entries
-                        .iter()
-                        .any(|e| e.host_field() == Some(pos))
-            });
+            let reads = page.controls[*i]
+                .part_link
+                .as_ref()
+                .is_some_and(|l| l.provider.is_none() && l.entries.iter().any(|e| e.host_field() == Some(pos)));
             if reads {
                 child.borrow_mut().field_captions_link_refill = true;
                 let r = self.sync_part(st, *i, child);
@@ -2348,12 +2351,10 @@ fn parts_linked_on(page: &ir::Page, parts: &[(usize, St)], pos: usize) -> usize 
     parts
         .iter()
         .filter(|(i, _)| {
-            page.controls[*i].part_link.as_ref().is_some_and(|l| {
-                l.provider.is_none()
-                    && l.entries
-                        .iter()
-                        .any(|e| e.host_field() == Some(pos))
-            })
+            page.controls[*i]
+                .part_link
+                .as_ref()
+                .is_some_and(|l| l.provider.is_none() && l.entries.iter().any(|e| e.host_field() == Some(pos)))
         })
         .count()
 }

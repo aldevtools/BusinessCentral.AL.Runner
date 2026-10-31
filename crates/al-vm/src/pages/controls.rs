@@ -44,7 +44,11 @@ impl Session {
         let list = match ctl.prop("valuesallowed") {
             None => return Ok(None),
             Some(ir::PropVal::Lit(v)) => v.clone(),
-            Some(_) => return unsupported(format!("SetValue on control {name}, whose ValuesAllowed is computed (not pinned)")),
+            Some(_) => {
+                return unsupported(format!(
+                    "SetValue on control {name}, whose ValuesAllowed is computed (not pinned)"
+                ));
+            }
         };
         let field = self.control_field(st, idx);
         let field_prop = |n: &str| {
@@ -58,7 +62,9 @@ impl Session {
             ));
         }
         if matches!(ctl.binding, ir::Binding::Field(_)) && self.shows_no_row(st, idx) {
-            return unsupported(format!("SetValue on control {name}, which has ValuesAllowed, without a row (not pinned)"));
+            return unsupported(format!(
+                "SetValue on control {name}, which has ValuesAllowed, without a row (not pinned)"
+            ));
         }
         let values: Vec<(i32, String)> = match ty {
             RtType::Enum(id) if self.enum_option_list(st, idx, *id)?.is_none() => {
@@ -75,7 +81,9 @@ impl Session {
         };
         match allowed_ordinals(&list, &values) {
             Some(v) => Ok(Some(v)),
-            None => unsupported(format!("SetValue on control {name}, whose ValuesAllowed names no value of its type (not pinned)")),
+            None => unsupported(format!(
+                "SetValue on control {name}, whose ValuesAllowed names no value of its type (not pinned)"
+            )),
         }
     }
 
@@ -781,7 +789,9 @@ impl Session {
             if !allowed.contains(&ordinal) {
                 let entry = match (&arg, &current) {
                     (Value::Text(_) | Value::Code(_), _) => text.to_string(),
-                    (Value::Enum(..) | Value::Integer(_), Value::Enum(_, held) | Value::Option(held, _)) => held.to_string(),
+                    (Value::Enum(..) | Value::Integer(_), Value::Enum(_, held) | Value::Option(held, _)) => {
+                        held.to_string()
+                    }
                     _ => {
                         return unsupported(format!(
                             "SetValue of {} outside ValuesAllowed (the entry the error names is not pinned)",
@@ -1031,7 +1041,12 @@ impl Session {
                 // GetValidationError_ErrorThenCorrected, line 272: the page answers an empty text afterwards).
                 st.borrow_mut().errors.retain(|(i, _)| *i != idx);
                 st.borrow_mut().trigger_errors.retain(|(i, _)| *i != idx);
-                if st.borrow().values_allowed_refused_row.as_ref().is_some_and(|(i, _)| *i == idx) {
+                if st
+                    .borrow()
+                    .values_allowed_refused_row
+                    .as_ref()
+                    .is_some_and(|(i, _)| *i == idx)
+                {
                     st.borrow_mut().values_allowed_refused_row = None;
                 }
                 let saved = std::mem::take(&mut st.borrow_mut().save_record_called);
@@ -1440,7 +1455,8 @@ impl Session {
                 // Yes on a ConfirmationDialog whose control still holds a refused entry closes it as Cancel; the values it took stay
                 // (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al:193-196, :225-226; without a refused entry Yes reports Yes,
                 // misc/lt-probes-needed-7/PnGActionOrdinals.al:104). With an OnQueryClosePage what it sees is not pinned.
-                let dialog = self.engine().object_facts[st.borrow().object as usize].page_type_lower() == "confirmationdialog";
+                let dialog =
+                    self.engine().object_facts[st.borrow().object as usize].page_type_lower() == "confirmationdialog";
                 if name == "Yes" && dialog && !st.borrow().errors.is_empty() {
                     if self.declares(st, "onqueryclosepage") {
                         return unsupported(
@@ -1605,7 +1621,10 @@ impl Session {
                     }
                     // A row value outside the control's ValuesAllowed shows the ordinal on a list (pages/lt-y37-values-allowed/
                     // Y37ValuesAllowedSetValue.al:302, :322 `4` for Finished); elsewhere it is not pinned.
-                    if page_of(&self.engine(), st).controls[idx].prop("valuesallowed").is_some() {
+                    if page_of(&self.engine(), st).controls[idx]
+                        .prop("valuesallowed")
+                        .is_some()
+                    {
                         let ty = self.control_type(st, idx, &v);
                         if let Some(ty) = ty.filter(|t| matches!(t, RtType::Enum(_) | RtType::Option(_))) {
                             let allowed = self.values_allowed(st, idx, &ty)?.unwrap_or_default();

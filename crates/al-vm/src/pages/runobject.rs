@@ -340,7 +340,9 @@ impl Session {
                         return unsupported("RunPageLink from a page without a source table");
                     };
                     if host.borrow().cursor == Cursor::None {
-                        return unsupported("a RunPageLink field(filter(...)) from a host that shows no row (not pinned)");
+                        return unsupported(
+                            "a RunPageLink field(filter(...)) from a host that shows no row (not pinned)",
+                        );
                     }
                     let ty = table.fields[*pf].ty.clone();
                     let expr = self.link_filter_of_host_field(host_rec, *hf, &ty)?;

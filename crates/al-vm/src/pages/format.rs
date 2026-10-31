@@ -1258,12 +1258,21 @@ impl Session {
                 .map(|(_, v)| v.clone())
                 .unwrap_or_default();
             let mut parts = Vec::new();
-            for name in names.split(',').map(|n| n.trim().trim_matches('"')).filter(|n| !n.is_empty()) {
+            for name in names
+                .split(',')
+                .map(|n| n.trim().trim_matches('"'))
+                .filter(|n| !n.is_empty())
+            {
                 let Some(i) = table.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name)) else {
                     return unsupported(format!("DataCaptionFields names `{name}`, not a field of the table"));
                 };
-                let filters: Vec<al_builtins::filter::FilterExpr> =
-                    rec.borrow().filters.iter().filter(|f| f.field == i).map(|f| f.expr.clone()).collect();
+                let filters: Vec<al_builtins::filter::FilterExpr> = rec
+                    .borrow()
+                    .filters
+                    .iter()
+                    .filter(|f| f.field == i)
+                    .map(|f| f.expr.clone())
+                    .collect();
                 if filters.is_empty() {
                     continue;
                 }
@@ -1285,7 +1294,11 @@ impl Session {
                 }
                 let one = match &filters[0] {
                     al_builtins::filter::FilterExpr::Eq(v) => Some(v.clone()),
-                    al_builtins::filter::FilterExpr::Range(Some(a), Some(b)) if ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal) => Some(a.clone()),
+                    al_builtins::filter::FilterExpr::Range(Some(a), Some(b))
+                        if ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal) =>
+                    {
+                        Some(a.clone())
+                    }
                     _ => None,
                 };
                 let text = one
