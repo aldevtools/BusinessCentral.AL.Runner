@@ -1,6 +1,6 @@
 //! A Worksheet without a source table whose field's OnValidate hands the new value to its unlinked ListPart (a temporary
 //! source table filled in the host's OnOpenPage) and calls `CurrPage.Update(false)`: the part's next First shows the value its
-//! OnAfterGetRecord computes from the new value, `(A)` (al-runner issue 6465, the reporter's repro; BC 29: the test passes).
+//! OnAfterGetRecord computes from the new value, `(A)` (al-runner issue 6465, the reporter's repro; real BC: the test passes).
 
 use al_testkit::outcomes_in;
 
