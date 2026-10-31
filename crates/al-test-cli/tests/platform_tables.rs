@@ -1404,43 +1404,43 @@ codeunit 50000 "T" { Subtype = Test;
 /// A column of a platform row whose value nothing pins is unknown: a dynamic read of it (FieldRef.Value, Format, a filter on
 /// it, TransferFields into another type, a read or a filter on a copy) is refused and names the table and the field, while
 /// the other columns, FindSet and Count of the same rows run, a copy can be stored, and a value written into the buffer
-/// reads back. "Type Name" (9) of the Field table is pinned
-/// for a Text field only (record/PZFieldObsoleteRows.al:47, `Text30`); for the Integer field it is unknown.
+/// reads back. ExternalName (10) of the Field table is pinned blank for a field that declares none
+/// (record/PZFieldObsoleteRows.al:48); for the field that declares one it is unknown.
 #[test]
 fn an_unknown_column_of_a_platform_row_is_refused_where_it_is_read_dynamically() {
     let o = outcomes(
-        r#"table 50003 "Buf" { fields { field(1; TableNo; Integer) { } field(2; "No."; Integer) { } field(9; "Type Name"; Text[30]) { } }
+        r#"table 50003 "Buf" { fields { field(1; TableNo; Integer) { } field(2; "No."; Integer) { } field(9; "Type Name"; Text[30]) { } field(40; Ext; Integer) { ExternalName = 'ext'; } field(10; ExternalName; Text[100]) { } }
   keys { key(PK; TableNo, "No.") { Clustered = true; } } }
-table 50004 "Buf2" { fields { field(1; TableNo; Integer) { } field(2; "No."; Integer) { } field(9; "Type Name"; Text[20]) { } }
+table 50004 "Buf2" { fields { field(1; TableNo; Integer) { } field(2; "No."; Integer) { } field(10; ExternalName; Text[20]) { } }
   keys { key(PK; TableNo, "No.") { Clustered = true; } } }
 codeunit 50000 "T" { Subtype = Test;
   [Test] procedure OtherColumnsAndCountRun() var F: Record Field; R: RecordRef; N: Integer; begin
-    F.SetRange(TableNo, 50003); F.SetRange("No.", 1, 9); if F.Count() <> 3 then Error('count %1', F.Count()); F.FindSet();
-    repeat N += 1; until F.Next() = 0; if N <> 3 then Error('n');
+    F.SetRange(TableNo, 50003); F.SetRange("No.", 1, 40); if F.Count() <> 5 then Error('count %1', F.Count()); F.FindSet();
+    repeat N += 1; until F.Next() = 0; if N <> 5 then Error('n');
     F.Get(50003, 9); R.GetTable(F); if Format(R.Field(9).Value) <> 'Text30' then Error('text %1', R.Field(9).Value);
-    F.Get(50003, 1); R.GetTable(F); if Format(R.Field(4).Value) <> 'TableNo' then Error('name %1', R.Field(4).Value); end;
+    F.Get(50003, 40); R.GetTable(F); if Format(R.Field(4).Value) <> 'Ext' then Error('name %1', R.Field(4).Value); end;
   [Test] procedure FieldRefValue() var F: Record Field; R: RecordRef; T: Text; begin
-    F.Get(50003, 1); R.GetTable(F); T := R.Field(9).Value; end;
+    F.Get(50003, 40); R.GetTable(F); T := R.Field(10).Value; end;
   [Test] procedure FormatFieldRef() var F: Record Field; R: RecordRef; FR: FieldRef; begin
-    F.Get(50003, 1); R.GetTable(F); FR := R.Field(9); if Format(FR) = 'x' then; end;
+    F.Get(50003, 40); R.GetTable(F); FR := R.Field(10); if Format(FR) = 'x' then; end;
   [Test] procedure FilterOnIt() var R: RecordRef; begin
-    R.Open(Database::Field); R.Field(1).SetRange(50003); R.Field(9).SetRange('Integer'); if R.IsEmpty() then; end;
+    R.Open(Database::Field); R.Field(1).SetRange(50003); R.Field(10).SetRange('Integer'); if R.IsEmpty() then; end;
   [Test] procedure TransferFieldsCarriesIt() var F: Record Field; B: Record Buf temporary; begin
-    F.Get(50003, 1); B.TransferFields(F); B.Insert(); end;
+    F.Get(50003, 40); B.TransferFields(F); B.Insert(); end;
   [Test] procedure TransferFieldsThenRead() var F: Record Field; B: Record Buf temporary; X: Text; begin
-    F.Get(50003, 1); B.TransferFields(F); X := B."Type Name"; end;
+    F.Get(50003, 40); B.TransferFields(F); X := B.ExternalName; end;
   [Test] procedure TransferFieldsIntoAnotherType() var F: Record Field; B: Record Buf2 temporary; begin
-    F.Get(50003, 1); B.TransferFields(F); end;
+    F.Get(50003, 40); B.TransferFields(F); end;
   [Test] procedure CopiedIntoATemporaryRecord() var F: Record Field; T: Record Field temporary; begin
-    F.Get(50003, 1); T := F; T.Insert(); F.Get(50003, 9); T := F; T.Insert();
+    F.Get(50003, 40); T := F; T.Insert(); F.Get(50003, 9); T := F; T.Insert();
     T.SetRange(TableNo, 50003); if T.Count() <> 2 then Error('copies %1', T.Count()); T.Get(50003, 9); end;
   [Test] procedure CopyFilteredOnIt() var F: Record Field; T: Record Field temporary; R: RecordRef; begin
-    F.Get(50003, 1); T := F; T.Insert(); R.GetTable(T); R.Field(9).SetRange('Integer'); if R.IsEmpty() then; end;
+    F.Get(50003, 40); T := F; T.Insert(); R.GetTable(T); R.Field(10).SetRange('Integer'); if R.IsEmpty() then; end;
   [Test] procedure CopyReadBack() var F: Record Field; T: Record Field temporary; R: RecordRef; X: Text; begin
-    F.Get(50003, 1); T := F; T.Insert(); T.Get(50003, 1); R.GetTable(T); X := R.Field(9).Value; end;
+    F.Get(50003, 40); T := F; T.Insert(); T.Get(50003, 40); R.GetTable(T); X := R.Field(10).Value; end;
   [Test] procedure WrittenReadsBack() var F: Record Field; R: RecordRef; begin
-    F.Get(50003, 1); R.GetTable(F); R.Field(9).Value := 'mine';
-    if Format(R.Field(9).Value) <> 'mine' then Error('read back'); end; }"#,
+    F.Get(50003, 40); R.GetTable(F); R.Field(10).Value := 'mine';
+    if Format(R.Field(10).Value) <> 'mine' then Error('read back'); end; }"#,
     );
     passes(&o, "OtherColumnsAndCountRun");
     passes(&o, "WrittenReadsBack");
@@ -1458,10 +1458,38 @@ codeunit 50000 "T" { Subtype = Test;
     ] {
         let why = not_run(&o, t);
         assert!(
-            why.contains("field 'Type Name' of platform table 'Field' is not known"),
+            why.contains("field 'ExternalName' of platform table 'Field' is not known"),
             "{t}: {why}"
         );
     }
+}
+
+/// "Type Name" of the Field table is the type's name, with the length of a Text or Code, for every type a table field can
+/// have (platform/lt-ba-columns/BaFieldTypeName.al:52-69; an enum reads `Option`). OptimizeForTextSearch declared on a Code
+/// field reads as declared (lt-ak-fulltext/LtAkFulltext.al:141-170).
+#[test]
+fn field_type_name_is_pinned_for_every_type() {
+    let o = outcomes(
+        r#"enum 50001 "E" { value(0; A) { } }
+table 50006 "Types" { fields { field(1; FInteger; Integer) { } field(2; FCode; Code[20]) { } field(3; FDecimal; Decimal) { }
+  field(4; FOption; Option) { OptionMembers = A,B; } field(5; FEnum; Enum "E") { } field(6; FBoolean; Boolean) { }
+  field(7; FDate; Date) { } field(8; FDateTime; DateTime) { } field(9; FTime; Time) { } field(10; FGuid; Guid) { }
+  field(11; FBlob; Blob) { } field(12; FMedia; Media) { } field(13; FMediaSet; MediaSet) { } field(14; FBigInteger; BigInteger) { }
+  field(15; FDuration; Duration) { } field(16; FDateFormula; DateFormula) { } field(17; FRecordId; RecordId) { }
+  field(18; FText; Text[100]) { } field(19; FTableFilter; TableFilter) { }
+  field(20; FCodeFts; Code[30]) { OptimizeForTextSearch = true; } field(21; FCodePlain; Code[30]) { } }
+  keys { key(PK; FInteger) { Clustered = true; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure TypeNames() var F: Record Field; R: Text; begin
+    F.SetRange(TableNo, 50006); F.SetRange("No.", 1, 19); F.FindSet();
+    repeat R += F.FieldName + ':' + F."Type Name" + '/' + Format(F.Len) + ' '; until F.Next() = 0;
+    if R <> 'FInteger:Integer/4 FCode:Code20/20 FDecimal:Decimal/12 FOption:Option/4 FEnum:Option/4 FBoolean:Boolean/4 FDate:Date/4 FDateTime:DateTime/8 FTime:Time/4 FGuid:GUID/16 FBlob:BLOB/8 FMedia:Media/16 FMediaSet:MediaSet/16 FBigInteger:BigInteger/8 FDuration:Duration/8 FDateFormula:DateFormula/32 FRecordId:RecordID/448 FText:Text100/100 FTableFilter:TableFilter/504 ' then Error(R); end;
+  [Test] procedure CodeFieldOptimizeForTextSearch() var F: Record Field; begin
+    F.Get(50006, 20); if not F.OptimizeForTextSearch then Error('declared');
+    F.Get(50006, 21); if F.OptimizeForTextSearch then Error('plain'); end; }"#,
+    );
+    passes(&o, "TypeNames");
+    passes(&o, "CodeFieldOptimizeForTextSearch");
 }
 
 /// A column of a table of `PINNED_COLUMNS` that the list does not name is unknown in every row the provider lists
@@ -1508,22 +1536,22 @@ codeunit 50000 "T" { Subtype = Test;
     }
 }
 
-/// Field.OptimizeForTextSearch (62) is the declared property of a Text field (lt-ak-fulltext/LtAkFulltext.al:119,
-/// :122); the property on another type is pinned by no test, so a read of it is refused.
+/// Field.OptimizeForTextSearch (62) is the declared property of a Text or Code field (lt-ak-fulltext/LtAkFulltext.al:119,
+/// :122, :167); the property on another type is pinned by no test, so a read of it is refused.
 #[test]
 fn field_optimize_for_text_search_reads_the_declared_property_of_a_text_field() {
     let o = outcomes(
         r#"table 50001 "Thing" { fields { field(1; "No."; Integer) { } field(2; Txt; Text[30]) { OptimizeForTextSearch = true; }
-  field(3; Plain; Text[30]) { } field(4; Cd; Code[20]) { OptimizeForTextSearch = true; } }
+  field(3; Plain; Text[30]) { } field(4; Num; Integer) { OptimizeForTextSearch = true; } }
   keys { key(PK; "No.") { Clustered = true; } } }
 codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Declared() var F: Record Field; begin F.Get(50001, 2); if not F.OptimizeForTextSearch then Error('declared'); end;
   [Test] procedure NotDeclared() var F: Record Field; begin F.Get(50001, 3); if F.OptimizeForTextSearch then Error('plain'); end;
-  [Test] procedure OnCode() var F: Record Field; begin F.Get(50001, 4); if F.OptimizeForTextSearch then; end; }"#,
+  [Test] procedure OnInteger() var F: Record Field; begin F.Get(50001, 4); if F.OptimizeForTextSearch then; end; }"#,
     );
     passes(&o, "Declared");
     passes(&o, "NotDeclared");
-    let why = not_run(&o, "OnCode");
+    let why = not_run(&o, "OnInteger");
     assert!(why.contains("OptimizeForTextSearch"), "{why}");
 }
 

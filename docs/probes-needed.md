@@ -1024,7 +1024,6 @@ FindSet and Count over the rows, run as usual. Writing the field replaces the un
 | Table | Column left unknown | Probe wanted | Where |
 |---|---|---|---|
 | Report Layout List (BC 29) | "Layout Subtype" (19), HeaderFooterPart (20) and ThemePart (21) of a layout that declares no `Subtype` (report/lt-y-report-props/YReportParts.al pins only layouts that declare one) | Read the three columns through a RecordRef for a layout with no Subtype, for a report with and without DefaultHeaderFooterPart | `platform/reports.rs` `layout_row` |
-| Field | "Type Name" (9) of a field that is not a Text field (record/PZFieldObsoleteRows.al:47 pins `Text30` only) | "Type Name" of an Integer, Code[20], Decimal, Option, Enum, Boolean, Date, Blob and Media field | `platform/fields.rs` `field_row` |
 | Feature Key | Description (3), "Learn More Link" (4) and "Description In English" (10) of every row | The three columns of two feature keys on 27.5, 28.5 and 29.0 | `platform/host_tables.rs` `feature_key_rows` |
 
 ## Outside user reports (issues 252, 253, 254, 2026-10-19)
@@ -1106,7 +1105,6 @@ Refused or kept until a probe pins them:
 - Code Coverage Test Lookup "Method ID": one literal is pinned (31658110, codeunit/PWCodeCoverageRows.al:309) and that it differs from the Tests Run id (codeunit/TestCodeCoveragePerTest.al:121); the rule is not. Kept as the routine index plus one (baseline case 60925 TestLookup_TestStartedWhileRecording_HasTheMethodItRan reads it). Probe: Method ID of procedures with different signatures, same signature, in two codeunits.
 - Code Coverage "Test ID": the same number for every test of one recording and of two recordings, not 1 (coverage/W6CodeCoverageIds.al:111-112, :167-168). The runtime gives every row one number (2, not pinned) and, since Tests Run is keyed by Test ID alone, refuses reads of Tests Run and Test Lookup after two or more tests were recorded (`al-vm/src/platform/coverage.rs`). Probe: the Test ID value, across test codeunits and test methods of the runner, and the order of Tests Run rows with an equal Test ID.
 - Code Coverage Tests Run "Method ID" 469735107 for every test procedure: pinned for one codeunit (codeunit/PWCodeCoverageRows.al:308) and as one value for four tests of another (coverage/W6CodeCoverageIds.al:105-107). Probe: the value in a second codeunit and app.
-- Field.OptimizeForTextSearch declared on a field that is not Text (Code): refused (`al-vm/src/platform/fields.rs`). Not declared on any type reads false; pinned for Text only (lt-ak-fulltext/LtAkFulltext.al:122).
 - CodeUnit Metadata TestType or RequiredTestIsolation declared on a codeunit that is not Subtype = Test: refused (`al-vm/src/platform/objects.rs`).
 - Published Application.Description: the manifest's description (onprem session/PZPublishedApplicationColumns.al:55, :59). Refused: `AppInfo` does not keep the description yet.
 - Session "Login Type" of a session that is not the test's web client session: unknown.
