@@ -2408,6 +2408,48 @@ fn client_use_cookies(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
     with_client(r, |s| client_settings_change(s, on, "UseResponseCookies"))?.map(|()| Value::Null)
 }
 
+/// `HttpClient.AddCertificate(Certificate[, Password])`, Text or SecretText, reads the certificate when it is called
+/// (network/lt-httpclient-config-certificates/P108Cert1.al:21-40, Text, and P108Cert2.al:21-37, SecretText): an empty one
+/// raises HttpRequest:Argument, text that is not Base64 HttpRequest:Format, and Base64 of a cut DER sequence (`MIIB`)
+/// HttpRequest:Cryptographic, each with the generic request error text. Any other certificate (a complete DER structure,
+/// which may be a real one, or bytes that do not start a DER sequence) is not pinned and is refused.
+fn client_add_certificate(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    const TEXT: &str =
+        "There was an error while executing the HTTP request. Make sure you are connecting to a valid endpoint.";
+    with_client(r, |_| ())?;
+    let (cert, _) = text_or_secret(a, 0)?;
+    if cert.is_empty() {
+        return raise(TEXT, "HttpRequest:Argument");
+    }
+    let Ok(bytes) = crate::platform_native::b64_decode(&cert) else {
+        return raise(TEXT, "HttpRequest:Format");
+    };
+    if bytes.first() == Some(&0x30) && !complete_der(&bytes) {
+        return raise(TEXT, "HttpRequest:Cryptographic");
+    }
+    unsupported("HttpClient.AddCertificate of a certificate no test pins (whether BC takes it is not pinned)")
+}
+
+/// Whether `bytes` is one DER element with a definite length that spans all of them.
+fn complete_der(bytes: &[u8]) -> bool {
+    let Some(&first) = bytes.get(1) else {
+        return false;
+    };
+    let (len, header) = if first < 0x80 {
+        (usize::from(first), 2)
+    } else {
+        let n = usize::from(first & 0x7f);
+        if n == 0 || n > 4 || bytes.len() < 2 + n {
+            return false;
+        }
+        let len = bytes[2..2 + n]
+            .iter()
+            .fold(0usize, |acc, &b| (acc << 8) | usize::from(b));
+        (len, 2 + n)
+    };
+    header.checked_add(len) == Some(bytes.len())
+}
+
 /// Hands `(method, url)` to the session and writes the response it returns into the `var Response` argument.
 fn send(
     c: &mut dyn Ctx,
@@ -3089,6 +3131,7 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         ("HttpClient", "Clear") => Some(client_clear),
         ("HttpClient", "UseResponseCookies") => Some(client_use_cookies),
         ("HttpClient", "UseServerCertificateValidation") => Some(client_use_cert_validation),
+        ("HttpClient", "AddCertificate") => Some(client_add_certificate),
         ("HttpResponseMessage", "HttpStatusCode") => Some(response_status),
         ("HttpResponseMessage", "ReasonPhrase") => Some(response_reason),
         ("HttpResponseMessage", "IsBlockedByEnvironment") => Some(response_blocked),
