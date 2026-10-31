@@ -108,7 +108,7 @@ impl Session {
                         }
                         // The name is the pinned fragment of the error
                         // (:Database_RegisterTableConnection_CrmTest_Duplicate_Throws).
-                        if !self.table_connections.insert(key) {
+                        if !self.table_connections.insert(key.clone()) {
                             // The name as written in this call (record/lt-table-connection-duplicate/
                             // TableConnectionDuplicateRegister.al:P161_RegisterTwice_SameAndOtherCase `twiceUpper`).
                             return error_code(
@@ -116,6 +116,7 @@ impl Session {
                                 "Argument",
                             );
                         }
+                        self.crm_registered(&key.1);
                         Ok(Value::Null)
                     }
                     "Unregister" => {
@@ -124,6 +125,7 @@ impl Session {
                         if !self.table_connections.remove(&key) {
                             return Ok(Value::Null);
                         }
+                        self.crm_unregistered(&key.1);
                         // Unregistering the default clears the default too
                         // (:Database_UnregisterTableConnection_CrmTest_ClearsDefaultAndHas).
                         if self
