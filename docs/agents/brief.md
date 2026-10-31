@@ -283,6 +283,14 @@ Run these in order. Do not skip any.
    again and commit.
 8. Do not merge into `main`. Whether you push is set by your task: a local
    agent does not push, a remote worker pushes its own branch and nothing else.
+9. Before every push, also a push of a fix after review, run `tools/prepush.sh`.
+   It runs the fast checks that most often failed in CI after a green local run:
+   `cargo fmt --check`, the version-literal and gate-completeness tests of
+   `al-version`, the assumption registry tests, the `builtin_ids_current` test, and
+   clippy with `-D warnings` on the crates your branch changed. With a warm target
+   folder it takes under a minute. Push only when it ends with "all checks passed".
+   It does not replace `check.sh`, and it installs no git hook; `tools/prepush.sh -h`
+   shows how to add one yourself.
 
 ## Report
 
