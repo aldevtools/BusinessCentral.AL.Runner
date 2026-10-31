@@ -62,3 +62,29 @@ fn expression_controls_follow_the_row_find_field_ends_on() {
          Yes Beta d:Beta 14 Beta/2 v:Beta;"
     );
 }
+
+const TRAPPED: &str = r#"
+codeunit 69953 Opener { procedure Open() begin Page.Run(Page::"FE List"); end; }
+codeunit 69954 D
+{
+    procedure F(): Text
+    var R: Record "FE Row"; P: TestPage "FE List"; O: Codeunit Opener;
+    begin
+        R.Id := 1; R.Name := 'Alpha'; R.Insert(); R.Id := 2; R.Name := 'Beta'; R.Insert();
+        P.Trap();
+        O.Open();
+        P.FindFirstField(P.Name, 'Beta');
+        exit(P.Fn.Value());
+    end;
+}
+"#;
+
+/// Only a page the test opened is pinned: on a page caught by Trap() the read stays refused.
+#[test]
+fn on_a_trapped_page_the_read_after_find_field_is_refused() {
+    let src = format!("{SRC}{TRAPPED}");
+    match al_testkit::run_in(&src, "D", "F") {
+        Err(al_builtins::native::Signal::Unsupported(r)) => assert!(r.contains("FindFirstField"), "{r}"),
+        other => panic!("{other:?}"),
+    }
+}

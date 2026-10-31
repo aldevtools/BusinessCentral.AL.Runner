@@ -63,7 +63,7 @@ const DOUBT_ASSUMED: u16 = 128;
 /// TestField.Lookup through the control's own OnLookup trigger on the page itself (not a part): a read of an expression the
 /// page does not keep is computed as it is now (`Session::lookup_refresh_pinned` lists the pinned shapes).
 const DOUBT_LOOKUP: u16 = 256;
-/// `FindFirstField` or `FindNextField` on a page without parts: its controls of a function call, a string expression and a page
+/// `FindFirstField` or `FindNextField` on a page without parts that the test opened: its controls of a function call, a string expression and a page
 /// variable OnAfterGetRecord sets show the row the search ended on (misc/lt-y13-triage/Y13PageTriage.al:150-186, corpus master).
 const DOUBT_FIND_FIELD: u16 = 512;
 /// The kinds after which a control of an expression the page does not keep is read as it is now (module comment).
@@ -133,8 +133,9 @@ impl Session {
                 PageMethod::SetValue if on_root && on_control => DOUBT_HOST_SET_VALUE,
                 PageMethod::GoToRecord if on_root && target.is_none() => DOUBT_GO_TO_RECORD,
                 PageMethod::First if is_p && target.is_none() => DOUBT_FIRST,
+                // A page the test caught with Trap() is not pinned (only one the test opened).
                 PageMethod::FindFirstField | PageMethod::FindNextField
-                    if is_p && on_root && tree.len() == 1 && r.is_ok() =>
+                    if is_p && on_root && tree.len() == 1 && r.is_ok() && !st.borrow().caught_by_trap =>
                 {
                     DOUBT_FIND_FIELD
                 }

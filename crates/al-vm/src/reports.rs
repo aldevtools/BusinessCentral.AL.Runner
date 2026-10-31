@@ -742,6 +742,23 @@ impl Session {
                     let schema = self.report_schema(&inst)?;
                     (inst, schema, args.first())
                 } else {
+                    // The static form raises SubstituteReport with RunMode ParametersOnly first (events/lt-platform-events-v/
+                    // PeVTests.al:465, :660: `SubstituteReport(69860,ParametersOnly,in=-1)`). What a subscriber that sets another
+                    // report does to it is not pinned.
+                    if let Some(Value::Integer(n)) = args.first() {
+                        if self
+                            .engine
+                            .events
+                            .is_subscribed(crate::events::REPORTING_TRIGGERS, "substitutereport")
+                        {
+                            let new = self.raise_substitute(*n, 1, Value::Text(String::new().into()))?;
+                            if new != -1 && new != *n {
+                                return unsupported(format!(
+                                    "SubstituteReport set report {new} for Report.RunRequestPage of report {n} (not pinned)"
+                                ));
+                            }
+                        }
+                    }
                     let (inst, schema) = self.report_by_number(id, args.first())?;
                     // OnInitReport runs first, so the views the data items get next are what the handler sees
                     // (report/W3ReportRequestPageRun.al:280, RunRequestPage_OrderOfReportAndRequestPageTriggers: `view=[1..3]`).
