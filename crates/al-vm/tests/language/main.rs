@@ -152,3 +152,4 @@ mod xml_write_kinds;
 mod xml_xmlns_attribute;
 mod xml_xpath_axes;
 mod xml_xpath_errors;
+mod y14_singles;

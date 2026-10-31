@@ -30,7 +30,8 @@ fn outcomes(tests: &str) -> Vec<(String, Outcome)> {
 
 // OK on that page has no OK action: the call fails with TestActionNotFound and Rec comes back without its filters, its values
 // kept (corpus PR 896, errors/lt-ms-refusals-129/Y9LookupNoRow.al Y9_Lookup_RunModalIdRec_FilteredToNoRow_Ok,
-// _EmptyTable_PrefilledRec_Ok, _EmptyTable_ReadOnlyList_Ok). On a row it is LookupOK with that row.
+// _EmptyTable_PrefilledRec_Ok, _EmptyTable_ReadOnlyList_Ok: a page id). On a row it is LookupOK with that row. Page.RunModal(0, Rec)
+// with a filter in group 0 only is refused (`lookup_page_from_table`, misc/lt-y14-triage/Y14LookupNoRow.al).
 #[test]
 fn ok_on_a_static_lookup_page_without_a_row_is_not_found() {
     let o = outcomes(
@@ -38,7 +39,7 @@ fn ok_on_a_static_lookup_page_without_a_row_is_not_found() {
              R.DeleteAll();
              R.\"No.\" := 'A'; R.Grp := 'X'; R.Insert();
              R.SetRange(Grp, 'NONE');
-             asserterror if Page.RunModal(0, R) = Action::LookupOK then Error('ok');
+             asserterror if Page.RunModal(Page::\"LNR List\", R) = Action::LookupOK then Error('ok');
              if GetLastErrorText() <> 'The built-in action = OK is not found on the page.' then Error('text %1', GetLastErrorText());
              if GetLastErrorCode() <> 'TestActionNotFound' then Error('code %1', GetLastErrorCode());
              if R.GetFilters() <> '' then Error('filters %1', R.GetFilters());

@@ -185,6 +185,21 @@ fn json_missing_key_throws_with_the_pinned_text_and_code() {
 }
 
 #[test]
+fn json_object_get_missing_key_as_statement_throws_property_not_found() {
+    // misc/lt-y14-triage/Y14Small.al:389 (corpus master): JsonObject.Get of a missing name whose
+    // result is not used raises JsonPropertyNotFound; the token keeps its value.
+    let t = text_of(
+        "J: JsonObject; T: JsonToken;",
+        "J.Add('present', 1); asserterror J.Get('missing', T);
+         exit(GetLastErrorText() + '|' + GetLastErrorCode() + '|' + Format(J.Get('missing', T)));",
+    );
+    assert_eq!(
+        t,
+        "There is no property with the 'missing' key on the JSON object.|JsonPropertyNotFound|No"
+    );
+}
+
+#[test]
 fn json_value_set_and_read() {
     // json/TestJsonValue.al and TestJsonComplete.al.
     let t = text_of("V: JsonValue;", "V.SetValue('hello'); exit(V.AsText());");

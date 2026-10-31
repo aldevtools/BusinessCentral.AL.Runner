@@ -594,6 +594,8 @@ pub struct PageState {
     /// The page was run by the static `Page.RunModal` with its return value used (lookup mode set by the call, not by
     /// `LookupMode(true)` on a page variable).
     pub static_lookup: bool,
+    /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
+    pub lookup_page_from_table: bool,
     /// Page triggers (the page's or an extension's) run on this page so far.
     pub triggers_run: u64,
     /// The reads after an action on a list without OnAfterGetCurrRecord ended the refresh: `CurrPage.Update` reads nothing more
@@ -927,6 +929,7 @@ impl PageState {
             action_landed_on_new_row: false,
             validate_refresh_unheld: false,
             static_lookup: false,
+            lookup_page_from_table: false,
             triggers_run: 0,
             refresh_read_done: false,
             action_shown_row: None,

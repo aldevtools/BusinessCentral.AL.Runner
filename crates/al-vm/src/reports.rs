@@ -570,7 +570,12 @@ impl Session {
             }
             // The static forms run a fresh instance of the report with that id.
             ids::REPORT_RUN_3 | ids::REPORT_RUNMODAL_3 => {
-                let (inst, schema) = self.report_by_number(id, args.first())?;
+                // SubstituteReport is raised first, RunMode Normal or RunModal, RequestPageXml empty; a report a subscriber
+                // sets runs instead, with its own request page and handler (misc/lt-y14-triage/Y14ReportSubstitute.al:371
+                // Run_Swap_HandlerB `Sub(91650,Normal,xmlLen=0,in=-1)`, `Sub(91650,RunModal,...)`, corpus master).
+                let mode = if id == ids::REPORT_RUN_3 { 0 } else { 5 };
+                let number = self.substitute_static(args.first(), mode, "")?;
+                let (inst, schema) = self.report_by_number(id, number.as_ref().or(args.first()))?;
                 // An explicit RequestWindow decides, in both directions, as UseRequestPage does on a variable: `true` shows the
                 // page of a report declaring `UseRequestPage = false` (misc/lt-probes-needed-8/PnH2UseRp.al:347-355), `false`
                 // hides it and `CurrReport.UseRequestPage()` answers false
@@ -669,8 +674,14 @@ impl Session {
                 result.map(|()| Value::Null)
             }
             ids::REPORT_EXECUTE_3 => {
-                let (inst, schema) = self.report_by_number(id, args.first())?;
                 let parameters = self.report_execute_args(id, args.get(1), args.get(2))?;
+                // With parameters, SubstituteReport is raised first, RunMode Execute, the parameters as RequestPageXml; a
+                // report a subscriber sets runs instead and the parameters of the other report set nothing on it
+                // (misc/lt-y14-triage/Y14ReportSubstitute.al:389 Execute_SaveAs_Swap `Sub(91650,Execute,xmlLen=155,in=-1)`,
+                // corpus master), and without parameters as well (events/lt-platform-events-v/PeVTests.al:665
+                // PW_RaisedEvents_ProcessingOnlyRuns `SubstituteReport(86147,Execute,in=-1)`).
+                let number = self.substitute_static(args.first(), 2, parameters.as_deref().unwrap_or(""))?;
+                let (inst, schema) = self.report_by_number(id, number.as_ref().or(args.first()))?;
                 let quit = self.report_init(&inst)?;
                 if quit {
                     return Ok(Value::Null);
@@ -734,24 +745,17 @@ impl Session {
                     let schema = self.report_schema(&inst)?;
                     (inst, schema, args.first())
                 } else {
-                    // The static form raises SubstituteReport with RunMode ParametersOnly first (events/lt-platform-events-v/
-                    // PeVTests.al:465, :660: `SubstituteReport(69860,ParametersOnly,in=-1)`). What a subscriber that sets another
-                    // report does to it is not pinned.
-                    if let Some(Value::Integer(n)) = args.first() {
-                        if self
-                            .engine
-                            .events
-                            .is_subscribed(crate::events::REPORTING_TRIGGERS, "substitutereport")
-                        {
-                            let new = self.raise_substitute(*n, 1, Value::Text(String::new().into()))?;
-                            if new != -1 && new != *n {
-                                return unsupported(format!(
-                                    "SubstituteReport set report {new} for Report.RunRequestPage of report {n} (not pinned)"
-                                ));
-                            }
-                        }
-                    }
-                    let (inst, schema) = self.report_by_number(id, args.first())?;
+                    // The static form raises SubstituteReport with RunMode ParametersOnly first, once, with an empty
+                    // RequestPageXml also when old parameters are given (events/lt-platform-events-v/PeVTests.al:465, :660:
+                    // `SubstituteReport(69860,ParametersOnly,in=-1)`; misc/lt-y14-triage/Y14ReportSubstitute.al:276, :447).
+                    // A subscriber that sets another report swaps it: that report's request page opens, its handler runs and
+                    // the parameters are that report's (Y14ReportSubstitute.al:225 platform event, :261 OnAfterSubstituteReport,
+                    // :447 with old parameters; corpus master).
+                    let number = self.substitute_static(args.first(), 1, "")?;
+                    // SetupPrinters follows, once, with an empty Printers (events/lt-platform-events-v/PeVTests.al:450
+                    // RunRequestPage_RaisedEvents `SubstituteReport(69860,ParametersOnly,in=-1);SetupPrinters(in=0);`, :651).
+                    self.raise_setup_printers()?;
+                    let (inst, schema) = self.report_by_number(id, number.as_ref().or(args.first()))?;
                     // OnInitReport runs first, so the views the data items get next are what the handler sees
                     // (report/W3ReportRequestPageRun.al:280, RunRequestPage_OrderOfReportAndRequestPageTriggers: `view=[1..3]`).
                     if self.report_init(&inst)? {
@@ -1643,9 +1647,9 @@ impl Session {
         if self.in_write_transaction()? {
             return Err(crate::transactions::transaction_stopped());
         }
-        if self.tx.try_depth > 0 {
-            return unsupported("a report run that enters a transaction world inside a TryFunction (not pinned)");
-        }
+        // Inside a TryFunction, with nothing to commit, the run goes on as outside one (misc/lt-y14-triage/
+        // Y14ReportSubstitute.al:276 RunRequestPage, :371 Run and RunModal, after a Commit, corpus master). A run that
+        // writes there is refused when its world would commit ([`Self::report_in_world`]).
         Ok(true)
     }
 
@@ -1713,6 +1717,11 @@ impl Session {
         match result {
             Ok(v) => {
                 if (enters || began_world) && self.tx_model != TxModel::AutoRollback {
+                    if self.tx.try_depth > 0 && self.in_write_transaction()? {
+                        return unsupported(
+                            "a report run inside a TryFunction that wrote in its transaction world (whether it commits is not pinned)",
+                        );
+                    }
                     // A world that is entered commits its own writes when the run returns
                     // (record/TestTxModelReportRun.al:177-196, Test07). That `RunRequestPage` does
                     // the same is docs/probes-needed.md.
@@ -1977,9 +1986,8 @@ impl Session {
         let execute_parameters = self.report.execute_parameters.take();
         let mut run = self.report_prepare(inst, schema, !shows_page)?;
         run.dataset = save_as.is_some();
-        let mut init_ran = false;
         if !shows_page {
-            init_ran = self.request_page_init_unshown(inst, schema, save_as.is_some_and(|x| !x.is_empty()))?;
+            self.request_page_init_unshown(inst, schema, save_as.is_some_and(|x| !x.is_empty()))?;
         }
         if let Some(xml) = save_as.filter(|x| !x.is_empty()) {
             self.apply_run_parameters(inst, schema, &run, xml, false)?;
@@ -1989,10 +1997,10 @@ impl Session {
             // The values land after the request page's OnInit; its OnOpenPage and OnClosePage follow (no OnQueryClosePage), and a
             // control the parameters do not name keeps OnInit's value (report/lt-report-requestpage/Y12ExecuteOnInit.al:117-143,
             // corpus branch al-runtime-rs-staging-y12, al-runner issue 6446; RptRequestPage.al:878-893). An empty string runs
-            // neither (Y12ExecuteOnInit.al:145-156): `execute_parameters` holds no empty string.
-            if init_ran {
-                self.request_page_open_close_unshown(inst, schema)?;
-            }
+            // neither (Y12ExecuteOnInit.al:145-156): `execute_parameters` holds no empty string. A page without OnInit runs its
+            // OnOpenPage too, also for the parameters of another report (misc/lt-y14-triage/Y14ReportSubstitute.al:389
+            // `B-rp-open`, `A-rp-open`, corpus master).
+            self.request_page_open_close_unshown(inst, schema)?;
         }
         // The request page opens once the items' views are in force; what the handler filters is
         // what the run reads, so the views are not applied again afterwards. A cancelled page ends
@@ -2774,9 +2782,29 @@ impl Session {
             }
             self.report.report_save_tried.retain(|w| w.strong_count() > 0);
             self.report.report_save_tried.push(Rc::downgrade(&inst));
+            // An Xml SaveAs on a variable raises OnDocumentReady after the dataset and no SubstituteReport
+            // (events/lt-platform-events-v/PeVTests.al:688 PW_RaisedEvents_SaveAsForms `saveas var xml`
+            // `OnDocumentReady(69860,in=No);`).
+            if self.save_as_raises_events(&schema, &format, &parameters, record_ref, &target, false) {
+                document_ready = true;
+            }
             (inst, schema, quit)
         } else {
             let (mut inst, mut schema) = self.report_by_number(id, args.first())?;
+            // An Xml SaveAs to a stream of a processing-only report raises SubstituteReport (RunMode SaveAs, the
+            // parameters as RequestPageXml), and a report a subscriber sets is the one that runs and fails as processing-only
+            // (misc/lt-y14-triage/Y14ReportSubstitute.al:389 Execute_SaveAs_Swap `saveas xmlA`: `Sub(91650,SaveAs,xmlLen=155,
+            // in=-1);B-init;` and `Report 91651 is a processing-only report.`, corpus master); without parameters too
+            // (events/lt-platform-events-v/PeVTests.al:688 `procOnly saveas xml` `SubstituteReport(86147,SaveAs,in=-1);`).
+            if format == "Xml"
+                && record_ref.is_none()
+                && matches!(target, SaveTarget::Stream(_))
+                && schema.report().processing_only
+            {
+                if let Some(n) = self.substitute_static(args.first(), 4, &parameters)? {
+                    (inst, schema) = self.report_by_number(id, Some(&n))?;
+                }
+            }
             // An Html SaveAs of a report with an RDLC layout raises SubstituteReport with the parameters as RequestPageXml before it
             // fails for the layout, and nothing after (report/lt-am-rdlc-output/AMRdlcOutput.al:TextRdlc_SaveAsHtml_IsRefused,
             // `SubstituteReport(79256,SaveAs,req=Yes);`). Only that RequestPageXml contains the parameters is pinned, not its
@@ -2803,10 +2831,13 @@ impl Session {
             {
                 return unsupported("SubstituteReport set another report for an Html SaveAs (not pinned)");
             }
-            if self.save_as_raises_events(&schema, &format, &parameters, record_ref, &target) {
-                if let Some(new_id) = self.raise_substitute_report(&schema, Value::Text(String::new().into()))? {
+            // With parameters or a record as well (PeVTests.al:688 `saveas static params xml`, `saveas static record xml`); the
+            // parameters are the RequestPageXml (misc/lt-y14-triage/Y14ReportSubstitute.al:389 `xmlLen=155`, corpus master).
+            if self.save_as_raises_events(&schema, &format, &parameters, record_ref, &target, true) {
+                let xml = Value::Text(parameters.to_string().into());
+                if let Some(new_id) = self.raise_substitute_report(&schema, xml)? {
                     let (i, s) = self.report_by_number(id, Some(&Value::Integer(new_id)))?;
-                    if !self.save_as_raises_events(&s, &format, &parameters, record_ref, &target) {
+                    if !self.save_as_raises_events(&s, &format, &parameters, record_ref, &target, true) {
                         return unsupported(format!(
                             "SubstituteReport set report {new_id} \"{}\" for an Xml SaveAs: only a report with an RDLC layout \
                              is pinned",
@@ -2870,6 +2901,14 @@ impl Session {
             // event is raised below, once the dataset is written (assumption custom-layout-merger).
             "Pdf" | "Word" | "Excel" | "Html" if custom.is_some() => {}
             "Html" if schema.report().layout == ir::ReportLayout::Rdlc => {
+                // As a statement BC raises ReportUnsupportedFormat after the layout events SelectReportLayoutCode,
+                // HasCustomLayout, SelectedBuiltinLayoutType and ApplicationReportMergeStrategy (events/lt-platform-events-v/
+                // PeVTests.al:713 PW_RaisedEvents_HtmlFormat), which this runtime does not raise.
+                if !result_used {
+                    return unsupported(
+                        "Report.SaveAs as Html of a report with an RDLC layout, as a statement (the layout events BC raises before its error are not raised here)",
+                    );
+                }
                 self.last_error = al_builtins::native::AlError {
                     message: FORMAT_NOT_SUPPORTED_BY_LAYOUT.into(),
                     code: "Dialog".into(),
@@ -3153,10 +3192,11 @@ impl Session {
         }
     }
 
-    /// Whether this `SaveAs` raises the platform's `SubstituteReport` before the run and `OnDocumentReady` after it. Pinned
-    /// for the static form, Xml, an empty parameters string, no record and a stream, of a report with an RDLC layout
-    /// (events/lt-platform-events-v/PeVTests.al:432, :483, :513, reports 69860 and 69861 of PeVFixtures.al). For any other
-    /// SaveAs whether the events are raised is not pinned, and they are not (docs/probes-needed.md).
+    /// Whether this `SaveAs` raises the platform's `SubstituteReport` before the run (static form only) and `OnDocumentReady`
+    /// after it. Pinned for Xml to a stream of a report with an RDLC layout: the static form also with parameters or a record,
+    /// the variable form without them (events/lt-platform-events-v/PeVTests.al:432, :483, :513, :688, reports 69860 and 69861 of
+    /// PeVFixtures.al). For any other SaveAs whether the events are raised is not pinned, and they are not
+    /// (docs/probes-needed.md).
     fn save_as_raises_events(
         &self,
         schema: &Schema,
@@ -3164,11 +3204,11 @@ impl Session {
         parameters: &str,
         record_ref: Option<&Value>,
         target: &SaveTarget,
+        static_call: bool,
     ) -> bool {
         let report = schema.report();
         format == "Xml"
-            && parameters.is_empty()
-            && record_ref.is_none()
+            && (static_call || (parameters.is_empty() && record_ref.is_none()))
             && matches!(target, SaveTarget::Stream(_))
             && report.layout == ir::ReportLayout::Rdlc
             && !report.processing_only
@@ -3192,6 +3232,55 @@ impl Session {
             n if n == -1 || n == report_id => Ok(None),
             n => Ok(Some(n)),
         }
+    }
+
+    /// Raises `SetupPrinters(var Printers: Dictionary of [Text[250], JsonObject])` with an empty dictionary when something
+    /// subscribes to it. What the subscribers add is not read: a printer they add is refused.
+    fn raise_setup_printers(&mut self) -> Result<(), Signal> {
+        if !self
+            .engine
+            .events
+            .is_subscribed(crate::events::REPORTING_TRIGGERS, "setupprinters")
+        {
+            return Ok(());
+        }
+        let names = vec!["Printers".to_string()];
+        let printers = Value::Dictionary(Rc::default());
+        let mut args = vec![printers.clone()];
+        let call = crate::dispatch::EventCall {
+            object: crate::events::REPORTING_TRIGGERS,
+            event: "setupprinters",
+            element: None,
+            isolated: false,
+            names: &names,
+            sender: None,
+        };
+        self.raise(&call, &mut args)?;
+        if let Value::Dictionary(d) = &args[0] {
+            if !d.borrow().is_empty() {
+                return unsupported(
+                    "a SetupPrinters subscriber added a printer (what a request page does with it is not pinned)",
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Raises SubstituteReport for a static call on the report id `number` when something subscribes to it, and answers the
+    /// report id a subscriber set in its place, if it set another one.
+    fn substitute_static(&mut self, number: Option<&Value>, run_mode: i32, xml: &str) -> Result<Option<Value>, Signal> {
+        let Some(Value::Integer(n)) = number else {
+            return Ok(None);
+        };
+        if !self
+            .engine
+            .events
+            .is_subscribed(crate::events::REPORTING_TRIGGERS, "substitutereport")
+        {
+            return Ok(None);
+        }
+        let new = self.raise_substitute(*n, run_mode, Value::Text(xml.to_string().into()))?;
+        Ok((new != -1 && new != *n).then_some(Value::Integer(new)))
     }
 
     /// Raises `SubstituteReport(ReportId, RunMode, RequestPageXml, RecordRef, var NewReportId)` with an unopened RecordRef and

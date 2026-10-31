@@ -1074,17 +1074,22 @@ fn set_view_reads_a_quoted_greater_than_as_a_literal_and_a_bare_one_as_a_compari
     assert_eq!(text(r), "1:'>B';1:'>b';1;1");
 }
 
-// record/TestSetFilterSpecialTextContracts.al pins a case-insensitive `@` value with & | ( ) < = or .. read back
-// quoted, `@` inside the quotes; one with > is not pinned.
+// misc/lt-y14-triage/Y14Small.al:309 (corpus master): a case-insensitive `@` value with `>` reads back quoted, `@` inside the
+// quotes, and matches the value ignoring case; a lone `@` is the quoted text `@`.
 #[test]
-fn setfilter_placeholder_case_insensitive_text_with_a_greater_than_is_refused() {
+fn setfilter_placeholder_case_insensitive_text_with_a_greater_than_is_quoted() {
     let r = run(
-        "procedure F(): Text var R: Record \"ALT T\"; begin
-            R.SetFilter(Descr, '%1', '@a>b'); exit(R.GetFilter(Descr));
+        "procedure F(): Text var R: Record \"ALT T\"; Res: Text; begin
+            R.\"No.\" := '1'; R.Descr := 'a>b'; R.Insert();
+            R.\"No.\" := '2'; R.Descr := 'A>B'; R.Insert();
+            R.\"No.\" := '3'; R.Descr := 'a'; R.Insert();
+            R.SetFilter(Descr, '%1', '@a>b'); Res := R.GetFilter(Descr) + ':' + Format(R.Count());
+            R.SetFilter(Descr, '%1', '@'); Res += ';' + R.GetFilter(Descr) + ':' + Format(R.Count());
+            exit(Res);
         end;",
         "F",
     );
-    assert!(matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
+    assert_eq!(text(r), "'@a>b':2;'@':0");
 }
 
 #[test]

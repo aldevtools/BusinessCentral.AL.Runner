@@ -57,9 +57,20 @@ fn weight(c: char, total: bool) -> Result<Weight, String> {
             upper: false,
         });
     }
+    // In the order of keys a double quote comes before a comma: a Text primary key `a"b` is read before `a,b`
+    // (misc/lt-y14-triage/Y14Small.al:173 `format [a"b]` before `format [a,b]`, corpus master). The weights are spaced by two
+    // to make room for it.
+    if total && c == '"' {
+        let comma = SYMBOLS.find(',').expect("a comma has a weight") as u32;
+        return Ok(Weight {
+            primary: 100 + 2 * comma - 1,
+            accent: None,
+            upper: false,
+        });
+    }
     if let Some(i) = SYMBOLS.find(c) {
         return Ok(Weight {
-            primary: 100 + i as u32,
+            primary: 100 + 2 * i as u32,
             accent: None,
             upper: false,
         });

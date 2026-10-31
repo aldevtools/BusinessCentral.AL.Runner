@@ -3470,6 +3470,18 @@ impl Session {
                 let answer = self.answer_typed_modal(&st, record, handler)?;
                 return self.field_argument_answer(field, answer);
             }
+        } else if !trapped && self.has_typed_page_handler(object) {
+            // A Page-typed PageHandler of a Page.Run without a record: the handler runs on the page object, no page trigger runs
+            // before it (no OnOpenPage) and GetRecord hands a blank record (misc/lt-y14-triage/Y14PageTriage.al:383
+            // PageTypedPageHandler_PageRun, corpus master). With a record, or on a Page variable already set up, it is not pinned.
+            if record.is_some() || field || st.borrow().instance.is_some() {
+                return unsupported(
+                    "a Page-typed PageHandler for Page.Run with a record or on a Page variable that was set up (not pinned)",
+                );
+            }
+            let handler = self.take_typed_handler(UiKind::Page, object).expect("checked above");
+            self.answer_typed_page(&st, handler)?;
+            return Ok(Value::Null);
         }
         // A second non-modal Run of a Page variable runs its OnInit again (pages/lt-page-variable-lifecycle/
         // PageVariableLifecycle.al:131 PageVar_RunTwiceOnOneVariable `IOIO`); a second RunModal does not
@@ -3516,8 +3528,21 @@ impl Session {
                     && e.message.starts_with("The built-in action = OK ")
                     && st.borrow().static_lookup =>
             {
+                // Page.RunModal(0, Rec) over the table's LookupPageId with a FilterGroup 2 filter and a view on the key leaves the
+                // record's filters as they were (misc/lt-y14-triage/Y14LookupNoRow.al:148 `rows rows` 0, corpus master). Which of
+                // the two makes the difference is not pinned: one without the other is refused.
                 if let Some(r) = &handed {
-                    r.borrow_mut().filters.clear();
+                    let other_group = r.borrow().filters.iter().any(|f| f.group != 0);
+                    let from_table = st.borrow().lookup_page_from_table;
+                    match (from_table, other_group) {
+                        (false, false) => r.borrow_mut().filters.clear(),
+                        (true, true) => {}
+                        _ => {
+                            return unsupported(
+                                "the filters of the record after OK fails on a lookup with no row, for Page.RunModal(0, Rec) without a filter in another filter group or a page id with one (not pinned)",
+                            );
+                        }
+                    }
                 }
                 return Err(Signal::Error(e));
             }
@@ -3569,6 +3594,28 @@ impl Session {
     /// `LookupMode` is Yes, `SetRecord` and `GetRecord` work on it, `Response` arrives as None, and the value the
     /// handler leaves in it is what `Page.RunModal` answers. Whether the page's own triggers run is not pinned, so a
     /// page that declares one is refused.
+    /// A Page-typed `[PageHandler]` for a Page.Run without a record ([`Self::run_page_ui_with`]): OnInit runs when the page object
+    /// is made, no other trigger before the handler (misc/lt-y14-triage/Y14PageTriage.al:383, corpus master: no `open` in the log).
+    fn answer_typed_page(&mut self, st: &St, handler: Handler) -> Result<(), Signal> {
+        self.construct_page(st)?;
+        {
+            let mut s = st.borrow_mut();
+            s.typed_handler = true;
+            s.handler_set_record = false;
+            s.cursor = Cursor::Row;
+        }
+        let (hobject, hroutine, hinst) = handler;
+        self.ui_state.page_handler_depth += 1;
+        let handled = self.call(hobject, hroutine, hinst, vec![Value::TestPage(st.clone())]);
+        self.ui_state.page_handler_depth -= 1;
+        {
+            let mut s = st.borrow_mut();
+            s.typed_handler = false;
+            s.cursor = Cursor::None;
+        }
+        handled.map(|_| ())
+    }
+
     pub(super) fn answer_typed_modal(
         &mut self,
         st: &St,

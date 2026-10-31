@@ -1513,7 +1513,8 @@ fn set_table_view_takes_marks_key_and_direction() {
     assert!(matches!(r, Ok(Value::Text(ref t)) if t == "set"), "temporary: {r:?}");
 }
 
-// A report run that enters a transaction world inside a TryFunction is not pinned.
+// A report run inside a TryFunction that writes in its transaction world is not pinned (one that writes nothing runs:
+// misc/lt-y14-triage/Y14ReportSubstitute.al:276, :371, corpus master).
 #[test]
 fn a_world_entering_run_inside_a_try_function_is_refused() {
     let r = run_model(

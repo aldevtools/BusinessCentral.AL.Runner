@@ -659,17 +659,24 @@ fn tokenize(text: &str, args: &[Value], kept_placeholder: &mut bool) -> Result<V
             // A text substituted for a placeholder is TEXT, not a filter, except that `*` and `?` stay
             // wildcards and a leading `@` ignores case. `&`, `|`, `(`, `)`, `<`, `=` and `..` in it make
             // BC quote the whole value (record/TestSetFilterSpecialTextContracts.al, BC 27.5);
-            // `>` is also quoted (filters/W4Filters.al:174-191). A text with both a wildcard
-            // and one of those is not implemented here, nor a case-insensitive `@` text with `>`
-            // (the contracts pin `@` only with the other characters).
+            // `>` is also quoted (filters/W4Filters.al:174-191), with a leading `@` too: `'@a>b@x.com'`
+            // ignores case (misc/lt-y14-triage/Y14Small.al:309, corpus master). A text with both a wildcard
+            // and one of those is not implemented here.
             if let Value::Text(t) | Value::Code(t) = &arg {
+                // A lone `@` is the text `@`, quoted: GetFilters reads `'@'` and it matches only that value
+                // (misc/lt-y14-triage/Y14Small.al:309 `@`, corpus master).
+                if t == "@" {
+                    out.push(Tok::Typed(arg.clone()));
+                    i += 2;
+                    continue;
+                }
                 let (at, body) = match t.strip_prefix('@') {
                     Some(rest) => (true, rest),
                     None => (false, t.as_str()),
                 };
                 let special = body.contains(['&', '|', '(', ')', '<', '>', '=']) || body.contains("..");
                 let wildcard = body.contains(['*', '?']);
-                if (special && wildcard) || body.starts_with('@') || (at && body.contains('>')) {
+                if (special && wildcard) || body.starts_with('@') {
                     let ch = body.chars().find(|c| ">*?@".contains(*c)).unwrap_or('>');
                     return Err(format!(
                         "placeholder %{n} holds a text with the filter character `{ch}`: how BC quotes it is not pinned"

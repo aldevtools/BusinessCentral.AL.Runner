@@ -852,8 +852,18 @@ impl Session {
         } else {
             format!("<Options>{options}</Options>")
         };
+        // A report without data items has no `DataItems` element (misc/lt-y14-triage/Y14ReportSubstitute.al:225, :276, corpus
+        // master). Without options as well the text is not pinned by a test.
+        let items = if items.is_empty() {
+            if options.is_empty() {
+                return unsupported("the parameters of a report with no option and no data item (not pinned)");
+            }
+            String::new()
+        } else {
+            format!("<DataItems>{items}</DataItems>")
+        };
         Ok(format!(
-            "<?xml version=\"1.0\" standalone=\"yes\"?><ReportParameters name=\"{}\" id=\"{id}\">{options}<DataItems>{items}</DataItems></ReportParameters>",
+            "<?xml version=\"1.0\" standalone=\"yes\"?><ReportParameters name=\"{}\" id=\"{id}\">{options}{items}</ReportParameters>",
             xml_escape(&o.name)
         ))
     }
@@ -880,6 +890,29 @@ impl Session {
             xml_escape(&o.name),
             o.id.map_or(String::new(), |i| i.to_string())
         );
+        // The parameters of another report (a SubstituteReport subscriber swapped the report the call named): nothing of them
+        // reaches this page, its values stay as they are (misc/lt-y14-triage/Y14ReportSubstitute.al:389 Execute_SaveAs_Swap
+        // `execute xmlA` -> `B-pre()`, corpus master; report/W3ReportParametersText.al:431
+        // RunRequestPage_SeededWithTextOfAnotherReport `opt=Alpha`).
+        if xml.ends_with("</ReportParameters>") && !xml.starts_with(&head) {
+            let other = xml
+                .strip_prefix("<?xml version=\"1.0\" standalone=\"yes\"?><ReportParameters name=\"")
+                .and_then(|r| r.split_once("\" id=\""))
+                .and_then(|(_, r)| r.split_once('"'))
+                .and_then(|(id, _)| id.parse::<u32>().ok());
+            if let Some(other) = other {
+                if Some(other) != o.id
+                    && engine
+                        .program
+                        .objects
+                        .heads()
+                        .iter()
+                        .any(|x| x.is_kind(ir::ObjKind::Report) && x.id == Some(other))
+                {
+                    return Ok(());
+                }
+            }
+        }
         if !xml.starts_with(&head) || !xml.ends_with("</ReportParameters>") {
             return unsupported(
                 "a parameters string this runtime did not produce for this report (its format is not pinned)",

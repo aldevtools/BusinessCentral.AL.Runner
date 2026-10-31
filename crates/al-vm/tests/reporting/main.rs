@@ -44,6 +44,7 @@ mod xmlport_guid_xml;
 mod xmlport_import_file;
 mod xmlport_link_in_key;
 mod xmlport_linked_pass_key;
+mod xmlport_linked_zero_once;
 mod xmlport_max_once;
 mod xmlport_namespace_root;
 mod xmlport_nested_flow;
