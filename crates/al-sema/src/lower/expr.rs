@@ -126,7 +126,16 @@ impl Lowerer<'_> {
                 | Ty::Option(_)
                 | Ty::Enum(_)
         );
-        if !simple {
+        // A table extension's sibling: an Integer and a Record are what corpus writer Y20 measured (al-runner issue 6485,
+        // Y20TableExtSiblingGlobals.al); a Record is allowed there too.
+        let table_ext = self.ws.objects[ext].kind == crate::workspace::ObjKind::TableExtension;
+        if table_ext && (simple || matches!(ty, Ty::Record { .. })) {
+            self.assume(al_builtins::assumptions::Assumption::TableExtSiblingProtectedVar);
+        } else if table_ext {
+            return Err(format!(
+                "`{name}` (a {ty} protected variable of another extension of the table; only simple types and records are pinned)"
+            ));
+        } else if !simple {
             return Err(format!(
                 "`{name}` (a {ty} protected variable of another page extension of the page; only simple types are pinned)"
             ));
@@ -945,7 +954,10 @@ impl Lowerer<'_> {
                         return Err(format!("`{name}` is not a member of a DotNet value"));
                     };
                     let ty = self.ws.resolve_dotnet(self.file, &alias).ok_or_else(|| {
-                        format!("DotNet '{alias}' has no dotnet {{ }} declaration in this app or its dependencies")
+                        format!(
+                            "DotNet '{}' has no dotnet {{ }} declaration in this app or its dependencies",
+                            crate::types::display_name(&alias)
+                        )
                     })?;
                     Ok(ir::Expr::DotNet {
                         ty: Some(ty),

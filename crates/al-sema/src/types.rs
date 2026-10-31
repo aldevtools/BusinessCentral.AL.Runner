@@ -130,7 +130,8 @@ impl Ty {
             "list" => Ty::List(arg(0)),
             "dictionary" => Ty::Dictionary(arg(0), arg(1)),
             "array" => Ty::Array(t.size_args(), arg(0)),
-            "dotnet" => Ty::DotNet(display_name(&obj()).into()),
+            // The parts stay joined by `QUAL_SEP`: `DotNet A.B.C` (namespace `A.B`, alias `C`) is not `DotNet "A.B.C"` (one alias).
+            "dotnet" => Ty::DotNet(obj().into()),
             _ => match ObjKind::from_type_name(&name) {
                 Some(kind) => Ty::Object(kind, obj().into()),
                 None => Ty::Builtin(canonical_builtin(&name).into()),
@@ -161,7 +162,7 @@ impl std::fmt::Display for Ty {
             }
             Ty::Builtin(n) => write!(f, "{n}"),
             Ty::DotNet(a) if a.is_empty() => write!(f, "DotNet"),
-            Ty::DotNet(a) => write!(f, "DotNet {a}"),
+            Ty::DotNet(a) => write!(f, "DotNet {}", display_name(a)),
             Ty::Integer => f.write_str("Integer"),
             Ty::BigInteger => f.write_str("BigInteger"),
             Ty::Decimal => f.write_str("Decimal"),

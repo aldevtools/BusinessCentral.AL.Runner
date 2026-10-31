@@ -5,6 +5,7 @@ mod engine_sibling;
 mod files;
 mod generic_dictionary;
 mod gzip;
+mod http_add_certificate;
 mod http_cert_validation;
 mod http_headers;
 mod last_error_object;
