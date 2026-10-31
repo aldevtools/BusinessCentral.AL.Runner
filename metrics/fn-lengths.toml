@@ -1,0 +1,51 @@
+# Function length ratchet (crates/al-test-cli/tests/fn_length_ratchet.rs). Each row is a function in
+# a Rust file under crates/*/src whose body was over 250 code lines when the ratchet started; its cap
+# is its length then. Key: "path::name", "path::name#2" for the second function of that name over
+# the limit in the same file. A function may not grow past its cap. When one shrinks, lower its cap;
+# at 250 lines or fewer, delete the row. Never raise a cap or add a row: extract steps into functions
+# of their own. Owner decides otherwise.
+"crates/al-builtins/src/evaluate.rs::evaluate_with_max" = 322
+"crates/al-builtins/src/format.rs::format_value" = 393
+"crates/al-builtins/src/ops.rs::arith_general" = 310
+"crates/al-builtins/src/ops.rs::convert" = 327
+"crates/al-deps/src/artifact.rs::load_with_artifacts" = 441
+"crates/alrunner-cli/src/args.rs::parse" = 511
+"crates/alrunner-cli/src/run.rs::test_inner" = 1560
+"crates/al-sema/src/check/infer.rs::infer" = 477
+"crates/al-sema/src/check/mod.rs::check_inner" = 273
+"crates/al-sema/src/check/object.rs::object_ctx" = 271
+"crates/al-sema/src/lower/assemble.rs::build_shared" = 603
+"crates/al-sema/src/lower/assemble.rs::lower_core" = 534
+"crates/al-sema/src/lower/call.rs::call" = 749
+"crates/al-sema/src/lower/expr.rs::expr_raw" = 422
+"crates/al-sema/src/lower/pages.rs::page" = 507
+"crates/al-sema/src/lower/shared.rs::lower_object" = 520
+"crates/al-sema/src/lower/stmt.rs::assign" = 450
+"crates/al-sema/src/lower/stmt.rs::routine" = 275
+"crates/al-sema/src/xmlports.rs::build" = 259
+"crates/al-test-cli/src/main.rs::run_version_inner" = 833
+"crates/al-testrun/src/impact_static.rs::build" = 332
+"crates/al-testrun/src/reach.rs::report" = 315
+"crates/al-testrun/src/runtime/corpus.rs::compile_suites_once" = 446
+"crates/al-testrun/src/runtime/corpus.rs::run_compiled_kept" = 1044
+"crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 869
+"crates/al-version/src/gates.rs::evidence" = 670
+"crates/al-vm/src/dotnet/mod.rs::dotnet_apply" = 342
+"crates/al-vm/src/exec/compile.rs::expr_into" = 322
+"crates/al-vm/src/exec/compile.rs::stmt" = 266
+"crates/al-vm/src/exec/run.rs::run_range" = 357
+"crates/al-vm/src/lib.rs::with_host" = 251
+"crates/al-vm/src/pages/actions.rs::action_invoke_body" = 486
+"crates/al-vm/src/pages/controls.rs::control_set_value_now" = 853
+"crates/al-vm/src/pages/controls.rs::test_control_op" = 468
+"crates/al-vm/src/pages/open.rs::open_page_as" = 321
+"crates/al-vm/src/pages/pageops.rs::test_page_op" = 273
+"crates/al-vm/src/pages/pageops.rs::test_page_op_inner" = 683
+"crates/al-vm/src/recmeta.rs::record_meta_op" = 501
+"crates/al-vm/src/records.rs::record_op_inner" = 2131
+"crates/al-vm/src/refs.rs::fieldref_op" = 318
+"crates/al-vm/src/refs.rs::recordref_op_inner" = 485
+"crates/al-vm/src/reports.rs::report_builtin" = 552
+"crates/al-vm/src/reports.rs::report_save_core" = 371
+"crates/al-vm/src/sessionops.rs::session_op" = 342
+"crates/al-vm/src/xmlports.rs::xmlport_builtin" = 264

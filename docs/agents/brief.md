@@ -82,6 +82,12 @@ on the main machine or as a remote worker (`docs/agents/remote-worker.md`).
 - **Seams change only through an ADR.** Additive changes (a new `Value`
   variant, an IR field, a defaulted `Ctx` method) need no ADR. Core crates do
   no OS access (ADR-006).
+- **Keep functions short and core crates pure.** `fn_length_ratchet` and `os_access_ratchet` (part of
+  `cargo test -p al-test-cli`) fail when a `fn` under `crates/*/src` passes 250 code lines, when a function
+  listed in `metrics/fn-lengths.toml` grows past its cap, or when a core-crate file gains a place that names an
+  OS API (environment, files, processes, network; ADR-006) beyond its count in `metrics/os-access.toml`.
+  Extract steps into functions of their own; pass settings in as parameters or through `al-host` instead of
+  reading the environment. Never raise a cap or add a row; when a listed entry shrinks, lower or delete its row.
 - **Do not build features that only hide start-up or run cost** (watch mode,
   warm server state, `--jobs`, persistent caches). See ADR-016. `--affected` is the owner's exception (ADR-050). The one cache the
   owner asked for is the compile cache of the dependency apps (ADR-022); do not add another.
