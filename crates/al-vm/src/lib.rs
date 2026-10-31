@@ -71,6 +71,7 @@ mod sessionops;
 mod sqlcount;
 mod sqltime;
 mod tasks;
+mod tenant_layout_cfg;
 mod tenant_layouts;
 mod testdata;
 mod transactions;

@@ -74,6 +74,97 @@ pub(super) fn layout_list_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     out
 }
 
+/// "Report Name" (12) of a layout of report `o`: its name when it declares no Caption and no CaptionML, its Caption when it
+/// declares one; a CaptionML is not pinned.
+fn report_name(t: &TableDef, o: &Object, what: &str) -> Value {
+    if prop(o, "CaptionML").is_some() {
+        return unknown(t, 12, &format!("{what}, whose report declares a CaptionML"));
+    }
+    match prop(o, "Caption") {
+        None => Value::Text(o.name.chars().take(250).collect()),
+        Some(v) => match string_lit(v) {
+            Some(caption) => Value::Text(caption.chars().take(250).collect()),
+            None => unknown(t, 12, &format!("{what}, whose report's Caption is not a literal")),
+        },
+    }
+}
+
+/// The Report Layout List rows of the user-defined layouts: one per stored Tenant Report Layout row (`tenant`, its schema;
+/// `stored`, its rows). Pinned for an RDLC layout of a report (platform/lt-ug-report-layout-list/UgReportLayoutList.al
+/// Y17_ReportLayoutList_UserDefinedRow, corpus master 97c29f86): Caption the layout's name, CaptionML blank, Runtime Package
+/// ID and Application ID the null guid, Custom Type the null guid, MIME Type blank, Description as stored, Report Name as
+/// for a declared layout, Layout Publisher blank, User Defined Yes, ReportIsInstalled Yes, IsObsolete No,
+/// ExcelLayoutMultipleDataSheets Default, Layout Status Approved, Layout Subtype Default and blank parts. Any other column, and
+/// every column of a layout of another format or of a report the program does not hold, is unknown.
+pub(super) fn user_layout_rows(p: &Providers, t: &TableDef, tenant: &TableDef, stored: &[al_data::Row]) -> Vec<Entry> {
+    let engine = p.engine();
+    let c = Catalog::new(&engine);
+    let col = |name: &str| tenant.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name));
+    let (Some(report_col), Some(name_col), Some(format_col)) = (col("Report ID"), col("Name"), col("Layout Format"))
+    else {
+        return Vec::new();
+    };
+    let description_col = col("Description");
+    let has = |id: u32| t.fields.iter().any(|f| f.id == id);
+    stored
+        .iter()
+        .map(|row| {
+            let mut r = blank(t);
+            let name: String = match &row[name_col] {
+                Value::Text(v) | Value::Code(v) => v.to_string(),
+                _ => String::new(),
+            };
+            let report_id = match row[report_col] {
+                Value::Integer(id) => id,
+                _ => 0,
+            };
+            r[pos(t, 1)] = Value::Integer(report_id);
+            r[pos(t, 2)] = Value::Text(name.chars().take(250).collect());
+            r[pos(t, 5)] = Value::Guid([0; 16]);
+            let whose = format!("the user-defined layout '{name}' of report {report_id}");
+            let report = c
+                .objects
+                .iter()
+                .enumerate()
+                .find(|(_, o)| o.kind == al_ir::ObjKind::Report && o.id == Some(report_id as u32))
+                .map(|(i, _)| &c.full[i]);
+            let rdlc = matches!(row[format_col], Value::Option(0, _));
+            let Some(o) = report.filter(|_| rdlc) else {
+                for f in &t.fields {
+                    if ![1, 2, 5].contains(&f.id) {
+                        r[pos(t, f.id)] = unknown(
+                            t,
+                            f.id,
+                            &format!("{whose}, not an RDLC layout of a report of the program"),
+                        );
+                    }
+                }
+                return Entry::ok(r);
+            };
+            r[pos(t, 3)] = Value::Text(name.chars().take(250).collect());
+            r[pos(t, 6)] = unknown(t, 6, &whose);
+            r[pos(t, 7)] = option(t, 7, 0);
+            r[pos(t, 10)] = match description_col.map(|d| &row[d]) {
+                Some(Value::Text(v) | Value::Code(v)) => Value::Text(v.chars().take(250).collect()),
+                _ => unknown(t, 10, &whose),
+            };
+            r[pos(t, 11)] = Value::Guid([0; 16]);
+            r[pos(t, 12)] = report_name(t, o, &whose);
+            r[pos(t, 14)] = Value::Boolean(true);
+            r[pos(t, 15)] = Value::Boolean(true);
+            for (id, member) in [(18, 0), (19, 0)] {
+                if has(id) {
+                    r[pos(t, id)] = match &t.fields[pos(t, id)].ty {
+                        RtType::Enum(e) => Value::Enum(*e, member),
+                        _ => unknown(t, id, &whose),
+                    };
+                }
+            }
+            Entry::ok(r)
+        })
+        .collect()
+}
+
 fn layout_row(
     c: &Catalog,
     o: &Object,
@@ -163,13 +254,12 @@ fn layout_row(
         r[pos(t, 4)] = unknown(t, 4, &whose("which declares a CaptionML"));
     }
     // "Report Name" (12): the name of a report that declares no Caption and no CaptionML (UgReportLayoutList.al:110, :144;
-    // AwTests.al:228). Whether a caption replaces the name is not pinned.
-    r[pos(t, 12)] = if !of_report {
-        unknown(t, 12, &whose("a layout of a report extension"))
-    } else if prop(o, "Caption").is_some() || prop(o, "CaptionML").is_some() {
-        unknown(t, 12, &whose("whose report declares a caption"))
+    // AwTests.al:228), the Caption of one that declares it (UgReportLayoutList.al Y17_ReportLayoutList_ReportName_WithCaption,
+    // corpus master 97c29f86: 'LT Caption Differs'). A CaptionML is not pinned.
+    r[pos(t, 12)] = if of_report {
+        report_name(t, o, &what())
     } else {
-        Value::Text(o.name.chars().take(250).collect())
+        unknown(t, 12, &whose("a layout of a report extension"))
     };
     // "Layout Publisher" (13): the app's name, " by " and its publisher (UgReportLayoutList.al:111, :145; AwTests.al:228:
     // `AL Language Coverage Tests by AL Language`, the corpus app's name and publisher).
