@@ -211,6 +211,15 @@ or commit them, and CI does not fail when they are out of date:
   (`al-test-cli --assumptions-doc`). The text outside the table is still
   yours to edit.
 
+The corpus bump bot (`.github/workflows/corpus-bump-bot.yml`,
+`tools/corpus_bump_bot.sh`) follows the corpus: every 20 minutes it looks for
+a green corpus run newer than the pin and opens a pull request on a branch
+`corpus-bump/<commit>` with the pin, `oracle/` and the harness counts. It
+writes no baseline and does not merge. Its pull request body lists what is
+left for a person (lost baseline cases, new failures, landed awaiting
+assumptions, guards without a gate, harness counts, stale golden files). Fix
+those on its branch; the bot never pushes to a branch that exists.
+
 These are still regenerated in the pull request, because the build or a
 reviewed list depends on them, and CI fails while they are stale:
 
