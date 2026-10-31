@@ -514,6 +514,8 @@ pub struct PageState {
     pub last_run_modal: Option<bool>,
     /// The rows of a tree (a repeater with ShowAsTree) expanded with `Expand(true)`, by primary key.
     pub expanded: Vec<Vec<Value>>,
+    /// The rows a tree shows (its cut), by primary key, as last computed (`apply_tree_cut`).
+    pub tree_shown: Vec<Vec<Value>>,
     /// The rows a tree with row triggers read when it opened but does not show (below a collapsed row), in the view's order:
     /// they are not in `window`, and an Expand moves them there without reading them again.
     pub tree_hidden: Vec<WindowRow>,
@@ -918,6 +920,7 @@ impl PageState {
             modal: false,
             last_run_modal: None,
             expanded: Vec::new(),
+            tree_shown: Vec::new(),
             tree_hidden: Vec::new(),
             lookup: false,
             result: None,

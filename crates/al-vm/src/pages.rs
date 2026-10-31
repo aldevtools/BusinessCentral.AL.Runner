@@ -349,7 +349,7 @@ impl Session {
         let vars_before = (declared && name == "onaftergetcurrrecord" && stored_row).then(|| self.row_var_values(st));
         if let Some(r) = page.triggers.iter().find(|(n, _)| n == name).map(|(_, r)| *r) {
             let inst = st.borrow().instance.clone().expect("open page");
-            match self.call(object, r, inst, args.clone()) {
+            match self.page_call(st, object, r, inst, args.clone()) {
                 Ok((v, _)) => answer = Some(v),
                 Err(e) => {
                     if matches!(e, Signal::Error(_)) {
@@ -364,7 +364,7 @@ impl Session {
             for (n, e, r) in &page.ext_triggers {
                 if n == name {
                     let inst = self.owner_instance(st, Some(*e));
-                    match self.call(*e, *r, inst, args.clone()) {
+                    match self.page_call(st, *e, *r, inst, args.clone()) {
                         Ok((Value::Boolean(b), _)) if has_value_exit(&engine.program.objects[*e].routines[*r].body) => {
                             self.pages.ext_answers.push(b)
                         }
@@ -669,7 +669,7 @@ impl Session {
         for (obj, routine, owner) in calls {
             let states = has_value_exit(&engine.program.objects[obj].routines[routine].body);
             let inst = self.owner_instance(st, owner);
-            match self.call(obj, routine, inst, args.clone()) {
+            match self.page_call(st, obj, routine, inst, args.clone()) {
                 Ok((Value::Boolean(b), _)) if states => answers.push(b),
                 Ok(_) => {}
                 Err(e) => {
@@ -891,11 +891,31 @@ impl Session {
         Ok(())
     }
 
+    /// Calls routine `r` of `object` (the page or one of its extensions) on `inst`. A tree page's cut is off Rec while the code runs:
+    /// the page's AL code sees every row (`apply_tree_cut`).
+    fn page_call(
+        &mut self,
+        st: &St,
+        object: usize,
+        r: usize,
+        inst: Rc<RefCell<al_builtins::value::Instance>>,
+        args: Vec<Value>,
+    ) -> Result<(Value, Vec<Value>), Signal> {
+        let hidden = self.hide_tree_cut(st);
+        let result = self.call(object, r, inst, args);
+        if let Some(saved) = hidden
+            && st.borrow().instance.is_some()
+        {
+            self.show_tree_cut(st, saved)?;
+        }
+        result
+    }
+
     /// Calls routine `r` of `owner` (the page, or one of its extensions) on its instance.
     fn owner_routine(&mut self, st: &St, owner: Option<usize>, r: usize) -> Result<Value, Signal> {
         let object = owner.unwrap_or(st.borrow().object as usize);
         let inst = self.owner_instance(st, owner);
-        let result = self.call(object, r, inst, vec![]).map(|(v, _)| v);
+        let result = self.page_call(st, object, r, inst, vec![]).map(|(v, _)| v);
         self.end_page_call(st);
         result
     }
@@ -910,7 +930,7 @@ impl Session {
     ) -> Result<Value, Signal> {
         let object = owner.unwrap_or(st.borrow().object as usize);
         let inst = self.owner_instance(st, owner);
-        let result = self.call(object, r, inst, args).map(|(v, _)| v);
+        let result = self.page_call(st, object, r, inst, args).map(|(v, _)| v);
         self.end_page_call(st);
         result
     }
