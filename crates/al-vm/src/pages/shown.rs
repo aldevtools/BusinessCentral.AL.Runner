@@ -521,24 +521,32 @@ impl Session {
             });
             Rc::ptr_eq(&h, root) && list_part && link_ok
         });
-        if !(pinned && three) {
-            return pinned;
+        if !pinned {
+            return false;
         }
-        // With three entries BC runs the refresh of the OnValidate's `CurrPage.Update(false)` later, not within the Lookup: the
-        // host's OnAfterGetCurrRecord is not logged after it, and runs before the next Lookup (corpus writer Y15,
+        // With two or three entries BC runs the refresh of the OnValidate's `CurrPage.Update(false)` later, not within the
+        // Lookup: the host's OnAfterGetCurrRecord is not logged after it, and runs before the next Lookup (corpus writer Y15,
         // pages/lt-y15/Y15LookupThreeFieldLink.al:194 `lookup log` `lookup;validate R2`, :278 `log`
         // `lookup;validate R2;agcr R1;lookup;validate R3`). Without row triggers the refresh shows nothing (al-runner issue
         // 6466, the reporter's page). With them the Lookup left the refresh for later (`defer_lookup_refresh`) and the reads
         // after it show the values as they are now (al-runner issue 6519; corpus writer Y26, branch al-runtime-rs-staging-y26,
-        // Y15LookupThreeFieldLink.al:314 Y26_ThreeLinkCurr_LookupRefresh); a Lookup that did not leave it is refused.
-        if self.declares(root, "onaftergetrecord") || self.declares(root, "onaftergetcurrrecord") {
+        // Y15LookupThreeFieldLink.al:314 Y26_ThreeLinkCurr_LookupRefresh, :379 Y26_TwoLinkCurr_LookupRefresh, :509
+        // Y26_TwoLinkPlain_LookupRefresh); a Lookup that did not leave it is refused, and so is a host with row triggers whose
+        // part links no field or one (not measured).
+        if with_parts && (self.declares(root, "onaftergetrecord") || self.declares(root, "onaftergetcurrrecord")) {
             if !root.borrow().lookup_refresh_deferred {
                 return false;
             }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupThreeFieldLinkDefersRefresh);
+            al_builtins::assumptions::assume(if three {
+                al_builtins::assumptions::Assumption::LookupThreeFieldLinkDefersRefresh
+            } else {
+                al_builtins::assumptions::Assumption::LookupTwoFieldLinkDefersRefresh
+            });
             return true;
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupThreeFieldLinkShowsPicked);
+        if three {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupThreeFieldLinkShowsPicked);
+        }
         true
     }
 
@@ -624,13 +632,14 @@ impl Session {
     }
 
     /// Before the refresh after the SetValue of TestField.Lookup on `st` (`control_set_value`): on a page with OnAfterGetRecord or OnAfterGetCurrRecord whose OnValidate
-    /// asked for `CurrPage.Update(false)` and whose every part is a ListPart it hosts with a SubPageLink of three `field(..)`
-    /// entries, BC leaves the refresh for later. The Lookup runs no OnAfterGetRecord or OnAfterGetCurrRecord on the host or
+    /// asked for `CurrPage.Update(false)` and whose one part is a ListPart it hosts with a SubPageLink of two or three
+    /// `field(..)` entries, BC leaves the refresh for later. The Lookup runs no OnAfterGetRecord or OnAfterGetCurrRecord on the host or
     /// the part, and reading a control after it runs no trigger: the field shows the picked value, the globals the row
     /// triggers set and the part keep what they showed before (corpus writer Y26, branch al-runtime-rs-staging-y26,
     /// pages/lt-y15/Y15LookupThreeFieldLink.al:314 Y26_ThreeLinkCurr_LookupRefresh `lookup log`
     /// `lookup;h-fn R1;validate R2;h-fn R1`, `current no` `R1/`, `part current` `R1/`, every read log empty; :574
-    /// Y26_ThreeLinkCurr_RegionsSet; al-runner issue 6519). BC computes the host's function controls within the Lookup (`h-fn`),
+    /// Y26_ThreeLinkCurr_RegionsSet; two entries the same: :379 Y26_TwoLinkCurr_LookupRefresh, :509 Y26_TwoLinkPlain_LookupRefresh;
+    /// al-runner issue 6519). Y26 measured one part; with more the Lookup is left as it was. BC computes the host's function controls within the Lookup (`h-fn`),
     /// which this runtime does not: a host with an expression control that calls anything is left as it was. The refresh
     /// runs at the next Lookup or Next (:639 Y26_ThreeLinkCurr_LookupTwice, :314 `next log`), which is not built:
     /// `lookup_refresh_deferred_call` refuses every call but a read and Close.
@@ -641,7 +650,7 @@ impl Session {
                 && s.open
                 && !s.draft
                 && s.cursor == Cursor::Row
-                && !s.parts.is_empty()
+                && s.parts.len() == 1
                 && s.refresh
                 && s.refresh_by_update
                 && s.refresh_update_false
@@ -674,11 +683,12 @@ impl Session {
                         && l.provider.is_none()
                         && matches!(
                             l.entries.as_slice(),
-                            [
-                                ir::LinkEntry::Field(..),
-                                ir::LinkEntry::Field(..),
-                                ir::LinkEntry::Field(..)
-                            ]
+                            [ir::LinkEntry::Field(..), ir::LinkEntry::Field(..)]
+                                | [
+                                    ir::LinkEntry::Field(..),
+                                    ir::LinkEntry::Field(..),
+                                    ir::LinkEntry::Field(..)
+                                ]
                         )
                 })
         });
@@ -727,8 +737,8 @@ impl Session {
             }
         }
         unsupported(format!(
-            "{method} after TestField.Lookup on a page with OnAfterGetRecord or OnAfterGetCurrRecord whose ListPart links three \
-             fields: BC runs the refresh of the OnValidate's CurrPage.Update(false) first (not built)"
+            "{method} after TestField.Lookup on a page with OnAfterGetRecord or OnAfterGetCurrRecord whose ListPart links two or \
+             three fields: BC runs the refresh of the OnValidate's CurrPage.Update(false) first (not built)"
         ))
     }
 

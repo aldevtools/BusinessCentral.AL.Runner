@@ -24,10 +24,16 @@ impl Session {
         let table = self.table(&rec)?;
         match method {
             // The first filter on the field across the filter groups, in the order they were
-            // written (corpus testfilter/TestTestFilterFilterGroups.al:3 and 4).
+            // written (corpus testfilter/TestTestFilterFilterGroups.al:3 and 4). A tree's cut is no filter of the page
+            // (Y28CollapsedTreeTests.al:40 Y28_CollapsedOpenAndWalk `testpage-filter-indent` reads ``, `apply_tree_cut`).
             PageMethod::GetFilter => {
                 let pos = field_arg(args, 0)?;
-                let first = rec.borrow().filters.iter().find(|f| f.field == pos).cloned();
+                let first = rec
+                    .borrow()
+                    .filters
+                    .iter()
+                    .find(|f| f.field == pos && f.group != super::open::TREE_GROUP)
+                    .cloned();
                 if st.borrow().unpinned_filter_fields.contains(&pos) {
                     return unsupported(
                         "TestFilter.GetFilter of a SourceTableView const(0D) or filter(0D) (the filter text is not pinned)",
@@ -192,6 +198,10 @@ impl Session {
             s.focus = None;
             s.focus_in_row = false;
         }
+        // A tree cuts the new view again: rows without a parent in it show as top level (Y28CollapsedTreeTests.al:247
+        // Y28_TestPageFilterOnChildren, `walk-indent-1` 2,3,5 and `walk-id-2-4` 2,3,4; `apply_tree_cut`).
+        let r = self.apply_tree_cut(st);
+        self.torn_down_on_error(st, r)?;
         let r = self.page_first_row(st);
         self.torn_down_on_error(st, r)?;
         // A page the filter left without a row shows a blank one, its key pre-filled from a

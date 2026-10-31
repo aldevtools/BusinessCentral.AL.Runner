@@ -702,35 +702,55 @@ impl Session {
     pub(super) fn populate_window(&mut self, st: &St) -> Result<(), Signal> {
         // A tree with TreeInitialState = ExpandAll and row triggers reads the rows it does not show too when it opens
         // (`tree_expand_all_with_row_triggers`): the tree's cut is left out while the window is read.
-        if st.borrow().landing_first && self.tree_expand_all_with_row_triggers(st) {
-            let rec = self.page_rec(st);
-            let cut: Vec<_> = rec
-                .borrow()
-                .filters
-                .iter()
-                .filter(|f| f.group == super::open::TREE_GROUP)
-                .cloned()
-                .collect();
-            if !cut.is_empty() {
-                // Pinned by pages/lt-page-runtime/TwTreeExpandTriggers.al (was assumption `tree-expand-runs-no-row-trigger`).
-                rec.borrow_mut().filters.retain(|f| f.group != super::open::TREE_GROUP);
-                let r = self.populate_window_in_view(st);
-                rec.borrow_mut().filters.extend(cut);
-                r?;
-                // The rows below level 0 were read but do not show: the client's rows are the level-0 ones (the cut at open).
-                let Some(level) = self.tree_level_field(st)? else {
-                    return unsupported("a tree whose IndentationColumn is not an Integer field (not pinned)");
-                };
-                let mut s = st.borrow_mut();
-                let (shown, hidden): (Vec<_>, Vec<_>) = std::mem::take(&mut s.window)
-                    .into_iter()
-                    .partition(|w| matches!(w.stored.get(level), Some(Value::Integer(0))));
-                s.window = shown;
-                s.tree_hidden = hidden;
-                return Ok(());
-            }
+        // Pinned by pages/lt-page-runtime/TwTreeExpandTriggers.al (was assumption `tree-expand-runs-no-row-trigger`).
+        if st.borrow().landing_first
+            && self.tree_expand_all_with_row_triggers(st)
+            && self.read_tree_rows_whole(st, |this| this.populate_window_in_view(st))?
+        {
+            return Ok(());
         }
         self.populate_window_in_view(st)
+    }
+
+    /// Runs `read` (a read of the client's rows) with the tree's cut left out, then splits the rows read into the ones the cut shows
+    /// (`window`) and the ones it hides (`tree_hidden`). False, and `read` not run, when Rec holds no cut.
+    pub(super) fn read_tree_rows_whole(
+        &mut self,
+        st: &St,
+        read: impl FnOnce(&mut Self) -> Result<(), Signal>,
+    ) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let cut: Vec<_> = rec
+            .borrow()
+            .filters
+            .iter()
+            .filter(|f| f.group == super::open::TREE_GROUP)
+            .cloned()
+            .collect();
+        if cut.is_empty() {
+            return Ok(false);
+        }
+        rec.borrow_mut().filters.retain(|f| f.group != super::open::TREE_GROUP);
+        let r = read(self);
+        rec.borrow_mut().filters.extend(cut);
+        r?;
+        let Some(level) = self.tree_level_field(st)? else {
+            return unsupported("a tree whose IndentationColumn is not an Integer field (not pinned)");
+        };
+        // The rows the cut shows (`apply_tree_cut`), else the level-0 ones.
+        let mut s = st.borrow_mut();
+        let tree_shown = std::mem::take(&mut s.tree_shown);
+        let (shown, hidden): (Vec<_>, Vec<_>) = std::mem::take(&mut s.window).into_iter().partition(|w| {
+            if tree_shown.is_empty() {
+                matches!(w.stored.get(level), Some(Value::Integer(0)))
+            } else {
+                tree_shown.iter().any(|k| Self::same_key(k, &w.key))
+            }
+        });
+        s.tree_shown = tree_shown;
+        s.window = shown;
+        s.tree_hidden = hidden;
+        Ok(true)
     }
 
     fn populate_window_in_view(&mut self, st: &St) -> Result<(), Signal> {
