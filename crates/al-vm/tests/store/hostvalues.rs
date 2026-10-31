@@ -21,6 +21,7 @@ table 50902 "ALT FF" { fields { field(1; K; Integer) { } field(2; Flt; Integer) 
 table 50903 "ALT FF2" { fields { field(1; K; Integer) { } field(2; FltA; Integer) { FieldClass = FlowFilter; } field(3; Cnt; Integer) { FieldClass = FlowField; CalcFormula = count("ALT T"); } field(4; FltB; Integer) { FieldClass = FlowFilter; } field(5; Txt; Text[10]) { } } keys { key(PK; K) { } } }
 table 50904 "ALT Blb" { fields { field(1; K; Integer) { } field(2; Pic; Blob) { } } keys { key(PK; K) { } } }
 table 50905 "ALT Dt" { fields { field(1; K; Integer) { } field(2; At; DateTime) { } } keys { key(PK; K) { } } }
+table 50906 "ALT Tm" { fields { field(1; K; Integer) { } field(2; T; Time) { } field(3; At; DateTime) { } } keys { key(PK; K) { } } }
 table 50901 "ALT Temp" { TableType = Temporary; fields { field(1; K; Integer) { } } keys { key(PK; K) { } } }
 "#;
 
@@ -140,6 +141,24 @@ fn a_stamp_is_a_value_the_datetime_column_holds() {
              D.Get(I); if D.At <> R.SystemCreatedAt then exit('No ' + Format(I)); end; exit('Yes');"
         ),
         "Yes"
+    );
+}
+
+#[test]
+fn a_time_read_from_the_clock_right_after_a_write_is_not_always_a_value_the_column_holds() {
+    // al-runner issue 6524: BC's clock is the wall clock, so a Time read right after a write comes back from the column
+    // (1/300 s, P130DateFilters.al:162-183) changed in 11 and 16 of 20 samples. Here the clock catches up with the stamp
+    // (ADR-045 amendment 2026-10-27) and lands 0 to 2 ms past it, two times in three off the column's grid (amendment
+    // 2026-10-31).
+    assert_eq!(
+        text(
+            "R: Record \"ALT Tm\"; I: Integer; KeptT: Time; KeptAt: DateTime; ChangedT: Integer; ChangedAt: Integer;",
+            "for I := 1 to 20 do begin R.Init(); R.K := I; R.Insert(); R.T := Time(); R.Modify(); KeptT := R.T; R.Get(I); \
+             if R.T <> KeptT then ChangedT += 1; \
+             R.At := CurrentDateTime(); R.Modify(); KeptAt := R.At; R.Get(I); if R.At <> KeptAt then ChangedAt += 1; Sleep(20); end; \
+             exit(Format(ChangedT > 0) + Format(ChangedAt > 0));"
+        ),
+        "YesYes"
     );
 }
 
@@ -1415,4 +1434,48 @@ codeunit 50100 C
         "bookmark=12%3bpWQBAACL bookmark=12%3bpWQBAACLBQ%3d%3d"
     );
     assert!(matches!(al_testkit::run(src, "Option"), Err(Signal::Unsupported(_))));
+}
+
+const AFTER_WRITE: &str = r#"
+procedure Reads(): Text
+var
+    R: Record "ALT Tm";
+    I: Integer;
+    Ms: Integer;
+    OffGrid: Integer;
+    Values: TextBuilder;
+begin
+    for I := 1 to 3000 do begin
+        R.Init();
+        R.K := I;
+        R.Insert();
+        Ms := (Time() - 000000T) mod 1000;
+        if not (Ms mod 10 in [0, 3, 7]) then
+            OffGrid += 1;
+        Values.Append(Format(Ms) + ',');
+    end;
+    exit(Format(OffGrid) + '|' + Values.ToText());
+end;
+"#;
+
+#[test]
+fn about_two_thirds_of_clock_reads_right_after_a_write_are_off_the_grid_and_the_seed_repeats_them() {
+    // ADR-045 amendment 2026-10-31 (owner): after a write the clock lands 0 to 2 ms past the stamp, drawn from the run
+    // seed, so about two thirds of reads right after a write are off the SQL column's 1/300 s grid (BC: 55 % and 80 %
+    // measured, al-runner issue 6524), and the same seed gives the same values.
+    let (engine, oi) = compile(AFTER_WRITE);
+    let reads = |seed: i32| {
+        let mut s = seeded_session(&engine, seed);
+        s.seed_test_method(50100, "AfterWrite", true, true);
+        match call(&mut s, oi, "Reads") {
+            Ok(Value::Text(t)) => t.to_string(),
+            other => panic!("{other:?}"),
+        }
+    };
+    let one = reads(4271833);
+    let (off, _) = one.split_once('|').unwrap();
+    let share = off.parse::<f64>().unwrap() / 3000.0;
+    assert!((0.62..0.71).contains(&share), "off the grid: {share}");
+    assert_eq!(reads(4271833), one, "the same seed gives the same clock values");
+    assert_ne!(reads(4271834), one, "another seed gives other clock values");
 }
