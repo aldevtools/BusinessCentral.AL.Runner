@@ -8,9 +8,13 @@
 //! swapped in: no SingleInstance codeunits, no manual subscriptions, no handler functions, no filters of the global
 //! filter group, no last error, a transaction of its own and its own id. Whatever no probe measures is refused: a start
 //! while the starting session holds an uncommitted write or a lock (whether the new session waits, and what it sees), a
-//! start into another company, a temporary record or one with filters or marks, an error in the new session, a
+//! start into another company, a record with filters of another filter group or another key or order, a session that
+//! still runs at its Timeout, an error in the new session, a
 //! session started from it, and its reads of session state a new session sets up for itself (WorkDate, GlobalLanguage,
 //! GuiAllowed, CurrentClientType). Its UI calls are refused as UI outside a test method.
+//!
+//! A temporary record, filters, marks and unsaved field values are handed over as Y30 measured on BC 29 (probe branch
+//! al-runtime-rs-probe-y30-session, session/lt-y30-startsession-isol-disabled/Y30StartSessionIsolDisabled.al).
 
 use super::*;
 use al_builtins::builtin_id::ids;
@@ -40,6 +44,7 @@ impl Session {
         codeunit: i32,
         company: Option<String>,
         record: Option<Value>,
+        timeout_ms: Option<i64>,
     ) -> Result<i32, Signal> {
         let refuse = |why: &str| {
             Err(Signal::Unsupported(format!(
@@ -59,11 +64,42 @@ impl Session {
             None => None,
             Some(Value::Record(rc)) => {
                 let r = rc.borrow();
-                if r.temporary || !r.filters.is_empty() || !r.marks.is_empty() || r.marked_only {
-                    return refuse("a temporary record, or one with filters or marks, handed to the session");
+                let shaped = r.temporary || !r.filters.is_empty() || !r.marks.is_empty() || r.marked_only;
+                // Measured with filters of the standard filter group only, on the primary key in ascending order.
+                if shaped
+                    && (r.filter_group != 0
+                        || r.filters.iter().any(|f| f.group != 0)
+                        || r.key != 0
+                        || r.adhoc.is_some()
+                        || !r.ascending
+                        || r.field_descending != 0)
+                {
+                    return refuse(
+                        "a temporary record, or one with filters or marks, handed to the session with filters of another filter group or another key or order",
+                    );
                 }
                 drop(r);
-                Some(self.record_by_value(&rc))
+                let copy = self.record_by_value(&rc);
+                // A temporary record hands over a temporary record with all the caller's rows and its current row; the
+                // caller keeps its rows. Filters, marks with MarkedOnly and values not yet saved are handed over (corpus
+                // probe branch al-runtime-rs-probe-y30-session, session/lt-y30-startsession-isol-disabled/
+                // Y30StartSessionIsolDisabled.al: Y30_StartSession_TemporaryRecord, _RecordWithFilters, _RecordWithMarks,
+                // measured on BC 29). The temporary rows are a copy: the sessions share no memory.
+                if shaped {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::StartSessionRecordHandedOver,
+                    );
+                }
+                if let Value::Record(c) = &copy
+                    && let (Some(from), Some(to)) = (
+                        rc.borrow().temp_id.as_ref().map(|t| t.id()),
+                        c.borrow().temp_id.as_ref().map(|t| t.id()),
+                    )
+                {
+                    let rows = self.temps.get(&from).cloned().unwrap_or_default();
+                    self.temps.insert(to, rows);
+                }
+                Some(copy)
             }
             Some(other) => {
                 return refuse(&format!("a {} handed to the session", crate::value_kind(&other)));
@@ -95,7 +131,10 @@ impl Session {
         let mut args = vec![Value::Integer(codeunit)];
         args.extend(record);
         // The guarded form: the run is a transaction of its own and commits when it succeeds.
+        let started_at = self.waited_ms;
         let ran = self.codeunit_run(ids::CODEUNIT_RUN_3, None, &args, true);
+        // The session's time is what it waited (Sleep) and the clock steps of its reads: its code takes no time.
+        let reached_timeout = timeout_ms.is_some_and(|t| self.waited_ms - started_at >= t);
         let failed = !matches!(ran, Ok(Value::Boolean(true)));
         if failed && self.store.has_uncommitted() {
             self.rollback_transaction();
@@ -126,6 +165,16 @@ impl Session {
         self.hub_disabled = parked.hub_disabled;
         self.isolation_from_hub = parked.isolation_from_hub;
         self.error_scopes = parked.error_scopes;
+        // BC stops a session at its Timeout while the starting session runs on, and `IsSessionActive` answers true until
+        // then (Y30StartSessionIsolDisabled.al Y30_StartSession_Timeout): a session that runs alongside the starting one
+        // is not modelled. A session that ends before its Timeout is not stopped (not measured: the probe's session
+        // outlives its Timeout).
+        if reached_timeout && !matches!(ran, Err(Signal::Unsupported(_))) {
+            return refuse("a session that still runs at its Timeout (it would run alongside the starting session)");
+        }
+        if timeout_ms.is_some() {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::StartSessionTimeoutNotReached);
+        }
         match ran {
             Ok(Value::Boolean(true)) => Ok(id),
             Ok(_) | Err(Signal::Error(_)) => refuse("an error in the new session"),
