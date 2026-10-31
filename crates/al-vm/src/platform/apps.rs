@@ -23,6 +23,8 @@ pub(super) fn nav_app_installed_app_rows(p: &Providers, t: &TableDef) -> Vec<Ent
         .program
         .apps
         .iter()
+        // The platform's System app has no row (record/lt-y12-published-as/Y12PublishedAs.al:41, :46 `no row`).
+        .filter(|a| !a.id.eq_ignore_ascii_case(super::objects::al_sema_platform_app_id()))
         .filter_map(|a| {
             let id = al_builtins::ops::parse_guid(&a.id)?;
             let mut r = blank(t);
@@ -35,8 +37,8 @@ pub(super) fn nav_app_installed_app_rows(p: &Providers, t: &TableDef) -> Vec<Ent
                 r[pos(t, 5 + n as u32)] = Value::Integer(*part);
             }
             // "Published As" follows how the app was published: an app under test, as the corpus apps through the development
-            // endpoint, is Dev (2); Microsoft's apps are Global (0) (record/lt-y12-published-as/Y12PublishedAs.al:31-80, corpus
-            // branch al-runtime-rs-staging-y12, al-runner issue 6438; assumption installed-app-published-as until the pin). How
+            // endpoint, is Dev (2); Microsoft's apps are Global (0) (record/lt-y12-published-as/Y12PublishedAs.al:31-80, al-runner
+            // issue 6438). How
             // another dependency app was published is not known.
             r[pos(t, 16)] = if !a.dependency {
                 super::option(t, 16, 2)
