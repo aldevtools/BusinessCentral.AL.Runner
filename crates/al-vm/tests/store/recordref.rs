@@ -262,6 +262,42 @@ fn keyref_counts_and_names_key_fields() {
 }
 
 #[test]
+fn format_of_a_keyref_lists_its_field_numbers() {
+    // recordref/lt-y12-keyref-format/Y12KeyRefFormat.al:33-87 (corpus branch al-runtime-rs-staging-y12, al-runner issue 6437):
+    // `Field<no>` in key order joined by commas; format numbers 0, 1, 2 and 9 give the same text; a length cuts it.
+    let r = run(
+        "procedure F(): Text var RR: RecordRef; KR: KeyRef; begin
+            RR.Open(50900);
+            KR := RR.KeyIndex(2);
+            exit(Format(RR.KeyIndex(1)) + '|' + Format(KR) + '|' + Format(KR, 0, 1) + '|' + Format(KR, 0, 2) + '|'
+                + Format(KR, 0, 9) + '|' + Format(KR, 5));
+        end;",
+        "F",
+    );
+    assert_eq!(
+        text(r),
+        "Field1|Field3,Field1|Field3,Field1|Field3,Field1|Field3,Field1|Field"
+    );
+}
+
+#[test]
+fn format_of_a_keyref_refuses_what_is_not_pinned() {
+    // Only format numbers 0, 1, 2 and 9 and a length that cuts are pinned (Y12KeyRefFormat.al:49-69); the implicit SystemId
+    // key is not formatted there.
+    for call in [
+        "Format(RR.KeyIndex(1), 0, 3)",
+        "Format(RR.KeyIndex(1), 30)",
+        "Format(RR.KeyIndex(3))",
+    ] {
+        let r = run(
+            &format!("procedure F(): Text var RR: RecordRef; begin RR.Open(50900); exit({call}); end;"),
+            "F",
+        );
+        assert!(matches!(r, Err(Signal::Unsupported(_))), "{call}: {r:?}");
+    }
+}
+
+#[test]
 fn keyref_field_index_past_the_key_raises_index_out_of_bounds() {
     // types/TestTypeSystemContracts.al:240-262 pins the fragment (both operands of `and` run, so
     // FieldIndex(2) on a one-field key raises); recordref/TestBCSumIndexFieldContracts.al:188-198.

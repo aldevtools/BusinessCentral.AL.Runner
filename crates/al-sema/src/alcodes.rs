@@ -37,7 +37,11 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0107",
-        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039)",
+        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); two commas after the text of a Label declaration (case 2332)",
+    ),
+    (
+        "AL0301",
+        "a trailing comma after a property of a Label declaration, `Label 'L', Locked = true,;` (cases 2330, 2331)",
     ),
     (
         "AL0111",
@@ -161,6 +165,17 @@ pub fn not_checked_reason(code: &str) -> Option<&'static str> {
             .find(|(c, _)| *c == code)
             .map_or("not implemented", |(_, why)| why),
     )
+}
+
+/// Why an expected diagnostic `code` with text `text` is not checked, if it is not: [`not_checked_reason`], and AL0301 for any
+/// list but a Label declaration's. AL0301 is decided only for a trailing comma after a Label property (must-not-compile 2330,
+/// 2331, corpus branch al-runtime-rs-staging-y12: "A list must end with a member; not a separator ,."); alc's AL0301 from its
+/// recovery elsewhere (0357: "... separator ;.") is not reproduced.
+pub fn not_checked_reason_for(code: &str, text: &str) -> Option<&'static str> {
+    if code == "AL0301" && !text.starts_with("A list must end with a member; not a separator ,.") {
+        return Some("AL0301 is decided only for a trailing comma after a property of a Label declaration");
+    }
+    not_checked_reason(code)
 }
 
 /// The target of an app (`app.json` `target`; the compiler's default is Cloud).
@@ -464,6 +479,7 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
         unknown_codeunit_variables(ws, oi, &obj, &mut out);
         object_properties(ws, oi, &obj, &mut out);
         object_triggers(ws, oi, &obj, &mut out);
+        label_trailing_commas(ws, o.file, obj.syntax(), &mut out);
         if !unparsed.contains(&(ws.files[o.file].app, ws.files[o.file].path.as_str())) && !whole.contains(&o.file) {
             parameter_names(ws, o.file, obj.syntax(), &mut out);
         }
@@ -488,6 +504,64 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
     // AL0169: a property value that is none of the property's values.
     crate::property_values::check(ws, &mut out);
     out
+}
+
+/// AL0301 and AL0107 for the trailing commas of a Label declaration (al-runner issue 6436). One comma right after the text
+/// compiles (text/lt-label-textbuilder/TxCLabel.al Y12_Label_TrailingComma); a trailing comma after a property is AL0301
+/// (must-not-compile 2330 `Locked = true,;`, 2331 `Comment = 'c',;`), two commas after the text AL0107 (2332 `'T',,;`).
+/// The diagnostic is at the comma that is wrong; the parser rejects both shapes too, so the file never runs.
+fn label_trailing_commas(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let significant = |t: &al_syntax::SyntaxToken| !t.kind().is_trivia();
+    for n in obj.descendants().filter(|n| n.kind() == SyntaxKind::TypeRef) {
+        let mut toks: Vec<al_syntax::SyntaxToken> = n
+            .descendants_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(significant)
+            .collect();
+        if !toks
+            .first()
+            .is_some_and(|t| t.kind() == SyntaxKind::Ident && t.text().eq_ignore_ascii_case("label"))
+        {
+            continue;
+        }
+        // The `;` that ends the declaration follows the type.
+        let mut next = n.last_token().and_then(|t| t.next_token());
+        while let Some(t) = next.clone().filter(|t| t.kind().is_trivia()) {
+            next = t.next_token();
+        }
+        let Some(end) = next.filter(|t| t.kind() == SyntaxKind::Semicolon) else {
+            continue;
+        };
+        toks.push(end);
+        if let Some(w) = toks
+            .windows(2)
+            .find(|w| w[0].kind() == SyntaxKind::Comma && w[1].kind() == SyntaxKind::Comma)
+        {
+            push(
+                out,
+                ws,
+                file,
+                w[1].text_range().start().into(),
+                "AL0107",
+                "Syntax error, identifier expected.".into(),
+            );
+            continue;
+        }
+        let has_property = n.children().any(|c| c.kind() == SyntaxKind::Property);
+        if let [.., comma, _] = toks.as_slice()
+            && comma.kind() == SyntaxKind::Comma
+            && has_property
+        {
+            push(
+                out,
+                ws,
+                file,
+                comma.text_range().start().into(),
+                "AL0301",
+                "A list must end with a member; not a separator ,.".into(),
+            );
+        }
+    }
 }
 
 /// AL0185 `Table 'Integer' is missing`. The platform table Integer lives in namespace System.Utilities: a file in a namespace
@@ -2257,6 +2331,29 @@ mod tests {
         assert_eq!(codes(&[bad]), vec!["AL0335".to_string()]);
         let good = "xmlport 50000 X { schema { textelement(root) { textelement(entry) { textattribute(kind) { } textelement(inner) { } } } } }";
         assert!(codes(&[good]).is_empty());
+    }
+
+    // Must-not-compile cases 2330-2332 (corpus branch al-runtime-rs-staging-y12, al-runner issue 6436): a trailing
+    // comma after a Label property is AL0301, two commas after the text AL0107; one comma after the text compiles
+    // (text/lt-label-textbuilder/TxCLabel.al Y12_Label_TrailingComma).
+    #[test]
+    fn label_trailing_commas_al0301_and_al0107() {
+        let cu = |decl: &str| format!("codeunit 50000 \"MNC Codeunit\"\n{{\n    var\n        SetupLbl: {decl};\n}}\n");
+        assert_eq!(codes(&[&cu("Label 'L', Locked = true,")]), vec!["AL0301".to_string()]);
+        assert_eq!(codes(&[&cu("Label 'C', Comment = 'c',")]), vec!["AL0301".to_string()]);
+        assert_eq!(codes(&[&cu("Label 'T',,")]), vec!["AL0107".to_string()]);
+        assert!(codes(&[&cu("Label 'Document Setup',")]).is_empty());
+        assert!(codes(&[&cu("Label 'x' ,")]).is_empty());
+        assert!(codes(&[&cu("Label 'x', Locked = true")]).is_empty());
+    }
+
+    #[test]
+    fn al0301_is_checked_only_for_a_label_trailing_comma() {
+        assert_eq!(
+            not_checked_reason_for("AL0301", "A list must end with a member; not a separator ,."),
+            None
+        );
+        assert!(not_checked_reason_for("AL0301", "A list must end with a member; not a separator ;.").is_some());
     }
 
     fn ctx_codes(src: &str, ctx: &AppContext) -> Vec<String> {
