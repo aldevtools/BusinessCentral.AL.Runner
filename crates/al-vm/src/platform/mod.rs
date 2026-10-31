@@ -35,7 +35,7 @@ pub(crate) mod profiles;
 pub(crate) mod ranges;
 mod reports;
 mod seed;
-pub(crate) use permissions::{RawSet, raw_sets};
+pub(crate) use permissions::{RawSet, inherent_attribute, object_grants, raw_sets, table_inherent};
 pub(crate) use seed::SESSION_USER_FULL_NAME;
 
 use crate::Engine;

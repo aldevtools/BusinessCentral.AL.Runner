@@ -1786,10 +1786,10 @@ fn the_permission_test_helper_starts_clears_and_stops_without_the_host() {
 }
 
 /// Assigning a permission set lowers the session's permissions (enforced on BC: corpus
-/// permissions/TestPermissionsMockEnforcement.al:28-47); no access kind is enforced here (ADR-062), so the next access
-/// of the restricted session, a record method, is refused.
+/// permissions/TestPermissionsMockEnforcement.al:28-47). A set the program does not declare leaves the session not fully
+/// composed (ADR-062 stage 1), so a write its known sets do not grant is refused, not raised.
 #[test]
-fn adding_an_effective_permission_set_is_refused() {
+fn a_denial_under_an_unknown_permission_set_is_refused() {
     let host = Fake::new(|r| panic!("the host must not be called: {r:?}"));
     let r = run(
         &host,
@@ -1799,7 +1799,7 @@ fn adding_an_effective_permission_set_is_refused() {
     );
     let why = unsupported(&r);
     assert!(
-        why.contains("AddEffectivePermissionSet") && why.contains("lowers"),
+        why.contains("not fully composed") && why.contains("'D365 BASIC'"),
         "{why}"
     );
 }

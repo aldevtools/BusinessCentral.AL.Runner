@@ -87,6 +87,11 @@ before you open a source file.
   CI runs them. CI has no instruction counter, so there the CPU-time fallback only warns; with a counter (locally) the instruction budgets fail as before. `cargo run --release -p al-test-cli --example phases` prints
   timings per phase. `--example compile_dump` dumps every compile output, to
   diff before and after a performance change.
+- Work ratchet: the full corpus run compares what each pass compiled and ran (routines lowered, objects loaded,
+  dependency apps from source or cache, install baseline rows, tests run) with `metrics/<major>/work.json` and fails
+  on a count more than 10 % above it; CI's corpus job also fails a step more than 1.5x main's median time
+  (`docs/architecture.md`, "Work ratchet and step time guard"). A PR that adds work on purpose runs
+  `./target/release/al-test-cli --root . --all-versions --update-work` and commits the file in the same PR.
 - The install baseline is skipped when no selected test can observe it (ADR-013 note): after a change to `al-testrun/src/observe.rs`
   or the baseline, `tools/baseline_rule_check.sh run` must show 0 differences (`AL_FORCE_BASELINE=1` turns the skip off).
 - Demand-driven against eager compile of the Microsoft apps (ADR-013, CI runs it): `tools/demand_vs_eager.sh run`

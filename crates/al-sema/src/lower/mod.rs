@@ -75,6 +75,26 @@ pub struct Lowered {
     /// In a run whose dependency objects come from a compile cache: the source that decodes them on first touch
     /// (ADR-054), which counts what it decoded. `None` otherwise.
     pub cached_objects: Option<std::sync::Arc<crate::provided::CachedObjects>>,
+    /// How much of the program this compile lowered from source (the work ratchet of `al-test-cli`).
+    pub work: LowerWork,
+}
+
+/// What one compile lowered from source, counted for the work ratchet of the corpus run (`al-test-cli`,
+/// `metrics/<major>/work.json`). The counts do not depend on threads or timing: the same apps give the same counts.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LowerWork {
+    /// The objects of the program, compiled or not.
+    pub objects: usize,
+    /// Objects of the workspace's apps lowered from source.
+    pub objects_lowered: usize,
+    /// Routines of those objects whose bodies were lowered.
+    pub routines_lowered: usize,
+    /// Objects of dependency apps lowered from source (what the demand-driven compile reached).
+    pub dependency_objects_lowered: usize,
+    /// Routines of those objects whose bodies were lowered (the others are stubs that refuse).
+    pub dependency_routines_lowered: usize,
+    /// Objects a compile cache supplied.
+    pub objects_from_cache: usize,
 }
 
 /// See [`Lowered::object_hashes`].
