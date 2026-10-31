@@ -72,6 +72,7 @@ mod integer_to_text;
 mod interfaces;
 mod json_bool_integer;
 mod json_digit_text_getters;
+mod json_marked_call_stack;
 mod json_remove_statement;
 mod json_select_tokens;
 mod json_text_as_decimal;
