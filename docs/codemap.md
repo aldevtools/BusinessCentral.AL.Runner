@@ -343,7 +343,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `pages/parts.rs` (324): Page parts (ADR-012 follow-up).
 - `pages/request.rs` (571): The request page of a report. Entry: `RequestClosed` 18, `action_id` 532.
 - `pages/runobject.rs` (321): `RunObject` actions (ADR-012 follow-up).
-- `pages/shown.rs` (429): When a page computes its expression controls (al-runner issue 5765): the values kept at the pinned refresh points, what each TestPage call does to them, and the reads it refuses. Entry: `shown_client_call`, `shown_value`, `shown_opened`.
+- `pages/shown.rs` (662): When a page computes its expression controls (al-runner issue 5765): the values kept at the pinned refresh points, the values a list computes per row as it reads its rows (`row_exprs`), what each TestPage call does to them, and the reads it refuses. Entry: `shown_client_call`, `shown_value`, `shown_opened`, `row_expr_value`.
 - `partial.rs` (271): Partial records (SetLoadFields, LoadFields). Entry: `note_partial_fetch` 54, `load_fields_op` 122, `load_fields_row` 212.
 - `platform/apps.rs` (67): The tables that list the apps of the tenant.
 - `platform/date.rs` (361): The `Date` table (2000000007).

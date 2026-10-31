@@ -32,6 +32,15 @@
 //! `TestField.Activate` and `TestField.Caption` (`DOUBT_ASSUMED`): there the read is computed as it is now under assumption
 //! page-expression-control-live-read-after-next-filter-activate, which Microsoft's Tests-ERM need (Price Lists
 //! UI.T003_SalesPriceListsDiscountsFromCustomersList reads `SourceType` after `TestPage.Next`).
+//!
+//! A list computes each control of its repeater whose source is a function or an expression once per row, when it reads its
+//! rows: right after the row's OnAfterGetRecord (`row_exprs`). The client then shows the value the row had then, after
+//! FindFirstField, FindNextField and Next too, which run no trigger and no control function (misc/lt-y14-triage/
+//! Y14PageTriage.al:241 Trapped_FindFirstField_FunctionControl and :274 OpenView_FindFirstField_FunctionControl, `open log`
+//! `agr(A);describe(A);agr(B);describe(B);agr(A);`, `log` empty; misc/lt-y13-triage/Y13PageTriage.al:150-186; corpus
+//! master). Pinned for a List page with OnAfterGetRecord and no OnFindRecord or OnNextRecord, without parts, that the test
+//! opened with OpenView or caught with Trap() (`row_expr_controls`). Any other call on the page than those and a control's
+//! Value ends it: reads are then computed as above.
 
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
@@ -112,6 +121,9 @@ impl Session {
                 Ok(_) => self.shown_effect(method, st, target, &root, p, &notes, &tree),
                 Err(_) => Effect::Doubt,
             };
+            if p.borrow().row_exprs_live && !row_exprs_kept(method, target, r.is_ok() && notes.is_empty()) {
+                p.borrow_mut().row_exprs_live = false;
+            }
             if effect == Effect::Refresh {
                 self.shown_refresh(p);
                 continue;
@@ -133,7 +145,8 @@ impl Session {
                 PageMethod::SetValue if on_root && on_control => DOUBT_HOST_SET_VALUE,
                 PageMethod::GoToRecord if on_root && target.is_none() => DOUBT_GO_TO_RECORD,
                 PageMethod::First if is_p && target.is_none() => DOUBT_FIRST,
-                // A page the test caught with Trap() is not pinned (only one the test opened).
+                // A page the test caught with Trap() is pinned only for the values a list keeps per row (`row_exprs`, read before
+                // this is reached); a read computed now is pinned only on a page the test opened.
                 PageMethod::FindFirstField | PageMethod::FindNextField
                     if is_p && on_root && tree.len() == 1 && r.is_ok() && !st.borrow().caught_by_trap =>
                 {
@@ -213,6 +226,7 @@ impl Session {
         } else if method.method() == PageMethod::Update {
             for p in shown_tree(&shown_root(st)) {
                 let mut s = p.borrow_mut();
+                s.row_exprs_live = false;
                 s.shown_current = false;
                 s.shown_doubts |= DOUBT_OTHER;
                 s.shown_doubt_call
@@ -447,6 +461,87 @@ impl Session {
         })
     }
 
+    /// The controls whose value list `st` keeps per row as it reads its rows (module comment), when the page's shape is pinned:
+    /// the page's own controls of the repeater whose source is an expression, but those the page keeps across its refreshes
+    /// (`kept_controls`) and elements of a page array.
+    pub(super) fn row_expr_controls(&mut self, st: &St) -> Option<Rc<Vec<usize>>> {
+        {
+            let s = st.borrow();
+            if s.host.is_some() || !s.parts.is_empty() || !(s.caught_by_trap || s.mode == PageMode::View) {
+                return None;
+            }
+        }
+        if !self.has_source(st)
+            || !self.is_list_page(st)
+            || !self.declares(st, "onaftergetrecord")
+            || self.declares(st, "onfindrecord")
+            || self.declares(st, "onnextrecord")
+        {
+            return None;
+        }
+        let kept = self.kept_controls(st);
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let controls: Vec<usize> = (0..page.controls.len())
+            .filter(|&i| {
+                let c = &page.controls[i];
+                matches!(c.binding, ir::Binding::Expr(_))
+                    && c.owner.is_none()
+                    && c.array_element.is_none()
+                    && !kept.contains(&i)
+                    && self.in_repeater(st, i)
+            })
+            .collect();
+        (!controls.is_empty()).then(|| Rc::new(controls))
+    }
+
+    /// Computes `controls` for the row with `key` the list just read (after its OnAfterGetRecord) and notes their values.
+    pub(super) fn note_row_exprs(&mut self, st: &St, key: Vec<Value>, controls: &[usize]) -> Result<(), Signal> {
+        if st.borrow().cursor != Cursor::Row || st.borrow().draft {
+            return Ok(());
+        }
+        let mut values = Vec::with_capacity(controls.len());
+        for &idx in controls {
+            let ir::Binding::Expr(r) = page_of(&self.engine(), st).controls[idx].binding else {
+                continue;
+            };
+            // What BC shows for an expression that fails when the row is read is not pinned: its reads are refused.
+            values.push((idx, self.control_routine(st, idx, r).ok()));
+        }
+        let mut s = st.borrow_mut();
+        match s.row_exprs.iter_mut().find(|(k, _)| Self::same_key(k, &key)) {
+            Some((_, held)) => *held = values,
+            None => s.row_exprs.push((key, values)),
+        }
+        Ok(())
+    }
+
+    /// The value control `idx` of `st` showed when the list read the row the cursor stands on (module comment); `None` when the
+    /// page keeps no such value for it.
+    pub(super) fn row_expr_value(&mut self, st: &St, idx: usize) -> Result<Option<Value>, Signal> {
+        {
+            let s = st.borrow();
+            if !s.row_exprs_live || s.row_exprs.is_empty() || s.cursor != Cursor::Row || s.draft {
+                return Ok(None);
+            }
+        }
+        let key = self.row_key(&self.page_rec(st))?;
+        let held = st
+            .borrow()
+            .row_exprs
+            .iter()
+            .find(|(k, _)| Self::same_key(k, &key))
+            .and_then(|(_, v)| v.iter().find(|(c, _)| *c == idx).map(|(_, v)| v.clone()));
+        match held {
+            None => Ok(None),
+            Some(Some(v)) => Ok(Some(v)),
+            Some(None) => unsupported(format!(
+                "control {} shows an expression that failed when the list read the row (what BC shows then is not pinned)",
+                page_of(&self.engine(), st).controls[idx].name
+            )),
+        }
+    }
+
     /// The expression controls of `st` whose value the page keeps: the page's own controls (not an extension's) whose
     /// expression reads no record and calls only codeunit procedures that only return a value (`pure_expr`).
     fn kept_controls(&mut self, st: &St) -> Rc<Vec<usize>> {
@@ -548,6 +643,20 @@ fn pure_expr(program: &ir::Program, object: usize, routine: &ir::Routine, e: &ir
                 && args.iter().all(|a| matches!(a, ir::Arg::Value(v) if pure(v)))
                 && pure_routine(program, *callee, *r, depth + 1)
         }
+        _ => false,
+    }
+}
+
+/// A TestPage call (`ok`: it succeeded and the page's code called no `CurrPage` method) pinned to leave the values a list
+/// noted per row as they are (module comment): a control's Value, FindFirstField, FindNextField and Next; an open reads the
+/// rows again and a close ends the page.
+fn row_exprs_kept(method: PageOp, target: Option<&ControlTarget>, ok: bool) -> bool {
+    let on_control = matches!(target, Some(ControlTarget::Control(_)));
+    ok && match method.method() {
+        PageMethod::Value => on_control,
+        PageMethod::FindFirstField | PageMethod::FindNextField => method.recv() == PageRecv::TestPage,
+        PageMethod::Next => target.is_none() && method.recv() == PageRecv::TestPage,
+        PageMethod::OpenView | PageMethod::OpenEdit | PageMethod::Close => target.is_none(),
         _ => false,
     }
 }

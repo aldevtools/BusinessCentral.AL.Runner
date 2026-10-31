@@ -64,7 +64,17 @@ fn expression_controls_follow_the_row_find_field_ends_on() {
 }
 
 const TRAPPED: &str = r#"
-codeunit 69953 Opener { procedure Open() begin Page.Run(Page::"FE List"); end; }
+page 69955 "FE Plain List"
+{
+    PageType = List; SourceTable = "FE Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(R) { field(Name; Rec.Name) { } field(Fn; Describe()) { } } } }
+    local procedure Describe(): Text begin exit('d:' + Rec.Name); end;
+}
+codeunit 69953 Opener
+{
+    procedure Open() begin Page.Run(Page::"FE List"); end;
+    procedure OpenPlain() begin Page.Run(Page::"FE Plain List"); end;
+}
 codeunit 69954 D
 {
     procedure F(): Text
@@ -76,14 +86,31 @@ codeunit 69954 D
         P.FindFirstField(P.Name, 'Beta');
         exit(P.Fn.Value());
     end;
+    procedure Plain(): Text
+    var R: Record "FE Row"; P: TestPage "FE Plain List"; O: Codeunit Opener;
+    begin
+        R.Id := 1; R.Name := 'Alpha'; R.Insert(); R.Id := 2; R.Name := 'Beta'; R.Insert();
+        P.Trap();
+        O.OpenPlain();
+        P.FindFirstField(P.Name, 'Beta');
+        exit(P.Fn.Value());
+    end;
 }
 "#;
 
-/// Only a page the test opened is pinned: on a page caught by Trap() the read stays refused.
+/// On a list caught by Trap() the read shows the value the row had when the list read it (misc/lt-y14-triage/
+/// Y14PageTriage.al:241, corpus master; see row_expr_values.rs).
 #[test]
-fn on_a_trapped_page_the_read_after_find_field_is_refused() {
+fn on_a_trapped_page_the_read_after_find_field_shows_the_row_read() {
     let src = format!("{SRC}{TRAPPED}");
-    match al_testkit::run_in(&src, "D", "F") {
+    assert_eq!(al_testkit::text(al_testkit::run_in(&src, "D", "F")), "d:Beta");
+}
+
+/// A trapped list without OnAfterGetRecord is not pinned: the read stays refused.
+#[test]
+fn on_a_trapped_page_without_row_trigger_the_read_after_find_field_is_refused() {
+    let src = format!("{SRC}{TRAPPED}");
+    match al_testkit::run_in(&src, "D", "Plain") {
         Err(al_builtins::native::Signal::Unsupported(r)) => assert!(r.contains("FindFirstField"), "{r}"),
         other => panic!("{other:?}"),
     }

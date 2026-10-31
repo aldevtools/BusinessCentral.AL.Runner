@@ -763,10 +763,19 @@ impl Session {
         {
             return Ok(());
         }
+        let row_exprs = self.row_expr_controls(st);
+        {
+            let mut s = st.borrow_mut();
+            s.row_exprs.clear();
+            s.row_exprs_live = row_exprs.is_some();
+        }
         for i in 0..Self::WINDOW {
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
             self.populate_current(st)?;
+            if let Some(controls) = &row_exprs {
+                self.note_row_exprs(st, key.clone(), controls)?;
+            }
             keys.push(al_builtins::value::WindowRow {
                 key,
                 stored,
