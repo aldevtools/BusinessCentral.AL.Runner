@@ -558,16 +558,8 @@ impl Session {
         facts.unknown.get(&(object as usize)).map(String::as_str)
     }
 
-    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code. Every
-    /// persistent read and write passes here, so it also marks the platform tables that are stored on an assumption: Webhook
-    /// Subscription and Webhook Notification (`webhook-tables-stored`, al-builtins platform.rs).
+    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.
     pub(crate) fn install_assumed(&self, object: u32) {
-        if matches!(
-            self.engine.program.objects[object as usize].id,
-            Some(2_000_000_194 | 2_000_000_199)
-        ) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WebhookTablesStored);
-        }
         if self.install_scope {
             return;
         }
@@ -2757,7 +2749,7 @@ impl Session {
 
     /// The platform table Webhook Subscription (2000000199): an Insert stores a blank "Application ID" (field 7) as 'NAV'
     /// (corpus master onprem platform/lt-y35-stored-tables/Y35StoredTables.al C303_Webhook_RowsAndWrites, the rows read back).
-    /// One AL set is not pinned: refused. What the variable holds afterwards is not pinned either: only the stored row changes.
+    /// Another value AL set is not pinned: refused. What the variable holds afterwards is not pinned either: only the stored row changes.
     fn webhook_application_id(&self, t: &TableDef, rec: &Rec, stored: &mut [Value]) -> Result<(), Signal> {
         if rec.borrow().temporary || self.engine.program.objects[t.object as usize].id != Some(2000000199) {
             return Ok(());
@@ -2766,6 +2758,8 @@ impl Session {
             return Ok(());
         };
         match &stored[pos] {
+            // 'NAV' (a row read back and inserted again) is stored as 'NAV' whether the platform fills or keeps it.
+            Value::Text(v) | Value::Code(v) if v.as_str() == "NAV" => Ok(()),
             Value::Text(v) | Value::Code(v) if v.is_empty() => {
                 stored[pos] = Value::Text("NAV".into());
                 Ok(())

@@ -271,12 +271,11 @@ fn signup_context_and_document_service_are_stored_tables() {
 }
 
 /// Webhook Subscription and Webhook Notification are ordinary tables, empty on a fresh tenant, that take Insert, Modify,
-/// Delete and DeleteAll with and without triggers. No corpus test pins them: Microsoft's PayPal Payments Standard tests need
-/// them (MS - PayPal Standard Tests: DeleteAll of both in Initialize, then TestWebhookIsCreatedWhenSettingupAccount and the
-/// others insert, filter and delete subscriptions, and insert notifications to run the app's OnAfterInsertEvent subscriber),
-/// so every persistent access is a flagged pass (assumption `webhook-tables-stored`).
+/// Delete and DeleteAll with and without triggers, as Microsoft's PayPal Payments Standard tests use them (corpus master onprem
+/// platform/lt-y35-stored-tables/Y35StoredTables.al pins them; the assumption `webhook-tables-stored` that stood in is gone):
+/// a pass relies on no assumption. A row read back holds 'NAV' as Application ID and inserts again.
 #[test]
-fn webhook_tables_are_stored_tables_on_an_assumption() {
+fn webhook_tables_are_stored_tables() {
     let src = r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Writes() var W: Record "Webhook Subscription"; begin if not W.IsEmpty() then Error('rows');
     W."Subscription ID" := 'acct'; W.Endpoint := 'https://x/notify'; W."Created By" := 'https://paypal'; W."Company Name" := 'C';
@@ -303,13 +302,12 @@ fn webhook_tables_are_stored_tables_on_an_assumption() {
         &mut hits,
         None,
     );
-    let a = al_builtins::assumptions::Assumption::WebhookTablesStored;
-    let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && m.contains(&a));
+    let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && !m.is_empty());
     let get = |n: &str| out.iter().find(|(x, _)| x == n).map(|(_, o)| o.clone()).expect(n);
     assert_eq!(get("Writes"), Outcome::Pass);
-    assert!(flagged("Writes"), "Writes not flagged");
+    assert!(!flagged("Writes"), "Writes flagged");
     assert_eq!(get("Notification"), Outcome::Pass);
-    assert!(flagged("Notification"), "Notification not flagged");
+    assert!(!flagged("Notification"), "Notification flagged");
     assert_eq!(get("Temporary"), Outcome::Pass);
     assert!(!flagged("Temporary"), "a temporary record relies on nothing");
 }
