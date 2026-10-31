@@ -42,6 +42,7 @@ page 70103 "CV Card"
             field(C1Ctl; Rec.C1) { }
             field(NCtl; Rec.N) { }
             field(TierVar; TierV) { }
+            field(EAllowed; Rec.E) { ValuesAllowed = value1, value4; }
         }
     }
     var TierV: Enum "CV Tier";
@@ -127,6 +128,12 @@ codeunit 70105 C
     begin
         Seed();
         exit(SetSparse('c1') + '#' + SetSparse(' ') + '#' + SetSparse('cap1') + '#' + SetSparse('c4') + '#' + SetSparse('4'));
+    end;
+    procedure AllowedOptionCount(): Integer
+    var P: TestPage "CV Card";
+    begin
+        Seed(); P.OpenEdit();
+        exit(P.EAllowed.OptionCount());
     end;
     procedure SparseOptionCount(): Integer
     var P: TestPage "CV Card";
@@ -254,6 +261,12 @@ fn set_value_on_an_enum_control_takes_the_option_caption_entry_at_the_value_posi
         al_testkit::text(al_testkit::run_in(SRC, "C", "SparseSet")),
         format!("1#0#{}#{}#{}", refused("cap1"), refused("c4"), refused("4"))
     );
+}
+
+// Whether OptionCount and GetOption of a control with ValuesAllowed list only the allowed values is not pinned.
+#[test]
+fn option_count_of_a_control_with_values_allowed_is_refused() {
+    refused(al_testkit::run_in(SRC, "C", "AllowedOptionCount"), "ValuesAllowed");
 }
 
 #[test]

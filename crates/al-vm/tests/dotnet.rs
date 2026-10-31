@@ -18,6 +18,7 @@ enum Req {
     Open,
     Construct(String, Vec<DotNetArg>),
     Invoke(DotNetTarget, String, Vec<DotNetArg>),
+    InvokeGeneric(DotNetTarget, String, String, Vec<DotNetArg>),
     Get(DotNetTarget, String),
     Set(DotNetTarget, String, DotNetValue),
     Release(Vec<u64>),
@@ -69,6 +70,15 @@ impl DotNetSession for FakeSession {
     }
     fn invoke(&mut self, t: DotNetTarget, m: &str, a: Vec<DotNetArg>) -> Result<DotNetReply, DotNetFailure> {
         self.go(Req::Invoke(t, m.into(), a))
+    }
+    fn invoke_generic(
+        &mut self,
+        t: DotNetTarget,
+        m: &str,
+        g: &DotNetType,
+        a: Vec<DotNetArg>,
+    ) -> Result<DotNetReply, DotNetFailure> {
+        self.go(Req::InvokeGeneric(t, m.into(), g.name.clone(), a))
     }
     fn get_property(&mut self, t: DotNetTarget, n: &str) -> Result<DotNetReply, DotNetFailure> {
         self.go(Req::Get(t, n.into()))
@@ -131,6 +141,8 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"Microsoft.Dynamics.Nav.Types.Base64UrlHelper\"; \"Base64UrlHelper\") { }
     type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter\"; \"WorkbookWriter\") { }
     type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader\"; \"WorkbookReader\") { }
+    type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorksheetWriter\"; \"WorksheetWriter\") { }
+    type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorksheetReader\"; \"WorksheetReader\") { }
     type(\"Microsoft.Dynamics.Nav.AzureKeyVaultClient.AzureKeyVaultAppSecretProvider\"; \"AkvProvider\") { }
     type(\"Microsoft.Dynamics.Nav.Types.ALConfigSettings\"; \"ALConfigSettings\") { }
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavUserAccountHelper\"; \"NavUserAccountHelper\") { }
@@ -2673,6 +2685,7 @@ fn an_enum_member_named_through_a_property_of_an_unassigned_variable_is_refused(
 // file back with AL's File (SaveToStream through File Management.BLOBImportFromServerFile).
 const WBW: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter";
 const WBR: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader";
+const WSW: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorksheetWriter";
 
 fn workbook_host() -> Fake {
     Fake::new(|r| match r {
@@ -2688,6 +2701,7 @@ fn workbook_host() -> Fake {
                 },
             })
         }
+        Req::Get(DotNetTarget::Instance(5), m) if m == "FirstWorksheet" => reply(handle(6, WSW)),
         Req::Invoke(DotNetTarget::Instance(5), m, _) if m == "Close" => Ok(DotNetReply {
             value: DotNetValue::Null,
             by_ref: vec![],
@@ -2707,6 +2721,102 @@ fn workbook_writer_create_of_a_file_writes_the_in_memory_file_system_when_it_is_
         F.Open('temp/1.xlsx'); F.CreateInStream(I); I.ReadText(T); F.Close(); exit(T);";
     let vars = "W: DotNet WorkbookWriter; F: File; I: InStream; T: Text;";
     assert_eq!(text(run_mem(&host, vars, body)), "PK-book");
+}
+
+// Excel Buffer.CloseBook: `Close` of the workbook writer, then `Clear` of its worksheet writer and of the workbook writer. After
+// the Close the two variables are unassigned and the file keeps what Close wrote (assumption clear-closed-workbook-writer: Microsoft's
+// Tests-ERM "ERM Analysis View Excel Export" AnalysisViewGeneralInfo passes on real BC through CloseBook and reads the file).
+#[test]
+fn clear_of_a_closed_workbook_writer_and_its_worksheet_writer_unassigns_them() {
+    let host = workbook_host();
+    let body = "W := W.Create('temp/1.xlsx'); S := W.FirstWorksheet; W.Close(); Clear(S); Clear(W);
+        F.Open('temp/1.xlsx'); F.CreateInStream(I); I.ReadText(T); F.Close();
+        exit(Format(IsNull(S)) + ' ' + Format(IsNull(W)) + ' ' + T);";
+    let vars = "W: DotNet WorkbookWriter; S: DotNet WorksheetWriter; F: File; I: InStream; T: Text;";
+    assert_eq!(text(run_mem(&host, vars, body)), "Yes Yes PK-book");
+}
+
+// Before the workbook is closed, a Clear may dispose the writer and change what Close writes: not pinned, refused.
+#[test]
+fn clear_of_a_workbook_or_worksheet_writer_before_the_close_is_refused() {
+    let vars = "W: DotNet WorkbookWriter; S: DotNet WorksheetWriter;";
+    let host = workbook_host();
+    let r = run_mem(
+        &host,
+        vars,
+        "W := W.Create('temp/1.xlsx'); S := W.FirstWorksheet; Clear(S); exit('ran');",
+    );
+    assert!(unsupported(&r).contains("WorksheetWriter"), "{}", unsupported(&r));
+    let host = workbook_host();
+    let r = run_mem(&host, vars, "W := W.Create('temp/1.xlsx'); Clear(W); exit('ran');");
+    assert!(unsupported(&r).contains("WorkbookWriter"), "{}", unsupported(&r));
+}
+
+// Excel Buffer.OpenBookStream: `XlWrkShtReader := XlWrkBkReader.GetWorksheetByName(SheetName)`. The .NET method is generic
+// only (`T GetWorksheetByName<T>(string)`); it works on real BC only with T = the variable's type WorksheetReader (the method
+// converts the sheet to T). When the host finds no plain method, the call is made again closed over the declared type of the
+// variable the result is stored into (assumption dotnet-generic-result-type, Microsoft's Tests-ERM "ERM Account Schedule II"
+// CreateNewExcelTemplate).
+const WSR: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorksheetReader";
+
+fn generic_host() -> Fake {
+    Fake::new(|r| match r {
+        Req::Invoke(DotNetTarget::Static(t), m, _) if t.name == WBR && m == "Open" => reply(handle(5, WBR)),
+        Req::Invoke(DotNetTarget::Instance(5), m, _) if m == "GetWorksheetByName" => Err(DotNetFailure::Refused(
+            format!("member 'GetWorksheetByName' of '{WBR}' is generic only: its type argument is not known"),
+        )),
+        Req::InvokeGeneric(DotNetTarget::Instance(5), m, g, a)
+            if m == "GetWorksheetByName" && g == WSR && a.len() == 1 =>
+        {
+            reply(handle(6, WSR))
+        }
+        other => panic!("unexpected request {other:?}"),
+    })
+}
+
+#[test]
+fn a_generic_only_method_is_closed_over_the_type_of_the_variable_it_is_assigned_to() {
+    let host = generic_host();
+    let vars = "R: DotNet WorkbookReader; S: DotNet WorksheetReader; B: Record \"ALT Blob\"; I: InStream;";
+    let body =
+        "B.Data.CreateInStream(I); R := R.Open(I); S := R.GetWorksheetByName('Sheet1'); exit(Format(IsNull(S)));";
+    assert_eq!(text(run_mem(&host, vars, body)), "No");
+}
+
+// Not assigned to a DotNet variable, the type argument is not known: refused.
+#[test]
+fn a_generic_only_method_whose_result_is_not_stored_into_a_dotnet_variable_is_refused() {
+    let host = generic_host();
+    let vars = "R: DotNet WorkbookReader; B: Record \"ALT Blob\"; I: InStream;";
+    let body = "B.Data.CreateInStream(I); R := R.Open(I); R.GetWorksheetByName('Sheet1'); exit('ran');";
+    let r = run_mem(&host, vars, body);
+    assert!(unsupported(&r).contains("generic only"), "{}", unsupported(&r));
+}
+
+// Excel Buffer.ReadSheet ends with CloseBook, which clears the worksheet reader and the workbook reader: both become unassigned
+// (assumption clear-workbook-reader, Microsoft's Tests-ERM "ERM Account Schedule II" CreateNewExcelTemplate reads two
+// workbooks this way). A later call on a reader another variable still holds is refused: whether the Clear disposed it is not
+// pinned.
+#[test]
+fn clear_of_a_workbook_reader_and_its_worksheet_reader_unassigns_them() {
+    let host = generic_host();
+    let vars = "R: DotNet WorkbookReader; S: DotNet WorksheetReader; B: Record \"ALT Blob\"; I: InStream;";
+    let body = "B.Data.CreateInStream(I); R := R.Open(I); S := R.GetWorksheetByName('Sheet1'); Clear(S); Clear(R);
+        exit(Format(IsNull(S)) + ' ' + Format(IsNull(R)));";
+    assert_eq!(text(run_mem(&host, vars, body)), "Yes Yes");
+}
+
+#[test]
+fn a_call_on_a_worksheet_reader_cleared_through_another_variable_is_refused() {
+    let host = generic_host();
+    let vars = "R: DotNet WorkbookReader; S: DotNet WorksheetReader; S2: DotNet WorksheetReader; B: Record \"ALT Blob\"; I: InStream;";
+    let body = "B.Data.CreateInStream(I); R := R.Open(I); S := R.GetWorksheetByName('Sheet1'); S2 := S; Clear(S); exit(Format(S2.RowCount));";
+    let r = run_mem(&host, vars, body);
+    assert!(
+        unsupported(&r).contains("cleared through another variable"),
+        "{}",
+        unsupported(&r)
+    );
 }
 
 // What the file holds while the writer is open is not pinned (.NET has created it; its bytes before Close are the package's

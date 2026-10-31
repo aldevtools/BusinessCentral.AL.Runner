@@ -1139,6 +1139,16 @@ impl DotNetSession for SidecarSession {
         self.request(json!({"op":"invoke","target":target_json(&target),"member":member,"args":args_json(&args)}))
             .and_then(reply_of)
     }
+    fn invoke_generic(
+        &mut self,
+        target: DotNetTarget,
+        member: &str,
+        type_arg: &DotNetType,
+        args: Vec<DotNetArg>,
+    ) -> Result<DotNetReply, DotNetFailure> {
+        self.request(json!({"op":"invoke","target":target_json(&target),"member":member,"generic":type_json(type_arg),"args":args_json(&args)}))
+            .and_then(reply_of)
+    }
     fn get_property(&mut self, target: DotNetTarget, name: &str) -> Result<DotNetReply, DotNetFailure> {
         self.request(json!({"op":"get","target":target_json(&target),"member":name}))
             .and_then(reply_of)

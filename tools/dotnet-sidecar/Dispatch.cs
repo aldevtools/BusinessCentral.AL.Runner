@@ -94,6 +94,31 @@ public sealed class Server
                 var args = DecodeArgs(req);
                 var flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy | (target != null ? BindingFlags.Instance : 0);
                 var cands = type.GetMethods(flags).Where(m => m.Name == name && !m.IsGenericMethodDefinition).ToArray();
+                if (cands.Length == 0)
+                {
+                    // A method that is generic only, whose one type parameter is its return type (OpenXml's
+                    // `T WorkbookReader.GetWorksheetByName<T>(string)`): the runtime closes it over the declared type of the
+                    // DotNet variable the result is stored into (`generic`); without one the type argument is not known.
+                    var generic = type.GetMethods(flags)
+                        .Where(m => m.Name == name && m.IsGenericMethodDefinition && m.GetGenericArguments().Length == 1
+                            && m.ReturnType == m.GetGenericArguments()[0])
+                        .ToArray();
+                    if (generic.Length > 0)
+                    {
+                        if (req["generic"] is not JsonNode g)
+                            throw new Refusal($"member '{name}' of '{type.FullName}' is generic only: its type argument is not known");
+                        var arg = DeclaredType(g);
+                        var closed = new List<MethodInfo>();
+                        foreach (var m in generic)
+                        {
+                            try { closed.Add(m.MakeGenericMethod(arg)); }
+                            catch (ArgumentException) { } // the type argument breaks a constraint of this overload
+                        }
+                        if (closed.Count == 0)
+                            throw new Refusal($"member '{name}' of '{type.FullName}' cannot be closed over '{arg.FullName}'");
+                        cands = closed.ToArray();
+                    }
+                }
                 // A foreach loop calls MoveNext by name. An enumerator that implements IEnumerator only explicitly
                 // (System.Xml.EmptyEnumerator, from an empty XmlAttributeCollection; al-runner issue 6316) has no public
                 // member of that name: it answers through the interface.
