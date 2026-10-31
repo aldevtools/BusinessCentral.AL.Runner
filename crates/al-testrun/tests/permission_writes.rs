@@ -840,9 +840,16 @@ fn table_inherent_permissions_grant() {
 
 #[test]
 fn object_and_indirect_inherent_permissions_grant_under_their_assumption() {
-    let r = results().results().iter().find(|r| r.test == "ObjectAndIndirectInherentPermissions").expect("ran");
+    let r = results()
+        .results()
+        .iter()
+        .find(|r| r.test == "ObjectAndIndirectInherentPermissions")
+        .expect("ran");
     assert_eq!(r.outcome, Outcome::Pass);
-    assert_eq!(r.assumptions, vec![al_builtins::assumptions::Assumption::InherentPermissionsIndirectAndObjects]);
+    assert_eq!(
+        r.assumptions,
+        vec![al_builtins::assumptions::Assumption::InherentPermissionsIndirectAndObjects]
+    );
 }
 
 #[test]

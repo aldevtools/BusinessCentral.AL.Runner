@@ -114,7 +114,12 @@ impl Content {
                 });
             }
         }
-        let mut ids: Vec<(i32, u32)> = self.explicit.iter().chain(&ex.explicit).map(|&(k, id, _)| (k, id)).collect();
+        let mut ids: Vec<(i32, u32)> = self
+            .explicit
+            .iter()
+            .chain(&ex.explicit)
+            .map(|&(k, id, _)| (k, id))
+            .collect();
         ids.sort_unstable();
         ids.dedup();
         let mut explicit = Vec::new();
@@ -270,8 +275,14 @@ impl SetModel {
             for ex in &set.excludes {
                 let taken = match self.one_set(ex) {
                     Some(t) if self.sets[t].excludes.is_empty() => self.expanded(t, true, visiting, why),
-                    Some(_) => Err(format!("permission set '{}' excludes `{ex}`, which excludes sets too (not pinned)", set.role)),
-                    None => Err(format!("permission set '{}' excludes `{ex}`, which is not one set", set.role)),
+                    Some(_) => Err(format!(
+                        "permission set '{}' excludes `{ex}`, which excludes sets too (not pinned)",
+                        set.role
+                    )),
+                    None => Err(format!(
+                        "permission set '{}' excludes `{ex}`, which is not one set",
+                        set.role
+                    )),
                 };
                 match taken {
                     Ok(c) => {
@@ -333,7 +344,10 @@ impl SetModel {
                     whole.union(&c);
                 }
                 for ex in &self.sets[i].excludes {
-                    if let Some(Ok(c)) = self.one_set(ex).map(|t| self.expanded(t, true, &mut Vec::new(), &mut ignored)) {
+                    if let Some(Ok(c)) = self
+                        .one_set(ex)
+                        .map(|t| self.expanded(t, true, &mut Vec::new(), &mut ignored))
+                    {
                         taken.union(&c);
                     }
                 }
@@ -540,7 +554,10 @@ const TENANT_MEDIA: u32 = 2_000_000_184;
 enum Verdict {
     Allow,
     /// Denied by complete inputs: BC raises its permission error. `by` is the object whose code makes the access.
-    Deny { indirect: bool, by: usize },
+    Deny {
+        indirect: bool,
+        by: usize,
+    },
     /// The outcome is not known: the test is not run.
     Refuse(String),
 }
@@ -654,13 +671,17 @@ impl Session {
         } else if o.kind.extended().is_some() {
             return Verdict::Refuse(format!(
                 "the code of {} {} makes an access the assigned permission sets do not grant directly; which Permissions property covers an extension object's code is not pinned (ADR-062)",
-                o.kind,
-                o.name
+                o.kind, o.name
             ));
         } else {
             match &*model.object_grants(&engine, caller) {
                 Ok(c) => c.level_of(access.kind, access.id, p) != 0,
-                Err(why) => return Verdict::Refuse(format!("the Permissions property of {} {} is not read: {why}", o.kind, o.name)),
+                Err(why) => {
+                    return Verdict::Refuse(format!(
+                        "the Permissions property of {} {} is not read: {why}",
+                        o.kind, o.name
+                    ));
+                }
             }
         };
         let decision = match decide(u, grant) {
@@ -704,7 +725,10 @@ impl Session {
         match self.permission_verdict(access, Some(object), false) {
             Verdict::Allow => Ok(()),
             Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
-            Verdict::Deny { .. } => Err(Signal::Unsupported(unpinned_denial(access, "ADR-062 stage 3, probe P20"))),
+            Verdict::Deny { .. } => Err(Signal::Unsupported(unpinned_denial(
+                access,
+                "ADR-062 stage 3, probe P20",
+            ))),
         }
     }
 
@@ -722,7 +746,10 @@ impl Session {
         match self.permission_verdict(access, Some(table), true) {
             Verdict::Allow => Ok(()),
             Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
-            Verdict::Deny { .. } => Err(Signal::Unsupported(unpinned_denial(access, "ADR-062 stage 2, probe P15"))),
+            Verdict::Deny { .. } => Err(Signal::Unsupported(unpinned_denial(
+                access,
+                "ADR-062 stage 2, probe P15",
+            ))),
         }
     }
 
@@ -750,7 +777,14 @@ impl Session {
         if temporary {
             return Ok(());
         }
-        let id = self.engine.program.objects.heads().get(object).and_then(|o| o.id).unwrap_or(0);
+        let id = self
+            .engine
+            .program
+            .objects
+            .heads()
+            .get(object)
+            .and_then(|o| o.id)
+            .unwrap_or(0);
         if op == Op::Read && ALWAYS_READABLE.contains(&id) {
             return Ok(());
         }
@@ -805,7 +839,9 @@ impl Session {
             _ => return refuse("ADR-062 section 2"),
         };
         match method {
-            R::Insert if self.row_exists(rec)? => return refuse("an Insert of a key that exists (which error comes first is not pinned)"),
+            R::Insert if self.row_exists(rec)? => {
+                return refuse("an Insert of a key that exists (which error comes first is not pinned)");
+            }
             R::Modify | R::Delete | R::Rename if !self.row_exists(rec)? => {
                 return refuse("on a row that does not exist (which error comes first is not pinned)");
             }
@@ -838,7 +874,11 @@ impl Session {
             .get(heads[by].app as usize)
             .map(|a| a.name.as_str())
             .unwrap_or_default();
-        let op = if indirect { format!("Indirect{word}") } else { word.to_string() };
+        let op = if indirect {
+            format!("Indirect{word}")
+        } else {
+            word.to_string()
+        };
         Err(crate::transactions::al_error_code(
             &format!(
                 "Sorry, the current permissions prevented the action. (TableData {} {name} {op}: {app})",
@@ -889,7 +929,12 @@ fn unpinned_denial(access: Access, probe: &str) -> String {
 impl Access {
     /// The access in plain words, for messages.
     fn describe(self) -> String {
-        format!("{} permission on object type {} id {}", self.op.describe(), self.kind, self.id)
+        format!(
+            "{} permission on object type {} id {}",
+            self.op.describe(),
+            self.kind,
+            self.id
+        )
     }
 }
 

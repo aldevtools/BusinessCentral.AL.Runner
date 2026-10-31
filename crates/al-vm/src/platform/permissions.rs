@@ -702,10 +702,7 @@ pub(crate) fn object_grants(engine: &crate::Engine, object: usize) -> Result<cra
 
 /// One `[InherentPermissions(Type, Id, 'Mask'[, Scope])]` attribute: what it grants, as (object type ordinal, object id,
 /// levels). `Ok(None)` for scope Entitlements, which grants nothing (CpPermLeads.al:155-189, BiInherentPerms.al:172-288).
-pub(crate) fn inherent_attribute(
-    engine: &crate::Engine,
-    text: &str,
-) -> Result<Option<(i32, u32, [u8; 5])>, String> {
+pub(crate) fn inherent_attribute(engine: &crate::Engine, text: &str) -> Result<Option<(i32, u32, [u8; 5])>, String> {
     let bad = || format!("the attribute `{text}` is not read here");
     let inner = text
         .find('(')
