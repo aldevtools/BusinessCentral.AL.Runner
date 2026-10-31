@@ -2261,8 +2261,8 @@ impl Session {
     /// action decides what the client holds (`read_list_again_from_row_as`).
     ///
     /// A row Rec stands on that the new filters leave out moves to the next row of the new view after it (Y5:158-174, the row
-    /// 1/50 moves to 2/1). The row before it, which a list with row triggers falls back on (`row_after_view_left`), is not
-    /// measured here, and a view left without rows is not either: both are refused.
+    /// 1/50 moves to 2/1). Without a next row the page goes to the row before it, and a view left without rows shows a blank
+    /// row (pages/lt-y15/Y15ActionNarrowsBelowLast.al, al-runner issue 6468).
     ///
     /// The probe Find and Next below are record methods: SessionInformation's SQL counters log them as reads of the table.
     /// A counter read across this action is classified by `sqlcount.rs`, which treats any order of reads no test pins as
@@ -2335,9 +2335,30 @@ impl Session {
             rec.borrow_mut().fields = fields;
             return Ok(());
         }
-        unsupported(
-            "an action changed the filters of a list without row triggers so that no row of the new view follows the row it stood on (not pinned)",
-        )
+        // No row of the new view follows: the page stands on the nearest row before it, and moves go on from there (corpus writer
+        // Y15, branch al-runtime-rs-staging-y15, pages/lt-y15/Y15ActionNarrowsBelowLast.al:237 Y15_NV_ReporterShape `after show
+        // included` `2/Yes`, `next end` `false/2`; :269 Next `false/2`, Previous `true/1`; :294 GoToRecord and GoToKey; :320 the
+        // same without CurrPage.Update). A view left without rows shows a blank row, and First and Last answer false (:345
+        // `after none` `[]`, `none first` `false/[]`). Assumption `action-filter-no-row-after-moves` until that file is pinned
+        // (al-runner issue 6468).
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionFilterNoRowAfterMoves);
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        if matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(-1)])?, Value::Integer(n) if n != 0) {
+            let fields = probe.borrow().fields.clone();
+            rec.borrow_mut().fields = fields;
+            return Ok(());
+        }
+        {
+            let mut s = st.borrow_mut();
+            s.cursor = Cursor::None;
+            s.focus = None;
+            s.focus_in_row = false;
+        }
+        let table = rec.borrow().table as usize;
+        let fresh = self.initial_fields(table);
+        rec.borrow_mut().fields = fresh;
+        Ok(())
     }
 
     /// The reads of an action that did not call `CurrPage.Update`, before the refresh's own (see
