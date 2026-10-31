@@ -263,6 +263,7 @@ fn run_codeunit_inner(
     }
     session.trace_faults(observe.is_some());
     session.ignore_permission_mock = scratch.ignore_permission_mock;
+    session.permissions_off = scratch.permissions_off;
     let covering = crate::coverage::enabled();
     if covering {
         session.enable_coverage();

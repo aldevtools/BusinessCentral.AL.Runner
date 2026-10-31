@@ -797,6 +797,10 @@ impl Session {
         // A temporary record raises the table events and runs the triggers like any other
         // (corpus record/TestTableEventSequenceContracts.al:TemporaryRecord_RaisesTheEventsAndRunsTheTriggers).
         let (names, tail): (&[&str], Value) = match event {
+            "onbeforeinsertevent" | "onafterinsertevent" if self.run_trigger_unknown.is_some() => (
+                &["Rec", "RunTrigger"],
+                Value::Unknown(self.run_trigger_unknown.unwrap_or_default().into()),
+            ),
             "onbeforeinsertevent" | "onafterinsertevent" | "onbeforedeleteevent" | "onafterdeleteevent" => {
                 (&["Rec", "RunTrigger"], Value::Boolean(run_trigger))
             }
@@ -2926,7 +2930,8 @@ impl Session {
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         // ADR-062: a record method of a restricted session; an unrestricted session pays one branch.
         if self.permissions.is_some() {
-            self.permission_gate()?;
+            let object = rec.borrow().table as usize;
+            self.permission_gate_record(method, object)?;
         }
         if self.sql.active {
             return self.record_op_counted(method, rec, args);
@@ -5745,6 +5750,9 @@ impl Session {
                                 al_builtins::native::text_of(&row[0]).unwrap_or_default(),
                             );
                             self.store.rename_company(&from, &to);
+                            if self.full_copies.remove(from.as_str()) {
+                                self.full_copies.insert(to.to_string());
+                            }
                         }
                         if !same_key && self.is_profile_row(&t, rec.borrow().temporary) {
                             self.profile_after_rename(&t, &old_fields, &row)?;
