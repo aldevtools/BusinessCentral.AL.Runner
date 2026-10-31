@@ -237,7 +237,7 @@ fn fake_gh(dir: &Path, runs: &[(u64, &str, bool)]) -> PathBuf {
         format!(
             r#"#!/bin/bash
 case "$*" in
-  *"run list"*) cat {d}/list.json ;;
+  *"run list"*) echo "$*" > {d}/list-args; cat {d}/list.json ;;
   *"run view"*) cat {d}/view-$3.json ;;
   *"/artifacts?"*) id=${{2#*runs/}}; cat {d}/arts-${{id%%/*}}.json ;;
   *) echo "unexpected gh $*" >&2; exit 9 ;;
@@ -272,6 +272,21 @@ fn find_picks_the_newest_green_run_after_the_pin() {
     assert!(o.status.success(), "{}", text(&o));
     let out = String::from_utf8_lossy(&o.stdout);
     assert_eq!(out, format!("run=3\nsha={}\n", c.c), "{}", text(&o));
+}
+
+/// A pull request run of the corpus tests only the changed files (run 41182315237: 27 cases where the oracle
+/// has 19831), and its commit can be on master with the files of the merge. Only push runs on master are full.
+#[test]
+fn find_asks_only_for_push_runs_on_master() {
+    let c = corpus();
+    let g = tempfile::tempdir().unwrap();
+    let gh = fake_gh(g.path(), &[(2, &c.b, true)]);
+    let o = find(&c, &gh);
+    assert!(o.status.success(), "{}", text(&o));
+    let args = std::fs::read_to_string(g.path().join("list-args")).unwrap();
+    assert!(args.contains("--event push"), "{args}");
+    assert!(args.contains("--branch master"), "{args}");
+    assert!(args.contains("--status success"), "{args}");
 }
 
 #[test]
@@ -427,6 +442,26 @@ fn commit_refuses_a_path_outside_the_bump() {
     assert_eq!(commits(&r), 1);
 }
 
+/// Never weaken an oracle (CLAUDE.md hard rule 2): a JUnit file with fewer cases than before is refused.
+#[test]
+fn commit_refuses_an_oracle_that_shrinks() {
+    let r = runner();
+    let two = "<testsuites><testcase classname=\"C\" name=\"a\"/><testcase classname=\"C\" name=\"b\"/></testsuites>\n";
+    put(r.dir.path(), "oracle/29/junit.xml", two);
+    git(r.dir.path(), &["commit", "-qam", "two cases"]);
+    let before = commits(&r);
+    bump_files(&r);
+    put(
+        r.dir.path(),
+        "oracle/29/junit.xml",
+        "<testsuites><testcase classname=\"C\" name=\"a\"/></testsuites>\n",
+    );
+    let o = commit(&r, &r.corpus.c.clone());
+    assert!(!o.status.success(), "{}", text(&o));
+    assert!(text(&o).contains("oracle/29/junit.xml"), "{}", text(&o));
+    assert_eq!(commits(&r), before, "nothing committed");
+}
+
 #[test]
 fn commit_refuses_a_pin_that_is_not_the_target() {
     let r = runner();
@@ -567,7 +602,11 @@ fn report_lists_each_judgment_item_left_for_a_person() {
         "assertion `left == right` failed\n  left: 5\n right: 6\n",
     );
     put(p, "harness.code", "101\n");
-    put(p, "golden.txt", "pinned_columns.rs is stale; rerun with UPDATE_GOLDEN=1\n");
+    put(
+        p,
+        "golden.txt",
+        "pinned_columns.rs is stale; rerun with UPDATE_GOLDEN=1\n",
+    );
     put(p, "golden.code", "101\n");
     let body = report(p);
     assert!(!body.contains("Nothing is left"), "{body}");

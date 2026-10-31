@@ -50,7 +50,10 @@ find_run() {
     echo "the pin ${pin:0:12} is corpus master" >&2
     return 0
   fi
-  runs="$("$gh" run list -R "$repo" --workflow "$workflow" --status success -L 40 --json databaseId,headSha)"
+  # Only push runs on master: a pull request run tests only the changed files (run 41182315237 had 27 cases where
+  # the oracle had 19831), and its commit can still pass the checks of corpus_bump.sh.
+  runs="$("$gh" run list -R "$repo" --workflow "$workflow" --event push --branch master --status success -L 40 \
+    --json databaseId,headSha)"
   # Newest first, as gh lists them.
   while read -r id sha; do
     [ -n "$id" ] || continue
@@ -73,6 +76,14 @@ for r in json.loads(sys.argv[1]):
   echo "no green corpus run after the pin ${pin:0:12}" >&2
 }
 
+# The number of test cases of a JUnit file (`-` reads standard input).
+junit_cases() {
+  python3 -c '
+import sys, xml.etree.ElementTree as ET
+src = sys.stdin if sys.argv[1] == "-" else sys.argv[1]
+print(sum(1 for _ in ET.parse(src).iter("testcase")))' "$1"
+}
+
 # The paths a bump may change, and why any other is refused.
 allowed() {
   case "$1" in
@@ -92,6 +103,18 @@ commit_bump() { # repository, commit, run
     esac
   done < <(git -C "$r" status --porcelain=v1 -uall --ignore-submodules=none | cut -c4-)
   [ "$bad" = 0 ] || die "paths outside the bump changed; nothing committed"
+  # Never weaken an oracle (CLAUDE.md hard rule 2): no JUnit file of oracle/ may lose cases.
+  local f was is
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    was="$(git -C "$r" show "HEAD:$f" 2>/dev/null | junit_cases -)" || was=0
+    is="$(junit_cases "$r/$f" 2>/dev/null)" || is=0
+    if [ "$is" -lt "$was" ]; then
+      echo "corpus bump bot: $f has $is cases, $was before: an oracle never shrinks in a bump" >&2
+      bad=1
+    fi
+  done < <(git -C "$r" ls-files -- 'oracle/*.xml')
+  [ "$bad" = 0 ] || die "an oracle file lost cases; nothing committed"
   local now
   now="$(git -C "$r/corpus" rev-parse HEAD)"
   [ "$now" = "$sha" ] || die "the corpus submodule is at ${now:0:12}, not at the target ${sha:0:12}; nothing committed"
