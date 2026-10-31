@@ -72,14 +72,20 @@ impl LicenseUse {
         match (&self.license, &self.source) {
             (Some(l), source) => {
                 let whose = l.header.licensee.as_deref().unwrap_or("(no licensee in the header)");
-                let expires = l.header.expires.as_deref().unwrap_or("(no expiry date in the header)");
+                // al-runner #6408: a header in a language the reader does not know is named as such, not as having
+                // no expiry date.
+                let expires = match (&l.header.expires, l.header.expiry_label_unknown) {
+                    (Some(d), _) => format!("expires {d}"),
+                    (None, true) => "expiry not read (label not recognized)".to_string(),
+                    (None, false) => "expires (no expiry date in the header)".to_string(),
+                };
                 let from = match source {
                     Source::Flag(p) => format!("--license {p}"),
                     Source::Artifact { build, .. } => format!("the BC artifacts of build {build}"),
                     Source::None(_) => String::new(),
                 };
                 format!(
-                    "license: {whose}, expires {expires}, from {from}, SHA-256 {}; signature not checked",
+                    "license: {whose}, {expires}, from {from}, SHA-256 {}; signature not checked",
                     l.sha256
                 )
             }
@@ -91,7 +97,8 @@ impl LicenseUse {
     }
 
     /// The values the JUnit and JSON reports carry: `source` (`flag`, `artifact` or `none`), `path` (file or artifact
-    /// entry), `licensee`, `expires`, `sha256`, `signatureChecked` (always false), `reason` (for none).
+    /// entry), `licensee`, `expires`, `expiryNotRead` (only when the expiry label is not recognized), `sha256`,
+    /// `signatureChecked` (always false), `reason` (for none).
     pub fn properties(&self) -> Vec<(&'static str, String)> {
         let mut out = Vec::new();
         match &self.source {
@@ -112,6 +119,9 @@ impl LicenseUse {
         if let Some(l) = &self.license {
             out.push(("licensee", l.header.licensee.clone().unwrap_or_default()));
             out.push(("expires", l.header.expires.clone().unwrap_or_default()));
+            if l.header.expiry_label_unknown {
+                out.push(("expiryNotRead", "label not recognized".to_string()));
+            }
             out.push(("sha256", l.sha256.clone()));
             out.push(("signatureChecked", "false".to_string()));
         }
@@ -181,5 +191,27 @@ mod tests {
         let n = LicenseUse::none("offline");
         assert!(n.line().starts_with("license: none (offline)"), "{}", n.line());
         assert_eq!(n.json()["reason"], "offline");
+    }
+
+    /// al-runner #6408: an expiry under a header label the reader does not know is reported as not read, not as
+    /// missing.
+    #[test]
+    fn an_expiry_under_an_unknown_label_is_named_as_not_read() {
+        let header = "Licensed to              : Synthetic Licensee\r\nSynthlabel               : 03.04.2040\r\n";
+        let bytes = al_host::license::synthetic::file_with_header(header, &[("Codeunit", &[(1, 9, 31)])]);
+        let u = LicenseUse::from_artifact_bytes("27.5.1.2", "x", &bytes).unwrap();
+        let line = u.line();
+        assert!(line.contains("expiry not read (label not recognized)"), "{line}");
+        assert!(!line.contains("no expiry date"), "{line}");
+        assert_eq!(u.json()["expiryNotRead"], "label not recognized");
+
+        let header = "Licensed to              : Synthetic Licensee\r\n";
+        let bytes = al_host::license::synthetic::file_with_header(header, &[("Codeunit", &[(1, 9, 31)])]);
+        let u = LicenseUse::from_artifact_bytes("27.5.1.2", "x", &bytes).unwrap();
+        assert!(
+            u.line().contains("expires (no expiry date in the header)"),
+            "{}",
+            u.line()
+        );
     }
 }

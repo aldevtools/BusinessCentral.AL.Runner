@@ -30,3 +30,34 @@ fn a_text_too_long_for_the_target_fails_with_type_mismatch_after_the_key() {
         format!("ok 1 abcdefghij#{e} 1 old#{e} 5 old")
     );
 }
+
+// A Boolean and a Text field of the same number, either way (misc/lt-probes-needed-6/PnF07TransferEnumOption.al:185-206).
+const BOOL_TEXT: &str = r#"
+table 50942 "Tf Bool" { fields { field(1; Id; Integer) { } field(2; Flag; Boolean) { } } keys { key(PK; Id) { } } }
+table 50943 "Tf Text" { fields { field(1; Id; Integer) { } field(2; Flag; Text[30]) { } } keys { key(PK; Id) { } } }
+codeunit 50101 C
+{
+    [TryFunction]
+    local procedure BoolToText(var T: Record "Tf Text"; B: Record "Tf Bool") begin T.TransferFields(B); end;
+    [TryFunction]
+    local procedure TextToBool(var B: Record "Tf Bool"; T: Record "Tf Text") begin B.TransferFields(T); end;
+    procedure F(): Text
+    var B: Record "Tf Bool"; T: Record "Tf Text"; R: Text;
+    begin
+        B.Flag := true;
+        if not BoolToText(T, B) then R := GetLastErrorText() + '|' + GetLastErrorCode();
+        T.Flag := 'Yes';
+        if not TextToBool(B, T) then R += '#' + GetLastErrorText() + '|' + GetLastErrorCode();
+        exit(R);
+    end;
+}
+"#;
+
+#[test]
+fn boolean_and_text_fields_fail_with_type_mismatch() {
+    assert_eq!(
+        al_testkit::text(al_testkit::run(BOOL_TEXT, "F")),
+        "The following fields must have the same type:\\\\Field: Flag <-- Flag\\Table: Tf Text <-- Tf Bool\\Type: Text <-- Boolean|DB:TypeMisMatch\
+         #The following fields must have the same type:\\\\Field: Flag <-- Flag\\Table: Tf Bool <-- Tf Text\\Type: Boolean <-- Text|DB:TypeMisMatch"
+    );
+}

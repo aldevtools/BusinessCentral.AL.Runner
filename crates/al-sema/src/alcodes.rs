@@ -102,7 +102,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0296",
-        "a Cloud app names a platform table that is Scope = OnPrem (the 123 of System.app that the corpus lists), calls GetLastErrorObject, SecretText.Unwrap, or File.Open, or sets the report property EnableExternalAssemblies to true",
+        "a Cloud app names a platform table that is Scope = OnPrem (the 123 of System.app that the corpus lists, in code or in a permission set), calls GetLastErrorObject, SecretText.Unwrap, File.Open, a builtin overload the corpus pins as OnPrem (ONPREM_BUILTINS) or its own procedure with [Scope('OnPrem')] or [Scope('Internal')], uses the HttpClientHandler attribute, or sets the report property EnableExternalAssemblies to true",
     ),
     (
         "AL0398",
@@ -930,7 +930,9 @@ pub(crate) fn duplicate_id_objects(ws: &Workspace) -> Vec<usize> {
 /// The longest object name the AL compiler accepts, from alc's text (must-not-compile 0055-object-name-too-long.al:1,
 /// 2120-codeunit-name-31-characters.al:1).
 const AL0305_LIMIT: usize = 30;
-/// The longest permission set name alc accepts (2131-permissionset-name-21-characters.al:1: 21 is refused, 20 compiles).
+/// The longest name of a permission set with `Assignable = true` (2131-permissionset-name-21-characters.al:3-5:
+/// 21 is refused, 20 compiles). Other permission sets are not judged: alc accepts 21 characters there (al-runner
+/// issue 6445), and no corpus case pins their limit yet (docs/probes-needed.md).
 const AL0305_PERMISSION_SET_LIMIT: usize = 20;
 
 /// The name limit AL0305 applies to an object type, where a case pins it: codeunits (0055, 2115, 2120, 2121), tables
@@ -957,24 +959,33 @@ fn name_limit(kind: ObjKind) -> Option<usize> {
 
 /// AL0305: an object name longer than its type allows (al-runner issues 5845, 5588; see `name_limit`).
 fn long_object_names(ws: &Workspace, out: &mut Vec<Diagnostic>) {
-    for o in &ws.objects {
+    for (oi, o) in ws.objects.iter().enumerate() {
         if ws.kinds[o.app] == AppKind::Dependency {
             continue;
         }
         let Some(limit) = name_limit(o.kind) else { continue };
-        if o.name.chars().count() > limit {
-            push(
-                out,
-                ws,
-                o.file,
-                o.offset,
-                "AL0305",
-                format!(
-                    "The length of the application object identifier '{}' cannot exceed {limit} characters.",
-                    o.name
-                ),
-            );
+        if o.name.chars().count() <= limit {
+            continue;
         }
+        // The 20-character limit is pinned only with an explicit `Assignable = true` (case 2131, issue 6445).
+        if o.kind == ObjKind::PermissionSet
+            && !ws.object_ast(oi).properties().any(|p| {
+                p.name().eq_ignore_ascii_case("Assignable") && p.value_text().trim().eq_ignore_ascii_case("true")
+            })
+        {
+            continue;
+        }
+        push(
+            out,
+            ws,
+            o.file,
+            o.offset,
+            "AL0305",
+            format!(
+                "The length of the application object identifier '{}' cannot exceed {limit} characters.",
+                o.name
+            ),
+        );
     }
 }
 
@@ -1816,7 +1827,7 @@ pub fn check_context(ws: &Workspace, app: usize, ctx: &AppContext) -> Vec<Diagno
             }
         }
     }
-    // AL0296 (corpus 0006, 0014; and for BC 27 0020 to 0024): a Cloud app names a platform table that is
+    // AL0296 (corpus 0006, 0014; from BC 27 0020 to 0024, from BC 28 1240): a Cloud app names a platform table that is
     // Scope = OnPrem. The same tables can add AL0161 (internal agent tables) and AL0433 (removed tables).
     if ctx.target == AppTarget::Cloud {
         for (fi, f) in ws.files.iter().enumerate() {
@@ -1885,6 +1896,52 @@ pub fn check_context(ws: &Workspace, app: usize, ctx: &AppContext) -> Vec<Diagno
             }
         }
     }
+    // AL0296 (corpus 1712-permissionset-tabledata-onprem-table.al:1, 1713-permissionset-table-object-onprem-table.al:1):
+    // a permission set of a Cloud app names, as `tabledata` or `table`, a platform table that is Scope = OnPrem. Only
+    // the tables of the OnPrem lists that are neither removed nor internal: for those alc may add AL0433 or AL0161 in a
+    // permission set too, which no case pins.
+    if ctx.target == AppTarget::Cloud {
+        let known = al_version::platform_table_scopes_known(ctx.bc_major);
+        for (oi, o) in ws.objects.iter().enumerate() {
+            if o.app != app || o.kind != ObjKind::PermissionSet {
+                continue;
+            }
+            let obj = ws.object_ast(oi);
+            for p in obj
+                .properties()
+                .filter(|p| p.name().eq_ignore_ascii_case("Permissions"))
+            {
+                for (kind, name) in permission_entries(&p.value_text()) {
+                    if !kind.eq_ignore_ascii_case("tabledata") && !kind.eq_ignore_ascii_case("table") {
+                        continue;
+                    }
+                    let find = |l: &[&'static str]| l.iter().copied().find(|x| x.eq_ignore_ascii_case(&name));
+                    let Some(table) =
+                        find(ONPREM_PLATFORM_TABLES).or(known.then(|| find(ONPREM_PLATFORM_TABLES_27)).flatten())
+                    else {
+                        continue;
+                    };
+                    let removed = REMOVED_PLATFORM_TABLES_27
+                        .iter()
+                        .any(|(x, _)| x.eq_ignore_ascii_case(table));
+                    let internal = INTERNAL_AGENT_TABLES_27.iter().any(|x| x.eq_ignore_ascii_case(table));
+                    if removed || internal || ws.find(ObjKind::Table, &name).is_some() {
+                        continue;
+                    }
+                    push(
+                        &mut out,
+                        ws,
+                        o.file,
+                        offset_of(p.syntax()),
+                        "AL0296",
+                        format!(
+                            "The application object or method '{table}' has scope 'OnPrem' and cannot be used for 'Cloud' development."
+                        ),
+                    );
+                }
+            }
+        }
+    }
     // AL0296 (corpus 0110, 0112, 0113): a Cloud app calls a method that has scope OnPrem: GetLastErrorObject, the
     // Unwrap of a SecretText, the Open of a File, and the static File.Exists, Erase and Copy (0361 to 0363). Only these shapes are pinned.
     if ctx.target == AppTarget::Cloud {
@@ -1898,6 +1955,181 @@ pub fn check_context(ws: &Workspace, app: usize, ctx: &AppContext) -> Vec<Diagno
             };
             for obj in source.objects() {
                 onprem_method_calls(ws, fi, &obj, &mut out);
+            }
+        }
+    }
+    out
+}
+
+/// The entries `<kind> <name> = <letters>` of a `Permissions` property value, as (kind, unquoted name).
+fn permission_entries(value: &str) -> Vec<(String, String)> {
+    // Split at the commas outside quotes.
+    let mut parts = Vec::new();
+    let (mut cur, mut quoted) = (String::new(), false);
+    for ch in value.chars() {
+        match ch {
+            '"' => {
+                quoted = !quoted;
+                cur.push(ch);
+            }
+            ',' if !quoted => parts.push(std::mem::take(&mut cur)),
+            _ => cur.push(ch),
+        }
+    }
+    parts.push(cur);
+    parts
+        .iter()
+        .filter_map(|e| {
+            let lhs = e.rsplit_once('=').map_or(e.as_str(), |(l, _)| l).trim();
+            let (kind, name) = lhs.split_once(char::is_whitespace)?;
+            let name = name.trim();
+            let name = name.strip_prefix('"').and_then(|n| n.strip_suffix('"')).unwrap_or(name);
+            Some((kind.to_string(), name.to_string()))
+        })
+        .collect()
+}
+
+/// The builtin overloads (catalog ids) that have scope OnPrem, by the name alc reports. Per overload: a Cloud app may
+/// call another overload of the same method. Pinned by must-not-compile (each case's line 1 holds the text):
+/// 0563 Blob.Export, 0564 Blob.Import, 0565 SessionInformation.AITokensUsed, 0566 Database.AlterKey, 0567
+/// Database.ChangeUserPassword, 0568 Database.SetUserPassword, 0569 Database.ExportData, 0570 Database.ImportData, 0571
+/// CanLoadType, 0572 ExportEncryptionKey, 0573 ImportEncryptionKey, 0574 ImportStreamWithUrlAccess, 0575
+/// Session.LogSecurityAudit, 0643 Media.ExportFile, 0644 Media.ImportFile, 0645 MediaSet.ExportFile, 0646
+/// MediaSet.ImportFile, 0651 HttpClient.UseDefaultNetworkWindowsAuthentication, 0652 and 0653 both
+/// HttpClient.UseWindowsAuthentication overloads, 0660 (static) and 0661 (instance) Report.SaveAsExcel, SaveAsHtml,
+/// SaveAsPdf, SaveAsWord and SaveAsXml with a file name, 1310 File.IsPathTemporary, 1311 File.Download, 1312
+/// Database.DataFileInformation.
+const ONPREM_BUILTINS: &[(&str, &str)] = &[
+    ("Blob.Export#1", "Export"),
+    ("Blob.Import#1", "Import"),
+    ("SessionInformation.AITokensUsed#1", "AITokensUsed"),
+    ("Database.AlterKey#1", "AlterKey"),
+    ("Database.ChangeUserPassword#1", "ChangeUserPassword"),
+    ("Database.SetUserPassword#1", "SetUserPassword"),
+    ("Database.ExportData#1", "ExportData"),
+    ("Database.ImportData#1", "ImportData"),
+    ("Database.DataFileInformation#1", "DataFileInformation"),
+    ("System.CanLoadType#1", "CanLoadType"),
+    ("System.ExportEncryptionKey#1", "ExportEncryptionKey"),
+    ("System.ImportEncryptionKey#1", "ImportEncryptionKey"),
+    ("System.ImportStreamWithUrlAccess#1", "ImportStreamWithUrlAccess"),
+    ("Session.LogSecurityAudit#1", "LogSecurityAudit"),
+    ("Media.ExportFile#1", "ExportFile"),
+    ("Media.ImportFile#1", "ImportFile"),
+    ("MediaSet.ExportFile#1", "ExportFile"),
+    ("MediaSet.ImportFile#1", "ImportFile"),
+    (
+        "HttpClient.UseDefaultNetworkWindowsAuthentication#1",
+        "UseDefaultNetworkWindowsAuthentication",
+    ),
+    ("HttpClient.UseWindowsAuthentication#1", "UseWindowsAuthentication"),
+    ("HttpClient.UseWindowsAuthentication#2", "UseWindowsAuthentication"),
+    ("Report.SaveAsExcel#1", "SaveAsExcel"),
+    ("Report.SaveAsExcel#2", "SaveAsExcel"),
+    ("Report.SaveAsHtml#1", "SaveAsHtml"),
+    ("Report.SaveAsHtml#2", "SaveAsHtml"),
+    ("Report.SaveAsPdf#1", "SaveAsPdf"),
+    ("Report.SaveAsPdf#2", "SaveAsPdf"),
+    ("Report.SaveAsWord#1", "SaveAsWord"),
+    ("Report.SaveAsWord#2", "SaveAsWord"),
+    ("Report.SaveAsXml#1", "SaveAsXml"),
+    ("Report.SaveAsXml#2", "SaveAsXml"),
+    ("File.IsPathTemporary#1", "IsPathTemporary"),
+    ("File.Download#1", "Download"),
+];
+
+/// AL0296 that needs what the check resolved: a Cloud app calls a builtin overload with scope OnPrem
+/// ([`ONPREM_BUILTINS`]), calls a procedure of its own declared `[Scope('OnPrem')]` (must-not-compile
+/// 0981-scope-onprem-procedure-called-in-cloud-app.al:1) or `[Scope('Internal')]` (0982-scope-internal-procedure-called-in-cloud-app.al:1),
+/// or puts the attribute `[HttpClientHandler]` on a procedure (0983-httpclienthandler-cloud.al:1).
+pub fn check_resolved_scope(
+    ws: &Workspace,
+    app: usize,
+    ctx: &AppContext,
+    checked: &crate::check::CheckResult,
+) -> Vec<Diagnostic> {
+    resolved_scope(ws, app, ctx, &checked.resolutions)
+}
+
+/// [`check_resolved_scope`] over the resolutions of one check (the check of the code a selection left out has its own).
+pub(crate) fn resolved_scope(
+    ws: &Workspace,
+    app: usize,
+    ctx: &AppContext,
+    resolutions: &crate::check::PosMap<crate::check::Res>,
+) -> Vec<Diagnostic> {
+    use crate::check::Res;
+    let mut out = Vec::new();
+    if ctx.target != AppTarget::Cloud {
+        return out;
+    }
+    let msg = |name: &str, scope: &str| {
+        format!(
+            "The application object or method '{name}' has scope '{scope}' and cannot be used for 'Cloud' development."
+        )
+    };
+    for (fi, f) in ws.files.iter().enumerate() {
+        if f.app != app {
+            continue;
+        }
+        let root = SyntaxNode::new_root(ws.green(fi));
+        for n in root.descendants() {
+            match n.kind() {
+                SyntaxKind::CallExpr => {
+                    let r = n.text_range();
+                    let Some(res) = resolutions.get(&(fi, r.start().into(), r.end().into())) else {
+                        continue;
+                    };
+                    match res.inner() {
+                        Res::Builtin(id) => {
+                            if let Some((_, name)) = ONPREM_BUILTINS.iter().find(|(i, _)| i == id) {
+                                push(&mut out, ws, fi, offset_of(&n), "AL0296", msg(name, "OnPrem"));
+                            }
+                        }
+                        Res::Proc { object, offset } if ws.objects[*object].app == app => {
+                            let obj = ws.object_ast(*object);
+                            let Some(routine) = ast::routines_in(obj.syntax())
+                                .into_iter()
+                                .find(|r| usize::from(r.syntax().text_range().start()) == *offset)
+                            else {
+                                continue;
+                            };
+                            let scope = routine.attributes().find_map(|a| {
+                                if !a.name().eq_ignore_ascii_case("Scope") {
+                                    return None;
+                                }
+                                let arg = a.args()?.text().to_string();
+                                let arg = arg
+                                    .trim()
+                                    .trim_start_matches('(')
+                                    .trim_end_matches(')')
+                                    .trim()
+                                    .trim_matches('\'');
+                                ["OnPrem", "Internal"].into_iter().find(|s| s.eq_ignore_ascii_case(arg))
+                            });
+                            if let Some(scope) = scope {
+                                push(&mut out, ws, fi, offset_of(&n), "AL0296", msg(&routine.name(), scope));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                SyntaxKind::Attribute => {
+                    let Some(a) = ast::Attribute::cast(n.clone()) else {
+                        continue;
+                    };
+                    if a.name().eq_ignore_ascii_case("HttpClientHandler") {
+                        push(
+                            &mut out,
+                            ws,
+                            fi,
+                            offset_of(&n),
+                            "AL0296",
+                            msg("HttpClientHandler", "OnPrem"),
+                        );
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -2962,6 +3194,27 @@ mod tests {
         }
     }
 
+    // al-runner issue 6445: the 20-character permission set limit is pinned only with `Assignable = true` (case
+    // 2131). Every other permission set is not judged: alc accepts 21 characters there.
+    #[test]
+    fn al0305_permission_set_limit_only_when_assignable_true() {
+        for ok in [
+            "permissionset 50100 \"ABC-DEF Process Files\" { Access = Internal; Assignable = false; }",
+            "permissionset 50100 \"ABC-DEF Process Files\" { Assignable = false; }",
+            "permissionset 50100 \"ABC-DEF Process Files\" { Access = Internal; }",
+            "permissionset 50100 \"ABC-DEF Process Files\" { }",
+            "permissionset 50100 \"ABC-DEF Process Files Thirty One\" { Assignable = false; }",
+        ] {
+            assert!(codes(&[ok]).iter().all(|c| c != "AL0305"), "{ok}");
+        }
+        for bad in [
+            "permissionset 50100 \"ABC-DEF Process Files\" { Assignable = true; }",
+            "permissionset 50100 \"ABC-DEF Process Files\" { Access = Public; Assignable = true; }",
+        ] {
+            assert_eq!(codes(&[bad]), vec!["AL0305"], "{bad}");
+        }
+    }
+
     // must-not-compile 0055: AL0305 for an object name of 37 characters (al-runner issue 5845).
     #[test]
     fn al0305_an_object_name_too_long() {
@@ -3261,7 +3514,7 @@ mod tests {
     }
 
     #[test]
-    fn al0296_al0161_and_al0433_for_the_platform_tables_of_bc_27_only() {
+    fn al0296_al0161_and_al0433_for_the_platform_tables_from_bc_27() {
         let cu = |t: &str| {
             format!("codeunit 50000 C {{ procedure P(): Integer var R: Record \"{t}\"; begin exit(R.Count()); end; }}")
         };
@@ -3275,9 +3528,15 @@ mod tests {
         assert_eq!(at(27, "Designed Query"), vec!["AL0296"]);
         assert_eq!(at(27, "Agent Data"), vec!["AL0161", "AL0296"]);
         assert_eq!(at(27, "Profile"), vec!["AL0296", "AL0433"]);
-        // Not pinned for another major, and a table that is not on the list is not judged.
-        assert!(at(28, "Designed Query").is_empty());
+        // BC 28 and 29 give the same verdicts (must-not-compile 1240, `@from 28`); a table that is not on the list is
+        // not judged, and no major is not judged either.
+        assert_eq!(at(28, "Designed Query"), vec!["AL0296"]);
+        assert_eq!(at(29, "Agent Data"), vec!["AL0161", "AL0296"]);
+        assert_eq!(at(29, "Profile"), vec!["AL0296", "AL0433"]);
         assert!(at(27, "Company").is_empty());
+        let mut none = ctx(AppTarget::Cloud, None, &[]);
+        none.bc_major = None;
+        assert!(ctx_codes(&cu("Designed Query"), &none).is_empty());
         // Cases 0006 and 0014 hold for every major.
         assert_eq!(at(28, "Published Application"), vec!["AL0296"]);
     }
@@ -3352,6 +3611,152 @@ mod tests {
             ..cloud()
         };
         assert!(ctx_codes(file, &onprem).is_empty());
+    }
+
+    /// The AL0296 messages of [`check_resolved_scope`] for `src` in an app with `ctx`.
+    fn scope_msgs(src: &str, ctx: &AppContext) -> Vec<String> {
+        let ws = load(&[src]);
+        let r = crate::check::check(&ws, &crate::members::build(&ws), &Catalog::load());
+        check_resolved_scope(&ws, 0, ctx, &r)
+            .iter()
+            .map(|d| format!("{} {}", d.code, d.message))
+            .collect()
+    }
+
+    fn onprem_msg(name: &str, scope: &str) -> String {
+        format!(
+            "AL0296 The application object or method '{name}' has scope '{scope}' and cannot be used for 'Cloud' development."
+        )
+    }
+
+    // Must-not-compile 0563 to 0575, 0643 to 0646, 0651 to 0653, 0660, 0661, 1310 to 1312.
+    #[test]
+    fn al0296_a_cloud_app_calls_a_builtin_overload_with_scope_onprem() {
+        let cu = |body: &str| format!("report 50001 R {{ }} codeunit 50000 C {{ procedure P() {body} }}");
+        let one = |body: &str, name: &str| {
+            assert_eq!(
+                scope_msgs(&cu(body), &cloud()),
+                vec![onprem_msg(name, "OnPrem")],
+                "{body}"
+            );
+            let onprem = AppContext {
+                target: AppTarget::OnPrem,
+                ..cloud()
+            };
+            assert!(scope_msgs(&cu(body), &onprem).is_empty(), "{body}");
+        };
+        one(
+            "var U: Integer; begin U := SessionInformation.AITokensUsed(); end;",
+            "AITokensUsed",
+        );
+        one(
+            "var R: RecordRef; K: KeyRef; begin K := R.KeyIndex(1); Database.AlterKey(K, true); end;",
+            "AlterKey",
+        );
+        one(
+            "var B: Boolean; begin B := Database.ChangeUserPassword('a', 'b'); end;",
+            "ChangeUserPassword",
+        );
+        one(
+            "begin Database.SetUserPassword(CreateGuid(), 'x'); end;",
+            "SetUserPassword",
+        );
+        one("var F: Text; begin Database.ExportData(false, F); end;", "ExportData");
+        one("var F: Text; begin Database.ImportData(false, F); end;", "ImportData");
+        one("begin ExportEncryptionKey('x'); end;", "ExportEncryptionKey");
+        one("begin ImportEncryptionKey('f', 'p'); end;", "ImportEncryptionKey");
+        one(
+            "var D: InStream; U: Text; begin U := ImportStreamWithUrlAccess(D, 'f', 5); end;",
+            "ImportStreamWithUrlAccess",
+        );
+        one(
+            "var B: Boolean; begin B := File.IsPathTemporary('x'); end;",
+            "IsPathTemporary",
+        );
+        one(
+            "var T: Text; B: Boolean; begin B := File.Download('a', 'b', '', '', T); end;",
+            "Download",
+        );
+        one(
+            "var C: HttpClient; B: Boolean; begin B := C.UseDefaultNetworkWindowsAuthentication(); end;",
+            "UseDefaultNetworkWindowsAuthentication",
+        );
+        one(
+            "var C: HttpClient; B: Boolean; begin B := C.UseWindowsAuthentication('u', 'p', 'd'); end;",
+            "UseWindowsAuthentication",
+        );
+        one(
+            "var C: HttpClient; S: SecretText; B: Boolean; begin B := C.UseWindowsAuthentication(S, S, S); end;",
+            "UseWindowsAuthentication",
+        );
+        one(
+            "var R: Report \"R\"; B: Boolean; begin B := R.SaveAsPdf('f'); end;",
+            "SaveAsPdf",
+        );
+        one("var B: Boolean; begin B := Report.SaveAsXml(1, 'f'); end;", "SaveAsXml");
+        // Another method of the same types compiles in a Cloud app.
+        let none = |body: &str| assert!(scope_msgs(&cu(body), &cloud()).is_empty(), "{body}");
+        none("var C: HttpClient; begin C.Clear(); end;");
+        none("var I: Integer; begin I := SessionInformation.SqlStatementsExecuted(); end;");
+    }
+
+    // Must-not-compile 0981 (Scope('OnPrem')) and 0982 (Scope('Internal')): a procedure of the Cloud app with that scope,
+    // called from the app.
+    #[test]
+    fn al0296_a_cloud_app_calls_its_own_procedure_with_scope_onprem_or_internal() {
+        let src = |scope: &str| {
+            format!(
+                "codeunit 50000 C {{ [Scope('{scope}')] procedure Scoped() begin end; procedure R() begin Scoped(); end; }}"
+            )
+        };
+        assert_eq!(
+            scope_msgs(&src("OnPrem"), &cloud()),
+            vec![onprem_msg("Scoped", "OnPrem")]
+        );
+        assert_eq!(
+            scope_msgs(&src("Internal"), &cloud()),
+            vec![onprem_msg("Scoped", "Internal")]
+        );
+        assert!(scope_msgs(&src("Cloud"), &cloud()).is_empty());
+        let onprem = AppContext {
+            target: AppTarget::OnPrem,
+            ..cloud()
+        };
+        assert!(scope_msgs(&src("OnPrem"), &onprem).is_empty());
+        // Declared without a call: nothing.
+        let uncalled = "codeunit 50000 C { [Scope('OnPrem')] procedure Scoped() begin end; }";
+        assert!(scope_msgs(uncalled, &cloud()).is_empty());
+    }
+
+    // Must-not-compile 0983: the HttpClientHandler attribute in a Cloud app.
+    #[test]
+    fn al0296_the_httpclienthandler_attribute_in_a_cloud_app() {
+        let src = "codeunit 50000 C { Subtype = Test; [HttpClientHandler] procedure H(Request: TestHttpRequestMessage; var Response: TestHttpResponseMessage): Boolean begin end; }";
+        assert_eq!(
+            scope_msgs(src, &cloud()),
+            vec![onprem_msg("HttpClientHandler", "OnPrem")]
+        );
+        let onprem = AppContext {
+            target: AppTarget::OnPrem,
+            ..cloud()
+        };
+        assert!(scope_msgs(src, &onprem).is_empty());
+    }
+
+    // Must-not-compile 1712 (tabledata) and 1713 (table): a permission set of a Cloud app names a Scope = OnPrem table.
+    #[test]
+    fn al0296_a_cloud_permission_set_names_an_onprem_table() {
+        for entry in ["tabledata \"User Property\" = R", "table \"User Property\" = X"] {
+            let src = format!("permissionset 50000 \"P\" {{ Assignable = true; Permissions = {entry}; }}");
+            for major in [27, 28, 29] {
+                let mut c = cloud();
+                c.bc_major = Some(major);
+                let got: Vec<String> = ctx_codes(&src, &c);
+                assert_eq!(got, vec!["AL0296"], "{entry} {major}");
+            }
+        }
+        let fine = "permissionset 50000 \"P\" { Assignable = true; Permissions = tabledata Company = R, page * = X; }";
+        assert!(ctx_codes(fine, &cloud()).is_empty());
     }
 
     // TestHandlers is a codeunit property: BC 29 compiles a test codeunit that names one (corpus

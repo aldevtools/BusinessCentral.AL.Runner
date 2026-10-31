@@ -1435,6 +1435,19 @@ impl Session {
                     d.position = s.position.clone();
                     d.load.buffer = s.load.buffer.clone();
                     d.load.partial = s.load.partial;
+                    // Record.IsDirty of the record compares with what the RecordRef last read or wrote
+                    // (lt-ac/Y8RecordIsDirtyShapes.al:325-331 `settable_read_row` No, `settable_changed_row` Yes).
+                    d.is_dirty_base = match &s.dirty_base {
+                        Some(base) => al_builtins::value::DirtyBase::Row {
+                            base: base.clone(),
+                            alt: None,
+                            dirty_only: false,
+                            stale_store: false,
+                        },
+                        None => al_builtins::value::DirtyBase::Unknown(
+                            "after RecordRef.SetTable from a RecordRef that did not read or write its buffer (not pinned)",
+                        ),
+                    };
                     if share {
                         d.temp_id = s.temp_id.clone();
                     }

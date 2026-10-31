@@ -15,6 +15,9 @@ use al_builtins::describe::Describe;
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Instance, Value};
+
+/// The `Integer` table's number.
+const INTEGER_TABLE: u32 = 2_000_000_026;
 use al_ir as ir;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -2340,8 +2343,16 @@ impl Session {
                         .end_row(item.print_only_if_detail);
                 }
             }
-            // MaxIteration stops an Integer item after that many rows (misc/lt-probes-needed-8/PnH3Link.al:MaxIteration_*).
+            // MaxIteration stops the item after that many rows, a skipped row counting (misc/lt-probes-needed-8/
+            // PnH3Link.al:MaxIteration_* for an Integer item; report/lt-maxiteration-zero/MaxIterationZero.al:153-199 for a
+            // record item). A record item moves to the next row first: OnPostDataItem reads row 3 after two rows
+            // (MaxIterationZero.al:160 `post at 3`). Where an Integer item stands then is not pinned; it stays.
             if item.max_iteration.is_some_and(|m| iterations >= m) {
+                let table = rec.borrow().table as usize;
+                if self.engine.program.objects[table].id != Some(INTEGER_TABLE) {
+                    self.ret_used = true;
+                    self.record_op(RecordOp::Next, &rec, &mut [])?;
+                }
                 break 'rows;
             }
             self.ret_used = true;
