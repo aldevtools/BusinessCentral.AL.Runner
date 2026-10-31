@@ -2,7 +2,7 @@
 
 use super::mat::Entry;
 use super::{Ident, blank, pos};
-use al_builtins::value::Value;
+use al_builtins::value::{RtType, Value};
 use al_data::TableDef;
 
 /// The Time Zone table lists the host's zones, `No.` from 1 (record/TestTimeZoneVirtualTable.al:
@@ -591,7 +591,41 @@ fn language_listing(t: &TableDef, filters: &[FieldFilter]) -> Result<Mat, StoreE
     Ok(Mat::new(t, rows))
 }
 
-pub(super) fn windows_language_get(t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
+/// The whole table of `target`'s major when the corpus pins it (`windows_language_rows.rs`, generated from the corpus):
+/// every row and every column, so a read never refuses and an id with no row is no row.
+fn pinned_table(t: &TableDef, target: Option<&al_version::Target>) -> Option<Mat> {
+    use super::windows_language_rows::{FIELDS, MAJORS, ROWS};
+    let major = target?.bc.major;
+    if !MAJORS.contains(&major) {
+        return None;
+    }
+    let rows = ROWS
+        .iter()
+        .filter(|r| (r.0..=r.1).contains(&major))
+        .map(|r| {
+            let mut row = blank(t);
+            for (id, text) in FIELDS.iter().zip(r.2.split('|')) {
+                let at = pos(t, *id);
+                row[at] = match &t.fields[at].ty {
+                    RtType::Integer => Value::Integer(text.parse().expect("windows_language_rows.rs: an Integer")),
+                    RtType::Boolean => Value::Boolean(text == "Yes"),
+                    _ => Value::Text(text.into()),
+                };
+            }
+            Entry::ok(row)
+        })
+        .collect();
+    Some(Mat::new(t, rows))
+}
+
+pub(super) fn windows_language_get(
+    t: &TableDef,
+    pk: &[Value],
+    target: Option<&al_version::Target>,
+) -> Result<Option<Row>, StoreError> {
+    if let Some(m) = pinned_table(t, target) {
+        return m.get(t, pk);
+    }
     let id = pk
         .first()
         .and_then(num)
@@ -614,11 +648,25 @@ pub(super) fn windows_language_get(t: &TableDef, pk: &[Value]) -> Result<Option<
     }
 }
 
-pub(super) fn windows_language_next(t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
+pub(super) fn windows_language_next(
+    t: &TableDef,
+    scan: &Scan,
+    target: Option<&al_version::Target>,
+) -> Result<Option<Row>, StoreError> {
+    if let Some(m) = pinned_table(t, target) {
+        return m.next(t, scan);
+    }
     language_listing(t, scan.filters)?.next(t, scan)
 }
 
-pub(super) fn windows_language_count(t: &TableDef, filters: &[FieldFilter]) -> Result<usize, StoreError> {
+pub(super) fn windows_language_count(
+    t: &TableDef,
+    filters: &[FieldFilter],
+    target: Option<&al_version::Target>,
+) -> Result<usize, StoreError> {
+    if let Some(m) = pinned_table(t, target) {
+        return m.count(t, filters);
+    }
     language_listing(t, filters)?.count(t, filters)
 }
 
