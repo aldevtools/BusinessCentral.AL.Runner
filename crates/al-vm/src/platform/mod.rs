@@ -35,6 +35,7 @@ pub(crate) mod profiles;
 pub(crate) mod ranges;
 mod reports;
 mod seed;
+mod windows_language_rows;
 pub(crate) use permissions::{RawSet, inherent_attribute, object_grants, raw_sets, table_inherent};
 pub(crate) use seed::SESSION_USER_FULL_NAME;
 
@@ -801,7 +802,7 @@ impl VirtualTables for Providers {
             }
             Virtual::Integer => integer::get(t, pk),
             Virtual::Date => date::get(t, pk),
-            Virtual::WindowsLanguage => host_tables::windows_language_get(t, pk),
+            Virtual::WindowsLanguage => host_tables::windows_language_get(t, pk, self.engine().target.as_ref()),
             Virtual::LicensePermission => {
                 let e = self.engine();
                 host_tables::license_permission_get(t, pk, self.license_cx(&e))
@@ -836,7 +837,7 @@ impl VirtualTables for Providers {
             }
             Virtual::Integer => integer::next(t, scan),
             Virtual::Date => date::next(t, scan),
-            Virtual::WindowsLanguage => host_tables::windows_language_next(t, scan),
+            Virtual::WindowsLanguage => host_tables::windows_language_next(t, scan, self.engine().target.as_ref()),
             Virtual::LicensePermission => {
                 let e = self.engine();
                 host_tables::license_permission_next(t, scan, self.license_cx(&e))
@@ -920,7 +921,7 @@ impl VirtualTables for Providers {
             }
             Virtual::Integer => integer::count(t, filters),
             Virtual::Date => date::count(t, filters),
-            Virtual::WindowsLanguage => host_tables::windows_language_count(t, filters),
+            Virtual::WindowsLanguage => host_tables::windows_language_count(t, filters, self.engine().target.as_ref()),
             Virtual::LicensePermission => {
                 let e = self.engine();
                 host_tables::license_permission_count(t, filters, self.license_cx(&e))
