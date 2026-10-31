@@ -8,6 +8,7 @@ mod report_calcfields;
 mod report_column_source_error;
 mod report_custom_layout;
 mod report_execute_twice_views;
+mod report_execute_params_oninit;
 mod report_header_address;
 mod report_link_filter;
 mod report_link_flowfilter;
