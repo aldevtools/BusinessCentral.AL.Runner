@@ -167,9 +167,9 @@ impl Session {
                     if is_p
                         && on_root
                         && r.is_ok()
-                        && self.lookup_refresh_pinned(&root, &tree, &notes)
                         && matches!(target, Some(ControlTarget::Control(i))
-                            if page_of(&self.engine(), st).controls[*i].triggers.iter().any(|(n, _)| n == "onlookup")) =>
+                            if page_of(&self.engine(), st).controls[*i].triggers.iter().any(|(n, _)| n == "onlookup"))
+                        && self.lookup_refresh_pinned(&root, &tree, &notes) =>
                 {
                     DOUBT_LOOKUP
                 }
@@ -403,8 +403,8 @@ impl Session {
     /// - with parts: no Update, `Update(false)` or `Update(true)` (:469, :493, :517, :541, :565, :589), when every other page
     ///   of the tree is a ListPart hosted by `root` with no SubPageView or provider and a SubPageLink that is absent or one
     ///   `field(..)` entry (pages 89631 and 89632) or two (pages/lt-wb-6290/WbLookupListPartTests.al:21-31
-    ///   OnePartWithTwoLinkedFieldsShowsThePickedResource, al-runner issue 6290). A filter entry, three or more entries, a view
-    ///   or a provider are not pinned.
+    ///   OnePartWithTwoLinkedFieldsShowsThePickedResource, al-runner issue 6290), or three (al-runner issue 6466, assumption
+    ///   `lookup-three-field-link-shows-picked`). A filter entry, four or more entries, a view or a provider are not pinned.
     fn lookup_refresh_pinned(&self, root: &St, tree: &[St], notes: &[ShownNote]) -> bool {
         let with_parts = tree.len() > 1;
         let root_ptr = Rc::as_ptr(root);
@@ -427,7 +427,8 @@ impl Session {
             return false;
         }
         let engine = self.engine();
-        tree.iter().filter(|q| !Rc::ptr_eq(q, root)).all(|q| {
+        let mut three = false;
+        let pinned = tree.iter().filter(|q| !Rc::ptr_eq(q, root)).all(|q| {
             let host = q.borrow().host.as_ref().and_then(|(h, i)| h.upgrade().map(|h| (h, *i)));
             let Some((h, i)) = host else { return false };
             let list_part = matches!(
@@ -441,10 +442,35 @@ impl Session {
                         || matches!(
                             l.entries.as_slice(),
                             [ir::LinkEntry::Field(..)] | [ir::LinkEntry::Field(..), ir::LinkEntry::Field(..)]
-                        ))
+                        )
+                        || {
+                            let t = matches!(
+                                l.entries.as_slice(),
+                                [
+                                    ir::LinkEntry::Field(..),
+                                    ir::LinkEntry::Field(..),
+                                    ir::LinkEntry::Field(..)
+                                ]
+                            );
+                            three |= t;
+                            t
+                        })
             });
             Rc::ptr_eq(&h, root) && list_part && link_ok
-        })
+        });
+        if !(pinned && three) {
+            return pinned;
+        }
+        // With three entries BC runs the refresh of the OnValidate's `CurrPage.Update(false)` later, not within the Lookup: the
+        // host's OnAfterGetCurrRecord is not logged after it, and runs before the next Lookup (corpus writer Y15, branch
+        // al-runtime-rs-staging-y15, pages/lt-y15/Y15LookupThreeFieldLink.al:194 `lookup log` `lookup;validate R2`, :278 `log`
+        // `lookup;validate R2;agcr R1;lookup;validate R3`). This runtime refreshes within the Lookup, so a host with row
+        // triggers is refused; without them the refresh shows nothing (al-runner issue 6466, the reporter's page).
+        if self.declares(root, "onaftergetrecord") || self.declares(root, "onaftergetcurrrecord") {
+            return false;
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupThreeFieldLinkShowsPicked);
+        true
     }
 
     /// The expression controls of `st` whose value the page keeps: the page's own controls (not an extension's) whose
