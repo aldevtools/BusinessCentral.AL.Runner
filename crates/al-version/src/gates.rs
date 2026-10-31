@@ -237,6 +237,11 @@ pub enum Gate {
     /// do not (al-language-onprem-dotnet/lt-az-dotnet/AzLastErrorObject.al:212-216 ToString_OtherCodeunit). Consumed by `al-vm`
     /// dotnet/last_error.rs `exception_text`.
     ExceptionTraceValueTaskFrameFrom29,
+    /// The .NET runtime of the service tier is .NET 10 from BC 29, .NET 8 before: the error for a service-tier object assigned
+    /// to a `[RunOnClient]` variable names `System.Private.CoreLib, Version=10.0.0.0` on BC 29 and `Version=8.0.0.0` on BC 27.5
+    /// and 28.5 (al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:443-447,
+    /// Y16_RunOnClient_AssignBetweenClientAndServerVariables). Consumed by `al-vm` dotnet/mod.rs `run_on_client_assign`.
+    DotNetRuntime10From29,
     /// A list action that deletes two or three worksheet lines of a filtered page and leaves Rec on a key no row has runs
     /// OnNewRecord and OnAfterGetCurrRecord once on BC 28, twice on BC 27 and from BC 29 (pages/lt-outside-worksheet-2/
     /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`; two lines:
@@ -329,6 +334,7 @@ impl Gate {
         Gate::OtherRecordOptionCaptionFrom29,
         Gate::JpegMediaSetKeptFrom29,
         Gate::ExceptionTraceValueTaskFrameFrom29,
+        Gate::DotNetRuntime10From29,
     ];
 
     /// The first BC major with the new behaviour.
@@ -366,7 +372,8 @@ impl Gate {
             | Gate::OtherRecordOptionCaptionFrom29
             | Gate::JpegMediaSetKeptFrom29
             | Gate::ThreeLineLeavesKeyTwiceAgainFrom29
-            | Gate::ExceptionTraceValueTaskFrameFrom29 => 29,
+            | Gate::ExceptionTraceValueTaskFrameFrom29
+            | Gate::DotNetRuntime10From29 => 29,
             Gate::ReportSaveAsDataItemIdentity
             | Gate::FeatureKeyListChangedFrom28
             | Gate::FromBase64InvalidTextRaises
@@ -418,6 +425,10 @@ impl Gate {
                     lines: "193,199,204,216",
                 },
             ],
+            Gate::DotNetRuntime10From29 => &[Evidence {
+                file: "../al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al",
+                lines: "443",
+            }],
             Gate::ExceptionTraceValueTaskFrameFrom29 => &[Evidence {
                 file: "../al-language-onprem-dotnet/lt-az-dotnet/AzLastErrorObject.al",
                 lines: "212",

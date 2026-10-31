@@ -788,9 +788,11 @@ const REGISTRY: &[(&str, NativeFn)] = &[
         Ok(Value::Boolean(match a.first() {
             Some(Value::Null) => true,
             // GetLastErrorObject without a last error (GetLastErrorObject.al:290-296).
+            // A `var` parameter that stands for a [RunOnClient] variable (`dotnet_sigs::RUN_ON_CLIENT_NULL`).
             Some(Value::DotNet(o)) => matches!(
                 &o.kind,
-                crate::value::DotNetKind::Internal { type_name, .. } if type_name == crate::dotnet_sigs::NULL_EXCEPTION
+                crate::value::DotNetKind::Internal { type_name, .. }
+                    if type_name == crate::dotnet_sigs::NULL_EXCEPTION || type_name == crate::dotnet_sigs::RUN_ON_CLIENT_NULL
             ),
             _ => false,
         }))

@@ -111,6 +111,7 @@ mod recordref_by_name;
 mod relation_blank_member;
 mod relation_error_ext_caption;
 mod round_date2dmy_errors;
+mod run_on_client;
 mod self_unbind;
 mod setter_call;
 mod sql_counter_copy;

@@ -72,24 +72,21 @@ impl Lowerer<'_> {
             // (lt-bg-runonclient/BgRunOnClient.al:99-120, the seven types of the probe; measured on Windows).
             if name.eq_ignore_ascii_case("IsAvailable")
                 && args.is_empty()
-                && ty.is_some_and(|i| {
-                    let t = self.ws.dotnet[i].decl.type_name.as_str();
-                    t.starts_with("Microsoft.Dynamics.Nav.Client.Capabilities.")
-                        || t == "Microsoft.Dynamics.Nav.Client.PageNotifier"
-                })
+                && ty.is_some_and(|i| al_builtins::dotnet_sigs::is_client_capability(&self.ws.dotnet[i].decl.type_name))
             {
                 return Ok(ir::Expr::Const(ir::Const::Boolean(false)));
             }
             let ctor = ty.is_some_and(|i| self.ws.dotnet[i].decl.alias.eq_ignore_ascii_case(name))
                 || simple.eq_ignore_ascii_case(name);
-            if ctor || name.eq_ignore_ascii_case("Create") || name.eq_ignore_ascii_case("MachineName") {
-                // Pinned by tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al TY_RunOnClient_GuiAllowedGuard_CameraCreate (was assumption `run-on-client-create`).
+            if ctor || al_builtins::dotnet_sigs::run_on_client_fails(name) {
+                // Pinned by tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al TY_RunOnClient_GuiAllowedGuard_CameraCreate (was assumption `run-on-client-create`),
+                // and for System.IO.Directory by Y16_RunOnClient_FileManagementDirectory (corpus master 92fdde19).
                 let key = format!("{why}: {name}");
                 self.run_failures.insert(
                     key.clone(),
                     (
-                        "The operation cannot complete because it uses a feature that is not supported (.NET Framework Interoperability.)".into(),
-                        "DotNetFromAlNotSupported:DotNetFromAlNotSupported".into(),
+                        al_builtins::dotnet_sigs::DOTNET_FROM_AL_NOT_SUPPORTED_TEXT.into(),
+                        al_builtins::dotnet_sigs::DOTNET_FROM_AL_NOT_SUPPORTED_CODE.into(),
                     ),
                 );
                 return Err(key);
@@ -121,12 +118,74 @@ impl Lowerer<'_> {
 
     /// The reason text when `recv` is a variable declared `[RunOnClient]`.
     pub(crate) fn run_on_client_var(&self, recv: &SyntaxNode) -> Option<String> {
+        if recv.kind() != SyntaxKind::NameRef {
+            return None;
+        }
         let (name, local) = match self.res(recv)? {
             Res::Local(n) => (n, true),
-            Res::Global(n) => (n, false),
+            Res::Global(n) if !self.in_request_page => (n, false),
             _ => return None,
         };
-        self.var_attr_refusal(name, local).filter(|w| w.contains("RunOnClient"))
+        let attrs = if local {
+            self.local_var_attrs.get(name)
+        } else {
+            self.global_var_attrs.get(name)
+        }?;
+        attrs
+            .iter()
+            .any(|a| a == "runonclient")
+            .then(|| format!("variable `{name}` has the attribute RunOnClient, which is not supported"))
+    }
+
+    /// The value of a `[RunOnClient]` variable read on the service tier: its slot, which only ever holds null (the
+    /// variable is never assigned: `run_on_client_assign` raises or refuses, and `Clear` keeps it). The null goes to a
+    /// service-tier variable (corpus master 92fdde19, onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:410-420 and :436,
+    /// `client to server`), into a Variant (:454-466) and to a by-value parameter (:244-262, the Camera page's
+    /// `IsAvailable(CameraProvider)`).
+    pub(crate) fn run_on_client_value(&self, n: &SyntaxNode) -> Option<ir::Expr> {
+        self.run_on_client_var(n)?;
+        let place = match self.res(n)? {
+            Res::Local(name) => ir::Place::Local(*self.locals.get(name)?),
+            Res::Global(name) => ir::Place::Global(*self.globals.get(name)?),
+            _ => return None,
+        };
+        Some(ir::Expr::Load(place))
+    }
+
+    /// `X := rhs` where `X` is declared `[RunOnClient]`: the right side is lowered first (a `Create()` or a constructor raises
+    /// there), then the assignment raises or is refused when it runs (`ir::DotNetOp::ClientAssign`; corpus master 92fdde19,
+    /// onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:393-409 and :441-447 for a service-tier StringBuilder).
+    pub(crate) fn run_on_client_assign(&mut self, n: &SyntaxNode, kids: &[SyntaxNode], why: String) -> L<ir::Stmt> {
+        let plain = sig_tokens(n).iter().any(|t| t.kind() == SyntaxKind::Assign);
+        if !plain || self.run_on_client_var(&kids[1]).is_some() {
+            self.run_refusals.insert(why.clone());
+            return Err(why);
+        }
+        let rhs = self.expr(&kids[1])?;
+        Ok(ir::Stmt::Expr(ir::Expr::DotNet {
+            ty: None,
+            receiver: Some(Box::new(rhs)),
+            op: ir::DotNetOp::ClientAssign,
+            args: Vec::new(),
+        }))
+    }
+
+    /// `P := value` where `P` is a `var` DotNet parameter: it stands for a `[RunOnClient]` variable when the caller passed one
+    /// (`ir::DotNetOp::ClientNull`), and then the assignment is that of the variable (`run_on_client_assign`).
+    pub(crate) fn guard_var_dotnet_param(&self, place: &ir::Place, target_ty: &Ty, value: ir::Expr) -> ir::Expr {
+        match place {
+            ir::Place::Local(j)
+                if self.var_params.get(*j).copied().unwrap_or(false) && matches!(target_ty, Ty::DotNet(_)) =>
+            {
+                ir::Expr::DotNet {
+                    ty: None,
+                    receiver: Some(Box::new(value)),
+                    op: ir::DotNetOp::ClientAssign,
+                    args: vec![ir::Arg::Ref(place.clone())],
+                }
+            }
+            _ => value,
+        }
     }
 
     /// `GetDotNetType(x)` (tests/al-language-onprem-dotnet/lt-dotnet-interop/DotNetType*.al). The static type of the argument

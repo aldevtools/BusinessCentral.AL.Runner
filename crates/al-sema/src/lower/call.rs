@@ -169,6 +169,26 @@ impl Lowerer<'_> {
                 let mut out = Vec::new();
                 for (i, a) in args.iter().enumerate() {
                     let p = sig.params.get(i).ok_or("too many arguments")?;
+                    // A `[RunOnClient]` variable to a `var` DotNet parameter: the parameter stands for the client variable, so
+                    // a call on it runs on the client (corpus master 92fdde19, onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:282-302
+                    // Y16_RunOnClient_CreateThroughVarParameter; :264-280 for the Camera page's OnOpen). Nothing comes back:
+                    // the variable only ever holds null.
+                    if p.by_var && matches!(p.ty, Ty::DotNet(_)) && self.run_on_client_var(a).is_some() {
+                        out.push(ir::Arg::Value(ir::Expr::DotNet {
+                            ty: None,
+                            receiver: None,
+                            op: ir::DotNetOp::ClientNull,
+                            args: Vec::new(),
+                        }));
+                        continue;
+                    }
+                    if !p.by_var
+                        && matches!(p.ty, Ty::DotNet(_))
+                        && let Some(v) = self.run_on_client_value(a)
+                    {
+                        out.push(ir::Arg::Value(v));
+                        continue;
+                    }
                     if p.by_var {
                         let arg = self.by_var_arg(a)?;
                         // A `var` Text or Code parameter handed on to another `var` parameter keeps the declared length of the
@@ -481,6 +501,11 @@ impl Lowerer<'_> {
                 // `Create` raise), so it is null (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:171-176, :211-223
                 // `ok Yes`; the second pin is on corpus master from PR 790).
                 if id == "System.IsNull#1" && args.len() == 1 && self.run_on_client_var(&args[0]).is_some() {
+                    return Ok(ir::Expr::Const(ir::Const::Boolean(true)));
+                }
+                // `Clear` of a `[RunOnClient]` variable: it stays null (corpus master 92fdde19,
+                // onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:454-480 Y16_RunOnClient_ClearAndVariant `cleared isnull=Yes`).
+                if id == "System.Clear#1" && args.len() == 1 && self.run_on_client_var(&args[0]).is_some() {
                     return Ok(ir::Expr::Const(ir::Const::Boolean(true)));
                 }
                 let receiver = match &receiver_node {
