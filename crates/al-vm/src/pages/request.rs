@@ -684,6 +684,60 @@ impl Session {
             }
             PageOp::TestFilterGetFilter => {
                 let pos = field_arg(0)?;
+                // A field the caller's SetTableView filtered keeps showing that filter on the page, also after the handler's
+                // SetFilter on it; the run reads the handler's filter (report/lt-report-requestpage/lt-report-requestpage/RptFilters.al:594
+                // SetTableView_AndRequestFilter_Combined: `handler after grp=[2] id=[1..3]`, then `pre filters=[Id: >=3, ...]`).
+                // Pinned for a group 0 range filter on a field of the item's RequestFilterFields; nothing else is generalized.
+                let key = Rc::as_ptr(&rec) as usize;
+                let view_text = self
+                    .report
+                    .set_view_filters
+                    .iter()
+                    .find(|(k, _)| *k == key)
+                    .and_then(|(_, v)| {
+                        v.iter()
+                            .find(|(f, g, _)| *f == pos && *g == 0)
+                            .map(|(_, _, t)| t.clone())
+                    });
+                if let Some(text) = view_text {
+                    let current = {
+                        let f = rec
+                            .borrow()
+                            .filters
+                            .iter()
+                            .find(|f| f.field == pos && f.group == 0)
+                            .cloned();
+                        match f {
+                            Some(f) => Some(self.filter_text(&f.expr)?),
+                            None => None,
+                        }
+                    };
+                    if current.as_deref() == Some(text.as_str()) {
+                        return Ok(Value::Text(text.into()));
+                    }
+                    // The handler changed the field. Only a range view on a RequestFilterFields field is pinned.
+                    let name = table.fields[pos].name.clone();
+                    let engine = self.engine();
+                    let in_request_fields = engine.program.objects[st.borrow().object as usize]
+                        .report
+                        .as_ref()
+                        .is_some_and(|r| {
+                            r.items.iter().any(|i| {
+                                i.table == Some(rec.borrow().table as usize)
+                                    && i.request_filter_fields.as_deref().is_some_and(|l| {
+                                        l.split(',')
+                                            .any(|n| n.trim().trim_matches('"').eq_ignore_ascii_case(&name))
+                                    })
+                            })
+                        });
+                    let range = text.contains("..") && text.chars().all(|c| c.is_ascii_digit() || c == '.');
+                    if in_request_fields && range {
+                        return Ok(Value::Text(text.into()));
+                    }
+                    return unsupported(format!(
+                        "TestFilter.GetFilter of field '{name}' after the handler changed a SetTableView filter (only a numeric range on a RequestFilterFields field is pinned)"
+                    ));
+                }
                 let first = rec.borrow().filters.iter().find(|f| f.field == pos).cloned();
                 match first {
                     Some(f) => Ok(Value::Text(self.filter_text(&f.expr)?.into())),
