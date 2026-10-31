@@ -307,6 +307,8 @@ fn language_filter_refusal(t: &TableDef, filters: &[FieldFilter]) -> Result<(), 
 /// LCID of a culture family, not a rule on the LCID's bits (2052 zh-CN answers 1028, 9242 sr-Latn-RS answers 1050):
 /// only these ids are answered, and the column of any other row is unknown. Runs on assumption
 /// windows-language-primary-language-id until the probe is in the pinned corpus.
+/// LCIDs 1028, 3076, 4100 and 5124 are served from the SaaS values, but corpus PR 899 holds them as Linux suspects
+/// (non-[Test] procedure), so CI does not assert them.
 const PRIMARY_LANGUAGE_IDS: &[(i32, i32)] = &[
     (1025, 1025),
     (1026, 1026),

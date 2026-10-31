@@ -132,6 +132,17 @@ registry! {
             since: "2026-10-30",
         },
     },
+    PageTriggerEventSubscriptionRow => {
+        id: "page-trigger-event-subscription-row",
+        assumed: "The Event Subscription row of a subscriber to a page trigger event other than a field's OnAfterValidateEvent and OnOpenPageEvent (OnBeforeValidateEvent of a field; OnClosePageEvent, OnAfterGetCurrRecordEvent, OnAfterGetRecordEvent, OnNewRecordEvent, OnInsertRecordEvent, OnModifyRecordEvent, OnDeleteRecordEvent, OnQueryClosePageEvent) has Event Type Trigger, Publisher Object Type Page and Active Yes; a page-level event's Published Function is its own name. OnAfterValidateEvent of a page field and OnOpenPageEvent are pinned (misc/lt-probes-needed-5/PnE11EventSub.al:99, :130). The number in a field event's Published Function stays refused when read.",
+        tests: "No Microsoft test in the runner's suites: an outside report (a partner suite checks at the start of its tests that none of its subscribers is inactive; its range includes page trigger subscribers).",
+        probe: "Written: events/lt-event-subscription-trigger-rows/PageTriggerEventRows.al on corpus branch al-runtime-rs-staging-y11; retire when it is in the pinned corpus.",
+        awaiting: Awaiting {
+            issues: &[6411],
+            files: &["tests/al-language/events/lt-event-subscription-trigger-rows/PageTriggerEventRows.al"],
+            since: "2026-10-30",
+        },
+    },
     PageFieldFollowsSourceFieldEditableFalse => {
         id: "page-field-follows-source-field-editable-false",
         assumed: "A page field over a source table field that is a FlowFilter and declares Editable = false, with no Editable of its own on the control, reads Editable() No on a TestPage. A stored field (pages/lt-page-field-editable-source/PageFieldEditableSource.al) and a FlowField (handlers/N582TestPageEdges.al:324) are pinned.",
