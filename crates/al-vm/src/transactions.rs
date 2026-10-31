@@ -769,6 +769,10 @@ impl Session {
                 "a guarded Codeunit.Run whose run fails with TryFunctionWrite (whether it traps it is not pinned)"
                     .into(),
             )),
+            // The license error of a Device Insert is not trapped (al-language-onprem/platform/PtOnPremTables.al:177-184).
+            Err(Signal::Error(e)) if guarded && e.message == crate::records::DEVICE_LICENSE_ERROR => {
+                Err(Signal::Error(e))
+            }
             Err(Signal::Error(mut e)) if guarded => {
                 self.add_top_frame(&mut e);
                 // The run's writes since its last Commit are undone, the error becomes the last
