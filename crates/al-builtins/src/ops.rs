@@ -1610,9 +1610,36 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         (V::Text(a) | V::Code(a), V::Text(b) | V::Code(b)) if (b.has_marker() && a.as_str().is_empty()) => {
             return Ok(Ordering::Less);
         }
+        // A marker stands for text that is not known; the text before it is. Two texts that differ before the first marker
+        // of either compare as they do without it (ordinal, as the unmarked case above). Microsoft's Error Message
+        // Management.ParseErrorText compares `NullJSONTxt <> JSON` with a JSON whose CallStack is marked (Tests-General
+        // Journal, ERM General Journal UT, GeneralJournalNumberOfJournalLines, and 65 more tests).
+        (V::Text(a) | V::Code(a), V::Text(b) | V::Code(b)) => {
+            if let Some(o) = known_prefix_order(a.as_str(), b.as_str()) {
+                return Ok(o);
+            }
+        }
         _ => {}
     }
     compare_general(l, r)
+}
+
+/// The order of two texts that may hold a marker (`CALL_STACK_MARK`, `CARRIED_TEXT_MARK`), when the text before the first
+/// marker of either decides it: the first character that differs there, or a text without a marker that ends while the
+/// other still has known characters. `None` when the texts agree up to a marker.
+fn known_prefix_order(a: &str, b: &str) -> Option<Ordering> {
+    let marker = |c: char| c == crate::native::CALL_STACK_MARK || c == crate::native::CARRIED_TEXT_MARK;
+    let (mut x, mut y) = (a.chars(), b.chars());
+    loop {
+        match (x.next(), y.next()) {
+            (Some(p), _) | (_, Some(p)) if marker(p) => return None,
+            (Some(p), Some(q)) if p != q => return Some(p.cmp(&q)),
+            (Some(_), Some(_)) => {}
+            (None, Some(_)) => return Some(Ordering::Less),
+            (Some(_), None) => return Some(Ordering::Greater),
+            (None, None) => return Some(Ordering::Equal),
+        }
+    }
 }
 
 /// The rest of [`compare`]: kept out of line so that the fast cases above stay small.
@@ -1814,7 +1841,33 @@ mod tests {
         let empty = Value::Text("".into());
         assert_eq!(compare(&marked, &empty).unwrap(), Ordering::Greater);
         assert_eq!(compare(&empty, &marked).unwrap(), Ordering::Less);
-        assert!(compare(&marked, &Value::Text("x".into())).is_err());
+        assert!(compare(&marked, &Value::Text("a".into())).is_err());
+    }
+
+    // The text before the first marker is known: two texts that differ there compare as they do without the marker
+    // (Microsoft's Error Message Management.ParseErrorText: `if NullJSONTxt <> JSON`, JSON with a marked CallStack;
+    // Tests-General Journal, ERM General Journal UT, GeneralJournalNumberOfJournalLines and 65 more).
+    #[test]
+    fn a_marked_text_that_differs_before_its_marker_compares_exactly() {
+        let marked = Value::Text("{\"CallStack\":\"\u{FDD0}\"}".into());
+        let null = Value::Text("null".into());
+        assert_eq!(compare(&null, &marked).unwrap(), Ordering::Less);
+        assert_eq!(compare(&marked, &null).unwrap(), Ordering::Greater);
+        let marked = Value::Text("a\u{FDD0}b".into());
+        assert_eq!(compare(&marked, &Value::Text("x".into())).unwrap(), Ordering::Less);
+        assert_eq!(
+            compare(&Value::Code("B\u{FDD1}".into()), &Value::Text("A\u{FDD0}".into())).unwrap(),
+            Ordering::Greater
+        );
+        // A known text that is a proper prefix of the other's known part is the smaller one.
+        assert_eq!(
+            compare(&Value::Text("ab".into()), &Value::Text("abc\u{FDD0}".into())).unwrap(),
+            Ordering::Less
+        );
+        // Equal up to a marker: the rest is not known.
+        assert!(compare(&Value::Text("ab\u{FDD0}".into()), &Value::Text("ab\u{FDD0}".into())).is_err());
+        assert!(compare(&Value::Text("ab\u{FDD0}".into()), &Value::Text("abc".into())).is_err());
+        assert!(compare(&Value::Text("ab".into()), &Value::Text("ab\u{FDD0}".into())).is_err());
     }
 
     #[test]

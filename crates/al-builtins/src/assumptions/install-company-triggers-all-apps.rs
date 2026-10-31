@@ -1,0 +1,6 @@
+InstallCompanyTriggersAllApps => {
+    id: "install-company-triggers-all-apps",
+    assumed: "In the install session of an app under test, Company Triggers OnCompanyOpen and then OnCompanyOpenCompleted reach the subscribers of every installed app (the dependency apps, Microsoft's included, the apps under test installed before it, and the app itself), each event in ascending codeunit id, before that company's install routines (owner decision 2026-10-19, ADR-046 amendment 1, A4 item 4). Pinned only for the subscribers of the app being installed (install/lt-bf-install-probes/BfInstallTests.al:125-140). A test that reads a table those other subscribers write, or one written by a per-company install routine that reads such a table or shares a SingleInstance codeunit with them, is a flagged pass.",
+    tests: "No Microsoft test: owner decision for partner apps whose per-company install routine reads a table a dependency app's Company Triggers subscriber writes (a reporter's suite: 126 tests refused before).",
+    probe: "Probe Q3 of ADR-046: a fixture app subscriber to OnCompanyOpen increments a SingleInstance counter; the main app's per-company install routine logs it, and a test counts how often the subscriber ran during the fixture app's own install.",
+}

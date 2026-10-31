@@ -1411,9 +1411,17 @@ impl CorpusRuntime {
                             }
                         }
                         slots[k] = Some(r);
-                        left.unwrap_or_else(|| not_run_link(lowered, units[k].oi, "it was not run as a whole".into()))
+                        left.unwrap_or_else(|| {
+                            not_run_link(
+                                &engine,
+                                lowered,
+                                units[k].oi,
+                                units[k].isolation != TestIsolation::Disabled,
+                                "it was not run as a whole".into(),
+                            )
+                        })
                     }
-                    Link::Refused(oi, why) => not_run_link(lowered, oi, why),
+                    Link::Refused(oi, why) => not_run_link(&engine, lowered, oi, false, why),
                 };
                 if let Some((_, _, _, b)) = before {
                     left.tables.extend(b.tables.iter().copied());
@@ -2253,23 +2261,71 @@ fn requires_disabled(o: &al_ir::Object) -> bool {
     })
 }
 
-/// What a codeunit with RequiredTestIsolation = Disabled that did not run leaves for the later ones: nothing known, so a
-/// later codeunit that names a table its tests name is not run.
-fn not_run_link(lowered: &Lowered, oi: usize, why: String) -> super::run::Carried {
+/// What a chain codeunit that did not run leaves for the later ones: nothing known, so a later codeunit that reads a table
+/// it can write is not run.
+///
+/// A codeunit with RequiredTestIsolation = Disabled carries what its tests and its OnRun write (QuCommitIsolation.al:695-718),
+/// so every table its tests name counts. One that is in the chain only for its OnRun (`onrun_only`, `Unit::onrun_carry`:
+/// runner 130450 under Codeunit isolation) carries only what OnRun writes: its tests' writes are rolled back with the
+/// codeunit (RqIsolationModes.al:357-369, the `#else` branches, and :396-472), so only the tables OnRun's reach writes
+/// count. When that reach is not fully known, or writes a table not known statically, every table its tests name counts,
+/// as for a Disabled codeunit, and so does every table OnRun's reach names.
+fn not_run_link(
+    engine: &Arc<al_vm::Engine>,
+    lowered: &Lowered,
+    oi: usize,
+    onrun_only: bool,
+    why: String,
+) -> super::run::Carried {
+    use super::written::{ReachIndex, reach_facts};
     let o = &lowered.program.objects[oi];
-    let mut tables = std::collections::BTreeSet::new();
-    for (r, routine) in o.routines.iter().enumerate() {
-        if routine.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test")) {
-            tables.extend(tables_touched(lowered, oi, r));
+    let onrun_writes = onrun_only
+        .then(|| {
+            let r = o
+                .routines
+                .iter()
+                .position(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun"))?;
+            let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
+            let f = reach_facts(&engine.events, lowered, &index, oi, r);
+            (f.unknown.is_none() && !f.writes_any).then_some(f.writes)
+        })
+        .flatten();
+    let (tables, what) = match onrun_writes {
+        Some(writes) => (
+            writes,
+            format!(
+                "an earlier test codeunit, {}, whose OnRun trigger can write a table this test reads",
+                o.name
+            ),
+        ),
+        None => {
+            let mut tables = std::collections::BTreeSet::new();
+            // OnRun's writes reach the later codeunits under either isolation, so the tables its reach names count too.
+            for (r, routine) in o.routines.iter().enumerate() {
+                let on_run = routine.is_trigger && routine.name.eq_ignore_ascii_case("OnRun");
+                if on_run || routine.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test")) {
+                    tables.extend(tables_touched(lowered, oi, r));
+                }
+            }
+            let what = if onrun_only {
+                format!(
+                    "an earlier test codeunit, {}, whose OnRun trigger can write a table this test reads",
+                    o.name
+                )
+            } else {
+                format!(
+                    "an earlier codeunit with RequiredTestIsolation = Disabled, {}, can write a table this test reads",
+                    o.name
+                )
+            };
+            (tables, what)
         }
-    }
+    };
     super::run::Carried {
         baseline: None,
         tables,
         unfinished: Some(format!(
-            "an earlier codeunit with RequiredTestIsolation = Disabled, {}, can write a table this test reads, and it was \
-             not run ({}): what BC's run of it left is not known",
-            o.name,
+            "{what}, and it was not run ({}): what BC's run of it left is not known",
             why.chars().take(160).collect::<String>()
         )),
         storage_why: None,
