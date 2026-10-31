@@ -6,6 +6,7 @@ mod bare_page_method;
 mod base_access;
 mod bg_task_error_level;
 mod bg_task_id;
+mod collapsed_tree_page_code;
 mod control_entry;
 mod control_properties;
 mod control_text;

@@ -206,7 +206,7 @@ impl Session {
             let inst = self.owner_instance(st, owner);
             let current = self.control_value(st, idx)?;
             let shown = self.control_text(st, idx, &current)?;
-            self.call(object, routine, inst, vec![Value::Text(shown.into())])
+            self.page_call(st, object, routine, inst, vec![Value::Text(shown.into())])
                 .and_then(|(v, finals)| match (v, finals.first()) {
                     (Value::Boolean(true), Some(Value::Text(t))) => {
                         // Written back as the client would type it. The OnLookup of a page extension's modify block
@@ -902,7 +902,7 @@ impl Session {
             for (owner, routine) in own.into_iter().chain(added) {
                 let object = owner.unwrap_or(st.borrow().object as usize);
                 let inst = self.owner_instance(st, owner);
-                self.call(object, routine, inst, vec![selected.clone()])?;
+                self.page_call(st, object, routine, inst, vec![selected.clone()])?;
             }
         }
         self.control_set_value(st, idx, &mut [value])?;
@@ -1467,7 +1467,25 @@ impl Session {
                 let rec = self.page_rec(st);
                 if st.borrow().cursor == Cursor::Row && !st.borrow().draft && self.stored_row(&rec)?.is_some() {
                     let key = self.row_key(&rec)?;
-                    if !held.iter().any(|k| Self::same_key(k, &key)) {
+                    let tree_shows = self.tree_indentation(st).is_some()
+                        && st.borrow().tree_shown.iter().any(|k| Self::same_key(k, &key));
+                    if !held.iter().any(|k| Self::same_key(k, &key)) && tree_shows {
+                        // A tree whose action left Rec on a row it did not show shows that row with its parent expanded
+                        // (`apply_tree_cut`; Y28CollapsedTreeTests.al:190 Y28_ActionGetChildAndUpdate: current 2, walk 1,2,3,4).
+                        // A page with row triggers reads the rows again from that row in the refresh that follows
+                        // (`read_list_again_from_row_as`, `agr2;agr2;agr3;agr4;agr5;agr2;agr1;agr2;agr2;agcr2`); without a
+                        // refresh it is not pinned.
+                        if self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord") {
+                            if !st.borrow().refresh {
+                                return unsupported(
+                                    "an action that left a tree page with row triggers on a row it did not show, without a refresh (not pinned)",
+                                );
+                            }
+                        } else {
+                            st.borrow_mut().window = Vec::new();
+                            self.arrive(st)?;
+                        }
+                    } else if !held.iter().any(|k| Self::same_key(k, &key)) {
                         st.borrow_mut().action_landed_on_new_row = true;
                     }
                 }
@@ -2296,6 +2314,21 @@ impl Session {
         !same_filters || key != r.key || adhoc != r.adhoc.as_ref().map(|(_, f)| f.clone()) || ascending != r.ascending
     }
 
+    /// Whether two views of a list hold the same filters (field, group and text of each, in order).
+    fn same_filters(&self, before: &ListView, now: &ListView) -> bool {
+        before.filters.len() == now.filters.len()
+            && before.filters.iter().zip(&now.filters).all(|(a, b)| {
+                a.field == b.field
+                    && a.group == b.group
+                    && matches!((self.filter_text(&a.expr), self.filter_text(&b.expr)), (Ok(x), Ok(y)) if x == y)
+            })
+    }
+
+    /// Whether two views of a list are the same: filters, key and sort order.
+    pub(super) fn same_list_view(&self, before: &ListView, now: &ListView) -> bool {
+        self.same_filters(before, now) && before.key == now.key && before.ascending == now.ascending
+    }
+
     fn drop_window_of_the_old_view(&mut self, st: &St, before: Option<ListView>) -> Result<(), Signal> {
         let Some(before) = before else {
             return Ok(());
@@ -2310,12 +2343,7 @@ impl Session {
         }
         let rec = self.page_rec(st);
         let now = ListView::of(&rec.borrow());
-        let same_filters = before.filters.len() == now.filters.len()
-            && before.filters.iter().zip(&now.filters).all(|(a, b)| {
-                a.field == b.field
-                    && a.group == b.group
-                    && matches!((self.filter_text(&a.expr), self.filter_text(&b.expr)), (Ok(x), Ok(y)) if x == y)
-            });
+        let same_filters = self.same_filters(&before, &now);
         // A key change applies at once (Y5GoToKeyAfterActionKeyAndTriggers.al:199-231 on branch al-runtime-rs-staging-y5b), and
         // so does `Rec.Ascending(false)` (handlers/TestPageViewRoundTripRoutes.al:411, :469: the list shows the rows
         // descending). `SetAscending` of one field has no visible effect on the list (Y5GoToKeyAfterActionKeyAndTriggers.al:
@@ -2600,6 +2628,26 @@ impl Session {
     /// [`Self::read_list_again_from_row`]; `read_first` false leaves out the read of the row before the others (a refresh after a
     /// control's OnValidate, `refresh_after_validate_filter`).
     fn read_list_again_from_row_as(
+        &mut self,
+        st: &St,
+        rec: &Rec,
+        key: &[Value],
+        read_first: bool,
+    ) -> Result<(), Signal> {
+        // A collapsed or expanded tree with row triggers reads the rows it hides too, as when it opens (corpus writer Y28, branch
+        // al-runtime-rs-staging-y28, pageext/lt-page-ext-properties/Y28CollapsedTreeTests.al:170 Y28_ActionResetAndUpdate
+        // `agr1;reset count=5;agr1;agr1;agr2;agr3;agr4;agr5;agr1;agr1;agcr1`, :130 Y28_ActionCountOnRoot).
+        if self.tree_expand_all_with_row_triggers(st)
+            && self.read_tree_rows_whole(st, |this| {
+                this.read_list_again_from_row_in_view(st, rec, key, read_first)
+            })?
+        {
+            return Ok(());
+        }
+        self.read_list_again_from_row_in_view(st, rec, key, read_first)
+    }
+
+    fn read_list_again_from_row_in_view(
         &mut self,
         st: &St,
         rec: &Rec,
@@ -3845,7 +3893,7 @@ pub(super) struct ListView {
 }
 
 impl ListView {
-    fn of(r: &al_builtins::value::RecordState) -> ListView {
+    pub(super) fn of(r: &al_builtins::value::RecordState) -> ListView {
         ListView {
             filters: r.filters.clone(),
             key: (r.key, r.adhoc.as_ref().map(|(_, f)| f.clone())),
