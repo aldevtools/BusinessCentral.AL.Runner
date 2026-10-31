@@ -2317,7 +2317,12 @@ impl Session {
         self.request_page_init_unshown(inst, schema, false)?;
         self.report.rp_init_by_handler.push(Rc::downgrade(inst));
         let (o, r, hi) = self.bind_page_handler(UiKind::Report, object)?;
-        self.call(o, r, hi, vec![Value::Codeunit(inst.clone())])?;
+        // The handler takes the run over: its Run or RunModal of the instance runs it (AeReportHandlerCalls.al:79-99), so the
+        // instance does not count as running while the handler runs.
+        let running = std::mem::take(&mut self.report.report_running);
+        let called = self.call(o, r, hi, vec![Value::Codeunit(inst.clone())]);
+        self.report.report_running = running;
+        called?;
         Ok(true)
     }
 
