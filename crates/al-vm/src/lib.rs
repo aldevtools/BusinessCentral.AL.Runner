@@ -805,6 +805,9 @@ pub struct Session {
     /// (`PermissionTestHelper.AddEffectivePermissionSet`) runs on with every access granted, on the assumption
     /// `permissions-not-enforced`, instead of being refused.
     pub ignore_permission_mock: bool,
+    /// `al-runner test --permissions off` (ADR-062 section 5): no access kind is enforced, whatever stage is on by
+    /// default (`permissions::Stage`).
+    pub permissions_off: bool,
     /// The Role IDs `PermissionTestHelper.AddEffectivePermissionSet` assigned since the last `Clear` (ADR-062).
     pub(crate) permission_roles: Vec<String>,
     /// What the assigned sets give; `None` when the session is unrestricted (no set assigned, or sets that grant
@@ -1120,6 +1123,7 @@ impl Session {
             hub_disabled: false,
             runner_permission_step: false,
             ignore_permission_mock: false,
+            permissions_off: false,
             permission_roles: Vec::new(),
             permissions: None,
             test_object: None,
@@ -1981,7 +1985,7 @@ impl Session {
     ) -> Result<(Value, Vec<Value>), Signal> {
         // ADR-062: a call is an Execute access; an unrestricted session pays one branch.
         if self.permissions.is_some() {
-            self.permission_gate()?;
+            self.permission_gate_call(object)?;
         }
         if let Some(Some(reason)) = self.engine.blocked.get(object).and_then(|o| o.get(routine)) {
             return Err(Signal::Unsupported(reason.clone()));

@@ -152,6 +152,10 @@ fn options_hash(a: &TestArgs) -> Result<String, String> {
     if a.ignore_permission_mock {
         h.update(b"ignore_permission_mock");
     }
+    // `--permissions off` can change outcomes once a stage of ADR-062 is on; a run without it keeps the hash.
+    if a.permissions_off {
+        h.update(b"permissions_off");
+    }
     // The DemoTool company (`--company-data demotool`); a run without it keeps the hash it had.
     if a.company_demotool {
         h.update(b"company-data demotool ");

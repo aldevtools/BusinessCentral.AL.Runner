@@ -102,6 +102,9 @@ pub struct TestArgs {
     /// `--ignore-permission-mock` (issue 5996): a test that lowers its own permissions runs with every access granted
     /// instead of being refused; its pass is flagged `permissions-not-enforced`.
     pub ignore_permission_mock: bool,
+    /// `--permissions off` (ADR-062 section 5): no access kind is enforced, whatever stage is on by default. `on`,
+    /// the default, enforces the stages that are on; none is yet.
+    pub permissions_off: bool,
     /// `--affected` (ADR-050): run only the test codeunits a change since the stored result of the last run can
     /// affect; the others keep their stored outcome.
     pub affected: bool,
@@ -602,6 +605,8 @@ selects only the tests both match)
                          Lower Permissions) with every access granted, instead of leaving them not
                          run. Permissions are not checked: such a test can pass here and fail on
                          Business Central. Each one is a flagged pass, `permissions-not-enforced`.
+    --permissions on|off Whether AL Runner enforces permissions where a stage of its permission
+                         checks is on (default on). No stage is on yet, so both give the same result.
                          In `serve`: the runTests field `ignorePermissionMock`.
 
 AFFECTED TESTS (ADR-050)
@@ -1194,6 +1199,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         || t.include_failing
         || t.strict_environment
         || t.ignore_permission_mock
+        || t.permissions_off
         || t.affected_store.is_some()
     {
         return Err("al-runner serve takes only the options that do not depend on a request: --package-cache, --dep, --define, --preprocessor-symbols, --test-timeout, --bc-version, --cache-dir, --no-download, --test-data and the like; the rest comes in each `runTests` request".into());
@@ -1567,6 +1573,13 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--tdd" => a.tdd = true,
             "--run-selected-only" => a.run_selected_only = true,
             "--ignore-permission-mock" => a.ignore_permission_mock = true,
+            "--permissions" => {
+                a.permissions_off = match text()?.to_ascii_lowercase().as_str() {
+                    "on" => false,
+                    "off" => true,
+                    other => return Err(format!("--permissions takes on or off, not `{other}`")),
+                }
+            }
             "--affected" => a.affected = true,
             "--affected-store" => a.affected_store = Some(text()?.into()),
             "--include-failing" => a.include_failing = true,
@@ -2041,6 +2054,21 @@ mod tests {
     fn ignore_permission_mock_is_opt_in() {
         assert!(!test_args("test A").ignore_permission_mock);
         assert!(test_args("test A --ignore-permission-mock").ignore_permission_mock);
+    }
+
+    /// ADR-062 section 5: `--permissions on|off`, `on` (the stages that are on by default) unless given; any other
+    /// value is an error.
+    #[test]
+    fn permissions_takes_on_or_off() {
+        assert!(!test_args("test A").permissions_off);
+        assert!(!test_args("test A --permissions on").permissions_off);
+        assert!(test_args("test A --permissions off").permissions_off);
+        assert!(test_args("test A --permissions OFF").permissions_off);
+        let e = p("test A --permissions some").unwrap_err();
+        assert!(
+            e.contains("--permissions") && e.contains("on") && e.contains("off"),
+            "{e}"
+        );
     }
 
     #[test]

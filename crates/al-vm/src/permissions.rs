@@ -97,7 +97,6 @@ impl Content {
 
 /// What the assigned sets of a session give.
 #[derive(Debug)]
-#[allow(dead_code)] // Read by the per-access decision of ADR-062 stage 1; today a restricted session is refused.
 pub(crate) struct EffectivePermissions {
     /// The union of the sets that composed. A lower bound of what BC grants when [`EffectivePermissions::complete`] is
     /// false: a set that is not composed adds nothing here, and an extension's grants are not merged.
@@ -216,6 +215,151 @@ impl SetModel {
     }
 }
 
+/// The five permissions of a grant, in the order of [`Levels`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Op {
+    Read = 0,
+    Insert = 1,
+    Modify = 2,
+    Delete = 3,
+    Execute = 4,
+}
+
+impl Op {
+    /// The permission in plain words, for messages.
+    fn describe(self) -> &'static str {
+        match self {
+            Op::Read => "read",
+            Op::Insert => "insert",
+            Op::Modify => "modify",
+            Op::Delete => "delete",
+            Op::Execute => "execute",
+        }
+    }
+}
+
+/// One access a check decides: permission `op` on object `(kind, id)`, `kind` the "Object Type" ordinal
+/// ([`kind_slot`]).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Access {
+    pub kind: i32,
+    pub id: u32,
+    pub op: Op,
+}
+
+/// The stages of ADR-062 section 5 that check accesses. Each turns on only once its probes are merged; until then a
+/// restricted session refuses the test at the first access of that stage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Stage {
+    /// TableData Insert, Modify, Delete (probes P1-P13).
+    Writes,
+    /// TableData Read, FlowFields, ReadPermission/WritePermission (P14-P19).
+    Reads,
+    /// Execute on every object kind, AccessByPermission, effective-permission queries (P20-P22).
+    Execute,
+}
+
+impl Stage {
+    pub(crate) fn of(op: Op) -> Stage {
+        match op {
+            Op::Insert | Op::Modify | Op::Delete => Stage::Writes,
+            Op::Read => Stage::Reads,
+            Op::Execute => Stage::Execute,
+        }
+    }
+
+    /// Whether the stage is on unless `--permissions off` says otherwise. None is yet.
+    pub(crate) const fn on_by_default(self) -> bool {
+        match self {
+            Stage::Writes | Stage::Reads | Stage::Execute => false,
+        }
+    }
+}
+
+/// The result of the decision function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Decision {
+    Allow,
+    /// Denied; `indirect` when the object whose code runs holds an object grant for the access, so BC names the
+    /// operation `Indirect<Op>` (ADR-062 "Error texts and codes").
+    Deny {
+        indirect: bool,
+    },
+}
+
+/// ADR-062 section 1, rule 4, for a session level `u` (0 blank, 1 Yes, 2 Indirect) and whether the object whose code
+/// runs grants the access in its `Permissions` property (`object_grant`): allowed when `u` is Yes, or when `u` is
+/// Indirect and the object grant holds (pin 4: lt-permissions-mock-indirect/TestIndirect.al:80-103,
+/// lt-cp-permission-leads/CpPermLeads.al:65-117). The license level is Yes everywhere under the Cronus license and is
+/// not part of this skeleton (ADR-060 decision 6).
+pub(crate) fn decide(u: u8, object_grant: bool) -> Decision {
+    match (u, object_grant) {
+        (1, _) | (2, true) => Decision::Allow,
+        (_, indirect) => Decision::Deny { indirect },
+    }
+}
+
+/// The access of a record method; `None` for one that touches no row.
+pub(crate) fn record_access(method: al_builtins::record_op::RecordOp) -> Option<Op> {
+    use al_builtins::record_op::RecordOp as R;
+    Some(match method {
+        R::Insert => Op::Insert,
+        R::Modify | R::ModifyAll | R::Rename => Op::Modify,
+        R::Delete | R::DeleteAll | R::Truncate => Op::Delete,
+        R::Get
+        | R::GetBySystemId
+        | R::Find
+        | R::FindFirst
+        | R::FindLast
+        | R::FindSet
+        | R::Next
+        | R::Count
+        | R::CountApprox
+        | R::IsEmpty
+        | R::CalcFields
+        | R::CalcSums => Op::Read,
+        _ => return None,
+    })
+}
+
+/// The object an Execute access names for a call of a routine of an object of `kind`: an extension's code counts as
+/// its base object's. Kinds without an Execute permission (enums, interfaces, permission sets) map to type ordinal -1,
+/// which no grant names.
+fn execute_target(kind: al_ir::ObjKind, id: Option<u32>, extends: Option<u32>) -> (i32, u32) {
+    use al_ir::ObjKind as K;
+    let (code, own) = match kind {
+        K::Table => (1, true),
+        K::TableExtension => (1, false),
+        K::Report => (3, true),
+        K::ReportExtension => (3, false),
+        K::Codeunit => (5, true),
+        K::XmlPort => (6, true),
+        K::Page => (8, true),
+        K::PageExtension => (8, false),
+        K::Query => (9, true),
+        _ => (-1, true),
+    };
+    let id = if own { id } else { extends };
+    (code, id.unwrap_or(0))
+}
+
+impl EffectivePermissions {
+    /// The session level for `access`: the better of the kind's wildcard and the object's own grant.
+    pub(crate) fn level(&self, access: Access) -> u8 {
+        let Some(slot) = kind_slot(access.kind) else {
+            return 0;
+        };
+        let p = access.op as usize;
+        let wild = self.content.wild[slot][p];
+        let own = self
+            .content
+            .explicit
+            .binary_search_by_key(&(access.kind, access.id), |&(k, id, _)| (k, id))
+            .map_or(0, |i| self.content.explicit[i].2[p]);
+        merge(wild, own)
+    }
+}
+
 impl Session {
     /// `PermissionTestHelper.AddEffectivePermissionSet(RoleId)`: adds the set to the session's assigned sets.
     pub(crate) fn assign_permission_set(&mut self, role: &str) {
@@ -240,9 +384,13 @@ impl Session {
     /// Mock" itself is not checked: between its `Assign` calls the list is not final (`Set('SUPER')` assigns All Objects
     /// first), and Microsoft's mock runs on BC under every list it builds (TestMockBasics.al:20-79, 143-163). Nor is a
     /// call the runner makes from outside AL code (its steps around the test method, al-testrun `runner_reset.rs`).
+    ///
+    /// The gate per access kind (ADR-062 section 2): an access whose stage is not enforced refuses the test, as before
+    /// the gate existed. An enforced access runs the decision; a denial is raised only in a pinned shape, so until a
+    /// stage brings its pinned errors it refuses too (the safety rule of section 2).
     #[cold]
     #[inline(never)]
-    pub(crate) fn permission_gate(&mut self) -> Result<(), Signal> {
+    pub(crate) fn permission_gate(&mut self, access: Access) -> Result<(), Signal> {
         let Some(&caller) = self.frames.last() else {
             return Ok(());
         };
@@ -254,7 +402,67 @@ impl Session {
             assume(Assumption::PermissionsNotEnforced);
             return Ok(());
         }
-        Err(Signal::Unsupported(LOWERED.into()))
+        if !self.enforces(access.op) {
+            return Err(Signal::Unsupported(LOWERED.into()));
+        }
+        let Some(eff) = self.permissions.clone() else {
+            return Ok(());
+        };
+        // The object grant `G` (the caller's own `Permissions` property) comes with stage 1.
+        match decide(eff.level(access), false) {
+            Decision::Allow => Ok(()),
+            Decision::Deny { .. } if !eff.complete => Err(Signal::Unsupported(format!(
+                "{LOWERED}; the assigned sets are not fully composed: {}",
+                eff.why_incomplete.join("; ")
+            ))),
+            Decision::Deny { .. } => Err(Signal::Unsupported(format!(
+                "a permission denial ({} permission on object type {} id {}) whose error is not pinned yet (ADR-062 section 2)",
+                access.op.describe(),
+                access.kind,
+                access.id
+            ))),
+        }
+    }
+
+    /// Whether the gate decides accesses of this kind (`--permissions off` turns every stage off).
+    fn enforces(&self, op: Op) -> bool {
+        !self.permissions_off && Stage::of(op).on_by_default()
+    }
+
+    /// The gate for a call of a routine of `object` (an Execute access, stage 3).
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn permission_gate_call(&mut self, object: usize) -> Result<(), Signal> {
+        let o = &self.engine.program.objects.heads()[object];
+        let (kind, id) = execute_target(o.kind, o.id, o.extends_id);
+        self.permission_gate(Access {
+            kind,
+            id,
+            op: Op::Execute,
+        })
+    }
+
+    /// The gate for record method `method` on a record of the table with object index `object`; a method that reads
+    /// or writes no row (filters, keys, field metadata) is no access.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn permission_gate_record(
+        &mut self,
+        method: al_builtins::record_op::RecordOp,
+        object: usize,
+    ) -> Result<(), Signal> {
+        let Some(op) = record_access(method) else {
+            return Ok(());
+        };
+        let id = self
+            .engine
+            .program
+            .objects
+            .heads()
+            .get(object)
+            .and_then(|o| o.id)
+            .unwrap_or(0);
+        self.permission_gate(Access { kind: 0, id, op })
     }
 
     /// At the end of a test method: the refusal when the session is still restricted (the test lowered its permissions
@@ -297,6 +505,84 @@ mod tests {
             explicit: vec![],
         };
         assert!(!c.grants_everything());
+    }
+
+    /// ADR-062 section 1 rule 4, one row per pinned case of pin 4.
+    #[test]
+    fn the_decision_allows_yes_and_indirect_with_an_object_grant() {
+        // User with `rim`, codeunit with the property: allowed (CpPermLeads.al:65-117).
+        assert_eq!(decide(2, true), Decision::Allow);
+        // Direct grant: allowed with or without the property.
+        assert_eq!(decide(1, false), Decision::Allow);
+        assert_eq!(decide(1, true), Decision::Allow);
+        // User with nothing, codeunit with `i`: IndirectInsert (TestIndirect.al:80-103).
+        assert_eq!(decide(0, true), Decision::Deny { indirect: true });
+        // Codeunit without the property: Insert, also when the user has only the indirect grant.
+        assert_eq!(decide(0, false), Decision::Deny { indirect: false });
+        assert_eq!(decide(2, false), Decision::Deny { indirect: false });
+    }
+
+    #[test]
+    fn the_level_is_the_better_of_the_wildcard_and_the_object_grant() {
+        let mut content = Content {
+            wild: Wildcards::default(),
+            explicit: vec![(0, 50100, [1, 2, 0, 0, 0])],
+        };
+        content.wild[0] = [2, 0, 0, 0, 0];
+        let e = EffectivePermissions {
+            content,
+            complete: true,
+            why_incomplete: vec![],
+        };
+        let at = |id, op| e.level(Access { kind: 0, id, op });
+        assert_eq!(at(50100, Op::Read), 1);
+        assert_eq!(at(50100, Op::Insert), 2);
+        assert_eq!(at(50100, Op::Modify), 0);
+        assert_eq!(at(7, Op::Read), 2, "the wildcard");
+        assert_eq!(
+            e.level(Access {
+                kind: 5,
+                id: 7,
+                op: Op::Execute
+            }),
+            0
+        );
+        assert_eq!(
+            e.level(Access {
+                kind: 99,
+                id: 7,
+                op: Op::Read
+            }),
+            0,
+            "no such type"
+        );
+    }
+
+    /// No stage is on before its probes land (ADR-062 section 5): the skeleton changes nothing.
+    #[test]
+    fn no_stage_is_on_by_default_yet() {
+        for op in [Op::Read, Op::Insert, Op::Modify, Op::Delete, Op::Execute] {
+            assert!(!Stage::of(op).on_by_default(), "{op:?}");
+        }
+    }
+
+    #[test]
+    fn record_methods_map_to_their_access() {
+        use al_builtins::record_op::RecordOp as R;
+        assert_eq!(record_access(R::Insert), Some(Op::Insert));
+        assert_eq!(record_access(R::ModifyAll), Some(Op::Modify));
+        assert_eq!(record_access(R::DeleteAll), Some(Op::Delete));
+        assert_eq!(record_access(R::FindSet), Some(Op::Read));
+        assert_eq!(record_access(R::SetRange), None);
+        assert_eq!(record_access(R::Init), None);
+    }
+
+    #[test]
+    fn an_extension_executes_as_its_base_object() {
+        use al_ir::ObjKind as K;
+        assert_eq!(execute_target(K::PageExtension, Some(50100), Some(21)), (8, 21));
+        assert_eq!(execute_target(K::Codeunit, Some(80), None), (5, 80));
+        assert_eq!(execute_target(K::Enum, Some(3), None).0, -1);
     }
 
     #[test]
