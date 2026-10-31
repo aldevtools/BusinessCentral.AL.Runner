@@ -1005,8 +1005,9 @@ pub(crate) fn duplicate_id_objects(ws: &Workspace) -> Vec<usize> {
 /// 2120-codeunit-name-31-characters.al:1).
 const AL0305_LIMIT: usize = 30;
 /// The longest name of a permission set with `Assignable = true` (2131-permissionset-name-21-characters.al:3-5:
-/// 21 is refused, 20 compiles). Other permission sets are not judged: alc accepts 21 characters there (al-runner
-/// issue 6445), and no corpus case pins their limit yet (docs/probes-needed.md).
+/// 21 is refused, 20 compiles). Other permission sets have the limit of 30 (2333-permissionset-not-assignable-name-31-characters.al,
+/// 2334-permissionset-no-assignable-name-31-characters.al: 31 is refused; al-language/permissions/lt-y12-permset-name-length/
+/// Y12PermSetNames.al: 21 to 30 compile; al-runner issue 6445).
 const AL0305_PERMISSION_SET_LIMIT: usize = 20;
 
 /// The name limit AL0305 applies to an object type, where a case pins it: codeunits (0055, 2115, 2120, 2121), tables
@@ -1037,16 +1038,17 @@ fn long_object_names(ws: &Workspace, out: &mut Vec<Diagnostic>) {
         if ws.kinds[o.app] == AppKind::Dependency {
             continue;
         }
-        let Some(limit) = name_limit(o.kind) else { continue };
-        if o.name.chars().count() <= limit {
-            continue;
-        }
-        // The 20-character limit is pinned only with an explicit `Assignable = true` (case 2131, issue 6445).
+        let Some(mut limit) = name_limit(o.kind) else { continue };
+        // The 20-character limit holds only with an explicit `Assignable = true` (case 2131); without it the limit is 30
+        // (cases 2333, 2334; issue 6445).
         if o.kind == ObjKind::PermissionSet
             && !ws.object_ast(oi).properties().any(|p| {
                 p.name().eq_ignore_ascii_case("Assignable") && p.value_text().trim().eq_ignore_ascii_case("true")
             })
         {
+            limit = AL0305_LIMIT;
+        }
+        if o.name.chars().count() <= limit {
             continue;
         }
         push(
@@ -3291,8 +3293,8 @@ mod tests {
         }
     }
 
-    // al-runner issue 6445: the 20-character permission set limit is pinned only with `Assignable = true` (case
-    // 2131). Every other permission set is not judged: alc accepts 21 characters there.
+    // al-runner issue 6445: the 20-character permission set limit holds only with `Assignable = true` (case 2131). Every
+    // other permission set has the limit of 30 (cases 2333, 2334; Y12PermSetNames.al compiles 21 to 30).
     #[test]
     fn al0305_permission_set_limit_only_when_assignable_true() {
         for ok in [
@@ -3300,11 +3302,13 @@ mod tests {
             "permissionset 50100 \"ABC-DEF Process Files\" { Assignable = false; }",
             "permissionset 50100 \"ABC-DEF Process Files\" { Access = Internal; }",
             "permissionset 50100 \"ABC-DEF Process Files\" { }",
-            "permissionset 50100 \"ABC-DEF Process Files Thirty One\" { Assignable = false; }",
+            "permissionset 50100 \"ABC-DEF Process Files Thirty O\" { Assignable = false; }",
         ] {
             assert!(codes(&[ok]).iter().all(|c| c != "AL0305"), "{ok}");
         }
         for bad in [
+            "permissionset 50100 \"MNC Y12 Not Assignable 31 chars\" { Assignable = false; }",
+            "permissionset 50100 \"MNC Y12 No Assignable Prop 31ch\" { }",
             "permissionset 50100 \"ABC-DEF Process Files\" { Assignable = true; }",
             "permissionset 50100 \"ABC-DEF Process Files\" { Access = Public; Assignable = true; }",
         ] {
