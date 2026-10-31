@@ -1658,6 +1658,21 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
                 }
             }
         };
+        // A field by its number when no name or caption matches (types/TestTableFilterEvaluate.al:26-36
+        // TableFilter_Evaluate_NumericIds_NormalizesValue: `67021: 2=1`). A number no field has is not pinned.
+        let found = match found {
+            None if !field.is_empty() && field.chars().all(|ch| ch.is_ascii_digit()) => {
+                match field
+                    .parse::<u32>()
+                    .ok()
+                    .and_then(|n| def.fields.iter().find(|f| f.number == n))
+                {
+                    Some(f) => Some(f),
+                    None => return refuse("a field number no field has"),
+                }
+            }
+            found => found,
+        };
         let Some(f) = found else {
             // The system fields' captions are refused; they are named as their names (SystemId, SystemCreatedAt, ...).
             if def
