@@ -144,7 +144,7 @@ pub fn lower_with_workers(
     positions: bool,
     workers: usize,
 ) -> Lowered {
-    lower_core(ws, members, checked, positions, workers, None, false).expect("no cache, no cache error")
+    lower_core(ws, members, checked, positions, workers, None, Export::No).expect("no cache, no cache error")
 }
 
 /// What a compile cache supplies to a run (see `provided.rs`).
@@ -155,6 +155,8 @@ pub(crate) struct Provided<'a> {
     /// `src` shared, when the compile may keep it: the refusals and calls of the supplied objects are then read from its
     /// facts instead of copied (`routine_lists.rs`).
     pub shared: Option<std::sync::Arc<dyn crate::provided::DepSource + Send>>,
+    /// `src` is a kept compile (ADR-063, `extend.rs`), not a compile cache: for the work counts.
+    pub kept: bool,
 }
 
 impl Provided<'_> {
@@ -868,6 +870,17 @@ pub(crate) fn build_shared<'a>(
     }
 }
 
+/// What a lowering exports beside the program (`Lowered::exported`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Export {
+    No,
+    /// The facts and blocks of every object, for a compile cache (ADR-022).
+    Cache,
+    /// The facts and heads of every object, without blocks, and a program that is the one `No` lowers: what a compile
+    /// that a later pass grows by apps keeps (ADR-063, `extend.rs`), which takes the objects from the program itself.
+    Facts,
+}
+
 pub(crate) fn lower_core(
     ws: &Workspace,
     members: &MemberTable<'_>,
@@ -875,12 +888,15 @@ pub(crate) fn lower_core(
     positions: bool,
     workers: usize,
     provided: Option<Provided<'_>>,
-    export: bool,
+    export_as: Export,
 ) -> Result<Lowered, String> {
+    // The cache's blocks keep the relations and are linked with them; the facts alone change nothing in the program.
+    let export = export_as == Export::Cache;
+    let facts_too = export_as != Export::No;
     let catalog = al_builtins::catalog::Catalog::load();
-    let (src, mut blocks, kept) = match provided {
-        Some(p) => (Some(p.src), p.blocks, p.shared),
-        None => (None, Vec::new(), None),
+    let (src, mut blocks, kept, from_kept) = match provided {
+        Some(p) => (Some(p.src), p.blocks, p.shared, p.kept),
+        None => (None, Vec::new(), None, false),
     };
     let flags: Vec<bool> = (0..ws.objects.len())
         .map(|oi| blocks.get(oi).is_some_and(Option::is_some))
@@ -896,7 +912,7 @@ pub(crate) fn lower_core(
     let Prologue {
         mut shared,
         uncompiled_subscribers,
-    } = build_shared(ws, members, checked, &catalog, positions, src, &flags, export);
+    } = build_shared(ws, members, checked, &catalog, positions, src, &flags, facts_too);
     let check = cfg!(test) || std::env::var_os("AL_CHECK_LINK").is_some();
     shared.early_relations = export || check;
     let tdd_sites = if checked.tdd {
@@ -972,10 +988,14 @@ pub(crate) fn lower_core(
         },
         object_hashes: Vec::new(),
         cached_objects: None,
-        work: LowerWork {
-            objects: ws.objects.len(),
-            objects_from_cache: (0..ws.objects.len()).filter(|&oi| prov(oi)).count(),
-            ..Default::default()
+        work: {
+            let supplied = (0..ws.objects.len()).filter(|&oi| prov(oi)).count();
+            LowerWork {
+                objects: ws.objects.len(),
+                objects_from_cache: if from_kept { 0 } else { supplied },
+                objects_from_kept: if from_kept { supplied } else { 0 },
+                ..Default::default()
+            }
         },
     };
     if positions {
@@ -1138,7 +1158,7 @@ pub(crate) fn lower_core(
             ordinals,
         )
     };
-    let mut exported = export.then(crate::provided::DepSet::default);
+    let mut exported = facts_too.then(crate::provided::DepSet::default);
     let mut staged = StagedList {
         slots: Vec::with_capacity(n),
     };
@@ -1403,6 +1423,9 @@ pub(crate) fn lower_core(
                 .iter()
                 .map(|r| driver_types(r.locals.iter().chain(&o.globals)))
                 .collect();
+            if !export {
+                continue;
+            }
             set.blocks.push(if prov(oi) {
                 crate::provided::DepBlock::placeholder()
             } else {

@@ -561,13 +561,15 @@ impl Lowerer<'_> {
                         let slot = self.globals.get("currpage").ok_or("`CurrPage` is not lowered for this object")?;
                         Some(Box::new(ir::Arg::Ref(ir::Place::Global(*slot))))
                     }
-                    // A bare `UseRequestPage(..)` or `RunModal()` in a report's procedure runs on the report's own
-                    // instance (the checker resolves it in `check/calls.rs`). Not pinned: the receiver form is
-                    // (codeunit/TestWriteTxTestBoundary.al:272); docs/probes-needed.md `bare-report-member-is-self`.
+                    // A bare report method in a report's or report extension's procedure is the `CurrReport.` form: the VM
+                    // takes the report whose code runs (report/lt-y36-bare-report-member/Y36BareReportMember.al:206-357, also
+                    // on a report variable never run and from a report extension; the checker resolves only the pinned names,
+                    // `check::calls::BARE_REPORT_MEMBERS`). In a trigger the bare form is not pinned. The bare `RunModal()`
+                    // runs the report's own instance: assumption `bare-report-member-is-self`.
                     None if sig.instance
                         && sig.receiver == "Report"
                         && callee.kind() == SyntaxKind::NameRef
-                        && self.ws.objects[self.oi].kind == ObjKind::Report =>
+                        && matches!(self.ws.objects[self.oi].kind, ObjKind::Report | ObjKind::ReportExtension) =>
                     {
                         let in_trigger = node
                             .ancestors()
@@ -579,8 +581,15 @@ impl Lowerer<'_> {
                                 sig.name
                             ));
                         }
-                        self.assume(al_builtins::assumptions::Assumption::BareReportMemberIsSelf);
-                        Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance)))
+                        if sig.name.eq_ignore_ascii_case("RunModal") {
+                            if self.ws.objects[self.oi].kind != ObjKind::Report {
+                                return Err("a bare `RunModal` in a report extension (not pinned)".into());
+                            }
+                            self.assume(al_builtins::assumptions::Assumption::BareReportMemberIsSelf);
+                            Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance)))
+                        } else {
+                            None
+                        }
                     }
                     // An unqualified record method in table code runs on the implicit Rec.
                     None if sig.instance && matches!(sig.receiver.as_str(), "Record" | "Query") => {

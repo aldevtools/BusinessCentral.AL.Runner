@@ -206,7 +206,8 @@ varies by half between runs of the same code. Two checks of the corpus job catch
 - **Work ratchet** (`al-test-cli/src/work.rs`). The normal corpus run counts, per pass (`main`, and one per set of extra
   apps such as `extra apps: Tests-TestLibraries, Data Archive`) and in `total`, what it did: `compiles`, `objects_loaded`,
   `objects_lowered` and `routines_lowered` (the workspace's), `dependency_objects_lowered` and
-  `dependency_routines_lowered` (what the demand-driven compile reached), `objects_from_cache`, `dependency_apps`,
+  `dependency_routines_lowered` (what the demand-driven compile reached), `objects_from_cache`, `objects_from_kept`
+  (objects a pass took from the main pass's kept compile, ADR-063), `dependency_apps`,
   `dependency_apps_from_source`, `dependency_apps_from_cache`, `cache_layers_hit`, `cache_layers_built`,
   `baseline_rows` (rows the install baseline holds) and `tests_run`. The counts are the same on every run of the same
   inputs. `metrics/<major>/work.json` holds the expected counts. A count more than 10 % above the file fails the run
@@ -215,7 +216,7 @@ varies by half between runs of the same code. Two checks of the corpus job catch
   the counts under `work`, and the job summary shows the totals.
   - The check runs only on a run shaped like CI's normal run: the full corpus with the dependency apps, no selection, no
     `--no-ratchet`, `--no-deps`, `--compile-cache`, `--baseline`, `--deps` or other `--seed`, and none of
-    `AL_EAGER_DEPENDENCIES`, `AL_FORCE_BASELINE`, `AL_NO_BASELINE`, `AL_CHECK_BASELINE_RULE`, `ALRUNNER_EAGER_DECODE`.
+    `AL_EAGER_DEPENDENCIES`, `AL_FRESH_PASS_COMPILE`, `AL_FORCE_BASELINE`, `AL_NO_BASELINE`, `AL_CHECK_BASELINE_RULE`, `ALRUNNER_EAGER_DECODE`.
   - A pull request that adds work on purpose regenerates the file and commits it in the same pull request, so the
     reviewer sees the counts in the diff: `./target/release/al-test-cli --root . --all-versions --update-work`
     (refused on any other shape of run). Do the same after a change that lowers counts by more than 10 %.

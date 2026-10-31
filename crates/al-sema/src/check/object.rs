@@ -18,6 +18,7 @@ impl<'a> Checker<'a> {
             resolutions: Default::default(),
             system_enums,
             sections: Default::default(),
+            field_only_args: Vec::new(),
             queries: (0..ws.objects.len()).map(|_| std::cell::OnceCell::new()).collect(),
             calls: Vec::new(),
             demand: std::cell::RefCell::new(demand_mode.then(|| demand::State::new(ws.objects.len()))),
@@ -30,6 +31,8 @@ impl<'a> Checker<'a> {
             tdd_pending: Vec::new(),
             all_routines: false,
             company_data_apps: Vec::new(),
+            keep_demand: false,
+            kept_demand: None,
         }
     }
 
