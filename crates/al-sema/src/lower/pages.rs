@@ -680,6 +680,21 @@ impl Lowerer<'_> {
                         .ok_or_else(|| format!("{what} reads a host field, but the host has no source table"))?;
                     ir::LinkEntry::Field(pf, field_pos(ht, &f)?)
                 }
+                // The host field's value is a filter text: pinned for a Normal Text or Code host field and a FlowFilter host
+                // field (pages/lt-y37-link-filter/Y37LinkFilterTests.al:183-202, :386-416).
+                LinkRhs::FieldFilter(f) => {
+                    let ht = host_table
+                        .ok_or_else(|| format!("{what} reads a host field, but the host has no source table"))?;
+                    let hf = field_pos(ht, &f)?;
+                    let host = &self.members[ht].fields[hf];
+                    if !matches!(host.ty, Ty::Text(_) | Ty::Code(_)) {
+                        return Err(format!(
+                            "{what} = field(filter({})) on a host field that is no Text or Code field (not pinned)",
+                            host.name
+                        ));
+                    }
+                    ir::LinkEntry::FieldFilter(pf, hf)
+                }
                 // An empty `const('')` selects the blank value, as in a where() (corpus record/lt-relation-where-empty-term/
                 // RelationWhereEmptyTerm.al); Production BOM's `"Version Code" = const('')` (Tests-SCM-Manufacturing).
                 LinkRhs::Filter(t) if t.is_empty() => ir::LinkEntry::Filter(pf, "''".to_string()),
