@@ -372,6 +372,14 @@ impl Session {
             .map(|(c, t, why)| ((c.clone(), *t), why.clone()))
             .collect();
         self.full_copies = b.full_copies.iter().cloned().collect();
+        // A store read back from bytes holds the copies' tables but not which restored rows they read (see
+        // `MemStore::note_copy`): a full copy is a copy of the session company.
+        let session = self.cx.company.to_string();
+        for copy in &b.full_copies {
+            if self.find_company(copy).ok().flatten().is_some() {
+                self.store.note_copy(copy, &session);
+            }
+        }
         self.baseline_origin = Some((b.origin, self.store.change_counter()));
     }
 

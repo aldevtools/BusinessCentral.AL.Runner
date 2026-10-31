@@ -1160,10 +1160,14 @@ impl Session {
         let field_read = m == PageMethod::Value && args.is_empty();
         self.first_part_access(st, m, field_read)?;
         // A new host whose part shows rows of the blank key: a read of a host field and OK are pinned (PartLineBeforeHostKey.al:
-        // 2116 QH_BlankRows_ReadHostControl, :1939 QH_BlankRows_OkInvoke), nothing else.
+        // 2116 QH_BlankRows_ReadHostControl, :1939 QH_BlankRows_OkInvoke), and Activate of a host field: of a non-key field it
+        // inserts the host as without the rows, and the part then links to the new key; of the key field it does nothing
+        // (pages/lt-y17-activate-new-host/Y17ActivateNewHost.al:382 QH_BlankRows_ActivateHostField, :473 _ActivateKeyControl,
+        // :521 _CardHost). Nothing else.
         if st.borrow().new_host_part_rows && st.borrow().host.is_none() {
             let ok = matches!(&c.target, ControlTarget::BuiltIn(n) if n == "OK") && m == PageMethod::Invoke;
-            if !(field_read && matches!(c.target, ControlTarget::Control(_))) && !ok {
+            let activate = m == PageMethod::Activate && matches!(c.target, ControlTarget::Control(_));
+            if !(field_read && matches!(c.target, ControlTarget::Control(_))) && !ok && !activate {
                 return unsupported(format!(
                     "TestField.{m} on a new, unsaved host whose part shows rows of the blank key (not pinned)"
                 ));
@@ -1678,6 +1682,11 @@ impl Session {
                     return unsupported("an error in OnInsertRecord on Activate() (only SetValue is pinned)");
                 }
                 activated?;
+                // The host is stored: its part shows the rows of the new key (Y17ActivateNewHost.al:382 `LP.OnAfterGetCurrRecord:AUTO1|0`
+                // x3, then :408 part First `No`, :442 SetValue and OK as on any stored host).
+                if st.borrow().new_host_part_rows && !st.borrow().draft {
+                    st.borrow_mut().new_host_part_rows = false;
+                }
                 Ok(Value::Null)
             }
             PageMethod::ValidationErrorCount => {
