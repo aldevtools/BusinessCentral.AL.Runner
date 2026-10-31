@@ -547,17 +547,19 @@ impl Session {
         use ir::CalcMethod as M;
         // A condition on a FlowField of the source table compares each source row's calculated value: count, exist and
         // lookup are pinned (record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al:76-95, :243-280
-        // EqualsEmptyDate_Chained_GroupOverFlowField: filter(true) on an exist, filter(0) and filter(> 0) on a count).
-        // Other methods are not pinned.
+        // EqualsEmptyDate_Chained_GroupOverFlowField: filter(true) on an exist, filter(0) and filter(> 0) on a count), and so
+        // are sum, -sum, average, min and max over the rows that pass (record/lt-y17-sum-where-flowfield/
+        // Y17SumWhereFlowField.al:197, :227; a condition FlowField with an unset FlowFilter in its own formula filters
+        // nothing and a condition on a sum FlowField works the same, :303). A sign on another method is not pinned.
         let src_fields = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
         let (stored, flow): (Vec<FieldFilter>, Vec<FieldFilter>) = filters
             .iter()
             .cloned()
             .partition(|c| src_fields[c.field].stored || src_fields[c.field].flow_filter);
         if !flow.is_empty() {
-            if !matches!(calc.method, M::Count | M::Exist | M::Lookup) || calc.negate {
+            if calc.negate && calc.method != M::Sum {
                 return unsupported(
-                    "a CalcFormula sum, average, min, max or signed formula with a condition on a FlowField of its source table (not pinned)",
+                    "a signed CalcFormula other than sum with a condition on a FlowField of its source table (not pinned)",
                 );
             }
             let mut rows = Vec::new();
@@ -586,7 +588,7 @@ impl Session {
                 }
                 if pass {
                     matched.push(row);
-                    if calc.method != M::Count {
+                    if matches!(calc.method, M::Exist | M::Lookup) {
                         break;
                     }
                 }
@@ -594,10 +596,44 @@ impl Session {
             let value = match calc.method {
                 M::Count => Value::Integer(matched.len() as i32),
                 M::Exist => Value::Boolean(!matched.is_empty()),
-                _ => match matched.first() {
+                M::Lookup => match matched.first() {
                     Some(row) => row[calc.field.expect("field")].clone(),
                     None => self.default_value(&f.ty),
                 },
+                M::Sum | M::Average => {
+                    let at = calc.field.expect("field");
+                    let mut sum = Decimal::ZERO;
+                    for row in &matched {
+                        sum += number(&row[at]).ok_or_else(|| non_number(&row[at]))?;
+                    }
+                    // Over no row both are 0 (Y17SumWhereFlowField.al:227, header C).
+                    let mut d = match (calc.method, matched.len()) {
+                        (M::Sum, _) | (_, 0) => sum,
+                        (_, n) => sum / Decimal::from(n as i64),
+                    };
+                    if calc.negate {
+                        d = -d;
+                    }
+                    return to_number(d, &f.ty, calc.method == M::Average);
+                }
+                M::Min | M::Max => {
+                    let at = calc.field.expect("field");
+                    let mut best: Option<Value> = None;
+                    for row in &matched {
+                        let v = &row[at];
+                        best = match best.take() {
+                            None => Some(v.clone()),
+                            Some(b) => match (calc.method, ops::compare(v, &b)?) {
+                                (M::Min, Ordering::Less) | (M::Max, Ordering::Greater) => Some(v.clone()),
+                                (_, _) => Some(b),
+                            },
+                        };
+                    }
+                    match best {
+                        Some(v) => v,
+                        None => self.default_value(&f.ty),
+                    }
+                }
             };
             return ops::convert(value, &f.ty);
         }

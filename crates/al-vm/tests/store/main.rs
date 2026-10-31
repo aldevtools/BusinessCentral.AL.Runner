@@ -38,6 +38,7 @@ mod record_is_dirty;
 mod record_is_dirty_shapes;
 mod record_ref_into_record;
 mod record_ref_lock_table_tx;
+mod sum_where_flowfield;
 mod record_ref_set_table_variant;
 mod recordref;
 mod records;
