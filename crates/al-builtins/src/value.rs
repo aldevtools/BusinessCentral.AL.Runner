@@ -765,6 +765,8 @@ pub struct PageState {
     /// A `Page`-typed modal handler is running on this page: the page never opened, `GetRecord` and `SetRecord`
     /// read and write its Rec (handlers/PSModalPageHandlerTyped.al).
     pub typed_handler: bool,
+    /// The `Page`-typed handler that runs is a `[PageHandler]` of `Page.Run`, not a modal one.
+    pub typed_run_handler: bool,
     /// The last `Page`-typed modal handler on this page called `SetRecord`: GetRecord after the run hands that record back.
     pub handler_set_record: bool,
     /// The page opened on a source table with no row to show (a card over an empty table): its Rec was never a stored row.
@@ -1004,6 +1006,7 @@ impl PageState {
             set_view: false,
             new_by_call: false,
             typed_handler: false,
+            typed_run_handler: false,
             handler_set_record: false,
             never_stored: false,
             host: None,
