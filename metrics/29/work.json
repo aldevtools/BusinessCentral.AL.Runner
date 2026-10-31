@@ -9,12 +9,13 @@
       "dependency_apps": 14,
       "dependency_apps_from_cache": 0,
       "dependency_apps_from_source": 14,
-      "dependency_objects_lowered": 9459,
-      "dependency_routines_lowered": 101114,
+      "dependency_objects_lowered": 161,
+      "dependency_routines_lowered": 4182,
       "objects_from_cache": 0,
+      "objects_from_kept": 16547,
       "objects_loaded": 19796,
-      "objects_lowered": 9466,
-      "routines_lowered": 11204,
+      "objects_lowered": 2938,
+      "routines_lowered": 185,
       "tests_run": 72
     },
     "main": {
@@ -28,10 +29,11 @@
       "dependency_objects_lowered": 9207,
       "dependency_routines_lowered": 105452,
       "objects_from_cache": 0,
+      "objects_from_kept": 0,
       "objects_loaded": 19709,
       "objects_lowered": 9644,
       "routines_lowered": 41935,
-      "tests_run": 18137
+      "tests_run": 18181
     },
     "total": {
       "baseline_rows": 5010,
@@ -41,13 +43,14 @@
       "dependency_apps": 22,
       "dependency_apps_from_cache": 0,
       "dependency_apps_from_source": 22,
-      "dependency_objects_lowered": 18666,
-      "dependency_routines_lowered": 206566,
+      "dependency_objects_lowered": 9368,
+      "dependency_routines_lowered": 109634,
       "objects_from_cache": 0,
+      "objects_from_kept": 16547,
       "objects_loaded": 39505,
-      "objects_lowered": 19110,
-      "routines_lowered": 53139,
-      "tests_run": 18209
+      "objects_lowered": 12582,
+      "routines_lowered": 42120,
+      "tests_run": 18253
     }
   }
 }

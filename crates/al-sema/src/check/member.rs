@@ -123,21 +123,18 @@ impl<'a> Checker<'a> {
                     }
                 }
                 if !procs.is_empty() {
-                    // A table procedure Init(A; B) sits next to the built-in Init(): `Row.Init()`, a bare `Init()` and
-                    // `Rec.Init()` in the table call the built-in, `Init(3, 'x')` the procedure; a procedure with the
-                    // built-in's own signature hides it (record/lt-record-write/RcBInit.al:445, :475, fixtures
-                    // QzInitOverload.al). Only Init is pinned: other built-ins stay hidden by a procedure of their name.
+                    // A table procedure named like a built-in Record method hides it only for a call that fits the procedure:
+                    // the built-in runs when the call takes another number of arguments or types the procedure cannot take,
+                    // and the procedure wins a call both fit (`pick` takes the first of equals, and the procedures come
+                    // first). Pinned by record/lt-bm-builtin-name-procedures/Y36BuiltinNameSameArity.al:146-298 (Get(1, 2)
+                    // next to own Get(Record; Record) and Delete(true) next to own Delete(Text) are the built-ins, Delete('why')
+                    // and Get('A') next to own Get(Code[20]) the procedures, bare Insert() and Get(1) in table code the
+                    // built-ins), BmBuiltinNameProcedures.al:107-140 (own Count(), Insert(), Modify(Boolean), Get() win; Insert(true)
+                    // and Get(2) reach the built-in) and record/lt-record-write/RcBInit.al:445,475 (own Init(A; B) next to Init()).
+                    // A call no candidate fits is checked against the procedure (must-not-compile 2500: AL0133).
                     let mut procs = procs;
-                    if name.eq_ignore_ascii_case("Init") {
-                        if let Some(recv) = receiver_of(t) {
-                            let platform = self.catalog_cands(&recv, name, true, t);
-                            let own: Vec<(usize, usize)> = procs.iter().map(|p| (p.min, p.max)).collect();
-                            procs.extend(
-                                platform
-                                    .into_iter()
-                                    .filter(|b| !own.iter().any(|(lo, hi)| *lo <= b.max && b.min <= *hi)),
-                            );
-                        }
+                    if let Some(recv) = receiver_of(t) {
+                        procs.extend(self.catalog_cands(&recv, name, true, t));
                     }
                     return Some(E::Callable(procs));
                 }

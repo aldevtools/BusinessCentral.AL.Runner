@@ -561,14 +561,17 @@ impl Lowerer<'_> {
                         let slot = self.globals.get("currpage").ok_or("`CurrPage` is not lowered for this object")?;
                         Some(Box::new(ir::Arg::Ref(ir::Place::Global(*slot))))
                     }
-                    // A bare `UseRequestPage(..)`, `RunModal()` or `Run()` in a report's procedure runs on the report's own
-                    // instance (the checker resolves it in `check/calls.rs`): the triggers run once, the globals they set read
-                    // back through the variable, a second call raises ObjectHasAlreadyBeenRun (report/lt-y40-bare-report-run/
-                    // Y40BareReportRun.al:214-377, corpus master ac3499d6). The bare form in a trigger is not pinned.
+                    // A bare report method in a report's or report extension's procedure is the `CurrReport.` form: the VM
+                    // takes the report whose code runs (report/lt-y36-bare-report-member/Y36BareReportMember.al:206-357, also
+                    // on a report variable never run and from a report extension; the checker resolves only the pinned names,
+                    // `check::calls::BARE_REPORT_MEMBERS`). In a trigger the bare form is not pinned. The bare `RunModal()` and
+                    // `Run()` run the report's own instance: the triggers run once, the globals they set read back through the
+                    // variable, a second call raises ObjectHasAlreadyBeenRun (report/lt-y40-bare-report-run/Y40BareReportRun.al:
+                    // 214-377, corpus master ac3499d6). From a report extension they are not pinned.
                     None if sig.instance
                         && sig.receiver == "Report"
                         && callee.kind() == SyntaxKind::NameRef
-                        && self.ws.objects[self.oi].kind == ObjKind::Report =>
+                        && matches!(self.ws.objects[self.oi].kind, ObjKind::Report | ObjKind::ReportExtension) =>
                     {
                         let in_trigger = node
                             .ancestors()
@@ -580,7 +583,14 @@ impl Lowerer<'_> {
                                 sig.name
                             ));
                         }
-                        Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance)))
+                        if sig.name.eq_ignore_ascii_case("RunModal") || sig.name.eq_ignore_ascii_case("Run") {
+                            if self.ws.objects[self.oi].kind != ObjKind::Report {
+                                return Err(format!("a bare `{}` in a report extension (not pinned)", sig.name));
+                            }
+                            Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance)))
+                        } else {
+                            None
+                        }
                     }
                     // An unqualified record method in table code runs on the implicit Rec.
                     None if sig.instance && matches!(sig.receiver.as_str(), "Record" | "Query") => {

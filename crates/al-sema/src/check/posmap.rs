@@ -98,6 +98,11 @@ impl<V> PosMap<V> {
         self.iter().map(|(k, _)| k)
     }
 
+    /// Drops the entries of the files from `files` on (ADR-063: the apps they belong to left the workspace).
+    pub fn truncate_files(&mut self, files: usize) {
+        self.files.truncate(files);
+    }
+
     /// Every entry, file by file; within a file in no particular order.
     pub fn iter(&self) -> impl Iterator<Item = (PosKey, &V)> {
         self.files.iter().enumerate().flat_map(|(file, m)| {
