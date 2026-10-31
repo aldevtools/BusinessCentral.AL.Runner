@@ -320,3 +320,7 @@
 29 0254-replace-one-arg
 29 1875-continue-statement-with-continue-parameter-procedure
 # corpus bumps 72-78 (writer SH, cases 2120-2188): new cases the front end does not decide yet
+# AL0301 is decided for a trailing comma of a Label declaration only (al-runner issue 6436); this case is alc's recovery from `protected` before a variable name
+27 0357-protected-var-other-codeunit
+28 0357-protected-var-other-codeunit
+29 0357-protected-var-other-codeunit
