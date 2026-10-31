@@ -548,7 +548,7 @@ pub struct PageState {
     /// but Close is refused until Close.
     pub marked_only_unpinned: bool,
     /// A TestField.Lookup on this page, whose OnValidate called `CurrPage.Update(false)`, left that refresh for later, as BC
-    /// does on a host with row triggers whose ListPart links three fields (`Session::defer_lookup_refresh`): reads and Close
+    /// does on a host with row triggers whose ListPart links two or three fields (`Session::defer_lookup_refresh`): reads and Close
     /// run no trigger; any other TestPage call on its tree is refused until Close.
     pub lookup_refresh_deferred: bool,
     /// TestField.Lookup writes the text its OnLookup returned through the control's SetValue (`defer_lookup_refresh`).
