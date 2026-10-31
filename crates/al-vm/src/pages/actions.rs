@@ -1555,8 +1555,9 @@ impl Session {
                 // A change the action saved itself (`Rec.Modify()` in the action) is not saved again: the
                 // page runs no OnModify for it (misc/W2TableGlobals.al:Modify_ActionCallsModifyItself).
                 let stored_now = self.stored_row(&rec)?;
-                let saved_by_action =
-                    stored_now.as_ref().is_some_and(|stored| Self::same_values(&rec.borrow().fields, stored));
+                let saved_by_action = stored_now
+                    .as_ref()
+                    .is_some_and(|stored| Self::same_values(&rec.borrow().fields, stored));
                 // A row the action changed and then deleted (a codeunit that modifies and deletes Rec: Make Order, Post) is not
                 // written again on a card: the card closes (`settle_after_action`) and nothing is re-inserted (corpus master 97c29f86,
                 // pages/lt-y17-save-row-gone/Y17SaveRowGone.al:632 PgSave_ActionDeletesEditedRow_Card `stored` `B/b/No;`, :638
