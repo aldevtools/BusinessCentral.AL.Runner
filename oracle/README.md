@@ -36,6 +36,12 @@ overall count.
 | `isolation-codeunit` (28 only) | the same app | `28/xunit-isolation-codeunit.xml` | the same artifact | 7 (T5 fails on BC, on purpose) |
 | `testlibraries` (27, 28, 29) | `tests/al-language-testlibraries` | `<major>/junit-testlibraries.xml` | the TestLibraries artifact (`junit-al-language-testlibraries.xml`) of the same CI run as the main oracle, job "BC TestLibraries <ver> / test", copied unchanged | 37 (BC 29: 40, one skipped on purpose) |
 
+The `isolation-disabled` suite (`tests/al-language-isolation-disabled`, test runner 130451, `TestIsolation = Disabled`;
+oracle `<major>/junit-isolation-disabled.xml`, artifact `junit-al-language-isolation-disabled.xml`) is not in the table
+yet: `tools/corpus_bump.sh` adds it to `oracle.toml` with the first bump whose corpus pin holds the app (the app is not
+there before, and the runner reads every suite's app). `metrics/<major>/passing-isolation-disabled.txt` exist and are
+empty; the regen bot fills them. It runs in the main environment under its own runner, so it adds no compile pass.
+
 The `testlibraries` suite names `extra_apps` in `oracle.toml`: Microsoft's Tests-TestLibraries and Data
 Archive, which the corpus job installs although no test app declares them (corpus `.github/workflows/ci.yml`,
 job `test-testlibraries`). They change what AL code sees (the test runner runs codeunits 130301 and 130302 of
