@@ -397,11 +397,14 @@ impl<'a> Checker<'a> {
                 })
                 .collect();
         }
-        // A bare `UseRequestPage(..)` or `RunModal()` in a report's procedure is a member of the report itself, as
-        // `this.` would make it (BC compiles it; a public app does it). The lowering hands it the report's own
-        // instance and marks the assumption `bare-report-member-is-self`; other bare report methods are not resolved.
+        // A bare `UseRequestPage(..)`, `RunModal()` or `Run()` in a report's procedure is a member of the report itself, as
+        // `this.` would make it: it runs the instance whose procedure runs (report/lt-y40-bare-report-run/Y40BareReportRun.al:
+        // 214-377, corpus master ac3499d6). The lowering hands it the report's own instance; other bare report methods are not
+        // resolved.
         if c.is_empty()
-            && (n.eq_ignore_ascii_case("userequestpage") || n.eq_ignore_ascii_case("runmodal"))
+            && (n.eq_ignore_ascii_case("userequestpage")
+                || n.eq_ignore_ascii_case("runmodal")
+                || n.eq_ignore_ascii_case("run"))
             && self.ws.objects[sc.oi].kind == ObjKind::Report
             && sc.self_obj == sc.oi
         {

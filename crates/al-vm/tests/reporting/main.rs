@@ -12,6 +12,8 @@ mod report_execute_twice_views;
 mod report_header_address;
 mod report_layout_list_columns;
 mod report_layout_list_export;
+mod report_bare_run;
+mod report_layout_override;
 mod report_link_filter;
 mod report_link_flowfilter;
 mod report_members_lane;
