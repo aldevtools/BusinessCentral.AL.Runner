@@ -1,0 +1,6 @@
+PageTriggerEventSubscriptionRow => {
+    id: "page-trigger-event-subscription-row",
+    assumed: "The Event Subscription row of a subscriber to a page trigger event other than a field's OnAfterValidateEvent and OnOpenPageEvent (OnBeforeValidateEvent of a field; OnClosePageEvent, OnAfterGetCurrRecordEvent, OnAfterGetRecordEvent, OnNewRecordEvent, OnInsertRecordEvent, OnModifyRecordEvent, OnDeleteRecordEvent, OnQueryClosePageEvent) has Event Type Trigger, Publisher Object Type Page and Active Yes; a page-level event's Published Function is its own name. OnAfterValidateEvent of a page field and OnOpenPageEvent are pinned (misc/lt-probes-needed-5/PnE11EventSub.al:99, :130). The number in a field event's Published Function stays refused when read.",
+    tests: "No Microsoft test in the runner's suites: an outside report (a partner suite checks at the start of its tests that none of its subscribers is inactive; its range includes page trigger subscribers).",
+    probe: "Pinned: events/lt-event-subscription-trigger-rows/PageTriggerEventRows.al is in the corpus, but 4 of its tests stay refused (the number in a field event's Published Function; OnAfterGetRecordEvent from the test client): make them run, then retire.",
+}

@@ -5,7 +5,7 @@ Fixes #
 
 ## Where the behavior is pinned
 <!-- Corpus tests (file:line) that pin each behavior. List anything not pinned yet, and any
-registered assumption you added in crates/al-builtins/src/assumptions.rs. -->
+registered assumption you added in crates/al-builtins/src/assumptions/<id>.rs. -->
 
 ## Checks
 - [ ] A test that failed before this change and passes now
