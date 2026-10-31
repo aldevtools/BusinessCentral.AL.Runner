@@ -4257,6 +4257,8 @@
 67351 TargetMovingItsRecInOnOpenPage
 67351 TargetStepsToItsNextRowInTheHandler
 67351 UnfilteredHostOpensTheTargetOnItsRow
+67354 PublishedFunction_ActionEvents_CardPage
+67354 PublishedFunction_ActionEvents_ListPage
 67356 AreFieldsLoaded_AfterAssigningAnotherValue
 67356 AreFieldsLoaded_AfterAssigningTheDefaultValue
 67356 AreFieldsLoaded_AfterAssigningTheDefaultValueTextAndBoolean
@@ -4752,6 +4754,7 @@
 67722 Skip_InOnPreReport
 67722 Skip_InProcedureCalledFromOnAfterGetRecord
 67726 Execute_Headless_NoRequestPage
+67726 Execute_SecondCallOnOneVariable_ErrorAndCode
 67726 Execute_WriteInOnPostReport_SurvivesARollback
 67726 SaveAs_HandwrittenParameters_FilterAndNoVersionPart
 67726 SaveAs_ParametersFromRequestPage_AgainstTheTableView
@@ -4883,6 +4886,7 @@
 67840 AutoInc_GuardedRun_TruncateTrueThenError_RowsAndCounterComeBack
 67857 ClosingBracket_MissingAfterPlus
 67857 Placeholders_PercentN
+67857 SG_DayOfMonth_D1_D15
 67857 SignsAndDigits_ErrorTexts
 67857 TV_MonthNumber_M1_M12
 67857 TV_MonthNumber_M2
@@ -10148,6 +10152,7 @@
 71843 P112_Mod_Export
 71843 P112_Mod_Import
 71843 P112_Static_Export_Import
+71852 P112_RunRequestPage_Then_Execute
 71852 P112_Run_AssistEdit
 71852 P112_Run_Cancel
 71852 P112_Run_DrillDown
@@ -11929,6 +11934,7 @@
 73402 Attribute_Create
 73402 Attribute_Order_And_Duplicates
 73402 Attribute_Unicode
+73402 Attribute_Uninitialized
 73402 Attribute_Value_Escaping
 73402 Attribute_Value_Newlines
 73402 Attribute_Xmlns_Handling
@@ -12134,6 +12140,7 @@
 73505 Encoding_ExportXmlPrologText
 73505 Encoding_ImportControlCharacterEntity
 73505 Encoding_ImportCsvUtf8IntoWindowsXmlport
+73505 Encoding_ImportTabAndEntityNewline
 73505 Encoding_ImportXmlBomUtf8
 73505 Encoding_ImportXmlUtf16DeclaredButUtf8Bytes
 73505 Encoding_ImportXmlUtf16Input
@@ -12488,6 +12495,7 @@
 73664 P131_TwoModalHandlers_PageParameters
 73665 P131_ModalPageHandler_PageParam_ResponseValues
 73666 P131_ModalHandlers_TestPageAndPageParameter
+73672 EventSubscription_FilterByPublisherKindAndFunction
 73701 P132_CalcDate_DateOverload_InnerBrackets
 73704 P132_EnabledEditableExpressions
 73704 P132_GroupWithVisibleExpression
@@ -12676,7 +12684,9 @@
 73838 RequestFilterFields_Handler_NoFilter
 73838 RequestFilterFields_Handler_SetsFilters
 73838 RequestFilterFields_ParametersText
+73838 RequestFilterFields_ParametersText_ThenExecute
 73838 SetTableView_AddsToDataItemTableView
+73838 SetTableView_AndRequestFilter_Combined
 73838 SetTableView_CalledTwice_LastWins
 73838 SetTableView_NoDataItemInReport
 73838 SetTableView_OtherKey
@@ -15474,6 +15484,7 @@
 84549 FilterFields_ExtensionSetsRequestFilterFields
 84549 FilterFields_RunRequestPageParameters
 84549 Lost_SaveValues_OnOpenPageSetsTheOption
+84592 Execute_Parameters_StaticAndVariable
 84592 GLAccount_FilterOnDecimalFlowField
 84592 PendingWrite_ReportRunModal_WithRequestPage
 84592 PendingWrite_ReportRun_WithRequestPage
