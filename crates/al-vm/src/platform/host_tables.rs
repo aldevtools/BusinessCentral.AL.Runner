@@ -280,6 +280,17 @@ const NAME_ONLY_LANGUAGES: &[(i32, &str, &str)] = &[(12297, "English (Zimbabwe)"
 /// 1078 Afrikaans (South Africa), AFK, af-ZA (corpus master, corpus PR 871: misc/lt-np4-probes/Np4Misc.al
 /// NP4_WindowsLanguage_Get1078). Not in [`LANGUAGES`] either.
 const TAG_ONLY_LANGUAGES: &[(i32, &str, &str, &str)] = &[(1078, "Afrikaans (South Africa)", "AFK", "af-ZA")];
+/// Rows the reporter of al-runner issue 6558 measured on BC 29, as (LCID, name, abbreviated name, primary code page, tag,
+/// primary language id): globally enabled, no STX file. Not in [`LANGUAGES`], so a filter on their abbreviated name alone is
+/// not taken as naming one row. Runs on assumption windows-language-reported-rows until the corpus pin of the whole table
+/// lands.
+const REPORTED_LANGUAGES: &[(i32, &str, &str, &str, &str, i32)] = &[
+    (2107, "Sami, Northern (Sweden)", "SMF", "850", "se-SE", 1083),
+    (9225, "English (Caribbean)", "ENB", "850", "en-029", 1033),
+];
+fn reported(lcid: i64) -> bool {
+    REPORTED_LANGUAGES.iter().any(|l| i64::from(l.0) == lcid)
+}
 /// "STX File Exist" is pinned false for these rows (WcUnpinnedSingles.al:160, :169).
 const STX_FILE_ABSENT: [i32; 1] = [12297];
 /// The abbreviated names a filter may name alone: the table holds exactly one row with each (`count=1` at
@@ -482,6 +493,14 @@ fn known(t: &TableDef, lcid: i64) -> Option<Row> {
                 .map(|l| language_row(t, l.0, l.1, l.2, None, None))
         })
         .or_else(|| {
+            REPORTED_LANGUAGES.iter().find(|l| i64::from(l.0) == lcid).map(|l| {
+                let mut r = language_row(t, l.0, l.1, l.2, Some(l.3), Some(l.4));
+                r[pos(t, 2)] = Value::Integer(l.5);
+                r[pos(t, STX_FILE_EXIST)] = Value::Boolean(false);
+                r
+            })
+        })
+        .or_else(|| {
             TAG_ONLY_LANGUAGES.iter().find(|l| i64::from(l.0) == lcid).map(|l| {
                 let mut r = language_row(t, l.0, l.1, l.2, None, Some(l.3));
                 // Whether the row is globally enabled is not pinned for it.
@@ -491,13 +510,14 @@ fn known(t: &TableDef, lcid: i64) -> Option<Row> {
         })
 }
 
-/// The ids of every pinned row: [`LANGUAGES`] and [`NAME_ONLY_LANGUAGES`].
+/// The ids of every row served: [`LANGUAGES`], [`NAME_ONLY_LANGUAGES`], [`TAG_ONLY_LANGUAGES`] and [`REPORTED_LANGUAGES`].
 fn known_ids() -> impl Iterator<Item = i64> {
     LANGUAGES
         .iter()
         .map(|l| i64::from(l.0))
         .chain(NAME_ONLY_LANGUAGES.iter().map(|l| i64::from(l.0)))
         .chain(TAG_ONLY_LANGUAGES.iter().map(|l| i64::from(l.0)))
+        .chain(REPORTED_LANGUAGES.iter().map(|l| i64::from(l.0)))
 }
 
 fn unknown_in(set: &[ranges::Iv]) -> Option<i64> {
@@ -558,8 +578,15 @@ fn language_listing(t: &TableDef, filters: &[FieldFilter]) -> Result<Mat, StoreE
     }
     let rows = known_ids()
         .filter(|&id| only.is_none_or(|o| o == id))
-        .filter_map(|id| known(t, id))
-        .map(|r| Entry::ok(r).assuming(al_builtins::assumptions::Assumption::WindowsLanguagePrimaryLanguageId))
+        .filter_map(|id| known(t, id).map(|r| (id, r)))
+        .map(|(id, r)| {
+            // A reported row's primary language id is measured with the row, not by writer Y11.
+            Entry::ok(r).assuming(if reported(id) {
+                al_builtins::assumptions::Assumption::WindowsLanguageReportedRows
+            } else {
+                al_builtins::assumptions::Assumption::WindowsLanguagePrimaryLanguageId
+            })
+        })
         .collect();
     Ok(Mat::new(t, rows))
 }
@@ -574,7 +601,11 @@ pub(super) fn windows_language_get(t: &TableDef, pk: &[Value]) -> Result<Option<
     }
     match known(t, id) {
         Some(r) => {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WindowsLanguagePrimaryLanguageId);
+            al_builtins::assumptions::assume(if reported(id) {
+                al_builtins::assumptions::Assumption::WindowsLanguageReportedRows
+            } else {
+                al_builtins::assumptions::Assumption::WindowsLanguagePrimaryLanguageId
+            });
             Ok(Some(r))
         }
         None => Err(refused(format!(

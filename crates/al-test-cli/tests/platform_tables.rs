@@ -693,6 +693,26 @@ fn windows_language_12297_is_a_pinned_row() {
     }
 }
 
+// Windows Language rows 2107 (Sami, Northern (Sweden)) and 9225 (English (Caribbean)): the reporter's BC 29 measurement
+// (al-runner issue 6558; the corpus pin of the whole table is pending). The repro: an enabled filter on the id is not
+// empty, and Get answers the row with the measured values.
+#[test]
+fn windows_language_2107_and_9225_are_rows() {
+    let o = outcomes_bc(
+        "main",
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure EnabledFilter2107() var W: Record "Windows Language"; begin W.SetRange("Globally Enabled", true); W.SetRange("Language ID", 2107); if W.IsEmpty() then Error('empty'); end;
+  [Test] procedure EnabledFilter9225() var W: Record "Windows Language"; begin W.SetRange("Globally Enabled", true); W.SetRange("Language ID", 9225); if W.IsEmpty() then Error('empty'); end;
+  [Test] procedure Get2107() var W: Record "Windows Language"; begin if not W.Get(2107) then Error('no row'); if (W."Primary Language ID" <> 1083) or (W.Name <> 'Sami, Northern (Sweden)') or (W."Abbreviated Name" <> 'SMF') or (W."Primary CodePage" <> '850') or (W."Language Tag" <> 'se-SE') then Error('row'); end;
+  [Test] procedure Get9225() var W: Record "Windows Language"; begin if not W.Get(9225) then Error('no row'); if (W."Primary Language ID" <> 1033) or (W.Name <> 'English (Caribbean)') or (W."Abbreviated Name" <> 'ENB') or (W."Primary CodePage" <> '850') or (W."Language Tag" <> 'en-029') then Error('row'); end; }"#,
+        al_sema::check::Roots::default(),
+        "29.0.0.0",
+    );
+    for t in ["EnabledFilter2107", "EnabledFilter9225", "Get2107", "Get9225"] {
+        passes(&o, t);
+    }
+}
+
 // License Permission: the two rows platform/lt-platform-tables/PtCloudTables.al:60-76 pins, and the rows
 // platform/lt-ag-contoso/AgLicensePermission.al:43-67 reads by key (Codeunit 410 'Update Analysis View', which Cash Flow
 // Wksh.-Register Batch reads while the Contoso company is built). Any other object is refused, because the table lists
