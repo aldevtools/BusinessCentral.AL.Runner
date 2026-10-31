@@ -55,6 +55,8 @@ pub struct Layout {
     pub run_reasons: Vec<String>,
     /// Reasons only an export refuses (see `ir::XmlPort::export_unsupported`).
     pub export_reasons: Vec<String>,
+    /// See `ir::XmlPort::request_page`.
+    pub request_page: bool,
 }
 
 /// `Table.Field` at the first dot outside quotes: a table name may hold a dot (`"Data Exch. Def".Code`).
@@ -181,6 +183,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         reasons: Vec::new(),
         run_reasons: Vec::new(),
         export_reasons: Vec::new(),
+        request_page: false,
     };
     let (mut default_namespace, mut use_default_namespace) = (None::<String>, Some(false));
     let mut bc_namespace = false;
@@ -413,7 +416,10 @@ pub fn layout(obj: &ast::Object) -> Layout {
                     || request_page_has_only_empty_sections(&top)
                     || request_page_is_caption_with_empty_layout_and_actions(&top)
                     || request_page_is_source_table_only(&top) => {}
-            "requestpage" => out.run_reasons.push("request pages are not supported yet".into()),
+            // A request page with content never opens for Export and Import from code (instance or static), which run with
+            // the globals as code set them; Xmlport.Run with the request window opens it (xmlport/lt-y40-xmlport-request-page/
+            // Y40XmlPortRequestPage.al:283-423, corpus master ac3499d6; al-vm xmlports.rs).
+            "requestpage" => out.request_page = true,
             other => out
                 .reasons
                 .push(format!("xmlport section {other} is not supported yet")),
@@ -1157,6 +1163,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Linked_Unbounded_* and TS_RootOnce_* (were assumptions
         // `xmlport-linked-max-unbounded`, `xmlport-root-min-occurs-once`); no layout rests on an assumption now.
         assumes: Vec::new(),
+        request_page: layout.request_page,
     }
 }
 

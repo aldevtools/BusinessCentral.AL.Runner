@@ -702,6 +702,7 @@ const REGISTRY: &[(&str, NativeFn)] = &[
     ("Xmlport.Export#2", vm_only),
     ("Xmlport.Import#1", vm_only),
     ("Xmlport.Import#2", vm_only),
+    ("Xmlport.Run#1", vm_only),
     ("Xmlport.Run#2", vm_only),
     ("Xmlport.SetSource#1", vm_only),
     ("Xmlport.SetDestination#1", vm_only),
@@ -998,13 +999,10 @@ const REGISTRY: &[(&str, NativeFn)] = &[
 /// Builtins that are refused on purpose, with the reason. No corpus test pins what they answer, so
 /// the lowering says so instead of "is not implemented" (hard rule 3; each has a line in
 /// `docs/probes-needed.md`, "Builtins refused until a probe pins them").
-pub fn refusal(id: &str) -> Option<&'static str> {
-    Some(match id {
-        "Xmlport.Run#1" => {
-            "Xmlport.Run is in no corpus test, so where a run without a stream writes or reads (a file on the service tier a test cannot read) and what the request window does are not pinned"
-        }
-        _ => return None,
-    })
+/// None is refused this way now (the last one, `Xmlport.Run#1`, is pinned by corpus master ac3499d6,
+/// xmlport/lt-y40-xmlport-request-page/Y40XmlPortRequestPage.al).
+pub fn refusal(_id: &str) -> Option<&'static str> {
+    None
 }
 
 fn all() -> impl Iterator<Item = &'static (&'static str, NativeFn)> {

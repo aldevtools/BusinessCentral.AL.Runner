@@ -4039,8 +4039,28 @@ impl Session {
             Some(i) => self.report.request_captions[i].1 = text,
             None => self.report.request_captions.push((Rc::downgrade(inst), text)),
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCaptionSet);
+        // What a request page handler then reads is the assumption: marked here once the page was made, else when it opens.
+        if self.request_page_open(inst) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCaptionSet);
+        }
         Ok(Value::Null)
+    }
+
+    /// Whether the request page of the report `inst` is an instance of was made (it opens, is open or was open): a caption
+    /// set then may be what its handler reads.
+    fn request_page_open(&self, inst: &Inst) -> bool {
+        let object = inst.borrow().object as usize;
+        let Some(page) = self.engine.program.objects[object].page.as_ref() else {
+            return false;
+        };
+        matches!(inst.borrow().globals.get(page.curr_page_slot), Some(Value::TestPage(_)))
+    }
+
+    /// A request page opens on `inst`: a caption its code set before is the assumption `request-page-caption-set`.
+    pub(crate) fn request_page_opens_after_caption_set(&self, inst: &Inst) {
+        if self.report.request_captions.iter().any(|(w, _)| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst))) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCaptionSet);
+        }
     }
 
     /// `RequestPage.Editable`, `LookupMode`, `ObjectId` and `Activate` from the code of an open request page

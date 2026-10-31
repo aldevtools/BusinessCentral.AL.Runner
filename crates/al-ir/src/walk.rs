@@ -1027,6 +1027,7 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
         run_unsupported: _,
         export_unsupported: _,
         assumes: _,
+        request_page: _,
     } = x;
     let tables: Vec<Option<usize>> = nodes.iter().map(|n| n.table).collect();
     for n in nodes {

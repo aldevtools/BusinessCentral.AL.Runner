@@ -754,6 +754,10 @@ pub struct XmlPort {
     /// The unprobed assumptions the port's layout rests on; the VM marks them when the port runs.
     #[serde(default)]
     pub assumes: Vec<al_builtins::assumptions::Assumption>,
+    /// The port declares a request page with content (controls, triggers): Export and Import from code never open it, a Run
+    /// with the request window does (al-vm `xmlports.rs`, `XMLPORT_RUN_1`).
+    #[serde(default)]
+    pub request_page: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
