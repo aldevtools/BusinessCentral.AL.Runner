@@ -26,6 +26,12 @@ pub enum Ret {
 pub const AL_CONFIG_SETTINGS: &str = "Microsoft.Dynamics.Nav.Types.ALConfigSettings";
 /// `Microsoft.Dynamics.Nav.NavUserAccount.NavTenantSettingsHelper`.
 pub const TENANT_SETTINGS_HELPER: &str = "Microsoft.Dynamics.Nav.NavUserAccount.NavTenantSettingsHelper";
+/// Base Application's codeunit "Application System Constants": its [`PLATFORM_FILE_VERSION`] is the text the runtime's
+/// `NavTenantSettingsHelper.GetPlatformVersion` parses (al-vm `dotnet/server_classes.rs` `platform_version`), and the
+/// demand-driven compile reaches it for such a call (al-sema `check/demand.rs` `reach_platform_file_version`).
+pub const APPLICATION_SYSTEM_CONSTANTS: u32 = 9015;
+/// The procedure of [`APPLICATION_SYSTEM_CONSTANTS`] that `GetPlatformVersion` calls.
+pub const PLATFORM_FILE_VERSION: &str = "PlatformFileVersion";
 /// `Microsoft.Dynamics.Nav.Service.CopilotApi.AL.ALCopilotFunctions`, behind System Application's "AOAI Authorization".
 pub const COPILOT_FUNCTIONS: &str = "Microsoft.Dynamics.Nav.Service.CopilotApi.AL.ALCopilotFunctions";
 /// `Microsoft.Dynamics.Nav.Runtime.NavTestExecution`.
@@ -149,6 +155,7 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (TENANT_SETTINGS_HELPER, "GetLinkedPowerPlatformEnvironmentId", Ret::Text),
     (TENANT_SETTINGS_HELPER, "GetEnvironmentApplicationSetting", Ret::Text),
     (TENANT_SETTINGS_HELPER, "GetApplicationFamily", Ret::Text),
+    (TENANT_SETTINGS_HELPER, "GetPlatformVersion", Ret::Object),
     (TENANT_SETTINGS_HELPER, "TryGetStringTenantSetting", Ret::Boolean),
     (USER_ACCOUNT_HELPER, "IsAzure", Ret::Boolean),
     (USER_ACCOUNT_HELPER, "IsUserDelegatedAdmin", Ret::Boolean),

@@ -42,10 +42,17 @@ impl<'a> Checker<'a> {
             // Members of a .NET type come from reflection at run time: any name, any arity,
             // a result whose type is known only then (ADR-014).
             Ty::DotNet(alias) => {
+                let decl = self.ws.resolve_dotnet(sc.file, alias);
+                // The runtime answers GetPlatformVersion from Base Application's PlatformFileVersion.
+                if name.eq_ignore_ascii_case("GetPlatformVersion")
+                    && decl.is_some_and(|i| {
+                        self.ws.dotnet[i].decl.type_name == al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER
+                    })
+                {
+                    self.reach_platform_file_version();
+                }
                 // A member the runtime provides itself declares its result type (ADR-014).
-                let ret = self
-                    .ws
-                    .resolve_dotnet(sc.file, alias)
+                let ret = decl
                     .and_then(|i| al_builtins::dotnet_sigs::lookup(&self.ws.dotnet[i].decl.type_name, name))
                     .map_or_else(
                         || Ty::DotNet("".into()),

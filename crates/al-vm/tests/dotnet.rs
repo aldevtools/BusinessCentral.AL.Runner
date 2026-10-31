@@ -1630,6 +1630,8 @@ fn the_declared_result_types_match_the_registry() {
             "GetEnvironmentVariable" => continue,
             // Raise by design; the_key_vault_provider_without_a_key_vault_raises_the_pinned_errors runs them.
             "InitializeFromCallingAppExceptSystemApplication" | "TryGetAzureKeyVaultSecret" => continue,
+            // Needs codeunit 9015 and a host; get_platform_version_is_the_parsed_platform_file_version_of_codeunit_9015 runs it.
+            "GetPlatformVersion" => continue,
             // Refused by design (it lowers permissions); adding_an_effective_permission_set_is_refused runs it.
             "AddEffectivePermissionSet" => continue,
             // Need a staged folder; directory_info_of_a_folder_staged_for_the_company_build_* run them.
@@ -3020,4 +3022,48 @@ fn the_credential_type_is_user_name_and_password() {
         }
         assert!(take_hits().is_empty(), "pinned, not assumed");
     }
+}
+
+// NavTenantSettingsHelper.GetPlatformVersion() is the platform file version: a System.Version whose ToString equals
+// "Application System Constants".PlatformFileVersion() (Base Application codeunit 9015) on 27.5, 28.5 and 29.0 (corpus
+// master tests/al-language-onprem-dotnet/lt-y35-platform-version/Y35PlatformVersion.al C304_GetPlatformVersion). The
+// runtime asks codeunit 9015 for the text and builds the System.Version with System.Version.Parse on the host.
+#[test]
+fn get_platform_version_is_the_parsed_platform_file_version_of_codeunit_9015() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(DotNetTarget::Static(t), m, a) if t.name == "System.Version" && m == "Parse" => {
+            assert!(matches!(&a[0].value, DotNetValue::Str(s) if s == "29.0.55782.0"), "{a:?}");
+            reply(handle(7, "System.Version"))
+        }
+        Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "ToString" => reply(DotNetValue::Str("29.0.55782.0".into())),
+        other => panic!("unexpected request {other:?}"),
+    });
+    let src = format!(
+        "{DOTNET}{TABLE}
+dotnet {{ assembly(\"mscorlib\") {{ type(\"System.Version\"; \"ClrVersion\") {{ }} }} }}
+codeunit 9015 \"Application System Constants\" {{ procedure PlatformFileVersion(): Text[80] begin exit('29.0.55782.0'); end; }}
+codeunit 50100 C {{ procedure F(): Text var T: DotNet NavTenantSettingsHelper; V: DotNet ClrVersion; begin V := T.GetPlatformVersion(); exit(V.ToString()); end; }}"
+    );
+    let (ws, l) = al_sema::lower::compile(
+        vec![AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![("f.al".into(), src)],
+        }],
+        &Default::default(),
+    );
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let blocked: Vec<Vec<Option<String>>> = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .collect();
+    let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
+    let ri = l.program.objects[oi].routines.iter().position(|r| r.name == "F").unwrap();
+    let engine = Engine::with_dotnet(l.program, blocked, cfg(&host));
+    let mut s = Session::new(engine);
+    let inst = s.instance(oi);
+    let r = s.call(oi, ri, inst, vec![]).map(|(v, _)| v);
+    assert!(matches!(&r, Ok(Value::Text(t)) if t.as_str() == "29.0.55782.0"), "{r:?}");
 }
