@@ -180,6 +180,17 @@ registry! {
         tests: "No Microsoft test: corpus PR 891 (Y6TenantReportLayoutRows.al) reads the stream only through Media.ImportStream.",
         probe: "Report.RdlcLayout of a report with an RDLC layout file, the stream read with ReadText and compared with the file's text (and its length).",
     },
+    InstalledAppPublishedAs => {
+        id: "installed-app-published-as",
+        assumed: "\"Published As\" (column 16) of a NAV App Installed App row is Dev (2) for an app under test, and Global (0) for a dependency app published by Microsoft, as for apps published through the development endpoint next to Microsoft's apps. Another dependency app stays unknown (refused when read).",
+        tests: "No Microsoft test: al-runner issue 6438 (an app's install code filters its installed apps on Published As = Global).",
+        probe: "Measured by corpus writer Y12 on the SaaS sandbox, newest major (record/lt-y12-published-as/Y12PublishedAs.al, corpus branch al-runtime-rs-staging-y12): this app and a corpus dependency app ' Dev' (2), System Application and Base Application Global (0). Retire when the corpus bump brings the file.",
+        awaiting: Awaiting {
+            issues: &[6438],
+            files: &["tests/al-language/record/lt-y12-published-as/Y12PublishedAs.al"],
+            since: "2026-10-31",
+        },
+    },
     ReportLayoutListBuiltInNotUserDefined => {
         id: "report-layout-list-built-in-not-user-defined",
         assumed: "\"User Defined\" (column 14) of a Report Layout List row of an RDLC or Word layout declared in AL is No; a report without layouts has no rows. Excel and Custom layouts stay refused.",

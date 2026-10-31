@@ -590,6 +590,13 @@ pub const AWAITING_COLUMNS: &[(u32, u32, crate::assumptions::Assumption)] = &[
         20,
         crate::assumptions::Assumption::PublishedApplicationLogoIsTheLogoFile,
     ),
+    // NAV App Installed App "Published As": Dev for an app under test, Global for a Microsoft dependency, unknown otherwise
+    // (al-vm apps.rs).
+    (
+        2_000_000_153,
+        16,
+        crate::assumptions::Assumption::InstalledAppPublishedAs,
+    ),
     // Report Layout List "User Defined": No for an RDLC or Word layout declared in AL, unknown otherwise (al-vm reports.rs).
     (
         2_000_000_234,

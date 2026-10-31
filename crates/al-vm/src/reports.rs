@@ -2027,18 +2027,22 @@ impl Session {
         let execute_parameters = self.report.execute_parameters.take();
         let mut run = self.report_prepare(inst, schema, !shows_page)?;
         run.dataset = save_as.is_some();
+        let mut init_ran = false;
         if !shows_page {
-            self.request_page_init_unshown(
-                inst,
-                schema,
-                save_as.is_some_and(|x| !x.is_empty()) || execute_parameters.is_some(),
-            )?;
+            init_ran = self.request_page_init_unshown(inst, schema, save_as.is_some_and(|x| !x.is_empty()))?;
         }
         if let Some(xml) = save_as.filter(|x| !x.is_empty()) {
             self.apply_run_parameters(inst, schema, &run, xml, false)?;
         } else if let Some(xml) = &execute_parameters {
             // An Execute skips a field name no control has (WdReportExecuteParams.al:69-77 WD_ReportExecute_UnknownField).
             self.apply_run_parameters(inst, schema, &run, xml, true)?;
+            // The values land after the request page's OnInit; its OnOpenPage and OnClosePage follow (no OnQueryClosePage), and a
+            // control the parameters do not name keeps OnInit's value (report/lt-report-requestpage/Y12ExecuteOnInit.al:117-143,
+            // corpus branch al-runtime-rs-staging-y12, al-runner issue 6446; RptRequestPage.al:878-893). An empty string runs
+            // neither (Y12ExecuteOnInit.al:145-156): `execute_parameters` holds no empty string.
+            if init_ran {
+                self.request_page_open_close_unshown(inst, schema)?;
+            }
         }
         // The request page opens once the items' views are in force; what the handler filters is
         // what the run reads, so the views are not applied again afterwards. A cancelled page ends
@@ -2118,13 +2122,19 @@ impl Session {
 
     /// The request page's `OnInit` runs although the page is not shown, after OnInitReport and before OnPreReport, and
     /// OnOpenPage does not: a SaveAs (misc/lt-probes-needed-2/PnBReportSaveAs.al:348 TriggerOrder, :262 Rows_SkipAndBreak),
-    /// an Execute and a Run with UseRequestPage(false) (report/lt-ae-reporthandler/AeReportHandler.al:85, :121). Not pinned,
-    /// and refused: an OnInit a reportextension adds to the page, and a parameters string, whose values may land before or
-    /// after the trigger.
-    fn request_page_init_unshown(&mut self, inst: &Inst, schema: &Schema, with_parameters: bool) -> Result<(), Signal> {
+    /// an Execute and a Run with UseRequestPage(false) (report/lt-ae-reporthandler/AeReportHandler.al:85, :121). The values of
+    /// an Execute's parameters land after it (`report_body`). Not pinned, and refused: an OnInit a reportextension adds to the
+    /// page, and the parameters string of a SaveAs (`with_parameters`), whose values may land before or after the trigger.
+    /// Returns whether the trigger ran here.
+    fn request_page_init_unshown(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        with_parameters: bool,
+    ) -> Result<bool, Signal> {
         let engine = self.engine.clone();
         let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
-            return Ok(());
+            return Ok(false);
         };
         if page.ext_triggers.iter().any(|(n, _, _)| n == "oninit") {
             return unsupported(format!(
@@ -2133,7 +2143,7 @@ impl Session {
             ));
         }
         let Some(r) = page.triggers.iter().find(|(n, _)| n == "oninit").map(|(_, r)| *r) else {
-            return Ok(());
+            return Ok(false);
         };
         // It ran before the [ReportHandler] that runs the report now.
         if self
@@ -2142,12 +2152,12 @@ impl Session {
             .iter()
             .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
         {
-            return Ok(());
+            return Ok(false);
         }
         // It ran at the procedure that used the variable first and does not run again
         // (report/lt-request-page-oninit/RequestPageOnInitFirstUse.al:104-185).
         if self.request_page_init_done(inst) {
-            return Ok(());
+            return Ok(false);
         }
         if with_parameters {
             return unsupported(format!(
@@ -2155,7 +2165,30 @@ impl Session {
                 schema.name()
             ));
         }
-        self.call(schema.object, r, inst.clone(), Vec::new()).map(|_| ())
+        self.call(schema.object, r, inst.clone(), Vec::new()).map(|_| true)
+    }
+
+    /// The request page's OnOpenPage, then its OnClosePage, for the parameters of an Execute whose page's OnInit ran without
+    /// the page (`report_body`). Refused: the triggers a reportextension adds to the page (not pinned).
+    fn request_page_open_close_unshown(&mut self, inst: &Inst, schema: &Schema) -> Result<(), Signal> {
+        let engine = self.engine.clone();
+        let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
+            return Ok(());
+        };
+        for name in ["onopenpage", "onclosepage"] {
+            if page.ext_triggers.iter().any(|(n, _, _)| n == name) {
+                return unsupported(format!(
+                    "the {name} trigger a reportextension adds to the request page of report \"{}\", for an Execute with parameters (not pinned)",
+                    schema.name()
+                ));
+            }
+        }
+        for name in ["onopenpage", "onclosepage"] {
+            if let Some(r) = page.triggers.iter().find(|(n, _)| n == name).map(|(_, r)| *r) {
+                self.call(schema.object, r, inst.clone(), Vec::new())?;
+            }
+        }
+        Ok(())
     }
 
     /// Everything of a run after its request page: the triggers and the data items.

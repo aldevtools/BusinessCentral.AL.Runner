@@ -173,7 +173,7 @@ An item is **pinned** when it occurs in a corpus file in a routine that static r
 |---|---:|---:|---:|---:|---:|
 | Triggers per object kind | 190 | 189 | 128 | 0 | 0 |
 | Object properties per object kind | 1350 | 805 | 1074 | 545 | 511 |
-| Platform and system events | 123 | 36 | 17 | 0 | 0 |
+| Platform and system events | 130 | 36 | 17 | 0 | 0 |
 | Statements and expressions | 64 | 60 | 58 | 0 | 0 |
 | Method attributes | 34 | 33 | 13 | 1 | 1 |
 | Runtime error sites (text pinned) | 99 | 95 | - | 4 | - |
@@ -443,10 +443,17 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 
 295 more in `corpus-behavior-coverage.json`.
 
-## Platform and system events: unpinned items (87)
+## Platform and system events: unpinned items (94)
 
 | Group | Name | MS uses | Runtime reads | Corpus uses (not reached) |
 |---|---|---:|---|---:|
+| (any) | `OnAfterGetCurrRecordEvent` | 0 | yes | 0 |
+| (any) | `OnClosePageEvent` | 0 | yes | 0 |
+| (any) | `OnInsertRecordEvent` | 0 | yes | 0 |
+| (any) | `OnModifyRecordEvent` | 0 | yes | 0 |
+| (any) | `OnNewRecordEvent` | 0 | yes | 0 |
+| (any) | `OnOpenPageEvent` | 0 | yes | 0 |
+| (any) | `OnQueryClosePageEvent` | 0 | yes | 0 |
 | codeunit | `CaptionClassTranslate` | 0 | yes | 0 |
 | codeunit | `ChangeCompany` | 0 | yes | 0 |
 | codeunit | `CustomDocumentMergerEx` | 0 | yes | 0 |
