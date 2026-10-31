@@ -50,3 +50,14 @@ its procedure name (`al-testrun` `runtime/run.rs`, `test_handlers_refusal`, `dat
   `Procedure[identifier]`, pinned by corpus `al-language-testlibraries/lt-bi-test-framework/BiDataDriven.al` (corpus
   PR 861: the BC 29 reference run in its header and the result names of the corpus CI on BC 29). No `CaseId` field was
   added: the case name is the test name of the row, so every consumer of the result model works unchanged.
+
+## Note (2026-10-31): unpinned error texts, opt-in (al-runner issue 6487)
+
+Additive; the status is unchanged. By default a test that ends on an error whose text is not pinned stays **not run**
+(`The test result of an error whose text is not pinned`). With `ALRUNNER_REPORT_UNPINNED_ERRORS=1`, `al-runner` reports
+it as **failed**, its message starting with `[error text not pinned]` (`al_builtins::native::UNPINNED_FAILURE_MARK`). No
+new `Outcome` variant: it is `Outcome::Fail`. The summary line, every JUnit `testsuite` (property
+`report_unpinned_errors`) and the `--output-json` document (`reportUnpinnedErrors`, `unpinnedErrorFailures`) say the
+switch is on, and it is part of the `--affected` options hash. Such a run is not a conformance result: `al-test-cli`
+never sets it, so the corpus ratchet is unchanged. Tests: `crates/al-testrun/tests/report_unpinned_errors.rs`,
+`crates/alrunner-cli/src/unpinned.rs`.
