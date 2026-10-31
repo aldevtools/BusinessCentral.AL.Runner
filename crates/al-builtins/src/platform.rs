@@ -588,6 +588,13 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         "InherentEntitlements",
         "al-language/xmlport/lt-y-xmlport-props/YXmlPortProps.al:731-740",
     ),
+    // Event Subscription "Originating Package ID": a Guid, scrubbed by the observer because it changes per publish; read through
+    // the helper's FieldIndex loop (al-vm metadata.rs).
+    (
+        2_000_000_140,
+        "10",
+        "al-language/misc/lt-probes-needed-5/PnE11EventSub.al:67-78, :99",
+    ),
     (
         2_000_000_140,
         "11",

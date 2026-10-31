@@ -3744,6 +3744,43 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "Rows");
 }
 
+/// The Published Function of a page field's validate event is `<event> - <control id of the field>`, the id of the declaring
+/// object (a page extension for a field it adds) and the control name, the same number for Before and After
+/// (events/lt-event-subscription-trigger-rows/PageTriggerEventRows.al:241-259; events/lt-page-event-numbers/PageEventNumbers.al;
+/// the ids are those of objects 91511, 91512 and 91513, so the test uses the same ids). "Originating Package ID" is a Guid that
+/// changes with every publish (the Probe Observer scrubs it, PnE11EventSub.al:99): the subscriber app's package id.
+#[test]
+fn a_page_field_event_names_the_control_id_of_the_field() {
+    let o = outcomes_app(
+        "8b4b1c2e-1f7a-4c39-9d5e-3a6f2b7c9d01",
+        r#"table 91510 "Row" { fields { field(1; "Code"; Code[20]) { } field(2; Name; Text[30]) { } field(3; "Unit Price"; Decimal) { } field(4; Extra; Text[30]) { } }
+  keys { key(PK; "Code") { Clustered = true; } } }
+page 91511 "Card" { PageType = Card; SourceTable = "Row"; layout { area(Content) { field("Code"; Rec."Code") { } field(Name; Rec.Name) { }
+  group(Prices) { field("Unit Price"; Rec."Unit Price") { } } } } }
+page 91512 "List" { PageType = List; SourceTable = "Row"; layout { area(Content) { repeater(Lines) { field(Name; Rec.Name) { } field(ListName; Rec.Name) { } } } } }
+pageextension 91513 "Card Ext" extends "Card" { layout { addlast(Content) { field(Extra; Rec.Extra) { } } } }
+codeunit 50002 "Sub" {
+  [EventSubscriber(ObjectType::Page, Page::"Card", OnBeforeValidateEvent, 'Name', false, false)] local procedure H1() begin end;
+  [EventSubscriber(ObjectType::Page, Page::"Card", OnAfterValidateEvent, 'Name', false, false)] local procedure H2() begin end;
+  [EventSubscriber(ObjectType::Page, Page::"Card", OnAfterValidateEvent, 'Unit Price', false, false)] local procedure H3() begin end;
+  [EventSubscriber(ObjectType::Page, Page::"Card", OnAfterValidateEvent, 'Extra', false, false)] local procedure H4() begin end;
+  [EventSubscriber(ObjectType::Page, Page::"List", OnAfterValidateEvent, 'ListName', false, false)] local procedure H5() begin end; }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Fn(Name: Text): Text var E: Record "Event Subscription"; begin E.Get(50002, Name); exit(E."Published Function"); end;
+  [Test] procedure Rows() begin
+    if Fn('H1') <> 'OnBeforeValidateEvent - 818325649' then Error('H1 %1', Fn('H1'));
+    if Fn('H2') <> 'OnAfterValidateEvent - 818325649' then Error('H2 %1', Fn('H2'));
+    if Fn('H3') <> 'OnAfterValidateEvent - 503518781' then Error('H3 %1', Fn('H3'));
+    if Fn('H4') <> 'OnAfterValidateEvent - 1531586016' then Error('H4 %1', Fn('H4'));
+    if Fn('H5') <> 'OnAfterValidateEvent - 1677490222' then Error('H5 %1', Fn('H5')); end;
+  [Test] procedure PackageId() var E: Record "Event Subscription"; begin E.Get(50002, 'H1');
+    if IsNullGuid(E."Originating Package ID") then Error('null'); end; }"#,
+        al_sema::check::Roots::default(),
+    );
+    passes(&o, "Rows");
+    passes(&o, "PackageId");
+}
+
 /// AllObjWithCaption of a table whose own Caption one tableextension overrides is not measured (al-runner issue 6378 pins
 /// the error texts, TableCaption and RecordRef.Caption only): the read of its Object Caption stays refused.
 #[test]
@@ -3801,11 +3838,11 @@ fn windows_language_primary_language_id_is_the_primary_culture_lcid_on_an_assump
 }
 
 /// al-runner #6411: the Event Subscription row of a subscriber to a page trigger event. A page field's OnAfterValidateEvent
-/// and OnOpenPageEvent are pinned (misc/lt-probes-needed-5/PnE11EventSub.al:99, :130); OnBeforeValidateEvent and
-/// OnAfterGetCurrRecordEvent are measured on corpus branch al-runtime-rs-staging-y11 (PageTriggerEventRows.al) and run on
-/// assumption page-trigger-event-subscription-row. The number in a field event's Published Function is refused when read.
+/// and OnOpenPageEvent (misc/lt-probes-needed-5/PnE11EventSub.al:99, :130), OnBeforeValidateEvent and OnAfterGetCurrRecordEvent
+/// (events/lt-event-subscription-trigger-rows/PageTriggerEventRows.al:241-273) are pinned: no row runs on an assumption. The
+/// number in a field event's Published Function is the field's control id (`a_page_field_event_names_the_control_id_of_the_field`).
 #[test]
-fn page_trigger_event_subscription_rows_serve_the_measured_columns() {
+fn page_trigger_event_subscription_rows_are_pinned() {
     let src = r#"table 50100 "ES Row" { fields { field(1; Code; Code[10]) { } field(2; Name; Text[30]) { } } keys { key(PK; Code) { Clustered = true; } } }
 page 50100 "ES Card" { PageType = Card; SourceTable = "ES Row"; layout { area(Content) { field(Code; Rec.Code) { } field(Name; Rec.Name) { } } } }
 codeunit 50100 "ES After" {
@@ -3817,7 +3854,7 @@ codeunit 50101 "ES Before" {
 codeunit 50000 "T" { Subtype = Test;
   [Test] procedure PinnedRows() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50100); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); E.SetRange(Active, true); E.SetRange("Event Type", E."Event Type"::Trigger); E.SetRange("Publisher Object Type", E."Publisher Object Type"::Page); if E.Count() <> 2 then Error('count %1', E.Count()); E.Get(50100, 'OnOpen'); if E."Published Function" <> 'OnOpenPageEvent' then Error('pf %1', E."Published Function"); end;
   [Test] procedure MeasuredRows() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50101); E.SetRange(Active, true); E.SetRange("Event Type", E."Event Type"::Trigger); if E.Count() <> 2 then Error('count %1', E.Count()); E.Get(50101, 'OnCurr'); if E."Published Function" <> 'OnAfterGetCurrRecordEvent' then Error('pf %1', E."Published Function"); if E."Publisher Object ID" <> 50100 then Error('id'); end;
-  [Test] procedure FieldEventNumber() var E: Record "Event Subscription"; begin E.Get(50100, 'OnAfterValidateName'); if E."Published Function" = '' then; end; }"#;
+  [Test] procedure FieldEventNumber() var E: Record "Event Subscription"; begin E.Get(50100, 'OnAfterValidateName'); if E."Published Function" = '' then Error('blank'); end; }"#;
     let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), "29.0.0.0");
     let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
     let mut hits = Vec::new();
@@ -3833,16 +3870,11 @@ codeunit 50000 "T" { Subtype = Test;
         &mut hits,
         None,
     );
-    let a = al_builtins::assumptions::Assumption::PageTriggerEventSubscriptionRow;
-    let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && m.contains(&a));
+    let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && !m.is_empty());
     let get = |n: &str| out.iter().find(|(x, _)| x == n).map(|(_, o)| o.clone()).expect(n);
-    assert_eq!(get("PinnedRows"), Outcome::Pass);
-    assert!(!flagged("PinnedRows"));
-    assert_eq!(get("MeasuredRows"), Outcome::Pass);
-    assert!(flagged("MeasuredRows"));
-    match get("FieldEventNumber") {
-        Outcome::NotRun(why) => assert!(why.contains("Published Function"), "{why}"),
-        o => panic!("FieldEventNumber: {o:?}"),
+    for n in ["PinnedRows", "MeasuredRows", "FieldEventNumber"] {
+        assert_eq!(get(n), Outcome::Pass, "{n}");
+        assert!(!flagged(n), "{n}");
     }
 }
 
