@@ -1,6 +1,6 @@
 //! A Variant that held a record and is given another record of the same table holds the new record's view: what
 //! `RecordRef.GetTable(V)` takes from it is the new record's filters, not the old one's (al-runner issue 6503, the
-//! reporter's run on BC 29: `first{count=1 filters=[No: A]} second{count=0 filters=[No: NONE]} back{count=1 filters=[]}`).
+//! reporter's run on real BC, newest major: `first{count=1 filters=[No: A]} second{count=0 filters=[No: NONE]} back{count=1 filters=[]}`).
 
 use al_testkit::text;
 

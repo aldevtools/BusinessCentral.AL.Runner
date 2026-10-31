@@ -1284,7 +1284,7 @@ impl Session {
             // A Variant that holds a record takes the new value whole, whatever table it comes from: it is no record variable
             // (Library - Variable Storage.Dequeue into one `RecVar` that held a Contact, then a Segment Header; Tests-Marketing).
             // A Variant holding another record is replaced (by the by-value copy below), so it holds the new record's view: a
-            // RecordRef.GetTable of it takes the new filters (al-runner issue 6503, the reporter's run on BC 29, assumption
+            // RecordRef.GetTable of it takes the new filters (al-runner issue 6503, the reporter's run on real BC, newest major, assumption
             // `variant-reassign-takes-new-view`). A Variant given the very record it holds keeps it, and with it the table a
             // Variant parameter was bound to (a temporary record's rows): replacing that gave the callee an empty table (Find
             // Record Management.GetLastEntryIntFieldValue, called from "Price Asset".OnInsert; Tests-ERM Price Calculation - V16).
