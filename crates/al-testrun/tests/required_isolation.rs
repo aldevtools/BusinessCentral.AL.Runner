@@ -468,3 +468,46 @@ codeunit 50672 "Reads Other"
     );
     assert_eq!(outcome(&o, "RO1"), &Outcome::Pass, "{o:?}");
 }
+
+// Under runner 130450 what a test codeunit's OnRun leaves in isolated storage and in the number sequences, committed and
+// open, reaches the later codeunits as its rows do; the TestRunnerHub (BC 28+) drops it with the rows
+// (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al C301_B1_OnRunCommittedStorage, C301_B1_OnRunSequences,
+// C301_B1_OnRunOpenWrites; C306_B6_OnRunStorage for the hub).
+const ONRUN_STORAGE_130450: &str = r#"
+codeunit 50680 "OnRun Storage"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    trigger OnRun()
+    var V: BigInteger;
+    begin
+        IsolatedStorage.Set('C', 'committed', DataScope::Module);
+        NumberSequence.Insert('S', 100, 1, false);
+        V := NumberSequence.Next('S', false);
+        Commit();
+        IsolatedStorage.Set('O', 'open', DataScope::Module);
+    end;
+    [Test] procedure OS1() begin end;
+}
+codeunit 50681 "Reads Storage"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure RS1()
+    var V: Text;
+    begin
+        if not IsolatedStorage.Get('C', DataScope::Module, V) then Error('no committed key');
+        if not IsolatedStorage.Get('O', DataScope::Module, V) then Error('no open key');
+        if not NumberSequence.Exists('S', false) then Error('no sequence');
+        if NumberSequence.Next('S', false) <> 101 then Error('next');
+    end;
+}
+"#;
+
+#[test]
+fn under_runner_130450_what_onrun_left_in_storage_and_sequences_reaches_the_later_codeunits() {
+    let o = run(ONRUN_STORAGE_130450, false);
+    assert_eq!(outcome(&o, "RS1"), &Outcome::Pass, "{o:?}");
+    let o = run(ONRUN_STORAGE_130450, true);
+    assert_eq!(outcome(&o, "RS1"), &Outcome::Fail("no committed key".into()), "{o:?}");
+}

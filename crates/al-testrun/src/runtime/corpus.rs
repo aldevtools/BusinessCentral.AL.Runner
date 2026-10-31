@@ -1232,7 +1232,7 @@ impl CorpusRuntime {
                             // Under Disabled isolation OnRun's writes are carried with the rest.
                             onrun_carry: *i != TestIsolation::Disabled
                                 && !on_hub(lowered, oi, *hub, hub_path)
-                                && onrun_writes(lowered, oi),
+                                && onrun_writes(&engine, lowered, oi),
                             leak: None,
                             without_baseline: false,
                             coverage: opts.coverage,
@@ -2246,13 +2246,24 @@ fn on_hub(lowered: &Lowered, oi: usize, hub: bool, hub_path: bool) -> bool {
 /// codeunit isolation: what it writes, committed or not, reaches the later codeunits (codeunit/lt-qu-commit-isolation/
 /// RqIsolationModes.al:357-369, :493-505 and :616, the `#else` branches the BC 27 legs run), so such a codeunit carries
 /// what its OnRun left to them (`Unit::onrun_carry`). On the TestRunnerHub, Codeunit and Function isolation roll it back
-/// (:357-362, :493-498) and Disabled carries it with the rest.
-fn onrun_writes(lowered: &Lowered, oi: usize) -> bool {
+/// (:357-362, :493-498) and Disabled carries it with the rest. Isolated storage and number sequences OnRun changes,
+/// committed and open, carry the same way (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al
+/// C301_B1_OnRunCommittedStorage, C301_B1_OnRunSequences, C301_B1_OnRunOpenWrites), so an OnRun whose reach can write
+/// them, or is not fully known, counts too.
+fn onrun_writes(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
+    use super::written::{ReachIndex, reach_facts, state};
     let o = &lowered.program.objects[oi];
     o.routines
         .iter()
         .position(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun"))
-        .is_some_and(|r| !crate::baseline::tables_written(lowered, oi, r).is_empty())
+        .is_some_and(|r| {
+            if !crate::baseline::tables_written(lowered, oi, r).is_empty() {
+                return true;
+            }
+            let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
+            let f = reach_facts(&engine.events, lowered, &index, oi, r);
+            f.unknown.is_some() || f.state_writes & (state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE) != 0
+        })
 }
 
 /// Whether the static reach of test codeunit `oi` (its tests and its `OnRun`) can read or change isolated storage or a

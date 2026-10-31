@@ -502,13 +502,11 @@ fn run_codeunit_inner(
                         baseline: Some(baseline),
                         tables: session.store_mut().tables_changed_since(changes_from),
                         unfinished: None,
-                        storage_why: everything.then(|| {
-                            format!(
-                                "an earlier test codeunit, {}, changed isolated storage or a number sequence in its OnRun \
-                                 trigger, which under the test runner 130450 every later codeunit sees: that is not followed",
-                                obj.name
-                            )
-                        }),
+                        // Isolated storage and number sequences carry as the rows do, committed and open
+                        // (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al C301_B1_OnRunCommittedStorage,
+                        // C301_B1_OnRunSequences, C301_B1_OnRunOpenWrites): a later codeunit whose reach can touch them
+                        // starts from this baseline (`corpus.rs`, `Carried::everything`).
+                        storage_why: None,
                         everything,
                     });
                 }
