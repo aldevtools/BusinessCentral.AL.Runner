@@ -1476,6 +1476,19 @@ impl Session {
             PageMethod::AssertEquals => self.control_assert_equals(st, idx, args),
             PageMethod::Caption => Ok(Value::Text(self.control_caption(st, idx)?.into())),
             PageMethod::OptionCount | PageMethod::GetOption => {
+                // Whether the options of a control (or table field) with ValuesAllowed are only the allowed values is not
+                // pinned (docs/probes-needed.md).
+                let allowed =
+                    |props: &[(String, String)]| props.iter().any(|(k, _)| k.eq_ignore_ascii_case("ValuesAllowed"));
+                if page_of(&self.engine(), st).controls[idx]
+                    .prop("valuesallowed")
+                    .is_some()
+                    || self.control_field(st, idx).is_some_and(|f| allowed(&f.properties))
+                {
+                    return unsupported(format!(
+                        "TestField.{m} on a control with ValuesAllowed: whether only the allowed values are options is not pinned"
+                    ));
+                }
                 let current = self.control_value(st, idx)?;
                 let engine = self.engine();
                 let members: Vec<i32> = match self.control_type(st, idx, &current) {
