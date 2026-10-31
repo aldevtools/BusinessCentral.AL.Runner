@@ -37,6 +37,7 @@ pub use profile::flush as profile_flush;
 mod callstack;
 mod companies;
 mod control_add_in;
+mod crm;
 mod dataset;
 mod dispatch;
 pub mod dotnet;
@@ -687,6 +688,8 @@ pub struct Session {
     /// Registered table connections by (type member, lower-case name), and the default name per type.
     pub(crate) table_connections: std::collections::HashSet<(i32, String)>,
     pub(crate) default_table_connection: std::collections::HashMap<i32, String>,
+    /// The rows of each registered CRM table connection, by lower-case name (`crm.rs`).
+    pub(crate) crm_stores: std::collections::HashMap<String, crm::CrmStore>,
     /// Number sequences by (company, name); a global sequence has an empty company.
     pub(crate) sequences: std::collections::HashMap<(String, String), sessionops::Sequence>,
     /// The one instance of each `SingleInstance = true` codeunit in this session.
@@ -1102,6 +1105,7 @@ impl Session {
             sequences,
             table_connections: Default::default(),
             default_table_connection: Default::default(),
+            crm_stores: Default::default(),
             tx_model: TxModel::default(),
             in_test_codeunit: false,
             isolation_from_hub: false,
@@ -1251,6 +1255,7 @@ impl Session {
     pub fn commit_transaction(&mut self) {
         self.tx.deferred_insert = None;
         al_data::Store::commit(&mut self.store);
+        self.crm_committed();
         self.commits += 1;
         self.sql.committed();
         self.truncate_undo.clear();
@@ -1356,6 +1361,7 @@ impl Session {
     pub fn rollback_transaction(&mut self) {
         self.tx.deferred_insert = None;
         al_data::Store::rollback(&mut self.store);
+        self.crm_rolled_back();
         self.sql.rolled_back();
         self.tx.row_versions = Default::default();
         self.tx.rows_touched.clear();
