@@ -37,6 +37,7 @@ pub use profile::flush as profile_flush;
 mod callstack;
 mod companies;
 mod control_add_in;
+mod crm;
 mod dataset;
 mod dispatch;
 pub mod dotnet;
@@ -56,6 +57,7 @@ mod interfaces;
 mod isdirty;
 mod pages;
 mod partial;
+mod permissions;
 mod platform;
 mod profile;
 mod queries;
@@ -686,6 +688,8 @@ pub struct Session {
     /// Registered table connections by (type member, lower-case name), and the default name per type.
     pub(crate) table_connections: std::collections::HashSet<(i32, String)>,
     pub(crate) default_table_connection: std::collections::HashMap<i32, String>,
+    /// The rows of each registered CRM table connection, by lower-case name (`crm.rs`).
+    pub(crate) crm_stores: std::collections::HashMap<String, crm::CrmStore>,
     /// Number sequences by (company, name); a global sequence has an empty company.
     pub(crate) sequences: std::collections::HashMap<(String, String), sessionops::Sequence>,
     /// The one instance of each `SingleInstance = true` codeunit in this session.
@@ -801,6 +805,11 @@ pub struct Session {
     /// (`PermissionTestHelper.AddEffectivePermissionSet`) runs on with every access granted, on the assumption
     /// `permissions-not-enforced`, instead of being refused.
     pub ignore_permission_mock: bool,
+    /// The Role IDs `PermissionTestHelper.AddEffectivePermissionSet` assigned since the last `Clear` (ADR-062).
+    pub(crate) permission_roles: Vec<String>,
+    /// What the assigned sets give; `None` when the session is unrestricted (no set assigned, or sets that grant
+    /// everything such as SUPER). Every access point checks only `is_some()` (`permissions.rs`).
+    pub(crate) permissions: Option<Arc<permissions::EffectivePermissions>>,
     /// The object index of the test codeunit being run (set by the test runner).
     pub test_object: Option<usize>,
     /// The `TestHttpRequestPolicy` of the running test codeunit (`None`: the property is absent).
@@ -1102,6 +1111,7 @@ impl Session {
             sequences,
             table_connections: Default::default(),
             default_table_connection: Default::default(),
+            crm_stores: Default::default(),
             tx_model: TxModel::default(),
             in_test_codeunit: false,
             isolation_from_hub: false,
@@ -1110,6 +1120,8 @@ impl Session {
             hub_disabled: false,
             runner_permission_step: false,
             ignore_permission_mock: false,
+            permission_roles: Vec::new(),
+            permissions: None,
             test_object: None,
             http_policy: None,
             scratch_messages: None,
@@ -1226,6 +1238,9 @@ impl Session {
     /// tests that write setup rows put the demo values back afterwards (misc/lt-qk-setup-rows/QkSetupRows.al), which leaves the
     /// runtime with the install-code row (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:798 QF_GLSetup_CorpusRow).
     pub fn start_test_method(&mut self) {
+        // A test method starts with no permission set of its own assigned: the runner's mock step (131006 OnRun) and
+        // its set step clear the assignment first; a test whose lowering was refused leaves none behind.
+        self.clear_permission_sets();
         self.application_areas.clear();
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
@@ -1245,6 +1260,7 @@ impl Session {
     pub fn commit_transaction(&mut self) {
         self.tx.deferred_insert = None;
         al_data::Store::commit(&mut self.store);
+        self.crm_committed();
         self.commits += 1;
         self.sql.committed();
         self.truncate_undo.clear();
@@ -1350,6 +1366,7 @@ impl Session {
     pub fn rollback_transaction(&mut self) {
         self.tx.deferred_insert = None;
         al_data::Store::rollback(&mut self.store);
+        self.crm_rolled_back();
         self.sql.rolled_back();
         self.tx.row_versions = Default::default();
         self.tx.rows_touched.clear();
@@ -1962,6 +1979,10 @@ impl Session {
         args: Vec<Value>,
         facts: RoutineFacts,
     ) -> Result<(Value, Vec<Value>), Signal> {
+        // ADR-062: a call is an Execute access; an unrestricted session pays one branch.
+        if self.permissions.is_some() {
+            self.permission_gate()?;
+        }
         if let Some(Some(reason)) = self.engine.blocked.get(object).and_then(|o| o.get(routine)) {
             return Err(Signal::Unsupported(reason.clone()));
         }

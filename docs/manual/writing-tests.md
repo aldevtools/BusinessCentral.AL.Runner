@@ -269,6 +269,15 @@ AL Runner does not enforce permissions. Every access is granted. A test that
 lowers its own permissions (`Permissions Mock`, `Library - Lower Permissions`)
 would give a wrong answer, so it is not run, with the reason.
 
+One exception: permission sets that grant everything do not lower anything.
+A test that assigns `SUPER` (`Permissions Mock.Set('SUPER')`, `Assign('SUPER')`,
+`Library - Lower Permissions.SetOutsideO365Scope()`) runs. AL Runner reads each
+set from its source and checks that the assigned sets together grant every
+object. Until a measurement on Business Central confirms this, such a pass is
+flagged with the assumption `permission-sets-granting-everything-unrestricted`.
+A test that assigns a narrower set is still not run, even if it adds `SUPER`
+later.
+
 `--ignore-permission-mock` runs those tests with every access granted:
 
 ```bash

@@ -303,6 +303,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `autoinc.rs` (198): AutoIncrement fields: taking the next value, explicit keys. Entry: `auto_increment_field` 28, `take_auto_increment` 58.
 - `baseline.rs` (66): The install baseline (ADR-013 decision 5, ADR-004). Entry: `Baseline` 12.
 - `callstack.rs` (130): The AL call stack of an error (`GetLastErrorCallStack`) and the live stack (`SessionInformation.Callstack`). Entry: `add_frame`, `add_top_frame`, `live_call_stack`, `set_runner_frames`, `frame_line`.
+- `crm.rs`: A `TableType = CRM` table through the `@@test@@` table connection: one `MemStore` per registered connection (`Session::crm_stores`), `store_for` routes a CRM record to the default connection's store, `crm_method_check` refuses the methods and write shapes the corpus does not pin, a rollback after a write makes the rows refuse (ADR-027 row 15). Entry: `connection_check`, `crm_method_check`, `crm_connection_of`.
 - `companies.rs` (147): The company a record works in, ChangeCompany, the Company table's rows per company. Under `--companies` (`Session::companies`), `cx_for` refuses a dependency app's per-company table in another declared company (ADR-046 decision 5) unless the database holds no row of it there (`starts_empty_in`, amendment 4), and the tables `company_unknown` marks (decision 6). Entry: `find_company`, `cx_for`, `change_company`.
 - `dataset.rs` (332): The dataset XML `Report.SaveAs(.., Xml, ..)` writes: header, `DataItem` rows, name and text escaping. Entry: `dataset_name` 23, `Header` 91, `Dataset` 217.
 - `dispatch.rs` (338): Event dispatch: publishers run their subscribers; EventCall; isolated events. Entry: `publish` 69, `raise` 117, `event_targets` 183, `has_listeners` 249, `subscription` 279.
@@ -338,6 +339,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `pages/actions.rs` (676): Control navigation, lookups, invoking actions, refresh after an action.
 - `pages/format.rs` (435): Reading a control: value, text, type, caption, editable, enabled, visible.
 - `pages/areas.rs` (104): Application areas on the test client.
+- `permissions.rs` (330): The session's permission sets (ADR-062): `SetModel` composes the Role IDs `PermissionTestHelper.AddEffectivePermissionSet` assigned from the permission set objects' source (`platform::raw_sets`: wildcards, IncludedPermissionSets), once per engine and set list; a list that grants everything (SUPER) leaves `Session::permissions` at `None` (unrestricted). A restricted session is refused at its next routine call (`Session::call_with_facts`) or record method (`records::record_op`) outside codeunit 131006, or at the end of the test (al-testrun `run.rs`). Entry: `SetModel::compose`, `Session::assign_permission_set`, `permission_gate`, `permissions_lowered_at_end`.
 - `pages/background.rs` (257): Page background tasks under the test client. Entry: `BgWorker` 11.
 - `pages/filter.rs` (135): `TestPage.Filter` / `TestPart.Filter` (the `TestFilter` handle).
 - `pages/parts.rs` (324): Page parts (ADR-012 follow-up).
