@@ -5,7 +5,7 @@ RecordRefSystemIdNoNotOpen => {
     probe: "W4RecordRefGetUnopened.al Y30_SystemIdNo_NotOpen on branch al-runtime-rs-staging-y30 (2f7609a1): SystemIdNo never opened, open, after Close, after Clear.",
     awaiting: Awaiting {
         issues: &[],
-        files: &["tests/al-language/recordref/W4RecordRefGetUnopened.al"],
+        files: &["tests/al-language/recordref/W4RecordRefGetUnopened.al::Y30_SystemIdNo_NotOpen"],
         since: "2026-10-31",
     },
 }
