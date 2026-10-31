@@ -534,9 +534,11 @@ impl Session {
             }
             st.borrow_mut().new_row_inserted_by_trigger = true;
         }
-        if self.is_list(st) && st.borrow().host.is_none() {
+        if st.borrow().host.is_none() {
             // xRec is the new record itself when the line becomes current (misc/lt-probes-needed-7/PnGNewRecord.al:
-            // HandedRecordNoFilters `AGCR(,)`).
+            // HandedRecordNoFilters `AGCR(,)`). On a card too: OnNewRecord saw the last row, the key control's OnValidate sees
+            // the new record (handlers/TestPageControlOnValidateError_Tests.al:113-124 ControlOnValidate_AcceptsAValueItDoesNotRefuse:
+            // page 9170 "Profile Card" confirms when `xRec."Profile ID" <> ''`, and real BC passes with no ConfirmHandler).
             self.set_xrec(st);
         } else if self.is_list(st)
             && st

@@ -79,8 +79,9 @@ pub fn not_full_corpus(a: &crate::args::Args) -> Option<String> {
 }
 
 /// The environment variables that change what a run compiles or installs (CI's other runs set them).
-pub const WORK_ENV: [&str; 5] = [
+pub const WORK_ENV: [&str; 6] = [
     "AL_EAGER_DEPENDENCIES",
+    "AL_FRESH_PASS_COMPILE",
     "AL_FORCE_BASELINE",
     "AL_NO_BASELINE",
     "AL_CHECK_BASELINE_RULE",
@@ -112,10 +113,11 @@ pub fn counts_of(w: &al_testrun::runtime::RunWork) -> Counts {
         ("dependency_objects_lowered", l.dependency_objects_lowered),
         ("dependency_routines_lowered", l.dependency_routines_lowered),
         ("objects_from_cache", l.objects_from_cache),
+        ("objects_from_kept", l.objects_from_kept),
         ("dependency_apps", w.dependency_apps),
         (
             "dependency_apps_from_source",
-            w.dependency_apps - w.dependency_apps_from_cache,
+            w.dependency_apps.saturating_sub(w.dependency_apps_from_cache),
         ),
         ("dependency_apps_from_cache", w.dependency_apps_from_cache),
         ("cache_layers_hit", w.cache_layers_hit),

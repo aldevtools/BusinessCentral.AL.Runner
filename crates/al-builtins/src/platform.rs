@@ -287,6 +287,11 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     // An ordinary table, empty on a fresh tenant (al-language-onprem/platform/PtOnPremTables.al:214-236, session/
     // PZPlatformSurvey.al:172-175); its rows follow the rename of their tenant profile (al-vm profiles.rs).
     (2_000_000_187, "Tenant Profile Page Metadata", Provider::Stored),
+    // No corpus test pins them: ordinary tables, empty on a fresh tenant, on the assumption `webhook-tables-stored` that
+    // Microsoft's PayPal Payments Standard tests need (MS - PayPal Standard Tests); al-vm records.rs marks it on every
+    // persistent access (`Session::install_assumed`).
+    (2_000_000_199, "Webhook Subscription", Provider::Stored),
+    (2_000_000_194, "Webhook Notification", Provider::Stored),
     // OnPrem tables that a fresh tenant leaves empty and that take Insert, a duplicate Insert (false), Modify, Delete, an Insert
     // without triggers and DeleteAll (al-language-onprem/platform/PtOnPremTables.al:57-78, :80-101, :149-170, :192-213).
     // Tenant Profile reads "Customization Status" Updated after an Insert (:200), its first option and so its default.

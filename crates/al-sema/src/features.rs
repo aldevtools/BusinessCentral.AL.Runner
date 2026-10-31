@@ -52,8 +52,14 @@ impl Out<'_> {
 /// The AL0666 diagnostics of the apps under test (never a dependency: alc compiled it already), each at the runtime
 /// its app declares, else the catalog's.
 pub fn check(ws: &Workspace, catalog: &Catalog) -> Vec<Diagnostic> {
+    check_from(ws, catalog, 0)
+}
+
+/// [`check`] for the objects from `first` on: each object is checked by itself (ADR-063: a compile that grows by apps
+/// checks the new objects only).
+pub fn check_from(ws: &Workspace, catalog: &Catalog, first: usize) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
-    for (oi, o) in ws.objects.iter().enumerate() {
+    for (oi, o) in ws.objects.iter().enumerate().skip(first) {
         if ws.is_dependency(oi) {
             continue;
         }

@@ -956,6 +956,12 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         // (text/TestProbeTextDateFormatContracts.al:Format_FormatStrings_Date); other years are not measured.
         ("Year", Some((y, _, _)), _) if y == 1999 || (2000..=2030).contains(&y) => format!("{:02}", y.rem_euclid(100)),
         ("Year", Some((y, _, _)), _) if matches!(y, 1905 | 1929 | 1930 | 2105) => format!("{y}"),
+        // On a DateTime 1998 and 2031 have two digits, 2099 four (types/lt-datetime/Format.al:1026-1060
+        // Y36_DateTime_Format_Hours_Year_NoWidth); other years outside the ones above are not measured.
+        ("Year", Some((y, _, _)), _) if matches!(v, Value::DateTime(_)) && matches!(y, 1998 | 2031) => {
+            format!("{:02}", y.rem_euclid(100))
+        }
+        ("Year", Some((y, _, _)), _) if matches!(v, Value::DateTime(_)) && y == 2099 => format!("{y}"),
         ("Year,2", Some((y, _, _)), _) => format!("{:02}", y.rem_euclid(100)),
         ("Month", Some((_, m, _)), _) => format!("{m}"),
         ("Month,2", Some((_, m, _)), _) => format!("{m:02}"),
@@ -970,10 +976,10 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         ("Hours24,2", _, Some(ms)) if matches!(v, Value::Time(_)) => format!("{:>2}", ms / 3_600_000),
         ("Hours24,2", _, Some(ms)) => format!("{:02}", ms / 3_600_000),
         ("Hours24", _, Some(ms)) => format!("{}", ms / 3_600_000),
-        // A minute below 10 without a width is not measured (Dates_CreateDateTimeRoundTrip shows 30).
-        ("Minutes", _, Some(ms)) if ms / 60_000 % 60 >= 10 => format!("{}", ms / 60_000 % 60),
-        // On a Time a minute below 10 has no padding: `0`, `5`, `9` (VariantTextTimeEnumFilter.al:113-115,128-130).
-        ("Minutes", _, Some(ms)) if matches!(v, Value::Time(_)) => format!("{}", ms / 60_000 % 60),
+        // No padding on a Time (`0`, `5`, `9`: VariantTextTimeEnumFilter.al:113-115,128-130) nor on a DateTime (`0`, `5`, `9`,
+        // `10`: types/lt-datetime/Format.al:938-955 Y36_DateTime_Format_Minutes_NoWidth, and the stamp of Microsoft's Quality
+        // Management test library `260305972`: :978-1000 Y36_DateTime_Format_QltyStamp).
+        ("Minutes", _, Some(ms)) => format!("{}", ms / 60_000 % 60),
         // The twelve-hour clock pads the hour with a space (:Format_PictureCodes).
         // On a DateTime it pads with a zero: 13:45 is `01` (types/lt-datetime/Format.al:420,430).
         ("Hours12,2", _, Some(ms)) if matches!(v, Value::DateTime(_)) => format!("{:02}", hour12(ms)),
@@ -983,7 +989,8 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         ("Minutes,2", _, Some(ms)) => format!("{:02}", ms / 60_000 % 60),
         ("Seconds,2", _, Some(ms)) => format!("{:02}", ms / 1000 % 60),
         // Corpus types/lt-datetime/Format.al:Time_Format_Custom (134506.078T): `<Seconds>` 6, `<Thousands>` 78,
-        // `<Thousands,3>` ` 78`, `<Second dec>` .078, `<Second dec,3>` ***.
+        // `<Thousands,3>` ` 78`, `<Second dec>` .078, `<Second dec,3>` ***. On a DateTime no padding either: `<Seconds>` 0, 5, 9
+        // and `<Thousands>` 0, 5, 78 (Format.al:958-975, 1004-1023, Y36_DateTime_Format_Seconds_NoWidth, _Thousands_NoWidth).
         ("Seconds", _, Some(ms)) => format!("{}", ms / 1000 % 60),
         ("Thousands", _, Some(ms)) => format!("{}", ms % 1000),
         // On a DateTime it pads with zeros: `078` (types/lt-datetime/Format.al:419,429).
@@ -1756,6 +1763,33 @@ mod tests {
             matches!(r, Err(Signal::Error(ref e)) if e.code == "InvalidFormatString"),
             "{r:?}"
         );
+    }
+    // types/lt-datetime/Format.al:938-1060 (Y36_DateTime_Format_*): codes without a width on a DateTime are not padded.
+    #[test]
+    fn clock_codes_without_a_width_on_a_datetime() {
+        let at = |y: i32, mo: u32, d: u32, h: i64, mi: i64, s: i64, ms: i64| {
+            let day = day_from_civil(y, mo, d);
+            Value::DateTime(i64::from(day - 1) * 86_400_000 + ((h * 60 + mi) * 60 + s) * 1000 + ms + 1)
+        };
+        assert_eq!(text(fmt(at(2026, 3, 5, 12, 0, 0, 0), "<Minutes>")), "0");
+        assert_eq!(text(fmt(at(2026, 3, 5, 12, 9, 0, 0), "<Minutes>")), "9");
+        assert_eq!(text(fmt(at(2026, 3, 5, 9, 7, 2, 123), "<Minutes>")), "7");
+        assert_eq!(text(fmt(at(2026, 3, 5, 12, 0, 5, 500), "<Seconds>")), "5");
+        assert_eq!(text(fmt(at(2026, 3, 5, 12, 0, 0, 5), "<Thousands>")), "5");
+        let stamp = "<Year><Month,2><Day,2><Hours24><Minutes><Seconds>";
+        assert_eq!(text(fmt(at(2026, 3, 5, 9, 7, 2, 0), stamp)), "260305972");
+        assert_eq!(text(fmt(at(2026, 1, 1, 0, 0, 0, 0), stamp)), "260101000");
+        assert_eq!(
+            text(fmt(at(2026, 3, 5, 9, 7, 2, 0), &format!("A0SM-A{stamp}"))),
+            "A0SM-A260305972"
+        );
+        assert_eq!(
+            text(fmt(at(2026, 3, 5, 9, 7, 2, 78), &format!("Z{stamp}<Thousands>"))),
+            "Z26030597278"
+        );
+        assert_eq!(text(fmt(at(2031, 3, 5, 12, 0, 0, 0), "<Year>")), "31");
+        assert_eq!(text(fmt(at(1998, 3, 5, 12, 0, 0, 0), "<Year>")), "98");
+        assert_eq!(text(fmt(at(2099, 3, 5, 12, 0, 0, 0), "<Year>")), "2099");
     }
     // P144DateTextWidth.al:165-180: German weekday names.
     #[test]

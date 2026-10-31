@@ -57,6 +57,43 @@ pub struct CheckResult {
     pub tdd_decls: Option<std::sync::Arc<tdd_decl::TddDecls>>,
     /// `Roots::object_hashes`: lowering hashes the symbolic form of each object it lowers (`Lowered::object_hashes`).
     pub object_hashes: bool,
+    /// With `Roots::keep_demand`: the rest of the demand state, which a later pass that grows the compile by apps
+    /// continues ([`check_grown`]).
+    pub kept_demand: Option<demand::KeptDemand>,
+    /// With `Roots::keep_demand`: the findings of the rules of each object and of each app, which a grown check keeps.
+    pub kept_codes: Option<KeptCodes>,
+}
+
+/// The findings of the diagnostic rules that read one object (`alcodes::check_workspace_parts`, `features::check_from`)
+/// or one app (`alcodes::check_context`), in the order they were found, kept for a check that grows the compile by apps.
+#[derive(Debug, Clone, Default)]
+pub struct KeptCodes {
+    pub objects: Vec<Diagnostic>,
+    pub contexts: Vec<Diagnostic>,
+    pub features: Vec<Diagnostic>,
+}
+
+impl KeptCodes {
+    /// The findings in the first `apps` apps only (ADR-063: the others left the workspace).
+    pub fn truncate(&mut self, apps: usize) {
+        self.objects.retain(|d| d.app < apps);
+        self.contexts.retain(|d| d.app < apps);
+        self.features.retain(|d| d.app < apps);
+    }
+}
+
+/// A check a later pass continues on a workspace that grew by apps (ADR-063): what the check of the objects before the
+/// new ones found, and the demand it ended with. See [`check_grown`].
+pub struct PrevCheck {
+    /// How many objects the workspace had: the new ones follow.
+    pub objects: usize,
+    pub demand: demand::Demand,
+    pub kept: demand::KeptDemand,
+    pub types: PosMap<Ty>,
+    pub resolutions: PosMap<Res>,
+    pub from_checker: Vec<Diagnostic>,
+    pub panicked: HashMap<(usize, usize), String>,
+    pub codes: KeptCodes,
 }
 
 /// Why a routine of an object a lean compile left out (`Roots::lean`) does not run. A run that meets it was compiled for
@@ -243,6 +280,9 @@ pub struct Roots {
     /// `alcodes::check_resolved_scope`: AL0296 for an OnPrem method a Cloud app calls), as the must-not-compile
     /// harness checks its cases. A dependency app is never checked: its publisher compiled it. Empty: no app is.
     pub app_contexts: Vec<(String, crate::alcodes::AppContext)>,
+    /// Keep the whole demand state (`CheckResult::kept_demand`) for a later pass that grows the compile by apps
+    /// (ADR-063). Changes nothing else.
+    pub keep_demand: bool,
 }
 
 /// Members that platform enums do not have, as the AL compiler says (corpus must-not-compile 0010
@@ -272,6 +312,33 @@ pub fn check(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog) -> Ch
 }
 
 pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, roots: Roots) -> CheckResult {
+    check_inner(ws, members, catalog, roots, None)
+}
+
+/// The check of a workspace that grew by apps after `prev` checked the objects before them (ADR-063): the result is the
+/// one [`check_with`] gives for the whole workspace, except that it may hold more than that one does (what `prev`'s roots
+/// reached that `roots` do not; a compile of more than the demand needs runs the same, as the eager compile does). The
+/// objects of `prev` are not checked again: their types, resolutions, diagnostics and what they reached are kept, the
+/// demand continues from where `prev` ended with the new apps' objects and roots, and every rule that reads the lists of
+/// the workspace runs again (`Checker::refire`). Only with dependency apps (a demand) and when `prev` checked every
+/// object it had (no selection).
+pub fn check_grown(
+    ws: &Workspace,
+    members: &MemberTable<'_>,
+    catalog: &Catalog,
+    roots: Roots,
+    prev: PrevCheck,
+) -> CheckResult {
+    check_inner(ws, members, catalog, roots, Some(prev))
+}
+
+fn check_inner(
+    ws: &Workspace,
+    members: &MemberTable<'_>,
+    catalog: &Catalog,
+    roots: Roots,
+    prev: Option<PrevCheck>,
+) -> CheckResult {
     let mut roots = roots;
     // The apps under test that have a context, by index in `ws.apps`.
     let contexts: Vec<(usize, crate::alcodes::AppContext)> = std::mem::take(&mut roots.app_contexts)
@@ -346,6 +413,22 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
     let mut timings = CheckTimings::default();
     let mut c = Checker::new(ws, members, catalog, system_enums(catalog), demand_mode);
     c.tdd_apps = roots.tdd.then(|| std::sync::Arc::new(tdd::test_apps(ws)));
+    c.keep_demand = roots.keep_demand;
+    // A grown check starts where the kept one ended: the objects before `n_old` are checked, their findings are kept.
+    let mut prev_codes: Option<KeptCodes> = None;
+    let n_old = match prev {
+        Some(prev) => {
+            prev_codes = Some(prev.codes);
+            assert!(demand_mode, "a grown check continues a demand");
+            c.types = prev.types;
+            c.resolutions = prev.resolutions;
+            c.diags = prev.from_checker;
+            c.panicked = prev.panicked;
+            *c.demand.borrow_mut() = Some(demand::State::restore(prev.demand, prev.kept, ws.objects.len()));
+            prev.objects
+        }
+        None => 0,
+    };
     if roots.baseline {
         c.company_data_apps = (0..ws.objects.len())
             .filter(|&oi| {
@@ -379,7 +462,7 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
             c.prefetch = Some(tx);
             // The workspace's own objects are the first round of the demand: they are checked
             // with everything else, on the worker threads.
-            let objects: Vec<usize> = (0..ws.objects.len())
+            let objects: Vec<usize> = (n_old..ws.objects.len())
                 .filter(|&oi| !ws.is_dependency(oi) && !skip(oi))
                 .collect();
             let started = std::time::Instant::now();
@@ -404,6 +487,9 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
             c.reach_dependencies_on_workspace();
             if !roots.no_login_root {
                 c.reach_login_work_date();
+            }
+            if n_old > 0 {
+                c.refire(n_old);
             }
             timings.baseline = started.elapsed();
             let started = std::time::Instant::now();
@@ -439,19 +525,50 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
     let mut left_out_resolutions: Option<PosMap<Res>> = None;
     if roots.only_tests.is_some() {
         let started = std::time::Instant::now();
-        let (more, resolved) = left_out_diagnostics(ws, members, catalog, &roots, &skip, &provided, &c.diags);
+        // A grown check: the kept check checked every object it had, so only the new ones are left out of anything.
+        let skip_new = |oi: usize| oi >= n_old && skip(oi);
+        let (more, resolved) = left_out_diagnostics(ws, members, catalog, &roots, &skip_new, &provided, &c.diags);
         c.diags.extend(more);
         left_out_resolutions = resolved;
         timings.workspace += started.elapsed();
     }
     let positions: HashMap<&str, usize> = ws.files.iter().enumerate().map(|(i, f)| (f.path.as_str(), i)).collect();
     let from_checker = c.diags.clone();
-    let mut from_codes = crate::alcodes::check_workspace(ws);
+    // A grown check: the rules of each object and of each app ran for the kept objects and apps; their findings are kept.
+    let n_old_apps = if n_old > 0 { ws.objects[n_old - 1].app + 1 } else { 0 };
+    let (mut from_codes, objects_codes, after_codes) = crate::alcodes::check_workspace_parts(ws, n_old);
+    let mut kept_codes = KeptCodes::default();
+    if let Some(k) = &prev_codes {
+        from_codes.extend(k.objects.iter().cloned());
+    }
+    kept_codes.objects = objects_codes.clone();
+    from_codes.extend(objects_codes);
+    from_codes.extend(after_codes);
     for (app, ctx) in &contexts {
-        from_codes.extend(crate::alcodes::check_context(ws, *app, ctx));
+        let found = match &prev_codes {
+            Some(k) if *app < n_old_apps => k.contexts.iter().filter(|d| d.app == *app).cloned().collect(),
+            _ => crate::alcodes::check_context(ws, *app, ctx),
+        };
+        kept_codes.contexts.extend(found.iter().cloned());
+        from_codes.extend(found);
     }
     // Language features newer or older than an app's runtime (AL0666, al-runner issue 5573).
-    from_codes.extend(crate::features::check(ws, catalog));
+    if let Some(k) = &prev_codes {
+        from_codes.extend(k.features.iter().cloned());
+    }
+    let features = crate::features::check_from(ws, catalog, n_old);
+    kept_codes.features = features.clone();
+    from_codes.extend(features);
+    if let Some(k) = prev_codes {
+        // What is kept for a later growth covers every object and app the result has.
+        let mut all = k;
+        all.objects.extend(kept_codes.objects);
+        all.contexts.retain(|d| d.app < n_old_apps);
+        all.contexts
+            .extend(kept_codes.contexts.into_iter().filter(|d| d.app >= n_old_apps));
+        all.features.extend(kept_codes.features);
+        kept_codes = all;
+    }
     c.diags.extend(from_codes.iter().cloned());
     c.diags
         .sort_by_key(|d| (positions.get(d.file.as_str()).copied(), d.offset));
@@ -494,12 +611,15 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
         tdd: c.tdd_apps.is_some(),
         tdd_decls: c.tdd_apps.is_some().then(|| std::sync::Arc::new(tdd_decl::decls(ws))),
         object_hashes: roots.object_hashes,
+        kept_demand: c.kept_demand.take(),
+        kept_codes: roots.keep_demand.then_some(kept_codes),
     };
     // The context rules that need what the check resolved. They count as the checker's (`from_checker`): an
     // incremental compile resolves the changed objects only and keeps the earlier findings of the other files.
     if !contexts.is_empty() {
         let mut more = Vec::new();
-        for (app, ctx) in &contexts {
+        // A grown check: what these rules found in the kept apps is among the checker's findings it kept.
+        for (app, ctx) in contexts.iter().filter(|(app, _)| *app >= n_old_apps) {
             more.extend(crate::alcodes::check_resolved_scope(ws, *app, ctx, &result));
             // What the selection left out is still compiled by alc (al-runner issue 5602).
             if let Some(r) = &left_out_resolutions {
@@ -549,9 +669,15 @@ fn left_out_diagnostics(
     let mut c = Checker::new(ws, members, catalog, system_enums(catalog), false);
     c.tdd_apps = roots.tdd.then(|| std::sync::Arc::new(tdd::test_apps(ws)));
     c.all_routines = true;
-    for oi in objects {
-        c.guard((oi, ANY_ROUTINE), |c| c.check_object(oi));
-        c.take_calls();
+    // Spread over the workers like the complete check: in the corpus TestLibraries pass this is the whole main app.
+    let workers = roots.workers.map_or_else(check_workers, |w| w.clamp(1, 32));
+    if workers > 1 && objects.len() >= PARALLEL_OBJECTS {
+        c.check_objects_parallel(workers, &objects);
+    } else {
+        for oi in objects {
+            c.guard((oi, ANY_ROUTINE), |c| c.check_object(oi));
+            c.take_calls();
+        }
     }
     let seen: HashSet<(&str, usize, &str)> = found.iter().map(|d| (d.file.as_str(), d.offset, d.code)).collect();
     let diags = c
@@ -787,12 +913,30 @@ fn unselected_test(ws: &Workspace, oi: usize, keep: &[(usize, u32)]) -> bool {
         .properties()
         .any(|p| p.name().eq_ignore_ascii_case("Subtype") && p.value_text().eq_ignore_ascii_case("Test"));
     // A test codeunit that subscribes to events listens during every test, so it stays compiled. The text
-    // of the object is searched token by token (no word of the search spans two tokens).
-    is_test
-        && !ast.syntax().descendants_with_tokens().any(|e| {
-            e.as_token()
-                .is_some_and(|t| contains_ignore_case(t.text(), b"eventsubscriber"))
+    // of the object is searched token by token (no word of the search spans two tokens): a chunk of a node's text is
+    // the text of one token. No token holds the word when the file's text does not: the tree of a workspace file is its
+    // text, with the routines `pages::expand` makes from the file's own property expressions.
+    if !is_test {
+        return false;
+    }
+    let f = &ws.files[o.file];
+    if ws.apps[f.app]
+        .files
+        .get(f.file_in_app)
+        .is_some_and(|(_, text)| !contains_ignore_case(text, b"eventsubscriber"))
+    {
+        return true;
+    }
+    ast.syntax()
+        .text()
+        .try_for_each_chunk(|chunk| {
+            if contains_ignore_case(chunk, b"eventsubscriber") {
+                Err(())
+            } else {
+                Ok(())
+            }
         })
+        .is_ok()
 }
 
 /// Whether `haystack` holds `needle` (lower case ASCII) in any case.
@@ -934,6 +1078,10 @@ pub(crate) struct Checker<'a> {
     resolved: std::cell::RefCell<Resolved>,
     /// Checks that panicked (see [`CheckResult::panicked`]).
     panicked: HashMap<(usize, usize), String>,
+    /// For the next `pick`: the arguments that are a bare field name of the receiver's table where no value of that name
+    /// is in scope (`Row.Validate(Note, 'x')` in a codeunit). Such an argument fits a built-in's field parameter only, not
+    /// a procedure's (record/lt-bm-builtin-name-procedures/Y36BuiltinNameSameArity.al:229-251).
+    field_only_args: Vec<usize>,
     /// The result type of the routine being checked (`None`: a trigger or a procedure without a result).
     cur_ret: Option<Ty>,
     /// The name of the routine being checked when `exit` with a value is AL0139 in it: a procedure or trigger of a
@@ -950,6 +1098,9 @@ pub(crate) struct Checker<'a> {
     /// The apps (indexes) of the company data codeunits (`Roots::company_data`): their code reaches the reports it
     /// hands to a call, as workspace code does (`reach_named_object`).
     company_data_apps: Vec<usize>,
+    /// Keep the whole demand state when the demand ends (`Roots::keep_demand`), in `kept_demand`.
+    keep_demand: bool,
+    kept_demand: Option<demand::KeptDemand>,
 }
 
 /// Names resolved so far, by (file, kind) and then name; see [`Checker::resolved`].

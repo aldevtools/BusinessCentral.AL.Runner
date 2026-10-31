@@ -113,9 +113,66 @@ impl CorpusRuntime {
         suites: &[SuiteRun],
         opts: &RunOptions,
     ) -> Result<CorpusRuntime, String> {
+        Self::try_run_suites_inner(apps, kinds, manifests, symbols, target, dotnet, suites, opts, Grow::Off)
+            .map(|(rt, _)| rt)
+    }
+
+    /// [`try_run_suites_with`](Self::try_run_suites_with) that also gives back its compile, when it can be grown, for a
+    /// later run of the same process that adds apps to it ([`try_run_suites_grown`](Self::try_run_suites_grown), ADR-063).
+    /// `shared` names the apps (indexes into `apps`) the later run also has: the compile kept is cut back to them.
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_run_suites_growable(
+        apps: Vec<al_sema::workspace::AppSource>,
+        kinds: Vec<al_sema::AppKind>,
+        manifests: &[Manifest],
+        symbols: &BTreeSet<String>,
+        target: Option<&al_version::Target>,
+        dotnet: al_vm::dotnet::DotNetConfig,
+        suites: &[SuiteRun],
+        opts: &RunOptions,
+        shared: &[usize],
+    ) -> Result<(CorpusRuntime, Option<KeptCompile>), String> {
+        let grow = Grow::Keep(shared.to_vec());
+        Self::try_run_suites_inner(apps, kinds, manifests, symbols, target, dotnet, suites, opts, grow)
+    }
+
+    /// [`try_run_suites_with`](Self::try_run_suites_with) on the compile `kept` grown by the apps of `apps` it does not
+    /// have (ADR-063): `apps` holds the kept compile's apps too, which are not compiled again. The run has an engine, a
+    /// store, an install baseline and sessions of its own. When the kept compile does not fit `apps` (an app differs, or
+    /// an app it has would see a new one), the run compiles all of `apps` from source and says why on stderr.
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_run_suites_grown(
+        kept: KeptCompile,
+        apps: Vec<al_sema::workspace::AppSource>,
+        kinds: Vec<al_sema::AppKind>,
+        manifests: &[Manifest],
+        symbols: &BTreeSet<String>,
+        target: Option<&al_version::Target>,
+        dotnet: al_vm::dotnet::DotNetConfig,
+        suites: &[SuiteRun],
+        opts: &RunOptions,
+    ) -> Result<CorpusRuntime, String> {
+        let grow = Grow::From(Box::new(kept));
+        Self::try_run_suites_inner(apps, kinds, manifests, symbols, target, dotnet, suites, opts, grow)
+            .map(|(rt, _)| rt)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn try_run_suites_inner(
+        apps: Vec<al_sema::workspace::AppSource>,
+        kinds: Vec<al_sema::AppKind>,
+        manifests: &[Manifest],
+        symbols: &BTreeSet<String>,
+        target: Option<&al_version::Target>,
+        dotnet: al_vm::dotnet::DotNetConfig,
+        suites: &[SuiteRun],
+        opts: &RunOptions,
+        mut grow: Grow,
+    ) -> Result<(CorpusRuntime, Option<KeptCompile>), String> {
         // A lean compile leaves workspace objects out: `--affected` needs the hash of each.
         let lean = !opts.object_hashes;
-        let compiled = Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, lean)?;
+        let mut compiled =
+            Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, lean, &mut grow)?;
         // A lean run may be run again below: its engines are freed then, the process does not end after it.
         let first_opts;
         let first = if compiled.lean.is_some() && opts.process_ends_after {
@@ -134,19 +191,50 @@ impl CorpusRuntime {
         if compiled.lean.is_some() && rt.met_left_out() {
             let lean_time = rt.phases.compile + rt.phases.tests;
             let (apps, kinds) = compiled.into_apps();
-            let compiled = Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, false)?;
+            let compiled = Self::compile_suites_with(
+                apps,
+                kinds,
+                manifests,
+                symbols,
+                target,
+                suites,
+                opts,
+                false,
+                &mut Grow::Off,
+            )?;
             let mut rt = Self::run_compiled(&compiled, target, dotnet, opts);
             rt.phases.lean_redone = true;
             rt.phases.compile += lean_time;
             rt.phases.compiles += 1;
             rt.phases.work.compiles = rt.phases.compiles;
             retire_at_end(compiled, opts.process_ends_after);
-            return Ok(rt);
+            return Ok((rt, None));
+        }
+        // The compile a later run grows (ADR-063): its workspace and what the lowering kept; the rest goes.
+        if let Some(GrowKept {
+            mut growable,
+            mut app_symbols,
+            shared,
+        }) = compiled.grow_kept.take()
+        {
+            let Compiled { mut ws, lowered, .. } = compiled;
+            retire(lowered);
+            // The apps of this run alone leave the compile (they come last).
+            retire(growable.truncate(&mut ws, shared));
+            app_symbols.truncate(shared);
+            let kept = KeptCompile {
+                ws,
+                growable,
+                app_symbols,
+                symbols: symbols.clone(),
+                target: target.cloned(),
+            };
+            return Ok((rt, Some(kept)));
         }
         // The workspace and the lowered program are big: dropping them takes as long as lowering
         // a tenth of the corpus, and nothing waits for it. When the process ends right after, they are not freed.
         retire_at_end(compiled, opts.process_ends_after);
-        Ok(rt)
+        Ok((rt, None))
     }
 
     /// A stability run (ADR-058 section 7): one compile, then one run phase per variant `perturbs` names, one after
@@ -166,7 +254,17 @@ impl CorpusRuntime {
         mut each: impl FnMut(usize),
     ) -> Result<Vec<CorpusRuntime>, String> {
         // A complete compile: a lean one may need a second compile when a test meets what it left out.
-        let compiled = Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, false)?;
+        let compiled = Self::compile_suites_with(
+            apps,
+            kinds,
+            manifests,
+            symbols,
+            target,
+            suites,
+            opts,
+            false,
+            &mut Grow::Off,
+        )?;
         let mut out = Vec::with_capacity(perturbs.len());
         for (i, p) in perturbs.iter().enumerate() {
             each(i);
@@ -199,7 +297,17 @@ impl CorpusRuntime {
         suites: &[SuiteRun],
         opts: &RunOptions,
     ) -> Result<Compiled, String> {
-        Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, false)
+        Self::compile_suites_with(
+            apps,
+            kinds,
+            manifests,
+            symbols,
+            target,
+            suites,
+            opts,
+            false,
+            &mut Grow::Off,
+        )
     }
 
     /// [`compile_suites`](Self::compile_suites); with `lean`, selected tests that are free of data are compiled without
@@ -215,6 +323,7 @@ impl CorpusRuntime {
         suites: &[SuiteRun],
         opts: &RunOptions,
         lean: bool,
+        grow: &mut Grow,
     ) -> Result<Compiled, String> {
         use al_sema::check::tdd_decl;
         let ranges: std::collections::BTreeMap<String, Vec<(u32, u32)>> = if opts.tdd {
@@ -228,7 +337,8 @@ impl CorpusRuntime {
         } else {
             Default::default()
         };
-        let mut compiled = Self::compile_suites_once(apps, kinds, manifests, symbols, target, suites, opts, lean)?;
+        let mut compiled =
+            Self::compile_suites_once(apps, kinds, manifests, symbols, target, suites, opts, lean, grow)?;
         // `--tdd` (ADR-051 decision 10): the fields, enum values and objects the test apps need are declared in a stub
         // file of each, and the apps are compiled again (a stub table's fields are found only once it exists).
         let mut seen = Vec::new();
@@ -239,7 +349,17 @@ impl CorpusRuntime {
             let files = tdd_decl::stub_files(&compiled.ws, &seen, &ranges);
             let (mut apps, kinds) = compiled.into_apps();
             tdd_decl::set_stub_files(&mut apps, files);
-            compiled = Self::compile_suites_once(apps, kinds, manifests, symbols, target, suites, opts, lean)?;
+            compiled = Self::compile_suites_once(
+                apps,
+                kinds,
+                manifests,
+                symbols,
+                target,
+                suites,
+                opts,
+                lean,
+                &mut Grow::Off,
+            )?;
         }
         Ok(compiled)
     }
@@ -254,6 +374,7 @@ impl CorpusRuntime {
         suites: &[SuiteRun],
         opts: &RunOptions,
         lean: bool,
+        grow: &mut Grow,
     ) -> Result<Compiled, String> {
         // AL_NO_BASELINE=1 leaves the install baseline out (to measure what it costs).
         let baseline_wanted =
@@ -276,12 +397,27 @@ impl CorpusRuntime {
         // app would be refused as outside the workspace (al-runner issue 6044). It is compiled with the
         // workspace, after the cached dependency apps.
         let on_workspace = dependency_apps_on_workspace(&apps, &kinds);
-        let use_cache = opts.compile_cache.is_some()
+        // ADR-063: a run that grows a kept compile has the kept compile's apps first, in its order, then its own.
+        let grow_order: Option<Vec<usize>> = match &*grow {
+            Grow::From(kept) => match kept.order_for(&apps, &kinds, manifests, symbols, target) {
+                Ok(order) => Some(order),
+                Err(why) => {
+                    eprintln!("note: this pass compiles its apps from source: {why}");
+                    None
+                }
+            },
+            _ => None,
+        };
+        if grow_order.is_none() && matches!(grow, Grow::From(_)) {
+            *grow = Grow::Off;
+        }
+        let use_cache = grow_order.is_none()
+            && opts.compile_cache.is_some()
             && (0..n_apps).any(|i| kinds[i] == al_sema::AppKind::Dependency && !on_workspace[i])
             && std::env::var_os("AL_EAGER_DEPENDENCIES").is_none();
         // How many apps, from the first of the program, the compile cache holds.
         let mut n_cached = 0;
-        let (apps, mut kinds, manifests, suites_in, only, order) = if use_cache {
+        let order: Option<Vec<usize>> = if use_cache {
             // Dependency apps first, Microsoft's before the others (the layers of the compile
             // cache follow this order), then the dependency apps that stand on a workspace app,
             // then the workspace's.
@@ -302,11 +438,28 @@ impl CorpusRuntime {
                     .collect(),
             );
             n_cached = cached.len();
-            let order: Vec<usize> = cached
-                .into_iter()
-                .chain(in_order((0..n_apps).filter(|&i| on_workspace[i]).collect()))
-                .chain((0..n_apps).filter(|&i| kinds[i] != al_sema::AppKind::Dependency))
-                .collect();
+            Some(
+                cached
+                    .into_iter()
+                    .chain(in_order((0..n_apps).filter(|&i| on_workspace[i]).collect()))
+                    .chain((0..n_apps).filter(|&i| kinds[i] != al_sema::AppKind::Dependency))
+                    .collect(),
+            )
+        } else if grow_order.is_some() {
+            grow_order
+        } else if let Grow::Keep(shared) = &*grow {
+            // The apps the later run also has first, so the compile can be cut back to them.
+            Some(
+                shared
+                    .iter()
+                    .copied()
+                    .chain((0..n_apps).filter(|i| !shared.contains(i)))
+                    .collect(),
+            )
+        } else {
+            None
+        };
+        let (apps, mut kinds, manifests, suites_in, only, order) = if let Some(order) = order {
             let mut new_of = vec![0; n_apps];
             for (new, &old) in order.iter().enumerate() {
                 new_of[old] = new;
@@ -412,7 +565,14 @@ impl CorpusRuntime {
         let mut compiled: Option<(al_sema::Workspace, Lowered)> = None;
         let require_cache = opts.compile_cache.as_ref().is_some_and(|c| c.require);
         let mut source_index: Option<&'static str> = None;
-        if try_skip && !require_cache && crate::observe::text_looks_pure(&apps, &kinds, symbols, only.as_deref()) {
+        // A grown compile is the complete compile of its pass (its baseline is weighed on it below).
+        let growing = matches!(grow, Grow::From(_));
+        let mut grow_kept = None;
+        if try_skip
+            && !require_cache
+            && !growing
+            && crate::observe::text_looks_pure(&apps, &kinds, symbols, only.as_deref())
+        {
             // The second round compiles the login code too (see `no_login_root` below).
             let mut login_root = false;
             loop {
@@ -541,19 +701,61 @@ impl CorpusRuntime {
                     (ws, lowered, report, layers)
                 }
                 None => {
-                    let (ws, load) = match preloaded.take() {
-                        Some(loaded) => loaded,
-                        None => {
-                            fill_all(&mut apps);
-                            let started = std::time::Instant::now();
-                            let ws =
-                                al_sema::Workspace::load_apps_symbols(apps, kinds, symbols, &dep_symbols, Vec::new());
-                            (ws, started.elapsed())
+                    let (ws, lowered) = match std::mem::replace(grow, Grow::Off) {
+                        // ADR-063: the kept compile grown by this run's other apps, which follow its apps. The kept
+                        // apps' sources are not read again: the kept compile has them.
+                        Grow::From(kept) => {
+                            let kept = *kept;
+                            let n_kept = kept.ws.apps.len();
+                            let more = apps.split_off(n_kept);
+                            retire(std::mem::take(&mut apps));
+                            let more_kinds = kinds[n_kept..].to_vec();
+                            let more_symbols = dep_symbols[n_kept..].to_vec();
+                            al_sema::lower::grow(
+                                kept.ws,
+                                kept.growable,
+                                more,
+                                more_kinds,
+                                symbols,
+                                &more_symbols,
+                                &catalog,
+                                roots.clone(),
+                            )
+                            .map_err(|(_, why)| format!("growing the kept compile: {why}"))?
+                        }
+                        keep => {
+                            let (ws, load) = match preloaded.take() {
+                                Some(loaded) => loaded,
+                                None => {
+                                    fill_all(&mut apps);
+                                    let started = std::time::Instant::now();
+                                    let ws = al_sema::Workspace::load_apps_symbols(
+                                        apps,
+                                        kinds,
+                                        symbols,
+                                        &dep_symbols,
+                                        Vec::new(),
+                                    );
+                                    (ws, started.elapsed())
+                                }
+                            };
+                            // Without a weighed answer, weigh on the compiled program, which has the baseline's
+                            // roots: the rule only looks at what the tests reach.
+                            match keep {
+                                Grow::Keep(shared) => {
+                                    let (ws, lowered, growable) =
+                                        al_sema::lower::compile_loaded_growable(ws, load, &catalog, roots.clone());
+                                    grow_kept = growable.map(|growable| GrowKept {
+                                        growable,
+                                        app_symbols: dep_symbols.clone(),
+                                        shared: shared.len(),
+                                    });
+                                    (ws, lowered)
+                                }
+                                _ => al_sema::lower::compile_loaded(ws, load, &catalog, roots.clone()),
+                            }
                         }
                     };
-                    // Without a weighed answer, weigh on the compiled program, which has the baseline's
-                    // roots: the rule only looks at what the tests reach.
-                    let (ws, lowered) = al_sema::lower::compile_loaded(ws, load, &catalog, roots.clone());
                     if try_skip && !weighed {
                         let selected = selected_tests(&lowered, suites, &only);
                         baseline_note = crate::observe::may_observe_baseline(&lowered, &selected);
@@ -679,6 +881,7 @@ impl CorpusRuntime {
                 symbols: symbols.clone(),
             }),
             kept: Default::default(),
+            grow_kept,
         })
     }
 
@@ -719,6 +922,7 @@ impl CorpusRuntime {
             compiles,
             incr: _,
             kept: kept_engines,
+            grow_kept: _,
         } = compiled;
         let (baseline_wanted, baseline, compile_cache_skipped, source_index) =
             (*baseline_wanted, *baseline, *compile_cache_skipped, *source_index);
@@ -1819,9 +2023,11 @@ impl CorpusRuntime {
                     compiles: *compiles,
                     lower: lowered.work,
                     dependency_apps: ws.kinds.iter().filter(|k| **k == al_sema::AppKind::Dependency).count(),
+                    // The dependency apps a compile cache supplied (objects a kept compile supplied are counted apart,
+                    // `LowerWork::objects_from_kept`).
                     dependency_apps_from_cache: {
                         let mut apps: Vec<usize> = (0..lowered.provided.len())
-                            .filter(|&oi| lowered.provided[oi])
+                            .filter(|&oi| lowered.provided[oi] && lowered.work.objects_from_kept == 0)
                             .map(|oi| ws.objects[oi].app)
                             .collect();
                         apps.dedup();

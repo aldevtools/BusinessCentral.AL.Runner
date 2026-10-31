@@ -713,6 +713,8 @@ fn run_codeunit_inner(
                     );
                     // What the test (and the runner's steps around it) writes counts from here.
                     let changes_from = session.store_mut().change_counter();
+                    // The session language and WorkDate a refusal while the test runs puts back.
+                    let carried = session.carried_state();
                     let mut reset = runner.before(&mut session, obj, routine);
                     // `random.librarySeed` of a stability run (ADR-058, owner decision 2) or `--seed-library`
                     // (ADR-061): after codeunit 130301, the runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with
@@ -924,13 +926,17 @@ fn run_codeunit_inner(
                             Outcome::Fail(message)
                         }
                         // A refused test did not run: what it wrote before the refusal must not
-                        // reach the next test of the codeunit.
+                        // reach the next test of the codeunit, nor the session language or WorkDate it set (the
+                        // BdSetterLanguage_* tests after BdSummaryML_1040 in report/lt-bd-format-region/BdRegionTests.al
+                        // ran in 1040: the refusal came before that test's own `GlobalLanguage(Original)`).
                         Err(Signal::Unsupported(_)) if execute && crate::events::cancelled() => {
                             session.rollback_transaction();
+                            session.restore_carried(carried);
                             Outcome::NotRun("cancelled".into())
                         }
                         Err(Signal::Unsupported(r)) => {
                             session.rollback_transaction();
+                            session.restore_carried(carried);
                             Outcome::NotRun(r)
                         }
                         Err(other) => Outcome::Fail(format!("unexpected signal {}", other.describe())),
