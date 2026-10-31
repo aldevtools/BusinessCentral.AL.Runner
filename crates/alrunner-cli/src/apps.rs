@@ -99,6 +99,22 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
     })
 }
 
+/// Refuses two APPs with one app id (an app and a copy of it kept in another folder): their objects share their keys, so
+/// the run could not tell them apart. Both paths and the id are named.
+pub fn distinct_ids(apps: &[AppInput]) -> Result<(), String> {
+    for (i, a) in apps.iter().enumerate() {
+        if let Some(b) = apps[..i].iter().find(|b| b.json.id.eq_ignore_ascii_case(&a.json.id)) {
+            return Err(format!(
+                "{} and {} have the same app id {}: an app can be given once (leave the copy out)",
+                b.path.display(),
+                a.path.display(),
+                a.json.id
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The project the dependency resolution works for: all APPs together. Its dependencies are
 /// those of the APPs, minus the APPs themselves (they are in the workspace).
 pub fn combined_project(apps: &[AppInput]) -> AppJson {

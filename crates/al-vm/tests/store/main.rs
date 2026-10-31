@@ -56,6 +56,7 @@ mod set_view_caption;
 mod sql_data_type;
 mod stale_buffer;
 mod stale_buffer_6028;
+mod stale_delete_event;
 mod stale_two_commits_insert;
 mod stale_two_commits_row_written;
 mod store_values;

@@ -232,6 +232,7 @@ pub fn plan_lanes(a: &TestArgs) -> Result<Planned, String> {
         .iter()
         .map(|p| apps::load(p, a.bc_version.as_deref()))
         .collect::<Result<Vec<_>, String>>()?;
+    apps::distinct_ids(&inputs)?;
     let (major, minor) = release(a, &inputs)?;
     let cache_root = al_deps::cache::cache_root_from_env(a.cache_dir.as_deref());
     let url = std::env::var("ALRUNNER_BCAPPS_URL").unwrap_or_else(|_| bcapps::DEFAULT_URL.to_string());
