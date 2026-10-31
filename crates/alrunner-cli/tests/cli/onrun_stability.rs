@@ -50,14 +50,14 @@ codeunit 50983 "R537 No OnRun Tests"
 "#;
 
 fn onrun_app(root: &Path) -> PathBuf {
-    let dir = root.join("onrun");
-    write(
-        &dir,
-        "app.json",
-        &app_json("11111111-0000-0000-0000-000000005748", "OnRun", &[]),
-    );
-    write(&dir, "src/Tests.al", ONRUN);
-    dir
+    one_file_app(
+        root,
+        "onrun",
+        "11111111-0000-0000-0000-000000005748",
+        "OnRun",
+        "src/Tests.al",
+        ONRUN,
+    )
 }
 
 fn names(doc: &serde_json::Value) -> Vec<String> {

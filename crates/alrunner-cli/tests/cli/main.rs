@@ -98,15 +98,23 @@ codeunit 50101 "Other Tests"
 }
 "#;
 
-fn mixed_app(root: &Path) -> PathBuf {
-    let dir = root.join("mixed");
-    write(
-        &dir,
-        "app.json",
-        &app_json("11111111-0000-0000-0000-000000000001", "Mixed", &[]),
-    );
-    write(&dir, "src/Tests.al", MIXED);
+/// An app folder `root/dir` with a manifest (no dependencies) and one source file.
+fn one_file_app(root: &Path, dir: &str, id: &str, name: &str, file: &str, source: &str) -> PathBuf {
+    let dir = root.join(dir);
+    write(&dir, "app.json", &app_json(id, name, &[]));
+    write(&dir, file, source);
     dir
+}
+
+fn mixed_app(root: &Path) -> PathBuf {
+    one_file_app(
+        root,
+        "mixed",
+        "11111111-0000-0000-0000-000000000001",
+        "Mixed",
+        "src/Tests.al",
+        MIXED,
+    )
 }
 
 fn json_of(o: &Output) -> serde_json::Value {

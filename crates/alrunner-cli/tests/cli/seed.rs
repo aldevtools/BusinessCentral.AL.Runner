@@ -24,14 +24,14 @@ codeunit 50300 "Seeded Tests"
 "#;
 
 fn seeded_app(root: &Path) -> PathBuf {
-    let dir = root.join("seeded");
-    write(
-        &dir,
-        "app.json",
-        &app_json("11111111-0000-0000-0000-000000000003", "Seeded", &[]),
-    );
-    write(&dir, "src/Tests.al", SEEDED);
-    dir
+    one_file_app(
+        root,
+        "seeded",
+        "11111111-0000-0000-0000-000000000003",
+        "Seeded",
+        "src/Tests.al",
+        SEEDED,
+    )
 }
 
 /// The failure messages of a run of the seeded app: the values each test drew.

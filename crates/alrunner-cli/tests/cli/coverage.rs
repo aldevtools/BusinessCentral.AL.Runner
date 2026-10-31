@@ -36,14 +36,14 @@ codeunit 50500 "Covered Tests"
 "#;
 
 fn covered_app(root: &Path) -> PathBuf {
-    let dir = root.join("covered");
-    write(
-        &dir,
-        "app.json",
-        &app_json("11111111-0000-0000-0000-000000000005", "Covered", &[]),
-    );
-    write(&dir, "src/Covered.al", COVERED);
-    dir
+    one_file_app(
+        root,
+        "covered",
+        "11111111-0000-0000-0000-000000000005",
+        "Covered",
+        "src/Covered.al",
+        COVERED,
+    )
 }
 
 #[test]

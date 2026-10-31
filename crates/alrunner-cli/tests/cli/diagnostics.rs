@@ -159,14 +159,14 @@ codeunit 50200 "Deep Tests"
 "#;
 
 fn deep_app(root: &Path) -> PathBuf {
-    let dir = root.join("deep");
-    write(
-        &dir,
-        "app.json",
-        &app_json("11111111-0000-0000-0000-000000000002", "Deep", &[]),
-    );
-    write(&dir, "src/Deep.al", DEEP);
-    dir
+    one_file_app(
+        root,
+        "deep",
+        "11111111-0000-0000-0000-000000000002",
+        "Deep",
+        "src/Deep.al",
+        DEEP,
+    )
 }
 
 #[test]
