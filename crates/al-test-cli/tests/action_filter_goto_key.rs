@@ -88,15 +88,15 @@ fn goto_key_after_an_action_turned_the_order_descending_finds_the_row() {
     );
 }
 
-// A filter that leaves no row of the view after the one the page stood on: the row before it is not measured without row
-// triggers, so it is refused.
+// A filter that leaves no row of the view after the one the page stood on: the page goes to the nearest row before it
+// (pages/lt-y15/Y15ActionNarrowsBelowLast.al on branch al-runtime-rs-staging-y15, al-runner issue 6468).
 #[test]
-fn a_filter_change_with_no_row_after_the_current_one_is_refused() {
-    let o = outcomes(
+fn a_filter_change_with_no_row_after_the_current_one_goes_to_the_row_before() {
+    passes(
         r#"[Test] procedure NoRowAfter() var S: Codeunit "AFG Seed"; L: TestPage "AFG List"; begin
-            S.Seed(); L.OpenView(); L.GoToKey(1, 50); L.FirstTen.Invoke(); end;"#,
+            S.Seed(); L.OpenView(); L.GoToKey(1, 50); L.FirstTen.Invoke();
+            if L.Next() then Error('next after the action'); end;"#,
     );
-    assert!(o.iter().all(|(_, r)| matches!(r, Outcome::NotRun(_))), "{o:?}");
 }
 
 // The same filter set again keeps the view: GoToKey back and forth in it passes as before (variants in the issue).
