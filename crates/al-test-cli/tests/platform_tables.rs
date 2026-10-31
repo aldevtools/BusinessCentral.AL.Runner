@@ -4162,6 +4162,7 @@ codeunit 50000 "T" { Subtype = Test;
         al_sema::check::Roots::default(),
         "27.5.0.0",
         vec![("r.rdlc".into(), rdlc)],
+        None,
     );
     let oi = l
         .program
