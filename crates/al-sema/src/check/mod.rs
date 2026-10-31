@@ -914,19 +914,29 @@ fn unselected_test(ws: &Workspace, oi: usize, keep: &[(usize, u32)]) -> bool {
         .any(|p| p.name().eq_ignore_ascii_case("Subtype") && p.value_text().eq_ignore_ascii_case("Test"));
     // A test codeunit that subscribes to events listens during every test, so it stays compiled. The text
     // of the object is searched token by token (no word of the search spans two tokens): a chunk of a node's text is
-    // the text of one token.
-    is_test
-        && ast
-            .syntax()
-            .text()
-            .try_for_each_chunk(|chunk| {
-                if contains_ignore_case(chunk, b"eventsubscriber") {
-                    Err(())
-                } else {
-                    Ok(())
-                }
-            })
-            .is_ok()
+    // the text of one token. No token holds the word when the file's text does not: the tree of a workspace file is its
+    // text, with the routines `pages::expand` makes from the file's own property expressions.
+    if !is_test {
+        return false;
+    }
+    let f = &ws.files[o.file];
+    if ws.apps[f.app]
+        .files
+        .get(f.file_in_app)
+        .is_some_and(|(_, text)| !contains_ignore_case(text, b"eventsubscriber"))
+    {
+        return true;
+    }
+    ast.syntax()
+        .text()
+        .try_for_each_chunk(|chunk| {
+            if contains_ignore_case(chunk, b"eventsubscriber") {
+                Err(())
+            } else {
+                Ok(())
+            }
+        })
+        .is_ok()
 }
 
 /// Whether `haystack` holds `needle` (lower case ASCII) in any case.

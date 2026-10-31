@@ -135,9 +135,9 @@ samples):
 
 | run | instructions |
 |---|---|
-| full BC 29 run before (branch at origin/main 0be555c31) | 347.9 G |
-| full BC 29 run after | see the pull request |
+| full BC 29 run before (origin/main b56edae5b) | 347.8 G |
+| full BC 29 run after | 244.0 G (`perf_budget`, best of 3: 246.5 G; main 348.1 G) |
 | main pass, every pass from source / grown | 219.7 G / 222.3 G (keeping costs about 2.6 G) |
-| testlibraries pass, from source / grown | 120.7 G / 19.6 G |
+| testlibraries pass, from source / grown | 120.7 G / 20.1 G (of which its own install baseline 5.1 G) |
 
 The full run stays above the `perf_budget` limit (215 G at this corpus size): the main pass alone is about 220 G.
