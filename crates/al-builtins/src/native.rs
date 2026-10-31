@@ -1236,6 +1236,24 @@ fn unpinned_refusal(e: &AlError, what: &str) -> Signal {
     }
 }
 
+/// The start of the failure message of a test [`unpinned_failure_text`] reports.
+pub const UNPINNED_FAILURE_MARK: &str = "[error text not pinned]";
+
+/// The failure message of a test that ended on an error whose text is not pinned, for a run that reports such a test as
+/// failed (opt-in `ALRUNNER_REPORT_UNPINNED_ERRORS=1`, al-runner issue 6487): "[error text not pinned]", then what the
+/// error says besides its marks (the probe it names, or the pinned text around an unpinned value), if anything.
+pub fn unpinned_failure_text(e: &AlError) -> String {
+    let rest: String = e
+        .message
+        .chars()
+        .filter(|c| !UNPINNED_ERROR.contains(*c) && *c != PINNED_CODE)
+        .collect();
+    match rest.trim() {
+        "" => UNPINNED_FAILURE_MARK.to_string(),
+        rest => format!("{UNPINNED_FAILURE_MARK} {rest}"),
+    }
+}
+
 /// Refuses a read of the text of an error whose text is not pinned: `what` is the read; the reason names the probe when the
 /// error carries one. Every place that hands an error's text to AL code or to the test result calls it.
 pub fn refuse_unpinned_text(e: &AlError, what: &str) -> Result<(), Signal> {

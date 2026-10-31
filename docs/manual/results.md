@@ -65,6 +65,27 @@ is a **flagged pass**, counted apart:
 - `--top-assumptions [N]` ranks the assumptions a run went through.
 - `al-runner --list-assumptions` describes all of them, with the counts of the last run.
 
+## Errors whose text is not pinned
+
+Some errors are known to happen, but the corpus does not pin the exact text
+Business Central gives. By default, a test that ends on such an error is **not run**,
+with the reason `The test result of an error whose text is not pinned`. A made-up
+text would otherwise stand in its result.
+
+Set `ALRUNNER_REPORT_UNPINNED_ERRORS=1` to report such a test as **failed** instead
+(opt-in, issue 6487). The test did run and fail; only the wording is not known.
+
+- Its failure message starts with `[error text not pinned]`, in the console,
+  `--junit` and `--output-json`.
+- The `Tests:` line ends with `(ALRUNNER_REPORT_UNPINNED_ERRORS=1: N failed with an error
+  text that is not pinned, reported instead of not run; not a conformance result)`.
+- `--junit` has a `report_unpinned_errors` property with value `1` on every `testsuite`.
+- `--output-json` has `reportUnpinnedErrors: true` and `unpinnedErrorFailures: N`.
+- Any other value, or no variable, keeps the default.
+
+A run with the variable set is not a conformance result. Use it in CI when a failure
+is more useful to you than a refusal.
+
 ## Finding out why
 
 ```bash

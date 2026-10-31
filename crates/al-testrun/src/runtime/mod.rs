@@ -504,6 +504,8 @@ pub(crate) struct Unit {
     on_run_rows: OnRunRows,
     /// See `RunOptions::ignore_permission_mock`.
     ignore_permission_mock: bool,
+    /// See `RunOptions::report_unpinned_errors`.
+    report_unpinned_errors: bool,
     /// See `RunOptions::permissions_off`.
     permissions_off: bool,
     /// See `RunOptions::perturb`.
@@ -550,6 +552,8 @@ pub(crate) struct Scratch {
     on_run_rows: OnRunRows,
     /// See `RunOptions::ignore_permission_mock`.
     ignore_permission_mock: bool,
+    /// See `RunOptions::report_unpinned_errors`.
+    report_unpinned_errors: bool,
     /// See `RunOptions::permissions_off`.
     permissions_off: bool,
     /// See `RunOptions::perturb`.
@@ -637,6 +641,7 @@ fn run_unit(
             onrun_carry: u.onrun_carry,
             on_run_rows: u.on_run_rows,
             ignore_permission_mock: u.ignore_permission_mock,
+            report_unpinned_errors: u.report_unpinned_errors,
             permissions_off: u.permissions_off,
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
