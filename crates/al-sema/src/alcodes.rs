@@ -687,9 +687,19 @@ fn test_request_pages_of_no_report(ws: &Workspace, oi: usize, obj: &ast::Object,
             if parts.len() != 1 || parts[0].parse::<u32>().is_ok() || ws.names_object(file, ObjKind::Report, &parts) {
                 continue;
             }
-            push(out, ws, file, offset_of(t.syntax()), "AL0185", format!("Report '{}' is missing", parts[0]));
+            push(
+                out,
+                ws,
+                file,
+                offset_of(t.syntax()),
+                "AL0185",
+                format!("Report '{}' is missing", parts[0]),
+            );
             // The pinned handler takes the page by var; another shape of the signature is not pinned.
-            if param.is_var() && p.attributes().any(|a| a.name().eq_ignore_ascii_case("RequestPageHandler")) {
+            if param.is_var()
+                && p.attributes()
+                    .any(|a| a.name().eq_ignore_ascii_case("RequestPageHandler"))
+            {
                 let name = p.name();
                 push(
                     out,

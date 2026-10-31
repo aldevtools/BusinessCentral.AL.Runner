@@ -507,7 +507,9 @@ impl Session {
                 self.xp_run_object_trigger(inst, r)?;
                 if Self::xp_flow(inst).is_some() {
                     Self::xp_clear_flow(inst);
-                    return unsupported("Break, Skip or Quit in OnInitXmlPort of a run with the request window (not pinned)");
+                    return unsupported(
+                        "Break, Skip or Quit in OnInitXmlPort of a run with the request window (not pinned)",
+                    );
                 }
             }
         }

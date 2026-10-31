@@ -516,7 +516,12 @@ impl Session {
                 // A RunModal of the instance that is running now (the bare `RunModal()` in a procedure its OnPreReport calls)
                 // raises the error and runs nothing; the run goes on (report/lt-y40-bare-report-run/Y40BareReportRun.al:362,
                 // Y40_BareRunModal_InsidePreReport, corpus master ac3499d6). A Run there is not pinned.
-                if self.report.report_running.iter().any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst))) {
+                if self
+                    .report
+                    .report_running
+                    .iter()
+                    .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)))
+                {
                     if id == ids::REPORT_RUN_1 {
                         return unsupported("Report.Run of the report instance that is running (not pinned)");
                     }
@@ -1676,7 +1681,9 @@ impl Session {
         inst.borrow_mut().globals = globals;
         inst.borrow_mut().rerun = true;
         inst.borrow_mut().exts.clear();
-        self.report.request_captions.retain(|(w, _)| w.upgrade().is_some_and(|i| !Rc::ptr_eq(&i, inst)));
+        self.report
+            .request_captions
+            .retain(|(w, _)| w.upgrade().is_some_and(|i| !Rc::ptr_eq(&i, inst)));
     }
 
     // ------------------------------------------------------------------ table views
@@ -4018,7 +4025,12 @@ impl Session {
             }
             let engine = self.engine.clone();
             let o = &engine.program.objects[inst.borrow().object as usize];
-            let prop = |name: &str| o.properties.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v);
+            let prop = |name: &str| {
+                o.properties
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                    .map(|(_, v)| v)
+            };
             return match (prop(ir::REQUEST_PAGE_CAPTION_PROPERTY), prop("Caption")) {
                 (Some(rp), Some(caption))
                     if rp == caption && o.kind == ir::ObjKind::Report && crate::pages::is_text_literal(rp) =>
@@ -4030,7 +4042,9 @@ impl Session {
                 ),
             };
         };
-        let text = al_builtins::native::text_of(arg).map(|t| t.to_string()).unwrap_or_default();
+        let text = al_builtins::native::text_of(arg)
+            .map(|t| t.to_string())
+            .unwrap_or_default();
         if let Some(st) = self.request_page_in_on_open_page(inst) {
             st.borrow_mut().caption = Some(text);
             return Ok(Value::Null);
@@ -4058,7 +4072,12 @@ impl Session {
 
     /// A request page opens on `inst`: a caption its code set before is the assumption `request-page-caption-set`.
     pub(crate) fn request_page_opens_after_caption_set(&self, inst: &Inst) {
-        if self.report.request_captions.iter().any(|(w, _)| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst))) {
+        if self
+            .report
+            .request_captions
+            .iter()
+            .any(|(w, _)| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+        {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCaptionSet);
         }
     }
