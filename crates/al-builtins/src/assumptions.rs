@@ -121,6 +121,17 @@ registry! {
         tests: "Tests-ERM Manual Payment Registration.PostPaymentForSalesInvoiceBalAccountBank and about 25 more Tests-ERM tests whose posting reads under ReadUncommitted before a guarded Codeunit.Run or a write-transaction check.",
         probe: "Commit, then a FindFirst under ReadIsolation ReadUncommitted on a database table: IsInWriteTransaction, and a guarded Codeunit.Run afterwards.",
     },
+    WindowsLanguagePrimaryLanguageId => {
+        id: "windows-language-primary-language-id",
+        assumed: "Windows Language.\"Primary Language ID\" answers the numbers writer Y11 measured on real BC for 83 LCIDs (a culture family's LCID: 3079 -> 1031, 2052 -> 1028, 9242 -> 1050); any other row leaves the column unknown. The pinned corpus has only that two English cultures share it and German does not (record/TestWindowsLanguageTable.al:70-73).",
+        tests: "No Microsoft test in the runner's suites: an outside report (two tests of a partner suite map the user's language to a culture through it; Subscription Billing's Field Translation passes it to Language.GetLanguageCode).",
+        probe: "Written: record/lt-y11-windows-language/Y11WindowsLanguagePrimary.al on corpus branch al-runtime-rs-staging-y11; retire when it is in the pinned corpus.",
+        awaiting: Awaiting {
+            issues: &[6410],
+            files: &["tests/al-language/record/lt-y11-windows-language/Y11WindowsLanguagePrimary.al"],
+            since: "2026-10-30",
+        },
+    },
     PageFieldFollowsSourceFieldEditableFalse => {
         id: "page-field-follows-source-field-editable-false",
         assumed: "A page field over a source table field that is a FlowFilter and declares Editable = false, with no Editable of its own on the control, reads Editable() No on a TestPage. A stored field (pages/lt-page-field-editable-source/PageFieldEditableSource.al) and a FlowField (handlers/N582TestPageEdges.al:324) are pinned.",

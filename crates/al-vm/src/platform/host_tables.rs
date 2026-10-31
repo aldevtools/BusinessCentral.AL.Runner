@@ -302,6 +302,97 @@ fn language_filter_refusal(t: &TableDef, filters: &[FieldFilter]) -> Result<(), 
     }
 }
 
+/// Windows Language."Primary Language ID" per LCID, as measured on real BC (writer Y11, corpus branch
+/// al-runtime-rs-staging-y11, record/lt-y11-windows-language/Y11WindowsLanguagePrimary.al; al-runner #6410). It is the
+/// LCID of a culture family, not a rule on the LCID's bits (2052 zh-CN answers 1028, 9242 sr-Latn-RS answers 1050):
+/// only these ids are answered, and the column of any other row is unknown. Runs on assumption
+/// windows-language-primary-language-id until the probe is in the pinned corpus.
+const PRIMARY_LANGUAGE_IDS: &[(i32, i32)] = &[
+    (1025, 1025),
+    (1026, 1026),
+    (1027, 1027),
+    (1028, 1028),
+    (1029, 1029),
+    (1030, 1030),
+    (1031, 1031),
+    (1032, 1032),
+    (1033, 1033),
+    (1034, 1034),
+    (1035, 1035),
+    (1036, 1036),
+    (1037, 1037),
+    (1038, 1038),
+    (1039, 1039),
+    (1040, 1040),
+    (1041, 1041),
+    (1042, 1042),
+    (1043, 1043),
+    (1044, 1044),
+    (1045, 1045),
+    (1046, 1046),
+    (1048, 1048),
+    (1049, 1049),
+    (1050, 1050),
+    (1051, 1051),
+    (1053, 1053),
+    (1054, 1054),
+    (1055, 1055),
+    (1057, 1057),
+    (1058, 1058),
+    (1060, 1060),
+    (1061, 1061),
+    (1062, 1062),
+    (1063, 1063),
+    (1066, 1066),
+    (1069, 1069),
+    (1078, 1078),
+    (1081, 1081),
+    (1086, 1086),
+    (1106, 1106),
+    (1110, 1110),
+    (2052, 1028),
+    (2055, 1031),
+    (2057, 1033),
+    (2058, 1034),
+    (2060, 1036),
+    (2064, 1040),
+    (2067, 1043),
+    (2068, 1044),
+    (2070, 1046),
+    (2077, 1053),
+    (2108, 1084),
+    (2110, 1086),
+    (3073, 1025),
+    (3076, 1028),
+    (3079, 1031),
+    (3081, 1033),
+    (3082, 1034),
+    (3084, 1036),
+    (4100, 1028),
+    (4103, 1031),
+    (4105, 1033),
+    (4108, 1036),
+    (5124, 1028),
+    (5127, 1031),
+    (5129, 1033),
+    (5132, 1036),
+    (6153, 1033),
+    (7177, 1033),
+    (8201, 1033),
+    (9242, 1050),
+    (10249, 1033),
+    (10266, 1050),
+    (11273, 1033),
+    (11274, 1034),
+    (12297, 1033),
+    (13321, 1033),
+    (13322, 1034),
+    (14337, 1025),
+    (16393, 1033),
+    (17417, 1033),
+    (18441, 1033),
+];
+
 fn language_row(t: &TableDef, lcid: i32, name: &str, abbr: &str, code_page: Option<&str>, tag: Option<&str>) -> Row {
     let mut r = blank(t);
     for f in &t.fields {
@@ -310,8 +401,10 @@ fn language_row(t: &TableDef, lcid: i32, name: &str, abbr: &str, code_page: Opti
         }
     }
     r[pos(t, 1)] = Value::Integer(lcid);
-    // The primary language is the low ten bits of the LCID.
-    r[pos(t, 2)] = Value::Integer(lcid & 0x3FF);
+    r[pos(t, 2)] = match PRIMARY_LANGUAGE_IDS.binary_search_by_key(&lcid, |p| p.0) {
+        Ok(i) => Value::Integer(PRIMARY_LANGUAGE_IDS[i].1),
+        Err(_) => super::unknown(t, 2, &format!("language {lcid}")),
+    };
     r[pos(t, 10)] = Value::Text(name.into());
     r[pos(t, 11)] = Value::Text(abbr.into());
     r[pos(t, GLOBALLY_ENABLED)] = Value::Boolean(true);
@@ -429,7 +522,7 @@ fn language_listing(t: &TableDef, filters: &[FieldFilter]) -> Result<Mat, StoreE
     let rows = known_ids()
         .filter(|&id| only.is_none_or(|o| o == id))
         .filter_map(|id| known(t, id))
-        .map(Entry::ok)
+        .map(|r| Entry::ok(r).assuming(al_builtins::assumptions::Assumption::WindowsLanguagePrimaryLanguageId))
         .collect();
     Ok(Mat::new(t, rows))
 }
@@ -443,7 +536,10 @@ pub(super) fn windows_language_get(t: &TableDef, pk: &[Value]) -> Result<Option<
         return Ok(None);
     }
     match known(t, id) {
-        Some(r) => Ok(Some(r)),
+        Some(r) => {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WindowsLanguagePrimaryLanguageId);
+            Ok(Some(r))
+        }
         None => Err(refused(format!(
             "Windows Language: whether language {id} is a row is not pinned (only the rows of AgWindowsLanguage.al are)"
         ))),
