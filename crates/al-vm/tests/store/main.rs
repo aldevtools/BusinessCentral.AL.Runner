@@ -34,6 +34,7 @@ mod modify_all_unchanged;
 mod np_blockers;
 mod option_init_ordinal;
 mod query_read_state;
+mod quoted_enum_init_value;
 mod record_builtins;
 mod record_id_filter_text;
 mod record_is_dirty;

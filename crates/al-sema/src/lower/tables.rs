@@ -678,9 +678,19 @@ impl Lowerer<'_> {
                         init_const(v, &f.ty).or_else(|| match f.ty {
                             // A member of the field's enum, by name; a blank-named member too
                             // (types/TestBlankEnumInitTests.Codeunit.al).
+                            // A member named in single quotes, `InitValue = 'G/L Account';` (al-runner issue 6585): the
+                            // VM marks assumption quoted-enum-init-value (al-vm `init_assumes`).
                             Ty::Enum(_) => {
                                 let file = self.ws.objects[f.declared_in.unwrap_or(oi)].file;
-                                self.calc_const(file, v, &f.ty).ok()
+                                let v = v.trim();
+                                let named = v
+                                    .strip_prefix('\'')
+                                    .and_then(|x| x.strip_suffix('\''))
+                                    .filter(|x| !x.contains('\''));
+                                match named {
+                                    Some(n) => self.calc_const(file, &format!("\"{n}\""), &f.ty).ok(),
+                                    None => self.calc_const(file, v, &f.ty).ok(),
+                                }
                             }
                             _ => None,
                         })
