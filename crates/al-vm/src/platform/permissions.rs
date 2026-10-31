@@ -237,6 +237,17 @@ fn parse_grants<O: al_ir::ObjectInfo + ?Sized>(
     o: &O,
     ids: &dyn Fn(al_ir::ObjKind, &str) -> Result<u32, String>,
 ) -> Result<Vec<Grant>, String> {
+    parse_grants_with(o, ids, None)
+}
+
+/// The grants of `o`'s `Permissions` property. With `wildcards`, a grant on a whole object type (`tabledata * = RIMD`,
+/// `system * = X`) merges its levels into the slot of that type ([`crate::permissions::kind_slot`]); without, it is an
+/// error, as for the grants tables, which do not list such a grant row by row.
+fn parse_grants_with<O: al_ir::ObjectInfo + ?Sized>(
+    o: &O,
+    ids: &dyn Fn(al_ir::ObjKind, &str) -> Result<u32, String>,
+    mut wildcards: Option<&mut crate::permissions::Wildcards>,
+) -> Result<Vec<Grant>, String> {
     let Some(text) = prop(o, "Permissions") else {
         return Ok(Vec::new());
     };
@@ -249,10 +260,30 @@ fn parse_grants<O: al_ir::ObjectInfo + ?Sized>(
             .split_once(char::is_whitespace)
             .ok_or_else(|| bad("names no object"))?;
         let name = name.trim();
+        let kind_word = kind_word.to_ascii_lowercase();
         if name == "*" {
-            return Err(bad("grants a whole object type (not listed row by row)"));
+            let Some(w) = wildcards.as_deref_mut() else {
+                return Err(bad("grants a whole object type (not listed row by row)"));
+            };
+            let code = match kind_word.as_str() {
+                "tabledata" => 0,
+                "table" => 1,
+                "report" => 3,
+                "codeunit" => 5,
+                "xmlport" => 6,
+                "page" => 8,
+                "query" => 9,
+                "system" => 10,
+                other => return Err(bad(&format!("is a `{other}` grant (not pinned)"))),
+            };
+            let slot = crate::permissions::kind_slot(code).expect("every listed type has a slot");
+            let level = parse_mask(mask).ok_or_else(|| bad("has a letter that is not R, I, M, D or X"))?;
+            for (have, add) in w[slot].iter_mut().zip(level) {
+                *have = merge(*have, add);
+            }
+            continue;
         }
-        let (kind, ty) = match kind_word.to_ascii_lowercase().as_str() {
+        let (kind, ty) = match kind_word.as_str() {
             "tabledata" => (0, al_ir::ObjKind::Table),
             "table" => (1, al_ir::ObjKind::Table),
             "report" => (3, al_ir::ObjKind::Report),
@@ -263,23 +294,7 @@ fn parse_grants<O: al_ir::ObjectInfo + ?Sized>(
             other => return Err(bad(&format!("is a `{other}` grant (not pinned)"))),
         };
         let id = ids(ty, &last_name(name)).map_err(|why| bad(&why))?;
-        let mut level = [0u8; 5];
-        for c in mask.trim().chars() {
-            let (slot, lvl) = match c {
-                'R' => (0, 1),
-                'r' => (0, 2),
-                'I' => (1, 1),
-                'i' => (1, 2),
-                'M' => (2, 1),
-                'm' => (2, 2),
-                'D' => (3, 1),
-                'd' => (3, 2),
-                'X' => (4, 1),
-                'x' => (4, 2),
-                _ => return Err(bad("has a letter that is not R, I, M, D or X")),
-            };
-            level[slot] = merge(level[slot], lvl);
-        }
+        let level = parse_mask(mask).ok_or_else(|| bad("has a letter that is not R, I, M, D or X"))?;
         match out.iter_mut().find(|g| g.kind == kind && g.id == id) {
             Some(g) => {
                 for (have, add) in g.level.iter_mut().zip(level) {
@@ -290,6 +305,29 @@ fn parse_grants<O: al_ir::ObjectInfo + ?Sized>(
         }
     }
     Ok(out)
+}
+
+/// The five levels a mask such as `RIMD` or `rX` gives (0 blank, 1 Yes, 2 Indirect); `None` for a letter that is not
+/// R, I, M, D or X.
+fn parse_mask(mask: &str) -> Option<[u8; 5]> {
+    let mut level = [0u8; 5];
+    for c in mask.trim().chars() {
+        let (slot, lvl) = match c {
+            'R' => (0, 1),
+            'r' => (0, 2),
+            'I' => (1, 1),
+            'i' => (1, 2),
+            'M' => (2, 1),
+            'm' => (2, 2),
+            'D' => (3, 1),
+            'd' => (3, 2),
+            'X' => (4, 1),
+            'x' => (4, 2),
+            _ => return None,
+        };
+        level[slot] = merge(level[slot], lvl);
+    }
+    Some(level)
 }
 
 pub(super) struct GSet {
@@ -570,4 +608,60 @@ pub(super) fn key_filters(t: &TableDef, which: GrantTable, pk: &[Value]) -> Vec<
             group: 0,
         })
         .collect()
+}
+
+// ---- The session's permission sets (ADR-062 section 3) ----------------------------------------------------------------
+
+/// One permission set object of the program as the composition of a session's sets reads it.
+pub(crate) struct RawSet {
+    /// The Role ID: the upper-case object name cut to 20 characters (the `Permission Set` table's key, which
+    /// `Permissions Mock.Assign` passes on).
+    pub role: String,
+    /// The grants the set declares itself, wildcards included; an error for a grant the reader does not take.
+    pub declared: Result<crate::permissions::Content, String>,
+    /// `IncludedPermissionSets`, as lower-case object names.
+    pub includes: Vec<String>,
+    /// The set declares `ExcludedPermissionSets` (subtraction is not composed yet, ADR-062 probe P11).
+    pub excluded: bool,
+    /// A permission set extension of the program extends the set, or names a set the program does not hold (its
+    /// grants are not merged yet, ADR-062 probe P10).
+    pub extended: bool,
+}
+
+/// The permission set objects of the program, and their indexes by lower-case object name.
+pub(crate) fn raw_sets(engine: &crate::Engine) -> (Vec<RawSet>, HashMap<String, Vec<usize>>) {
+    let c = Catalog::new(engine);
+    let ids = |ty: al_ir::ObjKind, name: &str| c.id_of(ty, name);
+    let extended: Vec<Option<u32>> = c
+        .objects
+        .iter()
+        .filter(|o| o.kind == al_ir::ObjKind::PermissionSetExtension)
+        .map(|o| o.extends_id)
+        .collect();
+    let mut sets = Vec::new();
+    let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
+    for o in c
+        .objects
+        .iter()
+        .filter(|o| o.kind == al_ir::ObjKind::PermissionSet && o.id.is_some())
+    {
+        let includes = prop(o, "IncludedPermissionSets")
+            .map(|t| split_entries(t).iter().map(|n| last_name(n).to_lowercase()).collect())
+            .unwrap_or_default();
+        let mut wild = crate::permissions::Wildcards::default();
+        let declared = parse_grants_with(o, &ids, Some(&mut wild)).map(|list| {
+            let mut explicit: Vec<(i32, u32, [u8; 5])> = list.into_iter().map(|g| (g.kind, g.id, g.level)).collect();
+            explicit.sort_unstable_by_key(|&(k, id, _)| (k, id));
+            crate::permissions::Content { wild, explicit }
+        });
+        by_name.entry(o.name.to_lowercase()).or_default().push(sets.len());
+        sets.push(RawSet {
+            role: upper_trunc(&o.name, 20),
+            declared,
+            includes,
+            excluded: prop(o, "ExcludedPermissionSets").is_some(),
+            extended: extended.iter().any(|e| e.is_none_or(|id| Some(id) == o.id)),
+        });
+    }
+    (sets, by_name)
 }
