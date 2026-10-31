@@ -1082,6 +1082,7 @@ pub const INVENTED_IDS: &[&str] = &[
     "InStream.OwnerOutOfScope#1",
     "System.TranslatedText#1",
     "System.TextConstText#1",
+    "Report.LayoutListExportStream#1",
 ];
 
 /// Every name that gets a [`BuiltinId`]: the catalog's overloads of every version, the registered natives
