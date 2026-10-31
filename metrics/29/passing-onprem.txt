@@ -100,6 +100,8 @@
 61276 Exists_Folder_And_Blank_Names
 61281 QX_CreateWebService_SalesOrderPage
 61281 WebService_Content
+61283 WriteWithSecretsTo_Dictionary
+61283 WriteWithSecretsTo_SinglePath
 61286 QX_MediaAndMediaSet_ImportFile_Jpeg
 61286 RD_MediaSet_ImportFile_JpegThenUpperCasePng
 61289 PSuperUser_DisableLastSuper
