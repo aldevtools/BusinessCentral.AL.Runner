@@ -2696,37 +2696,49 @@ impl Session {
         }
     }
 
-    /// The platform's virtual table `Agent Task` (2000000262): in a test session IsEmpty fails with the agent service's
-    /// error, code DB:Ok (platform/lt-rh-agent-session/RhAgentSession.al:74-88 RH_AgentTask_TaskExistsUnknownAgent, through
-    /// "Agent Task Impl.".TaskExists, whose only read of the table is IsEmpty after two SetRange calls and ReadIsolation).
-    /// Every other read or write of it stays refused by its provider ("has no provider").
+    /// The platform's agent tables Agent (2000000260), Agent Access Control (2000000261), Agent Task (2000000262) and Agent
+    /// Task Message (2000000263): in a test session on the corpus containers every read and every insert fails with the agent
+    /// service's error, code DB:Ok, and leaves no write transaction, whatever app calls it (onprem
+    /// platform/lt-y35-agent-direct/Y35AgentDirect.al C302_AgentDirect_FindSetFiltered, _Reads, _Inserts: FindSet with a filter,
+    /// FindFirst, IsEmpty, Count, FindLast, Get, Insert(true), Insert() on Agent; platform/lt-y35-agent-api/Y35AgentApi.al
+    /// C302_AgentTaskDirect_Reads, _Inserts: FindSet, Count, Get and Insert on Agent Task, FindSet and Insert on Agent Task
+    /// Message, FindSet on Agent Access Control; C302_AgentApi_Create, _Activate, _TaskCreate through the System Application;
+    /// platform/lt-rh-agent-session/RhAgentSession.al:74-145 for IsEmpty on Agent Task and Get on Agent). Every other
+    /// operation stays refused by the provider ("has no provider").
     fn agent_task_check(&self, t: &TableDef, rec: &Rec, method: RecordOp) -> Result<(), Signal> {
         if rec.borrow().temporary {
             return Ok(());
         }
-        // IsEmpty on Agent Task (RhAgentSession.al:74-88) and Get on Agent ("Agent Impl.".GetAgent, RhAgentSession.al:101-145,
-        // AL Runner issue 5787), for a new and a null id.
         let id = self.engine.program.objects[t.object as usize].id;
-        if !matches!(
-            (method, id),
-            (RecordOp::IsEmpty, Some(2000000262)) | (RecordOp::Get, Some(2000000260))
-        ) {
+        if !matches!(id, Some(2000000260..=2000000263)) {
+            return Ok(());
+        }
+        let pinned = match id {
+            Some(2000000260) => matches!(
+                method,
+                RecordOp::FindSet
+                    | RecordOp::FindFirst
+                    | RecordOp::FindLast
+                    | RecordOp::IsEmpty
+                    | RecordOp::Count
+                    | RecordOp::Get
+                    | RecordOp::Insert
+            ),
+            Some(2000000262) => matches!(
+                method,
+                RecordOp::FindSet | RecordOp::Count | RecordOp::Get | RecordOp::IsEmpty | RecordOp::Insert
+            ),
+            Some(2000000263) => matches!(method, RecordOp::FindSet | RecordOp::Insert),
+            _ => method == RecordOp::FindSet,
+        };
+        if !pinned {
             return Ok(());
         }
         let object = &self.engine.program.objects[t.object as usize];
         let platform = self.engine.program.apps.get(object.app as usize).is_some_and(|a| {
             a.id.eq_ignore_ascii_case(crate::platform::objects::al_sema_platform_app_id())
         });
-        // Only a read from Microsoft code (the System Application) is pinned; a partner app's own read is not.
-        let microsoft = self.frames.last().is_some_and(|o| {
-            let app = self.engine.program.objects[*o].app as usize;
-            self.engine
-                .program
-                .apps
-                .get(app)
-                .is_some_and(|a| a.publisher == "Microsoft")
-        });
-        if !platform || !microsoft {
+        if !platform {
             return Ok(());
         }
         Err(crate::transactions::al_error_code(

@@ -2363,8 +2363,8 @@ fn a_tests_run_method_id_is_refused_where_its_number_would_show() {
 
 // "Agent Task".TaskExists (System Application, through "Agent Task Impl.".TaskExists): IsEmpty on the virtual table Agent Task
 // after two SetRange calls and ReadIsolation fails with the agent service's error, code DB:Ok (platform/lt-rh-agent-session/
-// RhAgentSession.al:74-88 RH_AgentTask_TaskExistsUnknownAgent). The same read from a partner app, and any other operation on
-// the table, are not pinned: refused.
+// RhAgentSession.al:74-88 RH_AgentTask_TaskExistsUnknownAgent), from a partner app too. An operation no probe covers
+// (Modify) stays refused.
 #[test]
 fn agent_task_is_empty_from_microsoft_code_reports_agents_unavailable() {
     let src = r#"codeunit 50000 "T" { Subtype = Test;
@@ -2381,16 +2381,16 @@ fn agent_task_is_empty_from_microsoft_code_reports_agents_unavailable() {
       AgentTask.SetRange("External ID", 'missing');
       Exists := not AgentTask.IsEmpty();
   end;
-  [Test] procedure TaskCount() var AgentTask: Record "Agent Task"; begin if AgentTask.Count() = 0 then; end; }"#;
+  [Test] procedure TaskModify() var AgentTask: Record "Agent Task"; begin AgentTask.Modify(); end; }"#;
     let o = outcomes_app("ms-sysapp", src, al_sema::check::Roots::default());
     assert_eq!(
         o.iter().find(|(n, _)| n == "TaskExists").map(|(_, o)| o),
         Some(&Outcome::Pass),
         "{o:?}"
     );
-    assert!(not_run(&o, "TaskCount").contains("has no provider"));
-    let partner = outcomes(src);
-    assert!(not_run(&partner, "TaskExists").contains("has no provider"));
+    assert!(not_run(&o, "TaskModify").contains("has no provider"));
+    // The same from this app (platform/lt-y35-agent-api/Y35AgentApi.al C302_AgentTaskDirect_Reads).
+    passes(&outcomes(src), "TaskExists");
 }
 
 // Application Object Metadata of a query and Microsoft's QueryMetadataReader over its Metadata Blob (ODataUtility.
@@ -2693,8 +2693,8 @@ codeunit 50001 H { procedure InsertFail() var A: Record "Active Session"; begin 
 
 // Agent.GetDisplayName, GetUserName and IsActive (System Application, through "Agent Impl.".GetAgent): Get on the platform table
 // Agent fails with the agent service's error, code DB:Ok, for a new and for a null id, also inside a TryFunction
-// (platform/lt-rh-agent-session/RhAgentSession.al:101-145, AL Runner issue 5787). The same read from a partner app and any
-// other operation on the table are not pinned: refused.
+// (platform/lt-rh-agent-session/RhAgentSession.al:101-145, AL Runner issue 5787), from a partner app too. An operation no
+// probe covers (Delete) stays refused.
 #[test]
 fn agent_get_from_microsoft_code_reports_agents_unavailable() {
     let src = r#"codeunit 50000 "T" { Subtype = Test;
@@ -2708,16 +2708,16 @@ fn agent_get_from_microsoft_code_reports_agents_unavailable() {
   [TryFunction] local procedure TryGet(Id: Guid) var Agent: Record Agent; begin
       if not Agent.Get(Id) then Error('not found');
   end;
-  [Test] procedure AgentCount() var Agent: Record Agent; begin if Agent.Count() = 0 then; end; }"#;
+  [Test] procedure AgentDelete() var Agent: Record Agent; begin Agent.Delete(); end; }"#;
     let o = outcomes_app("ms-sysapp", src, al_sema::check::Roots::default());
     assert_eq!(
         o.iter().find(|(n, _)| n == "GetAgent").map(|(_, o)| o),
         Some(&Outcome::Pass),
         "{o:?}"
     );
-    assert!(not_run(&o, "AgentCount").contains("has no provider"));
-    let partner = outcomes(src);
-    assert!(not_run(&partner, "GetAgent").contains("has no provider"));
+    assert!(not_run(&o, "AgentDelete").contains("has no provider"));
+    // The same from this app (onprem platform/lt-y35-agent-direct/Y35AgentDirect.al C302_AgentDirect_Reads).
+    passes(&outcomes(src), "GetAgent");
 }
 
 // NavUserAccountHelper.IsPermissionSetAssigned(user, company, role, app id, scope), which "User Permissions".
@@ -4172,4 +4172,57 @@ codeunit 50000 "T" { Subtype = Test;
         .expect("test codeunit T");
     let o = run_codeunit(&engine, &l, oi);
     passes(&o, "UserRow");
+}
+
+// On the corpus containers every read and every insert of the agent tables fails with the agent service's error, code DB:Ok,
+// and leaves no write transaction, from this app as from the System Application's Agent API: Agent (FindSet with a filter,
+// FindFirst, IsEmpty, Count, FindLast, Get, Insert(true), Insert()), Agent Task (FindSet, Count, Get, Insert), Agent Task
+// Message (FindSet, Insert) and Agent Access Control (FindSet) (onprem platform/lt-y35-agent-direct/Y35AgentDirect.al
+// C302_AgentDirect_FindSetFiltered, _Reads, _Inserts; platform/lt-y35-agent-api/Y35AgentApi.al C302_AgentTaskDirect_Reads,
+// _Inserts, C302_AgentApi_Create). A temporary record is an ordinary temporary table. Other operations stay refused.
+#[test]
+fn every_read_and_insert_of_the_agent_tables_reports_agents_unavailable() {
+    let unavailable = "Agents are temporarily unavailable. Please try again later. You can check the Business Central Admin Center and Microsoft 365 Service Health dashboard for updates.";
+    let src = format!(
+        r#"codeunit 50000 "T" {{ Subtype = Test;
+  local procedure Check(Ran: Boolean) begin
+      if Ran then Error('no error');
+      if GetLastErrorText() <> '{unavailable}' then Error(GetLastErrorText());
+      if GetLastErrorCode() <> 'DB:Ok' then Error(GetLastErrorCode());
+      if Database.IsInWriteTransaction() then Error('write transaction');
+      ClearLastError();
+  end;
+  [TryFunction] local procedure AgentFindSet() var A: Record Agent; begin A.SetFilter("User Name", '%1|%2', 'A', 'B'); A.FindSet(); end;
+  [TryFunction] local procedure AgentFindFirst() var A: Record Agent; begin A.SetFilter("User Name", 'X'); A.FindFirst(); end;
+  [TryFunction] local procedure AgentFindLast() var A: Record Agent; begin A.FindLast(); end;
+  [TryFunction] local procedure AgentIsEmpty() var A: Record Agent; begin if A.IsEmpty() then; end;
+  [TryFunction] local procedure AgentCount() var A: Record Agent; begin if A.Count() = 0 then; end;
+  [TryFunction] local procedure AgentGet() var A: Record Agent; begin if A.Get(CreateGuid()) then; end;
+  [TryFunction] local procedure TaskFindSet() var T: Record "Agent Task"; begin if T.FindSet() then; end;
+  [TryFunction] local procedure TaskCount() var T: Record "Agent Task"; begin if T.Count() = 0 then; end;
+  [TryFunction] local procedure TaskGet() var T: Record "Agent Task"; begin if T.Get(1) then; end;
+  [TryFunction] local procedure MessageFindSet() var M: Record "Agent Task Message"; begin if M.FindSet() then; end;
+  [TryFunction] local procedure AccessFindSet() var C: Record "Agent Access Control"; begin if C.FindSet() then; end;
+  [Test] procedure Reads() begin
+      Check(AgentFindSet()); Check(AgentFindFirst()); Check(AgentFindLast()); Check(AgentIsEmpty()); Check(AgentCount());
+      Check(AgentGet()); Check(TaskFindSet()); Check(TaskCount()); Check(TaskGet()); Check(MessageFindSet()); Check(AccessFindSet());
+  end;
+  [Test] procedure Inserts() var A: Record Agent; T: Record "Agent Task"; M: Record "Agent Task Message"; begin
+      A.Init(); A."User Name" := 'LT'; asserterror A.Insert(true); Check(false);
+      asserterror A.Insert(); Check(false);
+      asserterror T.Insert(); Check(false);
+      asserterror M.Insert(); Check(false);
+  end;
+  [Test] procedure Temporary() var A: Record Agent temporary; begin A.Init(); A."User Name" := 'LT'; A.Insert(); if not A.FindFirst() then Error('temp'); end;
+  [Test] procedure ModifyStaysRefused() var A: Record Agent; begin A.Modify(); end; }}"#
+    );
+    let o = outcomes(&src);
+    for t in ["Reads", "Inserts", "Temporary"] {
+        passes(&o, t);
+    }
+    assert!(not_run(&o, "ModifyStaysRefused").contains("has no provider"), "{o:?}");
+    let o = outcomes_app("ms-sysapp", &src, al_sema::check::Roots::default());
+    for t in ["Reads", "Inserts"] {
+        passes(&o, t);
+    }
 }
