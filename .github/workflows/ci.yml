@@ -72,9 +72,12 @@ jobs:
       # TRIAL only: every test cargo lists must be listed by nextest (the counts are in the log).
       - name: Compare test counts
         run: |
-          a=$(cargo nextest list --workspace --no-default-features 2>/dev/null | grep -c '^    ')
-          b=$(cargo test --workspace --no-default-features -- --list 2>/dev/null | grep -c ': test$')
+          cargo nextest list --workspace --no-default-features --message-format oneline > /tmp/nx.txt
+          cargo test --workspace --no-default-features -- --list > /tmp/ct.txt
+          a=$(wc -l < /tmp/nx.txt)
+          b=$(grep -c ': test$' /tmp/ct.txt)
           echo "nextest=$a cargo=$b"
+          head -3 /tmp/nx.txt
           test "$a" = "$b"
 
   # Fails when a dependency has a license that is not on the allow-list in deny.toml.
