@@ -486,6 +486,9 @@ pub struct PageState {
     pub focus_in_row: bool,
     /// Validation errors the client holds: (control index, stored text).
     pub errors: Vec<(usize, String)>,
+    /// The control and the list row (its key) where a control's ValuesAllowed refused an entry: a Value read of that control on
+    /// another row is not pinned (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al:313-316).
+    pub values_allowed_refused_row: Option<(usize, Vec<Value>)>,
     /// The controls among `errors` whose refusal was an error of an AL trigger (the table's or the control's OnValidate),
     /// not one of the client's own checks, with the trigger's message: Close validates those again
     /// (pages/lt-ah-pages/AhPageTests.al:155-159).
@@ -910,6 +913,7 @@ impl PageState {
             focus: None,
             focus_in_row: false,
             errors: Vec::new(),
+            values_allowed_refused_row: None,
             trigger_errors: Vec::new(),
             refused: false,
             close_error: false,
