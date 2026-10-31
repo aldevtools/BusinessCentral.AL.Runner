@@ -242,7 +242,18 @@ impl Session {
                 // A lookup into an Enum field from the field of another enum is allowed (record/lt-flowfield-lookup-enum/
                 // FlowFieldLookupOtherEnum.al; Microsoft's VAT Return Period).
                 let enum_pair = matches!((&f.ty, &s.ty), (RtType::Enum(_), RtType::Enum(_)));
-                if !same_kind(&f.ty, &s.ty) && !(enum_pair && calc.method == ir::CalcMethod::Lookup) {
+                // A lookup or a max of an Enum field into an Option FlowField (al-runner issue 6481; corpus writer Y20,
+                // record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al, measured on BC; assumption until it is
+                // pinned). A min is not measured.
+                let enum_into_option = matches!((&f.ty, &s.ty), (RtType::Option(_), RtType::Enum(_)))
+                    && calc.method != ir::CalcMethod::Min;
+                if enum_into_option {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FlowFieldEnumIntoOption);
+                }
+                if !same_kind(&f.ty, &s.ty)
+                    && !(enum_pair && calc.method == ir::CalcMethod::Lookup)
+                    && !enum_into_option
+                {
                     return unsupported("min, max or lookup into a field of another type");
                 }
             }
@@ -704,6 +715,11 @@ impl Session {
         // (an ordinal the FlowField's enum lacks) stays `Five` (corpus record/lt-flowfield-lookup-enum/
         // FlowFieldLookupOtherEnum.al: Lookup_MembersPresentInBoth_Result, Lookup_MemberOnlyInSource_Result).
         if matches!((&value, &f.ty), (Value::Enum(from, _), RtType::Enum(to)) if from != to) {
+            return Ok(value);
+        }
+        // A lookup of an Enum field into an Option FlowField keeps the Enum member too: Format shows the Enum's name, also for an
+        // ordinal the Option lacks (Y20FlowFieldLookupEnumIntoOption.al:115, :136; al-runner issue 6481).
+        if calc.method == ir::CalcMethod::Lookup && matches!((&value, &f.ty), (Value::Enum(..), RtType::Option(_))) {
             return Ok(value);
         }
         // A value longer than the FlowField: a lookup of a Text source into a shorter Text FlowField keeps the whole value,

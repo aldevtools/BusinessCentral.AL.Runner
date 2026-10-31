@@ -279,6 +279,14 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     // Y6TenantReportLayoutRows.al, corpus master). What else is pinned: al-vm `tenant_layouts.rs`.
     (2_000_000_232, "Tenant Report Layout", Provider::Stored),
     (2_000_000_179, "OData Edm Type", Provider::Stored),
+    // Empty on a fresh tenant; Insert, Modify, Delete and DeleteAll without triggers work (al-language-onprem/session/
+    // PZPlatformSurvey.al:142-145, :166-169; records/W4PlatformAndMeta.al:123). Document Service's own insert trigger is
+    // native (al-vm recmeta.rs `document_service_insert`).
+    (2_000_000_255, "Signup Context", Provider::Stored),
+    (2_000_000_114, "Document Service", Provider::Stored),
+    // An ordinary table, empty on a fresh tenant (al-language-onprem/platform/PtOnPremTables.al:214-236, session/
+    // PZPlatformSurvey.al:172-175); its rows follow the rename of their tenant profile (al-vm profiles.rs).
+    (2_000_000_187, "Tenant Profile Page Metadata", Provider::Stored),
     // OnPrem tables that a fresh tenant leaves empty and that take Insert, a duplicate Insert (false), Modify, Delete, an Insert
     // without triggers and DeleteAll (al-language-onprem/platform/PtOnPremTables.al:57-78, :80-101, :149-170, :192-213).
     // Tenant Profile reads "Customization Status" Updated after an Insert (:200), its first option and so its default.
@@ -509,11 +517,28 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         "25",
         "al-language/report/lt-y-report-props/YHelper.al:226, YReportPropsTests.al:34-160",
     ),
-    // UseSystemPrinter as declared; unknown for a report that does not declare it (al-vm reports.rs).
+    // EnableHyperLinks, ShowPrintStatus and PreviewMode of a report that declares none of them, read through the helper's
+    // FieldIndex loop; unknown for a declared one (al-vm reports.rs).
+    (
+        2_000_000_139,
+        "7",
+        "al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:22-31, :206",
+    ),
+    (
+        2_000_000_139,
+        "10",
+        "al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:22-31, :209",
+    ),
+    (
+        2_000_000_139,
+        "15",
+        "al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:22-31, :214",
+    ),
+    // UseSystemPrinter as declared, No for a report that does not declare it (al-vm reports.rs).
     (
         2_000_000_139,
         "5",
-        "al-language/misc/lt-y13-triage/Y13ReportSystemPrinter.al:526, :530-543",
+        "al-language/misc/lt-y13-triage/Y13ReportSystemPrinter.al:526, :530-543; al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:204",
     ),
     // TransactionType UpdateNoLocks for a report that declares none; unknown for a declared one (al-vm reports.rs).
     (
@@ -530,6 +555,28 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         2_000_000_139,
         "23",
         "al-language/metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:145",
+    ),
+    // Table Relations Metadata names of the own and the related table and field, read through the helper's FieldIndex loop
+    // (al-vm metadata.rs).
+    (
+        2_000_000_141,
+        "12",
+        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
+    ),
+    (
+        2_000_000_141,
+        "13",
+        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
+    ),
+    (
+        2_000_000_141,
+        "14",
+        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
+    ),
+    (
+        2_000_000_141,
+        "15",
+        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
     ),
     // BC 29 only: DefaultHeaderFooterPartName (30), DefaultThemePartName (31). By id, because the symbols of
     // older majors lack them.
@@ -631,6 +678,13 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         2_000_000_280,
         "InherentEntitlements",
         "al-language/xmlport/lt-y-xmlport-props/YXmlPortProps.al:731-740",
+    ),
+    // Event Subscription "Originating Package ID": a Guid, scrubbed by the observer because it changes per publish; read through
+    // the helper's FieldIndex loop (al-vm metadata.rs).
+    (
+        2_000_000_140,
+        "10",
+        "al-language/misc/lt-probes-needed-5/PnE11EventSub.al:67-78, :99",
     ),
     (
         2_000_000_140,

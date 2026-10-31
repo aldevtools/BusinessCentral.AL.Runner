@@ -625,6 +625,7 @@ impl CorpusRuntime {
             app.include_source = m.include_source;
             app.target = (!m.target.is_empty()).then(|| m.target.clone());
             app.logo = m.logo.clone();
+            app.description = m.description.clone();
             app.layout_files = m.layout_files.clone();
             app.translations = m.translations;
             app.translation_files = m.translation_files.clone();
@@ -1191,6 +1192,8 @@ impl CorpusRuntime {
                             leak: None,
                             on_run_rows: OnRunRows::PerTest,
                             ignore_permission_mock: false,
+                            report_unpinned_errors: false,
+                            permissions_off: false,
                             perturb: Default::default(),
                             run_seed: opts.run_seed,
                         });
@@ -1240,6 +1243,8 @@ impl CorpusRuntime {
                             run_only: pass.run_only.clone(),
                             on_run_rows: opts.on_run_rows,
                             ignore_permission_mock: opts.ignore_permission_mock,
+                            report_unpinned_errors: opts.report_unpinned_errors,
+                            permissions_off: opts.permissions_off,
                             perturb: opts.perturb.clone(),
                             run_seed: opts.run_seed,
                         }),

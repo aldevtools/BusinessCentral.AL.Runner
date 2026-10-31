@@ -152,6 +152,14 @@ fn options_hash(a: &TestArgs) -> Result<String, String> {
     if a.ignore_permission_mock {
         h.update(b"ignore_permission_mock");
     }
+    // `ALRUNNER_REPORT_UNPINNED_ERRORS=1` (issue 6487) changes outcomes (not run becomes failed); off keeps the hash.
+    if crate::unpinned::enabled() {
+        h.update(b"report_unpinned_errors");
+    }
+    // `--permissions off` can change outcomes once a stage of ADR-062 is on; a run without it keeps the hash.
+    if a.permissions_off {
+        h.update(b"permissions_off");
+    }
     // The DemoTool company (`--company-data demotool`); a run without it keeps the hash it had.
     if a.company_demotool {
         h.update(b"company-data demotool ");

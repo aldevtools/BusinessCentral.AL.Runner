@@ -805,6 +805,9 @@ pub struct Session {
     /// (`PermissionTestHelper.AddEffectivePermissionSet`) runs on with every access granted, on the assumption
     /// `permissions-not-enforced`, instead of being refused.
     pub ignore_permission_mock: bool,
+    /// `al-runner test --permissions off` (ADR-062 section 5): no access kind is enforced, whatever stage is on by
+    /// default (`permissions::Stage`).
+    pub permissions_off: bool,
     /// The Role IDs `PermissionTestHelper.AddEffectivePermissionSet` assigned since the last `Clear` (ADR-062).
     pub(crate) permission_roles: Vec<String>,
     /// What the assigned sets give; `None` when the session is unrestricted (no set assigned, or sets that grant
@@ -880,6 +883,13 @@ pub struct Session {
     /// (company, table) -> why the rows of a per-company table in a company other than the session company are not known
     /// (ADR-046 decision 6, `Session::mark_company_unknown`).
     pub(crate) company_unknown: std::collections::HashMap<(String, u32), String>,
+    /// The companies made by `Database.CopyCompany` from the session company (or from another such company): they hold
+    /// the session company's rows as they were, so the rows install code wrote there are known
+    /// (`Session::copy_company`, `Session::cx_for`).
+    pub(crate) full_copies: std::collections::BTreeSet<String>,
+    /// While `Database.CopyCompany` inserts the Company row: why the `RunTrigger` of the Company's insert events is not
+    /// known. The subscribers get it as an unknown value (`Session::table_event`).
+    pub(crate) run_trigger_unknown: Option<&'static str>,
     /// The time `Sleep` has waited, added to every clock reading.
     pub(crate) waited_ms: i64,
     /// The running test's time limit in milliseconds, which its `Sleep` calls count toward (al-runner issue 5605), and
@@ -1025,6 +1035,8 @@ impl Session {
             waited_ms: 0,
             companies,
             company_unknown: Default::default(),
+            full_copies: Default::default(),
+            run_trigger_unknown: None,
             sleep_budget: None,
             slept_in_test: 0,
             encrypted: Default::default(),
@@ -1111,6 +1123,7 @@ impl Session {
             hub_disabled: false,
             runner_permission_step: false,
             ignore_permission_mock: false,
+            permissions_off: false,
             permission_roles: Vec::new(),
             permissions: None,
             test_object: None,
@@ -1972,7 +1985,7 @@ impl Session {
     ) -> Result<(Value, Vec<Value>), Signal> {
         // ADR-062: a call is an Execute access; an unrestricted session pays one branch.
         if self.permissions.is_some() {
-            self.permission_gate()?;
+            self.permission_gate_call(object)?;
         }
         if let Some(Some(reason)) = self.engine.blocked.get(object).and_then(|o| o.get(routine)) {
             return Err(Signal::Unsupported(reason.clone()));

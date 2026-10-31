@@ -263,6 +263,7 @@ fn run_codeunit_inner(
     }
     session.trace_faults(observe.is_some());
     session.ignore_permission_mock = scratch.ignore_permission_mock;
+    session.permissions_off = scratch.permissions_off;
     let covering = crate::coverage::enabled();
     if covering {
         session.enable_coverage();
@@ -900,6 +901,15 @@ fn run_codeunit_inner(
                             ))
                         }
                         // An uncaught error whose text is not pinned would put a made-up text in the result: the test is not run.
+                        // Opt-in (`RunOptions::report_unpinned_errors`, al-runner issue 6487): it fails, its message marked.
+                        Err(Signal::Error(e))
+                            if al_builtins::native::text_unpinned(&e) && scratch.report_unpinned_errors =>
+                        {
+                            session.rollback_transaction();
+                            let message = al_builtins::native::unpinned_failure_text(&e);
+                            failure = Some(*e);
+                            Outcome::Fail(message)
+                        }
                         Err(Signal::Error(e)) if al_builtins::native::text_unpinned(&e) => {
                             session.rollback_transaction();
                             let Err(Signal::Unsupported(r)) =
