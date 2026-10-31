@@ -279,6 +279,11 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     // Y6TenantReportLayoutRows.al, corpus master). What else is pinned: al-vm `tenant_layouts.rs`.
     (2_000_000_232, "Tenant Report Layout", Provider::Stored),
     (2_000_000_179, "OData Edm Type", Provider::Stored),
+    // Empty on a fresh tenant; Insert, Modify, Delete and DeleteAll without triggers work (al-language-onprem/session/
+    // PZPlatformSurvey.al:142-145, :166-169; records/W4PlatformAndMeta.al:123). Document Service's own insert trigger is
+    // native (al-vm recmeta.rs `document_service_insert`).
+    (2_000_000_255, "Signup Context", Provider::Stored),
+    (2_000_000_114, "Document Service", Provider::Stored),
 ];
 
 /// Stored tables that a fresh tenant fills with rows no corpus test pins. The runtime starts them empty, so it treats them as

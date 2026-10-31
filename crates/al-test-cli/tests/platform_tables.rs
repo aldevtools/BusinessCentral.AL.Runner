@@ -247,6 +247,29 @@ fn a_platform_table_with_no_provider_is_refused_where_code_uses_it_and_names_tab
     );
 }
 
+/// Signup Context and Document Service are empty on a fresh tenant and take Insert, Modify, Delete and DeleteAll without
+/// triggers (onprem session/PZPlatformSurvey.al:142-145, :166-169; records/W4PlatformAndMeta.al:123, count 0). Document
+/// Service's Insert with triggers raises the TestField error of an empty Folder (onprem platform/PtOnPremTables.al:103-123);
+/// with a Folder, and Modify or Delete with triggers, it is not pinned: refused.
+#[test]
+fn signup_context_and_document_service_are_stored_tables() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Signup() var S: Record "Signup Context"; begin if not S.IsEmpty() then Error('rows'); S.KeyName := 'k'; S.Value := 'v'; S.Insert();
+    S.Value := 'w'; S.Modify(); S.Get('k'); if S.Value <> 'w' then Error('value'); S.Delete(); S.Insert(); S.DeleteAll(); if S.Count() <> 0 then Error('count'); end;
+  [Test] procedure DocService() var D: Record "Document Service"; begin if not D.IsEmpty() then Error('rows');
+    D."Service ID" := 'LTPT'; D.Description := 'LT PT Service'; asserterror D.Insert(true);
+    if GetLastErrorText() <> 'Folder must have a value in Document Service: Service ID=LTPT. It cannot be zero or empty.' then Error(GetLastErrorText());
+    if GetLastErrorCode() <> 'TestField' then Error(GetLastErrorCode()); if not D.IsEmpty() then Error('inserted');
+    D.Insert(); D.Description := 'Renamed'; D.Modify(); D.Delete(); D.Insert(); D.DeleteAll(); end;
+  [Test] procedure DocServiceWithFolder() var D: Record "Document Service"; begin D."Service ID" := 'X'; D.Folder := 'f'; D.Insert(true); end; }"#,
+    );
+    passes(&o, "Signup");
+    passes(&o, "DocService");
+    let why = not_run(&o, "DocServiceWithFolder");
+    assert!(why.contains("Document Service"), "{why}");
+}
+
 // A name that ends in a dot (`Metadata Permission Set Rel.`, 23 of Microsoft's permission tests) is a
 // platform table with no provider, not an object outside the workspace.
 #[test]

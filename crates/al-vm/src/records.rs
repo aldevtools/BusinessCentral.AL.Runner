@@ -167,6 +167,17 @@ pub(crate) struct RecSlots {
 impl Session {
     /// The platform takes Insert on Tenant License State and refuses Modify and Delete (al-language-onprem/session/PZPlatformSurvey.al:
     /// PlatformTable_TenantLicenseState: `It is not possible to modify any record in the Tenant License State table.`, code `DB:Ok`).
+    /// Modify, Delete and DeleteAll of Document Service with triggers: what the platform's triggers do is not pinned
+    /// (al-language-onprem/platform/PtOnPremTables.al:103-123 pins them without triggers only).
+    fn document_service_trigger_refused(&self, t: &TableDef, rec: &Rec, run: bool, verb: &str) -> Result<(), Signal> {
+        if run && !rec.borrow().temporary && self.engine.program.objects[t.object as usize].id == Some(2_000_000_114) {
+            return unsupported(format!(
+                "{verb}(true) of Document Service: what the platform's trigger does is not pinned"
+            ));
+        }
+        Ok(())
+    }
+
     fn tenant_license_state_refuses(&self, t: &TableDef, verb: &str) -> Result<(), Signal> {
         if self.engine.program.objects[t.object as usize].id == Some(2_000_000_189) {
             return Err(Signal::Error(Box::new(AlError {
@@ -3792,6 +3803,7 @@ impl Session {
                     if let Some(tr) = self.table_trigger(&t, "OnInsert") {
                         self.run_trigger(t.object as usize, tr, rec, insert_xrec.as_ref())?;
                     }
+                    self.document_service_insert(&t, rec)?;
                     self.run_ext_trigger(&t, "OnInsert", rec, insert_xrec.as_ref())?;
                 }
                 // The SystemId the OnBeforeInsertEvent subscribers and the insert triggers left in the buffer.
@@ -4095,6 +4107,7 @@ impl Session {
             RecordOp::Modify => {
                 let run = arg_bool(args, 0)?;
                 self.tenant_license_state_refuses(&t, "modify")?;
+                self.document_service_trigger_refused(&t, rec, run, "Modify")?;
                 // A key value the column rounds finds the rounded row (P130DateFilters.al:635-637, `modify var`).
                 let pk = Self::sql_key(rec, &t, &rec.borrow().fields.clone());
                 let stored = self
@@ -4362,6 +4375,7 @@ impl Session {
             RecordOp::Delete => {
                 let run = arg_bool(args, 0)?;
                 self.tenant_license_state_refuses(&t, "delete")?;
+                self.document_service_trigger_refused(&t, rec, run, "Delete")?;
                 if let Some(e) = self.read_only_platform_table(&t, rec) {
                     let row = rec.borrow().fields.clone();
                     let pk = Self::sql_key(rec, &t, &row);
@@ -4394,6 +4408,7 @@ impl Session {
                 let run = arg_bool(args, 0)?;
                 // The platform takes no delete on Tenant License State (record/TestPlatformTablesWritableContracts.al:96-101).
                 self.tenant_license_state_refuses(&t, "delete")?;
+                self.document_service_trigger_refused(&t, rec, run, "DeleteAll")?;
                 let (filters, flow_field_filters) = self.split_filters(rec);
                 if !flow_field_filters.is_empty() {
                     return unsupported("DeleteAll with a filter on a FlowField");
