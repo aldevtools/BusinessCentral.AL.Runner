@@ -213,7 +213,9 @@ impl Session {
                         // leaves a Code field in the case it wrote (`Text := 'FromExt'` reads back FromExt), the page's
                         // own trigger does not (FROMCTL) (lookups/W2Lookups.al:
                         // ModifyBlockOnLookup_ReturnsTrue, BC 27.5 and 29.0).
+                        st.borrow_mut().lookup_setting_value = true;
                         let r = self.control_set_value(st, idx, &mut [Value::Text(t.clone())]);
+                        st.borrow_mut().lookup_setting_value = false;
                         let binding = page_of(&self.engine(), st).controls[idx].binding.clone();
                         if let ir::Binding::Field(pos) = binding {
                             let rec = self.page_rec(st);
