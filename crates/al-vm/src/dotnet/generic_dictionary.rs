@@ -67,7 +67,9 @@ fn object(type_name: &str, state: Vec<Value>) -> Value {
 fn this_state<'a>(this: Option<&'a Rc<DotNetObject>>, type_name: &str) -> Result<&'a RefCell<Vec<Value>>, Signal> {
     match this.map(|o| &o.kind) {
         Some(DotNetKind::Internal { type_name: t, state }) if t == type_name => Ok(state),
-        _ => unsupported(format!("DotNet {type_name} member on something the runtime did not make")),
+        _ => unsupported(format!(
+            "DotNet {type_name} member on something the runtime did not make"
+        )),
     }
 }
 
@@ -146,14 +148,18 @@ fn count(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> Re
 fn item(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> Result<Value, Signal> {
     let state = filled(this, "Item")?;
     if args.len() != 1 {
-        return unsupported(format!("DotNet {GENERIC_DICTIONARY}.Item: only the getter with one key is pinned"));
+        return unsupported(format!(
+            "DotNet {GENERIC_DICTIONARY}.Item: only the getter with one key is pinned"
+        ));
     }
     let key = key_of(args, "Item")?;
     match position(state, key) {
         Some(i) => Ok(state.borrow()[2 + 2 * i].clone()),
         // Y17DotNetDictionary.al:147 DnDict_Item_Missing.
         None => al_builtins::native::raise(
-            format!("A call to {CLOSED}.Item failed with this message: The given key '{key}' was not present in the dictionary."),
+            format!(
+                "A call to {CLOSED}.Item failed with this message: The given key '{key}' was not present in the dictionary."
+            ),
             "DotNetInvoke:KeyNotFound",
         ),
     }
@@ -220,27 +226,29 @@ fn member(name: &str, kind: MemberKind, call: super::registry::MemberFn) -> Regi
 }
 
 pub fn types() -> Vec<RegistryType> {
-    vec![RegistryType {
-        clr_name: GENERIC_DICTIONARY.into(),
-        members: vec![
-            RegistryMember {
-                name: "Dictionary".into(),
-                kind: MemberKind::Construct,
-                pin: Pin::Corpus(format!("{PIN}; {FILL_PIN}")),
-                call: new_dictionary,
-                call_ref: None,
-            },
-            member("Add", MemberKind::Call, add),
-            member("ContainsKey", MemberKind::Call, contains_key),
-            member("Count", MemberKind::Get, count),
-            member("Item", MemberKind::Call, item),
-        ],
-    },
-    RegistryType {
-        clr_name: GENERIC_KEY_VALUE_PAIR.into(),
-        members: vec![
-            member("Key", MemberKind::Get, pair_key),
-            member("Value", MemberKind::Get, pair_value),
-        ],
-    }]
+    vec![
+        RegistryType {
+            clr_name: GENERIC_DICTIONARY.into(),
+            members: vec![
+                RegistryMember {
+                    name: "Dictionary".into(),
+                    kind: MemberKind::Construct,
+                    pin: Pin::Corpus(format!("{PIN}; {FILL_PIN}")),
+                    call: new_dictionary,
+                    call_ref: None,
+                },
+                member("Add", MemberKind::Call, add),
+                member("ContainsKey", MemberKind::Call, contains_key),
+                member("Count", MemberKind::Get, count),
+                member("Item", MemberKind::Call, item),
+            ],
+        },
+        RegistryType {
+            clr_name: GENERIC_KEY_VALUE_PAIR.into(),
+            members: vec![
+                member("Key", MemberKind::Get, pair_key),
+                member("Value", MemberKind::Get, pair_value),
+            ],
+        },
+    ]
 }
