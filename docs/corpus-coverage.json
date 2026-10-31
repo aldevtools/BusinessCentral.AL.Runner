@@ -2,7 +2,7 @@
   "corpus_commit": "0985576238dd72f38f7d79ab2597e76303707c3c",
   "language": {
     "bc": "27-29",
-    "implemented": 1618,
+    "implemented": 1620,
     "methods": [
       {
         "bc": [
@@ -8481,7 +8481,7 @@
         "scope": "",
         "sig": "(Dictionary of [Text, SecretText], var SecretText)",
         "site": "json/lt-json-select-secrets/WriteWithSecrets.al:107",
-        "state": "refused",
+        "state": "implemented",
         "type": "JsonObject"
       },
       {
@@ -8497,7 +8497,7 @@
         "scope": "",
         "sig": "(Text, SecretText, var SecretText)",
         "site": "json/lt-json-select-secrets/WriteWithSecrets.al:40",
-        "state": "refused",
+        "state": "implemented",
         "type": "JsonObject"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 112,
+    "refused": 110,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",

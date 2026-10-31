@@ -270,6 +270,50 @@ fn signup_context_and_document_service_are_stored_tables() {
     assert!(why.contains("Document Service"), "{why}");
 }
 
+/// Webhook Subscription and Webhook Notification are ordinary tables, empty on a fresh tenant, that take Insert, Modify,
+/// Delete and DeleteAll with and without triggers. No corpus test pins them: Microsoft's PayPal Payments Standard tests need
+/// them (MS - PayPal Standard Tests: DeleteAll of both in Initialize, then TestWebhookIsCreatedWhenSettingupAccount and the
+/// others insert, filter and delete subscriptions, and insert notifications to run the app's OnAfterInsertEvent subscriber),
+/// so every persistent access is a flagged pass (assumption `webhook-tables-stored`).
+#[test]
+fn webhook_tables_are_stored_tables_on_an_assumption() {
+    let src = r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Writes() var W: Record "Webhook Subscription"; begin if not W.IsEmpty() then Error('rows');
+    W."Subscription ID" := 'acct'; W.Endpoint := 'https://x/notify'; W."Created By" := 'https://paypal'; W."Company Name" := 'C';
+    if not W.Insert() then Error('insert'); if W.Insert() then Error('duplicate');
+    W.SetFilter("Subscription ID", '@ACCT'); W.SetFilter("Created By", '*paypal*'); if W.IsEmpty() then Error('filter');
+    W.FindFirst(); W."Company Name" := 'D'; W.Modify(true); W.Delete(true); if not W.IsEmpty() then Error('delete');
+    W.Reset(); W.Insert(); W.DeleteAll(true); if W.Count() <> 0 then Error('count'); end;
+  [Test] procedure Notification() var N: Record "Webhook Notification"; O: OutStream; begin if not N.IsEmpty() then Error('rows');
+    N.Init(); N.Validate(ID, CreateGuid()); N.Validate("Subscription ID", 'acct'); N.Notification.CreateOutStream(O); O.WriteText('{}');
+    N.Insert(); if N.Count() <> 1 then Error('count'); N.DeleteAll(); if not N.IsEmpty() then Error('delete'); end;
+  [Test] procedure Temporary() var W: Record "Webhook Subscription" temporary; begin W."Subscription ID" := 'a'; W.Insert(); end; }"#;
+    let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), "29.0.0.0");
+    let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
+    let mut hits = Vec::new();
+    let out = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Disabled,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    let a = al_builtins::assumptions::Assumption::WebhookTablesStored;
+    let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && m.contains(&a));
+    let get = |n: &str| out.iter().find(|(x, _)| x == n).map(|(_, o)| o.clone()).expect(n);
+    assert_eq!(get("Writes"), Outcome::Pass);
+    assert!(flagged("Writes"), "Writes not flagged");
+    assert_eq!(get("Notification"), Outcome::Pass);
+    assert!(flagged("Notification"), "Notification not flagged");
+    assert_eq!(get("Temporary"), Outcome::Pass);
+    assert!(!flagged("Temporary"), "a temporary record relies on nothing");
+}
+
 /// Tenant Profile Page Metadata is an ordinary table, empty on a fresh tenant (onprem platform/PtOnPremTables.al:214-236;
 /// session/PZPlatformSurvey.al:172-175). A rename of a tenant profile in All Profile carries its rows to the new Profile ID and
 /// leaves the rows of another profile (onprem profile/TestTenantProfileRenameCascade.al:83-118). An Insert with an empty Profile

@@ -13,6 +13,29 @@ impl Session {
         self.declares(st, "onaftergetcurrrecord") && self.temp_refill_shape_any_current(st)
     }
 
+    /// `temp_refill_shape`, or the same shape on a tree page whose only filter on Rec is the tree's cut (`apply_tree_cut`): a
+    /// filter field's OnValidate that refills a collapsed tree is read as on the flat page (al-runner issue 6550).
+    pub(super) fn temp_refill_shape_or_tree(&mut self, st: &St) -> bool {
+        if !self.declares(st, "onaftergetcurrrecord") || !self.has_source(st) || st.borrow().instance.is_none() {
+            return false;
+        }
+        let rec = self.page_rec(st);
+        let cut: Vec<_> = rec
+            .borrow()
+            .filters
+            .iter()
+            .filter(|f| f.group == super::open::TREE_GROUP)
+            .cloned()
+            .collect();
+        if cut.is_empty() {
+            return self.temp_refill_shape_any_current(st);
+        }
+        rec.borrow_mut().filters.retain(|f| f.group != super::open::TREE_GROUP);
+        let shape = self.temp_refill_shape_any_current(st);
+        rec.borrow_mut().filters.extend(cut);
+        shape
+    }
+
     /// `temp_refill_shape`, with or without OnAfterGetCurrRecord.
     fn temp_refill_shape_any_current(&mut self, st: &St) -> bool {
         let engine = self.engine();
@@ -97,7 +120,44 @@ impl Session {
     /// holds whole it reads the row, the rows from it on, the rows before it, then the row twice (:279 RM_Filter_B_FromRow2_Previous
     /// `R:B2;R:B2;R:B1;R:B2;R:B2;C:B2;`, shows B2). A held row that is gone while Rec stands on a row other than the first of the
     /// view, and a later row of a longer view, are not pinned.
-    pub(super) fn reread_after_refill_by_validate(&mut self, st: &St, held: &[Value]) -> Result<(), Signal> {
+    /// `expanded` is the rows of a tree the client had expanded before the field was validated.
+    pub(super) fn reread_after_refill_by_validate(
+        &mut self,
+        st: &St,
+        held: &[Value],
+        expanded: Vec<Vec<Value>>,
+    ) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        // A collapsed tree: the client reads every row of the tree as the flat page reads its view, keeps the row it stood on
+        // when its key came back (else Rec's row), keeps the rows it had expanded by key, shows the parent of a kept row below the
+        // top level expanded, and holds the rows the cut shows (al-runner issue 6550; corpus writer Y34, RmTempRefill.al
+        // Y34_Tree_Fewer_AB_To_B `R:B;R:B-1;R:B-2;R:B;R:B;C:B;` rows `B`, Y34_Tree_SameKeys_AB_To_CD_FromSecondRoot
+        // `R:D;R:D;R:D-1;R:D-2;R:D;R:C-2;R:C-1;R:C;R:D;R:D;C:D;` rows `C D`, Y34_Tree_ExpandedBefore_AB_To_B rows `B B-1 B-2`,
+        // Y34_Tree_EndOnLastRow_A_To_AB rows `A A-1 A-2 B` (Rec's own row, B-2, does not expand B),
+        // Y34_Tree_KeptKeyIsChild_AB_To_aBc_FromSecondRoot rows `a B B-1 B-2 c`). A refill to no rows is not built.
+        if rec.borrow().filters.iter().any(|f| f.group == super::open::TREE_GROUP) {
+            // Awaits the Y34 pin (al-runner issue 6550).
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TreeRefillByValidateRereads);
+            let Some(level) = self.tree_level_field(st)? else {
+                return unsupported("a tree whose IndentationColumn is not an Integer field (not pinned)");
+            };
+            rec.borrow_mut().filters.retain(|f| f.group != super::open::TREE_GROUP);
+            if self.view_rows(&rec, 1)?.is_empty() {
+                return unsupported(
+                    "a refill of a collapsed tree Worksheet by a field's OnValidate that left no rows (its reads are not built)",
+                );
+            }
+            self.reread_view_after_refill_by_validate(st, held)?;
+            st.borrow_mut().expanded = expanded;
+            self.apply_tree_cut(st)?;
+            self.split_tree_window(st, level);
+            return Ok(());
+        }
+        self.reread_view_after_refill_by_validate(st, held)
+    }
+
+    /// `reread_after_refill_by_validate` over the rows of Rec's view.
+    fn reread_view_after_refill_by_validate(&mut self, st: &St, held: &[Value]) -> Result<(), Signal> {
         let rec = self.page_rec(st);
         let rows = self.view_rows(&rec, Self::WINDOW + 1)?;
         let table = self.table(&rec)?;
