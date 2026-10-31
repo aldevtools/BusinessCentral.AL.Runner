@@ -316,6 +316,13 @@ impl VersionRun {
     }
 }
 
+/// How a pass gets its compile (ADR-063): `kept`, the main pass's compile to grow by this pass's apps; `keep`, give this
+/// pass's compile back for the next pass.
+struct PassCompile {
+    keep: bool,
+    kept: Option<runtime::KeptCompile>,
+}
+
 /// One compile and run of a version. The main pass runs the main app and the suites that need no app beyond the
 /// corpus CI's main environment; each other pass runs the suites whose CI job installs the same extra apps
 /// (`SuiteEntry::extra_apps`), in an environment of their own, without the main app's tests.
@@ -365,8 +372,18 @@ fn run_version_passes(
     let last = all.len() - 1;
     let mut joined: Option<VersionRun> = None;
     let mut unmatched = Vec::new();
+    // ADR-063: the main pass keeps its compile when another pass follows, and the next pass grows it by its own apps
+    // instead of compiling everything again. AL_FRESH_PASS_COMPILE=1: every pass compiles from source.
+    let mut kept: Option<runtime::KeptCompile> = None;
+    let share = multi && !runtime::fresh_pass_compile();
+    // The test codeunits of the main app: the same for every pass.
+    let index = corpus::discover(&root.join(&cfg.corpus_app)).map_err(|e| format!("corpus: {e}"))?;
     for (i, (view, pass)) in all.iter().enumerate() {
-        let r = run_version(
+        let grow = PassCompile {
+            keep: share && i == 0 && i < last,
+            kept: kept.take(),
+        };
+        let (r, left) = run_version(
             args,
             root,
             oracle_path,
@@ -376,7 +393,10 @@ fn run_version_passes(
             multi,
             awaited.as_deref_mut(),
             process_ends_after && i == last,
+            grow,
+            &index,
         )?;
+        kept = left;
         if let Some(why) = r.unmatched {
             unmatched.push(why);
             continue;
@@ -534,6 +554,41 @@ fn run_version(
     multi: bool,
     awaited: Option<&mut Vec<al_test_cli::awaiting::AwaitedCase>>,
     process_ends_after: bool,
+    grow: PassCompile,
+    index: &corpus::CorpusIndex,
+) -> Result<(VersionRun, Option<runtime::KeptCompile>), String> {
+    let mut kept_out = None;
+    let r = run_version_inner(
+        args,
+        root,
+        oracle_path,
+        cfg,
+        version,
+        pass,
+        multi,
+        awaited,
+        process_ends_after,
+        grow,
+        &mut kept_out,
+        index,
+    )?;
+    Ok((r, kept_out))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_version_inner(
+    args: &Args,
+    root: &Path,
+    oracle_path: &Path,
+    cfg: &config::OracleFile,
+    version: &config::VersionEntry,
+    pass: &Pass,
+    multi: bool,
+    awaited: Option<&mut Vec<al_test_cli::awaiting::AwaitedCase>>,
+    process_ends_after: bool,
+    grow: PassCompile,
+    kept_out: &mut Option<runtime::KeptCompile>,
+    index: &corpus::CorpusIndex,
 ) -> Result<VersionRun, String> {
     // ADR-007: the oracle may be recorded for an older corpus commit when the pin only added files.
     pin::check(
@@ -567,7 +622,6 @@ fn run_version(
     // When real BC ran each test codeunit: the run clock of a codeunit starts there, so what the oracle recorded from
     // `Today` is what the run sees.
     let mut clocks = oracle::parse_clocks(&junit_text).map_err(|e| format!("{}: {e}", junit_path.display()))?;
-    let index = corpus::discover(&root.join(&cfg.corpus_app)).map_err(|e| format!("corpus: {e}"))?;
     // The other test apps: each against its own oracle, pinned like the main one (ADR-007).
     let mut suite_data = Vec::new();
     for suite in &version.suites {
@@ -601,7 +655,7 @@ fn run_version(
     }
     // The cases this run is about: everything, the selection, or the one `--explain` names.
     let explained = match &args.explain {
-        Some(pattern) => match find_explained(pattern, &args.select, &all_cases, &index, &suite_data, version)? {
+        Some(pattern) => match find_explained(pattern, &args.select, &all_cases, index, &suite_data, version)? {
             Some(found) => Some(found),
             None if multi => {
                 return Ok(VersionRun {
@@ -639,7 +693,7 @@ fn run_version(
                 .collect(),
         ),
         None => (
-            args.select.filter(&all_cases, &index),
+            args.select.filter(&all_cases, index),
             suite_data.iter().map(|(c, ix)| args.select.filter(c, ix)).collect(),
         ),
     };
@@ -944,16 +998,48 @@ fn run_version(
         perturb: Default::default(),
     };
     let load_time = started.elapsed();
-    let rt = runtime::CorpusRuntime::try_run_suites_with(
-        apps,
-        kinds,
-        &manifests,
-        &symbols,
-        Some(&chosen.target),
-        dotnet,
-        &runs,
-        &opts,
-    )?;
+    let rt = match grow {
+        PassCompile { kept: Some(kept), .. } => runtime::CorpusRuntime::try_run_suites_grown(
+            kept,
+            apps,
+            kinds,
+            &manifests,
+            &symbols,
+            Some(&chosen.target),
+            dotnet,
+            &runs,
+            &opts,
+        )?,
+        PassCompile { keep: true, .. } => {
+            // The other passes have every app of this one but its own suite apps.
+            let shared: Vec<usize> = (0..apps.len())
+                .filter(|i| !app_index.iter().any(|(_, a)| a == i))
+                .collect();
+            let (rt, kept) = runtime::CorpusRuntime::try_run_suites_growable(
+                apps,
+                kinds,
+                &manifests,
+                &symbols,
+                Some(&chosen.target),
+                dotnet,
+                &runs,
+                &opts,
+                &shared,
+            )?;
+            *kept_out = kept;
+            rt
+        }
+        PassCompile { .. } => runtime::CorpusRuntime::try_run_suites_with(
+            apps,
+            kinds,
+            &manifests,
+            &symbols,
+            Some(&chosen.target),
+            dotnet,
+            &runs,
+            &opts,
+        )?,
+    };
     // Nothing waits for the drop of the runtime after the report is written.
     let rt = runtime::Retiring::new(rt);
     let p = &rt.phases;
@@ -1122,7 +1208,7 @@ fn run_version(
                 });
             }
         };
-        take(&cases, &index, "");
+        take(&cases, index, "");
         for ((suite, cases), (_, ix)) in version.suites.iter().zip(&suite_cases).zip(&suite_data) {
             take(cases, ix, &suite.name);
         }
@@ -1271,7 +1357,7 @@ fn run_version(
         area_of: Box::new(|cu| index.area_of(cu).map(str::to_string)),
         selected: Box::new(|c| match &explained {
             Some((_, e)) => *c == e.id,
-            None => !args.select.is_active() || args.select.matches(c, &index),
+            None => !args.select.is_active() || args.select.matches(c, index),
         }),
     });
     // A pass without the main app's tests leaves its ratchet alone.

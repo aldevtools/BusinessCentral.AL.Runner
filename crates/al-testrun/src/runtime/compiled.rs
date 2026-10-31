@@ -219,6 +219,9 @@ pub struct Compiled {
     /// A warm server: the engines the last request ran on, for the next request over this compile (al-runner issue
     /// 5856). An engine is built from the program alone; what a run sets on it is set again (`KeptEngines::take`).
     pub(crate) kept: std::sync::Mutex<Option<KeptEngines>>,
+    /// The part of the compile a later run grows by apps (ADR-063), with the symbols of each dependency app, when the
+    /// run asked to keep it and the compile can be grown.
+    pub(crate) grow_kept: Option<super::grow::GrowKept>,
 }
 
 /// The engines of a request of a warm server, kept for the next one over the same compile ([`Compiled::kept`]).

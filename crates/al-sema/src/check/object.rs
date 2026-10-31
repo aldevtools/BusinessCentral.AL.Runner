@@ -30,6 +30,8 @@ impl<'a> Checker<'a> {
             tdd_pending: Vec::new(),
             all_routines: false,
             company_data_apps: Vec::new(),
+            keep_demand: false,
+            kept_demand: None,
         }
     }
 

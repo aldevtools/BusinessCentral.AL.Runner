@@ -95,6 +95,8 @@ pub struct LowerWork {
     pub dependency_routines_lowered: usize,
     /// Objects a compile cache supplied.
     pub objects_from_cache: usize,
+    /// Objects a kept compile supplied (ADR-063: a pass that grows the main pass's compile).
+    pub objects_from_kept: usize,
 }
 
 /// See [`Lowered::object_hashes`].
@@ -568,6 +570,8 @@ mod convert;
 mod coverage_ids;
 mod dotnet;
 mod expr;
+mod extend;
+
 mod localize;
 #[cfg(test)]
 mod object_hash_tests;
@@ -593,6 +597,8 @@ pub(crate) enum StreamScope {
 
 pub use self::assemble::*;
 pub use self::compile::*;
+pub use self::extend::*;
+
 pub use self::routine_lists::{Calls, Refusals};
 pub use self::shared::dependency_positions;
 pub(crate) use self::shared::*;
