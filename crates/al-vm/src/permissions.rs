@@ -225,6 +225,19 @@ pub(crate) enum Op {
     Execute = 4,
 }
 
+impl Op {
+    /// The permission in plain words, for messages.
+    fn describe(self) -> &'static str {
+        match self {
+            Op::Read => "read",
+            Op::Insert => "insert",
+            Op::Modify => "modify",
+            Op::Delete => "delete",
+            Op::Execute => "execute",
+        }
+    }
+}
+
 /// One access a check decides: permission `op` on object `(kind, id)`, `kind` the "Object Type" ordinal
 /// ([`kind_slot`]).
 #[derive(Clone, Copy, Debug)]
@@ -403,8 +416,10 @@ impl Session {
                 eff.why_incomplete.join("; ")
             ))),
             Decision::Deny { .. } => Err(Signal::Unsupported(format!(
-                "a permission denial ({:?} on object type {} id {}) whose error is not pinned yet (ADR-062 section 2)",
-                access.op, access.kind, access.id
+                "a permission denial ({} permission on object type {} id {}) whose error is not pinned yet (ADR-062 section 2)",
+                access.op.describe(),
+                access.kind,
+                access.id
             ))),
         }
     }
