@@ -1636,7 +1636,10 @@ fn the_declared_result_types_match_the_registry() {
             "DirectoryInfo" | "Exists" | "GetFiles" | "GetEnumerator" | "MoveNext" | "Current" | "Length" => continue,
             // Need a query's Application Object Metadata; al-test-cli tests/platform_tables.rs
             // (application_object_metadata_of_a_query_*) runs them.
+            // (Count and Item of a runtime-made Dictionary`2 too: tests/host/generic_dictionary.rs runs them.)
             "FromStream" | "Fields" | "Count" | "Item" | "FieldNo" | "TableNo" | "FieldName" => continue,
+            // Need a dictionary made with a capacity, or a pair of one; tests/host/generic_dictionary.rs runs them.
+            "Add" | "ContainsKey" | "Key" | "Value" => continue,
             _ => vec![],
         };
         let mut s = Session::new(Engine::new(al_ir::Program::default(), vec![]));

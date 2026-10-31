@@ -56,6 +56,7 @@ mod fieldref_text_into_integer;
 mod filtergroup_assign;
 mod for_date;
 mod format_auto_format_field;
+mod format_auto_format_procedure;
 mod format_decimal_field_strings;
 mod format_empty_json_array;
 mod format_fieldref_standard;
