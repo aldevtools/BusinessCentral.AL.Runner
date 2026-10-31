@@ -391,6 +391,7 @@ impl Session {
                                 al_builtins::stream::Encoding::default(),
                             ))),
                         );
+                        Self::xp_run_use_request_page_refused(&schema)?;
                         inst.borrow_mut().globals[schema.xp().destination_slot] = sink;
                         self.xp_run(&inst, Dir::Export, false, true).map(|_| Value::Null)
                     }
@@ -493,6 +494,7 @@ impl Session {
     /// ends in `Unhandled UI: RequestPage <id>` (MissingUIHandler), inside a TryFunction too (Y40XmlPortRequestPage.al:383-423,
     /// log `init;`). A Quit in OnInitXmlPort there is not pinned.
     fn xp_run_request_window(&mut self, inst: &Inst, schema: &Schema) -> Result<Value, Signal> {
+        Self::xp_run_use_request_page_refused(schema)?;
         if let Some(why) = schema.xp().run_unsupported.first() {
             return unsupported(format!("XmlPort \"{}\": {why}", schema.name()));
         }
@@ -517,6 +519,21 @@ impl Session {
             Ok(_) => unsupported("a request page handler bound to an xmlport's request page (not pinned)"),
             Err(e) => Err(e),
         }
+    }
+
+    /// What the property UseRequestPage does to Xmlport.Run is not pinned (Y40XmlPortRequestPage.al runs a port without it).
+    fn xp_run_use_request_page_refused(schema: &Schema) -> Result<(), Signal> {
+        let o = &schema.engine.program.objects[schema.object];
+        if o.properties
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("UseRequestPage"))
+        {
+            return unsupported(format!(
+                "Xmlport.Run of \"{}\", which declares UseRequestPage (not pinned)",
+                schema.name()
+            ));
+        }
+        Ok(())
     }
 
     fn xp_run(&mut self, inst: &Inst, dir: Dir, ret_used: bool, static_form: bool) -> Result<Value, Signal> {

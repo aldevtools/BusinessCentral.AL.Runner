@@ -1184,18 +1184,19 @@ fn a_failing_statement_import_raises_the_evaluate_error() {
 // xmlport/TestXmlPortPrecompiledObject.al:PrecompiledXmlPort_DeclaredExportDirection_RefusesImport
 // (the message is a platform resource string the corpus does not pin).
 
+// A request page with content never opens for an Export from code (xmlport/lt-y40-xmlport-request-page/
+// Y40XmlPortRequestPage.al:283, corpus master ac3499d6); a Run of a port that declares UseRequestPage is not pinned.
 #[test]
-fn xmlports_the_runtime_cannot_run_are_refused_before_they_start() {
-    // Declaring the port is fine; running it is refused before anything of it starts.
+fn an_export_from_code_of_a_port_with_a_request_page_runs() {
     assert_eq!(
-        text("P: XmlPort \"ALT Request Page XmlPort\";", "exit('declared');"),
-        "declared"
+        text(
+            "P: XmlPort \"ALT Request Page XmlPort\"; B: Record \"ALT Blob\"; OutStr: OutStream;",
+            "B.Code := 'X'; B.Insert(); B.Data.CreateOutStream(OutStr); P.SetDestination(OutStr); P.Export(); exit('ran');",
+        ),
+        "ran"
     );
-    let r = refusal(
-        "P: XmlPort \"ALT Request Page XmlPort\"; B: Record \"ALT Blob\"; OutStr: OutStream;",
-        "B.Code := 'X'; B.Insert(); B.Data.CreateOutStream(OutStr); P.SetDestination(OutStr); P.Export(); exit('ran');",
-    );
-    assert!(r.contains("request page"), "{r}");
+    let r = refusal("P: XmlPort \"ALT Request Page XmlPort\";", "P.Run(); exit('ran');");
+    assert!(r.contains("UseRequestPage"), "{r}");
 }
 
 // The text of a failed import is not pinned by the corpus, so reading it is refused rather than
