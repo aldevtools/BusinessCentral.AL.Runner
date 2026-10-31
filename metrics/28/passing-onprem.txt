@@ -131,6 +131,7 @@
 98251 FieldTableReportsOptimizeForTextSearch
 98251 PrefixAndSuffixFilters
 98251 TableWithOptimizedFieldInstallsAndStores
+98306 SaveAsXml_ColumnTypes_DataFile
 98306 SaveAsXml_NestedDataItems_DataFile
 98306 SaveAsXml_TwoTopLevelDataItems_DataFile
 98400 InsertTrue_ThenDeleteTrue_RelatedRows
