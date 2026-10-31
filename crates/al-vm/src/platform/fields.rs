@@ -86,6 +86,35 @@ fn field_len(ty: &RtType) -> Option<i32> {
     })
 }
 
+/// The Field "Type Name" column (platform/lt-ba-columns/BaFieldTypeName.al:52-69).
+fn type_name(ty: &RtType) -> Option<String> {
+    Some(match ty {
+        RtType::Text(Some(n)) => format!("Text{n}"),
+        RtType::Code(Some(n)) => format!("Code{n}"),
+        RtType::Integer => "Integer".into(),
+        RtType::Decimal => "Decimal".into(),
+        RtType::Option(_) | RtType::Enum(_) => "Option".into(),
+        RtType::Boolean => "Boolean".into(),
+        RtType::Date => "Date".into(),
+        RtType::DateTime => "DateTime".into(),
+        RtType::Time => "Time".into(),
+        RtType::Guid => "GUID".into(),
+        RtType::BigInteger => "BigInteger".into(),
+        RtType::Duration => "Duration".into(),
+        RtType::DateFormula => "DateFormula".into(),
+        RtType::Library(n) => match n.to_ascii_lowercase().as_str() {
+            "blob" => "BLOB",
+            "media" => "Media",
+            "mediaset" => "MediaSet",
+            "recordid" => "RecordID",
+            "tablefilter" => "TableFilter",
+            _ => return None,
+        }
+        .into(),
+        _ => return None,
+    })
+}
+
 /// A table of the program that nothing compiled: it has a name and an id and no fields.
 fn shell_entries(o: &Object, t: &TableDef, key_of: &dyn Fn(u32) -> Vec<(u32, Value)>) -> Entry {
     let mut k = blank(t);
@@ -500,16 +529,12 @@ fn field_row(
             .take(80)
             .collect(),
     );
-    // Type Name of a Text field is `Text` and its length (record/PZFieldObsoleteRows.al:FieldRows_AllColumns_OfLivePendingAndRemovedField,
-    // `Text30`). The other types' names are not pinned: unknown, so a read of one is refused.
-    r[pos(t, 9)] = match &f.ty {
-        RtType::Text(Some(n)) => Value::Text(format!("Text{n}").into()),
-        // One reason for all of them: the Field table has tens of thousands of rows.
-        _ => {
-            static WHY: std::sync::OnceLock<std::sync::Arc<str>> = std::sync::OnceLock::new();
-            let why = WHY.get_or_init(|| super::unknown_why(t, 9, "a field that is not a Text field"));
-            Value::Unknown(why.clone())
-        }
+    // Type Name: the type's name, with its length for a Text or Code (`Text30`, `Code20`), `Option` for an enum
+    // (record/PZFieldObsoleteRows.al:FieldRows_AllColumns_OfLivePendingAndRemovedField; platform/lt-ba-columns/
+    // BaFieldTypeName.al:52-69, every type below; metadata/W6FieldKeyRows.al:219-225).
+    r[pos(t, 9)] = match type_name(&f.ty) {
+        Some(n) => Value::Text(n.into()),
+        None => super::unknown(t, 9, &what()),
     };
     // ExternalName (10) is blank and SQLDataType (23) Varchar for a Text field that declares neither (record/
     // PZFieldObsoleteRows.al:48, :52: `Text30` fields). A declared ExternalName and the SQLDataType of the other
@@ -533,12 +558,13 @@ fn field_row(
             }
         };
     }
-    // OptimizeForTextSearch: the declared property of a Text field, false where it is not declared
-    // (lt-ak-fulltext/LtAkFulltext.al:119, :122). Declared on another type it is pinned by no test: unknown.
+    // OptimizeForTextSearch: the declared property of a Text or Code field, false where it is not declared
+    // (lt-ak-fulltext/LtAkFulltext.al:119, :122, :167-168). Declared on another type it is pinned by no test: unknown.
     if let Some(col) = t.fields.iter().position(|x| x.id == 62) {
         if let Some(v) = fprop("OptimizeForTextSearch") {
             r[col] = match &f.ty {
-                RtType::Text(_) => Value::Boolean(truthy(v)),
+                // A Code field too (lt-ak-fulltext/LtAkFulltext.al:141-170, PX_OptimizeForTextSearch_OnACodeField).
+                RtType::Text(_) | RtType::Code(_) => Value::Boolean(truthy(v)),
                 _ => super::unknown(
                     t,
                     62,

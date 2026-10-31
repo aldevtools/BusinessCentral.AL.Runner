@@ -1792,6 +1792,13 @@ impl Lowerer<'_> {
                 (t @ Ty::Text(_), _) => this.convert_to(code, &t, e),
                 (Ty::Code(Some(n)), Ty::Code(Some(m))) if n <= *m => Ok(e),
                 (Ty::Code(_), Ty::Code(None)) => Ok(e),
+                // A longer Code label is converted to the selector's Code as a Text label is: a value that fits compares as it is,
+                // a longer one raises StringLengthExceeded when the label is reached (al-runner issue 6491; corpus writer Y20,
+                // types/lt-y20-case-code-label/Y20CaseCodeLabel.al:18, measured on BC; assumption until it is pinned).
+                (t @ Ty::Code(_), Ty::Code(Some(_))) => {
+                    this.assume(al_builtins::assumptions::Assumption::CaseCodeLabelLongerType);
+                    this.convert_to(code, &t, e)
+                }
                 (t @ Ty::Code(_), _) => Err(format!(
                     "a case label of type {t} with a selector of type {code}: whether the label is converted to the selector's length is not pinned"
                 )),

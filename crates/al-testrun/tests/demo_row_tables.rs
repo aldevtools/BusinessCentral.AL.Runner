@@ -64,6 +64,7 @@ fn a_count_of_an_empty_corpus_demo_table_is_refused() {
         include_source: false,
         target: String::new(),
         logo: None,
+        description: None,
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         translations: false,

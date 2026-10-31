@@ -171,6 +171,17 @@ pub(crate) struct RecSlots {
 impl Session {
     /// The platform takes Insert on Tenant License State and refuses Modify and Delete (al-language-onprem/session/PZPlatformSurvey.al:
     /// PlatformTable_TenantLicenseState: `It is not possible to modify any record in the Tenant License State table.`, code `DB:Ok`).
+    /// Modify, Delete and DeleteAll of Document Service with triggers: what the platform's triggers do is not pinned
+    /// (al-language-onprem/platform/PtOnPremTables.al:103-123 pins them without triggers only).
+    fn document_service_trigger_refused(&self, t: &TableDef, rec: &Rec, run: bool, verb: &str) -> Result<(), Signal> {
+        if run && !rec.borrow().temporary && self.engine.program.objects[t.object as usize].id == Some(2_000_000_114) {
+            return unsupported(format!(
+                "{verb}(true) of Document Service: what the platform's trigger does is not pinned"
+            ));
+        }
+        Ok(())
+    }
+
     fn tenant_license_state_refuses(&self, t: &TableDef, verb: &str) -> Result<(), Signal> {
         if self.engine.program.objects[t.object as usize].id == Some(2_000_000_189) {
             return Err(Signal::Error(Box::new(AlError {
@@ -181,6 +192,60 @@ impl Session {
             })));
         }
         Ok(())
+    }
+
+    /// The computed tables whose writes raise "The <table> table is read-only." (code DB:Ok): Insert with and without triggers,
+    /// Modify and Delete of a row that exists, and DeleteAll (platform/lt-ag-contoso/AgPlatformReadOnly.al:14-55, Windows
+    /// Language; platform/lt-platform-tables/PtCloudTables.al:38-81, Language Selection and License Permission). A Modify or
+    /// Delete of a row that does not exist is not pinned (PtCloudTables.al:50-52 is the error of the helper's FindFirst): refused.
+    fn read_only_platform_table(&self, t: &TableDef, rec: &Rec) -> Option<AlError> {
+        let id = self.engine.program.objects[t.object as usize].id?;
+        if rec.borrow().temporary || ![2_000_000_045, 2_000_000_050, 2_000_000_043].contains(&id) {
+            return None;
+        }
+        Some(AlError {
+            message: format!("The {} table is read-only.", t.name),
+            code: "DB:Ok".into(),
+            call_stack: String::new(),
+            ..Default::default()
+        })
+    }
+
+    /// A Modify of a Feature Key row that changes one read-only column (every column but Enabled) raises the error naming the
+    /// column's caption, code `DB:Ok` (record/lt-loadfields-pagesource-validate/P81FeatureKeyModify.al:51-63;
+    /// record/TestFeatureKeyTable.al:64-78). A change to two of them, or to one together with Enabled, is not pinned: the store
+    /// refuses it. The error comes before the table events: P81FeatureKeyModify.al passes on real BC with Microsoft's
+    /// subscribers to the Feature Key events loaded.
+    fn feature_key_read_only_change(&self, t: &TableDef, rec: &Rec, stored: Option<&[Value]>) -> Result<(), Signal> {
+        let Some(old) = stored else { return Ok(()) };
+        let id = self.engine.program.objects[t.object as usize].id.unwrap_or(0);
+        if rec.borrow().temporary
+            || al_builtins::platform::virtual_table(id) != Some(al_builtins::platform::Virtual::FeatureKey)
+        {
+            return Ok(());
+        }
+        let changed: Vec<usize> = {
+            let r = rec.borrow();
+            (0..t.fields.len())
+                .filter(|&i| t.fields[i].id < 2_000_000_000)
+                .filter(|&i| match (&old[i], &r.fields[i]) {
+                    (Value::Unknown(_), Value::Unknown(_)) => false,
+                    (a, b) => !ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal),
+                })
+                .collect()
+        };
+        match changed.as_slice() {
+            [i] if t.fields[*i].id != 2 => Err(Signal::Error(Box::new(AlError {
+                message: format!(
+                    "Sorry, but the task couldn't be completed because it tried to change the \"{}\" field of the feature key, which cannot be changed. Contact your administrator or application developer.",
+                    self.field_caption(t, *i)
+                ),
+                code: "DB:Ok".into(),
+                call_stack: String::new(),
+                ..Default::default()
+            }))),
+            _ => Ok(()),
+        }
     }
 
     /// A write of the platform table Device (2000000130): an Insert with triggers raises the license error of a fresh
@@ -732,6 +797,10 @@ impl Session {
         // A temporary record raises the table events and runs the triggers like any other
         // (corpus record/TestTableEventSequenceContracts.al:TemporaryRecord_RaisesTheEventsAndRunsTheTriggers).
         let (names, tail): (&[&str], Value) = match event {
+            "onbeforeinsertevent" | "onafterinsertevent" if self.run_trigger_unknown.is_some() => (
+                &["Rec", "RunTrigger"],
+                Value::Unknown(self.run_trigger_unknown.unwrap_or_default().into()),
+            ),
             "onbeforeinsertevent" | "onafterinsertevent" | "onbeforedeleteevent" | "onafterdeleteevent" => {
                 (&["Rec", "RunTrigger"], Value::Boolean(run_trigger))
             }
@@ -810,7 +879,10 @@ impl Session {
     /// (record/lt-modify-field-two/ModifyFieldTwoExtensions.al:148-169, P163_Validate_TwoExtensionsOnOneField_Order: 73328 "Ext A"
     /// then 73329 "Ext B"; events/W4ValidateOrderAndCurrFieldNo.al:331 `ext1.before;ext2.before;base.onvalidate;ext1.after;ext2.after;`,
     /// 68065 "Ext One" then 68066 "Ext Two"). In both pins the id order is also the order of the names; when the two orders differ,
-    /// or with more than two extensions or extensions of different apps, the order is not pinned and the Validate is refused.
+    /// or with more than two extensions in one app, the order is not pinned and the Validate is refused. Extensions of different
+    /// apps run app by app, an app before the apps that depend on it (al-runner issue 6486; corpus writer Y20,
+    /// tableextension/lt-bw-cross-app/Y20CrossAppValidateOrder.al:36, measured on BC; assumption until it is pinned). Two apps
+    /// of which neither depends on the other have no pinned order: refused.
     #[allow(clippy::type_complexity)]
     fn ext_validate_order(
         &self,
@@ -827,26 +899,47 @@ impl Session {
                 t.name, field.name
             ))
         };
-        let objects = &self.engine.program.objects;
+        let program = &self.engine.program;
+        let objects = &program.objects;
         let mut involved: Vec<usize> = before.iter().chain(&after).map(|&(o, _)| o).collect();
         involved.sort_unstable();
         involved.dedup();
-        if involved.len() > 2
-            || before.len() > 2
-            || after.len() > 2
-            || involved.iter().any(|&o| objects[o].app != objects[involved[0]].app)
-            || [&before, &after].iter().any(|l| l.len() == 2 && l[0].0 == l[1].0)
+        if [&before, &after]
+            .iter()
+            .any(|l| (1..l.len()).any(|i| l[..i].iter().any(|x| x.0 == l[i].0)))
         {
             return refuse();
         }
-        let mut by_id = involved.clone();
-        by_id.sort_by_key(|&o| objects[o].id);
-        let mut by_name = involved.clone();
-        by_name.sort_by_key(|&o| objects[o].name.to_ascii_lowercase());
-        if by_id != by_name || by_id.windows(2).any(|w| objects[w[0]].id == objects[w[1]].id) {
-            return refuse();
+        let mut apps: Vec<u32> = involved.iter().map(|&o| objects[o].app).collect();
+        apps.sort_unstable();
+        apps.dedup();
+        // Within one app: at most two extensions, whose id order is their name order.
+        for &app in &apps {
+            let mut by_id: Vec<usize> = involved.iter().copied().filter(|&o| objects[o].app == app).collect();
+            if by_id.len() > 2 {
+                return refuse();
+            }
+            by_id.sort_by_key(|&o| objects[o].id);
+            let mut by_name = by_id.clone();
+            by_name.sort_by_key(|&o| objects[o].name.to_ascii_lowercase());
+            if by_id != by_name || by_id.windows(2).any(|w| objects[w[0]].id == objects[w[1]].id) {
+                return refuse();
+            }
         }
-        let rank = |o: usize| by_id.iter().position(|&x| x == o);
+        // Across apps: every two of them must be ordered by a dependency.
+        if apps.len() > 1 {
+            let depends = |a: u32, b: u32| app_depends_on(&program.apps, a as usize, b as usize);
+            // An app that depends on more of the others comes later; the check below refuses any pair left unordered.
+            let all = apps.clone();
+            apps.sort_by_key(|&a| all.iter().filter(|&&b| depends(a, b)).count());
+            if apps.windows(2).any(|w| !depends(w[1], w[0])) {
+                return refuse();
+            }
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::ExtValidateAcrossAppsDependencyOrder,
+            );
+        }
+        let rank = |o: usize| (apps.iter().position(|&a| a == objects[o].app), objects[o].id);
         before.sort_by_key(|&(o, _)| rank(o));
         after.sort_by_key(|&(o, _)| rank(o));
         Ok((before, after))
@@ -3470,6 +3563,11 @@ impl Session {
         {
             self.bg_refuse_write(t.object as usize, method.name())?;
             self.gate_write(method)?;
+            if matches!(method, RecordOp::Insert | RecordOp::DeleteAll)
+                && let Some(e) = self.read_only_platform_table(&t, rec)
+            {
+                return Err(Signal::Error(Box::new(e)));
+            }
             if self.engine.program.objects[t.object as usize].id == Some(2_000_000_130) {
                 return Err(self.device_write(&t, method, args)?);
             }
@@ -3717,6 +3815,9 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::Insert => {
+                if !rec.borrow().temporary {
+                    self.page_metadata_before_insert(&t, &rec.borrow().fields)?;
+                }
                 // A temporary record has no sequence: the key stays as it is (corpus
                 // record/TestTempTableContracts.al:52).
                 let auto = if rec.borrow().temporary {
@@ -3763,6 +3864,7 @@ impl Session {
                     if let Some(tr) = self.table_trigger(&t, "OnInsert") {
                         self.run_trigger(t.object as usize, tr, rec, insert_xrec.as_ref())?;
                     }
+                    self.document_service_insert(&t, rec)?;
                     self.run_ext_trigger(&t, "OnInsert", rec, insert_xrec.as_ref())?;
                 }
                 // The SystemId the OnBeforeInsertEvent subscribers and the insert triggers left in the buffer.
@@ -4071,12 +4173,20 @@ impl Session {
             RecordOp::Modify => {
                 let run = arg_bool(args, 0)?;
                 self.tenant_license_state_refuses(&t, "modify")?;
+                self.document_service_trigger_refused(&t, rec, run, "Modify")?;
                 // A key value the column rounds finds the rounded row (P130DateFilters.al:635-637, `modify var`).
                 let pk = Self::sql_key(rec, &t, &rec.borrow().fields.clone());
                 let stored = self
                     .store_for(rec)
                     .get(&cx, &t, &pk)
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                self.feature_key_read_only_change(&t, rec, stored.as_deref())?;
+                if let Some(e) = self.read_only_platform_table(&t, rec) {
+                    return match stored {
+                        Some(_) => Err(Signal::Error(Box::new(e))),
+                        None => unsupported(format!("a Modify of a {} row that does not exist (not pinned)", t.name)),
+                    };
+                }
                 // A buffer older than a committed change to its row cannot be saved
                 // (record/TestRecordStaleBufferWrite.al); before a commit the last writer wins.
                 if let (Some(row), Some(i)) = (&stored, t.fields.iter().position(|f| f.id == 2_000_000_005)) {
@@ -4331,6 +4441,21 @@ impl Session {
             RecordOp::Delete => {
                 let run = arg_bool(args, 0)?;
                 self.tenant_license_state_refuses(&t, "delete")?;
+                self.document_service_trigger_refused(&t, rec, run, "Delete")?;
+                if let Some(e) = self.read_only_platform_table(&t, rec) {
+                    let row = rec.borrow().fields.clone();
+                    let pk = Self::sql_key(rec, &t, &row);
+                    let exists = self
+                        .store_for(rec)
+                        .get(&cx, &t, &pk)
+                        .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                        .is_some();
+                    return if exists {
+                        Err(Signal::Error(Box::new(e)))
+                    } else {
+                        unsupported(format!("a Delete of a {} row that does not exist (not pinned)", t.name))
+                    };
+                }
                 // A Delete loads the missing fields of a partially loaded record first: afterwards they read as loaded, with the
                 // values of the row it deleted (record/lt-load-fields-fetched/LoadFieldsFetched.al:270-289,
                 // P170_JitLoad_After_Delete_Of_The_Same_Partial_Record_BQ, Delete without triggers). With triggers it is not pinned.
@@ -4349,6 +4474,7 @@ impl Session {
                 let run = arg_bool(args, 0)?;
                 // The platform takes no delete on Tenant License State (record/TestPlatformTablesWritableContracts.al:96-101).
                 self.tenant_license_state_refuses(&t, "delete")?;
+                self.document_service_trigger_refused(&t, rec, run, "DeleteAll")?;
                 let (filters, flow_field_filters) = self.split_filters(rec);
                 if !flow_field_filters.is_empty() {
                     return unsupported("DeleteAll with a filter on a FlowField");
@@ -5648,6 +5774,12 @@ impl Session {
                                 al_builtins::native::text_of(&row[0]).unwrap_or_default(),
                             );
                             self.store.rename_company(&from, &to);
+                            if self.full_copies.remove(from.as_str()) {
+                                self.full_copies.insert(to.to_string());
+                            }
+                        }
+                        if !same_key && self.is_profile_row(&t, rec.borrow().temporary) {
+                            self.profile_after_rename(&t, &old_fields, &row)?;
                         }
                         if !same_key {
                             self.propagate_rename(rec, &t, &refs, &old_fields, &row)?;
@@ -5785,4 +5917,24 @@ pub(crate) fn state_with_fields(rec: &Rec, fields: Vec<Value>) -> RecordState {
     };
     st.fields = fields;
     st
+}
+
+/// Whether app `a` depends on app `b`, directly or through other apps (indexes into `apps`, dependencies by app id).
+fn app_depends_on(apps: &[al_ir::AppInfo], a: usize, b: usize) -> bool {
+    let mut seen = vec![false; apps.len()];
+    let mut stack = vec![a];
+    while let Some(x) = stack.pop() {
+        for dep in &apps[x].dependencies {
+            if let Some(i) = apps.iter().position(|p| p.id.eq_ignore_ascii_case(dep)) {
+                if i == b {
+                    return true;
+                }
+                if !seen[i] {
+                    seen[i] = true;
+                    stack.push(i);
+                }
+            }
+        }
+    }
+    false
 }

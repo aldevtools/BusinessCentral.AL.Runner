@@ -45,6 +45,7 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
         } else {
             None
         },
+        description: Some(m.description.clone()),
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         symbols: Vec::new(),

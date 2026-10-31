@@ -57,6 +57,8 @@ pub struct Manifest {
     /// The logo app.json declares (a blank one is none) with the file's content; `None` when not known (a package whose
     /// logo was not read, a declared file that cannot be read).
     pub logo: Option<al_ir::AppLogo>,
+    /// The description the manifest declares; `None` when not known.
+    pub description: Option<String>,
     /// `preprocessorSymbols` of the app's own app.json. A dependency app is compiled with these;
     /// the project's symbols apply to the workspace apps only (the publisher compiled the dependency).
     pub symbols: Vec<String>,
@@ -186,6 +188,7 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .collect(),
         target: manifest["target"].as_str().unwrap_or("Cloud").to_string(),
         logo: al_deps::load::folder_logo(dir, manifest["logo"].as_str()),
+        description: Some(s("description")),
         symbols: manifest["preprocessorSymbols"]
             .as_array()
             .into_iter()
@@ -501,6 +504,8 @@ pub(crate) struct Unit {
     on_run_rows: OnRunRows,
     /// See `RunOptions::ignore_permission_mock`.
     ignore_permission_mock: bool,
+    /// See `RunOptions::report_unpinned_errors`.
+    report_unpinned_errors: bool,
     /// See `RunOptions::permissions_off`.
     permissions_off: bool,
     /// See `RunOptions::perturb`.
@@ -547,6 +552,8 @@ pub(crate) struct Scratch {
     on_run_rows: OnRunRows,
     /// See `RunOptions::ignore_permission_mock`.
     ignore_permission_mock: bool,
+    /// See `RunOptions::report_unpinned_errors`.
+    report_unpinned_errors: bool,
     /// See `RunOptions::permissions_off`.
     permissions_off: bool,
     /// See `RunOptions::perturb`.
@@ -634,6 +641,7 @@ fn run_unit(
             onrun_carry: u.onrun_carry,
             on_run_rows: u.on_run_rows,
             ignore_permission_mock: u.ignore_permission_mock,
+            report_unpinned_errors: u.report_unpinned_errors,
             permissions_off: u.permissions_off,
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
