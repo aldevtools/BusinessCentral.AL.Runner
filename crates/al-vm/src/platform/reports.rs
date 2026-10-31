@@ -376,6 +376,24 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 ),
             );
         }
+        // UseSystemPrinter (5): the property as declared, Yes for true and No for false (misc/lt-y13-triage/Y13ReportSystemPrinter.al:
+        // 530-543, corpus master). For a report that does not declare it no corpus test pins the column: unknown.
+        if let Some(col) = t.fields.iter().position(|f| f.id == 5) {
+            r[col] = match prop(o, "UseSystemPrinter") {
+                Some(v) if truthy(v) => Value::Boolean(true),
+                Some(v) if v.trim().eq_ignore_ascii_case("false") => Value::Boolean(false),
+                Some(v) => unknown(
+                    t,
+                    5,
+                    &format!("report '{}', which declares UseSystemPrinter = {}", o.name, v.trim()),
+                ),
+                None => unknown(
+                    t,
+                    5,
+                    &format!("report '{}', which does not declare UseSystemPrinter", o.name),
+                ),
+            };
+        }
         // BC 29: DefaultHeaderFooterPartName (30) and DefaultThemePartName (31) are the layout names the properties give
         // (report/lt-y-report-props/YReportParts.al:65); blank when the report declares none.
         for (col, name) in [(30, "DefaultHeaderFooterPart"), (31, "DefaultThemePart")] {

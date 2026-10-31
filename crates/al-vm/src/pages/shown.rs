@@ -25,7 +25,8 @@
 //! First on a part (pageupdate/TestPageUpdate.al:73, :116, :143), First on the page itself (handlers/
 //! TestTempIntegerListPart.al:92, pageextensioncontrol/TestPageExtensionControlTrapped_Tests.al:53) and the reads of a
 //! control of any page of the tree: Editable, Enabled, AssertEquals (misc/lt-probes-needed-7/PnGTempControl.al:116), AsDecimal
-//! (TestPageUpdate.al:116) and the As* methods of the other types. These count also when they raise an error
+//! (TestPageUpdate.al:116) and the As* methods of the other types, and `FindFirstField` and `FindNextField` on a page without
+//! parts (misc/lt-y13-triage/Y13PageTriage.al:150-186, corpus master). These count also when they raise an error
 //! (PnGTempControl.al:116). And an action of the host whose code calls only `CurrPage.Update()` (TestPageUpdate.al:143). After
 //! any other such call a read is refused, except after `TestPage.Next`, `TestPage.Filter`, the `TestFilter` calls,
 //! `TestField.Activate` and `TestField.Caption` (`DOUBT_ASSUMED`): there the read is computed as it is now under assumption
@@ -62,9 +63,17 @@ const DOUBT_ASSUMED: u16 = 128;
 /// TestField.Lookup through the control's own OnLookup trigger on the page itself (not a part): a read of an expression the
 /// page does not keep is computed as it is now (`Session::lookup_refresh_pinned` lists the pinned shapes).
 const DOUBT_LOOKUP: u16 = 256;
+/// `FindFirstField` or `FindNextField` on a page without parts that the test opened: its controls of a function call, a string expression and a page
+/// variable OnAfterGetRecord sets show the row the search ended on (misc/lt-y13-triage/Y13PageTriage.al:150-186, corpus master).
+const DOUBT_FIND_FIELD: u16 = 512;
 /// The kinds after which a control of an expression the page does not keep is read as it is now (module comment).
-const DOUBT_KEPT: u16 =
-    DOUBT_SET_VALUE | DOUBT_HOST_SET_VALUE | DOUBT_GO_TO_RECORD | DOUBT_FIRST | DOUBT_READ | DOUBT_HOST_ACTION_UPDATE;
+const DOUBT_KEPT: u16 = DOUBT_SET_VALUE
+    | DOUBT_HOST_SET_VALUE
+    | DOUBT_GO_TO_RECORD
+    | DOUBT_FIRST
+    | DOUBT_READ
+    | DOUBT_HOST_ACTION_UPDATE
+    | DOUBT_FIND_FIELD;
 
 /// What a TestPage call does to the kept values of one page of its tree.
 #[derive(Clone, Copy, PartialEq)]
@@ -124,6 +133,12 @@ impl Session {
                 PageMethod::SetValue if on_root && on_control => DOUBT_HOST_SET_VALUE,
                 PageMethod::GoToRecord if on_root && target.is_none() => DOUBT_GO_TO_RECORD,
                 PageMethod::First if is_p && target.is_none() => DOUBT_FIRST,
+                // A page the test caught with Trap() is not pinned (only one the test opened).
+                PageMethod::FindFirstField | PageMethod::FindNextField
+                    if is_p && on_root && tree.len() == 1 && r.is_ok() && !st.borrow().caught_by_trap =>
+                {
+                    DOUBT_FIND_FIELD
+                }
                 PageMethod::Invoke
                     if on_root
                         && on_control

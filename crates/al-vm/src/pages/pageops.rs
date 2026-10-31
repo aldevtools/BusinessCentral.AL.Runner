@@ -558,9 +558,15 @@ impl Session {
                     _ => unsupported("TestPart.GetField without an id"),
                 }
             }
-            PageMethod::OpenEdit => self.page_open(st, PageMode::Edit),
-            PageMethod::OpenView => self.page_open(st, PageMode::View),
-            PageMethod::OpenNew => self.page_open(st, PageMode::New),
+            PageMethod::OpenEdit | PageMethod::OpenView | PageMethod::OpenNew => {
+                st.borrow_mut().caught_by_trap = false;
+                let mode = match method.method() {
+                    PageMethod::OpenEdit => PageMode::Edit,
+                    PageMethod::OpenView => PageMode::View,
+                    _ => PageMode::New,
+                };
+                self.page_open(st, mode)
+            }
             PageMethod::Close if method.recv() != PageRecv::Page => self.page_close(st),
             m @ (PageMethod::First | PageMethod::Last | PageMethod::Next | PageMethod::Previous) => {
                 self.require_open(st)?;

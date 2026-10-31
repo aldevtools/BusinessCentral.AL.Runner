@@ -801,21 +801,33 @@ fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
     }
 }
 
-/// A number or an Enum `FieldRef.Value()` returns, converted straight into a Text or Code variable or a by-value parameter: refused.
-/// Into a record's field it is the Format text (`number_into_text_field`), and a Variant variable holding a number raises
-/// TypeConversion into a Text variable (types/lt-variant/VaTCompare.al:Concat_After_Conversion); which of the two BC does for the
-/// direct `FieldRef.Value()` is not pinned (only a Date, a Time and a DateTime are: report/lt-requestpage-savevalues-date-text-setvalue/
-/// P147DateToText.al QO_*FieldRef_EachConversion). docs/probes-needed.md "FieldRef.Value of a number into a Text or Code variable".
+/// An Enum `FieldRef.Value()` returns, converted straight into a Text or Code variable or a by-value parameter: refused. A number
+/// there is its Format text, checked against the variable's length (misc/lt-y13-triage/Y13FieldRefValueToText.al:96-153, corpus
+/// master: Integer, Decimal, BigInteger and the field 0 timestamp into Text, Text[30], Code[20]; Code[3] raises
+/// StringLengthExceeded), as into a record's field (`number_into_text_field`). Whether an Enum is its caption there, as into a
+/// field, is not pinned. docs/probes-needed.md "FieldRef.Value of an Enum into a Text or Code variable".
 #[cold]
-pub fn fieldref_number_into_text_refused(v: &Value, t: &RtType) -> Result<(), Signal> {
+pub fn fieldref_enum_into_text_refused(v: &Value, t: &RtType) -> Result<(), Signal> {
+    if matches!(t, RtType::Text(_) | RtType::Code(_)) && matches!(v, Value::Enum(..)) {
+        return unsupported(format!(
+            "FieldRef.Value of {} into a {} variable (whether it is its caption is not pinned)",
+            v.describe(),
+            t.describe()
+        ));
+    }
+    Ok(())
+}
+
+/// A number `FieldRef.Value()` returns, passed straight as a Text or Code argument: refused. The corpus pins the assignment to a
+/// variable (`fieldref_enum_into_text_refused`), not the conversion into a by-value parameter (docs/probes-needed.md
+/// "FieldRef.Value of an Enum into a Text or Code variable").
+#[cold]
+pub fn fieldref_number_into_text_arg_refused(v: &Value, t: &RtType) -> Result<(), Signal> {
     if matches!(t, RtType::Text(_) | RtType::Code(_))
-        && matches!(
-            v,
-            Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Enum(..)
-        )
+        && matches!(v, Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_))
     {
         return unsupported(format!(
-            "FieldRef.Value of {} into a {} variable (whether it is its Format text or raises TypeConversion is not pinned)",
+            "FieldRef.Value of {} passed as a {} argument (not pinned)",
             v.describe(),
             t.describe()
         ));

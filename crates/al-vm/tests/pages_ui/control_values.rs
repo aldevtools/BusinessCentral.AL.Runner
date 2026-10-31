@@ -263,10 +263,11 @@ fn set_value_on_an_enum_control_takes_the_option_caption_entry_at_the_value_posi
     );
 }
 
-// Whether OptionCount and GetOption of a control with ValuesAllowed list only the allowed values is not pinned.
+// OptionCount of an Enum control with ValuesAllowed counts only the allowed values (misc/lt-y13-triage/Y13PageTriage.al:197-243,
+// corpus master; option_count_values_allowed.rs).
 #[test]
-fn option_count_of_a_control_with_values_allowed_is_refused() {
-    refused(al_testkit::run_in(SRC, "C", "AllowedOptionCount"), "ValuesAllowed");
+fn option_count_of_a_control_with_values_allowed_counts_the_allowed_values() {
+    assert_eq!(al_testkit::int(al_testkit::run_in(SRC, "C", "AllowedOptionCount")), 2);
 }
 
 #[test]

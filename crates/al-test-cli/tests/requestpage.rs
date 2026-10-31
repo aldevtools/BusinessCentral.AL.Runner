@@ -1118,3 +1118,45 @@ fn a_handler_error_other_than_the_refused_entry_is_still_refused() {
         other => panic!("expected one refusal, got {other:?}"),
     }
 }
+
+const SUBSTITUTE: &str = r#"
+codeunit 61301 "RQ Substitute"
+{
+    SingleInstance = true;
+    var Change: Boolean;
+    procedure SetChange() begin Change := true; end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Reporting Triggers", 'SubstituteReport', '', false, false)]
+    local procedure OnSubstitute(ReportId: Integer; RunMode: Option Normal,ParametersOnly,Execute,Print,SaveAs,RunModal; RequestPageXml: Text; RecordRef: RecordRef; var NewReportId: Integer)
+    var T: Codeunit "RQ Trace";
+    begin
+        T.Add('SubstituteReport(' + Format(ReportId) + ',' + Format(RunMode) + ',in=' + Format(NewReportId) + ')');
+        if Change then
+            NewReportId := 61299;
+    end;
+}
+"#;
+
+// events/lt-platform-events-v/PeVTests.al:465, :660: the static Report.RunRequestPage raises SubstituteReport with RunMode
+// ParametersOnly before the page opens. A subscriber that sets another report is not pinned for it: refused.
+#[test]
+fn static_run_request_page_raises_substitute_report_and_refuses_another_report() {
+    let tests = format!(
+        "{HELPERS}
+        [Test] [HandlerFunctions('OkHandler')]
+        procedure Logged() var T: Codeunit \"RQ Trace\"; begin
+            Seed(); Param := Report.RunRequestPage(Report::\"RQ Report\");
+            Check('SubstituteReport(61210,ParametersOnly,in=-1),', T.Text()); end;
+        [Test] [HandlerFunctions('OkHandler')]
+        procedure Changed() var S: Codeunit \"RQ Substitute\"; begin
+            Seed(); S.SetChange(); Param := Report.RunRequestPage(Report::\"RQ Report\"); end;
+        [RequestPageHandler] procedure OkHandler(var RP: TestRequestPage \"RQ Report\") begin RP.OK().Invoke(); end;"
+    );
+    let src = format!("{OBJECTS}\n{SUBSTITUTE}\ncodeunit 61300 T {{ Subtype = Test; {tests} }}");
+    let o = al_testkit::outcomes_in(&src, "T");
+    let get = |n: &str| o.iter().find(|(t, _)| t == n).map(|(_, r)| r.clone()).unwrap();
+    assert_eq!(get("Logged"), Outcome::Pass);
+    match get("Changed") {
+        Outcome::NotRun(r) => assert!(r.contains("SubstituteReport set report 61299"), "{r}"),
+        other => panic!("{other:?}"),
+    }
+}

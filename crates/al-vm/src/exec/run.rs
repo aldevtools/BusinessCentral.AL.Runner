@@ -282,11 +282,20 @@ impl Session {
                     };
                     set(&mut f.locals[d as usize], v);
                 }
-                Op::ConvertFieldValue { d, a, t } => {
+                Op::ConvertFieldValue { d, a, t, arg } => {
                     let v = take(f, a, nl);
                     let ty = &chunk.types[t as usize];
-                    ops::fieldref_number_into_text_refused(&v, ty)?;
-                    set(&mut f.locals[d as usize], ops::convert_plain(v, ty)?);
+                    ops::fieldref_enum_into_text_refused(&v, ty)?;
+                    if arg {
+                        ops::fieldref_number_into_text_arg_refused(&v, ty)?;
+                    }
+                    // A number is its Format text, checked against the variable's length (misc/lt-y13-triage/
+                    // Y13FieldRefValueToText.al:96-153, corpus master).
+                    let v = match ops::number_into_text_field(&v, ty, &*self) {
+                        Some(r) => r?,
+                        None => ops::convert_plain(v, ty)?,
+                    };
+                    set(&mut f.locals[d as usize], v);
                 }
                 Op::DbgHit { p } => self.debug_hit(p, &f.locals[..nl as usize]),
                 Op::CapHit { p } => self.cap_stmt_hit(p),

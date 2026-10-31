@@ -4435,12 +4435,20 @@ fn linked_container(schema: &Schema, c: usize, table: usize) -> bool {
 
 /// Whether node `c` may come more than once in a row: its `MaxOccurs`, else a table element and a leaf text element may
 /// (a leaf text element without MaxOccurs is read twice: xmlport/W7XmlPortTests.al:141,149, `required twice`), a field element
-/// and a container text element may not (as before the MaxOccurs pins).
+/// and a container text element may not (as before the MaxOccurs pins), except one right below a table element that holds only
+/// field elements and has no triggers: it is read again into the same record, the last one wins (misc/lt-y13-triage/
+/// Y13XmlPortContainer.al:120, :134, :156, corpus master: `twice` gives one row with the second container's values).
 fn repeats(schema: &Schema, c: usize) -> bool {
     let n = schema.node(c);
     n.max_unbounded.unwrap_or(match n.kind {
         ir::XmlNodeKind::Table => true,
-        ir::XmlNodeKind::Text => schema.children(c).is_empty(),
+        ir::XmlNodeKind::Text => {
+            let kids = schema.children(c);
+            kids.is_empty()
+                || (n.triggers.is_empty()
+                    && n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table)
+                    && kids.iter().all(|&k| schema.node(k).kind == ir::XmlNodeKind::Field))
+        }
         _ => false,
     })
 }
