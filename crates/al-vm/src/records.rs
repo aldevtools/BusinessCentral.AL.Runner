@@ -1106,6 +1106,22 @@ impl Session {
                     let pinned = verdict == StaleVerdict::Written
                         && !ext
                         && self.stale_after_other_deletes_only(t, &company, &pk);
+                    // A Delete(false) that a Modify would refuse, on a table whose only delete hooks are OnBeforeDeleteEvent
+                    // subscribers: the subscribers run, then DB:RecordChanged, the row stays (al-runner issue 6546, the
+                    // reporter's repro passed on real BC; assumption `stale-delete-event-before-record-changed` until corpus
+                    // writer Y32's file is on master). Delete(true), OnAfterDeleteEvent and the global trigger stay refused.
+                    if verdict == StaleVerdict::Refused
+                        && !run
+                        && self.listened(t, "onbeforedeleteevent", None)?
+                        && !self.listened(t, "onafterdeleteevent", None)?
+                        && !self.global_enabled(t, GlobalOp::Delete)?
+                    {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::StaleDeleteEventBeforeRecordChanged,
+                        );
+                        self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
+                        return Err(self.record_changed(t, rec)?);
+                    }
                     if (hooks || ext) && !pinned {
                         return unsupported(format!(
                             "a Delete through a stale {} buffer, with triggers or events: not pinned",
