@@ -534,7 +534,8 @@ impl Session {
     /// pages/lt-y1-6288/Y1ExternalReapplyMarks.al:223 Y1_Reapply_FirstAfterExternalRefresh `first` `true/1`, `goto 2 after`
     /// `false/1`, `next after` `false/1`, `goto 1 after` `true/1`; :278 Y1_Reapply_GoToRecordAfterRefreshWithoutFirst `goto 2`
     /// `false/1`, `goto 2 again` `false/1`; al-runner issue 6288). Which row triggers run while the client reads the new view is
-    /// not pinned: none run here. Pinned for a list in its primary key whose marked rows fit a window and hold Rec's row.
+    /// not pinned: none run here. Pinned for a list in its primary key whose marked rows fit a window and hold Rec's row; another
+    /// key is an assumption (al-runner issue 6467).
     fn marked_view_changed_by_move(
         &mut self,
         st: &St,
@@ -564,12 +565,11 @@ impl Session {
         if !due {
             return Ok(r);
         }
-        if rec.borrow().key != 0 {
-            return unsupported(
-                "a TestPage move whose OnAfterGetCurrRecord marked rows again and called CurrPage.Update(false) on a list in a key other \
-                 than the primary key (not pinned)",
-            );
-        }
+        // In a key other than the primary key the client holds the marked rows in that key's order and stays on Rec's row too
+        // (al-runner issue 6467; corpus writer Y15, branch al-runtime-rs-staging-y15, pages/lt-y15/
+        // Y15ReapplyMarksSecondaryKey.al:267 `goto 2 after` `false/1/1`, `next after` `false/1/1`, `last after` `true/1/1`; :345;
+        // assumption `reapply-marks-other-key` until that file is pinned).
+        let other_key = rec.borrow().key != 0;
         let refuse = || {
             unsupported(
                 "a TestPage move whose OnAfterGetCurrRecord marked rows again and called CurrPage.Update(false), with Rec outside the \
@@ -601,6 +601,9 @@ impl Session {
         if !rows.iter().any(|w| Self::same_key(&w.key, &at)) {
             return refuse();
         }
+        if other_key {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReapplyMarksOtherKey);
+        }
         let want = st.borrow_mut().go_to_want.take();
         {
             let mut s = st.borrow_mut();
@@ -616,6 +619,15 @@ impl Session {
         let mut pk = at.clone();
         self.ret_used = true;
         self.record_op(RecordOp::Get, &rec, &mut pk)?;
+        // In another key, when the trigger left Rec on another row than the move reached, the refresh runs OnAfterGetCurrRecord
+        // on Rec's row; on the same row it runs no trigger (corpus writer Y15, branch al-runtime-rs-staging-y15, pages/lt-y15/
+        // Y15ReapplyMarksSecondaryKey.al:267 `first` `true/1/1 agcr2;agcr1`, :345 `goto 1` `true/1/1 agcr1`). In the primary key
+        // which triggers run is not pinned: none run.
+        let started = st.borrow().agcr_started.clone();
+        if other_key && started.is_some_and(|f| !Self::same_key(&table.primary_key(&f), &at)) {
+            self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+            self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+        }
         if method == PageOp::TestPageGoToRecord {
             let found = want.is_some_and(|w| Self::same_key(&w, &at));
             return Ok(Value::Boolean(matches!(r, Value::Boolean(true)) && found));
