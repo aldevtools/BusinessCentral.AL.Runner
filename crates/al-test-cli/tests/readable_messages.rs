@@ -10,6 +10,11 @@ use std::path::{Path, PathBuf};
 /// `(file suffix, the trimmed source line, why the debug format is fine here)`.
 const KEPT: &[(&str, &str, &str)] = &[
     (
+        "al-test-cli/src/windows_language.rs",
+        r#"s.push_str(&format!("    ({a}, {b}, {text:?}),\n"));"#,
+        "a row text written as a Rust string literal into the generated windows_language_rows.rs, never shown",
+    ),
+    (
         "al-vm/src/xmlports.rs",
         r#"format!("{:?}", r.filters)"#,
         "the filters of a table element record at the end of an XmlPort pass, compared for equality with the next pass's, never shown",
