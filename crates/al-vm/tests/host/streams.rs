@@ -667,3 +667,52 @@ fn a_blob_copied_from_an_unloaded_temporary_row_is_empty() {
     );
     assert_eq!(via_field_ref, "has=No|len=0|text=");
 }
+
+// Gap C3-18: Write(Text) of Cyrillic and Japanese text: UTF-8 and UTF-16 bytes with the zero terminator, '?' for each character on a
+// Windows, MS-DOS or default stream (streams/lt-y38-utf8-write/Y38Utf8Write.al N1, N2, N3; errors/lt-ms-refusals-132/
+// P132OutStreamUnicode.al:81-83, :127-134); Read(Text) on UTF-8 gives the text back and 1 at the end.
+#[test]
+fn write_text_of_cyrillic_writes_the_bytes_of_the_encoding() {
+    let hex = "Ret: Integer; H: Text; By: Byte;";
+    let body = |enc: &str, value: &str| {
+        format!(
+            "B.Code := 'U'; B.Data.CreateOutStream(O{enc}); Ret := O.Write('{value}'); B.Insert();
+             B.Get('U'); B.CalcFields(Data); B.Data.CreateInStream(I);
+             while not I.EOS() do begin I.Read(By); H += CopyStr('0123456789ABCDEF', (By div 16) + 1, 1) + CopyStr('0123456789ABCDEF', (By mod 16) + 1, 1); end;
+             exit(Format(Ret) + '|' + H);"
+        )
+    };
+    let vars = format!("{BASE} {hex}");
+    assert_eq!(
+        text(&vars, &body(", TextEncoding::UTF8", "Привет мир")),
+        "20|D09FD180D0B8D0B2D0B5D18220D0BCD0B8D18000"
+    );
+    assert_eq!(
+        text(&vars, &body(", TextEncoding::UTF16", "Привет")),
+        "14|1F04400438043204350442040000"
+    );
+    for enc in [", TextEncoding::Windows", ", TextEncoding::MSDos", ""] {
+        assert_eq!(text(&vars, &body(enc, "Привет")), "7|3F3F3F3F3F3F00", "{enc}");
+    }
+    assert_eq!(
+        text(&vars, &body(", TextEncoding::UTF8", "日本語テスト")),
+        "19|E697A5E69CACE8AA9EE38386E382B9E3838800"
+    );
+    assert_eq!(
+        text(&vars, &body(", TextEncoding::Windows", "日本語テスト")),
+        "7|3F3F3F3F3F3F00"
+    );
+}
+
+#[test]
+fn read_text_of_utf8_cyrillic_gives_it_back_and_one_at_the_end() {
+    // Y38Utf8Write.al N3: Write('Привет') + Write('ab'), then three reads.
+    let t = text(
+        &format!("{BASE} N1: Integer; N2: Integer; N3: Integer; T2: Text; T3: Text;"),
+        "B.Code := 'U'; B.Data.CreateOutStream(O, TextEncoding::UTF8); O.Write('Привет'); O.Write('ab'); B.Insert();
+         B.Get('U'); B.CalcFields(Data); B.Data.CreateInStream(I, TextEncoding::UTF8);
+         N1 := I.Read(T); N2 := I.Read(T2); N3 := I.Read(T3);
+         exit(Format(N1) + '|' + T + '|' + Format(N2) + '|' + T2 + '|' + Format(N3) + '|' + T3 + '|' + Format(I.EOS()));",
+    );
+    assert_eq!(t, "13|Привет|3|ab|1||Yes");
+}

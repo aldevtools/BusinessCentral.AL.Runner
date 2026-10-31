@@ -853,7 +853,17 @@ impl Session {
         // Before event (Rec holds the new value, xRec the old row), the field's OnValidate,
         // After event: record/TestTriggerDispatchOrder.al:TriggerOrder_Validate_FieldPipeline_IsStable.
         // That the Before event sees the new value is docs/probes-needed.md.
-        self.table_event(t, "onbeforevalidateevent", rec, Some(xrec), false, Some(&field.name))?;
+        // An error in an OnBeforeValidateEvent or OnAfterValidateEvent subscriber puts the record back too, as one in the
+        // field's OnValidate below (events/lt-db-events/DbtEvents.al:623 Validate_ErrorInSubscriber, `name`, `name3`).
+        let restore = |rec: &Rec, e: Signal, snapshot: Vec<Value>| {
+            if matches!(e, Signal::Error(_)) {
+                rec.borrow_mut().fields = snapshot;
+            }
+            e
+        };
+        if let Err(e) = self.table_event(t, "onbeforevalidateevent", rec, Some(xrec), false, Some(&field.name)) {
+            return Err(restore(rec, e, snapshot));
+        }
         // The triggers table extensions attach to the field bracket its own OnValidate
         // (record/TestTriggerDispatchOrder.al:TriggerOrder_Validate_FieldPipeline_IsStable).
         let (before, after) = self.ext_validate_order(t, field)?;
@@ -862,6 +872,7 @@ impl Session {
         }
         if let Some((object, routine)) = field.on_validate {
             if let Err(e) = self.run_trigger(object, routine, rec, Some(xrec)) {
+                let snapshot = snapshot.clone();
                 // The whole record is back at its values from before the Validate when the
                 // field's OnValidate raises, not only the validated field
                 // (record/TestValidateRaisesAndHandlerAsserterrorContracts.al:68,
@@ -877,6 +888,7 @@ impl Session {
             self.run_trigger(object, routine, rec, Some(xrec))?;
         }
         self.table_event(t, "onaftervalidateevent", rec, Some(xrec), false, Some(&field.name))
+            .map_err(|e| restore(rec, e, snapshot))
     }
 
     /// The OnBeforeValidate and OnAfterValidate triggers table extensions declare for `field`, in the order they run. Two
@@ -4235,14 +4247,6 @@ impl Session {
                             && !rec.borrow().temporary
                             && !rec.borrow().crm
                         {
-                            if (run && !self.ext_triggers(&t, "OnAfterInsert").is_empty())
-                                || self.listened(&t, "onafterinsertevent", None)?
-                            {
-                                return unsupported(format!(
-                                    "deferred duplicate-key Insert into {}, which has an After insert event or trigger (whether it runs is not pinned)",
-                                    t.name
-                                ));
-                            }
                             match self.fail(&t, &row, true) {
                                 Err(Signal::Error(e)) => {
                                     self.tx.deferred_insert.get_or_insert((t.object as usize, *e));
@@ -4251,6 +4255,15 @@ impl Session {
                                 Err(other) => return Err(other),
                                 Ok(_) => {}
                             }
+                            // The table-extension OnAfterInsert trigger and the OnAfterInsertEvent subscribers run with the
+                            // duplicate's values, after the error is deferred: a read of the table inside them raises it and the
+                            // Insert fails (record/lt-y38-dupkey-after-event/Y38DupKeyAfterEvent.al DK_AfterEvent_Statement_ThenCount,
+                            // DK_AfterEvent_InsertFalse, DK_ExtAfterTrigger_Statement, DK_AfterEvent_ReadInsideSubscriber;
+                            // events/lt-db-events/DbtEvents.al:347 Insert_DuplicateKey).
+                            if run {
+                                self.run_ext_trigger(&t, "OnAfterInsert", rec, None)?;
+                            }
+                            self.table_event(&t, "onafterinsertevent", rec, None, run, None)?;
                             return Ok(Value::Boolean(true));
                         }
                         // A guarded Insert that fails on an existing key leaves the variable's SystemId null: the id it was given
@@ -4264,6 +4277,34 @@ impl Session {
                             }
                         }
                         let r = self.fail(&t, &row, true);
+                        // A guarded Insert of the key whose statement-form Insert is pending drops that pending error: a Commit
+                        // or a read after it raises nothing, and GetLastErrorText gives its text (Y38DupKeyAfterEvent.al
+                        // DK_AfterEvent_Statement_ThenGuardedInsert,
+                        // DK_AfterEvent_Statement_GuardedInsert_ThenCount). Another key's guarded Insert is not pinned.
+                        if self.ret_used
+                            && matches!(r, Ok(Value::Boolean(false)))
+                            && self
+                                .tx
+                                .deferred_insert
+                                .as_ref()
+                                .is_some_and(|(o, _)| *o == t.object as usize)
+                        {
+                            let same_key = format!(
+                                "The record in table {} already exists. Identification fields and values: {}",
+                                self.caption(&t),
+                                self.identification(&t, &row)?
+                            );
+                            if self
+                                .tx
+                                .deferred_insert
+                                .as_ref()
+                                .is_some_and(|(_, e)| e.message == same_key)
+                            {
+                                // GetLastErrorText then gives the duplicate's text (`guarded`).
+                                let (_, e) = self.tx.deferred_insert.take().expect("checked");
+                                self.last_error = e;
+                            }
+                        }
                         // The flag hides the key of a duplicate Insert into a table with a Blob field (error-handling/
                         // lt-last-error-text-forms/InsertDuplicateKeyExcludeFlag.al:68, :85, :102). Other tables are not pinned.
                         if has_blob && auto.is_none() && !rec.borrow().temporary {
