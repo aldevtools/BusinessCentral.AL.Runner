@@ -567,6 +567,23 @@ impl Encoding {
             }
     }
 
+    /// Whether the bytes `OutStream.Write(Text)` gives for `t` are pinned: what `encode_pinned` accepts, and also, on a UTF-8 or
+    /// UTF-16 stream, every character of the Basic Multilingual Plane as its plain encoding, and on a Windows, MS-DOS or default
+    /// stream a Cyrillic or Japanese character as '?' (streams/lt-y38-utf8-write/Y38Utf8Write.al UW_Write_Utf8_Cyrillic_TableBlob,
+    /// UW_Write_Cyrillic_PerEncoding; errors/lt-ms-refusals-132/P132OutStreamUnicode.al:81-83, :127-134). Other characters a
+    /// code page lacks may take a best-fit byte instead ('α' is 61 on MS-DOS, :84 `greek`) and stay refused.
+    pub fn write_text_pinned(self, t: &str) -> bool {
+        let question_mark =
+            |c: char| matches!(c, '\u{410}'..='\u{44F}' | '\u{3040}'..='\u{30FF}' | '\u{4E00}'..='\u{9FFF}');
+        self.encode_pinned(t)
+            || match self {
+                Encoding::Utf8 | Encoding::Utf16 => t.chars().all(|c| (c as u32) <= 0xFFFF),
+                Encoding::Windows | Encoding::MsDos => t
+                    .chars()
+                    .all(|c| question_mark(c) || self.encode_pinned(c.encode_utf8(&mut [0; 4]))),
+            }
+    }
+
     /// Bytes per code unit of the line terminator search.
     fn unit(self) -> usize {
         if self == Encoding::Utf16 { 2 } else { 1 }
@@ -1824,7 +1841,8 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
         // (streams/ProbeJsonAndInStreamBytes.al:InStreamRead_Text_AfterWriteTextAndAfterWriteText_NonAscii:
         // 'wörld' is 77 F6 72 6C 64 00).
         // The text ends at its first NUL character (types/lt-variant-is-text-streams/LTP89StreamText.al:Text_BytesWritten `nul_char`).
-        Value::Text(t) | Value::Code(t) if enc.encode_pinned(t.split('\0').next().unwrap_or_default()) => {
+        // Cyrillic and Japanese text on every encoding: `Encoding::write_text_pinned`.
+        Value::Text(t) | Value::Code(t) if enc.write_text_pinned(t.split('\0').next().unwrap_or_default()) => {
             let mut v = enc.encode(t.split('\0').next().unwrap_or_default());
             v.extend(std::iter::repeat_n(0, enc.unit()));
             v

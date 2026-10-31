@@ -434,6 +434,10 @@ pub struct PageState {
     /// The open read of a descending find list without row triggers stopped a full window of rows above the row it opened on,
     /// the last row of the view, with rows above still unread: `First` reads them (see `first_above_the_find_list_window`).
     pub window_top_unread: bool,
+    /// The open read of a plain list on the row its OnOpenPage left Rec on held more rows than a window: (rows above the top row
+    /// it holds were left unread, rows below its bottom row were left unread). `First` and `Last` read on from that edge (al-vm
+    /// `read_rows_above_the_moved_rec`).
+    pub moved_rec_open_partial: Option<(bool, bool)>,
     /// A modal list in a key other than the primary key opened on the last row of its descending view and read the rows above it
     /// (see `read_rows_up_from_the_landed_last_row` in al-vm): `Some(false)` after that open, `Some(true)` after the GoToKey that
     /// walked its rows from the first one. Other moves from there are not pinned.
@@ -486,6 +490,9 @@ pub struct PageState {
     pub focus_in_row: bool,
     /// Validation errors the client holds: (control index, stored text).
     pub errors: Vec<(usize, String)>,
+    /// The control and the list row (its key) where a control's ValuesAllowed refused an entry: a Value read of that control on
+    /// another row is not pinned (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al:313-316).
+    pub values_allowed_refused_row: Option<(usize, Vec<Value>)>,
     /// The controls among `errors` whose refusal was an error of an AL trigger (the table's or the control's OnValidate),
     /// not one of the client's own checks, with the trigger's message: Close validates those again
     /// (pages/lt-ah-pages/AhPageTests.al:155-159).
@@ -892,6 +899,7 @@ impl PageState {
             window_read_up: false,
             window_held_above: None,
             window_top_unread: false,
+            moved_rec_open_partial: None,
             read_up_from_last: None,
             landing_first: false,
             open_reads_above: false,
@@ -910,6 +918,7 @@ impl PageState {
             focus: None,
             focus_in_row: false,
             errors: Vec::new(),
+            values_allowed_refused_row: None,
             trigger_errors: Vec::new(),
             refused: false,
             close_error: false,

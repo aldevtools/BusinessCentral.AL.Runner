@@ -1560,6 +1560,8 @@ impl Tree {
 pub enum LinkRhs {
     /// `field(Name)`
     Field(String),
+    /// `field(filter(Name))`: the host field's value is read as a filter text (pages/lt-y37-link-filter/Y37LinkFilterTests.al).
+    FieldFilter(String),
     /// `const(x)` / `filter(x)`: the filter text; quotes of a single-quoted literal are removed.
     Filter(String),
     /// `const(Database::"Name")`: the id of the named table.
@@ -1702,7 +1704,12 @@ fn parse_link_kinds(text: &str) -> Result<Vec<(String, LinkRhs, bool)>, String> 
         let kind = rhs[..open].trim().to_ascii_lowercase();
         let inner = rhs[open + 1..rhs.len() - 1].trim();
         let parsed = match kind.as_str() {
-            "field" => LinkRhs::Field(crate::scan::unquote_double(inner)),
+            "field" => match inner.get(..7) {
+                Some(head) if head.eq_ignore_ascii_case("filter(") && inner.ends_with(')') => {
+                    LinkRhs::FieldFilter(crate::scan::unquote_double(inner[7..inner.len() - 1].trim()))
+                }
+                _ => LinkRhs::Field(crate::scan::unquote_double(inner)),
+            },
             "const" | "filter" => {
                 if let Some(t) = inner
                     .strip_prefix("Database::")

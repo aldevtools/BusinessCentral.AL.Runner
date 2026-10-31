@@ -1028,21 +1028,19 @@ fn current_page_update_inside_a_procedure_of_a_hidden_part_does_nothing() {
     ));
 }
 
-// A procedure of a `Page` variable that uses `CurrPage` after the page closed is refused, not failed with the TestPage error
-// (Posted Sales Document Lines.CopyLineToDoc after RunModal: 35 Tests-ERM, SCM and SMB tests). `Update(false)` there is pinned
-// to do nothing (pages/lt-closed-page-variable-currpage/ClosedPageVariableCurrPageUpdate.al:70); `Update(true)` is not.
+// A procedure of a `Page` variable that uses `CurrPage` after the page closed with OK does nothing and raises no error
+// (Posted Sales Document Lines.CopyLineToDoc after RunModal: 35 Tests-ERM, SCM and SMB tests). `Update(false)` is pinned by
+// pages/lt-closed-page-variable-currpage/ClosedPageVariableCurrPageUpdate.al:70, `Update(true)` by
+// pages/lt-y37-part-after-close/Y37PartAfterClose.al:416-441 (LT_C314_AfterRunModalOK_UpdateAndSave).
 #[test]
-fn a_page_variable_procedure_using_curr_page_after_the_page_closed_is_refused_not_failed() {
+fn a_page_variable_procedure_using_curr_page_after_the_page_closed_with_ok_does_nothing() {
     let o = outcomes(&format!(
         "{HELPERS}
         [Test] [HandlerFunctions('H')]
         procedure Closed() var W: Page \"PM Selection Own Update\"; begin W.RunModal(); W.UseAfterClose(); end;
         [ModalPageHandler] procedure H(var T: TestPage \"PM Selection Own Update\") begin T.OK().Invoke(); end;"
     ));
-    assert!(
-        matches!(&o[0].1, Outcome::NotRun(why) if why.contains("not open") && why.contains("not pinned")),
-        "{o:?}"
-    );
+    assert!(matches!(&o[0].1, Outcome::Pass), "{o:?}");
 }
 
 #[test]
