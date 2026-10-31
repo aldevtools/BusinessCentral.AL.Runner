@@ -118,6 +118,9 @@ pub struct RunOptions {
     /// pinned is reported as failed, its message marked "[error text not pinned]", instead of not run. The test did run and
     /// fail; only the wording BC gives is not known, so a run with it set is not a conformance result. Default `false`.
     pub report_unpinned_errors: bool,
+    /// `al-runner test --permissions off` (ADR-062 section 5): no access kind is enforced, whatever stages are on by
+    /// default. While no stage is on (today) it changes nothing.
+    pub permissions_off: bool,
     /// A variant of a stability run (ADR-058): what the runner changes in its steps around each test and in the
     /// session's host values. The default is a normal run.
     pub perturb: crate::stability::Perturb,

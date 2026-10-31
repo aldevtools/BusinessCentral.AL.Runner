@@ -1192,6 +1192,7 @@ impl CorpusRuntime {
                             on_run_rows: OnRunRows::PerTest,
                             ignore_permission_mock: false,
                             report_unpinned_errors: false,
+                            permissions_off: false,
                             perturb: Default::default(),
                             run_seed: opts.run_seed,
                         });
@@ -1242,6 +1243,7 @@ impl CorpusRuntime {
                             on_run_rows: opts.on_run_rows,
                             ignore_permission_mock: opts.ignore_permission_mock,
                             report_unpinned_errors: opts.report_unpinned_errors,
+                            permissions_off: opts.permissions_off,
                             perturb: opts.perturb.clone(),
                             run_seed: opts.run_seed,
                         }),

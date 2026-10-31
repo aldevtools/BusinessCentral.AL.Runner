@@ -1520,6 +1520,8 @@ fn test_inner(
         ignore_permission_mock: a.ignore_permission_mock,
         // `ALRUNNER_REPORT_UNPINNED_ERRORS=1` (issue 6487, opt-in): an unpinned error text fails the test, marked.
         report_unpinned_errors: crate::unpinned::enabled(),
+        // `--permissions off` (ADR-062 section 5).
+        permissions_off: a.permissions_off,
         perturb: Default::default(),
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: (a.run_selected_only && selection.active() && !a.execute).then(|| {

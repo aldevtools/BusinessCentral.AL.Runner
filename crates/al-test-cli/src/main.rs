@@ -878,6 +878,7 @@ fn run_version(
         ignore_permission_mock: false,
         // The corpus run is the conformance result: an unpinned error text is never reported as a failure (issue 6487).
         report_unpinned_errors: false,
+        permissions_off: false,
         perturb: Default::default(),
     };
     let load_time = started.elapsed();
