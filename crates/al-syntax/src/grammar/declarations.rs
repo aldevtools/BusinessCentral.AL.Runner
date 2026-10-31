@@ -151,13 +151,19 @@ pub(crate) fn type_ref(p: &mut Parser) {
     match kind.as_str() {
         "label" => {
             p.expect(StringLit);
-            // A trailing comma before the `;` is accepted by the AL compiler: `X: Label 'text',;`
-            // (Microsoft's System Application Test).
+            // A trailing comma right after the text is accepted by the AL compiler: `X: Label 'text',;`
+            // (text/lt-label-textbuilder/TxCLabel.al Y12_Label_TrailingComma). After a property it is
+            // AL0301 (must-not-compile 2330, 2331); a second comma is AL0107 (2332): `alcodes` gives the codes.
+            let mut had_property = false;
             while p.eat(Comma) {
                 if p.at(Semicolon) {
+                    if had_property {
+                        p.error("A list must end with a member; not a separator ,.");
+                    }
                     break;
                 }
                 inline_property(p);
+                had_property = true;
             }
         }
         // `TextConst ENU = 'Hello', DEU = 'Hallo'`: one text per language, the language an identifier.
@@ -419,16 +425,24 @@ mod tests {
     #[test]
     fn a_label_or_textconst_may_end_in_a_trailing_comma() {
         // The AL compiler accepts `X: Label 'text',;` with no properties after the comma
-        // (Microsoft's System Application Test declares labels this way), and the same shape
-        // after properties and after a TextConst text.
+        // (text/lt-label-textbuilder/TxCLabel.al Y12_Label_TrailingComma, al-runner issue 6436),
+        // and the same shape after a TextConst text.
         assert_eq!(errors("var X: Label 'text',;", var_section), 0);
-        assert_eq!(errors("var X: Label 'text', Locked = true,;", var_section), 0);
+        assert_eq!(errors("var X: Label 'text' ,;", var_section), 0);
         assert_eq!(errors("var X: TextConst ENU = 'text',;", var_section), 0);
         assert_eq!(
             errors("var X: Label 'a',; Y: Integer;", var_section),
             0,
             "the next declaration still parses"
         );
+    }
+
+    #[test]
+    fn a_label_rejects_a_trailing_comma_after_a_property_or_a_second_comma() {
+        // must-not-compile 2330 and 2331 (AL0301 'A list must end with a member; not a separator ,.') and 2332 (AL0107).
+        assert!(errors("var X: Label 'L', Locked = true,;", var_section) > 0);
+        assert!(errors("var X: Label 'C', Comment = 'c',;", var_section) > 0);
+        assert!(errors("var X: Label 'T',,;", var_section) > 0);
     }
 
     #[test]

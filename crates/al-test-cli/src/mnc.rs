@@ -186,8 +186,8 @@ pub fn run_case(case: &Case, bc_major: u16) -> Outcome {
         // A code we cannot decide in general (AL0175 is reported only for Char - Text) makes the case "not
         // checked" when it was not found, even when another code of it is found: the verdict is about all of
         // the expected diagnostics.
-        for (code, _) in &want {
-            if let Some(why) = alcodes::not_checked_reason(code) {
+        for (code, text) in &want {
+            if let Some(why) = alcodes::not_checked_reason_for(code, text) {
                 out.verdict = Verdict::NotChecked(format!("{code}: {why}"));
                 return out;
             }
