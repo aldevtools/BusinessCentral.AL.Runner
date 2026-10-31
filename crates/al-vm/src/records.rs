@@ -1794,7 +1794,7 @@ impl Session {
             }
             // Two Commits after the buffer's own Insert, another variable wrote the row in the transaction between them, and the
             // new transaction's only writes are Modifies of the buffer's row through other variables, with no lock: written, the
-            // stale buffer winning (al-runner issue 6522, the reporter's repro passed on real BC 29; assumption
+            // stale buffer winning (al-runner issue 6522, the reporter's repro passed on real BC; assumption
             // `stale-own-insert-two-commits-row-written` until the corpus pin lands). A row last written in the buffer's own
             // transaction, with an empty Commit after it, stays refused below.
             Some(o)
@@ -4219,7 +4219,7 @@ impl Session {
                 }
                 // A Modify that changes no field leaves the row version as it is: Microsoft's tests Modify a record after a refresh report
                 // modified its row without a change (Create Prod. Order Lines.Copy) and pass, which a bumped version would make a
-                // stale write (record/lt-priority-assumptions/PriorityAssumptions.al:143-244, real BC 29: after a Modify that changes nothing and a Commit, the
+                // stale write (record/lt-priority-assumptions/PriorityAssumptions.al:143-244, real BC: after a Modify that changes nothing and a Commit, the
                 // other variable's Modify of a changed field is accepted, while a Modify that changed a field makes it fail with DB:RecordChanged).
                 self.check_code_storage(&t, &rec.borrow().fields, true)?;
                 self.sql_timestamp_before(&t, rec, stored_row.as_deref())?;

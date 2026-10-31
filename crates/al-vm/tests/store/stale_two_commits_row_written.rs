@@ -1,6 +1,6 @@
 //! A stale buffer from the variable's own Insert, two Commits back (another variable wrote the row and committed in
 //! between), is written when the transaction after the second Commit modified that same row through another variable
-//! (al-runner issue 6522, the reporter's repro passed on real BC 29). On the assumption
+//! (al-runner issue 6522, the reporter's repro passed on real BC). On the assumption
 //! `stale-own-insert-two-commits-row-written` until the corpus pin lands.
 
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
@@ -85,6 +85,9 @@ fn the_stale_insert_copy_is_written_after_another_variable_modified_the_row() {
 fn other_writes_or_a_lock_beside_the_modify_stay_refused() {
     for p in ["RowWrittenAndAnotherInserted", "RowWrittenUnderLock"] {
         let r = al_testkit::run_in(SRC, "C", p);
-        assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{p}: {r:?}");
+        assert!(
+            matches!(r, Err(al_builtins::native::Signal::Unsupported(_))),
+            "{p}: {r:?}"
+        );
     }
 }
