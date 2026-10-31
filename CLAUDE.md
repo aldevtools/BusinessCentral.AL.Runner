@@ -97,6 +97,12 @@ before you open a source file.
 - Demand-driven against eager compile of the Microsoft apps (ADR-013; CI runs it on a push to main and nightly, not on a pull request): `tools/demand_vs_eager.sh run`
   (about 3 min, release binary needed) compares the main app and the OnPrem and isolation suites for BC 27, 28, 29.
 - Core crates do no OS access (ADR-006).
+- **Code ratchets** (`cargo test -p al-test-cli --test fn_length_ratchet --test os_access_ratchet`, about 2 s each):
+  a `fn` body under `crates/*/src` may not pass 250 code lines (blank and comment lines not counted); the longer
+  ones are listed in `metrics/fn-lengths.toml` as `"path::name" = cap`. A file of a core crate may not name an OS
+  API (`std::env`, `std::fs`, `File::open`, `std::process`, ...; ADR-006); the current places are counted in
+  `metrics/os-access.toml`. Caps and counts only go down: extract functions, move OS access to a front end or
+  `al-host`, then lower or delete the row. Never raise a cap or add a row (the owner decides).
 - Parallel work: one `git worktree` and branch per area, inside the main
   checkout (`/.worktrees/` is git-ignored): from the main checkout run
   `git worktree add .worktrees/<area> -b <area> origin/main`. Never create a
