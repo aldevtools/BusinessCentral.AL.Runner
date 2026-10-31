@@ -413,6 +413,24 @@ impl<'a> Checker<'a> {
                         globals.insert(name.clone(), ty);
                         base_vars.insert(name);
                     }
+                    // The protected variables of another extension of the same table in the same app: one variable per
+                    // record variable, shared by both (al-runner issue 6485; corpus writer Y20,
+                    // tableextension/lt-y20-sibling-globals/Y20TableExtSiblingGlobals.al, measured on BC; a plain `var` does
+                    // not compile, must-not-compile 2356). Another app's extension is not pinned.
+                    for &s in self.ws.extensions_of(b) {
+                        let so = &self.ws.objects[s];
+                        if s == oi || so.kind != ObjKind::TableExtension || so.app != o.app {
+                            continue;
+                        }
+                        for (name, decl) in crate::base_access::visible_vars(&self.ws.object_ast(s)) {
+                            if globals.contains_key(&name) {
+                                continue;
+                            }
+                            let ty = decl.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
+                            globals.insert(name.clone(), ty);
+                            ext_vars.insert(name, s);
+                        }
+                    }
                 }
             }
         }
