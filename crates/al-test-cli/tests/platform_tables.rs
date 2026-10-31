@@ -2016,8 +2016,12 @@ codeunit 50002 "H" { procedure Open(No: Integer) var RR: RecordRef; begin RR.Ope
 /// BC 29 adds four FlowFields to every table, listed in the Field table after SystemModifiedBy: 2000000005
 /// SystemCreatedByUserName and 2000000007 SystemModifiedByUserName (Text 50), 2000000006 SystemCreatedByFullName and
 /// 2000000008 SystemModifiedByFullName (Text 80) (system-fields/W6SystemFieldStamps.al:239-246; metadata/W6FieldKeyRows.al:
-/// 167-168, :267-268). Their other columns are not pinned. A FieldRef to one reads its value only after CalcField (the value
-/// before it is not pinned and is refused; refs.rs `user_name_fieldref_op`).
+/// 167-168, :267-268). Their other columns: Enabled, Type Name Text50/Text80, Field Caption 'Created By (User Name)' and so on,
+/// DataClassification SystemMetadata, all others blank or zero (Access and IsAllowedInCustomizations count as pinned once the
+/// corpus bump regenerates `pinned_columns.rs`) (corpus master
+/// platform/lt-y35-username-field-rows/Y35UserNameFieldRows.al C305_UserNameFieldRows_OwnTable). Their package ids differ
+/// from field 1's for a table of the app under test, and what they are is not pinned: refused. A FieldRef to one reads its
+/// value only after CalcField (the value before it is not pinned and is refused; refs.rs `user_name_fieldref_op`).
 #[test]
 fn bc_29_lists_the_user_name_system_fields_in_the_field_table() {
     let src = r#"table 50001 "R" { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } } keys { key(PK; Id) { } } }
@@ -2026,14 +2030,22 @@ codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Names() var F: Record Field; N: Text; begin F.SetRange(TableNo, 50001); F.SetFilter("No.", '>=%1', 2000000004); if F.FindSet() then repeat N += F.FieldName + ';' until F.Next() = 0; if N <> 'SystemModifiedBy;SystemCreatedByUserName;SystemCreatedByFullName;SystemModifiedByUserName;SystemModifiedByFullName;' then Error('%1', N); end;
   [Test] procedure Columns() var F: Record Field; begin F.Get(50001, 2000000006); if (F.Len <> 80) or (F.Class <> F.Class::FlowField) or (F.Type <> F.Type::Text) then Error('columns'); end;
   [Test] procedure RelationAndState() var F: Record Field; begin F.SetRange(TableNo, 50001); F.SetFilter("No.", '>=%1', 2000000005); F.SetFilter(RelationTableNo, '<>0'); if not F.IsEmpty() then Error('relation'); F.SetRange(RelationTableNo); F.SetRange(ObsoleteState, F.ObsoleteState::Removed); if not F.IsEmpty() then Error('removed'); end;
-  [Test] procedure Caption() var F: Record Field; begin F.Get(50001, 2000000006); if F."Field Caption" = '' then; end;
+  [Test] procedure Caption() var F: Record Field; begin F.Get(50001, 2000000006); if F."Field Caption" <> 'Created By (Full Name)' then Error('%1', F."Field Caption"); end;
+  [Test] procedure AllColumns() var F: Record Field; begin F.Get(50001, 2000000007);
+      if (F.TableName <> 'R') or not F.Enabled or (F."Type Name" <> 'Text50') or (F.ExternalName <> '') or (F."Field Caption" <> 'Modified By (User Name)') then Error('a');
+      if (F.RelationFieldNo <> 0) or (F.SQLDataType <> 0) or (F.OptionString <> '') or (F.ObsoleteReason <> '') then Error('b');
+      if (F.DataClassification <> F.DataClassification::SystemMetadata) or F.IsPartOfPrimaryKey or F.OptimizeForTextSearch then Error('c');
+      F.SetRange(TableNo, 50001); F.SetRange(DataClassification, F.DataClassification::EndUserIdentifiableInformation); if not F.IsEmpty() then Error('euii'); end;
+  [Test] procedure Package() var F: Record Field; begin F.Get(50001, 2000000005); if IsNullGuid(F."App Package ID") then; end;
   [Test] procedure FieldRef() var R: Record R; RR: RecordRef; begin RR.GetTable(R); if Format(RR.Field(2000000005).Value()) = '' then; end; }"#;
     let o = outcomes_bc("main", src, al_sema::check::Roots::default(), "29.0.0.0");
     passes(&o, "TextCount");
     passes(&o, "Names");
     passes(&o, "Columns");
     passes(&o, "RelationAndState");
-    assert!(not_run(&o, "Caption").contains("not known"));
+    passes(&o, "Caption");
+    passes(&o, "AllColumns");
+    assert!(not_run(&o, "Package").contains("not known"), "{o:?}");
     assert!(not_run(&o, "FieldRef").contains("before CalcField"));
     // BC 27 has none of them (W6FieldKeyRows.al:169-170).
     let o = outcomes(&src.replace("<> 5", "<> 1"));
