@@ -1244,6 +1244,7 @@ impl Checker<'_> {
         let (ws, members, catalog) = (self.ws, self.members, self.catalog);
         let enums = self.system_enums.clone();
         let tdd_apps = &self.tdd_apps;
+        let all_routines = self.all_routines;
         let next = std::sync::atomic::AtomicUsize::new(0);
         let outs: Vec<WorkerOut> = std::thread::scope(|scope| {
             let handles: Vec<_> = (0..workers)
@@ -1255,6 +1256,7 @@ impl Checker<'_> {
                         .spawn_scoped(scope, move || {
                             let mut c = Checker::new(ws, members, catalog, enums, false);
                             c.tdd_apps = tdd_apps.clone();
+                            c.all_routines = all_routines;
                             loop {
                                 let k = next.fetch_add(OBJECT_CHUNK, std::sync::atomic::Ordering::Relaxed);
                                 if k >= objects.len() {

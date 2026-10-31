@@ -549,9 +549,15 @@ fn left_out_diagnostics(
     let mut c = Checker::new(ws, members, catalog, system_enums(catalog), false);
     c.tdd_apps = roots.tdd.then(|| std::sync::Arc::new(tdd::test_apps(ws)));
     c.all_routines = true;
-    for oi in objects {
-        c.guard((oi, ANY_ROUTINE), |c| c.check_object(oi));
-        c.take_calls();
+    // Spread over the workers like the complete check: in the corpus TestLibraries pass this is the whole main app.
+    let workers = roots.workers.map_or_else(check_workers, |w| w.clamp(1, 32));
+    if workers > 1 && objects.len() >= PARALLEL_OBJECTS {
+        c.check_objects_parallel(workers, &objects);
+    } else {
+        for oi in objects {
+            c.guard((oi, ANY_ROUTINE), |c| c.check_object(oi));
+            c.take_calls();
+        }
     }
     let seen: HashSet<(&str, usize, &str)> = found.iter().map(|d| (d.file.as_str(), d.offset, d.code)).collect();
     let diags = c

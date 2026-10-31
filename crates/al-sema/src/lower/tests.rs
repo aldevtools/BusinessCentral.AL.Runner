@@ -2172,6 +2172,48 @@ fn a_selection_still_finds_the_compile_errors_of_what_it_leaves_out() {
     }
 }
 
+/// The check of what a selection leaves out (al-runner issue 5602) is spread over the check workers like the complete
+/// check: with one worker or several it finds the same errors, in the same order. In the corpus TestLibraries pass the
+/// left-out code is the whole main corpus app, and on one thread it took seconds of each run.
+#[test]
+fn the_check_of_what_a_selection_leaves_out_finds_the_same_errors_on_one_worker_and_on_several() {
+    let mut src = String::from(
+        "codeunit 50000 \"T\" { Subtype = Test; [Test] procedure P() begin if 1 <> 1 then Error('x'); end; }\n",
+    );
+    for i in 1..=150 {
+        src.push_str(&format!(
+            "codeunit {} \"Left {i}\" {{ procedure Run(): Integer begin exit(NoSuchProc{i}()); end; }}\n",
+            50000 + i
+        ));
+    }
+    let diagnostics = |workers: usize| -> Vec<String> {
+        let (_, l) = compile_apps_with(
+            vec![AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".to_string(), src.clone())],
+            }],
+            vec![crate::workspace::AppKind::Workspace],
+            &Default::default(),
+            None,
+            crate::check::Roots {
+                baseline: false,
+                only_tests: Some(vec![(0, 50000)]),
+                workers: Some(workers),
+                ..Default::default()
+            },
+        );
+        l.al_diagnostics
+            .iter()
+            .map(|d| format!("{} {} {}", d.offset, d.code, d.message))
+            .collect()
+    };
+    let one = diagnostics(1);
+    assert_eq!(one.len(), 150, "{one:?}");
+    assert_eq!(diagnostics(4), one);
+}
+
 /// Two objects of one type with one id in one app (al-runner issue 5854, must-not-compile 0036): the compile ends with
 /// AL0264 for both instead of a panic in the link step. The issues 5852 and 5853 too: exit(value) in a procedure
 /// without a return value (AL0139, must-not-compile 0048) and a call with too few arguments (AL0135, 0242) are found
