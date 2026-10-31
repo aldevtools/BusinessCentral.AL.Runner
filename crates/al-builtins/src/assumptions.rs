@@ -822,9 +822,9 @@ registry! {
     },
     FieldRowSystemId => {
         id: "field-row-system-id",
-        assumed: "The SystemId of a Field row is the Guid of the bytes of 2000000041, the table number and the field number, each little-endian, then four zero bytes. Measured only on the newest major for one table numbered above 65535, its field 2 and the user-name system fields 2000000005-8 (platform/lt-wc/WcFieldRowCopy.al:48, :60-63); a read of the SystemId of any other Field row (a table below 65536 or a system table, another system field, an older major) runs on the same rule.",
+        assumed: "The SystemId of the Field rows of SystemModifiedAt and SystemModifiedBy (fields 2000000003-4) follows the rule measured for the other rows on the majors of gate FieldRowSystemIdFrom28: the Guid of the bytes of 2000000041, the table number and the field number, each little-endian, then four zero bytes (platform/lt-field-row-systemid/FieldRowSystemId.al:49-170, platform/lt-wc/WcFieldRowCopy.al:48, :60-63). Before that gate every row has the null Guid (pinned).",
         tests: "No Microsoft test: a partner app's field picker page buffers Field rows of any table in a temporary Field record.",
-        probe: "The SystemId of the Field rows of a table below 65536, a Base Application table, a tableextension field, field 2000000000 (SystemId) and the timestamp row (No. 0), on all three majors.",
+        probe: "The SystemId of the Field rows of fields 2000000003 and 2000000004 of an own table, on every supported major.",
     },
     ReadIsolationAssignmentOpensWriteTransaction => {
         id: "read-isolation-assignment-opens-write-transaction",

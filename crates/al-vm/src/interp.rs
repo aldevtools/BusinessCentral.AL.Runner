@@ -1172,8 +1172,7 @@ impl Session {
             return;
         };
         if schema.fields.get(pos).is_some_and(|f| f.id == 2_000_000_000) {
-            let user_name_fields = self.has(al_version::Gate::PlatformMetadataColumnsFrom29);
-            crate::platform::note_field_row_system_id(schema, row, v, user_name_fields);
+            crate::platform::note_field_row_system_id(schema, row, v);
         }
     }
 

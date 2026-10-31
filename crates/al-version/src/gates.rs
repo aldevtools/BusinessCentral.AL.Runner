@@ -250,6 +250,11 @@ pub enum Gate {
     /// "HeaderFooterPart" and "ThemePart" from BC 29 (platform/lt-ug-report-layout-list/UgReportLayoutList.al:116-123,
     /// 150-157, corpus master 21a41286). Not consumed yet: ReportLayoutList_AllColumns_* are refused on every major.
     ReportLayoutListColumnsFrom28,
+    /// The SystemId of a row of the platform table Field is the Guid made of 2000000041, the table number and the field number
+    /// from BC 28; on BC 27 it is the null Guid for every row, and `GetBySystemId` of the null Guid finds the row of table 3,
+    /// field 1 (platform/lt-field-row-systemid/FieldRowSystemId.al:56-169, guarded `#if BC28PLUS`). Consumed by `al-vm`
+    /// platform/fields.rs.
+    FieldRowSystemIdFrom28,
 }
 
 impl Gate {
@@ -270,6 +275,7 @@ impl Gate {
         Gate::PartLineBeforeHostKeyFrom28,
         Gate::RecordRefIsDirtyFrom28,
         Gate::EmptyTableFindExcludeFlagFrom28,
+        Gate::FieldRowSystemIdFrom28,
         Gate::ThreeLineLeavesKeyOnceFrom28,
         Gate::ReportLayoutListColumnsFrom28,
         Gate::ThreeLineLeavesKeyTwiceAgainFrom29,
@@ -367,6 +373,7 @@ impl Gate {
             | Gate::RecordRefIsDirtyFrom28
             | Gate::ThreeLineLeavesKeyOnceFrom28
             | Gate::EmptyTableFindExcludeFlagFrom28
+            | Gate::FieldRowSystemIdFrom28
             | Gate::PartLineBeforeHostKeyFrom28
             | Gate::RequestPageExtensionRecordTriggerOrderFrom28
             | Gate::OptionFieldRefSetEvaluateErrorFrom28
@@ -524,6 +531,10 @@ impl Gate {
                     lines: "103,109,115,150,155",
                 },
             ],
+            Gate::FieldRowSystemIdFrom28 => &[Evidence {
+                file: "platform/lt-field-row-systemid/FieldRowSystemId.al",
+                lines: "56,74,94,115,136,160,163",
+            }],
             Gate::EmptyTableFindExcludeFlagFrom28 => &[Evidence {
                 file: "error-handling/lt-last-error-text-forms/FindEmptyTableExcludeFlag.al",
                 lines: "76",
