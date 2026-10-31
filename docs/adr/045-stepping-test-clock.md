@@ -90,3 +90,43 @@ every read, and by n milliseconds on `Sleep(n)`.
    buffer holds a stamp rounded is not pinned; with such a value it reads the same either way, so a stamp copied into a
    DateTime field and read back is still equal.
 3. **Repeatability is kept.** The clock depends on the number of reads, sleeps and writes, not on load.
+
+## Amendment: after a catch-up the clock lands just after the stamp (2026-10-31)
+
+### Status: Proposed
+
+1. **What is wrong.** The 2026-10-27 amendment moves the clock onto each stamp, and a stamp lies on the 1/300 s grid of the SQL
+   datetime column. Every write therefore moves the clock 0 to 3 ms forward onto that grid, so a `Time`, `DateTime` or
+   `CurrentDateTime` read right after a write is always a value the column holds as it is, and a round trip through a Time or
+   DateTime field never changes it. On BC the clock is the wall clock: measured on BC 28.5 and BC 29.0 (al-runner issue 6524,
+   20 samples of Insert, read the clock, Modify, Get), 11 and 16 of 20 values came back changed. A test that compares a kept
+   clock value with the value read back fails on BC most of the time and passed here every time. It also happens with
+   `ALRUNNER_REAL_CLOCK=1`, because the catch-up offset is added on top of the wall clock.
+2. **Change.** The stamp stays as it is: strictly increasing, on the column's grid, at or after the clock (item 2 of the
+   2026-10-27 amendment). After a write, the clock moves to 1 ms after the stamp instead of onto it. A grid millisecond ends in
+   0, 3 or 7, so 1 ms later ends in 1, 4 or 8 and is never on the grid. The next read of the clock is strictly later than the
+   last stamp.
+3. **What this replaces.** The sentence "A stamp still never steps the clock past itself, so a run with few writes is
+   unchanged" of item 1 of the 2026-10-27 amendment no longer holds: every write now moves the clock 1 to 4 ms forward (before:
+   0 to 3 ms). That sentence was already only half true, because the move onto the grid changed runs with few writes too.
+4. **What still holds.**
+   - A stamp written between two reads lies between them, and the clock never reads earlier than the last stamp (item 4;
+     record/TestSystemFieldStampsContracts.al:67).
+   - Stamps are strictly increasing (record/TestRecordSystemId.al:449, TestXRecStampFields.al:179).
+   - `SystemCreatedAt = SystemModifiedAt` on insert, and a stamp copied into a DateTime field reads back equal: the stamp
+     itself does not change.
+   - The rounding of a value written to a Time or DateTime column does not change (errors/lt-ms-refusals-130/P130DateFilters.al
+     `BT_DateTimeAndTime_MillisecondsAfterWrite`, `RH_TimeKey_Milliseconds_ModifyRenameDelete`).
+   - `ALRUNNER_REAL_CLOCK=1` keeps its meaning; the catch-up offset is added on top of the wall clock as before.
+   - Repeatability: the clock still depends only on the number of reads, sleeps and writes, so a run with a given seed
+     (ADR-061) gives the same values every time.
+5. **What does not match BC, and why it is accepted.** Here a clock read right after a write is never on the grid, so its round
+   trip changes it every time; on BC most of the time (55 % and 80 % measured; 70 % if the millisecond is uniform). A
+   deterministic clock has to pick one answer. "Always changed" exposes the test bug the issue describes (comparing an unsaved
+   clock value with a stored one) in every run, as BC does in most runs; "never changed" hid it in every run.
+6. **Option not chosen: leave the clock on the stamp.** Keeps the accepted text unchanged, and keeps hiding the bug of issue
+   6524 in every run.
+7. **Measured before acceptance (not built on the branch).** A trial of the change (one line in `Session::stamp_millis`:
+   the catch-up adds 1 ms more) with the reporter's repro as a test in `crates/al-vm/tests/store/hostvalues.rs`: red on main
+   (0 of 20 Times and DateTimes changed), green with the change, and the other 73 tests of that file pass. Newest major
+   (BC 29) `--baseline-diff` on the main corpus, onprem, onprem-dotnet and testlibraries: 0 baseline cases lost on each.
