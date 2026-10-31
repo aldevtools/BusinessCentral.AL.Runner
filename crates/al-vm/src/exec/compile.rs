@@ -51,6 +51,7 @@ fn compile_form(r: &ir::Routine, captured: bool, debug: bool) -> Option<Chunk> {
         captured,
         cap_depth: 0,
         debug,
+        field_value_arg: false,
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;
@@ -85,6 +86,8 @@ struct Compiler<'a> {
     cap_depth: u32,
     /// The debug form (ADR-048).
     debug: bool,
+    /// The `Convert` compiled next is a call or builtin argument (`arg_reg`): `FieldRef.Value()` into a Text or Code parameter.
+    field_value_arg: bool,
 }
 
 type R<T> = Result<T, ()>;
@@ -434,6 +437,7 @@ impl<'a> Compiler<'a> {
                 self.expr_into(a, d)?;
             }
             E::Convert(t, a) => {
+                let arg = std::mem::take(&mut self.field_value_arg);
                 let inner = a;
                 let a = self.expr_any(a)?;
                 self.note_dotnet_result_ty(t, inner);
@@ -442,7 +446,7 @@ impl<'a> Compiler<'a> {
                 self.chunk.types.push(t.clone());
                 let t = (self.chunk.types.len() - 1) as u32;
                 if field_value {
-                    self.emit(Op::ConvertFieldValue { d, a, t });
+                    self.emit(Op::ConvertFieldValue { d, a, t, arg });
                 } else {
                     self.emit(Op::Convert { d, a, t });
                 }
@@ -785,6 +789,8 @@ impl<'a> Compiler<'a> {
         let blank = ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0)));
         match a {
             ir::Arg::Value(e) => {
+                self.field_value_arg = matches!(e, ir::Expr::Convert(_, inner)
+                    if matches!(&**inner, ir::Expr::Builtin { id, .. } if *id == al_builtins::builtin_id::ids::FIELDREF_VALUE_1));
                 if rest_pure {
                     let r = self.expr_any(e)?;
                     self.keep(r);

@@ -41,6 +41,10 @@ const INERT_OBJECT_PROPERTIES: &[&str] = &[
     // results and handler needs with it true, false and unset (report/lt-tk-showprintstatus/
     // LtTkShowPrintStatus.al; al-runner issue 6056); `false` with Report.Run is pinned (pages/lt-report-page-properties/03-report-showprint.al:9, :43-45).
     "showprintstatus",
+    // Whether the client prints to the system printer. Run, RunModal, RunRequestPage, SaveAs, Execute and Print give the same
+    // triggers in the same order with it true and false (misc/lt-y13-triage/Y13ReportSystemPrinter.al:289-528, corpus master,
+    // BC 27.5, 28.5 and 29.0); Report Metadata shows it (al-vm platform/reports.rs).
+    "usesystemprinter",
 ];
 
 /// Data item properties that change nothing a processing run can observe: they steer the request

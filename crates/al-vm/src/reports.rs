@@ -688,6 +688,21 @@ impl Session {
                 self.report.execute_parameters = None;
                 ran.map(|()| Value::Null)
             }
+            // `Report.Print(Id, '')` of a processing-only report that declares UseSystemPrinter runs it as `Report.Execute(Id, '')`:
+            // OnInitReport, OnPreReport, the data items and OnPostReport, no request page, with UseSystemPrinter true and false
+            // (misc/lt-y13-triage/Y13ReportSystemPrinter.al:357-358, :505-514, corpus master).
+            ids::REPORT_PRINT_2
+                if args.len() == 2
+                    && matches!(&args[1], Value::Text(t) if t.is_empty())
+                    && self.report_print_runs_as_execute(args.first()) =>
+            {
+                let (inst, schema) = self.report_by_number(id, args.first())?;
+                if self.report_init(&inst)? {
+                    return Ok(Value::Null);
+                }
+                self.report_run(&inst, &schema, Entry::Execute, false)
+                    .map(|()| Value::Null)
+            }
             ids::REPORT_PRINT_1 | ids::REPORT_PRINT_2 => {
                 let schema = if id == ids::REPORT_PRINT_1 {
                     let inst = self.report_instance(receiver, false)?.0;
@@ -1097,6 +1112,20 @@ impl Session {
             "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?><NavWordReportXmlPart xmlns=\"urn:microsoft-dynamics-nav/reports/{}/{number}/\"><Labels />{body}</NavWordReportXmlPart>",
             tag(schema.name())?
         ).into()))
+    }
+
+    /// Report `arg` (a number) is processing-only and declares UseSystemPrinter: the shape whose `Print` is pinned.
+    fn report_print_runs_as_execute(&self, arg: Option<&Value>) -> bool {
+        let Some(Value::Integer(n)) = arg else { return false };
+        let objects = &self.engine.program.objects;
+        objects
+            .heads()
+            .iter()
+            .position(|o| o.is_kind(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok())
+            .is_some_and(|i| {
+                objects[i].report.as_ref().is_some_and(|r| r.processing_only)
+                    && self.object_property(i, "UseSystemPrinter").is_some()
+            })
     }
 
     fn report_by_number(&mut self, id: al_ir::BuiltinId, arg: Option<&Value>) -> Result<(Inst, Schema), Signal> {
