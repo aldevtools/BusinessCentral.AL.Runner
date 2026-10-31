@@ -499,11 +499,28 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         "25",
         "al-language/report/lt-y-report-props/YHelper.al:226, YReportPropsTests.al:34-160",
     ),
-    // UseSystemPrinter as declared; unknown for a report that does not declare it (al-vm reports.rs).
+    // EnableHyperLinks, ShowPrintStatus and PreviewMode of a report that declares none of them, read through the helper's
+    // FieldIndex loop; unknown for a declared one (al-vm reports.rs).
+    (
+        2_000_000_139,
+        "7",
+        "al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:22-31, :206",
+    ),
+    (
+        2_000_000_139,
+        "10",
+        "al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:22-31, :209",
+    ),
+    (
+        2_000_000_139,
+        "15",
+        "al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:22-31, :214",
+    ),
+    // UseSystemPrinter as declared, No for a report that does not declare it (al-vm reports.rs).
     (
         2_000_000_139,
         "5",
-        "al-language/misc/lt-y13-triage/Y13ReportSystemPrinter.al:526, :530-543",
+        "al-language/misc/lt-y13-triage/Y13ReportSystemPrinter.al:526, :530-543; al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:204",
     ),
     // TransactionType UpdateNoLocks for a report that declares none; unknown for a declared one (al-vm reports.rs).
     (
