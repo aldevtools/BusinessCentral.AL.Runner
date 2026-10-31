@@ -1518,6 +1518,8 @@ fn test_inner(
         process_ends_after,
         // `--ignore-permission-mock` (issue 5996): a test that lowers its permissions runs, flagged.
         ignore_permission_mock: a.ignore_permission_mock,
+        // `--permissions off` (ADR-062 section 5).
+        permissions_off: a.permissions_off,
         perturb: Default::default(),
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: (a.run_selected_only && selection.active() && !a.execute).then(|| {
