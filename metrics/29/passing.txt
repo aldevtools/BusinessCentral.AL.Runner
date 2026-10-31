@@ -4662,6 +4662,7 @@
 67600 Format_OptionValue_AnswersItsCaption
 67600 TestPage_Value_AnswersTheTableFieldCaption
 67601 N582_Evaluate_RecordId_QuotedKeysRoundTrip
+67601 N582_Evaluate_RecordId_TextKeyPart
 67601 N582_Format_RecordId_CodeKeyWithQuotes
 67604 BR_Editable_FlowFilterControl
 67604 BR_SetValue_FlowFilterControl
@@ -4768,6 +4769,7 @@
 67722 Skip_InProcedureCalledFromOnAfterGetRecord
 67726 Execute_Headless_NoRequestPage
 67726 Execute_SecondCallOnOneVariable_ErrorAndCode
+67726 Execute_WithParametersFromRunRequestPage
 67726 Execute_WriteInOnPostReport_SurvivesARollback
 67726 SaveAs_HandwrittenParameters_FilterAndNoVersionPart
 67726 SaveAs_ParametersFromRequestPage_AgainstTheTableView
@@ -4789,6 +4791,7 @@
 67735 SaveValues_4_RunAfterRunRequestPage_Reads42Or77
 67740 RunRequestPage_Defaults_OptionsAndDataItems
 67740 RunRequestPage_FilterForms_DataItems
+67740 RunRequestPage_SeededWithTextOfAnotherReport
 67740 RunRequestPage_TextShape_HeaderAndEnd
 67740 RunRequestPage_Values_OptionsOfEveryType
 67740 ShowFilterFalse_ParametersTextStillListsTheDataItem
@@ -6883,6 +6886,10 @@
 69852 GlobalTriggers_SubscriberChangesTheRecordItIsHanded_RowI
 69852 GlobalTriggers_SubscriberLeavesDefaults_RowA
 69852 InSession_NothingRaisesTheOtherEvents
+69852 PW_RaisedEvents_ProcessingOnlyRuns
+69852 PW_RaisedEvents_RequestPage
+69852 PW_RaisedEvents_SaveAsForms
+69852 RunRequestPage_RaisedEvents
 69852 SaveAs_Xml_RaisedEvents
 69852 StartSession_IsRefusedInATestSession
 69852 SubstituteReport_SubscriberChangesTheReport
@@ -11936,6 +11943,7 @@
 73302 P129_FormatFieldRef_Numbers
 73302 P129_FormatFieldRef_WithLength
 73305 P129_FormatTestPageControl_BooleanOptionCodeTextEnum
+73313 P129_PageHandler_PageTyped_PageRun_NoRecord
 73318 P129_Report_BreakAndSkip_InNestedOnPostDataItem
 73318 P129_Report_BreakAndSkip_InProceduresOfOtherTriggers
 73355 ClearAll_InOnInitReport_Observed
@@ -12496,6 +12504,9 @@
 73544 P130_Modal_TestPagePair_AThenB
 73544 P130_Modal_TestPagePair_BThenA
 73544 P130_Modal_TestPagePair_ListOrderReversed
+73544 P130_Plain_PagePair_AThenB
+73544 P130_Plain_PagePair_BThenA
+73544 P130_Plain_PagePair_ListOrderReversed_SamePageTwice
 73549 BT_DateAndDateTime_SqlRangeOnInsert
 73549 BT_DateAndDateTime_SqlRangeOnInsert_Max
 73549 BT_DateTimeAndTime_MillisecondsAfterWrite
@@ -12607,6 +12618,7 @@
 73727 PW_ProbeB_Statement
 73727 PW_ProbeB_StatementInTryFunction_ThenUsed
 73727 PW_ProbeB_ThreeTimes
+73735 P132_TypedPageHandler_PageRun_NoRecord
 73743 For_OptionField_AtoC
 73743 For_OptionField_BodyChangesVariable
 73743 For_OptionField_BodyJumpsToLast
@@ -13041,6 +13053,7 @@
 74036 P133_MixedModalHandlers_TestPageList_PageCard
 74036 P133_ModalHandler_PageTyped_NeverTouchesThePage
 74036 P133_ModalHandler_PageTyped_ResponsesOfCard
+74036 P133_PageHandler_PageTyped_GetRecord_NoRecordGiven
 74036 P133_ThreeModalHandlers_ThreePages
 74036 P133_TwoModalHandlers_CardThenList
 74036 P133_TwoModalHandlers_ListThenCard
@@ -15639,6 +15652,7 @@
 84549 Lost_SaveValues_OnOpenPageSetsTheOption
 84592 Execute_Parameters_StaticAndVariable
 84592 GLAccount_FilterOnDecimalFlowField
+84592 NoLayout_RunRequestPage
 84592 PendingWrite_ReportRunModal_WithRequestPage
 84592 PendingWrite_ReportRun_WithRequestPage
 84592 PendingWrite_ReportRun_WithRequestPage_AssertError
@@ -17163,10 +17177,22 @@
 89950 Proc_U_RunModal
 89950 Proc_U_SaveAsXml
 89950 Req_F_Execute
+89950 Req_F_Run
+89950 Req_F_RunModal
+89950 Req_F_RunModal_Cancel
+89950 Req_F_Run_Cancel
 89950 Req_F_SaveAsXml
 89950 Req_T_Execute
+89950 Req_T_Run
+89950 Req_T_RunModal
+89950 Req_T_RunModal_Cancel
+89950 Req_T_Run_Cancel
 89950 Req_T_SaveAsXml
 89950 Req_U_Execute
+89950 Req_U_Run
+89950 Req_U_RunModal
+89950 Req_U_RunModal_Cancel
+89950 Req_U_Run_Cancel
 89950 Req_U_SaveAsXml
 89962 Argument_AndValidate
 89962 Arithmetic_WithOrdinal
