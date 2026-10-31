@@ -64,6 +64,7 @@ mod qj_part_propagation;
 mod ql_part_counts;
 mod qz_setvalue_shapes;
 mod repeater_editable_row_move;
+mod row_expr_values;
 mod row_window;
 mod rp1_gone_row_no_new_line;
 mod rp1_init_value_key;

@@ -61,7 +61,12 @@ impl Session {
                 Ok(v)
             }
             ir::Binding::Var(_) | ir::Binding::BaseVar(_) => unreachable!("read above as a page variable"),
-            ir::Binding::Expr(r) => self.shown_value(st, idx, |s| s.control_routine(st, idx, r)),
+            ir::Binding::Expr(r) => {
+                if let Some(v) = self.row_expr_value(st, idx)? {
+                    return Ok(v);
+                }
+                self.shown_value(st, idx, |s| s.control_routine(st, idx, r))
+            }
             // A label shows its caption (handlers/TestPageLabelControlContracts.al:Label_IsATestPageMember_WithItsCaption).
             ir::Binding::Caption => Ok(Value::Text(self.control_caption(st, idx)?.into())),
             ir::Binding::None => unsupported("a control without a source"),

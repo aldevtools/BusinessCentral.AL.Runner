@@ -268,6 +268,8 @@ impl Session {
             s.agr_xrec = None;
             s.agcr_xrec = None;
             s.row_vars = Vec::new();
+            s.row_exprs = Vec::new();
+            s.row_exprs_live = false;
             s.row_prop_vars = Vec::new();
             s.agcr_after_new = false;
             s.part_accessed = false;

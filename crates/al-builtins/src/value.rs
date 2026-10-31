@@ -352,6 +352,10 @@ pub enum ReadBackwards {
 /// A row key and what the repeater's page-variable controls show for it: (control index, value) (`PageState::row_vars`).
 pub type RowVars = (Vec<Value>, Vec<(usize, Value)>);
 
+/// A row key and what the repeater's expression controls showed when the list read the row: (control index, value; `None`
+/// when the expression raised an error then) (`PageState::row_exprs`).
+pub type RowExprs = (Vec<Value>, Vec<(usize, Option<Value>)>);
+
 /// The view of a page's record an action started from: filters, key, the fields of an ad-hoc key, Ascending
 /// (`PageState::view_before_action`).
 pub type ActionView = (Vec<crate::filter::FieldFilter>, usize, Option<Vec<usize>>, bool);
@@ -811,6 +815,12 @@ pub struct PageState {
     /// raised an error then). Only controls whose expression reads no record and runs no code that writes (al-vm
     /// `pages/shown.rs`, al-runner issue 5765).
     pub shown_exprs: Vec<(usize, Option<Value>)>,
+    /// Per row of a list's repeater (its key): what each control of a function or an expression showed when the list read the
+    /// row, after its OnAfterGetRecord: (control index, value; `None` when the expression raised an error then) (al-vm
+    /// `pages/shown.rs` `note_row_exprs`).
+    pub row_exprs: Vec<RowExprs>,
+    /// `row_exprs` holds what the page shows: the list read its rows, and only pinned calls followed.
+    pub row_exprs_live: bool,
     /// Since that refresh only events happened that are pinned to leave this page as it is.
     pub shown_current: bool,
     /// The kinds of unpinned events since that refresh (bits of al-vm `pages/shown.rs`).
@@ -965,6 +975,8 @@ impl PageState {
             agr_rows: Vec::new(),
             row_vars: Vec::new(),
             row_prop_vars: Vec::new(),
+            row_exprs: Vec::new(),
+            row_exprs_live: false,
             agr_xrec: None,
             agcr_xrec: None,
             agcr_after_new: false,
