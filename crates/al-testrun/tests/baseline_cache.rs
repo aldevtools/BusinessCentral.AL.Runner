@@ -83,6 +83,8 @@ fn run_full(
         id_ranges: Vec::new(),
         translations: false,
         translation_files: Vec::new(),
+        runtime: None,
+        app_json_keys: Vec::new(),
         symbols: vec![],
     };
     CorpusRuntime::try_run_suites_with(
@@ -388,6 +390,8 @@ codeunit 60103 ResourceTests
             id_ranges: Vec::new(),
             translations: false,
             translation_files: Vec::new(),
+            runtime: None,
+            app_json_keys: Vec::new(),
             symbols: vec![],
         };
         CorpusRuntime::try_run_suites_with(
@@ -467,6 +471,8 @@ fn login_run(cache: &Path) -> Outcome {
         id_ranges: Vec::new(),
         translations: false,
         translation_files: Vec::new(),
+        runtime: None,
+        app_json_keys: Vec::new(),
         symbols: vec![],
     };
     let rt = CorpusRuntime::try_run_suites_with(
@@ -561,6 +567,8 @@ fn run_apps(
         id_ranges: Vec::new(),
         translations: false,
         translation_files: Vec::new(),
+        runtime: None,
+        app_json_keys: Vec::new(),
         symbols: vec![],
     };
     CorpusRuntime::try_run_suites_with(

@@ -15964,7 +15964,7 @@
         "code": "",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 1534,
+        "line": 1564,
         "pinned": true,
         "site": "records/W4PlatformAndMeta.al:632",
         "template": "The value \"%\" can't be evaluated into type TableFilter.%"
@@ -15973,7 +15973,7 @@
         "code": "Evaluate",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 2158,
+        "line": 2206,
         "pinned": true,
         "site": "codeunit/TestCrossAppDispatch.al:61",
         "template": "Evaluate"
@@ -15982,7 +15982,7 @@
         "code": "",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 2161,
+        "line": 2209,
         "pinned": true,
         "site": "codeunit/TestCrossAppDispatch.al:61",
         "template": "Evaluate"
@@ -16018,7 +16018,7 @@
         "code": "InvalidValue",
         "file": "crates/al-builtins/src/http.rs",
         "generic": false,
-        "line": 2453,
+        "line": 2526,
         "pinned": false,
         "site": null,
         "template": "The value '%' is not a valid HTTP status code."
@@ -16027,16 +16027,16 @@
         "code": "AL:Cookie",
         "file": "crates/al-builtins/src/http.rs",
         "generic": false,
-        "line": 2679,
+        "line": 2941,
         "pinned": true,
         "site": "network/lt-ay-http/AyCookieSetterExpression.al:57",
-        "template": "The 'Name'='' part of the cookie is invalid."
+        "template": "The 'Name'='%' part of the cookie is invalid."
       },
       {
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/json.rs",
         "generic": false,
-        "line": 2469,
+        "line": 2485,
         "pinned": true,
         "site": "json/JsonObjectBasics.al:377",
         "template": "The requested operation cannot be performed in this context."
@@ -16090,7 +16090,7 @@
         "code": "App",
         "file": "crates/al-builtins/src/moduleinfo.rs",
         "generic": false,
-        "line": 195,
+        "line": 196,
         "pinned": true,
         "site": "session/W5ModuleInfo.al:94",
         "template": "No installed extension was found with ID '%'."
@@ -16099,7 +16099,7 @@
         "code": "",
         "file": "crates/al-builtins/src/moduleinfo.rs",
         "generic": false,
-        "line": 422,
+        "line": 423,
         "pinned": true,
         "site": "session/W5NavAppResources.al:31",
         "template": "A resource matching '%' could not be found in app '%'."
@@ -16108,7 +16108,7 @@
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/native.rs",
         "generic": false,
-        "line": 920,
+        "line": 923,
         "pinned": true,
         "site": "codeunit/TestInterfaceRuntimeContracts.al:85",
         "template": "Interface not initialized"
@@ -16324,7 +16324,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/textfns.rs",
         "generic": false,
-        "line": 929,
+        "line": 939,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16333,7 +16333,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/textfns.rs",
         "generic": false,
-        "line": 1062,
+        "line": 1072,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16522,7 +16522,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 1982,
+        "line": 1993,
         "pinned": true,
         "site": "codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:95",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -16540,7 +16540,7 @@
         "code": "FormCloseNotAllowed",
         "file": "crates/al-vm/src/pages/open.rs",
         "generic": false,
-        "line": 1643,
+        "line": 1630,
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."
@@ -16549,7 +16549,7 @@
         "code": "FormCloseNotAllowed",
         "file": "crates/al-vm/src/pages/rows.rs",
         "generic": false,
-        "line": 3782,
+        "line": 3783,
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."
@@ -16603,7 +16603,7 @@
         "code": "DB:Ok",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 161,
+        "line": 172,
         "pinned": true,
         "site": "record/TestPlatformTablesWritableContracts.al:107",
         "template": "It is not possible to % any record in the Tenant License State table."
@@ -16612,7 +16612,7 @@
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 5299,
+        "line": 5383,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
@@ -16675,7 +16675,7 @@
         "code": "KeyRef.{other}",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 1470,
+        "line": 1483,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds"
@@ -16684,7 +16684,7 @@
         "code": "NotInitialized",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 1493,
+        "line": 1506,
         "pinned": true,
         "site": "misc/lt-probes-needed-4/PnD05_UnassignedFieldRef.al:42",
         "template": "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized."
@@ -16693,7 +16693,7 @@
         "code": "Argument",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 1588,
+        "line": 1601,
         "pinned": true,
         "site": "misc/lt-probes-needed-2/PnBDateFormat.al:404",
         "template": "The supplied value is not valid."
@@ -16702,7 +16702,7 @@
         "code": "Evaluate",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 1832,
+        "line": 1833,
         "pinned": true,
         "site": "errors/lt-ms-refusals-136/P136Report.al:349",
         "template": "The format of the Date '''' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
@@ -16711,7 +16711,7 @@
         "code": "",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 2697,
+        "line": 2698,
         "pinned": true,
         "site": "handlers/TestReportRuntimeContracts.al:462",
         "template": "The object has been run. Use the function CLEAR(Report)."
@@ -16765,7 +16765,7 @@
         "code": "DB:Ok",
         "file": "crates/al-vm/src/views.rs",
         "generic": false,
-        "line": 624,
+        "line": 622,
         "pinned": true,
         "site": "record/TestRecordViewCopyMarkContracts.al:145",
         "template": "Invalid expression of type: table view.%%"
