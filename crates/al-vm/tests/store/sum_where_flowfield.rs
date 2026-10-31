@@ -158,7 +158,8 @@ const SEED: &str = r#"
 "#;
 
 fn run(vars: &str, body: &str) -> Result<Value, Signal> {
-    let src = format!("{TABLES}\ncodeunit 50100 C {{ {SEED} procedure F(): Text var {vars} begin Seed(); {body} end; }}");
+    let src =
+        format!("{TABLES}\ncodeunit 50100 C {{ {SEED} procedure F(): Text var {vars} begin Seed(); {body} end; }}");
     al_testkit::run_in(&src, "C", "F")
 }
 
