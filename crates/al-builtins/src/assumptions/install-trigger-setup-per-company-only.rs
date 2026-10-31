@@ -1,0 +1,6 @@
+InstallTriggerSetupPerCompanyOnly => {
+    id: "install-trigger-setup-per-company-only",
+    assumed: "While install code runs, the platform asks the Global Triggers subscribers for a table's database trigger setup once in each company of the per-company part (with that company open, so a subscriber can read a per-company table), and never in the per-database part, where no company is open: a write there raises no database event.",
+    tests: "No Microsoft test: an outside report (a 45-app AppSource suite whose OnInstallAppPerDatabase writes a table while a GlobalTriggerManagement.OnAfterGetDatabaseTableTriggerSetup subscriber reads a per-company table without a CompanyName() guard; it installs on the reporter's real-BC run). Microsoft's install roots Plan Installer, Upgrade Tag Install and No. Series Copilot Install run through the same path.",
+    probe: "Pinned on corpus master by install/lt-ug-install-trigger-setup/UgInstallTests.al (corpus PR 805), but the runtime does not run TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart and PerDatabasePart_IsEmptyOfPerCompanyTable_NoCompany yet (the per-database install routine reads GetLastErrorCode of an error whose text is not pinned): run them, then retire.",
+}

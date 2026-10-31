@@ -1742,13 +1742,61 @@ fn read_from(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value], want: Opti
         }
         text
     } else {
-        match crate::native::text_of(&a[0]) {
-            Some(t) => t,
-            None => return unsupported("ReadFrom with an argument that is not text"),
+        match (&a[0], crate::native::text_of(&a[0])) {
+            (_, Some(t)) => t.to_string(),
+            // A collected error's Callstack ends with the untracked mark (`collected_call_stack`), and Microsoft's Error
+            // Message Management writes it into a JSON text and reads it back (ParseErrorText; Tests-General Journal, ERM
+            // General Journal UT, GeneralJournalNumberOfJournalLines and 65 more). A mark inside a string value only hides
+            // that string's text: the parse is exact and the value read keeps the mark. A mark anywhere else is refused.
+            (Value::Text(t) | Value::Code(t), None) if marks_only_in_string_values(t.as_str()) => t.to_string(),
+            _ => return unsupported("ReadFrom with an argument that is not text"),
         }
-        .to_string()
     };
     read_text_into(c.ret_used(), r, &text, want)
+}
+
+/// Whether every marker (`CALL_STACK_MARK`, `CARRIED_TEXT_MARK`) of `text` sits inside a JSON string that is a value, not
+/// a key, and the text is JSON. A carried text's mark stands for content that is not known, so it is refused here too.
+fn marks_only_in_string_values(text: &str) -> bool {
+    if text.contains(crate::native::CARRIED_TEXT_MARK) {
+        return false;
+    }
+    let mark = crate::native::CALL_STACK_MARK;
+    let mut chars = text.char_indices().peekable();
+    while let Some((_, c)) = chars.next() {
+        if c == mark {
+            return false;
+        }
+        if c != '"' {
+            continue;
+        }
+        let mut marked = false;
+        let mut closed = false;
+        while let Some((_, c)) = chars.next() {
+            match c {
+                '\\' => {
+                    chars.next();
+                }
+                '"' => {
+                    closed = true;
+                    break;
+                }
+                c if c == mark => marked = true,
+                _ => {}
+            }
+        }
+        if !closed {
+            return false;
+        }
+        // A string followed by `:` is a key.
+        if marked {
+            while chars.next_if(|(_, c)| c.is_whitespace()).is_some() {}
+            if chars.peek().is_some_and(|(_, c)| *c == ':') {
+                return false;
+            }
+        }
+    }
+    matches!(parse(text), Ok(Some(_)))
 }
 
 /// `Evaluate(JsonArray, Text)`: the text is read as `ReadFrom` reads it, and a text that is no array leaves the array as it was
