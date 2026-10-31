@@ -495,6 +495,12 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         "25",
         "al-language/report/lt-y-report-props/YHelper.al:226, YReportPropsTests.al:34-160",
     ),
+    // UseSystemPrinter as declared; unknown for a report that does not declare it (al-vm reports.rs).
+    (
+        2_000_000_139,
+        "5",
+        "al-language/misc/lt-y13-triage/Y13ReportSystemPrinter.al:526, :530-543",
+    ),
     // TransactionType UpdateNoLocks for a report that declares none; unknown for a declared one (al-vm reports.rs).
     (
         2_000_000_139,

@@ -728,6 +728,23 @@ codeunit 50000 "T" { Subtype = Test;
     assert!(why.contains("EnableExternalAssemblies"), "{why}");
 }
 
+/// Report Metadata UseSystemPrinter (5) is the property as declared: Yes for true, No for false (misc/lt-y13-triage/
+/// Y13ReportSystemPrinter.al:530-543, corpus master). A report that does not declare it is pinned by no corpus test: refused.
+#[test]
+fn report_metadata_use_system_printer_is_the_declared_value() {
+    let o = outcomes(
+        r#"report 50002 "On" { ProcessingOnly = true; UseSystemPrinter = true; }
+report 50003 "Off" { ProcessingOnly = true; UseSystemPrinter = false; }
+report 50004 "Plain" { ProcessingOnly = true; }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Declared() var M: Record "Report Metadata"; begin M.Get(50002); if not M.UseSystemPrinter then Error('on'); M.Get(50003); if M.UseSystemPrinter then Error('off'); end;
+  [Test] procedure Undeclared() var M: Record "Report Metadata"; begin M.Get(50004); if M.UseSystemPrinter then; end; }"#,
+    );
+    passes(&o, "Declared");
+    let why = not_run(&o, "Undeclared");
+    assert!(why.contains("UseSystemPrinter"), "{why}");
+}
+
 /// Field ExternalName (10) is blank and SQLDataType (23) Varchar for a Text field that declares neither
 /// (record/PZFieldObsoleteRows.al:48, :52). A declared ExternalName and the SQLDataType of any other type are
 /// pinned by no corpus test: reading them is refused.

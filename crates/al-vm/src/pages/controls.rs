@@ -1019,16 +1019,19 @@ impl Session {
                 // it ends the SetValue quietly as well, on a List and a Card, directly and after a Confirm answered No: the test goes
                 // on, the last error has the empty text and code NSValidateField:Dialog, the control shows the old value and the
                 // stored row keeps it (QiEmptyErrorPages.al:342 QZ_EE_TableValidate_ConfirmNo_List_NoAsserterror, :367 _Asserterror,
-                // :390 _Direct_List_NoAsserterror, :414 _Direct_Card_NoAsserterror).
-                if e.message.is_empty()
-                    && rec_bound
-                    && ctl.trigger("onvalidate").is_none()
-                    && st.borrow().host.is_none()
-                    && matches!(
-                        engine.object_facts[st.borrow().object as usize].page_type,
-                        Some(al_ir::PageType::List | al_ir::PageType::Card)
-                    )
-                {
+                // :390 _Direct_List_NoAsserterror, :414 _Direct_Card_NoAsserterror). The same on a ListPart inside a Card, where a
+                // later edit of the control is stored (misc/lt-y13-triage/Y13PageTriage.al:350-374, corpus master).
+                let page_type = |s: &St| engine.object_facts[s.borrow().object as usize].page_type.clone();
+                let host = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
+                let pinned_shape = match &host {
+                    None => matches!(page_type(st), Some(al_ir::PageType::List | al_ir::PageType::Card)),
+                    Some(h) => {
+                        h.borrow().host.is_none()
+                            && matches!(page_type(st), Some(al_ir::PageType::Other(o)) if o == "listpart")
+                            && page_type(h) == Some(al_ir::PageType::Card)
+                    }
+                };
+                if e.message.is_empty() && rec_bound && ctl.trigger("onvalidate").is_none() && pinned_shape {
                     let mut e = e;
                     e.code = format!("NSValidateField:{}", e.code);
                     self.error_finals = None;
@@ -1487,22 +1490,41 @@ impl Session {
             PageMethod::AssertEquals => self.control_assert_equals(st, idx, args),
             PageMethod::Caption => Ok(Value::Text(self.control_caption(st, idx)?.into())),
             PageMethod::OptionCount | PageMethod::GetOption => {
-                // Whether the options of a control (or table field) with ValuesAllowed are only the allowed values is not
-                // pinned (docs/probes-needed.md).
-                let allowed =
-                    |props: &[(String, String)]| props.iter().any(|(k, _)| k.eq_ignore_ascii_case("ValuesAllowed"));
-                if page_of(&self.engine(), st).controls[idx]
-                    .prop("valuesallowed")
-                    .is_some()
-                    || self.control_field(st, idx).is_some_and(|f| allowed(&f.properties))
-                {
-                    return unsupported(format!(
-                        "TestField.{m} on a control with ValuesAllowed: whether only the allowed values are options is not pinned"
-                    ));
-                }
+                // ValuesAllowed on an Enum control, or on the table field it shows, leaves only the allowed values as options, in
+                // the enum's order (misc/lt-y13-triage/Y13PageTriage.al:197-243, corpus master: `Open, Released` on the control
+                // and `Open, Closed` on the field, 2 options each). On an Option control, and with the property on both, it is
+                // not pinned.
+                let control_allowed = match page_of(&self.engine(), st).controls[idx].prop("valuesallowed") {
+                    None => None,
+                    Some(ir::PropVal::Lit(v)) => Some(v.clone()),
+                    Some(_) => {
+                        return unsupported(format!(
+                            "TestField.{m} on a control with a computed ValuesAllowed (not pinned)"
+                        ));
+                    }
+                };
+                let field_allowed = self.control_field(st, idx).and_then(|f| {
+                    f.properties
+                        .iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case("ValuesAllowed"))
+                        .map(|(_, v)| v.clone())
+                });
+                let allowed = match (control_allowed, field_allowed) {
+                    (Some(_), Some(_)) => {
+                        return unsupported(format!(
+                            "TestField.{m} on a control with ValuesAllowed over a field with ValuesAllowed (not pinned)"
+                        ));
+                    }
+                    (a, b) => a.or(b),
+                };
                 let current = self.control_value(st, idx)?;
                 let engine = self.engine();
                 let members: Vec<i32> = match self.control_type(st, idx, &current) {
+                    Some(RtType::Option(_)) if allowed.is_some() => {
+                        return unsupported(format!(
+                            "TestField.{m} on an Option control with ValuesAllowed: whether only the allowed values are options is not pinned"
+                        ));
+                    }
                     Some(RtType::Option(names)) => (0..names.len() as i32).collect(),
                     Some(RtType::Enum(id)) => {
                         self.note_enum(id);
@@ -1511,11 +1533,19 @@ impl Session {
                                 "TestField.{m} on an Enum control with an OptionCaption or a caption with a comma (not pinned)"
                             ));
                         }
-                        engine.program.objects[id as usize]
-                            .enum_values
-                            .iter()
-                            .map(|(v, _)| *v)
-                            .collect()
+                        let values = &engine.program.objects[id as usize].enum_values;
+                        match &allowed {
+                            None => values.iter().map(|(v, _)| *v).collect(),
+                            Some(list) => match allowed_enum_values(list, values) {
+                                Some(v) => v,
+                                None => {
+                                    return unsupported(format!(
+                                        "TestField.{m} on an Enum control with ValuesAllowed = {} (only names of the enum in its order are pinned)",
+                                        list.trim()
+                                    ));
+                                }
+                            },
+                        }
                     }
                     _ => return unsupported(format!("TestField.{m} on a control that is not an option")),
                 };
@@ -1668,6 +1698,20 @@ impl Session {
 /// (pages/lt-ah-pages/AhPageTests.al:444-535, GVE_TwoOnOne_*: two refusals on QtyCtl count once and the later text stays,
 /// and report/lt-report-requestpage-query-members/P105RpValid.al:135). Where another control's refusal came in between,
 /// the order the client then keeps is not pinned: refused.
+/// The ordinals of `ValuesAllowed = Open, Released` of an Enum with `values` (ordinal, name): the names match the enum's values,
+/// ignoring case and double quotes, in the enum's order. `None` for any other list (an ordinal, an unknown name, another order).
+fn allowed_enum_values(list: &str, values: &[(i32, String)]) -> Option<Vec<i32>> {
+    let mut out = Vec::new();
+    let mut from = 0;
+    for name in list.split(',') {
+        let name = name.trim().trim_matches('"');
+        let at = values[from..].iter().position(|(_, n)| n.eq_ignore_ascii_case(name))? + from;
+        out.push(values[at].0);
+        from = at + 1;
+    }
+    Some(out)
+}
+
 /// The values of a property such as `ValuesAllowed = '', 'A', 'N'`, unquoted; `None` when one is not a quoted text.
 fn quoted_list(raw: &str) -> Option<Vec<String>> {
     let mut out = Vec::new();

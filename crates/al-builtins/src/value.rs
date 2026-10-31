@@ -815,6 +815,8 @@ pub struct PageState {
     pub shown_doubts: u16,
     /// The first call since that refresh after which a read of an expression it does not keep is refused.
     pub shown_doubt_call: Option<&'static str>,
+    /// The page was run by code and caught by `TestPage.Trap()`, not opened by the test (OpenView, OpenEdit, OpenNew).
+    pub caught_by_trap: bool,
 }
 
 // The page instance holds `CurrPage`, which points back here: print only the facts.
@@ -1003,6 +1005,7 @@ impl PageState {
             shown_current: false,
             shown_doubts: 0,
             shown_doubt_call: None,
+            caught_by_trap: false,
         }
     }
 }
