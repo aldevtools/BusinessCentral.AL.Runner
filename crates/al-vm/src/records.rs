@@ -2794,7 +2794,7 @@ impl Session {
             return Ok(());
         }
         unsupported(
-            "a Delete of an MCP Configuration while MCP Configuration Tool holds rows on BC 27, where the platform deletes the configuration's tools with it (not followed)",
+            "a Delete of an MCP Configuration while MCP Configuration Tool holds rows, on a major whose tool table has no API Version field: there the platform deletes the configuration's tools with it (not followed)",
         )
     }
 
