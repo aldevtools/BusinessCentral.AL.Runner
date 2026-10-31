@@ -270,6 +270,32 @@ fn signup_context_and_document_service_are_stored_tables() {
     assert!(why.contains("Document Service"), "{why}");
 }
 
+/// Tenant Profile Page Metadata is an ordinary table, empty on a fresh tenant (onprem platform/PtOnPremTables.al:214-236;
+/// session/PZPlatformSurvey.al:172-175). A rename of a tenant profile in All Profile carries its rows to the new Profile ID and
+/// leaves the rows of another profile (onprem profile/TestTenantProfileRenameCascade.al:83-118). An Insert with an empty Profile
+/// ID crashes the tier (PZPlatformSurvey.al:12): refused; so is a Delete of an All Profile row that still has page metadata.
+#[test]
+fn tenant_profile_page_metadata_follows_the_rename_of_its_profile() {
+    let o = outcomes(
+        r#"page 50010 "RC" { PageType = RoleCenter; }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Profile(Id: Code[30]) var A: Record "All Profile"; begin A.Init(); A.Scope := A.Scope::Tenant; A."Profile ID" := Id;
+    A.Description := 'x'; A."Role Center ID" := 50010; A.Enabled := false; A.Insert(); end;
+  local procedure Meta(Id: Code[30]) var M: Record "Tenant Profile Page Metadata"; E: Guid; begin M.Init(); M."App ID" := E; M."Profile ID" := Id;
+    M.Owner := M.Owner::Tenant; M."Page ID" := 50010; M.Insert(); end;
+  [Test] procedure Rename() var A: Record "All Profile"; M: Record "Tenant Profile Page Metadata"; E: Guid; begin
+    if not M.IsEmpty() then Error('rows'); Profile('OLD'); Profile('OTHER'); Meta('OLD'); Meta('OTHER');
+    A.Get(A.Scope::Tenant, E, 'OLD'); A.Rename(A.Scope::Tenant, E, 'NEW');
+    M.SetRange("Profile ID", 'NEW'); if M.Count() <> 1 then Error('new'); M.SetRange("Profile ID", 'OLD'); if M.Count() <> 0 then Error('old');
+    M.SetRange("Profile ID", 'OTHER'); if M.Count() <> 1 then Error('other'); end;
+  [Test] procedure EmptyProfileId() var M: Record "Tenant Profile Page Metadata"; begin M.Init(); M."Page ID" := 1; M.Insert(); end;
+  [Test] procedure DeleteWithMetadata() var A: Record "All Profile"; E: Guid; begin Profile('DEL'); Meta('DEL'); A.Get(A.Scope::Tenant, E, 'DEL'); A.Delete(); end; }"#,
+    );
+    passes(&o, "Rename");
+    assert!(not_run(&o, "EmptyProfileId").contains("Profile ID"));
+    assert!(not_run(&o, "DeleteWithMetadata").contains("Tenant Profile Page Metadata"));
+}
+
 // A name that ends in a dot (`Metadata Permission Set Rel.`, 23 of Microsoft's permission tests) is a
 // platform table with no provider, not an object outside the workspace.
 #[test]

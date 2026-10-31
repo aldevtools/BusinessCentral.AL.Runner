@@ -284,6 +284,9 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     // native (al-vm recmeta.rs `document_service_insert`).
     (2_000_000_255, "Signup Context", Provider::Stored),
     (2_000_000_114, "Document Service", Provider::Stored),
+    // An ordinary table, empty on a fresh tenant (al-language-onprem/platform/PtOnPremTables.al:214-236, session/
+    // PZPlatformSurvey.al:172-175); its rows follow the rename of their tenant profile (al-vm profiles.rs).
+    (2_000_000_187, "Tenant Profile Page Metadata", Provider::Stored),
 ];
 
 /// Stored tables that a fresh tenant fills with rows no corpus test pins. The runtime starts them empty, so it treats them as

@@ -27,6 +27,11 @@ use al_builtins::value::Value;
 use al_data::{Store, TableDef};
 
 pub(crate) const ALL_PROFILE: u32 = 2_000_000_178;
+/// Tenant Profile Page Metadata: App ID (1), Profile ID (2), Page ID (3), ...
+pub(crate) const TENANT_PROFILE_PAGE_METADATA: u32 = 2_000_000_187;
+
+/// The Tenant Profile Page Metadata table and some of its rows.
+type PageMetadataRows = (std::sync::Arc<TableDef>, Vec<Vec<Value>>);
 
 fn text_of_literal(v: &str) -> Option<String> {
     super::objects::string_lit(v)
@@ -84,9 +89,120 @@ impl Session {
         !temporary && self.engine.program.objects[t.object as usize].id == Some(ALL_PROFILE)
     }
 
-    /// A row that an installed app declares cannot be deleted.
+    /// The Tenant Profile Page Metadata table and the rows of profile `profile_id` under app `app` (a store scan).
+    fn page_metadata_rows(&self, app: &Value, profile_id: &Value) -> Result<Option<PageMetadataRows>, Signal> {
+        let Some(oi) = self
+            .engine
+            .program
+            .objects
+            .heads()
+            .iter()
+            .position(|o| o.kind == al_ir::ObjKind::Table && o.id == Some(TENANT_PROFILE_PAGE_METADATA))
+        else {
+            return Ok(None);
+        };
+        let Some(m) = self.engine.tables[oi].clone() else {
+            return Ok(None);
+        };
+        let cx = self.cx.clone();
+        let mut filters = Vec::new();
+        for (id, v) in [(1, app), (2, profile_id)] {
+            let field = pos(&m, id);
+            filters.push(al_builtins::filter::FieldFilter {
+                field,
+                expr: al_builtins::filter::FilterExpr::Eq(al_builtins::ops::convert(v.clone(), &m.fields[field].ty)?),
+                group: 0,
+            });
+        }
+        let mut rows = Vec::new();
+        let mut after: Option<Vec<Value>> = None;
+        loop {
+            let scan = al_data::Scan {
+                key: 0,
+                filters: &filters,
+                ascending: true,
+                after: after.as_deref(),
+            };
+            let Some(row) = self
+                .store
+                .next(&cx, &m, &scan)
+                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+            else {
+                break;
+            };
+            after = Some(al_data::position(&m, 0, &row));
+            rows.push(row);
+        }
+        Ok(Some((m, rows)))
+    }
+
+    /// After a rename of an All Profile row: the Tenant Profile Page Metadata rows of a tenant profile (empty App ID) follow
+    /// it to the new Profile ID, the rows of another profile stay (al-language-onprem/profile/TestTenantProfileRenameCascade.al:
+    /// 83-118). Rows of a profile whose rename is not of that shape are not pinned: refused.
+    pub(crate) fn profile_after_rename(&mut self, t: &TableDef, old: &[Value], new: &[Value]) -> Result<(), Signal> {
+        let (scope, app, id) = (pos(t, 1), pos(t, 2), pos(t, 3));
+        let Some((m, rows)) = self.page_metadata_rows(&old[app], &old[id])? else {
+            return Ok(());
+        };
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let tenant = |r: &[Value]| matches!(&r[scope], Value::Option(1, _)) && is_empty_guid(&r[app]);
+        if !tenant(old) || !tenant(new) {
+            return Err(Signal::Unsupported(
+                "Rename of a profile that has Tenant Profile Page Metadata, other than of a tenant profile: not pinned"
+                    .into(),
+            ));
+        }
+        let cx = self.cx.clone();
+        let target = pos(&m, 2);
+        let new_id = al_builtins::ops::convert(new[id].clone(), &m.fields[target].ty)?;
+        for row in rows {
+            let old_pk = m.primary_key(&row);
+            let mut changed = row.clone();
+            changed[target] = new_id.clone();
+            match self
+                .store
+                .rename(&cx, &m, &old_pk, changed)
+                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+            {
+                al_data::RenameOutcome::Renamed => {}
+                _ => {
+                    return Err(Signal::Unsupported(
+                        "Rename of a profile: its Tenant Profile Page Metadata collides with an existing row (not pinned)".into(),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// An Insert of Tenant Profile Page Metadata with an empty Profile ID raises an uncatchable error on the tier
+    /// (al-language-onprem/session/PZPlatformSurvey.al:12): refused.
+    pub(crate) fn page_metadata_before_insert(&self, t: &TableDef, row: &[Value]) -> Result<(), Signal> {
+        if self.engine.program.objects[t.object as usize].id == Some(TENANT_PROFILE_PAGE_METADATA)
+            && al_builtins::native::text_of(&row[pos(t, 2)]).is_some_and(|s| s.trim().is_empty())
+        {
+            return Err(Signal::Unsupported(
+                "Insert of Tenant Profile Page Metadata with an empty Profile ID: the tier raises an uncatchable error"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// A row that an installed app declares cannot be deleted. What a Delete of a tenant row that still has Tenant Profile
+    /// Page Metadata does to those rows is not pinned: refused.
     pub(crate) fn profile_before_delete(&self, t: &TableDef, row: &[Value]) -> Result<(), Signal> {
         if is_empty_guid(&row[pos(t, 2)]) {
+            if self
+                .page_metadata_rows(&row[pos(t, 2)], &row[pos(t, 3)])?
+                .is_some_and(|(_, r)| !r.is_empty())
+            {
+                return Err(Signal::Unsupported(
+                    "Delete of a profile that has Tenant Profile Page Metadata: what happens to those rows is not pinned".into(),
+                ));
+            }
             return Ok(());
         }
         Err(error(format!(

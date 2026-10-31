@@ -3757,6 +3757,9 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::Insert => {
+                if !rec.borrow().temporary {
+                    self.page_metadata_before_insert(&t, &rec.borrow().fields)?;
+                }
                 // A temporary record has no sequence: the key stays as it is (corpus
                 // record/TestTempTableContracts.al:52).
                 let auto = if rec.borrow().temporary {
@@ -5708,6 +5711,9 @@ impl Session {
                                 al_builtins::native::text_of(&row[0]).unwrap_or_default(),
                             );
                             self.store.rename_company(&from, &to);
+                        }
+                        if !same_key && self.is_profile_row(&t, rec.borrow().temporary) {
+                            self.profile_after_rename(&t, &old_fields, &row)?;
                         }
                         if !same_key {
                             self.propagate_rename(rec, &t, &refs, &old_fields, &row)?;
