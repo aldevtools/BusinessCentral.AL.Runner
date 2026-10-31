@@ -749,6 +749,7 @@ const REGISTRY: &[(&str, NativeFn)] = &[
     ("Report.SetTableView#1", vm_only),
     ("Report.UseRequestPage#1", vm_only),
     ("Report.ObjectId#1", vm_only),
+    ("Report.IsReadOnly#1", vm_only),
     ("Report.Preview#1", vm_only),
     ("RequestPage.Update#1", vm_only),
     ("RequestPage.Caption#1", vm_only),

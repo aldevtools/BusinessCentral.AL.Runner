@@ -934,6 +934,10 @@ pub(crate) struct Checker<'a> {
     resolved: std::cell::RefCell<Resolved>,
     /// Checks that panicked (see [`CheckResult::panicked`]).
     panicked: HashMap<(usize, usize), String>,
+    /// For the next `pick`: the arguments that are a bare field name of the receiver's table where no value of that name
+    /// is in scope (`Row.Validate(Note, 'x')` in a codeunit). Such an argument fits a built-in's field parameter only, not
+    /// a procedure's (record/lt-bm-builtin-name-procedures/Y36BuiltinNameSameArity.al:229-251).
+    field_only_args: Vec<usize>,
     /// The result type of the routine being checked (`None`: a trigger or a procedure without a result).
     cur_ret: Option<Ty>,
     /// The name of the routine being checked when `exit` with a value is AL0139 in it: a procedure or trigger of a

@@ -1779,8 +1779,14 @@ mod tests {
         let stamp = "<Year><Month,2><Day,2><Hours24><Minutes><Seconds>";
         assert_eq!(text(fmt(at(2026, 3, 5, 9, 7, 2, 0), stamp)), "260305972");
         assert_eq!(text(fmt(at(2026, 1, 1, 0, 0, 0, 0), stamp)), "260101000");
-        assert_eq!(text(fmt(at(2026, 3, 5, 9, 7, 2, 0), &format!("A0SM-A{stamp}"))), "A0SM-A260305972");
-        assert_eq!(text(fmt(at(2026, 3, 5, 9, 7, 2, 78), &format!("Z{stamp}<Thousands>"))), "Z26030597278");
+        assert_eq!(
+            text(fmt(at(2026, 3, 5, 9, 7, 2, 0), &format!("A0SM-A{stamp}"))),
+            "A0SM-A260305972"
+        );
+        assert_eq!(
+            text(fmt(at(2026, 3, 5, 9, 7, 2, 78), &format!("Z{stamp}<Thousands>"))),
+            "Z26030597278"
+        );
         assert_eq!(text(fmt(at(2031, 3, 5, 12, 0, 0, 0), "<Year>")), "31");
         assert_eq!(text(fmt(at(1998, 3, 5, 12, 0, 0, 0), "<Year>")), "98");
         assert_eq!(text(fmt(at(2099, 3, 5, 12, 0, 0, 0), "<Year>")), "2099");

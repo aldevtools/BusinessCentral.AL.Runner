@@ -567,6 +567,12 @@ impl<'a> Checker<'a> {
                         );
                         self.diag(sc, target, "AL0135", message);
                     }
+                    // `FR.SetFilter := '1'` is checked as `SetFilter()` (must-not-compile 2504, corpus writer Y36). Only this
+                    // member with one required and further optional parameters is pinned.
+                    if id == "FieldRef.SetFilter#1" && !self.ws.is_dependency(sc.oi) {
+                        let message = "There is no argument given that corresponds to the required formal parameter 'String' of 'SetFilter(Text, [Joker])'";
+                        self.diag(sc, target, "AL0135", message.to_string());
+                    }
                 }
             }
             if !visible.is_empty()
@@ -1033,6 +1039,7 @@ impl<'a> Checker<'a> {
                 };
                 let unknown_callee = matches!(target, E::Val(Ty::Unknown));
                 let mut arg_tys = Vec::with_capacity(args.len());
+                let mut field_only: Vec<usize> = Vec::new();
                 self.reach_static_run(sc, callee, &args);
                 for (i, a) in args.iter().enumerate() {
                     // On a receiver outside the workspace, a bare name may be one of
@@ -1071,6 +1078,9 @@ impl<'a> Checker<'a> {
                     }
                     if field_pos && a.kind() == NameRef {
                         if let Some(t) = receiver.as_ref().and_then(|r| self.field_of(sc, r, &name_of(a))) {
+                            if !sc.rec_unqualified && !sc_has_var(sc, &name_of(a).to_lowercase()) {
+                                field_only.push(i);
+                            }
                             let r = a.text_range();
                             self.types
                                 .insert((sc.file, r.start().into(), r.end().into()), t.clone());
@@ -1126,6 +1136,7 @@ impl<'a> Checker<'a> {
                         E::Val(Ty::Unknown)
                     }
                     E::Callable(c) => {
+                        self.field_only_args = field_only;
                         let ret = self.pick(sc, node, &c, &arg_tys, &member_name(callee));
                         if self.tdd_apps.is_some() {
                             self.tdd_settle_field_args(sc, callee, &args, &arg_tys);
