@@ -563,7 +563,15 @@ impl<'a> Checker<'a> {
             }
             // `Row.Get := 2` (record/ProbePropertyAssignmentForms.al:612, corpus writer Y29): a builtin with a variadic
             // form takes the value as its argument; its result type is not the target's.
-            if builtins && visible.iter().any(|c| c.max == usize::MAX && c.min <= 1) {
+            // A form lowering knows as a setter or an assign call (`E.Add := v`, XmlElement) takes the setter path below.
+            let known_form = visible.iter().any(|c| match &c.target {
+                Res::Builtin(id) => self.catalog.by_id(id).is_some_and(|s| {
+                    crate::lower::is_property_setter(&s.receiver, &s.name)
+                        || crate::lower::is_assign_call(&s.receiver, &s.name)
+                }),
+                _ => false,
+            });
+            if builtins && !known_form && visible.iter().any(|c| c.max == usize::MAX && c.min <= 1) {
                 let r = target.text_range();
                 self.types
                     .insert((sc.file, r.start().into(), r.end().into()), Ty::Unknown);
