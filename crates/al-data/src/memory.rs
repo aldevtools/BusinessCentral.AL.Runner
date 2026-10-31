@@ -172,6 +172,10 @@ pub struct MemStore {
     virtuals: Option<std::rc::Rc<dyn VirtualTables>>,
     /// Rows a table holds before anything wrote to it (ADR-020).
     backing: Option<std::rc::Rc<dyn Backing>>,
+    /// The companies `copy_company` made, each with the company whose backing rows it holds: a table of the copy that
+    /// nothing wrote to reads the source's backing rows, as the copy took them. Part of the transaction, like `tables`.
+    copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
+    committed_copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
     /// While set, a change to a row of the backing (a modify, delete or rename) is written down
     /// here and allowed (ADR-020 amendment: install code may change restored rows). Shared by the
     /// clones of the store, so a snapshot or a rollback does not lose it.
@@ -568,7 +572,30 @@ impl MemStore {
     /// The rows table `object` has to offer `company`, if the store has a backing.
     pub fn backed_rows(&self, company: &str, object: u32) -> Option<Rows> {
         self.seen(object);
-        self.backing.as_ref()?.rows(company, object)
+        self.backing_rows(company, object)
+    }
+
+    /// The backing's rows of table `object` in `company`; a copy reads those of the company it was copied from.
+    fn backing_rows(&self, company: &str, object: u32) -> Option<Rows> {
+        let source = self
+            .copies
+            .get(&std::sync::Arc::from(company))
+            .map_or(company, |s| &**s);
+        self.backing.as_ref()?.rows(source, object)
+    }
+
+    /// Notes that `copy` holds the backing rows of `source` (a company `copy_company` made, in a store read back from
+    /// an export, which holds the tables but not the link) as committed data.
+    pub fn note_copy(&mut self, copy: &str, source: &str) {
+        let source = self.copy_source(source);
+        self.copies.insert(copy.into(), source.clone());
+        self.committed_copies.insert(copy.into(), source);
+    }
+
+    /// The company whose backing rows `company` holds: its source if it is a copy, else itself.
+    fn copy_source(&self, company: &str) -> std::sync::Arc<str> {
+        let key: std::sync::Arc<str> = company.into();
+        self.copies.get(&key).cloned().unwrap_or(key)
     }
 
     /// The identity of the rows the untouched tables read ([`Backing::identity`]): `Some((0, 0))` without a backing,
@@ -633,13 +660,7 @@ impl MemStore {
         let slot = slot(cx, t);
         match self.committed.get(&slot) {
             Some(table) => table.get(&Key(pk.to_vec())).cloned(),
-            None => self
-                .backing
-                .as_ref()?
-                .rows(&slot.0, slot.1)?
-                .0
-                .get(&Key(pk.to_vec()))
-                .cloned(),
+            None => self.backing_rows(&slot.0, slot.1)?.0.get(&Key(pk.to_vec())).cloned(),
         }
     }
 
@@ -769,7 +790,7 @@ impl MemStore {
             || self
                 .backing
                 .as_ref()
-                .is_some_and(|b| !company.is_empty() && b.company().eq_ignore_ascii_case(company))
+                .is_some_and(|b| !company.is_empty() && b.company().eq_ignore_ascii_case(&self.copy_source(company)))
     }
 
     /// The companies that hold a row in per-company table `object`, committed or not.
@@ -786,6 +807,12 @@ impl MemStore {
             let held = self.tables.contains_key(&(std::sync::Arc::from(company), object));
             if !held && b.rows(company, object).is_some_and(|r| !r.is_empty()) {
                 out.push(company.to_string());
+            }
+            for (copy, source) in self.copies.iter() {
+                let held = self.tables.contains_key(&(copy.clone(), object));
+                if !held && b.rows(source, object).is_some_and(|r| !r.is_empty()) {
+                    out.push(copy.to_string());
+                }
             }
         }
         out
@@ -806,6 +833,7 @@ impl MemStore {
             self.versions.insert(slot.clone(), self.counter);
             self.shapes.insert(slot, self.counter);
         }
+        self.copies.remove(&std::sync::Arc::from(company));
     }
 
     /// Moves every row of company `old` to company `new`, as renaming the company does
@@ -829,11 +857,19 @@ impl MemStore {
                 self.shapes.insert(target, self.counter);
             }
         }
+        if let Some(source) = self.copies.remove(&std::sync::Arc::from(old)) {
+            self.copies.insert(new.into(), source);
+        }
     }
 
     /// Copies every row of company `from` to company `to`, as they are (system fields included), as
-    /// `Database.CopyCompany` does. Part of the open transaction.
+    /// `Database.CopyCompany` does, the backing's rows of the tables nothing wrote to included. Part of the open
+    /// transaction.
     pub fn copy_company(&mut self, from: &str, to: &str) {
+        if self.backing.is_some() {
+            let source = self.copy_source(from);
+            self.copies.insert(to.into(), source);
+        }
         let copied: Vec<(Slot, Table)> = self
             .tables
             .iter()
@@ -888,11 +924,7 @@ impl MemStore {
         let slot = slot(cx, t);
         match self.tables.get(&slot) {
             Some(table) => Some(std::borrow::Cow::Borrowed(table)),
-            None => self
-                .backing
-                .as_ref()?
-                .rows(&slot.0, slot.1)
-                .map(|r| std::borrow::Cow::Owned(r.0)),
+            None => self.backing_rows(&slot.0, slot.1).map(|r| std::borrow::Cow::Owned(r.0)),
         }
     }
 
@@ -1127,11 +1159,7 @@ impl MemStore {
         self.seen(t.object);
         let slot = slot(cx, t);
         if !self.tables.contains_key(&slot) {
-            let start = self
-                .backing
-                .as_ref()
-                .and_then(|b| b.rows(&slot.0, slot.1))
-                .map_or_else(Table::new, |r| r.0);
+            let start = self.backing_rows(&slot.0, slot.1).map_or_else(Table::new, |r| r.0);
             self.tables.insert(slot.clone(), start);
         }
         self.tables.get_mut(&slot).expect("the slot was just inserted")
@@ -1465,6 +1493,7 @@ impl Store for MemStore {
         self.committed = self.tables.clone();
         self.committed_versions = self.versions.clone();
         self.committed_shapes = self.shapes.clone();
+        self.committed_copies = self.copies.clone();
         self.committed_emptied = self.emptied.clone();
     }
 
@@ -1474,6 +1503,7 @@ impl Store for MemStore {
         self.tables = self.committed.clone();
         self.versions = self.committed_versions.clone();
         self.shapes = self.committed_shapes.clone();
+        self.copies = self.committed_copies.clone();
         self.emptied = self.committed_emptied.clone();
     }
 }
@@ -2173,6 +2203,37 @@ mod tests {
         let mut other = t.clone();
         other.object = 8;
         assert_eq!(s.count(&cx, &other, &[]).unwrap(), 0);
+    }
+
+    // al-runner issue 6507: a copy of the backed company holds the backing's rows of the tables nothing wrote to
+    // (session/lt-y22-copy-company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows), apart from the source's.
+    #[test]
+    fn a_copy_of_the_backed_company_reads_the_backing_rows() {
+        let (mut s, _) = backed();
+        let (t, c, d) = (
+            crate::contract::table(),
+            crate::contract::cx("C"),
+            crate::contract::cx("D"),
+        );
+        s.commit();
+        s.copy_company("C", "D");
+        assert_eq!(s.count(&d, &t, &[]).unwrap(), 3);
+        assert!(s.has_company_rows("D"));
+        assert!(s.companies_with_rows(7).contains(&"D".to_string()));
+        s.delete(&d, &t, &[Value::Code("A".into())]).unwrap();
+        assert_eq!(s.count(&d, &t, &[]).unwrap(), 2);
+        assert_eq!(s.count(&c, &t, &[]).unwrap(), 3, "the source keeps its rows");
+        // The copy is part of the transaction: a rollback removes it.
+        s.rollback();
+        assert_eq!(s.count(&d, &t, &[]).unwrap(), 0);
+        s.copy_company("C", "D");
+        s.commit();
+        s.rename_company("D", "E");
+        assert_eq!(s.count(&d, &t, &[]).unwrap(), 0);
+        assert_eq!(s.count(&crate::contract::cx("E"), &t, &[]).unwrap(), 3);
+        s.drop_company("E");
+        assert_eq!(s.count(&crate::contract::cx("E"), &t, &[]).unwrap(), 0);
+        assert!(!s.has_company_rows("E"));
     }
 
     #[test]
