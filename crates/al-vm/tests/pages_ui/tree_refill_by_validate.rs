@@ -1,6 +1,6 @@
 //! A filter field's OnValidate that empties and refills the temporary source of a collapsed tree Worksheet (ShowAsTree,
 //! TreeInitialState = CollapseAll): the TestPage walks the new top-level rows with the text OnAfterGetRecord gives them, as the
-//! flat Worksheet does (al-runner issue 6550, a follow-up to 5779 and 6523; passes on BC 28.5 and 29.0 per the reporter).
+//! flat Worksheet does (al-runner issue 6550, a follow-up to 5779 and 6523; passes on real BC, two majors, per the reporter).
 
 const SRC: &str = r#"
 table 51610 "TR Row" { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } field(3; Indent; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
