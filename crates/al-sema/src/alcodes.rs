@@ -125,6 +125,10 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
         "IncludeCaption = true on a report column whose source is an expression",
     ),
     (
+        "AL0460",
+        "a DotNet variable of a codeunit declared both [RunOnClient] and [WithEvents] (case 2335)",
+    ),
+    (
         "AL0440",
         "a page or report extension procedure, or a second procedure of a codeunit, table, page or report, with the signature of a procedure it could reach",
     ),
@@ -491,7 +495,10 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
                 ambiguous_bare_calls(ws, oi, &obj, &mut out);
             }
             ObjKind::ReportExtension => extension_procedures(ws, oi, &obj, ObjKind::Report, &mut out),
-            ObjKind::Codeunit => duplicate_procedures(ws, oi, &obj, &mut out),
+            ObjKind::Codeunit => {
+                duplicate_procedures(ws, oi, &obj, &mut out);
+                client_events_outside_pages(ws, oi, &obj, &mut out);
+            }
             ObjKind::Page => field_control_procedure_calls(ws, oi, &obj, &mut out),
             ObjKind::Query => query_joins(ws, o.file, obj.sections(), &mut out),
             ObjKind::Report => {
@@ -646,6 +653,25 @@ fn unknown_codeunit_variables(ws: &Workspace, oi: usize, obj: &ast::Object, out:
             "AL0185",
             format!("Codeunit '{}' is missing", parts[0]),
         );
+    }
+}
+
+/// AL0460 (corpus must-not-compile 2335): a DotNet variable of a codeunit declared both `[RunOnClient]` and `[WithEvents]`.
+/// The same declaration on a page compiles (al-language-onprem-dotnet/lt-bg-runonclient/Y16RunOnClientShapes.al, page
+/// 99475). Other object kinds are not judged.
+fn client_events_outside_pages(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
+    for d in obj.syntax().descendants().filter_map(ast::VarDecl::cast) {
+        let names: Vec<String> = d.attributes().iter().map(|a| a.name().to_ascii_lowercase()).collect();
+        if names.iter().any(|n| n == "runonclient") && names.iter().any(|n| n == "withevents") {
+            push(
+                out,
+                ws,
+                ws.objects[oi].file,
+                offset_of(d.syntax()),
+                "AL0460",
+                "Client-side events are supported only on pages and page extensions.".into(),
+            );
+        }
     }
 }
 

@@ -703,7 +703,26 @@ pub fn types() -> Vec<RegistryType> {
     all.extend(super::query_metadata::types());
     all.extend(super::generic_dictionary::types());
     all.extend(own_types());
+    all.push(camera_provider());
     all
+}
+
+/// Microsoft's client camera on the service tier (a variable without `[RunOnClient]`, or a by-value parameter that got the
+/// Camera page's provider): the static `IsAvailable()` answers No and `Create()` gives null with no error (corpus master
+/// 92fdde19, tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:244-262 and :304-326, with Y16RunOnClientShapes.al
+/// codeunit 99476). On a `[RunOnClient]` variable the calls run on the client instead (`dotnet/mod.rs` `run_on_client_call`).
+fn camera_provider() -> RegistryType {
+    const PIN: &str =
+        "tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:304-326 (corpus master 92fdde19)";
+    RegistryType {
+        clr_name: al_builtins::dotnet_sigs::CAMERA_PROVIDER.into(),
+        members: vec![
+            member("IsAvailable", Pin::Corpus(PIN.into()), |_, _, _| {
+                Ok(Value::Boolean(false))
+            }),
+            member("Create", Pin::Corpus(PIN.into()), |_, _, _| Ok(Value::Null)),
+        ],
+    }
 }
 
 fn own_types() -> Vec<RegistryType> {
