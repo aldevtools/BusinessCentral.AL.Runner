@@ -267,6 +267,9 @@ impl Session {
             }
             return Ok(Value::Text(out.into()));
         }
+        if id == ids::DATABASE_COPYCOMPANY_1 {
+            return self.copy_company(args);
+        }
         if id == ids::DATABASE_COMPANYNAME_1 {
             // The company of the session, the same name `Record.CurrentCompany` answers
             // (session/TestDatabase.al:69-75, session/TestSessionFunctions.al:25).

@@ -233,6 +233,65 @@ impl Session {
         Ok(Value::Boolean(true))
     }
 
+    /// `Database.CopyCompany(SourceName, DestinationName)`. Only the two errors are pinned
+    /// (lt-o-small-builtins/OSmallBuiltins.al:92-112, the statement form at :129): a source that is not a company is
+    /// RecordNotFound on the Company table and makes no destination; a destination that is already a company is
+    /// RecordExists. A copy that would succeed is refused: what it copies, and whether it runs triggers or events, is
+    /// not pinned (BC's test runner cannot run one, :87-90).
+    pub(crate) fn copy_company(&mut self, args: &[Value]) -> Result<Value, Signal> {
+        if self.ret_used {
+            return unsupported("Database.CopyCompany with the result used (only the statement form is pinned)");
+        }
+        let (Some(source), Some(destination)) = (
+            args.first().and_then(al_builtins::native::text_of),
+            args.get(1).and_then(al_builtins::native::text_of),
+        ) else {
+            return unsupported("Database.CopyCompany with arguments that are not text");
+        };
+        let (source, destination) = (source.to_string(), destination.to_string());
+        let source_is = self.company_spelled(&source)?;
+        let destination_is = self.company_spelled(&destination)?;
+        match (source_is, destination_is) {
+            // Pinned with a destination that is not a company (OSmallBuiltins.al:98, :106-108).
+            (Some(false), Some(false)) => Err(crate::transactions::al_error_code(
+                &format!("The Company does not exist. Identification fields and values: Name='{source}'"),
+                "DB:RecordNotFound",
+            )),
+            // Pinned with the source as its own destination (OSmallBuiltins.al:102, :109-110).
+            (Some(true), Some(true)) => Err(crate::transactions::al_error_code(
+                &format!(
+                    "The record in table Company already exists. Identification fields and values: Name='{destination}'"
+                ),
+                "DB:RecordExists",
+            )),
+            (Some(true), Some(false)) => unsupported(
+                "Database.CopyCompany that would copy a company: which tables it copies and whether triggers or events run is not pinned",
+            ),
+            _ => unsupported(
+                "Database.CopyCompany with a missing source and an existing destination, a name in another case than the Company table's, or a name longer than the Company table's key (not pinned)",
+            ),
+        }
+    }
+
+    /// Whether `name` is a company spelled exactly so (`Some(true)`), no company in any case (`Some(false)`), or a
+    /// company spelled in another case or a name that is no key of the Company table (`None`).
+    fn company_spelled(&self, name: &str) -> Result<Option<bool>, Signal> {
+        if self.find_company(name)?.is_some() {
+            return Ok(Some(true));
+        }
+        let Some(t) = self.company_table() else {
+            return Ok(Some(false));
+        };
+        let Ok(key) = ops::convert(Value::Text(name.to_string().into()), &t.fields[0].ty) else {
+            return Ok(None);
+        };
+        let row = self
+            .store
+            .get(&self.cx, &t, &[key])
+            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+        Ok(row.is_none().then_some(false))
+    }
+
     /// Marks the session company as an evaluation company: its row of the Company table gets `Evaluation Company` Yes
     /// (field 2), committed. BCApps' CI creates the Uncategorized lane's company so (`New-CompanyInBcContainer
     /// -evaluationCompany`, build/scripts/ImportTestDataInBcContainer.ps1:903, :954); a recipe fact, not a language rule.

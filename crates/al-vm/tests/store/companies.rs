@@ -552,3 +552,54 @@ codeunit 50932 "TS Assert" { procedure RecordCount(RecVariant: Variant): Integer
     );
     assert_eq!(out, "22");
 }
+
+// ---- Database.CopyCompany: lt-o-small-builtins/OSmallBuiltins.al (BC 27, 28, 29) ---------------------------------
+
+#[test]
+fn copy_company_from_a_missing_source_fails_and_makes_no_company() {
+    // OSmallBuiltins.al:98-108: RecordNotFound on the Company table, and the destination does not exist after it.
+    let out = text(
+        "Co: Record Company;",
+        "asserterror CopyCompany('LT O No Such Company', 'LT O Copy Target');
+         exit(GetLastErrorText() + '|' + GetLastErrorCode() + '|' + Format(Co.Get('LT O Copy Target')));",
+    );
+    assert_eq!(
+        out,
+        "The Company does not exist. Identification fields and values: Name='LT O No Such Company'|DB:RecordNotFound|No"
+    );
+}
+
+#[test]
+fn copy_company_to_an_existing_destination_fails() {
+    // OSmallBuiltins.al:102-110: copying the session company onto itself is RecordExists on the Company table.
+    let out = text(
+        "",
+        "asserterror CopyCompany(CompanyName(), CompanyName());
+         exit(GetLastErrorText() + '|' + GetLastErrorCode());",
+    );
+    let company = text("", "exit(CompanyName());");
+    assert_eq!(
+        out,
+        format!(
+            "The record in table Company already exists. Identification fields and values: Name='{company}'|DB:RecordExists"
+        )
+    );
+}
+
+#[test]
+fn copy_company_that_would_succeed_is_refused_until_pinned() {
+    // A successful copy is not pinned (OSmallBuiltins.al:87-90: it cannot run inside BC's test runner).
+    let r = run_with(TABLES, "", "CopyCompany(CompanyName(), 'Second Co');");
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+}
+
+#[test]
+fn copy_company_with_the_result_used_is_refused() {
+    // Only the statement form is pinned (OSmallBuiltins.al:129).
+    let r = run_with(
+        TABLES,
+        "ok: Boolean;",
+        "ok := CopyCompany('LT O No Such Company', 'X');",
+    );
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+}
