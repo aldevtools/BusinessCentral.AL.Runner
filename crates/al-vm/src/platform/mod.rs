@@ -24,7 +24,7 @@ mod identity;
 mod ids;
 mod integer;
 mod links;
-mod mat;
+pub(crate) mod mat;
 mod metadata;
 pub(crate) mod objects;
 mod pages;

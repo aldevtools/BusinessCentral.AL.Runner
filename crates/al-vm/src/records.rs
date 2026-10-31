@@ -3171,6 +3171,7 @@ impl Session {
         }
         self.linked_object_check(&t, rec, method)?;
         self.agent_task_check(&t, rec, method)?;
+        self.tenant_report_layout_check(&t, rec, method)?;
         self.note_table(t.object, method.writes());
         if matches!(
             method,
