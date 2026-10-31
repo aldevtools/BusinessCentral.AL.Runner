@@ -119,6 +119,7 @@ impl Checkpoint {
     /// measured there).
     pub fn restore(&self, session: &mut Session) {
         session.rollback_transaction();
+        session.crm_restored();
         al_data::SnapshotStore::restore(session.store_mut(), self.0.clone());
         session.restore_media_checkpoint();
     }
