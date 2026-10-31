@@ -140,10 +140,14 @@ impl Session {
                 {
                     0
                 }
-                PageMethod::Value if on_control && r.is_ok() => 0,
+                // Visible of a field or an action runs no trigger and changes no value (pages/lt-y17-expr-refresh/
+                // Y17ExprRefresh.al:517 RF_Visible_PartControl, :549 RF_Visible_CardControl `visible log` empty, totals kept).
+                PageMethod::Value | PageMethod::Visible if on_control && r.is_ok() => 0,
                 PageMethod::SetValue if is_p && on_control => DOUBT_SET_VALUE,
                 PageMethod::SetValue if on_root && on_control => DOUBT_HOST_SET_VALUE,
-                PageMethod::GoToRecord if on_root && target.is_none() => DOUBT_GO_TO_RECORD,
+                // GoToKey of the host as GoToRecord: on the row shown it runs the host's OnAfterGetCurrRecord only and the part's
+                // values stay (Y17ExprRefresh.al:517 `gotokey log` = `card agcr`, `totals before` 15.00/2).
+                PageMethod::GoToRecord | PageMethod::GoToKey if on_root && target.is_none() => DOUBT_GO_TO_RECORD,
                 PageMethod::First if is_p && target.is_none() => DOUBT_FIRST,
                 // A page the test caught with Trap() is pinned only for the values a list keeps per row (`row_exprs`, read before
                 // this is reached); a read computed now is pinned only on a page the test opened.
@@ -273,8 +277,24 @@ impl Session {
                 },
             )
         };
-        // A Value read changes nothing: the reads of the corpus cases agree with each other (:4676-4682).
-        if m == PageMethod::Value && matches!(target, Some(ControlTarget::Control(_))) {
+        // Every other page of the tree is a ListPart that `root` hosts, linked by fields only (no view, no provider).
+        let linked_list_parts = |root: &St| {
+            tree.iter().filter(|q| !Rc::ptr_eq(q, root)).all(|q| {
+                let host = q.borrow().host.as_ref().and_then(|(h, i)| h.upgrade().map(|h| (h, *i)));
+                let Some((h, i)) = host else { return false };
+                Rc::ptr_eq(&h, root)
+                    && other_type(q, "listpart")
+                    && page_of(&engine, &h).controls[i].part_link.as_ref().is_some_and(|l| {
+                        l.view.is_none()
+                            && l.provider.is_none()
+                            && !l.entries.is_empty()
+                            && l.entries.iter().all(|e| matches!(e, ir::LinkEntry::Field(..)))
+                    })
+            })
+        };
+        // A Value read changes nothing: the reads of the corpus cases agree with each other (:4676-4682). Nor does Visible
+        // (Y17ExprRefresh.al:517, :549).
+        if matches!(m, PageMethod::Value | PageMethod::Visible) && matches!(target, Some(ControlTarget::Control(_))) {
             return Effect::Keep;
         }
         // Only `CurrPage.Update(false)` of the page whose action runs is pinned inside its action (:4651).
@@ -291,6 +311,17 @@ impl Session {
                     && page_of(&engine, st).controls[*idx].run_object.is_none() =>
             {
                 if on_root && page_type(st) == Some(ir::PageType::Card) && only_update_false_of(st) {
+                    return Effect::Refresh;
+                }
+                // An action of a Document page whose parts are ListParts linked to it by fields refreshes the page and its
+                // parts, also when it calls a procedure of a part that writes the part's rows, with or without
+                // `CurrPage.Update(false)` (Y17ExprRefresh.al:653 RF_CardAction_CallsPartProcedure, :682 _Update: `invoke log`
+                // `proc;card agcr;find;agr 10000;...;agcr 10000`, totals recomputed).
+                if on_root
+                    && page_type(st) == Some(ir::PageType::Document)
+                    && only_update_false_of(st)
+                    && linked_list_parts(st)
+                {
                     return Effect::Refresh;
                 }
                 let propagates = st
@@ -312,6 +343,24 @@ impl Session {
                     return Effect::Refresh;
                 }
                 Effect::Doubt
+            }
+            // First, Next and Last on a ListPart linked by fields to its Document or Card host, the only part: the part refreshes
+            // (its OnAfterGetCurrRecord recomputed the values when it ran; First on the row shown runs nothing and keeps them),
+            // the host stays (Y17ExprRefresh.al:583 RF_PartNext_NewLineSaved `22.00/3`, :626 RF_PartNext_ExistingRows `60.00/2`,
+            // :711 RF_PartFirst_Linked `first log` empty, `15.00/2`).
+            (PageMethod::First | PageMethod::Next | PageMethod::Last, None)
+                if !on_root
+                    && notes.is_empty()
+                    && tree.len() == 2
+                    && other_type(st, "listpart")
+                    && matches!(page_type(root), Some(ir::PageType::Document | ir::PageType::Card))
+                    && linked_list_parts(root) =>
+            {
+                if is_p {
+                    Effect::Refresh
+                } else {
+                    Effect::Keep
+                }
             }
             (PageMethod::Next, None)
                 if on_root
