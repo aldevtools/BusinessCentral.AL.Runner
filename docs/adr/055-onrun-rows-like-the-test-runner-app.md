@@ -80,7 +80,7 @@ writes, not about rows.
 
 ## Conformance
 
-- `crates/alrunner-cli/tests/cli.rs`
+- `crates/alrunner-cli/tests/cli/` (onrun_stability.rs)
   `a_test_codeunit_whose_on_run_raises_is_skipped_like_the_test_runner_app_on_every_major`
   (27.5, 28.5, 29.0: no `OnRun` row, exit 0, the skipped codeunit is not named,
   the pass after a declared `OnRun` is flagged).
