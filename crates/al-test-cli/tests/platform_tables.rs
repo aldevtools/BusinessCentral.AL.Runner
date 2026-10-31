@@ -3206,7 +3206,8 @@ codeunit 50000 \"T\" {
     var
         ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
     begin
-        Describe(ObjType::Codeunit, -1);
+        if Describe(ObjType::Codeunit, -1) <> 'absent' then
+            Error('a row');
     end;
 
     [Test]
@@ -3222,7 +3223,8 @@ codeunit 50000 \"T\" {
     var
         ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
     begin
-        Describe(ObjType::FieldNumber, 5);
+        if Describe(ObjType::FieldNumber, 5) <> '00000' then
+            Error('field number');
     end;
 
     [Test]
@@ -3252,7 +3254,9 @@ codeunit 50000 \"T\" {
     begin
         L.SetRange(\"Object Type\", L.\"Object Type\"::Codeunit);
         L.SetRange(\"Read Permission\", L.\"Read Permission\"::Yes);
-        if L.FindFirst() then;
+        L.FindFirst();
+        if L.\"Object Number\" <> 1 then
+            Error('first %1', L.\"Object Number\");
     end;
 }";
 
@@ -3269,21 +3273,227 @@ fn license_permission_answers_from_the_loaded_license() {
         "SystemRangeFromThePins",
         "RangeReadsAndCount",
         "FirstRowsOfTheTable",
+        // Corpus PR 900: a negative number has no row, FieldNumber comes from the FieldNo list, and a filter on a
+        // permission column is served (see `license_permission_answers_the_shapes_corpus_pr_900_pins`).
+        "NegativeNumber",
+        "FieldNumberType",
+        "FilterOnAPermission",
     ] {
         passes(&o, t);
     }
     for (t, why_has) in [
         ("UnpinnedSystemNumber", "system object range"),
-        ("NegativeNumber", "number -1"),
         ("PartialMask", "which bit is which"),
-        ("FieldNumberType", "FieldNumber"),
         ("LimitedUsageOfAnotherLicense", "limited-usage list"),
-        ("RangeIntoTheSystemRange", "not served"),
-        ("FilterOnAPermission", "not served"),
+        ("RangeIntoTheSystemRange", "system object range"),
     ] {
         let why = not_run(&o, t);
         assert!(why.contains(why_has), "{t}: {why}");
     }
+}
+
+/// License Permission in the shapes corpus PR 900 pins (platform/lt-license-permission/LicensePermissionRows.al), served from a
+/// synthetic license: negative numbers have no row and a range skips them (:164-190); a filter on a permission column is
+/// answered from the license ranges (:108-133, :195-262); the system range is served at the pinned numbers (:280-290) with
+/// BC's narrowings (Table Delete blank, :316-338; Page 2000000002/2000000004/2000000100 Execute only, :438-468) and, between
+/// them, the Execute column alone (SystemRange_Bounds, :550-591: TableData 2000000110 without Execute). Anything else in the
+/// system range, a filter on another column and a cross-column OR stay refused.
+const LICENSED_SHAPES: &str = "
+codeunit 50000 \"T\" {
+    Subtype = Test;
+
+    local procedure Describe(ObjType: Integer; No: Integer): Text
+    var
+        L: Record \"License Permission\";
+    begin
+        if not L.Get(ObjType, No) then
+            exit('absent');
+        exit(StrSubstNo('%1%2%3%4%5', Format(L.\"Read Permission\", 0, 9), Format(L.\"Insert Permission\", 0, 9),
+            Format(L.\"Modify Permission\", 0, 9), Format(L.\"Delete Permission\", 0, 9), Format(L.\"Execute Permission\", 0, 9)));
+    end;
+
+    local procedure Ids(var L: Record \"License Permission\"): Text
+    var
+        R: Text;
+    begin
+        if L.FindSet() then
+            repeat
+                R += Format(L.\"Object Number\") + ',';
+            until L.Next() = 0;
+        exit(R);
+    end;
+
+    [Test]
+    procedure NegativeNumbersHaveNoRow()
+    var
+        L: Record \"License Permission\";
+    begin
+        if Describe(5, -1) + Describe(0, -1) + Describe(8, -2147483647) <> 'absentabsentabsent' then
+            Error('get');
+        L.SetRange(\"Object Type\", L.\"Object Type\"::Codeunit);
+        L.SetRange(\"Object Number\", -3, 3);
+        if Ids(L) <> '0,1,2,3,' then
+            Error('ids %1', Ids(L));
+        L.SetRange(\"Object Number\", -10, -1);
+        if L.Count() <> 0 then
+            Error('count %1', L.Count());
+    end;
+
+    [Test]
+    procedure FilterOnAPermissionColumn()
+    var
+        L: Record \"License Permission\";
+    begin
+        L.SetRange(\"Object Type\", L.\"Object Type\"::Codeunit);
+        L.SetRange(\"Object Number\", 1, 6000);
+        L.SetRange(\"Execute Permission\", L.\"Execute Permission\"::Yes);
+        L.SetRange(\"Read Permission\", L.\"Read Permission\"::\" \");
+        if L.Count() <> 1000 then
+            Error('count %1', L.Count());
+        L.FindFirst();
+        if L.\"Object Number\" <> 5000 then
+            Error('first %1', L.\"Object Number\");
+        L.FindLast();
+        if L.\"Object Number\" <> 5999 then
+            Error('last %1', L.\"Object Number\");
+        L.SetRange(\"Read Permission\", L.\"Read Permission\"::Yes);
+        L.SetRange(\"Insert Permission\", L.\"Insert Permission\"::Indirect);
+        if L.FindFirst() then
+            Error('indirect %1', L.\"Object Number\");
+    end;
+
+    [Test]
+    procedure SystemRangeAtThePinnedNumbers()
+    var
+        Res: Text;
+    begin
+        Res := Describe(1, 2000000004) + '|' + Describe(0, 2000000004) + '|' + Describe(8, 2000000004) + '|' + Describe(8, 2000000100)
+            + '|' + Describe(8, 2000000150) + '|' + Describe(5, 2000000500) + '|' + Describe(10, 2000000001) + '|' + Describe(11, 2000000002)
+            + '|' + Describe(11, 1);
+        if Res <> '11101|11111|00001|00001|11111|00000|00000|00000|00000' then
+            Error('got %1', Res);
+    end;
+
+    [Test]
+    procedure SystemRangeBounds()
+    var
+        L: Record \"License Permission\";
+    begin
+        L.SetRange(\"Object Type\", L.\"Object Type\"::Codeunit);
+        L.SetRange(\"Object Number\", 2000000000, 2000001000);
+        L.SetRange(\"Execute Permission\", L.\"Execute Permission\"::Yes);
+        L.FindLast();
+        if L.\"Object Number\" <> 2000000300 then
+            Error('codeunit last %1', L.\"Object Number\");
+        L.SetRange(\"Execute Permission\", L.\"Execute Permission\"::\" \");
+        L.FindFirst();
+        if L.\"Object Number\" <> 2000000301 then
+            Error('codeunit first %1', L.\"Object Number\");
+        L.SetRange(\"Object Type\", L.\"Object Type\"::TableData);
+        L.FindFirst();
+        if L.\"Object Number\" <> 2000000110 then
+            Error('tabledata first %1', L.\"Object Number\");
+        L.SetRange(\"Execute Permission\", L.\"Execute Permission\"::Yes);
+        L.FindLast();
+        if L.\"Object Number\" <> 2000000300 then
+            Error('tabledata last %1', L.\"Object Number\");
+    end;
+
+    [Test]
+    procedure OtherColumnBetweenThePinnedNumbers()
+    begin
+        Describe(5, 2000000005);
+    end;
+
+    [Test]
+    procedure FilterOnOtherColumnInTheSystemRange()
+    var
+        L: Record \"License Permission\";
+    begin
+        L.SetRange(\"Object Type\", L.\"Object Type\"::Codeunit);
+        L.SetRange(\"Object Number\", 2000000003, 2000000005);
+        L.SetRange(\"Read Permission\", L.\"Read Permission\"::Yes);
+        if L.FindFirst() then;
+    end;
+
+    [Test]
+    procedure ExecuteOfTableDataInTheUnpinnedStretch()
+    var
+        L: Record \"License Permission\";
+    begin
+        L.SetRange(\"Object Type\", L.\"Object Type\"::TableData);
+        L.SetRange(\"Object Number\", 2000000120, 2000000130);
+        L.SetRange(\"Execute Permission\", L.\"Execute Permission\"::Yes);
+        if L.FindFirst() then;
+    end;
+
+    [Test]
+    procedure ExecuteOfMenuSuiteInTheSystemRange()
+    var
+        L: Record \"License Permission\";
+    begin
+        L.SetRange(\"Object Type\", L.\"Object Type\"::MenuSuite);
+        L.SetRange(\"Object Number\", 2000000000, 2000001000);
+        L.SetRange(\"Execute Permission\", L.\"Execute Permission\"::Yes);
+        if L.FindLast() then;
+    end;
+
+    [Test]
+    procedure PastTheProbedSystemNumbers()
+    var
+        L: Record \"License Permission\";
+    begin
+        L.SetRange(\"Object Type\", L.\"Object Type\"::Codeunit);
+        L.SetFilter(\"Object Number\", '>=1999999999');
+        if L.Count() = 0 then;
+    end;
+
+    [Test]
+    procedure CrossColumnOr()
+    var
+        L: Record \"License Permission\";
+    begin
+        L.SetRange(\"Object Type\", L.\"Object Type\"::Codeunit);
+        L.FilterGroup(-1);
+        L.SetRange(\"Read Permission\", L.\"Read Permission\"::Yes);
+        L.SetRange(\"Execute Permission\", L.\"Execute Permission\"::Yes);
+        if L.FindFirst() then;
+    end;
+}";
+
+#[test]
+fn license_permission_answers_the_shapes_corpus_pr_900_pins() {
+    let o = outcomes_licensed(LICENSED_SHAPES, &synthetic_license(), "29.0.0.0");
+    for t in [
+        "NegativeNumbersHaveNoRow",
+        "FilterOnAPermissionColumn",
+        "SystemRangeAtThePinnedNumbers",
+        "SystemRangeBounds",
+    ] {
+        passes(&o, t);
+    }
+    for (t, why_has) in [
+        ("OtherColumnBetweenThePinnedNumbers", "system object range"),
+        ("FilterOnOtherColumnInTheSystemRange", "system object range"),
+        ("ExecuteOfTableDataInTheUnpinnedStretch", "system object range"),
+        ("ExecuteOfMenuSuiteInTheSystemRange", "system object range"),
+        ("PastTheProbedSystemNumbers", "system object range"),
+        ("CrossColumnOr", "FilterGroup(-1)"),
+    ] {
+        let why = not_run(&o, t);
+        assert!(why.contains(why_has), "{t}: {why}");
+    }
+    // BC 27: Page 2000000002 and 2000000004 are all Yes, 2000000100 Execute only (LicensePermissionRows.al:438-468).
+    let o27 = outcomes_licensed(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Pages() var L: Record "License Permission"; begin
+    L.Get(L."Object Type"::Page, 2000000002); if L."Read Permission" <> L."Read Permission"::Yes then Error('2');
+    L.Get(L."Object Type"::Page, 2000000004); if L."Delete Permission" <> L."Delete Permission"::Yes then Error('4');
+    L.Get(L."Object Type"::Page, 2000000100); if (L."Read Permission" <> L."Read Permission"::" ") or (L."Execute Permission" <> L."Execute Permission"::Yes) then Error('100'); end; }"#,
+        &synthetic_license(),
+        "27.5.0.0",
+    );
+    passes(&o27, "Pages");
 }
 
 /// The license files of the extracted BC artifacts on this machine (`~/.bcartifacts.cache/sandbox/<build>/w1/*.bclicense`),
@@ -3339,8 +3549,8 @@ fn the_artifact_license_gives_every_pinned_row() {
                     other => panic!("{} on {bc}: {t} got {other:?}", f.display()),
                 }
             }
-            let why = not_run(&o, "NegativeNumber");
-            assert!(why.contains("number -1"), "{why}");
+            // A negative number has no row (corpus PR 900, LicensePermissionRows.al:164-190).
+            passes(&o, "NegativeNumber");
             let first = outcomes_licensed(
                 r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure FirstRows() var L: Record "License Permission"; begin L.FindSet(); if (L."Object Number" <> 0) or (L."Read Permission" <> L."Read Permission"::" ") then Error('row 1'); L.Next(); if (L."Object Number" <> 1) or (L."Execute Permission" <> L."Execute Permission"::Yes) or (L."Limited Usage Permission" <> L."Limited Usage Permission"::" ") then Error('row 2'); end;
