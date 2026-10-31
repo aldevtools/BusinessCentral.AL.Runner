@@ -452,6 +452,17 @@ fn display_kind(k: ObjKind) -> &'static str {
 
 /// The checks that need the source only, over the apps of kind `Workspace`.
 pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
+    let (mut out, objects, after) = check_workspace_parts(ws, 0);
+    out.extend(objects);
+    out.extend(after);
+    out
+}
+
+/// The rules of [`check_workspace`] in their order, in three parts: those over the whole workspace that come first, the
+/// rules of each workspace object from object `first` on (a rule of an object reads that object and what its app
+/// sees), and those over the whole workspace that come last. A compile that grows by apps (ADR-063) keeps the object
+/// rules' findings for the objects it had and runs them for the new objects only.
+pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, Vec<Diagnostic>, Vec<Diagnostic>) {
     let mut out = Vec::new();
     duplicate_names(ws, &mut out);
     duplicate_ids(ws, &mut out);
@@ -465,7 +476,8 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
         .map(|d| (d.app, d.file.as_str()))
         .collect();
     let whole = keyword_name_files(ws, &mut out);
-    for oi in 0..ws.objects.len() {
+    let before = std::mem::take(&mut out);
+    for oi in first..ws.objects.len() {
         let o = &ws.objects[oi];
         if ws.kinds[o.app] == AppKind::Dependency {
             continue;
@@ -502,8 +514,9 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
         }
     }
     // AL0169: a property value that is none of the property's values.
-    crate::property_values::check(ws, &mut out);
-    out
+    let mut after = Vec::new();
+    crate::property_values::check(ws, &mut after);
+    (before, out, after)
 }
 
 /// AL0301 and AL0107 for the trailing commas of a Label declaration (al-runner issue 6436). One comma right after the text

@@ -375,6 +375,8 @@ fn run_version_passes(
     // instead of compiling everything again. AL_FRESH_PASS_COMPILE=1: every pass compiles from source.
     let mut kept: Option<runtime::KeptCompile> = None;
     let share = multi && !runtime::fresh_pass_compile();
+    // The test codeunits of the main app: the same for every pass.
+    let index = corpus::discover(&root.join(&cfg.corpus_app)).map_err(|e| format!("corpus: {e}"))?;
     for (i, (view, pass)) in all.iter().enumerate() {
         let grow = PassCompile {
             keep: share && i == 0 && i < last,
@@ -391,6 +393,7 @@ fn run_version_passes(
             awaited.as_deref_mut(),
             process_ends_after && i == last,
             grow,
+            &index,
         )?;
         kept = left;
         if let Some(why) = r.unmatched {
@@ -490,6 +493,7 @@ fn run_version(
     awaited: Option<&mut Vec<al_test_cli::awaiting::AwaitedCase>>,
     process_ends_after: bool,
     grow: PassCompile,
+    index: &corpus::CorpusIndex,
 ) -> Result<(VersionRun, Option<runtime::KeptCompile>), String> {
     let mut kept_out = None;
     let r = run_version_inner(
@@ -504,6 +508,7 @@ fn run_version(
         process_ends_after,
         grow,
         &mut kept_out,
+        index,
     )?;
     Ok((r, kept_out))
 }
@@ -521,6 +526,7 @@ fn run_version_inner(
     process_ends_after: bool,
     grow: PassCompile,
     kept_out: &mut Option<runtime::KeptCompile>,
+    index: &corpus::CorpusIndex,
 ) -> Result<VersionRun, String> {
     // ADR-007: the oracle may be recorded for an older corpus commit when the pin only added files.
     pin::check(
@@ -554,7 +560,6 @@ fn run_version_inner(
     // When real BC ran each test codeunit: the run clock of a codeunit starts there, so what the oracle recorded from
     // `Today` is what the run sees.
     let mut clocks = oracle::parse_clocks(&junit_text).map_err(|e| format!("{}: {e}", junit_path.display()))?;
-    let index = corpus::discover(&root.join(&cfg.corpus_app)).map_err(|e| format!("corpus: {e}"))?;
     // The other test apps: each against its own oracle, pinned like the main one (ADR-007).
     let mut suite_data = Vec::new();
     for suite in &version.suites {

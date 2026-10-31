@@ -1,6 +1,6 @@
 # ADR-063: The passes of a corpus version share one compile
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-10-31)
 - Date: 2026-10-31
 
 ## Context
@@ -33,7 +33,8 @@ extension, a permission set extension, 178 event subscribers), so the main pass 
 
 ## Decision
 
-Proposed: the extra pass of a version extends the compiled program of the main pass. It does not compile again
+Accepted by the owner on 2026-10-31 (this option, not the options below). The extra pass of a version extends the
+compiled program of the main pass. It does not compile again
 from source.
 
 1. The main pass compiles as today. Its checked and lowered program, the demand state (what was reached) and the
@@ -92,3 +93,51 @@ brings the full run back to the level before the suite (about 225 G at today's c
 - `tools/demand_vs_eager.sh run` and `tools/baseline_rule_check.sh run` stay at 0 differences.
 - `perf_budget` (`a_full_corpus_run_with_the_microsoft_apps_stays_within_its_budget`) passes with the instruction
   counter, with no change to its limit.
+
+## As built (2026-10-31)
+
+Built as decided, with these points the proposal did not foresee. None changes a seam the decision did not name.
+
+1. **The main pass's own suite apps leave the kept compile.** The main pass also compiles the OnPrem suites, which the
+   testlibraries pass does not have. The main pass puts the apps a later pass also has first in its program and its own
+   suite apps after them (the program order is not observable; the compile cache reorders the same way). After the main
+   pass ran, the kept compile is cut back to the shared apps (`Workspace::truncate_apps`, `lower::Growable::truncate`).
+   An object whose lowered form embeds what a cut app added (an extension, an implementer: the `relower_set` rule) is
+   lowered again when the compile grows.
+2. **The check continues the kept one** (`check::check_grown`): the kept objects are not checked again; their types,
+   resolutions, findings and the demand state are kept, the new apps' objects and roots are added, and every demand rule
+   that reads the lists of the workspace (extensions, subscribers, implementers, enum values, platform event
+   subscribers, the objects a catalog table lists) runs again (`Checker::refire`), so what the new apps add to those
+   lists is reached. The member table of the kept objects is kept, except for objects a new or cut app extends.
+3. **Unchanged objects come from the kept program** the way a compile cache supplies them (ADR-022, ADR-054): the main
+   pass exports the facts of every object (`lower::Export::Facts`, the program is the one a plain compile lowers), and
+   an object whose demand level, reached routines and selection state are the same and that no new or cut app changes
+   is supplied from the kept program and decoded on first touch. The rest is lowered from source.
+4. **The grown compile may hold more than a fresh one** (decision 4 broadened): what the main pass's roots reached
+   stays reached, so routines only the main app's tests reach are compiled in the grown pass and stubs in a fresh one.
+   No test of the extra pass reaches them; a compile of more than the demand needs runs the same, as the eager compile
+   does (ADR-013 decision 6, which CI checks). The main app's test codeunits are left out of the extra pass as before.
+5. **Compile errors of the kept apps are kept as their own compile found them.** A fresh compile of all apps can lose
+   one: AL0132 does not judge a table that any extension extends, also one of an app the code does not see. BC compiles
+   the main app without the extra apps and reports it, as the grown compile does. Diagnostics are printed and never
+   acted on in the corpus run.
+6. **When a pass compiles from source anyway:** `AL_FRESH_PASS_COMPILE=1`; a main pass with a selection, the compile
+   cache, `AL_EAGER_DEPENDENCIES`, `--tdd` or `--affected` (nothing is kept); a kept app that differs in the later pass
+   (sources, kind, dependencies, symbols, target) or that would see a new app (a note on stderr says why); a third pass
+   of a version (only the first pass after the main one grows the kept compile).
+7. **Conformance as built:** `tools/fresh_vs_grown.sh` (CI, after the eager runs): for BC 27, 28 and 29, every suite's
+   JUnit outcomes and reasons and every pass's install baseline equal those of runs with `AL_FRESH_PASS_COMPILE=1`. A
+   `compile_dump` comparison is not exact because of point 4; the program equality is checked by the al-sema tests
+   `lower::extend` (a grown compile equals a fresh compile of all its apps when the roots are the same, also after a cut).
+
+Measured on 2026-10-31 (BC 29, `perf stat -e instructions:u` of the whole process; the split by pass from `perf record`
+samples):
+
+| run | instructions |
+|---|---|
+| full BC 29 run before (branch at origin/main 0be555c31) | 347.9 G |
+| full BC 29 run after | see the pull request |
+| main pass, every pass from source / grown | 219.7 G / 222.3 G (keeping costs about 2.6 G) |
+| testlibraries pass, from source / grown | 120.7 G / 19.6 G |
+
+The full run stays above the `perf_budget` limit (215 G at this corpus size): the main pass alone is about 220 G.

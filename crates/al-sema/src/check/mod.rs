@@ -60,6 +60,26 @@ pub struct CheckResult {
     /// With `Roots::keep_demand`: the rest of the demand state, which a later pass that grows the compile by apps
     /// continues ([`check_grown`]).
     pub kept_demand: Option<demand::KeptDemand>,
+    /// With `Roots::keep_demand`: the findings of the rules of each object and of each app, which a grown check keeps.
+    pub kept_codes: Option<KeptCodes>,
+}
+
+/// The findings of the diagnostic rules that read one object (`alcodes::check_workspace_parts`, `features::check_from`)
+/// or one app (`alcodes::check_context`), in the order they were found, kept for a check that grows the compile by apps.
+#[derive(Debug, Clone, Default)]
+pub struct KeptCodes {
+    pub objects: Vec<Diagnostic>,
+    pub contexts: Vec<Diagnostic>,
+    pub features: Vec<Diagnostic>,
+}
+
+impl KeptCodes {
+    /// The findings in the first `apps` apps only (ADR-063: the others left the workspace).
+    pub fn truncate(&mut self, apps: usize) {
+        self.objects.retain(|d| d.app < apps);
+        self.contexts.retain(|d| d.app < apps);
+        self.features.retain(|d| d.app < apps);
+    }
 }
 
 /// A check a later pass continues on a workspace that grew by apps (ADR-063): what the check of the objects before the
@@ -73,6 +93,7 @@ pub struct PrevCheck {
     pub resolutions: PosMap<Res>,
     pub from_checker: Vec<Diagnostic>,
     pub panicked: HashMap<(usize, usize), String>,
+    pub codes: KeptCodes,
 }
 
 /// Why a routine of an object a lean compile left out (`Roots::lean`) does not run. A run that meets it was compiled for
@@ -394,8 +415,10 @@ fn check_inner(
     c.tdd_apps = roots.tdd.then(|| std::sync::Arc::new(tdd::test_apps(ws)));
     c.keep_demand = roots.keep_demand;
     // A grown check starts where the kept one ended: the objects before `n_old` are checked, their findings are kept.
+    let mut prev_codes: Option<KeptCodes> = None;
     let n_old = match prev {
         Some(prev) => {
+            prev_codes = Some(prev.codes);
             assert!(demand_mode, "a grown check continues a demand");
             c.types = prev.types;
             c.resolutions = prev.resolutions;
@@ -511,12 +534,40 @@ fn check_inner(
     }
     let positions: HashMap<&str, usize> = ws.files.iter().enumerate().map(|(i, f)| (f.path.as_str(), i)).collect();
     let from_checker = c.diags.clone();
-    let mut from_codes = crate::alcodes::check_workspace(ws);
+    // A grown check: the rules of each object and of each app ran for the kept objects and apps; their findings are kept.
+    let n_old_apps = if n_old > 0 { ws.objects[n_old - 1].app + 1 } else { 0 };
+    let (mut from_codes, objects_codes, after_codes) = crate::alcodes::check_workspace_parts(ws, n_old);
+    let mut kept_codes = KeptCodes::default();
+    if let Some(k) = &prev_codes {
+        from_codes.extend(k.objects.iter().cloned());
+    }
+    kept_codes.objects = objects_codes.clone();
+    from_codes.extend(objects_codes);
+    from_codes.extend(after_codes);
     for (app, ctx) in &contexts {
-        from_codes.extend(crate::alcodes::check_context(ws, *app, ctx));
+        let found = match &prev_codes {
+            Some(k) if *app < n_old_apps => k.contexts.iter().filter(|d| d.app == *app).cloned().collect(),
+            _ => crate::alcodes::check_context(ws, *app, ctx),
+        };
+        kept_codes.contexts.extend(found.iter().cloned());
+        from_codes.extend(found);
     }
     // Language features newer or older than an app's runtime (AL0666, al-runner issue 5573).
-    from_codes.extend(crate::features::check(ws, catalog));
+    if let Some(k) = &prev_codes {
+        from_codes.extend(k.features.iter().cloned());
+    }
+    let features = crate::features::check_from(ws, catalog, n_old);
+    kept_codes.features = features.clone();
+    from_codes.extend(features);
+    if let Some(k) = prev_codes {
+        // What is kept for a later growth covers every object and app the result has.
+        let mut all = k;
+        all.objects.extend(kept_codes.objects);
+        all.contexts.retain(|d| d.app < n_old_apps);
+        all.contexts.extend(kept_codes.contexts.into_iter().filter(|d| d.app >= n_old_apps));
+        all.features.extend(kept_codes.features);
+        kept_codes = all;
+    }
     c.diags.extend(from_codes.iter().cloned());
     c.diags
         .sort_by_key(|d| (positions.get(d.file.as_str()).copied(), d.offset));
@@ -560,12 +611,14 @@ fn check_inner(
         tdd_decls: c.tdd_apps.is_some().then(|| std::sync::Arc::new(tdd_decl::decls(ws))),
         object_hashes: roots.object_hashes,
         kept_demand: c.kept_demand.take(),
+        kept_codes: roots.keep_demand.then_some(kept_codes),
     };
     // The context rules that need what the check resolved. They count as the checker's (`from_checker`): an
     // incremental compile resolves the changed objects only and keeps the earlier findings of the other files.
     if !contexts.is_empty() {
         let mut more = Vec::new();
-        for (app, ctx) in &contexts {
+        // A grown check: what these rules found in the kept apps is among the checker's findings it kept.
+        for (app, ctx) in contexts.iter().filter(|(app, _)| *app >= n_old_apps) {
             more.extend(crate::alcodes::check_resolved_scope(ws, *app, ctx, &result));
             // What the selection left out is still compiled by alc (al-runner issue 5602).
             if let Some(r) = &left_out_resolutions {
@@ -859,12 +912,20 @@ fn unselected_test(ws: &Workspace, oi: usize, keep: &[(usize, u32)]) -> bool {
         .properties()
         .any(|p| p.name().eq_ignore_ascii_case("Subtype") && p.value_text().eq_ignore_ascii_case("Test"));
     // A test codeunit that subscribes to events listens during every test, so it stays compiled. The text
-    // of the object is searched token by token (no word of the search spans two tokens).
+    // of the object is searched token by token (no word of the search spans two tokens): a chunk of a node's text is
+    // the text of one token.
     is_test
-        && !ast.syntax().descendants_with_tokens().any(|e| {
-            e.as_token()
-                .is_some_and(|t| contains_ignore_case(t.text(), b"eventsubscriber"))
-        })
+        && ast
+            .syntax()
+            .text()
+            .try_for_each_chunk(|chunk| {
+                if contains_ignore_case(chunk, b"eventsubscriber") {
+                    Err(())
+                } else {
+                    Ok(())
+                }
+            })
+            .is_ok()
 }
 
 /// Whether `haystack` holds `needle` (lower case ASCII) in any case.

@@ -21,6 +21,8 @@ pub struct Growable {
     left_out: Vec<bool>,
     /// Per object: its lowered form embeds what apps that left the compile added (`truncate`), so it is lowered again.
     stale: Vec<bool>,
+    /// The members the kept compile computed, by object (`MemberTable::with_known`).
+    members: Vec<std::sync::OnceLock<crate::members::Members>>,
     source: std::sync::Arc<KeptProgram>,
 }
 
@@ -56,8 +58,11 @@ impl Growable {
         prev.resolutions.truncate_files(n_file);
         prev.from_checker.retain(|d| d.app < apps);
         prev.panicked.retain(|&(o, _), _| o < n_obj);
+        prev.codes.truncate(apps);
         self.skipped.truncate(n_obj);
         self.left_out.truncate(n_obj);
+        self.members.truncate(n_obj);
+        forget_extended(&mut self.members, ws, n_obj);
         ws.truncate_apps(apps)
     }
 }
@@ -96,6 +101,18 @@ impl DepSource for KeptProgram {
     }
 }
 
+/// Clears in `known` (the members of the first objects of `ws`) those of an object that an object from `from` on extends:
+/// its members hold its extensions'.
+fn forget_extended(known: &mut [std::sync::OnceLock<crate::members::Members>], ws: &Workspace, from: usize) {
+    for e in from..ws.objects.len() {
+        if let Some(t) = ws.extension_target(e) {
+            if let Some(cell) = known.get_mut(t) {
+                *cell = std::sync::OnceLock::new();
+            }
+        }
+    }
+}
+
 /// [`compile_loaded`] that also keeps what a later pass needs to grow the compile by apps ([`grow`]). The program is the
 /// one `compile_loaded` lowers. `None` instead of the kept part when the compile cannot be grown: without dependency apps
 /// (no demand), or with a selection, a lean compile or `--tdd` (the kept compile must have checked every object it has).
@@ -105,7 +122,12 @@ pub fn compile_loaded_growable(
     catalog: &al_builtins::catalog::Catalog,
     roots: crate::check::Roots,
 ) -> (Workspace, Lowered, Option<Growable>) {
-    let growable = roots.only_tests.is_none() && !roots.lean && !roots.reach_only && !roots.tdd && !roots.eager;
+    let growable = roots.only_tests.is_none()
+        && !roots.lean
+        && !roots.reach_only
+        && !roots.tdd
+        && !roots.eager
+        && !roots.object_hashes;
     if !growable {
         let (ws, lowered) = compile_loaded(ws, load, catalog, roots);
         return (ws, lowered, None);
@@ -129,8 +151,8 @@ pub fn compile_loaded_growable(
         cache_blocks: Default::default(),
     };
     let exported = lowered.exported.take().expect("the facts were exported");
-    let kept = match (checked.demand.take(), checked.kept_demand.take()) {
-        (Some(demand), Some(kept)) => Some(Growable {
+    let kept = match (checked.demand.take(), checked.kept_demand.take(), checked.kept_codes.take()) {
+        (Some(demand), Some(kept), Some(codes)) => Some(Growable {
             prev: crate::check::PrevCheck {
                 objects: ws.objects.len(),
                 demand,
@@ -139,9 +161,11 @@ pub fn compile_loaded_growable(
                 resolutions: std::mem::take(&mut checked.resolutions),
                 from_checker: std::mem::take(&mut checked.from_checker),
                 panicked: std::mem::take(&mut checked.panicked),
+                codes,
             },
             skipped: (0..ws.objects.len()).map(|oi| checked.is_skipped(oi)).collect(),
             stale: vec![false; ws.objects.len()],
+            members: Vec::new(),
             left_out: (0..ws.objects.len()).map(|oi| checked.is_left_out(oi)).collect(),
             source: std::sync::Arc::new(KeptProgram {
                 facts: exported.facts,
@@ -153,7 +177,8 @@ pub fn compile_loaded_growable(
         _ => None,
     };
     drop(checked);
-    drop(members);
+    let known = members.into_known();
+    let kept = kept.map(|k| Growable { members: known, ..k });
     (ws, lowered, kept)
 }
 
@@ -185,7 +210,9 @@ pub fn grow(
         .expect("checked by can_append");
     let load = started.elapsed();
     let started = std::time::Instant::now();
-    let members = crate::members::build(&ws);
+    let mut known = kept.members;
+    forget_extended(&mut known, &ws, n_old);
+    let members = crate::members::MemberTable::with_known(&ws, known);
     let members_time = started.elapsed();
     // What the kept demand reached of each object: the grown one reaches at least that (it continues it).
     let level_before = kept.prev.demand.level.clone();
@@ -299,6 +326,7 @@ codeunit 70001 ATest
     [Test]
     procedure T1() var A: Codeunit AUse; begin A.Go(); end;
 }
+codeunit 70002 ABad { procedure P() var R: Record T; begin R.NoSuchField := 1; end; }
 "#;
 
     const EXTRA_DEP: &str = r#"
@@ -328,6 +356,7 @@ codeunit 80000 STest
     [Test]
     procedure T2() var A: Codeunit AUse; L: Codeunit Later; begin A.Go(); L.Called(); end;
 }
+codeunit 80001 SBad { procedure P() var R: Record T; begin R.AlsoNoField := 1; end; }
 "#;
 
     fn calls(l: &Lowered) -> Vec<Vec<Vec<(usize, usize)>>> {
@@ -355,6 +384,17 @@ codeunit 80000 STest
         assert!(fresh.unsupported == grown.unsupported, "the refusals differ");
         assert!(calls(fresh) == calls(grown), "the call graphs differ");
         assert_eq!(fresh.dependency, grown.dependency);
+    }
+
+    fn diags(l: &Lowered, apps: std::ops::Range<usize>) -> Vec<String> {
+        let mut v: Vec<String> = l
+            .al_diagnostics
+            .iter()
+            .filter(|d| apps.contains(&d.app))
+            .map(|d| format!("{d:?}"))
+            .collect();
+        v.sort();
+        v
     }
 
     /// The main pass's apps, then the apps a later pass adds, as one list with the kind of each.
@@ -390,7 +430,7 @@ codeunit 80000 STest
         let symbols = BTreeSet::new();
         let catalog = al_builtins::catalog::Catalog::load();
         let ws = Workspace::load_apps(main.clone(), main_kinds.clone(), &symbols);
-        let (ws, _, kept) = compile_loaded_growable(ws, Default::default(), &catalog, Roots::default());
+        let (ws, main_pass, kept) = compile_loaded_growable(ws, Default::default(), &catalog, Roots::default());
         let kept = kept.expect("the compile can be grown");
         let (_, grown) = grow(ws, kept, more.clone(), more_kinds.clone(), &symbols, &[], &catalog, Roots::default())
             .map_err(|e| e.1)
@@ -412,6 +452,13 @@ codeunit 80000 STest
             );
         }
         assert_same(&fresh, &grown);
+        // The compile errors: those of the added apps are the fresh compile's; those of the kept apps are what their own
+        // compile found. (A fresh compile of all apps does not judge `R.NoSuchField` on a table an added app extends:
+        // AL0132 skips a table any extension extends, also one of an app the code does not see. BC compiles the main
+        // app without the added apps and reports it.)
+        assert_eq!(diags(&grown, 2..4), diags(&fresh, 2..4), "the added apps' compile errors");
+        assert_eq!(diags(&grown, 0..2), diags(&main_pass, 0..2), "the kept apps' compile errors");
+        assert_eq!(diags(&main_pass, 0..2).len(), 1, "{:?}", main_pass.al_diagnostics);
         // The objects the added apps do not change are taken from the kept compile, not lowered again.
         let unused = ws.objects.iter().position(|o| o.name == "Unused").unwrap();
         assert!(grown.provided[unused], "an object nothing changed is taken from the kept compile");
