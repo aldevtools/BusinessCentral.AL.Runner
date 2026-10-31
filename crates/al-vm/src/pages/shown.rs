@@ -476,8 +476,8 @@ impl Session {
             return pinned;
         }
         // With three entries BC runs the refresh of the OnValidate's `CurrPage.Update(false)` later, not within the Lookup: the
-        // host's OnAfterGetCurrRecord is not logged after it, and runs before the next Lookup (corpus writer Y15, branch
-        // al-runtime-rs-staging-y15, pages/lt-y15/Y15LookupThreeFieldLink.al:194 `lookup log` `lookup;validate R2`, :278 `log`
+        // host's OnAfterGetCurrRecord is not logged after it, and runs before the next Lookup
+        // (pages/lt-y15/Y15LookupThreeFieldLink.al:194 `lookup log` `lookup;validate R2`, :278 `log`
         // `lookup;validate R2;agcr R1;lookup;validate R3`). This runtime refreshes within the Lookup, so a host with row
         // triggers is refused; without them the refresh shows nothing (al-runner issue 6466, the reporter's page).
         if self.declares(root, "onaftergetrecord") || self.declares(root, "onaftergetcurrrecord") {
