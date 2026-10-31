@@ -183,7 +183,6 @@ compound_add,MediaId,Label,AL0129,ok
 compound_add,MediaId,Option,AL0175,ok
 compound_add,MediaId,Option2,AL0175,ok
 compound_add,MediaId,RecordId,AL0175,ok
-compound_add,MediaId,TestPage.Value,AL0129,ok
 compound_add,MediaId,TextBuilder,AL0175,ok
 compound_add,MediaId,TextConst,AL0129,ok
 compound_add,MediaId,Time,AL0175,ok
