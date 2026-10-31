@@ -1584,10 +1584,11 @@ fn curr_report_language_reads_back_and_format_region_is_kept_by_run() {
 }
 
 // After `CurrReport.Language := 1031` the region `de-DE` is kept and reads back (misc/lt-probes-needed-3/PnC06ReportLanguage.al:
-// 58-65 `region1:de-DE`). Any other region set after a language change is not pinned (`en-US` reads back empty only while the
-// report keeps the session's language, misc/lt-probes-needed-8/PnH4CurrReport.al:244), so it is refused.
+// 58-65 `region1:de-DE`). `en-US` after 1031, 1036 and 1033 is accepted, reads back empty and keeps the language
+// (report/lt-bd-format-region/BdRegionTests.al:942, :1036, :1065 `language=N region=[]`). Any other pair is not pinned, so it is
+// refused.
 #[test]
-fn format_region_after_a_language_change_is_pinned_for_de_de_only() {
+fn format_region_after_a_language_change_is_pinned_for_the_measured_pairs() {
     let body = |lang: i32, region: &str| {
         format!(
             "var Probe: Report \"CRL Lang Then Region\"; Log: Codeunit \"CRL Log\"; H: Codeunit Helpers; begin
@@ -1599,13 +1600,10 @@ fn format_region_after_a_language_change_is_pinned_for_de_de_only() {
         )
     };
     assert_eq!(f(&body(1031, "de-DE")), "1031|[de-DE]");
-    for (lang, region) in [
-        (1031, "en-US"),
-        (1033, "en-US"),
-        (1036, "en-US"),
-        (1031, "fr-FR"),
-        (1036, "de-DE"),
-    ] {
+    assert_eq!(f(&body(1031, "en-US")), "1031|[]");
+    assert_eq!(f(&body(1033, "en-US")), "1033|[]");
+    assert_eq!(f(&body(1036, "en-US")), "1036|[]");
+    for (lang, region) in [(1030, "en-US"), (2057, "en-GB"), (1031, "fr-FR"), (1036, "de-DE")] {
         let r = refusal(&body(lang, region));
         assert!(
             r.contains("CurrReport.FormatRegion") && r.contains(region),
