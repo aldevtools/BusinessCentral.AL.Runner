@@ -4,7 +4,6 @@
 # the row. Never raise a cap or add a row: split the file (see docs/codemap.md). Owner decides otherwise.
 "crates/al-builtins/src/http.rs" = 3414
 "crates/al-builtins/src/native.rs" = 3540
-"crates/al-builtins/src/xml.rs" = 5708
 "crates/al-sema/src/alcodes.rs" = 4682
 "crates/al-testrun/src/runtime/tests.rs" = 3766
 "crates/al-vm/src/pages/actions.rs" = 3984
