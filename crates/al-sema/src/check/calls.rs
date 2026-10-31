@@ -398,7 +398,7 @@ impl<'a> Checker<'a> {
                 .collect();
         }
         // A bare `UseRequestPage(..)` or `RunModal()` in a report's procedure is a member of the report itself, as
-        // `this.` would make it (BC compiles it; Microsoft's bc2adls does it). The lowering hands it the report's own
+        // `this.` would make it (BC compiles it; a public app does it). The lowering hands it the report's own
         // instance and marks the assumption `bare-report-member-is-self`; other bare report methods are not resolved.
         if c.is_empty()
             && (n.eq_ignore_ascii_case("userequestpage") || n.eq_ignore_ascii_case("runmodal"))
