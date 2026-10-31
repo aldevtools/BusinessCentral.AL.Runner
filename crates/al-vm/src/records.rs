@@ -227,6 +227,7 @@ impl Session {
                     }
                 }
             }
+            self.clear_uninstalled_init_values(table, &mut fields);
             return fields;
         }
         let engine = self.engine.clone();
@@ -268,7 +269,51 @@ impl Session {
                 fresh,
             },
         );
+        let mut fields = fields;
+        self.clear_uninstalled_init_values(table, &mut fields);
         fields
+    }
+
+    /// Whether object `o` belongs to an app that is not installed yet while an app installs (`Session::set_apps_not_installed`).
+    pub(crate) fn object_app_not_installed(&self, o: usize) -> bool {
+        let app = self.engine.program.objects[o].app;
+        self.events
+            .not_installed_apps
+            .as_ref()
+            .is_some_and(|a| a.contains(&app))
+    }
+
+    /// Whether object `o` belongs to an app with no known install order to the app that installs
+    /// (`Session::set_apps_install_order_unknown`).
+    pub(crate) fn object_app_order_unknown(&self, o: usize) -> bool {
+        let app = self.engine.program.objects[o].app;
+        self.events
+            .order_unknown_apps
+            .as_ref()
+            .is_some_and(|a| a.contains(&app))
+    }
+
+    /// The InitValue of a table extension field of an app not installed yet does not apply: the field holds its type's
+    /// default (install/lt-y8-install-order/Y8InstallOrderTests.al:88-110, row 1 that XApp A's install writes has an empty
+    /// "Y8 XB Mark", XApp B's InitValue 'B init' applies to B's own install row and at test time).
+    fn clear_uninstalled_init_values(&mut self, table: usize, fields: &mut [Value]) {
+        if self.events.not_installed_apps.as_ref().is_none_or(|a| a.is_empty()) {
+            return;
+        }
+        let engine = self.engine.clone();
+        let Some(t) = engine.program.objects[table].table.as_ref() else {
+            return;
+        };
+        for (i, f) in t.fields.iter().enumerate() {
+            if f.init.is_some()
+                && let Some(d) = f.declared_in
+                && d as usize != table
+                && self.object_app_not_installed(d as usize)
+                && let Some(slot) = fields.get_mut(i)
+            {
+                *slot = self.default_value(&f.ty);
+            }
+        }
     }
 
     /// The value of field `f` in a fresh record.
@@ -573,10 +618,16 @@ impl Session {
     /// The table-level trigger `name` (`OnBeforeInsert`, `OnInsert`, ...) of every table extension that declares it,
     /// in the order of the extensions' object ids: two extensions run the same trigger one after the other
     /// (corpus events/TestProbeEventContracts.al:ExtensionTriggers_TwoExtensionsSameTrigger_Order, ids 69800 and 69801).
+    /// A table extension of an app that is not installed yet (an app installs after the one whose install code runs) is not
+    /// active: its table triggers do not run (install/lt-y8-install-order/Y8InstallOrderTests.al:88-110, row 1 that XApp A's
+    /// install writes with Insert(true) has Note 'A', without XApp B's '+BX').
     pub(crate) fn ext_triggers(&self, t: &TableDef, name: &str) -> Vec<(usize, usize)> {
         let mut found = Vec::new();
         if let Some(schema) = &self.engine.program.objects[t.object as usize].table {
             for &e in &schema.extensions {
+                if self.object_app_not_installed(e) {
+                    continue;
+                }
                 for (ri, r) in self.engine.program.objects[e].routines.iter().enumerate() {
                     if r.is_trigger && r.field.is_none() && r.name.eq_ignore_ascii_case(name) {
                         found.push((e, ri));
@@ -590,6 +641,23 @@ impl Session {
 
     /// Runs the extension trigger `name`, if any, with the record and `xrec`.
     fn run_ext_trigger(&mut self, t: &TableDef, name: &str, rec: &Rec, xrec: Option<&Rec>) -> Result<(), Signal> {
+        // While an app installs, a table extension of an app with no dependency path to it may or may not be installed yet:
+        // whether its triggers and InitValues apply is not known.
+        if let Some(schema) = &self.engine.program.objects[t.object as usize].table
+            && let Some(&e) = schema.extensions.iter().find(|&&e| self.object_app_order_unknown(e))
+        {
+            return unsupported(format!(
+                "{name} of table {}: a table extension in app {} while an app installs that it has no dependency path to; the \
+                 install order of the two is not known",
+                self.engine.program.objects[t.object as usize].name,
+                self.engine
+                    .program
+                    .apps
+                    .get(self.engine.program.objects[e].app as usize)
+                    .map(|a| a.name.as_str())
+                    .unwrap_or("?")
+            ));
+        }
         for (o, r) in self.ext_triggers(t, name) {
             self.run_trigger(o, r, rec, xrec)?;
         }

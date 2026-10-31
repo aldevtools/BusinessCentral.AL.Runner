@@ -154,3 +154,70 @@ codeunit 64001 T
     });
     assert_eq!(got, Outcome::Pass);
 }
+
+/// The table extension of an app installed later is not active while an earlier app installs: XApp A's install inserts a row
+/// with Insert(true) and XApp B's OnBeforeInsert does not run on it nor does B's field InitValue apply; during B's own install
+/// and at test time both do (install/lt-y8-install-order/Y8InstallOrderTests.al:88-110, fixtures tests/al-language-xapp-a/
+/// Y8XaInstallOrder.al and tests/al-language-xapp-b/Y8XbInstallOrder.al).
+#[test]
+fn a_later_apps_table_extension_is_not_active_during_an_earlier_install() {
+    const XA: &str = r#"
+table 65100 Data
+{
+    DataPerCompany = false;
+    fields { field(1; "No."; Integer) { } field(2; Note; Text[50]) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+codeunit 65101 XaInstall
+{
+    Subtype = Install;
+    trigger OnInstallAppPerDatabase()
+    var D: Record Data;
+    begin
+        D.Init(); D."No." := 1; D.Note := 'A'; D.Insert(true);
+    end;
+}
+"#;
+    const XB: &str = r#"
+tableextension 65102 DataExt extends Data
+{
+    fields { field(65102; Mark; Text[10]) { InitValue = 'B init'; } }
+    trigger OnBeforeInsert()
+    begin
+        Rec.Note := CopyStr(Rec.Note + '+BX', 1, MaxStrLen(Rec.Note));
+    end;
+}
+codeunit 65103 XbInstall
+{
+    Subtype = Install;
+    trigger OnInstallAppPerDatabase()
+    var D: Record Data;
+    begin
+        D.Init(); D."No." := 20; D.Note := 'B'; D.Insert(true);
+    end;
+}
+"#;
+    const T: &str = r#"
+codeunit 64001 T
+{
+    Subtype = Test;
+    [Test]
+    procedure Rows()
+    var D: Record Data; Tmp: Record Data temporary;
+    begin
+        D.Get(1);
+        if (D.Note <> 'A') or (D.Mark <> '') then Error('row 1: %1 %2', D.Note, D.Mark);
+        D.Get(20);
+        if (D.Note <> 'B+BX') or (D.Mark <> 'B init') then Error('row 20: %1 %2', D.Note, D.Mark);
+        Tmp.Init(); Tmp."No." := 99; Tmp.Note := 'T'; Tmp.Insert(true);
+        if (Tmp.Note <> 'T+BX') or (Tmp.Mark <> 'B init') then Error('temp: %1 %2', Tmp.Note, Tmp.Mark);
+    end;
+}
+"#;
+    let apps = vec![
+        app(A_ID, &[], XA),
+        app(B_ID, &[A_ID], XB),
+        app(MAIN_ID, &[A_ID, B_ID], T),
+    ];
+    assert_eq!(outcome(apps, "Rows"), Outcome::Pass);
+}
