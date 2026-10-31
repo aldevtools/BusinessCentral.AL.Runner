@@ -38,6 +38,11 @@ with the reason. AL Runner never falls back to another license in that case.
   `license.*` properties on every test suite; `--output-json` and the `serve`
   summary carry a `license` object (`source`, `path`, `licensee`, `expires`,
   `sha256`, `signatureChecked`, or `reason` when there is none).
+- The expiry date is read under the English label `Expires` and the Danish
+  label `Udløber`, and printed as the file writes it. If the header has a date
+  under a label the runner does not know, the summary says `expiry not read
+  (label not recognized)` and the reports add `expiryNotRead`; the runner does
+  not guess which date is the expiry.
 
 ## What License Permission answers
 
