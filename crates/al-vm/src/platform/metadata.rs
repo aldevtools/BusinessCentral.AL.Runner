@@ -561,6 +561,12 @@ pub(super) fn table_relations_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 r[pos(t, 5)] = Value::Integer(2_000_000_120);
                 r[pos(t, 6)] = Value::Integer(1);
                 r[pos(t, 10)] = Value::Boolean(true);
+                // The names of these rows are not pinned (misc/lt-probes-needed-5/PnE09Platform.al pins own relations only).
+                for col in 12..=15 {
+                    if t.fields.iter().any(|x| x.id == col) {
+                        r[pos(t, col)] = super::unknown(t, col, &format!("the {} row of table '{}'", f.name, o.name));
+                    }
+                }
                 out.push(Entry::ok(r));
                 continue;
             }
@@ -711,6 +717,24 @@ fn field_relations(
         row[pos(t, 5)] = Value::Integer(arm.related_table as i32);
         row[pos(t, 6)] = Value::Integer(arm.related_field as i32);
         row[pos(t, 11)] = Value::Boolean(validate);
+        // The declared names of the own table and field and of the related ones (misc/lt-probes-needed-5/PnE09Platform.al:
+        // 122-125, `Table Name=LT PnE Rel Source;Field Name=Ref;Related Table Name=LT PnE Rel Target;Related Field Name=Code`).
+        let related = c
+            .objects
+            .iter()
+            .find(|x| x.kind == al_ir::ObjKind::Table && x.id == Some(arm.related_table));
+        let related_field = related
+            .and_then(|x| x.table.as_ref())
+            .and_then(|rt| rt.fields.iter().find(|rf| rf.id == arm.related_field))
+            .map(|rf| rf.name.clone());
+        let (Some(related), Some(related_field)) = (related, related_field) else {
+            return Err(format!("{what}: the related table or field is not compiled"));
+        };
+        for (col, name) in [(12, &o.name), (13, &f.name), (14, &related.name), (15, &related_field)] {
+            if t.fields.iter().any(|x| x.id == col) {
+                row[pos(t, col)] = Value::Text(truncate(name, 30).into());
+            }
+        }
         // An arm with no condition is one row with Condition No. 1, Condition Field No. 0, type CONST and
         // an empty value (ibid.).
         if arm.conditions.is_empty() {

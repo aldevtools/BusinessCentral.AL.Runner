@@ -1050,6 +1050,50 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "Rows");
 }
 
+/// Table Relations Metadata "Table Name" (12), "Field Name" (13), "Related Table Name" (14) and "Related Field Name" (15) are
+/// the declared names of the own table and field and of the related ones (misc/lt-probes-needed-5/PnE09Platform.al:122-125).
+/// Of the rows of SystemCreatedBy and SystemModifiedBy they are not pinned: refused.
+#[test]
+fn table_relations_metadata_names_the_tables_and_fields() {
+    let o = outcomes(
+        r#"table 50001 "Target" { fields { field(1; "Code"; Code[20]) { } } keys { key(PK; "Code") { Clustered = true; } } }
+table 50002 "Source" { fields { field(1; Id; Integer) { } field(5; Ref; Code[20]) { TableRelation = "Target"; } } keys { key(PK; Id) { Clustered = true; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Names() var M: Record "Table Relations Metadata"; begin M.SetRange("Table ID", 50002); M.SetRange("Field No.", 5); M.FindFirst();
+    if M."Table Name" <> 'Source' then Error('table %1', M."Table Name"); if M."Field Name" <> 'Ref' then Error('field');
+    if M."Related Table Name" <> 'Target' then Error('related'); if M."Related Field Name" <> 'Code' then Error('related field'); end;
+  [Test] procedure SystemRow() var M: Record "Table Relations Metadata"; begin M.SetRange("Table ID", 50002); M.SetRange("Field No.", 2000000002);
+    M.FindFirst(); if M."Related Table Name" = '' then; end; }"#,
+    );
+    passes(&o, "Names");
+    let why = not_run(&o, "SystemRow");
+    assert!(why.contains("Related Table Name"), "{why}");
+}
+
+/// Table Relations Metadata "Condition Value" of a `filter(...)` condition on an enum field is the members' values joined by `|`,
+/// and on an Integer field the alternatives joined by `|` without the spaces (misc/lt-probes-needed-5/PnE09Platform.al:122-123,
+/// `filter(Alpha | Beta)` reads `0|1`, `filter(5 | 7)` reads `5|7`, `filter('A' | 'B')` reads `A|B`); one quoted literal keeps
+/// its bars (`filter('X|Y')` is `X|Y`).
+#[test]
+fn table_relations_condition_value_of_an_enum_and_an_integer_filter() {
+    let o = outcomes(
+        r#"enum 50003 "Kinds" { value(0; Alpha) { } value(1; Beta) { } value(2; Gamma) { } }
+table 50001 "Target" { fields { field(1; "Code"; Code[10]) { } } keys { key(PK; "Code") { Clustered = true; } } }
+table 50002 "Source" { fields { field(1; Id; Integer) { } field(2; Kind; Enum "Kinds") { } field(3; IntKind; Integer) { }
+  field(5; Ref; Code[10]) { TableRelation = if (Kind = filter(Alpha | Beta)) "Target".Code; }
+  field(6; Ref2; Code[10]) { TableRelation = if (IntKind = filter(5 | 7)) "Target".Code; } field(4; CodeKind; Code[10]) { }
+  field(7; Ref3; Code[10]) { TableRelation = if (CodeKind = filter('A' | 'B')) "Target".Code; }
+  field(8; Ref4; Code[10]) { TableRelation = if (CodeKind = filter('X|Y')) "Target".Code; } } keys { key(PK; Id) { Clustered = true; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Values() var M: Record "Table Relations Metadata"; begin M.SetRange("Table ID", 50002);
+    M.SetRange("Field No.", 5); M.FindFirst(); if M."Condition Value" <> '0|1' then Error('enum %1', M."Condition Value");
+    M.SetRange("Field No.", 6); M.FindFirst(); if M."Condition Value" <> '5|7' then Error('int %1', M."Condition Value");
+    M.SetRange("Field No.", 7); M.FindFirst(); if M."Condition Value" <> 'A|B' then Error('code %1', M."Condition Value");
+    M.SetRange("Field No.", 8); M.FindFirst(); if M."Condition Value" <> 'X|Y' then Error('quoted %1', M."Condition Value"); end; }"#,
+    );
+    passes(&o, "Values");
+}
+
 /// Table Relations Metadata (record/TestTableRelationsMetadataVirtualTable.al), including a
 /// condition that is a `filter(...)`, which the runtime's own relation check does not understand.
 #[test]

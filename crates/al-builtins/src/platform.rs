@@ -538,6 +538,28 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         "23",
         "al-language/metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:145",
     ),
+    // Table Relations Metadata names of the own and the related table and field, read through the helper's FieldIndex loop
+    // (al-vm metadata.rs).
+    (
+        2_000_000_141,
+        "12",
+        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
+    ),
+    (
+        2_000_000_141,
+        "13",
+        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
+    ),
+    (
+        2_000_000_141,
+        "14",
+        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
+    ),
+    (
+        2_000_000_141,
+        "15",
+        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
+    ),
     // BC 29 only: DefaultHeaderFooterPartName (30), DefaultThemePartName (31). By id, because the symbols of
     // older majors lack them.
     (
