@@ -434,7 +434,9 @@ impl<'a> Compiler<'a> {
                 self.expr_into(a, d)?;
             }
             E::Convert(t, a) => {
+                let inner = a;
                 let a = self.expr_any(a)?;
+                self.note_dotnet_result_ty(t, inner);
                 self.chunk.types.push(t.clone());
                 let t = (self.chunk.types.len() - 1) as u32;
                 self.emit(Op::Convert { d, a, t });
@@ -555,6 +557,7 @@ impl<'a> Compiler<'a> {
                 let (arg_regs, site_args) = self.arg_regs(args)?;
                 self.chunk.dotnets.push(DotNetSite {
                     ty: *ty,
+                    result_ty: None,
                     op: op.clone(),
                     recv,
                     arg_regs,
@@ -1164,6 +1167,23 @@ impl<'a> Compiler<'a> {
             }
         }
         Ok(())
+    }
+
+    /// A DotNet call stored into a DotNet variable (lowered as `Convert(DotNet(i), call)`): its site records the variable's
+    /// declared type, the type argument of a generic-only method (`dotnet_apply`). The call's site is the last one pushed
+    /// (after the sites of its arguments).
+    fn note_dotnet_result_ty(&mut self, t: &RtType, inner: &ir::Expr) {
+        if let (
+            RtType::DotNet(i),
+            ir::Expr::DotNet {
+                op: ir::DotNetOp::Call(_),
+                ..
+            },
+        ) = (t, inner)
+            && let Some(site) = self.chunk.dotnets.last_mut()
+        {
+            site.result_ty = Some(*i as usize);
+        }
     }
 
     fn assign(&mut self, p: &'a ir::Place, e: &'a ir::Expr) -> R<()> {

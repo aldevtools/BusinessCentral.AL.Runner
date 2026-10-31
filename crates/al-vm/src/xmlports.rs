@@ -768,10 +768,8 @@ impl Session {
             return self.xp_import_text(inst, schema, top, &text);
         }
 
-        // PreserveWhiteSpace with a default namespace is pinned for an export only (al-sema xmlports.rs).
-        if xp.preserve_whitespace && xp.default_ns.is_some() {
-            return unsupported("XmlPort import with PreserveWhiteSpace and UseDefaultNamespace (not pinned)");
-        }
+        // PreserveWhiteSpace with a default namespace imports as without one (corpus PR 896, misc/lt-np4-probes/Np4XmlPort.al
+        // Y9_XmlPort_Import_PreserveWhiteSpace_WithNamespace).
         let parsed = match &xp.default_ns {
             None => al_builtins::xmlport::parse(&text),
             Some(ns) => self.xp_parse_in_namespace(schema, top, table_root, &text, ns)?,
@@ -828,11 +826,15 @@ impl Session {
                 })
                 || e.elements().any(|c| foreign_prefix(c, declared))
         }
-        // With PreserveWhiteSpace, white space between elements is not pinned.
+        // With PreserveWhiteSpace, white space between elements is passed over (corpus PR 896, misc/lt-np4-probes/Np4XmlPort.al
+        // Y9_XmlPort_Import_PreserveWhiteSpace_NoNamespace: indented rows import as `rows=3`); other text between them is not
+        // pinned.
         if xp.preserve_whitespace {
             fn spaced(e: &Elem) -> bool {
                 (e.elements().next().is_some()
-                    && e.children.iter().any(|c| matches!(c, Node::Text(t) if !t.is_empty())))
+                    && e.children
+                        .iter()
+                        .any(|c| matches!(c, Node::Text(t) if !t.trim().is_empty())))
                     || e.elements().any(spaced)
             }
             if spaced(&root) {
@@ -1328,10 +1330,15 @@ impl Session {
     /// triggers only read it). A Break or Quit in the first run ends the import before the second run would come: not pinned.
     fn xp_assign_leaf_text(&mut self, inst: &Inst, schema: &Schema, node: usize, ce: &Elem) -> Result<(), Signal> {
         // `<x> </x>` gives the empty text (TR_EmptyLeaf_Import `space`: `top=[];`).
+        // Other white space: kept with PreserveWhiteSpace, each run made one space and the ends trimmed without it (corpus PR
+        // 896, misc/lt-np4-probes/Np4XmlPort.al Y9_XmlPort_Import_PreserveWhiteSpace_NoNamespace `note=[  lead  inner\n gap\t ]`,
+        // Y9_XmlPort_Import_DefaultWhiteSpace_NoNamespace `note=[lead inner gap]`, with a default namespace the same).
         let text = ce.text();
         let text = if !text.is_empty() && text.trim().is_empty() {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportSelfClosedLeafAssignTwice);
             String::new()
+        } else if !schema.xp().preserve_whitespace && text.contains(XML_SPACE) {
+            collapse_white_space(&text)
         } else {
             text
         };
@@ -1398,13 +1405,25 @@ impl Session {
         };
         // With PreserveWhiteSpace a Text field element keeps it (XpTImportOptions.al:406 Import_PreserveWhitespace, `  a  b  `);
         // around another value or in an attribute that is not pinned.
-        let text = if schema.xp().preserve_whitespace && text != raw {
+        // A value of white space only is the empty text with and without it (corpus PR 896, misc/lt-np4-probes/Np4XmlPort.al
+        // Y9_XmlPort_Import_PreserveWhiteSpace_NoNamespace `[]`). Without it an Xml import makes each run of white space inside a
+        // Text field element one space (Y9_XmlPort_Import_DefaultWhiteSpace_NoNamespace, _WithNamespace `[a b]`).
+        let collapsed;
+        let text = if schema.xp().preserve_whitespace && text != raw && !text.is_empty() {
             if n.kind != ir::XmlNodeKind::Field || !matches!(ty, RtType::Text(_)) {
                 return unsupported(
                     "XmlPort import with PreserveWhiteSpace of white space around a value that is no Text field element (not pinned)",
                 );
             }
             raw
+        } else if !schema.xp().preserve_whitespace
+            && schema.xp().format == ir::XmlFormat::Xml
+            && n.kind == ir::XmlNodeKind::Field
+            && matches!(ty, RtType::Text(_))
+            && text.contains(XML_SPACE)
+        {
+            collapsed = collapse_white_space(text);
+            collapsed.as_str()
         } else {
             text
         };
@@ -2703,6 +2722,20 @@ impl Session {
         for (i, n) in schema.xp().nodes.iter().enumerate() {
             if n.source_view.is_some() {
                 if let Ok(rec) = self.xp_record(inst, schema.node(i)) {
+                    // The link filter of a linked element with LinkFields does not show afterwards: GetFilters reads '' (corpus
+                    // PR 896, misc/lt-np4-probes/Np4XmlPort.al Y9_XmlPort_LinkedOnceOnce_* `held ...|filters=`). It is kept
+                    // with the view's own filters, which count but do not show.
+                    if !n.link_fields.is_empty() {
+                        for f in rec.borrow_mut().filters.iter_mut() {
+                            if f.group == 0 && n.link_fields.iter().any(|(own, _)| *own == f.field) {
+                                f.group = XP_VIEW_GROUP;
+                            }
+                        }
+                        let addr = Rc::as_ptr(&rec) as usize;
+                        if !self.xp_link_hidden.contains(&addr) {
+                            self.xp_link_hidden.push(addr);
+                        }
+                    }
                     if rec.borrow().unpinned_buffer != Some(crate::records::XP_ROW_AFTER_ONCE) {
                         rec.borrow_mut().unpinned_buffer = Some(crate::records::XP_VIEW_AFTER_EXPORT);
                     }
@@ -2787,27 +2820,34 @@ impl Session {
                 }
                 root
             }) {
-                // A line feed in a text value is written as CR LF: pinned on an UTF8 export with PreserveWhiteSpace or a default
-                // namespace (misc/lt-np4-probes/Np4XmlPort.al:280, :300, :320 on corpus master). Another shape is not pinned.
+                // A line end in a text value (LF, CR LF, a lone CR) is written as CR LF: pinned on an UTF8 export, with and without
+                // PreserveWhiteSpace and a default namespace (misc/lt-np4-probes/Np4XmlPort.al:280, :300, :320, corpus PR 871;
+                // Y9_XmlPort_Export_LineFeed_Plain, corpus PR 896), and on an UTF16 export without either (FF FE, 302 bytes:
+                // Y9_XmlPort_Export_LineFeed_Utf16_RawStream, _Utf16Stream). UTF16 with PreserveWhiteSpace or a namespace is not.
                 Ok(root)
-                    if al_builtins::xmlport::has_bare_line_feed(&root)
-                        && !(xp.xml_utf8 && (xp.preserve_whitespace || xp.default_ns.is_some())) =>
+                    if al_builtins::xmlport::has_line_end(&root)
+                        && !xp.xml_utf8
+                        && (xp.preserve_whitespace || xp.default_ns.is_some()) =>
                 {
                     return unsupported(
-                        "XmlPort export of a text value with a line feed (not pinned for this port's Encoding, PreserveWhiteSpace and namespace)",
+                        "XmlPort export of a text value with a line end on an UTF16 port with PreserveWhiteSpace or a default namespace (not pinned)",
                     );
                 }
-                Ok(root) if xp.xml_utf8 => {
-                    let text = al_builtins::xmlport::serialize_as(&root, "UTF-8");
-                    if al_builtins::xmlport::has_bare_line_feed(&root) {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::XmlPortPreserveWhiteSpaceExport,
-                        );
-                        al_builtins::xmlport::line_feeds_to_crlf(&text).into_bytes()
-                    } else {
+                Ok(mut root) if al_builtins::xmlport::has_line_end(&root) => {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::XmlPortPreserveWhiteSpaceExport,
+                    );
+                    al_builtins::xmlport::line_ends_to_lf(&mut root);
+                    let enc = if xp.xml_utf8 { "UTF-8" } else { "UTF-16" };
+                    let text =
+                        al_builtins::xmlport::line_feeds_to_crlf(&al_builtins::xmlport::serialize_as(&root, enc));
+                    if xp.xml_utf8 {
                         text.into_bytes()
+                    } else {
+                        al_builtins::xmlport::utf16_bom_bytes(&text)
                     }
                 }
+                Ok(root) if xp.xml_utf8 => al_builtins::xmlport::serialize_as(&root, "UTF-8").into_bytes(),
                 Ok(root) => al_builtins::xmlport::utf16_bom_bytes(&al_builtins::xmlport::serialize(&root)),
                 Err(Signal::Error(_)) if guarded => {
                     return unsupported("an error inside an Export whose result is used (not pinned)");
@@ -3463,18 +3503,29 @@ impl Session {
             // TT_Confirm_Export_NoPreFilter: five rows, `get detail 1` only): the first row of each pass, one OnAfterGetRecord; the row
             // the record holds afterwards is not pinned.
             // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Confirm_Export_NpFilters, TT_Confirm_Export_NoKindFilter, TT_Confirm_Export_NoPreFilter (was assumption `xmlport-linked-once`).
-            if rows.len() > 1 {
+            // With LinkFields, MinOccurs = Once and no export triggers, the record holds the second of two rows afterwards and a
+            // later pass without rows writes it; a first pass without rows writes the record blank (corpus PR 896,
+            // misc/lt-np4-probes/Np4XmlPort.al Y9_XmlPort_LinkedOnceOnce_ZeroOneTwoRows `held 3/10/A/h3l10`,
+            // _TwoRowsThenNone `<Line head="1" no="10">` under heads 2 and 3, _OneRowThenNone). Of three or more rows it is not
+            // pinned.
+            let pinned_two =
+                rows.len() == 2 && !n.link_fields.is_empty() && !n.min_zero && !export_triggers_below(schema, node);
+            if pinned_two {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlPortOnceOnceNested);
+                ends_on = rows.pop();
+            } else if rows.len() > 1 {
                 rows.truncate(1);
                 nested_after = true;
             }
         } else if n.max_unbounded == Some(false) && rows.len() > 1 {
             // Without export triggers, a table element without LinkTable below another one with MinOccurs = Once holds the second of
             // two rows afterwards: the next pass without rows writes it (misc/lt-np4-probes/Np4XmlPort.al:381
-            // NP4_XmlPort_OnceOnce_TwoRows `<Child cid="12">` under head 2, corpus master). Of three or more rows it is not pinned.
+            // NP4_XmlPort_OnceOnce_TwoRows `<Child cid="12">` under head 2, corpus master), and the second of three as well (corpus
+            // PR 896, Np4XmlPort.al Y9_XmlPort_OnceOnce_ThreeRowsThenNone `<Child cid="12">`). Of four or more it is not pinned.
             let once_once = unlinked_below_table(schema, node) && !n.min_zero && !export_triggers_below(schema, node);
-            if once_once && rows.len() == 2 {
+            if once_once && (rows.len() == 2 || rows.len() == 3) {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlPortOnceOnceNested);
-                ends_on = rows.pop();
+                ends_on = Some(rows[1].clone());
             } else if once_once {
                 ends_unpinned = true;
             } else if export_triggers_below(schema, node) {
@@ -4063,6 +4114,17 @@ fn iso_duration(ms: i64) -> String {
         }
     }
     out
+}
+
+/// The white space characters of XML.
+const XML_SPACE: [char; 4] = [' ', '\t', '\n', '\r'];
+
+/// `t` with each run of XML white space made one space and the ends trimmed.
+fn collapse_white_space(t: &str) -> String {
+    t.split(XML_SPACE)
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn parse_duration_text(t: &str) -> Option<i64> {

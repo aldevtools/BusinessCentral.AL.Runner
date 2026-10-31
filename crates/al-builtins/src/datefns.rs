@@ -474,7 +474,7 @@ enum Term {
     MonthLetterFirst { n: i32, forward: bool },
     /// `Dn`, the day letter before its number. Only `D1` on the last day of a month is pinned (see `apply`).
     DayLetterFirst { n: i32, forward: bool },
-    /// `Wn`: the Monday of ISO week `n` after the date (only `W17` is pinned).
+    /// `Wn`: the Monday of ISO week `n` after the date (`W17`, `W21`, `W25` are pinned).
     WeekLetterFirst { n: i32 },
     /// `Qn`: the first day of quarter `n` after the date (only `Q3` is pinned).
     QuarterLetterFirst { n: u32 },
@@ -637,7 +637,10 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
                 i += 1;
             }
             match (letter, &body[start..i]) {
+                // `W21` and `W25`: corpus master (corpus PR 886) types/lt-date-formula-edges/DateFormulaInsidePeriod.al:64, :90.
                 (b'W', "17") => terms.push(Term::WeekLetterFirst { n: 17 }),
+                (b'W', "21") => terms.push(Term::WeekLetterFirst { n: 21 }),
+                (b'W', "25") => terms.push(Term::WeekLetterFirst { n: 25 }),
                 (b'Q', "3") => terms.push(Term::QuarterLetterFirst { n: 3 }),
                 _ => return refuse(),
             }
@@ -973,13 +976,25 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
             // _D28, _D29, _D31; assumption date-formula-letter-first-forms): day n of the date's month, cut back to the month's
             // length, when the date's day is below n; else day n of the next month, cut back the same way (`<D29>` on
             // 2023-02-28 stays 2023-02-28, `<D31>` on 2023-01-31 is 2023-02-28).
-            Term::DayLetterFirst { n, forward: true } if matches!(n, 15 | 28 | 29 | 31) => {
+            // `D1` from any day goes the same way: day 1 of the next month (corpus master, corpus PR 886:
+            // types/lt-date-formula-edges/DateFormulaInsidePeriod.al:36-47, `<D1>` on 2024-01-01 is 2024-02-01).
+            Term::DayLetterFirst { n, forward: true } if matches!(n, 1 | 15 | 28 | 29 | 31) => {
                 crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
                 let n = n as u32;
                 if d < n {
                     day_from_civil(y, m, n.min(days_in_month(y, m)))
                 } else {
                     add_months(y, m, n, 1)?
+                }
+            }
+            // `-D1`: day 1 of the date's month when the date is after it, else of the month before (DateFormulaInsidePeriod.al:46-47:
+            // 2024-01-15 is 2024-01-01, 2024-01-01 is 2023-12-01). Another number is not pinned.
+            Term::DayLetterFirst { n: 1, forward: false } => {
+                crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
+                if d > 1 {
+                    day_from_civil(y, m, 1)
+                } else {
+                    add_months(y, m, 1, -1)?
                 }
             }
             Term::DayLetterFirst { n, forward } => {
@@ -991,7 +1006,8 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
                 day + 1
             }
             // The Monday of ISO week n of the date's year when it is after the date, else of the next year's week n
-            // (NP4_CalcDate_W17: 2023-04-15 2023-04-24, 2023-06-30 2024-04-22). A date inside week n is not pinned.
+            // (NP4_CalcDate_W17: 2023-04-15 2023-04-24, 2023-06-30 2024-04-22). A date inside week n, its Monday included, goes to the
+            // next year too (DateFormulaInsidePeriod.al:64-77 `<W21>` on 2024-05-20 to 2024-05-26 is 2025-05-19, :114-125 `<W17>`).
             Term::WeekLetterFirst { n } => {
                 crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
                 let monday = |year: i32| {
@@ -1000,19 +1016,14 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
                     jan4 - (weekday(jan4) - 1) + (n - 1) * 7
                 };
                 let this = monday(y);
-                if day >= this && day < this + 7 {
-                    return unsupported(format!("date formula `W{n}` on a date inside week {n} (not pinned)"));
-                }
                 if this > day { this } else { monday(y + 1) }
             }
             // The first day of quarter n of the date's year when it is after the date, else of the next year
-            // (NP4_CalcDate_Q3: 2023-06-30 2023-07-01, 2023-12-31 2024-07-01). A date inside quarter n is not pinned.
+            // (NP4_CalcDate_Q3: 2023-06-30 2023-07-01, 2023-12-31 2024-07-01). A date inside quarter n, its first day included, goes
+            // to the next year (DateFormulaInsidePeriod.al:134-147).
             Term::QuarterLetterFirst { n } => {
                 crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
                 let first = (n - 1) * 3 + 1;
-                if (first..first + 3).contains(&m) {
-                    return unsupported(format!("date formula `Q{n}` on a date inside quarter {n} (not pinned)"));
-                }
                 if m < first {
                     day_from_civil(y, first, 1)
                 } else {
@@ -1160,9 +1171,47 @@ mod tests {
                 other => panic!("{f} on {y}-{m}-{d}: {other:?}"),
             }
         }
-        // A date inside week 17 or quarter 3 is not pinned.
-        assert!(matches!(calc("<W17>", date(2023, 4, 26)), Err(Signal::Unsupported(_))));
-        assert!(matches!(calc("<Q3>", date(2023, 8, 1)), Err(Signal::Unsupported(_))));
+    }
+
+    /// Corpus master (corpus PR 886) types/lt-date-formula-edges/DateFormulaInsidePeriod.al: `<D1>` and `<-D1>` from any day,
+    /// `<W21>`, `<W25>`, `<W17>` and `<Q3>` from a date inside the period.
+    #[test]
+    fn letter_first_formulas_inside_the_period_go_to_the_next_one() {
+        type Ymd = (i32, u32, u32);
+        let cases: &[(&str, Ymd, Ymd)] = &[
+            ("<D1>", (2024, 1, 1), (2024, 2, 1)),
+            ("<D1>", (2024, 1, 2), (2024, 2, 1)),
+            ("<D1>", (2024, 2, 28), (2024, 3, 1)),
+            ("<D1>", (2023, 2, 27), (2023, 3, 1)),
+            ("<D1>", (2024, 12, 1), (2025, 1, 1)),
+            ("<D1>", (2024, 12, 30), (2025, 1, 1)),
+            ("<-D1>", (2024, 1, 15), (2024, 1, 1)),
+            ("<-D1>", (2024, 1, 1), (2023, 12, 1)),
+            ("<W21>", (2024, 5, 19), (2024, 5, 20)),
+            ("<W21>", (2024, 5, 20), (2025, 5, 19)),
+            ("<W21>", (2024, 5, 26), (2025, 5, 19)),
+            ("<W21>", (2024, 5, 27), (2025, 5, 19)),
+            ("<W21>", (2020, 5, 18), (2021, 5, 24)),
+            ("<W21>", (2021, 1, 1), (2021, 5, 24)),
+            ("<W21>", (2026, 10, 30), (2027, 5, 24)),
+            ("<W25>", (2024, 6, 16), (2024, 6, 17)),
+            ("<W25>", (2024, 6, 23), (2025, 6, 16)),
+            ("<W25>", (2026, 6, 17), (2027, 6, 21)),
+            ("<W17>", (2024, 4, 22), (2025, 4, 21)),
+            ("<W17>", (2023, 4, 30), (2024, 4, 22)),
+            ("<Q3>", (2024, 7, 1), (2025, 7, 1)),
+            ("<Q3>", (2024, 9, 30), (2025, 7, 1)),
+            ("<Q3>", (2023, 9, 15), (2024, 7, 1)),
+        ];
+        for &(f, (y, m, d), (ry, rm, rd)) in cases {
+            match calc(f, date(y, m, d)) {
+                Ok(Value::Date(n, false)) => assert_eq!(n, day_from_civil(ry, rm, rd), "{f} on {y}-{m}-{d}"),
+                other => panic!("{f} on {y}-{m}-{d}: {other:?}"),
+            }
+        }
+        // Other week and quarter numbers and `-D` with a number other than 1 are not pinned.
+        refused(calc("<W22>", date(2024, 1, 1)));
+        refused(calc("<-D2>", date(2024, 1, 15)));
     }
 
     // `Dn` before its number: the only pin is `D1` on 2024-01-31 giving 2024-02-01
@@ -1173,9 +1222,7 @@ mod tests {
         is_date(calc("D1", date(2024, 1, 31)), 2024, 2, 1);
         // `<D31>` is pinned on corpus master now (Np4DateFormulas.al NP4_CalcDate_D31).
         is_date(calc("<D31>", date(2024, 1, 1)), 2024, 1, 31);
-        refused(calc("<D1>", date(2024, 1, 1)));
         refused(calc("<D2>", date(2024, 1, 31)));
-        refused(calc("<-D1>", date(2024, 1, 31)));
     }
 
     // types/TestRoundDateTimeContracts.al:61-72: a precision of 700000 ms does not divide a day but a week.

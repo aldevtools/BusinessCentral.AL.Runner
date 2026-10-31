@@ -3506,7 +3506,22 @@ impl Session {
         let Some(handler) = handler else {
             return Ok(Value::Null);
         };
-        let answer = self.answer_page(&st, handler, modal)?;
+        let answer = match self.answer_page(&st, handler, modal) {
+            // OK on the lookup list of a static Page.RunModal(Id, Rec) that shows no row fails, and the record the call was given
+            // comes back without its filters, its values kept (corpus PR 896, errors/lt-ms-refusals-129/Y9LookupNoRow.al
+            // Y9_Lookup_RunModalIdRec_FilteredToNoRow_Ok `filters=`, _EmptyTable_PrefilledRec_Ok `id=5|grp=Q|qty=9`).
+            Err(Signal::Error(e))
+                if e.code == "TestActionNotFound"
+                    && e.message.starts_with("The built-in action = OK ")
+                    && st.borrow().static_lookup =>
+            {
+                if let Some(r) = &handed {
+                    r.borrow_mut().filters.clear();
+                }
+                return Err(Signal::Error(e));
+            }
+            other => other?,
+        };
         // With a TestPage handler the field argument changes nothing: what the handler sees, the action and the record after
         // the call are those of the call without it, for a field number, a field value, a FieldRef and an Integer of another
         // table, on a list and a card, with OK, Cancel, a Close action, a pick and a FilterGroup 2 filter

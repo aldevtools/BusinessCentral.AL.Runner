@@ -1,8 +1,6 @@
 //! `Page.RunModal(Id, Rec)` whose handler answers OK on a lookup page that shows no row (an empty view of a list that has no
-//! new-row line, handlers/TestPageModalNewRowLine_Tests.al:164 NotEditable_RunModalById_HasNoNewRowLine): the answer is
-//! LookupOK, but what Rec holds afterwards is not pinned (the corpus pins only GetRecord of a page variable after OK on an empty
-//! table, errors/lt-ms-refusals-129/P129PageMisc.al:633 P129_GetRecord_AfterRunModalOkOnEmptyTable, blank). A later use of
-//! Rec is refused. A partner test reached it: the runtime kept Rec as it was, and the test went on with a blank record.
+//! new-row line, handlers/TestPageModalNewRowLine_Tests.al:164 NotEditable_RunModalById_HasNoNewRowLine), and a page variable
+//! in lookup mode on such a view.
 
 use al_test_cli::report::Outcome;
 
@@ -30,14 +28,20 @@ fn outcomes(tests: &str) -> Vec<(String, Outcome)> {
     al_testkit::outcomes_in(&src, "T")
 }
 
+// OK on that page has no OK action: the call fails with TestActionNotFound and Rec comes back without its filters, its values
+// kept (corpus PR 896, errors/lt-ms-refusals-129/Y9LookupNoRow.al Y9_Lookup_RunModalIdRec_FilteredToNoRow_Ok,
+// _EmptyTable_PrefilledRec_Ok, _EmptyTable_ReadOnlyList_Ok). On a row it is LookupOK with that row.
 #[test]
-fn rec_after_lookup_ok_on_a_page_without_a_row_is_refused() {
+fn ok_on_a_static_lookup_page_without_a_row_is_not_found() {
     let o = outcomes(
         "[Test] [HandlerFunctions('OkHandler')] procedure EmptyView() var R: Record \"LNR Row\"; begin
              R.DeleteAll();
              R.\"No.\" := 'A'; R.Grp := 'X'; R.Insert();
              R.SetRange(Grp, 'NONE');
-             if Page.RunModal(0, R) <> Action::LookupOK then Error('answer');
+             asserterror if Page.RunModal(0, R) = Action::LookupOK then Error('ok');
+             if GetLastErrorText() <> 'The built-in action = OK is not found on the page.' then Error('text %1', GetLastErrorText());
+             if GetLastErrorCode() <> 'TestActionNotFound' then Error('code %1', GetLastErrorCode());
+             if R.GetFilters() <> '' then Error('filters %1', R.GetFilters());
              if R.\"No.\" <> 'A' then Error('rec');
          end;
          [Test] [HandlerFunctions('OkHandler')] procedure OnARow() var R: Record \"LNR Row\"; begin
@@ -50,40 +54,8 @@ fn rec_after_lookup_ok_on_a_page_without_a_row_is_refused() {
          end;
          [ModalPageHandler] procedure OkHandler(var P: TestPage \"LNR List\") begin P.First(); P.OK().Invoke(); end;",
     );
-    assert!(
-        matches!(&o[0].1, Outcome::NotRun(why) if why.contains("shows no row")),
-        "{:?}",
-        o[0]
-    );
+    assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0]);
     assert_eq!(o[1].1, Outcome::Pass, "{:?}", o[1]);
-}
-
-// No corpus test pins Rec's filters, key or view after that LookupOK either: their reads refuse too.
-#[test]
-fn filter_reads_of_rec_after_lookup_ok_on_a_page_without_a_row_are_refused() {
-    let o = outcomes(
-        "[Test] [HandlerFunctions('OkHandler')] procedure Filters() var R: Record \"LNR Row\"; begin
-             R.DeleteAll();
-             R.\"No.\" := 'A'; R.Grp := 'X'; R.Insert();
-             R.SetRange(Grp, 'NONE');
-             if Page.RunModal(0, R) <> Action::LookupOK then Error('answer');
-             if R.GetFilters() = '' then Error('filters');
-         end;
-         [Test] [HandlerFunctions('OkHandler')] procedure View() var R: Record \"LNR Row\"; begin
-             R.DeleteAll();
-             R.\"No.\" := 'A'; R.Grp := 'X'; R.Insert();
-             R.SetRange(Grp, 'NONE');
-             if Page.RunModal(0, R) <> Action::LookupOK then Error('answer');
-             if R.GetView() = '' then Error('view');
-         end;
-         [ModalPageHandler] procedure OkHandler(var P: TestPage \"LNR List\") begin P.First(); P.OK().Invoke(); end;",
-    );
-    for (n, r) in &o {
-        assert!(
-            matches!(r, Outcome::NotRun(why) if why.contains("shows no row")),
-            "{n}: {r:?}"
-        );
-    }
 }
 
 // errors/lt-ms-refusals-129/P129PageMisc.al:726 TV_GetRecord_AfterLookupOk_FilteredToNoRow and :772
@@ -177,4 +149,24 @@ fn get_record_after_a_typed_handler_set_the_record() {
     for (n, r) in &o {
         assert_eq!(*r, Outcome::Pass, "{n}");
     }
+}
+
+// A page that showed a row when it opened, whose row the handler took out of the view before OK, is not pinned: refused.
+#[test]
+fn ok_on_a_static_lookup_whose_row_left_the_view_is_refused() {
+    let o = outcomes(
+        "[Test] [HandlerFunctions('DeleteThenOkHandler')] procedure RowLeft() var R: Record \"LNR Row\"; begin
+             R.DeleteAll();
+             R.\"No.\" := 'A'; R.Grp := 'X'; R.Insert();
+             R.SetRange(Grp, 'X');
+             if Page.RunModal(0, R) <> Action::LookupOK then Error('answer');
+         end;
+         [ModalPageHandler] procedure DeleteThenOkHandler(var P: TestPage \"LNR List\") var R: Record \"LNR Row\"; begin
+             R.Get('A'); R.Grp := 'Y'; R.Modify(); P.OK().Invoke(); end;",
+    );
+    assert!(
+        matches!(&o[0].1, Outcome::NotRun(why) if why.contains("left its view")),
+        "{:?}",
+        o[0]
+    );
 }

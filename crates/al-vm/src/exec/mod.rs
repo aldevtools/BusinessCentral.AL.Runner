@@ -496,6 +496,9 @@ pub(crate) struct AppendSite {
 
 pub(crate) struct DotNetSite {
     pub ty: Option<usize>,
+    /// The declared DotNet type (index into `dotnet_types`) of the variable a call's result is stored into, when the call is
+    /// the whole right side of the assignment: the type argument of a generic-only method (`dotnet_apply`).
+    pub result_ty: Option<usize>,
     pub op: ir::DotNetOp,
     pub recv: Option<u16>,
     pub arg_regs: Vec<u16>,

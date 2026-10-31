@@ -8,8 +8,8 @@ fn outcome(o: &[(String, al_testrun::Outcome)], n: &str) -> String {
 }
 
 // A read under ReadIsolation RepeatableRead starts the write transaction (misc/lt-np4-probes/Np4Misc.al:219
-// NP4_ReadIsolation_RepeatableRead_Reads: `findset Yes|1|Yes` as the first read). The isolation set without any read stays
-// refused.
+// NP4_ReadIsolation_RepeatableRead_Reads: `findset Yes|1|Yes` as the first read). The assignment alone opens it (corpus PR 896,
+// Np4Misc.al Y9_RepeatableRead_SetAfterCommit_FirstRead `before=Yes`).
 const ISOLATION: &str = r#"
 table 50680 "N68 Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
 codeunit 50681 T
@@ -33,12 +33,12 @@ codeunit 50681 T
         if not Other.Get(2) then Error('no row 2');
         if not IsInWriteTransaction() then Error('no write transaction');
     end;
-    [Test] procedure SetWithoutReadIsRefused()
+    [Test] procedure SetWithoutReadOpensIt()
     var Row: Record "N68 Row";
     begin
         Seed();
         Row.ReadIsolation := IsolationLevel::RepeatableRead;
-        if IsInWriteTransaction() then Error('write transaction');
+        if not IsInWriteTransaction() then Error('no write transaction');
     end;
     local procedure Seed()
     var Row: Record "N68 Row";
@@ -56,13 +56,12 @@ fn a_find_set_under_repeatable_read_opens_the_write_transaction() {
     let o = outcomes_in(ISOLATION, "T");
     assert_eq!(outcome(&o, "FindSetUnderRepeatableRead"), "Some(Pass)");
     assert_eq!(outcome(&o, "GetUnderRepeatableReadAfterFindSet"), "Some(Pass)");
-    let g = outcome(&o, "SetWithoutReadIsRefused");
-    assert!(g.contains("NotRun"), "{g}");
+    assert_eq!(outcome(&o, "SetWithoutReadOpensIt"), "Some(Pass)");
 }
 
 // Error('') out of a control's own OnValidate during SetValue on a List and a Worksheet page: the test goes on, the last error has
 // the empty text and code NSValidateField:Dialog, the control shows the old value and the row keeps it
-// (misc/lt-np4-probes/Np4EmptyError.al:200 NP4_EE_ControlValidate_List, :224 _Worksheet). A list part stays refused.
+// (misc/lt-np4-probes/Np4EmptyError.al:200 NP4_EE_ControlValidate_List, :224 _Worksheet).
 const EMPTY_ERROR: &str = r#"
 table 50682 "N68 Line" { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } } keys { key(PK; Id) { } } }
 page 50683 "N68 List"
@@ -116,7 +115,7 @@ codeunit 50687 T
         P.Close();
         Stored();
     end;
-    [Test] procedure OnListPartIsRefused()
+    [Test] procedure OnListPartInCard()
     var Row: Record "N68 Line"; P: TestPage "N68 Host";
     begin
         Row := Seed();
@@ -151,8 +150,8 @@ fn an_empty_error_out_of_a_list_or_worksheet_control_validate_ends_set_value_qui
     let o = outcomes_in(EMPTY_ERROR, "T");
     assert_eq!(outcome(&o, "OnList"), "Some(Pass)");
     assert_eq!(outcome(&o, "OnWorksheet"), "Some(Pass)");
-    let g = outcome(&o, "OnListPartIsRefused");
-    assert!(g.contains("NotRun"), "{g}");
+    // A ListPart inside a Card is pinned too (corpus PR 896, Np4EmptyError.al Y9_EE_ControlValidate_ListPartInCard).
+    assert_eq!(outcome(&o, "OnListPartInCard"), "Some(Pass)");
 }
 
 // XmlPort export: a table element without LinkTable below another one, MinOccurs = Once and MaxOccurs = Once, writes the first

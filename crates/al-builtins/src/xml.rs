@@ -3371,6 +3371,10 @@ decl_prop!(decl_encoding, encoding);
 decl_prop!(decl_standalone, standalone);
 
 fn value_prop(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    // Reading the Value of an unassigned XmlAttribute raises NotInitialized (xml/XmlAttributes.al:519-524 Attribute_Uninitialized).
+    if a.is_empty() && unassigned(&r, "XmlAttribute") {
+        return Err(uninitialized("XmlAttribute"));
+    }
     let h = recv(r)?;
     if let Some(v) = a.first() {
         let t = crate::native::text_of(v).ok_or_else(|| Signal::Unsupported("non-text XML value".into()))?;
@@ -3480,6 +3484,11 @@ fn element_name(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NRes
     // xml/lt-ul-clear-ref/UlClearXmlRef.al:90-102 ClearXmlElement_NeverAssigned).
     if unassigned(&r, "XmlElement") {
         return Err(uninitialized("XmlElement"));
+    }
+    // So does an unassigned XmlAttribute (xml/XmlAttributes.al:517-522 Attribute_Uninitialized), also after a Get that found
+    // nothing (corpus master, corpus PR 886: xml/lt-xml-attr-doc-http-members/AttrCollectionGetMissing.al:76-83).
+    if unassigned(&r, "XmlAttribute") {
+        return Err(uninitialized("XmlAttribute"));
     }
     let h = recv(r)?;
     Ok(Value::Text(
@@ -5125,8 +5134,22 @@ fn attrs_get_name(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
             Ok(Value::Boolean(true))
         }
         None if c.ret_used() => Ok(Value::Boolean(false)),
-        None => unsupported("XmlAttributeCollection.Get of a missing name, result unused (error text not pinned yet)"),
+        // The statement raises XmlNodeNotFound naming the attribute (corpus master, corpus PR 886:
+        // xml/lt-xml-attr-doc-http-members/AttrCollectionGetMissing.al:113 `missing, two arguments`). A qualified name is not pinned.
+        None if !name.contains(':') => Err(attr_not_found(&name)),
+        None => unsupported(
+            "XmlAttributeCollection.Get of a missing qualified name, result unused (error text not pinned yet)",
+        ),
     }
+}
+
+/// `The XML node with the name '<name>' could not be found.` (XmlNodeNotFound): `<name>` is the name for the two-argument
+/// Get and `{<namespace>}<local name>` for the three-argument one (AttrCollectionGetMissing.al:109-113).
+fn attr_not_found(name: &str) -> Signal {
+    error(
+        format!("The XML node with the name '{name}' could not be found."),
+        "XmlNodeNotFound",
+    )
 }
 
 /// `Get(LocalName, NamespaceUri, var Attr)` finds the attribute by its local name and namespace: a prefixed attribute read
@@ -5137,8 +5160,10 @@ fn attrs_get_name_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) ->
     let owner = owner_of(r)?;
     let (name, uri) = (arg_text(a, 0)?, arg_text(a, 1)?);
     // An empty namespace URI finds the attribute of that name that has no namespace (xml/lt-wd/WdXmlEmptyNsAndUnassigned.al
-    // WD_XmlAttrCollection_Set_EmptyNamespace `Get with empty namespace` Yes; corpus branch al-runtime-rs-staging-1030c). That
-    // it answers No when there is none is not pinned.
+    // WD_XmlAttrCollection_Set_EmptyNamespace `Get with empty namespace` Yes; corpus branch al-runtime-rs-staging-1030c). When
+    // there is none (also when the name is only in a namespace) it answers No and leaves the variable as it was, and the statement
+    // raises XmlNodeNotFound for `{}<name>` (corpus master, corpus PR 886: xml/lt-xml-attr-doc-http-members/
+    // AttrCollectionGetMissing.al:68-83 and :109-111).
     if uri.is_empty() && !name.contains(':') {
         let found = attrs_of(&owner).into_iter().find(|x| {
             with(
@@ -5147,9 +5172,10 @@ fn attrs_get_name_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) ->
             )
         });
         let Some(at) = found else {
-            return unsupported(
-                "XmlAttributeCollection.Get with an empty namespace URI of an attribute that is not there (not pinned)",
-            );
+            if c.ret_used() {
+                return Ok(Value::Boolean(false));
+            }
+            return Err(attr_not_found(&format!("{{}}{name}")));
         };
         a[2] = tagged("XmlAttribute", at);
         return Ok(Value::Boolean(true));
@@ -5169,7 +5195,8 @@ fn attrs_get_name_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) ->
             Ok(Value::Boolean(true))
         }
         None if c.ret_used() => Ok(Value::Boolean(false)),
-        None => unsupported("XmlAttributeCollection.Get of a missing name, result unused (error text not pinned yet)"),
+        // AttrCollectionGetMissing.al:112 `missing, other ns`: `{urn:x}zz`.
+        None => Err(attr_not_found(&format!("{{{uri}}}{name}"))),
     }
 }
 

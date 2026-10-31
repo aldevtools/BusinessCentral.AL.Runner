@@ -278,17 +278,22 @@ fn subscription_row(
         // A page action event's row has Event Type = Trigger and Active = Yes (events/lt-event-subscription-trigger-rows/
         // EventSubscriptionTriggerRows.al:222 for OnAfterActionEvent; events/lt-wd/WdActionEventRow.al:76-85 and :106-110 for
         // OnBeforeActionEvent, also as filters; corpus branch al-runtime-rs-staging-1030c, al-runner issue 6293). Its Published
-        // Function is `<event> - <number>`, and how the number follows from the action is not pinned: only that column is
-        // refused when read.
+        // Function is `<event> - <number>`, the number the id of the action's control: FNV-1a of the declaring object's id and the
+        // action name (`pages::control_id`), the page extension's id for an action an extension adds, under the base page
+        // (corpus master, corpus PR 886: events/lt-event-subscription-trigger-rows/ActionEventPublishedFunction.al:259-272, twelve
+        // numbers; EventSubscriptionTriggerRows.al:222). An action the runtime cannot find on the page leaves that column refused.
         None if kind == al_ir::ObjKind::Page && is_action_event(&event) => {
             r[pos(t, 3)] = option(t, 3, 0);
             r[pos(t, 4)] = option(t, 4, object_type);
             r[pos(t, 5)] = Value::Integer(publisher_id as i32);
-            r[pos(t, 6)] = super::unknown(
-                t,
-                6,
-                &format!("{} (the number in `{event} - <number>` of a page action event)", what()),
-            );
+            r[pos(t, 6)] = match action_control_id(c, publisher_id, &element) {
+                Some(id) => Value::Text(truncate(&format!("{event} - {id}"), 250).into()),
+                None => super::unknown(
+                    t,
+                    6,
+                    &format!("{} (the number in `{event} - <number>` of a page action event)", what()),
+                ),
+            };
             r[pos(t, 7)] = Value::Boolean(true);
             return Ok(());
         }
@@ -301,6 +306,28 @@ fn subscription_row(
     // A statically bound subscriber that resolved is active (TestEventSubscriptionVirtualTable.al:`_Row_DescribesTheSubscription`).
     r[pos(t, 7)] = Value::Boolean(true);
     Ok(())
+}
+
+/// The control id of the action `name` of page `page_id` (`pages::control_id` of the object that declares it): `None` when the
+/// page is not compiled or does not hold exactly one action of that name.
+fn action_control_id(c: &Catalog, page_id: u32, name: &str) -> Option<i64> {
+    let index = c
+        .objects
+        .iter()
+        .position(|h| h.kind == al_ir::ObjKind::Page && h.id == Some(page_id))?;
+    let page = c.full[index].page.as_ref()?;
+    let mut found = page.controls.iter().filter(|ctl| {
+        ctl.kind == al_ir::ControlKind::Action && ctl.action_ref.is_none() && ctl.name.eq_ignore_ascii_case(name)
+    });
+    let ctl = found.next()?;
+    if found.next().is_some() {
+        return None;
+    }
+    let declaring = match ctl.owner {
+        None => page_id,
+        Some(ext) => c.objects.get(ext)?.id?,
+    };
+    Some(crate::pages::control_id(declaring, &ctl.name))
 }
 
 fn is_action_event(event: &str) -> bool {

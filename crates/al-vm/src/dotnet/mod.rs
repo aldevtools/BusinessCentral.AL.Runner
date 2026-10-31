@@ -79,6 +79,19 @@ pub struct DotNetState {
     /// ADR-056: the workbook writers `WorkbookWriter.Create(fileName)` made, by handle: the file and the AL stream the writer
     /// writes into instead. `Close` makes the bytes the file.
     open_workbooks: HashMap<DotNetHandle, (String, BlobRef)>,
+    /// The workbook writers of `open_workbooks` whose `Close` or `Dispose` ran, and the worksheet writers each handed out while
+    /// open (worksheet -> workbook): a `Clear` of either then only unassigns the variable (`clear_is_inert`).
+    closed_workbooks: std::collections::HashSet<DotNetHandle>,
+    worksheets: HashMap<DotNetHandle, DotNetHandle>,
+    /// The workbook readers `WorkbookReader.Open` made, and the worksheet readers they handed out (worksheet -> workbook):
+    /// a `Clear` of either only unassigns the variable (`clear_is_inert`).
+    workbook_readers: std::collections::HashSet<DotNetHandle>,
+    worksheet_readers: HashMap<DotNetHandle, DotNetHandle>,
+    /// Objects a `Clear` unassigned under those assumptions: another variable may still hold one, and whether the Clear
+    /// disposed it is not pinned, so a later member call on it is refused.
+    cleared: std::collections::HashSet<DotNetHandle>,
+    /// `DotNetSite::result_ty` of the call `dotnet_apply` is about to make (taken at its start).
+    pub(crate) result_ty: Option<usize>,
     /// The last .NET result was a null `string` (ADR-024). Set by the reply of a host call and
     /// cleared at the start of every `DotNet` member, so a settle step that runs right after
     /// the member reads the declared type of the null it got.
@@ -149,7 +162,7 @@ impl Session {
     ) -> Result<Value, Signal> {
         self.note_dotnet();
         self.dotnet.null_string = false;
-        let decl = ty.map(|i| {
+        let declared = |i: usize| {
             let d = &self.engine.program.dotnet_types[i];
             DotNetType {
                 assembly: d.assembly.clone(),
@@ -158,7 +171,9 @@ impl Session {
                 public_key_token: d.public_key_token.clone(),
                 name: d.type_name.clone(),
             }
-        });
+        };
+        let decl = ty.map(declared);
+        let result_decl = self.dotnet.result_ty.take().map(declared);
         let (kind, member) = match op {
             ir::DotNetOp::Construct => (
                 MemberKind::Construct,
@@ -168,6 +183,14 @@ impl Session {
             ir::DotNetOp::Get(n) => (MemberKind::Get, n.clone()),
             ir::DotNetOp::Set(n) => (MemberKind::Set, n.clone()),
         };
+        if let Value::DotNet(o) = &recv
+            && let DotNetKind::Host { handle, .. } = &o.kind
+            && self.dotnet.cleared.contains(handle)
+        {
+            return unsupported(format!(
+                "DotNet {member}: the object was cleared through another variable; whether that Clear disposed it is not pinned"
+            ));
+        }
         let target = match (kind, &recv) {
             (MemberKind::Construct, _) => match &decl {
                 Some(d) => Target::Static(d.clone()),
@@ -408,7 +431,22 @@ impl Session {
                 session.set_property(host_target(&target), &member, value)
             }
             (MemberKind::Get, _) => session.get_property(host_target(&target), &member),
-            (_, _) => session.invoke(host_target(&target), &member, wire),
+            (_, _) => {
+                let again = result_decl.as_ref().map(|_| wire.clone());
+                let first = session.invoke(host_target(&target), &member, wire);
+                match (first, again) {
+                    // A method that is generic only, whose one type parameter is its return type (OpenXml's
+                    // `T WorkbookReader.GetWorksheetByName<T>(string)`, Excel Buffer.OpenBookStream): closed over the declared
+                    // type of the DotNet variable the result is stored into. The method converts its result to T, so on real BC
+                    // only that type works (assumption dotnet-generic-result-type).
+                    (Err(DotNetFailure::Refused(why)), Some(wire)) if why.contains("is generic only") => {
+                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotNetGenericResultType);
+                        let g = result_decl.as_ref().expect("cloned only with a result type");
+                        session.invoke_generic(host_target(&target), &member, g, wire)
+                    }
+                    (other, _) => other,
+                }
+            }
         };
         match reply {
             Ok(r) => {
@@ -666,8 +704,29 @@ impl Session {
             self.dotnet.open_workbooks.insert(*handle, (path, blob));
             return Ok(());
         }
+        // A workbook reader `WorkbookReader.Open` made, and a worksheet reader it hands out (GetWorksheetByName).
+        if let Value::DotNet(o) = result
+            && let DotNetKind::Host { handle, clr_type } = &o.kind
+        {
+            if clr_type.eq_ignore_ascii_case(WORKBOOK_READER) && matches!(target, Target::Static(_)) {
+                self.dotnet.workbook_readers.insert(*handle);
+            } else if clr_type.eq_ignore_ascii_case(WORKSHEET_READER)
+                && let Target::Host(h, _) = target
+                && self.dotnet.workbook_readers.contains(h)
+            {
+                self.dotnet.worksheet_readers.insert(*handle, *h);
+            }
+        }
         if self.dotnet.open_workbooks.is_empty() {
             return Ok(());
+        }
+        // A worksheet writer an open workbook writer hands out (FirstWorksheet, AddWorksheet, GetWorksheetByName).
+        if let (Target::Host(h, _), Value::DotNet(o)) = (target, result)
+            && self.dotnet.open_workbooks.contains_key(h)
+            && let DotNetKind::Host { handle, clr_type } = &o.kind
+            && clr_type.eq_ignore_ascii_case(WORKSHEET_WRITER)
+        {
+            self.dotnet.worksheets.insert(*handle, *h);
         }
         if let Target::Host(h, _) = target
             && (member.eq_ignore_ascii_case("Close") || member.eq_ignore_ascii_case("Dispose"))
@@ -675,8 +734,46 @@ impl Session {
         {
             let bytes = blob.borrow().bytes.clone();
             al_builtins::native::Ctx::fs_write(self, &path, &bytes)?;
+            self.dotnet.closed_workbooks.insert(*h);
         }
         Ok(())
+    }
+
+    /// Whether `Clear` of a DotNet variable holding `handle` only unassigns it: a workbook writer `WorkbookWriter.Create(fileName)`
+    /// made, after its `Close` or `Dispose`, or a worksheet writer it handed out while open (Excel Buffer.CloseBook; assumption
+    /// clear-closed-workbook-writer). Before the Close a Dispose could change what Close writes, which is not pinned.
+    /// A workbook reader `WorkbookReader.Open` made, or a worksheet reader it handed out (Excel Buffer.CloseBook after ReadSheet;
+    /// assumption clear-workbook-reader): a reader has nothing to write, and the AL stream it was opened over was read to its
+    /// end when it was handed to .NET. Another variable may still hold the object: a later call on it is refused (`cleared`).
+    pub(crate) fn dotnet_clear_is_inert(&mut self, handle: DotNetHandle, clr_type: &str) -> bool {
+        use al_builtins::assumptions::{Assumption, assume};
+        let dn = &self.dotnet;
+        let (inert, why) = if clr_type.eq_ignore_ascii_case(WORKBOOK_WRITER) {
+            (
+                dn.closed_workbooks.contains(&handle),
+                Assumption::ClearClosedWorkbookWriter,
+            )
+        } else if clr_type.eq_ignore_ascii_case(WORKSHEET_WRITER) {
+            let closed = dn
+                .worksheets
+                .get(&handle)
+                .is_some_and(|book| dn.closed_workbooks.contains(book));
+            (closed, Assumption::ClearClosedWorkbookWriter)
+        } else if clr_type.eq_ignore_ascii_case(WORKBOOK_READER) {
+            (dn.workbook_readers.contains(&handle), Assumption::ClearWorkbookReader)
+        } else if clr_type.eq_ignore_ascii_case(WORKSHEET_READER) {
+            (
+                dn.worksheet_readers.contains_key(&handle),
+                Assumption::ClearWorkbookReader,
+            )
+        } else {
+            return false;
+        };
+        if inert {
+            assume(why);
+            self.dotnet.cleared.insert(handle);
+        }
+        inert
     }
 
     /// ADR-056: a static System.IO.File or System.IO.Directory call (`ty` and `member` in lower case) answered by the
@@ -1568,6 +1665,8 @@ fn holds_carried_text(bytes: &[u8]) -> bool {
 /// DirectoryInfo and FileStream are refused by the policy as a whole.
 const WORKBOOK_WRITER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter";
 const WORKBOOK_READER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader";
+const WORKSHEET_WRITER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorksheetWriter";
+const WORKSHEET_READER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorksheetReader";
 
 fn opens_file_by_path(clr_type: &str, member: &str, kind: MemberKind) -> bool {
     let t = clr_type.to_ascii_lowercase();

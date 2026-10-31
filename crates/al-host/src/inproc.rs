@@ -688,6 +688,18 @@ impl DotNetSession for InprocSession {
         self.inner.invoke(target, member, args)
     }
 
+    fn invoke_generic(
+        &mut self,
+        target: DotNetTarget,
+        member: &str,
+        type_arg: &DotNetType,
+        args: Vec<DotNetArg>,
+    ) -> Reply {
+        let target = self.target_out(target)?;
+        let args = self.args_out(args)?;
+        self.inner.invoke_generic(target, member, type_arg, args)
+    }
+
     fn get_property(&mut self, target: DotNetTarget, name: &str) -> Reply {
         if let Some(r) = self.try_local(&target, name, &[]) {
             return r;
@@ -754,6 +766,10 @@ mod tests {
             self.0.lock().unwrap().push(member.to_string());
             Err(DotNetFailure::Refused("stub".into()))
         }
+        fn invoke_generic(&mut self, _: DotNetTarget, member: &str, g: &DotNetType, _: Vec<DotNetArg>) -> Reply {
+            self.0.lock().unwrap().push(format!("{member}<{}>", g.name));
+            Err(DotNetFailure::Refused("stub".into()))
+        }
         fn get_property(&mut self, _: DotNetTarget, name: &str) -> Reply {
             self.0.lock().unwrap().push(name.to_string());
             Err(DotNetFailure::Refused("stub".into()))
@@ -782,6 +798,19 @@ mod tests {
             DotNetValue::Handle { handle, .. } => handle,
             other => panic!("{other:?}"),
         }
+    }
+
+    // A generic-only method closed over a type argument (OpenXml's GetWorksheetByName<T>) reaches the sidecar with its type.
+    #[test]
+    fn a_generic_call_reaches_the_sidecar_with_its_type_argument() {
+        let (mut s, seen) = session();
+        let _ = s.invoke_generic(
+            DotNetTarget::Static(net_type("System.Runtime.CompilerServices.Unsafe")),
+            "As",
+            &net_type("System.Text.StringBuilder"),
+            vec![],
+        );
+        assert_eq!(*seen.lock().unwrap(), vec!["As<System.Text.StringBuilder>".to_string()]);
     }
 
     fn listed() -> Vec<String> {

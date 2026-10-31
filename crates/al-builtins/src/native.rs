@@ -447,6 +447,12 @@ pub trait Ctx: FormatCtx {
     fn fs_write_unproduced(&mut self, _path: &str, _mark: &str) -> Result<(), String> {
         Err("this context has no file system".into())
     }
+    /// Whether `Clear` of a DotNet variable holding the host object `handle` of type `clr_type` changes nothing AL can see, so
+    /// the variable just becomes unassigned (an OpenXml workbook writer after its `Close` and the worksheet writers it handed
+    /// out, a workbook reader and its worksheet readers). The context marks the assumption it relies on.
+    fn dotnet_clear_is_inert(&mut self, _handle: u64, _clr_type: &str) -> bool {
+        false
+    }
     /// Whether the company data codeunit (Microsoft's DemoTool) is building the company: only there content behind a carried
     /// mark (`stream::is_carried_mark`) moves unread.
     fn company_build(&self) -> bool {
@@ -2737,6 +2743,16 @@ fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result
         Value::DotNet(o)
             if matches!(&o.kind, crate::value::DotNetKind::Internal { type_name, .. }
                 if type_name == crate::dotnet_sigs::AKV_PROVIDER) =>
+        {
+            Value::Null
+        }
+        // Excel Buffer.CloseBook clears its worksheet and workbook writers after the workbook's Close, and its worksheet and
+        // workbook readers: the variables become unassigned (assumptions clear-closed-workbook-writer and clear-workbook-reader,
+        // from Microsoft's Tests-ERM; the context marks them). A later call on the object through another
+        // variable is refused (the context remembers the handle).
+        Value::DotNet(o)
+            if matches!(&o.kind, crate::value::DotNetKind::Host { handle, clr_type }
+                if ctx.dotnet_clear_is_inert(*handle, clr_type)) =>
         {
             Value::Null
         }

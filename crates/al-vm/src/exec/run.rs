@@ -887,6 +887,7 @@ impl Session {
                 ir::Arg::Value(_) => None,
             });
         }
+        self.dotnet.result_ty = site.result_ty;
         self.dotnet_apply(site.ty, recv, values, places, &site.op, f)
     }
 
