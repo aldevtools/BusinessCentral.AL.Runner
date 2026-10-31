@@ -297,6 +297,51 @@ fn feature_key_texts_are_pinned_for_five_keys() {
     assert!(why.contains("Description"), "{why}");
 }
 
+/// Truncate of the computed tables Integer and AllObj raises "The table does not support truncation." and, with the result used,
+/// answers false and keeps the rows (record/TestCalcFieldsTruncateUniqueContracts.al:311-312; record/lt-truncate-guards/
+/// TruncateGuards.al:222-237).
+#[test]
+fn truncate_of_a_computed_table_raises_the_pinned_error() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure AllObjRaises() var A: Record AllObj; begin asserterror A.Truncate();
+    if GetLastErrorText() <> 'The table does not support truncation.' then Error(GetLastErrorText()); end;
+  [Test] procedure IntegerAnswersFalse() var I: Record Integer; Ok: Boolean; begin I.SetRange(Number, 1, 5); Ok := I.Truncate();
+    if Ok then Error('true'); if GetLastErrorText() <> 'The table does not support truncation.' then Error(GetLastErrorText());
+    if I.Count() <> 5 then Error('rows'); end; }"#,
+    );
+    passes(&o, "AllObjRaises");
+    passes(&o, "IntegerAnswersFalse");
+}
+
+/// Windows Language and Language Selection are read-only: Insert (with and without triggers), Modify and Delete of a row that
+/// exists and DeleteAll raise "The <table> table is read-only." with code DB:Ok, and change nothing (platform/lt-ag-contoso/
+/// AgPlatformReadOnly.al:14-55; platform/lt-platform-tables/PtCloudTables.al:46-56). A Modify of a row that does not exist is
+/// not pinned: refused.
+#[test]
+fn writes_to_a_read_only_computed_table_raise_the_pinned_error() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  local procedure Check(Table: Text) begin
+    if GetLastErrorText() <> 'The ' + Table + ' table is read-only.' then Error(GetLastErrorText());
+    if GetLastErrorCode() <> 'DB:Ok' then Error(GetLastErrorCode()); end;
+  [Test] procedure WindowsLanguage() var W: Record "Windows Language"; begin
+    W."Language ID" := 99999; W.Name := 'x'; asserterror W.Insert(); Check('Windows Language');
+    asserterror W.Insert(true); Check('Windows Language');
+    W.Get(1033); W.Name := 'changed'; asserterror W.Modify(); Check('Windows Language');
+    asserterror W.Delete(); Check('Windows Language');
+    Clear(W); asserterror W.DeleteAll(); Check('Windows Language');
+    W.Get(1033); if W.Name <> 'English (United States)' then Error(W.Name); if W.Get(99999) then Error('inserted'); end;
+  [Test] procedure LanguageSelectionMissingRow() var L: Record "Language Selection"; begin
+    L.Name := 'LT PT Language'; L."Language Tag" := 'lt-PT'; asserterror L.Insert(); Check('Language Selection');
+    L.SetRange(Name, 'LT PT Language'); asserterror L.DeleteAll(); Check('Language Selection'); end;
+  [Test] procedure ModifyOfAMissingRow() var L: Record "Language Selection"; begin L.Name := 'LT PT Language'; L.Modify(); end; }"#,
+    );
+    passes(&o, "WindowsLanguage");
+    passes(&o, "LanguageSelectionMissingRow");
+    assert!(not_run(&o, "ModifyOfAMissingRow").contains("does not exist"));
+}
+
 // platform/lt-aw-fresh-tenant/AwTests.al:557-576: on the corpus CI (Linux) a Feature Key change survives the rollback of an
 // asserterror. That is a Linux suspect until the Windows nightly confirms it: the rollback of an uncommitted change is refused.
 #[test]

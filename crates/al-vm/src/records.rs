@@ -179,6 +179,23 @@ impl Session {
         Ok(())
     }
 
+    /// The computed tables whose writes raise "The <table> table is read-only." (code DB:Ok): Insert with and without triggers,
+    /// Modify and Delete of a row that exists, and DeleteAll (platform/lt-ag-contoso/AgPlatformReadOnly.al:14-55, Windows
+    /// Language; platform/lt-platform-tables/PtCloudTables.al:38-81, Language Selection and License Permission). A Modify or
+    /// Delete of a row that does not exist is not pinned (PtCloudTables.al:50-52 is the error of the helper's FindFirst): refused.
+    fn read_only_platform_table(&self, t: &TableDef, rec: &Rec) -> Option<AlError> {
+        let id = self.engine.program.objects[t.object as usize].id?;
+        if rec.borrow().temporary || ![2_000_000_045, 2_000_000_050, 2_000_000_043].contains(&id) {
+            return None;
+        }
+        Some(AlError {
+            message: format!("The {} table is read-only.", t.name),
+            code: "DB:Ok".into(),
+            call_stack: String::new(),
+            ..Default::default()
+        })
+    }
+
     /// A Modify of a Feature Key row that changes one read-only column (every column but Enabled) raises the error naming the
     /// column's caption, code `DB:Ok` (record/lt-loadfields-pagesource-validate/P81FeatureKeyModify.al:51-63;
     /// record/TestFeatureKeyTable.al:64-78). A change to two of them, or to one together with Enabled, is not pinned: the store
@@ -3489,6 +3506,11 @@ impl Session {
         {
             self.bg_refuse_write(t.object as usize, method.name())?;
             self.gate_write(method)?;
+            if matches!(method, RecordOp::Insert | RecordOp::DeleteAll)
+                && let Some(e) = self.read_only_platform_table(&t, rec)
+            {
+                return Err(Signal::Error(Box::new(e)));
+            }
             // Inside a TryFunction whose result is used only Insert is pinned (misc/lt-cu-odd-leads/CuTryTests.al:83-150);
             // writes to a temporary record are allowed (:153-171), and never reach here.
             if method == RecordOp::Insert {
@@ -4080,6 +4102,12 @@ impl Session {
                     .get(&cx, &t, &pk)
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?;
                 self.feature_key_read_only_change(&t, rec, stored.as_deref())?;
+                if let Some(e) = self.read_only_platform_table(&t, rec) {
+                    return match stored {
+                        Some(_) => Err(Signal::Error(Box::new(e))),
+                        None => unsupported(format!("a Modify of a {} row that does not exist (not pinned)", t.name)),
+                    };
+                }
                 // A buffer older than a committed change to its row cannot be saved
                 // (record/TestRecordStaleBufferWrite.al); before a commit the last writer wins.
                 if let (Some(row), Some(i)) = (&stored, t.fields.iter().position(|f| f.id == 2_000_000_005)) {
@@ -4334,6 +4362,20 @@ impl Session {
             RecordOp::Delete => {
                 let run = arg_bool(args, 0)?;
                 self.tenant_license_state_refuses(&t, "delete")?;
+                if let Some(e) = self.read_only_platform_table(&t, rec) {
+                    let row = rec.borrow().fields.clone();
+                    let pk = Self::sql_key(rec, &t, &row);
+                    let exists = self
+                        .store_for(rec)
+                        .get(&cx, &t, &pk)
+                        .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                        .is_some();
+                    return if exists {
+                        Err(Signal::Error(Box::new(e)))
+                    } else {
+                        unsupported(format!("a Delete of a {} row that does not exist (not pinned)", t.name))
+                    };
+                }
                 // A Delete loads the missing fields of a partially loaded record first: afterwards they read as loaded, with the
                 // values of the row it deleted (record/lt-load-fields-fetched/LoadFieldsFetched.al:270-289,
                 // P170_JitLoad_After_Delete_Of_The_Same_Partial_Record_BQ, Delete without triggers). With triggers it is not pinned.
