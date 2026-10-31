@@ -627,7 +627,7 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
             continue;
         }
         // `W17` and `Q3` forward (corpus master, corpus PR 871: misc/lt-np4-probes/Np4DateFormulas.al NP4_CalcDate_W17,
-        // NP4_CalcDate_Q3; assumption date-formula-letter-first-forms awaits the bump): see `apply`. Other numbers, `-Wn` and
+        // NP4_CalcDate_Q3): see `apply`. Other numbers, `-Wn` and
         // `-Qn` are not pinned.
         if !negative && matches!(b.get(i), Some(b'W' | b'Q')) && b.get(i + 1).is_some_and(u8::is_ascii_digit) {
             let letter = b[i];
@@ -973,13 +973,12 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
             // `D1` on 2024-01-31 is 2024-02-01 (types/TestDateFormulaEvaluateLeftoversContracts.al:45). That fits both "add n
             // days" and "the next day n of a month"; nothing pins which one BC does, so any other number, sign or date is refused.
             // `D15`, `D28`, `D29`, `D31` (corpus master, corpus PR 871: misc/lt-np4-probes/Np4DateFormulas.al NP4_CalcDate_D15,
-            // _D28, _D29, _D31; assumption date-formula-letter-first-forms): day n of the date's month, cut back to the month's
+            // _D28, _D29, _D31): day n of the date's month, cut back to the month's
             // length, when the date's day is below n; else day n of the next month, cut back the same way (`<D29>` on
             // 2023-02-28 stays 2023-02-28, `<D31>` on 2023-01-31 is 2023-02-28).
             // `D1` from any day goes the same way: day 1 of the next month (corpus master, corpus PR 886:
             // types/lt-date-formula-edges/DateFormulaInsidePeriod.al:36-47, `<D1>` on 2024-01-01 is 2024-02-01).
             Term::DayLetterFirst { n, forward: true } if matches!(n, 1 | 15 | 28 | 29 | 31) => {
-                crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
                 let n = n as u32;
                 if d < n {
                     day_from_civil(y, m, n.min(days_in_month(y, m)))
@@ -990,7 +989,6 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
             // `-D1`: day 1 of the date's month when the date is after it, else of the month before (DateFormulaInsidePeriod.al:46-47:
             // 2024-01-15 is 2024-01-01, 2024-01-01 is 2023-12-01). Another number is not pinned.
             Term::DayLetterFirst { n: 1, forward: false } => {
-                crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
                 if d > 1 {
                     day_from_civil(y, m, 1)
                 } else {
@@ -1009,7 +1007,6 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
             // (NP4_CalcDate_W17: 2023-04-15 2023-04-24, 2023-06-30 2024-04-22). A date inside week n, its Monday included, goes to the
             // next year too (DateFormulaInsidePeriod.al:64-77 `<W21>` on 2024-05-20 to 2024-05-26 is 2025-05-19, :114-125 `<W17>`).
             Term::WeekLetterFirst { n } => {
-                crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
                 let monday = |year: i32| {
                     // ISO week 1 holds January 4.
                     let jan4 = day_from_civil(year, 1, 4);
@@ -1022,7 +1019,6 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
             // (NP4_CalcDate_Q3: 2023-06-30 2023-07-01, 2023-12-31 2024-07-01). A date inside quarter n, its first day included, goes
             // to the next year (DateFormulaInsidePeriod.al:134-147).
             Term::QuarterLetterFirst { n } => {
-                crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
                 let first = (n - 1) * 3 + 1;
                 if m < first {
                     day_from_civil(y, first, 1)
@@ -1034,13 +1030,9 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
             // next year's 02-01, `<-M2>` the year before's). The first day of month n itself is not pinned.
             Term::MonthLetterFirst { n, forward } => {
                 let n = n as u32;
-                // Forward on the first day of month n: the next year's (NP4_CalcDate_M1 2023-01-01 2024-01-01; assumption
-                // date-formula-letter-first-forms). Backward is not pinned.
-                if m == n && d == 1 {
-                    if !forward {
-                        return unsupported("date formula `-Mn` on the first day of month n (not pinned)");
-                    }
-                    crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
+                // Forward on the first day of month n: the next year's (NP4_CalcDate_M1 2023-01-01 2024-01-01). Backward is not pinned.
+                if m == n && d == 1 && !forward {
+                    return unsupported("date formula `-Mn` on the first day of month n (not pinned)");
                 }
                 let year = match (forward, m < n, m > n) {
                     (true, true, _) | (false, _, true) => y,

@@ -902,18 +902,12 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
         }
         let t = text.trim_matches(PINNED_WS);
         if t.is_empty() {
-            if text.chars().any(|c| c != ' ') {
-                crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
-            }
             return Ok(Parsed::Value(Value::Date(0, false)));
         }
-        if t.len() != text.trim_matches(' ').len() {
-            if text.contains(['\u{B}', '\u{C}']) {
-                return unsupported(format!(
-                    "Evaluate of `{text}` into a Date with format 9: VT or FF next to a date (not pinned)"
-                ));
-            }
-            crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
+        if t.len() != text.trim_matches(' ').len() && text.contains(['\u{B}', '\u{C}']) {
+            return unsupported(format!(
+                "Evaluate of `{text}` into a Date with format 9: VT or FF next to a date (not pinned)"
+            ));
         }
         // Blanks inside keep their old reading (a rejected date, P86Eval.al:Fmt92_Return_F9 `Jan 15 2024`).
         if t.contains(|c: char| c != ' ' && PINNED_WS.contains(&c)) {
@@ -1668,6 +1662,21 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
                 }
             }
         };
+        // A field by its number when no name or caption matches (types/TestTableFilterEvaluate.al:26-36
+        // TableFilter_Evaluate_NumericIds_NormalizesValue: `67021: 2=1`). A number no field has is not pinned.
+        let found = match found {
+            None if !field.is_empty() && field.chars().all(|ch| ch.is_ascii_digit()) => {
+                match field
+                    .parse::<u32>()
+                    .ok()
+                    .and_then(|n| def.fields.iter().find(|f| f.number == n))
+                {
+                    Some(f) => Some(f),
+                    None => return refuse("a field number no field has"),
+                }
+            }
+            found => found,
+        };
         let Some(f) = found else {
             // The system fields' captions are refused; they are named as their names (SystemId, SystemCreatedAt, ...).
             if def
@@ -2027,12 +2036,9 @@ fn evaluate_with_max(
         // Every number but 9 reads a Date as the default does (types/lt-datetime/Evaluate.al:Date_Other_Formats `fmt 1` to `fmt 8`,
         // `fmt 10`, `fmt -1`; errors/lt-ms-refusals-130/P130EvaluateDate.al:P130_EvaluateDate_EveryFormat_*).
         // Evaluate reads a TAB, two TABs and one space as the empty date (corpus master, corpus PR 871:
-        // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date; assumption evaluate-blank-tabs awaits the bump). Pinned for
+        // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date). Pinned for
         // Evaluate only: `read_text` and the other readers of `date` do not take it.
-        Value::Date(..) if number != 9 && is_blank_tabs(&text) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
-            Parsed::Value(Value::Date(0, false))
-        }
+        Value::Date(..) if number != 9 && is_blank_tabs(&text) => Parsed::Value(Value::Date(0, false)),
         Value::Date(..) => date(
             &text,
             if number == 9 { 9 } else { 0 },
@@ -2286,10 +2292,9 @@ fn evaluate_with_max(
                 _ => "Boolean",
             };
             // A Boolean's error shows a TAB, two TABs or a space as the empty value `""` (corpus master, corpus PR 871:
-            // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Boolean; assumption evaluate-blank-tabs awaits the bump).
+            // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Boolean).
             // Integer and Decimal show them as written (NP4_Evaluate_Tab_Integer, _Decimal).
             let text = if ty == "Boolean" && is_blank_tabs(&text) {
-                crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
                 String::new()
             } else {
                 text.to_string()

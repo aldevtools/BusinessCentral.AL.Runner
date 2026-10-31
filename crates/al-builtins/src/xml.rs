@@ -3539,7 +3539,7 @@ fn is_namespace_declaration(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Val
     Ok(Value::Boolean(is_xmlns_decl(&recv(r)?)))
 }
 
-fn get_prefix_of_namespace(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn get_prefix_of_namespace(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv(r)?;
     let uri = arg_text(a, 0)?;
     let mut cur = Some(h);
@@ -3572,11 +3572,17 @@ fn get_prefix_of_namespace(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Valu
         }
         cur = parent_of(&e);
     }
-    if c.ret_used() {
-        Ok(Value::Boolean(false))
-    } else {
-        unsupported("GetPrefixOfNamespace without a match, result unused (error text not pinned yet)")
-    }
+    // No declaration in scope: Yes, the reserved namespaces give `xml` and `xmlns` and any other (the empty one, one no
+    // element declares, on a loaded or a detached element) the empty prefix (xml/lt-tf-xml-ns/XmlNsPrefixes.al:55-108
+    // Prefix_OfUndeclaredNamespace; xml/XmlXPathNamespaces.al:594 prefix_of_missing). With the result unused there is no
+    // error (misc/lt-probes-needed-1/PnAXmlParentDocNs.al:56,104 op10).
+    let p = match uri.as_str() {
+        "http://www.w3.org/XML/1998/namespace" => "xml",
+        XMLNS_URI => "xmlns",
+        _ => "",
+    };
+    a[1] = Value::Text(p.to_string().into());
+    Ok(Value::Boolean(true))
 }
 
 fn get_namespace_of_prefix(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
@@ -3590,6 +3596,20 @@ fn get_namespace_of_prefix(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Valu
     if prefix.is_empty() {
         // xml/TestProbeXmlContracts.al:GetNamespaceOfPrefix_Empty_Statement
         return Err(nav_argument());
+    }
+    // The reserved prefixes have their namespaces without a declaration (xml/lt-tf-xml-ns/XmlNsPrefixes.al:76-81, :98-101
+    // root_xml, root_xmlns). Pinned with the result used only.
+    let reserved = match prefix.as_str() {
+        "xml" => Some("http://www.w3.org/XML/1998/namespace"),
+        "xmlns" => Some(XMLNS_URI),
+        _ => None,
+    };
+    if let Some(u) = reserved {
+        if !c.ret_used() {
+            return unsupported("GetNamespaceOfPrefix of a reserved prefix, result unused (not pinned by the corpus)");
+        }
+        a[1] = Value::Text(u.to_string().into());
+        return Ok(Value::Boolean(true));
     }
     match lookup_namespace(&h, &prefix) {
         Some(u) => {

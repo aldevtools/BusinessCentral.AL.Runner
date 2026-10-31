@@ -2198,6 +2198,64 @@ codeunit 49 "GlobalTriggerManagement"
     );
 }
 
+/// The XApps of the corpus TestLibraries job on Base Application's GlobalTriggerManagement.OnAfterGetDatabaseTableTriggerSetup:
+/// XApp C (0df0fadc-...) runs before Tests-TestLibraries (al-language-testlibraries/lt-y3-setup-order/Y3SetupOrderTests.al:22-25,
+/// `C: seq=2 in=NoNoNoNo | A: seq=1 in=NoNoNoNo`: neither saw 130011's flags). With the dependencies (D on A, C on A and D) and
+/// XApp D before Tests-TestLibraries, every pair of A, D, C, Tests-TestLibraries and the main corpus app is ordered.
+#[test]
+fn measured_pairs_order_the_xapps_before_tests_testlibraries() {
+    let base = "437dbf0e-84ff-417a-965d-ed2bb9650972";
+    let ttl = "5d86850b-0d76-4eca-bd7b-951ad998e997";
+    let a = "cd6a4292-f27b-4af9-89bc-15a5956f5c71";
+    let c = "0df0fadc-d339-4b0f-a1d5-51dc51f10900";
+    let d = "e92be076-de11-44ed-895e-17031341df29";
+    let m = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+    let publisher = r#"
+codeunit 61100 "Order Log"
+{
+    SingleInstance = true;
+    var Log: Text;
+    procedure Add(S: Text) begin Log += S + ';'; end;
+    procedure Get(): Text begin exit(Log); end;
+}
+codeunit 49 "GlobalTriggerManagement"
+{
+    procedure Raise(): Text var L: Codeunit "Order Log"; begin OnAfterGetDatabaseTableTriggerSetup(); exit(L.Get()); end;
+    [IntegrationEvent(false, false)]
+    procedure OnAfterGetDatabaseTableTriggerSetup() begin end;
+}
+"#;
+    let sub = |id: u32, tag: &str| {
+        format!(
+            r#"codeunit {id} "Sub {tag}"
+{{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"GlobalTriggerManagement", 'OnAfterGetDatabaseTableTriggerSetup', '', false, false)]
+    local procedure H() var L: Codeunit "Order Log"; begin L.Add('{tag}'); end;
+}}
+"#
+        )
+    };
+    let apps = vec![
+        order_app(base, &[], publisher),
+        order_app(ttl, &[base], &sub(130011, "TTL")),
+        order_app(a, &[base], &sub(61137, "A")),
+        order_app(d, &[a, base], &sub(61154, "D")),
+        order_app(c, &[a, d, base], &sub(61153, "C")),
+        order_app(m, &[a, c, base], &sub(69100, "M")),
+    ];
+    let mut l = al_testkit::compile_apps(apps);
+    for app in &mut std::sync::Arc::make_mut(&mut l.program).apps {
+        app.publisher = if app.id == base || app.id == ttl {
+            "Microsoft"
+        } else {
+            "AL Language"
+        }
+        .to_string();
+    }
+    let mut b = al_testkit::Built::new(l);
+    assert_eq!(text(b.run_in("GlobalTriggerManagement", "Raise")), "A;D;C;TTL;M;");
+}
+
 /// Dependency apps (Microsoft's) that depend on each other run in dependency order too, whatever their lowest subscriber
 /// ids (BwSubscriberOrderTests.al:150 pins dependency order over lower subscriber ids). Kept, not pinned: dependency apps
 /// that do not depend on each other keep the order the runtime had before the cross-app probe, ascending codeunit id

@@ -629,18 +629,9 @@ impl Session {
                                         && self.tx.lock_unpinned.is_none()
                                     {
                                         self.tx.lock_unpinned = Some(crate::records::REPEATABLE_READ_ASSIGNED_AGAIN);
-                                    } else if *i == ISOLATION_UPDLOCK {
-                                        al_builtins::assumptions::assume(
-                                            al_builtins::assumptions::Assumption::ReadIsolationAssignmentOpensWriteTransaction,
-                                        );
                                     }
                                 }
                                 (ISOLATION_UPDLOCK | ISOLATION_REPEATABLE_READ, false) => {
-                                    if *i == ISOLATION_REPEATABLE_READ || before != 0 {
-                                        al_builtins::assumptions::assume(
-                                            al_builtins::assumptions::Assumption::ReadIsolationAssignmentOpensWriteTransaction,
-                                        );
-                                    }
                                     self.tx.lock_tx = true;
                                     self.tx.isolation_lock = true;
                                     let key = (r.table, r.company.clone());
@@ -1618,7 +1609,11 @@ impl Session {
                 other => unsupported(format!("GetBySystemId of {}", other.describe())),
             };
         };
-        let found = if *g == [0; 16] {
+        // On BC 27 every row of the platform table Field has the null Guid as its SystemId, and GetBySystemId of the null Guid finds
+        // the first row, table 3 field 1 (platform/lt-field-row-systemid/FieldRowSystemId.al:146-172, the `#else` branch).
+        let null_field_rows = self.engine.program.objects[t.object as usize].id == Some(2_000_000_041)
+            && !self.has(al_version::Gate::FieldRowSystemIdFrom28);
+        let found = if *g == [0; 16] && !null_field_rows {
             None
         } else {
             let filters = [al_builtins::filter::FieldFilter {

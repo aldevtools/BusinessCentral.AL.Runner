@@ -242,7 +242,7 @@ const LANGUAGES: &[(i32, &str, &str, &str, &str)] = &[
 const NAME_ONLY_LANGUAGES: &[(i32, &str, &str)] = &[(12297, "English (Zimbabwe)", "ENW")];
 /// Rows pinned with their tag but not their code page (a read of it is refused), as (LCID, name, abbreviated name, tag):
 /// 1078 Afrikaans (South Africa), AFK, af-ZA (corpus master, corpus PR 871: misc/lt-np4-probes/Np4Misc.al
-/// NP4_WindowsLanguage_Get1078; assumption windows-language-afrikaans awaits the bump). Not in [`LANGUAGES`] either.
+/// NP4_WindowsLanguage_Get1078). Not in [`LANGUAGES`] either.
 const TAG_ONLY_LANGUAGES: &[(i32, &str, &str, &str)] = &[(1078, "Afrikaans (South Africa)", "AFK", "af-ZA")];
 /// "STX File Exist" is pinned false for these rows (WcUnpinnedSingles.al:160, :169).
 const STX_FILE_ABSENT: [i32; 1] = [12297];
@@ -447,7 +447,6 @@ fn known(t: &TableDef, lcid: i64) -> Option<Row> {
         })
         .or_else(|| {
             TAG_ONLY_LANGUAGES.iter().find(|l| i64::from(l.0) == lcid).map(|l| {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WindowsLanguage1078);
                 let mut r = language_row(t, l.0, l.1, l.2, None, Some(l.3));
                 // Whether the row is globally enabled is not pinned for it.
                 r[pos(t, GLOBALLY_ENABLED)] = super::unknown(t, GLOBALLY_ENABLED, &format!("language {}", l.0));

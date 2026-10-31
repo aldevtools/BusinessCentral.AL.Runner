@@ -879,11 +879,10 @@ fn as_integer(s: &Scalar) -> Result<Value, Signal> {
     }
     // A number with a fraction rounds to the nearest whole number, a tie to the even one (corpus master, corpus PR 871:
     // misc/lt-np4-probes/Np4FormatJson.al NP4_JsonValue_AsInteger_SetValueDecimal, _FromText: 1324.55 1325, 2.5 2, 1.5 2,
-    // 0.5 0, -0.5 0, -1.5 -2, -2.5 -2, 3.4999 3; assumption json-asinteger-fraction awaits the bump).
+    // 0.5 0, -0.5 0, -1.5 -2, -2.5 -2, 3.4999 3).
     if let Scalar::Val(Value::Decimal(d)) = s
         && !d.fract().is_zero()
     {
-        crate::assumptions::assume(crate::assumptions::Assumption::JsonAsIntegerFraction);
         let r = d.round_dp_with_strategy(0, rust_decimal::RoundingStrategy::MidpointNearestEven);
         return i32::try_from(r.mantissa() / 10i128.pow(r.scale()))
             .map(Value::Integer)
