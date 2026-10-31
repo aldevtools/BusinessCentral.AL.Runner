@@ -73,6 +73,7 @@ impl Session {
         let id = self.session_id().saturating_add(self.sessions_started);
         let tx = TxState {
             committed_row_version: self.tx.committed_row_version,
+            prior_committed_row_version: self.tx.committed_row_version,
             ..TxState::fresh()
         };
         let parked = Parked {
@@ -114,6 +115,10 @@ impl Session {
         }
         self.tx = parked.tx;
         // The rows the new session committed are durable for the starting session too.
+        if self.tx.committed_row_version != committed_row_version {
+            // What the new session committed is not told apart from the transaction before it.
+            self.tx.prior_committed_row_version = committed_row_version;
+        }
         self.tx.committed_row_version = committed_row_version;
         self.tx_model = parked.tx_model;
         self.in_test_codeunit = parked.in_test_codeunit;

@@ -1792,6 +1792,23 @@ impl Session {
                     .stale_6028_shape(t, &company, pk, o.commits, deleting)
                     .expect("checked"))
             }
+            // Two Commits after the buffer's own Insert, another variable wrote the row in the transaction between them, and the
+            // new transaction's only writes are Modifies of the buffer's row through other variables, with no lock: written, the
+            // stale buffer winning (al-runner issue 6522, the reporter's repro passed on real BC 29; assumption
+            // `stale-own-insert-two-commits-row-written` until the corpus pin lands). A row last written in the buffer's own
+            // transaction, with an empty Commit after it, stays refused below.
+            Some(o)
+                if o.own_write
+                    && o.commits + 2 == self.commits
+                    && touched
+                    && committed.is_some_and(|c| c > self.tx.prior_committed_row_version)
+                    && self.stale_row_modified_only(t, &company, pk) =>
+            {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::StaleOwnInsertTwoCommitsRowWritten,
+                );
+                Ok(StaleVerdict::Written)
+            }
             Some(o) if o.own_write && contact => unsupported(format!(
                 "a stale {} buffer from an Insert older than the last Commit but one, written after the new transaction touched the table",
                 t.name
@@ -1918,6 +1935,28 @@ impl Session {
         // An Insert and a Rename of another row are measured at one to three Commits only (TE_*_InsertOtherRow_*,
         // TE_*_RenameOtherRow_*).
         other_rows_of_one_kind.then_some(StaleVerdict::Written)
+    }
+
+    /// Whether the open transaction's only writes are Modifies of the row `pk` of `t`, with no rollback and no lock of any kind.
+    fn stale_row_modified_only(&self, t: &TableDef, company: &Option<String>, pk: &[Value]) -> bool {
+        let tx = &self.tx;
+        !tx.rolled_back
+            && !tx.lock_tx
+            && tx.lock_unpinned.is_none()
+            && !tx.isolation_lock
+            && tx.locked_tables.is_empty()
+            && self.writes_all_noted()
+            && !tx.writes.is_empty()
+            && tx.writes.iter().all(|w| {
+                w.kind == crate::state::TxWriteKind::Modify
+                    && w.table == t.object
+                    && w.company == *company
+                    && w.pk.len() == pk.len()
+                    && w.pk
+                        .iter()
+                        .zip(pk)
+                        .all(|(a, b)| al_builtins::ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal))
+            })
     }
 
     /// Whether the open transaction's only writes are Deletes of other rows of `t` and it took no lock: the neighbour shape
