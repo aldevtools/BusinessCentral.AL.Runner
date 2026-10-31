@@ -1244,41 +1244,61 @@ impl Session {
             return Ok(base);
         }
         if self.is_list(st) {
-            // BC adds the filter on a data caption field to a list's caption (al-runner issue 5593: `Probe Bin List -
-            // Z1` on BC 29 for a filter Zone Code = Z1, the bare caption for a filter on another field). No corpus test
-            // pins it yet (docs/probes-needed.md "User issues (lane-user-trust)"), so such a caption is refused.
+            // A list (or worksheet, or list part) adds the one value its record is filtered to on each field the PAGE's
+            // DataCaptionFields names, joined by ` ∙ ` (pages/lt-y37-list-caption/Y37ListCaptionTests.al:153-158 `C313
+            // Zone List - Z1`, :322-324 two fields, :269-270 a worksheet, :345-347 filter group 2, :364-366 TestPage.Filter,
+            // :298 `SetFilter('%1')`). A range, a list, a wildcard, `<>` or a blank value adds nothing (:293-297); the
+            // table's DataCaptionFields and the primary key do not count on a list (:196-199, :249-251, :221 a list part).
             let rec = self.page_rec(st);
             let table = self.table(&rec)?;
-            // The fields the page's or the table's DataCaptionFields name, else the primary key.
-            let names: Vec<String> = [object, table.object as usize]
+            let names = engine.program.objects[object]
+                .properties
                 .iter()
-                .filter_map(|&o| {
-                    engine.program.objects[o]
-                        .properties
-                        .iter()
-                        .find(|(k, _)| k.eq_ignore_ascii_case("DataCaptionFields"))
-                        .map(|(_, v)| v.clone())
-                })
-                .filter(|v| !v.trim().is_empty())
-                .collect();
-            let caption_fields: Vec<usize> = if names.is_empty() {
-                table.keys.first().cloned().unwrap_or_default()
-            } else {
-                names
-                    .iter()
-                    .flat_map(|v| v.split(','))
-                    .filter_map(|n| {
-                        let n = n.trim().trim_matches('"');
-                        table.fields.iter().position(|f| f.name.eq_ignore_ascii_case(n))
-                    })
-                    .collect()
-            };
-            if rec.borrow().filters.iter().any(|f| caption_fields.contains(&f.field)) {
-                return unsupported(
-                    "the caption of a list whose record has a filter on a data caption field (not pinned, al-runner issue 5593)",
-                );
+                .find(|(k, _)| k.eq_ignore_ascii_case("DataCaptionFields"))
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default();
+            let mut parts = Vec::new();
+            for name in names.split(',').map(|n| n.trim().trim_matches('"')).filter(|n| !n.is_empty()) {
+                let Some(i) = table.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name)) else {
+                    return unsupported(format!("DataCaptionFields names `{name}`, not a field of the table"));
+                };
+                let filters: Vec<al_builtins::filter::FilterExpr> =
+                    rec.borrow().filters.iter().filter(|f| f.field == i).map(|f| f.expr.clone()).collect();
+                if filters.is_empty() {
+                    continue;
+                }
+                let refused = || {
+                    unsupported(
+                        "the caption of a list whose record has a filter on a data caption field (not pinned, al-runner issue 5593)",
+                    )
+                };
+                // Pinned on a Code field and on an Option field without OptionCaption (:404 `C313 Kind List - B`). A Date
+                // field with one date filtered makes BC's test client fail (:370-391); other types and two filters on the
+                // field (in two filter groups) are not pinned.
+                let pinned_type = match &table.fields[i].ty {
+                    RtType::Code(_) => true,
+                    RtType::Option(_) => self.field_property(&table, i, "OptionCaption").is_none(),
+                    _ => false,
+                };
+                if !pinned_type || filters.len() > 1 {
+                    return refused();
+                }
+                let one = match &filters[0] {
+                    al_builtins::filter::FilterExpr::Eq(v) => Some(v.clone()),
+                    al_builtins::filter::FilterExpr::Range(Some(a), Some(b)) if ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal) => Some(a.clone()),
+                    _ => None,
+                };
+                let text = one
+                    .map(|v| pagefmt::control_text(&v, &pagefmt::ControlFormat::default(), &|_, o| o.to_string()))
+                    .unwrap_or_default();
+                if !text.is_empty() {
+                    parts.push(text);
+                }
             }
-            return Ok(base);
+            if parts.is_empty() {
+                return Ok(base);
+            }
+            return Ok(format!("{base} - {}", parts.join(" \u{2219} ")));
         }
         let (cursor, draft) = {
             let s = st.borrow();
