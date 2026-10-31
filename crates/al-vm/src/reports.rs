@@ -387,8 +387,9 @@ impl Session {
                 unsupported("CurrReport.FormatRegion in a report whose FormatRegion property is set (not pinned)")
             }
             // `en-US`, the session's own region, reads back empty and leaves Format as it was while the report keeps the
-            // session's language (misc/lt-probes-needed-8/PnH4CurrReport.al:244 `region=[]`). After `CurrReport.Language :=` only
-            // `de-DE` after 1031 is pinned (PnC06ReportLanguage.al:58-65); any other region there is refused (docs/probes-needed.md).
+            // session's language (misc/lt-probes-needed-8/PnH4CurrReport.al:244 `region=[]`). After `CurrReport.Language :=` the
+            // pinned pairs are `de-DE` after 1031 (PnC06ReportLanguage.al:58-65) and `en-US` after 1031, 1036 and 1033; any other
+            // region there is refused (docs/probes-needed.md).
             ids::REPORT_FORMATREGION_1 => match args.first() {
                 Some(Value::Text(t) | Value::Code(t))
                     if self.report.report_preview_pinned.last() == Some(&crate::state::ReportStart::Run) =>
@@ -399,9 +400,13 @@ impl Session {
                         None => self.report.format_region = Some(t),
                         // `de-DE` after `CurrReport.Language := 1031` (PnC06ReportLanguage.al:58-65 `region1:de-DE`).
                         Some(1031) if t == "de-DE" => self.report.format_region = Some(t),
+                        // `en-US` after 1031, 1036 or 1033: the run goes on, the region reads back empty and Format keeps
+                        // following the language (report/lt-bd-format-region/BdRegionTests.al:942, :1036, :1065
+                        // `after=... language=N region=[]`).
+                        Some(1031 | 1036 | 1033) if t == "en-US" => self.report.format_region = None,
                         Some(l) => {
                             return unsupported(format!(
-                                "CurrReport.FormatRegion := '{t}' after CurrReport.Language := {l} (only 'de-DE' after 1031 is pinned)"
+                                "CurrReport.FormatRegion := '{t}' after CurrReport.Language := {l} (only 'de-DE' after 1031 and 'en-US' after 1031, 1036 and 1033 are pinned)"
                             ));
                         }
                     }

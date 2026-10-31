@@ -157,6 +157,10 @@ fn arg_pos(args: &[Value], i: usize) -> Result<usize, Signal> {
     }
 }
 
+/// The error an Insert into the platform table Device raises (al-language-onprem/platform/PtOnPremTables.al:184).
+pub(crate) const DEVICE_LICENSE_ERROR: &str = "The new devices do not meet the terms of the current license. The current \
+     license allows 0 full devices, 0 limited devices, 0 ISV devices, 0 ISV functional devices and 1 devices.";
+
 /// What the `Rec` and `xRec` slots of a table instance held before a call filled them.
 #[derive(Default)]
 pub(crate) struct RecSlots {
@@ -177,6 +181,28 @@ impl Session {
             })));
         }
         Ok(())
+    }
+
+    /// A write of the platform table Device (2000000130): an Insert with triggers raises the license error of a fresh
+    /// tenant and stores nothing (al-language-onprem/platform/PtOnPremTables.al:172-190, Device_InsertModifyDelete: the
+    /// text at :184; its code is not pinned). A guarded Codeunit.Run does not trap it (:177, `transactions.rs`); whether a
+    /// TryFunction does is not pinned. Every other write, and an Insert that event subscribers would see, is not pinned.
+    /// Answers the signal the write ends with.
+    fn device_write(&mut self, t: &TableDef, method: RecordOp, args: &[Value]) -> Result<Signal, Signal> {
+        let listened =
+            self.listened(t, "onbeforeinsertevent", None)? || self.listened(t, "onafterinsertevent", None)?;
+        if method != RecordOp::Insert || !arg_bool(args, 0)? || listened || self.tx.try_depth > 0 {
+            return Ok(Signal::Unsupported(format!(
+                "{method} on the platform table Device (only an Insert with triggers, outside a TryFunction and with no \
+                 event subscribers, is pinned: al-language-onprem/platform/PtOnPremTables.al:172-190)"
+            )));
+        }
+        Ok(Signal::Error(Box::new(AlError {
+            message: DEVICE_LICENSE_ERROR.into(),
+            code: al_builtins::native::UNPINNED_ERROR.into(),
+            call_stack: String::new(),
+            ..Default::default()
+        })))
     }
 
     pub(crate) fn table(&self, rec: &Rec) -> Result<Arc<TableDef>, Signal> {
@@ -325,6 +351,12 @@ impl Session {
     }
 
     pub(crate) fn store_for(&mut self, rec: &Rec) -> &mut MemStore {
+        // A CRM table's rows are its default table connection's (crm.rs).
+        if let Some(name) = self.crm_connection_of(rec)
+            && let Some(s) = self.crm_stores.get_mut(&name)
+        {
+            return &mut s.store;
+        }
         let id = rec.borrow().temp_id.as_ref().map(|t| t.id());
         match id {
             Some(id) => {
@@ -2557,26 +2589,6 @@ impl Session {
         }
     }
 
-    /// The first use of a record of a `TableType = CRM` table fails while no CRM table connection is
-    /// registered, whatever the use (Init, TableCaption, a field, IsEmpty): text and code from
-    /// session/TestCrmTableNoConnectionContracts.al:15-17,111-118. With a connection registered what
-    /// the table does is not pinned.
-    pub(crate) fn connection_check(&self, rec: &Rec) -> Result<(), Signal> {
-        // A temporary record of a CRM table is an in-memory table of its own and needs no connection (not
-        // pinned by a corpus line; Base Application's `CRM Synch. Helper.ClearCache` relies on it,
-        // docs/probes-needed.md).
-        if !rec.borrow().crm || rec.borrow().temporary {
-            return Ok(());
-        }
-        if self.table_connections.iter().any(|(kind, _)| *kind == 0) {
-            return unsupported("a TableType = CRM table through a registered table connection (not modelled)");
-        }
-        Err(crate::transactions::al_error_code(
-            "Table connection  for table type CRM must be registered using RegisterTableConnection or cmdlet New-NAVTableConnection before it can be used.",
-            "Argument",
-        ))
-    }
-
     /// A record method on a record whose buffer is not pinned (`RecordState::unpinned_buffer`): methods that do not read the
     /// buffer run, a read that fills it again (Get, FindFirst, FindLast, FindSet, Find('-'/'+') answering true) makes it
     /// pinned again, and every other method refuses. Rec in the OnOpenPage of a page an action opens through `RunPageLink`
@@ -3234,6 +3246,7 @@ impl Session {
             ));
         }
         self.linked_object_check(&t, rec, method)?;
+        self.crm_method_check(&t, rec, method, args)?;
         self.agent_task_check(&t, rec, method)?;
         self.tenant_report_layout_check(&t, rec, method)?;
         self.note_table(t.object, method.writes());
@@ -3452,9 +3465,21 @@ impl Session {
         {
             self.bg_refuse_write(t.object as usize, method.name())?;
             self.gate_write(method)?;
+            if self.engine.program.objects[t.object as usize].id == Some(2_000_000_130) {
+                return Err(self.device_write(&t, method, args)?);
+            }
             // Inside a TryFunction whose result is used only Insert is pinned (misc/lt-cu-odd-leads/CuTryTests.al:83-150);
-            // writes to a temporary record are allowed (:153-171), and never reach here.
-            if method == RecordOp::Insert {
+            // writes to a temporary record are allowed (:153-171), and never reach here. A write to a CRM table goes to its
+            // table connection, not to SQL: inside such a TryFunction Insert, Modify, Delete and Rename run and raise their own
+            // errors (tests/al-language-onprem/session/Y16CrmTableConnectionOps.al:184-251, `rename` ok, `insert duplicate`
+            // DB:RecordExists, `modify missing` DB:RecordNotFound).
+            if rec.borrow().crm
+                && matches!(
+                    method,
+                    RecordOp::Insert | RecordOp::Modify | RecordOp::Delete | RecordOp::Rename
+                )
+            {
+            } else if method == RecordOp::Insert {
                 // Whether the check comes before the table's insert code is not pinned. Subscribers and table-extension
                 // triggers that would see the order are refused. The table's own OnInsert trigger is kept: the pinned
                 // table has one (misc/lt-cu-odd-leads/CuFixtures.al:20-24), and refusing it would lose 85310
@@ -3857,7 +3882,9 @@ impl Session {
                         .fields
                         .iter()
                         .any(|f| matches!(&f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Blob)));
+                    // A CRM table has no SQL column: what its table connection does with such a value is not pinned.
                     if self.ret_used
+                        || rec.borrow().crm
                         || has_blob
                         || auto.is_some()
                         || self.tx.immediate_errors
@@ -3985,11 +4012,14 @@ impl Session {
                         let has_blob = self.has_blob_field(&t);
                         // A table with an AutoIncrement field needs the platform's answer at once
                         // (record/TestAutoIncrementContracts.al:AutoIncrement_SecondInsert_...).
+                        // A CRM table's duplicate fails at once, through its table connection
+                        // (tests/al-language-onprem/session/Y16CrmTableConnectionOps.al:224-251, `insert duplicate`).
                         if !self.ret_used
                             && !has_blob
                             && auto.is_none()
                             && !self.tx.immediate_errors
                             && !rec.borrow().temporary
+                            && !rec.borrow().crm
                         {
                             if (run && !self.ext_triggers(&t, "OnAfterInsert").is_empty())
                                 || self.listened(&t, "onafterinsertevent", None)?
