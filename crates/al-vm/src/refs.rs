@@ -1021,6 +1021,12 @@ impl Session {
                 LibraryValue::Empty => return Ok(Value::Integer(0)),
                 _ => {}
             },
+            // A RecordRef that is not open (never opened, closed, cleared) answers 2000000000 without an error (corpus
+            // branch al-runtime-rs-staging-y30, recordref/W4RecordRefGetUnopened.al:178-194, Y30_SystemIdNo_NotOpen).
+            "SystemIdNo" if matches!(&*lib.borrow(), LibraryValue::Empty) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RecordRefSystemIdNoNotOpen);
+                return Ok(Value::Integer(2_000_000_000));
+            }
             // A RecordRef never opened answers false (PXEnumRecordRef.al:293-298); with the result
             // unused nothing pins what it raises.
             "GetBySystemId" if matches!(&*lib.borrow(), LibraryValue::Empty) => {
