@@ -144,6 +144,7 @@ mod xml_doctype;
 mod xml_node_list_clear;
 mod xml_ns_scopes;
 mod xml_options_assign;
+mod xml_prefix_of_undeclared_namespace;
 mod xml_reserved_prefix;
 mod xml_sibling_unparented;
 mod xml_text_into_document;
