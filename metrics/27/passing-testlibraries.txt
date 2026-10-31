@@ -23,3 +23,5 @@
 81596 DatabaseTriggerDeleteFalseDeleted
 81596 DeleteEventsDeleteFalseDeleted
 81596 OnDeleteTriggerDeleteTrueDeleted
+81639 SetupOrder_MicrosoftTestLibrariesAgainstPartnerApps
+81639 SetupOrder_UnrelatedPartnerAppsAroundTestLibraries

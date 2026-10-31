@@ -3936,6 +3936,7 @@
 67026 TableFilter_Evaluate_EmptyInput_ClearsValue
 67026 TableFilter_Evaluate_InvalidField_PreservesValue
 67026 TableFilter_Evaluate_InvalidOption_PreservesValue
+67026 TableFilter_Evaluate_NumericIds_NormalizesValue
 67036 ActionCreate_Handler_EmptyTable
 67036 ActionCreate_Handler_TableWithRows
 67036 ActionCreate_NoHandler_EmptyTable
@@ -4016,6 +4017,7 @@
 67073 Find_EmptyTable
 67073 TV_Find_EmptyTable_KeyNotDefault
 67073 TV_Find_TableWithRows_NoMatch
+67080 Prefix_OfUndeclaredNamespace
 67091 Trapped_01_RunLeavesPageOpen
 67091 Trapped_02_SameVariableTrappedAgain
 67091 Trapped_03_CloseTheVariable
@@ -4113,6 +4115,14 @@
 67160 RealTable_ModifyThenGet
 67160 Temporary_ModifyThenGet
 67160 Temporary_SetAutoCalcFields_ThenFind
+67160 Y12_BlobCopy_AfterGetAndFindSet
+67160 Y12_BlobCopy_AfterInsertFindFirst
+67160 Y12_BlobCopy_AfterInsertFindFirstCalcFields
+67160 Y12_BlobCopy_AfterInsertOnly
+67160 Y12_BlobCopy_CopyThenInsertTarget
+67160 Y12_BlobCopy_InMemoryOnly
+67160 Y12_BlobCopy_ViaFieldRefValue
+67160 Y12_BlobCopy_ViaRecordRefTempBlob
 67168 GetBySystemId_TextAndGuid
 67168 Get_TextForIntegerKey
 67168 Get_TextVariableDirect
@@ -7293,6 +7303,8 @@
 70082 AddNodeWithParent_Copies_FreeNode_Shared
 70082 InvalidAdds
 70082 TT_EmptyOrBlankTextIntoXmlDocument
+70083 ResultUnused
+70083 ResultUsed
 70084 MalformedPaths
 70084 NamespacePaths
 70084 PlainPaths
@@ -8978,6 +8990,7 @@
 71020 Label_Instance_Methods_Empty
 71020 Label_Instance_Methods_Unicode
 71020 Label_Substring_Errors
+71020 Y12_Label_TrailingComma
 71021 Label_MaxLength
 71021 Label_StrSubstNo_Placeholders
 71021 Label_Value_And_Format
@@ -11976,6 +11989,7 @@
 73404 NamespaceManager_Uninitialized_Use
 73404 Namespaces_Declaration_Output
 73404 Namespaces_Prefix_Preserved
+73404 Namespaces_XPath_GetNamespaceOfPrefix
 73404 SelectNodes_Axes_Functions
 73404 SelectNodes_Backslash_Path
 73404 SelectNodes_Detached_Element
@@ -17352,6 +17366,7 @@
 91362 Y7_AttrGet_EmptyNamespace_Statement
 91366 Y7_LookupMode_GoToKey_TypedReads_OK
 91366 Y7_NotLookupMode_GoToKey_TypedReads_OK
+91366 Y7_PageRunModalRecord_GoToKey_TypedReads_OK
 91370 Y7_Execute_DataItemView_Forms
 91370 Y7_Execute_DataItemView_ThenNoView
 91370 Y7_Execute_DataItemView_WithSetTableView
@@ -17366,6 +17381,7 @@
 91410 Y8_Get_OtherTable_Unused_WithCaptions
 91410 Y8_Get_OtherTable_Used_LastError
 91413 Y8_SetCurrentKey_NotStoredFields
+91420 Y8_LaterAppTableExtension_DuringEarlierInstall
 91420 Y8_UnrelatedApps_SeeEarlierInstallRows
 91432 Y8_OpenNew_CardPart
 91432 Y8_OpenNew_Document
@@ -17388,6 +17404,17 @@
 91539 MaxIterationRecord_TwoWithPreDataItemFilter
 91539 MaxIterationRecord_TwoWithSkip
 91539 MaxIterationRecord_TwoWithTableView
+91551 Y12_Format_KeyRef_FormatNumbers
+91551 Y12_Format_KeyRef_FromGetTableAndTemporary
+91551 Y12_Format_KeyRef_StandardFormat
+91551 Y12_Format_KeyRef_SystemTable
+91552 Y12_GetAllAccounts_NoConnector
+91553 Y12_PublishedAs_Filters
+91553 Y12_PublishedAs_PerApp
+91556 Y12_Execute_EmptyParameters_OnInitValues
+91556 Y12_Execute_ParamsAfterRequestPageOnInit
+91556 Y12_SetTableView_Execute_ParamsAfterRequestPageOnInit
+91560 Y12_NonAssignable_LongNames_Compile_AndAreListed
 91603 Y13_XC_Once_Complete_And_Missing
 91603 Y13_XC_Zero_Complete_And_Missing
 91614 Y13_SP_Data_Execute
