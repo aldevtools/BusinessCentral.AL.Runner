@@ -40,6 +40,7 @@ mod find_record_part_host_back;
 mod gone_only_row_view_list_tree;
 mod gone_row_key_filter_relation;
 mod gone_row_rec_on_unheld_key;
+mod journal_batch_switch;
 mod listpart_table_validate_empty_error;
 mod marked_view_changed_by_page_code;
 mod no_source_card;

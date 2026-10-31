@@ -2474,7 +2474,12 @@ impl Session {
     /// else on the next row of the filtered view after the old key, else on the one before it; a view left without rows shows a
     /// blank row, and from the blank row a view with rows again opens on its first row (pages/lt-rz-outside-page-moves/
     /// RzUpdateFromValidate.al:27-99 the Worksheet, Update(false) and Update(true), :126 and :151 the filter removed again,
-    /// RZ_PlainList_* the List: `R:C;R:E;R:C;R:A;R:C;R:C;C:C`). `false` for every other page or call: the refresh runs as before.
+    /// RZ_PlainList_* the List: `R:C;R:E;R:C;R:A;R:C;R:C;C:C`). A page that offers the new-row line reads the same (an
+    /// insert-allowed Worksheet with AutoSplitKey and DelayedInsert whose OnValidate calls SaveRecord, sets the filter in filter
+    /// group 2 and moves Rec with Find('-') before the Update, the General Journal batch switch: corpus master 97c29f86,
+    /// pages/lt-y17-journal-batch/Y17JournalBatchSwitch.al:466 UpdWs_BatchSwitch_ToBatchWithRows `V:done 10000;R:B2/10000;
+    /// R:B2/20000;R:B2/10000;R:B2/10000;C:B2/10000`, :653 back to an earlier batch, :667 the same without the Find, which stands on
+    /// the previous row B1/30000). `false` for every other page or call: the refresh runs as before.
     fn refresh_after_validate_filter(
         &mut self,
         st: &St,
@@ -2487,8 +2492,10 @@ impl Session {
         };
         let shape = {
             let s = st.borrow();
-            s.open && !s.dirty && !s.draft && s.host.is_none() && !s.new_line
+            s.open && !s.dirty && !s.draft && s.host.is_none()
         };
+        // The new-row line is pinned on a Worksheet only (Y17JournalBatchSwitch.al); a List that offers it keeps the refresh below.
+        let shape = shape && (!st.borrow().new_line || self.is_worksheet(st));
         if !shape
             || !self.has_source(st)
             || !self.is_list(st)
@@ -2541,6 +2548,32 @@ impl Session {
         if self.view_row_count(st)? == 0 {
             if !on_row {
                 return Ok(false);
+            }
+            // A page that offers the new-row line (an insert-allowed Worksheet with AutoSplitKey and DelayedInsert, the journal
+            // batch switch) shows that line instead: OnNewRecord and OnAfterGetCurrRecord run twice, the key from the filters,
+            // nothing is inserted (corpus master 97c29f86, pages/lt-y17-journal-batch/Y17JournalBatchSwitch.al:485
+            // UpdWs_BatchSwitch_ToEmptyBatch `V:done 20000;N:B3/0 below=Yes;C:B3/0;N:B3/0 below=Yes;C:B3/0`, :560 without the Find in
+            // code).
+            if st.borrow().new_line {
+                if without_curr {
+                    return Ok(false);
+                }
+                {
+                    let mut s = st.borrow_mut();
+                    s.window = Vec::new();
+                    s.focus = None;
+                    s.focus_in_row = false;
+                }
+                let r = (|| {
+                    self.land_on_new_line(st)?;
+                    self.land_on_new_line(st)
+                })();
+                self.torn_down_on_error(st, r)?;
+                st.borrow_mut().refresh = false;
+                if !without_parts {
+                    self.sync_parts(st)?;
+                }
+                return Ok(true);
             }
             // No row left: a blank row, its key from a single-valued filter, and OnAfterGetCurrRecord on it (RZ_PlainWs_B_Empty
             // `A:filter B;A:done B;C:`).
