@@ -1031,10 +1031,8 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
             Term::MonthLetterFirst { n, forward } => {
                 let n = n as u32;
                 // Forward on the first day of month n: the next year's (NP4_CalcDate_M1 2023-01-01 2024-01-01). Backward is not pinned.
-                if m == n && d == 1 {
-                    if !forward {
-                        return unsupported("date formula `-Mn` on the first day of month n (not pinned)");
-                    }
+                if m == n && d == 1 && !forward {
+                    return unsupported("date formula `-Mn` on the first day of month n (not pinned)");
                 }
                 let year = match (forward, m < n, m > n) {
                     (true, true, _) | (false, _, true) => y,

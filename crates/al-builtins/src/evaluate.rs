@@ -898,12 +898,10 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
         if t.is_empty() {
             return Ok(Parsed::Value(Value::Date(0, false)));
         }
-        if t.len() != text.trim_matches(' ').len() {
-            if text.contains(['\u{B}', '\u{C}']) {
-                return unsupported(format!(
-                    "Evaluate of `{text}` into a Date with format 9: VT or FF next to a date (not pinned)"
-                ));
-            }
+        if t.len() != text.trim_matches(' ').len() && text.contains(['\u{B}', '\u{C}']) {
+            return unsupported(format!(
+                "Evaluate of `{text}` into a Date with format 9: VT or FF next to a date (not pinned)"
+            ));
         }
         // Blanks inside keep their old reading (a rejected date, P86Eval.al:Fmt92_Return_F9 `Jan 15 2024`).
         if t.contains(|c: char| c != ' ' && PINNED_WS.contains(&c)) {
@@ -2034,9 +2032,7 @@ fn evaluate_with_max(
         // Evaluate reads a TAB, two TABs and one space as the empty date (corpus master, corpus PR 871:
         // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date). Pinned for
         // Evaluate only: `read_text` and the other readers of `date` do not take it.
-        Value::Date(..) if number != 9 && is_blank_tabs(&text) => {
-            Parsed::Value(Value::Date(0, false))
-        }
+        Value::Date(..) if number != 9 && is_blank_tabs(&text) => Parsed::Value(Value::Date(0, false)),
         Value::Date(..) => date(
             &text,
             if number == 9 { 9 } else { 0 },
