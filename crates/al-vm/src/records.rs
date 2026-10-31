@@ -2847,6 +2847,10 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        // ADR-062: a record method of a restricted session; an unrestricted session pays one branch.
+        if self.permissions.is_some() {
+            self.permission_gate()?;
+        }
         if self.sql.active {
             return self.record_op_counted(method, rec, args);
         }
