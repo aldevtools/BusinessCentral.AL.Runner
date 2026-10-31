@@ -34,6 +34,9 @@ report 50200 "RL Probe" { DefaultRenderingLayout = Rdlc;
 report 50201 "RL Captioned" { Caption = 'Another caption';
   dataset { dataitem(I; Integer) { column(N; Number) { } } }
   rendering { layout(Word) { Type = Word; LayoutFile = 'a.docx'; } } }
+report 50203 "RL Captioned ML" { CaptionML = ENU = 'ML caption';
+  dataset { dataitem(I; Integer) { column(N; Number) { } } }
+  rendering { layout(Word) { Type = Word; LayoutFile = 'a.docx'; } } }
 codeunit 50202 C {
     procedure Col(ReportId: Integer; LayoutName: Text; FieldNo: Integer): Text
     var RR: RecordRef; G: Guid; Info: ModuleInfo;
@@ -62,6 +65,7 @@ codeunit 50202 C {
     procedure Ml4(): Text begin exit(Col(50200, 'Ml', 4)); end;
     procedure Part18(): Text begin exit(Col(50200, 'Part', 18)); end;
     procedure Captioned12(): Text begin exit(Col(50201, 'Word', 12)); end;
+    procedure CaptionedMl12(): Text begin exit(Col(50203, 'Word', 12)); end;
 }
 "#;
 
@@ -103,12 +107,20 @@ fn the_pinned_columns_of_a_layout_declared_in_al() {
     assert_eq!(text(call(&mut b, "Xl14")), "No|Approved|RL Probe");
 }
 
-// Not pinned: CaptionML of a layout that declares one, Layout Status of a layout part, and Report Name of a report whose
-// Caption differs from its name (UgReportLayoutList.al and AwTests.al read only reports without a Caption).
+// UgReportLayoutList.al Y17_ReportLayoutList_ReportName_WithCaption (corpus master 97c29f86): "Report Name" is the report's
+// Caption, not its name.
+#[test]
+fn report_name_is_the_caption_of_a_report_that_declares_one() {
+    let mut b = built();
+    assert_eq!(text(call(&mut b, "Captioned12")), "Another caption");
+}
+
+// Not pinned: CaptionML of a layout that declares one, Layout Status of a layout part, and Report Name of a report that
+// declares a CaptionML (UgReportLayoutList.al reads reports without a caption and one with a Caption).
 #[test]
 fn the_columns_no_pin_covers_stay_refused() {
     let mut b = built();
     refused(call(&mut b, "Ml4"), "CaptionML");
     refused(call(&mut b, "Part18"), "Layout Status");
-    refused(call(&mut b, "Captioned12"), "Report Name");
+    refused(call(&mut b, "CaptionedMl12"), "Report Name");
 }

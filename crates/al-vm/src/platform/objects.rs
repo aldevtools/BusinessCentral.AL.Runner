@@ -781,7 +781,12 @@ pub(super) fn table_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             r[pos(t, 16)] = Value::Boolean(prop(o, "ReplicateData").is_none_or(truthy));
             r[pos(t, 17)] = option(t, 17, opt("CompressionType", COMPRESSION_TYPES, 0)?);
             r[pos(t, 18)] = Value::Guid(c.owner(o));
-            r[pos(t, 19)] = Value::Text(truncate(&ident(prop(o, "InherentPermissions").unwrap_or("")), 5).into());
+            // InherentPermissions: `X` as declared, blank when not (permissions/W6PermissionColumns.al
+            // Y17_TableMetadata_InherentPermissions, corpus master 97c29f86); another value is not pinned.
+            r[pos(t, 19)] = match ident(prop(o, "InherentPermissions").unwrap_or("")) {
+                v if v.is_empty() || v == "X" => Value::Text(v.into()),
+                v => super::unknown(t, 19, &format!("table '{}', which declares InherentPermissions = {v}", o.name)),
+            };
             r[pos(t, 20)] = Value::Text(truncate(&ident(prop(o, "InherentEntitlements").unwrap_or("")), 5).into());
             r[pos(t, 21)] = option(t, 21, opt("Scope", SCOPES, 0)?);
             r[pos(t, 22)] = option(t, 22, opt("Access", ACCESS, 0)?);

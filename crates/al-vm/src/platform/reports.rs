@@ -163,13 +163,20 @@ fn layout_row(
         r[pos(t, 4)] = unknown(t, 4, &whose("which declares a CaptionML"));
     }
     // "Report Name" (12): the name of a report that declares no Caption and no CaptionML (UgReportLayoutList.al:110, :144;
-    // AwTests.al:228). Whether a caption replaces the name is not pinned.
+    // AwTests.al:228), the Caption of one that declares it (UgReportLayoutList.al Y17_ReportLayoutList_ReportName_WithCaption,
+    // corpus master 97c29f86: 'LT Caption Differs'). A CaptionML is not pinned.
     r[pos(t, 12)] = if !of_report {
         unknown(t, 12, &whose("a layout of a report extension"))
-    } else if prop(o, "Caption").is_some() || prop(o, "CaptionML").is_some() {
-        unknown(t, 12, &whose("whose report declares a caption"))
+    } else if prop(o, "CaptionML").is_some() {
+        unknown(t, 12, &whose("whose report declares a CaptionML"))
     } else {
-        Value::Text(o.name.chars().take(250).collect())
+        match prop(o, "Caption") {
+            None => Value::Text(o.name.chars().take(250).collect()),
+            Some(v) => match string_lit(v) {
+                Some(caption) => Value::Text(caption.chars().take(250).collect()),
+                None => unknown(t, 12, &whose("whose report's Caption is not a literal")),
+            },
+        }
     };
     // "Layout Publisher" (13): the app's name, " by " and its publisher (UgReportLayoutList.al:111, :145; AwTests.al:228:
     // `AL Language Coverage Tests by AL Language`, the corpus app's name and publisher).

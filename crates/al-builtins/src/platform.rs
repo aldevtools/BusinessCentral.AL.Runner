@@ -543,6 +543,19 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         "31",
         "al-language/report/lt-y-report-props/YReportParts.al:65-70, YReportPropsTests.al:45",
     ),
+    // Table Metadata InherentPermissions: `X` or blank as declared; another value is unknown (al-vm objects.rs).
+    (
+        2_000_000_136,
+        "19",
+        "al-language/permissions/W6PermissionColumns.al Y17_TableMetadata_InherentPermissions (corpus master 97c29f86)",
+    ),
+    // Metadata Permission "Security Filter": blank for every row of an app permission set (a permissionset object has no
+    // syntax for one), plain and with format 9.
+    (
+        2_000_000_251,
+        "14",
+        "al-language/permissions/W6PermissionColumns.al Y17_MetadataPermission_SecurityFilter_OwnSet, _AllSets (corpus master 97c29f86)",
+    ),
     (
         2_000_000_136,
         "10",
