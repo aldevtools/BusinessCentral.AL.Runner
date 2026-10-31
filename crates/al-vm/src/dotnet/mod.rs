@@ -848,7 +848,7 @@ impl Session {
                     return unsupported(format!("foreach over a .NET enum value of {clr_type} (not pinned)"));
                 }
                 DotNetKind::Internal { type_name, .. } => {
-                    if let Some(en) = generic_dictionary::foreach_start(type_name) {
+                    if let Some(en) = generic_dictionary::foreach_start(o) {
                         return Ok(en);
                     }
                     return unsupported(format!("foreach over a runtime-provided {type_name} (not pinned)"));
@@ -910,10 +910,15 @@ impl Session {
         let Value::DotNet(en) = enumerator else {
             return unsupported("a foreach loop over a .NET collection that is not set up");
         };
-        if let DotNetKind::Internal { type_name, .. } = &en.kind
-            && generic_dictionary::is_enumerator(type_name)
-        {
-            return Ok(None);
+        if let Some(next) = generic_dictionary::foreach_next(en) {
+            let Some(pair) = next else { return Ok(None) };
+            return match self.dotnet_coerce(pair, &var_ty) {
+                Ok(v) => Ok(Some(v)),
+                Err(_) => unsupported(format!(
+                    "foreach over a runtime-made {} into a variable that is not a KeyValuePair (not pinned)",
+                    al_builtins::dotnet_sigs::GENERIC_DICTIONARY
+                )),
+            };
         }
         let DotNetKind::Host {
             handle: en_handle,

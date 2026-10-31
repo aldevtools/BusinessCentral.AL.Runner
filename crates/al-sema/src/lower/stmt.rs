@@ -514,6 +514,10 @@ impl Lowerer<'_> {
             // A unit amount whose expression is no text: the AutoFormat wins (misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al
             // `A2Dp`, DecimalPlaces 0:1: `1,234.5000` with a currency of 4:4 unit-amount places).
             (Some("2"), Some(e)) if !e.starts_with('\'') => None,
+            // The same for an amount whose expression is a field of the row or a procedure: `DecimalPlaces = 2 : 5` or `0 : 5`
+            // beside it, the currency's places win (types/lt-auto-format-currency/Y17AfProcedure.al:405 AF_DecimalPlaces_T1_FieldOfRow
+            // `0.010` with a currency of 3:3, `0.00` without one; :441 AF_DecimalPlaces_T1_Procedure).
+            (Some("1"), Some(e)) if !e.starts_with('\'') => None,
             _ => Some(format!(
                 "Format of Decimal field {} with DecimalPlaces and an AutoFormat beside it (not pinned: only AutoFormatType = 1 \
                  with a blank AutoFormatExpression is)",
@@ -550,8 +554,9 @@ impl Lowerer<'_> {
             return Some(("2:2".into(), 0));
         }
         // A unit amount whose expression is no text: its places come from the expression when it runs, DecimalPlaces beside it
-        // or not (`auto_format_expression_field`; SaUnitAmountSubst.al `A2Dp`).
-        if prop("AutoFormatType").as_deref() == Some("2")
+        // or not (`auto_format_expression_field`; SaUnitAmountSubst.al `A2Dp`). The same for an amount (types/
+        // lt-auto-format-currency/Y17AfProcedure.al:405, :441).
+        if matches!(prop("AutoFormatType").as_deref(), Some("1" | "2"))
             && prop("AutoFormatExpression").is_some_and(|e| !e.starts_with('\''))
         {
             return None;

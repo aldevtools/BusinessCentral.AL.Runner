@@ -59,6 +59,7 @@ mod stale_buffer_6028;
 mod stale_two_commits_insert;
 mod stale_two_commits_row_written;
 mod store_values;
+mod sum_where_flowfield;
 mod systemid_cleared_on_insert;
 mod table_globals;
 mod tableext_relation_modify;
