@@ -1,7 +1,7 @@
 //! OnBeforeValidate and OnAfterValidate of table extensions in several apps for one field (al-runner issue 6486). Measured on
 //! BC by corpus writer Y20 (tableextension/lt-bw-cross-app/Y20CrossAppValidateOrder.al:36, fixtures xapp-a to xapp-d): the
 //! extension of an app runs before that of an app that depends on it, before and after the field's OnValidate. Two apps that
-//! do not depend on each other have no pinned order and stay refused.
+//! do not depend on each other run in ascending app id (Y20CrossAppValidateOrder.al:44-45: B before D).
 
 use al_builtins::native::Signal;
 use al_sema::workspace::AppSource;
@@ -74,15 +74,15 @@ fn extensions_of_apps_that_depend_on_each_other_run_in_dependency_order() {
 }
 
 #[test]
-fn extensions_of_apps_that_do_not_depend_on_each_other_are_refused() {
+fn extensions_of_apps_that_do_not_depend_on_each_other_run_in_app_id_order() {
     let apps = vec![
         app("a", &[], BASE),
-        app("b", &["a"], &ext(50547, "b")),
         app("d", &["a"], &ext(50546, "d")),
+        app("b", &["a"], &ext(50547, "b")),
         app("m", &["a", "b", "d"], CALLER),
     ];
-    match run(apps) {
-        Err(Signal::Unsupported(m)) => assert!(m.contains("not pinned"), "{m}"),
-        other => panic!("expected a refusal, got {other:?}"),
-    }
+    assert_eq!(
+        run(apps).unwrap(),
+        "a-before;b-before;d-before;table;a-after;b-after;d-after;"
+    );
 }
