@@ -193,6 +193,7 @@ mod refresh_new_line;
 mod rows;
 mod runobject;
 mod shown;
+mod table_values_allowed;
 mod test_end;
 pub(crate) use shown::ShownNote;
 

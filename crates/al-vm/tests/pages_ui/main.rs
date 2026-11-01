@@ -82,6 +82,7 @@ mod rp1_read_only_var_control;
 mod rp1_temp_refill;
 mod rp2_close_veto_last_error;
 mod run_record_group2;
+mod table_field_values_allowed;
 mod temp_refill_to_fewer_rows;
 mod temp_refill_to_one_row;
 mod test_filter_enum_range;

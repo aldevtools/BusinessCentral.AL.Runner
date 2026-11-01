@@ -43,7 +43,7 @@ impl Session {
     /// whose list names values by name or ordinal (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al: a ConfirmationDialog
     /// field over a global record's Enum field and an Option variable, request page Enum variables, a list's Rec field;
     /// pageext/lt-page-ext-properties/PageFieldValuesAllowed.al, a card's Rec field). Other shapes are refused.
-    fn values_allowed(&self, st: &St, idx: usize, ty: &RtType) -> Result<Option<Vec<i32>>, Signal> {
+    pub(super) fn values_allowed(&self, st: &St, idx: usize, ty: &RtType) -> Result<Option<Vec<i32>>, Signal> {
         let engine = self.engine();
         let ctl = &page_of(&engine, st).controls[idx];
         let name = ctl.name.clone();
@@ -62,7 +62,8 @@ impl Session {
                 .as_ref()
                 .is_some_and(|f| f.properties.iter().any(|(k, _)| k.eq_ignore_ascii_case(n)))
         };
-        if field_prop("ValuesAllowed") {
+        // An Enum control's list replaces the field's (Y65ValuesAllowedTableField.al:292-306, `table_values_allowed`).
+        if field_prop("ValuesAllowed") && !matches!(ty, RtType::Enum(_)) {
             return unsupported(format!(
                 "SetValue on control {name}, with ValuesAllowed over a field with ValuesAllowed (not pinned)"
             ));
@@ -247,6 +248,7 @@ impl Session {
             ..self.control_format(st, idx)?
         };
         let mut arg = args.first().cloned().unwrap_or(Value::Null);
+        self.table_values_allowed_entry(st, idx, &ty, &mut arg, &current, from_variant)?;
         // A Text inside a Variant on an Enum or Option control goes by ordinal digits: '1' selects the value of ordinal 1, as an
         // Integer does; ' ', '' and 'Alpha' fail to evaluate, the control keeps its value and holds no validation error. BC 27.5
         // names NavOption instead (pages/lt-be-enum-setvalue-blank/BeEnumSetValueBlank.al:532-597 table field, Enum with a blank
@@ -522,11 +524,7 @@ impl Session {
         let no_row = self.shows_no_row(st, idx);
         // A list shows no Refresh hint (misc/lt-probes-needed-3/PnC07TestPage.al:GetValidationError_AfterFailedValidation, ValueAssign_Number_FromText_And_Decimal);
         // a card does (handlers/TestPageErrTeardown_Tests.al, TestPageBooleanSpelling_Tests.al:210).
-        let suffix = if rec_bound && !no_row && !self.is_list(st) {
-            " (Select Refresh to discard errors)"
-        } else {
-            ""
-        };
+        let suffix = self.validation_suffix(st, idx, rec_bound);
         let refuse_code = |msg: String, code: &str| -> Signal {
             let stored = format!("{msg}{suffix}");
             if let Err(why) = note_refusal(st, idx, stored.clone()) {
@@ -820,47 +818,8 @@ impl Session {
                 )));
             }
         }
-        // A table field's ValuesAllowed is checked by the client: on a Code[1] field with `'', 'A', 'N'` an entry outside the list,
-        // and also the empty text although '' is listed, is a TestValidation error that lists the values with `;`; `A` is taken
-        // (pages/lt-cd-testpage-leads/CdTestPageLeads.al:396-423, Item56_ValuesAllowedEmpty_SetValueEmptyAfterA,
-        // Item56_ValuesAllowed_SetValueNotAllowed). Validate in code does not check it (:426-444). Pinned for a Text or Code field
-        // of quoted values on a card with a row; an entry that matches only when the case is ignored, or that a Code field
-        // upper-cases, and the empty text on a list without '' are not.
-        if let Some(raw) = self.control_field(st, idx).and_then(|f| {
-            f.properties
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case("ValuesAllowed"))
-                .map(|(_, v)| v.clone())
-        }) {
-            let values = quoted_list(&raw);
-            let card_row = rec_bound && !no_row && !self.is_list(st);
-            let Some(values) = values.filter(|_| card_row && matches!(ty, RtType::Text(_) | RtType::Code(_))) else {
-                return unsupported(
-                    "SetValue on a field with ValuesAllowed that is not a Text or Code field of quoted values on a card with a row (not pinned)",
-                );
-            };
-            let typed = text.to_string();
-            if matches!(ty, RtType::Code(_)) && typed != typed.to_uppercase() {
-                return unsupported("SetValue of a lower-case entry on a Code field with ValuesAllowed (not pinned)");
-            }
-            let exact = values.contains(&typed);
-            if !(exact && !typed.is_empty()) {
-                if !exact && values.iter().any(|v| v.eq_ignore_ascii_case(&typed)) {
-                    return unsupported(
-                        "SetValue on a field with ValuesAllowed of an entry that differs in case only (not pinned)",
-                    );
-                }
-                if typed.is_empty() && !exact {
-                    return unsupported(
-                        "SetValue of the empty text on a field whose ValuesAllowed does not list '' (not pinned)",
-                    );
-                }
-                return Err(refuse_bound(format!(
-                    "Value '{typed}' is not a valid value. The following values can be used: {}.",
-                    values.join(";")
-                )));
-            }
-        }
+        // A table field's ValuesAllowed is checked by the client (`table_values_allowed_value`).
+        self.table_values_allowed_value(st, idx, &ty, &text, &parsed, rec_bound, &refuse_bound)?;
         // MinValue / MaxValue are enforced on a control write, not on Rec.Validate (corpus
         // handlers/TestPageFieldMinMaxValue_Tests.al:20-110). A control bound to a variable has
         // its own bounds, with the same texts; a table field's adds the "Select Refresh" suffix
@@ -1623,24 +1582,9 @@ impl Session {
                         }
                         return Ok(Value::Text(ordinal.to_string().into()));
                     }
-                    // A row value outside the control's ValuesAllowed shows the ordinal on a list (pages/lt-y37-values-allowed/
-                    // Y37ValuesAllowedSetValue.al:302, :322 `4` for Finished); elsewhere it is not pinned.
-                    if page_of(&self.engine(), st).controls[idx]
-                        .prop("valuesallowed")
-                        .is_some()
-                    {
-                        let ty = self.control_type(st, idx, &v);
-                        if let Some(ty) = ty.filter(|t| matches!(t, RtType::Enum(_) | RtType::Option(_))) {
-                            let allowed = self.values_allowed(st, idx, &ty)?.unwrap_or_default();
-                            if !allowed.contains(ordinal) {
-                                if !self.is_list(st) {
-                                    return unsupported(
-                                        "Value of a control whose value is outside its ValuesAllowed, not on a list (not pinned)",
-                                    );
-                                }
-                                return Ok(Value::Text(ordinal.to_string().into()));
-                            }
-                        }
+                    // A value outside the control's (or the table field's) ValuesAllowed (`outside_values_allowed_shown`).
+                    if let Some(shown) = self.outside_values_allowed_shown(st, idx, &v)? {
+                        return Ok(shown);
                     }
                 }
                 let text = self.control_text(st, idx, &v)?;
@@ -1871,7 +1815,7 @@ impl Session {
 /// The ordinals a list such as `ValuesAllowed = 0, None, Partial` names: each entry a value name (ignoring case and double
 /// quotes) or the ordinal of a value, in any order (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al:132). `None` when an
 /// entry names no value.
-fn allowed_ordinals(list: &str, values: &[(i32, String)]) -> Option<Vec<i32>> {
+pub(super) fn allowed_ordinals(list: &str, values: &[(i32, String)]) -> Option<Vec<i32>> {
     list.split(',')
         .map(|e| {
             let e = e.trim();
@@ -1900,7 +1844,7 @@ fn allowed_enum_values(list: &str, values: &[(i32, String)]) -> Option<Vec<i32>>
 }
 
 /// The values of a property such as `ValuesAllowed = '', 'A', 'N'`, unquoted; `None` when one is not a quoted text.
-fn quoted_list(raw: &str) -> Option<Vec<String>> {
+pub(super) fn quoted_list(raw: &str) -> Option<Vec<String>> {
     let mut out = Vec::new();
     let mut chars = raw.trim().chars().peekable();
     loop {
@@ -1933,7 +1877,7 @@ fn quoted_list(raw: &str) -> Option<Vec<String>> {
     }
 }
 
-fn note_refusal(st: &St, idx: usize, text: String) -> Result<(), Signal> {
+pub(super) fn note_refusal(st: &St, idx: usize, text: String) -> Result<(), Signal> {
     let mut s = st.borrow_mut();
     match s.errors.iter().position(|(i, _)| *i == idx) {
         None => s.errors.push((idx, text)),
