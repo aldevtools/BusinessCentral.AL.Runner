@@ -2389,7 +2389,6 @@ impl Session {
         let temporary = rec.borrow().temporary;
         self.unseeded_read(t, temporary, "reading rows")?;
         self.coverage_read(t, temporary)?;
-        self.scheduled_task_read(t, temporary)?;
         let key = rec.borrow().key;
         // Filters on FlowFilter fields drop out; those on FlowFields are checked per row.
         let (filters, flow_field_filters) = self.split_filters(rec);
@@ -3489,7 +3488,6 @@ impl Session {
             let temporary = rec.borrow().temporary;
             self.unseeded_read(&t, temporary, method.name())?;
             self.coverage_read(&t, temporary)?;
-            self.scheduled_task_read(&t, temporary)?;
             // `Count` stays answered (it counts only the companies the runtime knows): refusing it loses the baseline case
             // session/TestProbeSessionMiscContracts.al:Company_Names (69815, `Count() >= 1`). Kept, not pinned.
             if !temporary && self.is_company_table(&t) && method != RecordOp::Count {
@@ -3502,7 +3500,6 @@ impl Session {
         ) {
             let temporary = rec.borrow().temporary;
             self.coverage_read(&t, temporary)?;
-            self.scheduled_task_read(&t, temporary)?;
         }
         let cx = self.cx_for(rec, &t)?;
         // A Count or IsEmpty of a table whose demo rows the corpus database holds, before the session's own code wrote to it:
