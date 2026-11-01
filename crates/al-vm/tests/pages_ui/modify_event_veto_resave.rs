@@ -1,6 +1,6 @@
 //! An OnModifyRecordEvent subscriber that answers AllowModify false: real BC runs it once for an action's SaveRecord and the
-//! Close after it (handlers/TestPageTriggerEvents.al:181-206). What the page does with the vetoed edit is not pinned, so a
-//! second save of it is refused.
+//! Close after it, and the row stays (handlers/TestPageTriggerEvents.al:181-206). A new edit saved after it is not pinned and
+//! refused.
 
 const SRC: &str = r#"
 table 50719 VRow { fields { field(1; Code; Code[10]) { } field(2; Val; Text[20]) { } } keys { key(PK; Code) { } } }
@@ -22,7 +22,7 @@ codeunit 50777 VSub
     end;
 }
 codeunit 50778 C {
-    procedure SaveThenClose(): Integer
+    procedure SaveThenClose(): Text
     var Row: Record VRow; P: TestPage VRows; S: Codeunit VSub; L: Codeunit VLog;
     begin
         Row.Code := 'L1'; Row.Val := 'BEFORE'; Row.Insert();
@@ -30,14 +30,33 @@ codeunit 50778 C {
         P.OpenEdit(); P.GoToKey('L1');
         P.DirectSave.Invoke();
         P.Close();
-        exit(L.Count());
+        Row.Get('L1');
+        exit(Format(L.Count()) + ' ' + Row.Val);
+    end;
+    procedure SaveTwice()
+    var Row: Record VRow; P: TestPage VRows; S: Codeunit VSub;
+    begin
+        Row.Code := 'L1'; Row.Val := 'BEFORE'; Row.Insert();
+        BindSubscription(S);
+        P.OpenEdit(); P.GoToKey('L1');
+        P.DirectSave.Invoke();
+        P.Val.SetValue('AGAIN');
+        P.Next();
     end;
 }
 "#;
 
 #[test]
-fn a_second_save_of_an_edit_a_subscriber_vetoed_is_refused() {
-    match al_testkit::run_in(SRC, "C", "SaveThenClose") {
+fn the_close_after_a_vetoed_save_saves_nothing() {
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(SRC, "C", "SaveThenClose")),
+        "1 BEFORE"
+    );
+}
+
+#[test]
+fn a_new_edit_saved_after_a_vetoed_save_is_refused() {
+    match al_testkit::run_in(SRC, "C", "SaveTwice") {
         Err(al_builtins::native::Signal::Unsupported(r)) => assert!(r.contains("vetoed"), "{r}"),
         other => panic!("{other:?}"),
     }

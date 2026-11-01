@@ -503,9 +503,9 @@ pub struct PageState {
     /// A SetValue left the row dirty since the last save: an action's save runs the modify chain even when the value is the one
     /// stored (pages/lt-y45-save-before-action/Y45SaveBeforeAction.al:371 Card_SetSameName_Action).
     pub set_value_held: bool,
-    /// An OnModifyRecordEvent subscriber answered AllowModify false for the row's save: what a later save of the same edit does
-    /// is not pinned (al-vm pages/draft.rs `save_row`).
-    pub modify_vetoed: bool,
+    /// The row an OnModifyRecordEvent subscriber refused to save (AllowModify false): the page does not save it again; another
+    /// edit saved after it is not pinned (al-vm pages/draft.rs `save_row`).
+    pub modify_vetoed: Option<Vec<Value>>,
     /// A new line of this part was inserted before a host action: the part's refresh after the action stays on it
     /// (pages/lt-y45-save-before-action/Y45SaveBeforeAction.al:1748 Doc_Existing_NewLine_Action `...;C H1;lC 30000`).
     pub inserted_before_host_action: bool,
@@ -940,7 +940,7 @@ impl PageState {
             trigger_errors: Vec::new(),
             saved_before_run_object: false,
             set_value_held: false,
-            modify_vetoed: false,
+            modify_vetoed: None,
             inserted_before_host_action: false,
             save_failure_depth: None,
             save_failed: false,
