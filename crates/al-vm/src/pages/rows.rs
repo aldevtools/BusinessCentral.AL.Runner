@@ -2584,7 +2584,7 @@ impl Session {
     /// to 50 rows by pages/W1Navigation.al:GoToKey_List_FiftyRows_RowsReadByAFarJump (rows 20, then 21 to 40, then 20 again; row 40,
     /// then 41 to 50, then 40 again). A second block of 20 rows is not pinned: misc/lt-probes-needed-7/PnGGoToScan.al:
     /// GoToKeyOverTheWindowBoundary counts other reads for 60 rows, so that shape is refused.
-    fn arrive_held(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
+    pub(super) fn arrive_held(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
         let held = st.borrow().window.len();
         if idx + 1 == held && held >= Self::WINDOW && !st.borrow().window_eof {
             // The row the move lands on is the last the client holds and the view may go on: the client reads it, then up to 20 rows
@@ -2619,125 +2619,6 @@ impl Session {
             return self.read_client_row_in(st, idx, true);
         }
         self.read_client_row(st, idx)
-    }
-
-    /// GoToKey on a list that declares OnAfterGetCurrRecord and no OnAfterGetRecord: from a row other than the first the client goes to the
-    /// first row, then steps on row by row until the key is there, each arrival one current-record read; standing on the first row it
-    /// does not read that row again (pages/lt-testpage-list-rows/ListRowsWindow.al:GoToKeyLastThenRow2_OnlyCurr41Rows `C2;...;C41`, then
-    /// back to row 2: `C1;C2`). A key equal to the row the cursor stands on (not the first) and a miss are not pinned.
-    fn go_to_key_current_only(&mut self, st: &St, want: &[Value]) -> Result<Option<bool>, Signal> {
-        if !self.declares(st, "onaftergetcurrrecord")
-            || self.declares(st, "onaftergetrecord")
-            || self.declares(st, "onfindrecord")
-            || self.declares(st, "onnextrecord")
-            || !self.is_list(st)
-            || st.borrow().host.is_some()
-            || st.borrow().cursor != Cursor::Row
-            || st.borrow().draft
-            || st.borrow().stale
-            || !st.borrow().window_from_start
-            || st.borrow().window.is_empty()
-        {
-            return Ok(None);
-        }
-        let rec = self.page_rec(st);
-        let cur = self.row_key(&rec)?;
-        let on_first = st.borrow().window.first().is_some_and(|w| Self::same_key(&w.key, &cur));
-        if Self::same_key(&cur, want) && !on_first {
-            return Ok(None);
-        }
-        let origin_fields = rec.borrow().fields.clone();
-        let mut found = false;
-        let mut at = true;
-        if !on_first {
-            at = self.nav_find(st, "-")?;
-            if at {
-                st.borrow_mut().cursor = Cursor::Row;
-                let r = self.arrive(st);
-                self.torn_down_on_error(st, r)?;
-                found = Self::same_key(&self.row_key(&rec)?, want);
-            }
-        }
-        while at && !found {
-            at = self.nav_next(st, 1)?;
-            if !at {
-                break;
-            }
-            let r = self.arrive(st);
-            self.torn_down_on_error(st, r)?;
-            found = Self::same_key(&self.row_key(&rec)?, want);
-        }
-        if !found {
-            rec.borrow_mut().fields = origin_fields;
-            return unsupported(
-                "GoToKey for a key the list does not hold, on a list with OnAfterGetCurrRecord only (the reads are not pinned)",
-            );
-        }
-        Ok(Some(true))
-    }
-
-    /// GoToKey for a key past a full window of a list with OnFindRecord, OnNextRecord and OnAfterGetRecord (no OnAfterGetCurrRecord)
-    /// that holds its first 20 rows: the client reads the last two rows it holds again, without asking the page, then asks
-    /// OnNextRecord(1) and reads each row after them to the end of the view; the cursor lands on the key without another read
-    /// (pages/lt-ai-list-order/AiListOrderTests.al:999 Paging_GoToKey_Nav `R:R1019;R:R1020;N:1=1;R:R1021;...;R:R1025;N:1=0`, 25
-    /// rows). The walk on from there asks nothing (:1020 Paging_GoToKeyThenWalk_Nav). A second full block and a key the view does
-    /// not have are refused (not pinned). `None` when the page or its window is not of that kind.
-    fn go_to_key_past_a_full_find_window(&mut self, st: &St, want: &[Value]) -> Result<Option<bool>, Signal> {
-        let shape = {
-            let s = st.borrow();
-            s.host.is_none()
-                && s.window_from_start
-                && !s.window_eof
-                && !s.window_whole
-                && s.window.len() == Self::WINDOW
-        };
-        if !shape
-            || !self.declares(st, "onnextrecord")
-            || self.declares(st, "onaftergetcurrrecord")
-            || self.in_window(st, want)
-        {
-            return Ok(None);
-        }
-        let rec = self.page_rec(st);
-        for i in Self::WINDOW - 2..Self::WINDOW {
-            let stored = st.borrow().window[i].stored.clone();
-            rec.borrow_mut().fields = stored;
-            self.populate_current(st)?;
-            let shown = rec.borrow().fields.clone();
-            st.borrow_mut().window[i].shown = shown;
-        }
-        let mut new_rows = 0;
-        while self.nav_next(st, 1)? {
-            let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
-            self.populate_current(st)?;
-            let shown = rec.borrow().fields.clone();
-            st.borrow_mut()
-                .window
-                .push(al_builtins::value::WindowRow { key, stored, shown });
-            new_rows += 1;
-            if new_rows == Self::WINDOW {
-                return unsupported(
-                    "GoToKey past a second full block of rows of a find list (the reads are not pinned)",
-                );
-            }
-        }
-        {
-            let mut s = st.borrow_mut();
-            s.window_eof = true;
-            s.window_whole = true;
-            s.view_read_to_end = true;
-        }
-        let at = st.borrow().window.iter().position(|w| Self::same_key(&w.key, want));
-        let Some(at) = at else {
-            return unsupported(
-                "GoToKey for a key a find list does not hold, past a full window (the reads are not pinned)",
-            );
-        };
-        let shown = st.borrow().window[at].shown.clone();
-        rec.borrow_mut().fields = shown;
-        self.set_xrec(st);
-        Ok(Some(true))
     }
 
     pub(super) fn page_move_inner(&mut self, st: &St, how: PageMethod) -> Result<bool, Signal> {
@@ -3020,6 +2901,9 @@ impl Session {
                 return Ok(Value::Boolean(true));
             }
             if let Some(found) = self.go_to_key_past_a_full_find_window(st, &want)? {
+                return Ok(Value::Boolean(found));
+            }
+            if let Some(found) = self.go_to_key_find_list_curr(st, &want, result_used)? {
                 return Ok(Value::Boolean(found));
             }
             // Other shapes with a full window of rows: what the client asks the page for is not pinned.
