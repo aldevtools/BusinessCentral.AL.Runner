@@ -14,6 +14,7 @@ use crate::native::{Ctx, NativeFn, Signal, raise};
 use crate::value::Value;
 
 mod brackets;
+mod numbers;
 
 pub const REGISTRY: &[(&str, NativeFn)] = &[
     ("System.DMY2Date#1", dmy2date),
@@ -512,6 +513,7 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
         return Ok(Vec::new());
     }
     let body = body.as_str();
+    numbers::too_large(body)?;
     let b = body.as_bytes();
     let unit_of = |c: Option<&u8>| match c {
         Some(b'D') => Some(Unit::Day),
