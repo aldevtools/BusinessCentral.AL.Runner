@@ -17,6 +17,7 @@ pub(crate) const MEDIA_RESOURCES: u32 = 2_000_000_182;
 /// Table "Tenant Report Layout", whose rows are the user-defined rows of Report Layout List.
 const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
 const TENANT_REPORT_LAYOUT_OVERRIDE: u32 = 2_000_000_248;
+mod caption_table_data;
 pub(crate) mod coverage;
 mod date;
 mod feature_key;
@@ -32,8 +33,11 @@ mod links;
 pub(crate) mod mat;
 mod metadata;
 pub(crate) mod objects;
+mod page_temporary;
 mod pages;
+mod permission_set_rel;
 mod permissions;
+pub(crate) mod profile_settings;
 pub(crate) mod profiles;
 pub(crate) mod ranges;
 mod reports;
@@ -628,6 +632,7 @@ impl Providers {
             Virtual::ReportMetadata => reports::report_metadata_rows(self, t),
             Virtual::ReportDataItems => reports::report_data_item_rows(self, t),
             Virtual::MetadataPermissionSet => permissions::metadata_permission_set_rows(self, t),
+            Virtual::MetadataPermissionSetRel => permission_set_rel::metadata_permission_set_rel_rows(self, t),
             Virtual::PermissionSet => permissions::permission_set_rows(self, t, false),
             Virtual::PermissionSetAssignable => permissions::permission_set_rows(self, t, true),
             Virtual::AggregatePermissionSet => unreachable!("composed per read"),
@@ -642,7 +647,9 @@ impl Providers {
             Virtual::Session => vec![mat::Entry::ok(identity::session_row(t, &self.ident))],
             Virtual::ActiveSession => vec![mat::Entry::ok(identity::active_session_row(t, &self.ident))],
             Virtual::AllObj => objects::all_obj_rows(self, t),
-            Virtual::AllObjWithCaption => objects::all_obj_with_caption_rows(self, t),
+            Virtual::AllObjWithCaption => {
+                caption_table_data::with_table_data_rows(t, objects::all_obj_with_caption_rows(self, t))
+            }
             Virtual::CodeunitMetadata => objects::codeunit_metadata_rows(self, t),
             Virtual::TableMetadata => objects::table_metadata_rows(self, t),
             Virtual::PageMetadata => pages::page_metadata_rows(self, t),

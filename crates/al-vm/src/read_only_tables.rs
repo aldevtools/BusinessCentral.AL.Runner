@@ -10,10 +10,16 @@ use al_builtins::record_op::RecordOp;
 /// - Feature Key: Insert with and without triggers, of an unknown ID and of a listed one in any casing, and Delete of a listed
 ///   row; nothing changes (record/lt-y48-feature-key-writes/Y48FeatureKeyWrites.al:126-200). A Modify of Enabled is allowed
 ///   (records.rs `feature_key_read_only_change`); DeleteAll is not pinned.
+/// - Metadata Permission Set Rel.: Insert, Modify and Delete of a row that exists, and DeleteAll, each through Codeunit.Run;
+///   nothing changes (permissions/lt-y59-metadata-permission/Y59PermissionSetRel.al:290-306, corpus master 9cf26907).
 pub(crate) fn raises(id: u32, method: RecordOp) -> bool {
     match id {
         2_000_000_045 | 2_000_000_050 | 2_000_000_043 => true,
         2_000_000_211 => matches!(method, RecordOp::Insert | RecordOp::Delete),
+        2_000_000_252 => matches!(
+            method,
+            RecordOp::Insert | RecordOp::Modify | RecordOp::Delete | RecordOp::DeleteAll
+        ),
         _ => false,
     }
 }

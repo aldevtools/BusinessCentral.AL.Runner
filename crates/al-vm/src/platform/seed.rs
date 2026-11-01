@@ -203,6 +203,10 @@ impl Session {
                     wrote |= self.seed_profiles(t, i);
                     continue;
                 }
+                super::profile_settings::TENANT_PROFILE_SETTING => {
+                    wrote |= self.seed_profile_settings(t, i);
+                    continue;
+                }
                 TENANT_REPORT_LAYOUT_SELECTION => {
                     for &(report, layout) in TENANT_REPORT_LAYOUT_SELECTIONS {
                         let mut r = super::blank(t);

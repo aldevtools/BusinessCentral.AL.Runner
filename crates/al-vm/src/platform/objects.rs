@@ -537,6 +537,11 @@ pub(super) fn all_obj_with_caption_rows(p: &Providers, t: &TableDef) -> Vec<Entr
             let owner = c.owner(o);
             let pkg = package_of(&c, o);
             r[pos(t, 4)] = Value::Text(o.name.clone().into());
+            // "Name" (5, BC 29 on, Text[100]): the object name, as Metadata Permission's "AL Object Name" looks it up
+            // (permissions/lt-y59-metadata-permission/Y59MetadataPermissionNames.al:257-266, corpus master 9cf26907).
+            if let Some(p) = t.fields.iter().position(|f| f.id == 5) {
+                r[p] = Value::Text(o.name.chars().take(100).collect());
+            }
             r[pos(t, 20)] = caption_value(o, 249);
             // A subtype the runtime has no pinned text for (a CDS table) leaves only that column unknown: the other
             // columns still answer a filter or a count (install/lt-cm-install-leads/CmInstallObjects.al:73-79).

@@ -338,17 +338,17 @@ codeunit 50000 "T" { Subtype = Test;
     assert!(not_run(&o, "DeleteWithMetadata").contains("Tenant Profile Page Metadata"));
 }
 
-// A name that ends in a dot (`Metadata Permission Set Rel.`, 23 of Microsoft's permission tests) is a
-// platform table with no provider, not an object outside the workspace.
+// A name that ends in a dot (`Table Synch. Setup`; until gap cycle 6 `Metadata Permission Set Rel.`, 23 of Microsoft's
+// permission tests) is a platform table with no provider, not an object outside the workspace.
 #[test]
 fn a_platform_table_whose_name_ends_in_a_dot_names_the_missing_provider() {
     let o = outcomes(
         r#"codeunit 50000 "T" { Subtype = Test;
-  [Test] procedure UsesIt() var P: Record "Metadata Permission Set Rel."; begin if P.IsEmpty() then; end; }"#,
+  [Test] procedure UsesIt() var P: Record "Table Synch. Setup"; begin if P.IsEmpty() then; end; }"#,
     );
     let why = not_run(&o, "UsesIt");
     assert!(
-        why.contains("platform table 'Metadata Permission Set Rel.' (") && why.contains("has no provider"),
+        why.contains("platform table 'Table Synch. Setup' (") && why.contains("has no provider"),
         "{why}"
     );
 }
@@ -2006,12 +2006,14 @@ fn published_application_description_is_the_manifest_text() {
 /// the app's objects, record/lt-u-table-field-props/UTableCdsOrdinals.al:9 declares a CDS table); a read of the
 /// Object Subtype itself is refused.
 #[test]
+// The count is 2: the Table row and the TableData row (metadata/lt-all-obj-namespace/AllObjNamespace.al
+// PW_AllObj_TableDataRowPerTableKind, al-vm platform/caption_table_data.rs).
 fn an_object_subtype_nothing_pins_is_refused_and_the_other_columns_of_the_row_read() {
     let o = outcomes(
         r#"table 50001 "Cds Thing" { TableType = CDS; ExternalName = 'cdsthing'; fields { field(1; Id; Guid) { ExternalName = 'cdsthingid'; } }
   keys { key(PK; Id) { Clustered = true; } } }
 codeunit 50000 "T" { Subtype = Test;
-  [Test] procedure CountByName() var A: Record AllObjWithCaption; begin A.SetRange("Object ID", 50001); A.SetRange("Object Name", 'Cds Thing'); if A.Count() <> 1 then Error('count %1', A.Count()); end;
+  [Test] procedure CountByName() var A: Record AllObjWithCaption; begin A.SetRange("Object ID", 50001); A.SetRange("Object Name", 'Cds Thing'); if A.Count() <> 2 then Error('count %1', A.Count()); end;
   [Test] procedure ReadSubtype() var A: Record AllObjWithCaption; begin A.Get(A."Object Type"::Table, 50001); if A."Object Subtype" = '' then; end; }"#,
     );
     passes(&o, "CountByName");
@@ -4346,8 +4348,7 @@ fn the_webhook_mcp_tool_and_privacy_approval_tables_are_stored() {
       if not IsNullGuid(A."Approver User SID") then Error('approver');
       N.SetRange("User SID Filter", Admin); N.CalcFields(Enabled, Disabled); if not N.Enabled or N.Disabled then Error('admin');
       N.SetRange("User SID Filter", UserSecurityId()); N.CalcFields(Enabled, Disabled); if N.Enabled or N.Disabled then Error('user');
-      A.SetRange(ID, 'LT'); A.DeleteAll(); if not A.IsEmpty() then Error('left'); end;
-  [Test] procedure TenantProfileSettingStaysRefused() var S: Record "Tenant Profile Setting"; begin if S.IsEmpty() then; end; }"#,
+      A.SetRange(ID, 'LT'); A.DeleteAll(); if not A.IsEmpty() then Error('left'); end; }"#,
     );
     for t in [
         "Webhook",
@@ -4361,10 +4362,6 @@ fn the_webhook_mcp_tool_and_privacy_approval_tables_are_stored() {
     assert!(not_run(&o, "WebhookAppId").contains("Application ID"), "{o:?}");
     assert!(
         not_run(&o, "ConfigDeleteWithTools").contains("MCP Configuration"),
-        "{o:?}"
-    );
-    assert!(
-        not_run(&o, "TenantProfileSettingStaysRefused").contains("has no provider"),
         "{o:?}"
     );
 }

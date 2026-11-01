@@ -524,7 +524,13 @@ pub(super) fn grants_mat(
             _ => g.expanded(&b, i, &mut Vec::new()),
         };
         match grants {
-            Err(why) => entries.push(Entry::poisoned(key_only(t), why)),
+            // The set's key alone is known: a filter on the other key columns cannot rule the row out
+            // (codeunit/lt-x-object-props/XObjectProps.al:341, a filter on Object Type and Object ID of an excluding set).
+            Err(why) => entries.push(Entry::poisoned_prefix(
+                key_only(t),
+                if which == GrantTable::Legacy { 1 } else { 2 },
+                why,
+            )),
             Ok(list) => {
                 for gr in list.iter() {
                     let mut r = key_only(t);
@@ -628,7 +634,7 @@ pub(crate) struct RawSet {
     pub incomplete: Option<String>,
 }
 
-fn name_list<O: al_ir::ObjectInfo + ?Sized>(o: &O, property: &str) -> Vec<String> {
+pub(super) fn name_list<O: al_ir::ObjectInfo + ?Sized>(o: &O, property: &str) -> Vec<String> {
     prop(o, property)
         .map(|t| split_entries(t).iter().map(|n| last_name(n).to_lowercase()).collect())
         .unwrap_or_default()

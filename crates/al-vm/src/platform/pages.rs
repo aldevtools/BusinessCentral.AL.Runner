@@ -526,9 +526,11 @@ fn page_metadata_row(
     } else {
         Value::Text(String::new().into())
     };
+    r[pos(t, 25)] = super::page_temporary::source_table_temporary(o, has_source, src);
     r[pos(t, 26)] = Value::Boolean(has_source && lit_bool(o, "LinksAllowed", true));
     r[pos(t, 27)] = Value::Boolean(lit_bool(o, "ChangeTrackingAllowed", false));
     r[pos(t, 28)] = Value::Boolean(has_source && lit_bool(o, "PopulateAllFields", false));
+    r[pos(t, 29)] = super::page_temporary::app_id(c, o);
     r[pos(t, 30)] = Value::Text(
         ident(prop(o, "InherentPermissions").unwrap_or(""))
             .chars()
