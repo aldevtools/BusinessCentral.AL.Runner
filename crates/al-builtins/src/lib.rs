@@ -29,6 +29,7 @@ pub mod dotnet_sigs;
 pub mod errorinfo;
 pub mod evaluate;
 pub mod features;
+pub mod fieldref_value_text;
 pub mod file;
 pub mod filter;
 pub mod format;

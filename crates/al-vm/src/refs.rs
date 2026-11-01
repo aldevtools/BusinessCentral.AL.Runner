@@ -1868,11 +1868,7 @@ impl Session {
                 self.calc_sums(&rec, &[pos], true)?;
                 Ok(Value::Boolean(true))
             }
-            "Validate" => {
-                let mut a = vec![Value::Integer(pos as i32)];
-                a.extend(args.iter().cloned());
-                self.record_op(RecordOp::Validate, &rec, &mut a)
-            }
+            "Validate" => self.fieldref_validate(&rec, &t, pos, args),
             "TestField" | "FieldError" => {
                 let mut a = vec![Value::Integer(pos as i32)];
                 a.extend(args.iter().cloned());

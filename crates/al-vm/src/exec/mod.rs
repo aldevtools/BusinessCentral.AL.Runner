@@ -199,7 +199,7 @@ pub(crate) enum Op {
         t: u32,
     },
     /// `Convert` of a `FieldRef.Value()` result into a Text or Code variable or by-value parameter: a number is its Format
-    /// text and an Enum its caption (`ops::number_into_text_field`), anything else converts as `Convert` does.
+    /// text and an Enum or an Option its caption (`fieldref_value_text`), anything else converts as `Convert` does.
     ConvertFieldValue {
         d: u16,
         a: u16,

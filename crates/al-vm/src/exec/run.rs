@@ -287,7 +287,7 @@ impl Session {
                     let ty = &chunk.types[t as usize];
                     // A number is its Format text and an Enum its caption, checked against the variable's or parameter's length
                     // (misc/lt-y13-triage/Y13FieldRefValueToText.al:96-153; text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:207-353).
-                    let v = match ops::number_into_text_field(&v, ty, &*self) {
+                    let v = match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, &*self) {
                         Some(r) => r?,
                         None => ops::convert_plain(v, ty)?,
                     };

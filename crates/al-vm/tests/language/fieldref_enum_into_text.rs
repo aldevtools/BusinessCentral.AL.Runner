@@ -51,6 +51,12 @@ codeunit 50768 C {
         Seed(RR);
         exit(TakeCode3(RR.Field(3).Value()));
     end;
+    procedure ValidateCaption(): Text
+    var RR: RecordRef; FR: FieldRef;
+    begin
+        RR.Open(Database::YRow); RR.Init(); FR := RR.Field(2);
+        FR.Validate('Beta Cap');
+    end;
     procedure AppendAll(Filled: Boolean): Text
     var RR: RecordRef; TB: TextBuilder; Row: Record YRow; i: Integer;
     begin
@@ -105,4 +111,32 @@ fn textbuilder_append_of_every_field_value_kind_is_its_corpus_text() {
         )
     );
     assert_eq!(append_all(false), format!(" |0|||||{empty}| |{empty}|{empty}||0|"));
+}
+
+const OPT: &str = r#"
+table 50718 ORow { fields { field(1; Id; Integer) { } field(2; Opt; Option) { OptionMembers = " ",Red,Green; OptionCaption = ' ,Red Cap,Green Cap'; } } keys { key(PK; Id) { } } }
+codeunit 50772 C {
+    local procedure Take250(Value: Text[250]): Text begin exit(Value); end;
+    local procedure TakeCode20(Value: Code[20]): Text begin exit(Value); end;
+    procedure OptionIntoParams(): Text
+    var RR: RecordRef; Row: Record ORow;
+    begin
+        Row.Opt := Row.Opt::Green; RR.GetTable(Row);
+        exit(Take250(RR.Field(2).Value()) + '|' + TakeCode20(RR.Field(2).Value()));
+    end;
+}
+"#;
+
+#[test]
+fn an_option_from_fieldref_value_into_a_bounded_text_or_code_parameter_is_its_caption() {
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(OPT, "C", "OptionIntoParams")),
+        "Green Cap|GREEN CAP"
+    );
+}
+
+#[test]
+fn fieldref_validate_of_an_enum_field_with_a_caption_raises_the_option_evaluate_error() {
+    let e = al_testkit::error_message(al_testkit::run_in(SRC, "C", "ValidateCaption"));
+    assert_eq!(e, "The value \"Beta Cap\" can't be evaluated into type Option.");
 }

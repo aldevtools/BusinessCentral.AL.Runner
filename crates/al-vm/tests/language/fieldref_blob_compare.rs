@@ -54,6 +54,22 @@ codeunit 50771 C {
         B.Bin.CreateOutStream(OutS); OutS.WriteText('abc'); Res += Cmp(A, B, 2);
         exit(Res);
     end;
+    procedure TempAgainstStored(): Text
+    var Stored: Record BRow; Temp: Record BRow temporary; Res: Text;
+    begin
+        Seed();
+        Stored.Get(1); Stored.CalcFields(Bin);
+        Temp := Stored; Temp.Insert();
+        Clear(Stored); Stored.Get(1);
+        Res := Cmp(Temp, Stored, 2);
+        Temp.Get(1); Res += Cmp(Temp, Stored, 2);
+        Temp.CalcFields(Bin); Res += Cmp(Temp, Stored, 2);
+        Stored.CalcFields(Bin); Res += Cmp(Temp, Stored, 2);
+        Clear(Temp); Temp.Reset(); Temp.DeleteAll();
+        Stored.Get(1); Temp.TransferFields(Stored); Temp.Insert();
+        Res += Cmp(Temp, Stored, 2);
+        exit(Res);
+    end;
     procedure EmptyLoadedAgainstNotLoaded(): Text
     var A: Record BRow; B: Record BRow;
     begin
@@ -76,6 +92,12 @@ fn a_blob_copied_into_a_variable_equals_until_one_side_is_loaded_or_written() {
 #[test]
 fn blobs_not_loaded_compare_whether_they_have_content_and_loaded_ones_their_bytes() {
     assert_eq!(run("Rows"), "No|Yes;Yes|No;No|Yes;Yes|No;No|Yes;Yes|No;");
+}
+
+/// Y49BlobCompare.al:152-187.
+#[test]
+fn a_temporary_copy_against_the_stored_row() {
+    assert_eq!(run("TempAgainstStored"), "No|Yes;No|Yes;Yes|No;No|Yes;Yes|No;");
 }
 
 #[test]

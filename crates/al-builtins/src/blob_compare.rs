@@ -12,8 +12,8 @@ use std::cmp::Ordering;
 ///   are equal, `abc` and none differ (:189-233 `1-3`, `1-4`, `4-4`; :120-149 `copy`; :152-187 `temp vs stored`).
 /// - loaded (CalcFields, a stream write, a fresh record, TransferFields): the bytes (:189-233 `... calc`; :235-255).
 /// - a loaded value against one that is not differs (:120-149 `copy calc rec only`, `copy rec written same text`; :152-187
-///   `temp calc only`, `transfer vs stored`; :189-233 `1 calc-3`), pinned only for content on both sides: an empty loaded Blob
-///   against a value that is not loaded is refused.
+///   `temp calc only`, `transfer vs stored`; :189-233 `1 calc-3`). Where one side has content and the other none they differ
+///   whatever is compared; an empty loaded Blob against a row without content that is not loaded is not pinned and refused.
 #[derive(PartialEq)]
 enum Seen {
     HasContent(bool),
@@ -40,7 +40,9 @@ fn seen(b: &BlobRef) -> Result<Seen, Signal> {
 pub(crate) fn compare(a: &BlobRef, b: &BlobRef) -> Result<Ordering, Signal> {
     let (x, y) = (seen(a)?, seen(b)?);
     match (&x, &y) {
-        (Seen::Bytes(bytes), Seen::HasContent(_)) | (Seen::HasContent(_), Seen::Bytes(bytes)) if bytes.is_empty() => {
+        (Seen::Bytes(bytes), Seen::HasContent(false)) | (Seen::HasContent(false), Seen::Bytes(bytes))
+            if bytes.is_empty() =>
+        {
             Err(Signal::Unsupported(
                 "comparison of an empty loaded Blob with a Blob that is not loaded (not pinned)".into(),
             ))

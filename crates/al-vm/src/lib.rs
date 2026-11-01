@@ -47,6 +47,7 @@ mod effects;
 mod errorcollect;
 pub mod events;
 mod faultsite;
+mod fieldref_validate;
 mod filterevents;
 mod filterpage;
 mod flowfields;
