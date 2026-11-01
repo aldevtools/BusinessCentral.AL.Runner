@@ -1067,7 +1067,7 @@ impl Gate {
                 file: "../al-language-onprem-dotnet/lt-az-dotnet/AzLastErrorObject.al",
                 lines: "212",
             }],
-            _ => unreachable!("evidence_of_first_gates of {self:?}"),
+            _ => unreachable!("evidence_of_first_gates: a gate its match does not list"),
         }
     }
 }

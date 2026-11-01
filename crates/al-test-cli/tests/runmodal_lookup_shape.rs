@@ -145,10 +145,10 @@ fn run_modal_without_a_record_as_a_statement_has_no_cancel_action() {
     }
 }
 
-// Whether Rec gets the row the page closed on after Page.RunModal(Id, Rec) called as a statement is not pinned: a read of
-// Rec after the call refuses when the page closed on another row; when it closed on Rec's own row nothing changes.
+// After OK of Page.RunModal(Id, Rec) called as a statement, Rec keeps the values it had, also when the page closed on another
+// row (pages/lt-y41-page-probes/Y41RunModalStatementRec.al:297 RMS_List_Next_Ok, gap G4-02).
 #[test]
-fn rec_after_a_statement_run_modal_that_moved_is_refused_when_read() {
+fn rec_after_a_statement_run_modal_ok_keeps_its_values() {
     let src = format!(
         "{OBJECTS}\ncodeunit 62692 T {{ Subtype = Test; {HELPERS}
         [ModalPageHandler] procedure MoveOk(var P: TestPage \"LS List\") begin P.Last(); P.OK().Invoke(); end;
@@ -168,12 +168,6 @@ fn rec_after_a_statement_run_modal_that_moved_is_refused_when_read() {
     let o = al_testkit::outcomes_in(&src, "T");
     assert_eq!(o.len(), 3, "{o:?}");
     for (n, r) in &o {
-        match n.as_str() {
-            "Moved" => assert!(
-                matches!(r, Outcome::NotRun(why) if why.contains("statement")),
-                "{n}: {r:?}"
-            ),
-            _ => assert_eq!(r, &Outcome::Pass, "{n}"),
-        }
+        assert_eq!(r, &Outcome::Pass, "{n}");
     }
 }

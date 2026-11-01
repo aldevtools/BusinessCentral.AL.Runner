@@ -558,7 +558,8 @@ fn what_the_corpus_does_not_pin_is_refused_when_the_action_is_invoked() {
 
 // Real BC fills the linked fields of Rec in the OnOpenPage of a page opened through `RunPageLink` = field(..) or const(..)
 // (handlers/TestActionRunPageLinkFilterGroup.al:292-369): a read of a field of Rec there gives the host's value. A filter(..)
-// link fills nothing pinned: the read refuses.
+// link with a single value fills it the same way (pages/lt-y41-page-probes/Y41RunPageLinkOnOpen.al:13, RPL_Card_FilterEntry
+// :535).
 #[test]
 fn a_field_read_of_rec_in_onopenpage_of_a_run_page_link_target_reads_the_linked_value() {
     passes(
@@ -568,13 +569,13 @@ fn a_field_read_of_rec_in_onopenpage_of_a_run_page_link_target_reads_the_linked_
             if P.GetSeen() <> 'H1' then Error('got <%1>', P.GetSeen()); end;
         [PageHandler] procedure Handler(var P: TestPage \"RO Lines Reader\") begin P.Close(); end;",
     );
-    let got = not_run(
-        "[Test] [HandlerFunctions('Handler')] procedure Read() var H: Record \"RO Head\"; L: Record \"RO Line\"; Host: TestPage \"RO Reader Host\"; begin
-            H.\"No.\" := 'H1'; H.Insert(); L.\"Head No.\" := 'H1'; L.\"Line No.\" := 1; L.Insert();
-            Host.OpenEdit(); Host.GoToRecord(H); Host.ReadFiltered.Invoke(); end;
+    passes(
+        "[Test] [HandlerFunctions('Handler')] procedure Read() var H: Record \"RO Head\"; L: Record \"RO Line\"; P: Codeunit \"RO Probe\"; Host: TestPage \"RO Reader Host\"; begin
+            P.Reset(); H.\"No.\" := 'H1'; H.Insert(); L.\"Head No.\" := 'H1'; L.\"Line No.\" := 1; L.Insert();
+            Host.OpenEdit(); Host.GoToRecord(H); Host.ReadFiltered.Invoke();
+            if P.GetSeen() <> 'H1' then Error('got <%1>', P.GetSeen()); end;
         [PageHandler] procedure Handler(var P: TestPage \"RO Lines Reader\") begin P.Close(); end;",
     );
-    assert!(got[0].1.contains("RunPageLink"), "{got:?}");
 }
 
 // A by-value copy of that Rec holds its fields and no link filter: its GetFilters reads '' in OnOpenPage
