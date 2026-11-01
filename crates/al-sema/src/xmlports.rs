@@ -1101,7 +1101,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         nodes.push(node);
     }
     reasons.extend(layout.reasons.iter().cloned());
-    namespace_reasons(&layout, &nodes, &mut run_reasons);
+    namespace_reasons(layout, &nodes, &mut run_reasons);
     ir::XmlPort {
         direction: layout.direction,
         format: layout.format,
