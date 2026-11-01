@@ -835,16 +835,17 @@ fn blob_text(b: &crate::stream::BlobRef, ctx: &dyn FormatCtx) -> String {
 
 /// A formula prints without its angle brackets in formats 0 and 9 (types/TestDateRoundFormatStringContracts.al:
 /// DateFormula_Evaluate_ThenFormat_PrintsTheNormalizedFormula; misc/lt-system-functions/RandomFormat.al:484-505). Format 2 of a
-/// formula that is not empty shows the brackets: not pinned, Microsoft's System Application Test, Retention Period Test
+/// formula shows the brackets, the empty one nothing: not pinned, Microsoft's System Application Test, Retention Period Test
 /// (codeunit 138700, the *DateFormulaTranslation tests) needs it (assumption `date-formula-format-two-brackets`). The other
 /// numbers are not pinned and are refused.
 fn date_formula_text(f: &str, standard: i32) -> Result<String, FormatFail> {
     let text = crate::datefns::formula_text(f);
     match standard {
         0 | 9 => Ok(text),
-        2 if !text.is_empty() => {
+        // The empty formula stays empty (Retention Policy's install code writes one: Reten. Pol. Allowed Tbl. Impl.).
+        2 => {
             crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaFormat2Brackets);
-            Ok(format!("<{text}>"))
+            Ok(if text.is_empty() { text } else { format!("<{text}>") })
         }
         n => Err(FormatFail::Unsupported(format!(
             "Format of a DateFormula with standard format {n} (not pinned)"
