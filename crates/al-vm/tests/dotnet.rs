@@ -3339,6 +3339,7 @@ codeunit 50100 C {{ procedure F(): Text var T: DotNet NavTenantSettingsHelper; V
         matches!(&r, Ok(Value::Text(t)) if t.as_str() == "29.0.55782.0"),
         "{r:?}"
     );
+}
 
 // ---- [RunOnClient] ----------------------------------------------------------------------
 

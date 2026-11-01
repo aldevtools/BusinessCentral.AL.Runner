@@ -67,6 +67,27 @@ impl Lowerer<'_> {
         Ok(ir::Expr::TddStub { stub, args, ty })
     }
 
+    /// The receiver of a bare report method in a report's procedure (see `call`): the report's own instance for `RunModal`
+    /// and `Run`, else none (the VM takes the report whose code runs).
+    fn bare_report_receiver(&self, node: &SyntaxNode, name: &str) -> L<Option<Box<ir::Arg>>> {
+        let in_trigger = node
+            .ancestors()
+            .find(|a| matches!(a.kind(), SyntaxKind::Procedure | SyntaxKind::Trigger))
+            .is_none_or(|a| a.kind() == SyntaxKind::Trigger);
+        if in_trigger {
+            return Err(format!(
+                "a bare `{name}` in a trigger of the report runs while the report runs (not pinned)"
+            ));
+        }
+        if !(name.eq_ignore_ascii_case("RunModal") || name.eq_ignore_ascii_case("Run")) {
+            return Ok(None);
+        }
+        if self.ws.objects[self.oi].kind != ObjKind::Report {
+            return Err(format!("a bare `{name}` in a report extension (not pinned)"));
+        }
+        Ok(Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance))))
+    }
+
     /// A call resolved on `node` (the CallExpr, or the callee for a call without parentheses).
     pub(crate) fn call(&mut self, node: &SyntaxNode, callee: &SyntaxNode, args: &[SyntaxNode]) -> L<ir::Expr> {
         if let Some(Res::TddStub(site)) = self.res(node).cloned() {
@@ -169,24 +190,8 @@ impl Lowerer<'_> {
                 let mut out = Vec::new();
                 for (i, a) in args.iter().enumerate() {
                     let p = sig.params.get(i).ok_or("too many arguments")?;
-                    // A `[RunOnClient]` variable to a `var` DotNet parameter: the parameter stands for the client variable, so
-                    // a call on it runs on the client (corpus master 92fdde19, onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:282-302
-                    // Y16_RunOnClient_CreateThroughVarParameter; :264-280 for the Camera page's OnOpen). Nothing comes back:
-                    // the variable only ever holds null.
-                    if p.by_var && matches!(p.ty, Ty::DotNet(_)) && self.run_on_client_var(a).is_some() {
-                        out.push(ir::Arg::Value(ir::Expr::DotNet {
-                            ty: None,
-                            receiver: None,
-                            op: ir::DotNetOp::ClientNull,
-                            args: Vec::new(),
-                        }));
-                        continue;
-                    }
-                    if !p.by_var
-                        && matches!(p.ty, Ty::DotNet(_))
-                        && let Some(v) = self.run_on_client_value(a)
-                    {
-                        out.push(ir::Arg::Value(v));
+                    if let Some(arg) = self.run_on_client_arg(p.by_var, &p.ty, a) {
+                        out.push(arg);
                         continue;
                     }
                     if p.by_var {
@@ -510,12 +515,12 @@ impl Lowerer<'_> {
                 // `IsNull` of a `[RunOnClient]` DotNet variable: the variable can never be assigned (its constructor and
                 // `Create` raise), so it is null (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:171-176, :211-223
                 // `ok Yes`; the second pin is on corpus master from PR 790).
-                if id == "System.IsNull#1" && args.len() == 1 && self.run_on_client_var(&args[0]).is_some() {
-                    return Ok(ir::Expr::Const(ir::Const::Boolean(true)));
-                }
                 // `Clear` of a `[RunOnClient]` variable: it stays null (corpus master 92fdde19,
                 // onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:454-480 Y16_RunOnClient_ClearAndVariant `cleared isnull=Yes`).
-                if id == "System.Clear#1" && args.len() == 1 && self.run_on_client_var(&args[0]).is_some() {
+                if (id == "System.IsNull#1" || id == "System.Clear#1")
+                    && args.len() == 1
+                    && self.run_on_client_var(&args[0]).is_some()
+                {
                     return Ok(ir::Expr::Const(ir::Const::Boolean(true)));
                 }
                 let receiver = match &receiver_node {
@@ -598,24 +603,7 @@ impl Lowerer<'_> {
                         && callee.kind() == SyntaxKind::NameRef
                         && matches!(self.ws.objects[self.oi].kind, ObjKind::Report | ObjKind::ReportExtension) =>
                     {
-                        let in_trigger = node
-                            .ancestors()
-                            .find(|a| matches!(a.kind(), SyntaxKind::Procedure | SyntaxKind::Trigger))
-                            .is_none_or(|a| a.kind() == SyntaxKind::Trigger);
-                        if in_trigger {
-                            return Err(format!(
-                                "a bare `{}` in a trigger of the report runs while the report runs (not pinned)",
-                                sig.name
-                            ));
-                        }
-                        if sig.name.eq_ignore_ascii_case("RunModal") || sig.name.eq_ignore_ascii_case("Run") {
-                            if self.ws.objects[self.oi].kind != ObjKind::Report {
-                                return Err(format!("a bare `{}` in a report extension (not pinned)", sig.name));
-                            }
-                            Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance)))
-                        } else {
-                            None
-                        }
+                        self.bare_report_receiver(node, &sig.name)?
                     }
                     // An unqualified record method in table code runs on the implicit Rec.
                     None if sig.instance && matches!(sig.receiver.as_str(), "Record" | "Query") => {
