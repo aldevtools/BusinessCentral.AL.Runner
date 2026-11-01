@@ -88,11 +88,6 @@ pub(crate) fn element_attributes(ty: &str) -> String {
     }
 }
 
-/// The XML Schema type of a type tag (`xs:string` for a Guid).
-pub(crate) fn xs_type(ty: &str) -> &str {
-    ty.split_once(';').map_or(ty, |(xs, _)| xs)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,7 +129,6 @@ mod tests {
         );
         assert!(element_attributes(of_value(&g, 29).unwrap().0).contains("Version=10.0.0.0"));
         assert!(of_value(&g, 30).is_none());
-        assert_eq!(xs_type(GUID_NET10), "xs:string");
         assert_eq!(declared(&RtType::BigInteger, 29), Some("xs:long"));
         assert_eq!(text(&Value::Duration(5)), "<same>");
     }

@@ -1053,6 +1053,7 @@ impl Session {
         let Some(native) = site.native else {
             return Err(Signal::Unsupported(format!("builtin {}", site.id)));
         };
+        let dotnet_stream = self.dotnet_stream_into_instream(site.id, &mut values)?;
         if matches!(
             site.id,
             al_builtins::builtin_id::ids::MEDIA_IMPORTSTREAM_1 | al_builtins::builtin_id::ids::MEDIA_IMPORTSTREAM_2
@@ -1158,6 +1159,9 @@ impl Session {
         );
         if let (Some(row), Some(ir::Arg::Ref(p)), Ok(_)) = (copy_array_row_back, site.args.first(), &result) {
             self.write(p, row, f)?;
+        }
+        if let Some(arg) = dotnet_stream {
+            self.dotnet_stream_after(arg, &result)?;
         }
         if let Ok(Value::Guid(id)) = &result {
             self.note_media_resources_import(site, *id, f)?;

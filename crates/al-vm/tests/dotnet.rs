@@ -169,6 +169,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.Environment\"; \"Environment\") { }
     type(\"System.EnvironmentVariableTarget\"; \"EnvironmentVariableTarget\") { }
     type(\"System.Text.StringBuilder\"; \"StringBuilder\") { }
+    type(\"System.String\"; \"ClrString\") { }
   }
   assembly(\"Microsoft.Exchange.WebServices\") { type(\"Microsoft.Exchange.WebServices.Data.ExchangeService\"; \"ExchangeService\") { } }
 }\n";
@@ -3408,4 +3409,57 @@ fn another_service_tier_object_assigned_to_a_run_on_client_variable_is_refused()
         "",
     );
     assert!(unsupported(&r).contains("RunOnClient"), "{}", unsupported(&r));
+}
+
+// tests/al-language-onprem-dotnet/lt-y51-dotnet-builtin-args/Y51DotNetBuiltinArgs.al:DotNetString_ErrorInfoCreate: a variable
+// declared `DotNet String` into ErrorInfo.Create is the message (the `String` overload; gap G5-22).
+#[test]
+fn a_dotnet_string_into_error_info_create_is_the_message() {
+    let host = Fake::new(|r| panic!("{r:?}"));
+    let r = run(
+        &host,
+        "S: DotNet ClrString; I: ErrorInfo;",
+        "S := 'LT dn message'; I := ErrorInfo.Create(S, true); exit(I.Message + '|' + Format(I.Collectible));",
+        ": Text",
+    );
+    assert_eq!(text(r), "LT dn message|Yes");
+}
+
+// Y51DotNetBuiltinArgs.al:DotNetMemoryStream_XmlDocumentReadFrom and DotNetMemoryStream_Null_XmlReadFrom: XmlDocument.ReadFrom reads
+// the whole MemoryStream and leaves its Position at the end; a variable that holds no object is a Conversion error.
+#[test]
+fn a_memory_stream_into_xml_document_read_from_reads_it_whole() {
+    let host = Fake::new(|r| match r {
+        Req::Construct(..) => reply(handle(9, "System.IO.MemoryStream")),
+        Req::Set(..) => reply(DotNetValue::Null),
+        other => panic!("{other:?}"),
+    });
+    let r = run(
+        &host,
+        "M: DotNet MemoryStream; D: XmlDocument;",
+        "M := M.MemoryStream(); exit(Format(XmlDocument.ReadFrom(M, D)));",
+        ": Text",
+    );
+    assert_eq!(text(r), "No");
+    let calls = host.calls();
+    assert!(calls.contains(&Req::StreamRead(9)), "{calls:?}");
+    assert!(
+        calls.contains(&Req::Set(
+            DotNetTarget::Instance(9),
+            "Position".into(),
+            DotNetValue::Int64(5)
+        )),
+        "{calls:?}"
+    );
+    let host = Fake::new(|r| panic!("{r:?}"));
+    let r = run(
+        &host,
+        "M: DotNet MemoryStream; D: XmlDocument;",
+        "XmlDocument.ReadFrom(M, D);",
+        "",
+    );
+    match r.result {
+        Err(Signal::Error(e)) => assert_eq!(e.code, "Conversion"),
+        other => panic!("{other:?}"),
+    }
 }
