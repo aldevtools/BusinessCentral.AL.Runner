@@ -1312,26 +1312,15 @@ impl Session {
         if let Value::Record(src) = &v {
             // A Variant that holds a record takes the new value whole, whatever table it comes from: it is no record variable
             // (Library - Variable Storage.Dequeue into one `RecVar` that held a Contact, then a Segment Header; Tests-Marketing).
-            // A Variant holding another record is replaced (by the by-value copy below), so it holds the new record's view: a
-            // RecordRef.GetTable of it takes the new filters (al-runner issue 6503, the reporter's run on real BC, newest major, assumption
-            // `variant-reassign-takes-new-view`). A Variant given the very record it holds keeps it, and with it the table a
-            // Variant parameter was bound to (a temporary record's rows): replacing that gave the callee an empty table (Find
-            // Record Management.GetLastEntryIntFieldValue, called from "Price Asset".OnInsert; Tests-ERM Price Calculation - V16).
+            // A Variant holding another record is replaced (by the by-value copy below), so it holds the new record whole, as a
+            // Variant that held nothing would: a RecordRef.GetTable of it takes the new filters, also with a temporary record on
+            // either side (al-runner issue 6503; recordref/lt-y23-variant-view/Y23VariantRecordView.al, Y23_SecondRecordTemporary
+            // :289-303). A Variant given the very record it holds keeps it, and with it the table a Variant parameter was bound
+            // to (a temporary record's rows): replacing that gave the callee an empty table (Find Record
+            // Management.GetLastEntryIntFieldValue, called from "Price Asset".OnInsert; Tests-ERM Price Calculation - V16).
             let replaces_variant = matches!(self.place_type(p, f), RtType::Variant)
                 && match self.read(p, f) {
-                    Ok(Value::Record(d)) if d.borrow().table != src.borrow().table => true,
-                    // A temporary record on either side keeps taking the fields: which table the Variant then shares is not
-                    // measured, and the corpus cases with one pass either way (misc/lt-probes-needed-4/PnD03_TempRecordVariant.al:
-                    // TempRecord_VariantPassedByVar_ModifiedByCallee, types/lt-variant-parameter-write/VariantParameterWrite.al:
-                    // TempRecord_InsertInCalleeThroughVarVariant).
-                    Ok(Value::Record(d))
-                        if !Rc::ptr_eq(&d, src) && !d.borrow().temporary && !src.borrow().temporary =>
-                    {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::VariantReassignTakesNewView,
-                        );
-                        true
-                    }
+                    Ok(Value::Record(d)) => !Rc::ptr_eq(&d, src),
                     _ => false,
                 };
             if !matches!(p, ir::Place::Field(..)) && !replaces_variant {
