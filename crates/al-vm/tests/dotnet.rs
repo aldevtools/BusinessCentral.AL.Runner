@@ -168,6 +168,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.IO.MemoryStream\"; \"MsMemoryStream\") { }
     type(\"System.Environment\"; \"Environment\") { }
     type(\"System.EnvironmentVariableTarget\"; \"EnvironmentVariableTarget\") { }
+    type(\"System.Text.StringBuilder\"; \"StringBuilder\") { }
   }
   assembly(\"Microsoft.Exchange.WebServices\") { type(\"Microsoft.Exchange.WebServices.Data.ExchangeService\"; \"ExchangeService\") { } }
 }\n";
@@ -1632,6 +1633,9 @@ fn the_declared_result_types_match_the_registry() {
             "GetGroupPage" | "GetGroupInfo" | "FindFirstGroupInfoForDisplayName" | "GetUser" => continue,
             // Answers a null reference by design; graph_get_current_user_returns_null_without_an_error runs it.
             "GetCurrentUser" | "GetTenantDetail" => continue,
+            // The service-tier camera creates nothing; the al-vm language test
+            // a_camera_provider_without_run_on_client_is_not_available_and_creates_null runs it.
+            "Create" if *clr == al_builtins::dotnet_sigs::CAMERA_PROVIDER => continue,
             // Answers a null string by design (declared Object: its kind is known at run time);
             // every_environment_variable_reads_as_a_null_string_without_the_host runs it.
             "GetEnvironmentVariable" => continue,
@@ -3335,4 +3339,72 @@ codeunit 50100 C {{ procedure F(): Text var T: DotNet NavTenantSettingsHelper; V
         matches!(&r, Ok(Value::Text(t)) if t.as_str() == "29.0.55782.0"),
         "{r:?}"
     );
+
+// ---- [RunOnClient] ----------------------------------------------------------------------
+
+/// `run` on an engine that runs as `bc` with the fake host `host`.
+fn run_as_with(bc: &str, host: &Fake, vars: &str, body: &str, ret: &str) -> Ran {
+    let (program, blocked, oi, ri) = compile(vars, body, ret);
+    if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
+        return Ran {
+            result: Err(Signal::Unsupported(r.clone())),
+            session: None,
+        };
+    }
+    let target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
+    let engine = Engine::with_config(program, blocked, Some(target), cfg(host));
+    let mut s = Session::new(engine);
+    let inst = s.instance(oi);
+    let result = s.call(oi, ri, inst, vec![]).map(|(v, _)| v);
+    Ran {
+        result,
+        session: Some(s),
+    }
+}
+
+// A service-tier object assigned to a [RunOnClient] variable raises DotNetCreate, naming the object's assembly with the .NET
+// runtime of the BC major: 8.0.0.0 on BC 27 and 28, 10.0.0.0 on BC 29 (corpus master 92fdde19,
+// tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:393-452, Y16_RunOnClient_AssignBetweenClientAndServerVariables).
+#[test]
+fn a_service_tier_object_cannot_be_assigned_to_a_run_on_client_variable() {
+    let host = Fake::new(|r| match r {
+        Req::Construct(t, _) if t == "System.Text.StringBuilder" => reply(handle(7, "System.Text.StringBuilder")),
+        Req::Invoke(_, m, _) if m == "Append" => reply(handle(7, "System.Text.StringBuilder")),
+        other => panic!("unexpected request {other:?}"),
+    });
+    let vars = "Srv: DotNet StringBuilder; [RunOnClient] Cli: DotNet StringBuilder; Step: Text;";
+    let body = "Step := 'construct'; Srv := Srv.StringBuilder(); Srv.Append('srv'); Step := 'assign'; Cli := Srv; Step := 'assigned';";
+    for (bc, version) in [("27.5", "8.0.0.0"), ("28.5", "8.0.0.0"), ("29.0", "10.0.0.0")] {
+        let r = run_as_with(bc, &host, vars, body, "");
+        match r.result {
+            Err(Signal::Error(e)) => {
+                assert_eq!(e.code, "DotNetCreate", "{bc}");
+                assert_eq!(
+                    e.message,
+                    format!(
+                        "Cannot serialize an instance of the following .NET Framework object: assembly System.Private.CoreLib, \
+                         Version={version}, Culture=neutral, PublicKeyToken=7cec85d7bea7798e, type System.Text.StringBuilder."
+                    ),
+                    "{bc}"
+                );
+            }
+            other => panic!("{bc}: {other:?}"),
+        }
+    }
+}
+
+// A service-tier object of a type the probe did not use: its assembly name in the error is not pinned.
+#[test]
+fn another_service_tier_object_assigned_to_a_run_on_client_variable_is_refused() {
+    let host = Fake::new(|r| match r {
+        Req::Construct(t, _) if t == "System.IO.MemoryStream" => reply(handle(8, "System.IO.MemoryStream")),
+        other => panic!("unexpected request {other:?}"),
+    });
+    let r = run(
+        &host,
+        "Srv: DotNet MsMemoryStream; [RunOnClient] Cli: DotNet MsMemoryStream;",
+        "Srv := Srv.MemoryStream(); Cli := Srv;",
+        "",
+    );
+    assert!(unsupported(&r).contains("RunOnClient"), "{}", unsupported(&r));
 }

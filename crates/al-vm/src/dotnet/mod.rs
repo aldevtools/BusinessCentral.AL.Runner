@@ -152,6 +152,77 @@ fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(why.into()))
 }
 
+/// What a `var` parameter gets in place of a `[RunOnClient]` variable (`ir::DotNetOp::ClientNull`).
+fn run_on_client_null() -> Value {
+    Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {
+        type_name: al_builtins::dotnet_sigs::RUN_ON_CLIENT_NULL.into(),
+        state: RefCell::new(Vec::new()),
+    })))
+}
+
+fn is_run_on_client_null(v: &Value) -> bool {
+    matches!(v, Value::DotNet(o) if matches!(&o.kind, DotNetKind::Internal { type_name, .. }
+        if type_name == al_builtins::dotnet_sigs::RUN_ON_CLIENT_NULL))
+}
+
+/// A member of a `var` parameter that stands for a `[RunOnClient]` variable: the call runs on the client, and a test session
+/// has none. The lowering answers the same members of the variable itself (al-sema lower/dotnet.rs `dotnet_member`).
+fn run_on_client_call(kind: MemberKind, member: &str, clr_type: Option<&str>, args: &[Value]) -> Result<Value, Signal> {
+    if kind == MemberKind::Call
+        && args.is_empty()
+        && member.eq_ignore_ascii_case("IsAvailable")
+        && clr_type.is_some_and(al_builtins::dotnet_sigs::is_client_capability)
+    {
+        // onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:99-120 (the seven types) and :244-280 (the Camera page's provider).
+        return Ok(Value::Boolean(false));
+    }
+    if kind == MemberKind::Call && al_builtins::dotnet_sigs::run_on_client_fails(member) {
+        // Create() through the `var` parameter (corpus master 92fdde19, BgRunOnClient.al:282-302,
+        // Y16_RunOnClient_CreateThroughVarParameter).
+        return al_builtins::native::raise(
+            al_builtins::dotnet_sigs::DOTNET_FROM_AL_NOT_SUPPORTED_TEXT,
+            al_builtins::dotnet_sigs::DOTNET_FROM_AL_NOT_SUPPORTED_CODE,
+        );
+    }
+    unsupported(format!(
+        "DotNet member '{member}' of a [RunOnClient] variable passed by var (not pinned)"
+    ))
+}
+
+impl Session {
+    /// `Target := recv` where the target may be a `[RunOnClient]` variable (`ir::DotNetOp::ClientAssign`): `args` is empty when
+    /// the target is one, else it holds the target's value. A service-tier object cannot go to the client: the error names
+    /// the object's assembly with the .NET runtime of the BC major (corpus master 92fdde19,
+    /// onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:393-452, Y16_RunOnClient_AssignBetweenClientAndServerVariables). Only
+    /// System.Text.StringBuilder is pinned; any other value is refused.
+    fn run_on_client_assign(&mut self, recv: Value, args: &[Value]) -> Result<Value, Signal> {
+        if args.first().is_some_and(|t| !is_run_on_client_null(t)) {
+            return Ok(recv);
+        }
+        if let Value::DotNet(o) = &recv
+            && let DotNetKind::Host { clr_type, .. } = &o.kind
+            && clr_type == "System.Text.StringBuilder"
+        {
+            let version = if self.has(al_version::Gate::DotNetRuntime10From29) {
+                "10.0.0.0"
+            } else {
+                "8.0.0.0"
+            };
+            return al_builtins::native::raise(
+                format!(
+                    "Cannot serialize an instance of the following .NET Framework object: assembly System.Private.CoreLib, \
+                     Version={version}, Culture=neutral, PublicKeyToken=7cec85d7bea7798e, type {clr_type}."
+                ),
+                "DotNetCreate",
+            );
+        }
+        unsupported(format!(
+            "an assignment of {} to a [RunOnClient] variable (not pinned)",
+            recv.describe()
+        ))
+    }
+}
+
 const TICKS_PER_MS: i64 = 10_000;
 const TICKS_PER_DAY: i64 = 864_000_000_000;
 
@@ -166,6 +237,12 @@ impl Session {
         op: &ir::DotNetOp,
         f: &mut Frame,
     ) -> Result<Value, Signal> {
+        // `[RunOnClient]` bookkeeping, not a .NET call: it leaves the null-string flag of the value it passes on.
+        match op {
+            ir::DotNetOp::ClientNull => return Ok(run_on_client_null()),
+            ir::DotNetOp::ClientAssign => return self.run_on_client_assign(recv, &values),
+            _ => {}
+        }
         self.note_dotnet();
         self.dotnet.null_string = false;
         let declared = |i: usize| {
@@ -181,6 +258,7 @@ impl Session {
         let decl = ty.map(declared);
         let result_decl = self.dotnet.result_ty.take().map(declared);
         let (kind, member) = match op {
+            ir::DotNetOp::ClientNull | ir::DotNetOp::ClientAssign => unreachable!("answered above"),
             ir::DotNetOp::Construct => (
                 MemberKind::Construct,
                 decl.as_ref().map_or(String::new(), |d| d.name.clone()),
@@ -189,6 +267,9 @@ impl Session {
             ir::DotNetOp::Get(n) => (MemberKind::Get, n.clone()),
             ir::DotNetOp::Set(n) => (MemberKind::Set, n.clone()),
         };
+        if is_run_on_client_null(&recv) {
+            return run_on_client_call(kind, &member, decl.as_ref().map(|d| d.name.as_str()), &values);
+        }
         if let Value::DotNet(o) = &recv
             && let DotNetKind::Host { handle, .. } = &o.kind
             && self.dotnet.cleared.contains(handle)

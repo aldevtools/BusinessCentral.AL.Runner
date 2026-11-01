@@ -1224,10 +1224,10 @@ impl Lowerer<'_> {
                 ret_used: false,
             }));
         }
-        // `V := V.Create()` or `V := V.Ctor()` on a `[RunOnClient]` variable: the right side raises first
-        // (`dotnet_member`), so it is lowered before the refused variable on the left.
-        if kids[0].kind() == SyntaxKind::NameRef && self.run_on_client_var(&kids[0]).is_some() {
-            self.expr(&kids[1])?;
+        // `V := rhs` on a `[RunOnClient]` variable: `V := V.Create()` or `V := V.Ctor()` raises on the right side first
+        // (`dotnet_member`), a service-tier object raises in the assignment (`run_on_client_assign`).
+        if let Some(why) = self.run_on_client_var(&kids[0]) {
+            return self.run_on_client_assign(n, kids, why);
         }
         // `X.Property := value` on a DotNet value (ADR-014).
         if let Some(Res::DotNetMember(name)) = self.res(&kids[0]).cloned() {
@@ -1493,7 +1493,26 @@ impl Lowerer<'_> {
         let place = self.place(&kids[0])?;
         let target_ty = self.ty_of(&kids[0]);
         self.refuse_label_ternary_into_variant(&target_ty, &kids[1])?;
-        let rhs = self.expr(&kids[1])?;
+        let plain = !sig_tokens(n).into_iter().any(|t| {
+            matches!(
+                t.kind(),
+                SyntaxKind::PlusAssign | SyntaxKind::MinusAssign | SyntaxKind::StarAssign | SyntaxKind::SlashAssign
+            )
+        });
+        // A `[RunOnClient]` variable read into a service-tier DotNet variable (`run_on_client_value`). A Variant holds the client
+        // variable's null, which is a DotNet value (corpus master 92fdde19, onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:454-466
+        // `variant isdotnet=Yes`).
+        let rhs = match self.run_on_client_value(&kids[1]) {
+            Some(v) if plain && matches!(target_ty, Ty::DotNet(_)) => Ok(v),
+            Some(_) if plain && matches!(target_ty, Ty::Variant) => Ok(ir::Expr::DotNet {
+                ty: None,
+                receiver: None,
+                op: ir::DotNetOp::ClientNull,
+                args: Vec::new(),
+            }),
+            _ => self.expr(&kids[1]),
+        };
+        let rhs = rhs?;
         let rhs = self.tdd_fit(&kids[0], &target_ty, rhs);
         let op = sig_tokens(n).into_iter().find(|t| {
             matches!(
@@ -1687,6 +1706,7 @@ impl Lowerer<'_> {
             Some(SyntaxKind::Assign) | None => self.convert_to(&target_ty, self.ty_ref(&kids[1]), value)?,
             Some(_) => ir::Expr::Convert(self.rt(&target_ty)?, Box::new(value)),
         };
+        let value = self.guard_var_dotnet_param(&place, &target_ty, value);
         if let Some((l, flag)) = self.qcp_ret {
             if place == ir::Place::Local(l) {
                 // An assignment to the named return value of an OnQueryClosePage notes that it has one.

@@ -293,6 +293,13 @@ pub enum DotNetOp {
     Get(String),
     /// `X.Member := value`; the value is the only argument.
     Set(String),
+    /// The null a `var` parameter gets in place of a `[RunOnClient]` variable (`al_builtins::dotnet_sigs::RUN_ON_CLIENT_NULL`);
+    /// no receiver, no argument.
+    ClientNull,
+    /// `Target := receiver` where the target may be a `[RunOnClient]` variable. With no argument the target is one; with one
+    /// argument (the target, by place) it is one when it holds the client null. Then the assignment raises or is refused;
+    /// otherwise the result is the receiver, which the lowering stores.
+    ClientAssign,
 }
 
 impl Object {

@@ -68,6 +68,42 @@ pub const AL_INNER_EXCEPTION: &str = "<inner exception of NavALException (type n
 /// unassigned variable. It is not `Value::Null`, because `Format` of an unassigned variable is not 'null'
 /// (TestDotNetValueKindsContracts.al:15).
 pub const NULL_EXCEPTION: &str = "<no last error>";
+/// What a `var` parameter holds while it stands for a `[RunOnClient]` variable: the null of a client-side variable. A test
+/// session has no client, so the variable never holds an object; the marker only tells the calls on the parameter that
+/// they run on the client (corpus master 92fdde19, onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:282-302,
+/// Y16_RunOnClient_CreateThroughVarParameter). `IsNull` is true.
+pub const RUN_ON_CLIENT_NULL: &str = "<null of a [RunOnClient] variable>";
+/// The error of a `[RunOnClient]` call in a test session (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:132-133).
+pub const DOTNET_FROM_AL_NOT_SUPPORTED_TEXT: &str =
+    "The operation cannot complete because it uses a feature that is not supported (.NET Framework Interoperability.)";
+pub const DOTNET_FROM_AL_NOT_SUPPORTED_CODE: &str = "DotNetFromAlNotSupported:DotNetFromAlNotSupported";
+
+/// The client feature types whose static `IsAvailable()` answers No in a test session, on a `[RunOnClient]` variable
+/// (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:99-120, the seven types of the probe).
+pub fn is_client_capability(clr_type: &str) -> bool {
+    [
+        "Microsoft.Dynamics.Nav.Client.Capabilities.CameraProvider",
+        "Microsoft.Dynamics.Nav.Client.Capabilities.LocationProvider",
+        "Microsoft.Dynamics.Nav.Client.Capabilities.BarcodeScannerProvider",
+        "Microsoft.Dynamics.Nav.Client.Capabilities.CameraBarcodeScannerProvider",
+        "Microsoft.Dynamics.Nav.Client.Capabilities.DeviceContactProvider",
+        "Microsoft.Dynamics.Nav.Client.Capabilities.UserTours",
+        "Microsoft.Dynamics.Nav.Client.PageNotifier",
+    ]
+    .contains(&clr_type)
+}
+
+/// The members of a `[RunOnClient]` variable whose call raises DotNetFromAlNotSupported in a test session (besides the
+/// constructor): `Create` (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:186-209, :282-302), Environment.MachineName (:138-150)
+/// and System.IO.Directory's Exists and GetFiles (:363-391, Y16_RunOnClient_FileManagementDirectory). Others are not pinned.
+pub fn run_on_client_fails(member: &str) -> bool {
+    ["Create", "MachineName", "Exists", "GetFiles"]
+        .iter()
+        .any(|m| m.eq_ignore_ascii_case(member))
+}
+
+/// Microsoft's client camera (System Application Camera Impl.): on the service tier a registry type (`server_classes.rs`).
+pub const CAMERA_PROVIDER: &str = "Microsoft.Dynamics.Nav.Client.Capabilities.CameraProvider";
 /// What `GetType()` of a last-error exception answers. The name must not be a real CLR type name: the host
 /// reports `System.RuntimeType` for the `System.Type` objects it holds (GetDotNetType), and a registry type of
 /// that name would take their members.
@@ -218,6 +254,8 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (NCL_EVALUATE_EXCEPTION, "Equals", Ret::Boolean),
     (RUNTIME_TYPE, "Equals", Ret::Boolean),
     (RUNTIME_TYPE, "FullName", Ret::Text),
+    (CAMERA_PROVIDER, "IsAvailable", Ret::Boolean),
+    (CAMERA_PROVIDER, "Create", Ret::Object),
     (NULL_EXCEPTION, "Message", Ret::Text),
     (NULL_EXCEPTION, "GetType", Ret::Object),
     (NULL_EXCEPTION, "ToString", Ret::Text),
