@@ -3,11 +3,24 @@
 //! new sequences and their isolated storage writes (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al:30-31,
 //! C302_B2_TestWritesStorage :447-457).
 
-use super::run::Carried;
+use super::run::{CARRIED, Carried};
+
+/// Sets [`CARRIED`] to what the codeunit leaves ([`left_after_tests`]), when it leaves something known.
+pub(super) fn carry_left(
+    session: &al_vm::Session,
+    obj: &al_ir::Object,
+    onrun_left: Option<Carried>,
+    start: Option<al_vm::Baseline>,
+    skipped_installs: &[(std::collections::BTreeSet<u32>, String)],
+) {
+    if let Some(left) = left_after_tests(session, obj, onrun_left, start, skipped_installs) {
+        CARRIED.with(|c| *c.borrow_mut() = Some(left));
+    }
+}
 
 /// What the codeunit leaves: `onrun_left`, or for a codeunit without an OnRun trigger the state it started from (`start`),
 /// with the numbers its tests took. `None`: it leaves nothing known (its OnRun did not run to its end).
-pub(super) fn left_after_tests(
+fn left_after_tests(
     session: &al_vm::Session,
     obj: &al_ir::Object,
     onrun_left: Option<Carried>,
