@@ -3021,3 +3021,45 @@ fn the_credential_type_is_user_name_and_password() {
         assert!(take_hits().is_empty(), "pinned, not assumed");
     }
 }
+
+/// A host whose XmlDocument raises the XmlException `message` on every call.
+fn xml_exception(message: &'static str) -> Fake {
+    Fake::new(move |r| match r {
+        Req::Construct(t, _) if t.contains("XmlDocument") => reply(handle(5, "System.Xml.XmlDocument")),
+        Req::Construct(..) => reply(handle(9, "System.IO.MemoryStream")),
+        Req::Invoke(..) => Err(DotNetFailure::Exception(DotNetException {
+            clr_type: "System.Xml.XmlException".into(),
+            message: message.into(),
+            inner: vec![],
+        })),
+        other => panic!("unexpected request {other:?}"),
+    })
+}
+
+// XmlDocument.Load and LoadXml raise the XmlException's message as `A call to System.Xml.XmlDocument.<member> failed with this
+// message: ...`, code DotNetInvoke:Xml (onprem-dotnet lt-ae-dotnet/AeXmlDocumentLoadErrors.al:112-128 LoadXml_NotXml, :149-166
+// Load_EmptyStream).
+#[test]
+fn xml_document_load_and_load_xml_raise_the_xml_exception() {
+    let host = xml_exception("Data at the root level is invalid. Line 1, position 1.");
+    let r = run(
+        &host,
+        "D: DotNet XmlDocument; M: DotNet MemoryStream;",
+        "D := D.XmlDocument(); M := M.MemoryStream(); asserterror D.Load(M); exit(GetLastErrorText() + '#' + GetLastErrorCode());",
+        ": Text",
+    );
+    assert_eq!(
+        text(r),
+        "A call to System.Xml.XmlDocument.Load failed with this message: Data at the root level is invalid. Line 1, position 1.#DotNetInvoke:Xml"
+    );
+    let r = run(
+        &host,
+        "D: DotNet XmlDocument;",
+        "D := D.XmlDocument(); asserterror D.LoadXml('not xml'); exit(GetLastErrorText() + '#' + GetLastErrorCode());",
+        ": Text",
+    );
+    assert_eq!(
+        text(r),
+        "A call to System.Xml.XmlDocument.LoadXml failed with this message: Data at the root level is invalid. Line 1, position 1.#DotNetInvoke:Xml"
+    );
+}

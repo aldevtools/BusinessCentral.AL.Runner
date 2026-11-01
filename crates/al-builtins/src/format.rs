@@ -5,6 +5,8 @@
 use crate::native::Signal;
 use crate::value::Value;
 
+mod recordid_number;
+
 /// What formatting needs from the running program.
 pub trait FormatCtx {
     /// Member name of enum `id` at `ordinal`.
@@ -696,11 +698,8 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         Value::Library(crate::library_kind::LibraryKind::RecordId, l) => match &*l.borrow() {
             crate::value::LibraryValue::RecordId { table, name, key, .. } => {
                 // The numbers 3 to 8 do not exist for a RecordId; 2 and 9 format the key values with that number (types/
-                // lt-implicit-conversions/P79RecordId.al:CodeKey_FormatNumbers, DateKey_FormatNumbers).
-                if (3..=8).contains(&standard) {
-                    return Err(no_such_format(standard, "RecordID"));
-                }
-                let key_standard = if matches!(standard, 2 | 9) { standard } else { 0 };
+                // lt-implicit-conversions/P79RecordId.al:CodeKey_FormatNumbers, DateKey_FormatNumbers); others are refused.
+                let key_standard = recordid_number::recordid_key_standard(standard)?;
                 // A key that is empty or holds a comma is quoted (record/TestProbeRecordRefContracts.al:RecordId_FormatForms;
                 // P79RecordId.al:NeverRead_BlankRecordId, a blank Date too).
                 let key = key
