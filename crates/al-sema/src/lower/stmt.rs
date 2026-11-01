@@ -1388,9 +1388,8 @@ impl Lowerer<'_> {
                 if compound {
                     return Err("compound assignment to a setter-form builtin is not lowered yet".into());
                 }
-                if id == "XmlNamespaceManager.NameTable#1" {
-                    self.assume(al_builtins::assumptions::Assumption::NametableAssignIsCall);
-                }
+                // `NsMgr.NameTable := Doc.NameTable` is the call form (al-runner issue 6526;
+                // xml/XmlXPathNamespaces.al Y29_NameTable_AssignForm_SelectsLikeCallForm).
                 let receiver = if member {
                     let recv = kids[0].children().next().ok_or("member base")?;
                     // `CurrReport` is the running report: the VM takes it when a report builtin has
@@ -1789,11 +1788,8 @@ impl Lowerer<'_> {
                 (Ty::Code(_), Ty::Code(None)) => Ok(e),
                 // A longer Code label is converted to the selector's Code as a Text label is: a value that fits compares as it is,
                 // a longer one raises StringLengthExceeded when the label is reached (al-runner issue 6491; corpus writer Y20,
-                // types/lt-y20-case-code-label/Y20CaseCodeLabel.al:18, measured on BC; assumption until it is pinned).
-                (t @ Ty::Code(_), Ty::Code(Some(_))) => {
-                    this.assume(al_builtins::assumptions::Assumption::CaseCodeLabelLongerType);
-                    this.convert_to(code, &t, e)
-                }
+                // types/lt-y20-case-code-label/Y20CaseCodeLabel.al:18).
+                (t @ Ty::Code(_), Ty::Code(Some(_))) => this.convert_to(code, &t, e),
                 (t @ Ty::Code(_), _) => Err(format!(
                     "a case label of type {t} with a selector of type {code}: whether the label is converted to the selector's length is not pinned"
                 )),

@@ -1273,10 +1273,8 @@ impl Tree {
                 if ms.is_empty() {
                     return Err(format!("{kind}({target}) of no control"));
                 }
-                if !op.in_actions && ms.len() > 1 {
-                    self.assumes
-                        .push(al_builtins::assumptions::Assumption::PageExtMoveSeveralControlsWrittenOrder);
-                }
+                // Several layout controls in one move keep the order written (al-runner issue 6483;
+                // pageext/lt-y20-moves/Y20PageExtMoves.al).
                 let first_last = kind == "movefirst" || kind == "movelast";
                 let area = if op.in_actions && first_last {
                     self.areas
@@ -2071,10 +2069,7 @@ mod tests {
         let l = merged(base, &[several]);
         assert!(l.reasons.is_empty(), "{:?}", l.reasons);
         assert_eq!(names(&l), ["G", "G>B", "G>A", "G>Id", "D2", "D2>D", "D2>E", "D2>C"]);
-        assert_eq!(
-            l.assumes,
-            [al_builtins::assumptions::Assumption::PageExtMoveSeveralControlsWrittenOrder]
-        );
+        assert!(l.assumes.is_empty());
         // A group moved into itself or into a control it holds is refused.
         let nested = "page 50100 P { layout { area(Content) { group(G) { group(H) { field(A; Rec.A) { } } } } } }";
         let into_child = "pageextension 50102 E2 extends P { layout { movefirst(H; G) } }";

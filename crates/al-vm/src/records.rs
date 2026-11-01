@@ -1144,10 +1144,8 @@ impl Session {
                         && !self.tx.rolled_back
                         && !self.tx.lock_tx
                         && self.tx.lock_unpinned.is_none();
+                    // record/lt-sb-stale-own-modify/Y32StaleDeleteTests.al (al-runner issue 6546).
                     if y32 && verdict == StaleVerdict::Refused && untouched_tx {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::StaleDeleteEventBeforeRecordChanged,
-                        );
                         self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
                         if run && let Some(tr) = self.table_trigger(t, "OnDelete") {
                             let x = Self::xrec_handle(rec, rec.borrow().fields.clone());
@@ -1157,11 +1155,6 @@ impl Session {
                     }
                     let row_written =
                         y32 && verdict == StaleVerdict::Written && self.stale_row_modified_only(t, &company, &pk);
-                    if row_written {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::StaleDeleteEventBeforeRecordChanged,
-                        );
-                    }
                     let pinned = pinned || row_written;
                     if (hooks || ext) && !pinned {
                         return unsupported(format!(

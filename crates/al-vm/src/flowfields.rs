@@ -243,13 +243,9 @@ impl Session {
                 // FlowFieldLookupOtherEnum.al; Microsoft's VAT Return Period).
                 let enum_pair = matches!((&f.ty, &s.ty), (RtType::Enum(_), RtType::Enum(_)));
                 // A lookup or a max of an Enum field into an Option FlowField (al-runner issue 6481; corpus writer Y20,
-                // record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al, measured on BC; assumption until it is
-                // pinned). A min is not measured.
+                // record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al). A min is not pinned.
                 let enum_into_option = matches!((&f.ty, &s.ty), (RtType::Option(_), RtType::Enum(_)))
                     && calc.method != ir::CalcMethod::Min;
-                if enum_into_option {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FlowFieldEnumIntoOption);
-                }
                 if !same_kind(&f.ty, &s.ty)
                     && !(enum_pair && calc.method == ir::CalcMethod::Lookup)
                     && !enum_into_option
@@ -745,6 +741,19 @@ impl Session {
                         };
                         Ok(())
                     })?;
+                }
+                // Before BC 29 a max of an Enum field into an Option FlowField keeps the Enum member, and no row gives the
+                // Enum's first member; from BC 29 it is an Option ordinal (Y20FlowFieldLookupEnumIntoOption.al:189-198,
+                // `#if BC29PLUS`; al-runner issue 6481).
+                let src_ty = self.engine.program.objects[calc.table].table.as_ref().expect("table").fields[at].ty.clone();
+                if calc.method == M::Max
+                    && matches!((&f.ty, &src_ty), (RtType::Option(_), RtType::Enum(_)))
+                    && !self.has(al_version::Gate::ProbedValuesDifferFrom29)
+                {
+                    return Ok(match best {
+                        Some(v) => v,
+                        None => self.default_value(&src_ty),
+                    });
                 }
                 // Nothing matched: the type default (corpus
                 // record/TestCalcFormulaMinMaxAvgTests.Codeunit.al:250).
