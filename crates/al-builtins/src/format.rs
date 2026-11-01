@@ -414,20 +414,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         // The standard formats 3 to 8 do not exist for a Boolean, which the platform names 'Char' (types/lt-boolean-format/
         // Boolean_FormatNumbers: `Standard format number 3 does not exist for the type 'Char'.`).
         Value::Boolean(_) if (3..=8).contains(&standard) => return Err(no_such_format(standard, "Char")),
-        Value::Boolean(b) => match (standard, b) {
-            (2, true) => "1".into(),
-            (2, false) => "0".into(),
-            (9, b) => b.to_string(),
-            // German after GlobalLanguage(1031): `Ja` / `Nein` (misc/lt-probes-needed-3/PnC*: Identity_GlobalLanguage_SetsAndRestores
-            // `set_ok = Ja`, ObjectId_WithAnotherGlobalLanguage `set 1031 ok = Ja`, P142_Date_Language).
-            (_, true) if ctx.language() == 1031 => "Ja".into(),
-            (_, false) if ctx.language() == 1031 => "Nein".into(),
-            // French after GlobalLanguage(1036): `Oui` / `Non` (types/lt-conversions-hidden-parts-doctype/P142ToTextLang.al:153).
-            (_, true) if ctx.language() == 1036 => "Oui".into(),
-            (_, false) if ctx.language() == 1036 => "Non".into(),
-            (_, true) => "Yes".into(),
-            (_, false) => "No".into(),
-        },
+        Value::Boolean(b) => crate::format_boolean::boolean_text(*b, standard, ctx.language())?,
         Value::Integer(i) => i.to_string(),
         Value::BigInteger(i) => i.to_string(),
         // A Byte formats as the character of that code (streams/TestProbeStreamContracts.al:Read_IntoTypes,
@@ -526,7 +513,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         Value::Time(t) => format_time(t - 1, standard)?,
         Value::DateTime(t) => format_datetime(t - 1, standard)?,
         Value::Duration(ms) => format_duration(*ms, standard, ctx.language())?,
-        Value::DateFormula(f) => date_formula_text(f, standard)?,
+        Value::DateFormula(f) => date_formula_text(f, standard, ctx.language())?,
         // A Version reads `major.minor.build.revision` (session/TestBCPlatformContracts.al:120-136
         // compares the formatted AppVersion with the manifest's `1.0.0.0`).
         Value::Library(crate::library_kind::LibraryKind::Version, _) if standard == 9 => {
@@ -834,21 +821,20 @@ fn blob_text(b: &crate::stream::BlobRef, ctx: &dyn FormatCtx) -> String {
 }
 
 /// A formula prints without its angle brackets in formats 0 and 9 (types/TestDateRoundFormatStringContracts.al:
-/// DateFormula_Evaluate_ThenFormat_PrintsTheNormalizedFormula; misc/lt-system-functions/RandomFormat.al:484-505). Format 2 of a
-/// formula shows the brackets, the empty one nothing: not pinned, Microsoft's System Application Test, Retention Period Test
-/// (codeunit 138700, the *DateFormulaTranslation tests) needs it (assumption `date-formula-format-two-brackets`). The other
-/// numbers are not pinned and are refused.
-fn date_formula_text(f: &str, standard: i32) -> Result<String, FormatFail> {
+/// DateFormula_Evaluate_ThenFormat_PrintsTheNormalizedFormula; misc/lt-system-functions/RandomFormat.al:484-505). Formats 0 and 1
+/// print the letters of the global language, format 9 the English letters, format 2 the English letters in angle brackets (the
+/// empty formula `<>`), and formats 3 to 8 raise (types/lt-y62-dateformula-format/Y62DateFormulaFormat.al, writer Y62; see
+/// `date_formula_language`). Formats 3 to 8 in another language than 1033 and the other numbers are refused.
+fn date_formula_text(f: &str, standard: i32, language: i32) -> Result<String, FormatFail> {
     let text = crate::datefns::formula_text(f);
     match standard {
-        0 | 9 => Ok(text),
-        // The empty formula stays empty (Retention Policy's install code writes one: Reten. Pol. Allowed Tbl. Impl.).
-        2 => {
-            crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaFormat2Brackets);
-            Ok(if text.is_empty() { text } else { format!("<{text}>") })
-        }
+        9 => Ok(text),
+        0 => crate::date_formula_language::format_zero(&text, language).map_err(FormatFail::Unsupported),
+        1 => crate::date_formula_language::format_one(&text, language).map_err(FormatFail::Unsupported),
+        2 => Ok(format!("<{text}>")),
+        3..=8 if language == 1033 => Err(no_such_format(standard, "Duration")),
         n => Err(FormatFail::Unsupported(format!(
-            "Format of a DateFormula with standard format {n} (not pinned)"
+            "Format of a DateFormula with standard format {n} in the language {language} (not pinned)"
         ))),
     }
 }
