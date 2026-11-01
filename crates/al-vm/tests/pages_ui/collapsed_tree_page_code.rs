@@ -1,5 +1,5 @@
 //! The AL code of a collapsed tree page (ShowAsTree, TreeInitialState = CollapseAll) sees every row of Rec; the collapse is only what
-//! the TestPage shows (al-runner issue 6523; corpus writer Y28, branch al-runtime-rs-staging-y28,
+//! the TestPage shows (al-runner issue 6523;
 //! pageext/lt-page-ext-properties/Y28CollapsedTreeTests.al, measured on BC 29 SaaS). The TestPage shows the rows without a parent in
 //! the view, plus the children of the parent of the row Rec stands on after OnOpenPage or an action.
 

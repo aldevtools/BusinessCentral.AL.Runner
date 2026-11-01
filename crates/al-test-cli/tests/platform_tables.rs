@@ -736,7 +736,7 @@ fn windows_language_12297_is_a_pinned_row() {
 }
 
 // Windows Language rows 2107 (Sami, Northern (Sweden)) and 9225 (English (Caribbean)): the reporter's BC 29 measurement
-// (al-runner issue 6558; the corpus pin of the whole table is pending). The repro: an enabled filter on the id is not
+// (al-runner issue 6558; pinned since corpus 7f7cdc2a by record/lt-y39-windows-language-table/). The repro: an enabled filter on the id is not
 // empty, and Get answers the row with the measured values.
 #[test]
 fn windows_language_2107_and_9225_are_rows() {

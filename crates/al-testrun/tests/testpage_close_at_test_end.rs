@@ -1,7 +1,7 @@
 //! A TestPage local to the test method that is still open when the test ends closes then: OnQueryClosePage runs with the
 //! action OK and then OnClosePage, a Confirm in it goes to the test's ConfirmHandler, and a veto (the trigger answers false)
-//! does not fail the test; a global TestPage is not closed (testpageclose/Y47CloseAtTestEnd.al, corpus branch
-//! al-runtime-rs-staging-y47; al-runner issue 6587; assumption test-end-closes-open-testpages).
+//! does not fail the test; a global TestPage is not closed (testpageclose/Y47CloseAtTestEnd.al;
+//! al-runner issue 6587). Two pages left open are refused: their close order is not pinned.
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};
@@ -34,6 +34,18 @@ page 50570 "TEC Card"
     var L: Codeunit "TEC Log";
     begin
         L.Add('close');
+    end;
+}
+page 50571 "TEC Card Two"
+{
+    PageType = Card;
+    SourceTable = "TEC Card";
+    UsageCategory = None;
+    layout { area(Content) { field("Code"; Rec."Code") { } } }
+    trigger OnClosePage()
+    var L: Codeunit "TEC Log";
+    begin
+        L.Add('close2');
     end;
 }
 codeunit 50570 "TEC Test"
@@ -88,6 +100,15 @@ codeunit 50570 "TEC Test"
         GlobalPage.Close();
     end;
 
+    [Test]
+    procedure F_TwoOpenPagesAtTheEndAreRefused()
+    var R: Record "TEC Card"; P: TestPage "TEC Card"; Q: TestPage "TEC Card Two";
+    begin
+        R."Code" := 'F'; R.Enabled := true; R.Insert();
+        P.OpenView();
+        Q.OpenView();
+    end;
+
     [ConfirmHandler]
     procedure ConfirmHandler(Question: Text; var R: Boolean)
     begin
@@ -126,4 +147,10 @@ fn an_open_local_testpage_closes_when_the_test_ends() {
         });
         assert_eq!(o, Outcome::Pass, "{name}: {o:?}");
     }
+    // The order in which two pages left open close is not pinned (Y47CloseAtTestEnd.al leaves one page open per test).
+    let o = rt.first_outcome(&CaseId {
+        codeunit: 50570,
+        name: "F_TwoOpenPagesAtTheEndAreRefused".into(),
+    });
+    assert!(matches!(&o, Outcome::NotRun(r) if r.contains("two or more open TestPages")), "{o:?}");
 }
