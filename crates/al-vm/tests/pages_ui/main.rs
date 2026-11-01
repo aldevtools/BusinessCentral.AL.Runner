@@ -66,6 +66,7 @@ mod property_view_quoted_filter;
 mod qh_new_host_part_access;
 mod qi_host_save_parts;
 mod qi_row_page_var;
+mod worksheet_save_before_validate;
 mod qj_part_propagation;
 mod ql_part_counts;
 mod qz_setvalue_shapes;

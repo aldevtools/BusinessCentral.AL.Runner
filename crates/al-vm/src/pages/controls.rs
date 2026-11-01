@@ -159,6 +159,7 @@ impl Session {
                 st.borrow_mut().typed_before_key = true;
             }
         }
+        self.save_before_page_var_validate(st, idx)?;
         if matches!(page_of(&self.engine(), st).controls[idx].binding, ir::Binding::Field(_)) && self.has_source(st) {
             let rec = self.page_rec(st);
             self.reset_table_globals(&rec);
