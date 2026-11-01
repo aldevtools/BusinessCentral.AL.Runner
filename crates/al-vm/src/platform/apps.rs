@@ -117,6 +117,15 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
                     r[pos(t, 20)] = super::unknown(t, 20, &whose);
                 }
             }
+            // The columns the row fills above, and those whose default the corpus pins for every app (11 Published As, 12
+            // Tenant ID, 13, 30, 31). The others (Brief, the links, Blob, the source and build columns of
+            // Y48PublishedApplication.al) are filled for the Application row only: here unknown, a read is refused.
+            const SERVED: [u32; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 15, 20, 30, 31];
+            for f in &t.fields {
+                if f.stored && f.id < al_builtins::platform::SYSTEM_OBJECT_BASE && !SERVED.contains(&f.id) {
+                    r[pos(t, f.id)] = super::unknown(t, f.id, &format!("app '{}'", a.name));
+                }
+            }
             Some(Entry::ok(r))
         })
         .collect::<Vec<_>>();
