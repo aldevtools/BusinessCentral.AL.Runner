@@ -1,6 +1,6 @@
 //! SetView with a WHERE condition on a name the table has no field of drops that condition, and a SORTING of one such name
 //! gives the primary key (record/lt-setview-caption-form/SetViewCaptionForm.al:179-191; types/lt-evaluate-format-lasterror-setview/
-//! P86SetView.al:184, :222). Lowercase `field<n>` and a `Field<n>` with no such field stay refused (gap G5-14, not pinned).
+//! P86SetView.al:184, :222). `Field0` (the timestamp column) and lists that mix a known and an unknown name stay refused.
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -42,10 +42,9 @@ fn an_unknown_name_in_sorting_gives_the_primary_key() {
 }
 
 #[test]
-fn field_number_forms_and_mixed_lists_stay_refused() {
+fn field_zero_and_mixed_lists_stay_refused() {
     for view in [
-        "WHERE(field2=FILTER(A))",
-        "WHERE(Field9=FILTER(A))",
+        "WHERE(Field0=FILTER(A))",
         "WHERE(Nope=CONST(1),Id=CONST(1))",
         "SORTING(Name,Nonexistent)",
     ] {

@@ -4185,26 +4185,15 @@ impl Session {
     /// The data items of a run as a SaveAsXml data file declares them: depth first in run order (the base's nested items, then
     /// those extensions add), each with its columns and the extensions' columns on it, as `dataset_begin` writes them
     /// (al-language-onprem/handlers/Y17SaveAsXmlTrees.al:644 C1 lists the nested item's columns before the second top item's). A
-    /// column's type without a row is known for a table field of type Integer, Text, Code, Decimal, Boolean or Date (:726 D2,
-    /// :685 D1; the types: al-language-onprem/report/lt-aq/AqSaveAsXml.al:247).
+    /// column's type without a row is known for a table field of a type `data_file_types::declared` knows (:726 D2, :685 D1).
     pub(crate) fn data_file_items(&self, run: &Run) -> Result<Vec<dataset::DeclaredItem>, Signal> {
         fn walk(vm: &Session, run: &Run, r: ItemRef, out: &mut Vec<dataset::DeclaredItem>) -> Result<(), Signal> {
             let item = run.item(r);
             let table = item.table.and_then(|t| vm.engine.tables.get(t).cloned().flatten());
             let ty = |c: &ir::ReportColumn| -> Result<(String, Option<&'static str>), Signal> {
-                let ty = match (c.field, &table) {
-                    (Some(pos), Some(t)) => match t.fields.get(pos).map(|f| &f.ty) {
-                        Some(al_builtins::value::RtType::Integer) => Some("xs:int"),
-                        Some(al_builtins::value::RtType::Text(_) | al_builtins::value::RtType::Code(_)) => {
-                            Some("xs:string")
-                        }
-                        Some(al_builtins::value::RtType::Decimal) => Some("xs:decimal"),
-                        Some(al_builtins::value::RtType::Boolean) => Some("xs:boolean"),
-                        Some(al_builtins::value::RtType::Date) => Some("xs:dateTime"),
-                        _ => None,
-                    },
-                    _ => None,
-                };
+                let major = vm.engine.target.as_ref().map_or(29, |t| t.bc.major);
+                let field = c.field.zip(table.as_ref()).and_then(|(pos, t)| t.fields.get(pos));
+                let ty = field.and_then(|f| crate::data_file_types::declared(&f.ty, major));
                 Ok((dataset::dataset_name(&c.name)?, ty))
             };
             let mut columns = Vec::new();
@@ -4473,6 +4462,7 @@ impl Session {
         let mut schema_type = None;
         let mut data = dataset::DataFileText::Same;
         let region = self.report.dataset.as_ref().and_then(|d| d.region.clone());
+        let (regional, media) = (region.is_some(), Self::media_field(&t, c));
         // In German the values of a Decimal, Date, Time, DateTime, Integer, Boolean and text column read as in en-US
         // (report/W3ReportObjectIdPreviewLanguage.al:870, :893); an Option or Enum column is not pinned there.
         // An Option column of a German session shows the DEU caption (record/lt-x-table-props/XTablePropsTests.al:783); in a
@@ -4595,7 +4585,7 @@ impl Session {
             Value::Blob(b) => self.blob_column_text(c, rec, b)?,
             // An empty Media or MediaSet field is an empty element (report/lt-bc-xml-blob/BcXmlBlob.al:102); one with content holds a
             // re-encoded picture whose bytes the runtime cannot make (:220), and is refused.
-            Value::Guid(g) if Self::media_field(&t, c) => {
+            Value::Guid(g) if media => {
                 if g.iter().any(|b| *b != 0) {
                     return unsupported(format!(
                         "report column {} holds a Media or MediaSet with content (the dataset writes a re-encoded picture)",
@@ -4618,6 +4608,12 @@ impl Session {
                     other = other.describe()
                 ));
             }
+        };
+        // A Time, DateTime, Duration, BigInteger or Guid column (data_file_types.rs); under a FormatRegion it is not pinned.
+        let major = self.engine.target.as_ref().map_or(29, |t| t.bc.major);
+        let (schema_type, data) = match crate::data_file_types::of_value(&value, major) {
+            Some((ty, d)) if schema_type.is_none() && !regional && !media => (Some(ty), d),
+            _ => (schema_type, data),
         };
         Ok(Column {
             name,

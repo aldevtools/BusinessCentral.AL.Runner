@@ -273,13 +273,7 @@ impl Session {
                 Op::Convert { d, a, t } => {
                     let v = take(f, a, nl);
                     let ty = &chunk.types[t as usize];
-                    // An AL stream into a DotNet variable becomes a runtime-provided System.IO.Stream (dotnet/blob_stream.rs).
-                    let v = match (ty, &v) {
-                        (al_builtins::value::RtType::DotNet(i), Value::Library(..)) => {
-                            self.al_stream_into_dotnet(v, *i)?
-                        }
-                        _ => ops::convert_plain(v, ty)?,
-                    };
+                    let v = self.convert_op(v, ty)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::ConvertFieldValue { d, a, t } => {
@@ -1049,6 +1043,7 @@ impl Session {
         let Some(native) = site.native else {
             return Err(Signal::Unsupported(format!("builtin {}", site.id)));
         };
+        let dotnet_stream = self.dotnet_stream_into_instream(site.id, &mut values)?;
         if matches!(
             site.id,
             al_builtins::builtin_id::ids::MEDIA_IMPORTSTREAM_1 | al_builtins::builtin_id::ids::MEDIA_IMPORTSTREAM_2
@@ -1154,6 +1149,9 @@ impl Session {
         );
         if let (Some(row), Some(ir::Arg::Ref(p)), Ok(_)) = (copy_array_row_back, site.args.first(), &result) {
             self.write(p, row, f)?;
+        }
+        if let Some(arg) = dotnet_stream {
+            self.dotnet_stream_after(arg, &result)?;
         }
         if let Ok(Value::Guid(id)) = &result {
             self.note_media_resources_import(site, *id, f)?;

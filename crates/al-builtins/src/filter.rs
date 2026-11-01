@@ -29,6 +29,9 @@ pub enum FilterExpr {
     /// `@` alone keeps every row; `<>@` alone keeps none (`true`). Pinned on a Text field (filters/lt-wc/WcInvalidFilterExpr.al:
     /// 84-90 `@`, :93-111 `<>@`).
     AtSignAlone(bool),
+    /// An empty value in a view's `1()` or `FILTER()`: BC keeps every row and writes the filter back as `==`
+    /// (record/lt-y51-setview-shapes/Y51SetViewShapes.al:141-154, SetView_EmptyFilterValue, on Text, Date and Integer fields).
+    EmptyViewValue,
 }
 
 impl FilterExpr {
@@ -68,6 +71,7 @@ impl FilterExpr {
             FilterExpr::Like(p, ci) => crate::native::text_of(v).is_some_and(|t| like(&t, p, *ci)),
             FilterExpr::NotLike(p, ci) => crate::native::text_of(v).is_some_and(|t| !like(&t, p, *ci)),
             FilterExpr::AtSignAlone(negated) => !negated,
+            FilterExpr::EmptyViewValue => true,
             FilterExpr::Or(xs) => xs.iter().any(|x| x.matches(v)),
             FilterExpr::And(xs) => xs.iter().all(|x| x.matches(v)),
         }
