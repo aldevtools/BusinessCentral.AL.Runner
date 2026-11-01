@@ -61,8 +61,8 @@ impl Session {
         self.save_before_run_object(st, idx)
     }
 
-    /// SetValue on a control bound to a page variable saves the row the page holds an edit of first, then validates; a
-    /// control bound to a field of Rec saves nothing (al-runner issue 6629; corpus pages/lt-y45-save-before-action/
+    /// SetValue on a control bound to a page variable saves the row the page holds an edit of first, then validates (inside the
+    /// repeater on a page that has one); a control bound to a field of Rec saves nothing (al-runner issue 6629; corpus pages/lt-y45-save-before-action/
     /// Y45SaveBeforeAction.al NextField_* of corpus writer Y55, measured on BC 29: :2037 NextField_Worksheet_NameThenPageVar
     /// `set act` `pM new/old db=old/1;eBM new t=Yes db=old/1;tM new/old db=old/1;eAM db=new/1;pvAct rec=new/1 db=new/1`, the
     /// same on a Card :2153, a List :2264, a Document header :2330 and after GoToRecord :2396; :2062 NameThenRecField `set qty`
@@ -76,6 +76,16 @@ impl Session {
             page_of(&engine, st).controls[idx].binding,
             ir::Binding::Var(_) | ir::Binding::BaseVar(_)
         ) {
+            return Ok(());
+        }
+        // A page variable outside the repeater of a page that has one (a journal's batch field in a header group) saves
+        // nothing first: its OnValidate runs, then its CurrPage.SaveRecord saves (pages/lt-y17-journal-batch/
+        // Y17JournalBatchSwitch.al:522 UpdWs_BatchSwitch_AfterEdit `validate log` `V:start 20000;M:B1/20000;...`).
+        let has_repeater = page_of(&engine, st)
+            .controls
+            .iter()
+            .any(|c| c.kind == ir::ControlKind::Repeater);
+        if has_repeater && !self.in_repeater(st, idx) {
             return Ok(());
         }
         let (open, dirty, draft, row) = {
