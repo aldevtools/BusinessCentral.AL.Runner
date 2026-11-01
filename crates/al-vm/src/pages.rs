@@ -177,6 +177,7 @@ mod actions;
 mod caption_relation;
 mod controls;
 mod dirty_step;
+mod dev_endpoint;
 mod draft;
 mod format;
 mod format_type11;

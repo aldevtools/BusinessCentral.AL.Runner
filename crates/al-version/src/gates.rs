@@ -1122,6 +1122,21 @@ pub fn test_runner_root_scope(target: Option<&Target>) -> Option<&'static str> {
     }
 }
 
+/// What the dev-endpoint test runner (TestRunnerHub, the runner VS Code uses) does with a UI call that no handler takes,
+/// for `al-runner test --dev-endpoint-ui` (al-runner issue 3697): `Some(false)` when it fails the call with "Unhandled UI"
+/// as Microsoft's Test Runner app does (BC 27.5), `Some(true)` when it answers it (BC 28.5, BC 29), `None` for a major that
+/// was not measured. BC 27 and 28 were measured on Windows containers, BC 29 on the SaaS Dev sandbox (real BC 29, same values as
+/// 28.5; owner decision 2026-11-01), all in corpus handlers/lt-ui-handler-modes/UiHandlerModes.al:129
+/// (DevEndpointTestRunner_MeasuredValues). Not a
+/// [`Gate`]: the corpus CI cannot run that runner, so no file has an `#if` guard for it.
+pub fn dev_endpoint_answers_unhandled_ui(bc_major: u16) -> Option<bool> {
+    match bc_major {
+        27 => Some(false),
+        28 | 29 => Some(true),
+        _ => None,
+    }
+}
+
 /// Whether the platform tables of System.app that are `Scope = OnPrem`, internal or removed are known for
 /// this BC major: corpus must-not-compile 0020 to 0024 hold the lists for the symbols of BC 27, and 1240
 /// (`@from 28`, no `@until`) the same 123 tables with the same AL0296 / AL0161 / AL0433 verdicts for BC 28 and
@@ -1229,6 +1244,16 @@ mod tests {
 
     fn target(bc: &str) -> Target {
         Target::for_bc(BcVersion::parse(bc).unwrap())
+    }
+
+    /// UiHandlerModes.al:123-144 (corpus branch al-runtime-rs-staging-y53).
+    #[test]
+    fn the_dev_endpoint_answers_unhandled_ui_only_on_the_measured_major_that_does() {
+        assert_eq!(dev_endpoint_answers_unhandled_ui(27), Some(false));
+        assert_eq!(dev_endpoint_answers_unhandled_ui(28), Some(true));
+        assert_eq!(dev_endpoint_answers_unhandled_ui(29), Some(true));
+        assert_eq!(dev_endpoint_answers_unhandled_ui(26), None);
+        assert_eq!(dev_endpoint_answers_unhandled_ui(30), None);
     }
 
     /// Corpus commit ff42e3d3, misc/lt-cu-odd-leads/CuTryTests.al:236-238.

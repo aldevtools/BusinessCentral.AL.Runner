@@ -400,6 +400,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `testdata.rs` (420): Test data (ADR-020): `TestBacking` maps a provider's columns onto the compiled table's fields, rebuilds the values and builds the table once per thread. Entry: `TestBacking`, `convert`, `sql_name`.
 - `transactions.rs` (446): Transactions as AL code sees them. Entry: `TxModel` 15, `CommitBehavior` 27, `codeunit_run` 193.
 - `ui.rs` (347): Dialogs raised by the code under test (`Message`, `Confirm`, `StrMenu`) and the test handler functions that answer them. Entry: `UiKind` 18, `UiHandler` 66, `dispatch_ui` 158, `dispatch_ui_returning` 163.
+- `dev_endpoint_ui.rs`: `--dev-endpoint-ui` (al-runner issue 3697): the answer of the dev-endpoint test runner to a dialog no handler takes, for the shapes measured on BC 28.5 and 29; `pages/dev_endpoint.rs` does the same for `Page.Run(Id)`, `Page.RunModal(Id)` and the request page of `Report.RunModal`. The runner side: `al-testrun` `runtime/session_flags.rs`, `runtime/test_marks.rs` (`TestResult::ui_answered`); `alrunner-cli` `dev_endpoint_ui.rs` (version gate, warnings, JUnit and JSON marks).
 - `views.rs` (510): Filter and view text: SetView, GetFilters, filter group text, AL property views (`property_view`). Entry: `parse_filter_text` 28, `filter_text` 50, `get_filters` 117, `property_view`.
 - `xmlports/mod.rs` (678): XmlPort import and export (Format = Xml). Submodules: `export_xml`, `import_xml`, `import_record`, `pass`, `sequence`, `shape`, `text`, `value`.
 

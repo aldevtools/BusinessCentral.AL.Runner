@@ -479,6 +479,7 @@ impl Report {
                     captured: None,
                     impact: Vec::new(),
                     stubs: Vec::new(),
+                    ui_answered: Vec::new(),
                     entered: Vec::new(),
                     dotnet: false,
                 }

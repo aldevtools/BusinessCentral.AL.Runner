@@ -1785,6 +1785,7 @@ mod tests {
             captured: None,
             impact: Vec::new(),
             stubs: Vec::new(),
+            ui_answered: Vec::new(),
             slept_ms: 0,
             entered: Vec::new(),
             dotnet: false,
