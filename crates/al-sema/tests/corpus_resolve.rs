@@ -148,6 +148,10 @@ const KNOWN_GAP_FILES: &[(&str, &str)] = &[
         "the checker does not know a part of a report's request page (RequestOptionsPage.ChPart.Page) (corpus bump 29)",
     ),
     (
+        "report/lt-request-options-page-access/RequestOptionsPageAccess.al",
+        "the checker does not know the `RequestOptionsPage` member of a report (RequestOptionsPageAccess.al:39, corpus bump to 2c42c8aa)",
+    ),
+    (
         "record/ProbePropertyAssignmentForms.al",
         "the checker does not resolve the assignment form of a call (`Sleep := 1`, `Target.SetCounter := 7`) (corpus bump to 92031e20)",
     ),
