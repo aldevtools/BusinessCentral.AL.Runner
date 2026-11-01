@@ -85,7 +85,7 @@ codeunit 50101 "TS Probe"
         Task: Record "Scheduled Task";
     begin
         Task.Get(TaskScheduler.CreateTask(Codeunit::"TS Target", 0, false));
-        exit(Task."Not Before" = 0DT);
+        exit(Task."Failure Codeunit" = 0);
     end;
 
     procedure RowRolledBack(): Boolean
@@ -123,7 +123,7 @@ fn a_task_of_the_open_transaction_has_its_row() {
     assert_eq!(r, "YesYesYesYesYesNo1NoYesYes0YesNoNo");
 }
 
-// The columns no corpus test reads (Not Before, Failure Codeunit, ...) are refused when read.
+// The columns no corpus test reads (Failure Codeunit, ...) are refused when read.
 #[test]
 fn an_unpinned_column_of_the_task_row_is_refused() {
     let r = al_testkit::run_in(SRC, "TS Probe", "UnpinnedColumnOfTask");
@@ -140,13 +140,11 @@ fn a_rolled_back_task_has_no_row() {
     assert!(matches!(r, Ok(al_builtins::value::Value::Boolean(false))), "{r:?}");
 }
 
+// A committed task still exists (platform/lt-y43-task-after-commit/Y43TaskAfterCommit.al:271-300).
 #[test]
-fn a_task_whose_creation_was_committed_is_refused() {
+fn a_task_whose_creation_was_committed_still_exists() {
     let r = al_testkit::run_in(SRC, "TS Probe", "AfterCommit");
-    assert!(
-        matches!(&r, Err(Signal::Unsupported(w)) if w.contains("committed")),
-        "{r:?}"
-    );
+    assert!(matches!(r, Ok(al_builtins::value::Value::Boolean(true))), "{r:?}");
 }
 
 #[test]
