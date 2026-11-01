@@ -32,6 +32,7 @@ mod gone_row;
 mod gone_row_key_filter;
 mod goto_next_call;
 mod gotokey_walk_parts;
+mod gotorecord_action_insert;
 mod group_enabled_field;
 mod host_save_record_parts;
 mod list_caption_expression;
