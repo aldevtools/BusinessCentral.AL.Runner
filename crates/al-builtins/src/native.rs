@@ -611,9 +611,8 @@ const REGISTRY: &[(&str, NativeFn)] = &[
     ("System.Variant2Time#1", variant_2_time),
     // Whether the host can create tasks is not pinned (corpus session/TestTaskSchedulerCloudBehavior.al
     // pins only that CreateTask returns a task id): a run that reaches the question is refused.
-    // The URL of the web client depends on the server's address, which a host has not been asked
-    // for: a run that builds one is refused (session/TestFinalCoverage.al:105-125 asks only that
-    // GetUrl does not throw).
+    // The URL of the web client depends on the server's address, which a host has not been asked for: a run that builds
+    // one is refused (session/TestFinalCoverage.al:105-125 asks only that GetUrl does not throw).
     // Measured on real BC: session/TestEnvironmentUserTenantContracts.al:237-241.
     ("Session.CurrentExecutionMode#1", |_, _, _| {
         let members: std::sync::Arc<[String]> = crate::sysenum::option_members("ExecutionMode")
@@ -696,8 +695,7 @@ const REGISTRY: &[(&str, NativeFn)] = &[
     ("Codeunit.Run#2", vm_only),
     ("Codeunit.Run#3", vm_only),
     ("Database.IsInWriteTransaction#1", vm_only),
-    // XmlPort import and export run triggers and write records: the VM runs them
-    // (al-vm xmlports.rs).
+    // XmlPort import and export run triggers and write records: the VM runs them (al-vm xmlports.rs).
     ("Xmlport.Export#1", vm_only),
     ("Xmlport.Export#2", vm_only),
     ("Xmlport.Import#1", vm_only),
@@ -1021,6 +1019,7 @@ fn all() -> impl Iterator<Item = &'static (&'static str, NativeFn)> {
         .chain(crate::sessionfns::REGISTRY)
         .chain(crate::media::REGISTRY)
         .chain(crate::moduleinfo::REGISTRY)
+        .chain(crate::conv::REGISTRY)
 }
 
 /// Implementations chosen per catalog signature instead of being listed by id
@@ -1092,6 +1091,7 @@ pub const INVENTED_IDS: &[&str] = &[
     "Interface.AssertAssigned#1",
     "Variant.IntoInteger#1",
     "Variant.IntoOption#1",
+    "Variant.Into#1",
     "Text.MaxStrLenOfVarParameter#1",
     "InStream.OwnerOutOfScope#1",
     "System.TranslatedText#1",
@@ -3288,6 +3288,7 @@ pub(crate) mod tests {
             "Interface.AssertAssigned#1",
             "Variant.IntoInteger#1",
             "Variant.IntoOption#1",
+            "Variant.Into#1",
             "InStream.OwnerOutOfScope#1",
             "System.TranslatedText#1",
             "System.TextConstText#1",
@@ -3351,8 +3352,7 @@ pub(crate) mod tests {
     #[test]
     fn the_call_stack_of_a_recorded_error_is_refused_not_invented() {
         // codeunit/TestCodeunitAlCallStack.al expects AL frames such as `(CodeUnit 60211)`. The VM
-        // fills them in (al-vm/tests/language/call_stack.rs); an error that has no frame gets a marker no
-        // text function reads.
+        // fills them in (al-vm/tests/language/call_stack.rs); an error that has no frame gets a marker no text function reads.
         let mut ctx = TestCtx::default();
         let f = lookup("System.GetLastErrorCallStack#1").unwrap();
         assert!(matches!(f(&mut ctx, None, &mut []), Ok(Value::Text(ref s)) if s.is_empty()));

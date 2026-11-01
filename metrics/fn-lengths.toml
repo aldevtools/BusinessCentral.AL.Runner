@@ -6,8 +6,7 @@
 # of their own. Owner decides otherwise.
 "crates/al-builtins/src/evaluate.rs::evaluate_with_max" = 322
 "crates/al-builtins/src/format.rs::format_value" = 390
-"crates/al-builtins/src/ops.rs::arith_general" = 310
-"crates/al-builtins/src/ops.rs::convert" = 327
+"crates/al-builtins/src/ops.rs::arith_general" = 302
 "crates/al-deps/src/artifact.rs::load_with_artifacts" = 441
 "crates/alrunner-cli/src/args.rs::parse" = 511
 "crates/alrunner-cli/src/run.rs::test_inner" = 1560
@@ -17,10 +16,10 @@
 "crates/al-sema/src/lower/assemble.rs::build_shared" = 603
 "crates/al-sema/src/lower/assemble.rs::lower_core" = 534
 "crates/al-sema/src/lower/call.rs::call" = 749
-"crates/al-sema/src/lower/expr.rs::expr_raw" = 422
+"crates/al-sema/src/lower/expr.rs::expr_raw" = 421
 "crates/al-sema/src/lower/pages.rs::page" = 507
 "crates/al-sema/src/lower/shared.rs::lower_object" = 520
-"crates/al-sema/src/lower/stmt.rs::assign" = 447
+"crates/al-sema/src/lower/stmt.rs::assign" = 443
 "crates/al-sema/src/lower/stmt.rs::routine" = 275
 "crates/al-sema/src/xmlports.rs::build" = 259
 "crates/al-test-cli/src/main.rs::run_version_inner" = 833

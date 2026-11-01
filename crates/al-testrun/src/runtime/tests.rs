@@ -2614,59 +2614,53 @@ fn an_open_after_the_last_row_is_not_flagged() {
 }
 
 // The lowering can mark a statement as resting on an assumption (`Lowerer::assume`, `Stmt::Assume`): the test is flagged only when the
-// statement runs. A Text[80] true branch with a longer Text false branch outside the pinned target shape (QxTernarySized.al:142-155)
-// rests on `ternary-longer-text-false-branch-fits` (Base App AccScheduleLine.Table.al:113); the exact-target shape does not.
-const TERNARY_LONGER_FALSE: &str = "codeunit 60170 T
+// statement runs. A Code[30] true branch against a Label false branch rests on `ternary-label-branch` (only Code[20] and Text[10] are
+// pinned, types/TestTernaryContracts.al TI_Ternary_*); a Code[20] true branch does not.
+const TERNARY_LABEL: &str = "codeunit 60170 T
 {
     Subtype = Test;
 
-    [Test]
-    procedure IntoALongerTarget()
     var
-        T80: Text[80];
-        T100: Text[100];
-        R: Text[100];
+        Lbl: Label 'abc';
+
+    [Test]
+    procedure UnpinnedLength()
+    var
+        C30: Code[30];
+        R: Code[30];
     begin
-        T100 := 'abc';
-        R := T80 = '' ? T80 : T100;
-        R := T80 <> '' ? T80 : T100;
-        if R <> 'abc' then Error('R %1', R);
+        R := C30 = '' ? C30 : Lbl;
+        R := C30 <> '' ? C30 : Lbl;
+        if R <> 'ABC' then Error('R %1', R);
     end;
 
     [Test]
-    procedure IntoTheTrueBranchType()
+    procedure PinnedLength()
     var
-        T80: Text[80];
-        T100: Text[100];
-        R: Text[80];
+        C20: Code[20];
+        R: Code[20];
     begin
-        T100 := 'abc';
-        R := T80 <> '' ? T80 : T100;
+        R := C20 <> '' ? C20 : Lbl;
     end;
 
     [Test]
     procedure NotRun()
     var
-        T80: Text[80];
-        T100: Text[100];
-        R: Text[100];
+        C30: Code[30];
+        R: Code[30];
         B: Boolean;
     begin
         if B then
-            R := T80 <> '' ? T80 : T100;
+            R := C30 <> '' ? C30 : Lbl;
     end;
 }";
 
 #[test]
-fn a_longer_text_false_branch_outside_the_pinned_target_is_flagged_only_when_its_statement_runs() {
-    let hits = assumptions_of(TERNARY_LONGER_FALSE);
+fn an_unpinned_label_branch_length_is_flagged_only_when_its_statement_runs() {
+    let hits = assumptions_of(TERNARY_LABEL);
     let of = |n: &str| hits.iter().find(|(t, _)| t == n).map(|(_, h)| h.clone());
-    assert_eq!(
-        of("IntoALongerTarget"),
-        Some(vec!["ternary-longer-text-false-branch-fits"]),
-        "{hits:?}"
-    );
-    assert_eq!(of("IntoTheTrueBranchType"), None, "{hits:?}");
+    assert_eq!(of("UnpinnedLength"), Some(vec!["ternary-label-branch"]), "{hits:?}");
+    assert_eq!(of("PinnedLength"), None, "{hits:?}");
     assert_eq!(of("NotRun"), None, "{hits:?}");
 }
 

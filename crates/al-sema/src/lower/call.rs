@@ -194,8 +194,9 @@ impl Lowerer<'_> {
                         // A Variant handed to a by-value Text or Code parameter goes in as it is: the callee's binding converts it, and
                         // raises TypeConversion for a number, Boolean, Date, Enum or Option (types/lt-variant-to-text-fields/
                         // VariantNumberToTextParam.al; the text follows the session language, P147DateToText.al).
+                        // The cells the matrix pins for a Variant apply first (`Variant.Into#1`: a Byte is its character).
                         if matches!(p.ty, Ty::Text(_) | Ty::Code(_)) && matches!(self.ty_ref(a), Ty::Variant) {
-                            out.push(ir::Arg::Value(value));
+                            out.push(ir::Arg::Value(self.variant_into(&p.ty, value)?));
                             continue;
                         }
                         // A Variant handed to a by-value Record parameter goes in as it is too: the binding gives a RecordRef of
