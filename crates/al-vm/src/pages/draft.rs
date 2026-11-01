@@ -654,7 +654,14 @@ impl Session {
         if keep == Some(false) {
             return Ok(());
         }
+        // A subscriber vetoed the save of this edit before: real BC runs it once for an action's SaveRecord and the Close after
+        // it (handlers/TestPageTriggerEvents.al:181-206); whether the page then reads the row again or drops the edit is not
+        // pinned, so a second save of the edit is refused.
+        if st.borrow().modify_vetoed {
+            return unsupported("a page saves an edit an OnModifyRecordEvent subscriber vetoed before (not pinned)");
+        }
         if !self.page_event(st, "onmodifyrecordevent", Some(true), None)? {
+            st.borrow_mut().modify_vetoed = true;
             return Ok(());
         }
         self.ret_used = false;
