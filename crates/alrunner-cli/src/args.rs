@@ -102,6 +102,9 @@ pub struct TestArgs {
     /// `--ignore-permission-mock` (issue 5996): a test that lowers its own permissions runs with every access granted
     /// instead of being refused; its pass is flagged `permissions-not-enforced`.
     pub ignore_permission_mock: bool,
+    /// `--dev-endpoint-ui` (issue 3697): a UI call no handler takes gets the answer of Business Central's dev-endpoint
+    /// test runner, for the measured shapes, with a warning per call; such a pass is flagged `dev-endpoint-ui`.
+    pub dev_endpoint_ui: bool,
     /// `--permissions off` (ADR-062 section 5): no access kind is enforced, whatever stage is on by default. `on`,
     /// the default, enforces the stages that are on; none is yet.
     pub permissions_off: bool,
@@ -605,9 +608,15 @@ selects only the tests both match)
                          Lower Permissions) with every access granted, instead of leaving them not
                          run. Permissions are not checked: such a test can pass here and fail on
                          Business Central. Each one is a flagged pass, `permissions-not-enforced`.
+    --dev-endpoint-ui    Answer a UI call that no handler of the test takes as Business Central's
+                         dev-endpoint test runner does (the runner VS Code uses), instead of failing
+                         with Unhandled UI as Microsoft's Test Runner app does. Only the call shapes
+                         measured on Business Central are answered; the others still fail. Each
+                         answer prints a warning with the test, the call and the answer, and such a
+                         test is a flagged pass, `dev-endpoint-ui`.
     --permissions on|off Whether AL Runner enforces permissions where a stage of its permission
                          checks is on (default on). No stage is on yet, so both give the same result.
-                         In `serve`: the runTests field `ignorePermissionMock`.
+                         In `serve`: the runTests fields `ignorePermissionMock` and `devEndpointUi`.
 
 AFFECTED TESTS (ADR-050)
     --affected           Run only the test codeunits a change since the last --affected run can
@@ -1199,6 +1208,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         || t.include_failing
         || t.strict_environment
         || t.ignore_permission_mock
+        || t.dev_endpoint_ui
         || t.permissions_off
         || t.affected_store.is_some()
     {
@@ -1219,6 +1229,15 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         }
     }
     Ok(Command::Serve(daemon))
+}
+
+/// The value of `--permissions on|off`: whether permissions are off.
+fn permissions_off(value: &str) -> Result<bool, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "on" => Ok(false),
+        "off" => Ok(true),
+        other => Err(format!("--permissions takes on or off, not `{other}`")),
+    }
 }
 
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> {
@@ -1573,13 +1592,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--tdd" => a.tdd = true,
             "--run-selected-only" => a.run_selected_only = true,
             "--ignore-permission-mock" => a.ignore_permission_mock = true,
-            "--permissions" => {
-                a.permissions_off = match text()?.to_ascii_lowercase().as_str() {
-                    "on" => false,
-                    "off" => true,
-                    other => return Err(format!("--permissions takes on or off, not `{other}`")),
-                }
-            }
+            "--dev-endpoint-ui" => a.dev_endpoint_ui = true,
+            "--permissions" => a.permissions_off = permissions_off(&text()?)?,
             "--affected" => a.affected = true,
             "--affected-store" => a.affected_store = Some(text()?.into()),
             "--include-failing" => a.include_failing = true,
@@ -2054,6 +2068,14 @@ mod tests {
     fn ignore_permission_mock_is_opt_in() {
         assert!(!test_args("test A").ignore_permission_mock);
         assert!(test_args("test A --ignore-permission-mock").ignore_permission_mock);
+    }
+
+    /// Issue 3697: `--dev-endpoint-ui` is off unless given, and `serve` takes it only per request.
+    #[test]
+    fn dev_endpoint_ui_is_opt_in() {
+        assert!(!test_args("test A").dev_endpoint_ui);
+        assert!(test_args("test A --dev-endpoint-ui").dev_endpoint_ui);
+        assert!(parse(["serve".to_string(), "--dev-endpoint-ui".to_string()]).is_err());
     }
 
     /// ADR-062 section 5: `--permissions on|off`, `on` (the stages that are on by default) unless given; any other

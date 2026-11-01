@@ -42,11 +42,13 @@ mod crm;
 mod data_file_types;
 mod dataset;
 mod datatransfer;
+mod dev_endpoint_ui;
 mod dispatch;
 pub mod dotnet;
 mod effects;
 mod errorcollect;
 pub mod events;
+mod ext_validate_order;
 mod faultsite;
 mod fieldref_validate;
 mod filterevents;
@@ -1180,11 +1182,7 @@ impl Session {
                 prior_committed_row_version: restored_row_version,
                 ..TxState::fresh()
             },
-            ui_state: UiState {
-                scope: None,
-                page_handler_depth: 0,
-                sent_notifications: Vec::new(),
-            },
+            ui_state: UiState::default(),
             pages: PageClients {
                 shown_frames: Vec::new(),
                 shown_controls: std::collections::HashMap::new(),
