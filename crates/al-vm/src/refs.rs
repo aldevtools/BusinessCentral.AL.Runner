@@ -20,6 +20,8 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 
 type Rec = Rc<RefCell<RecordState>>;
+mod fieldref_arg;
+
 type Lib = Rc<RefCell<LibraryValue>>;
 /// Whether a field is an Enum (not an Option) and its members as (ordinal, name, caption).
 type FieldMembers = (bool, Vec<(i32, String, String)>);
@@ -247,8 +249,12 @@ impl Session {
         };
         match sig.receiver.as_str() {
             "RecordRef" => self.recordref_op(&sig.name, &lib, args),
-            "FieldRef" => self.fieldref_op(&sig.name, &lib, args),
+            "FieldRef" => {
+                self.fieldref_arg_values(&sig.name, &lib, args)?;
+                self.fieldref_op(&sig.name, &lib, args)
+            }
             "KeyRef" => self.keyref_op(&sig.name, &lib, args),
+            "DataTransfer" => self.datatransfer_op(&sig.name, &lib, args),
             // GetRecord answers a new RecordRef on the RecordId's table with the primary key set and
             // nothing else loaded; the row need not exist; a null RecordId raises (recordref/
             // TestRecordIdGetRecordContracts.al).

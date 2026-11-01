@@ -15,6 +15,8 @@ use rust_decimal::Decimal;
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
+mod filter;
+
 pub type Handle = Rc<RefCell<LibraryValue>>;
 
 /// A node plus the container it is attached to (for `Path`).
@@ -2171,6 +2173,8 @@ enum Seg {
     Slice(usize, usize),
     /// `..name`: every descendant named `name`.
     Descent(String),
+    /// `[?(@.name == x)]` (`filter`).
+    Filter(filter::Filter),
 }
 
 /// A path the platform cannot read: an indexer with no `]` (json/JsonObjectBasics.al:329 `select_bad`, :371
@@ -2178,11 +2182,15 @@ enum Seg {
 enum PathErr {
     Unclosed,
     BadIndex,
+    /// A filter the platform cannot read (`filter::FilterErr::Invalid`).
+    InvalidFilter,
+    /// A name in double quotes, `["a"]`: false when the result is used (json/lt-dc-json-leads/DcJsonLeads.al:306, :340).
+    DoubleQuoted,
     Refused(Signal),
 }
 
 /// Dotted names, `[n]` / `['name']` / `[*]` / `[a:b]` indexers and `..name`, with an optional leading `$`.
-/// Filters are not pinned by the corpus.
+/// Filters as `filter` reads them.
 fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
     let refuse = |what: &str| PathErr::Refused(Signal::Unsupported(what.into()));
     let b = p.as_bytes();
@@ -2207,7 +2215,15 @@ fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
                         (Ok(a), Ok(z)) => segs.push(Seg::Slice(a, z)),
                         _ => return Err(refuse("SelectToken slice form not pinned by the corpus")),
                     }
-                } else if inner.starts_with('?') || inner.starts_with('(') || inner.contains(',') {
+                } else if inner.len() >= 2 && inner.starts_with('"') && inner.ends_with('"') {
+                    return Err(PathErr::DoubleQuoted);
+                } else if inner.starts_with('?') {
+                    match filter::parse(inner) {
+                        Ok(f) => segs.push(Seg::Filter(f)),
+                        Err(filter::FilterErr::Invalid) => return Err(PathErr::InvalidFilter),
+                        Err(filter::FilterErr::Refused(why)) => return Err(refuse(why)),
+                    }
+                } else if inner.starts_with('(') || inner.contains(',') {
                     return Err(refuse("SelectToken indexer form not pinned by the corpus"));
                 } else {
                     return Err(PathErr::BadIndex);
@@ -2221,6 +2237,10 @@ fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
                     if b.get(i) == Some(&b'.') {
                         descent = true;
                         i += 1;
+                    } else if b.get(i) == Some(&b'[') && b.get(i + 1) == Some(&b'?') {
+                        // `$.[?(@.id==2)]` (al-runner issue 6588): the dot before a filter is skipped.
+                        crate::assumptions::assume(crate::assumptions::Assumption::SelectTokenDotBeforeIndexer);
+                        continue;
                     }
                 }
                 let s = i;
@@ -2269,6 +2289,14 @@ fn select_token(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Resu
         Ok(s) => s,
         Err(PathErr::Unclosed) if used => return Ok(Value::Boolean(false)),
         Err(PathErr::BadIndex) if used => return unsupported("SelectToken with a bad index, result used (not pinned)"),
+        Err(PathErr::InvalidFilter) if used => return Ok(filter::invalid(c)),
+        Err(PathErr::DoubleQuoted) if used => return Ok(Value::Boolean(false)),
+        Err(PathErr::DoubleQuoted) => {
+            return unsupported("SelectToken with a double-quoted name as a statement (not pinned)");
+        }
+        Err(PathErr::InvalidFilter) => {
+            return unsupported("SelectToken with a double-quoted filter text as a statement (not pinned)");
+        }
         Err(PathErr::Unclosed | PathErr::BadIndex) => {
             return Err(error(
                 "The requested operation cannot be performed in this context.",
@@ -2277,6 +2305,9 @@ fn select_token(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Resu
         }
         Err(PathErr::Refused(e)) => return Err(e),
     };
+    if segs.iter().any(|s| matches!(s, Seg::Filter(_))) {
+        return filter::select(h, &segs, &p, used, &mut a[1]);
+    }
     let last = segs.len().saturating_sub(1);
     let mut cur = h;
     for (n, seg) in segs.iter().enumerate() {
@@ -2580,6 +2611,9 @@ fn put_secret(root: &Handle, path: &str, secret: &str) -> Result<bool, Signal> {
         Ok(s) => s,
         Err(PathErr::Unclosed) => return Ok(false),
         Err(PathErr::BadIndex) => return unsupported("WriteWithSecretsTo with a bad index in the path (not pinned)"),
+        Err(PathErr::InvalidFilter | PathErr::DoubleQuoted) => {
+            return unsupported("WriteWithSecretsTo with a filter or a double-quoted name in the path (not pinned)");
+        }
         Err(PathErr::Refused(e)) => return Err(e),
     };
     if segs.is_empty() {

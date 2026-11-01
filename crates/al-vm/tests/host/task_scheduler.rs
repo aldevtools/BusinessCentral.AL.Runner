@@ -88,6 +88,44 @@ codeunit 50101 "TS Probe"
         exit(Task."Failure Codeunit" = 0);
     end;
 
+    // platform/lt-y43-task-after-commit/Y43TaskAfterCommit.al (corpus master): after the Commit the task is still there, not
+    // run, with its columns.
+    local procedure ReadTask(Id: Guid): Text
+    var
+        Task: Record "Scheduled Task";
+    begin
+        if not Task.Get(Id) then
+            exit('No');
+        exit('Yes ready=' + Format(Task."Is Ready") + ' cu=' + Format(Task."Run Codeunit") + ' notBeforeBlank=' + Format(Task."Not Before" = 0DT));
+    end;
+
+    procedure RowAfterCommit(): Text
+    var
+        Task: Record "Scheduled Task";
+        Ready: Guid;
+        NotReady: Guid;
+        Later: Guid;
+        NotBefore: DateTime;
+        R: Text;
+    begin
+        NotBefore := CreateDateTime(Today() + 30, 0T);
+        Ready := TaskScheduler.CreateTask(Codeunit::"TS Target", 0);
+        NotReady := TaskScheduler.CreateTask(Codeunit::"TS Target", 0, false);
+        Later := TaskScheduler.CreateTask(Codeunit::"TS Target", 0, true, CompanyName(), NotBefore);
+        R := ReadTask(Ready) + '|';
+        Commit();
+        R += ReadTask(Ready) + '|' + ReadTask(NotReady) + '|' + ReadTask(Later) + '|';
+        Task.Get(Later);
+        R += Format(Task."Not Before" = NotBefore) + '|';
+        Task.Reset();
+        Task.SetRange("Is Ready", true);
+        Task.SetRange("User ID", UserSecurityId());
+        R += Format(Task.Count()) + '|';
+        R += Format(TaskScheduler.TaskExists(NotReady)) + Format(TaskScheduler.CancelTask(NotReady)) + ReadTask(NotReady)
+            + Format(TaskScheduler.TaskExists(NotReady)) + Format(TaskScheduler.CancelTask(NotReady));
+        exit(R);
+    end;
+
     procedure RowRolledBack(): Boolean
     var
         Task: Record "Scheduled Task";
@@ -140,11 +178,18 @@ fn a_rolled_back_task_has_no_row() {
     assert!(matches!(r, Ok(al_builtins::value::Value::Boolean(false))), "{r:?}");
 }
 
-// A committed task still exists (platform/lt-y43-task-after-commit/Y43TaskAfterCommit.al:271-300).
+// platform/lt-y43-task-after-commit/Y43TaskAfterCommit.al:258-268 (TaskExists after the Commit) and :170-182, :184-207,
+// :282-298 (al-runner issue 6592): a committed task keeps its row and is not run.
 #[test]
 fn a_task_whose_creation_was_committed_still_exists() {
     let r = al_testkit::run_in(SRC, "TS Probe", "AfterCommit");
     assert!(matches!(r, Ok(al_builtins::value::Value::Boolean(true))), "{r:?}");
+    let r = al_testkit::text(al_testkit::run_in(SRC, "TS Probe", "RowAfterCommit"));
+    assert_eq!(
+        r,
+        "Yes ready=Yes cu=50100 notBeforeBlank=Yes|Yes ready=Yes cu=50100 notBeforeBlank=Yes|\
+         Yes ready=No cu=50100 notBeforeBlank=Yes|Yes ready=Yes cu=50100 notBeforeBlank=No|Yes|2|YesYesNoNoNo"
+    );
 }
 
 #[test]

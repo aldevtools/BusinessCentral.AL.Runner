@@ -184,6 +184,7 @@ mod refill;
 mod rows;
 mod runobject;
 mod shown;
+mod test_end;
 pub(crate) use shown::ShownNote;
 
 impl Session {

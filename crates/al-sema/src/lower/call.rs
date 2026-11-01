@@ -594,7 +594,7 @@ impl Lowerer<'_> {
                     None if sig.instance && matches!(sig.receiver.as_str(), "Record" | "Query") => {
                         Some(Box::new(ir::Arg::Ref(self.implicit_rec(node)?)))
                     }
-                    _ => None,
+                    _ => self.mark_bare_page_run(&id, callee),
                 };
                 let mut out = Vec::new();
                 for (i, a) in args.iter().enumerate() {
@@ -987,6 +987,18 @@ impl Lowerer<'_> {
     /// runtime's usual conversion). The same call on another codeunit was measured on the Linux tiers only (:140-158), so it
     /// is refused until the Windows check; other receivers, other number types and other Char expressions are not pinned and
     /// are refused. `None`: not such an argument.
+    /// A bare `Run(Page::X, ...)` in a page is the static Page.Run (the checker resolves it, `check::calls`): marks assumption
+    /// bare-page-run-is-static. Always `None`, the receiver of a static call.
+    fn mark_bare_page_run(&mut self, id: &str, callee: &SyntaxNode) -> Option<Box<ir::Arg>> {
+        if id.starts_with("Page.Run#")
+            && callee.kind() == SyntaxKind::NameRef
+            && self.ws.objects[self.oi].kind == ObjKind::Page
+        {
+            self.assume(al_builtins::assumptions::Assumption::BarePageRunIsStatic);
+        }
+        None
+    }
+
     fn char_into_number_of_other_object(&self, receiver: ObjKind, param: &Ty, arg: &SyntaxNode) -> L<Option<ir::Expr>> {
         if !matches!(self.ty_ref(arg), Ty::Char)
             || !matches!(
