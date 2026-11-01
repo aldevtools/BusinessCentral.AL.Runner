@@ -21,13 +21,45 @@ pub(crate) struct DevEndpointUi {
 }
 
 /// The dev-endpoint answer to a UI call of `kind` with handler arguments `args`, as the final values of the handler
-/// parameters a bound handler would leave; `None` for a shape not measured.
+/// parameters a bound handler would leave and the answer as the warning names it; `None` for a shape not measured.
+///
+/// Measured through the dev endpoint (TestRunnerHub) on a BC 28.5 container by the corpus probe
+/// handlers/lt-y53-dev-endpoint-runner/Y53DevRunnerProbe.al (codeunit 97530): `Confirm` answers its default, No when it
+/// is omitted (Confirm_NoDefault_NoHandler, Confirm_DefaultTrue_NoHandler, Confirm_DefaultFalse_NoHandler); `StrMenu`
+/// answers its default, 1 when omitted (StrMenu_Default2_NoHandler, StrMenu_NoDefault_NoHandler); `Message` returns
+/// (Message_NoHandler). The arguments already hold the omitted defaults (`native.rs` `confirm`, `str_menu`).
 fn answer(kind: UiKind, args: &[Value]) -> Option<(Vec<Value>, String)> {
-    let _ = (kind, args);
-    None
+    match (kind, args) {
+        (UiKind::Confirm, [_, Value::Boolean(b)]) => Some((args.to_vec(), b.to_string())),
+        // Only a default that names an option was measured (2, and 1 when omitted); 0 or past the last option was not.
+        (UiKind::StrMenu, [Value::Text(options), Value::Integer(n), _])
+            if *n >= 1 && (*n as usize) <= options.to_string().split(',').count() =>
+        {
+            Some((args.to_vec(), n.to_string()))
+        }
+        (UiKind::Message, [_]) => Some((args.to_vec(), "no answer".into())),
+        _ => None,
+    }
 }
 
 impl Session {
+    /// `Hyperlink(url)` with no `[HyperlinkHandler]` bound: true when `--dev-endpoint-ui` lets the call return, as it does
+    /// through the dev endpoint (Y53DevRunnerProbe.al Hyperlink_NoHandler, BC 28.5).
+    pub(crate) fn dev_endpoint_hyperlink(&mut self, url: &str) -> bool {
+        if !self.ui_state.dev_endpoint.on || self.ui_state.scope.as_ref().is_none_or(|s| s.in_handler) {
+            return false;
+        }
+        self.note_dev_endpoint_answer(UiKind::Hyperlink, url, "no answer");
+        true
+    }
+
+    /// Marks the assumption and keeps the answer for the runner's warning.
+    fn note_dev_endpoint_answer(&mut self, kind: UiKind, shown: &str, said: &str) {
+        assumptions::assume(Assumption::DevEndpointUi);
+        let call = format!("{} {shown}", kind.label());
+        self.ui_state.dev_endpoint.answered.push(format!("{}: {said}", call.trim_end()));
+    }
+
     /// `--dev-endpoint-ui`: answer the UI calls no handler takes as the dev-endpoint test runner does.
     pub fn set_dev_endpoint_ui(&mut self, on: bool) {
         self.ui_state.dev_endpoint.on = on;
@@ -45,9 +77,7 @@ impl Session {
             return None;
         }
         let (finals, said) = answer(kind, args)?;
-        assumptions::assume(Assumption::DevEndpointUi);
-        let call = format!("{} {shown}", kind.label());
-        self.ui_state.dev_endpoint.answered.push(format!("{}: {said}", call.trim_end()));
+        self.note_dev_endpoint_answer(kind, shown, &said);
         Some(finals)
     }
 }

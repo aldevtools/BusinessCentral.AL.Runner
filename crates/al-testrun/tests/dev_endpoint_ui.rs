@@ -13,6 +13,80 @@ codeunit 50960 "Dev Endpoint UI"
 {
     Subtype = Test;
 
+    // The shapes of the corpus probe Y53DevRunnerProbe.al (codeunit 97530), measured through the dev endpoint
+    // (TestRunnerHub) on a BC 28.5 container: the call returns at once with the value below.
+    [Test]
+    procedure Confirm_NoDefault()
+    begin
+        if Confirm('Go on?') then Error('Confirm(Q) answered Yes');
+    end;
+
+    [Test]
+    procedure Confirm_DefaultTrue()
+    begin
+        if not Confirm('Go on?', true) then Error('Confirm(Q, true) answered No');
+    end;
+
+    [Test]
+    procedure Confirm_DefaultFalse()
+    begin
+        if Confirm('Go on?', false) then Error('Confirm(Q, false) answered Yes');
+    end;
+
+    [Test]
+    procedure StrMenu_Default2()
+    begin
+        if StrMenu('Alpha,Beta,Gamma', 2, 'Pick') <> 2 then Error('StrMenu default 2 did not answer 2');
+    end;
+
+    [Test]
+    procedure StrMenu_NoDefault()
+    begin
+        if StrMenu('Alpha,Beta,Gamma') <> 1 then Error('StrMenu without a default did not answer 1');
+    end;
+
+    [Test]
+    procedure StrMenu_DefaultZero()
+    begin
+        StrMenu('Alpha,Beta,Gamma', 0);
+    end;
+
+    [Test]
+    procedure Message_NoHandler()
+    begin
+        Message('Done %1', 7);
+    end;
+
+    [Test]
+    procedure Hyperlink_NoHandler()
+    begin
+        Hyperlink('https://example.invalid/y53');
+    end;
+
+    [Test]
+    [HandlerFunctions('UnusedConfirm')]
+    procedure DeclaredHandler_NotUsed()
+    begin
+    end;
+
+    [Test]
+    [HandlerFunctions('ConfirmYes')]
+    procedure Confirm_HandlerStillAnswers()
+    begin
+        if not Confirm('Handled?', false) then Error('the bound handler did not answer');
+    end;
+
+    [ConfirmHandler]
+    procedure UnusedConfirm(Question: Text[1024]; var Reply: Boolean)
+    begin
+    end;
+
+    [ConfirmHandler]
+    procedure ConfirmYes(Question: Text[1024]; var Reply: Boolean)
+    begin
+        Reply := true;
+    end;
+
     [Test]
     procedure SessionUpdate_NoHandler()
     var
@@ -61,4 +135,64 @@ fn a_shape_not_measured_ends_as_it_does_without_the_flag() {
     assert!(!matches!(result(&on, test).outcome, Outcome::Pass), "{:?}", result(&on, test).outcome);
     assert!(result(&on, test).ui_answered.is_empty());
     assert!(!result(&on, test).assumptions.contains(&Assumption::DevEndpointUi));
+}
+
+fn answered(rt: &CorpusRuntime, test: &str) -> Vec<String> {
+    let r = result(rt, test);
+    assert_eq!(r.outcome, Outcome::Pass, "{test}");
+    assert!(r.assumptions.contains(&Assumption::DevEndpointUi), "{test}: {:?}", r.assumptions);
+    r.ui_answered.clone()
+}
+
+/// Off, every shape fails with "Unhandled UI", as under Microsoft's Test Runner app.
+#[test]
+fn off_a_ui_call_without_a_handler_fails() {
+    let rt = run(false);
+    for test in ["Confirm_NoDefault", "StrMenu_Default2", "Message_NoHandler", "Hyperlink_NoHandler"] {
+        let r = result(&rt, test);
+        assert!(matches!(&r.outcome, Outcome::Fail(m) if m.starts_with("Unhandled UI")), "{test}: {:?}", r.outcome);
+        assert!(r.ui_answered.is_empty());
+    }
+}
+
+/// Confirm answers its default; an omitted default is No (Y53DevRunnerProbe.al Confirm_*_NoHandler, BC 28.5 dev endpoint).
+#[test]
+fn confirm_answers_its_default() {
+    let rt = run(true);
+    assert_eq!(answered(&rt, "Confirm_NoDefault"), vec!["Confirm Go on?: false"]);
+    assert_eq!(answered(&rt, "Confirm_DefaultTrue"), vec!["Confirm Go on?: true"]);
+    assert_eq!(answered(&rt, "Confirm_DefaultFalse"), vec!["Confirm Go on?: false"]);
+}
+
+/// StrMenu answers its default, 1 when omitted (Y53DevRunnerProbe.al StrMenu_*_NoHandler). Default 0 was not measured.
+#[test]
+fn strmenu_answers_its_default() {
+    let rt = run(true);
+    assert_eq!(answered(&rt, "StrMenu_Default2"), vec!["StrMenu Alpha,Beta,Gamma: 2"]);
+    assert_eq!(answered(&rt, "StrMenu_NoDefault"), vec!["StrMenu Alpha,Beta,Gamma: 1"]);
+    let r = result(&rt, "StrMenu_DefaultZero");
+    assert!(matches!(&r.outcome, Outcome::Fail(m) if m.starts_with("Unhandled UI")), "{:?}", r.outcome);
+}
+
+/// Message and Hyperlink return and the code goes on (Y53DevRunnerProbe.al Message_NoHandler, Hyperlink_NoHandler).
+#[test]
+fn message_and_hyperlink_go_on() {
+    let rt = run(true);
+    assert_eq!(answered(&rt, "Message_NoHandler"), vec!["Message Done 7: no answer"]);
+    assert_eq!(
+        answered(&rt, "Hyperlink_NoHandler"),
+        vec!["Hyperlink https://example.invalid/y53: no answer"]
+    );
+}
+
+/// A declared handler that never ran still fails the test, and a bound handler still answers
+/// (Y53DevRunnerProbe.al DeclaredHandler_NotUsed, Confirm_DefaultFalse_HandlerAnswersYes).
+#[test]
+fn handlers_keep_their_rules() {
+    let (off, on) = (run(false), run(true));
+    for test in ["DeclaredHandler_NotUsed", "Confirm_HandlerStillAnswers"] {
+        assert_eq!(result(&on, test).outcome, result(&off, test).outcome, "{test}");
+        assert!(result(&on, test).ui_answered.is_empty(), "{test}");
+    }
+    assert_eq!(result(&on, "Confirm_HandlerStillAnswers").outcome, Outcome::Pass);
 }
