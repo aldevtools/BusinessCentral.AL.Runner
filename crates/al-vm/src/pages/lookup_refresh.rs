@@ -68,7 +68,7 @@ impl Session {
         let parts: Vec<(usize, St)> = st.borrow().parts.iter().map(|(i, q)| (*i, q.clone())).collect();
         let (parts_ok, second_part) = match parts.as_slice() {
             [(i, q)] => (part(*i, q, "listpart", 2) || part(*i, q, "listpart", 3), false),
-            // A second part (corpus writer Y63, SaaS BC 29, Y15LookupThreeFieldLink.al Y63_TwoPart_LookupReadEachControl,
+            // A second part (corpus writer Y63, SaaS, Y15LookupThreeFieldLink.al Y63_TwoPart_LookupReadEachControl,
             // Y63_CardPart_LookupReadEachControl on branch al-runtime-rs-staging-y63, al-runner issue 6639): `lookup log`
             // `lookup;h-fn R1;validate R2;h-fn R1`, `read log` and `close log` empty, every part `R1|R1/|R1/` as before. Measured with
             // an unlinked ListPart declared before the linked one, and with a CardPart in the FactBoxes area linked by one field.
