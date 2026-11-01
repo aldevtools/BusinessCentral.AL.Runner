@@ -688,7 +688,14 @@ impl Lowerer<'_> {
                                     .and_then(|x| x.strip_suffix('\''))
                                     .filter(|x| !x.contains('\''));
                                 match named {
-                                    Some(n) => self.calc_const(file, &format!("\"{n}\""), &f.ty).ok(),
+                                    // Only a member's exact name: alc accepts any text here, an unknown name or
+                                    // another case too, and what BC makes of those is not measured.
+                                    Some(n) => self.calc_const(file, &format!("\"{n}\""), &f.ty).ok().filter(|c| {
+                                        matches!(c, ir::Const::Enum(e, o) if self.members[*e as usize]
+                                            .enum_values
+                                            .iter()
+                                            .any(|(v, name)| *v as i32 == *o && name == n))
+                                    }),
                                     None => self.calc_const(file, v, &f.ty).ok(),
                                 }
                             }

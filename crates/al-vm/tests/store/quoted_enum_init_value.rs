@@ -62,3 +62,19 @@ fn a_double_quoted_enum_init_value_does_not_mark_the_assumption() {
     assert_eq!(text(al_testkit::run_in(SRC, "C", "Plain")), "G/L Account");
     assert!(!take_hits().contains(&Assumption::QuotedEnumInitValue));
 }
+
+/// alc accepts any text in single quotes here, an unknown name or another case too (corpus writer Y47's compile check);
+/// what BC makes of those is not measured, so only the exact member name is read and the rest stays refused.
+#[test]
+fn a_single_quoted_name_in_another_case_is_refused() {
+    let src = r#"
+enum 69989 "QEI Case" { value(0; " ") { } value(1; "G/L Account") { } }
+table 69990 "QEI Case T" { fields { field(1; Id; Integer) { } field(2; Kind; Enum "QEI Case") { InitValue = 'g/l account'; } } keys { key(PK; Id) { } } }
+codeunit 69991 C { procedure F(): Text var R: Record "QEI Case T"; begin R.Init(); exit(Format(R.Kind)); end; }
+"#;
+    let r = al_testkit::run_in(src, "C", "F");
+    assert!(
+        matches!(&r, Err(al_builtins::native::Signal::Unsupported(w)) if w.contains("InitValue")),
+        "{r:?}"
+    );
+}
