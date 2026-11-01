@@ -138,3 +138,25 @@ mod y14_pins;
 mod y17_expr_refresh;
 mod y17_page_pins;
 mod y41_page_probes;
+
+/// A file in this folder that no `mod` line names is never compiled, so its tests never run (a merge can move a new
+/// test file here).
+#[test]
+fn every_file_of_the_suite_is_a_module() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/suite");
+    let main = std::fs::read_to_string(dir.join("main.rs")).unwrap();
+    let mut missing = Vec::new();
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let name = entry.unwrap().file_name().into_string().unwrap();
+        if let Some(module) = name.strip_suffix(".rs") {
+            if module != "main" && !main.lines().any(|l| l == format!("mod {module};")) {
+                missing.push(name);
+            }
+        }
+    }
+    missing.sort();
+    assert!(
+        missing.is_empty(),
+        "add `mod NAME;` to tests/suite/main.rs for: {missing:?}"
+    );
+}

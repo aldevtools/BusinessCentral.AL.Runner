@@ -68,3 +68,25 @@ mod xmlport_encoding;
 mod xmlport_flowfield_export;
 mod xmlport_inlineschema;
 mod xmlport_namespaces;
+
+/// A file in this folder that no `mod` line names is never compiled, so its tests never run (a merge can move a new
+/// test file here).
+#[test]
+fn every_file_of_the_suite_is_a_module() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/suite");
+    let main = std::fs::read_to_string(dir.join("main.rs")).unwrap();
+    let mut missing = Vec::new();
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let name = entry.unwrap().file_name().into_string().unwrap();
+        if let Some(module) = name.strip_suffix(".rs") {
+            if module != "main" && !main.lines().any(|l| l == format!("mod {module};")) {
+                missing.push(name);
+            }
+        }
+    }
+    missing.sort();
+    assert!(
+        missing.is_empty(),
+        "add `mod NAME;` to tests/suite/main.rs for: {missing:?}"
+    );
+}
