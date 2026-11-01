@@ -63,10 +63,16 @@ impl Session {
             },
             _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
         };
-        // BC's export of a port with an unbound field element does not end (YXmlPortProps.al:715-716).
+        // BC's export of a port with an unbound field element does not end (YXmlPortProps.al:715-716), nor of one with an unbound
+        // text element (xmlport/lt-y60-xmlport-unbound-text/Y60XpUnboundText.al Unbound_Text_Xml_Export, not a test).
         if let Some(n) = xp.nodes.iter().find(|n| n.unbound) {
+            let what = if n.kind == ir::XmlNodeKind::Text {
+                "text"
+            } else {
+                "field"
+            };
             return unsupported(format!(
-                "XmlPort export of the unbound field element {} (BC's export of it does not end; not pinned)",
+                "XmlPort export of the unbound {what} element {} (BC's export of it does not end; not pinned)",
                 n.xml_name
             ));
         }
@@ -396,6 +402,12 @@ impl Session {
             match c.kind {
                 ir::XmlNodeKind::TextAttr => {
                     let v = got!(self.xp_pass_variable(inst, schema, child));
+                    // currXMLport.Skip() in its OnBeforePassVariable leaves out the attribute only (xmlport/lt-y60-xmlport-container-skip/
+                    // Y60XpContainerSkip.al Container_TwoLevelsBelowTable_Export 'uri empty on two': `<cbc:Blob mime="text/plain">b2`).
+                    if Self::xp_flow(inst) == Some(Flow::Skip) {
+                        Self::xp_clear_flow(inst);
+                        continue;
+                    }
                     // An empty `Occurrence = Optional` text attribute is left out, an empty Required one is written as `attr=""`
                     // (QrXpContainerOccurs.al:QS_TextAttr_Export_AllEmpty, QS_TextAttr_Export_OptionalSetRequiredEmpty).
                     if !(v.is_empty() && c.required == Some(false)) {
@@ -465,6 +477,12 @@ impl Session {
                 // (`pass entry;pass status;pass admission;pass admcode;`, `<admission option_value="2" />` for an empty text).
                 ir::XmlNodeKind::Text if text_in_table(schema, child).is_some() || nested_inner(schema, child) => {
                     let text = got!(self.xp_pass_variable(inst, schema, child));
+                    // Skip there leaves out the element with its attributes, whose triggers do not run (Y60XpContainerSkip.al
+                    // Container_TwoLevelsBelowTable_RowSkip_Export 'blob empty': `blob=;ext;`).
+                    if Self::xp_flow(inst) == Some(Flow::Skip) {
+                        Self::xp_clear_flow(inst);
+                        continue;
+                    }
                     if !text.is_empty()
                         && matches!(
                             text_in_table(schema, child),
@@ -495,6 +513,28 @@ impl Session {
                     }
                     out.children.push(Node::Elem(e));
                     r?;
+                    if Self::xp_quit(inst) {
+                        return Ok(());
+                    }
+                }
+                // `triggered_container`: its OnBeforePassVariable decides whether it and all below it are written.
+                ir::XmlNodeKind::Text if triggered_container(schema, child) => {
+                    if let Some(e) = got!(self.xp_export_triggered_container(inst, schema, child)) {
+                        out.children.push(Node::Elem(e));
+                    }
+                    if Self::xp_quit(inst) {
+                        return Ok(());
+                    }
+                }
+                // `table_wrap` below a table element or a `field_wrap`, and a `field_wrap` (wraps.rs).
+                ir::XmlNodeKind::Text
+                    if field_wrap(schema, child, node)
+                        || (table_wrap(schema, child)
+                            && (schema.node(node).kind == ir::XmlNodeKind::Table
+                                || schema.node(node).parent.is_some_and(|t| field_wrap(schema, node, t)))) =>
+                {
+                    let e = got!(self.xp_export_wrap(inst, schema, child));
+                    out.children.push(Node::Elem(e));
                     if Self::xp_quit(inst) {
                         return Ok(());
                     }

@@ -616,7 +616,8 @@ impl Session {
                     }
                 }
                 ir::XmlNodeKind::Text if !schema.children(child).is_empty() => {
-                    self.xp_import_container(inst, schema, child, ce)?
+                    self.xp_import_container(inst, schema, child, ce)?;
+                    self.xp_container_assigned(inst, schema, child, ce)?;
                 }
                 ir::XmlNodeKind::Text => {
                     self.xp_assign_leaf_text(inst, schema, child, ce)?;

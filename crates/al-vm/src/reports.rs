@@ -4190,22 +4190,21 @@ impl Session {
         fn walk(vm: &Session, run: &Run, r: ItemRef, out: &mut Vec<dataset::DeclaredItem>) -> Result<(), Signal> {
             let item = run.item(r);
             let table = item.table.and_then(|t| vm.engine.tables.get(t).cloned().flatten());
-            let ty = |c: &ir::ReportColumn| -> Result<(String, Option<&'static str>), Signal> {
-                let major = vm.engine.target.as_ref().map_or(29, |t| t.bc.major);
-                let field = c.field.zip(table.as_ref()).and_then(|(pos, t)| t.fields.get(pos));
-                let ty = field.and_then(|f| crate::data_file_types::declared(&f.ty, major));
+            let major = vm.engine.target.as_ref().map_or(29, |t| t.bc.major);
+            let ty = |o: usize, c: &ir::ReportColumn| -> Result<(String, Option<&'static str>), Signal> {
+                let ty = crate::data_file_types::column(vm, o, table.as_deref(), c, major);
                 Ok((dataset::dataset_name(&c.name)?, ty))
             };
             let mut columns = Vec::new();
             for c in &item.columns {
-                columns.push(ty(c)?);
+                columns.push(ty(run.object, c)?);
             }
             if let ItemRef::Base(i) = r {
                 for k in 0..run.exts.len() {
                     let Some(x) = run.ext_ir(k) else { continue };
                     for add in x.adds.iter().filter(|a| a.item == i) {
                         for c in &add.columns {
-                            columns.push(ty(c)?);
+                            columns.push(ty(run.exts[k].1, c)?);
                         }
                     }
                 }
@@ -4613,7 +4612,7 @@ impl Session {
         let major = self.engine.target.as_ref().map_or(29, |t| t.bc.major);
         let (schema_type, data) = match crate::data_file_types::of_value(&value, major) {
             Some((ty, d)) if schema_type.is_none() && !regional && !media => (Some(ty), d),
-            _ => (schema_type, data),
+            _ => (schema_type.or_else(|| self.data_file_member_type(&value, &text)), data),
         };
         Ok(Column {
             name,

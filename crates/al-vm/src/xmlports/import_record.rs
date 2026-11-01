@@ -136,6 +136,16 @@ impl Session {
             match schema.node(child).kind {
                 ir::XmlNodeKind::Field => {
                     let pos = self.xp_assign_field(inst, schema, child, &ce.text())?;
+                    // A field element of a table element further up assigns that record, not this one (Y60XpTextInTable.al
+                    // TextWrap_TempTable_Inner_Import `Outer.Name` inside `Inner`: `outer ins H1 name=n2`).
+                    if schema.node(child).table_node != Some(node) {
+                        if !schema.children(child).is_empty() {
+                            return unsupported(
+                                "XmlPort import of a field element of a table element further up with nodes below it (not pinned)",
+                            );
+                        }
+                        continue;
+                    }
                     assigned.push(pos);
                     // A link field the document gives another value than the record above fails the import there, before the
                     // elements below (xmlport/lt-ah-xmlport/AhXmlPort.al:325 Mixed_Import and :386 Grand_Import, `ParentId` 99
@@ -208,7 +218,14 @@ impl Session {
                 // `unlinked_container`: the inner rows are stored before the outer row, whose OnBeforeInsertRecord runs after them;
                 // they stay in the temporary table across outer rows (QrXpContainerOccurs.al TP_Unlinked_Import,
                 // TP_Unlinked_Import_Shapes on branch al-runtime-rs-staging-pub-tp).
-                ir::XmlNodeKind::Text if unlinked_container(schema, child, node) => {
+                // A text element that wraps one table element without LinkTable and has no triggers is read the same way (xmlport/
+                // lt-y60-xmlport-text-in-table/Y60XpTextInTable.al TextWrap_TempTable_Inner_Import: `inner ins 1;inner ins 2;outer ins`).
+                ir::XmlNodeKind::Text
+                    if unlinked_container(schema, child, node)
+                        || (table_wrap(schema, child)
+                            && schema.children(child).len() == 1
+                            && schema.node(child).triggers.is_empty()) =>
+                {
                     let mut seq = Sequence::new(schema, child);
                     let mut seen = false;
                     for ie in ce.elements() {
@@ -233,6 +250,9 @@ impl Session {
                     if Self::xp_import_stopped(inst) {
                         return Ok(());
                     }
+                }
+                ir::XmlNodeKind::Text if attributed_leaves(schema, child) => {
+                    self.xp_import_attributed_leaves(inst, schema, child, ce, &mut assigned)?;
                 }
                 _ => return unsupported("XmlPort import of a text element with content inside a table element"),
             }
