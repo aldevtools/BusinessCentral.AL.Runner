@@ -8,6 +8,15 @@ use al_builtins::value::Value;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// A sequence a session restarted or deleted: as it was just before the first of those, and which of them it saw
+/// (`Session::carry_numbers_taken`).
+#[derive(Debug, Clone)]
+pub(crate) struct SequenceChange {
+    pub before: Sequence,
+    pub restarted: bool,
+    pub deleted: bool,
+}
+
 /// One `NumberSequence`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Sequence {
@@ -171,7 +180,13 @@ impl Session {
         } else {
             String::new()
         };
-        Ok((company, name.to_string()))
+        let key = (company, name.to_string());
+        if self.sequences_rolled_back.contains(&key) {
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::SequenceChangeRolledBackWithCodeunit,
+            );
+        }
+        Ok(key)
     }
 
     pub(crate) fn session_op(&mut self, id: al_ir::BuiltinId, args: &mut [Value]) -> Result<Value, Signal> {
@@ -512,7 +527,9 @@ impl Session {
             // Deleting a sequence that is not there is not an error
             // (error-handling/TestNumberSequenceTrappableErrors.al:117-126).
             "Delete" => {
-                self.sequences.remove(&key);
+                if let Some(before) = self.sequences.remove(&key) {
+                    self.note_sequence_change(key, before).deleted = true;
+                }
                 Ok(Value::Null)
             }
             "Current" => match self.sequences.get(&key) {
@@ -573,17 +590,38 @@ impl Session {
                 // Without a Seed the sequence restarts at 0 whatever it started at
                 // (:NumberSequence_NextRestartRange_Values).
                 let seed = big(args, 1).unwrap_or(0);
-                match self.sequences.get_mut(&key) {
-                    Some(s) => {
-                        s.seed = seed;
-                        s.last = None;
-                        Ok(Value::Null)
-                    }
-                    None => missing(),
+                if self.restart_sequence(key, seed) {
+                    Ok(Value::Null)
+                } else {
+                    missing()
                 }
             }
             other => unsupported(format!("NumberSequence.{other}")),
         }
+    }
+}
+
+impl Session {
+    /// Restarts `key` at `seed`, noting the change; `false`: there is no such sequence.
+    fn restart_sequence(&mut self, key: (String, String), seed: i64) -> bool {
+        let Some(before) = self.sequences.get(&key).cloned() else {
+            return false;
+        };
+        self.note_sequence_change(key.clone(), before).restarted = true;
+        if let Some(s) = self.sequences.get_mut(&key) {
+            s.seed = seed;
+            s.last = None;
+        }
+        true
+    }
+
+    /// The record of `key`'s first Restart or Delete in this session (`before`: its state just before).
+    fn note_sequence_change(&mut self, key: (String, String), before: Sequence) -> &mut SequenceChange {
+        self.sequences_changed.entry(key).or_insert(SequenceChange {
+            before,
+            restarted: false,
+            deleted: false,
+        })
     }
 }
 
