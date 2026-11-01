@@ -8,6 +8,7 @@ mod report_bare_run;
 mod report_calcfields;
 mod report_column_source_error;
 mod report_custom_layout;
+mod report_execute_hidden_filters;
 mod report_execute_params_date;
 mod report_execute_params_oninit;
 mod report_execute_twice_views;
