@@ -254,6 +254,7 @@ impl Session {
                 self.fieldref_op(&sig.name, &lib, args)
             }
             "KeyRef" => self.keyref_op(&sig.name, &lib, args),
+            "DataTransfer" => self.datatransfer_op(&sig.name, &lib, args),
             // GetRecord answers a new RecordRef on the RecordId's table with the primary key set and
             // nothing else loaded; the row need not exist; a null RecordId raises (recordref/
             // TestRecordIdGetRecordContracts.al).
