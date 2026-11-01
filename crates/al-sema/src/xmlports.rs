@@ -155,7 +155,14 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
         ir::XmlNodeKind::TextAttr => &["xmlname", "namespaceprefix", "width", "unbound", "occurrence"],
         // `texttype` is checked in `visit`: BigText or Text on a text element without children. `unbound` too, on one without
         // children (xmlport/lt-y60-xmlport-unbound-text/Y60XpUnboundText.al; the VM reads its columns and refuses its export).
-        ir::XmlNodeKind::Text => &["xmlname", "namespaceprefix", "minoccurs", "maxoccurs", "texttype", "unbound"],
+        ir::XmlNodeKind::Text => &[
+            "xmlname",
+            "namespaceprefix",
+            "minoccurs",
+            "maxoccurs",
+            "texttype",
+            "unbound",
+        ],
     }
 }
 
@@ -568,8 +575,9 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
                     p.value_text().trim()
                 ));
             } else if pn == "unbound" && kind == K::Text && s.sections().next().is_some() {
-                out.run_reasons
-                    .push(format!("property unbound of the container {section_name} {name} is not supported (not pinned)"));
+                out.run_reasons.push(format!(
+                    "property unbound of the container {section_name} {name} is not supported (not pinned)"
+                ));
             } else if pn == "xmlname" {
                 xml_name = crate::scan::unquote_xmlport(&p.value_text());
             } else if pn == "texttype" {
@@ -720,7 +728,9 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
         // QrXpContainerOccurs.al TS_RootOnce_*; `build` registers `xmlport-root-min-occurs-once`).
         // MinOccurs = Zero on the root of a VariableText import port (xmlport/lt-y60-xmlport-unbound-text/Y60XpUnboundText.al,
         // xmlports 93220-93222: the lines import as without it).
-        K::Text if root && layout.format == ir::XmlFormat::VariableText && layout.direction == ir::XmlDirection::Import => {
+        K::Text
+            if root && layout.format == ir::XmlFormat::VariableText && layout.direction == ir::XmlDirection::Import =>
+        {
             (&["zero", "once"], &["once"])
         }
         K::Text if root => (&["once"], &["once"]),

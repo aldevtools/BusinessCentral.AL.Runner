@@ -76,7 +76,8 @@ fn attributed_leaves(layout: &Layout, i: usize) -> bool {
         && layout.nodes[i].parent.is_some_and(|p| layout.nodes[p].kind == K::Table)
         && k.iter().any(|&c| leaf(c))
         && k.iter().any(|&c| attributed(c))
-        && k.iter().all(|&c| layout.nodes[c].kind == K::TextAttr || leaf(c) || attributed(c))
+        && k.iter()
+            .all(|&c| layout.nodes[c].kind == K::TextAttr || leaf(c) || attributed(c))
 }
 
 /// The triggers of a text element inside a table element in the shapes xmlport/lt-y60-xmlport-text-in-table/Y60XpTextInTable.al

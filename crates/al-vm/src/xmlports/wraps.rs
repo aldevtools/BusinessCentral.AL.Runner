@@ -29,7 +29,10 @@ pub(super) fn field_wrap(schema: &Schema, c: usize, table: usize) -> bool {
                 ir::XmlNodeKind::Field => {
                     m.table_node == Some(table)
                         && schema.children(k).iter().all(|&a| {
-                            matches!(schema.node(a).kind, ir::XmlNodeKind::TextAttr | ir::XmlNodeKind::FieldAttr)
+                            matches!(
+                                schema.node(a).kind,
+                                ir::XmlNodeKind::TextAttr | ir::XmlNodeKind::FieldAttr
+                            )
                         })
                 }
                 ir::XmlNodeKind::Text => table_wrap(schema, k),
@@ -66,10 +69,16 @@ impl Session {
         let own = self.xp_pass_variable(inst, schema, node)?;
         match Self::xp_flow(inst) {
             Some(Flow::Quit) | None => {}
-            Some(_) => return unsupported("Skip or Break in OnBeforePassVariable of a text element that wraps a table element (not pinned)"),
+            Some(_) => {
+                return unsupported(
+                    "Skip or Break in OnBeforePassVariable of a text element that wraps a table element (not pinned)",
+                );
+            }
         }
         if !own.is_empty() {
-            return unsupported("XmlPort export of a text element that wraps a table element, with its own text (not pinned)");
+            return unsupported(
+                "XmlPort export of a text element that wraps a table element, with its own text (not pinned)",
+            );
         }
         self.xp_export_container(inst, schema, node)
     }

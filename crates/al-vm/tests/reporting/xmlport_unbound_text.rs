@@ -66,7 +66,10 @@ fn an_unbound_text_element_takes_every_further_column() {
     );
     // Unbound_Text_MaxOccursUnbounded: MaxOccurs = Unbounded changes nothing.
     assert_eq!(
-        al_testkit::text(run(&src("Unbound = true; MaxOccurs = Unbounded;", "a,b,c,d#e,f,g,h#"), "F")),
+        al_testkit::text(run(
+            &src("Unbound = true; MaxOccurs = Unbounded;", "a,b,c,d#e,f,g,h#"),
+            "F"
+        )),
         "init;c1=a;cx=b;cx=c;cx=d;ins;init;c1=e;cx=f;cx=g;cx=h;ins;post col1=[e] colx=[];"
     );
 }
@@ -134,7 +137,10 @@ codeunit 69968 C
 fn an_unbound_xml_text_element_imports_as_a_plain_one_and_its_export_is_refused() {
     // Unbound_Text_Xml_Import.
     let import = "B.Data.CreateOutStream(OutS); OutS.WriteText('<Root><Free>f</Free></Root>'); B.Data.CreateInStream(InS); Xmlport.Import(Xmlport::\"XW Port\", InS);";
-    assert_eq!(al_testkit::text(run(&xml_src(import), "F")), "free=f;post plain=[] free=[f];");
+    assert_eq!(
+        al_testkit::text(run(&xml_src(import), "F")),
+        "free=f;post plain=[] free=[f];"
+    );
     // Unbound_Text_Xml_Export (not a [Test]): BC's export does not end.
     let export = "B.Data.CreateOutStream(OutS); Xmlport.Export(Xmlport::\"XW Port\", OutS);";
     assert!(matches!(run(&xml_src(export), "F"), Err(Signal::Unsupported(r)) if r.contains("unbound")));

@@ -77,7 +77,12 @@ impl crate::Session {
     /// `member` for a written column value with text `text`.
     pub(crate) fn data_file_member_type(&self, value: &Value, text: &str) -> Option<&'static str> {
         let members = match value {
-            Value::Enum(id, _) => self.engine.program.objects.get(*id as usize).map(|o| o.enum_values.as_slice()),
+            Value::Enum(id, _) => self
+                .engine
+                .program
+                .objects
+                .get(*id as usize)
+                .map(|o| o.enum_values.as_slice()),
             _ => None,
         };
         member(value, text, members)
@@ -113,7 +118,14 @@ fn place_type(vm: &crate::Session, object: usize, place: &al_ir::Place) -> Optio
             _ => None,
         },
         al_ir::Place::Field(p, pos) => match place_type(vm, object, p)? {
-            RtType::Record(t, _) => vm.engine.tables.get(t as usize)?.as_ref()?.fields.get(*pos).map(|f| f.ty.clone()),
+            RtType::Record(t, _) => vm
+                .engine
+                .tables
+                .get(t as usize)?
+                .as_ref()?
+                .fields
+                .get(*pos)
+                .map(|f| f.ty.clone()),
             _ => None,
         },
         _ => None,
@@ -240,8 +252,14 @@ mod tests {
     #[test]
     fn an_option_written_as_its_member_name_is_a_string() {
         let names: std::sync::Arc<[String]> = std::sync::Arc::from(vec!["First".to_string(), "Second".to_string()]);
-        assert_eq!(member(&Value::Option(1, names.clone()), "Second", None), Some("xs:string"));
-        assert_eq!(member(&Value::Option(0, names.clone()), "First", None), Some("xs:string"));
+        assert_eq!(
+            member(&Value::Option(1, names.clone()), "Second", None),
+            Some("xs:string")
+        );
+        assert_eq!(
+            member(&Value::Option(0, names.clone()), "First", None),
+            Some("xs:string")
+        );
         assert_eq!(member(&Value::Option(1, names), "Zweite", None), None);
         let enum_names = vec![(0, "X".to_string()), (1, "Y".to_string())];
         assert_eq!(member(&Value::Enum(9, 1), "Y", Some(&enum_names)), Some("xs:string"));

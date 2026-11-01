@@ -43,8 +43,8 @@ use self::sequence::*;
 use self::shape::*;
 use self::text::*;
 use self::text_columns::*;
-use self::wraps::*;
 use self::value::*;
+use self::wraps::*;
 
 type Inst = Rc<RefCell<Instance>>;
 

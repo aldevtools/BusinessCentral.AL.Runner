@@ -66,7 +66,11 @@ impl Session {
         // BC's export of a port with an unbound field element does not end (YXmlPortProps.al:715-716), nor of one with an unbound
         // text element (xmlport/lt-y60-xmlport-unbound-text/Y60XpUnboundText.al Unbound_Text_Xml_Export, not a test).
         if let Some(n) = xp.nodes.iter().find(|n| n.unbound) {
-            let what = if n.kind == ir::XmlNodeKind::Text { "text" } else { "field" };
+            let what = if n.kind == ir::XmlNodeKind::Text {
+                "text"
+            } else {
+                "field"
+            };
             return unsupported(format!(
                 "XmlPort export of the unbound {what} element {} (BC's export of it does not end; not pinned)",
                 n.xml_name

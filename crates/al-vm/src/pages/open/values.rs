@@ -62,10 +62,11 @@ impl Session {
         let object = st.borrow().object as usize;
         let o = &self.engine.program.objects[object];
         let changing = o.report.as_ref().map_or(&[][..], |r| r.extensions.as_slice());
-        let extended = o
-            .page
-            .as_ref()
-            .is_some_and(|p| p.controls.iter().any(|c| c.owner.is_some_and(|e| changing.contains(&e))));
+        let extended = o.page.as_ref().is_some_and(|p| {
+            p.controls
+                .iter()
+                .any(|c| c.owner.is_some_and(|e| changing.contains(&e)))
+        });
         if extended && self.save_values(st) {
             return unsupported(format!(
                 "a SaveValues request page that a reportextension changing the run extends, closed by {close} (not pinned)"
