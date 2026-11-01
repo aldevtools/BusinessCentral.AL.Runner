@@ -78,11 +78,48 @@ fn a_request_page_field_of_an_extension_that_changes_the_run_reaches_its_trigger
 
 #[test]
 fn save_values_or_a_trigger_on_the_extension_request_page_stays_refused() {
-    for (save, trigger) in [(true, false), (false, true)] {
-        let o = outcome(save, trigger);
-        assert!(
-            matches!(&o, Outcome::NotRun(why) if why.contains("changes the run and extends the request page")),
-            "{save} {trigger}: {o:?}"
-        );
-    }
+    let o = outcome(false, true);
+    assert!(
+        matches!(&o, Outcome::NotRun(why) if why.contains("changes the run and extends the request page")),
+        "{o:?}"
+    );
+    // With SaveValues the close by OK is not pinned (the SaveAsXml and Cancel closes are: corpus al-language-onprem/report/
+    // lt-y60-reportext-saveasxml/Y60ReportExtSaveAsXml.al).
+    let o = outcome(true, false);
+    assert!(
+        matches!(&o, Outcome::NotRun(why) if why.contains("SaveValues") && why.contains("OK")),
+        "{o:?}"
+    );
+}
+
+// Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun ('second'): a Cancel close of such a page stores nothing, the
+// report does not run, and the next run opens with the defaults.
+#[test]
+fn with_save_values_a_cancel_close_stores_nothing() {
+    let src = format!(
+        r#"{}
+codeunit 62790 T
+{{
+    Subtype = Test;
+    var Step: Integer; Seen: Text;
+    [Test] [HandlerFunctions('H')] procedure Run()
+    var A: Record "RX Account";
+    begin
+        A.DeleteAll(); A."No." := 'A'; A.Insert(); Commit();
+        Step := 1; Report.Run(Report::"RX Statement");
+        Step := 2; Report.Run(Report::"RX Statement");
+        A.Get('A');
+        if (Seen <> 'note= showall=No') or (A.Seen <> 0) then Error('%1 %2', Seen, A.Seen);
+    end;
+    [RequestPageHandler] procedure H(var P: TestRequestPage "RX Statement")
+    begin
+        if Step = 1 then begin P.NoteText.SetValue('hello'); P.ShowAll.SetValue(true); P.Cancel().Invoke(); exit; end;
+        Seen := 'note=' + P.NoteText.Value() + ' showall=' + P.ShowAll.Value();
+        P.Cancel().Invoke();
+    end;
+}}"#,
+        objects(true, false)
+    );
+    let o = al_testkit::outcomes_in(&src, "T");
+    assert_eq!(o[0].1, Outcome::Pass);
 }

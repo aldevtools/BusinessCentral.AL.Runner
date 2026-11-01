@@ -48,6 +48,25 @@ impl Session {
         slots
     }
 
+    /// A SaveValues request page that a reportextension changing the run extends: the close by SaveAsXml stores the values of the
+    /// base and the extension, and the close by Cancel stores nothing (al-language-onprem/report/lt-y60-reportext-saveasxml/
+    /// Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun). The close by `close` (OK, an error) is not pinned.
+    pub(in crate::pages) fn refuse_ext_save_values_close(&self, st: &St, close: &str) -> Result<(), Signal> {
+        let object = st.borrow().object as usize;
+        let o = &self.engine.program.objects[object];
+        let changing = o.report.as_ref().map_or(&[][..], |r| r.extensions.as_slice());
+        let extended = o
+            .page
+            .as_ref()
+            .is_some_and(|p| p.controls.iter().any(|c| c.owner.is_some_and(|e| changing.contains(&e))));
+        if extended && self.save_values(st) {
+            return unsupported(format!(
+                "a SaveValues request page that a reportextension changing the run extends, closed by {close} (not pinned)"
+            ));
+        }
+        Ok(())
+    }
+
     pub(in crate::pages) fn store_page_values(&mut self, st: &St) {
         if !self.save_values(st) {
             return;
