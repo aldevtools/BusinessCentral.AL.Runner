@@ -9,6 +9,7 @@
 //! A provider reads the compiled program, never the OS (ADR-006). Every observable rule carries
 //! the corpus line that pins it; a column or a shape nothing pins is refused, not guessed.
 
+mod application_row;
 mod apps;
 
 /// The platform table Media Resources (`al_builtins::platform::REGISTRY`).

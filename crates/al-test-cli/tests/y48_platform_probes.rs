@@ -18,6 +18,11 @@ fn system_app_files() -> Vec<(String, String)> {
 
 /// The outcome of each test of codeunit `T` in `main`, an app on the System app, run as BC 27.5.
 fn outcomes(main: &str) -> Vec<(String, Outcome)> {
+    outcomes_app("main", main)
+}
+
+/// [`outcomes`] with the id of the app under test chosen (a platform table lists apps by Guid).
+fn outcomes_app(app_id: &str, main: &str) -> Vec<(String, Outcome)> {
     use al_sema::workspace::{AppKind, AppSource};
     let app = |id: &str, name: &str, files: Vec<(String, String)>| AppSource {
         id: id.into(),
@@ -26,7 +31,7 @@ fn outcomes(main: &str) -> Vec<(String, Outcome)> {
         files,
     };
     let apps = vec![
-        app("main", "main", vec![("main.al".into(), main.into())]),
+        app(app_id, "main", vec![("main.al".into(), main.into())]),
         app(al_sema::workspace::PLATFORM_APP_ID, "System", system_app_files()),
     ];
     let symbols = ["BC27PLUS".to_string()].into();
@@ -56,7 +61,11 @@ fn outcomes(main: &str) -> Vec<(String, Outcome)> {
 }
 
 fn passes(src: &str) {
-    let o = outcomes(src);
+    passes_app("main", src);
+}
+
+fn passes_app(app_id: &str, src: &str) {
+    let o = outcomes_app(app_id, src);
     assert!(!o.is_empty());
     let bad: Vec<_> = o.into_iter().filter(|(_, r)| *r != Outcome::Pass).collect();
     assert!(bad.is_empty(), "{bad:?}");
@@ -130,5 +139,28 @@ codeunit 50000 T { Subtype = Test;
     EP.SetRange("Role ID", 'LTPSMETA'); EP.FindFirst();
     if Format(EP."Security Filter") <> '' then Error('format'); if Format(EP."Security Filter", 0, 9) <> '' then Error('format 9');
     TP."Security Filter" := EP."Security Filter"; if Format(TP."Security Filter", 0, 9) <> '' then Error('copied'); end; }"#,
+    );
+}
+
+// G5-01: the Published Application row of the Application app: one row, Package ID and Runtime Package ID not null and
+// different, Published As Global, Tenant ID blank, Tenant Visible; its Package ID is no other app's and no object's, so a
+// filter on another app's Package ID plus Tenant Visible finds that app alone (al-language-onprem/platform/lt-y48-published-app/
+// Y48PublishedApplication.al:154 PA_ApplicationRow_PackageIds; the shape of Extension Operation Impl. and the Objects page).
+#[test]
+fn published_application_lists_the_application_row() {
+    passes_app(
+        "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        r#"codeunit 50000 T { Subtype = Test;
+  [Test] procedure ApplicationRow() var A: Record "Published Application"; B: Record "Published Application"; O: Record AllObjWithCaption; MI: ModuleInfo; begin
+    A.SetRange(ID, 'c1335042-3002-4257-bf8a-75c898ccb1b8'); A.FindFirst(); if A.Count() <> 1 then Error('count');
+    if IsNullGuid(A."Package ID") or IsNullGuid(A."Runtime Package ID") then Error('null');
+    if A."Package ID" = A."Runtime Package ID" then Error('same ids');
+    if A."Published As" <> A."Published As"::Global then Error('published as');
+    if A."Tenant ID" <> '' then Error('tenant id');
+    B.SetRange("Package ID", A."Package ID"); B.SetRange("Tenant Visible", true); B.FindFirst();
+    if (B.ID <> A.ID) or (B.Count() <> 1) then Error('application by package id');
+    NavApp.GetCurrentModuleInfo(MI); if MI.PackageId = A."Package ID" then Error('own package id');
+    B.SetRange("Package ID", MI.PackageId); B.FindFirst(); if (B.ID <> MI.Id) or (B.Count() <> 1) then Error('own by package id');
+    O.SetRange("App Package ID", A."Package ID"); if not O.IsEmpty() then Error('objects'); end; }"#,
     );
 }
