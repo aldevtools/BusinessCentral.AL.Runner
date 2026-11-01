@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 mod autoinc;
 mod bgsession;
+mod init_assumes;
 mod state;
 pub(crate) use state::*;
 mod baseline;
@@ -39,6 +40,7 @@ mod companies;
 mod control_add_in;
 mod crm;
 mod dataset;
+mod datatransfer;
 mod dispatch;
 pub mod dotnet;
 mod effects;
@@ -311,16 +313,7 @@ impl Engine {
         let table_facts: Vec<TableFacts> = heads
             .iter()
             .map(|o| TableFacts {
-                // An Option InitValue written as a number no member is named (al-sema `option_init_ordinal`).
-                ordinal_init: o.table.as_ref().is_some_and(|t| {
-                    t.fields.iter().any(|f| match (&f.ty, &f.init, &f.init_text) {
-                        (al_builtins::value::RtType::Option(m), Some(al_ir::Const::Option(..)), Some(text)) => {
-                            let t = text.trim().trim_matches('"').trim();
-                            t.parse::<u32>().is_ok() && !m.iter().any(|x| x.trim().eq_ignore_ascii_case(t))
-                        }
-                        _ => false,
-                    })
-                }),
+                init_assumes: o.table.as_ref().map_or_else(Vec::new, init_assumes::of_table),
                 unresolved_init: o
                     .table
                     .as_ref()
@@ -1920,14 +1913,7 @@ impl Session {
         if self.engine.object_facts[*table as usize].temporary() {
             return false;
         }
-        if self
-            .engine
-            .table_facts
-            .get(*table as usize)
-            .is_some_and(|f| f.ordinal_init)
-        {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OptionInitValueOrdinal);
-        }
+        init_assumes::mark(self.engine.table_facts.get(*table as usize));
         true
     }
 
@@ -2419,6 +2405,7 @@ impl Session {
             self.fault_site_lost = true;
             outcome = Err(Signal::Unsupported(why));
         }
+        outcome = self.close_test_pages_at_test_end(&frame, r, outcome);
         let ret = match outcome {
             Ok(()) => None,
             // A report flow call (Skip, Break, Quit) leaves every procedure between the report trigger and the call.
@@ -2542,9 +2529,8 @@ pub(crate) type AdhocTables = std::collections::HashMap<(u32, Vec<usize>), Arc<a
 pub(crate) struct TableFacts {
     /// Some field has an `InitValue` text that did not evaluate at compile time.
     pub(crate) unresolved_init: bool,
-    /// Some Option field's `InitValue` is a number no member is named: a fresh record marks assumption
-    /// option-init-value-ordinal.
-    pub(crate) ordinal_init: bool,
+    /// The assumptions the fields' `InitValue`s rest on (`init_assumes::of_table`): a fresh record marks them.
+    pub(crate) init_assumes: Vec<al_builtins::assumptions::Assumption>,
     /// The positions of the BigInteger fields with `SQLTimestamp = true`: they read the row version.
     pub(crate) sql_timestamp: Vec<usize>,
     /// Some Code field declares an `SQLDataType` other than `Varchar`: a write checks its value.

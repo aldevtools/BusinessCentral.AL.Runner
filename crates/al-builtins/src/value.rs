@@ -1842,6 +1842,8 @@ pub enum LibraryValue {
     ModuleInfo(ModuleInfoState),
     /// A `DataTransfer` that `SetTables` staged: (source table, destination table).
     DataTransfer(Option<(i32, i32)>),
+    /// A `DataTransfer` staged inside install code: what its copy will do (al-vm `datatransfer`).
+    DataTransferPlan(Box<crate::datatransfer::Plan>),
     /// A `Cookie`: an untouched one is `Empty`, which reads as no name, no value and no attributes.
     Cookie(CookieState),
     /// An `HttpRequestMessage` that was configured (an untouched one is `Empty`).

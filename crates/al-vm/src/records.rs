@@ -300,9 +300,7 @@ impl Session {
 
     /// Field values of a fresh record: `InitValue` where declared, else the type default.
     pub(crate) fn initial_fields(&mut self, table: usize) -> Vec<Value> {
-        if self.engine.table_facts.get(table).is_some_and(|f| f.ordinal_init) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OptionInitValueOrdinal);
-        }
+        crate::init_assumes::mark(self.engine.table_facts.get(table));
         // The values are the same for every record of the table, so they are worked out once per session and copied
         // (a text shares its buffer, copy on write). A value that is a shared object (a Blob's buffer) is built fresh
         // for each record in its slot of the copy (issue 6133: a local record variable of a table with a Blob field
@@ -2389,7 +2387,6 @@ impl Session {
         let temporary = rec.borrow().temporary;
         self.unseeded_read(t, temporary, "reading rows")?;
         self.coverage_read(t, temporary)?;
-        self.scheduled_task_read(t, temporary)?;
         let key = rec.borrow().key;
         // Filters on FlowFilter fields drop out; those on FlowFields are checked per row.
         let (filters, flow_field_filters) = self.split_filters(rec);
@@ -3406,7 +3403,6 @@ impl Session {
             let temporary = rec.borrow().temporary;
             self.unseeded_read(&t, temporary, method.name())?;
             self.coverage_read(&t, temporary)?;
-            self.scheduled_task_read(&t, temporary)?;
             // `Count` stays answered (it counts only the companies the runtime knows): refusing it loses the baseline case
             // session/TestProbeSessionMiscContracts.al:Company_Names (69815, `Count() >= 1`). Kept, not pinned.
             if !temporary && self.is_company_table(&t) && method != RecordOp::Count {
@@ -3419,7 +3415,6 @@ impl Session {
         ) {
             let temporary = rec.borrow().temporary;
             self.coverage_read(&t, temporary)?;
-            self.scheduled_task_read(&t, temporary)?;
         }
         let cx = self.cx_for(rec, &t)?;
         // A Count or IsEmpty of a table whose demo rows the corpus database holds, before the session's own code wrote to it:

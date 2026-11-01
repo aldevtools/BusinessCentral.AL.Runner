@@ -396,6 +396,15 @@ impl<'a> Checker<'a> {
                 })
                 .collect();
         }
+        // A bare `Run(Page::X[, Rec[, FieldNo]])` in a page's code is the static Page.Run (pages/lt-uf-unqualified-runmodal/
+        // Y47UnqualifiedRun.al, corpus branch al-runtime-rs-staging-y47; al-runner issue 6590; the lowering marks assumption
+        // bare-page-run-is-static). The bare `Run()` is the page's own instance, which raises; it stays unresolved.
+        if c.is_empty() && n.eq_ignore_ascii_case("run") && self.ws.objects[sc.oi].kind == ObjKind::Page {
+            c = (self.catalog.overloads("Page", n).into_iter())
+                .filter(|s| !s.instance)
+                .map(|s| sig_cand(s, &Ty::Unknown, self.catalog.id(s)))
+                .collect();
+        }
         // A bare report method in a report's or report extension's code is the method of the report itself, as the
         // `CurrReport.` form (report/lt-y36-bare-report-member/Y36BareReportMember.al:4-17, 96-166: UseRequestPage getter
         // and setter, ObjectId, IsReadOnly, Language, FormatRegion, PrintOnlyIfDetail, SetTableView; the lowering hands
