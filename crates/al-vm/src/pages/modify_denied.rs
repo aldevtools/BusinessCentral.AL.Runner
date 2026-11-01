@@ -33,22 +33,35 @@ impl Session {
         let Some(at) = st.borrow().window.iter().position(|w| Self::same_key(&w.key, &key)) else {
             return Ok(r);
         };
-        let fields = rec.borrow().fields.clone();
-        if Self::same_values(&st.borrow().window[at].stored, &fields) {
+        if Self::same_values(&st.borrow().window[at].stored, &rec.borrow().fields)
+            || self.row_stored_as_shown(st, &rec)?
+        {
             return Ok(r);
         }
-        match self.stored_row(&rec)? {
-            Some(stored) if Self::same_values(&stored, &fields) => {
-                let mut s = st.borrow_mut();
-                s.window[at].stored = fields.clone();
-                s.window[at].shown = fields.clone();
-                drop(s);
-                self.set_xrec_fields(st, fields);
-                Ok(r)
-            }
-            _ => unsupported(
-                "a drill-down that changed the row without storing it on a list whose ModifyAllowed is false (the save BC tries later is not built)",
-            ),
+        unsupported(
+            "a drill-down that changed the row without storing it on a list whose ModifyAllowed is false (the save BC tries later is not built)",
+        )
+    }
+
+    /// Whether the page's row is stored with exactly the values Rec holds (page code wrote it with Rec.Modify): then the client has
+    /// nothing to save, and the row it holds becomes that one.
+    pub(super) fn row_stored_as_shown(&mut self, st: &St, rec: &Rec) -> Result<bool, Signal> {
+        let fields = rec.borrow().fields.clone();
+        if !self
+            .stored_row(rec)?
+            .is_some_and(|stored| Self::same_values(&stored, &fields))
+        {
+            return Ok(false);
         }
+        st.borrow_mut().dirty = false;
+        let key = self.row_key(rec)?;
+        let at = st.borrow().window.iter().position(|w| Self::same_key(&w.key, &key));
+        if let Some(at) = at {
+            let mut s = st.borrow_mut();
+            s.window[at].stored = fields.clone();
+            s.window[at].shown = fields.clone();
+        }
+        self.set_xrec_fields(st, fields);
+        Ok(true)
     }
 }

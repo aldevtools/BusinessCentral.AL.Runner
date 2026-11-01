@@ -23,6 +23,7 @@ page 69941 "MD Temp List"
                 field(StatusCtl; Rec.Status) { }
                 field(LinkCtl; LinkTxt) { trigger OnDrillDown() begin Rec.Fix(); end; }
                 field(Link2Ctl; LinkTxt) { trigger OnDrillDown() begin Rec.FixNoModify(); end; }
+                field(Link3Ctl; LinkTxt) { trigger OnDrillDown() begin Rec.Fix(); CurrPage.Update(); end; }
             }
         }
     }
@@ -71,6 +72,19 @@ codeunit 69943 C
         R += '|' + P.CodeCtl.Value() + '/' + P.StatusCtl.Value();
         P.Close();
         exit(R + '|' + Stored('A'));
+    end;
+
+    procedure TempDrillDownModifyUpdate(): Text
+    var P: TestPage "MD Temp List"; R: Text;
+    begin
+        Seed();
+        P.OpenView();
+        P.First();
+        P.Link3Ctl.Drilldown();
+        P.First();
+        R := P.CodeCtl.Value() + '/' + P.StatusCtl.Value();
+        P.Close();
+        exit(R);
     end;
 
     procedure TempDrillDownAssign(): Text
@@ -125,4 +139,14 @@ fn an_action_that_modifies_rec_on_a_list_that_denies_modify() {
     let mut built = al_testkit::Built::from_source(SRC);
     let out = al_testkit::text(built.run_in("C", "DbActionModify"));
     assert_eq!(out, "A/9|nA/9|B/1|nA/9");
+}
+
+/// The shape of Microsoft's Error Messages with Recommendations Tests (ErrorMessageExtensibilityTests
+/// MessageStatusIsFailedToFixDrillDownScenarioUI): the drill-down stores the row, then calls CurrPage.Update(); the row it stored
+/// leaves nothing to save (Y61ModifyDeniedSave.al:164 and :281: a row page code stored is no change to save).
+#[test]
+fn a_drill_down_that_modifies_rec_then_updates_the_page() {
+    let mut built = al_testkit::Built::from_source(SRC);
+    let out = al_testkit::text(built.run_in("C", "TempDrillDownModifyUpdate"));
+    assert_eq!(out, "A/9");
 }
