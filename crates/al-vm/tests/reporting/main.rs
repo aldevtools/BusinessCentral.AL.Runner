@@ -49,6 +49,7 @@ mod xmlport_export_again;
 mod xmlport_field_validation;
 mod xmlport_flowfield_import;
 mod xmlport_guid_xml;
+mod xmlport_import_again_text_only;
 mod xmlport_import_file;
 mod xmlport_link_in_key;
 mod xmlport_linked_pass_key;
