@@ -1,12 +1,12 @@
 //! `FieldRef.Value()` of a number assigned to a Text or Code *variable*: the number's Format text, checked against the
 //! variable's length (misc/lt-y13-triage/Y13FieldRefValueToText.al:96-153, corpus master: Integer, Decimal, BigInteger and
-//! the field 0 timestamp into Text, Text[30] and Code[20]; Code[3] raises StringLengthExceeded). An Enum, and a number passed
-//! straight as a Text argument, are not pinned and stay refused. A Date into a Code variable is its Format text (report/lt-requestpage-savevalues-date-text-setvalue/
+//! the field 0 timestamp into Text, Text[30] and Code[20]; Code[3] raises StringLengthExceeded). An Enum is its caption, and a
+//! number passed straight as a Text argument its Format text (text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al). A Date into a Code variable is its Format text (report/lt-requestpage-savevalues-date-text-setvalue/
 //! P147DateToText.al QO_*FieldRef_EachConversion).
 
 const SRC: &str = r#"
 enum 50715 NumKind { value(0; A) { } value(1; B) { } }
-table 50714 NumRow { fields { field(1; K; Integer) { } field(2; B; BigInteger) { } field(3; D; Date) { } field(4; Dec; Decimal) { } field(5; E; NumKind) { } } keys { key(PK; K) { } } }
+table 50714 NumRow { fields { field(1; K; Integer) { } field(2; B; BigInteger) { } field(3; D; Date) { } field(4; Dec; Decimal) { } field(5; E; Enum NumKind) { } } keys { key(PK; K) { } } }
 codeunit 50767 C {
     procedure IntoCode(): Text
     var RR: RecordRef; C: Code[20];
@@ -91,19 +91,14 @@ fn a_number_from_fieldref_value_longer_than_the_code_variable_raises_string_leng
 }
 
 #[test]
-fn an_enum_from_fieldref_value_into_a_text_variable_is_refused() {
-    match al_testkit::run_in(SRC, "C", "EnumIntoText") {
-        Err(al_builtins::native::Signal::Unsupported(_)) => {}
-        other => panic!("{other:?}"),
-    }
+fn an_enum_from_fieldref_value_into_a_text_variable_is_its_caption() {
+    assert_eq!(run("EnumIntoText"), "A");
 }
 
+/// text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:290-327 (corpus master).
 #[test]
-fn a_number_from_fieldref_value_passed_as_a_text_argument_is_refused() {
-    match al_testkit::run_in(SRC, "C", "IntoTextParameter") {
-        Err(al_builtins::native::Signal::Unsupported(r)) => assert!(r.contains("argument"), "{r}"),
-        other => panic!("{other:?}"),
-    }
+fn a_number_from_fieldref_value_passed_as_a_text_argument_is_its_format_text() {
+    assert_eq!(run("IntoTextParameter"), "7");
 }
 
 #[test]

@@ -819,9 +819,12 @@ fn text_len_over(s: &str, cap: i64) -> i64 {
 /// A Text argument of a TextBuilder method. A call stack text (it holds `CALL_STACK_MARK`) is carried into the builder
 /// and out of `ToText` like `+` carries it; no text function reads it (al-runner issue 6310; corpus
 /// error-handling/lt-wd/WdCallStackToBlob.al, codeunit 90742: the call stack text round-trips and is not empty).
+/// A Guid is its upper-case braced text, also inside a Variant (text/lt-y49-textbuilder-guid/Y49TextBuilderGuid.al:60-219:
+/// Append, AppendLine, Insert, both texts of Replace).
 fn tb_text(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
     match a.get(i) {
         Some(Value::Text(t) | Value::Code(t)) if t.as_str().contains(crate::native::CALL_STACK_MARK) => Ok(t.clone()),
+        Some(Value::Guid(g)) => Ok(crate::format::format_guid(g).into()),
         _ => text(a, i),
     }
 }
@@ -859,11 +862,29 @@ pub fn tb_append_variant(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]
 
 /// `Append(FieldRef.Value())` written directly as the argument appends the value as `Format` shows it, for the field types the
 /// corpus pins: Integer, Decimal, Boolean, Date (blank and set) and Code
-/// (text/lt-textbuilder-field-direct/TextBuilderAppendFieldDirect.al, through `FieldRef` and `RecordRef.FieldIndex(i)`).
+/// (text/lt-textbuilder-field-direct/TextBuilderAppendFieldDirect.al, through `FieldRef` and `RecordRef.FieldIndex(i)`), and
+/// Enum and Option (caption), BigInteger, Time, DateTime, Duration, DateFormula, Guid, Blob (`*`, one space when empty), Media,
+/// MediaSet and RecordId, set and blank (text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:356-470).
 /// Other kinds are refused.
 pub fn tb_append_field_value(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    use crate::library_kind::LibraryKind as L;
     match a.first() {
-        Some(v @ (Value::Integer(_) | Value::Decimal(_) | Value::Boolean(_) | Value::Date(..))) => {
+        Some(
+            v @ (Value::Integer(_)
+            | Value::BigInteger(_)
+            | Value::Decimal(_)
+            | Value::Boolean(_)
+            | Value::Date(..)
+            | Value::Time(_)
+            | Value::DateTime(_)
+            | Value::Duration(_)
+            | Value::DateFormula(_)
+            | Value::Guid(_)
+            | Value::Option(..)
+            | Value::Enum(..)
+            | Value::Blob(_)
+            | Value::Library(L::Media | L::MediaSet | L::RecordId, _)),
+        ) => {
             let t = crate::format::try_format(v, 0, 0, &*c).map_err(Signal::Unsupported)?;
             a[0] = Value::Text(t.into());
             tb_append(c, r, a)
@@ -1099,7 +1120,7 @@ fn tb_ensure_capacity(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value])
 
 fn tb_replace(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = string_of(r)?;
-    let (old, new) = (text(a, 0)?, text(a, 1)?);
+    let (old, new) = (tb_text(a, 0)?, tb_text(a, 1)?);
     if old.is_empty() {
         return crate::native::raise::<Value>(
             "An invalid argument was passed to a 'TextBuilder' data type method.".to_string(),

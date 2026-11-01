@@ -282,16 +282,12 @@ impl Session {
                     };
                     set(&mut f.locals[d as usize], v);
                 }
-                Op::ConvertFieldValue { d, a, t, arg } => {
+                Op::ConvertFieldValue { d, a, t } => {
                     let v = take(f, a, nl);
                     let ty = &chunk.types[t as usize];
-                    ops::fieldref_enum_into_text_refused(&v, ty)?;
-                    if arg {
-                        ops::fieldref_number_into_text_arg_refused(&v, ty)?;
-                    }
-                    // A number is its Format text, checked against the variable's length (misc/lt-y13-triage/
-                    // Y13FieldRefValueToText.al:96-153, corpus master).
-                    let v = match ops::number_into_text_field(&v, ty, &*self) {
+                    // A number is its Format text and an Enum its caption, checked against the variable's or parameter's length
+                    // (misc/lt-y13-triage/Y13FieldRefValueToText.al:96-153; text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:207-353).
+                    let v = match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, &*self) {
                         Some(r) => r?,
                         None => ops::convert_plain(v, ty)?,
                     };

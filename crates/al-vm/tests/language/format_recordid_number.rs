@@ -1,6 +1,6 @@
 //! Format of a RecordId with a standard format number: 0, 1, 2 and 9 are pinned, 3 to 8 raise
-//! (types/lt-implicit-conversions/P79RecordId.al:183-200, :330-346). Any other number, 10 (the bookmark form, gap G5-10) included, is
-//! not pinned and refused.
+//! (types/lt-implicit-conversions/P79RecordId.al:183-200, :330-346). 10 is the bookmark (recordid_bookmark.rs). Any other
+//! number is not pinned and refused.
 
 use al_builtins::native::Signal;
 
@@ -29,8 +29,8 @@ fn format_numbers_zero_and_nine_format_the_key() {
 }
 
 #[test]
-fn format_number_ten_and_others_are_refused() {
-    for n in [10, 11, -1] {
+fn format_numbers_other_than_zero_to_ten_are_refused() {
+    for n in [11, -1] {
         assert!(matches!(run(n), Err(Signal::Unsupported(_))), "{n}");
     }
 }
