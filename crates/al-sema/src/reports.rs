@@ -58,6 +58,11 @@ const INERT_ITEM_PROPERTIES: &[&str] = &[
     "newpageperrecord",
 ];
 
+/// Compile-time obsolescence notes on a data item, a request page, a query column or a query filter: the element still
+/// runs as one without them (al-runner issue 6652; corpus pages/lt-x-obsolete-pending/XObsoletePending.al:255-311,
+/// :589-612, the tests at :478-566). `Removed` is no value for them (must-not-compile case 0798).
+pub(crate) const OBSOLETE_PROPERTIES: &[&str] = &["obsoletestate", "obsoletereason", "obsoletetag"];
+
 /// Sections that only matter to a layout or a request page.
 const LAYOUT_SECTIONS: &[&str] = &["rendering", "wordlayout", "rdlclayout", "excellayout"];
 
@@ -535,6 +540,7 @@ pub fn request_layout(
             if !["caption", "savevalues", "sourcetable"].contains(&name.as_str())
                 && !SOURCE_TABLE_REQUEST_PAGE_PROPERTIES.contains(&name.as_str())
                 && !INERT_REQUEST_PAGE_PROPERTIES.contains(&name.as_str())
+                && !OBSOLETE_PROPERTIES.contains(&name.as_str())
                 && !show_filter
                 && !editable
             {
@@ -633,6 +639,7 @@ fn visit(
                 }
             } else if !["dataitemtableview", "dataitemlink"].contains(&pn.as_str())
                 && !INERT_ITEM_PROPERTIES.contains(&pn.as_str())
+                && !OBSOLETE_PROPERTIES.contains(&pn.as_str())
                 && !temporary_ok
             {
                 reasons.push(format!("property {pn} of dataitem {name} is not supported yet"));
