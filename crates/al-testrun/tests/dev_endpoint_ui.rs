@@ -144,62 +144,62 @@ codeunit 50960 "Dev Endpoint UI"
     // The shapes of UiHandlerModes.al:129-144 (corpus branch al-runtime-rs-staging-y53), measured through the dev endpoint
     // (TestRunnerHub) on a BC 28.5 container: the call returns at once with the value below.
     [Test]
-    procedure()
+    procedure Confirm_NoDefault()
     begin
         if Confirm('Go on?') then Error('Confirm(Q) answered Yes');
     end;
 
     [Test]
-    procedure()
+    procedure Confirm_DefaultTrue()
     begin
         if not Confirm('Go on?', true) then Error('Confirm(Q, true) answered No');
     end;
 
     [Test]
-    procedure()
+    procedure Confirm_DefaultFalse()
     begin
         if Confirm('Go on?', false) then Error('Confirm(Q, false) answered Yes');
     end;
 
     [Test]
-    procedure()
+    procedure StrMenu_Default2()
     begin
         if StrMenu('Alpha,Beta,Gamma', 2, 'Pick') <> 2 then Error('StrMenu default 2 did not answer 2');
     end;
 
     [Test]
-    procedure()
+    procedure StrMenu_NoDefault()
     begin
         if StrMenu('Alpha,Beta,Gamma') <> 1 then Error('StrMenu without a default did not answer 1');
     end;
 
     [Test]
-    procedure()
+    procedure StrMenu_DefaultZero()
     begin
         StrMenu('Alpha,Beta,Gamma', 0);
     end;
 
     [Test]
-    procedure()
+    procedure Message_NoHandler()
     begin
         Message('Done %1', 7);
     end;
 
     [Test]
-    procedure()
+    procedure Hyperlink_NoHandler()
     begin
         Hyperlink('https://example.invalid/y53');
     end;
 
     [Test]
     [HandlerFunctions('UnusedConfirm')]
-    procedure()
+    procedure DeclaredHandler_NotUsed()
     begin
     end;
 
     [Test]
     [HandlerFunctions('ConfirmYes')]
-    procedure()
+    procedure Confirm_HandlerStillAnswers()
     begin
         if not Confirm('Handled?', false) then Error('the bound handler did not answer');
     end;
@@ -216,7 +216,7 @@ codeunit 50960 "Dev Endpoint UI"
     end;
 
     [Test]
-    procedure()
+    procedure PageRunModal_NoHandler()
     begin
         Log.Clear();
         if Page.RunModal(Page::"Dev Endpoint Card") <> Action::None then Error('RunModal did not answer None');
@@ -224,7 +224,7 @@ codeunit 50960 "Dev Endpoint UI"
     end;
 
     [Test]
-    procedure()
+    procedure PageRun_NoHandler()
     begin
         Log.Clear();
         Page.Run(Page::"Dev Endpoint Card");
@@ -232,13 +232,13 @@ codeunit 50960 "Dev Endpoint UI"
     end;
 
     [Test]
-    procedure()
+    procedure PageRunModal_OnInitPage()
     begin
         Page.RunModal(Page::"Dev Endpoint Init Card");
     end;
 
     [Test]
-    procedure()
+    procedure ReportRunModal_RequestPage_NoHandler()
     var
         Row: Record "Dev Endpoint Row";
     begin
@@ -369,8 +369,7 @@ fn message_and_hyperlink_go_on() {
     );
 }
 
-/// Page.RunModal(Id) answers Action::None and Page.Run(Id) returns, and no page trigger runs (UiHandlerModes.al:129-144
-///). A page with an OnInit trigger was not measured.
+/// Page.RunModal(Id) answers Action::None and Page.Run(Id) returns, and no page trigger runs (UiHandlerModes.al:138-139). A page with an OnInit trigger was not measured.
 #[test]
 fn a_static_page_run_answers_without_opening_the_page() {
     let rt = run(true);
