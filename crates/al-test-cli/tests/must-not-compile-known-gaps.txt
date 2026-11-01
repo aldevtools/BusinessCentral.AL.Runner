@@ -316,3 +316,20 @@
 # corpus bumps 72-78 (writer SH, cases 2120-2188): new cases the front end does not decide yet
 # corpus bump to master 09855762: TestHandlers naming a value the system enum TestHandler lacks (AL0383, BC 29 only); the front end does not know the enum's values
 29 2301-testhandlers-unknown-value
+# corpus bump to master 92031e20: a table extension using a sibling's global that is not protected (AL0161), FieldRef.SetFilter in the
+# assignment form (AL0135), a SubPageLink with a filter or reversed field (AL0104, AL0107), CurrReport.RequestOptionsPage (AL0161)
+27 2356-tableextension-sibling-global-not-protected
+27 2504-fieldref-setfilter-assign
+27 2511-subpagelink-field-filter-const
+27 2512-subpagelink-filter-field-reversed
+27 2514-currreport-requestoptionspage
+28 2356-tableextension-sibling-global-not-protected
+28 2504-fieldref-setfilter-assign
+28 2511-subpagelink-field-filter-const
+28 2512-subpagelink-filter-field-reversed
+28 2514-currreport-requestoptionspage
+29 2356-tableextension-sibling-global-not-protected
+29 2504-fieldref-setfilter-assign
+29 2511-subpagelink-field-filter-const
+29 2512-subpagelink-filter-field-reversed
+29 2514-currreport-requestoptionspage
