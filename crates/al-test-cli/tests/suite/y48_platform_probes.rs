@@ -135,13 +135,10 @@ fn intelligent_cloud_is_an_ordinary_table() {
 
 // G5-03: "Security Filter" (12) of an Expanded Permission row of a permissionset object is blank, plain and with format 9, and
 // copies into a Tenant Permission as blank (permissions/lt-y48-security-filter/Y48ExpandedSecurityFilter.al:120
-// EP_SecurityFilter_MetadataSet). That file is on corpus master (corpus PR 980) but not yet in the corpus pin, so the
-// generated pinned_columns.rs does not list column 12 and the read is refused. The corpus bump that brings the file in
-// makes this test fail: then assert a pass again.
+// EP_SecurityFilter_MetadataSet; in the corpus pin since bump 588aa27e, so pinned_columns.rs lists column 12).
 #[test]
 fn expanded_permission_security_filter_of_a_metadata_set_is_blank() {
-    refused_with(
-        "column 12 of platform table 'Expanded Permission'",
+    passes(
         r#"table 50001 "SF Table" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
 permissionset 50002 "LTPSMETA" { Assignable = true; Permissions = tabledata "SF Table" = R; }
 codeunit 50000 T { Subtype = Test;
@@ -149,16 +146,6 @@ codeunit 50000 T { Subtype = Test;
     EP.SetRange("Role ID", 'LTPSMETA'); EP.FindFirst();
     if Format(EP."Security Filter") <> '' then Error('format'); if Format(EP."Security Filter", 0, 9) <> '' then Error('format 9');
     TP."Security Filter" := EP."Security Filter"; if Format(TP."Security Filter", 0, 9) <> '' then Error('copied'); end; }"#,
-    );
-}
-
-fn refused_with(why: &str, src: &str) {
-    let o = outcomes(src);
-    assert!(!o.is_empty());
-    assert!(
-        o.iter()
-            .all(|(_, r)| matches!(r, Outcome::NotRun(m) if m.contains(why))),
-        "{o:?}"
     );
 }
 
@@ -186,17 +173,18 @@ fn published_application_lists_the_application_row() {
 }
 
 // G5-01 (runtime note): FieldNo of an unpinned column reads no value, so it is not refused (the shape of Base Application's
-// Data Classification Eval. Data: `DummyPublishedApplication.FieldNo(Blob)`); a read of the column still is.
+// Data Classification Eval. Data: `DummyPublishedApplication.FieldNo(Blob)`); a read of the column still is. Blob (22) is
+// pinned since bump 588aa27e; "Package Hash" (28) is not.
 #[test]
 fn field_no_of_an_unpinned_column_is_not_a_read() {
     let o = outcomes(
         r#"codeunit 50000 T { Subtype = Test;
-  [Test] procedure Number() var A: Record "Published Application"; begin if A.FieldNo(Blob) <> 22 then Error('%1', A.FieldNo(Blob)); end;
-  [Test] procedure Read() var A: Record "Published Application"; begin A.CalcFields(Blob); end; }"#,
+  [Test] procedure Number() var A: Record "Published Application"; begin if A.FieldNo("Package Hash") <> 28 then Error('%1', A.FieldNo("Package Hash")); end;
+  [Test] procedure Read() var A: Record "Published Application"; begin A.FindFirst(); if A."Package Hash" = 'x' then; end; }"#,
     );
     assert_eq!(o[0], ("Number".to_string(), Outcome::Pass), "{o:?}");
     assert!(
-        matches!(&o[1].1, Outcome::NotRun(why) if why.contains("column 22")),
+        matches!(&o[1].1, Outcome::NotRun(why) if why.contains("column 28")),
         "{o:?}"
     );
 }
@@ -216,5 +204,22 @@ codeunit 50000 T { Subtype = Test;
     Stream(B, InS); R.Pic.ImportStream(InS, 'd'); if Mime(R.Pic.MediaId()) <> 'd|application/octet-stream' then Error(Mime(R.Pic.MediaId()));
     Stream(B, InS); R.Pics.ImportStream(InS, 'a'); if Mime(R.Pics.Item(1)) <> 'a|application/octet-stream' then Error(Mime(R.Pics.Item(1)));
     Stream(B, InS); R.Pic.ImportStream(InS, 'test.txt', 'text/plain'); if Mime(R.Pic.MediaId()) <> 'test.txt|text/plain' then Error(Mime(R.Pic.MediaId())); end; }"#,
+    );
+}
+
+// G5-01 pins columns 10, 14, 16 to 19, 22, 25, 34 and 36 to 41 of Published Application (Y48PublishedApplication.al), so
+// pinned_columns.rs lists them. The runtime serves them only for the Application row (application_row.rs): on the row of any
+// other app they are unknown, and a read is refused (never a blank BC does not show: its Brief is the manifest's).
+#[test]
+fn published_application_columns_of_an_app_row_the_runtime_does_not_fill_are_refused() {
+    let o = outcomes_app(
+        "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        r#"codeunit 50000 T { Subtype = Test;
+  [Test] procedure Brief() var A: Record "Published Application"; MI: ModuleInfo; begin
+    NavApp.GetCurrentModuleInfo(MI); A.SetRange(ID, MI.Id); A.FindFirst(); if A.Brief <> '' then Error('brief'); end; }"#,
+    );
+    assert!(
+        matches!(&o[0].1, Outcome::NotRun(why) if why.contains("field 'Brief'")),
+        "{o:?}"
     );
 }

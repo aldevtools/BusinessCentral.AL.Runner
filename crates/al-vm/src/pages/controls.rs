@@ -988,12 +988,10 @@ impl Session {
                     inst.borrow_mut().globals[slot] = parsed.clone();
                 }
                 // A control bound to an expression that is a place (`Totals[1]."Inv. Discount Amount"`) is written through the
-                // routine `pages::expand` made. Unprobed: assumption page-expression-control-setvalue.
+                // routine `pages::expand` made (`mark_expression_write`).
                 ir::Binding::Expr(_) if ctl.trigger("__sourceset").is_some() => {
                     let w = ctl.trigger("__sourceset").expect("checked");
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::PageExpressionControlSetValue,
-                    );
+                    mark_expression_write(st, ctl);
                     let owner = ctl.owner;
                     self.owner_routine_with(st, owner, w, vec![parsed.clone()])?;
                 }
@@ -1951,4 +1949,15 @@ fn note_refusal(st: &St, idx: usize, text: String) -> Result<(), Signal> {
         }
     }
     Ok(())
+}
+
+/// Marks assumption page-expression-control-setvalue for a write through a control's expression source, but where it is
+/// pinned: a TestField.Lookup on the page's own control bound to a field of a page global record writes that field, then
+/// runs the control's OnValidate (pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al: Value() shows R2 and the saved
+/// setting row holds it; al-runner issue 6519).
+fn mark_expression_write(st: &St, ctl: &ir::Control) {
+    let pinned = ctl.owner.is_none() && ctl.var_field.is_some() && st.borrow().lookup_setting_value;
+    if !pinned {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageExpressionControlSetValue);
+    }
 }

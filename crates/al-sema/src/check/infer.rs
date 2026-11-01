@@ -910,6 +910,13 @@ impl<'a> Checker<'a> {
         })
     }
 
+    /// AL0132 for `X.Name` that the type of `X` does not have: on a Record, a library type, a TestPage or a TestPart.
+    fn al_unknown_member(&mut self, sc: &Scope, node: &SyntaxNode, recv: &SyntaxNode, base: &Ty, name: &str) {
+        self.al_unknown_record_member(sc, node, base, name);
+        self.al_unknown_builtin_member(sc, node, base, name);
+        self.al_unknown_test_page_member(sc, node, recv, base, name);
+    }
+
     /// AL0132 (corpus must-not-compile 0060, 0061): `R.Name` or `R.Name(...)` on a `Record` variable
     /// whose table the workspace declares, where `Name` is no field of the table, no procedure of it and
     /// no method of `Record` in any version of the catalog. A table that an extension adds fields to is
@@ -1485,8 +1492,7 @@ impl<'a> Checker<'a> {
                     None if self.tdd_field(sc, node, &kids[0], &base_ty, &mname) => E::Val(Ty::Unknown),
                     None => {
                         self.diag(sc, node, "AR1002", self.no_member(&mname, &base_ty));
-                        self.al_unknown_record_member(sc, node, &base_ty, &mname);
-                        self.al_unknown_builtin_member(sc, node, &base_ty, &mname);
+                        self.al_unknown_member(sc, node, &kids[0], &base_ty, &mname);
                         // alc reports it at the member name (issue 5917: `(10,18)` for `Logic.NoSuch(1, 1)`).
                         self.al_unknown_codeunit_member(sc, kids.get(1).unwrap_or(node), &base_ty, &mname);
                         E::Val(Ty::Unknown)
