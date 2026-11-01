@@ -78,7 +78,10 @@ impl super::Lowerer<'_> {
         let (t, f) = (self.ty_of(yes), self.ty_of(no));
         // A Guid against a Label is pinned into a Variant (types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al:24-104).
         let guid = matches!(t, Ty::Guid) || matches!(f, Ty::Guid);
-        if t != f && !guid && (matches!(t, Ty::Label) || matches!(f, Ty::Label)) {
+        // A Label false branch after a Text or Code true branch takes the true branch's type: `Text|abc` and `Code|ABC`
+        // (Y31ConvCd.al Text10_Label :3187-3212, Code10_Label :3660-3700).
+        let label_takes_text = matches!(f, Ty::Label) && matches!(t, Ty::Text(_) | Ty::Code(_));
+        if t != f && !guid && !label_takes_text && (matches!(t, Ty::Label) || matches!(f, Ty::Label)) {
             return Err(format!(
                 "a conditional expression with a Label branch ({t} and {f}) into a Variant: the Variant holds a Label kind that is not built"
             ));
