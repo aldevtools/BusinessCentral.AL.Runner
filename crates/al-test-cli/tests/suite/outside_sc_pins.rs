@@ -6,7 +6,7 @@
 use al_test_cli::report::Outcome;
 
 fn all_pass(file: &str, codeunit: &str) {
-    let src = format!("{}\n{}", file, include_str!("fixtures/outside-sc/Assert.al"));
+    let src = format!("{}\n{}", file, include_str!("../fixtures/outside-sc/Assert.al"));
     let o = al_testkit::outcomes_in(&src, codeunit);
     assert!(!o.is_empty());
     let bad: Vec<_> = o.iter().filter(|(_, r)| *r != Outcome::Pass).collect();
@@ -16,14 +16,14 @@ fn all_pass(file: &str, codeunit: &str) {
 #[test]
 fn lookup_global_record_field_pins_pass() {
     all_pass(
-        include_str!("fixtures/outside-sc/ScLookupGlobalRecordField.al"),
+        include_str!("../fixtures/outside-sc/ScLookupGlobalRecordField.al"),
         "LT SC Lookup Global Rec Tests",
     );
 }
 
 #[test]
 fn drilldown_marked_only_pins_pass() {
-    let file = include_str!("fixtures/outside-sc/ScDrillDownMarkedOnly.al");
+    let file = include_str!("../fixtures/outside-sc/ScDrillDownMarkedOnly.al");
     let name = file
         .lines()
         .find_map(|l| l.strip_prefix("codeunit 89016 \"").and_then(|r| r.split('"').next()))

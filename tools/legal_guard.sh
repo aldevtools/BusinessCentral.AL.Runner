@@ -12,7 +12,7 @@
 # Only tracked files are looked at; submodules (the corpus) are not. A path that must stay is
 # listed in ROOT/tools/legal_guard_allowlist.txt as "<check> <path>", one per line, with a reason
 # in a comment above it. An entry excuses its path from that one check only.
-# The tests are in crates/al-test-cli/tests/legal_guard.rs. The patterns are written so that this
+# The tests are in crates/al-test-cli/tests/suite/legal_guard.rs. The patterns are written so that this
 # file does not match them itself.
 set -euo pipefail
 

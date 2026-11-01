@@ -42,5 +42,5 @@ table with delete subscribers never ran. It needs the probe for `DeleteAll(false
 Each default is a small function that a probe result can replace.
 
 ## Conformance
-`crates/al-test-cli/tests/fixes2.rs`, `crates/al-vm/tests/hostvalues.rs`, the unit tests in
+`crates/al-test-cli/tests/suite/fixes2.rs`, `crates/al-vm/tests/hostvalues.rs`, the unit tests in
 `crates/al-builtins/src/native.rs`.
