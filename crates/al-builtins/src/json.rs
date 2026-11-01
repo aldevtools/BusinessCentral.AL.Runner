@@ -2244,8 +2244,8 @@ fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
                         descent = true;
                         i += 1;
                     } else if b.get(i) == Some(&b'[') && b.get(i + 1) == Some(&b'?') {
-                        // `$.[?(@.id==2)]` (al-runner issue 6588): the dot before a filter is skipped.
-                        crate::assumptions::assume(crate::assumptions::Assumption::SelectTokenDotBeforeIndexer);
+                        // `$.[?(@.id==2)]` (al-runner issue 6588): the dot before a filter is skipped
+                        // (json/lt-db-json-leads/DbJPathLeads.al:249 `dot` and :353 `tok_dot`).
                         continue;
                     }
                 }

@@ -19,10 +19,6 @@ pub(crate) fn of_table(t: &al_ir::Table) -> Vec<Assumption> {
                 (t.parse::<u32>().is_ok() && !m.iter().any(|x| x.trim().eq_ignore_ascii_case(t)))
                     .then_some(Assumption::OptionInitValueOrdinal)
             }
-            // An Enum InitValue that names the member in single quotes (al-sema `lower_table`, al-runner issue 6585).
-            (RtType::Enum(_), al_ir::Const::Enum(..)) => {
-                text.starts_with('\'').then_some(Assumption::QuotedEnumInitValue)
-            }
             _ => None,
         };
         if let Some(a) = a.filter(|a| !out.contains(a)) {
