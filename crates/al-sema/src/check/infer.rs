@@ -471,11 +471,10 @@ impl<'a> Checker<'a> {
         None
     }
 
-    /// `CurrReport.RequestOptionsPage` in a procedure of the report is AL0161; the bare `RequestOptionsPage` is the
-    /// report's request page (must-not-compile 2514-currreport-requestoptionspage.al;
-    /// report/lt-y40-bare-report-run/Y40BareReportRun.al:156). Only a procedure of the report itself is judged: real BC
-    /// (alc 18.0.41) compiles it in a request page control's OnValidate (al-runner #6631), and no corpus test pins
-    /// request page code or the report's triggers.
+    /// `CurrReport.RequestOptionsPage` is AL0161 anywhere in the report except inside its `requestpage` section: in a
+    /// report procedure, a report trigger or a data item trigger (must-not-compile 2514, 2580-2584). The bare
+    /// `RequestOptionsPage` is the report's request page (report/lt-y40-bare-report-run/Y40BareReportRun.al:156). Request
+    /// page code compiles (report/lt-request-options-page-access/RequestOptionsPageAccess.al, al-runner #6631).
     fn currreport_request_options_page(
         &mut self,
         sc: &Scope,
@@ -489,7 +488,7 @@ impl<'a> Checker<'a> {
             && recv.kind() == SyntaxKind::NameRef
             && recv.text().to_string().trim().eq_ignore_ascii_case("CurrReport")
             && self.ws.objects[sc.oi].kind == ObjKind::Report
-            && in_object_procedure(node)
+            && !in_request_page(node)
         {
             self.diag(
                 sc,
@@ -1911,10 +1910,11 @@ fn alc_param_type(t: &Ty) -> Option<String> {
     })
 }
 
-/// Whether `node` is in a procedure declared on the object itself: not in a trigger, and not in a section (a request
-/// page, a data item, a control).
-fn in_object_procedure(node: &SyntaxNode) -> bool {
-    node.ancestors()
-        .find(|a| matches!(a.kind(), SyntaxKind::Procedure | SyntaxKind::Trigger))
-        .is_some_and(|r| r.kind() == SyntaxKind::Procedure && !r.ancestors().any(|a| a.kind() == SyntaxKind::Section))
+/// Whether `node` is inside the `requestpage` section of a report: its control, action and page triggers and its
+/// procedures.
+fn in_request_page(node: &SyntaxNode) -> bool {
+    node.ancestors().any(|a| {
+        a.kind() == SyntaxKind::Section
+            && ast::Section::cast(a).is_some_and(|s| s.name().eq_ignore_ascii_case("requestpage"))
+    })
 }
