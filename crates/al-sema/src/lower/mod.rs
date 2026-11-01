@@ -582,6 +582,7 @@ mod localize;
 #[cfg(test)]
 mod object_hash_tests;
 mod pages;
+mod request_procs;
 mod routine_lists;
 mod shared;
 mod stmt;

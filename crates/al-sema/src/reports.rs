@@ -462,7 +462,8 @@ fn request_extension_reasons(exts: &[(usize, ast::Object)]) -> Vec<String> {
     for (_, e) in exts {
         let ename = e.name();
         for sec in e.sections().filter(|s| s.name().eq_ignore_ascii_case("requestpage")) {
-            for t in sec.triggers() {
+            // A procedure of the request page runs when its code calls it (al-runner issue 6651, `Lowerer::request_proc_refusal`).
+            for t in sec.triggers().filter(|t| t.syntax().kind() != SyntaxKind::Procedure) {
                 let n = t.name().to_ascii_lowercase();
                 if !["onopenpage", "onclosepage"].contains(&n.as_str()) {
                     out.push(format!(
@@ -543,7 +544,7 @@ pub fn request_layout(
                     .push(format!("request page property {name} is not supported yet"));
             }
         }
-        for t in s.triggers() {
+        for t in s.triggers().filter(|t| t.syntax().kind() != SyntaxKind::Procedure) {
             let name = t.name().to_ascii_lowercase();
             if !REQUEST_PAGE_TRIGGERS.contains(&name.as_str()) {
                 layout

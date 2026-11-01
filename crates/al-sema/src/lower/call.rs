@@ -124,12 +124,7 @@ impl Lowerer<'_> {
             Some(Res::Proc { object, offset }) => {
                 self.twin_call_refusal(object, offset)?;
                 let routine = self.routine_at.get(&(object, offset)).ok_or("procedure not found")?;
-                let sig = self.members[object]
-                    .procedures
-                    .iter()
-                    .find(|p| p.offset == offset)
-                    .ok_or("procedure signature")?
-                    .clone();
+                let sig = self.request_proc_refusal(object, offset)?;
                 let instance = match &receiver_node {
                     // `this.Proc()` runs on the current instance, like a bare call.
                     Some(r)
