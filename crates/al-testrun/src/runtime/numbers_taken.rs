@@ -31,6 +31,7 @@ fn left_after_tests(
         .routines
         .iter()
         .any(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun"));
+    let onrun_left_was_none = onrun_left.is_none();
     let mut left = match onrun_left {
         Some(left) => left,
         None if !has_onrun => {
@@ -52,6 +53,10 @@ fn left_after_tests(
         return Some(left);
     };
     match session.carry_numbers_taken(b) {
+        // No number taken: a codeunit without an OnRun trigger leaves the state it was given (`baseline: None`, which the
+        // chain fills with that state, `corpus.rs`), not its session's. A codeunit the baseline rule check runs on an
+        // empty store would otherwise hand that store to the later codeunits.
+        None if onrun_left_was_none => left.baseline = None,
         None => {}
         Some(true) => left.everything = true,
         Some(false) => {

@@ -1527,26 +1527,9 @@ impl CorpusRuntime {
                     })
                     .collect();
             }
-            // AL_CHECK_BASELINE_RULE=1: the verification of `observe.rs`. The baseline runs as usual, but
-            // each test codeunit the rule calls free of it starts on an empty store. A run compared with a
-            // normal one must show no outcome that differs (`tools/baseline_rule_check.sh`).
-            if std::env::var_os("AL_CHECK_BASELINE_RULE").is_some() && baseline.is_some() {
-                let list = std::env::var("AL_CHECK_BASELINE_RULE").is_ok_and(|v| v == "list");
-                for u in &mut units {
-                    let why = crate::observe::may_observe_baseline(lowered, &[u.oi]);
-                    if let (true, Some(why)) = (list, &why) {
-                        eprintln!(
-                            "baseline rule check: {} may observe it: {why}",
-                            lowered.program.objects[u.oi].name
-                        );
-                    }
-                    u.without_baseline = why.is_none();
-                }
-                eprintln!(
-                    "baseline rule check: {} of {} test codeunits run without the baseline",
-                    units.iter().filter(|u| u.without_baseline).count(),
-                    units.len()
-                );
+            if (opts.check_baseline_rule || std::env::var_os("AL_CHECK_BASELINE_RULE").is_some()) && baseline.is_some()
+            {
+                check_baseline_rule(lowered, &mut units);
             }
             // Codeunits with RequiredTestIsolation = Disabled under the TestRunnerHub run first, on this thread, in id order:
             // each starts from what the one before it in its suite left, and leaves everything for the later codeunits
@@ -1608,7 +1591,12 @@ impl CorpusRuntime {
                             None => baseline.as_ref(),
                         };
                         let mut r = run_unit(&engine, lowered, start, &units[k], None, limit);
-                        let left = super::run::CARRIED.with(|c| c.borrow_mut().take());
+                        let mut left = super::run::CARRIED.with(|c| c.borrow_mut().take());
+                        // A codeunit that left nothing new (`numbers_taken.rs`) leaves the state it was given, not the
+                        // session's: under the baseline rule check that session started on an empty store.
+                        if let Some(l) = left.as_mut().filter(|l| l.baseline.is_none()) {
+                            l.baseline = start.cloned();
+                        }
                         if let (Some((_, _, _, b)), Ok(done)) = (before, &mut r.result) {
                             let storage = b.everything && reaches_session_storage(&engine, lowered, units[k].oi);
                             let why =
@@ -2468,6 +2456,37 @@ fn onrun_writes(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bo
             let f = reach_facts(&engine.events, lowered, &index, oi, r);
             f.state_writes & (state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE) != 0
         })
+}
+
+/// AL_CHECK_BASELINE_RULE=1 (`RunOptions::check_baseline_rule`): the verification of `observe.rs`. The baseline runs as
+/// usual, but each test codeunit the rule calls free of it starts on an empty store. A run compared with a normal one must
+/// show no outcome that differs (`tools/baseline_rule_check.sh`).
+fn check_baseline_rule(lowered: &Lowered, units: &mut [Unit]) {
+    let list = std::env::var("AL_CHECK_BASELINE_RULE").is_ok_and(|v| v == "list");
+    for u in units.iter_mut() {
+        let why = crate::observe::may_observe_baseline(lowered, &[u.oi]);
+        if let (true, Some(why)) = (list, &why) {
+            eprintln!(
+                "baseline rule check: {} may observe it: {why}",
+                lowered.program.objects[u.oi].name
+            );
+        }
+        // A codeunit that hands its own data to the later codeunits (Disabled isolation, or an OnRun under runner 130450
+        // whose writes carry) keeps the baseline: on an empty store it would hand them that store, which no normal run
+        // does.
+        let o = &lowered.program.objects[u.oi];
+        let hands_on = u.isolation == TestIsolation::Disabled
+            || (u.onrun_carry
+                && o.routines
+                    .iter()
+                    .any(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun")));
+        u.without_baseline = why.is_none() && !hands_on;
+    }
+    eprintln!(
+        "baseline rule check: {} of {} test codeunits run without the baseline",
+        units.iter().filter(|u| u.without_baseline).count(),
+        units.len()
+    );
 }
 
 /// Whether a test of test codeunit `oi` can take a number from a number sequence. Under runner 130450 the codeunit's rollback

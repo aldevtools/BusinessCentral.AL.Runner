@@ -47,6 +47,10 @@ pub struct RunOptions {
     /// Microsoft's runner 130450 runs every codeunit (the corpus CI on BC 27), whatever the property says
     /// (corpus codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16 and 36-39).
     pub required_isolation: bool,
+    /// The verification of the rule that skips the install baseline (`observe.rs`, `tools/baseline_rule_check.sh`; also
+    /// `AL_CHECK_BASELINE_RULE=1`): the baseline runs, but each test codeunit the rule calls free of it starts on an empty
+    /// store.
+    pub check_baseline_rule: bool,
     /// Count how often each statement of the workspace's apps runs, per test (`al-runner test --coverage`).
     /// Off, a run pays one branch per statement.
     pub coverage: bool,
