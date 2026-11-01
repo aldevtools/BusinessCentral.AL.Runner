@@ -466,6 +466,11 @@ fn closed_and_open_variables_refuse_with_the_corpus_texts() {
     assert_eq!(e, "The TestPage is not open.");
     let e = error_text(run(&body("TP.OpenView(); TP.OpenView();"), "F"));
     assert_eq!(e, "The TestPage is already open.");
+    // Its code is TestPageAlreadyOpen (codeunit/lt-qu-commit-isolation/BlankKeyRowNextTest.al:274, F2_Read_CloseLeftOpen).
+    match run(&body("TP.OpenView(); TP.OpenEdit();"), "F") {
+        Err(Signal::Error(e)) => assert_eq!(e.code, "TestPageAlreadyOpen"),
+        other => panic!("expected an error, got {other:?}"),
+    }
     let e = error_text(run(&body("TP.OpenView(); TP.Close(); T := TP.NoCtl.Value();"), "F"));
     assert_eq!(e, "The TestPage is not open.");
 }

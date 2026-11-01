@@ -3,6 +3,8 @@
 //! `1()` and `FILTER()` on a Text, Date or Integer field set a filter BC writes back as `==` and that keeps every row;
 //! `CONST()` on a Text field selects the blank value. `CONST()` on an Integer is an Evaluate error, read by the parser
 //! (types/lt-evaluate-format-lasterror-setview/P86SetView.al:139). Other field types keep the parser's refusal.
+//! `1(==)` and `FILTER(==)`, the text GetView writes for that filter, are the same filter when set again; `CONST(==)` on a
+//! Text field is the literal text `==` (Y51SetViewShapes.al:269-345, SetView_DoubleEquals*).
 
 use crate::Session;
 use al_builtins::filter::FilterExpr;
@@ -19,16 +21,56 @@ impl Session {
         value: &str,
         runtime: bool,
     ) -> Result<Option<FilterExpr>, Signal> {
-        if !runtime || !value.trim().is_empty() {
+        let value = value.trim();
+        if !runtime {
             return Ok(None);
         }
+        // `1(=)` on a Text field raises (Y51SetViewShapes.al:284, :293 `text_single_eq`).
+        if value == "=" && matches!((kind, ty), ("1" | "FILTER", RtType::Text(_))) {
+            return Err(crate::transactions::al_error_code(
+                "A value is expected after the '='.",
+                "InvalidFilterExpression",
+            ));
+        }
+        let literal = match value {
+            "" => "''",
+            "==" => "'=='",
+            _ => return Ok(None),
+        };
         Ok(match (kind, ty) {
             ("1" | "FILTER", RtType::Text(_) | RtType::Date | RtType::Integer) => Some(FilterExpr::EmptyViewValue),
             ("CONST", RtType::Text(_)) => Some(
-                self.parse_filter_text("''", ty)
+                self.parse_filter_text(literal, ty)
                     .map_err(|e| Signal::Unsupported(format!("SetView: {e}")))?,
             ),
             _ => None,
         })
+    }
+
+    /// `SetFilter` of `==` or `=` alone on a Text field, without placeholders: `==` keeps no filter (true), `=` raises the
+    /// filter error (record/lt-y51-setview-shapes/Y51SetViewShapes.al:343-352 `setfilter_eqeq`, `setfilter_eq`). Other texts:
+    /// false.
+    pub(crate) fn setfilter_equals_text(
+        &self,
+        t: &al_data::TableDef,
+        pos: usize,
+        text: &str,
+        nargs: usize,
+    ) -> Result<bool, Signal> {
+        if nargs > 2 || !matches!(t.fields[pos].ty, RtType::Text(_)) {
+            return Ok(false);
+        }
+        match text.trim() {
+            "==" => Ok(true),
+            "=" => Err(crate::transactions::al_error_code(
+                &format!(
+                    "The filter \"=\" is not valid for the {} field on the {} table. A value is expected after the '='.",
+                    self.field_caption(t, pos),
+                    self.caption(t)
+                ),
+                "Filter:CSide",
+            )),
+            _ => Ok(false),
+        }
     }
 }

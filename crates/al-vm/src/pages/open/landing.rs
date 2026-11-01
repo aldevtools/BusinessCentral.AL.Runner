@@ -19,9 +19,15 @@ impl Session {
         // A tree shows no blank line, opened by Page.Run, Page.RunModal or a Page variable (pages/lt-ah-pages/AhPageTests.al:986,
         // :1006, :1026, :1044 `rows_initial = T1 T5`).
         let tree = self.tree_indentation(st).is_some();
+        // A Worksheet over a temporary source carries it opened with OpenView too: Next from its last row answers true on the
+        // blank line (pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al QR_TempWs_OpenView_NoMove `next` `Yes|`, `next log`
+        // `C:;`, _FindLast, _RangeFindLast, _GetOutsideRange, QR_TempWsNext_OpenView_NoMove, writer Y57).
+        let temp_worksheet_view = st.borrow().mode == PageMode::View
+            && engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet)
+            && self.page_rec(st).borrow().temporary;
         Ok(has_repeater
             && !tree
-            && st.borrow().mode == PageMode::Edit
+            && (st.borrow().mode == PageMode::Edit || temp_worksheet_view)
             // A list handed over in lookup mode has no new-row line (corpus
             // handlers/TestPageModalNewRowLine_Tests.al:209 Plain_LookupModeTrue_HasNoNewRowLine). A LookupMode(true) call
             // does that, and so does Page.RunModal(id, Rec) whose return value is used; called as a statement it keeps the

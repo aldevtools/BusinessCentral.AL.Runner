@@ -5068,7 +5068,8 @@ impl Session {
                 // (query/TestQueryRuntimeContracts.al:208-209, "an empty SetFilter clears the filter"), and the
                 // documentation says the same of a Record, also in a filter group other than 0 (types/lt-filter-enum-relation-duration-guid/
                 // A_BlankFilter.al: Blank_AfterSetFilterGt_Group0, Blank_Group2_AfterSetFilterGt).
-                if text.trim().is_empty() {
+                // `==` on a Text field keeps no filter either; `=` raises (`setfilter_equals_text`).
+                if text.trim().is_empty() || self.setfilter_equals_text(&t, pos, &text, args.len())? {
                     let mut r = rec.borrow_mut();
                     let group = r.filter_group;
                     r.filters.retain(|f| !(f.field == pos && f.group == group));

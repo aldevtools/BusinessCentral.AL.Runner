@@ -93,3 +93,124 @@ fn field_zero_stays_refused() {
     // Y51SetViewShapes.al:164-173: Field0 is the timestamp column, which the runtime does not model as a field.
     assert!(matches!(run("WHERE(Field0=1())"), Err(Signal::Unsupported(_))));
 }
+
+#[test]
+fn a_double_equals_value_is_the_filter_getview_writes_for_an_empty_value() {
+    // Y51SetViewShapes.al:269-295 (SetView_DoubleEqualsValue): `1(==)` and `FILTER(==)` on a Text, Date or Integer field
+    // filter nothing and read back as `==`; with a second field the other filter still applies (:298-308).
+    let all = |n: &str, cap: &str| {
+        format!(
+            "VERSION(1) SORTING(Field1) WHERE({n}=1(==))|VERSION(1) SORTING(Entry No.) WHERE({cap}=FILTER(==))|{cap}: ==|3|1,2,3,"
+        )
+    };
+    assert_eq!(text(run("WHERE(Field4=1(==))")), all("Field4", "Description"));
+    assert_eq!(
+        text(run("VERSION(1) SORTING(Field1) WHERE(Field4=1(==))")),
+        all("Field4", "Description")
+    );
+    assert_eq!(
+        text(run("VERSION(1) SORTING(Entry No.) WHERE(Description=FILTER(==))")),
+        all("Field4", "Description")
+    );
+    assert_eq!(text(run("WHERE(Field5=1(==))")), all("Field5", "Description 2"));
+    assert_eq!(text(run("WHERE(Field2=1(==))")), all("Field2", "Date Field"));
+    assert_eq!(text(run("WHERE(Field1=1(==))")), all("Field1", "Entry No."));
+    assert_eq!(
+        text(run("VERSION(1) SORTING(Field1) WHERE(Field4=1(==),Field5=1(E))")),
+        "VERSION(1) SORTING(Field1) WHERE(Field4=1(==),Field5=1(E))|VERSION(1) SORTING(Entry No.) WHERE(Description=FILTER(==),Description 2=FILTER(E))|Description: ==, Description 2: E|1|3,"
+    );
+}
+
+#[test]
+fn a_double_equals_const_is_the_literal_text() {
+    // Y51SetViewShapes.al:283, :292 `text_const`.
+    assert_eq!(
+        text(run("WHERE(Field4=CONST(==))")),
+        "VERSION(1) SORTING(Field1) WHERE(Field4=1('=='))|VERSION(1) SORTING(Entry No.) WHERE(Description=FILTER('=='))|Description: '=='|0|"
+    );
+}
+
+#[test]
+fn setfilter_double_equals_on_text_keeps_no_filter() {
+    // Y51SetViewShapes.al:343, :351 `setfilter_eqeq`: SetFilter(Description, '==') leaves no filter (GetFilter '', no WHERE, 3 rows).
+    let src = format!(
+        r#"{TABLE}
+codeunit 69992 D
+{{
+    procedure F(): Text
+    var R: Record "SVR Row";
+    begin
+        R."Entry No." := 1; R.Insert(); R."Entry No." := 2; R.Insert(); R."Entry No." := 3; R.Insert();
+        R.SetFilter(Description, 'x');
+        R.SetFilter(Description, '==');
+        exit(R.GetFilter(Description) + '|' + R.GetView(false) + '|' + Format(R.Count()));
+    end;
+}}
+"#
+    );
+    assert_eq!(
+        text(al_testkit::run_in(&src, "D", "F")),
+        "|VERSION(1) SORTING(Field1)|3"
+    );
+}
+
+#[test]
+fn a_single_equals_value_raises_and_the_double_equals_view_round_trips_in_filter_group_10() {
+    // Y51SetViewShapes.al:284, :293 `text_single_eq`: `1(=)` raises "A value is expected after the '='." (InvalidFilterExpression).
+    match run("WHERE(Field4=1(=))") {
+        Err(Signal::Error(e)) => {
+            assert_eq!(e.message, "A value is expected after the '='.");
+            assert_eq!(e.code, "InvalidFilterExpression");
+        }
+        other => panic!("expected an error, got {other:?}"),
+    }
+    // :311-351 SetView_DoubleEquals_RoundTrip: the view GetView wrote for `1()` set again, also in filter group 10.
+    let src = format!(
+        r#"{TABLE}
+codeunit 69993 G
+{{
+    procedure F(): Text
+    var R: Record "SVR Row"; RR: RecordRef; RR2: RecordRef; V: Text; T: Text;
+    begin
+        R."Entry No." := 1; R.Insert(); R."Entry No." := 2; R.Insert(); R."Entry No." := 3; R.Insert();
+        RR.Open(69990); RR.SetView('WHERE(Field4=1())'); V := RR.GetView(false);
+        RR2.Open(69990); RR2.FilterGroup := 10; RR2.SetView(V);
+        T := V + '|' + RR2.GetView(false) + '|' + RR2.GetFilters() + '|' + Format(RR2.Count());
+        RR2.FilterGroup := 0; T += '|' + RR2.GetView(false);
+        RR2.FilterGroup := 10; RR2.SetView(''); exit(T + '|' + RR2.GetView(false) + '|' + Format(RR2.Count()));
+    end;
+}}
+"#
+    );
+    assert_eq!(
+        text(al_testkit::run_in(&src, "G", "F")),
+        "VERSION(1) SORTING(Field1) WHERE(Field4=1(==))|VERSION(1) SORTING(Field1) WHERE(Field4=1(==))|Description: ==|3|VERSION(1) SORTING(Field1)|VERSION(1) SORTING(Field1)|3"
+    );
+}
+
+#[test]
+fn setfilter_single_equals_on_text_raises_the_filter_error() {
+    // Y51SetViewShapes.al:344, :352 `setfilter_eq`.
+    let src = format!(
+        r#"{TABLE}
+codeunit 69994 E
+{{
+    procedure F()
+    var R: Record "SVR Row";
+    begin
+        R.SetFilter(Description, '=');
+    end;
+}}
+"#
+    );
+    match al_testkit::run_in(&src, "E", "F") {
+        Err(Signal::Error(e)) => {
+            assert_eq!(
+                e.message,
+                "The filter \"=\" is not valid for the Description field on the SVR Row table. A value is expected after the '='."
+            );
+            assert_eq!(e.code, "Filter:CSide");
+        }
+        other => panic!("expected an error, got {other:?}"),
+    }
+}
