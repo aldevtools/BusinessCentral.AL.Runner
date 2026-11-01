@@ -104,3 +104,76 @@ fn a_report_with_an_obsolete_data_item_and_request_page_runs() {
 fn a_query_with_an_obsolete_column_and_filter_runs() {
     assert_eq!(text(al_testkit::run_in(ELEMENTS, "C", "Query")), "2;");
 }
+
+/// The same on a request page group, field and action, and on a data item, column and request page field a report extension
+/// adds: alc compiles them (al-runner issue 6652, corpus writer Y64's compile facts, alc 30 with BC 29 symbols).
+const EXT: &str = r#"
+table 69967 "ROP Ext Src" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+table 69968 "ROP Ext Child" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+report 69969 "ROP Ext Rpt"
+{
+    ProcessingOnly = true;
+    dataset { dataitem(Item; "ROP Ext Src") { trigger OnAfterGetRecord() begin Log += 'row' + Format(Item.Id) + ';'; end; } }
+    requestpage
+    {
+        layout
+        {
+            area(Content)
+            {
+                group(Options)
+                {
+                    ObsoleteState = Pending; ObsoleteReason = 'Group replaced.'; ObsoleteTag = '1.0';
+                    field(ModeField; Mode) { ObsoleteState = Pending; ObsoleteReason = 'Field replaced.'; ObsoleteTag = '1.0'; }
+                }
+            }
+        }
+        actions
+        {
+            area(Processing)
+            {
+                action(Act) { ObsoleteState = Pending; ObsoleteReason = 'Action replaced.'; ObsoleteTag = '1.0'; trigger OnAction() begin end; }
+            }
+        }
+    }
+    var Log: Text; Mode: Integer;
+    procedure GetLog(): Text begin exit(Log); end;
+    procedure AddLog(T: Text) begin Log += T; end;
+}
+reportextension 69970 "ROP Ext" extends "ROP Ext Rpt"
+{
+    dataset
+    {
+        add(Item) { column(ExtCol; Item.Id) { ObsoleteState = Pending; ObsoleteReason = 'Column replaced.'; ObsoleteTag = '1.0'; } }
+        addlast(Item)
+        {
+            dataitem(Child; "ROP Ext Child")
+            {
+                ObsoleteState = Pending; ObsoleteReason = 'Data item replaced.'; ObsoleteTag = '1.0';
+                DataItemLink = Id = field(Id);
+                trigger OnAfterGetRecord() begin AddLog('child' + Format(Child.Id) + ';'); end;
+            }
+        }
+    }
+    requestpage
+    {
+        layout { addlast(Options) { field(ExtField; ExtMode) { ObsoleteState = Pending; ObsoleteReason = 'Field replaced.'; ObsoleteTag = '1.0'; } } }
+    }
+    var ExtMode: Integer;
+}
+codeunit 69971 C
+{
+    procedure Report(): Text
+    var R: Report "ROP Ext Rpt"; Row: Record "ROP Ext Src"; Child: Record "ROP Ext Child";
+    begin
+        Row.Id := 1; Row.Insert(); Row.Id := 2; Row.Insert(); Child.Id := 2; Child.Insert();
+        R.UseRequestPage(false);
+        R.RunModal();
+        exit(R.GetLog());
+    end;
+}
+"#;
+
+#[test]
+fn obsolete_request_page_controls_and_report_extension_elements_run() {
+    assert_eq!(text(al_testkit::run_in(EXT, "C", "Report")), "row1;row2;child2;");
+}
