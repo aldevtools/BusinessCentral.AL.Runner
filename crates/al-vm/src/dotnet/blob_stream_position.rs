@@ -7,6 +7,7 @@
 //! - `InS := S` gives an InStream over the Blob from its start, whatever either position is (BlobStream_AssignBack_SameProcedure;
 //!   BlobStream_AssignBackToInStream_InCallee, where the caller's InStream, which the callee's by-value parameter shares, reads
 //!   all of it afterwards and can be given to a DotNet Stream again): the InStream the stream was made from, rewound.
+//!
 //! Refused: these on the OutStream side, after a .NET read (`ReadByte`), and any other member after a Position set.
 
 use super::blob_stream::{S_AL, S_SET, S_TOUCHED, blob_of, is_out, state_of};

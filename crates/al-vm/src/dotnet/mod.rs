@@ -974,7 +974,7 @@ impl Session {
                         }
                     }
                     (Value::Text(_), RtType::Date) if bc28 => Signal::Unsupported(
-                        "foreach of a Date over a .NET text on BC 28 or later: the error text is pinned only by its start"
+                        "foreach of a Date over a .NET text: on this major the corpus pins only the start of the error text"
                             .into(),
                     ),
                     (Value::Integer(_), RtType::Text(_) | RtType::Code(_)) if !bc28 => {

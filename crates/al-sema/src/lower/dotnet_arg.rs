@@ -81,7 +81,7 @@ impl Lowerer<'_> {
                 Some(rt @ RtType::Text(None))
                     if !p.by_var
                         && matches!(pty.as_str(), "Text" | "String")
-                        && self.declared_clr_type(&alias).as_deref() == Some("System.String") =>
+                        && self.declared_clr_type(alias).as_deref() == Some("System.String") =>
                 {
                     ir::Expr::DotNetCoerce(rt, Box::new(self.operand(a, ir::OperandUse::Strict)?))
                 }

@@ -8,6 +8,7 @@
 //! - a BigInteger `xs:long` (`0` written);
 //! - a Guid `xs:string` with `msdata:DataType` naming System.Guid of the .NET of the BC major (8.0.0.0 for BC 27 and 28,
 //!   10.0.0.0 for BC 29), lower case without braces, the null Guid as zeros (:276, `#if BC29PLUS`).
+//!
 //! Each holds when no row is written too (:304-321, SaveAsXml_TimeColumn_NoRow).
 
 use crate::dataset::DataFileText;

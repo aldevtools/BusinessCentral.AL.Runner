@@ -8,6 +8,7 @@
 //! - JsonObject.ReadFrom closes the stream (`Position` afterwards: ObjectDisposed);
 //! - a variable that holds no object is the error `Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavDotNet to
 //!   Microsoft.Dynamics.Nav.Runtime.NavInStream.` (Conversion), for ReadFrom and ImportStream (JsonObject.ReadFrom: not pinned).
+//!
 //! Another .NET stream type is refused.
 
 use super::{stream_failure, unsupported};
