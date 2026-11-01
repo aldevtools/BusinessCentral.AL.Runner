@@ -54,9 +54,16 @@ fn outcomes_app(app_id: &str, main: &str) -> Vec<(String, Outcome)> {
     let engine = Engine::with_target(
         std::sync::Arc::new(program),
         blocked,
-        Some(al_version::Target::for_bc(al_version::BcVersion::parse("27.5.0.0").unwrap())),
+        Some(al_version::Target::for_bc(
+            al_version::BcVersion::parse("27.5.0.0").unwrap(),
+        )),
     );
-    let oi = l.program.objects.iter().position(|o| o.name == "T").expect("test codeunit T");
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
     run_codeunit(&engine, &l, oi)
 }
 
@@ -175,7 +182,10 @@ fn field_no_of_an_unpinned_column_is_not_a_read() {
   [Test] procedure Read() var A: Record "Published Application"; begin A.CalcFields(Blob); end; }"#,
     );
     assert_eq!(o[0], ("Number".to_string(), Outcome::Pass), "{o:?}");
-    assert!(matches!(&o[1].1, Outcome::NotRun(why) if why.contains("column 22")), "{o:?}");
+    assert!(
+        matches!(&o[1].1, Outcome::NotRun(why) if why.contains("column 22")),
+        "{o:?}"
+    );
 }
 
 // G5-04: the Tenant Media row of a two-argument import of content that is no picture has Mime Type application/octet-stream,

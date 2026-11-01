@@ -420,7 +420,8 @@ impl Providers {
                 }
                 // ADR-044: the picture was never produced; its content, MIME type and size are unknown.
                 if let Some(what) = &o.pending {
-                    let al_builtins::native::Signal::Unsupported(why) = al_builtins::stream::render_pending_error(what) else {
+                    let al_builtins::native::Signal::Unsupported(why) = al_builtins::stream::render_pending_error(what)
+                    else {
                         unreachable!("render_pending_error is a refusal")
                     };
                     return mat::Entry::poisoned(row, why);
@@ -455,7 +456,11 @@ impl Providers {
                     row[p] = Value::Text(file_name.into());
                 }
                 // The row names the session company (platform/W6TenantMedia.al:TenantMedia_RowAfterImportStream).
-                if let Some(p) = t.fields.iter().position(|f| f.name.eq_ignore_ascii_case("Company Name")) {
+                if let Some(p) = t
+                    .fields
+                    .iter()
+                    .position(|f| f.name.eq_ignore_ascii_case("Company Name"))
+                {
                     row[p] = Value::Text(self.ident.company.clone().into());
                 }
                 mat::Entry::ok(row)

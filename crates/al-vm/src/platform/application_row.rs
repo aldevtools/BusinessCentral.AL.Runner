@@ -21,7 +21,12 @@ const SYSTEM_APPLICATION: &str = "63ca2fa4-4f03-4f2b-a480-172fef340d3f";
 /// The id of the Application app, unless the program holds an app with it (then it is listed as any other).
 pub(super) fn application_id(p: &Providers) -> Option<[u8; 16]> {
     let application = al_builtins::moduleinfo::APPLICATION_APP_ID;
-    let listed = p.engine().program.apps.iter().any(|a| a.id.eq_ignore_ascii_case(application));
+    let listed = p
+        .engine()
+        .program
+        .apps
+        .iter()
+        .any(|a| a.id.eq_ignore_ascii_case(application));
     if listed {
         return None;
     }
