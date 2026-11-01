@@ -155,7 +155,7 @@ impl Describe for LibraryValue {
             LibraryValue::FilterPageBuilder(_) => "FilterPageBuilder".into(),
             LibraryValue::Notification(_) => "Notification".into(),
             LibraryValue::ModuleInfo(_) => "ModuleInfo".into(),
-            LibraryValue::DataTransfer(_) => "DataTransfer".into(),
+            LibraryValue::DataTransfer(_) | LibraryValue::DataTransferPlan(_) => "DataTransfer".into(),
             LibraryValue::Cookie(_) => "Cookie".into(),
             LibraryValue::HttpRequest(_) => "HttpRequestMessage".into(),
             LibraryValue::HttpContent(_) => "HttpContent".into(),
