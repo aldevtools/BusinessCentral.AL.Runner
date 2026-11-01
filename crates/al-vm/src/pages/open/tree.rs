@@ -234,7 +234,7 @@ impl Session {
     /// IsExpanded reads which (pages/lt-ah-pages/AhPageTests.al:950-961 Walk, :986-993 Tree_ThroughPageRun `T1 T5` -> `T1 T2 T4 T5`
     /// -> `T1 T5`, GoToKey of a hidden child `No`). A row's parent is the nearest row before it, in the page's order, with a lower
     /// level. Pinned only for a page without row triggers, a primary key of one field, expanding a row with children and collapsing
-    /// an expanded one, and a second Expand of either; anything else is refused.
+    /// an expanded one, a second Expand of either, and Expand(true) on a leaf without a parent; anything else is refused.
     pub(in crate::pages) fn tree_expand(&mut self, st: &St, on: bool) -> Result<(), Signal> {
         for t in ["onfindrecord", "onnextrecord"] {
             if self.declares(st, t) {
@@ -281,6 +281,17 @@ impl Session {
                 // A second Expand(true) or Expand(false) on a row with children changes nothing (pages/lt-page-runtime/P82TestPage.al:
                 // 283-289 Tree_Expand_IsExpanded, :336-341 Tree_Rows_WhileCollapsed; a page without row triggers).
                 (true, Some(_)) | (false, None) if has_children && !row_triggers => return Ok(()),
+                // The same with OnAfterGetRecord and OnAfterGetCurrRecord on an ExpandAll tree: no row trigger runs, the cursor stays
+                // (pages/lt-y50-tree-expand-leaf/Y50TreeExpandLeaf.al:313 G517_Mixed_ExpandFalseOnCollapsed, :332
+                // G517_Mixed_ExpandTrueTwice_Walk).
+                (true, Some(_)) | (false, None) if has_children => return Ok(()),
+                // Expand(true) on a row without children and without a parent (a level-0 row, or every row at level 1 with no
+                // level-0 row) changes nothing: no error, IsExpanded stays No, no row trigger runs, the cursor stays
+                // (Y50TreeExpandLeaf.al:263 and :280 FLAT, :296 MIXED row 40, :351 a tree without row triggers or
+                // TreeInitialState). A leaf under a parent is not pinned.
+                (true, None) if !has_children && at.is_some_and(|i| !rows[..i].iter().any(|(_, l)| *l < rows[i].1)) => {
+                    return Ok(());
+                }
                 _ => {
                     return unsupported(
                         "Expand(true) on a tree row without children or one already expanded, or Expand(false) on a row not expanded (not pinned)",
