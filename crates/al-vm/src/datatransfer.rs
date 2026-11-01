@@ -208,7 +208,7 @@ impl Session {
                 return refuse("DataTransfer.CopyRows onto a row that already exists (not pinned)");
             }
             Store::insert(&mut self.store, &cx, &dt, row)
-                .map_err(|e| Signal::Unsupported(format!("DataTransfer.CopyRows: {e:?}")))?;
+                .map_err(|e| Signal::Unsupported(format!("DataTransfer.CopyRows: {e}")))?;
         }
         Ok(())
     }
@@ -266,7 +266,7 @@ impl Session {
         let cx = self.cx_for(&drec, &dt)?;
         for row in changed {
             Store::modify(&mut self.store, &cx, &dt, row)
-                .map_err(|e| Signal::Unsupported(format!("DataTransfer.CopyFields: {e:?}")))?;
+                .map_err(|e| Signal::Unsupported(format!("DataTransfer.CopyFields: {e}")))?;
         }
         Ok(())
     }
