@@ -123,3 +123,49 @@ codeunit 62790 T
     let o = al_testkit::outcomes_in(&src, "T");
     assert_eq!(o[0].1, Outcome::Pass);
 }
+
+// Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun ('second'): the close by SaveAsXml stores the values of the
+// base and of the extension; the next run opens with them.
+#[test]
+fn with_save_values_a_save_as_xml_close_stores_the_base_and_extension_values() {
+    let src = r#"
+table 62710 "RY Row" { fields { field(1; Id; Integer) { } field(2; Name; Text[20]) { } } keys { key(PK; Id) { } } }
+report 62711 "RY Saved"
+{
+    ProcessingOnly = false;
+    dataset { dataitem(Header; "RY Row") { column(HName; Name) { } } }
+    requestpage { SaveValues = true; layout { area(Content) { group(Options) { field(ShowAll; ShowAll) { } } } } }
+    var ShowAll: Boolean;
+}
+reportextension 62712 "RY Saved X" extends "RY Saved"
+{
+    dataset { modify(Header) { trigger OnAfterAfterGetRecord() begin end; } }
+    requestpage { layout { addlast(Options) { field(NoteText; NoteText) { } } } }
+    var NoteText: Text[50];
+}
+codeunit 62790 T
+{
+    Subtype = Test;
+    var Step: Integer; Seen: Text;
+    [Test] [HandlerFunctions('H')] procedure Run()
+    var R: Record "RY Row";
+    begin
+        R.DeleteAll(); R.Id := 1; R.Name := 'one'; R.Insert(); Commit();
+        Step := 1; Report.Run(Report::"RY Saved");
+        Step := 2; Report.Run(Report::"RY Saved");
+        if Seen <> 'note=hello showall=Yes' then Error(Seen);
+    end;
+    [RequestPageHandler] procedure H(var P: TestRequestPage "RY Saved")
+    begin
+        if Step = 1 then begin
+            P.NoteText.SetValue('hello'); P.ShowAll.SetValue(true);
+            P.SaveAsXml(TemporaryPath() + 'p.xml', TemporaryPath() + 'd.xml');
+            exit;
+        end;
+        Seen := 'note=' + P.NoteText.Value() + ' showall=' + P.ShowAll.Value();
+        P.Cancel().Invoke();
+    end;
+}"#;
+    let o = al_testkit::outcomes_in(src, "T");
+    assert_eq!(o[0].1, Outcome::Pass);
+}

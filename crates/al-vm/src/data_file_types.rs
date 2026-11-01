@@ -13,7 +13,6 @@
 
 use crate::dataset::DataFileText;
 use al_builtins::value::{RtType, Value};
-use al_ir::types::ExprTy;
 
 const GUID_NET8: &str =
     "xs:string;System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e";
@@ -50,13 +49,13 @@ pub(crate) fn declared(ty: &RtType, major: u16) -> Option<&'static str> {
 /// `ty` when no row is written: the type of its AL type, pinned for Code, Text, Integer, Decimal, Boolean, Date, Option and Enum
 /// (al-language-onprem/report/lt-y60-saveasxml-norow/Y60SaveAsXmlNoRow.al Columns_Expressions_NoRow, the same as with rows:
 /// Columns_Expressions_WithRow). Other types are not pinned for an expression.
-pub(crate) fn expression(ty: ExprTy) -> Option<&'static str> {
+pub(crate) fn expression(ty: &RtType) -> Option<&'static str> {
     match ty {
-        ExprTy::Code | ExprTy::Text | ExprTy::Option | ExprTy::Enum => Some("xs:string"),
-        ExprTy::Integer => Some("xs:int"),
-        ExprTy::Decimal => Some("xs:decimal"),
-        ExprTy::Boolean => Some("xs:boolean"),
-        ExprTy::Date => Some("xs:dateTime"),
+        RtType::Code(_) | RtType::Text(_) | RtType::Option(_) | RtType::Enum(_) => Some("xs:string"),
+        RtType::Integer => Some("xs:int"),
+        RtType::Decimal => Some("xs:decimal"),
+        RtType::Boolean => Some("xs:boolean"),
+        RtType::Date => Some("xs:dateTime"),
         _ => None,
     }
 }
@@ -98,9 +97,25 @@ pub(crate) fn column(
         return declared(&f.ty, major);
     }
     let routine = vm.engine.program.objects[object].routines.get(c.routine?)?;
-    let types = al_ir::types::ExprTypes::new(routine);
     match routine.body.stmts().as_slice() {
-        [al_ir::Stmt::Exit(Some(e))] => expression(types.of(e)),
+        [al_ir::Stmt::Exit(Some(al_ir::Expr::Load(place)))] => expression(&place_type(vm, object, place)?),
+        _ => None,
+    }
+}
+
+/// The static type of `place` in a routine of `object`: a global of the object, an element of a global array, a field of a
+/// global record. Other places give `None`.
+fn place_type(vm: &crate::Session, object: usize, place: &al_ir::Place) -> Option<RtType> {
+    match place {
+        al_ir::Place::Global(s) => vm.engine.program.objects[object].globals.get(*s).map(|g| g.ty.clone()),
+        al_ir::Place::Index(p, _) => match place_type(vm, object, p)? {
+            RtType::Array(_, elem) => Some(*elem),
+            _ => None,
+        },
+        al_ir::Place::Field(p, pos) => match place_type(vm, object, p)? {
+            RtType::Record(t, _) => vm.engine.tables.get(t as usize)?.as_ref()?.fields.get(*pos).map(|f| f.ty.clone()),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -200,24 +215,23 @@ mod tests {
     // Columns_Expressions_NoRow: Option and Enum fields are xs:string; an expression column has the type of its AL type.
     #[test]
     fn option_enum_fields_and_expression_columns_have_their_type_without_a_row() {
-        use al_ir::types::ExprTy;
         assert_eq!(declared(&RtType::Option(vec!["A".into()]), 29), Some("xs:string"));
         assert_eq!(declared(&RtType::Enum(5), 27), Some("xs:string"));
         let want = [
-            (ExprTy::Code, Some("xs:string")),
-            (ExprTy::Text, Some("xs:string")),
-            (ExprTy::Integer, Some("xs:int")),
-            (ExprTy::Decimal, Some("xs:decimal")),
-            (ExprTy::Boolean, Some("xs:boolean")),
-            (ExprTy::Date, Some("xs:dateTime")),
-            (ExprTy::Option, Some("xs:string")),
-            (ExprTy::Enum, Some("xs:string")),
-            (ExprTy::Time, None),
-            (ExprTy::Other, None),
-            (ExprTy::Unknown, None),
+            (RtType::Code(Some(10)), Some("xs:string")),
+            (RtType::Text(None), Some("xs:string")),
+            (RtType::Integer, Some("xs:int")),
+            (RtType::Decimal, Some("xs:decimal")),
+            (RtType::Boolean, Some("xs:boolean")),
+            (RtType::Date, Some("xs:dateTime")),
+            (RtType::Option(vec!["A".into()]), Some("xs:string")),
+            (RtType::Enum(3), Some("xs:string")),
+            (RtType::Time, None),
+            (RtType::Guid, None),
+            (RtType::Variant, None),
         ];
         for (ty, tag) in want {
-            assert_eq!(expression(ty), tag, "{ty:?}");
+            assert_eq!(expression(&ty), tag, "{ty:?}");
         }
     }
 

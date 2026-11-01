@@ -474,6 +474,9 @@ impl Session {
             .map_err(Signal::Unsupported)?;
         self.host.files.write(&data_file, &data).map_err(Signal::Unsupported)?;
         st.borrow_mut().result = Some("SaveAsXml".into());
+        // SaveValues: the close stores the values of the page and of its extensions; the next run opens with them (al-language-onprem/
+        // report/lt-y60-reportext-saveasxml/Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun).
+        self.store_page_values(st);
         self.mark_closed(st);
         Ok(Value::Null)
     }
