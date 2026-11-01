@@ -117,5 +117,8 @@ fn datatransfer_into_a_table_with_an_extension_is_refused() {
         codeunit: 50584,
         name: "TheInstallRan".into(),
     });
-    assert!(matches!(&o, Outcome::NotRun(r) if r.contains("table extension")), "{o:?}");
+    assert!(
+        matches!(&o, Outcome::NotRun(r) if r.contains("table extension")),
+        "{o:?}"
+    );
 }
