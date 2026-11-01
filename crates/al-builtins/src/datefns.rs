@@ -13,6 +13,8 @@ use crate::format::{civil_from_day, day_from_civil};
 use crate::native::{Ctx, NativeFn, Signal, raise};
 use crate::value::Value;
 
+mod brackets;
+
 pub const REGISTRY: &[(&str, NativeFn)] = &[
     ("System.DMY2Date#1", dmy2date),
     ("System.CreateDateTime#1", create_datetime),
@@ -811,13 +813,14 @@ fn normalize_formula(text: &str) -> Result<String, Signal> {
     for (i, &c) in chars.iter().enumerate() {
         match c {
             '<' => {
-                if !(i == 0 || matches!(chars[i - 1], '<' | '+' | '-')) {
+                let edge = i == 0 || matches!(chars[i - 1], '<' | '+' | '-');
+                if !edge && matches!(brackets::open(text, &chars, i)?, brackets::Inside::Refuse) {
                     return refuse("an angle bracket inside a term");
                 }
             }
             '>' => {
                 let tail_ok = chars[i + 1..].iter().all(|c| *c == '>') || matches!(chars.get(i + 1), Some('+' | '-'));
-                if !tail_ok {
+                if !tail_ok && matches!(brackets::close(&chars, i), brackets::Inside::Refuse) {
                     return refuse("an angle bracket inside a term");
                 }
             }
@@ -871,10 +874,20 @@ pub enum Evaluated {
 pub fn evaluate_formula(text: &str) -> Result<Evaluated, Signal> {
     // Evaluate with its result used answers false (errors/lt-ms-refusals-131/P131CalcDate.al:147, 152); the statement
     // form is not pinned.
-    if bracketed_steps_without_sign(text).is_some() || bracketed_step_then_sign(text) {
+    // The statement form raises the missing-sign error (DateFormulaEdges.al:627-628, `<1D><1D>`).
+    if let Some(shown) = bracketed_steps_without_sign(text) {
+        return Ok(Evaluated::Rejected(Some(format!(
+            "The date formula '{shown}' must include plus (+) or minus (-)."
+        ))));
+    }
+    if bracketed_step_then_sign(text) {
         return Ok(Evaluated::Rejected(None));
     }
-    let n = normalize_formula(text)?;
+    // A bracket inside a term can raise a missing number or time unit error (see [`brackets`]).
+    let n = match normalize_formula(text) {
+        Err(Signal::Error(e)) if e.message.contains("should include a") => return Ok(Evaluated::Failed(e.message)),
+        n => n?,
+    };
     if n.is_empty() {
         return Ok(Evaluated::Stored(String::new()));
     }
@@ -1662,7 +1675,7 @@ mod tests {
         );
         assert!(matches!(
             super::evaluate_formula("<1D><1D>"),
-            Ok(super::Evaluated::Rejected(None))
+            Ok(super::Evaluated::Rejected(Some(_)))
         ));
         // A sign at the end (P131CalcDate.al:80-81, 116-117, 152; P132DateFormula.al:142 `<+>`).
         for (f, shown) in [
