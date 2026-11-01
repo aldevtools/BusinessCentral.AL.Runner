@@ -86,7 +86,6 @@
 27 1120-testrequestpage-dataitem-setrange
 27 1170-commitbehavior-unknown-member
 27 1172-user-group-member-removed
-27 1212-testpage-delete-action
 27 1241-pageext-non-page-triggers
 27 1242-codeunit-var-and-value-parameter-same-name
 27 1243-table-page-report-duplicate-procedure
@@ -100,7 +99,6 @@
 28 1120-testrequestpage-dataitem-setrange
 28 1170-commitbehavior-unknown-member
 28 1172-user-group-member-removed
-28 1212-testpage-delete-action
 28 1241-pageext-non-page-triggers
 28 1242-codeunit-var-and-value-parameter-same-name
 28 1243-table-page-report-duplicate-procedure
@@ -115,7 +113,6 @@
 29 1120-testrequestpage-dataitem-setrange
 29 1170-commitbehavior-unknown-member
 29 1172-user-group-member-removed
-29 1212-testpage-delete-action
 29 1241-pageext-non-page-triggers
 29 1242-codeunit-var-and-value-parameter-same-name
 29 1243-table-page-report-duplicate-procedure

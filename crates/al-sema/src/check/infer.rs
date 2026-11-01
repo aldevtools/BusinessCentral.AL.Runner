@@ -1488,6 +1488,7 @@ impl<'a> Checker<'a> {
                         self.diag(sc, node, "AR1002", self.no_member(&mname, &base_ty));
                         self.al_unknown_record_member(sc, node, &base_ty, &mname);
                         self.al_unknown_builtin_member(sc, node, &base_ty, &mname);
+                        self.al_unknown_test_page_member(sc, node, &kids[0], &base_ty, &mname);
                         // alc reports it at the member name (issue 5917: `(10,18)` for `Logic.NoSuch(1, 1)`).
                         self.al_unknown_codeunit_member(sc, kids.get(1).unwrap_or(node), &base_ty, &mname);
                         E::Val(Ty::Unknown)

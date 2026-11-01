@@ -2,6 +2,51 @@
 use super::*;
 
 impl<'a> Checker<'a> {
+    /// AL0132 (corpus must-not-compile 2570-testpage-getrecord.al, 2571-testpart-getrecord.al; al-runner issue 6519):
+    /// `TP.Name(...)` on a TestPage or TestPart of a page an app under test declares, where `Name` is no control, action or
+    /// part of the page (`member` found none) and no method of TestPage or TestPart in any version of the catalog. A page
+    /// that a page extension extends is not judged. alc names a TestPage by its type and a TestPart by its control.
+    pub(crate) fn al_unknown_test_page_member(
+        &mut self,
+        sc: &Scope,
+        node: &SyntaxNode,
+        recv: &SyntaxNode,
+        base: &Ty,
+        name: &str,
+    ) {
+        let (Ty::TestPage(p) | Ty::TestPart(p)) = base else {
+            return;
+        };
+        if self.ws.is_dependency(sc.oi) || !node.parent().is_some_and(|c| c.kind() == SyntaxKind::CallExpr) {
+            return;
+        }
+        let Some(oi) = self.resolve(sc, ObjKind::Page, p) else {
+            return;
+        };
+        let Some(r) = receiver_of(base) else { return };
+        if self.ws.is_dependency(oi)
+            || !self.ws.extensions_of(oi).is_empty()
+            || !self.catalog.overloads(&r, name).is_empty()
+            || !self.catalog.hidden(&r, name).is_empty()
+        {
+            return;
+        }
+        let shown = match base {
+            Ty::TestPage(_) => format!("TestPage {}", self.ws.objects[oi].name),
+            _ if recv.kind() == SyntaxKind::MemberExpr => match recv.children().last() {
+                Some(n) => name_of(&n),
+                None => return,
+            },
+            _ => return,
+        };
+        self.diag(
+            sc,
+            node,
+            "AL0132",
+            format!("'{shown}' does not contain a definition for '{name}'"),
+        );
+    }
+
     /// The control `name` of page (or request page) `oi`, typed as a test client handle.
     pub(crate) fn control_of_section(&self, oi: usize, name: &str) -> Option<E> {
         let sec = self.named_section(oi, name)?;

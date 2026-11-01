@@ -2379,3 +2379,40 @@ fn al0296_static_file_methods_in_a_cloud_app() {
     let var = "codeunit 50000 C { procedure P() var File: Codeunit D; begin File.Exists('x'); end; } codeunit 50001 D { procedure Exists(S: Text) begin end; }";
     assert!(ctx_codes(var, &cloud()).is_empty());
 }
+
+// must-not-compile 2570, 2571: TestPage and TestPart have no GetRecord (al-runner issue 6519, writer Y54). Their methods and
+// the page's controls, actions and parts are no AL0132.
+#[test]
+fn al0132_method_a_test_page_does_not_have() {
+    let objs = "table 50570 \"MNC Y54 Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+        page 50570 \"MNC Y54 List\" { PageType = List; SourceTable = \"MNC Y54 Row\";
+            layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } } } }
+            actions { area(Processing) { action(Go) { trigger OnAction() begin end; } } } }
+        page 50571 \"MNC Y54 Host\" { PageType = Card; SourceTable = \"MNC Y54 Row\";
+            layout { area(Content) { field(HostId; Rec.Id) { } part(Lines; \"MNC Y54 List\") { } } } }";
+    let call = |stmt: &str| {
+        format!(
+            "codeunit 50572 C {{ procedure T() var Pg: TestPage \"MNC Y54 List\"; Host: TestPage \"MNC Y54 Host\";
+                Row: Record \"MNC Y54 Row\"; begin {stmt}; end; }}"
+        )
+    };
+    assert_eq!(
+        messages(&format!("{objs} {}", call("Pg.GetRecord(Row)"))),
+        vec!["AL0132 'TestPage MNC Y54 List' does not contain a definition for 'GetRecord'"]
+    );
+    assert_eq!(
+        messages(&format!("{objs} {}", call("Host.Lines.GetRecord(Row)"))),
+        vec!["AL0132 'Lines' does not contain a definition for 'GetRecord'"]
+    );
+    for ok in [
+        "Pg.OpenView()",
+        "Pg.Id.SetValue(1)",
+        "Pg.Go.Invoke()",
+        "Host.Lines.Next()",
+        "Host.Lines.Id.Value()",
+        "Host.HostId.Value()",
+        "Pg.Close()",
+    ] {
+        assert!(codes(&[objs, &call(ok)]).is_empty(), "{ok}");
+    }
+}
