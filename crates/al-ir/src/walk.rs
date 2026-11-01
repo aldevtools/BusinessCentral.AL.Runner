@@ -876,6 +876,7 @@ fn walk_control<V: RefVisitor>(
         expr_call: _,
         array_element: _,
         bare_quoted_ext_source: _,
+        factbox: _,
     } = c;
     if let Some((table, field)) = var_field {
         fld(v, field, TableOf::object(Some(*table)));

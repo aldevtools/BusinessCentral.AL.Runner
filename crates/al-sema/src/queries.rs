@@ -416,6 +416,7 @@ impl Builder<'_> {
                 "caption" => caption = single_quoted(&v),
                 "columnfilter" => filter_text = Some(v),
                 "description" | "tooltip" => {}
+                n if crate::reports::OBSOLETE_PROPERTIES.contains(&n) => {}
                 other => self.reason(format!("column {name}: property {other} is not supported yet")),
             }
         }

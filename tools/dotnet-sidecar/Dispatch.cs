@@ -168,15 +168,38 @@ public sealed class Server
                 {
                     // AL calls an indexer by the name the framework gives it (IndexerName):
                     // `XmlAttributeCollection.ItemOf('name')`. The getter takes the index arguments.
-                    var getters = type.GetProperties(flags)
-                        .Where(p => p.Name == name && p.GetIndexParameters().Length > 0 && p.GetMethod != null && p.GetMethod.IsPublic)
+                    var indexers = type.GetProperties(flags).Where(p => p.Name == name).ToArray();
+                    var getters = indexers
+                        .Where(p => p.GetIndexParameters().Length == args.Length && p.GetMethod != null && p.GetMethod.IsPublic)
                         .Select(p => (MethodBase)p.GetMethod!).ToArray();
+                    // With one argument more than the index, the last one is the value assigned through the indexer:
+                    // `DataRow.Item(ColumnName, Value)` (System Application "Business Chart Impl."; corpus
+                    // tests/al-language/misc/lt-au-language-edges/AuEdgeTests.al:608, real BC reads the value back).
+                    // Both can fit two arguments (`DataRow.Item(String, DataRowVersion)` reads, `Item(String) = Object`
+                    // writes): the closer fit wins and a tie reads. An Integer value is written, as on real BC (the
+                    // corpus test above sets 7 with SetValueByIndex and reads it back).
+                    var setters = indexers
+                        .Where(p => p.GetIndexParameters().Length == args.Length - 1 && p.GetIndexParameters().Length > 0
+                            && p.SetMethod != null && p.SetMethod.IsPublic)
+                        .Select(p => (MethodBase)p.SetMethod!).ToArray();
+                    (MethodBase Best, object?[] Coerced, int Score)? read = null, write = null;
+                    Refusal? noFit = null;
                     if (getters.Length > 0)
+                        try { read = Pick(getters, args, $"{type.FullName}.{name}"); } catch (Refusal r) { noFit = r; }
+                    if (setters.Length > 0)
+                        try { write = Pick(setters, args, $"{type.FullName}.{name}"); } catch (Refusal r) { noFit ??= r; }
+                    if (read is { } g && (write is not { } w0 || g.Score <= w0.Score))
                     {
-                        var (ib, ic, _) = Pick(getters, args, $"{type.FullName}.{name}");
-                        var gm = (MethodInfo)ib;
-                        return Done(gm.Invoke(gm.IsStatic ? null : target, ic), ib, ic, args, gm.ReturnType);
+                        var gm = (MethodInfo)g.Best;
+                        return Done(gm.Invoke(gm.IsStatic ? null : target, g.Coerced), g.Best, g.Coerced, args, gm.ReturnType);
                     }
+                    if (write is { } w)
+                    {
+                        var sm = (MethodInfo)w.Best;
+                        sm.Invoke(sm.IsStatic ? null : target, w.Coerced);
+                        return Done(null, null, null, null);
+                    }
+                    if (noFit != null) throw noFit;
                 }
                 if (cands.Length == 0)
                     throw new Refusal(target == null && type.GetMethods(BindingFlags.Public | BindingFlags.Instance).Any(m => m.Name == name)

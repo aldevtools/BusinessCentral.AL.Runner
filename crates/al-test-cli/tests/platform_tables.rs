@@ -1910,20 +1910,18 @@ codeunit 50000 "T" { Subtype = Test;
     assert!(why.contains("OptimizeForTextSearch"), "{why}");
 }
 
-/// AllObj holds one more row per table than the runtime lists (metadata/lt-all-obj-namespace/AllObjNamespace.al:101:
-/// a table, a codeunit and a page in one namespace count 4), most likely its TableData row, whose columns no test
-/// pins. A read that may land on such a row is refused; one filtered to another object type is answered.
+/// AllObj holds a TableData row next to every Table row (metadata/lt-all-obj-namespace/AllObjNamespace.al:190-192:
+/// the rows with a table's id are its TableData and its Table row), so a read over every object type counts both.
 #[test]
-fn an_all_obj_read_that_may_land_on_a_table_data_row_is_refused() {
+fn an_all_obj_read_over_every_object_type_counts_the_table_data_row() {
     let o = outcomes(
         r#"table 50001 "Thing" { fields { field(1; "No."; Integer) { } } keys { key(PK; "No.") { Clustered = true; } } }
 codeunit 50000 "T" { Subtype = Test;
   [Test] procedure TableTypeCounts() var A: Record AllObj; begin A.SetRange("Object Type", A."Object Type"::Table); A.SetRange("Object ID", 50001); if A.Count() <> 1 then Error('%1', A.Count()); end;
-  [Test] procedure AnyTypeCount() var A: Record AllObj; begin A.SetRange("Object ID", 50001); if A.Count() = 0 then; end; }"#,
+  [Test] procedure AnyTypeCount() var A: Record AllObj; begin A.SetRange("Object ID", 50001); if A.Count() <> 2 then Error('%1', A.Count()); end; }"#,
     );
     passes(&o, "TableTypeCounts");
-    let why = not_run(&o, "AnyTypeCount");
-    assert!(why.contains("TableData"), "{why}");
+    passes(&o, "AnyTypeCount");
 }
 
 /// The test session's own Session row: Login Type "Username and Password" (ordinal 2), and "Application Name" the
@@ -2004,10 +2002,9 @@ fn published_application_description_is_the_manifest_text() {
 /// AllObjWithCaption: a table whose TableType the runtime has no pinned Object Subtype for (CDS) still lists its
 /// other columns, so a count over them is answered (install/lt-cm-install-leads/CmInstallObjects.al:73-79 counts
 /// the app's objects, record/lt-u-table-field-props/UTableCdsOrdinals.al:9 declares a CDS table); a read of the
-/// Object Subtype itself is refused.
+/// Object Subtype itself is refused. The name matches the Table row and its TableData row
+/// (metadata/lt-all-obj-namespace/AllObjNamespace.al:156-218).
 #[test]
-// The count is 2: the Table row and the TableData row (metadata/lt-all-obj-namespace/AllObjNamespace.al
-// PW_AllObj_TableDataRowPerTableKind, al-vm platform/caption_table_data.rs).
 fn an_object_subtype_nothing_pins_is_refused_and_the_other_columns_of_the_row_read() {
     let o = outcomes(
         r#"table 50001 "Cds Thing" { TableType = CDS; ExternalName = 'cdsthing'; fields { field(1; Id; Guid) { ExternalName = 'cdsthingid'; } }

@@ -179,7 +179,8 @@ fn the_object_id_decides_not_the_file_order() {
 
 // Pinned by reportextensiontrigger/TestReportExtensionSamePlaceContracts.al (bump 6): two items one
 // extension adds after the same anchor and two extensions adding last under one item are not refused.
-// Still refused until a probe pins them (ADR-025): extensions of different apps.
+// Still refused until a probe pins them (ADR-025): extensions of different apps whose object ids go against the
+// dependency path (reportext/lt-y64-xapp-run-order/Y64XappRunOrder.al pins only ids that rise along it).
 #[test]
 fn same_place_placements_are_accepted_and_cross_app_extensions_are_refused() {
     let two_after = format!(
@@ -201,7 +202,7 @@ fn same_place_placements_are_accepted_and_cross_app_extensions_are_refused() {
         "{r:?}"
     );
     let cross = format!(
-        "{PLACED_BASE}\nreportextension 69113 \"MR E1\" extends \"MR Base\" {{ trigger OnPreReport() begin end; }}\n//--app1\nreportextension 69114 \"MR E2\" extends \"MR Base\" {{ trigger OnPreReport() begin end; }}"
+        "{PLACED_BASE}\nreportextension 69114 \"MR E1\" extends \"MR Base\" {{ trigger OnPreReport() begin end; }}\n//--app1\nreportextension 69113 \"MR E2\" extends \"MR Base\" {{ trigger OnPreReport() begin end; }}"
     );
     let r = reasons(&cross, 2);
     assert!(r.iter().any(|x| x.contains("different apps")), "{r:?}");

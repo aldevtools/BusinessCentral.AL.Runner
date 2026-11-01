@@ -495,6 +495,11 @@ impl Session {
         if !notes_ok {
             return false;
         }
+        // The Lookup left the refresh for later on a tree `defer_lookup_refresh` checked, also with a CardPart FactBox
+        // (corpus writer Y63, Y15LookupThreeFieldLink.al Y63_CardPart_LookupReadEachControl `resource no` `R2`).
+        if with_parts && root.borrow().lookup_refresh_deferred {
+            return true;
+        }
         let engine = self.engine();
         let mut three = false;
         let pinned = tree.iter().filter(|q| !Rc::ptr_eq(q, root)).all(|q| {

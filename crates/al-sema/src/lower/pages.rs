@@ -85,23 +85,20 @@ impl Lowerer<'_> {
             // procedure never runs (pages/lt-qq-procedure-bound-action/QqBoundProps.al:29, :77-211, QQ_ProcBound_VisibleEnabled
             // and QQ_ProcBound_EditMode, on BC 27, 28 and 29). Only `kind` of the page's own controls is passed. A call with
             // arguments, inside a larger expression or of anything else is not pinned and stays refused below.
-            let procedure_bound = match kind {
-                Some(ir::ControlKind::Action) => name == "visible" || name == "enabled",
-                Some(ir::ControlKind::ActionGroup) => name == "visible",
-                _ => false,
-            } && crate::pages::bare_call_name(&value).is_some_and(|f| {
-                self.routine_nodes
-                    .get(ow.object)
-                    .iter()
-                    .any(|r| r.name().trim_matches('"').eq_ignore_ascii_case(&f))
-            });
+            let procedure_bound = crate::pages::bound_to_procedure_call(kind.as_ref(), &name)
+                && crate::pages::bare_call_name(&value).is_some_and(|f| {
+                    self.routine_nodes
+                        .get(ow.object)
+                        .iter()
+                        .any(|r| r.name().trim_matches('"').eq_ignore_ascii_case(&f))
+                });
             if procedure_bound {
-                return (name, "false".to_string(), None);
+                return (name, crate::pages::procedure_bound_value(kind.as_ref()), None);
             }
             let dynamic = crate::pages::dynamic_type(&name).filter(|t| !crate::pages::is_literal(*t, &value));
             // A Boolean control expression BC compiles on the client when the page opens (see `client_expression`).
             if dynamic == Some(crate::pages::PropType::Boolean) {
-                match crate::pages::client_expression(&value) {
+                match crate::pages::client_expression_of(kind.as_ref(), &name, &value) {
                     Some(crate::pages::ClientExpr::Refused(why)) => {
                         unsupported.push(format!("property {name} of control {control}: {why}"))
                     }
@@ -141,27 +138,7 @@ impl Lowerer<'_> {
                         ir::Binding::None
                     }
                 };
-                controls.push(ir::Control {
-                    name: raw.name.clone(),
-                    kind: ir::ControlKind::DataItem,
-                    parent: None,
-                    binding,
-                    props: Vec::new(),
-                    triggers: Vec::new(),
-                    part_page: None,
-                    part_link: None,
-                    owner: None,
-                    ext_triggers: Vec::new(),
-                    run_object: None,
-                    action_ref: None,
-                    prop_texts: Vec::new(),
-                    var_field: None,
-                    var_slot: None,
-                    expr_source: None,
-                    expr_call: false,
-                    array_element: None,
-                    bare_quoted_ext_source: false,
-                });
+                controls.push(data_item_control(&raw.name, binding));
                 continue;
             }
             let ow = owner_of(raw.owner);
@@ -519,6 +496,7 @@ impl Lowerer<'_> {
                 expr_call,
                 array_element,
                 bare_quoted_ext_source,
+                factbox: raw.factbox,
             });
         }
         let base = owner_of(None);
@@ -797,5 +775,31 @@ impl Lowerer<'_> {
             })
             .unwrap_or_default();
         Ok(link)
+    }
+}
+
+/// The control of a data item of a request page: the test client reads and writes the filters of its record (`binding`).
+fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
+    ir::Control {
+        name: name.to_string(),
+        kind: ir::ControlKind::DataItem,
+        parent: None,
+        binding,
+        props: Vec::new(),
+        triggers: Vec::new(),
+        part_page: None,
+        part_link: None,
+        owner: None,
+        ext_triggers: Vec::new(),
+        run_object: None,
+        action_ref: None,
+        prop_texts: Vec::new(),
+        var_field: None,
+        var_slot: None,
+        expr_source: None,
+        expr_call: false,
+        array_element: None,
+        bare_quoted_ext_source: false,
+        factbox: false,
     }
 }

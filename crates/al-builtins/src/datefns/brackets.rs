@@ -65,6 +65,36 @@ pub(super) fn close(chars: &[char], i: usize) -> Inside {
     }
 }
 
+/// `>` at `chars[i]` right before `<`, after a term: the end of one bracketed term and the start of the next (al-runner issue
+/// 6648; corpus writer Y64, branch al-runtime-rs-staging-y64 85d86e7b, types/lt-date-formula-edges/DateFormulaEdges.al:636-722).
+/// Both brackets are dropped when the next term starts with a sign (`<CY><-10Y>` is `CY-10Y`, `<WD2><+1W>` is `WD2+1W`) or when
+/// only brackets follow (`<CY><>` is `CY`). A next term without a sign raises the missing-sign error, showing the formula
+/// without its outer brackets (`<-1Y><CY>`: '-1Y><CY'; P131CalcDate.al:111 `<1D><1D>`): pinned for a formula in one pair of
+/// outer brackets, refused otherwise (`Ok(false)`).
+pub(super) fn between_terms(text: &str, chars: &[char], i: usize) -> Result<bool, Signal> {
+    if i == 0 || !chars[i - 1].is_ascii_alphanumeric() || chars.get(i + 1) != Some(&'<') {
+        return Ok(false);
+    }
+    match chars[i + 1..].iter().find(|c| !matches!(c, '<' | '>')) {
+        None | Some('+' | '-') => Ok(true),
+        Some(_) => {
+            // White space inside is not pinned for the error.
+            let t = text.trim();
+            match t
+                .strip_prefix('<')
+                .and_then(|b| b.strip_suffix('>'))
+                .filter(|b| !b.contains(char::is_whitespace))
+            {
+                Some(body) => raise(
+                    format!("The date formula '{body}' must include plus (+) or minus (-)."),
+                    "Evaluate",
+                ),
+                None => Ok(false),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::datefns::{Evaluated, evaluate_formula, formula_text};
@@ -149,10 +179,44 @@ mod tests {
         both_err("1<0D>", &unit("1<0D>"));
     }
 
+    /// Separately bracketed terms (al-runner issue 6648; corpus writer Y64, branch al-runtime-rs-staging-y64 85d86e7b,
+    /// types/lt-date-formula-edges/DateFormulaEdges.al:636-722): the brackets between two terms are dropped when the next
+    /// term has a sign; without one the formula raises the missing-sign error.
+    #[test]
+    fn separately_bracketed_terms_join() {
+        both_ok("<CY><-10Y>", "CY-10Y", (2014, 12, 31));
+        both_ok("<CY><+1D>", "CY+1D", (2025, 1, 1));
+        both_ok("<CM><-1D>", "CM-1D", (2024, 1, 30));
+        both_ok("<CM><+1D>", "CM+1D", (2024, 2, 1));
+        both_ok("<-CM><-1M>", "-CM-1M", (2023, 12, 1));
+        both_ok("<CW><+1D>", "CW+1D", (2024, 1, 22));
+        both_ok("<CQ><-1Q>", "CQ-1Q", (2023, 12, 31));
+        both_ok("<CD><+1D>", "CD+1D", (2024, 1, 16));
+        both_ok("<1D><-1D>", "1D-1D", (2024, 1, 15));
+        both_ok("<+1M><-1D>", "+1M-1D", (2024, 2, 14));
+        both_ok("<-1Y><+CY>", "-1Y+CY", (2023, 12, 31));
+        both_ok("<WD2><+1W>", "WD2+1W", (2024, 1, 23));
+        both_ok("<CY><-10Y><+1D>", "CY-10Y+1D", (2015, 1, 1));
+        both_ok("<-CY><+1D>", "-CY+1D", (2024, 1, 2));
+        both_ok("<CY>-<10Y>", "CY-10Y", (2014, 12, 31));
+        both_ok("<CY> <-10Y>", "CY-10Y", (2014, 12, 31));
+        both_ok("<CY><-10Y", "CY-10Y", (2014, 12, 31));
+        both_ok("CY<-10Y>", "CY-10Y", (2014, 12, 31));
+        both_ok("<CY>-10Y", "CY-10Y", (2014, 12, 31));
+        both_ok("<cy><-10y>", "CY-10Y", (2014, 12, 31));
+        both_ok("<CY><>", "CY", (2024, 12, 31));
+        both_ok("<CY><-10Y>>", "CY-10Y", (2014, 12, 31));
+        both_err(
+            "<-1Y><CY>",
+            "The date formula '-1Y><CY' must include plus (+) or minus (-).",
+        );
+        both_err("<CY>+<-10Y>", "The date formula 'CY>+<-10Y' should include a number.");
+    }
+
     /// Shapes no test pins stay refused.
     #[test]
     fn other_brackets_inside_a_term_stay_refused() {
-        for f in ["C<D>", "<1<0D>", "<1<D>", "1D<1D", "<1D><+1D>", "1<X>", "1>D<"] {
+        for f in ["C<D>", "<1<0D>", "<1<D>", "1D<1D", "1<X>", "1>D<"] {
             assert!(matches!(calc(f), Err(Signal::Unsupported(_))), "{f}");
         }
     }

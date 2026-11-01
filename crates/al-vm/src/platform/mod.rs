@@ -17,7 +17,6 @@ pub(crate) const MEDIA_RESOURCES: u32 = 2_000_000_182;
 /// Table "Tenant Report Layout", whose rows are the user-defined rows of Report Layout List.
 const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
 const TENANT_REPORT_LAYOUT_OVERRIDE: u32 = 2_000_000_248;
-mod caption_table_data;
 pub(crate) mod coverage;
 mod date;
 mod feature_key;
@@ -647,9 +646,7 @@ impl Providers {
             Virtual::Session => vec![mat::Entry::ok(identity::session_row(t, &self.ident))],
             Virtual::ActiveSession => vec![mat::Entry::ok(identity::active_session_row(t, &self.ident))],
             Virtual::AllObj => objects::all_obj_rows(self, t),
-            Virtual::AllObjWithCaption => {
-                caption_table_data::with_table_data_rows(t, objects::all_obj_with_caption_rows(self, t))
-            }
+            Virtual::AllObjWithCaption => objects::all_obj_with_caption_rows(self, t),
             Virtual::CodeunitMetadata => objects::codeunit_metadata_rows(self, t),
             Virtual::TableMetadata => objects::table_metadata_rows(self, t),
             Virtual::PageMetadata => pages::page_metadata_rows(self, t),

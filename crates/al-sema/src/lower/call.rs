@@ -124,12 +124,7 @@ impl Lowerer<'_> {
             Some(Res::Proc { object, offset }) => {
                 self.twin_call_refusal(object, offset)?;
                 let routine = self.routine_at.get(&(object, offset)).ok_or("procedure not found")?;
-                let sig = self.members[object]
-                    .procedures
-                    .iter()
-                    .find(|p| p.offset == offset)
-                    .ok_or("procedure signature")?
-                    .clone();
+                let sig = self.request_proc_refusal(object, offset)?;
                 let instance = match &receiver_node {
                     // `this.Proc()` runs on the current instance, like a bare call.
                     Some(r)
@@ -306,8 +301,9 @@ impl Lowerer<'_> {
                 let Ty::Array(dims, _) = self.ty_of(arg) else {
                     return Err("ArrayLen of something that is not an array variable".into());
                 };
-                // A one-dimensional array is measured when the call runs: a parameter holds the caller's array.
-                if dims.len() == 1 && args.len() == 1 {
+                // A one-dimensional array is measured when the call runs: a parameter holds the caller's array. The array a
+                // procedure returns has the length its declaration gives (al-runner issue 6658).
+                if dims.len() == 1 && args.len() == 1 && arg.kind() != SyntaxKind::CallExpr {
                     return Ok(ir::Expr::Builtin {
                         id: builtin_id(&id)?,
                         receiver: None,
@@ -732,7 +728,7 @@ impl Lowerer<'_> {
                     // CopyArray writes into its destination in place, so both arrays are passed as places: the destination can be a
                     // row of a two-dimensional array (a copy that is written back), and the source's dimensions are checked at run time.
                     out.push(if p.by_var || (id == "System.CopyArray#1" && i < 2) {
-                        ir::Arg::Ref(self.place(a)?)
+                        self.ref_arg(&id, i, a)?
                     } else if let Some(el) = elem {
                         ir::Arg::Value(ir::Expr::Convert(self.rt(&el)?, Box::new(self.expr(a)?)))
                     // A Variant argument with a standard format number 3 to 8 raises an error that names the type

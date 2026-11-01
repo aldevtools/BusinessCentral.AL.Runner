@@ -17,7 +17,7 @@
 "crates/al-sema/src/lower/assemble.rs::lower_core" = 534
 "crates/al-sema/src/lower/call.rs::call" = 689
 "crates/al-sema/src/lower/expr.rs::expr_raw" = 421
-"crates/al-sema/src/lower/pages.rs::page" = 507
+"crates/al-sema/src/lower/pages.rs::page" = 488
 "crates/al-sema/src/lower/shared.rs::lower_object" = 510
 "crates/al-sema/src/lower/stmt.rs::assign" = 442
 "crates/al-sema/src/lower/stmt.rs::routine" = 275
