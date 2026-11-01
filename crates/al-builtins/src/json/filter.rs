@@ -1,6 +1,6 @@
 //! `SelectToken` paths with a filter indexer `[?(@.name == x)]`, `!=`, `>` or `<=`: the forms
 //! json/lt-db-json-leads/DbJPathLeads.al:52-85 and json/lt-dc-json-leads/DcJsonLeads.al:286-345 pin, and the `Y47_*` tests
-//! of DbJPathLeads.al on corpus branch al-runtime-rs-staging-y47 (al-runner issue 6588, measured on real BC).
+//! of DbJPathLeads.al:184-388 (al-runner issue 6588).
 
 use super::{Handle, JsonNode, Scalar, Seg, error, tagged, with_node};
 use crate::native::{Ctx, Signal};

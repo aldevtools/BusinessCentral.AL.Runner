@@ -287,7 +287,7 @@ fn webhook_tables_are_stored_tables() {
     N.Init(); N.Validate(ID, CreateGuid()); N.Validate("Subscription ID", 'acct'); N.Notification.CreateOutStream(O); O.WriteText('{}');
     N.Insert(); if N.Count() <> 1 then Error('count'); N.DeleteAll(); if not N.IsEmpty() then Error('delete'); end;
   [Test] procedure Temporary() var W: Record "Webhook Subscription" temporary; begin W."Subscription ID" := 'a'; W.Insert(); end; }"#;
-    let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), "29.0.0.0");
+    let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), FALLBACK_BC);
     let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
     let mut hits = Vec::new();
     let out = al_testrun::runtime::run_codeunit_full(
@@ -656,6 +656,10 @@ fn date_and_time_zone_and_windows_language_answer_from_their_pins() {
     }
 }
 
+/// A major the corpus table of Windows Language (record/lt-y39-windows-language-table, BC 27 to 29) does not cover: the
+/// runtime keeps its older rows for it, and the tests of those rows run on it (`al_test_cli::windows_language`).
+const FALLBACK_BC: &str = "30.0.0.0";
+
 // Windows Language: record/TestWindowsLanguageTable.al:9-13 pins the columns of the culture (Language ID, Primary Language
 // ID, Name, Abbreviated Name, Primary CodePage, Language Tag). platform/lt-ag-contoso/AgWindowsLanguage.al pins more: the row
 // of each of the DemoTool's 54 codes, found by Abbreviated Name with a count of 1 (QX_WindowsLanguage_ByAbbreviatedName_Part1-3),
@@ -665,7 +669,8 @@ fn date_and_time_zone_and_windows_language_answer_from_their_pins() {
 // (the DemoTool's Demo Data Setup."Data Language ID" TableRelation filters on both).
 #[test]
 fn windows_language_answers_the_pinned_columns_and_refuses_the_rest() {
-    let o = outcomes(
+    let o = outcomes_bc(
+        "main",
         r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure PinnedColumns() var W: Record "Windows Language"; begin W.SetFilter("Language ID", '1031|1033|2057'); W.SetRange("Abbreviated Name", 'ENU'); if not W.FindFirst() then Error('no ENU'); if W."Language ID" <> 1033 then Error('id'); end;
   [Test] procedure FilterOnGloballyEnabledAndStx() var W: Record "Windows Language"; begin W.SetRange("Language ID", 1033); W.SetRange("Globally Enabled", true); W.SetRange("STX File Exist", true); if not W.FindFirst() then Error('no 1033'); if not W."STX File Exist" then Error('stx'); end;
@@ -676,6 +681,8 @@ fn windows_language_answers_the_pinned_columns_and_refuses_the_rest() {
   [Test] procedure LocalizationOf1040() var W: Record "Windows Language"; begin W.Get(1040); if not W."Localization Exist" then Error('loc'); end;
   [Test] procedure LocalizationOf1030() var W: Record "Windows Language"; begin W.Get(1030); if W."Localization Exist" then; end;
   [Test] procedure AnAbbreviationNotPinned() var W: Record "Windows Language"; begin W.SetFilter("Abbreviated Name", 'ARA'); if W.FindFirst() then; end; }"#,
+        al_sema::check::Roots::default(),
+        FALLBACK_BC,
     );
     for t in [
         "PinnedColumns",
@@ -705,11 +712,14 @@ fn windows_language_answers_the_pinned_columns_and_refuses_the_rest() {
 // them (3, 4095) is still refused.
 #[test]
 fn windows_language_get_of_a_pinned_absent_id_is_false() {
-    let o = outcomes(
+    let o = outcomes_bc(
+        "main",
         r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Absent() var W: Record "Windows Language"; begin if W.Get(1) then Error('1'); if W.Get(2) then Error('2'); if W.Get(7) then Error('7'); if W.Get(9) then Error('9'); if W.Get(10) then Error('10'); if W.Get(12) then Error('12'); if W.Get(127) then Error('127'); if W.Get(4096) then Error('4096'); end;
   [Test] procedure NextToAbsent() var W: Record "Windows Language"; begin if W.Get(3) then; end;
   [Test] procedure Below4096() var W: Record "Windows Language"; begin if W.Get(4095) then; end; }"#,
+        al_sema::check::Roots::default(),
+        FALLBACK_BC,
     );
     passes(&o, "Absent");
     for t in ["NextToAbsent", "Below4096"] {
@@ -722,11 +732,14 @@ fn windows_language_get_of_a_pinned_absent_id_is_false() {
 // (types/lt-wc/WcUnpinnedSingles.al:148-173, al-runner issue 6322). Its code page and tag are not pinned: a read of one is refused.
 #[test]
 fn windows_language_12297_is_a_pinned_row() {
-    let o = outcomes(
+    let o = outcomes_bc(
+        "main",
         r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Row() var W: Record "Windows Language"; begin W.SetRange("Language ID", 12297); if W.Count() <> 1 then Error('count'); W.FindFirst(); if (W.Name <> 'English (Zimbabwe)') or (W."Abbreviated Name" <> 'ENW') or not W."Globally Enabled" or W."STX File Exist" then Error('row'); W.SetRange("Globally Enabled", true); if W.IsEmpty() then Error('empty'); if W.Count() <> 1 then Error('count enabled'); end;
   [Test] procedure CodePage() var W: Record "Windows Language"; begin W.Get(12297); if W."Primary CodePage" = '' then; end;
   [Test] procedure Tag() var W: Record "Windows Language"; begin W.Get(12297); if W."Language Tag" = '' then; end; }"#,
+        al_sema::check::Roots::default(),
+        FALLBACK_BC,
     );
     passes(&o, "Row");
     for t in ["CodePage", "Tag"] {
@@ -736,7 +749,7 @@ fn windows_language_12297_is_a_pinned_row() {
 }
 
 // Windows Language rows 2107 (Sami, Northern (Sweden)) and 9225 (English (Caribbean)): the reporter's BC 29 measurement
-// (al-runner issue 6558; the corpus pin of the whole table is pending). The repro: an enabled filter on the id is not
+// (al-runner issue 6558; pinned since corpus 7f7cdc2a by record/lt-y39-windows-language-table/). The repro: an enabled filter on the id is not
 // empty, and Get answers the row with the measured values.
 #[test]
 fn windows_language_2107_and_9225_are_rows() {
@@ -4092,7 +4105,7 @@ fn windows_language_primary_language_id_is_the_primary_culture_lcid_on_an_assump
   [Test] procedure Measured() begin Check(1030, 1030); Check(1031, 1031); Check(1033, 1033); Check(3079, 1031); Check(2057, 1033); Check(2070, 1046); Check(1044, 1044); end;
   [Test] procedure ByFilter() var W: Record "Windows Language"; begin W.SetRange("Primary Language ID", 1031); W.SetRange("Language ID", 3079); if W.Count() <> 1 then Error('count %1', W.Count()); end;
   [Test] procedure NotMeasured() var W: Record "Windows Language"; begin W.Get(9226); if W."Primary Language ID" = 0 then; end; }"#;
-    let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), "29.0.0.0");
+    let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), FALLBACK_BC);
     let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
     let mut hits = Vec::new();
     let out = al_testrun::runtime::run_codeunit_full(
@@ -4136,7 +4149,7 @@ codeunit 50000 "T" { Subtype = Test;
   [Test] procedure PinnedRows() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50100); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); E.SetRange(Active, true); E.SetRange("Event Type", E."Event Type"::Trigger); E.SetRange("Publisher Object Type", E."Publisher Object Type"::Page); if E.Count() <> 2 then Error('count %1', E.Count()); E.Get(50100, 'OnOpen'); if E."Published Function" <> 'OnOpenPageEvent' then Error('pf %1', E."Published Function"); end;
   [Test] procedure MeasuredRows() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50101); E.SetRange(Active, true); E.SetRange("Event Type", E."Event Type"::Trigger); if E.Count() <> 2 then Error('count %1', E.Count()); E.Get(50101, 'OnCurr'); if E."Published Function" <> 'OnAfterGetCurrRecordEvent' then Error('pf %1', E."Published Function"); if E."Publisher Object ID" <> 50100 then Error('id'); end;
   [Test] procedure FieldEventNumber() var E: Record "Event Subscription"; begin E.Get(50100, 'OnAfterValidateName'); if E."Published Function" = '' then Error('blank'); end; }"#;
-    let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), "29.0.0.0");
+    let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), FALLBACK_BC);
     let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
     let mut hits = Vec::new();
     let out = al_testrun::runtime::run_codeunit_full(

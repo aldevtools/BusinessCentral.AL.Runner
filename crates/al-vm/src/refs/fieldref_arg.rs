@@ -1,7 +1,6 @@
 //! A FieldRef handed as a value to `FieldRef.Validate`, the `FieldRef.Value` setter, `SetRange` or `SetFilter` (al-runner
 //! issue 6591): the source field's value goes in, and the target converts it as it converts a value of that type
-//! (recordref/lt-y47-validate-fieldref/Y47ValidateFieldRef.al, corpus branch al-runtime-rs-staging-y47; assumption
-//! fieldref-value-from-fieldref until the file is on corpus master).
+//! (recordref/lt-y47-validate-fieldref/Y47ValidateFieldRef.al:231-402).
 
 use super::Lib;
 use crate::Session;
@@ -23,7 +22,6 @@ impl Session {
                 continue;
             }
             let source: Lib = source.clone();
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FieldRefValueFromFieldRef);
             *arg = self.fieldref_op("Value", &source, &mut [])?;
             if !matches!(method, "Validate" | "Value") {
                 continue;

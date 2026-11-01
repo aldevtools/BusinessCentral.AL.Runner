@@ -1,9 +1,6 @@
 //! `FieldRef.Validate(OtherFieldRef)` and `FieldRef.Value := OtherFieldRef` (al-runner issue 6591): the source field's value
 //! goes in, converted as a value of its type would be; Validate runs the target's OnValidate, Value does not
-//! (recordref/lt-y47-validate-fieldref/Y47ValidateFieldRef.al, corpus branch al-runtime-rs-staging-y47). Assumption
-//! fieldref-value-from-fieldref until that file is on corpus master.
-
-use al_builtins::assumptions::{Assumption, take_hits};
+//! (recordref/lt-y47-validate-fieldref/Y47ValidateFieldRef.al:231-402).
 
 const SRC: &str = r#"
 table 69995 "FRF Doc"
@@ -79,9 +76,7 @@ codeunit 69996 C
 
 #[test]
 fn validate_with_a_fieldref_takes_the_source_value_and_runs_onvalidate() {
-    take_hits();
     assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "F")), "Hello/0//1");
-    assert!(take_hits().contains(&Assumption::FieldRefValueFromFieldRef));
     assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "Dec")), "/12.5//0");
     assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "ToCode")), "/0/HELLO/0");
 }

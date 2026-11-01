@@ -431,7 +431,10 @@ impl Gate {
         match self {
             Gate::AutoFormatAmountFieldRoundsFrom28
             | Gate::DotNetRuntime10From29
-            | Gate::ExceptionTraceValueTaskFrameFrom29 => self.evidence_of_first_gates(),
+            | Gate::ExceptionTraceValueTaskFrameFrom29
+            | Gate::OptionFieldRefSetEvaluateErrorFrom28
+            | Gate::FieldRefTextNumberEvaluateErrorFrom28
+            | Gate::JsonSelectTokensListFrom28 => self.evidence_of_first_gates(),
             Gate::DocxMediaRezippedFrom29 => &[Evidence {
                 file: "../al-language-onprem/media/MediaFiles.al",
                 lines: "506,511",
@@ -632,21 +635,6 @@ impl Gate {
                 file: "pages/lt-ab-tests/ABTests.al",
                 lines: "1236",
             }],
-            Gate::OptionFieldRefSetEvaluateErrorFrom28 => &[Evidence {
-                file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
-                lines: "170,175",
-            }],
-            Gate::FieldRefTextNumberEvaluateErrorFrom28 => &[
-                Evidence {
-                    file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
-                    lines: "170,175",
-                },
-                // The number types (and Boolean, Date, Guid and Option at :294) set from a text through FieldRef.Value.
-                Evidence {
-                    file: "fieldref/TestFieldRefValue.al",
-                    lines: "215,242,294",
-                },
-            ],
             Gate::MetadataNotFoundNamesTheCallerFrom28 => &[
                 Evidence {
                     file: "report/lt-t-validate-layout/TValidateLayout.al",
@@ -676,20 +664,6 @@ impl Gate {
                 file: "lt-ac/ACControlAddIn.al",
                 lines: "99",
             }],
-            Gate::JsonSelectTokensListFrom28 => &[
-                Evidence {
-                    file: "json/lt-dc-json-leads/DcJsonLeads.al",
-                    lines: "388",
-                },
-                Evidence {
-                    file: "json/lt-ay-json/AyJsonTokenSelectTokens.al",
-                    lines: "12",
-                },
-                Evidence {
-                    file: "json/lt-json-selecttokens/SelectTokensList.al",
-                    lines: "8",
-                },
-            ],
             Gate::WindowsLanguageRowsFrom29 => &[
                 Evidence {
                     file: "record/lt-y39-windows-language-table/Y39WindowsLanguageTable.al",
@@ -1067,6 +1041,51 @@ impl Gate {
                 file: "../al-language-onprem-dotnet/lt-az-dotnet/AzLastErrorObject.al",
                 lines: "212",
             }],
+            Gate::OptionFieldRefSetEvaluateErrorFrom28 => &[
+                Evidence {
+                    file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
+                    lines: "170,175",
+                },
+                // FieldRef.Validate of an Option field from a text that is not a value.
+                Evidence {
+                    file: "text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al",
+                    lines: "307",
+                },
+            ],
+            Gate::FieldRefTextNumberEvaluateErrorFrom28 => &[
+                Evidence {
+                    file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
+                    lines: "170,175",
+                },
+                // The number types (and Boolean, Date, Guid and Option at :294) set from a text through FieldRef.Value.
+                Evidence {
+                    file: "fieldref/TestFieldRefValue.al",
+                    lines: "215,242,294",
+                },
+                // FieldRef.Validate and FieldRef.Value of an Integer field from a FieldRef holding a text.
+                Evidence {
+                    file: "recordref/lt-y47-validate-fieldref/Y47ValidateFieldRef.al",
+                    lines: "308,339",
+                },
+            ],
+            Gate::JsonSelectTokensListFrom28 => &[
+                Evidence {
+                    file: "json/lt-dc-json-leads/DcJsonLeads.al",
+                    lines: "388",
+                },
+                Evidence {
+                    file: "json/lt-ay-json/AyJsonTokenSelectTokens.al",
+                    lines: "12",
+                },
+                Evidence {
+                    file: "json/lt-json-selecttokens/SelectTokensList.al",
+                    lines: "8",
+                },
+                Evidence {
+                    file: "json/lt-db-json-leads/DbJPathLeads.al",
+                    lines: "379",
+                },
+            ],
             _ => unreachable!("evidence_of_first_gates: a gate its match does not list"),
         }
     }
