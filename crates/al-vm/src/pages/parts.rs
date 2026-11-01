@@ -1303,13 +1303,15 @@ impl Session {
         // A part linked by field(filter(...)) that stands on a row is read again from that row, `=><` as a page opened on a
         // record (pages/lt-y37-link-filter/Y37LinkFilterTests.al:411 `LP.c A2` after the host's filter left B2 out, :445 `LP.c B2`
         // after CurrPage.Update).
+        let inserted_before = std::mem::take(&mut child.borrow_mut().inserted_before_host_action);
         let from_row = {
             let c = child.borrow();
             c.cursor == Cursor::Row && !c.draft
-        } && page.controls[control]
-            .part_link
-            .as_ref()
-            .is_some_and(|l| l.entries.iter().any(|e| matches!(e, ir::LinkEntry::FieldFilter(..))));
+        } && (inserted_before
+            || page.controls[control]
+                .part_link
+                .as_ref()
+                .is_some_and(|l| l.entries.iter().any(|e| matches!(e, ir::LinkEntry::FieldFilter(..)))));
         {
             let mut s = child.borrow_mut();
             s.cursor = Cursor::None;

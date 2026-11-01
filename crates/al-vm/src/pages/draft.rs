@@ -604,7 +604,11 @@ impl Session {
             return self.insert_draft(st);
         }
         let rec = self.page_rec(st);
-        if Self::same_values(&rec.borrow().fields, &self.page_xrec_fields(st)) {
+        // A SetValue of the value already stored: an action saves the row all the same (pages/lt-y45-save-before-action/
+        // Y45SaveBeforeAction.al:371 Card_SetSameName_Action `pM old/old;...;eAM`), Close does not (handlers/
+        // TestPageSameValueSetValue_Tests.al SetValue_WithTheSameValue_DoesNotRunOnModify). Other steps keep the Close rule.
+        let set_value_held = std::mem::take(&mut st.borrow_mut().set_value_held) && st.borrow().in_action;
+        if Self::same_values(&rec.borrow().fields, &self.page_xrec_fields(st)) && !set_value_held {
             st.borrow_mut().dirty = false;
             return Ok(());
         }
@@ -661,6 +665,9 @@ impl Session {
                     "a page saves a changed row that is no longer stored (whether the client writes it is not pinned)",
                 );
             }
+        }
+        if modified.is_err() {
+            st.borrow_mut().save_failure_depth = Some(self.frames.len());
         }
         modified?;
         st.borrow_mut().dirty = false;

@@ -105,6 +105,7 @@ codeunit 61985 C
     procedure ValueChangedThenUpdate()
     var
         P: TestPage "LF Card";
+        Host: Record "LF Host";
     begin
         Seed('A1');
         P.OpenEdit();
@@ -112,7 +113,13 @@ codeunit 61985 C
         P.LineFilterCtl.SetValue('A*');
         Check('setvalue log', Log.Take(), 'A1 No.: A*;');
         Check('rows', Rows(P), 'A1,A2,');
-        asserterror P.UpdateAction.Invoke();
+        Log.Take();
+        P.UpdateAction.Invoke();
+        Check('update log', Log.Take(), 'A2 No.: A*;');
+        Check('rows after update', Rows(P), 'A1,A2,');
+        P.Close();
+        Host.Get('H1');
+        Check('stored', Host."Line Filter", 'A*');
     end;
 }
 "#;
@@ -121,9 +128,7 @@ codeunit 61985 C
 fn a_host_value_is_read_as_a_filter_text() {
     let got = outcomes_in(SRC, "C");
     assert!(matches!(got[0], (_, Outcome::Pass)), "{got:?}");
-    // The part follows a SetValue of the host field at once; an action while the edit is held is refused.
-    assert!(
-        matches!(&got[1], (_, Outcome::NotRun(why)) if why.contains("field(filter")),
-        "{got:?}"
-    );
+    // The part follows a SetValue of the host field at once; an action saves the edit first and the part reads its rows once, at
+    // the action's CurrPage.Update (Y37LinkFilterTests.al:418 LT_C311_Link_ValueChangedOnPage).
+    assert!(matches!(got[1], (_, Outcome::Pass)), "{got:?}");
 }
