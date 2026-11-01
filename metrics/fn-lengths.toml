@@ -31,7 +31,7 @@
 "crates/al-vm/src/exec/compile.rs::expr_into" = 319
 "crates/al-vm/src/exec/run.rs::run_range" = 348
 "crates/al-vm/src/pages/actions.rs::action_invoke_body" = 484
-"crates/al-vm/src/pages/controls.rs::control_set_value_now" = 885
+"crates/al-vm/src/pages/controls.rs::control_set_value_now" = 882
 "crates/al-vm/src/pages/controls.rs::test_control_op" = 503
 "crates/al-vm/src/pages/open/page_open.rs::open_page_as" = 311
 "crates/al-vm/src/pages/pageops.rs::test_page_op" = 276

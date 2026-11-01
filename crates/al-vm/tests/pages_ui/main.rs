@@ -58,6 +58,7 @@ mod open_onopenpage_moves_rec;
 mod open_temp_worksheet_rec_row;
 mod option_count_values_allowed;
 mod page_inserts;
+mod page_var_validate_code_change;
 mod pageext;
 mod pageext_leads;
 mod pages;

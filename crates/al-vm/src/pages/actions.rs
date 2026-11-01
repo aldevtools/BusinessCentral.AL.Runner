@@ -1219,8 +1219,7 @@ impl Session {
             if doc {
                 st.borrow_mut().field_captions_action_save = 1;
             }
-            st.borrow_mut().refresh = true;
-            st.borrow_mut().refresh_by_update = false;
+            self.save_edit_before_action_read(st)?;
             let r = self.run_refresh(st);
             if doc {
                 st.borrow_mut().field_captions_action_save = 2;

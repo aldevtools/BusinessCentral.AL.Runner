@@ -985,10 +985,7 @@ impl Session {
         // CurrPage.SaveRecord in the validation left xRec as it was; the row it stored is xRec from here on (the next SetValue's
         // OnValidate sees it: pages/lt-qj-part-propagation/QjPartPropagation.al:735 QJ_SubformSaveRecord_StoredRow and :766 _NewRow
         // `S.V.before(... x=5 ...)`).
-        let pending_xrec = st.borrow_mut().xrec_after_validate.take();
-        if let Some(fields) = pending_xrec {
-            self.set_xrec_fields(st, fields);
-        }
+        self.after_validate_rows(st);
         match result {
             Ok(()) => {
                 // The row as typed is the current row the next OnAfterGetCurrRecord sees as xRec (corpus bump 41
