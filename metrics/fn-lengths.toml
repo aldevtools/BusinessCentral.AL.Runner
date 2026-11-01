@@ -35,7 +35,7 @@
 "crates/al-vm/src/pages/controls.rs::test_control_op" = 503
 "crates/al-vm/src/pages/open/page_open.rs::open_page_as" = 311
 "crates/al-vm/src/pages/pageops.rs::test_page_op" = 276
-"crates/al-vm/src/pages/pageops.rs::test_page_op_inner" = 644
+"crates/al-vm/src/pages/pageops.rs::test_page_op_inner" = 619
 "crates/al-vm/src/recmeta.rs::record_meta_op" = 501
 "crates/al-vm/src/records.rs::record_op_inner" = 2145
 "crates/al-vm/src/refs.rs::fieldref_op" = 314

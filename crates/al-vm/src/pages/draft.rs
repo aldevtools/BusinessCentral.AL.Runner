@@ -645,6 +645,12 @@ impl Session {
                 st.borrow_mut().dirty = false;
                 return Ok(());
             }
+            // A row the page code stored itself (Rec.Modify) leaves nothing to save: no error, the page goes on with it
+            // (pages/lt-y61-page-probes/Y61ModifyDeniedSave.al:164 G617a_Temp_NotEditable_DrillDownModify_ThenFirst, :281
+            // G617a_Db_Editable_ActionModify).
+            if self.row_stored_as_shown(st, &rec)? {
+                return Ok(());
+            }
             return unsupported(
                 "saving a changed row on a page whose ModifyAllowed is false, other than at Close (not pinned)",
             );

@@ -112,6 +112,57 @@ impl Session {
         s.open && s.draft && s.mode == PageMode::New && s.host.is_none() && self.is_list(st)
     }
 
+    /// Whether `src` holds the initial values of its table in every field (the blank record).
+    pub(super) fn is_blank_row(&mut self, src: &Rec) -> bool {
+        let initial = self.initial_fields(src.borrow().table as usize);
+        let s = src.borrow();
+        s.fields.len() == initial.len()
+            && s.fields
+                .iter()
+                .zip(&initial)
+                .all(|(a, b)| al_builtins::ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal))
+    }
+
+    /// The new line of an editable list of its own, with the blank key (OnNewRecord may have filled other fields): SetSelectionFilter
+    /// hands the filter on the blank key, `Id: 0` and a count of 0, and marks nothing, whether the list opened on the new line because its
+    /// view has no row or Next moved past the last row onto it (pages/lt-y61-page-probes/Y61SelectionComposite.al:391
+    /// G612_EditableList_NewLine_OnNewRecordFills_NoRow, :416 _Rows, :453 G612_EditableList_NewLine_NoOnNewRecord_NoRow, a List with
+    /// DelayedInsert run from a Page variable whose Rec a procedure filtered).
+    pub(super) fn on_list_new_line_blank_key(&mut self, st: &St, src: &Rec) -> Result<bool, Signal> {
+        let on_line = {
+            let s = st.borrow();
+            s.open && s.draft && s.cursor == Cursor::NewLine && s.host.is_none()
+        };
+        if !on_line || !self.is_list(st) {
+            return Ok(false);
+        }
+        let table = self.table(src)?;
+        let initial = self.initial_fields(src.borrow().table as usize);
+        let blank_key: Vec<Value> = table.keys[0].iter().map(|&f| initial[f].clone()).collect();
+        Ok(Self::same_key(&self.row_key(src)?, &blank_key))
+    }
+
+    /// A Card or NavigatePage over a temporary table that SetRecord of a Page variable handed a record and that has no row: GetRecord
+    /// after the run hands back what its Rec holds, the blank row with what an action assigned (pages/lt-y61-page-probes/
+    /// Y61StoredRecToTempCard.al:313 G617b_SetRecord_RunModal_Agree `getrecord` = `//Yes`, :333 _Ok `//No`, :468
+    /// G617b_NavigatePage_SetRecord_RunModal_Agree `//Yes`).
+    pub(super) fn empty_temp_card_by_set_record(&mut self, st: &St, src: &Rec) -> Result<bool, Signal> {
+        let page_type = self.engine.object_facts[st.borrow().object as usize].page_type.clone();
+        if !src.borrow().temporary
+            || st.borrow().set_record.is_none()
+            || !matches!(page_type, Some(al_ir::PageType::Card | al_ir::PageType::NavigatePage))
+        {
+            return Ok(false);
+        }
+        let probe = Rc::new(RefCell::new(src.borrow().clone()));
+        probe.borrow_mut().filters.clear();
+        self.ret_used = true;
+        Ok(matches!(
+            self.record_op(al_builtins::record_op::RecordOp::IsEmpty, &probe, &mut [])?,
+            Value::Boolean(true)
+        ))
+    }
+
     /// A TestPage whose own filter shows no row of a table that has rows hands the record that filter
     /// (pages/lt-selection-filter-no-row/SelectionFilterNoRow.al:TestPage_FilteredToNothing: the page filter
     /// `Id: 99` on key field Id, `Count` 0, `Id: 99`). Only that shape (one range of one value on the first key

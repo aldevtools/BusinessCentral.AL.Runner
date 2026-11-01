@@ -972,14 +972,7 @@ impl Session {
                     // (pages/lt-hidden-part-selection-filter/HiddenPartSelectionFilter.al:SelectionFilter_HiddenLiteral_FilterAndCount,
                     // _HiddenByVariable_, _VisiblePart_): that is the blank-row path below.
                     let initial = self.initial_fields(src.borrow().table as usize);
-                    let blank_rec = {
-                        let s = src.borrow();
-                        s.fields.len() == initial.len()
-                            && s.fields
-                                .iter()
-                                .zip(&initial)
-                                .all(|(a, b)| al_builtins::ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal))
-                    };
+                    let blank_rec = self.is_blank_row(&src);
                     // The record may hold the blank-key filter of an earlier call (HiddenPartSelectionFilter.al: `rec-before=Id: 0/0`).
                     let t = self.table(dst)?;
                     let plain_dst = {
@@ -1011,10 +1004,8 @@ impl Session {
                         let s = st.borrow();
                         s.set_record.is_none() && !s.set_view
                     };
-                    if !(blank_rec
-                        && plain_dst
-                        && (st.borrow().host.is_some() || unopened_var || self.on_open_new_row(st)))
-                    {
+                    let held = blank_rec && (st.borrow().host.is_some() || unopened_var || self.on_open_new_row(st));
+                    if !(plain_dst && (held || self.on_list_new_line_blank_key(st, &src)?)) {
                         return unsupported(
                             "Page.SetSelectionFilter of a page on no row of a table that has rows (not pinned)",
                         );
@@ -1042,16 +1033,7 @@ impl Session {
                 // takes the filter on the blank key and keeps its marks and MarkedOnly as they were, with no mark added
                 // (pages/lt-selection-filter-no-row/SelectionFilterNoRow.al:Marks_WithoutMarkedOnly, MarkedOnly_WithoutMarks,
                 // Mark_OnSelectedRow, MarkedOnly_MarkOnOtherRow: `Id: 0`, `Marked: Yes, Id: 0`, count 0).
-                let table_index = src.borrow().table as usize;
-                let initial = self.initial_fields(table_index);
-                let blank_row = {
-                    let s = src.borrow();
-                    s.fields.len() == initial.len()
-                        && s.fields
-                            .iter()
-                            .zip(&initial)
-                            .all(|(a, b)| al_builtins::ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal))
-                };
+                let blank_row = self.is_blank_row(&src) || self.on_list_new_line_blank_key(st, &src)?;
                 if !blank_row
                     && ((marked_only && !marked)
                         // A record whose only mark is the selected row (an earlier call on it left that mark) ends as it was
@@ -1137,18 +1119,12 @@ impl Session {
                         return Ok(Value::Null);
                     }
                     let initial = self.initial_fields(dst.borrow().table as usize);
-                    let src_blank = {
-                        let s = src.borrow();
-                        s.fields.len() == initial.len()
-                            && s.fields
-                                .iter()
-                                .zip(&initial)
-                                .all(|(a, b)| al_builtins::ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal))
-                    };
+                    let src_blank = self.is_blank_row(&src);
                     // After a Page-typed handler called SetRecord, GetRecord hands back that record, for LookupOK and Cancel
                     // (pages/lt-modal-handler-typed-page/PageTypedHandlerRec.al:214-266 PageVariable_LookupMode_HandlerSetRecord_*;
                     // a SetTableView view does not bound the page's Rec, :116 SettableView_ThenAssignRecOutsideView).
-                    if st.borrow().handler_set_record {
+                    // So does an empty temporary Card or NavigatePage handed a record by SetRecord (`empty_temp_card_by_set_record`).
+                    if st.borrow().handler_set_record || self.empty_temp_card_by_set_record(st, &src)? {
                         let fields = src.borrow().fields.clone();
                         dst.borrow_mut().fields = fields;
                         return Ok(Value::Null);
