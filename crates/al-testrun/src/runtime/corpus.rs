@@ -2455,7 +2455,8 @@ fn on_hub(lowered: &Lowered, oi: usize, hub: bool, hub_path: bool) -> bool {
 /// (:357-362, :493-498) and Disabled carries it with the rest. Isolated storage and number sequences OnRun changes,
 /// committed and open, carry the same way (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al
 /// C301_B1_OnRunCommittedStorage, C301_B1_OnRunSequences, C301_B1_OnRunOpenWrites), so an OnRun whose reach can write
-/// them, or is not fully known, counts too.
+/// them counts too. An OnRun whose reach is not fully known counts only through what it is known to write, as for tables
+/// (a refused OnRun that names nothing does not hold back the later codeunits).
 fn onrun_writes(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
     use super::written::{ReachIndex, reach_facts, state};
     let o = &lowered.program.objects[oi];
@@ -2468,7 +2469,7 @@ fn onrun_writes(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bo
             }
             let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
             let f = reach_facts(&engine.events, lowered, &index, oi, r);
-            f.unknown.is_some() || f.state_writes & (state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE) != 0
+            f.state_writes & (state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE) != 0
         })
 }
 

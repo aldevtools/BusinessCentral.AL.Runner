@@ -511,3 +511,38 @@ fn under_runner_130450_what_onrun_left_in_storage_and_sequences_reaches_the_late
     let o = run(ONRUN_STORAGE_130450, true);
     assert_eq!(outcome(&o, "RS1"), &Outcome::Fail("no committed key".into()), "{o:?}");
 }
+
+// An OnRun the lowering refuses (its reach is not known) that statically writes no table and no storage does not join the
+// carry chain, as main's rule for tables has it (`onrun_writes`): a later codeunit that reads a table the refused
+// codeunit's tests write still runs, the tests' own writes being rolled back with the codeunit. With `--no-deps` on BC 27
+// every OnRun that reaches a Microsoft app is refused so.
+const ONRUN_REFUSED_130450: &str = r#"
+codeunit 50682 "OnRun Refused"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    trigger OnRun()
+    var V: Variant; T: Text; L: Label 'abc', Locked = true; B: Boolean;
+    begin
+        V := B ? L : T;
+    end;
+    [Test] procedure OR1() var Rows: Codeunit "Rows"; begin Rows.Put('own'); end;
+}
+codeunit 50683 "Reads Rows"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure RR1()
+    var Rows: Codeunit "Rows";
+    begin
+        if Rows.Count() <> 0 then Error('rows');
+    end;
+}
+"#;
+
+#[test]
+fn under_runner_130450_a_refused_onrun_that_writes_nothing_known_does_not_hold_back_a_later_codeunit() {
+    let o = run(ONRUN_REFUSED_130450, false);
+    assert!(matches!(outcome(&o, "OR1"), Outcome::NotRun(_)), "{o:?}");
+    assert_eq!(outcome(&o, "RR1"), &Outcome::Pass, "{o:?}");
+}
