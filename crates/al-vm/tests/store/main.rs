@@ -10,6 +10,7 @@ mod crm_connection;
 mod delete_all_cascade;
 mod dupkey_after_event;
 mod fieldref_blob_unloaded;
+mod fieldref_from_fieldref;
 mod filter_invalid_expr;
 mod find_directions;
 mod find_other_key;
