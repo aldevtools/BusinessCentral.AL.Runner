@@ -9,6 +9,8 @@ mod page_open;
 mod part_links;
 mod part_rec_row;
 mod record_refusals;
+mod repeater_new_line;
+pub(in crate::pages) use repeater_new_line::RepeaterLine;
 mod temp_list_key;
 mod tree;
 mod values;
