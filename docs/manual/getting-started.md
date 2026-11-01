@@ -32,7 +32,7 @@ curl -fsSL https://github.com/aldevtools/BusinessCentral.AL.Runner/releases/down
 ```
 
 Pass `edge` (`sh -s -- edge`, or `-Version edge` in PowerShell) for the nightly
-build, or a tag such as `v3.0.0-alpha.10` for one numbered alpha. The scripts are
+build, or a tag such as `v3.0.0-alpha.11` for one numbered alpha. The scripts are
 served from the `edge` release, but they install whatever version you ask for. You can also download an archive from the releases page and check
 it against `SHA256SUMS`. `gh attestation verify FILE --repo aldevtools/BusinessCentral.AL.Runner`
 checks the build provenance.

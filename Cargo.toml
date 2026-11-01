@@ -4,7 +4,7 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-version = "3.0.0-alpha.10"
+version = "3.0.0-alpha.11"
 license = "BUSL-1.1"
 authors = ["Stefan Maron"]
 repository = "https://github.com/aldevtools/BusinessCentral.AL.Runner"
