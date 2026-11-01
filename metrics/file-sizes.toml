@@ -6,6 +6,6 @@
 "crates/al-sema/src/alcodes.rs" = 4729
 "crates/al-testrun/src/runtime/tests.rs" = 3766
 "crates/al-vm/src/pages/actions.rs" = 3982
-"crates/al-vm/src/pages/rows.rs" = 4045
-"crates/al-vm/src/records.rs" = 6134
+"crates/al-vm/src/pages/rows.rs" = 3929
+"crates/al-vm/src/records.rs" = 6065
 "crates/al-vm/src/reports.rs" = 5105

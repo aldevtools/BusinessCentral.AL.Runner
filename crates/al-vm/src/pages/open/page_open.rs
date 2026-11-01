@@ -12,6 +12,7 @@ impl Session {
         // OpenNew of a Worksheet fails with NotSupportedPageViewMode (corpus pageext/lt-bl-implicit-creation/
         // ImplicitCreation.al:308-318 Worksheet_OpenNew), before OnInit or OnOpenPage run (Y8OpenNewPageTypes.al:306-317,
         // `log=` empty for a worksheet that declares both).
+        let mode = self.open_new_mode(st, mode);
         if mode == PageMode::New {
             let object = st.borrow().object as usize;
             let engine = self.engine();
