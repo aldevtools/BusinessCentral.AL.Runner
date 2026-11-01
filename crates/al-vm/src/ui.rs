@@ -70,7 +70,7 @@ impl UiKind {
         }
     }
 
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             UiKind::Message => "Message",
             UiKind::Confirm => "Confirm",
@@ -125,7 +125,7 @@ pub struct UiHandler {
 pub(crate) struct UiScope {
     handlers: Vec<UiHandler>,
     /// A handler is running: a UI call from inside it is not pinned by the corpus.
-    in_handler: bool,
+    pub(crate) in_handler: bool,
 }
 
 impl Session {
@@ -304,6 +304,9 @@ impl Session {
             )));
         }
         let Some(h) = scope.handlers.iter_mut().find(|h| h.kind == kind) else {
+            if let Some(finals) = self.dev_endpoint_answer(kind, shown, &args) {
+                return Ok((Value::Boolean(true), finals));
+            }
             // Text and code: corpus handlers/TestUnhandledUiAndDialogDefaults.al:68-107 (ONE space
             // after the kind; Confirm quotes the question, StrMenu the options only).
             return Err(Signal::Error(Box::new(AlError {
@@ -750,7 +753,7 @@ impl Session {
             .as_ref()
             .is_some_and(|s| s.handlers.iter().any(|h| h.kind == UiKind::Hyperlink));
         if !bound {
-            return Ok(false);
+            return Ok(self.dev_endpoint_hyperlink(&url));
         }
         self.dispatch_ui(UiKind::Hyperlink, &url.clone(), vec![Value::Text(url.into())])
             .map(|_| true)

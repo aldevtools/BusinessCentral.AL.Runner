@@ -262,8 +262,7 @@ fn run_codeunit_inner(
         session.restore_baseline(b);
     }
     session.trace_faults(observe.is_some());
-    session.ignore_permission_mock = scratch.ignore_permission_mock;
-    session.permissions_off = scratch.permissions_off;
+    scratch.flags.apply(&mut session);
     let covering = crate::coverage::enabled();
     if covering {
         session.enable_coverage();
@@ -1142,10 +1141,7 @@ fn run_codeunit_inner(
             hits.push((name.clone(), marks));
         }
         // `--tdd` (ADR-051 decision 5): the stubs that ran while the test ran, its handlers and subscribers included.
-        let reached = session.take_tdd_reached();
-        if !reached.is_empty() {
-            scratch.stubbed.push((name.clone(), reached.clone()));
-        }
+        let (reached, ui_answered) = scratch.take_marks(&name, &mut session);
         let took = test_started.elapsed();
         // The count starts with the test (`start_sleep_budget`): a test that did not start slept nothing.
         let slept_ms = if began {
@@ -1197,6 +1193,7 @@ fn run_codeunit_inner(
                 coverage: cov.clone(),
                 captured: captured_at.clone(),
                 stubs: reached,
+                ui_answered,
                 entry: None,
             });
         }
@@ -1229,6 +1226,7 @@ fn run_codeunit_inner(
                     coverage: Vec::new(),
                     captured: None,
                     stubs: Vec::new(),
+                    ui_answered: Vec::new(),
                     entry: None,
                 });
             }

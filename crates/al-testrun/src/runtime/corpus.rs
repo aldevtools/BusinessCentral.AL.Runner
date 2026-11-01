@@ -1397,9 +1397,8 @@ impl CorpusRuntime {
                             onrun_carry: false,
                             leak: None,
                             on_run_rows: OnRunRows::PerTest,
-                            ignore_permission_mock: false,
+                            flags: Default::default(),
                             report_unpinned_errors: false,
-                            permissions_off: false,
                             perturb: Default::default(),
                             run_seed: opts.run_seed,
                         });
@@ -1448,9 +1447,8 @@ impl CorpusRuntime {
                             impact: opts.impact_trace,
                             run_only: pass.run_only.clone(),
                             on_run_rows: opts.on_run_rows,
-                            ignore_permission_mock: opts.ignore_permission_mock,
+                            flags: super::session_flags::SessionFlags::of(opts),
                             report_unpinned_errors: opts.report_unpinned_errors,
-                            permissions_off: opts.permissions_off,
                             perturb: opts.perturb.clone(),
                             run_seed: opts.run_seed,
                         }),
@@ -1475,6 +1473,7 @@ impl CorpusRuntime {
                                             coverage: Vec::new(),
                                             captured: None,
                                             stubs: Vec::new(),
+                                            ui_answered: Vec::new(),
                                             entry: None,
                                         });
                                     }
@@ -1495,6 +1494,7 @@ impl CorpusRuntime {
                                     captured: None,
                                     impact: Vec::new(),
                                     stubs: Vec::new(),
+                                    ui_answered: Vec::new(),
                                     slept_ms: 0,
                                     entered: Vec::new(),
                                     dotnet: false,
@@ -1824,6 +1824,7 @@ impl CorpusRuntime {
                         captured,
                         impact,
                         stubs: Vec::new(),
+                        ui_answered: Vec::new(),
                         slept_ms: 0,
                         entered: Vec::new(),
                         dotnet: false,
@@ -1881,11 +1882,7 @@ impl CorpusRuntime {
                                     last.slept_ms = *ms;
                                 }
                             }
-                            if let Some(i) = scratch.stubbed.iter().position(|(n, _)| *n == name) {
-                                if let Some(last) = list.last_mut() {
-                                    last.stubs = std::mem::take(&mut scratch.stubbed[i].1);
-                                }
-                            }
+                            scratch.move_marks(&name, list.last_mut());
                             if let Some(i) = scratch.entered.iter().position(|(n, _, _)| *n == name) {
                                 if let Some(last) = list.last_mut() {
                                     last.entered = std::mem::take(&mut scratch.entered[i].1);

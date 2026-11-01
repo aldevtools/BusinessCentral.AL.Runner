@@ -371,3 +371,63 @@ fn a_copy_of_the_session_company_holds_its_restored_company_information() {
     );
     all_pass(&o);
 }
+
+// al-runner issue 6507: a company AL code makes with Company.Insert holds no Company Information row on BC: the test inserts
+// the primary-key row there and copies the company, and the copy holds that row as it is
+// (session/lt-y22-copy-company/Y22CopyCompany.al:90-94, :132, :154). Copying such a company works under the opt-in as
+// without it; a Base Application table with install rows whose content there no test pins stays refused in both companies.
+#[test]
+fn a_company_made_in_the_run_starts_without_company_information_and_copies() {
+    let base = "table 79 \"Company Information\" { fields { field(1; \"Primary Key\"; Code[10]) { } field(2; Name; Text[100]) { } } }
+        table 77 \"Report Selections\" { fields { field(1; Usage; Integer) { } field(2; Sequence; Code[10]) { } } }
+        codeunit 79 \"Base Install\" { Subtype = Install;
+            trigger OnInstallAppPerCompany() var Info: Record \"Company Information\"; R: Record \"Report Selections\"; begin
+                if Info.Insert() then; R.Usage := 1; if R.Insert() then;
+            end; }";
+    let main = format!(
+        "{COMPANY_TABLE}
+        codeunit 50101 \"CC Tests\" {{ Subtype = Test;
+            [Test] procedure MadeCompanyCopies() var Company: Record Company; Info: Record \"Company Information\"; Copy: Record \"Company Information\"; begin
+                Company.Init(); Company.Name := 'Made Co'; Company.Insert();
+                Info.ChangeCompany('Made Co');
+                Info.Init(); Info.Name := 'made'; Info.Insert();
+                Commit();
+                CopyCompany('Made Co', 'Made Copy');
+                Copy.ChangeCompany('Made Copy');
+                Copy.Get();
+                if Copy.Name <> 'made' then Error('copy=[%1]', Copy.Name);
+            end;
+            [Test] procedure OtherBaseTableInMadeCompany() var Company: Record Company; R: Record \"Report Selections\"; begin
+                if not Company.Get('Made Co 2') then begin Company.Init(); Company.Name := 'Made Co 2'; Company.Insert(); end;
+                R.ChangeCompany('Made Co 2'); if R.IsEmpty() then;
+            end; }}"
+    );
+    // Through the corpus runtime: the install baseline marks the tables install code wrote rows to.
+    al_testrun::host::set_companies(al_host::Companies::List(vec![SESSION.into(), OTHER.into()]));
+    let app = |id: &str, deps: &[&str], src: String| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps.iter().map(|d| (*d).to_string()).collect(),
+        files: vec![(format!("{id}.al"), src)],
+    };
+    let rt = al_testrun::runtime::CorpusRuntime::run_for_apps(
+        vec![app(BASE_APP, &[], base.into()), app("main", &[BASE_APP], main)],
+        vec![al_sema::AppKind::Dependency, al_sema::AppKind::Workspace],
+        &[],
+        &Default::default(),
+        None,
+        Default::default(),
+    );
+    let outcome = |name: &str| {
+        rt.first_outcome(&al_testrun::CaseId {
+            codeunit: 50101,
+            name: name.into(),
+        })
+    };
+    assert_eq!(outcome("MadeCompanyCopies"), Outcome::Pass);
+    let other = outcome("OtherBaseTableInMadeCompany");
+    assert!(
+        matches!(&other, Outcome::NotRun(r) if r.contains("Made Co 2") && r.contains("Report Selections")),
+        "{other:?}"
+    );
+}

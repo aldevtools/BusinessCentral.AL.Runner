@@ -6,7 +6,7 @@ on:
   issue_comment:
     types: [created]
   pull_request_target:
-    types: [opened, closed, synchronize]
+    types: [opened, synchronize]
 permissions:
   actions: write
   contents: write
@@ -15,8 +15,11 @@ permissions:
 jobs:
   agreement:
     runs-on: ubuntu-latest
+    # Pull requests by the allowlisted accounts below need no signature: skip them before a runner starts (the
+    # owner's agents open several hundred a day). Only outside authors run the check.
     if: >-
-      (github.event_name == 'pull_request_target') ||
+      (github.event_name == 'pull_request_target' &&
+        !contains(fromJSON('["StefanMaron","dependabot[bot]","github-actions[bot]"]'), github.event.pull_request.user.login)) ||
       (github.event.issue.pull_request &&
         (github.event.comment.body == 'recheck' ||
          github.event.comment.body == 'I have read the AL Runner Contributor Assignment Agreement and I hereby sign it.'))
