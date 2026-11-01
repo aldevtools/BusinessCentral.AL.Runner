@@ -98,6 +98,7 @@ mod json_select_token_filter;
 mod json_select_tokens;
 mod json_temporal_cross_reads;
 mod json_text_as_decimal;
+mod json_text_as_number;
 mod json_time_milliseconds;
 mod json_typed_reads;
 mod json_write_with_secrets;
