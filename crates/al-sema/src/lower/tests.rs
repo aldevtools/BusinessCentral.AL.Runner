@@ -728,6 +728,36 @@ fn a_dotnet_string_variable_added_to_a_list_of_text_is_converted() {
     );
 }
 
+// `DotNet A.B.C` names alias `C` declared in namespace `A.B`, not a .NET full type name: Microsoft's System Application declares
+// `type("System.DateTime"; "DateTime")` inside `namespace System;`, and its AFS Format Helper declares
+// `DateTimeDotNet: DotNet System.DateTime` (al-runner issue 6488; corpus writer Y20,
+// al-language-onprem-dotnet/lt-y20-dotnet-fullname/Y20DotNetFullTypeName.al). A quoted name is one alias, whatever dots it holds.
+// The .NET full name of a type declared under another alias does not compile (must-not-compile 2358, AL0185), nor quoted (2357).
+#[test]
+fn a_dotted_dotnet_type_name_is_a_namespace_and_an_alias() {
+    let ns = "namespace LtNs.Sub;\ndotnet { assembly(\"mscorlib\") { type(\"System.Text.StringBuilder\"; NsBuilder) { } \
+              type(\"System.Text.StringBuilder\"; \"System.Text.StringBuilder\") { } } }\n";
+    let code = "codeunit 50100 C { procedure P() var Q: DotNet LtNs.Sub.NsBuilder; B: DotNet NsBuilder; \
+                U: DotNet \"System.Text.StringBuilder\"; begin end; \
+                procedure Full() var F: DotNet System.Text.StringBuilder; begin end; \
+                procedure WrongNs() var W: DotNet Other.NsBuilder; begin end; }";
+    let (ws, l) = lower_files(&[("ns.al", ns), ("c.al", code)], false);
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let (p, r) = routine(&l, "P");
+    let at = |name: &str| routine(&l, name).0;
+    assert_eq!(l.unsupported[0][p], Vec::<String>::new());
+    assert_eq!(r.locals[0].ty, RtType::DotNet(0));
+    assert_eq!(r.locals[1].ty, RtType::DotNet(0));
+    assert_eq!(r.locals[2].ty, RtType::DotNet(1));
+    // Namespace System.Text has no alias StringBuilder: the full .NET name of a declared type is no name for it.
+    let full = &l.unsupported[0][at("Full")];
+    assert!(
+        full.iter().any(|m| m.contains("DotNet 'System.Text.StringBuilder'")),
+        "{full:?}"
+    );
+    assert!(!l.unsupported[0][at("WrongNs")].is_empty());
+}
+
 // Tests-ERM Document Service Management.CheckError: `Error(Service.LastError.Message)`. A DotNet result
 // fits the Text overload of Error, not the ErrorInfo one (ADR-024).
 #[test]
@@ -2142,6 +2172,48 @@ fn a_selection_still_finds_the_compile_errors_of_what_it_leaves_out() {
     }
 }
 
+/// The check of what a selection leaves out (al-runner issue 5602) is spread over the check workers like the complete
+/// check: with one worker or several it finds the same errors, in the same order. In the corpus TestLibraries pass the
+/// left-out code is the whole main corpus app, and on one thread it took seconds of each run.
+#[test]
+fn the_check_of_what_a_selection_leaves_out_finds_the_same_errors_on_one_worker_and_on_several() {
+    let mut src = String::from(
+        "codeunit 50000 \"T\" { Subtype = Test; [Test] procedure P() begin if 1 <> 1 then Error('x'); end; }\n",
+    );
+    for i in 1..=150 {
+        src.push_str(&format!(
+            "codeunit {} \"Left {i}\" {{ procedure Run(): Integer begin exit(NoSuchProc{i}()); end; }}\n",
+            50000 + i
+        ));
+    }
+    let diagnostics = |workers: usize| -> Vec<String> {
+        let (_, l) = compile_apps_with(
+            vec![AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".to_string(), src.clone())],
+            }],
+            vec![crate::workspace::AppKind::Workspace],
+            &Default::default(),
+            None,
+            crate::check::Roots {
+                baseline: false,
+                only_tests: Some(vec![(0, 50000)]),
+                workers: Some(workers),
+                ..Default::default()
+            },
+        );
+        l.al_diagnostics
+            .iter()
+            .map(|d| format!("{} {} {}", d.offset, d.code, d.message))
+            .collect()
+    };
+    let one = diagnostics(1);
+    assert_eq!(one.len(), 150, "{one:?}");
+    assert_eq!(diagnostics(4), one);
+}
+
 /// Two objects of one type with one id in one app (al-runner issue 5854, must-not-compile 0036): the compile ends with
 /// AL0264 for both instead of a panic in the link step. The issues 5852 and 5853 too: exit(value) in a procedure
 /// without a return value (AL0139, must-not-compile 0048) and a call with too few arguments (AL0135, 0242) are found
@@ -2269,4 +2341,82 @@ page 50100 P {
     let p = &l.program.objects[i];
     let body = |r: &str| format!("{:?}", p.routines.iter().find(|x| x.name == r).unwrap().body);
     assert_eq!(body("Bare"), body("Qual"));
+}
+
+/// al-runner issue 6590: a bare `Run(Page::X, Rec)` in a page's code is the static `Page.Run` (pages/lt-uf-unqualified-runmodal/
+/// Y47UnqualifiedRun.al, corpus branch al-runtime-rs-staging-y47). It lowers to the `Page.Run` form behind the marker of
+/// assumption bare-page-run-is-static.
+#[test]
+fn a_bare_page_run_in_a_page_lowers_as_the_static_page_run() {
+    let src = r#"
+table 50100 T { fields { field(1; No; Code[20]) { } } }
+page 50101 L { SourceTable = T; }
+page 50100 P {
+    SourceTable = T;
+    procedure Bare() var R: Record T; begin Run(Page::L, R); Run(Page::L); end;
+    procedure Qual() var R: Record T; begin Page.Run(Page::L, R); Page.Run(Page::L); end;
+}"#;
+    let (ws, l) = lower_src(src);
+    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    assert!(reasons.is_empty(), "{reasons:?}");
+    let i = ws.objects.iter().position(|o| o.name.as_str() == "P").unwrap();
+    let p = &l.program.objects[i];
+    let body = |r: &str| format!("{:?}", p.routines.iter().find(|x| x.name == r).unwrap().body);
+    let bare = body("Bare");
+    assert!(bare.contains("BarePageRunIsStatic"), "{bare}");
+    let marker = "Assume(BarePageRunIsStatic), ";
+    assert_eq!(bare.replace(marker, ""), body("Qual"));
+}
+
+/// The work ratchet (`al-test-cli`, `metrics/<major>/work.json`): the compile counts what it lowered from source, the
+/// workspace's and the dependencies' apart. A dependency routine nothing reaches is a stub and does not count, and an
+/// object nothing reaches is a shell and does not count either.
+#[test]
+fn the_compile_counts_the_objects_and_routines_it_lowered_from_source() {
+    use crate::workspace::AppKind;
+    let src = |id: &str, deps: &[&str], files: &[(&str, &str)]| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps.iter().map(|d| d.to_string()).collect(),
+        files: files.iter().map(|(p, s)| (p.to_string(), s.to_string())).collect(),
+    };
+    let dep = src(
+        "dep",
+        &[],
+        &[
+            (
+                "d.al",
+                "codeunit 50200 D { procedure Used() begin end; procedure NotUsed() begin end; }",
+            ),
+            ("u.al", "codeunit 50201 Unreached { procedure P() begin end; }"),
+        ],
+    );
+    let main = src(
+        "main",
+        &["dep"],
+        &[(
+            "c.al",
+            "codeunit 50100 C { procedure A() var D: Codeunit D; begin D.Used(); end; procedure B() begin end; }",
+        )],
+    );
+    let ws = Workspace::load_apps(
+        vec![main, dep],
+        vec![AppKind::Workspace, AppKind::Dependency],
+        &Default::default(),
+    );
+    let members = crate::members::build(&ws);
+    let checked = crate::check::check(&ws, &members, &al_builtins::catalog::Catalog::load());
+    let l = lower_with_positions(&ws, &members, &checked, false);
+    assert_eq!(
+        l.work,
+        LowerWork {
+            objects: 3,
+            objects_lowered: 1,
+            routines_lowered: 2,
+            dependency_objects_lowered: 1,
+            dependency_routines_lowered: 1,
+            objects_from_cache: 0,
+            objects_from_kept: 0,
+        }
+    );
 }

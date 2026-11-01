@@ -457,8 +457,9 @@ impl Session {
         if schema.report().transaction_type.is_some() {
             return unsupported("SaveAsXml of a report that declares a TransactionType (not pinned)");
         }
-        let written = self.request_page_report_run(st, object, &inst, &schema)?;
-        let data = written.finish_data_set()?;
+        let (written, run) = self.request_page_report_run(st, object, &inst, &schema)?;
+        let declared = self.data_file_items(&run)?;
+        let data = written.finish_data_set(&declared)?;
         let parameters = self.save_as_xml_parameters();
         self.host
             .files
@@ -513,7 +514,7 @@ impl Session {
                 "SaveAs{format} of a report that declares a TransactionType (not pinned)"
             ));
         }
-        let written = self.request_page_report_run(st, object, &inst, &schema)?;
+        let (written, _) = self.request_page_report_run(st, object, &inst, &schema)?;
         // The dataset is built to run the triggers and dropped; the file is never written.
         drop(written);
         self.render_pending_files
@@ -532,7 +533,7 @@ impl Session {
         object: usize,
         inst: &Inst,
         schema: &crate::reports::Schema,
-    ) -> Result<crate::dataset::Dataset, Signal> {
+    ) -> Result<(crate::dataset::Dataset, crate::reports::Run), Signal> {
         let ext: Vec<(Inst, usize)> = {
             let state = st.borrow();
             schema
@@ -563,7 +564,7 @@ impl Session {
             }
             Err(other) => return Err(other),
         }
-        Ok(written.expect("a request page run has a dataset"))
+        Ok((written.expect("a request page run has a dataset"), run))
     }
 
     /// The parameters file of `SaveAsXml`: a byte order mark, then `ArrayOfReportParameter` with the user id
@@ -949,6 +950,12 @@ impl Session {
                 Value::Text(_) => Value::Text(text.into()),
                 Value::Code(_) => Value::Code(text.into()),
                 Value::Boolean(_) if text == "true" || text == "false" => Value::Boolean(text == "true"),
+                // The `yyyy-MM-dd` form RunRequestPage writes (report/lt-report-requestpage/RptRequestPage.al:878-893
+                // RunRequestPage_ThenExecute_AppliesValues: `<Field name="DateVal">2021-06-05</Field>` gives 2021-06-05 in
+                // OnPreReport). Other texts are not pinned.
+                Value::Date(..) if text.len() == 10 && al_builtins::iso::parse_date(&text).is_some() => {
+                    Value::Date(al_builtins::iso::parse_date(&text).expect("checked above"), false)
+                }
                 Value::Integer(_) | Value::Decimal(_) | Value::Option(..) | Value::Enum(..) => {
                     let ty = match &current {
                         Value::Integer(_) => RtType::Integer,

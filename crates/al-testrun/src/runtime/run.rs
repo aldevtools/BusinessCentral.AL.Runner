@@ -263,6 +263,7 @@ fn run_codeunit_inner(
     }
     session.trace_faults(observe.is_some());
     session.ignore_permission_mock = scratch.ignore_permission_mock;
+    session.permissions_off = scratch.permissions_off;
     let covering = crate::coverage::enabled();
     if covering {
         session.enable_coverage();
@@ -714,6 +715,8 @@ fn run_codeunit_inner(
                     );
                     // What the test (and the runner's steps around it) writes counts from here.
                     let changes_from = session.store_mut().change_counter();
+                    // The session language and WorkDate a refusal while the test runs puts back.
+                    let carried = session.carried_state();
                     let mut reset = runner.before(&mut session, obj, routine);
                     // `random.librarySeed` of a stability run (ADR-058, owner decision 2) or `--seed-library`
                     // (ADR-061): after codeunit 130301, the runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with
@@ -831,6 +834,15 @@ fn run_codeunit_inner(
                         ))),
                         r => r,
                     };
+                    // ADR-062: a test that lowered its permissions to sets that do not grant everything, and made no
+                    // access since that the gate refused, is not run either: no access kind is enforced yet.
+                    let result = match result {
+                        Ok(_) | Err(Signal::Error(_)) => match session.permissions_lowered_at_end() {
+                            Some(why) => Err(Signal::Unsupported(why)),
+                            None => result,
+                        },
+                        r => r,
+                    };
                     session.tx_model = al_vm::TxModel::AutoCommit;
                     let unexecuted = session.end_ui_scope();
                     // The runner commits a test that passes: with a table still marked by Consistent(false) what BC does there
@@ -891,6 +903,15 @@ fn run_codeunit_inner(
                             ))
                         }
                         // An uncaught error whose text is not pinned would put a made-up text in the result: the test is not run.
+                        // Opt-in (`RunOptions::report_unpinned_errors`, al-runner issue 6487): it fails, its message marked.
+                        Err(Signal::Error(e))
+                            if al_builtins::native::text_unpinned(&e) && scratch.report_unpinned_errors =>
+                        {
+                            session.rollback_transaction();
+                            let message = al_builtins::native::unpinned_failure_text(&e);
+                            failure = Some(*e);
+                            Outcome::Fail(message)
+                        }
                         Err(Signal::Error(e)) if al_builtins::native::text_unpinned(&e) => {
                             session.rollback_transaction();
                             let Err(Signal::Unsupported(r)) =
@@ -907,13 +928,17 @@ fn run_codeunit_inner(
                             Outcome::Fail(message)
                         }
                         // A refused test did not run: what it wrote before the refusal must not
-                        // reach the next test of the codeunit.
+                        // reach the next test of the codeunit, nor the session language or WorkDate it set (the
+                        // BdSetterLanguage_* tests after BdSummaryML_1040 in report/lt-bd-format-region/BdRegionTests.al
+                        // ran in 1040: the refusal came before that test's own `GlobalLanguage(Original)`).
                         Err(Signal::Unsupported(_)) if execute && crate::events::cancelled() => {
                             session.rollback_transaction();
+                            session.restore_carried(carried);
                             Outcome::NotRun("cancelled".into())
                         }
                         Err(Signal::Unsupported(r)) => {
                             session.rollback_transaction();
+                            session.restore_carried(carried);
                             Outcome::NotRun(r)
                         }
                         Err(other) => Outcome::Fail(format!("unexpected signal {}", other.describe())),

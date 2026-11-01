@@ -114,6 +114,13 @@ pub struct RunOptions {
     /// `al-runner test --ignore-permission-mock`: a test that lowers its own permissions runs with every access granted
     /// instead of being refused; each such test hits the assumption `permissions-not-enforced` (a flagged pass).
     pub ignore_permission_mock: bool,
+    /// `ALRUNNER_REPORT_UNPINNED_ERRORS=1` (al-runner issue 6487, opt-in): a test that fails with an error whose text is not
+    /// pinned is reported as failed, its message marked "[error text not pinned]", instead of not run. The test did run and
+    /// fail; only the wording BC gives is not known, so a run with it set is not a conformance result. Default `false`.
+    pub report_unpinned_errors: bool,
+    /// `al-runner test --permissions off` (ADR-062 section 5): no access kind is enforced, whatever stages are on by
+    /// default. While no stage is on (today) it changes nothing.
+    pub permissions_off: bool,
     /// A variant of a stability run (ADR-058): what the runner changes in its steps around each test and in the
     /// session's host values. The default is a normal run.
     pub perturb: crate::stability::Perturb,
@@ -212,6 +219,9 @@ pub struct Compiled {
     /// A warm server: the engines the last request ran on, for the next request over this compile (al-runner issue
     /// 5856). An engine is built from the program alone; what a run sets on it is set again (`KeptEngines::take`).
     pub(crate) kept: std::sync::Mutex<Option<KeptEngines>>,
+    /// The part of the compile a later run grows by apps (ADR-063), with the symbols of each dependency app, when the
+    /// run asked to keep it and the compile can be grown.
+    pub(crate) grow_kept: Option<super::grow::GrowKept>,
 }
 
 /// The engines of a request of a warm server, kept for the next one over the same compile ([`Compiled::kept`]).

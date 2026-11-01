@@ -9,19 +9,21 @@ impl Session {
     /// TestPageReadOnlySetValue.al:1-30, TestPageBooleanSpelling_Tests.al).
     pub(super) fn control_set_value(&mut self, st: &St, idx: usize, args: &mut [Value]) -> Result<Value, Signal> {
         // A filter field (a page variable) whose OnValidate refills a temporary Worksheet: the client reads the new rows
-        // (`reread_after_refill_by_validate`, RmTempRefill.al:215-:320).
+        // (`reread_after_refill_by_validate`, RmTempRefill.al:215-:320), on a collapsed tree too (al-runner issue 6550).
         let engine = self.engine();
         let refill_held = (matches!(
             page_of(&engine, st).controls[idx].binding,
             ir::Binding::Var(_) | ir::Binding::BaseVar(_)
         ) && page_of(&engine, st).controls[idx].trigger("onvalidate").is_some()
-            && self.temp_refill_shape(st))
+            && self.temp_refill_shape_or_tree(st))
         .then(|| self.row_key(&self.page_rec(st)))
         .transpose()?;
+        // The rows of a tree the client had expanded: putting the cut back after OnValidate may expand the parent of Rec's row.
+        let expanded = st.borrow().expanded.clone();
         let r = self.control_set_value_now(st, idx, args);
         if let (Ok(_), Some(held)) = (&r, refill_held) {
-            if !st.borrow().refresh && self.temp_refill_shape(st) && self.held_rows_changed(st)? {
-                self.reread_after_refill_by_validate(st, &held)?;
+            if !st.borrow().refresh && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
+                self.reread_after_refill_by_validate(st, &held, expanded)?;
             }
         }
         // The control now holds an explicit value (see `PageState::set_controls`).
@@ -31,21 +33,63 @@ impl Session {
         r
     }
 
+    /// The ordinals the control's own ValuesAllowed lets through, or `None` without one. Pinned for an Enum or Option control
+    /// whose list names values by name or ordinal (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al: a ConfirmationDialog
+    /// field over a global record's Enum field and an Option variable, request page Enum variables, a list's Rec field;
+    /// pageext/lt-page-ext-properties/PageFieldValuesAllowed.al, a card's Rec field). Other shapes are refused.
+    fn values_allowed(&self, st: &St, idx: usize, ty: &RtType) -> Result<Option<Vec<i32>>, Signal> {
+        let engine = self.engine();
+        let ctl = &page_of(&engine, st).controls[idx];
+        let name = ctl.name.clone();
+        let list = match ctl.prop("valuesallowed") {
+            None => return Ok(None),
+            Some(ir::PropVal::Lit(v)) => v.clone(),
+            Some(_) => {
+                return unsupported(format!(
+                    "SetValue on control {name}, whose ValuesAllowed is computed (not pinned)"
+                ));
+            }
+        };
+        let field = self.control_field(st, idx);
+        let field_prop = |n: &str| {
+            field
+                .as_ref()
+                .is_some_and(|f| f.properties.iter().any(|(k, _)| k.eq_ignore_ascii_case(n)))
+        };
+        if field_prop("ValuesAllowed") {
+            return unsupported(format!(
+                "SetValue on control {name}, with ValuesAllowed over a field with ValuesAllowed (not pinned)"
+            ));
+        }
+        if matches!(ctl.binding, ir::Binding::Field(_)) && self.shows_no_row(st, idx) {
+            return unsupported(format!(
+                "SetValue on control {name}, which has ValuesAllowed, without a row (not pinned)"
+            ));
+        }
+        let values: Vec<(i32, String)> = match ty {
+            RtType::Enum(id) if self.enum_option_list(st, idx, *id)?.is_none() => {
+                engine.program.objects[*id as usize].enum_values.clone()
+            }
+            RtType::Option(members) if ctl.prop("optioncaption").is_none() && !field_prop("OptionCaption") => {
+                members.iter().enumerate().map(|(i, m)| (i as i32, m.clone())).collect()
+            }
+            _ => {
+                return unsupported(format!(
+                    "SetValue on control {name}, which has ValuesAllowed, of a type other than an Enum or Option without captions (not pinned)"
+                ));
+            }
+        };
+        match allowed_ordinals(&list, &values) {
+            Some(v) => Ok(Some(v)),
+            None => unsupported(format!(
+                "SetValue on control {name}, whose ValuesAllowed names no value of its type (not pinned)"
+            )),
+        }
+    }
+
     fn control_set_value_now(&mut self, st: &St, idx: usize, args: &mut [Value]) -> Result<Value, Signal> {
         // Taken first: a trigger that runs below may call SetValue itself.
         let from_variant = std::mem::take(&mut self.set_value_from_variant);
-        // A control's ValuesAllowed rejects a value outside the list (pageext/lt-page-ext-properties/PageFieldValuesAllowed.al:
-        // 64-73; on a request page, pages/lt-report-page-properties/05-requestpage-valuesallowed.al:57-59); the client does not
-        // check it, so a write to such a control is refused rather than taken.
-        if page_of(&self.engine(), st).controls[idx]
-            .prop("valuesallowed")
-            .is_some()
-        {
-            let name = page_of(&self.engine(), st).controls[idx].name.clone();
-            return unsupported(format!(
-                "SetValue on control {name}, which has ValuesAllowed: the test client does not check it"
-            ));
-        }
         // A subscriber to OnBeforeValidateEvent / OnAfterValidateEvent of this control would run in BC; the client does
         // not raise them yet, so a write to such a control is refused (a page that is merely opened is not).
         {
@@ -141,10 +185,12 @@ impl Session {
             && ctl.trigger("__sourceset").is_some()
             && !self.has_source(st)
             && !self.is_request_page(st);
-        // Only a Decimal (the array element) and a Text (the temporary record's field) are pinned.
+        // A Decimal (the array element), a Text (the temporary record's field) and an Enum field of a global record on a
+        // ConfirmationDialog (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al:179-189, :226) are pinned.
         let ty = self.control_type(st, idx, &current).or(match &current {
             Value::Decimal(_) if no_source_expr => Some(RtType::Decimal),
             Value::Text(_) if no_source_expr => Some(RtType::Text(None)),
+            Value::Enum(id, _) if no_source_expr => Some(RtType::Enum(*id)),
             _ => None,
         });
         let Some(ty) = ty else {
@@ -158,6 +204,8 @@ impl Session {
         if no_source_expr {
             st.borrow_mut().expr_set_no_source = true;
         }
+        // The ordinals a control's ValuesAllowed lets through, for the shapes the corpus pins (`values_allowed`).
+        let allowed = self.values_allowed(st, idx, &ty)?;
         let rec_bound = matches!(ctl.binding, ir::Binding::Field(_));
         // A SetValue on a host control while one of its parts holds a typed row that is not saved: the part saves that row
         // first, as it does when the host moves (misc/lt-probes-needed-7/PnGPartRows.al:130-163
@@ -309,8 +357,9 @@ impl Session {
         if let (RtType::Enum(id), Value::Enum(eid, _)) = (&ty, &arg) {
             if id == eid {
                 let shown = self.control_text(st, idx, &arg)?;
+                // A request page's Enum variable takes it too and shows ' ' (Y37ValuesAllowedSetValue.al:247-248, :276).
                 if !shown.is_empty() && shown.trim().is_empty() {
-                    if !pinned_card {
+                    if !pinned_card && !(self.is_request_page(st) && !rec_bound) {
                         return unsupported(
                             "SetValue of a blank-captioned Enum value on a control of a list or of a page without a row (not pinned)",
                         );
@@ -727,6 +776,44 @@ impl Session {
             }
         }
         let parsed = ops::convert(parsed, &ty)?;
+        // A value outside the control's ValuesAllowed is a TestValidation error; the entry it names is the text typed, and for an
+        // Enum or an Integer handed over the ordinal the control holds (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al:
+        // 214 `'3'` for Planned over Released, :217 `'Simulated'`, :222 an Option variable, :270-278 request page Enum variables,
+        // :325-328 a list; a card adds the Refresh hint, pageext/lt-page-ext-properties/PageFieldValuesAllowed.al:69). The
+        // control's OnValidate does not run (Y37ValuesAllowedSetValue.al:226) and Value then shows the held ordinal (:216, :224).
+        if let Some(allowed) = &allowed {
+            let ordinal = match &parsed {
+                Value::Enum(_, o) | Value::Option(o, _) => *o,
+                _ => return unsupported("SetValue on a control with ValuesAllowed whose value is no Enum or Option"),
+            };
+            if !allowed.contains(&ordinal) {
+                let entry = match (&arg, &current) {
+                    (Value::Text(_) | Value::Code(_), _) => text.to_string(),
+                    (Value::Enum(..) | Value::Integer(_), Value::Enum(_, held) | Value::Option(held, _)) => {
+                        held.to_string()
+                    }
+                    _ => {
+                        return unsupported(format!(
+                            "SetValue of {} outside ValuesAllowed (the entry the error names is not pinned)",
+                            arg.describe()
+                        ));
+                    }
+                };
+                if self.is_list(st) && self.has_source(st) {
+                    let key = self.row_key(&self.page_rec(st))?;
+                    let earlier = st.borrow().values_allowed_refused_row.clone();
+                    if earlier.is_some_and(|(i, k)| i == idx && !Self::same_values(&k, &key)) {
+                        return unsupported(
+                            "a second refused entry of a list control's ValuesAllowed on another row (what the control then shows is not pinned)",
+                        );
+                    }
+                    st.borrow_mut().values_allowed_refused_row = Some((idx, key));
+                }
+                return Err(refuse_bound(format!(
+                    "Your entry of '{entry}' is not an acceptable value for '{caption}'."
+                )));
+            }
+        }
         // A table field's ValuesAllowed is checked by the client: on a Code[1] field with `'', 'A', 'N'` an entry outside the list,
         // and also the empty text although '' is listed, is a TestValidation error that lists the values with `;`; `A` is taken
         // (pages/lt-cd-testpage-leads/CdTestPageLeads.al:396-423, Item56_ValuesAllowedEmpty_SetValueEmptyAfterA,
@@ -954,8 +1041,19 @@ impl Session {
                 // GetValidationError_ErrorThenCorrected, line 272: the page answers an empty text afterwards).
                 st.borrow_mut().errors.retain(|(i, _)| *i != idx);
                 st.borrow_mut().trigger_errors.retain(|(i, _)| *i != idx);
+                if st
+                    .borrow()
+                    .values_allowed_refused_row
+                    .as_ref()
+                    .is_some_and(|(i, _)| *i == idx)
+                {
+                    st.borrow_mut().values_allowed_refused_row = None;
+                }
                 let saved = std::mem::take(&mut st.borrow_mut().save_record_called);
                 let update_asked = st.borrow().refresh;
+                if update_asked && st.borrow().lookup_setting_value {
+                    self.defer_lookup_refresh(st);
+                }
                 if !(update_asked && self.host_after_part_update(st)?) {
                     self.run_refresh(st)?;
                 }
@@ -1157,10 +1255,14 @@ impl Session {
         let field_read = m == PageMethod::Value && args.is_empty();
         self.first_part_access(st, m, field_read)?;
         // A new host whose part shows rows of the blank key: a read of a host field and OK are pinned (PartLineBeforeHostKey.al:
-        // 2116 QH_BlankRows_ReadHostControl, :1939 QH_BlankRows_OkInvoke), nothing else.
+        // 2116 QH_BlankRows_ReadHostControl, :1939 QH_BlankRows_OkInvoke), and Activate of a host field: of a non-key field it
+        // inserts the host as without the rows, and the part then links to the new key; of the key field it does nothing
+        // (pages/lt-y17-activate-new-host/Y17ActivateNewHost.al:382 QH_BlankRows_ActivateHostField, :473 _ActivateKeyControl,
+        // :521 _CardHost). Nothing else.
         if st.borrow().new_host_part_rows && st.borrow().host.is_none() {
             let ok = matches!(&c.target, ControlTarget::BuiltIn(n) if n == "OK") && m == PageMethod::Invoke;
-            if !(field_read && matches!(c.target, ControlTarget::Control(_))) && !ok {
+            let activate = m == PageMethod::Activate && matches!(c.target, ControlTarget::Control(_));
+            if !(field_read && matches!(c.target, ControlTarget::Control(_))) && !ok && !activate {
                 return unsupported(format!(
                     "TestField.{m} on a new, unsaved host whose part shows rows of the blank key (not pinned)"
                 ));
@@ -1350,6 +1452,19 @@ impl Session {
                         self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
                     }
                 }
+                // Yes on a ConfirmationDialog whose control still holds a refused entry closes it as Cancel; the values it took stay
+                // (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al:193-196, :225-226; without a refused entry Yes reports Yes,
+                // misc/lt-probes-needed-7/PnGActionOrdinals.al:104). With an OnQueryClosePage what it sees is not pinned.
+                let dialog =
+                    self.engine().object_facts[st.borrow().object as usize].page_type_lower() == "confirmationdialog";
+                if name == "Yes" && dialog && !st.borrow().errors.is_empty() {
+                    if self.declares(st, "onqueryclosepage") {
+                        return unsupported(
+                            "Yes on a ConfirmationDialog with OnQueryClosePage that holds a refused entry (not pinned)",
+                        );
+                    }
+                    return self.close_with(st, "Cancel", true, true);
+                }
                 return self.close_with(st, name, true, true);
             }
             // The built-in OK and Cancel are visible (report/TestProbeReportContracts.al:RequestPage_InvokeActionNotFound).
@@ -1494,7 +1609,34 @@ impl Session {
                 // TestPageAssertEqualsOption.al:SetValue_BlankOption_AsEmptyText, `afterEmpty` [1]); other refused option texts are not pinned.
                 if let Value::Enum(_, ordinal) | Value::Option(ordinal, _) = &v {
                     if st.borrow().errors.iter().any(|(i, _)| *i == idx) {
+                        let refused_at = st.borrow().values_allowed_refused_row.clone();
+                        if let Some((_, key)) = refused_at.filter(|(i, _)| *i == idx) {
+                            if !Self::same_values(&self.row_key(&self.page_rec(st))?, &key) {
+                                return unsupported(
+                                    "Value of a list control on another row than the one its ValuesAllowed refused an entry on (not pinned)",
+                                );
+                            }
+                        }
                         return Ok(Value::Text(ordinal.to_string().into()));
+                    }
+                    // A row value outside the control's ValuesAllowed shows the ordinal on a list (pages/lt-y37-values-allowed/
+                    // Y37ValuesAllowedSetValue.al:302, :322 `4` for Finished); elsewhere it is not pinned.
+                    if page_of(&self.engine(), st).controls[idx]
+                        .prop("valuesallowed")
+                        .is_some()
+                    {
+                        let ty = self.control_type(st, idx, &v);
+                        if let Some(ty) = ty.filter(|t| matches!(t, RtType::Enum(_) | RtType::Option(_))) {
+                            let allowed = self.values_allowed(st, idx, &ty)?.unwrap_or_default();
+                            if !allowed.contains(ordinal) {
+                                if !self.is_list(st) {
+                                    return unsupported(
+                                        "Value of a control whose value is outside its ValuesAllowed, not on a list (not pinned)",
+                                    );
+                                }
+                                return Ok(Value::Text(ordinal.to_string().into()));
+                            }
+                        }
                     }
                 }
                 let text = self.control_text(st, idx, &v)?;
@@ -1675,6 +1817,11 @@ impl Session {
                     return unsupported("an error in OnInsertRecord on Activate() (only SetValue is pinned)");
                 }
                 activated?;
+                // The host is stored: its part shows the rows of the new key (Y17ActivateNewHost.al:382 `LP.OnAfterGetCurrRecord:AUTO1|0`
+                // x3, then :408 part First `No`, :442 SetValue and OK as on any stored host).
+                if st.borrow().new_host_part_rows && !st.borrow().draft {
+                    st.borrow_mut().new_host_part_rows = false;
+                }
                 Ok(Value::Null)
             }
             PageMethod::ValidationErrorCount => {
@@ -1717,6 +1864,23 @@ impl Session {
 /// (pages/lt-ah-pages/AhPageTests.al:444-535, GVE_TwoOnOne_*: two refusals on QtyCtl count once and the later text stays,
 /// and report/lt-report-requestpage-query-members/P105RpValid.al:135). Where another control's refusal came in between,
 /// the order the client then keeps is not pinned: refused.
+/// The ordinals a list such as `ValuesAllowed = 0, None, Partial` names: each entry a value name (ignoring case and double
+/// quotes) or the ordinal of a value, in any order (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al:132). `None` when an
+/// entry names no value.
+fn allowed_ordinals(list: &str, values: &[(i32, String)]) -> Option<Vec<i32>> {
+    list.split(',')
+        .map(|e| {
+            let e = e.trim();
+            let name = e.trim_matches('"');
+            values
+                .iter()
+                .find(|(_, n)| n.eq_ignore_ascii_case(name))
+                .or_else(|| e.parse::<i32>().ok().and_then(|o| values.iter().find(|(v, _)| *v == o)))
+                .map(|(v, _)| *v)
+        })
+        .collect()
+}
+
 /// The ordinals of `ValuesAllowed = Open, Released` of an Enum with `values` (ordinal, name): the names match the enum's values,
 /// ignoring case and double quotes, in the enum's order. `None` for any other list (an ordinal, an unknown name, another order).
 fn allowed_enum_values(list: &str, values: &[(i32, String)]) -> Option<Vec<i32>> {

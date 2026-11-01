@@ -2,7 +2,7 @@
   "corpus_commit": "0985576238dd72f38f7d79ab2597e76303707c3c",
   "language": {
     "bc": "27-29",
-    "implemented": 1615,
+    "implemented": 1621,
     "methods": [
       {
         "bc": [
@@ -779,7 +779,7 @@
         "scope": "",
         "sig": "(Text, Text)",
         "site": "lt-o-small-builtins/OSmallBuiltins.al:129",
-        "state": "refused",
+        "state": "implemented",
         "type": "Database"
       },
       {
@@ -4587,7 +4587,7 @@
         "scope": "",
         "sig": "(SecretText, [SecretText])",
         "site": "network/lt-httpclient-config-certificates/P108Cert2.al:23",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpClient"
       },
       {
@@ -4603,7 +4603,7 @@
         "scope": "",
         "sig": "(Text, [Text])",
         "site": "network/lt-httpclient-config-certificates/P108Cert1.al:23",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpClient"
       },
       {
@@ -8481,7 +8481,7 @@
         "scope": "",
         "sig": "(Dictionary of [Text, SecretText], var SecretText)",
         "site": "json/lt-json-select-secrets/WriteWithSecrets.al:107",
-        "state": "refused",
+        "state": "implemented",
         "type": "JsonObject"
       },
       {
@@ -8497,7 +8497,7 @@
         "scope": "",
         "sig": "(Text, SecretText, var SecretText)",
         "site": "json/lt-json-select-secrets/WriteWithSecrets.al:40",
-        "state": "refused",
+        "state": "implemented",
         "type": "JsonObject"
       },
       {
@@ -16003,7 +16003,7 @@
         "scope": "",
         "sig": "()",
         "site": "misc/lt-probes-needed-8/PnH4CurrReport.al:77",
-        "state": "refused",
+        "state": "implemented",
         "type": "Report"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 115,
+    "refused": 109,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",

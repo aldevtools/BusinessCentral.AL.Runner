@@ -191,6 +191,10 @@ pub struct AppInfo {
     /// when no manifest was read or the declared file could not be read.
     #[serde(default)]
     pub logo: Option<AppLogo>,
+    /// The description the manifest declares (`description` of app.json, `Description` of a package's NavxManifest.xml);
+    /// `None` when no manifest was read.
+    #[serde(default)]
+    pub description: Option<String>,
     /// The files the app's reports name with `LayoutFile`: path relative to the app (`/` separators), content.
     #[serde(default)]
     pub layout_files: Vec<(String, Vec<u8>)>,
@@ -1128,6 +1132,19 @@ pub enum LinkEntry {
     Field(usize, usize),
     /// Position of the part's field, the filter text (`const(x)` and `filter(x)` alike).
     Filter(usize, String),
+    /// `PartField = field(filter(HostField))`: position of the part's field, position of the host (or provider) field whose
+    /// value is read as a filter text.
+    FieldFilter(usize, usize),
+}
+
+impl LinkEntry {
+    /// The host (or provider) field the entry reads, for `field(F)` and `field(filter(F))`.
+    pub fn host_field(&self) -> Option<usize> {
+        match self {
+            LinkEntry::Field(_, hf) | LinkEntry::FieldFilter(_, hf) => Some(*hf),
+            LinkEntry::Filter(..) => None,
+        }
+    }
 }
 
 impl Control {

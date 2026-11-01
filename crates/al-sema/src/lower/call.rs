@@ -326,19 +326,29 @@ impl Lowerer<'_> {
                     "builtin {id}: what a media export writes to the server's file system is not pinned (docs/probes-needed.md)"
                 )))
             }
-            // The Layout of a Report Layout List row: the corpus pins its HasValue as No for a built-in layout
-            // (report/PZReportLayoutMedia.al:51-53), not what its export writes (Custom Report Layout.InitBuiltInLayout exports it).
-            // Refused when it runs; an empty Media field of another table exports nothing (al-builtins media.rs `media_export`).
+            // The Layout of a Report Layout List row: its HasValue is No for a built-in layout (report/PZReportLayoutMedia.al:51-53),
+            // and its export writes the layout file of the app's package (report/lt-y17-layout-export/Y17LayoutExportTests.al:70,
+            // corpus master). The VM looks the layout up by the row's report id and name (`Report.LayoutListExportStream#1`, the row
+            // as its receiver); an empty Media field of another table exports nothing (al-builtins media.rs `media_export`).
             Some(Res::Builtin(id))
                 if id == "Media.ExportStream#1"
                     && receiver_node
                         .as_ref()
                         .is_some_and(|r| self.report_layout_list_field(r)) =>
             {
-                Ok(ir::Expr::Refused(
-                    "Media.ExportStream of the Layout of a Report Layout List row: what a built-in layout exports is not pinned (docs/probes-needed.md)"
-                        .into(),
-                ))
+                let row = receiver_node
+                    .as_ref()
+                    .and_then(|r| r.children().next())
+                    .ok_or("the Layout field without its record")?;
+                let [stream] = args else {
+                    return Err("Media.ExportStream of a Report Layout List Layout without one OutStream".into());
+                };
+                Ok(ir::Expr::Builtin {
+                    id: builtin_id("Report.LayoutListExportStream#1")?,
+                    receiver: Some(Box::new(ir::Arg::Value(self.expr(&row)?))),
+                    args: vec![ir::Arg::Value(self.expr(stream)?)],
+                    ret_used: true,
+                })
             }
             Some(Res::Builtin(id)) if id == "System.GetDotNetType#1" => self.get_dotnet_type_call(args),
             Some(Res::Builtin(id)) => {
@@ -551,11 +561,41 @@ impl Lowerer<'_> {
                         let slot = self.globals.get("currpage").ok_or("`CurrPage` is not lowered for this object")?;
                         Some(Box::new(ir::Arg::Ref(ir::Place::Global(*slot))))
                     }
+                    // A bare report method in a report's or report extension's procedure is the `CurrReport.` form: the VM
+                    // takes the report whose code runs (report/lt-y36-bare-report-member/Y36BareReportMember.al:206-357, also
+                    // on a report variable never run and from a report extension; the checker resolves only the pinned names,
+                    // `check::calls::BARE_REPORT_MEMBERS`). In a trigger the bare form is not pinned. The bare `RunModal()`
+                    // runs the report's own instance: assumption `bare-report-member-is-self`.
+                    None if sig.instance
+                        && sig.receiver == "Report"
+                        && callee.kind() == SyntaxKind::NameRef
+                        && matches!(self.ws.objects[self.oi].kind, ObjKind::Report | ObjKind::ReportExtension) =>
+                    {
+                        let in_trigger = node
+                            .ancestors()
+                            .find(|a| matches!(a.kind(), SyntaxKind::Procedure | SyntaxKind::Trigger))
+                            .is_none_or(|a| a.kind() == SyntaxKind::Trigger);
+                        if in_trigger {
+                            return Err(format!(
+                                "a bare `{}` in a trigger of the report runs while the report runs (not pinned)",
+                                sig.name
+                            ));
+                        }
+                        if sig.name.eq_ignore_ascii_case("RunModal") {
+                            if self.ws.objects[self.oi].kind != ObjKind::Report {
+                                return Err("a bare `RunModal` in a report extension (not pinned)".into());
+                            }
+                            self.assume(al_builtins::assumptions::Assumption::BareReportMemberIsSelf);
+                            Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance)))
+                        } else {
+                            None
+                        }
+                    }
                     // An unqualified record method in table code runs on the implicit Rec.
                     None if sig.instance && matches!(sig.receiver.as_str(), "Record" | "Query") => {
                         Some(Box::new(ir::Arg::Ref(self.implicit_rec(node)?)))
                     }
-                    _ => None,
+                    _ => self.mark_bare_page_run(&id, callee),
                 };
                 let mut out = Vec::new();
                 for (i, a) in args.iter().enumerate() {
@@ -948,6 +988,18 @@ impl Lowerer<'_> {
     /// runtime's usual conversion). The same call on another codeunit was measured on the Linux tiers only (:140-158), so it
     /// is refused until the Windows check; other receivers, other number types and other Char expressions are not pinned and
     /// are refused. `None`: not such an argument.
+    /// A bare `Run(Page::X, ...)` in a page is the static Page.Run (the checker resolves it, `check::calls`): marks assumption
+    /// bare-page-run-is-static. Always `None`, the receiver of a static call.
+    fn mark_bare_page_run(&mut self, id: &str, callee: &SyntaxNode) -> Option<Box<ir::Arg>> {
+        if id.starts_with("Page.Run#")
+            && callee.kind() == SyntaxKind::NameRef
+            && self.ws.objects[self.oi].kind == ObjKind::Page
+        {
+            self.assume(al_builtins::assumptions::Assumption::BarePageRunIsStatic);
+        }
+        None
+    }
+
     fn char_into_number_of_other_object(&self, receiver: ObjKind, param: &Ty, arg: &SyntaxNode) -> L<Option<ir::Expr>> {
         if !matches!(self.ty_ref(arg), Ty::Char)
             || !matches!(

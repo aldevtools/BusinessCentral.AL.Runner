@@ -416,6 +416,19 @@ pub trait Ctx: FormatCtx {
             "StartSession: a second session is not modelled in this context".into(),
         ))
     }
+    /// `StartSession` with a Timeout of `timeout_ms` milliseconds under Disabled test isolation: as
+    /// [`Ctx::start_background_session`] for a session that ends before the Timeout.
+    fn start_background_session_timeout(
+        &mut self,
+        _codeunit: i32,
+        _company: Option<String>,
+        _record: Option<Value>,
+        _timeout_ms: i64,
+    ) -> Result<i32, Signal> {
+        Err(Signal::Unsupported(
+            "StartSession: a second session is not modelled in this context".into(),
+        ))
+    }
     /// `Error(ErrorInfo)` of a collectible error: inside a `[ErrorBehavior(Collect)]` scope the
     /// session keeps a copy and the call returns normally (`true`); outside one it is raised like
     /// any other error (`false`).
@@ -626,7 +639,7 @@ const REGISTRY: &[(&str, NativeFn)] = &[
     // CreateTask, TaskExists, CancelTask and SetTaskReady keep the session's tasks: `Ctx::session_op` (al-vm tasks.rs).
     ("Session.StartSession#1", start_session),
     ("Session.StartSession#2", start_session_timeout),
-    ("Session.StartSession#3", start_session_timeout),
+    ("Session.StartSession#3", start_session_timeout_first),
     ("Text.CopyStr#1", copystr),
     ("Text.StrSubstNo#1", strsubstno),
     ("Text.UpperCase#1", uppercase),
@@ -736,6 +749,7 @@ const REGISTRY: &[(&str, NativeFn)] = &[
     ("Report.SetTableView#1", vm_only),
     ("Report.UseRequestPage#1", vm_only),
     ("Report.ObjectId#1", vm_only),
+    ("Report.IsReadOnly#1", vm_only),
     ("Report.Preview#1", vm_only),
     ("RequestPage.Update#1", vm_only),
     ("RequestPage.Caption#1", vm_only),
@@ -1082,6 +1096,7 @@ pub const INVENTED_IDS: &[&str] = &[
     "InStream.OwnerOutOfScope#1",
     "System.TranslatedText#1",
     "System.TextConstText#1",
+    "Report.LayoutListExportStream#1",
 ];
 
 /// Every name that gets a [`BuiltinId`]: the catalog's overloads of every version, the registered natives
@@ -1233,6 +1248,24 @@ fn unpinned_refusal(e: &AlError, what: &str) -> Signal {
             "{what} of an error whose text is not pinned (probe wanted: {probe}, docs/probes-needed.md)"
         )),
         None => Signal::Unsupported(format!("{what} of an error whose text is not pinned")),
+    }
+}
+
+/// The start of the failure message of a test [`unpinned_failure_text`] reports.
+pub const UNPINNED_FAILURE_MARK: &str = "[error text not pinned]";
+
+/// The failure message of a test that ended on an error whose text is not pinned, for a run that reports such a test as
+/// failed (opt-in `ALRUNNER_REPORT_UNPINNED_ERRORS=1`, al-runner issue 6487): "[error text not pinned]", then what the
+/// error says besides its marks (the probe it names, or the pinned text around an unpinned value), if anything.
+pub fn unpinned_failure_text(e: &AlError) -> String {
+    let rest: String = e
+        .message
+        .chars()
+        .filter(|c| !UNPINNED_ERROR.contains(*c) && *c != PINNED_CODE)
+        .collect();
+    match rest.trim() {
+        "" => UNPINNED_FAILURE_MARK.to_string(),
+        rest => format!("{UNPINNED_FAILURE_MARK} {rest}"),
     }
 }
 
@@ -2323,9 +2356,20 @@ fn start_session(c: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> 
     start_session_of(c, args, false)
 }
 
-/// `StartSession` with a Timeout (the overloads `#2` and `#3`): as [`start_session`], but refused where a session would
-/// start, as no probe measures one with a Timeout.
+/// `StartSession(var SessionId, CodeunitId, Company, var Record, Timeout)`: as [`start_session`], with the Timeout handed
+/// to `Ctx::start_background_session_timeout`.
 fn start_session_timeout(c: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+    start_session_of(c, args, true)
+}
+
+/// `StartSession(var SessionId, CodeunitId, Timeout [, Company [, var Record]])`: no probe measures this overload under
+/// Disabled isolation, so it is refused where a session would start.
+fn start_session_timeout_first(c: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+    if !c.install_scope() && c.in_test_run() && c.hub_disabled() {
+        return unsupported(
+            "StartSession with the Timeout before the Company under Disabled test isolation (not pinned)",
+        );
+    }
     start_session_of(c, args, true)
 }
 
@@ -2344,10 +2388,23 @@ fn start_session_of(c: &mut dyn Ctx, args: &mut [Value], timeout: bool) -> Resul
     // :38-63). The session runs to its end inside the call (`Ctx::start_background_session`, which refuses what no probe
     // measures). Under Function it fails as under Codeunit (RqIsolationModes.al:454-462; SdIsolStartSession.Codeunit.al:20-21).
     if c.in_test_run() && c.hub_disabled() {
-        // Only the overload without a Timeout is measured: SessionId, CodeunitId, [Company, [Record]].
-        if timeout {
-            return unsupported("StartSession with a Timeout under Disabled test isolation (not pinned)");
-        }
+        // SessionId, CodeunitId, [Company, [Record]] and the overloads with a Timeout after the Record. A session that
+        // ends before its Timeout runs as one without; one that would still run at it is refused
+        // (`Ctx::start_background_session_timeout`).
+        let timeout_ms = if timeout {
+            match args.get(4) {
+                Some(Value::Integer(n)) if *n > 0 => Some(i64::from(*n)),
+                Some(Value::BigInteger(n)) if *n > 0 => Some(*n),
+                Some(Value::Duration(d)) if *d > 0 => Some(*d),
+                _ => {
+                    return unsupported(
+                        "StartSession with a Timeout that is not a positive number of milliseconds (not pinned)",
+                    );
+                }
+            }
+        } else {
+            None
+        };
         let Some(Value::Integer(codeunit)) = args.get(1).cloned() else {
             return unsupported("StartSession with a codeunit id that is not an integer");
         };
@@ -2356,7 +2413,10 @@ fn start_session_of(c: &mut dyn Ctx, args: &mut [Value], timeout: bool) -> Resul
             Some(_) => Some(text_arg(args, 2)?.to_string()),
         };
         let record = args.get(3).cloned();
-        let session = c.start_background_session(codeunit, company, record)?;
+        let session = match timeout_ms {
+            None => c.start_background_session(codeunit, company, record)?,
+            Some(ms) => c.start_background_session_timeout(codeunit, company, record, ms)?,
+        };
         if let Some(slot) = args.first_mut() {
             *slot = Value::Integer(session);
         }

@@ -528,6 +528,28 @@ impl TestBacking {
 
     /// Builds the table from the provider's rows. `Err`: why the runtime refuses it.
     fn build(&self, t: &TableDef, rows: &TableRows, plan: &Plan) -> Result<Rows, String> {
+        let auto = self.program.objects[t.object as usize]
+            .table
+            .as_ref()
+            .and_then(|s| s.fields.iter().position(|f| f.auto_increment));
+        let out = self.convert_rows(t, rows, plan)?;
+        let floor = auto.map_or(0, |i| {
+            out.iter()
+                .filter_map(|r| match &r[i] {
+                    Value::Integer(v) => Some(i64::from(*v)),
+                    Value::BigInteger(v) => Some(*v),
+                    _ => None,
+                })
+                .max()
+                .unwrap_or(0)
+        });
+        Rows::from_rows(t, out)
+            .map(|r| r.with_auto_increment_floor(floor))
+            .map_err(|n| format!("{n} rows share a primary key of the compiled table"))
+    }
+
+    /// The provider's rows as rows of the compiled table, in the provider's order. `Err`: why the runtime refuses them.
+    fn convert_rows(&self, t: &TableDef, rows: &TableRows, plan: &Plan) -> Result<Vec<Row>, String> {
         let defaults: Vec<Value> = t.fields.iter().map(|f| Value::default_for(&f.ty)).collect();
         // A field no column fills still gets a blob of its own in each row.
         let blobs: Vec<usize> = (0..t.fields.len())
@@ -582,19 +604,58 @@ impl TestBacking {
         if numbered.is_some() && !out.is_empty() {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PackageAutoIncrementFromOne);
         }
-        let floor = auto.map_or(0, |i| {
-            out.iter()
-                .filter_map(|r| match &r[i] {
-                    Value::Integer(v) => Some(i64::from(*v)),
-                    Value::BigInteger(v) => Some(*v),
-                    _ => None,
-                })
-                .max()
-                .unwrap_or(0)
+        Ok(out)
+    }
+
+    /// The rows of the restored database's Company table, as rows of the compiled Company table `t` (al-runtime issue
+    /// 6505): a platform table, so not a backing of the store (the runtime keeps which companies exist, ADR-046), but its
+    /// rows are data of the database. With the fields the source holds a column for. Empty when the source holds none or
+    /// cannot be read; each refusal is counted.
+    pub(crate) fn company_rows(&self, object: u32, t: &TableDef) -> (Vec<usize>, Vec<Row>) {
+        let obj = &self.program.objects[object as usize];
+        let record = |o: Outcome| self.data.stats.record(object, &obj.name, o);
+        let mut request = TableRequest {
+            name: obj.name.clone(),
+            app_id: None,
+            per_company: false,
+            ..Default::default()
+        };
+        if self.data.provider.wants_fields() {
+            request.table_id = obj.id;
+            request.fields = self.request_fields(obj);
+        }
+        let rows = match self.data.read(&request) {
+            Ok(r) if !r.rows.is_empty() => r,
+            Ok(_) | Err(TableError::Absent) => {
+                record(Outcome::Empty);
+                return Default::default();
+            }
+            Err(TableError::Ambiguous(why)) => {
+                record(Outcome::Refused(Refusal::Ambiguous(why)));
+                return Default::default();
+            }
+            Err(TableError::Reader(why)) => {
+                record(Outcome::Refused(Refusal::Reader(why)));
+                return Default::default();
+            }
+        };
+        let built = self.plan(object, &rows).and_then(|plan| {
+            let fields = plan.mapped.iter().map(|m| m.field).collect();
+            self.convert_rows(t, &rows, &plan).map(|r| (fields, r, plan.dropped))
         });
-        Rows::from_rows(t, out)
-            .map(|r| r.with_auto_increment_floor(floor))
-            .map_err(|n| format!("{n} rows share a primary key of the compiled table"))
+        match built {
+            Ok((fields, out, dropped)) => {
+                record(Outcome::Loaded {
+                    rows: out.len(),
+                    dropped,
+                });
+                (fields, out)
+            }
+            Err(why) => {
+                record(Outcome::Refused(Refusal::Unsupported(why)));
+                Default::default()
+            }
+        }
     }
 
     /// The fields of a table for a source that needs the schema to type its values: each with the column name the

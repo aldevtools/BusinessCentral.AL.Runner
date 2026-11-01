@@ -841,7 +841,7 @@ fn walk_part_link<V: RefVisitor>(l: &mut PartLink, target: TableOf, host: TableO
     } = l;
     for e in entries {
         match e {
-            LinkEntry::Field(a, b) => {
+            LinkEntry::Field(a, b) | LinkEntry::FieldFilter(a, b) => {
                 fld(v, a, target);
                 fld(v, b, host);
             }

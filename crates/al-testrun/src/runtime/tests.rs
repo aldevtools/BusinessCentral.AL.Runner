@@ -160,6 +160,25 @@ fn a_failure_after_a_test_that_was_refused_mid_run_is_not_trusted() {
     assert_eq!(u[0].1, Outcome::Fail("real failure".into()));
 }
 
+/// A test refused while it ran leaves the session language and WorkDate as they were when it started, as its database
+/// writes are rolled back: corpus report/lt-bd-format-region/BdRegionTests.al BdSummaryML_1040 sets GlobalLanguage(1040) and
+/// is refused before its own `GlobalLanguage(Original)`; the BdSetterLanguage_* tests after it must not run in 1040.
+#[test]
+fn a_test_refused_while_it_ran_leaves_no_session_language_or_work_date_behind() {
+    let src = "table 60902 T8 { fields { field(1; K; Code[10]) { } } }
+            codeunit 60106 T { Subtype = Test; var Saved: Date; Lang: Integer;
+                [Test] procedure Remember() begin Saved := WorkDate(); Lang := GlobalLanguage(); end;
+                [Test] procedure Refused() var R: Record T8; begin GlobalLanguage(1040); WorkDate(Saved + 1); R.LockTable(true, true); end;
+                [Test] procedure Reads() begin
+                    if GlobalLanguage() <> Lang then Error('language %1', GlobalLanguage());
+                    if WorkDate() <> Saved then Error('work date %1', WorkDate());
+                end; }";
+    let o = outcomes_of(src, "T");
+    let by = |n: &str| o.iter().find(|(x, _)| x == n).map(|(_, x)| x.clone()).unwrap();
+    assert!(matches!(by("Refused"), Outcome::NotRun(_)), "{:?}", by("Refused"));
+    assert_eq!(by("Reads"), Outcome::Pass);
+}
+
 /// al-runner issue 5610: a test refused at an HttpClient call can change only what an HTTP server received, which a later
 /// test sees only by sending a request itself. A later failure that sends none is trusted.
 #[test]
@@ -3701,4 +3720,47 @@ fn seed_library_hands_library_random_the_derived_seed() {
     let on = seeded_messages(STABILITY_APP, opts(true), None);
     let want = al_host::seed::derive_library(4271833, 60990, "SeedIsOne");
     assert_eq!(message(&on, "SeedIsOne"), format!("seed {want}"));
+}
+
+/// The work ratchet (`al-test-cli`, `metrics/<major>/work.json`): a run counts what it compiled, the rows its install
+/// baseline holds and the tests it ran.
+#[test]
+fn a_run_counts_its_work() {
+    let dep = "table 60900 Setup { fields { field(1; K; Code[10]) { } } }
+        codeunit 60901 Inst { Subtype = Install;
+            trigger OnInstallAppPerCompany() var R: Record Setup; begin R.K := 'A'; R.Insert(); R.K := 'B'; R.Insert(); end; }
+        codeunit 60902 Unused { procedure P() begin end; }";
+    let main = "codeunit 60990 T { Subtype = Test;
+        [Test] procedure Reads() var R: Record Setup; begin if R.Count() <> 2 then Error('rows %1', R.Count()); end;
+        [Test] procedure Other() begin end; }";
+    let app = |id: &str, deps: &[&str], src: &str| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps.iter().map(|d| d.to_string()).collect(),
+        files: vec![(format!("{id}.al"), src.into())],
+    };
+    let rt = CorpusRuntime::run_suites_with(
+        vec![app("main", &["dep"], main), app("dep", &[], dep)],
+        vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+        &[],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions::default(),
+    );
+    assert!(
+        rt.results().iter().all(|r| r.outcome == Outcome::Pass),
+        "{:?}",
+        rt.results()
+    );
+    let w = rt.phases.work;
+    assert_eq!(w.compiles, 1);
+    assert_eq!(w.dependency_apps, 1);
+    assert_eq!(w.dependency_apps_from_cache, 0);
+    assert_eq!((w.cache_layers_hit, w.cache_layers_built), (0, 0));
+    assert_eq!(w.lower.objects_lowered, 1);
+    assert_eq!(w.lower.dependency_objects_lowered, 2, "{w:?}");
+    assert_eq!(w.baseline_rows, Some(2), "{w:?}");
+    assert_eq!(w.tests_run, 2);
 }

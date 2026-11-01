@@ -434,6 +434,10 @@ pub struct PageState {
     /// The open read of a descending find list without row triggers stopped a full window of rows above the row it opened on,
     /// the last row of the view, with rows above still unread: `First` reads them (see `first_above_the_find_list_window`).
     pub window_top_unread: bool,
+    /// The open read of a plain list on the row its OnOpenPage left Rec on held more rows than a window: (rows above the top row
+    /// it holds were left unread, rows below its bottom row were left unread). `First` and `Last` read on from that edge (al-vm
+    /// `read_rows_above_the_moved_rec`).
+    pub moved_rec_open_partial: Option<(bool, bool)>,
     /// A modal list in a key other than the primary key opened on the last row of its descending view and read the rows above it
     /// (see `read_rows_up_from_the_landed_last_row` in al-vm): `Some(false)` after that open, `Some(true)` after the GoToKey that
     /// walked its rows from the first one. Other moves from there are not pinned.
@@ -486,6 +490,9 @@ pub struct PageState {
     pub focus_in_row: bool,
     /// Validation errors the client holds: (control index, stored text).
     pub errors: Vec<(usize, String)>,
+    /// The control and the list row (its key) where a control's ValuesAllowed refused an entry: a Value read of that control on
+    /// another row is not pinned (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al:313-316).
+    pub values_allowed_refused_row: Option<(usize, Vec<Value>)>,
     /// The controls among `errors` whose refusal was an error of an AL trigger (the table's or the control's OnValidate),
     /// not one of the client's own checks, with the trigger's message: Close validates those again
     /// (pages/lt-ah-pages/AhPageTests.al:155-159).
@@ -514,6 +521,8 @@ pub struct PageState {
     pub last_run_modal: Option<bool>,
     /// The rows of a tree (a repeater with ShowAsTree) expanded with `Expand(true)`, by primary key.
     pub expanded: Vec<Vec<Value>>,
+    /// The rows a tree shows (its cut), by primary key, as last computed (`apply_tree_cut`).
+    pub tree_shown: Vec<Vec<Value>>,
     /// The rows a tree with row triggers read when it opened but does not show (below a collapsed row), in the view's order:
     /// they are not in `window`, and an Expand moves them there without reading them again.
     pub tree_hidden: Vec<WindowRow>,
@@ -545,6 +554,12 @@ pub struct PageState {
     /// (corpus pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al:422 covers only a page without them); every TestPage call
     /// but Close is refused until Close.
     pub marked_only_unpinned: bool,
+    /// A TestField.Lookup on this page, whose OnValidate called `CurrPage.Update(false)`, left that refresh for later, as BC
+    /// does on a host with row triggers whose ListPart links two or three fields (`Session::defer_lookup_refresh`): reads and Close
+    /// run no trigger; any other TestPage call on its tree is refused until Close.
+    pub lookup_refresh_deferred: bool,
+    /// TestField.Lookup writes the text its OnLookup returned through the control's SetValue (`defer_lookup_refresh`).
+    pub lookup_setting_value: bool,
     /// An action turned MarkedOnly on for a list with row triggers: the later moves are refused (not built).
     pub marked_only_by_action: bool,
     /// An action runs on a list whose Rec had MarkedOnly off: a refresh after it that finds MarkedOnly on holds the marked rows it
@@ -765,6 +780,8 @@ pub struct PageState {
     /// A `Page`-typed modal handler is running on this page: the page never opened, `GetRecord` and `SetRecord`
     /// read and write its Rec (handlers/PSModalPageHandlerTyped.al).
     pub typed_handler: bool,
+    /// The `Page`-typed handler that runs is a `[PageHandler]` of `Page.Run`, not a modal one.
+    pub typed_run_handler: bool,
     /// The last `Page`-typed modal handler on this page called `SetRecord`: GetRecord after the run hands that record back.
     pub handler_set_record: bool,
     /// The page opened on a source table with no row to show (a card over an empty table): its Rec was never a stored row.
@@ -882,6 +899,7 @@ impl PageState {
             window_read_up: false,
             window_held_above: None,
             window_top_unread: false,
+            moved_rec_open_partial: None,
             read_up_from_last: None,
             landing_first: false,
             open_reads_above: false,
@@ -900,6 +918,7 @@ impl PageState {
             focus: None,
             focus_in_row: false,
             errors: Vec::new(),
+            values_allowed_refused_row: None,
             trigger_errors: Vec::new(),
             refused: false,
             close_error: false,
@@ -912,6 +931,7 @@ impl PageState {
             modal: false,
             last_run_modal: None,
             expanded: Vec::new(),
+            tree_shown: Vec::new(),
             tree_hidden: Vec::new(),
             lookup: false,
             result: None,
@@ -926,6 +946,8 @@ impl PageState {
             view_left: false,
             marked_only_unshown: false,
             marked_only_unpinned: false,
+            lookup_refresh_deferred: false,
+            lookup_setting_value: false,
             marked_only_by_action: false,
             marking_action: false,
             marked_rows_held: false,
@@ -1004,6 +1026,7 @@ impl PageState {
             set_view: false,
             new_by_call: false,
             typed_handler: false,
+            typed_run_handler: false,
             handler_set_record: false,
             never_stored: false,
             host: None,
@@ -1819,6 +1842,8 @@ pub enum LibraryValue {
     ModuleInfo(ModuleInfoState),
     /// A `DataTransfer` that `SetTables` staged: (source table, destination table).
     DataTransfer(Option<(i32, i32)>),
+    /// A `DataTransfer` staged inside install code: what its copy will do (al-vm `datatransfer`).
+    DataTransferPlan(Box<crate::datatransfer::Plan>),
     /// A `Cookie`: an untouched one is `Empty`, which reads as no name, no value and no attributes.
     Cookie(CookieState),
     /// An `HttpRequestMessage` that was configured (an untouched one is `Empty`).

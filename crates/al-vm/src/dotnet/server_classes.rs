@@ -610,9 +610,11 @@ const MOCK_LIFECYCLE_PIN: &str = "permissions/TestPermissionsMockLifecycle.al:29
     apply: the insert goes through)";
 
 /// `PermissionTestHelper()`: starts the mock with no set assigned. The user's own permissions apply then
-/// (`MOCK_LIFECYCLE_PIN`), and every access is granted here (ADR-027), so the object holds nothing.
-fn permission_helper_new(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+/// (`MOCK_LIFECYCLE_PIN`): the session is unrestricted (ADR-062, `permissions.rs`). The object holds nothing; the
+/// assigned sets are the session's.
+fn permission_helper_new(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "PermissionTestHelper constructor")?;
+    s.clear_permission_sets();
     Ok(Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {
         type_name: PERMISSION_TEST_HELPER.into(),
         state: RefCell::new(Vec::new()),
@@ -620,42 +622,44 @@ fn permission_helper_new(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Ar
 }
 
 /// `Clear()` and `Dispose()`: back to no assigned set, the user's own permissions (`MOCK_LIFECYCLE_PIN`).
-fn permission_helper_clear(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+fn permission_helper_clear(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "PermissionTestHelper.Clear")?;
+    s.clear_permission_sets();
     Ok(Value::Null)
 }
 
-fn permission_helper_dispose(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+fn permission_helper_dispose(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "PermissionTestHelper.Dispose")?;
+    s.clear_permission_sets();
     Ok(Value::Null)
 }
 
-/// `AddEffectivePermissionSet(RoleId)` narrows the session to the assigned sets (enforced on BC: corpus
-/// permissions/TestPermissionsMockEnforcement.al:28-47). Permissions are not enforced here (ADR-027), so a test that
-/// lowers them is not run, unless `--ignore-permission-mock` asks to run it anyway. The sets BC's test runner assigns before each test method (Tests-TestLibraries codeunit 130302
-/// "Set State Test Run", every Microsoft test that does not disable TestPermissions) are assumed to grant all the test
-/// does (`runner-permission-sets-grant-all`): those tests pass in Microsoft's CI under them. On BC they do not grant
-/// everything: they grant what D365 Full Access, D365 Basic and LOCAL name, plus Execute on every object (All Objects);
-/// a test app table no set names reads as ReadPermission false and fails with DB:ClientReadDenied, and Tenant Media has
-/// only indirect write (permissions/lt-qc-runner-sets/QcRunnerSets.al:1-24, :226-291). The corpus applies these sets only
-/// from test code, which is refused above, so no corpus case runs through this path.
-fn permission_helper_add_set(s: &mut Session, _: Option<&Rc<DotNetObject>>, _: Args) -> Result<Value, Signal> {
+/// `AddEffectivePermissionSet(RoleId)` narrows the session to the union of the assigned sets (enforced on BC: corpus
+/// permissions/TestPermissionsMockEnforcement.al:28-47). The session composes the sets from their source (ADR-062,
+/// `permissions.rs`): a list that grants everything (SUPER) leaves it unrestricted; any other list makes it restricted,
+/// and since no access kind is enforced yet, its next access outside the mock's code refuses the test, unless
+/// `--ignore-permission-mock` asks to run it anyway (flagged `permissions-not-enforced`).
+///
+/// The sets BC's test runner assigns before each test method (Tests-TestLibraries codeunit 130302 "Set State Test
+/// Run", every Microsoft test that does not disable TestPermissions) are not recorded: they are assumed to grant all
+/// the test does (`runner-permission-sets-grant-all`); those tests pass in Microsoft's CI under them. On BC they do not
+/// grant everything: they grant what D365 Full Access, D365 Basic and LOCAL name, plus Execute on every object (All
+/// Objects); a test app table no set names reads as ReadPermission false and fails with DB:ClientReadDenied, and Tenant
+/// Media has only indirect write (permissions/lt-qc-runner-sets/QcRunnerSets.al:1-24, :226-291).
+fn permission_helper_add_set(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     if s.runner_permission_step {
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RunnerPermissionSetsGrantAll);
+        s.runner_permission_sets = true;
         return Ok(Value::Null);
     }
-    // `al-runner test --ignore-permission-mock`: the user chose to run such a test with every access granted. Each test
-    // that gets here is a flagged pass (`permissions-not-enforced`), never mistaken for a permission check.
-    if s.ignore_permission_mock {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PermissionsNotEnforced);
-        return Ok(Value::Null);
-    }
-    Err(Signal::Unsupported(
-        "DotNet PermissionTestHelper.AddEffectivePermissionSet lowers the permissions of the test session; \
-         permissions are not enforced here (every access is granted, ADR-027), so the test is not run \
-         (`--ignore-permission-mock` runs it without permission checks, as a flagged pass)"
-            .into(),
-    ))
+    let [Value::Text(role) | Value::Code(role)] = args else {
+        return Err(Signal::Unsupported(
+            "DotNet PermissionTestHelper.AddEffectivePermissionSet takes one Text or Code".into(),
+        ));
+    };
+    let role = role.to_string();
+    s.assign_permission_set(&role);
+    Ok(Value::Null)
 }
 
 /// How AL reads an unset environment variable: a null string (tests/al-language-onprem-dotnet/

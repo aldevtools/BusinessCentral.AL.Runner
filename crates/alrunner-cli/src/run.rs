@@ -845,6 +845,7 @@ fn test_inner(
         .iter()
         .map(|p| apps::load(p, a.bc_version.as_deref()))
         .collect::<Result<Vec<AppInput>, String>>()?;
+    apps::distinct_ids(&inputs)?;
 
     // Which test codeunits there are, and which of them this run is about.
     let mut found: Vec<Found> = Vec::new();
@@ -1518,6 +1519,10 @@ fn test_inner(
         process_ends_after,
         // `--ignore-permission-mock` (issue 5996): a test that lowers its permissions runs, flagged.
         ignore_permission_mock: a.ignore_permission_mock,
+        // `ALRUNNER_REPORT_UNPINNED_ERRORS=1` (issue 6487, opt-in): an unpinned error text fails the test, marked.
+        report_unpinned_errors: crate::unpinned::enabled(),
+        // `--permissions off` (ADR-062 section 5).
+        permissions_off: a.permissions_off,
         perturb: Default::default(),
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: (a.run_selected_only && selection.active() && !a.execute).then(|| {
@@ -2173,18 +2178,21 @@ fn test_inner(
         with_skipped.sort_by_key(|r| (r.app, r.codeunit));
         write_file(
             path,
-            &crate::seed::junit_license(
-                &crate::seed::junit(
-                    &output::junit(
-                        &with_skipped,
-                        bc_build.as_deref(),
-                        total_time.as_secs_f64(),
-                        &|cu, t| disabled.as_ref().is_some_and(|d| d.is_disabled(cu, t)),
-                        &rt.phases.baseline_assumptions,
+            &crate::unpinned::junit(
+                &crate::seed::junit_license(
+                    &crate::seed::junit(
+                        &output::junit(
+                            &with_skipped,
+                            bc_build.as_deref(),
+                            total_time.as_secs_f64(),
+                            &|cu, t| disabled.as_ref().is_some_and(|d| d.is_disabled(cu, t)),
+                            &rt.phases.baseline_assumptions,
+                        ),
+                        run_seed,
                     ),
-                    run_seed,
+                    &license,
                 ),
-                &license,
+                crate::unpinned::enabled(),
             ),
         )?;
     }
@@ -2225,9 +2233,13 @@ fn test_inner(
     }
     say!(
         "{}",
-        style::bold(&output::summary_line(
-            &counts,
-            output::needs_no_data_note(microsoft, test_data.is_some())
+        style::bold(&format!(
+            "{}{}",
+            output::summary_line(&counts, output::needs_no_data_note(microsoft, test_data.is_some())),
+            crate::unpinned::summary_note(
+                crate::unpinned::enabled(),
+                crate::unpinned::count(results.iter().map(|r| &r.outcome))
+            )
         ))
     );
     // ADR-061 section 3: the seed, also under --quiet (a seed that is not printed cannot be used), and the command that
@@ -2345,12 +2357,16 @@ fn test_inner(
             passes: p.passes.clone(),
         });
         w.report = Some(Report {
-            doc: serde_json::from_str(&crate::seed::json(
-                crate::affected::with_selection(
-                    output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
-                    affected.as_ref(),
+            doc: serde_json::from_str(&crate::unpinned::json(
+                crate::seed::json(
+                    crate::affected::with_selection(
+                        output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
+                        affected.as_ref(),
+                    ),
+                    run_seed,
                 ),
-                run_seed,
+                crate::unpinned::enabled(),
+                crate::unpinned::count(results.iter().map(|r| &r.outcome)),
             ))
             .map(|mut doc: serde_json::Value| {
                 if !entry_counts.is_empty() {
@@ -2396,15 +2412,19 @@ fn test_inner(
         });
     }
     if let Some(target) = &a.output_json {
-        let doc = crate::seed::json(
-            crate::seed::json_license(
-                crate::affected::with_selection(
-                    output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
-                    affected.as_ref(),
+        let doc = crate::unpinned::json(
+            crate::seed::json(
+                crate::seed::json_license(
+                    crate::affected::with_selection(
+                        output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
+                        affected.as_ref(),
+                    ),
+                    &license,
                 ),
-                &license,
+                run_seed,
             ),
-            run_seed,
+            crate::unpinned::enabled(),
+            crate::unpinned::count(results.iter().map(|r| &r.outcome)),
         );
         // `--stability`: the base variant's document plus a `stability` object (ADR-058 section 5).
         let doc = match &stability {

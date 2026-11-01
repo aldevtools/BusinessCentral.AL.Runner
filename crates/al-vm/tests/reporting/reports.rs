@@ -1603,7 +1603,13 @@ fn format_region_after_a_language_change_is_pinned_for_the_measured_pairs() {
     assert_eq!(f(&body(1031, "en-US")), "1031|[]");
     assert_eq!(f(&body(1033, "en-US")), "1033|[]");
     assert_eq!(f(&body(1036, "en-US")), "1036|[]");
-    for (lang, region) in [(1030, "en-US"), (2057, "en-GB"), (1031, "fr-FR"), (1036, "de-DE")] {
+    // A region after its own language reads back (report/lt-bd-format-region/BdRegionTests.al:1346-1440, corpus master:
+    // `language=1034 region=[es-ES_tradnl]`, 2057 en-GB, 1043 nl-NL, 1030 da-DK).
+    assert_eq!(f(&body(1034, "es-ES_tradnl")), "1034|[es-ES_tradnl]");
+    assert_eq!(f(&body(2057, "en-GB")), "2057|[en-GB]");
+    assert_eq!(f(&body(1043, "nl-NL")), "1043|[nl-NL]");
+    assert_eq!(f(&body(1030, "da-DK")), "1030|[da-DK]");
+    for (lang, region) in [(1030, "en-US"), (1043, "en-GB"), (1031, "fr-FR"), (1036, "de-DE")] {
         let r = refusal(&body(lang, region));
         assert!(
             r.contains("CurrReport.FormatRegion") && r.contains(region),
@@ -1628,16 +1634,17 @@ fn curr_report_language_zero_raises_the_invalid_language_error() {
     );
 }
 
-/// SetTableView with a record of a table that only a reportextension's data item uses (Microsoft's Get Source Documents and
-/// its Serv. Get Source Documents extension, SCM Warehouse Management II): no corpus test pins it, so it is refused, not
-/// answered with the error for a report without such a data item.
+/// SetTableView with a record of a table that only data items several reportextensions add use: which one the view reaches is not
+/// pinned (one such item: reportext_settableview.rs), so it is refused, not answered with the error for a report without such a
+/// data item.
 #[test]
-fn set_table_view_on_a_data_item_a_reportextension_adds_is_refused() {
+fn set_table_view_on_a_table_several_reportextension_items_use_is_refused() {
     let src = r#"
 table 51960 "SV Head" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
 table 51961 "SV Other" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
 report 51962 "SV Base" { ProcessingOnly = true; dataset { dataitem(H; "SV Head") { } } }
 reportextension 51963 "SV Ext" extends "SV Base" { dataset { addlast(H) { dataitem(O; "SV Other") { } } } }
+reportextension 51965 "SV Ext2" extends "SV Base" { dataset { addlast(H) { dataitem(O2; "SV Other") { } } } }
 codeunit 51964 T {
     procedure F(): Text
     var R: Report "SV Base"; O: Record "SV Other";

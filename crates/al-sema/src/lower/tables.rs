@@ -261,8 +261,30 @@ impl Lowerer<'_> {
                 // The value the table lists: the ordinal of an option member, the ordinals of an alternative
                 // `A | B` of members joined by `|` (session/PWPlatformTables.al:109-123). Any other
                 // shape of a filter is not pinned.
+                // An enum field's members are its values' names when every value is its position, as the
+                // ordinals of an option (misc/lt-probes-needed-5/PnE09Platform.al:122, :125: `filter(Alpha | Beta)`
+                // is `0|1`, `const(Beta)` is `1`). An enum whose values are not its positions is not pinned.
+                let enum_members: Option<Vec<String>> = match &own.fields[pos].ty {
+                    Ty::Enum(name) => {
+                        match self
+                            .ws
+                            .resolve_relation_target(file, ObjKind::Enum, &crate::types::qualified_parts(name))
+                        {
+                            Resolution::Found(e) => {
+                                let vals = &self.members[e].enum_values;
+                                vals.iter()
+                                    .enumerate()
+                                    .all(|(i, (v, _))| *v as usize == i)
+                                    .then(|| vals.iter().map(|(_, n)| n.trim().to_string()).collect())
+                            }
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
                 let members = match &own.fields[pos].ty {
                     Ty::Option(m) => Some(m),
+                    Ty::Enum(_) => enum_members.as_ref(),
                     _ => None,
                 };
                 let ordinal = |word: &str| {
@@ -287,11 +309,21 @@ impl Lowerer<'_> {
                 } else if is_filter {
                     // A filter on a field that is no option shows its text as written, without the quotes of a
                     // quoted literal: `filter('X|Y')` is `X|Y`, `filter('<>X')` is `<>X`.
-                    let t = text.trim();
-                    Some(match t.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')) {
-                        Some(inner) => inner.replace("''", "'"),
-                        None => t.to_string(),
-                    })
+                    // Alternatives lose the spaces around `|` and their quotes: `filter(5 | 7)` is `5|7`,
+                    // `filter('A' | 'B')` is `A|B` (misc/lt-probes-needed-5/PnE09Platform.al:122-123).
+                    Some(
+                        split_unquoted_bars(text)
+                            .iter()
+                            .map(|alt| {
+                                let alt = alt.trim();
+                                match alt.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')) {
+                                    Some(inner) => inner.replace("''", "'"),
+                                    None => alt.to_string(),
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join("|"),
+                    )
                 } else {
                     ordinal(text)
                 });
@@ -646,9 +678,31 @@ impl Lowerer<'_> {
                         init_const(v, &f.ty).or_else(|| match f.ty {
                             // A member of the field's enum, by name; a blank-named member too
                             // (types/TestBlankEnumInitTests.Codeunit.al).
+                            // A member named in single quotes, `InitValue = 'G/L Account';` (al-runner issue 6585): the
+                            // VM marks assumption quoted-enum-init-value (al-vm `init_assumes`).
                             Ty::Enum(_) => {
                                 let file = self.ws.objects[f.declared_in.unwrap_or(oi)].file;
-                                self.calc_const(file, v, &f.ty).ok()
+                                let v = v.trim();
+                                let named = v
+                                    .strip_prefix('\'')
+                                    .and_then(|x| x.strip_suffix('\''))
+                                    .filter(|x| !x.contains('\''));
+                                match named {
+                                    // A member's name, in any case and with spaces around it
+                                    // (record/lt-y47-initvalue-quoted/Y47EnumInitQuoted.al, corpus branch
+                                    // al-runtime-rs-staging-y47). A number and an unknown name stay refused.
+                                    Some(n) => {
+                                        self.calc_const(file, &format!("\"{}\"", n.trim()), &f.ty)
+                                            .ok()
+                                            .filter(|c| {
+                                                matches!(c, ir::Const::Enum(e, o) if self.members[*e as usize]
+                                            .enum_values
+                                            .iter()
+                                            .any(|(v, name)| *v as i32 == *o && name.eq_ignore_ascii_case(n.trim())))
+                                            })
+                                    }
+                                    None => self.calc_const(file, v, &f.ty).ok(),
+                                }
                             }
                             _ => None,
                         })
@@ -974,3 +1028,21 @@ struct FieldExprs {
 
 /// `FieldExprs` by object index.
 type FieldExprsByObject = std::collections::HashMap<usize, FieldExprs>;
+
+/// `text` split at each `|` outside a quoted literal (`'X|Y'` stays one part).
+fn split_unquoted_bars(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let (mut start, mut quoted) = (0, false);
+    for (i, ch) in text.char_indices() {
+        match ch {
+            '\'' => quoted = !quoted,
+            '|' if !quoted => {
+                parts.push(&text[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&text[start..]);
+    parts
+}

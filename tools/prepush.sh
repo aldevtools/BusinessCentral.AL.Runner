@@ -7,7 +7,9 @@
 #   2. al-version: no BC version literal outside the gates (no_version_literals), and every
 #      `#if BCnnPLUS` corpus file cited by a gate (gate_completeness).
 #   3. al-builtins: the assumption registry tests, and builtin_ids.rs up to date.
-#   4. clippy -D warnings on the crates the branch changed (all targets). A change to a workspace
+#   4. code ratchets: file_size_ratchet (metrics/file-sizes.toml), fn_length_ratchet
+#      (metrics/fn-lengths.toml) and os_access_ratchet (metrics/os-access.toml).
+#   5. clippy -D warnings on the crates the branch changed (all targets). A change to a workspace
 #      file (Cargo.toml, Cargo.lock, rustfmt.toml, clippy.toml, .cargo/) runs it on the workspace.
 #
 # The changed files are those of `git diff <base>` (committed and uncommitted) plus untracked files;
@@ -79,6 +81,7 @@ cmds=(
     "cargo test -p al-version --test no_version_literals --test gate_completeness -q"
     "cargo test -p al-builtins --lib -q assumptions"
     "cargo test -p al-builtins --test builtin_ids_current -q"
+    "cargo test -p al-test-cli --test file_size_ratchet --test fn_length_ratchet --test os_access_ratchet -q"
 )
 if [ -n "$sel" ]; then
     cmds+=("cargo clippy $sel --all-targets -- -D warnings")

@@ -79,6 +79,7 @@ fn run_full(
         include_source: false,
         target: String::new(),
         logo: None,
+        description: None,
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         translations: false,
@@ -386,6 +387,7 @@ codeunit 60103 ResourceTests
             include_source: false,
             target: String::new(),
             logo: None,
+            description: None,
             layout_files: Vec::new(),
             id_ranges: Vec::new(),
             translations: false,
@@ -467,6 +469,7 @@ fn login_run(cache: &Path) -> Outcome {
         include_source: false,
         target: String::new(),
         logo: None,
+        description: None,
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         translations: false,
@@ -563,6 +566,7 @@ fn run_apps(
         include_source: false,
         target: String::new(),
         logo: None,
+        description: None,
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         translations: false,
@@ -902,4 +906,74 @@ codeunit 50152 "Build Company"
         2,
         "every setting of the company build is part of the key"
     );
+}
+
+/// al-runner issue 6507: a company the install code of a dependency app copied from the restored company holds the restored rows; a second
+/// run that reads the baseline from disk still serves them in the copy (the bytes hold the copy's name, not which
+/// restored rows it reads).
+#[test]
+fn a_copy_of_the_restored_company_keeps_its_restored_rows_through_the_kept_baseline() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = r#"
+table 50100 Setting { fields { field(1; Code; Code[20]) { } field(2; Value; Text[50]) { } } keys { key(PK; Code) { } } }
+table 2000000006 Company { DataPerCompany = false;
+  fields { field(1; Name; Text[30]) { } field(2; "Evaluation Company"; Boolean) { } field(3; "Display Name"; Text[250]) { }
+    field(8000; Id; Guid) { } }
+  keys { key(PK; Name) { } } }
+codeunit 50101 CopyInstall { Subtype = Install;
+    trigger OnInstallAppPerCompany() var C: Record Company; begin
+        if not C.Get(CompanyName()) then begin C.Name := CompanyName(); C.Insert(); Commit(); end;
+        if not C.Get('Second') then CopyCompany(CompanyName(), 'Second');
+    end; }
+"#;
+    let main = r#"
+codeunit 60101 DataTests { Subtype = Test;
+    [Test] procedure ReadsTheInstallRow() var S: Record Setting; begin
+        S.ChangeCompany('Second'); S.Get('RESTORED'); if S.Value <> 'kept' then Error('got ' + S.Value);
+    end; }
+"#;
+    let manifest = |p: &str| Manifest {
+        publisher: p.into(),
+        version: "1.0.0.0".into(),
+        resources: vec![],
+        include_source: false,
+        target: String::new(),
+        logo: None,
+        description: None,
+        layout_files: Vec::new(),
+        id_ranges: Vec::new(),
+        translations: false,
+        translation_files: Vec::new(),
+        runtime: None,
+        app_json_keys: Vec::new(),
+        symbols: vec![],
+    };
+    let go = || {
+        CorpusRuntime::try_run_suites_with(
+            vec![app("main", &["base"], main.into()), app("base", &[], base.into())],
+            vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+            &[manifest("Me"), manifest("Microsoft")],
+            &Default::default(),
+            None,
+            Default::default(),
+            &[SuiteRun::everything()],
+            &RunOptions {
+                test_data: Some(backup(Some("backup-copy"))),
+                compile_cache: Some(CompileCache {
+                    dir: dir.path().to_path_buf(),
+                    require: false,
+                    rebuild: false,
+                    country: String::new(),
+                }),
+                ..Default::default()
+            },
+        )
+        .expect("the run starts")
+    };
+    assert_eq!(outcome(&go()), Outcome::Pass, "the run that makes the baseline");
+    let kept = files(dir.path());
+    assert_eq!(kept.len(), 1);
+    let modified = file_id(&kept[0]);
+    assert_eq!(outcome(&go()), Outcome::Pass, "the run that reads it");
+    assert_eq!(file_id(&kept[0]), modified, "read, not written");
 }

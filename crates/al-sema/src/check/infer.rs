@@ -532,24 +532,90 @@ impl<'a> Checker<'a> {
     /// none: AL reads it as the call `Proc(value)` (Base Application's Service Statistics writes
     /// `CurrPage.SubForm.PAGE.SetParentControl := PAGE::"Service Statistics"`). The call is picked with the value's type
     /// and recorded on the target; the type of the target is unknown. Assumption `procedure-assign-is-call`.
-    pub(crate) fn assign_target_ty(&mut self, sc: &mut Scope, target: &SyntaxNode, rhs: &SyntaxNode) -> Ty {
+    ///
+    /// `plain` is false for a compound assignment (`X.M += v`), which only reports AL0129 for a builtin method `M`.
+    pub(crate) fn assign_target_ty(
+        &mut self,
+        sc: &mut Scope,
+        target: &SyntaxNode,
+        rhs: &SyntaxNode,
+        plain: bool,
+    ) -> Ty {
         let e = self.infer(sc, target);
         if let E::Callable(c) = &e {
             let visible: Vec<&Cand> = c.iter().filter(|c| c.hidden.is_none()).collect();
+            let builtins = !visible.is_empty() && visible.iter().all(|c| matches!(c.target, Res::Builtin(_)));
+            if builtins && !self.ws.is_dependency(sc.oi) {
+                if !plain {
+                    // `C.Timeout += 1`: a compound assignment to a builtin method, also one whose plain assignment form
+                    // compiles (must-not-compile 2367, corpus writer Y29, al-runner issue 6526).
+                    self.diag(sc, target, "AL0129", AL0129_TEXT.to_string());
+                } else if let Some((code, message)) = self.al_assign_form(sc, target, rhs, &visible) {
+                    self.diag(sc, target, code, message);
+                    let r = target.text_range();
+                    self.types
+                        .insert((sc.file, r.start().into(), r.end().into()), Ty::Unknown);
+                    return Ty::Unknown;
+                }
+            }
+            if !plain {
+                return self.ty_of_inferred(sc, target, e);
+            }
+            // `Row.Get := 2` (record/ProbePropertyAssignmentForms.al:612, corpus writer Y29): a builtin with a variadic
+            // form takes the value as its argument; its result type is not the target's.
+            // A form lowering knows as a setter or an assign call (`E.Add := v`, XmlElement) takes the setter path below.
+            let known_form = visible.iter().any(|c| match &c.target {
+                Res::Builtin(id) => self.catalog.by_id(id).is_some_and(|s| {
+                    crate::lower::is_property_setter(&s.receiver, &s.name)
+                        || crate::lower::is_assign_call(&s.receiver, &s.name)
+                }),
+                _ => false,
+            });
+            if builtins && !known_form && visible.iter().any(|c| c.max == usize::MAX && c.min <= 1) {
+                let r = target.text_range();
+                self.types
+                    .insert((sc.file, r.start().into(), r.end().into()), Ty::Unknown);
+                return Ty::Unknown;
+            }
             // A builtin whose only form takes the value is assigned as a property too when lowering knows it as a setter
             // (`Client.UseResponseCookies := b`: network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:16-74).
             let setter = |c: &Cand| match &c.target {
                 Res::Proc { .. } => true,
-                Res::Builtin(id) => self
-                    .catalog
-                    .by_id(id)
-                    .is_some_and(|s| crate::lower::is_property_setter(&s.receiver, &s.name)),
+                Res::Builtin(id) => self.catalog.by_id(id).is_some_and(|s| {
+                    crate::lower::is_property_setter(&s.receiver, &s.name)
+                        || crate::lower::is_assign_call(&s.receiver, &s.name)
+                }),
                 _ => false,
             };
             let builtin_setter = |c: &&Cand| {
                 matches!(&c.target, Res::Builtin(id)
                     if id == "HttpClient.UseResponseCookies#1" || id == "HttpClient.UseServerCertificateValidation#1")
             };
+            // `M.AddNamespace := v`: a builtin whose only form needs two or more arguments is AL0135, and alc's text names the
+            // first parameter, as for a call with no arguments (must-not-compile 2369, corpus writer Y29, al-runner issue 6526).
+            if let [c] = visible.as_slice() {
+                if let Res::Builtin(id) = &c.target {
+                    let sig = self.catalog.by_id(id).cloned();
+                    if let Some(sig) =
+                        sig.filter(|s| c.min >= 2 && s.params.len() >= 2 && !self.ws.is_dependency(sc.oi))
+                    {
+                        let tys: Vec<&str> = sig.params.iter().map(|p| p.ty.as_str()).collect();
+                        let message = format!(
+                            "There is no argument given that corresponds to the required formal parameter '{}' of '{}({})'",
+                            sig.params[0].name,
+                            sig.name,
+                            tys.join(", ")
+                        );
+                        self.diag(sc, target, "AL0135", message);
+                    }
+                    // `FR.SetFilter := '1'` is checked as `SetFilter()` (must-not-compile 2504, corpus writer Y36). Only this
+                    // member with one required and further optional parameters is pinned.
+                    if id == "FieldRef.SetFilter#1" && !self.ws.is_dependency(sc.oi) {
+                        let message = "There is no argument given that corresponds to the required formal parameter 'String' of 'SetFilter(Text, [Joker])'";
+                        self.diag(sc, target, "AL0135", message.to_string());
+                    }
+                }
+            }
             if !visible.is_empty()
                 && (visible.iter().all(|c| setter(c) && c.min == 1 && c.max >= 1) || visible.iter().all(builtin_setter))
             {
@@ -564,6 +630,65 @@ impl<'a> Checker<'a> {
             }
         }
         self.ty_of_inferred(sc, target, e)
+    }
+
+    /// The compile error of the assignment form `X.M := v` of the builtin method `M` (the candidates `visible`), where alc
+    /// gives one. alc reads the form as the call `X.M(v)` when exactly one form of `M` takes one argument, and else as
+    /// `X.M()` (record/ProbePropertyAssignmentForms.al:375-377, corpus writer Y29, al-runner issue 6526). Only the shapes
+    /// the must-not-compile corpus pins are judged; a builtin of a form the catalog cannot tell apart (an optional
+    /// parameter is a getter and setter pair as often as a real optional argument) is left alone.
+    fn al_assign_form(
+        &mut self,
+        sc: &mut Scope,
+        target: &SyntaxNode,
+        rhs: &SyntaxNode,
+        visible: &[&Cand],
+    ) -> Option<(&'static str, String)> {
+        let lowered = |s: &Self, c: &Cand| match &c.target {
+            Res::Builtin(id) => s.catalog.by_id(id).is_some_and(|s| {
+                crate::lower::is_property_setter(&s.receiver, &s.name)
+                    || crate::lower::is_assign_call(&s.receiver, &s.name)
+            }),
+            _ => false,
+        };
+        if visible.iter().any(|c| lowered(self, c)) {
+            return None;
+        }
+        // No form takes an argument (XmlDocument.NameTable, XmlElement.InnerText, XmlNamespaceManager.PushScope:
+        // must-not-compile 2365, 2366, 2371), or one form with only optional parameters, two or more of them
+        // (Record.LockTable: 2370).
+        let no_value = visible.iter().all(|c| c.max == 0)
+            || matches!(visible, [c] if c.min == 0 && c.max >= 2 && c.max != usize::MAX);
+        if no_value {
+            return Some(("AL0129", AL0129_TEXT.to_string()));
+        }
+        // Several forms, each needing an argument (JsonObject.ReadFrom(Text) and ReadFrom(InStream): 2368). alc goes on
+        // with the candidates, in an order the catalog does not keep; the first sentence is reported.
+        if visible.len() >= 2 && visible.iter().all(|c| c.min >= 1) {
+            return Some((
+                "AL0126",
+                format!("No overload for method '{}' takes 0 arguments.", member_name(target)),
+            ));
+        }
+        // The one form takes one argument, and the value is an XML collection where another XML type is wanted
+        // (`D.SetDeclaration := D.GetChildNodes()`: 2372). A collection never converts to a single XML value.
+        if let [c] = visible {
+            if c.min == 1 && c.max == 1 {
+                let param = c.param_tys.first().cloned().unwrap_or_default();
+                if let Ty::Builtin(arg) = self.ty(sc, rhs) {
+                    let collection = ["XmlNodeList", "XmlAttributeCollection"]
+                        .iter()
+                        .any(|t| arg.eq_ignore_ascii_case(t));
+                    if collection && param.starts_with("Xml") && !param.eq_ignore_ascii_case(&arg) {
+                        return Some((
+                            "AL0133",
+                            format!("Argument 1: cannot convert from '{arg}' to '{param}'"),
+                        ));
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn ty_of_inferred(&mut self, sc: &mut Scope, node: &SyntaxNode, e: E) -> Ty {
@@ -926,15 +1051,28 @@ impl<'a> Checker<'a> {
             BinExpr => {
                 let l = kids.first().map(|k| self.ty(sc, k)).unwrap_or(Ty::Unknown);
                 let r = kids.get(1).map(|k| self.ty(sc, k)).unwrap_or(Ty::Unknown);
-                self.al_char_minus_text(sc, node, kids.as_slice(), &l, &r);
+                if self.conv_binary(sc, node, kids.as_slice(), &l, &r).is_none() {
+                    self.al_char_minus_text(sc, node, kids.as_slice(), &l, &r);
+                }
                 let op = op_token(node);
                 if op == "in"
                     && let [a, set] = kids.as_slice()
                     && set.kind() == SyntaxKind::SetExpr
                 {
                     let elems: Vec<SyntaxNode> = set.children().collect();
+                    // Each element converts to the type of the left operand (compile matrix context in_set); the
+                    // elements that are not judged there keep the pinned Decimal-constant check.
+                    let mut rest = Vec::new();
+                    for e in &elems {
+                        let r = e.text_range();
+                        let et = self.types.get(&(sc.file, r.start().into(), r.end().into())).cloned();
+                        let judged = et.is_some_and(|et| self.conv_to_type_of(sc, a, &l, e, &et, false).is_some());
+                        if !judged {
+                            rest.push(e.clone());
+                        }
+                    }
                     if elems.iter().all(|e| e.kind() == SyntaxKind::Literal) {
-                        self.al_option_decimal_constants(sc, a, &l, &elems);
+                        self.al_option_decimal_constants(sc, a, &l, &rest);
                     }
                 }
                 if let [a, b] = kids.as_slice() {
@@ -966,6 +1104,10 @@ impl<'a> Checker<'a> {
                 if let Some(e) = kids.get(2) {
                     let f = self.ty(sc, e);
                     self.al_ternary_interface_into_codeunit(sc, e, &t, &f);
+                    // The false branch converts to the type of the true branch (compile matrix context cond_branches).
+                    if let Some(tb) = kids.get(1) {
+                        self.conv_to_type_of(sc, tb, &t, e, &f, false);
+                    }
                 }
                 E::Val(t)
             }
@@ -1014,6 +1156,7 @@ impl<'a> Checker<'a> {
                 };
                 let unknown_callee = matches!(target, E::Val(Ty::Unknown));
                 let mut arg_tys = Vec::with_capacity(args.len());
+                let mut field_only: Vec<usize> = Vec::new();
                 self.reach_static_run(sc, callee, &args);
                 for (i, a) in args.iter().enumerate() {
                     // On a receiver outside the workspace, a bare name may be one of
@@ -1052,6 +1195,9 @@ impl<'a> Checker<'a> {
                     }
                     if field_pos && a.kind() == NameRef {
                         if let Some(t) = receiver.as_ref().and_then(|r| self.field_of(sc, r, &name_of(a))) {
+                            if !sc.rec_unqualified && !sc_has_var(sc, &name_of(a).to_lowercase()) {
+                                field_only.push(i);
+                            }
                             let r = a.text_range();
                             self.types
                                 .insert((sc.file, r.start().into(), r.end().into()), t.clone());
@@ -1107,7 +1253,23 @@ impl<'a> Checker<'a> {
                         E::Val(Ty::Unknown)
                     }
                     E::Callable(c) => {
+                        self.field_only_args = field_only;
                         let ret = self.pick(sc, node, &c, &arg_tys, &member_name(callee));
+                        // The arguments of a procedure without overloads (compile matrix contexts arg_byvalue, arg_var).
+                        if let [one] = c.as_slice()
+                            && let Res::Proc { object, offset } = one.target
+                        {
+                            let params: Option<Vec<(Ty, bool)>> = self.members[object]
+                                .procedures
+                                .iter()
+                                .find(|p| p.offset == offset && p.declared_in == object)
+                                .map(|p| p.params.iter().map(|q| (q.ty.clone(), q.by_var)).collect());
+                            if let Some(params) = params.filter(|p| p.len() == args.len()) {
+                                for (i, ((a, t), (p, by_var))) in args.iter().zip(&arg_tys).zip(&params).enumerate() {
+                                    self.conv_argument(sc, i, a, t, p, *by_var);
+                                }
+                            }
+                        }
                         if self.tdd_apps.is_some() {
                             self.tdd_settle_field_args(sc, callee, &args, &arg_tys);
                             self.tdd_settle_args(sc, node, callee, &c, &args, &arg_tys);
@@ -1670,6 +1832,9 @@ impl Checker<'_> {
         true
     }
 }
+
+/// The text of AL0129, as must-not-compile 2365-2367, 2370 and 2371 record it.
+const AL0129_TEXT: &str = "The left-hand side of an assignment must be a variable or field";
 
 /// A parameter type as alc writes it in the signature of an AL0135 text, for the types the must-not-compile cases pin
 /// (0242, 0066, 2167-2188); `None` for any other.

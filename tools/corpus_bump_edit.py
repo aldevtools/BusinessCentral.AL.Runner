@@ -12,6 +12,18 @@ root, sha, run, rest = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
 dotnet = {k: v for k, v in (x.split("=") for x in os.environ.get("DOTNET_IDS", "").split()) if v != "0"}
 # TESTLIB_IDS="27=ID 28=ID 29=ID": the artifact ids of the TestLibraries files (suite testlibraries).
 testlib = {k: v for k, v in (x.split("=") for x in os.environ.get("TESTLIB_IDS", "").split()) if v != "0"}
+# ISOL_IDS="27=ID 28=ID 29=ID": the artifact ids of the Isolation Disabled files (suite isolation-disabled). The suite
+# is added to a version that lacks it: it cannot be in oracle.toml before the pinned corpus holds its app.
+isol = {k: v for k, v in (x.split("=") for x in os.environ.get("ISOL_IDS", "").split()) if v != "0"}
+ISOL_SUITE = '''[[version.suite]]
+name = "isolation-disabled"
+app = "corpus/tests/al-language-isolation-disabled"
+workflow_run = {run}
+artifact_id = {artifact}
+oracle = "{major}/junit-isolation-disabled.xml"
+baseline = "metrics/{major}/passing-isolation-disabled.txt"
+runner = 130451
+'''
 legs = [rest[i:i + 5] for i in range(0, len(rest), 5)]
 # oracle.toml: the pin, then per [[version]] table its run and artifact, and its onprem suite's.
 p = root + "/oracle/oracle.toml"
@@ -37,9 +49,13 @@ for b in blocks[1:]:
             leg_fields(s, onprem) if re.search(r'^name = "onprem"', s, re.M)
             else leg_fields(s, dotnet[major]) if re.search(r'^name = "onprem-dotnet"', s, re.M) and major in dotnet
             else leg_fields(s, testlib[major]) if re.search(r'^name = "testlibraries"', s, re.M) and major in testlib
+            else leg_fields(s, isol[major]) if re.search(r'^name = "isolation-disabled"', s, re.M) and major in isol
             else s
             for s in parts[1:]
         ]
+        if major in isol and not any(re.search(r'^name = "isolation-disabled"', s, re.M) for s in parts[1:]):
+            parts[-1] = parts[-1].rstrip("\n") + "\n\n"
+            parts.append(ISOL_SUITE.format(run=run, artifact=isol[major], major=major) + "\n")
         b = "".join(parts)
     out.append(b)
 open(p, "w").write("".join(out))

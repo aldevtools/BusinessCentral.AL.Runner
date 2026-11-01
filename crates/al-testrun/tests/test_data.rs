@@ -644,3 +644,113 @@ fn row_versions_continue_after_the_restored_database() {
         counted(&rt, 50001, "Above")
     );
 }
+
+const COMPANY_TABLE: &str = r#"
+table 2000000006 Company { DataPerCompany = false;
+  fields { field(1; Name; Text[30]) { } field(2; "Evaluation Company"; Boolean) { } field(3; "Display Name"; Text[250]) { }
+    field(4; "Business Profile Id"; Text[250]) { } field(8000; Id; Guid) { } }
+  keys { key(PK; Name) { } } }
+"#;
+
+// al-runtime issue 6505: with a backup, the session company's row of the Company table is the backup's own row (every
+// column it holds), not a runner default. This is data of the restored database, not a language rule.
+#[test]
+fn the_session_companys_row_of_the_company_table_comes_from_the_backup() {
+    let id = [
+        0x33, 0x22, 0x11, 0x00, 0x55, 0x44, 0x77, 0x66, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF,
+    ];
+    let fake = Arc::new(Fake::new("CRONUS International Ltd.").table(
+        "Company",
+        &[
+            "Name",
+            "Evaluation Company",
+            "Display Name",
+            "Business Profile Id",
+            "Id",
+        ],
+        vec![
+            vec![
+                text("CRONUS International Ltd."),
+                Cell::Bool(true),
+                text("CRONUS Display"),
+                text("BP1"),
+                Cell::Guid(id),
+            ],
+            vec![
+                text("My Company"),
+                Cell::Bool(false),
+                text(""),
+                text(""),
+                Cell::Guid([7; 16]),
+            ],
+        ],
+    ));
+    let (rt, _) = run(
+        r#"codeunit 50001 "T" { Subtype = Test;
+  [Test] procedure Row() var C: Record Company; begin
+    C.Get(CompanyName());
+    if not C."Evaluation Company" then Error('evaluation company is No');
+    if C."Display Name" <> 'CRONUS Display' then Error('display name [%1]', C."Display Name");
+    if C."Business Profile Id" <> 'BP1' then Error('business profile [%1]', C."Business Profile Id");
+    if Format(C.Id) <> '{00112233-4455-6677-8899-AABBCCDDEEFF}' then Error('id %1', C.Id);
+  end; }"#,
+        &format!("{DEP}{COMPANY_TABLE}"),
+        Some(&fake),
+    );
+    assert_eq!(outcome(&rt, 50001, "Row"), Outcome::Pass);
+}
+
+// al-runner issue 6507 (comment of 2026-10-31): a company Database.CopyCompany makes from the restored company holds every
+// per-company row of the source as it is, the rows the backup holds included (corpus
+// session/lt-y22-copy-company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows: Company Information copied as is).
+// Install code copies; the test reads and modifies the copy's restored row; the source keeps its own.
+#[test]
+fn a_company_copied_from_the_restored_company_holds_the_restored_rows() {
+    let fake = Arc::new(
+        Fake::new("CRONUS International Ltd.")
+            .table(
+                "Setup",
+                &["Primary Key", "Value"],
+                vec![vec![text(""), text("restored")]],
+            )
+            .table(
+                "Company",
+                &[
+                    "Name",
+                    "Evaluation Company",
+                    "Display Name",
+                    "Business Profile Id",
+                    "Id",
+                ],
+                vec![vec![
+                    text("CRONUS International Ltd."),
+                    Cell::Bool(false),
+                    text(""),
+                    text(""),
+                    Cell::Guid([7; 16]),
+                ]],
+            ),
+    );
+    let (rt, _) = run(
+        r#"codeunit 50110 "CC Install" { Subtype = Install;
+  trigger OnInstallAppPerCompany() var C: Record Company; begin
+    if CompanyName() = 'Second Co' then exit;
+    if not C.Get('Second Co') then CopyCompany(CompanyName(), 'Second Co');
+  end; }
+codeunit 50001 "T" { Subtype = Test;
+  [Test] procedure CopyHasRestoredRows() var Source: Record "Setup"; Copy: Record "Setup"; begin
+    Source.Get('');
+    Copy.ChangeCompany('Second Co');
+    Copy.Get('');
+    if Copy.Value <> 'restored' then Error('copy %1', Copy.Value);
+    Copy.Value := 'changed'; Copy.Modify();
+    Source.Get('');
+    if Source.Value <> 'restored' then Error('source %1', Source.Value);
+    Copy.Get('');
+    if Copy.Value <> 'changed' then Error('copy after modify %1', Copy.Value);
+  end; }"#,
+        &format!("{DEP}{COMPANY_TABLE}"),
+        Some(&fake),
+    );
+    assert_eq!(outcome(&rt, 50001, "CopyHasRestoredRows"), Outcome::Pass);
+}

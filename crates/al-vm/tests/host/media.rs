@@ -230,8 +230,9 @@ fn export_of_an_empty_field_answers_false() {
     );
 }
 
-// The Layout of a built-in layout in Report Layout List: its content is not pinned (report/PZReportLayoutMedia.al:51-53 pins only
-// HasValue No), so its export refuses when it runs. The platform table is not in the test workspace: a table of that name stands in.
+// The Layout of a Report Layout List row that names no layout of a report (here: a row never read) refuses when its export runs;
+// the export of a layout is in reporting/report_layout_list_export.rs. The platform table is not in the test workspace: a table of
+// that name stands in.
 #[test]
 fn export_of_a_report_layout_list_layout_is_refused() {
     let src = "table 2000000234 \"Report Layout List\" { fields { field(1; \"Report ID\"; Integer) { } field(4; Layout; Media) { } } keys { key(PK; \"Report ID\") { } } }

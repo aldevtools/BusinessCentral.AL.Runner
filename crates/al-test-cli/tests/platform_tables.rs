@@ -142,7 +142,7 @@ fn engine_over(
     roots: al_sema::check::Roots,
     bc: &str,
 ) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
-    engine_with_layouts(app_id, main, dep, roots, bc, Vec::new())
+    engine_with_layouts(app_id, main, dep, roots, bc, Vec::new(), None)
 }
 
 /// [`engine_over`] with layout files (path as `LayoutFile` writes it, content) in the app under test.
@@ -153,6 +153,7 @@ fn engine_with_layouts(
     roots: al_sema::check::Roots,
     bc: &str,
     layouts: Vec<(String, Vec<u8>)>,
+    description: Option<&str>,
 ) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
     use al_sema::workspace::{AppKind, AppSource};
     let app = |id: &str, name: &str, deps: &[&str], files: Vec<(String, String)>| AppSource {
@@ -192,6 +193,7 @@ fn engine_with_layouts(
     }
     if let Some(a) = program.apps.iter_mut().find(|a| a.id == app_id) {
         a.layout_files = layouts;
+        a.description = description.map(String::from);
     }
     let engine = Engine::with_target(
         std::sync::Arc::new(program),
@@ -199,6 +201,30 @@ fn engine_with_layouts(
         Some(al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap())),
     );
     (engine, l)
+}
+
+/// [`engine_over`] (BC 27.5, no dependency) with the manifest description of the app under test.
+fn engine_described(app_id: &str, main: &str, description: &str) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
+    engine_with_layouts(
+        app_id,
+        main,
+        None,
+        al_sema::check::Roots::default(),
+        "27.5.0.0",
+        Vec::new(),
+        Some(description),
+    )
+}
+
+/// The outcomes of the test codeunit `T` of `l`.
+fn run_all(engine: &std::sync::Arc<Engine>, l: &al_sema::lower::Lowered) -> Vec<(String, Outcome)> {
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
+    run_codeunit(engine, l, oi)
 }
 
 fn not_run(o: &[(String, Outcome)], test: &str) -> String {
@@ -219,6 +245,99 @@ fn a_platform_table_with_no_provider_is_refused_where_code_uses_it_and_names_tab
         why.contains("platform table 'License Information' (2000000040) has no provider"),
         "{why}"
     );
+}
+
+/// Signup Context and Document Service are empty on a fresh tenant and take Insert, Modify, Delete and DeleteAll without
+/// triggers (onprem session/PZPlatformSurvey.al:142-145, :166-169; records/W4PlatformAndMeta.al:123, count 0). Document
+/// Service's Insert with triggers raises the TestField error of an empty Folder (onprem platform/PtOnPremTables.al:103-123);
+/// with a Folder, and Modify or Delete with triggers, it is not pinned: refused.
+#[test]
+fn signup_context_and_document_service_are_stored_tables() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Signup() var S: Record "Signup Context"; begin if not S.IsEmpty() then Error('rows'); S.KeyName := 'k'; S.Value := 'v'; S.Insert();
+    S.Value := 'w'; S.Modify(); S.Get('k'); if S.Value <> 'w' then Error('value'); S.Delete(); S.Insert(); S.DeleteAll(); if S.Count() <> 0 then Error('count'); end;
+  [Test] procedure DocService() var D: Record "Document Service"; begin if not D.IsEmpty() then Error('rows');
+    D."Service ID" := 'LTPT'; D.Description := 'LT PT Service'; asserterror D.Insert(true);
+    if GetLastErrorText() <> 'Folder must have a value in Document Service: Service ID=LTPT. It cannot be zero or empty.' then Error(GetLastErrorText());
+    if GetLastErrorCode() <> 'TestField' then Error(GetLastErrorCode()); if not D.IsEmpty() then Error('inserted');
+    D.Insert(); D.Description := 'Renamed'; D.Modify(); D.Delete(); D.Insert(); D.DeleteAll(); end;
+  [Test] procedure DocServiceWithFolder() var D: Record "Document Service"; begin D."Service ID" := 'X'; D.Folder := 'f'; D.Insert(true); end; }"#,
+    );
+    passes(&o, "Signup");
+    passes(&o, "DocService");
+    let why = not_run(&o, "DocServiceWithFolder");
+    assert!(why.contains("Document Service"), "{why}");
+}
+
+/// Webhook Subscription and Webhook Notification are ordinary tables, empty on a fresh tenant, that take Insert, Modify,
+/// Delete and DeleteAll with and without triggers. No corpus test pins them: Microsoft's PayPal Payments Standard tests need
+/// them (MS - PayPal Standard Tests: DeleteAll of both in Initialize, then TestWebhookIsCreatedWhenSettingupAccount and the
+/// others insert, filter and delete subscriptions, and insert notifications to run the app's OnAfterInsertEvent subscriber),
+/// so every persistent access is a flagged pass (assumption `webhook-tables-stored`).
+#[test]
+fn webhook_tables_are_stored_tables_on_an_assumption() {
+    let src = r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Writes() var W: Record "Webhook Subscription"; begin if not W.IsEmpty() then Error('rows');
+    W."Subscription ID" := 'acct'; W.Endpoint := 'https://x/notify'; W."Created By" := 'https://paypal'; W."Company Name" := 'C';
+    if not W.Insert() then Error('insert'); if W.Insert() then Error('duplicate');
+    W.SetFilter("Subscription ID", '@ACCT'); W.SetFilter("Created By", '*paypal*'); if W.IsEmpty() then Error('filter');
+    W.FindFirst(); W."Company Name" := 'D'; W.Modify(true); W.Delete(true); if not W.IsEmpty() then Error('delete');
+    W.Reset(); W.Insert(); W.DeleteAll(true); if W.Count() <> 0 then Error('count'); end;
+  [Test] procedure Notification() var N: Record "Webhook Notification"; O: OutStream; begin if not N.IsEmpty() then Error('rows');
+    N.Init(); N.Validate(ID, CreateGuid()); N.Validate("Subscription ID", 'acct'); N.Notification.CreateOutStream(O); O.WriteText('{}');
+    N.Insert(); if N.Count() <> 1 then Error('count'); N.DeleteAll(); if not N.IsEmpty() then Error('delete'); end;
+  [Test] procedure Temporary() var W: Record "Webhook Subscription" temporary; begin W."Subscription ID" := 'a'; W.Insert(); end; }"#;
+    let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), "29.0.0.0");
+    let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
+    let mut hits = Vec::new();
+    let out = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Disabled,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    let a = al_builtins::assumptions::Assumption::WebhookTablesStored;
+    let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && m.contains(&a));
+    let get = |n: &str| out.iter().find(|(x, _)| x == n).map(|(_, o)| o.clone()).expect(n);
+    assert_eq!(get("Writes"), Outcome::Pass);
+    assert!(flagged("Writes"), "Writes not flagged");
+    assert_eq!(get("Notification"), Outcome::Pass);
+    assert!(flagged("Notification"), "Notification not flagged");
+    assert_eq!(get("Temporary"), Outcome::Pass);
+    assert!(!flagged("Temporary"), "a temporary record relies on nothing");
+}
+
+/// Tenant Profile Page Metadata is an ordinary table, empty on a fresh tenant (onprem platform/PtOnPremTables.al:214-236;
+/// session/PZPlatformSurvey.al:172-175). A rename of a tenant profile in All Profile carries its rows to the new Profile ID and
+/// leaves the rows of another profile (onprem profile/TestTenantProfileRenameCascade.al:83-118). An Insert with an empty Profile
+/// ID crashes the tier (PZPlatformSurvey.al:12): refused; so is a Delete of an All Profile row that still has page metadata.
+#[test]
+fn tenant_profile_page_metadata_follows_the_rename_of_its_profile() {
+    let o = outcomes(
+        r#"page 50010 "RC" { PageType = RoleCenter; }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Profile(Id: Code[30]) var A: Record "All Profile"; begin A.Init(); A.Scope := A.Scope::Tenant; A."Profile ID" := Id;
+    A.Description := 'x'; A."Role Center ID" := 50010; A.Enabled := false; A.Insert(); end;
+  local procedure Meta(Id: Code[30]) var M: Record "Tenant Profile Page Metadata"; E: Guid; begin M.Init(); M."App ID" := E; M."Profile ID" := Id;
+    M.Owner := M.Owner::Tenant; M."Page ID" := 50010; M.Insert(); end;
+  [Test] procedure Rename() var A: Record "All Profile"; M: Record "Tenant Profile Page Metadata"; E: Guid; begin
+    if not M.IsEmpty() then Error('rows'); Profile('OLD'); Profile('OTHER'); Meta('OLD'); Meta('OTHER');
+    A.Get(A.Scope::Tenant, E, 'OLD'); A.Rename(A.Scope::Tenant, E, 'NEW');
+    M.SetRange("Profile ID", 'NEW'); if M.Count() <> 1 then Error('new'); M.SetRange("Profile ID", 'OLD'); if M.Count() <> 0 then Error('old');
+    M.SetRange("Profile ID", 'OTHER'); if M.Count() <> 1 then Error('other'); end;
+  [Test] procedure EmptyProfileId() var M: Record "Tenant Profile Page Metadata"; begin M.Init(); M."Page ID" := 1; M.Insert(); end;
+  [Test] procedure DeleteWithMetadata() var A: Record "All Profile"; E: Guid; begin Profile('DEL'); Meta('DEL'); A.Get(A.Scope::Tenant, E, 'DEL'); A.Delete(); end; }"#,
+    );
+    passes(&o, "Rename");
+    assert!(not_run(&o, "EmptyProfileId").contains("Profile ID"));
+    assert!(not_run(&o, "DeleteWithMetadata").contains("Tenant Profile Page Metadata"));
 }
 
 // A name that ends in a dot (`Metadata Permission Set Rel.`, 23 of Microsoft's permission tests) is a
@@ -254,22 +373,92 @@ fn a_virtual_platform_table_is_read_but_cannot_be_written() {
 
 // Microsoft's Tests-ERM `Initialize` sets Feature Key ReminderTermsCommunicationTexts to None and calls Modify (243 tests were
 // refused with "Modify on virtual table 'Feature Key'"). Enabled is the only writable column; a change stays for later reads
-// (assumed, docs/probes-needed.md); another column is still refused.
+// (assumed, docs/probes-needed.md). A change to one read-only column raises the error naming its caption, code DB:Ok
+// (record/lt-loadfields-pagesource-validate/P81FeatureKeyModify.al:51-63); a change to two of them is not pinned: refused.
 #[test]
-fn a_feature_key_enabled_can_be_modified_and_reads_back_and_another_column_is_refused() {
+fn a_feature_key_enabled_can_be_modified_and_reads_back_and_another_column_raises() {
     let o = outcomes(
         r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure ModifyUnchanged() var K: Record "Feature Key"; begin K.FindFirst(); K.Enabled := K.Enabled; K.Modify(); end;
   [Test] procedure ModifyEnabledReadsBack() var K: Record "Feature Key"; W: Record "Feature Key"; N: Option; begin
     K.FindFirst(); if K.Enabled = K.Enabled::None then K.Enabled := K.Enabled::"All Users" else K.Enabled := K.Enabled::None;
     N := K.Enabled; K.Modify(); W.Get(K.ID); if W.Enabled <> N then Error('read back %1', W.Enabled); end;
-  [Test] procedure ModifyAnotherColumn() var K: Record "Feature Key"; begin K.FindFirst(); K."Is One Way" := not K."Is One Way"; K.Modify(); end; }"#,
+  [Test] procedure ModifyAnotherColumn() var K: Record "Feature Key"; begin K.FindFirst(); K."Is One Way" := not K."Is One Way";
+    asserterror K.Modify();
+    if GetLastErrorText() <> 'Sorry, but the task couldn''t be completed because it tried to change the "Is One Way" field of the feature key, which cannot be changed. Contact your administrator or application developer.' then Error(GetLastErrorText());
+    if GetLastErrorCode() <> 'DB:Ok' then Error(GetLastErrorCode());
+    K.FindFirst(); K."Mandatory By" := 'x'; asserterror K.Modify();
+    if StrPos(GetLastErrorText(), '"Approximate mandatory date"') = 0 then Error(GetLastErrorText()); end;
+  [Test] procedure ModifyTwoColumns() var K: Record "Feature Key"; begin K.FindFirst(); K."Is One Way" := not K."Is One Way";
+    K."Can Try" := not K."Can Try"; K.Modify(); end; }"#,
     );
-    for t in ["ModifyUnchanged", "ModifyEnabledReadsBack"] {
-        assert!(o.iter().any(|(n, o)| n == t && *o == Outcome::Pass), "{o:?}");
+    for t in ["ModifyUnchanged", "ModifyEnabledReadsBack", "ModifyAnotherColumn"] {
+        assert!(o.iter().any(|(n, o)| n == t && *o == Outcome::Pass), "{t}: {o:?}");
     }
-    let why = not_run(&o, "ModifyAnotherColumn");
-    assert!(why.contains("virtual table 'Feature Key'"), "{why}");
+    let why = not_run(&o, "ModifyTwoColumns");
+    assert!(why.contains("Feature Key"), "{why}");
+}
+
+/// Feature Key Description, "Learn More Link" and "Description In English" of the keys platform/lt-ba-columns/BaFeatureKeyTexts.al
+/// pins (the same on 27.5, 28.5 and 29.0); of another key they are unknown, so a read is refused.
+#[test]
+fn feature_key_texts_are_pinned_for_five_keys() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Pinned() var K: Record "Feature Key"; begin K.Get('SalesPrices');
+    if K.Description <> 'Feature Update: New sales pricing experience' then Error(K.Description);
+    if K."Learn More Link" <> 'https://go.microsoft.com/fwlink/?linkid=2136722' then Error(K."Learn More Link");
+    if K."Description In English" <> K.Description then Error(K."Description In English"); end;
+  [Test] procedure Other() var K: Record "Feature Key"; begin K.Get('AdvancedTellMe'); if K.Description = '' then; end; }"#,
+    );
+    passes(&o, "Pinned");
+    let why = not_run(&o, "Other");
+    assert!(why.contains("Description"), "{why}");
+}
+
+/// Truncate of the computed tables Integer and AllObj raises "The table does not support truncation." and, with the result used,
+/// answers false and keeps the rows (record/TestCalcFieldsTruncateUniqueContracts.al:311-312; record/lt-truncate-guards/
+/// TruncateGuards.al:222-237).
+#[test]
+fn truncate_of_a_computed_table_raises_the_pinned_error() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure AllObjRaises() var A: Record AllObj; begin asserterror A.Truncate();
+    if GetLastErrorText() <> 'The table does not support truncation.' then Error(GetLastErrorText()); end;
+  [Test] procedure IntegerAnswersFalse() var I: Record Integer; Ok: Boolean; begin I.SetRange(Number, 1, 5); Ok := I.Truncate();
+    if Ok then Error('true'); if GetLastErrorText() <> 'The table does not support truncation.' then Error(GetLastErrorText());
+    if I.Count() <> 5 then Error('rows'); end; }"#,
+    );
+    passes(&o, "AllObjRaises");
+    passes(&o, "IntegerAnswersFalse");
+}
+
+/// Windows Language and Language Selection are read-only: Insert (with and without triggers), Modify and Delete of a row that
+/// exists and DeleteAll raise "The <table> table is read-only." with code DB:Ok, and change nothing (platform/lt-ag-contoso/
+/// AgPlatformReadOnly.al:14-55; platform/lt-platform-tables/PtCloudTables.al:46-56). A Modify of a row that does not exist is
+/// not pinned: refused.
+#[test]
+fn writes_to_a_read_only_computed_table_raise_the_pinned_error() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  local procedure Check(Table: Text) begin
+    if GetLastErrorText() <> 'The ' + Table + ' table is read-only.' then Error(GetLastErrorText());
+    if GetLastErrorCode() <> 'DB:Ok' then Error(GetLastErrorCode()); end;
+  [Test] procedure WindowsLanguage() var W: Record "Windows Language"; begin
+    W."Language ID" := 99999; W.Name := 'x'; asserterror W.Insert(); Check('Windows Language');
+    asserterror W.Insert(true); Check('Windows Language');
+    W.Get(1033); W.Name := 'changed'; asserterror W.Modify(); Check('Windows Language');
+    asserterror W.Delete(); Check('Windows Language');
+    Clear(W); asserterror W.DeleteAll(); Check('Windows Language');
+    W.Get(1033); if W.Name <> 'English (United States)' then Error(W.Name); if W.Get(99999) then Error('inserted'); end;
+  [Test] procedure LanguageSelectionMissingRow() var L: Record "Language Selection"; begin
+    L.Name := 'LT PT Language'; L."Language Tag" := 'lt-PT'; asserterror L.Insert(); Check('Language Selection');
+    L.SetRange(Name, 'LT PT Language'); asserterror L.DeleteAll(); Check('Language Selection'); end;
+  [Test] procedure ModifyOfAMissingRow() var L: Record "Language Selection"; begin L.Name := 'LT PT Language'; L.Modify(); end; }"#,
+    );
+    passes(&o, "WindowsLanguage");
+    passes(&o, "LanguageSelectionMissingRow");
+    assert!(not_run(&o, "ModifyOfAMissingRow").contains("does not exist"));
 }
 
 // platform/lt-aw-fresh-tenant/AwTests.al:557-576: on the corpus CI (Linux) a Feature Key change survives the rollback of an
@@ -548,6 +737,26 @@ fn windows_language_12297_is_a_pinned_row() {
     }
 }
 
+// Windows Language rows 2107 (Sami, Northern (Sweden)) and 9225 (English (Caribbean)): the reporter's BC 29 measurement
+// (al-runner issue 6558; the corpus pin of the whole table is pending). The repro: an enabled filter on the id is not
+// empty, and Get answers the row with the measured values.
+#[test]
+fn windows_language_2107_and_9225_are_rows() {
+    let o = outcomes_bc(
+        "main",
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure EnabledFilter2107() var W: Record "Windows Language"; begin W.SetRange("Globally Enabled", true); W.SetRange("Language ID", 2107); if W.IsEmpty() then Error('empty'); end;
+  [Test] procedure EnabledFilter9225() var W: Record "Windows Language"; begin W.SetRange("Globally Enabled", true); W.SetRange("Language ID", 9225); if W.IsEmpty() then Error('empty'); end;
+  [Test] procedure Get2107() var W: Record "Windows Language"; begin if not W.Get(2107) then Error('no row'); if (W."Primary Language ID" <> 1083) or (W.Name <> 'Sami, Northern (Sweden)') or (W."Abbreviated Name" <> 'SMF') or (W."Primary CodePage" <> '850') or (W."Language Tag" <> 'se-SE') then Error('row'); end;
+  [Test] procedure Get9225() var W: Record "Windows Language"; begin if not W.Get(9225) then Error('no row'); if (W."Primary Language ID" <> 1033) or (W.Name <> 'English (Caribbean)') or (W."Abbreviated Name" <> 'ENB') or (W."Primary CodePage" <> '850') or (W."Language Tag" <> 'en-029') then Error('row'); end; }"#,
+        al_sema::check::Roots::default(),
+        "29.0.0.0",
+    );
+    for t in ["EnabledFilter2107", "EnabledFilter9225", "Get2107", "Get9225"] {
+        passes(&o, t);
+    }
+}
+
 // License Permission: the two rows platform/lt-platform-tables/PtCloudTables.al:60-76 pins, and the rows
 // platform/lt-ag-contoso/AgLicensePermission.al:43-67 reads by key (Codeunit 410 'Update Analysis View', which Cash Flow
 // Wksh.-Register Batch reads while the Contoso company is built). Any other object is refused, because the table lists
@@ -610,6 +819,34 @@ codeunit 50000 "T" { Subtype = Test;
     for t in ["Listed", "UndeclaredIsNotAssignable", "Grants"] {
         passes(&o, t);
     }
+}
+
+/// Gap cycle G9: "Security Filter" (14) of the Metadata Permission rows of an app permission set is blank, plain and with
+/// format 9, and Permission Manager's GenerateHashForPermissionSet text is composed from it (permissions/
+/// W6PermissionColumns.al Y17_MetadataPermission_SecurityFilter_OwnSet, _AllSets, corpus master 97c29f86). Table Metadata
+/// InherentPermissions (19) is `X` for a table that declares X and blank for one that declares none
+/// (Y17_TableMetadata_InherentPermissions); any other value is not pinned.
+#[test]
+fn metadata_permission_security_filter_and_table_metadata_inherent_permissions() {
+    let o = outcomes(
+        r#"table 50001 "Thing" { fields { field(1; "No."; Integer) { } } keys { key(PK; "No.") { Clustered = true; } } }
+table 50004 "Thing X" { InherentPermissions = X; fields { field(1; "No."; Integer) { } } keys { key(PK; "No.") { Clustered = true; } } }
+table 50005 "Thing RX" { InherentPermissions = RX; fields { field(1; "No."; Integer) { } } keys { key(PK; "No.") { Clustered = true; } } }
+permissionset 50002 "My Set" { Assignable = true; Permissions = tabledata "Thing" = RIMD, tabledata "Thing X" = R, table "Thing" = X; }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure SecurityFilter() var P: Record "Metadata Permission"; S: Text; begin
+    P.SetRange("Role ID", 'MY SET'); P.FindSet();
+    repeat S += '[' + Format(P."Security Filter") + '|' + Format(P."Security Filter", 0, 9) + ']'; until P.Next() = 0;
+    if S <> '[|][|][|]' then Error('%1', S); end;
+  [Test] procedure InherentX() var M: Record "Table Metadata"; begin
+    M.Get(50004); if M.InherentPermissions <> 'X' then Error('x %1', M.InherentPermissions);
+    M.Get(50001); if M.InherentPermissions <> '' then Error('none %1', M.InherentPermissions); end;
+  [Test] procedure InherentRX() var M: Record "Table Metadata"; begin
+    M.Get(50005); if M.InherentPermissions <> '' then; end; }"#,
+    );
+    passes(&o, "SecurityFilter");
+    passes(&o, "InherentX");
+    assert!(not_run(&o, "InherentRX").contains("InherentPermissions"));
 }
 
 #[test]
@@ -680,6 +917,50 @@ fn the_id_of_a_platform_table_with_no_provider_can_be_named() {
     assert!(why.contains("has no provider"), "{why}");
 }
 
+/// Report Layout List CaptionML (4) is blank for an RDLC, Word or Excel layout that declares none, with or without a Caption
+/// (platform/lt-aw-fresh-tenant/AwTests.al:222-260; platform/lt-ug-report-layout-list/UgReportLayoutList.al:103, :137); a
+/// declared CaptionML is pinned by no corpus test: refused.
+#[test]
+fn report_layout_list_caption_ml_is_blank_when_not_declared() {
+    let o = outcomes(
+        r#"report 50002 "R" { UseRequestPage = false; dataset { dataitem(I; Integer) { } }
+  rendering { layout(L1) { Type = Excel; LayoutFile = 'a.xlsx'; Caption = 'Captioned'; } layout(L2) { Type = RDLC; LayoutFile = 'b.rdl'; }
+    layout(L3) { Type = Word; LayoutFile = 'c.docx'; CaptionML = ENU = 'x'; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Blank() var L: Record "Report Layout List"; begin L.SetRange("Report ID", 50002);
+    L.SetRange(Name, 'L1'); L.FindFirst(); if L.CaptionML <> '' then Error('l1');
+    L.SetRange(Name, 'L2'); L.FindFirst(); if L.CaptionML <> '' then Error('l2'); end;
+  [Test] procedure Declared() var L: Record "Report Layout List"; begin L.SetRange("Report ID", 50002);
+    L.SetRange(Name, 'L3'); L.FindFirst(); if L.CaptionML <> '' then; end; }"#,
+    );
+    passes(&o, "Blank");
+    let why = not_run(&o, "Declared");
+    assert!(why.contains("CaptionML"), "{why}");
+}
+
+/// Report Layout List of an RDLC, Word or Excel layout of a report of the app under test: Custom Type (8) the null Guid, MIME Type
+/// (9) blank, Layout Publisher (13) `<app name> by <publisher>`, ReportIsInstalled (15) Yes (platform/lt-ug-report-layout-list/
+/// UgReportLayoutList.al:106-113, :140-147; platform/lt-aw-fresh-tenant/AwTests.al:222-260); User Defined (14) No for an Excel
+/// layout too (AwTests.al:226).
+#[test]
+fn report_layout_list_columns_of_an_own_layout() {
+    let o = outcomes_app(
+        "ms-own",
+        r#"report 50002 "R" { UseRequestPage = false; dataset { dataitem(I; Integer) { } }
+  rendering { layout(L1) { Type = Excel; LayoutFile = 'a.xlsx'; } layout(L2) { Type = RDLC; LayoutFile = 'b.rdl'; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Columns() var L: Record "Report Layout List"; N: Text; begin L.SetRange("Report ID", 50002); L.FindSet();
+    repeat
+      if not IsNullGuid(L."Custom Type") then Error('custom type'); if L."MIME Type" <> '' then Error('mime');
+      if L."Layout Publisher" <> 'main by Microsoft' then Error('publisher %1', L."Layout Publisher");
+      if not L.ReportIsInstalled then Error('installed'); if L."User Defined" then Error('user defined'); N += L.Name;
+    until L.Next() = 0;
+    if N <> 'L1L2' then Error(N); end; }"#,
+        al_sema::check::Roots::default(),
+    );
+    passes(&o, "Columns");
+}
+
 /// Report Layout List, Report Metadata and Report Data Items (handlers/TestSourceReportLayoutFlags.al,
 /// TestPrecompiledReportLayouts.al, TestReportMetadataColumns.al).
 #[test]
@@ -743,8 +1024,28 @@ codeunit 50000 "T" { Subtype = Test;
     assert!(why.contains("EnableExternalAssemblies"), "{why}");
 }
 
+/// Report Metadata EnableHyperLinks (7), ShowPrintStatus (10) and PreviewMode (15) of a report that declares none of
+/// them read No, Yes and Normal (metadata/lt-report-metadata-columns/ReportMetadata.al:206, :209, :214); a declared one
+/// is pinned by no corpus test: refused.
+#[test]
+fn report_metadata_hyperlinks_print_status_preview_mode_defaults() {
+    let o = outcomes(
+        r#"report 50004 "Plain" { ProcessingOnly = true; }
+report 50005 "Declared" { ProcessingOnly = true; ShowPrintStatus = false; }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Undeclared() var M: Record "Report Metadata"; begin M.Get(50004);
+    if M.EnableHyperLinks then Error('links'); if not M.ShowPrintStatus then Error('status');
+    if M.PreviewMode <> M.PreviewMode::Normal then Error('preview'); end;
+  [Test] procedure DeclaredStatus() var M: Record "Report Metadata"; begin M.Get(50005); if M.ShowPrintStatus then; end; }"#,
+    );
+    passes(&o, "Undeclared");
+    let why = not_run(&o, "DeclaredStatus");
+    assert!(why.contains("ShowPrintStatus"), "{why}");
+}
+
 /// Report Metadata UseSystemPrinter (5) is the property as declared: Yes for true, No for false (misc/lt-y13-triage/
-/// Y13ReportSystemPrinter.al:530-543, corpus master). A report that does not declare it is pinned by no corpus test: refused.
+/// Y13ReportSystemPrinter.al:530-543, corpus master). A report that does not declare it reads No (metadata/
+/// lt-report-metadata-columns/ReportMetadata.al:204, :230).
 #[test]
 fn report_metadata_use_system_printer_is_the_declared_value() {
     let o = outcomes(
@@ -753,11 +1054,10 @@ report 50003 "Off" { ProcessingOnly = true; UseSystemPrinter = false; }
 report 50004 "Plain" { ProcessingOnly = true; }
 codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Declared() var M: Record "Report Metadata"; begin M.Get(50002); if not M.UseSystemPrinter then Error('on'); M.Get(50003); if M.UseSystemPrinter then Error('off'); end;
-  [Test] procedure Undeclared() var M: Record "Report Metadata"; begin M.Get(50004); if M.UseSystemPrinter then; end; }"#,
+  [Test] procedure Undeclared() var M: Record "Report Metadata"; begin M.Get(50004); if M.UseSystemPrinter then Error('plain'); end; }"#,
     );
     passes(&o, "Declared");
-    let why = not_run(&o, "Undeclared");
-    assert!(why.contains("UseSystemPrinter"), "{why}");
+    passes(&o, "Undeclared");
 }
 
 /// Field ExternalName (10) is blank and SQLDataType (23) Varchar for a Text field that declares neither
@@ -915,6 +1215,50 @@ codeunit 50000 "T" { Subtype = Test;
     E.Get(50002, 'H2'); if E."Published Function" <> 'OnBeforeValidateEvent - Txt' then Error('field %1', E."Published Function"); end; }"#,
     );
     passes(&o, "Rows");
+}
+
+/// Table Relations Metadata "Table Name" (12), "Field Name" (13), "Related Table Name" (14) and "Related Field Name" (15) are
+/// the declared names of the own table and field and of the related ones (misc/lt-probes-needed-5/PnE09Platform.al:122-125).
+/// Of the rows of SystemCreatedBy and SystemModifiedBy they are not pinned: refused.
+#[test]
+fn table_relations_metadata_names_the_tables_and_fields() {
+    let o = outcomes(
+        r#"table 50001 "Target" { fields { field(1; "Code"; Code[20]) { } } keys { key(PK; "Code") { Clustered = true; } } }
+table 50002 "Source" { fields { field(1; Id; Integer) { } field(5; Ref; Code[20]) { TableRelation = "Target"; } } keys { key(PK; Id) { Clustered = true; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Names() var M: Record "Table Relations Metadata"; begin M.SetRange("Table ID", 50002); M.SetRange("Field No.", 5); M.FindFirst();
+    if M."Table Name" <> 'Source' then Error('table %1', M."Table Name"); if M."Field Name" <> 'Ref' then Error('field');
+    if M."Related Table Name" <> 'Target' then Error('related'); if M."Related Field Name" <> 'Code' then Error('related field'); end;
+  [Test] procedure SystemRow() var M: Record "Table Relations Metadata"; begin M.SetRange("Table ID", 50002); M.SetRange("Field No.", 2000000002);
+    M.FindFirst(); if M."Related Table Name" = '' then; end; }"#,
+    );
+    passes(&o, "Names");
+    let why = not_run(&o, "SystemRow");
+    assert!(why.contains("Related Table Name"), "{why}");
+}
+
+/// Table Relations Metadata "Condition Value" of a `filter(...)` condition on an enum field is the members' values joined by `|`,
+/// and on an Integer field the alternatives joined by `|` without the spaces (misc/lt-probes-needed-5/PnE09Platform.al:122-123,
+/// `filter(Alpha | Beta)` reads `0|1`, `filter(5 | 7)` reads `5|7`, `filter('A' | 'B')` reads `A|B`); one quoted literal keeps
+/// its bars (`filter('X|Y')` is `X|Y`).
+#[test]
+fn table_relations_condition_value_of_an_enum_and_an_integer_filter() {
+    let o = outcomes(
+        r#"enum 50003 "Kinds" { value(0; Alpha) { } value(1; Beta) { } value(2; Gamma) { } }
+table 50001 "Target" { fields { field(1; "Code"; Code[10]) { } } keys { key(PK; "Code") { Clustered = true; } } }
+table 50002 "Source" { fields { field(1; Id; Integer) { } field(2; Kind; Enum "Kinds") { } field(3; IntKind; Integer) { }
+  field(5; Ref; Code[10]) { TableRelation = if (Kind = filter(Alpha | Beta)) "Target".Code; }
+  field(6; Ref2; Code[10]) { TableRelation = if (IntKind = filter(5 | 7)) "Target".Code; } field(4; CodeKind; Code[10]) { }
+  field(7; Ref3; Code[10]) { TableRelation = if (CodeKind = filter('A' | 'B')) "Target".Code; }
+  field(8; Ref4; Code[10]) { TableRelation = if (CodeKind = filter('X|Y')) "Target".Code; } } keys { key(PK; Id) { Clustered = true; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Values() var M: Record "Table Relations Metadata"; begin M.SetRange("Table ID", 50002);
+    M.SetRange("Field No.", 5); M.FindFirst(); if M."Condition Value" <> '0|1' then Error('enum %1', M."Condition Value");
+    M.SetRange("Field No.", 6); M.FindFirst(); if M."Condition Value" <> '5|7' then Error('int %1', M."Condition Value");
+    M.SetRange("Field No.", 7); M.FindFirst(); if M."Condition Value" <> 'A|B' then Error('code %1', M."Condition Value");
+    M.SetRange("Field No.", 8); M.FindFirst(); if M."Condition Value" <> 'X|Y' then Error('quoted %1', M."Condition Value"); end; }"#,
+    );
+    passes(&o, "Values");
 }
 
 /// Table Relations Metadata (record/TestTableRelationsMetadataVirtualTable.al), including a
@@ -1404,43 +1748,43 @@ codeunit 50000 "T" { Subtype = Test;
 /// A column of a platform row whose value nothing pins is unknown: a dynamic read of it (FieldRef.Value, Format, a filter on
 /// it, TransferFields into another type, a read or a filter on a copy) is refused and names the table and the field, while
 /// the other columns, FindSet and Count of the same rows run, a copy can be stored, and a value written into the buffer
-/// reads back. "Type Name" (9) of the Field table is pinned
-/// for a Text field only (record/PZFieldObsoleteRows.al:47, `Text30`); for the Integer field it is unknown.
+/// reads back. ExternalName (10) of the Field table is pinned blank for a field that declares none
+/// (record/PZFieldObsoleteRows.al:48); for the field that declares one it is unknown.
 #[test]
 fn an_unknown_column_of_a_platform_row_is_refused_where_it_is_read_dynamically() {
     let o = outcomes(
-        r#"table 50003 "Buf" { fields { field(1; TableNo; Integer) { } field(2; "No."; Integer) { } field(9; "Type Name"; Text[30]) { } }
+        r#"table 50003 "Buf" { fields { field(1; TableNo; Integer) { } field(2; "No."; Integer) { } field(9; "Type Name"; Text[30]) { } field(40; Ext; Integer) { ExternalName = 'ext'; } field(10; ExternalName; Text[100]) { } }
   keys { key(PK; TableNo, "No.") { Clustered = true; } } }
-table 50004 "Buf2" { fields { field(1; TableNo; Integer) { } field(2; "No."; Integer) { } field(9; "Type Name"; Text[20]) { } }
+table 50004 "Buf2" { fields { field(1; TableNo; Integer) { } field(2; "No."; Integer) { } field(10; ExternalName; Text[20]) { } }
   keys { key(PK; TableNo, "No.") { Clustered = true; } } }
 codeunit 50000 "T" { Subtype = Test;
   [Test] procedure OtherColumnsAndCountRun() var F: Record Field; R: RecordRef; N: Integer; begin
-    F.SetRange(TableNo, 50003); F.SetRange("No.", 1, 9); if F.Count() <> 3 then Error('count %1', F.Count()); F.FindSet();
-    repeat N += 1; until F.Next() = 0; if N <> 3 then Error('n');
+    F.SetRange(TableNo, 50003); F.SetRange("No.", 1, 40); if F.Count() <> 5 then Error('count %1', F.Count()); F.FindSet();
+    repeat N += 1; until F.Next() = 0; if N <> 5 then Error('n');
     F.Get(50003, 9); R.GetTable(F); if Format(R.Field(9).Value) <> 'Text30' then Error('text %1', R.Field(9).Value);
-    F.Get(50003, 1); R.GetTable(F); if Format(R.Field(4).Value) <> 'TableNo' then Error('name %1', R.Field(4).Value); end;
+    F.Get(50003, 40); R.GetTable(F); if Format(R.Field(4).Value) <> 'Ext' then Error('name %1', R.Field(4).Value); end;
   [Test] procedure FieldRefValue() var F: Record Field; R: RecordRef; T: Text; begin
-    F.Get(50003, 1); R.GetTable(F); T := R.Field(9).Value; end;
+    F.Get(50003, 40); R.GetTable(F); T := R.Field(10).Value; end;
   [Test] procedure FormatFieldRef() var F: Record Field; R: RecordRef; FR: FieldRef; begin
-    F.Get(50003, 1); R.GetTable(F); FR := R.Field(9); if Format(FR) = 'x' then; end;
+    F.Get(50003, 40); R.GetTable(F); FR := R.Field(10); if Format(FR) = 'x' then; end;
   [Test] procedure FilterOnIt() var R: RecordRef; begin
-    R.Open(Database::Field); R.Field(1).SetRange(50003); R.Field(9).SetRange('Integer'); if R.IsEmpty() then; end;
+    R.Open(Database::Field); R.Field(1).SetRange(50003); R.Field(10).SetRange('Integer'); if R.IsEmpty() then; end;
   [Test] procedure TransferFieldsCarriesIt() var F: Record Field; B: Record Buf temporary; begin
-    F.Get(50003, 1); B.TransferFields(F); B.Insert(); end;
+    F.Get(50003, 40); B.TransferFields(F); B.Insert(); end;
   [Test] procedure TransferFieldsThenRead() var F: Record Field; B: Record Buf temporary; X: Text; begin
-    F.Get(50003, 1); B.TransferFields(F); X := B."Type Name"; end;
+    F.Get(50003, 40); B.TransferFields(F); X := B.ExternalName; end;
   [Test] procedure TransferFieldsIntoAnotherType() var F: Record Field; B: Record Buf2 temporary; begin
-    F.Get(50003, 1); B.TransferFields(F); end;
+    F.Get(50003, 40); B.TransferFields(F); end;
   [Test] procedure CopiedIntoATemporaryRecord() var F: Record Field; T: Record Field temporary; begin
-    F.Get(50003, 1); T := F; T.Insert(); F.Get(50003, 9); T := F; T.Insert();
+    F.Get(50003, 40); T := F; T.Insert(); F.Get(50003, 9); T := F; T.Insert();
     T.SetRange(TableNo, 50003); if T.Count() <> 2 then Error('copies %1', T.Count()); T.Get(50003, 9); end;
   [Test] procedure CopyFilteredOnIt() var F: Record Field; T: Record Field temporary; R: RecordRef; begin
-    F.Get(50003, 1); T := F; T.Insert(); R.GetTable(T); R.Field(9).SetRange('Integer'); if R.IsEmpty() then; end;
+    F.Get(50003, 40); T := F; T.Insert(); R.GetTable(T); R.Field(10).SetRange('Integer'); if R.IsEmpty() then; end;
   [Test] procedure CopyReadBack() var F: Record Field; T: Record Field temporary; R: RecordRef; X: Text; begin
-    F.Get(50003, 1); T := F; T.Insert(); T.Get(50003, 1); R.GetTable(T); X := R.Field(9).Value; end;
+    F.Get(50003, 40); T := F; T.Insert(); T.Get(50003, 40); R.GetTable(T); X := R.Field(10).Value; end;
   [Test] procedure WrittenReadsBack() var F: Record Field; R: RecordRef; begin
-    F.Get(50003, 1); R.GetTable(F); R.Field(9).Value := 'mine';
-    if Format(R.Field(9).Value) <> 'mine' then Error('read back'); end; }"#,
+    F.Get(50003, 40); R.GetTable(F); R.Field(10).Value := 'mine';
+    if Format(R.Field(10).Value) <> 'mine' then Error('read back'); end; }"#,
     );
     passes(&o, "OtherColumnsAndCountRun");
     passes(&o, "WrittenReadsBack");
@@ -1458,10 +1802,38 @@ codeunit 50000 "T" { Subtype = Test;
     ] {
         let why = not_run(&o, t);
         assert!(
-            why.contains("field 'Type Name' of platform table 'Field' is not known"),
+            why.contains("field 'ExternalName' of platform table 'Field' is not known"),
             "{t}: {why}"
         );
     }
+}
+
+/// "Type Name" of the Field table is the type's name, with the length of a Text or Code, for every type a table field can
+/// have (platform/lt-ba-columns/BaFieldTypeName.al:52-69; an enum reads `Option`). OptimizeForTextSearch declared on a Code
+/// field reads as declared (lt-ak-fulltext/LtAkFulltext.al:141-170).
+#[test]
+fn field_type_name_is_pinned_for_every_type() {
+    let o = outcomes(
+        r#"enum 50001 "E" { value(0; A) { } }
+table 50006 "Types" { fields { field(1; FInteger; Integer) { } field(2; FCode; Code[20]) { } field(3; FDecimal; Decimal) { }
+  field(4; FOption; Option) { OptionMembers = A,B; } field(5; FEnum; Enum "E") { } field(6; FBoolean; Boolean) { }
+  field(7; FDate; Date) { } field(8; FDateTime; DateTime) { } field(9; FTime; Time) { } field(10; FGuid; Guid) { }
+  field(11; FBlob; Blob) { } field(12; FMedia; Media) { } field(13; FMediaSet; MediaSet) { } field(14; FBigInteger; BigInteger) { }
+  field(15; FDuration; Duration) { } field(16; FDateFormula; DateFormula) { } field(17; FRecordId; RecordId) { }
+  field(18; FText; Text[100]) { } field(19; FTableFilter; TableFilter) { }
+  field(20; FCodeFts; Code[30]) { OptimizeForTextSearch = true; } field(21; FCodePlain; Code[30]) { } }
+  keys { key(PK; FInteger) { Clustered = true; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure TypeNames() var F: Record Field; R: Text; begin
+    F.SetRange(TableNo, 50006); F.SetRange("No.", 1, 19); F.FindSet();
+    repeat R += F.FieldName + ':' + F."Type Name" + '/' + Format(F.Len) + ' '; until F.Next() = 0;
+    if R <> 'FInteger:Integer/4 FCode:Code20/20 FDecimal:Decimal/12 FOption:Option/4 FEnum:Option/4 FBoolean:Boolean/4 FDate:Date/4 FDateTime:DateTime/8 FTime:Time/4 FGuid:GUID/16 FBlob:BLOB/8 FMedia:Media/16 FMediaSet:MediaSet/16 FBigInteger:BigInteger/8 FDuration:Duration/8 FDateFormula:DateFormula/32 FRecordId:RecordID/448 FText:Text100/100 FTableFilter:TableFilter/504 ' then Error(R); end;
+  [Test] procedure CodeFieldOptimizeForTextSearch() var F: Record Field; begin
+    F.Get(50006, 20); if not F.OptimizeForTextSearch then Error('declared');
+    F.Get(50006, 21); if F.OptimizeForTextSearch then Error('plain'); end; }"#,
+    );
+    passes(&o, "TypeNames");
+    passes(&o, "CodeFieldOptimizeForTextSearch");
 }
 
 /// A column of a table of `PINNED_COLUMNS` that the list does not name is unknown in every row the provider lists
@@ -1508,22 +1880,22 @@ codeunit 50000 "T" { Subtype = Test;
     }
 }
 
-/// Field.OptimizeForTextSearch (62) is the declared property of a Text field (lt-ak-fulltext/LtAkFulltext.al:119,
-/// :122); the property on another type is pinned by no test, so a read of it is refused.
+/// Field.OptimizeForTextSearch (62) is the declared property of a Text or Code field (lt-ak-fulltext/LtAkFulltext.al:119,
+/// :122, :167); the property on another type is pinned by no test, so a read of it is refused.
 #[test]
 fn field_optimize_for_text_search_reads_the_declared_property_of_a_text_field() {
     let o = outcomes(
         r#"table 50001 "Thing" { fields { field(1; "No."; Integer) { } field(2; Txt; Text[30]) { OptimizeForTextSearch = true; }
-  field(3; Plain; Text[30]) { } field(4; Cd; Code[20]) { OptimizeForTextSearch = true; } }
+  field(3; Plain; Text[30]) { } field(4; Num; Integer) { OptimizeForTextSearch = true; } }
   keys { key(PK; "No.") { Clustered = true; } } }
 codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Declared() var F: Record Field; begin F.Get(50001, 2); if not F.OptimizeForTextSearch then Error('declared'); end;
   [Test] procedure NotDeclared() var F: Record Field; begin F.Get(50001, 3); if F.OptimizeForTextSearch then Error('plain'); end;
-  [Test] procedure OnCode() var F: Record Field; begin F.Get(50001, 4); if F.OptimizeForTextSearch then; end; }"#,
+  [Test] procedure OnInteger() var F: Record Field; begin F.Get(50001, 4); if F.OptimizeForTextSearch then; end; }"#,
     );
     passes(&o, "Declared");
     passes(&o, "NotDeclared");
-    let why = not_run(&o, "OnCode");
+    let why = not_run(&o, "OnInteger");
     assert!(why.contains("OptimizeForTextSearch"), "{why}");
 }
 
@@ -1584,21 +1956,37 @@ fn code_coverage_tests_run_method_id_is_the_one_number_of_a_test_procedure() {
     passes(&o, "Ids");
 }
 
-/// Published Application.Description (15) holds the manifest's description (onprem
-/// session/PZPublishedApplicationColumns.al:55, :59). The runtime does not keep the description of an app yet, so a read
-/// of the column is refused rather than answered blank; the other columns read as before.
+/// Published Application.Description (15) holds the manifest's description as UTF-8 text (onprem
+/// session/PZPublishedApplicationColumns.al:55, :59). An app whose manifest description is not known (here the System app,
+/// whose source carries no manifest) is refused rather than answered blank, and so is a read of the row of the Application
+/// aggregate, which the program has no app for.
 #[test]
-fn published_application_description_is_refused_until_the_manifest_text_is_kept() {
-    let o = outcomes_app(
-        "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+fn published_application_description_is_the_manifest_text() {
+    let mut src = String::from(
         r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Name() var A: Record "Published Application"; begin A.SetRange(ID, 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'); A.FindFirst(); if A.Name <> 'main' then Error('%1', A.Name); end;
-  [Test] procedure Description() var A: Record "Published Application"; begin A.SetRange(ID, 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'); A.FindFirst(); A.CalcFields(Description); if A.Description.HasValue() then; end; }"#,
-        al_sema::check::Roots::default(),
+  [Test] procedure Description() var A: Record "Published Application"; InS: InStream; T: Text; begin A.SetRange(ID, 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'); A.FindFirst();
+    A.CalcFields(Description); if not A.Description.HasValue() then Error('no value');
+    A.Description.CreateInStream(InS, TextEncoding::UTF8); InS.ReadText(T, 40); if T <> 'Ground-up test suite covering the in-sco' then Error(T); end;
+  [Test] procedure NotKnown() var A: Record "Published Application"; begin A.SetRange(Name, 'System'); A.FindFirst(); A.CalcFields(Description); if A.Description.HasValue() then; end;
+  [Test] procedure ApplicationRow() var A: Record "Published Application"; begin A.SetRange(ID, 'c1335042-3002-4257-bf8a-75c898ccb1b8'); if A.FindFirst() then; end;
+  [Test] procedure OtherName() var A: Record "Published Application"; begin A.SetRange(Name, 'main'); if A.Count() <> 1 then Error('count'); end; }"#,
     );
+    src.push('\n');
+    let (engine, l) = engine_described(
+        "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        &src,
+        "Ground-up test suite covering the in-scope AL language",
+    );
+    let o = run_all(&engine, &l);
     passes(&o, "Name");
-    let why = not_run(&o, "Description");
+    passes(&o, "Description");
+    let why = not_run(&o, "NotKnown");
     assert!(why.contains("Description"), "{why}");
+    // The Application aggregate has no app in the program; a tier always publishes it (PZPublishedApplicationColumns.al:58).
+    let why = not_run(&o, "ApplicationRow");
+    assert!(why.contains("Application app"), "{why}");
+    passes(&o, "OtherName");
 }
 
 /// AllObjWithCaption: a table whose TableType the runtime has no pinned Object Subtype for (CDS) still lists its
@@ -3627,6 +4015,43 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "Rows");
 }
 
+/// The Published Function of a page field's validate event is `<event> - <control id of the field>`, the id of the declaring
+/// object (a page extension for a field it adds) and the control name, the same number for Before and After
+/// (events/lt-event-subscription-trigger-rows/PageTriggerEventRows.al:241-259; events/lt-page-event-numbers/PageEventNumbers.al;
+/// the ids are those of objects 91511, 91512 and 91513, so the test uses the same ids). "Originating Package ID" is a Guid that
+/// changes with every publish (the Probe Observer scrubs it, PnE11EventSub.al:99): the subscriber app's package id.
+#[test]
+fn a_page_field_event_names_the_control_id_of_the_field() {
+    let o = outcomes_app(
+        "8b4b1c2e-1f7a-4c39-9d5e-3a6f2b7c9d01",
+        r#"table 91510 "Row" { fields { field(1; "Code"; Code[20]) { } field(2; Name; Text[30]) { } field(3; "Unit Price"; Decimal) { } field(4; Extra; Text[30]) { } }
+  keys { key(PK; "Code") { Clustered = true; } } }
+page 91511 "Card" { PageType = Card; SourceTable = "Row"; layout { area(Content) { field("Code"; Rec."Code") { } field(Name; Rec.Name) { }
+  group(Prices) { field("Unit Price"; Rec."Unit Price") { } } } } }
+page 91512 "List" { PageType = List; SourceTable = "Row"; layout { area(Content) { repeater(Lines) { field(Name; Rec.Name) { } field(ListName; Rec.Name) { } } } } }
+pageextension 91513 "Card Ext" extends "Card" { layout { addlast(Content) { field(Extra; Rec.Extra) { } } } }
+codeunit 50002 "Sub" {
+  [EventSubscriber(ObjectType::Page, Page::"Card", OnBeforeValidateEvent, 'Name', false, false)] local procedure H1() begin end;
+  [EventSubscriber(ObjectType::Page, Page::"Card", OnAfterValidateEvent, 'Name', false, false)] local procedure H2() begin end;
+  [EventSubscriber(ObjectType::Page, Page::"Card", OnAfterValidateEvent, 'Unit Price', false, false)] local procedure H3() begin end;
+  [EventSubscriber(ObjectType::Page, Page::"Card", OnAfterValidateEvent, 'Extra', false, false)] local procedure H4() begin end;
+  [EventSubscriber(ObjectType::Page, Page::"List", OnAfterValidateEvent, 'ListName', false, false)] local procedure H5() begin end; }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Fn(Name: Text): Text var E: Record "Event Subscription"; begin E.Get(50002, Name); exit(E."Published Function"); end;
+  [Test] procedure Rows() begin
+    if Fn('H1') <> 'OnBeforeValidateEvent - 818325649' then Error('H1 %1', Fn('H1'));
+    if Fn('H2') <> 'OnAfterValidateEvent - 818325649' then Error('H2 %1', Fn('H2'));
+    if Fn('H3') <> 'OnAfterValidateEvent - 503518781' then Error('H3 %1', Fn('H3'));
+    if Fn('H4') <> 'OnAfterValidateEvent - 1531586016' then Error('H4 %1', Fn('H4'));
+    if Fn('H5') <> 'OnAfterValidateEvent - 1677490222' then Error('H5 %1', Fn('H5')); end;
+  [Test] procedure PackageId() var E: Record "Event Subscription"; begin E.Get(50002, 'H1');
+    if IsNullGuid(E."Originating Package ID") then Error('null'); end; }"#,
+        al_sema::check::Roots::default(),
+    );
+    passes(&o, "Rows");
+    passes(&o, "PackageId");
+}
+
 /// AllObjWithCaption of a table whose own Caption one tableextension overrides is not measured (al-runner issue 6378 pins
 /// the error texts, TableCaption and RecordRef.Caption only): the read of its Object Caption stays refused.
 #[test]
@@ -3684,11 +4109,11 @@ fn windows_language_primary_language_id_is_the_primary_culture_lcid_on_an_assump
 }
 
 /// al-runner #6411: the Event Subscription row of a subscriber to a page trigger event. A page field's OnAfterValidateEvent
-/// and OnOpenPageEvent are pinned (misc/lt-probes-needed-5/PnE11EventSub.al:99, :130); OnBeforeValidateEvent and
-/// OnAfterGetCurrRecordEvent are measured on corpus branch al-runtime-rs-staging-y11 (PageTriggerEventRows.al) and run on
-/// assumption page-trigger-event-subscription-row. The number in a field event's Published Function is refused when read.
+/// and OnOpenPageEvent (misc/lt-probes-needed-5/PnE11EventSub.al:99, :130), OnBeforeValidateEvent and OnAfterGetCurrRecordEvent
+/// (events/lt-event-subscription-trigger-rows/PageTriggerEventRows.al:241-273) are pinned: no row runs on an assumption. The
+/// number in a field event's Published Function is the field's control id (`a_page_field_event_names_the_control_id_of_the_field`).
 #[test]
-fn page_trigger_event_subscription_rows_serve_the_measured_columns() {
+fn page_trigger_event_subscription_rows_are_pinned() {
     let src = r#"table 50100 "ES Row" { fields { field(1; Code; Code[10]) { } field(2; Name; Text[30]) { } } keys { key(PK; Code) { Clustered = true; } } }
 page 50100 "ES Card" { PageType = Card; SourceTable = "ES Row"; layout { area(Content) { field(Code; Rec.Code) { } field(Name; Rec.Name) { } } } }
 codeunit 50100 "ES After" {
@@ -3700,7 +4125,7 @@ codeunit 50101 "ES Before" {
 codeunit 50000 "T" { Subtype = Test;
   [Test] procedure PinnedRows() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50100); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); E.SetRange(Active, true); E.SetRange("Event Type", E."Event Type"::Trigger); E.SetRange("Publisher Object Type", E."Publisher Object Type"::Page); if E.Count() <> 2 then Error('count %1', E.Count()); E.Get(50100, 'OnOpen'); if E."Published Function" <> 'OnOpenPageEvent' then Error('pf %1', E."Published Function"); end;
   [Test] procedure MeasuredRows() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50101); E.SetRange(Active, true); E.SetRange("Event Type", E."Event Type"::Trigger); if E.Count() <> 2 then Error('count %1', E.Count()); E.Get(50101, 'OnCurr'); if E."Published Function" <> 'OnAfterGetCurrRecordEvent' then Error('pf %1', E."Published Function"); if E."Publisher Object ID" <> 50100 then Error('id'); end;
-  [Test] procedure FieldEventNumber() var E: Record "Event Subscription"; begin E.Get(50100, 'OnAfterValidateName'); if E."Published Function" = '' then; end; }"#;
+  [Test] procedure FieldEventNumber() var E: Record "Event Subscription"; begin E.Get(50100, 'OnAfterValidateName'); if E."Published Function" = '' then Error('blank'); end; }"#;
     let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), "29.0.0.0");
     let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
     let mut hits = Vec::new();
@@ -3716,16 +4141,11 @@ codeunit 50000 "T" { Subtype = Test;
         &mut hits,
         None,
     );
-    let a = al_builtins::assumptions::Assumption::PageTriggerEventSubscriptionRow;
-    let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && m.contains(&a));
+    let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && !m.is_empty());
     let get = |n: &str| out.iter().find(|(x, _)| x == n).map(|(_, o)| o.clone()).expect(n);
-    assert_eq!(get("PinnedRows"), Outcome::Pass);
-    assert!(!flagged("PinnedRows"));
-    assert_eq!(get("MeasuredRows"), Outcome::Pass);
-    assert!(flagged("MeasuredRows"));
-    match get("FieldEventNumber") {
-        Outcome::NotRun(why) => assert!(why.contains("Published Function"), "{why}"),
-        o => panic!("FieldEventNumber: {o:?}"),
+    for n in ["PinnedRows", "MeasuredRows", "FieldEventNumber"] {
+        assert_eq!(get(n), Outcome::Pass, "{n}");
+        assert!(!flagged(n), "{n}");
     }
 }
 
@@ -3759,6 +4179,7 @@ codeunit 50000 "T" { Subtype = Test;
         al_sema::check::Roots::default(),
         "27.5.0.0",
         vec![("r.rdlc".into(), rdlc)],
+        None,
     );
     let oi = l
         .program
@@ -3771,4 +4192,48 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "Insert");
     assert!(not_run(&o, "Unfiltered").contains("Tenant Report Layout"));
     assert!(not_run(&o, "OtherLayout").contains("Tenant Report Layout"));
+}
+
+// Gap cycle G9: a user-defined layout (a Tenant Report Layout row) is a row of Report Layout List: Caption the layout's name,
+// Runtime Package ID and Application ID the null guid, Description as stored, Report Name the report's Caption, Layout
+// Publisher blank, User Defined Yes, ReportIsInstalled Yes (platform/lt-ug-report-layout-list/UgReportLayoutList.al
+// Y17_ReportLayoutList_UserDefinedRow, corpus master 97c29f86).
+#[test]
+fn a_tenant_report_layout_row_is_a_user_defined_row_of_report_layout_list() {
+    let main = r#"
+report 50001 "R" { Caption = 'R Caption'; DefaultRenderingLayout = L; dataset { dataitem(I; Integer) { } } rendering { layout(L) { Type = RDLC; LayoutFile = './r.rdlc'; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure UserRow() var L: Record "Tenant Report Layout"; R: Record "Report Layout List"; InS: InStream; begin
+    L.Init(); L."Report ID" := 50001; L.Name := 'User'; L."Layout Format" := L."Layout Format"::RDLC; L.Description := 'Desc';
+    Report.RdlcLayout(50001, InS); L.Layout.ImportStream(InS, 'x'); L.Insert();
+    R.SetRange("Report ID", 50001); if R.Count() <> 2 then Error('count %1', R.Count());
+    R.SetRange(Name, 'User'); R.FindFirst();
+    if R.Caption <> 'User' then Error('caption %1', R.Caption);
+    if not IsNullGuid(R."Runtime Package ID") or not IsNullGuid(R."Application ID") then Error('ids');
+    if R.Description <> 'Desc' then Error('description %1', R.Description);
+    if R."Report Name" <> 'R Caption' then Error('report name %1', R."Report Name");
+    if R."Layout Publisher" <> '' then Error('publisher %1', R."Layout Publisher");
+    if not R."User Defined" or not R.ReportIsInstalled then Error('flags');
+    if R."Layout Format" <> R."Layout Format"::RDLC then Error('format');
+    if (R.CaptionML <> '') or (R."MIME Type" <> '') or not IsNullGuid(R."Custom Type") then Error('blank');
+    L.SetRange("Report ID", 50001); L.DeleteAll(); R.SetRange(Name); if R.Count() <> 1 then Error('after delete %1', R.Count()); end;
+}"#;
+    let rdlc = b"<?xml version=\"1.0\"?><Report xmlns=\"http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition\"></Report>".to_vec();
+    let (engine, l) = engine_with_layouts(
+        "main",
+        main,
+        None,
+        al_sema::check::Roots::default(),
+        "27.5.0.0",
+        vec![("r.rdlc".into(), rdlc)],
+        None,
+    );
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
+    let o = run_codeunit(&engine, &l, oi);
+    passes(&o, "UserRow");
 }

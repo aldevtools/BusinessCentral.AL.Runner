@@ -57,6 +57,8 @@ pub struct Manifest {
     /// The logo app.json declares (a blank one is none) with the file's content; `None` when not known (a package whose
     /// logo was not read, a declared file that cannot be read).
     pub logo: Option<al_ir::AppLogo>,
+    /// The description the manifest declares; `None` when not known.
+    pub description: Option<String>,
     /// `preprocessorSymbols` of the app's own app.json. A dependency app is compiled with these;
     /// the project's symbols apply to the workspace apps only (the publisher compiled the dependency).
     pub symbols: Vec<String>,
@@ -186,6 +188,7 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .collect(),
         target: manifest["target"].as_str().unwrap_or("Cloud").to_string(),
         logo: al_deps::load::folder_logo(dir, manifest["logo"].as_str()),
+        description: Some(s("description")),
         symbols: manifest["preprocessorSymbols"]
             .as_array()
             .into_iter()
@@ -394,6 +397,30 @@ pub struct Phases {
     pub passes: Vec<PassTime>,
     /// A warm server ran the request on the engines an earlier request over the same compile kept.
     pub engine_kept: bool,
+    /// What the run did, counted (the work ratchet of `al-test-cli`).
+    pub work: RunWork,
+}
+
+/// What one run did, as counts that are the same on every run of the same inputs: the work ratchet of the corpus run
+/// (`al-test-cli`, `metrics/<major>/work.json`) compares them, where times on a shared runner are too noisy.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RunWork {
+    /// How many times the apps were compiled ([`Phases::compiles`]).
+    pub compiles: usize,
+    /// What the compile the tests ran on lowered from source.
+    pub lower: al_sema::lower::LowerWork,
+    /// The dependency apps of the program.
+    pub dependency_apps: usize,
+    /// Those of them whose objects a compile cache supplied.
+    pub dependency_apps_from_cache: usize,
+    /// Layers of the compile cache found and used as they were.
+    pub cache_layers_hit: usize,
+    /// Layers of the compile cache this run built (a miss).
+    pub cache_layers_built: usize,
+    /// The rows the install baseline holds; `None` when no baseline ran.
+    pub baseline_rows: Option<usize>,
+    /// Tests that ran (passed or failed); a test that was not run does not count.
+    pub tests_run: usize,
 }
 
 /// The time of one pass over the test codeunits ([`Phases::passes`]).
@@ -501,6 +528,10 @@ pub(crate) struct Unit {
     on_run_rows: OnRunRows,
     /// See `RunOptions::ignore_permission_mock`.
     ignore_permission_mock: bool,
+    /// See `RunOptions::report_unpinned_errors`.
+    report_unpinned_errors: bool,
+    /// See `RunOptions::permissions_off`.
+    permissions_off: bool,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -545,6 +576,10 @@ pub(crate) struct Scratch {
     on_run_rows: OnRunRows,
     /// See `RunOptions::ignore_permission_mock`.
     ignore_permission_mock: bool,
+    /// See `RunOptions::report_unpinned_errors`.
+    report_unpinned_errors: bool,
+    /// See `RunOptions::permissions_off`.
+    permissions_off: bool,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -630,6 +665,8 @@ fn run_unit(
             onrun_carry: u.onrun_carry,
             on_run_rows: u.on_run_rows,
             ignore_permission_mock: u.ignore_permission_mock,
+            report_unpinned_errors: u.report_unpinned_errors,
+            permissions_off: u.permissions_off,
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
             ..Default::default()
@@ -828,6 +865,7 @@ mod cache;
 mod compiled;
 mod corpus;
 mod data_driven;
+mod grow;
 mod handlers;
 mod run;
 mod runner_reset;
@@ -838,6 +876,8 @@ pub(crate) mod written;
 pub use self::blocked::*;
 pub use self::cache::*;
 pub use self::compiled::*;
+use self::grow::{Grow, GrowKept};
+pub use self::grow::{KeptCompile, fresh_pass_compile};
 use self::handlers::*;
 pub use self::run::*;
 

@@ -632,7 +632,7 @@
           "ms_uses": 6,
           "name": "OnInitXmlPort",
           "pinned": true,
-          "runtime_reads": true,
+          "runtime_reads": false,
           "site": "pages/lt-pages-xmlport-upload-members/P112XpCsv.al:131"
         },
         {
@@ -16069,37 +16069,46 @@
         "template": "The value cannot be an empty string. (Parameter 'path')"
       },
       {
-        "code": "AL:Format",
-        "file": "crates/al-builtins/src/http.rs",
-        "generic": false,
-        "line": 462,
-        "pinned": true,
-        "site": "network/lt-http/HttpRequest.al:76",
-        "template": "The format of the HTTP method is invalid."
-      },
-      {
-        "code": "InvalidValue",
-        "file": "crates/al-builtins/src/http.rs",
-        "generic": false,
-        "line": 2583,
-        "pinned": false,
-        "site": null,
-        "template": "The value '%' is not a valid HTTP status code."
-      },
-      {
         "code": "AL:Cookie",
-        "file": "crates/al-builtins/src/http.rs",
+        "file": "crates/al-builtins/src/http/cookies.rs",
         "generic": false,
-        "line": 2998,
+        "line": 344,
         "pinned": true,
         "site": "network/lt-ay-http/AyCookieSetterExpression.al:57",
         "template": "The 'Name'='%' part of the cookie is invalid."
       },
       {
+        "code": "InvalidValue",
+        "file": "crates/al-builtins/src/http/messages.rs",
+        "generic": false,
+        "line": 70,
+        "pinned": false,
+        "site": null,
+        "template": "The value '%' is not a valid HTTP status code."
+      },
+      {
+        "code": "AL:Format",
+        "file": "crates/al-builtins/src/http/uri.rs",
+        "generic": false,
+        "line": 274,
+        "pinned": true,
+        "site": "network/lt-http/HttpRequest.al:76",
+        "template": "The format of the HTTP method is invalid."
+      },
+      {
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/json.rs",
         "generic": false,
-        "line": 2534,
+        "line": 2565,
+        "pinned": true,
+        "site": "json/JsonObjectBasics.al:377",
+        "template": "The requested operation cannot be performed in this context."
+      },
+      {
+        "code": "InvalidOperation",
+        "file": "crates/al-builtins/src/json/filter.rs",
+        "generic": false,
+        "line": 183,
         "pinned": true,
         "site": "json/JsonObjectBasics.al:377",
         "template": "The requested operation cannot be performed in this context."
@@ -16171,7 +16180,7 @@
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/native.rs",
         "generic": false,
-        "line": 929,
+        "line": 943,
         "pinned": true,
         "site": "codeunit/TestInterfaceRuntimeContracts.al:85",
         "template": "Interface not initialized"
@@ -16306,7 +16315,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1066,
+        "line": 1083,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16315,7 +16324,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1260,
+        "line": 1277,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16324,7 +16333,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1466,
+        "line": 1483,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16333,7 +16342,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1498,
+        "line": 1515,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -16342,7 +16351,7 @@
         "code": "InvalidStreamMode",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1740,
+        "line": 1757,
         "pinned": true,
         "site": "streams/lt-stream-length/StreamLengthOthers.al:573",
         "template": "ALStream.ALWrite, invalid stream mode: Stream"
@@ -16351,7 +16360,7 @@
         "code": "InvalidStreamLength",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1876,
+        "line": 1894,
         "pinned": true,
         "site": "misc/lt-probes-needed-1/PnAStreamReadMisc.al:223",
         "template": "An invalid length % was specified in stream function. % was expected."
@@ -16436,6 +16445,15 @@
         "pinned": true,
         "site": "misc/lt-probes-needed-3/PnC03Truncate.al:66",
         "template": "Truncate is not supported when the field has Media and/or MediaSet fields."
+      },
+      {
+        "code": "",
+        "file": "crates/al-vm/src/autoinc.rs",
+        "generic": false,
+        "line": 160,
+        "pinned": true,
+        "site": "record/TestCalcFieldsTruncateUniqueContracts.al:312",
+        "template": "The table does not support truncation."
       },
       {
         "code": "",
@@ -16549,7 +16567,7 @@
         "code": "NotSupportedOperation",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1298,
+        "line": 1343,
         "pinned": true,
         "site": "collections/lt-cs-odd-leads/CsCollections.al:220",
         "template": "The requested operation is not supported."
@@ -16558,7 +16576,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1594,
+        "line": 1639,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16567,7 +16585,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1671,
+        "line": 1716,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16576,7 +16594,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1681,
+        "line": 1726,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16585,7 +16603,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 2005,
+        "line": 2082,
         "pinned": true,
         "site": "codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:95",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -16594,16 +16612,16 @@
         "code": "FormAbort:Dialog",
         "file": "crates/al-vm/src/pages.rs",
         "generic": false,
-        "line": 276,
+        "line": 277,
         "pinned": true,
         "site": "pages/lt-cc-page-leads/CcPageLeads.al:525",
         "template": "Page % has to close."
       },
       {
         "code": "FormCloseNotAllowed",
-        "file": "crates/al-vm/src/pages/open.rs",
+        "file": "crates/al-vm/src/pages/open/close.rs",
         "generic": false,
-        "line": 1644,
+        "line": 75,
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."
@@ -16612,7 +16630,7 @@
         "code": "FormCloseNotAllowed",
         "file": "crates/al-vm/src/pages/rows.rs",
         "generic": false,
-        "line": 3855,
+        "line": 4008,
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."
@@ -16657,7 +16675,7 @@
         "code": "DB:NoFilter",
         "file": "crates/al-vm/src/recmeta.rs",
         "generic": false,
-        "line": 454,
+        "line": 479,
         "pinned": true,
         "site": "fieldref/lt-range-min-max-types/RangeMinMaxTypes.al:204",
         "template": "Specify a filter for the % field in the % table."
@@ -16666,16 +16684,25 @@
         "code": "DB:Ok",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 173,
+        "line": 188,
         "pinned": true,
         "site": "record/TestPlatformTablesWritableContracts.al:107",
         "template": "It is not possible to % any record in the Tenant License State table."
       },
       {
+        "code": "DB:Ok",
+        "file": "crates/al-vm/src/records.rs",
+        "generic": false,
+        "line": 207,
+        "pinned": true,
+        "site": "platform/PtOnPremTables.al:134",
+        "template": "The % table is read-only."
+      },
+      {
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 5458,
+        "line": 5816,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
@@ -16684,7 +16711,7 @@
         "code": "RecordNotOpened",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 260,
+        "line": 266,
         "pinned": true,
         "site": "collections/lt-cs-odd-leads/CsCollections.al:611",
         "template": "The record is not open."
@@ -16693,7 +16720,7 @@
         "code": "RecordNotOpened",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 475,
+        "line": 481,
         "pinned": true,
         "site": "collections/lt-cs-odd-leads/CsCollections.al:611",
         "template": "The record is not open."
@@ -16702,7 +16729,7 @@
         "code": "RecordAlreadyOpened",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 529,
+        "line": 535,
         "pinned": true,
         "site": "recordref/lt-recordref-fieldref-members/P92Open.al:168",
         "template": "The record is already open."
@@ -16711,7 +16738,7 @@
         "code": "RecordNotOpened",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 960,
+        "line": 997,
         "pinned": true,
         "site": "collections/lt-cs-odd-leads/CsCollections.al:611",
         "template": "The record is not open."
@@ -16720,7 +16747,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 1320,
+        "line": 1369,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16729,7 +16756,7 @@
         "code": "DB:KeyNotFound",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 1340,
+        "line": 1389,
         "pinned": true,
         "site": "recordref/TestRecordRefKeyIndexSetRecFilterContracts.al:103",
         "template": "The % table does not have an active key at index %."
@@ -16738,7 +16765,7 @@
         "code": "KeyRef.{other}",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 1497,
+        "line": 1546,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds"
@@ -16747,7 +16774,7 @@
         "code": "NotInitialized",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 1520,
+        "line": 1569,
         "pinned": true,
         "site": "misc/lt-probes-needed-4/PnD05_UnassignedFieldRef.al:42",
         "template": "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized."
@@ -16756,7 +16783,7 @@
         "code": "Argument",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 1615,
+        "line": 1664,
         "pinned": true,
         "site": "misc/lt-probes-needed-2/PnBDateFormat.al:404",
         "template": "The supplied value is not valid."
@@ -16765,7 +16792,7 @@
         "code": "Evaluate",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 1924,
+        "line": 2104,
         "pinned": true,
         "site": "errors/lt-ms-refusals-136/P136Report.al:349",
         "template": "The format of the Date '''' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
@@ -16774,7 +16801,7 @@
         "code": "",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 2823,
+        "line": 3029,
         "pinned": true,
         "site": "handlers/TestReportRuntimeContracts.al:462",
         "template": "The object has been run. Use the function CLEAR(Report)."
@@ -16835,16 +16862,16 @@
       },
       {
         "code": "",
-        "file": "crates/al-vm/src/xmlports.rs",
+        "file": "crates/al-vm/src/xmlports/import_xml.rs",
         "generic": false,
-        "line": 1555,
+        "line": 1004,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
       }
     ],
-    "pinned": 95,
-    "sites": 99
+    "pinned": 98,
+    "sites": 102
   },
   "language": {
     "bc": "27-29",
@@ -18512,7 +18539,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-pages-xmlport-upload-members/P112XpCsv.al:131",
-        "state": "implemented"
+        "state": "unknown"
       },
       {
         "area": "triggers",

@@ -27,6 +27,8 @@ pub mod platform_columns;
 pub mod report;
 pub mod runner;
 pub mod select;
+pub mod windows_language;
+pub mod work;
 
 /// What tells two builds of this binary apart: its size and when it was written, as
 /// `<bytes> bytes, written <UTC time>`. A rebuild (after a golden file such as

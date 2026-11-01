@@ -83,7 +83,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `filter.rs` (626): Record filters as data (shared by the VM and the store). Entry: `FilterExpr` 8, `parse_filter` 70, `parse_filter_with` 79, `FieldFilter` 371.
 - `format.rs` (619): `Format(Value [, Length] [, FormatNumber])`. Entry: `FormatCtx` 8, `FormatFail` 15, `try_format` 29, `format_value` 37.
 - `formatstr.rs` (389): `Format(Value, Length, FormatString)`. Entry: `format_with_string` 50.
-- `http.rs` (85): `HttpRequestMessage`: `Method`, `SetRequestUri`, `GetRequestUri`; nothing is sent. Entry: `native_for` 71.
+- `http/mod.rs` (464): HttpClient, HttpRequestMessage, HttpResponseMessage, HttpHeaders, HttpContent, Cookie. Submodules: `content`, `cookies`, `dates`, `headers`, `header_rules`, `messages`, `send`, `uri`. Entry: `native_for` (mod.rs).
 - `iso.rs` (121): ISO 8601 text to AL date/time values (JSON strings, XML-format Evaluate). Entry: `days_in_month` 11, `parse_date` 21, `parse_time` 36, `parse_datetime` 56.
 - `json.rs` (1415): JsonObject, JsonArray, JsonToken and JsonValue. Entry: `Handle` 17, `JsonCell` 21, `JsonNode` 27, `Scalar` 34.
 - `lib.rs` (39): Crate root of the AL standard library: values, builtins, catalog.
@@ -107,7 +107,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `value.rs` (859): Runtime values (ADR-010). Entry: `Value` 70, `RtType` 26, `Instance` 605, `DotNetObject` 133.
 - `version.rs` (33): The Version type. Entry: `native_for` 20.
 - `wsac.rs` (119): `WebServiceActionContext`. Entry: `native_for` 104.
-- `xml.rs` (2642): XmlDocument, XmlElement, XmlAttribute, XmlText, XmlCData, XmlComment, XmlProcessingInstruction, XmlDeclaration, XmlNode,. Entry: `XmlCell` 23, `XData` 29, `escape_text` 774, `escape_attr` 786.
+- `xml/mod.rs` (252): XmlDocument, XmlElement, XmlAttribute, XmlText, XmlCData, XmlComment, XmlProcessingInstruction, XmlDeclaration, XmlNode,. Submodules: `dom` (node store), `parse`, `write`, `write_to`, `xpath`, `select`, `queries`, `read`, `read_tree`, `tree`, `edit`, `attrs`, `names`, `node_types`, `lists`, `manager`. Entry: `native_for` (mod.rs), `XmlCell`, `XData` (dom.rs), `escape_text`, `escape_attr` (write.rs).
 - `xmlport.rs` (286): The document side of XmlPort import and export (Format = Xml). Entry: `Elem` 12, `Node` 19, `ReadFailure` 58, `parse` 66.
 
 ### al-data
@@ -171,6 +171,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `check/calls.rs` (375): Overload picking and the lookup of callables. Entry: `pick` 8, `lookup_callable` 74, `lookup_name` 228.
 - `check/member.rs` (291): Members of a type: page controls, record fields, sections. Entry: `member` 40, `field_of` 217.
 - `check/fit.rs` (178): Candidates and whether an argument type fits a parameter type. Entry: `fits` 22, `sig_cand` 110, `proc_cand` 4.
+- `check/conv.rs` (~630): Implicit conversions at compile time, from the compile matrix of corpus writer Y31 (`tests/conversion_matrix.rs` compares all 33 060 cells; `tests/fixtures/conversion-matrix/known-mismatches.txt` lists the cells left): operand shapes and kinds (`Operand`, `K`, `Shape`), the conversion table (`conv_accepts`), the operator table (`binary_verdict`), and the contexts `:=`, `+=`, arguments, `exit`, operators, `in`, case labels, conditional branches. Entry: `conv_operand`, `conv_assign`, `conv_argument`, `conv_binary`, `conv_to_type_of`.
 - `check/demand.rs` (1417): Demand-driven checking of dependency apps (ADR-013 decision 6): what a test reaches is compiled, the rest is not. Entry: `Demand` 44, `run_demand` 765, `reach` 247, `reach_baseline` 261, `activate` 351, `activate_table` 398, `activate_ops` 451, `activate_global` 498.
 - `lib.rs` (16): Crate root of the semantic model.
 - `lower/mod.rs` (352): Lowers resolved syntax to the typed IR (ADR-011). Anything inexpressible becomes a refusal reason on the routine. Holds `Lowered`, the `Lowerer` state and the module list. Entry: `Lowered` 26, `Lowerer` 127.
@@ -185,6 +186,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `lower/dotnet.rs` (76): Arguments and members of `DotNet` values (ADR-014). Entry: `dotnet_arg` 7, `dotnet_member` 30.
 - `lower/call.rs` (404): Calls. Entry: `call` 6.
 - `lower/compile.rs` (306): Load, check and lower in one go, and the cached layer variants. Entry: `compile` 6, `compile_apps_with` 46, `compile_with_roots` 270.
+- `lower/extend.rs` (530): A compile that grows by apps (ADR-063): `compile_loaded_growable` keeps the check, the demand state, the member table and the facts of every object (`Export::Facts`) as a `Growable`; `Growable::truncate` cuts it back to its first apps; `grow` appends apps (`Workspace::append_apps_of`), continues the check (`check::check_grown`, `Checker::refire` in check/demand.rs) and lowers with the unchanged objects supplied from the kept program (`KeptProgram`, a `provided::DepSource`). Tests: a grown compile equals a fresh compile of all its apps. Entry: `compile_loaded_growable`, `grow`, `Growable::truncate`.
 - `members.rs` (708): Members of objects: table fields (extensions merged), enum values, procedure signatures. Entry: `MemberTable` 108, `build` 147, `FieldInfo` 15, `ProcSig` 48.
 - `provided.rs` (450): Dependency objects whose lowered form comes from a compile cache (ADR-022): `DepFacts`, `DepBlock`, `DepSource`, layers (`DepLayer`, `LayerSource`, `Stack`), which blocks the workspace or a layer invalidates (`relower_set`). Entry: `DepSet` 76, `relower_set` 150, `touched` 120, `check_identity` 100.
 - `pages.rs` (932): Pages for the test client (ADR-012). Entry: `expand` 153, `expand_ranges` 159, `control_sections` 143, `classify_source` 81.
@@ -225,7 +227,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `mnc.rs` (300): The must-not-compile corpus (`--must-not-compile [DIR]`): parse a case header, compile it alone, compare the ALnnnn codes, report match / mismatch / not checked / skipped. Entry: `parse_case`, `read_cases`, `run_case`, `render`.
 - `insight.rs` (388): --top-refusals (folded reason ranking) and --baseline-diff. Entry: `normalise_reason` 22, `top_refusals` 116, `baseline_diff` 194, `render_top` 145, `render_diff` 222.
 - `lib.rs` (22): Runs the corpus's `[Test]` codeunits and reports them against the oracle.
-- `main.rs` (806): The binary: run each oracle version, report, ratchet. Exit 0 ok, 1 regression, 2 setup error. A version runs in passes (`passes`, `run_version_passes`): the main app with the suites of the main environment, then one pass per set of `extra_apps` (oracle.toml) with only those suites; the reports are joined before `--json`/`--markdown` are written. Entry: `main` 17, `run` 40, `run_version_passes`, `run_version` 135, `find_explained` 670, `drift_summary` 124.
+- `main.rs` (806): The binary: run each oracle version, report, ratchet. Exit 0 ok, 1 regression, 2 setup error. A version runs in passes (`passes`, `run_version_passes`): the main app with the suites of the main environment, then one pass per set of `extra_apps` (oracle.toml) with only those suites; the reports are joined before `--json`/`--markdown` are written. The main pass keeps its compile (`PassCompile`), and the next pass grows it by its own apps (ADR-063; `AL_FRESH_PASS_COMPILE=1` turns it off). Entry: `main` 17, `run` 40, `run_version_passes`, `run_version` 135, `find_explained` 670, `drift_summary` 124.
 - `oracle.rs` (288): The oracle: JUnit and xUnit cases of real BC, identified by (codeunit, name). Entry: `CaseId` 7, `OracleCase` 13, `parse_junit` 30, `parse_xunit` 74.
 - `output.rs` (238): Renders a report as Markdown (CI step summary) and the runtime's outcomes as JUnit in the same shape the corpus CI emits. Entry: `markdown` 7, `junit` 69.
 - `pin.rs` (169): The per-version corpus pin check (ADR-007, "Decided without owner review (2026-10-13/14)"). Entry: `check` 13.
@@ -259,6 +261,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `stability.rs` (~1000): Stability mode (ADR-058): the config (`parse_config`, preset `microsoft`; its matrix axes `MatrixAxes`), the registry of dimensions with their class (`DIMENSIONS`: safe, pin first, never; built or not), the variants of a config (`variants`: oneAtATime, matrix, sample, under a master seed), replay (`replay`, `parse_values_text`), what a variant changes for the runner (`Perturb`: method and codeunit order, alone, library seed, work date, clock date and time of day, clock step, host and Guid seeds, identity, company; `RunOptions::perturb`; `Perturb::host_key` keys the install baseline; `Perturb::environment` is the cell of the `environment` axis) and the comparison with the base variant (`changes`). Pure. Entry: `parse_config`, `variants`, `Perturb`, `changes`.
 - `runtime/mod.rs` (491): Runs test codeunits the way BC's test runner does; one Session per codeunit. Holds the app and manifest loading, `CorpusRuntime`, `TestResult`, `Phases` and the single-unit run. Entry: `CorpusRuntime` 112, `load_app` 17, `Phases` 162.
 - `runtime/compiled.rs` (418): What a compile produces and keeps (`Compiled`, `into_apps` for another compile of the same run), the warm slot (`Warm`; the engines a request kept for the next one over the same compile, `KeptEngines`, issue 5856; the install baseline it read is kept per thread by `baseline_cache::read_kept`, and across an edit the install code cannot reach by `baseline_cache::carry`), and what a run asks for. Entry: `RunOptions` 6, `Compiled` 42, `Warm` 228, `SuiteRun` 398.
+- `runtime/grow.rs` (85): ADR-063 in the runner: `KeptCompile` (the workspace and the `Growable` of a run, for a later run of the same process), `Grow` (how `compile_suites_once` takes part: off, keep with the apps the later run shares first, grow a kept compile), `KeptCompile::order_for` (the kept apps first, each the same as before), `fresh_pass_compile`. Entry: `CorpusRuntime::try_run_suites_growable` and `try_run_suites_grown` in corpus.rs.
 - `runtime/corpus.rs` (927): `CorpusRuntime`: compiling suites of apps and running them. A selection of pure tests is compiled lean (`compile_suites_with`, `Roots::lean`) and run again on the complete compile when a test met what was left out (`met_left_out`). Entry: `run_suites_with` 89, `compile_suites` 127, `run_compiled` 448.
 - `runtime/cache.rs` (226): Compiling through the compile cache. Entry: `compile_with_cache` 70, `lazy_index` 7.
 - `runtime/run.rs` (741): Running the test codeunits of one compiled program, each test on a session of its own. Entry: `run_codeunit` 5, `run_codeunit_isolated` 21, `run_codeunit_observed` 46, `run_codeunit_core` 156.
@@ -332,13 +335,14 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `state.rs` (117): Sub-states of `Session`: `TxState`, `UiState`, `PageClients`, `EventState`, `CoverageState`, `ReportState` (the .NET host state is `dotnet::DotNetState`).
 - `pages.rs` (432): The page test client (ADR-012): shared helpers, page triggers and events, the handle to a control. The rest is split by topic into `pages/`.
 - `pages/pageops.rs` (538): The `TestPage.*` and `TestField.*` methods. Entry: `page_op`, `test_page_op`.
-- `pages/open.rs` (891): Opening and closing a page, rows loaded on open. Entry: `page_open`, `open_page_as`, `page_close`, `close_with`.
+- `pages/open/mod.rs` (20): Opening and closing a page, rows loaded on open. Submodules: `page_open`, `close`, `landing`, `part_links`, `tree`, `values`. Entry: `page_open`, `open_page_as` (page_open.rs), `page_close`, `close_with` (close.rs).
 - `pages/rows.rs` (976): The row window, navigation, `GoToKey`, `Find`, modal answers. Entry: `populate_window`, `page_move`, `page_go_to_key`.
 - `pages/draft.rs` (304): New rows, drafts, saving a row, activating a control.
 - `pages/controls.rs` (588): Writing a control and the `TestField` methods. Entry: `control_set_value`, `test_control_op`.
 - `pages/actions.rs` (676): Control navigation, lookups, invoking actions, refresh after an action.
 - `pages/format.rs` (435): Reading a control: value, text, type, caption, editable, enabled, visible.
 - `pages/areas.rs` (104): Application areas on the test client.
+- `permissions.rs` (330): The session's permission sets (ADR-062): `SetModel` composes the Role IDs `PermissionTestHelper.AddEffectivePermissionSet` assigned from the permission set objects' source (`platform::raw_sets`: wildcards, IncludedPermissionSets), once per engine and set list; a list that grants everything (SUPER) leaves `Session::permissions` at `None` (unrestricted). A restricted session is refused at its next routine call (`Session::call_with_facts`) or record method (`records::record_op`) outside codeunit 131006, or at the end of the test (al-testrun `run.rs`). Entry: `SetModel::compose`, `Session::assign_permission_set`, `permission_gate`, `permissions_lowered_at_end`.
 - `pages/background.rs` (257): Page background tasks under the test client. Entry: `BgWorker` 11.
 - `pages/filter.rs` (135): `TestPage.Filter` / `TestPart.Filter` (the `TestFilter` handle).
 - `pages/parts.rs` (324): Page parts (ADR-012 follow-up).
@@ -375,7 +379,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `transactions.rs` (446): Transactions as AL code sees them. Entry: `TxModel` 15, `CommitBehavior` 27, `codeunit_run` 193.
 - `ui.rs` (347): Dialogs raised by the code under test (`Message`, `Confirm`, `StrMenu`) and the test handler functions that answer them. Entry: `UiKind` 18, `UiHandler` 66, `dispatch_ui` 158, `dispatch_ui_returning` 163.
 - `views.rs` (510): Filter and view text: SetView, GetFilters, filter group text, AL property views (`property_view`). Entry: `parse_filter_text` 28, `filter_text` 50, `get_filters` 117, `property_view`.
-- `xmlports.rs` (1304): XmlPort import and export (Format = Xml).
+- `xmlports/mod.rs` (678): XmlPort import and export (Format = Xml). Submodules: `export_xml`, `import_xml`, `import_record`, `pass`, `sequence`, `shape`, `text`, `value`.
 
 ## Flows
 

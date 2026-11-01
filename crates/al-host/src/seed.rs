@@ -45,6 +45,12 @@ pub fn guid_key(run_seed: i32, codeunit: u32, method: &str) -> u64 {
     fnv1a64(&format!("{run_seed}|{codeunit}|{method}|guid"))
 }
 
+/// The 64-bit key of how far past each stamp the clock lands after a write in the test method (ADR-045 amendment
+/// 2026-10-31): FNV-1a (64 bit) over `"{run_seed}|{codeunit}|{method}|clock"`.
+pub fn clock_key(run_seed: i32, codeunit: u32, method: &str) -> u64 {
+    fnv1a64(&format!("{run_seed}|{codeunit}|{method}|clock"))
+}
+
 /// The key of the Guids of a session that runs no derivation (install code, a host with a fixed `guid_seed`): the
 /// form the Guid generator had before ADR-061, so those Guids do not change.
 pub fn fixed_guid_key(seed: i32) -> u64 {

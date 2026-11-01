@@ -217,6 +217,123 @@ impl Session {
         page_of(&engine, &host).controls[idx].part_link.as_ref()?.view.clone()
     }
 
+    /// Whether `st` is a page that ran modally and closed with OK (or LookupOK), or a part it showed while open. Its code may
+    /// still call `CurrPage.Update` and `CurrPage.SaveRecord` then: they do nothing and raise no error (pages/
+    /// lt-y37-part-after-close/Y37PartAfterClose.al:416-441 LT_C314_AfterRunModalOK_UpdateAndSave, the stored row unchanged).
+    pub(super) fn closed_after_modal_ok(&self, st: &St) -> bool {
+        let closed_ok = |p: &St| {
+            let s = p.borrow();
+            !s.open && s.ran && s.last_run_modal == Some(true) && matches!(s.result.as_deref(), Some("OK" | "LookupOK"))
+        };
+        let host = st.borrow().host.clone();
+        match host {
+            None => closed_ok(st),
+            Some((h, _)) => h.upgrade().is_some_and(|h| {
+                h.borrow().host.is_none()
+                    && closed_ok(&h)
+                    && h.borrow().closed_parts.iter().any(|(_, c)| Rc::ptr_eq(c, st))
+            }),
+        }
+    }
+
+    /// The filter a `field(filter(F))` link entry puts on a part's (or a run page's) field of type `ty`, from host field `hf` of
+    /// `host`: the host field's value read as a filter text, as SetFilter reads it (pages/lt-y37-link-filter/Y37LinkFilterTests.al:
+    /// 183-202 `A1`, `A1|A3`, `A1..A3`, `A*`, `<>A2`; :271-313 a formatted RecordId on a RecordId field; :243-269 a FlowFilter
+    /// target); a blank value sets no filter (:227-241); a FlowFilter host field gives its filter text (:386-416). A value too
+    /// long for a Code or Text target raises no error and finds no row (:206-225). `None` for no filter.
+    pub(super) fn link_filter_of_host_field(
+        &mut self,
+        host: &Rec,
+        hf: usize,
+        ty: &RtType,
+    ) -> Result<Option<FilterExpr>, Signal> {
+        let host_table = self.table(host)?;
+        let text = if host_table.fields[hf].stored {
+            match &host.borrow().fields[hf] {
+                Value::Text(t) | Value::Code(t) => t.to_string(),
+                other => {
+                    return unsupported(format!(
+                        "a link field(filter(...)) from a host value {} (not pinned)",
+                        other.describe()
+                    ));
+                }
+            }
+        } else {
+            let filters: Vec<FilterExpr> = host
+                .borrow()
+                .filters
+                .iter()
+                .filter(|f| f.field == hf)
+                .map(|f| f.expr.clone())
+                .collect();
+            match filters.as_slice() {
+                [] => String::new(),
+                [one] => self.filter_text(one)?,
+                _ => {
+                    return unsupported(
+                        "a link field(filter(...)) from a FlowFilter host field filtered in two filter groups (not pinned)",
+                    );
+                }
+            }
+        };
+        if text.is_empty() {
+            return Ok(None);
+        }
+        // A value longer than the target field finds no row and raises no error (:206-225, letters only); a longer value with
+        // filter characters is not pinned.
+        if let RtType::Code(Some(n)) | RtType::Text(Some(n)) = ty {
+            if text.chars().count() > *n as usize {
+                if text.chars().all(|c| c.is_ascii_alphanumeric()) {
+                    return Ok(Some(FilterExpr::Or(Vec::new())));
+                }
+                return unsupported(
+                    "a link field(filter(...)) whose value is longer than the part's field (not pinned)",
+                );
+            }
+        }
+        // A RecordId target reads the text as SetFilter does (filters/lt-wc/WcRecordIdFilter.al; Y37LinkFilterTests.al:298-311).
+        if matches!(ty, RtType::Library(al_builtins::library_kind::LibraryKind::RecordId)) {
+            return match self.record_id_filter_text(&text)? {
+                Some(Ok(expr)) => Ok(Some(expr)),
+                _ => unsupported(
+                    "a link field(filter(...)) on a RecordId field of a text other than one RecordId (not pinned)",
+                ),
+            };
+        }
+        self.parse_filter_text(&text, ty)
+            .map(Some)
+            .map_err(|e| Signal::Unsupported(format!("SubPageLink field(filter(...)): {e}")))
+    }
+
+    /// Whether the link of part control `control` of `host` has a `field(filter(F))` entry whose host (or provider) value is blank.
+    fn field_filter_link_blank(&mut self, host: &St, control: usize) -> Result<bool, Signal> {
+        let engine = self.engine();
+        let Some(link) = page_of(&engine, host).controls[control].part_link.as_ref() else {
+            return Ok(false);
+        };
+        let hfs: Vec<usize> = link
+            .entries
+            .iter()
+            .filter_map(|e| match e {
+                ir::LinkEntry::FieldFilter(_, hf) => Some(*hf),
+                _ => None,
+            })
+            .collect();
+        if hfs.is_empty() {
+            return Ok(false);
+        }
+        let Some(src) = self.link_page(host, control).filter(|p| self.has_source(p)) else {
+            return Ok(false);
+        };
+        let rec = self.page_rec(&src);
+        for hf in hfs {
+            if self.link_filter_of_host_field(&rec, hf, &RtType::Text(None))?.is_none() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// The page shown by part control `control` of `st`.
     pub(super) fn part_page(&mut self, st: &St, control: usize, runtime: bool) -> Result<St, Signal> {
         // A Page variable's procedure that reaches a part before the page ever ran (Check Credit Limit.PopulateDataOnNotification,
@@ -247,6 +364,19 @@ impl Session {
                         .find(|(i, _)| *i == control)
                         .map(|(_, c)| c.clone());
                     if let Some(c) = kept {
+                        return Ok(c);
+                    }
+                    // A part a Visible expression hid while the page was open (it opened with the page) hands out its row at
+                    // close too (pages/lt-y37-part-after-close/Y37PartAfterClose.al:376-395 LT_C314_AfterRunModalOK_OtherPartShown:
+                    // part A, hidden when an option switched to part B, gives its row 10000).
+                    let hidden = st
+                        .borrow()
+                        .hidden_parts
+                        .iter()
+                        .find(|(i, _)| *i == control)
+                        .map(|(_, c)| c.clone())
+                        .filter(|_| !(self.control_eliminated(st, control) || self.area_removed(st, control)));
+                    if let Some(c) = hidden {
                         return Ok(c);
                     }
                     return unsupported(
@@ -405,7 +535,7 @@ impl Session {
                 }
                 // A part linked by `const` and `filter` terms only reads nothing off the host's row; whether it reads its rows
                 // again after a move is not pinned.
-                let reads_a_field = entries.iter().any(|e| matches!(e, ir::LinkEntry::Field(..)));
+                let reads_a_field = entries.iter().any(|e| e.host_field().is_some());
                 if !reads_a_field && child.borrow().open {
                     return unsupported(
                         "a host move with a part linked by const or filter terms only (whether it reads its rows again is not pinned)",
@@ -433,7 +563,12 @@ impl Session {
                         self.engine.object_facts[st.borrow().object as usize].page_type,
                         Some(al_ir::PageType::Document | al_ir::PageType::Card | al_ir::PageType::ListPlus)
                     );
-                    if how == Sync::Stayed && child.borrow().open && document_host {
+                    // A part with a field(filter(...)) entry whose host value is blank (it sets no filter) reads its row again
+                    // (pages/lt-y37-link-filter/Y37LinkFilterTests.al: after OpenEdit and GoToKey on the same row, `LP.c A1 ...;
+                    // LP.c A1 ...` on a Card whose second entry is blank, :191, :238, :263; on a Document with a blank value, :302 and
+                    // :332, the provider-linked part too); with every such value set it does not (:302 `EP.c 1` once, :352).
+                    let blank_field_filter = how == Sync::Stayed && self.field_filter_link_blank(st, *i)?;
+                    if how == Sync::Stayed && child.borrow().open && document_host && !blank_field_filter {
                         continue;
                     }
                     if how == Sync::Stayed && child.borrow().open && self.filtered_find_list_without_row_triggers(child)
@@ -484,7 +619,7 @@ impl Session {
                     && page.controls[*i]
                         .part_link
                         .as_ref()
-                        .is_some_and(|l| l.entries.iter().any(|e| matches!(e, ir::LinkEntry::Field(..))))
+                        .is_some_and(|l| l.entries.iter().any(|e| e.host_field().is_some()))
             })
             .cloned()
             .collect();
@@ -984,10 +1119,7 @@ impl Session {
         let parts = host.borrow().parts.clone();
         for (i, sibling) in &parts {
             let follows = page.controls[*i].part_link.as_ref().is_some_and(|l| {
-                l.provider == Some(idx)
-                    && l.entries
-                        .iter()
-                        .any(|e| matches!(e, ir::LinkEntry::Field(_, hf) if changed(*hf)))
+                l.provider == Some(idx) && l.entries.iter().any(|e| e.host_field().is_some_and(&changed))
             });
             if follows {
                 self.sync_part(&host, *i, sibling)?;
@@ -1099,6 +1231,30 @@ impl Session {
                             group: LINK_GROUP,
                         });
                     }
+                    ir::LinkEntry::FieldFilter(pf, hf) => {
+                        fields.push(*pf);
+                        let Some((src_page, _)) = source.as_ref() else {
+                            return unsupported("a SubPageLink to a page without a source table");
+                        };
+                        let unsaved_host = {
+                            let p = src_page.borrow();
+                            p.host.is_none() && p.draft && !p.draft_stored
+                        };
+                        if src_page.borrow().cursor == Cursor::None || unsaved_host {
+                            return unsupported(
+                                "a SubPageLink field(filter(...)) from a host that shows no stored row (not pinned)",
+                            );
+                        }
+                        let ty = table.fields[*pf].ty.clone();
+                        let src_rec = self.page_rec(src_page);
+                        if let Some(expr) = self.link_filter_of_host_field(&src_rec, *hf, &ty)? {
+                            fresh.push(FieldFilter {
+                                field: *pf,
+                                expr,
+                                group: LINK_GROUP,
+                            });
+                        }
+                    }
                     ir::LinkEntry::Filter(pf, text) => {
                         // An empty term selects the rows whose field is blank (pages/lt-ao-testpage/AoTests.al:513-560 RunPageLink, :845-887
                         // SubPageLink).
@@ -1144,6 +1300,16 @@ impl Session {
                 .retain(|f| !(f.group == LINK_GROUP && fields.contains(&f.field)));
             r.filters.extend(fresh);
         }
+        // A part linked by field(filter(...)) that stands on a row is read again from that row, `=><` as a page opened on a
+        // record (pages/lt-y37-link-filter/Y37LinkFilterTests.al:411 `LP.c A2` after the host's filter left B2 out, :445 `LP.c B2`
+        // after CurrPage.Update).
+        let from_row = {
+            let c = child.borrow();
+            c.cursor == Cursor::Row && !c.draft
+        } && page.controls[control]
+            .part_link
+            .as_ref()
+            .is_some_and(|l| l.entries.iter().any(|e| matches!(e, ir::LinkEntry::FieldFilter(..))));
         {
             let mut s = child.borrow_mut();
             s.cursor = Cursor::None;
@@ -1165,7 +1331,7 @@ impl Session {
             c.field_captions_settled = false;
             c.field_captions_fill_first = true;
         }
-        let loaded = self.load_first_row(child, mode, false);
+        let loaded = self.load_first_row(child, mode, from_row);
         {
             let mut c = child.borrow_mut();
             c.field_captions_settled = true;
@@ -1240,22 +1406,19 @@ impl Session {
         let parts = st.borrow().parts.clone();
         for (i, child) in &parts {
             if key_of_stored_row
-                && page.controls[*i].part_link.as_ref().is_some_and(|l| {
-                    l.entries
-                        .iter()
-                        .any(|e| matches!(e, ir::LinkEntry::Field(_, hf) if *hf == pos))
-                })
+                && page.controls[*i]
+                    .part_link
+                    .as_ref()
+                    .is_some_and(|l| l.entries.iter().any(|e| e.host_field() == Some(pos)))
             {
                 return unsupported(
                     "a key field typed on a new host row stored after a field outside its key was typed, with parts linked on it (not pinned)",
                 );
             }
-            let reads = page.controls[*i].part_link.as_ref().is_some_and(|l| {
-                l.provider.is_none()
-                    && l.entries
-                        .iter()
-                        .any(|e| matches!(e, ir::LinkEntry::Field(_, hf) if *hf == pos))
-            });
+            let reads = page.controls[*i]
+                .part_link
+                .as_ref()
+                .is_some_and(|l| l.provider.is_none() && l.entries.iter().any(|e| e.host_field() == Some(pos)));
             if reads {
                 child.borrow_mut().field_captions_link_refill = true;
                 let r = self.sync_part(st, *i, child);
@@ -1901,6 +2064,90 @@ impl Session {
             && !self.declares(st, "onnextrecord")
     }
 
+    /// `part_view_held` for a part that declares OnFindRecord (not OnNextRecord), shown on a Document or Card page that links it
+    /// by fields and has no other part: the shape of pages/lt-y17-expr-refresh/Y17ExprRefresh.al (page 91752 in page 91753).
+    fn find_part_view_held(&self, st: &St) -> bool {
+        let shape = {
+            let s = st.borrow();
+            s.host.is_some()
+                && s.open
+                && s.new_line
+                && s.window_from_start
+                && (s.window.len() < Self::WINDOW || s.window_whole)
+        } && self.is_list(st)
+            && self.has_source(st)
+            && self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord")
+            && self.declares(st, "onaftergetcurrrecord");
+        if !shape {
+            return false;
+        }
+        let Some((host, idx)) = st
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, i)| h.upgrade().map(|h| (h, *i)))
+        else {
+            return false;
+        };
+        let engine = self.engine();
+        host.borrow().host.is_none()
+            && host.borrow().parts.len() == 1
+            && matches!(
+                engine.object_facts[host.borrow().object as usize].page_type,
+                Some(al_ir::PageType::Document | al_ir::PageType::Card)
+            )
+            && page_of(&engine, &host).controls[idx]
+                .part_link
+                .as_ref()
+                .is_some_and(|l| {
+                    l.view.is_none()
+                        && l.provider.is_none()
+                        && !l.entries.is_empty()
+                        && l.entries.iter().all(|e| matches!(e, ir::LinkEntry::Field(..)))
+                })
+    }
+
+    /// First and Last on a part of `find_part_view_held` that stands on a stored row it did not change:
+    /// - First on the first row runs nothing and the row keeps the values it shows, also when the table changed
+    ///   (Y17ExprRefresh.al:711 RF_PartFirst_Linked `first` `true/10000/10.00` after the test stored 100, `first log` empty);
+    /// - Last runs the blank line below the last row once (OnNewRecord, OnAfterGetCurrRecord) and comes back to the last row, read
+    ///   as a move onto a row the client holds, through OnFindRecord (:583 RF_PartNext_NewLineSaved `last log`
+    ///   `new 30000;agcr 30000;agr 20000;find;agr 20000;agcr 20000`, `last` `true/20000`).
+    ///
+    /// `None` (the usual move, as before) for any other state, and for First from another row.
+    fn find_part_last_first(&mut self, st: &St, how: PageMethod) -> Result<Option<bool>, Signal> {
+        let (cursor, draft, dirty, empty) = {
+            let s = st.borrow();
+            (s.cursor, s.draft, s.dirty, s.window.is_empty())
+        };
+        if cursor != Cursor::Row || draft || dirty || empty {
+            return Ok(None);
+        }
+        let rec = self.page_rec(st);
+        let key = self.row_key(&rec)?;
+        let window = st.borrow().window.clone();
+        let Some(at) = window.iter().position(|w| Self::same_key(&w.key, &key)) else {
+            return Ok(None);
+        };
+        if how == PageMethod::First {
+            if at != 0 {
+                return Ok(None);
+            }
+            return Ok(Some(true));
+        }
+        let last = window.len() - 1;
+        self.set_xrec_fields(st, window[last].stored.clone());
+        self.land_on_new_line(st)?;
+        {
+            let mut s = st.borrow_mut();
+            s.draft = false;
+            s.cursor = Cursor::Row;
+        }
+        self.read_client_row(st, last)?;
+        Ok(Some(true))
+    }
+
     fn observes_new_record(&self, st: &St) -> bool {
         let object = st.borrow().object as usize;
         self.declares(st, "onnewrecord") || self.engine().events.is_subscribed(object, "onnewrecordevent")
@@ -1960,6 +2207,9 @@ impl Session {
                 st.borrow_mut().blank_after_empty_last = true;
                 return Ok(Some(false));
             }
+        }
+        if matches!(how, PageMethod::Last | PageMethod::First) && self.find_part_view_held(st) {
+            return self.find_part_last_first(st, how);
         }
         if !matches!(how, PageMethod::Last | PageMethod::First) || !self.part_view_held(st) {
             return Ok(None);
@@ -2101,12 +2351,10 @@ fn parts_linked_on(page: &ir::Page, parts: &[(usize, St)], pos: usize) -> usize 
     parts
         .iter()
         .filter(|(i, _)| {
-            page.controls[*i].part_link.as_ref().is_some_and(|l| {
-                l.provider.is_none()
-                    && l.entries
-                        .iter()
-                        .any(|e| matches!(e, ir::LinkEntry::Field(_, hf) if *hf == pos))
-            })
+            page.controls[*i]
+                .part_link
+                .as_ref()
+                .is_some_and(|l| l.provider.is_none() && l.entries.iter().any(|e| e.host_field() == Some(pos)))
         })
         .count()
 }

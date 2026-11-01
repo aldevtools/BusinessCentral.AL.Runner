@@ -75,6 +75,28 @@ pub struct Lowered {
     /// In a run whose dependency objects come from a compile cache: the source that decodes them on first touch
     /// (ADR-054), which counts what it decoded. `None` otherwise.
     pub cached_objects: Option<std::sync::Arc<crate::provided::CachedObjects>>,
+    /// How much of the program this compile lowered from source (the work ratchet of `al-test-cli`).
+    pub work: LowerWork,
+}
+
+/// What one compile lowered from source, counted for the work ratchet of the corpus run (`al-test-cli`,
+/// `metrics/<major>/work.json`). The counts do not depend on threads or timing: the same apps give the same counts.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LowerWork {
+    /// The objects of the program, compiled or not.
+    pub objects: usize,
+    /// Objects of the workspace's apps lowered from source.
+    pub objects_lowered: usize,
+    /// Routines of those objects whose bodies were lowered.
+    pub routines_lowered: usize,
+    /// Objects of dependency apps lowered from source (what the demand-driven compile reached).
+    pub dependency_objects_lowered: usize,
+    /// Routines of those objects whose bodies were lowered (the others are stubs that refuse).
+    pub dependency_routines_lowered: usize,
+    /// Objects a compile cache supplied.
+    pub objects_from_cache: usize,
+    /// Objects a kept compile supplied (ADR-063: a pass that grows the main pass's compile).
+    pub objects_from_kept: usize,
 }
 
 /// See [`Lowered::object_hashes`].
@@ -483,7 +505,9 @@ pub(crate) fn is_property_setter(receiver: &str, name: &str) -> bool {
             )
             | ("Record" | "RecordRef", "ReadIsolation" | "SecurityFiltering")
             | ("Record", "FilterGroup" | "Ascending" | "Mark" | "MarkedOnly")
-            | ("RecordRef", "FilterGroup")
+            // record/ProbePropertyAssignmentForms.al:709-842 (Y36_RecordRef_Mark_AssignInLoop_ThenMarkedOnly, _AssignThenReadBothForms,
+            // _Ascending_MarkedOnly_Assign, _Mark_AfterDuplicate): on a RecordRef the assignment is the call form, as on a Record.
+            | ("RecordRef", "FilterGroup" | "Ascending" | "Mark" | "MarkedOnly")
             | (
                 "Report",
                 "UseRequestPage" | "Language" | "FormatRegion" | "PrintOnlyIfDetail"
@@ -499,12 +523,43 @@ pub(crate) fn is_property_setter(receiver: &str, name: &str) -> bool {
             | ("File", "TextMode" | "WriteMode")
             | ("DataTransfer", "UpdateAuditFields")
             | ("XmlReadOptions" | "XmlWriteOptions", "PreserveWhitespace")
+            // `NsMgr.NameTable := Doc.NameTable` (al-runner issue 6526; assumption `nametable-assign-is-call` until corpus
+            // writer Y29's pin lands, xml/XmlXPathNamespaces.al Y29_NameTable_AssignForm_SelectsLikeCallForm).
+            | ("XmlNamespaceManager", "NameTable")
             // `S.Company := ''` (platform/lt-platform-members/PlTSessionSettings.al:103-131 Properties_EdgeValues,
             // SettingsAreCopies).
             | (
                 "SessionSettings",
                 "Company" | "LanguageId" | "LocaleId" | "ProfileId" | "ProfileAppId" | "ProfileSystemScope" | "TimeZone"
             )
+    )
+}
+
+/// The builtin methods whose assignment form `X.M := v` is the call `X.M(v)` though M is no property: alc accepts
+/// `X.M := v` where M has one form that takes one value. Pinned by corpus writer Y29 on the SaaS sandbox
+/// (record/ProbePropertyAssignmentForms.al on branch al-runtime-rs-staging-y29, al-runner issue 6526): the result is the
+/// one of the call form, for TextBuilder.Append, List.Add, Dictionary.Remove, Text.Contains (the text is unchanged),
+/// XmlElement.Add, HttpClient.SetBaseAddress, HttpRequestMessage.SetRequestUri, RecordRef.CurrentKeyIndex and
+/// Dialog.HideSubsequentDialogs (tests Y29_TextBuilder_AssignForms, Y29_Collections_Text_Sleep_AssignForms,
+/// Y29_XmlNodes_AssignForms, Y29_HttpClient_AssignForms, Y29_HttpRequestMessage_AssignForms,
+/// Y29_RecordRef_FilterPage_Session_AssignForms). Other members stay refused ("is not assignable").
+pub(crate) fn is_assign_call(receiver: &str, name: &str) -> bool {
+    matches!(
+        (receiver, name),
+        ("TextBuilder", "Append")
+            | ("List", "Add")
+            | ("Dictionary", "Remove")
+            | ("Text", "Contains")
+            | ("XmlElement", "Add")
+            | ("HttpClient", "SetBaseAddress")
+            | ("HttpRequestMessage", "SetRequestUri")
+            | ("RecordRef", "CurrentKeyIndex")
+            // `RR.ChangeCompany := CompanyName()` and `FR.Validate := 'v'` (record/ProbePropertyAssignmentForms.al:845-878
+            // Y36_RecordRef_Other_AssignForms). `RR.LockTable :=`, `RR.ReadConsistency :=`, `FR.SetRange :=` and
+            // `FR.SetFilter :=` do not compile (must-not-compile 2501-2504).
+            | ("RecordRef", "ChangeCompany")
+            | ("FieldRef", "Validate")
+            | ("Dialog", "HideSubsequentDialogs")
     )
 }
 
@@ -522,6 +577,8 @@ mod convert;
 mod coverage_ids;
 mod dotnet;
 mod expr;
+mod extend;
+
 mod localize;
 #[cfg(test)]
 mod object_hash_tests;
@@ -547,6 +604,8 @@ pub(crate) enum StreamScope {
 
 pub use self::assemble::*;
 pub use self::compile::*;
+pub use self::extend::*;
+
 pub use self::routine_lists::{Calls, Refusals};
 pub use self::shared::dependency_positions;
 pub(crate) use self::shared::*;

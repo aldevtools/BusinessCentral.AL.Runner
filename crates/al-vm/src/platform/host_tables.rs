@@ -2,7 +2,7 @@
 
 use super::mat::Entry;
 use super::{Ident, blank, pos};
-use al_builtins::value::Value;
+use al_builtins::value::{RtType, Value};
 use al_data::TableDef;
 
 /// The Time Zone table lists the host's zones, `No.` from 1 (record/TestTimeZoneVirtualTable.al:
@@ -24,6 +24,36 @@ pub(super) fn time_zone_rows(t: &TableDef, i: &Ident) -> Vec<Entry> {
         })
         .collect()
 }
+
+/// (ID, Description and "Description In English", "Learn More Link") of a Feature Key (platform/lt-ba-columns/
+/// BaFeatureKeyTexts.al:14-76).
+const FEATURE_KEY_TEXTS: &[(&str, &str, &str)] = &[
+    (
+        "FinancialReportDefaults",
+        "Feature Update: Provides functionality for having default values for financial reports",
+        "https://learn.microsoft.com/en-us/dynamics365/release-plan/2025wave2/smb/dynamics365-business-central/use-enhanced-financial-reporting",
+    ),
+    (
+        "DisableSoapWebServicesOnMicrosoftUIPages",
+        "Feature: Disable SOAP web services on Microsoft UI pages",
+        "https://go.microsoft.com/fwlink/?linkid=2312202",
+    ),
+    (
+        "SalesPrices",
+        "Feature Update: New sales pricing experience",
+        "https://go.microsoft.com/fwlink/?linkid=2136722",
+    ),
+    (
+        "FullTextSearch",
+        "Feature: Use optimized text search in lists",
+        "https://go.microsoft.com/fwlink/?linkid=2280603",
+    ),
+    (
+        "ConcurrentJobPosting",
+        "Feature Update: Enable multiple users to post job ledger entries at the same time",
+        "https://go.microsoft.com/fwlink/?linkid=2299833",
+    ),
+];
 
 /// The Feature Key table: ID, `Enabled` (None or All Users per row), `Mandatory By` (the wave the mandatory-by version falls in),
 /// `Mandatory By Version`, `Can Try`, `Is One Way` and `Data Update Required`, per major from record/PFFeatureKeyColumns.al
@@ -155,10 +185,16 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
             r[pos(t, 7)] = Value::Boolean(one_way);
             r[pos(t, 8)] = Value::Boolean(data_update);
             r[pos(t, 9)] = Value::Text(format!("{version}.0").into());
-            // Description (3), "Learn More Link" (4) and "Description In English" (10): no corpus test reads them.
+            // Description (3), "Learn More Link" (4) and "Description In English" (10) of the keys
+            // platform/lt-ba-columns/BaFeatureKeyTexts.al pins (the same on 27.5, 28.5 and 29.0); unknown for any other key.
+            let texts = FEATURE_KEY_TEXTS.iter().find(|(k, _, _)| *k == id);
             for col in [3, 4, 10] {
                 if t.fields.iter().any(|f| f.id == col) {
-                    r[pos(t, col)] = super::unknown(t, col, &format!("feature key '{id}'"));
+                    r[pos(t, col)] = match texts {
+                        Some((_, desc, _)) if col != 4 => Value::Text((*desc).into()),
+                        Some((_, _, link)) => Value::Text((*link).into()),
+                        None => super::unknown(t, col, &format!("feature key '{id}'")),
+                    };
                 }
             }
             Entry::ok(r)
@@ -244,6 +280,17 @@ const NAME_ONLY_LANGUAGES: &[(i32, &str, &str)] = &[(12297, "English (Zimbabwe)"
 /// 1078 Afrikaans (South Africa), AFK, af-ZA (corpus master, corpus PR 871: misc/lt-np4-probes/Np4Misc.al
 /// NP4_WindowsLanguage_Get1078). Not in [`LANGUAGES`] either.
 const TAG_ONLY_LANGUAGES: &[(i32, &str, &str, &str)] = &[(1078, "Afrikaans (South Africa)", "AFK", "af-ZA")];
+/// Rows the reporter of al-runner issue 6558 measured on BC 29, as (LCID, name, abbreviated name, primary code page, tag,
+/// primary language id): globally enabled, no STX file. Not in [`LANGUAGES`], so a filter on their abbreviated name alone is
+/// not taken as naming one row. Runs on assumption windows-language-reported-rows until the corpus pin of the whole table
+/// lands.
+const REPORTED_LANGUAGES: &[(i32, &str, &str, &str, &str, i32)] = &[
+    (2107, "Sami, Northern (Sweden)", "SMF", "850", "se-SE", 1083),
+    (9225, "English (Caribbean)", "ENB", "850", "en-029", 1033),
+];
+fn reported(lcid: i64) -> bool {
+    REPORTED_LANGUAGES.iter().any(|l| i64::from(l.0) == lcid)
+}
 /// "STX File Exist" is pinned false for these rows (WcUnpinnedSingles.al:160, :169).
 const STX_FILE_ABSENT: [i32; 1] = [12297];
 /// The abbreviated names a filter may name alone: the table holds exactly one row with each (`count=1` at
@@ -446,6 +493,14 @@ fn known(t: &TableDef, lcid: i64) -> Option<Row> {
                 .map(|l| language_row(t, l.0, l.1, l.2, None, None))
         })
         .or_else(|| {
+            REPORTED_LANGUAGES.iter().find(|l| i64::from(l.0) == lcid).map(|l| {
+                let mut r = language_row(t, l.0, l.1, l.2, Some(l.3), Some(l.4));
+                r[pos(t, 2)] = Value::Integer(l.5);
+                r[pos(t, STX_FILE_EXIST)] = Value::Boolean(false);
+                r
+            })
+        })
+        .or_else(|| {
             TAG_ONLY_LANGUAGES.iter().find(|l| i64::from(l.0) == lcid).map(|l| {
                 let mut r = language_row(t, l.0, l.1, l.2, None, Some(l.3));
                 // Whether the row is globally enabled is not pinned for it.
@@ -455,13 +510,14 @@ fn known(t: &TableDef, lcid: i64) -> Option<Row> {
         })
 }
 
-/// The ids of every pinned row: [`LANGUAGES`] and [`NAME_ONLY_LANGUAGES`].
+/// The ids of every row served: [`LANGUAGES`], [`NAME_ONLY_LANGUAGES`], [`TAG_ONLY_LANGUAGES`] and [`REPORTED_LANGUAGES`].
 fn known_ids() -> impl Iterator<Item = i64> {
     LANGUAGES
         .iter()
         .map(|l| i64::from(l.0))
         .chain(NAME_ONLY_LANGUAGES.iter().map(|l| i64::from(l.0)))
         .chain(TAG_ONLY_LANGUAGES.iter().map(|l| i64::from(l.0)))
+        .chain(REPORTED_LANGUAGES.iter().map(|l| i64::from(l.0)))
 }
 
 fn unknown_in(set: &[ranges::Iv]) -> Option<i64> {
@@ -522,13 +578,54 @@ fn language_listing(t: &TableDef, filters: &[FieldFilter]) -> Result<Mat, StoreE
     }
     let rows = known_ids()
         .filter(|&id| only.is_none_or(|o| o == id))
-        .filter_map(|id| known(t, id))
-        .map(|r| Entry::ok(r).assuming(al_builtins::assumptions::Assumption::WindowsLanguagePrimaryLanguageId))
+        .filter_map(|id| known(t, id).map(|r| (id, r)))
+        .map(|(id, r)| {
+            // A reported row's primary language id is measured with the row, not by writer Y11.
+            Entry::ok(r).assuming(if reported(id) {
+                al_builtins::assumptions::Assumption::WindowsLanguageReportedRows
+            } else {
+                al_builtins::assumptions::Assumption::WindowsLanguagePrimaryLanguageId
+            })
+        })
         .collect();
     Ok(Mat::new(t, rows))
 }
 
-pub(super) fn windows_language_get(t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
+/// The whole table of `target`'s major when the corpus pins it (`windows_language_rows.rs`, generated from the corpus):
+/// every row and every column, so a read never refuses and an id with no row is no row.
+fn pinned_table(t: &TableDef, target: Option<&al_version::Target>) -> Option<Mat> {
+    use super::windows_language_rows::{FIELDS, MAJORS, ROWS};
+    let major = target?.bc.major;
+    if !MAJORS.contains(&major) {
+        return None;
+    }
+    let rows = ROWS
+        .iter()
+        .filter(|r| (r.0..=r.1).contains(&major))
+        .map(|r| {
+            let mut row = blank(t);
+            for (id, text) in FIELDS.iter().zip(r.2.split('|')) {
+                let at = pos(t, *id);
+                row[at] = match &t.fields[at].ty {
+                    RtType::Integer => Value::Integer(text.parse().expect("windows_language_rows.rs: an Integer")),
+                    RtType::Boolean => Value::Boolean(text == "Yes"),
+                    _ => Value::Text(text.into()),
+                };
+            }
+            Entry::ok(row)
+        })
+        .collect();
+    Some(Mat::new(t, rows))
+}
+
+pub(super) fn windows_language_get(
+    t: &TableDef,
+    pk: &[Value],
+    target: Option<&al_version::Target>,
+) -> Result<Option<Row>, StoreError> {
+    if let Some(m) = pinned_table(t, target) {
+        return m.get(t, pk);
+    }
     let id = pk
         .first()
         .and_then(num)
@@ -538,7 +635,11 @@ pub(super) fn windows_language_get(t: &TableDef, pk: &[Value]) -> Result<Option<
     }
     match known(t, id) {
         Some(r) => {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WindowsLanguagePrimaryLanguageId);
+            al_builtins::assumptions::assume(if reported(id) {
+                al_builtins::assumptions::Assumption::WindowsLanguageReportedRows
+            } else {
+                al_builtins::assumptions::Assumption::WindowsLanguagePrimaryLanguageId
+            });
             Ok(Some(r))
         }
         None => Err(refused(format!(
@@ -547,11 +648,25 @@ pub(super) fn windows_language_get(t: &TableDef, pk: &[Value]) -> Result<Option<
     }
 }
 
-pub(super) fn windows_language_next(t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
+pub(super) fn windows_language_next(
+    t: &TableDef,
+    scan: &Scan,
+    target: Option<&al_version::Target>,
+) -> Result<Option<Row>, StoreError> {
+    if let Some(m) = pinned_table(t, target) {
+        return m.next(t, scan);
+    }
     language_listing(t, scan.filters)?.next(t, scan)
 }
 
-pub(super) fn windows_language_count(t: &TableDef, filters: &[FieldFilter]) -> Result<usize, StoreError> {
+pub(super) fn windows_language_count(
+    t: &TableDef,
+    filters: &[FieldFilter],
+    target: Option<&al_version::Target>,
+) -> Result<usize, StoreError> {
+    if let Some(m) = pinned_table(t, target) {
+        return m.count(t, filters);
+    }
     language_listing(t, filters)?.count(t, filters)
 }
 

@@ -18,6 +18,7 @@ impl<'a> Checker<'a> {
             resolutions: Default::default(),
             system_enums,
             sections: Default::default(),
+            field_only_args: Vec::new(),
             queries: (0..ws.objects.len()).map(|_| std::cell::OnceCell::new()).collect(),
             calls: Vec::new(),
             demand: std::cell::RefCell::new(demand_mode.then(|| demand::State::new(ws.objects.len()))),
@@ -30,6 +31,8 @@ impl<'a> Checker<'a> {
             tdd_pending: Vec::new(),
             all_routines: false,
             company_data_apps: Vec::new(),
+            keep_demand: false,
+            kept_demand: None,
         }
     }
 
@@ -412,6 +415,24 @@ impl<'a> Checker<'a> {
                         let ty = decl.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
                         globals.insert(name.clone(), ty);
                         base_vars.insert(name);
+                    }
+                    // The protected variables of another extension of the same table in the same app: one variable per
+                    // record variable, shared by both (al-runner issue 6485; corpus writer Y20,
+                    // tableextension/lt-y20-sibling-globals/Y20TableExtSiblingGlobals.al, measured on BC; a plain `var` does
+                    // not compile, must-not-compile 2356). Another app's extension is not pinned.
+                    for &s in self.ws.extensions_of(b) {
+                        let so = &self.ws.objects[s];
+                        if s == oi || so.kind != ObjKind::TableExtension || so.app != o.app {
+                            continue;
+                        }
+                        for (name, decl) in crate::base_access::visible_vars(&self.ws.object_ast(s)) {
+                            if globals.contains_key(&name) {
+                                continue;
+                            }
+                            let ty = decl.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
+                            globals.insert(name.clone(), ty);
+                            ext_vars.insert(name, s);
+                        }
                     }
                 }
             }
@@ -822,8 +843,8 @@ impl<'a> Checker<'a> {
             let exprs: Vec<SyntaxNode> = node.children().filter(|c| is_expr(c.kind())).collect();
             for child in node.children() {
                 if is_expr(child.kind()) {
-                    if plain_assign && exprs.len() == 2 && child == exprs[0] && child.kind() == SyntaxKind::MemberExpr {
-                        let t = self.assign_target_ty(sc, &child, &exprs[1]);
+                    if exprs.len() == 2 && child == exprs[0] && child.kind() == SyntaxKind::MemberExpr {
+                        let t = self.assign_target_ty(sc, &child, &exprs[1], plain_assign);
                         tys.push((t, child));
                         continue;
                     }
@@ -834,13 +855,18 @@ impl<'a> Checker<'a> {
             }
             if let [(target, lhs), (source, rhs)] = tys.as_slice() {
                 let plain = node.children_with_tokens().any(|t| t.kind() == SyntaxKind::Assign);
-                if plain {
+                // The conversion rules of the compile matrix judge the operand shapes they cover (`conv.rs`); the
+                // pinned checks judge the others.
+                if plain && self.conv_assign(sc, lhs, target, rhs, source).is_none() {
                     self.al_enum_assignment(sc, rhs, target, source);
                     self.al_integer_text_assignment(sc, rhs, target, source);
                     self.al_scalar_assignment(sc, rhs, target, source);
                     self.al_enum_decimal_assignment(sc, rhs, target, source);
                     self.al_no_result_assignment(sc, rhs, target, source);
                     self.al_interface_assignment(sc, rhs, target, source);
+                }
+                if node.children_with_tokens().any(|t| t.kind() == SyntaxKind::PlusAssign) {
+                    self.conv_compound_add(sc, lhs, target, rhs, source);
                 }
                 // `X := Target.Missing()` and `X += Target.Missing()`: the type of the target (ADR-051 decision 3).
                 let (target, rhs) = (target.clone(), rhs.clone());
@@ -893,7 +919,17 @@ impl<'a> Checker<'a> {
                     .filter(|c| c.kind() == SyntaxKind::CaseBranch)
                     .flat_map(|b| b.children().filter(|c| is_expr(c.kind())).collect::<Vec<_>>())
                     .collect();
-                self.al_option_decimal_constants(sc, &sel, &sel_ty, &labels);
+                // Each label converts to the selector's type (compile matrix context case_label); the labels that are
+                // not judged there keep the pinned Decimal-constant check.
+                let mut rest = Vec::new();
+                for l in &labels {
+                    let r = l.text_range();
+                    let lt = self.types.get(&(sc.file, r.start().into(), r.end().into())).cloned();
+                    if !lt.is_some_and(|lt| self.conv_to_type_of(sc, &sel, &sel_ty, l, &lt, true).is_some()) {
+                        rest.push(l.clone());
+                    }
+                }
+                self.al_option_decimal_constants(sc, &sel, &sel_ty, &rest);
                 self.tdd_settle_case(sc, node, &sel);
             }
             return;
@@ -928,9 +964,11 @@ impl<'a> Checker<'a> {
                     }
                     if let Some(ret) = self.cur_ret.clone() {
                         // exit(value) of an enum of another type (corpus must-not-compile 0405).
-                        self.al_enum_assignment(sc, &child, &ret, &t);
-                        self.al_integer_text_assignment(sc, &child, &ret, &t);
-                        self.al_scalar_assignment(sc, &child, &ret, &t);
+                        if self.conv_exit(sc, &ret, &child, &t).is_none() {
+                            self.al_enum_assignment(sc, &child, &ret, &t);
+                            self.al_integer_text_assignment(sc, &child, &ret, &t);
+                            self.al_scalar_assignment(sc, &child, &ret, &t);
+                        }
                         // `exit(Target.Missing())`: the result type of the routine (ADR-051 decision 3).
                         self.tdd_settle(sc, &child, &ret);
                     }

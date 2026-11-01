@@ -242,7 +242,18 @@ impl Session {
                 // A lookup into an Enum field from the field of another enum is allowed (record/lt-flowfield-lookup-enum/
                 // FlowFieldLookupOtherEnum.al; Microsoft's VAT Return Period).
                 let enum_pair = matches!((&f.ty, &s.ty), (RtType::Enum(_), RtType::Enum(_)));
-                if !same_kind(&f.ty, &s.ty) && !(enum_pair && calc.method == ir::CalcMethod::Lookup) {
+                // A lookup or a max of an Enum field into an Option FlowField (al-runner issue 6481; corpus writer Y20,
+                // record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al, measured on BC; assumption until it is
+                // pinned). A min is not measured.
+                let enum_into_option = matches!((&f.ty, &s.ty), (RtType::Option(_), RtType::Enum(_)))
+                    && calc.method != ir::CalcMethod::Min;
+                if enum_into_option {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FlowFieldEnumIntoOption);
+                }
+                if !same_kind(&f.ty, &s.ty)
+                    && !(enum_pair && calc.method == ir::CalcMethod::Lookup)
+                    && !enum_into_option
+                {
                     return unsupported("min, max or lookup into a field of another type");
                 }
             }
@@ -509,6 +520,9 @@ impl Session {
         }
         let filters = self.calc_filters(rec, calc, &mut Vec::new())?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
+        if self.permissions.is_some() {
+            self.permission_gate_flowfield(calc.table)?;
+        }
         let cx = self.cx_for(rec, &src_t)?;
         let n = self
             .store
@@ -542,22 +556,28 @@ impl Session {
         let filters = self.calc_filters(rec, calc, stack)?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
+        // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
+        if self.permissions.is_some() {
+            self.permission_gate_flowfield(calc.table)?;
+        }
         let cx = self.cx_for(rec, &src_t)?;
         let store_err = |e: al_data::StoreError| Signal::Unsupported(format!("store error {e}"));
         use ir::CalcMethod as M;
         // A condition on a FlowField of the source table compares each source row's calculated value: count, exist and
         // lookup are pinned (record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al:76-95, :243-280
-        // EqualsEmptyDate_Chained_GroupOverFlowField: filter(true) on an exist, filter(0) and filter(> 0) on a count).
-        // Other methods are not pinned.
+        // EqualsEmptyDate_Chained_GroupOverFlowField: filter(true) on an exist, filter(0) and filter(> 0) on a count), and so
+        // are sum, -sum, average, min and max over the rows that pass (record/lt-y17-sum-where-flowfield/
+        // Y17SumWhereFlowField.al:197, :227; a condition FlowField with an unset FlowFilter in its own formula filters
+        // nothing and a condition on a sum FlowField works the same, :303). A sign on another method is not pinned.
         let src_fields = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
         let (stored, flow): (Vec<FieldFilter>, Vec<FieldFilter>) = filters
             .iter()
             .cloned()
             .partition(|c| src_fields[c.field].stored || src_fields[c.field].flow_filter);
         if !flow.is_empty() {
-            if !matches!(calc.method, M::Count | M::Exist | M::Lookup) || calc.negate {
+            if calc.negate && calc.method != M::Sum {
                 return unsupported(
-                    "a CalcFormula sum, average, min, max or signed formula with a condition on a FlowField of its source table (not pinned)",
+                    "a signed CalcFormula other than sum with a condition on a FlowField of its source table (not pinned)",
                 );
             }
             let mut rows = Vec::new();
@@ -586,7 +606,7 @@ impl Session {
                 }
                 if pass {
                     matched.push(row);
-                    if calc.method != M::Count {
+                    if matches!(calc.method, M::Exist | M::Lookup) {
                         break;
                     }
                 }
@@ -594,10 +614,44 @@ impl Session {
             let value = match calc.method {
                 M::Count => Value::Integer(matched.len() as i32),
                 M::Exist => Value::Boolean(!matched.is_empty()),
-                _ => match matched.first() {
+                M::Lookup => match matched.first() {
                     Some(row) => row[calc.field.expect("field")].clone(),
                     None => self.default_value(&f.ty),
                 },
+                M::Sum | M::Average => {
+                    let at = calc.field.expect("field");
+                    let mut sum = Decimal::ZERO;
+                    for row in &matched {
+                        sum += number(&row[at]).ok_or_else(|| non_number(&row[at]))?;
+                    }
+                    // Over no row both are 0 (Y17SumWhereFlowField.al:227, header C).
+                    let mut d = match (calc.method, matched.len()) {
+                        (M::Sum, _) | (_, 0) => sum,
+                        (_, n) => sum / Decimal::from(n as i64),
+                    };
+                    if calc.negate {
+                        d = -d;
+                    }
+                    return to_number(d, &f.ty, calc.method == M::Average);
+                }
+                M::Min | M::Max => {
+                    let at = calc.field.expect("field");
+                    let mut best: Option<Value> = None;
+                    for row in &matched {
+                        let v = &row[at];
+                        best = match best.take() {
+                            None => Some(v.clone()),
+                            Some(b) => match (calc.method, ops::compare(v, &b)?) {
+                                (M::Min, Ordering::Less) | (M::Max, Ordering::Greater) => Some(v.clone()),
+                                (_, _) => Some(b),
+                            },
+                        };
+                    }
+                    match best {
+                        Some(v) => v,
+                        None => self.default_value(&f.ty),
+                    }
+                }
             };
             return ops::convert(value, &f.ty);
         }
@@ -704,6 +758,11 @@ impl Session {
         // (an ordinal the FlowField's enum lacks) stays `Five` (corpus record/lt-flowfield-lookup-enum/
         // FlowFieldLookupOtherEnum.al: Lookup_MembersPresentInBoth_Result, Lookup_MemberOnlyInSource_Result).
         if matches!((&value, &f.ty), (Value::Enum(from, _), RtType::Enum(to)) if from != to) {
+            return Ok(value);
+        }
+        // A lookup of an Enum field into an Option FlowField keeps the Enum member too: Format shows the Enum's name, also for an
+        // ordinal the Option lacks (Y20FlowFieldLookupEnumIntoOption.al:115, :136; al-runner issue 6481).
+        if calc.method == ir::CalcMethod::Lookup && matches!((&value, &f.ty), (Value::Enum(..), RtType::Option(_))) {
             return Ok(value);
         }
         // A value longer than the FlowField: a lookup of a Text source into a shorter Text FlowField keeps the whole value,

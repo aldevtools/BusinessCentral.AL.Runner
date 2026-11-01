@@ -307,13 +307,39 @@ impl Workspace {
         if self.kinds.iter().any(|k| *k != AppKind::Dependency) {
             return Err("only a workspace of dependency apps grows".into());
         }
+        let kinds = vec![AppKind::Dependency; apps.len()];
+        self.append_apps_of(apps, kinds, symbols, app_symbols)
+    }
+
+    /// Whether `apps` can be appended ([`append_apps_of`](Self::append_apps_of)): no app already loaded would see one of
+    /// them. An error says why not.
+    pub fn can_append(&self, apps: &[AppSource]) -> Result<(), String> {
+        self.visible_with(apps).map(|_| ())
+    }
+
+    fn visible_with(&self, apps: &[AppSource]) -> Result<Vec<BTreeSet<usize>>, String> {
         let all: Vec<&AppSource> = self.apps.iter().chain(apps.iter()).collect();
         let visible: Vec<BTreeSet<usize>> = (0..all.len()).map(|i| visible_from(&all, i)).collect();
         if visible[..self.apps.len()] != self.visible[..] {
             return Err("an app already loaded would see the new apps".into());
         }
-        self.visible = visible;
-        self.kinds.extend(std::iter::repeat_n(AppKind::Dependency, apps.len()));
+        Ok(visible)
+    }
+
+    /// [`append_apps`](Self::append_apps) for a workspace of any apps, with the kind of each new app (ADR-063: a later
+    /// pass of a run adds its test apps and dependency apps to the compile of the main pass). The result is the workspace
+    /// [`load_apps_symbols`](Self::load_apps_symbols) makes of the apps already loaded followed by `apps`, with their
+    /// kinds; a workspace app among `apps` is parsed, a dependency app scanned.
+    pub fn append_apps_of(
+        &mut self,
+        apps: Vec<AppSource>,
+        kinds: Vec<AppKind>,
+        symbols: &BTreeSet<String>,
+        app_symbols: &[Option<BTreeSet<String>>],
+    ) -> Result<(), String> {
+        assert_eq!(apps.len(), kinds.len(), "one kind per app");
+        self.visible = self.visible_with(&apps)?;
+        self.kinds.extend(kinds);
         self.symbols
             .extend((0..apps.len()).map(|i| app_symbols.get(i).cloned().flatten().unwrap_or_else(|| symbols.clone())));
         self.loaders.extend((0..apps.len()).map(|_| None));
@@ -321,6 +347,58 @@ impl Workspace {
         self.unreached = OnceLock::new();
         self.ingest(apps, (0..self.kinds.len()).map(|_| None).collect());
         Ok(())
+    }
+
+    /// Cuts the workspace back to its first `n` apps (ADR-063: the main pass's own test apps leave the compile that a
+    /// later pass grows), and gives the others back. The result is the workspace [`load_apps_symbols`]
+    /// (Self::load_apps_symbols) makes of the first `n` apps, with the trees parsed so far: the apps of a workspace see
+    /// only apps before them or among themselves; one of the first `n` that sees one of the others is a bug of the caller
+    /// (a panic). What a compile set (`restrict_to`, `set_unreached`) is cleared.
+    pub fn truncate_apps(&mut self, n: usize) -> Vec<AppSource> {
+        assert!(
+            self.visible[..n].iter().all(|v| v.iter().all(|&a| a < n)),
+            "an app that stays sees an app that goes"
+        );
+        let n_obj = self
+            .objects
+            .iter()
+            .position(|o| o.app >= n)
+            .unwrap_or(self.objects.len());
+        let n_file = self.files.iter().position(|f| f.app >= n).unwrap_or(self.files.len());
+        assert!(
+            self.objects[n_obj..].iter().all(|o| o.app >= n) && self.files[n_file..].iter().all(|f| f.app >= n),
+            "the objects and files of an app follow those of the apps before it"
+        );
+        let removed = self.apps.split_off(n);
+        self.kinds.truncate(n);
+        self.visible.truncate(n);
+        self.symbols.truncate(n);
+        self.loaders.truncate(n);
+        self.files.truncate(n_file);
+        self.lazy_text.truncate(n_file);
+        self.objects.truncate(n_obj);
+        self.usable_cache.truncate(n_obj);
+        self.ext_target.truncate(n_obj);
+        self.dotnet.retain(|d| d.app < n);
+        self.diagnostics.retain(|d| d.app < n);
+        let keep = |v: &mut Vec<usize>| {
+            v.retain(|&i| i < n_obj);
+            !v.is_empty()
+        };
+        self.by_name.retain(|_, v| keep(v));
+        self.by_id.retain(|_, v| keep(v));
+        self.ext_of.retain(|&k, v| k < n_obj && keep(v));
+        self.implementers_of.retain(|_, v| keep(v));
+        self.iface_derived.retain(|&k, v| k < n_obj && keep(v));
+        self.iface_base.retain(|&k, &mut b| k < n_obj && b < n_obj);
+        self.subscribers_of.retain(|_, v| {
+            v.retain(|&(o, _)| o < n_obj);
+            !v.is_empty()
+        });
+        self.loaded_files = self.files.len();
+        self.compiled = OnceLock::new();
+        self.unreached = OnceLock::new();
+        removed
     }
 
     /// How many files this workspace has read and scanned or parsed while loading and growing: each file once.
@@ -937,13 +1015,29 @@ impl Workspace {
     }
 
     /// The `DotNet` alias `alias` as seen from `file`: the file's own app first, then the apps
-    /// it depends on. Aliases are case-insensitive.
+    /// it depends on. Aliases are case-insensitive. `alias` holds the written parts joined by
+    /// `QUAL_SEP`: one part (bare or quoted, dots and all) is an alias in any namespace; `A.B.C` is
+    /// alias `C` declared in namespace `A.B`, never a .NET full type name (Microsoft's System
+    /// Application declares `type("System.DateTime"; "DateTime")` in `namespace System;` and its AFS
+    /// Format Helper `DotNet System.DateTime`; al-runner issue 6488, corpus writer Y20,
+    /// al-language-onprem-dotnet/lt-y20-dotnet-fullname/Y20DotNetFullTypeName.al, must-not-compile 2357, 2358).
     pub fn resolve_dotnet(&self, file: usize, alias: &str) -> Option<usize> {
         let app = self.files[file].app;
+        let (namespace, name) = match alias.rsplit_once(crate::types::QUAL_SEP) {
+            Some((ns, name)) => (Some(ns.replace(crate::types::QUAL_SEP, ".")), name),
+            None => (None, alias),
+        };
+        let in_namespace = |d: &DotNetSym| match &namespace {
+            None => true,
+            Some(ns) => self.files[d.file]
+                .namespace
+                .as_deref()
+                .is_some_and(|n| n.eq_ignore_ascii_case(ns)),
+        };
         let find = |a: usize| {
             self.dotnet
                 .iter()
-                .position(|d| d.app == a && d.decl.alias.eq_ignore_ascii_case(alias))
+                .position(|d| d.app == a && d.decl.alias.eq_ignore_ascii_case(name) && in_namespace(d))
         };
         find(app).or_else(|| self.visible[app].iter().find_map(|&a| find(a)))
     }
@@ -2468,6 +2562,135 @@ mod tests {
         assert_eq!(grown.loaded_files(), whole.loaded_files());
         assert_eq!(fingerprint(&grown), fingerprint(&whole));
         assert!(grown.compiled.get().is_none());
+    }
+
+    /// ADR-063: a workspace that holds workspace apps grows by workspace and dependency apps as one loaded with them all.
+    #[test]
+    fn a_workspace_with_workspace_apps_grown_by_apps_of_both_kinds_equals_one_loaded_with_them_all() {
+        let base = app(
+            "base",
+            &[],
+            &[(
+                "b.al",
+                "table 10 Cust { fields { field(1; No; Code[20]) { } } }
+                 codeunit 12 Pub { [IntegrationEvent(false, false)] procedure OnThing() begin end; }",
+            )],
+        );
+        let main = app(
+            "main",
+            &["base"],
+            &[("m.al", "codeunit 50 M { procedure P() var C: Record Cust; begin end; }")],
+        );
+        let extra = app(
+            "extra",
+            &["base"],
+            &[(
+                "x.al",
+                "tableextension 20 XCust extends Cust { fields { field(20; Note; Text[20]) { } } }
+                 codeunit 22 XSub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)] local procedure S() begin end; }",
+            )],
+        );
+        let suite = app(
+            "suite",
+            &["main", "extra", "base"],
+            &[(
+                "s.al",
+                "codeunit 60 S { procedure P() var M: Codeunit M; begin y := ; end; }",
+            )],
+        );
+        let symbols = al_version::corpus_symbols(27);
+        let kinds = vec![
+            AppKind::Workspace,
+            AppKind::Dependency,
+            AppKind::Dependency,
+            AppKind::Workspace,
+        ];
+        let whole = Workspace::load_apps_symbols(
+            vec![main.clone(), base.clone(), extra.clone(), suite.clone()],
+            kinds,
+            &symbols,
+            &[],
+            Vec::new(),
+        );
+        let mut grown = Workspace::load_apps_symbols(
+            vec![main, base],
+            vec![AppKind::Workspace, AppKind::Dependency],
+            &symbols,
+            &[],
+            Vec::new(),
+        );
+        grown.restrict_to(vec![false; grown.objects.len()]);
+        grown
+            .append_apps_of(
+                vec![extra, suite],
+                vec![AppKind::Dependency, AppKind::Workspace],
+                &symbols,
+                &[],
+            )
+            .unwrap();
+        assert_eq!(grown.kinds, whole.kinds);
+        assert_eq!(grown.loaded_files(), whole.loaded_files());
+        assert_eq!(fingerprint(&grown), fingerprint(&whole));
+        assert!(grown.compiled.get().is_none());
+    }
+
+    /// ADR-063: a workspace cut back to its first apps equals one loaded with those apps only, and grows again as one.
+    #[test]
+    fn a_workspace_cut_back_to_its_first_apps_equals_one_loaded_with_them() {
+        let base = app(
+            "base",
+            &[],
+            &[(
+                "b.al",
+                "table 10 Cust { fields { field(1; No; Code[20]) { } } }
+                 interface IGreet { procedure Hello(): Text; }
+                 codeunit 12 Pub { [IntegrationEvent(false, false)] procedure OnThing() begin end; }",
+            )],
+        );
+        let main = app(
+            "main",
+            &["base"],
+            &[("m.al", "codeunit 50 M { procedure P() var C: Record Cust; begin end; }")],
+        );
+        let suite = app(
+            "suite",
+            &["main", "base"],
+            &[(
+                "s.al",
+                "tableextension 20 SCust extends Cust { fields { field(20; Note; Text[20]) { } } }
+                 codeunit 21 SGreet implements IGreet { procedure Hello(): Text begin end; }
+                 interface IMore extends IGreet { procedure More(); }
+                 codeunit 22 SSub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)] local procedure S() begin end; }
+                 dotnet { assembly(mscorlib) { type(System.Text.StringBuilder; SB) { } } }
+                 codeunit 23 Broken { procedure P() begin x := ; end; }",
+            )],
+        );
+        let symbols = al_version::corpus_symbols(27);
+        let two = vec![AppKind::Workspace, AppKind::Dependency];
+        let alone =
+            Workspace::load_apps_symbols(vec![main.clone(), base.clone()], two.clone(), &symbols, &[], Vec::new());
+        let mut cut = Workspace::load_apps_symbols(
+            vec![main.clone(), base.clone(), suite.clone()],
+            vec![AppKind::Workspace, AppKind::Dependency, AppKind::Workspace],
+            &symbols,
+            &[],
+            Vec::new(),
+        );
+        cut.restrict_to(vec![false; cut.objects.len()]);
+        let removed = cut.truncate_apps(2);
+        assert_eq!(removed.len(), 1, "the cut apps are given back");
+        assert_eq!(fingerprint(&cut), fingerprint(&alone));
+        assert!(cut.compiled.get().is_none());
+        cut.append_apps_of(vec![suite.clone()], vec![AppKind::Workspace], &symbols, &[])
+            .unwrap();
+        let whole = Workspace::load_apps_symbols(
+            vec![main, base, suite],
+            vec![AppKind::Workspace, AppKind::Dependency, AppKind::Workspace],
+            &symbols,
+            &[],
+            Vec::new(),
+        );
+        assert_eq!(fingerprint(&cut), fingerprint(&whole));
     }
 
     /// An app already loaded that names a dependency only an appended app provides would see more after the append

@@ -128,6 +128,7 @@ impl<'a> Checker<'a> {
     /// choice on `node`.
     pub(crate) fn pick(&mut self, sc: &Scope, node: &SyntaxNode, cands: &[Cand], args: &[Ty], name: &str) -> Ty {
         let argc = args.len();
+        let field_only = std::mem::take(&mut self.field_only_args);
         // The best arity match by how many arguments fit; the first wins a tie.
         // An app under test that declares a runtime below the catalog's sees only the overloads of its own runtime
         // (al-runner issue 5573): a tagged overload newer than it is hidden for it too.
@@ -153,6 +154,9 @@ impl<'a> Checker<'a> {
                 let fit = args
                     .iter()
                     .zip(&c.param_tys)
+                    .enumerate()
+                    .filter(|(i, _)| !(is_proc && field_only.contains(i)))
+                    .map(|(_, ap)| ap)
                     .filter(|(a, p)| {
                         if is_proc {
                             fits_proc(a, p) || self.implements_param(sc.file, a, p)
@@ -326,23 +330,18 @@ impl<'a> Checker<'a> {
                 }
             }
         }
-        // A bare `Init()` in a table that declares Init(A; B) is the built-in on Rec, `Init(5, 'inner')` the procedure; a
-        // procedure with the built-in's own signature hides it (record/lt-record-write/RcBInit.al:445, :475, fixtures
-        // QzInitOverload.al). Only Init is pinned.
+        // A bare call in a table that declares a procedure of a built-in Record method's name is the built-in on Rec when it does
+        // not fit the procedure, as `Rec.` is (`member`): bare `Insert()` and `Get(1)` next to own Insert(Integer; Text; Boolean)
+        // and Get(Record; Record) (record/lt-bm-builtin-name-procedures/Y36BuiltinNameSameArity.al:46-56, :253-271), bare `Init()`
+        // next to Init(A; B) (record/lt-record-write/RcBInit.al:445, :475, fixtures QzInitOverload.al). The procedures come
+        // first, so they win a call both fit. Table extension code is not pinned.
         if !c.is_empty()
             && sc.rec_unqualified
-            && n.eq_ignore_ascii_case("init")
             && self.ws.objects[sc.oi].kind == ObjKind::Table
             && sc.self_obj == sc.oi
             && let Some(rec @ Ty::Record { .. }) = sc.rec.clone()
         {
-            let platform = self.catalog_cands("Record", n, true, &rec);
-            let arities: Vec<(usize, usize)> = c.iter().map(|p| (p.min, p.max)).collect();
-            c.extend(
-                platform
-                    .into_iter()
-                    .filter(|b| !arities.iter().any(|(lo, hi)| *lo <= b.max && b.min <= *hi)),
-            );
+            c.extend(self.catalog_cands("Record", n, true, &rec));
         }
         if c.is_empty() && sc.rec_unqualified {
             if let Some(rec) = sc.rec.clone() {
@@ -396,6 +395,54 @@ impl<'a> Checker<'a> {
                     _ => None,
                 })
                 .collect();
+        }
+        // A bare `Run(Page::X[, Rec[, FieldNo]])` in a page's code is the static Page.Run (pages/lt-uf-unqualified-runmodal/
+        // Y47UnqualifiedRun.al, corpus branch al-runtime-rs-staging-y47; al-runner issue 6590; the lowering marks assumption
+        // bare-page-run-is-static). The bare `Run()` is the page's own instance, which raises; it stays unresolved.
+        if c.is_empty() && n.eq_ignore_ascii_case("run") && self.ws.objects[sc.oi].kind == ObjKind::Page {
+            c = (self.catalog.overloads("Page", n).into_iter())
+                .filter(|s| !s.instance)
+                .map(|s| sig_cand(s, &Ty::Unknown, self.catalog.id(s)))
+                .collect();
+        }
+        // A bare report method in a report's or report extension's code is the method of the report itself, as the
+        // `CurrReport.` form (report/lt-y36-bare-report-member/Y36BareReportMember.al:4-17, 96-166: UseRequestPage getter
+        // and setter, ObjectId, IsReadOnly, Language, FormatRegion, PrintOnlyIfDetail, SetTableView; the lowering hands
+        // them the receiver `CurrReport` gets). The bare `RunModal()` runs the report's own instance (assumption
+        // `bare-report-member-is-self`). Bare Preview, Skip, Quit, PageNo, TotalsCausedBy, ShowOutput, NewPage and
+        // CreateTotals are AL0161 (must-not-compile 2505-2509). Run, Execute and RunRequestPage compile bare too (:7-8),
+        // what they do is not pinned: they are not resolved here, and the lowering refuses the call.
+        if c.is_empty()
+            && let Some(report) = sc.globals.get("currreport").cloned()
+            && matches!(self.ws.objects[sc.oi].kind, ObjKind::Report | ObjKind::ReportExtension)
+        {
+            let protected = match n.to_ascii_lowercase().as_str() {
+                "preview" => Some("Preview()"),
+                "skip" => Some("Skip()"),
+                "quit" => Some("Quit()"),
+                "pageno" => Some("PageNo([Integer])"),
+                "totalscausedby" => Some("TotalsCausedBy()"),
+                "showoutput" => Some("ShowOutput()"),
+                "newpage" => Some("NewPage()"),
+                "createtotals" => Some("CreateTotals(var Decimal, var [Decimal])"),
+                _ => None,
+            };
+            if let Some(shown) = protected {
+                self.diag(
+                    sc,
+                    node,
+                    "AL0161",
+                    format!("'{shown}' is inaccessible due to its protection level"),
+                );
+            } else if BARE_REPORT_MEMBERS.iter().any(|m| m.eq_ignore_ascii_case(n)) {
+                c = self
+                    .catalog
+                    .overloads("Report", n)
+                    .into_iter()
+                    .filter(|s| s.instance)
+                    .map(|s| sig_cand(s, &report, self.catalog.id(s)))
+                    .collect();
+            }
         }
         if c.is_empty() {
             c = self.global_cands(n);
@@ -805,3 +852,15 @@ impl<'a> Checker<'a> {
             .collect()
     }
 }
+
+/// The Report methods a report's or report extension's code may call bare (see `bare_report_member` in the lowering).
+pub(crate) const BARE_REPORT_MEMBERS: &[&str] = &[
+    "UseRequestPage",
+    "ObjectId",
+    "IsReadOnly",
+    "Language",
+    "FormatRegion",
+    "PrintOnlyIfDetail",
+    "SetTableView",
+    "RunModal",
+];

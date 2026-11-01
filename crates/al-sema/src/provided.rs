@@ -453,6 +453,11 @@ pub fn check_identity(ws: &Workspace, n_dep: usize, src: &dyn DepSource) -> Resu
     Ok(())
 }
 
+/// [`check_identity`] for a source that holds the first `n` objects of `ws`, of any app (ADR-063: a kept compile).
+pub fn check_identity_prefix(ws: &Workspace, n: usize, src: &dyn DepSource) -> Result<(), String> {
+    check_identity(ws, n, src)
+}
+
 /// The dependency objects the workspace's own objects extend or implement: what changes the
 /// extension and implementer sets the blocks embed.
 pub fn touched(ws: &Workspace, n_dep: usize) -> HashSet<usize> {

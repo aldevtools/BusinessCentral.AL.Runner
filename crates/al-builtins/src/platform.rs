@@ -279,6 +279,19 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     // Y6TenantReportLayoutRows.al, corpus master). What else is pinned: al-vm `tenant_layouts.rs`.
     (2_000_000_232, "Tenant Report Layout", Provider::Stored),
     (2_000_000_179, "OData Edm Type", Provider::Stored),
+    // Empty on a fresh tenant; Insert, Modify, Delete and DeleteAll without triggers work (al-language-onprem/session/
+    // PZPlatformSurvey.al:142-145, :166-169; records/W4PlatformAndMeta.al:123). Document Service's own insert trigger is
+    // native (al-vm recmeta.rs `document_service_insert`).
+    (2_000_000_255, "Signup Context", Provider::Stored),
+    (2_000_000_114, "Document Service", Provider::Stored),
+    // An ordinary table, empty on a fresh tenant (al-language-onprem/platform/PtOnPremTables.al:214-236, session/
+    // PZPlatformSurvey.al:172-175); its rows follow the rename of their tenant profile (al-vm profiles.rs).
+    (2_000_000_187, "Tenant Profile Page Metadata", Provider::Stored),
+    // No corpus test pins them: ordinary tables, empty on a fresh tenant, on the assumption `webhook-tables-stored` that
+    // Microsoft's PayPal Payments Standard tests need (MS - PayPal Standard Tests); al-vm records.rs marks it on every
+    // persistent access (`Session::install_assumed`).
+    (2_000_000_199, "Webhook Subscription", Provider::Stored),
+    (2_000_000_194, "Webhook Notification", Provider::Stored),
     // OnPrem tables that a fresh tenant leaves empty and that take Insert, a duplicate Insert (false), Modify, Delete, an Insert
     // without triggers and DeleteAll (al-language-onprem/platform/PtOnPremTables.al:57-78, :80-101, :149-170, :192-213).
     // Tenant Profile reads "Customization Status" Updated after an Insert (:200), its first option and so its default.
@@ -289,6 +302,10 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     // Empty on a fresh tenant; an Insert raises the license error and stores nothing (PtOnPremTables.al:172-190). Only that
     // Insert, with triggers, is pinned: the others refuse (al-vm records.rs).
     (2_000_000_130, "Device", Provider::Stored),
+    // OnPrem; takes Insert, a duplicate Insert (false), Modify, Delete, an Insert without triggers and DeleteAll, and keeps
+    // the Blob File it is given (al-language-onprem/platform/PtOnPremTables.al Y17_PowerBIBlob_InsertModifyDelete,
+    // Y17_PowerBIBlob_BlobRoundTrip, corpus master 97c29f86). A fresh tenant holds demo rows nothing pins: `UNSEEDED_ROWS`.
+    (2_000_000_144, "Power BI Blob", Provider::Stored),
 ];
 
 /// Stored tables that a fresh tenant fills with rows no corpus test pins. The runtime starts them empty, so it treats them as
@@ -297,7 +314,10 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
 /// PtWebServiceRows.al:39-73, PlatformRowsWebService.al:66-215). Their System Application neighbours are not: Tenant Web
 /// Service OData (6710) holds 29 rows and Tenant Web Service Columns (6711) 402 on a fresh tenant, only the counts are pinned
 /// (onprem platform/PtWebServiceRows.al:237, :267 'counts before'); what Tenant Web Service Filter (6712) holds is not pinned.
-pub const UNSEEDED_ROWS: &[u32] = &[6710, 6711, 6712];
+/// Power BI Blob (2000000144) holds demo rows on a fresh tenant (8 on the Linux CI containers, recorded and not asserted:
+/// PtOnPremTables.al Y17_PowerBIBlob_BlobRoundTrip); once the session's own DeleteAll without filters has emptied it, it is
+/// answered (al-vm `Session::is_unseeded`).
+pub const UNSEEDED_ROWS: &[u32] = &[6710, 6711, 6712, 2_000_000_144];
 
 /// Platform tables that only the System app of a later major declares (the registry above is checked against the System app
 /// of the first major the corpus pins, `tests/platform_tables.rs`). Ordinary stored tables here, written by install code:
@@ -307,6 +327,9 @@ pub const UNSEEDED_ROWS: &[u32] = &[6710, 6711, 6712];
 pub const LATER_MAJORS: &[(u32, &str, Provider)] = &[
     (2_000_000_297, "Agent Creation Control", Provider::Stored),
     (2_000_000_292, "MCP Configuration", Provider::Stored),
+    // BC 29 on. Empty on a fresh tenant and writable; an Insert checks the layout parts it names (al-vm
+    // tenant_layout_cfg.rs; platform/lt-platform-tables/PtCloudTables.al Y17_TenantReportLayoutCfg_*, corpus master 97c29f86).
+    (2_000_000_249, "Tenant Report Layout Cfg", Provider::Stored),
 ];
 
 /// The provider of platform table `id`, if it has one.
@@ -509,11 +532,28 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         "25",
         "al-language/report/lt-y-report-props/YHelper.al:226, YReportPropsTests.al:34-160",
     ),
-    // UseSystemPrinter as declared; unknown for a report that does not declare it (al-vm reports.rs).
+    // EnableHyperLinks, ShowPrintStatus and PreviewMode of a report that declares none of them, read through the helper's
+    // FieldIndex loop; unknown for a declared one (al-vm reports.rs).
+    (
+        2_000_000_139,
+        "7",
+        "al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:22-31, :206",
+    ),
+    (
+        2_000_000_139,
+        "10",
+        "al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:22-31, :209",
+    ),
+    (
+        2_000_000_139,
+        "15",
+        "al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:22-31, :214",
+    ),
+    // UseSystemPrinter as declared, No for a report that does not declare it (al-vm reports.rs).
     (
         2_000_000_139,
         "5",
-        "al-language/misc/lt-y13-triage/Y13ReportSystemPrinter.al:526, :530-543",
+        "al-language/misc/lt-y13-triage/Y13ReportSystemPrinter.al:526, :530-543; al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:204",
     ),
     // TransactionType UpdateNoLocks for a report that declares none; unknown for a declared one (al-vm reports.rs).
     (
@@ -531,6 +571,28 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         "23",
         "al-language/metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:145",
     ),
+    // Table Relations Metadata names of the own and the related table and field, read through the helper's FieldIndex loop
+    // (al-vm metadata.rs).
+    (
+        2_000_000_141,
+        "12",
+        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
+    ),
+    (
+        2_000_000_141,
+        "13",
+        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
+    ),
+    (
+        2_000_000_141,
+        "14",
+        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
+    ),
+    (
+        2_000_000_141,
+        "15",
+        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
+    ),
     // BC 29 only: DefaultHeaderFooterPartName (30), DefaultThemePartName (31). By id, because the symbols of
     // older majors lack them.
     (
@@ -542,6 +604,19 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         2_000_000_139,
         "31",
         "al-language/report/lt-y-report-props/YReportParts.al:65-70, YReportPropsTests.al:45",
+    ),
+    // Table Metadata InherentPermissions: `X` or blank as declared; another value is unknown (al-vm objects.rs).
+    (
+        2_000_000_136,
+        "19",
+        "al-language/permissions/W6PermissionColumns.al Y17_TableMetadata_InherentPermissions (corpus master 97c29f86)",
+    ),
+    // Metadata Permission "Security Filter": blank for every row of an app permission set (a permissionset object has no
+    // syntax for one), plain and with format 9.
+    (
+        2_000_000_251,
+        "14",
+        "al-language/permissions/W6PermissionColumns.al Y17_MetadataPermission_SecurityFilter_OwnSet, _AllSets (corpus master 97c29f86)",
     ),
     (
         2_000_000_136,
@@ -631,6 +706,13 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         2_000_000_280,
         "InherentEntitlements",
         "al-language/xmlport/lt-y-xmlport-props/YXmlPortProps.al:731-740",
+    ),
+    // Event Subscription "Originating Package ID": a Guid, scrubbed by the observer because it changes per publish; read through
+    // the helper's FieldIndex loop (al-vm metadata.rs).
+    (
+        2_000_000_140,
+        "10",
+        "al-language/misc/lt-probes-needed-5/PnE11EventSub.al:67-78, :99",
     ),
     (
         2_000_000_140,

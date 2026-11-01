@@ -206,6 +206,7 @@ impl Session {
                 let st = st.clone();
                 self.pending_add_in_reread(&st, method.method())?;
                 let arg_false = matches!(args.first(), Some(Value::Boolean(false)));
+                self.lookup_refresh_deferred_call(method, &st, None)?;
                 self.marked_only_unshown_call(method, &st, |s| {
                     s.shown_client_call(method, &st, None, arg_false, |s| s.test_page_op(method, &st, args))
                 })
@@ -214,6 +215,7 @@ impl Session {
                 let c = c.clone();
                 let page = c.page.clone();
                 self.pending_add_in_reread(&page, method.method())?;
+                self.lookup_refresh_deferred_call(method, &page, Some(&c.target))?;
                 self.marked_only_unshown_call(method, &page, |s| {
                     s.shown_client_call(method, &c.page, Some(&c.target), false, |s| {
                         s.test_control_op(method, &c, args)
@@ -242,10 +244,15 @@ impl Session {
             self.first_part_access(st, name, false)?;
         } else if st.borrow().new_host_part_rows
             && st.borrow().host.is_none()
-            && !matches!(name, PageMethod::Close | PageMethod::New | PageMethod::OK)
+            && !matches!(
+                name,
+                PageMethod::Close | PageMethod::New | PageMethod::OK | PageMethod::Next | PageMethod::Last
+            )
         {
             // A new host whose part shows rows of the blank key: Close and New() are pinned (PartLineBeforeHostKey.al:1725
-            // QH_BlankRows_OpenNew_CloseOnly, :1909 QH_BlankRows_HostNew_ThenClose), nothing else.
+            // QH_BlankRows_OpenNew_CloseOnly, :1909 QH_BlankRows_HostNew_ThenClose), and Next and Last, which answer No, run no
+            // trigger and store nothing (pages/lt-y17-activate-new-host/Y17ActivateNewHost.al:573 QH_BlankRows_HostNext, :602
+            // QH_BlankRows_HostLast); nothing else.
             return unsupported(format!(
                 "TestPage.{name} on a new, unsaved host whose part shows rows of the blank key (not pinned)"
             ));
@@ -312,6 +319,25 @@ impl Session {
                     ));
                 }
             }
+        }
+        if method.recv() != PageRecv::Page
+            && matches!(
+                name,
+                PageMethod::Next
+                    | PageMethod::Previous
+                    | PageMethod::Last
+                    | PageMethod::GoToKey
+                    | PageMethod::GoToRecord
+                    | PageMethod::FindFirstField
+                    | PageMethod::FindNextField
+                    | PageMethod::FindPreviousField
+            )
+            && self.tree_over_variable(st)?
+        {
+            return unsupported(format!(
+                "TestPage.{}() on a tree whose IndentationColumn is not a field of the source table (which rows it shows is not modelled)",
+                name.name()
+            ));
         }
         // See `PageState::action_landed_on_new_row`: a move then is not pinned; Close and the rest leave the mark behind.
         if method.recv() != PageRecv::Page
@@ -438,6 +464,9 @@ impl Session {
                     && method.recv() == PageRecv::Page
                     && !matches!(name, PageMethod::Run | PageMethod::RunModal) =>
             {
+                if matches!(name, PageMethod::Update | PageMethod::SaveRecord) && self.closed_after_modal_ok(st) {
+                    return Ok(Value::Null);
+                }
                 return unsupported(format!(
                     "{} called by the code of a page that is not open (what it does then is not pinned)",
                     method.method()
@@ -1214,6 +1243,13 @@ impl Session {
             // `Close()` of a Page variable whose modal page closed: after its handler failed (ClosedPageVariableCurrPageClose.al:70
             // Close_AfterModalClosed) and after it closed with OK (pages/lt-page-runtime/P82PageVar.al:138 AfterRunModal_Members).
             PageMethod::Close if method.recv() == PageRecv::Page && self.page_var_not_shown(st) => Ok(Value::Null),
+            // In a Page-typed PageHandler of Page.Run the handler's Close does nothing: no trigger, and the handler goes on
+            // (pages/lt-y17-page-handler-record/Y17PageHandlerRecord.al:301 PageTypedHandler_RunWithRecord_Close `handler;closed;`).
+            PageMethod::Close
+                if method.recv() == PageRecv::Page && st.borrow().typed_run_handler && !st.borrow().open =>
+            {
+                Ok(Value::Null)
+            }
             PageMethod::Close if method.recv() == PageRecv::Page => {
                 self.require_open(st)?;
                 self.restore_shown_row_on_close(st)?;

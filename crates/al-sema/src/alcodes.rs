@@ -16,7 +16,9 @@
 //!   these checks.
 //!
 //! The codes the checker itself reports (`check/`, where types are known) are AL0118, AL0122, AL0135, AL0139,
-//! AL0132, AL0161 and AL0398 (and AL0175 for Char - Text, AL0172 for unary minus on an Enum, Option or Duration); they are listed in [`IMPLEMENTED`] too.
+//! AL0132, AL0161 and AL0398 (and AL0175 for Char - Text, AL0172 for unary minus on an Enum, Option or Duration; AL0126, AL0129 and AL0133 for the assignment form of a builtin method); they are listed in [`IMPLEMENTED`] or, where only some shapes are decided, [`NOT_CHECKED`].
+//! The implicit-conversion rules of `check/conv.rs` add AL0129, AL0130, AL0133, AL0174, AL0175, AL0369, AL0698 and AL0777
+//! for the shapes the compile matrix measured; those are listed in [`NOT_CHECKED`], with what is decided.
 
 use crate::workspace::{AppKind, Diagnostic, ObjKind, Resolution, Workspace};
 use al_syntax::{SyntaxKind, SyntaxNode, ast};
@@ -57,7 +59,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0122",
-        "an enum assigned to an enum of another type whose target does not state AssignmentCompatibility = true; an Integer variable assigned to a Text; a text literal of two or more characters assigned to an Integer; an Enum variable, enum value or Enum field to a Decimal; Decimal or Integer to Boolean, Date to Text, Boolean, Text or Decimal to Date, Variant or a one-character literal to an Enum, a Record to an Integer",
+        "an enum assigned to an enum of another type whose target does not state AssignmentCompatibility = true; an Integer variable assigned to a Text; a text literal of two or more characters assigned to an Integer; an Enum variable, enum value or Enum field to a Decimal; Decimal or Integer to Boolean, Date to Text, Boolean, Text or Decimal to Date, Variant or a one-character literal to an Enum, a Record to an Integer; and every rejected cell of the implicit-conversion compile matrix in the contexts `:=`, `+=`, `exit`, `x in [...]`, a case label and the false branch of `c ? a : b` (check/conv.rs, tests/conversion_matrix.rs)",
     ),
     (
         "AL0124",
@@ -136,12 +138,56 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
 /// a case that finds its code matches.
 pub const NOT_CHECKED: &[(&str, &str)] = &[
     (
+        "AL0275",
+        "reported for a variable of type DotNet N, N bare, in a file without a namespace, where the app declares the alias N outside a namespace and a loaded dependency declares it in namespace System (case 2359); a case is compiled without System Application, so the case cannot find it.",
+    ),
+    (
+        "AL0126",
+        "reported only for the assignment form `X.M := v` of a builtin method with two or more forms, each needing an argument (check/infer.rs; case 2368); other calls with no matching overload need overload resolution the front end does not judge.",
+    ),
+    (
+        "AL0129",
+        "reported only for the assignment form `X.M := v` of a builtin method without a parameter or with only optional ones, two or more (cases 2365, 2366, 2370, 2371), and a compound assignment `X.M += v` to a builtin method (case 2367; check/infer.rs); other left-hand sides are not judged.",
+    ),
+    (
+        "AL0133",
+        "reported only for the assignment form `X.M := v` of a builtin method whose one form takes one XML value, given an XML collection (check/infer.rs; case 2372); other argument conversions are not judged.",
+    ),
+    (
         "AL0196",
         "reported only for a bare call, without arguments, in a page extension of its own local or internal procedure without parameters that a procedure of the base page in the same app repeats (cases 2238-2240, 2244); other ambiguous calls need overload resolution the front end does not judge.",
     ),
     (
+        "AL0129",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for `:=` and `+=` into a Label, a TextConst or a test page control's Value; any other target is not decided.",
+    ),
+    (
+        "AL0130",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for a literal or option member passed to a `var` parameter of a procedure without overloads; other expressions are not decided.",
+    ),
+    (
+        "AL0133",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for an argument of a procedure without overloads and `:=` into a test page control's Value; a call argument, an overloaded procedure and a builtin method are not decided.",
+    ),
+    (
+        "AL0174",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for a one-character text literal plus or minus a Byte (and `+=`); other ambiguous operators are not decided.",
+    ),
+    (
         "AL0175",
-        "needs the .NET type behind the alias (an enum is comparable with `=`, a class object is not); the front end has no assembly metadata.",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for `=`, `<>`, `<`, `+`, `-` and `+=` (and `Char - Text` of must-not-compile 0500); a call operand, a literal right operand, other operators and DotNet operands (the .NET type behind the alias decides) are not decided.",
+    ),
+    (
+        "AL0369",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for a BigInteger literal outside the Integer range into an Integer, Char, Byte, Option or Enum; other constants are not decided.",
+    ),
+    (
+        "AL0698",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for a case statement whose selector is an interface; other selector types are not decided.",
+    ),
+    (
+        "AL0777",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for a Guid into a Text or Code of length 10 or less (and a test page control's Value or a short text literal as the type of a set or conditional expression); a Text or Code between 11 and 37 is not decided.",
     ),
     (
         "AL0185",
@@ -452,6 +498,17 @@ fn display_kind(k: ObjKind) -> &'static str {
 
 /// The checks that need the source only, over the apps of kind `Workspace`.
 pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
+    let (mut out, objects, after) = check_workspace_parts(ws, 0);
+    out.extend(objects);
+    out.extend(after);
+    out
+}
+
+/// The rules of [`check_workspace`] in their order, in three parts: those over the whole workspace that come first, the
+/// rules of each workspace object from object `first` on (a rule of an object reads that object and what its app
+/// sees), and those over the whole workspace that come last. A compile that grows by apps (ADR-063) keeps the object
+/// rules' findings for the objects it had and runs them for the new objects only.
+pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, Vec<Diagnostic>, Vec<Diagnostic>) {
     let mut out = Vec::new();
     duplicate_names(ws, &mut out);
     duplicate_ids(ws, &mut out);
@@ -465,7 +522,8 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
         .map(|d| (d.app, d.file.as_str()))
         .collect();
     let whole = keyword_name_files(ws, &mut out);
-    for oi in 0..ws.objects.len() {
+    let before = std::mem::take(&mut out);
+    for oi in first..ws.objects.len() {
         let o = &ws.objects[oi];
         if ws.kinds[o.app] == AppKind::Dependency {
             continue;
@@ -477,6 +535,7 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
         subscriber_publishers(ws, oi, &obj, &mut out);
         platform_integer_without_using(ws, oi, &obj, &mut out);
         unknown_codeunit_variables(ws, oi, &obj, &mut out);
+        ambiguous_dotnet_aliases(ws, oi, &obj, &mut out);
         object_properties(ws, oi, &obj, &mut out);
         object_triggers(ws, oi, &obj, &mut out);
         label_trailing_commas(ws, o.file, obj.syntax(), &mut out);
@@ -502,8 +561,9 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
         }
     }
     // AL0169: a property value that is none of the property's values.
-    crate::property_values::check(ws, &mut out);
-    out
+    let mut after = Vec::new();
+    crate::property_values::check(ws, &mut after);
+    (before, out, after)
 }
 
 /// AL0301 and AL0107 for the trailing commas of a Label declaration (al-runner issue 6436). One comma right after the text
@@ -645,6 +705,56 @@ fn unknown_codeunit_variables(ws: &Workspace, oi: usize, obj: &ast::Object, out:
             offset_of(t.syntax()),
             "AL0185",
             format!("Codeunit '{}' is missing", parts[0]),
+        );
+    }
+}
+
+/// AL0275: a variable of type `DotNet N`, N bare, where the app declares the alias N outside a namespace and an app it
+/// depends on declares N in namespace System (must-not-compile 2359, corpus writer Y20, al-runner issue 6488: System
+/// Application declares String, DateTime and StringBuilder there). The dependency's alias alone, and `DotNet System.N`,
+/// compile (al-language-onprem-dotnet/lt-y20-dotnet-fullname/Y20DotNetFullTypeName.al:27-58). Only that shape is pinned: a
+/// file or a declaration in a namespace, another namespace of the dependency, a parameter or a return type keep compiling.
+/// A dependency that is not loaded declares nothing here, so nothing is reported.
+fn ambiguous_dotnet_aliases(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
+    let file = ws.objects[oi].file;
+    let app = ws.files[file].app;
+    if ws.files[file].namespace.is_some() || !ws.dotnet.iter().any(|d| d.app == app) {
+        return;
+    }
+    let declared = |name: &str, in_app: &dyn Fn(usize) -> bool, ns: Option<&str>| {
+        ws.dotnet.iter().any(|d| {
+            in_app(d.app)
+                && d.decl.alias.eq_ignore_ascii_case(name)
+                && match (ns, ws.files[d.file].namespace.as_deref()) {
+                    (None, None) => true,
+                    (Some(want), Some(have)) => want.eq_ignore_ascii_case(have),
+                    _ => false,
+                }
+        })
+    };
+    for t in obj
+        .syntax()
+        .descendants()
+        .filter_map(ast::VarDecl::cast)
+        .filter_map(|d| d.type_ref())
+    {
+        if !t.type_name().eq_ignore_ascii_case("DotNet") {
+            continue;
+        }
+        let [name] = t.object_name_parts().try_into().unwrap_or_default();
+        if name.is_empty()
+            || !declared(&name, &|a| a == app, None)
+            || !declared(&name, &|a| a != app && ws.app_sees(app, a), Some("System"))
+        {
+            continue;
+        }
+        push(
+            out,
+            ws,
+            file,
+            offset_of(t.syntax()),
+            "AL0275",
+            format!("'{name}' is an ambiguous reference between '{name}' defined by the extension"),
         );
     }
 }
@@ -2535,6 +2645,20 @@ mod tests {
     /// The codes of `files` compiled as an app that declares the dependency `dep`; `loaded` is the source of
     /// that dependency, or `None` when it is declared but not loaded (`--no-deps`).
     fn codes_with_dependency(files: &[&str], loaded: Option<&str>) -> Vec<String> {
+        let mut v: Vec<String> = dependency_diagnostics(files, loaded)
+            .into_iter()
+            .map(|m| m.split(' ').next().unwrap_or_default().to_string())
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// The `code message` lines of `files` compiled with the dependency `dep` loaded from `loaded` (see `codes_with_dependency`).
+    fn messages_with_dependency(files: &[&str], loaded: &str) -> Vec<String> {
+        dependency_diagnostics(files, Some(loaded))
+    }
+
+    fn dependency_diagnostics(files: &[&str], loaded: Option<&str>) -> Vec<String> {
         let mut apps = vec![AppSource {
             id: "a".into(),
             name: "a".into(),
@@ -2566,14 +2690,11 @@ mod tests {
         let ws = Workspace::load_apps(apps, kinds, &Default::default());
         let m = crate::members::build(&ws);
         let r = crate::check::check(&ws, &m, &Catalog::load());
-        let mut v: Vec<String> = r
-            .diagnostics
+        r.diagnostics
             .iter()
             .filter(|d| d.code.starts_with("AL"))
-            .map(|d| d.code.to_string())
-            .collect();
-        v.sort();
-        v
+            .map(|d| format!("{} {}", d.code, d.message))
+            .collect()
     }
 
     #[test]
@@ -2959,7 +3080,8 @@ mod tests {
 
     // must-not-compile 0500 (corpus tests/must-not-compile/cases/0500-char-minus-text.al:1-2): `C - T` and `T - C`
     // with a Char variable and an unbounded Text variable. AL0175. A Text literal with a Char compiles (an
-    // Integer); Text[30], Code and other shapes are not pinned and not judged.
+    // Integer). `C - L` with a Text[30] is AL0175 too: the compile matrix (crates/al-sema/tests/fixtures/
+    // conversion-matrix/compile-matrix.csv, context sub, Char - Text10 and Text3) rejects a Char minus any Text.
     #[test]
     fn al0175_char_minus_text_variable() {
         let cu = |body: &str| {
@@ -2975,12 +3097,15 @@ mod tests {
             messages(&cu("I := T - C;")),
             vec!["AL0175 Operator '-' cannot be applied to operands of type 'Text' and 'Char'".to_string()]
         );
+        assert_eq!(
+            messages(&cu("I := C - L;")),
+            vec!["AL0175 Operator '-' cannot be applied to operands of type 'Char' and 'Text[30]'".to_string()]
+        );
         for ok in [
             "I := C - 'a';",
             "I := 'a' - C;",
             "I := C - I;",
             "I := C - C;",
-            "I := C - L;",
             "T := T + T;",
         ] {
             assert!(messages(&cu(ok)).iter().all(|m| !m.starts_with("AL0175")), "{ok}");
@@ -3536,6 +3661,124 @@ mod tests {
         );
     }
 
+    // must-not-compile 2369 (corpus writer Y29, al-runner issue 6526): `X.M := v` is checked as the call `X.M(v)`, so a
+    // builtin whose only form takes two arguments is AL0135; the one-argument setter compiles.
+    #[test]
+    fn al0135_assignment_form_of_a_two_parameter_builtin() {
+        assert_eq!(
+            messages(
+                "codeunit 50000 \"MNC C2369\" { procedure Run1() var M: XmlNamespaceManager; begin M.AddNamespace := 'urn:x'; end; }"
+            ),
+            vec![
+                "AL0135 There is no argument given that corresponds to the required formal parameter 'Prefix' of 'AddNamespace(Text, Text)'"
+                    .to_string()
+            ]
+        );
+        assert!(codes(&[
+            "codeunit 50000 C { procedure Run1() var M: XmlNamespaceManager; D: XmlDocument; begin M.NameTable := D.NameTable; end; }"
+        ])
+        .is_empty());
+    }
+
+    // must-not-compile 2359 (corpus writer Y20, al-runner issue 6488): an alias the app declares outside a namespace, with the
+    // name of one a dependency declares in namespace System, is ambiguous when named bare. `DotNet System.String` and the
+    // dependency's alias alone compile (al-language-onprem-dotnet/lt-y20-dotnet-fullname/Y20DotNetFullTypeName.al:27-58).
+    #[test]
+    fn al0275_bare_dotnet_alias_declared_by_the_app_and_in_namespace_system() {
+        const SYSTEM: &str = "namespace System;\ndotnet { assembly(mscorlib) { type(\"System.String\"; String) { } type(\"System.DateTime\"; DateTime) { } } }";
+        const OWN: &str = "dotnet { assembly(mscorlib) { type(\"System.Text.StringBuilder\"; String) { } } }";
+        let cu = |ty: &str| format!("codeunit 52359 C {{ procedure P() var B: DotNet {ty}; begin end; }}");
+        assert_eq!(
+            codes_with_dependency(&[OWN, &cu("String")], Some(SYSTEM)),
+            vec!["AL0275"]
+        );
+        assert_eq!(
+            messages_with_dependency(&[OWN, &cu("String")], SYSTEM),
+            vec!["AL0275 'String' is an ambiguous reference between 'String' defined by the extension".to_string()]
+        );
+        assert!(codes_with_dependency(&[OWN, &cu("System.String")], Some(SYSTEM)).is_empty());
+        assert!(codes_with_dependency(&[OWN, &cu("DateTime")], Some(SYSTEM)).is_empty());
+        assert!(codes_with_dependency(&[&cu("String")], Some(SYSTEM)).is_empty());
+        // The dependency not loaded: nothing is known about its aliases.
+        assert!(codes_with_dependency(&[OWN, &cu("String")], None).is_empty());
+    }
+
+    // must-not-compile 2365, 2366, 2370, 2371 (corpus writer Y29, al-runner issue 6526): `X.M := v` where the builtin M has
+    // no form that takes the value (no parameter, or only optional ones and more than one) is AL0129.
+    #[test]
+    fn al0129_assignment_form_of_a_builtin_without_a_one_argument_form() {
+        const AL0129: &str = "AL0129 The left-hand side of an assignment must be a variable or field";
+        for (vars, stmt) in [
+            ("D: XmlDocument; N: XmlNameTable;", "D.NameTable := N;"),
+            ("E: XmlElement;", "E.InnerText := 'x';"),
+            ("R: Record \"MNC Y29 Row\";", "R.LockTable := true;"),
+            ("M: XmlNamespaceManager;", "M.PushScope := true;"),
+        ] {
+            let src = format!(
+                "codeunit 50000 C {{ procedure Run1() var {vars} begin {stmt} end; }} table 50001 \"MNC Y29 Row\" {{ fields {{ field(1; Id; Integer) {{ }} }} }}"
+            );
+            assert_eq!(messages(&src), vec![AL0129.to_string()], "{stmt}");
+        }
+    }
+
+    // must-not-compile 2367 (corpus writer Y29, al-runner issue 6526): a compound assignment to a builtin method is AL0129,
+    // also where the plain assignment form compiles.
+    #[test]
+    fn al0129_compound_assignment_to_a_builtin_method() {
+        assert_eq!(
+            messages("codeunit 50000 C { procedure Run1() var C: HttpClient; begin C.Timeout += 1; end; }"),
+            vec!["AL0129 The left-hand side of an assignment must be a variable or field".to_string()]
+        );
+    }
+
+    // must-not-compile 2368 (corpus writer Y29, al-runner issue 6526): two one-argument overloads, so the assignment form is
+    // checked as a call without arguments. alc's text goes on with the candidates; the first sentence is reported.
+    #[test]
+    fn al0126_assignment_form_of_a_builtin_with_two_one_argument_overloads() {
+        assert_eq!(
+            messages("codeunit 50000 C { procedure Run1() var J: JsonObject; begin J.ReadFrom := '{}'; end; }"),
+            vec!["AL0126 No overload for method 'ReadFrom' takes 0 arguments.".to_string()]
+        );
+    }
+
+    // must-not-compile 2372 (corpus writer Y29, al-runner issue 6526): the value is the argument of the one-parameter form.
+    #[test]
+    fn al0133_assignment_form_with_a_value_of_another_xml_type() {
+        assert_eq!(
+            messages(
+                "codeunit 50000 C { procedure Run1() var D: XmlDocument; begin D.SetDeclaration := D.GetChildNodes(); end; }"
+            ),
+            vec!["AL0133 Argument 1: cannot convert from 'XmlNodeList' to 'XmlDeclaration'".to_string()]
+        );
+    }
+
+    // The assignment forms real BC compiles: record/ProbePropertyAssignmentForms.al:375-660 (corpus writer Y29) and
+    // xml/XmlXPathNamespaces.al (`Mgr.NameTable := NT`).
+    #[test]
+    fn assignment_forms_bc_compiles_report_nothing() {
+        let src = "codeunit 50000 C {
+            procedure Run1()
+            var
+                C: HttpClient; R: HttpRequestMessage; Ct: HttpContent; A: XmlAttribute; Decl: XmlDeclaration;
+                E: XmlElement; WO: XmlWriteOptions; B: TextBuilder; N: Notification; G: Guid; RR: RecordRef;
+                F: FilterPageBuilder; S: SessionSettings; L: List of [Integer]; Dc: Dictionary of [Integer, Text];
+                Txt: Text; Dlg: Dialog; Doc: XmlDocument; Row: Record \"MNC Y29 Row\"; M: XmlNamespaceManager; I: Integer;
+            begin
+                C.Timeout := 5000; C.Timeout := C.Timeout; C.SetBaseAddress := 'https://example.com/';
+                C.UseResponseCookies := true; R.Method := 'POST'; R.SetRequestUri := 'https://example.com/';
+                R.Content := Ct; A.Value := '2'; Decl.Version := '1.0'; E.Add := 'txt'; WO.PreserveWhitespace := true;
+                B.Append := 'abc'; B.Length := 2; B.Capacity := 200; N.Message := 'm'; N.Id := G;
+                N.Scope := NotificationScope::LocalScope; RR.CurrentKeyIndex := 2; F.PageCaption := 'cap';
+                S.LanguageId := 1031; L.Add := 5; Dc.Remove := 1; Txt.Contains := 'b'; Dlg.HideSubsequentDialogs := true;
+                Doc.GetRoot := E; Row.Get := 2; Row.ReadIsolation := IsolationLevel::ReadCommitted;
+                Row.SecurityFiltering := SecurityFilter::Filtered; M.NameTable := Doc.NameTable; Doc.SetDeclaration := Decl;
+                Row.Id += 1; I += 1;
+            end;
+        }
+        table 50001 \"MNC Y29 Row\" { fields { field(1; Id; Integer) { } } }";
+        assert_eq!(messages(src), Vec::<String>::new());
+    }
+
     #[test]
     fn al0197_every_declaration_of_a_repeated_name_is_reported() {
         let cu = "codeunit 50000 \"Same\" { } codeunit 50001 \"same\" { }";
@@ -3672,6 +3915,12 @@ mod tests {
         assert!(ctx_codes(cu, &ctx(AppTarget::OnPrem, Some((16, 0)), &keys)).is_empty());
         assert!(ctx_codes(cu, &ctx(AppTarget::Cloud, Some((16, 0)), &[])).is_empty());
         assert!(ctx_codes(cu, &ctx(AppTarget::Cloud, None, &keys)).is_empty());
+    }
+
+    // must-not-compile 2359 needs System Application's aliases, and the must-not-compile runner loads no dependency.
+    #[test]
+    fn al0275_is_not_checked_without_the_dependency() {
+        assert!(not_checked_reason_for("AL0275", "'String' is an ambiguous reference").is_some());
     }
 
     #[test]

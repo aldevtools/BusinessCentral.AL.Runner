@@ -329,11 +329,11 @@ pub(crate) fn decimal_formatter(places: Option<&str>) -> Result<String, Signal> 
 
 /// A Time as the dataset writes it: `h:mm:ss`, a plain space, `AM` or `PM`
 /// (handlers/TestReportSaveAsColumnTypesContracts.al:12-14, 12:34:56 PM). The hour is not padded
-/// (the culture's pattern; no single-digit hour is measured) and milliseconds are refused.
+/// (the culture's pattern; no single-digit hour is measured). Milliseconds are cut off, not rounded: a stored field shows the
+/// value the SQL column rounded (`sqltime`, 13:30:00.999 is stored as 13:30:01), a column bound to a variable its own value
+/// (errors/lt-ms-refusals-132/P132ReportTimeMs.al:181 P132_Dataset_Time_Milliseconds, Y38_P132_Dataset_Time_NearNextSecond,
+/// Y38_P132_Dataset_Time_OtherMilliseconds, and the global-variable column of the Y38 tests: 23:59:59.999 is 11:59:59 PM).
 pub(crate) fn time_text(ms_of_day: i64) -> Result<String, Signal> {
-    if ms_of_day % 1000 != 0 {
-        return unsupported("a Time with milliseconds in a dataset (not pinned)");
-    }
     let (h, m, s) = (ms_of_day / 3_600_000, ms_of_day / 60_000 % 60, ms_of_day / 1000 % 60);
     let h12 = if h % 12 == 0 { 12 } else { h % 12 };
     Ok(format!("{h12}:{m:02}:{s:02} {}", if h < 12 { "AM" } else { "PM" }))
@@ -351,8 +351,22 @@ pub(crate) struct Column {
     pub attribute: Option<(&'static str, String)>,
     pub text: String,
     /// The XML Schema type of the column in a .NET DataSet (`TestRequestPage.SaveAsXml`), for the
-    /// column types that probe pins: Integer and Text/Code.
+    /// column types that probe pins: Integer, Text/Code, Decimal, Date, Boolean and Option.
     pub schema_type: Option<&'static str>,
+    /// What the .NET DataSet writes for the value.
+    pub data: DataFileText,
+}
+
+/// The value of a column in a SaveAsXml data file (al-language-onprem/report/lt-aq/AqSaveAsXml.al:247).
+#[derive(Clone, Default)]
+pub(crate) enum DataFileText {
+    /// The text the dataset writes.
+    #[default]
+    Same,
+    /// Another text (`true` for a Boolean, `2024-12-25T00:00:00+00:00` for a Date).
+    Text(String),
+    /// No element (a blank Date).
+    Omit,
 }
 
 /// A dataset being written: the `DataItems` block, and who is open.
@@ -390,9 +404,28 @@ struct FlatRow {
     /// 0 for a top-level data item, one more for each level of nesting.
     depth: usize,
     item: String,
-    /// Whether its data item declares nested items.
-    declares: bool,
+    /// Whether nested items run under its rows (the base report's and those an extension adds).
+    has_children: bool,
     cols: Vec<FlatCol>,
+    kind: FlatKind,
+}
+
+/// What an entry of `Dataset::flat` stands for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FlatKind {
+    /// A row the item wrote.
+    Row,
+    /// The item ran under the row above (its `OnPreDataItem` did not break) and read no row.
+    NoRows,
+    /// The item read rows and wrote none (Skip, Break in OnAfterGetRecord, PrintOnlyIfDetail).
+    RowsLeftOut,
+}
+
+/// A data item as the report declares it, depth first in run order, with its columns and the .NET type of each where it is
+/// known without a row (a table field of a pinned type): the schema of a SaveAsXml data file.
+pub(crate) struct DeclaredItem {
+    pub name: String,
+    pub columns: Vec<(String, Option<&'static str>)>,
 }
 
 struct FlatCol {
@@ -402,6 +435,7 @@ struct FlatCol {
     text: String,
     /// A Decimal column's `decimalformatter`.
     formatter: Option<String>,
+    data: DataFileText,
 }
 
 /// The dataset as it was before a row began.
@@ -430,6 +464,7 @@ impl Dataset {
         identity: Option<(u32, &str)>,
         columns: &[Column],
         declares_children: bool,
+        has_children: bool,
     ) {
         let depth = self.open.len();
         self.marks.push(Mark {
@@ -448,7 +483,8 @@ impl Dataset {
         self.flat.push(FlatRow {
             depth,
             item: name.to_string(),
-            declares: declares_children,
+            has_children,
+            kind: FlatKind::Row,
             cols: columns
                 .iter()
                 .map(|c| FlatCol {
@@ -460,6 +496,7 @@ impl Dataset {
                         .as_ref()
                         .filter(|(k, _)| *k == "decimalformatter")
                         .map(|(_, v)| v.clone()),
+                    data: c.data.clone(),
                 })
                 .collect(),
         });
@@ -505,6 +542,34 @@ impl Dataset {
         self.rows += 1;
     }
 
+    /// Where the rows of a data item about to run will start (`item_done`).
+    pub(crate) fn mark(&self) -> usize {
+        self.flat.len()
+    }
+
+    /// A data item that started at `since` (`mark`) under the open row, its `OnPreDataItem` not broken, is done: when it wrote no
+    /// row the data file needs to know whether it read none (`read_any` false) or left the rows it read out.
+    pub(crate) fn item_done(&mut self, since: usize, read_any: bool) {
+        let depth = self.open.len();
+        if self.flat[since..]
+            .iter()
+            .any(|r| r.depth == depth && r.kind == FlatKind::Row)
+        {
+            return;
+        }
+        self.flat.push(FlatRow {
+            depth,
+            item: String::new(),
+            has_children: false,
+            cols: Vec::new(),
+            kind: if read_any {
+                FlatKind::RowsLeftOut
+            } else {
+                FlatKind::NoRows
+            },
+        });
+    }
+
     /// Closes the row opened last; with `only_if_detail` (the item's `PrintOnlyIfDetail`) a row whose nested items wrote no row is
     /// taken back (corpus report/lt-report-requestpage/RptFilters.al:PrintOnlyIfDetail_Dataset, `1,3,`).
     pub(crate) fn end_row(&mut self, only_if_detail: bool) {
@@ -542,68 +607,68 @@ impl Dataset {
     /// element per column with its .NET type) and a `Result` element per row, behind a byte order
     /// mark (corpus al-language-onprem/handlers/TestRequestPageSaveAsXmlContracts.al:
     /// SaveAs_ReportDataFile_IsADataSet, one data item with Integer and Text columns).
-    /// The file stays one flat table `Result` (al-language-onprem/report/lt-aq/AqSaveAsXml.al:264
-    /// SaveAsXml_NestedDataItems_DataFile, :283 SaveAsXml_TwoTopLevelDataItems_DataFile; TO_SaveAsXml_Nested_*,
-    /// TO_SaveAsXml_Siblings_* in TestRequestPageSaveAsXmlContracts.al on corpus branch al-runtime-rs-staging-pub-to). A parent
-    /// with one nested data item gives one Result per child row with the parent's columns first, a parent row without child
-    /// rows one Result with only its own columns. Data items side by side give their rows one item after the other, each with
-    /// only its own columns; the schema lists the columns of every item in that order. A Decimal column is `xs:decimal` with
-    /// its value as it is and a `<Name>Format` column (`#,##0.00`) after it (AqSaveAsXml.al:257, `AmountCFormat`). An empty
-    /// Text is `<Name />` (AqSaveAsXml.al:258 `<NameC />`; TO_SaveAsXml_Nested_Rows `<PName />`). Anything else
-    /// is refused.
-    pub(crate) fn finish_data_set(self) -> Result<Vec<u8>, Signal> {
-        const NOT_FLAT: &str =
-            "a SaveAsXml data file of a report that is not one flat data item with rows (not pinned)";
+    ///
+    /// The file is one flat table `Result` (al-language-onprem/handlers/Y17SaveAsXmlTrees.al, BC 27, 28 and 29 alike):
+    /// - The schema lists the columns of every declared data item, depth first in run order, also of an item that wrote no row
+    ///   (:521 A3, :562 B2, :644 C1 `TTotal` after the nested items, :685 D1 no row at all, :726 D2, :767 B3).
+    /// - A row of an item with no nested items gives one Result with the columns of the rows above it and its own (:544 A3).
+    /// - Under a row, its nested items in run order: each row of a nested item gives its Results; a nested item that ran and read
+    ///   no row gives one Result with the columns down to the row (:544 A3 C 1/20 and P 2; :585 B2 P 2 before its D row, P 3
+    ///   after its C row); one that broke in OnPreDataItem gives none (:790 B3).
+    /// - A Result with no column is not written (:626 B0, column-less items over an Integer loop).
+    ///
+    /// A Decimal column is `xs:decimal` with its value as it is and a `<Name>Format` column (`#,##0.00`) after it
+    /// (AqSaveAsXml.al:257, `AmountCFormat`). An empty Text is `<Name />` (AqSaveAsXml.al:258 `<NameC />`). Refused: a row whose
+    /// every nested item broke, an item that read rows and wrote none, a column of an unpinned type, a column name used twice.
+    pub(crate) fn finish_data_set(self, declared: &[DeclaredItem]) -> Result<Vec<u8>, Signal> {
         let flat = &self.flat;
-        if flat.is_empty() || flat.iter().any(|r| r.depth > 1) {
-            return unsupported(NOT_FLAT);
-        }
-        let mut tops: Vec<&str> = Vec::new();
-        let mut kids: Vec<&str> = Vec::new();
-        for r in flat {
-            let list = if r.depth == 0 { &mut tops } else { &mut kids };
-            if !list.contains(&r.item.as_str()) {
-                list.push(&r.item);
-            }
-        }
-        let nested = !kids.is_empty();
-        // Pinned: one parent with one nested item, or items side by side with none nested. A nested item that wrote no row
-        // leaves its columns unknown here.
-        if (nested && (tops.len() != 1 || kids.len() != 1)) || (!nested && flat.iter().any(|r| r.declares)) {
-            return unsupported(NOT_FLAT);
-        }
-        // The columns of the schema: each item's columns, in the order the items come; every row of an item has the same.
-        let mut schema: Vec<(&str, &'static str, Option<&str>)> = Vec::new();
-        for item in tops.iter().chain(kids.iter()) {
-            let mut rows = flat.iter().filter(|r| r.item == *item);
-            let first = rows.next().expect("the item wrote a row");
-            if rows.any(|r| r.cols.iter().map(|c| &c.name).ne(first.cols.iter().map(|c| &c.name))) {
-                return unsupported(NOT_FLAT);
-            }
-            for c in &first.cols {
-                let Some(ty) = c.ty else {
+        // The columns of the schema: the declared ones; a written row gives the type where the declaration does not.
+        let mut schema: Vec<(&str, &'static str)> = Vec::new();
+        for item in declared {
+            let rows: Vec<&FlatRow> = flat
+                .iter()
+                .filter(|r| r.kind == FlatKind::Row && r.item == item.name)
+                .collect();
+            for r in &rows {
+                if r.cols.iter().map(|c| &c.name).ne(item.columns.iter().map(|(n, _)| n)) {
                     return unsupported(format!(
-                        "the SaveAsXml data file column {}, a type with no pinned .NET type",
-                        c.name
-                    ));
-                };
-                if schema.iter().any(|(n, _, _)| *n == c.name) {
-                    return unsupported(format!(
-                        "a SaveAsXml data file with the column {} in two data items (not pinned)",
-                        c.name
+                        "a SaveAsXml data file whose data item {} wrote other columns than it declares (not pinned)",
+                        item.name
                     ));
                 }
-                if ty == "xs:decimal" {
-                    // Only the default formatter is pinned.
-                    if c.formatter.as_deref() != Some("#,##0.00") {
+            }
+            for (k, (name, declared_ty)) in item.columns.iter().enumerate() {
+                let written = rows.first().map(|r| r.cols[k].ty);
+                let ty: &'static str = match (written, *declared_ty) {
+                    (Some(Some(t)), _) | (None, Some(t)) => t,
+                    _ => {
                         return unsupported(format!(
-                            "the SaveAsXml data file Decimal column {} with a formatter other than #,##0.00 (not pinned)",
-                            c.name
+                            "the SaveAsXml data file column {name}, a type with no pinned .NET type"
                         ));
                     }
+                };
+                if schema.iter().any(|(n, _)| n == name) {
+                    return unsupported(format!(
+                        "a SaveAsXml data file with the column {name} in two data items (not pinned)"
+                    ));
                 }
-                schema.push((&c.name, ty, c.formatter.as_deref()));
+                // Only the default formatter is pinned.
+                if ty == "xs:decimal" && rows.iter().any(|r| r.cols[k].formatter.as_deref() != Some("#,##0.00")) {
+                    return unsupported(format!(
+                        "the SaveAsXml data file Decimal column {name} with a formatter other than #,##0.00 (not pinned)"
+                    ));
+                }
+                schema.push((name, ty));
             }
+        }
+        if let Some(r) = flat
+            .iter()
+            .find(|r| r.kind == FlatKind::Row && !declared.iter().any(|d| d.name == r.item))
+        {
+            return unsupported(format!(
+                "a SaveAsXml data file with a row of data item {} the report does not declare (not pinned)",
+                r.item
+            ));
         }
         let mut out = String::new();
         out.push_str("<?xml version=\"1.0\" standalone=\"yes\"?>\r\n<DataSet>\r\n");
@@ -611,9 +676,15 @@ impl Dataset {
         out.push_str("    <xs:element name=\"NewDataSet\" msdata:IsDataSet=\"true\" msdata:MainDataTable=\"Result\" msdata:Locale=\"en-US\">\r\n");
         out.push_str("      <xs:complexType>\r\n        <xs:choice minOccurs=\"0\" maxOccurs=\"unbounded\">\r\n");
         out.push_str("          <xs:element name=\"Result\" msdata:Locale=\"en-US\">\r\n            <xs:complexType>\r\n              <xs:sequence>\r\n");
-        for (name, ty, _) in &schema {
+        for (name, ty) in &schema {
+            // AqSaveAsXml.al:247 `<xs:element name="DayC" msdata:DateTimeMode="Local" type="xs:dateTime"`.
+            let mode = if *ty == "xs:dateTime" {
+                " msdata:DateTimeMode=\"Local\""
+            } else {
+                ""
+            };
             out.push_str(&format!(
-                "                <xs:element name=\"{name}\" type=\"{ty}\" minOccurs=\"0\" />\r\n"
+                "                <xs:element name=\"{name}\"{mode} type=\"{ty}\" minOccurs=\"0\" />\r\n"
             ));
             if *ty == "xs:decimal" {
                 out.push_str(&format!(
@@ -623,28 +694,24 @@ impl Dataset {
         }
         out.push_str("              </xs:sequence>\r\n            </xs:complexType>\r\n          </xs:element>\r\n");
         out.push_str("        </xs:choice>\r\n      </xs:complexType>\r\n    </xs:element>\r\n  </xs:schema>\r\n");
-        // The Results: a parent row with its child rows gives one per child row.
         let mut results: Vec<Vec<&FlatCol>> = Vec::new();
         let mut i = 0;
         while i < flat.len() {
-            let own: Vec<&FlatCol> = flat[i].cols.iter().collect();
-            let mut j = i + 1;
-            while j < flat.len() && flat[j].depth == 1 {
-                j += 1;
+            // An item at the top that wrote no row adds nothing (Y17SaveAsXmlTrees.al:708 D1).
+            if flat[i].kind == FlatKind::Row {
+                Self::results_of(flat, i, &[], &mut results)?;
             }
-            if j == i + 1 {
-                results.push(own);
-            } else {
-                for child in &flat[i + 1..j] {
-                    results.push(own.iter().copied().chain(child.cols.iter()).collect());
-                }
-            }
-            i = j;
+            i = Self::subtree_end(flat, i);
         }
-        for row in &results {
+        for row in results.iter().filter(|r| !r.is_empty()) {
             out.push_str("  <Result>\r\n");
             for c in row {
-                if c.text.is_empty() {
+                let text = match &c.data {
+                    DataFileText::Omit => continue,
+                    DataFileText::Text(t) => t,
+                    DataFileText::Same => &c.text,
+                };
+                if text.is_empty() {
                     // An empty Text is an empty element; an empty value of another type is not pinned.
                     if c.ty != Some("xs:string") {
                         return unsupported(format!(
@@ -654,11 +721,7 @@ impl Dataset {
                     }
                     out.push_str(&format!("    <{} />\r\n", c.name));
                 } else {
-                    out.push_str(&format!(
-                        "    <{name}>{text}</{name}>\r\n",
-                        name = c.name,
-                        text = c.text
-                    ));
+                    out.push_str(&format!("    <{name}>{text}</{name}>\r\n", name = c.name));
                 }
                 if c.ty == Some("xs:decimal") {
                     let f = c.formatter.as_deref().unwrap_or_default();
@@ -671,6 +734,54 @@ impl Dataset {
         let mut bytes = vec![0xEF, 0xBB, 0xBF];
         bytes.extend_from_slice(out.as_bytes());
         Ok(bytes)
+    }
+
+    /// The index after the entry at `i` and everything nested under it.
+    fn subtree_end(flat: &[FlatRow], i: usize) -> usize {
+        let depth = flat[i].depth;
+        let mut j = i + 1;
+        while j < flat.len() && flat[j].depth > depth {
+            j += 1;
+        }
+        j
+    }
+
+    /// The Results of row `i` of `flat` under the columns `above` (`finish_data_set`).
+    fn results_of<'a>(
+        flat: &'a [FlatRow],
+        i: usize,
+        above: &[&'a FlatCol],
+        out: &mut Vec<Vec<&'a FlatCol>>,
+    ) -> Result<(), Signal> {
+        let mut cols = above.to_vec();
+        cols.extend(flat[i].cols.iter());
+        let end = Self::subtree_end(flat, i);
+        if end == i + 1 {
+            if flat[i].has_children {
+                return unsupported(
+                    "a SaveAsXml data file with a row whose every nested data item broke in OnPreDataItem (not pinned)",
+                );
+            }
+            out.push(cols);
+            return Ok(());
+        }
+        let mut j = i + 1;
+        while j < end {
+            match flat[j].kind {
+                FlatKind::Row => Self::results_of(flat, j, &cols, out)?,
+                FlatKind::NoRows => out.push(cols.clone()),
+                // Whether the row above gets a Result of its own is not pinned. Under no column at all there is nothing to
+                // write either way (a Result with no column is not written).
+                FlatKind::RowsLeftOut if cols.is_empty() => {}
+                FlatKind::RowsLeftOut => {
+                    return unsupported(
+                        "a SaveAsXml data file of a report whose nested data item read rows and wrote none (Skip, Break or PrintOnlyIfDetail; not pinned)",
+                    );
+                }
+            }
+            j = Self::subtree_end(flat, j);
+        }
+        Ok(())
     }
 
     /// The bytes of the whole dataset: the byte order mark, the header, the data items.
@@ -725,11 +836,12 @@ mod tests {
             attribute: (ty == "xs:decimal").then(|| ("decimalformatter", "#,##0.00".to_string())),
             text: text.into(),
             schema_type: Some(ty),
+            data: DataFileText::Same,
         }
     }
 
-    fn data_file_rows(d: Dataset) -> String {
-        let bytes = d.finish_data_set().unwrap();
+    fn data_file_rows(d: Dataset, items: &[DeclaredItem]) -> String {
+        let bytes = d.finish_data_set(items).unwrap();
         let text = String::from_utf8(bytes[3..].to_vec()).unwrap().replace("\r\n", "|");
         text[text.find("</xs:schema>|").unwrap() + 13..].to_string()
     }
@@ -739,30 +851,41 @@ mod tests {
     // child rows only its own; a Decimal adds its Format column (:257), an empty Text is an empty element (:258).
     #[test]
     fn a_nested_data_item_gives_one_result_per_child_row() {
+        let items = declared(&[
+            ("Parent", &[("PId", "xs:int"), ("PName", "xs:string")]),
+            ("Child", &[("CLine", "xs:int"), ("CQty", "xs:decimal")]),
+        ]);
         let mut d = Dataset::default();
         d.begin(
             "Parent",
             None,
             &[col("PId", "xs:int", "1"), col("PName", "xs:string", "a")],
             true,
+            true,
         );
+        let since = d.mark();
         d.begin(
             "Child",
             None,
             &[col("CLine", "xs:int", "10"), col("CQty", "xs:decimal", "1.5")],
             false,
+            false,
         );
         d.end_row(false);
+        d.item_done(since, true);
         d.end_row(false);
         d.begin(
             "Parent",
             None,
             &[col("PId", "xs:int", "2"), col("PName", "xs:string", "")],
             true,
+            true,
         );
+        let since = d.mark();
+        d.item_done(since, false);
         d.end_row(false);
         assert_eq!(
-            data_file_rows(d),
+            data_file_rows(d, &items),
             "  <Result>|    <PId>1</PId>|    <PName>a</PName>|    <CLine>10</CLine>|    <CQty>1.5</CQty>|    <CQtyFormat>#,##0.00</CQtyFormat>|  </Result>|  <Result>|    <PId>2</PId>|    <PName />|  </Result>|</DataSet>|"
         );
     }
@@ -770,20 +893,251 @@ mod tests {
     // AqSaveAsXml.al:283 SaveAsXml_TwoTopLevelDataItems_DataFile: the rows of each item with only its own columns, one item after the other.
     #[test]
     fn data_items_side_by_side_give_their_rows_one_after_the_other() {
+        let items = declared(&[("Parent", &[("PId", "xs:int")]), ("Child", &[("CLine", "xs:int")])]);
         let mut d = Dataset::default();
-        d.begin("Parent", None, &[col("PId", "xs:int", "1")], false);
+        d.begin("Parent", None, &[col("PId", "xs:int", "1")], false, false);
         d.end_row(false);
-        d.begin("Child", None, &[col("CLine", "xs:int", "10")], false);
+        d.begin("Child", None, &[col("CLine", "xs:int", "10")], false, false);
         d.end_row(false);
         assert_eq!(
-            data_file_rows(d),
+            data_file_rows(d, &items),
             "  <Result>|    <PId>1</PId>|  </Result>|  <Result>|    <CLine>10</CLine>|  </Result>|</DataSet>|"
         );
-        // A nested item that wrote no row leaves its columns unknown: refused.
+    }
+
+    fn declared(items: &[(&str, &[(&str, &'static str)])]) -> Vec<DeclaredItem> {
+        items
+            .iter()
+            .map(|(name, cols)| DeclaredItem {
+                name: name.to_string(),
+                columns: cols.iter().map(|(c, t)| (c.to_string(), Some(*t))).collect(),
+            })
+            .collect()
+    }
+
+    fn data_file(d: Dataset, items: &[DeclaredItem]) -> Result<String, Signal> {
+        let bytes = d.finish_data_set(items)?;
+        Ok(String::from_utf8(bytes[3..].to_vec()).unwrap().replace("\r\n", "|"))
+    }
+
+    fn rows_of(text: &str) -> String {
+        text[text.find("</xs:schema>|").unwrap() + 13..].replace("  ", "")
+    }
+
+    fn schema_columns(text: &str) -> String {
+        text.split('|')
+            .filter(|l| l.contains("minOccurs=\"0\" />"))
+            .map(|l| l.trim().to_string() + "|")
+            .collect()
+    }
+
+    // al-language-onprem/handlers/Y17SaveAsXmlTrees.al:544 Y17_SaveAsXml_A3_Rows: one Result per leaf with the columns of every
+    // level above it; a middle row whose nested item ran with no row gives a Result with the columns down to it (C 1/20), a parent
+    // whose child item has no row one with its own (P 2). :521 the schema lists the declared columns depth first.
+    #[test]
+    fn three_levels_give_one_result_per_leaf_and_one_per_item_without_rows() {
+        let items = declared(&[
+            ("P", &[("PId", "xs:int"), ("PName", "xs:string")]),
+            ("C", &[("CLine", "xs:int"), ("CQty", "xs:decimal")]),
+            ("G", &[("GSub", "xs:int"), ("GNote", "xs:string")]),
+        ]);
         let mut d = Dataset::default();
-        d.begin("Parent", None, &[col("PId", "xs:int", "1")], true);
+        let p = |id: &str, name: &str| vec![col("PId", "xs:int", id), col("PName", "xs:string", name)];
+        let c = |line: &str, qty: &str| vec![col("CLine", "xs:int", line), col("CQty", "xs:decimal", qty)];
+        let g = |sub: &str, note: &str| vec![col("GSub", "xs:int", sub), col("GNote", "xs:string", note)];
+        d.begin("P", None, &p("1", "a"), true, true);
+        let cs = d.mark();
+        d.begin("C", None, &c("10", "1.5"), true, true);
+        let gs = d.mark();
+        for (sub, note) in [("1", "x"), ("2", "y")] {
+            d.begin("G", None, &g(sub, note), false, false);
+            d.end_row(false);
+        }
+        d.item_done(gs, true);
         d.end_row(false);
-        assert!(matches!(d.finish_data_set(), Err(Signal::Unsupported(_))));
+        d.begin("C", None, &c("20", "2"), true, true);
+        let gs = d.mark();
+        d.item_done(gs, false);
+        d.end_row(false);
+        d.item_done(cs, true);
+        d.end_row(false);
+        d.begin("P", None, &p("2", ""), true, true);
+        let cs = d.mark();
+        d.item_done(cs, false);
+        d.end_row(false);
+        d.begin("P", None, &p("3", "c"), true, true);
+        let cs = d.mark();
+        d.begin("C", None, &c("10", "0"), true, true);
+        let gs = d.mark();
+        d.begin("G", None, &g("1", "z"), false, false);
+        d.end_row(false);
+        d.item_done(gs, true);
+        d.end_row(false);
+        d.item_done(cs, true);
+        d.end_row(false);
+        let text = data_file(d, &items).unwrap();
+        assert_eq!(
+            schema_columns(&text),
+            "<xs:element name=\"PId\" type=\"xs:int\" minOccurs=\"0\" />|<xs:element name=\"PName\" type=\"xs:string\" minOccurs=\"0\" />|<xs:element name=\"CLine\" type=\"xs:int\" minOccurs=\"0\" />|<xs:element name=\"CQty\" type=\"xs:decimal\" minOccurs=\"0\" />|<xs:element name=\"CQtyFormat\" type=\"xs:string\" minOccurs=\"0\" />|<xs:element name=\"GSub\" type=\"xs:int\" minOccurs=\"0\" />|<xs:element name=\"GNote\" type=\"xs:string\" minOccurs=\"0\" />|"
+        );
+        assert_eq!(
+            rows_of(&text),
+            "<Result>|<PId>1</PId>|<PName>a</PName>|<CLine>10</CLine>|<CQty>1.5</CQty>|<CQtyFormat>#,##0.00</CQtyFormat>|<GSub>1</GSub>|<GNote>x</GNote>|</Result>|<Result>|<PId>1</PId>|<PName>a</PName>|<CLine>10</CLine>|<CQty>1.5</CQty>|<CQtyFormat>#,##0.00</CQtyFormat>|<GSub>2</GSub>|<GNote>y</GNote>|</Result>|<Result>|<PId>1</PId>|<PName>a</PName>|<CLine>20</CLine>|<CQty>2</CQty>|<CQtyFormat>#,##0.00</CQtyFormat>|</Result>|<Result>|<PId>2</PId>|<PName />|</Result>|<Result>|<PId>3</PId>|<PName>c</PName>|<CLine>10</CLine>|<CQty>0</CQty>|<CQtyFormat>#,##0.00</CQtyFormat>|<GSub>1</GSub>|<GNote>z</GNote>|</Result>|</DataSet>|"
+        );
+    }
+
+    // Y17SaveAsXmlTrees.al:585 Y17_SaveAsXml_B2_Rows: children in declaration order per parent; a child item without rows gives a
+    // Result with the parent's columns, also when the other child has rows (P 2, P 3). :790 B3_Rows: a child item that breaks in
+    // OnPreDataItem gives none (P 3 has only its C row).
+    #[test]
+    fn a_child_item_without_rows_gives_the_parent_alone_and_a_broken_one_nothing() {
+        let items = declared(&[
+            ("P", &[("PId", "xs:int")]),
+            ("C", &[("CLine", "xs:int")]),
+            ("D", &[("DNo", "xs:int")]),
+        ]);
+        let run = |d_breaks: bool| {
+            let mut d = Dataset::default();
+            for (p, c_rows, d_rows) in [("1", 1, 1), ("2", 0, 1), ("3", 1, 0)] {
+                d.begin("P", None, &[col("PId", "xs:int", p)], true, true);
+                for (item, n, column, breaks) in [("C", c_rows, "CLine", false), ("D", d_rows, "DNo", d_breaks)] {
+                    if breaks {
+                        continue;
+                    }
+                    let since = d.mark();
+                    for _ in 0..n {
+                        d.begin(item, None, &[col(column, "xs:int", "7")], false, false);
+                        d.end_row(false);
+                    }
+                    d.item_done(since, n > 0);
+                }
+                d.end_row(false);
+            }
+            d
+        };
+        assert_eq!(
+            rows_of(&data_file(run(false), &items).unwrap()),
+            "<Result>|<PId>1</PId>|<CLine>7</CLine>|</Result>|<Result>|<PId>1</PId>|<DNo>7</DNo>|</Result>|<Result>|<PId>2</PId>|</Result>|<Result>|<PId>2</PId>|<DNo>7</DNo>|</Result>|<Result>|<PId>3</PId>|<CLine>7</CLine>|</Result>|<Result>|<PId>3</PId>|</Result>|</DataSet>|"
+        );
+        // P 2 of the second run: C has no row, D breaks: one Result with the parent's columns.
+        assert_eq!(
+            rows_of(&data_file(run(true), &items).unwrap()),
+            "<Result>|<PId>1</PId>|<CLine>7</CLine>|</Result>|<Result>|<PId>2</PId>|</Result>|<Result>|<PId>3</PId>|<CLine>7</CLine>|</Result>|</DataSet>|"
+        );
+    }
+
+    // Y17SaveAsXmlTrees.al:626 B0_Rows: rows of items without columns give no Result; :708 D1_Rows: no row at all is the schema of
+    // the declared columns and no Result.
+    #[test]
+    fn items_without_columns_give_no_result_and_no_row_gives_only_the_schema() {
+        let items = declared(&[("Top", &[]), ("C", &[]), ("Loop", &[("LNum", "xs:int")])]);
+        let mut d = Dataset::default();
+        d.begin("Top", None, &[], true, true);
+        let since = d.mark();
+        for _ in 0..3 {
+            d.begin("C", None, &[], false, false);
+            d.end_row(false);
+        }
+        d.item_done(since, true);
+        let since = d.mark();
+        for n in ["1", "2"] {
+            d.begin("Loop", None, &[col("LNum", "xs:int", n)], false, false);
+            d.end_row(false);
+        }
+        d.item_done(since, true);
+        d.end_row(false);
+        let text = data_file(d, &items).unwrap();
+        assert_eq!(
+            schema_columns(&text),
+            "<xs:element name=\"LNum\" type=\"xs:int\" minOccurs=\"0\" />|"
+        );
+        assert_eq!(
+            rows_of(&text),
+            "<Result>|<LNum>1</LNum>|</Result>|<Result>|<LNum>2</LNum>|</Result>|</DataSet>|"
+        );
+        let items = declared(&[("P", &[("PId", "xs:int"), ("PName", "xs:string")])]);
+        let mut d = Dataset::default();
+        let since = d.mark();
+        d.item_done(since, false);
+        let text = data_file(d, &items).unwrap();
+        assert_eq!(rows_of(&text), "</DataSet>|");
+        assert!(schema_columns(&text).contains("PName"));
+    }
+
+    // al-language-onprem/report/lt-aq/AqSaveAsXml.al:247 SaveAsXml_ColumnTypes_DataFile: a Date is `xs:dateTime` with
+    // `msdata:DateTimeMode="Local"`, written `2024-12-25T00:00:00+00:00` and left out when blank; a Boolean `xs:boolean`, `true` or
+    // `false`; an Option `xs:string`, the member.
+    #[test]
+    fn dates_booleans_and_options_have_their_data_file_types() {
+        let items = declared(&[(
+            "Row",
+            &[("DayC", "xs:dateTime"), ("FlagC", "xs:boolean"), ("KindC", "xs:string")],
+        )]);
+        let row = |day: DataFileText, day_text: &str, flag: bool, kind: &str| {
+            vec![
+                Column {
+                    data: day,
+                    ..col("DayC", "xs:dateTime", day_text)
+                },
+                Column {
+                    data: DataFileText::Text(flag.to_string()),
+                    ..col("FlagC", "xs:boolean", if flag { "True" } else { "False" })
+                },
+                col("KindC", "xs:string", kind),
+            ]
+        };
+        let mut d = Dataset::default();
+        d.begin(
+            "Row",
+            None,
+            &row(
+                DataFileText::Text("2024-12-25T00:00:00+00:00".into()),
+                "12/25/2024",
+                true,
+                "Gamma",
+            ),
+            false,
+            false,
+        );
+        d.end_row(false);
+        d.begin("Row", None, &row(DataFileText::Omit, "", false, "Alpha"), false, false);
+        d.end_row(false);
+        let text = data_file(d, &items).unwrap();
+        assert_eq!(
+            schema_columns(&text),
+            "<xs:element name=\"DayC\" msdata:DateTimeMode=\"Local\" type=\"xs:dateTime\" minOccurs=\"0\" />|<xs:element name=\"FlagC\" type=\"xs:boolean\" minOccurs=\"0\" />|<xs:element name=\"KindC\" type=\"xs:string\" minOccurs=\"0\" />|"
+        );
+        assert_eq!(
+            rows_of(&text),
+            "<Result>|<DayC>2024-12-25T00:00:00+00:00</DayC>|<FlagC>true</FlagC>|<KindC>Gamma</KindC>|</Result>|<Result>|<FlagC>false</FlagC>|<KindC>Alpha</KindC>|</Result>|</DataSet>|"
+        );
+    }
+
+    // Not pinned: a row whose every nested item broke, a nested item that read rows and wrote none (Skip, Break in
+    // OnAfterGetRecord), a declared column whose type is unknown. A top item that left out every row writes nothing.
+    #[test]
+    fn data_file_shapes_no_test_pins_are_refused() {
+        let items = declared(&[("P", &[("PId", "xs:int")]), ("C", &[("CLine", "xs:int")])]);
+        let mut d = Dataset::default();
+        d.begin("P", None, &[col("PId", "xs:int", "1")], true, true);
+        d.end_row(false);
+        assert!(matches!(d.finish_data_set(&items), Err(Signal::Unsupported(_))));
+        let mut d = Dataset::default();
+        d.begin("P", None, &[col("PId", "xs:int", "1")], true, true);
+        let since = d.mark();
+        d.item_done(since, true);
+        d.end_row(false);
+        assert!(matches!(d.finish_data_set(&items), Err(Signal::Unsupported(_))));
+        let mut d = Dataset::default();
+        let since = d.mark();
+        d.item_done(since, true);
+        assert_eq!(rows_of(&data_file(d, &items).unwrap()), "</DataSet>|");
+        let unknown = vec![DeclaredItem {
+            name: "P".into(),
+            columns: vec![("PId".into(), None)],
+        }];
+        let d = Dataset::default();
+        assert!(matches!(d.finish_data_set(&unknown), Err(Signal::Unsupported(_))));
     }
 
     // handlers/TestReportSaveAsColumnTypesContracts.al:222-244
@@ -810,7 +1164,10 @@ mod tests {
     fn time_and_date_follow_the_en_us_pattern() {
         assert_eq!(time_text(45_296_000).unwrap(), "12:34:56 PM");
         assert_eq!(time_text(0).unwrap(), "12:00:00 AM");
-        assert!(time_text(1).is_err());
+        // Milliseconds are cut off (errors/lt-ms-refusals-132/P132ReportTimeMs.al P132_Dataset_Time_Milliseconds, Y38_*).
+        assert_eq!(time_text(1).unwrap(), "12:00:00 AM");
+        assert_eq!(time_text(48_600_999).unwrap(), "1:30:00 PM");
+        assert_eq!(time_text(86_399_999).unwrap(), "11:59:59 PM");
     }
 
     #[test]

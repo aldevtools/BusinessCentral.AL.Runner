@@ -15,6 +15,8 @@ use rust_decimal::Decimal;
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
+mod filter;
+
 pub type Handle = Rc<RefCell<LibraryValue>>;
 
 /// A node plus the container it is attached to (for `Path`).
@@ -2171,6 +2173,8 @@ enum Seg {
     Slice(usize, usize),
     /// `..name`: every descendant named `name`.
     Descent(String),
+    /// `[?(@.name == x)]` (`filter`).
+    Filter(filter::Filter),
 }
 
 /// A path the platform cannot read: an indexer with no `]` (json/JsonObjectBasics.al:329 `select_bad`, :371
@@ -2178,11 +2182,15 @@ enum Seg {
 enum PathErr {
     Unclosed,
     BadIndex,
+    /// A filter the platform cannot read (`filter::FilterErr::Invalid`).
+    InvalidFilter,
+    /// A name in double quotes, `["a"]`: false when the result is used (json/lt-dc-json-leads/DcJsonLeads.al:306, :340).
+    DoubleQuoted,
     Refused(Signal),
 }
 
 /// Dotted names, `[n]` / `['name']` / `[*]` / `[a:b]` indexers and `..name`, with an optional leading `$`.
-/// Filters are not pinned by the corpus.
+/// Filters as `filter` reads them.
 fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
     let refuse = |what: &str| PathErr::Refused(Signal::Unsupported(what.into()));
     let b = p.as_bytes();
@@ -2207,7 +2215,15 @@ fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
                         (Ok(a), Ok(z)) => segs.push(Seg::Slice(a, z)),
                         _ => return Err(refuse("SelectToken slice form not pinned by the corpus")),
                     }
-                } else if inner.starts_with('?') || inner.starts_with('(') || inner.contains(',') {
+                } else if inner.len() >= 2 && inner.starts_with('"') && inner.ends_with('"') {
+                    return Err(PathErr::DoubleQuoted);
+                } else if inner.starts_with('?') {
+                    match filter::parse(inner) {
+                        Ok(f) => segs.push(Seg::Filter(f)),
+                        Err(filter::FilterErr::Invalid) => return Err(PathErr::InvalidFilter),
+                        Err(filter::FilterErr::Refused(why)) => return Err(refuse(why)),
+                    }
+                } else if inner.starts_with('(') || inner.contains(',') {
                     return Err(refuse("SelectToken indexer form not pinned by the corpus"));
                 } else {
                     return Err(PathErr::BadIndex);
@@ -2221,6 +2237,10 @@ fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
                     if b.get(i) == Some(&b'.') {
                         descent = true;
                         i += 1;
+                    } else if b.get(i) == Some(&b'[') && b.get(i + 1) == Some(&b'?') {
+                        // `$.[?(@.id==2)]` (al-runner issue 6588): the dot before a filter is skipped.
+                        crate::assumptions::assume(crate::assumptions::Assumption::SelectTokenDotBeforeIndexer);
+                        continue;
                     }
                 }
                 let s = i;
@@ -2269,6 +2289,14 @@ fn select_token(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Resu
         Ok(s) => s,
         Err(PathErr::Unclosed) if used => return Ok(Value::Boolean(false)),
         Err(PathErr::BadIndex) if used => return unsupported("SelectToken with a bad index, result used (not pinned)"),
+        Err(PathErr::InvalidFilter) if used => return Ok(filter::invalid(c)),
+        Err(PathErr::DoubleQuoted) if used => return Ok(Value::Boolean(false)),
+        Err(PathErr::DoubleQuoted) => {
+            return unsupported("SelectToken with a double-quoted name as a statement (not pinned)");
+        }
+        Err(PathErr::InvalidFilter) => {
+            return unsupported("SelectToken with a double-quoted filter text as a statement (not pinned)");
+        }
         Err(PathErr::Unclosed | PathErr::BadIndex) => {
             return Err(error(
                 "The requested operation cannot be performed in this context.",
@@ -2277,6 +2305,9 @@ fn select_token(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Resu
         }
         Err(PathErr::Refused(e)) => return Err(e),
     };
+    if segs.iter().any(|s| matches!(s, Seg::Filter(_))) {
+        return filter::select(h, &segs, &p, used, &mut a[1]);
+    }
     let last = segs.len().saturating_sub(1);
     let mut cur = h;
     for (n, seg) in segs.iter().enumerate() {
@@ -2556,6 +2587,139 @@ fn select_tokens(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Res
     Ok(Value::Boolean(true))
 }
 
+// ---------------------------------------------------- WriteWithSecretsTo
+
+/// The text of a SecretText argument: a cleared one is empty (json/lt-json-select-secrets/WriteWithSecrets.al:63
+/// `empty_secret`).
+fn secret_text(v: &Value) -> Result<String, Signal> {
+    match v {
+        Value::Library(_, h) => match &*h.borrow() {
+            LibraryValue::Empty => Ok(String::new()),
+            LibraryValue::Text(s) => Ok(s.clone()),
+            other => unsupported(format!("WriteWithSecretsTo with a secret holding {}", other.describe())),
+        },
+        other => unsupported(format!("WriteWithSecretsTo with a secret that is {}", other.describe())),
+    }
+}
+
+/// Puts `secret` at `path` in the copy `root`: `Ok(false)` when the platform answers false. Pinned by
+/// json/lt-json-select-secrets/WriteWithSecrets.al: a dotted name with or without `$.` that names a string is replaced
+/// (:40-45); a number, an object or an array element that is a number (:46-51, :126 `$.n`), a missing name (:52), an empty
+/// path (:55), an unclosed indexer (:70) and `a..b` on a missing `a` (:73) answer false.
+fn put_secret(root: &Handle, path: &str, secret: &str) -> Result<bool, Signal> {
+    let segs = match parse_path(path) {
+        Ok(s) => s,
+        Err(PathErr::Unclosed) => return Ok(false),
+        Err(PathErr::BadIndex) => return unsupported("WriteWithSecretsTo with a bad index in the path (not pinned)"),
+        Err(PathErr::InvalidFilter | PathErr::DoubleQuoted) => {
+            return unsupported("WriteWithSecretsTo with a filter or a double-quoted name in the path (not pinned)");
+        }
+        Err(PathErr::Refused(e)) => return Err(e),
+    };
+    if segs.is_empty() {
+        return Ok(false);
+    }
+    let mut cur = root.clone();
+    let mut indexed = false;
+    for seg in &segs {
+        let found: Vec<Handle> = match seg {
+            Seg::Key(k) => with_node(&cur, |n| match n {
+                JsonNode::Object(kids) => kids.iter().filter(|(e, _)| e == k).map(|(_, c)| c.clone()).collect(),
+                _ => Vec::new(),
+            }),
+            Seg::Index(i) => {
+                indexed = true;
+                with_node(&cur, |n| match n {
+                    JsonNode::Array(kids) => usize::try_from(*i)
+                        .ok()
+                        .and_then(|i| kids.get(i).cloned())
+                        .into_iter()
+                        .collect(),
+                    _ => Vec::new(),
+                })
+            }
+            _ => return unsupported("WriteWithSecretsTo with a wildcard, a slice or `..` in the path (not pinned)"),
+        };
+        match found.len() {
+            0 if !indexed => return Ok(false),
+            0 => return unsupported("WriteWithSecretsTo with an index that matches nothing (not pinned)"),
+            1 => cur = found.into_iter().next().expect("one"),
+            _ => return unsupported("WriteWithSecretsTo on a name that is in the object twice (not pinned)"),
+        }
+    }
+    let kind = with_node(&cur, |n| match n {
+        JsonNode::Scalar(Scalar::Val(Value::Text(_))) => Some(true),
+        JsonNode::Scalar(
+            Scalar::Val(Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_)) | Scalar::Raw(_),
+        )
+        | JsonNode::Object(_) => Some(false),
+        _ => None,
+    });
+    match kind {
+        Some(true) if indexed => unsupported("WriteWithSecretsTo on a string inside an array (not pinned)"),
+        Some(true) => {
+            with_node(&cur, |n| {
+                *n = JsonNode::Scalar(Scalar::Val(Value::Text(secret.to_string().into())))
+            });
+            Ok(true)
+        }
+        Some(false) => Ok(false),
+        None => unsupported("WriteWithSecretsTo on a value that is not a string, a number or an object (not pinned)"),
+    }
+}
+
+/// Writes a copy of the object with every `(path, secret)` put in it to `a[out]` as a SecretText and answers true; the
+/// object itself is not changed (WriteWithSecrets.al:67 and :128 `source_unchanged`). When one path fails the answer is
+/// false and the result keeps what it held (:46-58 and :124-127; a cleared result stays empty, :59-62). Whether a false
+/// as a statement raises an error is not pinned.
+fn write_with_secrets(
+    c: &mut dyn Ctx,
+    r: Option<&mut Value>,
+    a: &mut [Value],
+    pairs: Vec<(String, String)>,
+    out: usize,
+) -> Result<Value, Signal> {
+    let copy = deep_clone(&recv(r)?);
+    for (path, secret) in &pairs {
+        if !put_secret(&copy, path, secret)? {
+            if !c.ret_used() {
+                return unsupported("WriteWithSecretsTo that answers false, as a statement (not pinned)");
+            }
+            return Ok(Value::Boolean(false));
+        }
+    }
+    let mut text = String::new();
+    write(&copy, &mut text)?;
+    a[out] = Value::Library("SecretText".into(), Rc::new(RefCell::new(LibraryValue::Text(text))));
+    Ok(Value::Boolean(true))
+}
+
+/// `WriteWithSecretsTo(Path, Secret, var Result)` (json/lt-json-select-secrets/WriteWithSecrets.al:30-90).
+fn write_with_secret_path(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+    let Some(path) = crate::native::text_of(&a[0]) else {
+        return unsupported("WriteWithSecretsTo path that is not text");
+    };
+    let secret = secret_text(&a[1])?;
+    write_with_secrets(c, r, a, vec![(path.to_string(), secret)], 2)
+}
+
+/// `WriteWithSecretsTo(Secrets: Dictionary of [Text, SecretText], var Result)`: every key is a path; an empty dictionary
+/// writes the object as it is (json/lt-json-select-secrets/WriteWithSecrets.al:92-138). Microsoft's Shopify Connector
+/// calls it with `$.name` keys (Shpfy Authentication Mgt. ExecuteTokenRequest), the form :40-43 and :112-115 pin.
+fn write_with_secret_dictionary(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+    let Value::Dictionary(d) = &a[0] else {
+        return unsupported(format!("WriteWithSecretsTo with {} for the secrets", a[0].describe()));
+    };
+    let mut pairs = Vec::new();
+    for (k, v) in d.borrow().iter() {
+        let Some(path) = crate::native::text_of(k) else {
+            return unsupported("WriteWithSecretsTo with a dictionary key that is not text");
+        };
+        pairs.push((path.to_string(), secret_text(v)?));
+    }
+    write_with_secrets(c, r, a, pairs, 1)
+}
+
 // --------------------------------------------------------------- dispatch
 
 /// The implementation of one catalog overload, if the corpus pins enough of it.
@@ -2592,6 +2756,8 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         ("JsonObject.WriteToYaml", ["Text"]) if first_by_var => write_to_yaml,
         ("JsonObject.WriteTo", ["Text"]) if first_by_var => write_to_text,
         ("JsonObject.WriteTo", ["OutStream"]) => write_to_stream,
+        ("JsonObject.WriteWithSecretsTo", [_, _, _]) => write_with_secret_path,
+        ("JsonObject.WriteWithSecretsTo", [_, _]) => write_with_secret_dictionary,
         ("JsonObject.AsToken" | "JsonArray.AsToken" | "JsonValue.AsToken", []) => as_token,
         ("JsonObject.Clone" | "JsonArray.Clone" | "JsonValue.Clone" | "JsonToken.Clone", []) => clone_token,
         ("JsonObject.Path" | "JsonArray.Path" | "JsonValue.Path" | "JsonToken.Path", []) => path,

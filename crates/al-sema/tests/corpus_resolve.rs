@@ -140,10 +140,6 @@ const KNOWN_GAP_FILES: &[(&str, &str)] = &[
         "the checker does not resolve `this` in a report extension (corpus bump 14)",
     ),
     (
-        "record/lt-bm-builtin-name-procedures/BmBuiltinNameProcedures.al",
-        "a table procedure Insert() or Get() hides the built-in overloads with arguments (Insert(true), Get(2)) (corpus bump 28)",
-    ),
-    (
         "report/lt-ch-report-leads/ChReportPart.al",
         "the checker does not know a part of a report's request page (RequestOptionsPage.ChPart.Page) (corpus bump 29)",
     ),

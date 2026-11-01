@@ -400,6 +400,35 @@ Total: **26 probes** (P0-P25), 14 before stage 1 can be default on.
 6. **Stage 4 gate:** a shadow run over all Microsoft buckets with zero unexplained "would deny" (recommended), or
    probes P23-P25 alone.
 
+## Stage 1 (2026-10-31)
+
+Stage 1 is on by default: probes P1-P13 are merged in the corpus (master, PR 914, folder
+`permissions/lt-y19-perm-probes/`; BC 27.5, 28.5 and 29.0 agree). What it does (`al-vm/src/permissions.rs`):
+
+- **Write denials raise BC's error in the pinned shapes only:** Insert, Modify, Delete, Rename (as Modify), DeleteAll and
+  ModifyAll (on a table with rows, whatever the filter matches; without triggers on an empty table nothing), from a
+  Record or RecordRef method AL code calls, on a non-temporary record, by code of a non-extension object; Insert of a new
+  key, Modify/Delete/Rename of a stored row. `Indirect<Op>` when the code's object grants the access; the app name is the
+  app of the code. A temporary record is never checked (P6).
+- **Every other denial refuses the test:** reads and FlowFields (stage 2), Execute (stage 3), writes the runtime makes for a
+  page, report, xmlport or validation, system tables other than Tenant Media, a session whose sets are not fully composed
+  (an unknown role, sets assigned on top of the test runner's sets: P25), and code of extension objects.
+- **Composition:** permission set extensions merge into their set (P10); `ExcludedPermissionSets` subtracts per permission
+  after the includes, an excluded set's own includes too, an excluded Indirect leaving Indirect of a Yes (P11). Unpinned
+  corners (Indirect minus Indirect, a wildcard minus one object, an included set that excludes, one assigned set excluding
+  what another grants) keep a lower bound and mark the session incomplete, so their denials refuse.
+- **Inherent permissions** (pin 5): the table property and the `[InherentPermissions]` attributes of the routines on the
+  stack merge into the session level; only Yes levels are pinned.
+- The end-of-test refusal of a test that is still lowered applies only under `--permissions off`.
+
+### Decided without owner review (2026-10-31)
+
+- **An access the sets allow runs in every stage**, also a read or a call while stages 2 and 3 are off. Section 2's safety
+  rule says an allowed access needs no probe; without this, stage 1 would change no test that reads after lowering, which
+  is nearly every test. Only the denials of a stage wait for its probes. Internal reads the runtime makes without a record
+  method (a TableRelation check, a page's lookup) are not checked in a restricted session; BC may deny some of them, which
+  would show as a failure of a test BC passes, never as a false pass of a test that expects the denial to be raised in AL.
+
 ## Conformance
 
 - Unit tests of the decision function against every pinned case in section "What the corpus pins" (table-driven, one

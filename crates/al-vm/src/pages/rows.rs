@@ -702,35 +702,60 @@ impl Session {
     pub(super) fn populate_window(&mut self, st: &St) -> Result<(), Signal> {
         // A tree with TreeInitialState = ExpandAll and row triggers reads the rows it does not show too when it opens
         // (`tree_expand_all_with_row_triggers`): the tree's cut is left out while the window is read.
-        if st.borrow().landing_first && self.tree_expand_all_with_row_triggers(st) {
-            let rec = self.page_rec(st);
-            let cut: Vec<_> = rec
-                .borrow()
-                .filters
-                .iter()
-                .filter(|f| f.group == super::open::TREE_GROUP)
-                .cloned()
-                .collect();
-            if !cut.is_empty() {
-                // Pinned by pages/lt-page-runtime/TwTreeExpandTriggers.al (was assumption `tree-expand-runs-no-row-trigger`).
-                rec.borrow_mut().filters.retain(|f| f.group != super::open::TREE_GROUP);
-                let r = self.populate_window_in_view(st);
-                rec.borrow_mut().filters.extend(cut);
-                r?;
-                // The rows below level 0 were read but do not show: the client's rows are the level-0 ones (the cut at open).
-                let Some(level) = self.tree_level_field(st)? else {
-                    return unsupported("a tree whose IndentationColumn is not an Integer field (not pinned)");
-                };
-                let mut s = st.borrow_mut();
-                let (shown, hidden): (Vec<_>, Vec<_>) = std::mem::take(&mut s.window)
-                    .into_iter()
-                    .partition(|w| matches!(w.stored.get(level), Some(Value::Integer(0))));
-                s.window = shown;
-                s.tree_hidden = hidden;
-                return Ok(());
-            }
+        // Pinned by pages/lt-page-runtime/TwTreeExpandTriggers.al (was assumption `tree-expand-runs-no-row-trigger`).
+        if st.borrow().landing_first
+            && self.tree_expand_all_with_row_triggers(st)
+            && self.read_tree_rows_whole(st, |this| this.populate_window_in_view(st))?
+        {
+            return Ok(());
         }
         self.populate_window_in_view(st)
+    }
+
+    /// Runs `read` (a read of the client's rows) with the tree's cut left out, then splits the rows read into the ones the cut shows
+    /// (`window`) and the ones it hides (`tree_hidden`). False, and `read` not run, when Rec holds no cut.
+    pub(super) fn read_tree_rows_whole(
+        &mut self,
+        st: &St,
+        read: impl FnOnce(&mut Self) -> Result<(), Signal>,
+    ) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let cut: Vec<_> = rec
+            .borrow()
+            .filters
+            .iter()
+            .filter(|f| f.group == super::open::TREE_GROUP)
+            .cloned()
+            .collect();
+        if cut.is_empty() {
+            return Ok(false);
+        }
+        rec.borrow_mut().filters.retain(|f| f.group != super::open::TREE_GROUP);
+        let r = read(self);
+        rec.borrow_mut().filters.extend(cut);
+        r?;
+        let Some(level) = self.tree_level_field(st)? else {
+            return unsupported("a tree whose IndentationColumn is not an Integer field (not pinned)");
+        };
+        self.split_tree_window(st, level);
+        Ok(true)
+    }
+
+    /// Splits the rows the client read into the ones the tree's cut shows (`window`) and the ones it hides (`tree_hidden`).
+    pub(super) fn split_tree_window(&mut self, st: &St, level: usize) {
+        // The rows the cut shows (`apply_tree_cut`), else the level-0 ones.
+        let mut s = st.borrow_mut();
+        let tree_shown = std::mem::take(&mut s.tree_shown);
+        let (shown, hidden): (Vec<_>, Vec<_>) = std::mem::take(&mut s.window).into_iter().partition(|w| {
+            if tree_shown.is_empty() {
+                matches!(w.stored.get(level), Some(Value::Integer(0)))
+            } else {
+                tree_shown.iter().any(|k| Self::same_key(k, &w.key))
+            }
+        });
+        s.tree_shown = tree_shown;
+        s.window = shown;
+        s.tree_hidden = hidden;
     }
 
     fn populate_window_in_view(&mut self, st: &St) -> Result<(), Signal> {
@@ -739,8 +764,8 @@ impl Session {
         st.borrow_mut().window_eof = false;
         st.borrow_mut().window_whole = false;
         st.borrow_mut().view_read_to_end = false;
-        st.borrow_mut().window_read_up = false;
         st.borrow_mut().window_top_unread = false;
+        st.borrow_mut().moved_rec_open_partial = None;
         st.borrow_mut().read_up_from_last = None;
         st.borrow_mut().opened_on_moved_rec = false;
         let rec = self.page_rec(st);
@@ -1033,14 +1058,12 @@ impl Session {
         // A refill from the first row (a TestPage filter change) after such an open reads the same: the window, then the first row
         // three times before OnAfterGetCurrRecord (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:299 Name_Filter_Refill `filter`
         // `4:R4;R2;R3;R4;R4;R4;C4;` against :409 Id_Filter_Refill `2:R2;R3;R4;R2;R2;C2;`; SyKeyMoves.al:209 Name_FilterMoves).
+        // A view of one row and one of more rows than a window holds read the same: the window from the first row of the view,
+        // then that row three more times (corpus master 97c29f86, pages/lt-y17-refill-key/Y17RefillKey.al:341 Refill_Desc_OneRow
+        // `10:R10;R10;R10;C10;`, :364 Refill_Desc_MoreThanWindow `29:R29;R28;...;R7;R29;R29;R29;C29;`, :392 and :415 ascending,
+        // :443 and :466 a Worksheet keyed in OnOpenPage, :311 Refill_Desc_ManyThenOne the Customer Ledger Entries path).
         let refill_in_key = opening && !st.borrow().open_read && self.still_reads_once_more(st);
         if refill_in_key {
-            // Pinned for views that end inside the window.
-            if !end_reached || st.borrow().window.len() < 2 {
-                return unsupported(
-                    "a refill of a list in a key other than the primary key with one row or more rows than a window holds (not pinned)",
-                );
-            }
             self.page_trigger(st, "onaftergetrecord", vec![])?;
         } else if opening && st.borrow().open_read && self.reads_once_more_in_its_key(st) {
             // The rows above a row OnOpenPage left Rec on count (QrMovedTests.al QS_KeyAsc_List_FindLast, Rec on the last row:
@@ -1210,19 +1233,22 @@ impl Session {
     /// _SetRangeFindLast `O:D;R:D;R:C;R:B;R:D;R:D;C:D;`, :370 _GetThenFilterExcludes `O:C;R:B;R:A;R:B;R:B;C:B;`): the row is read
     /// again before the step back only when rows followed it. Pinned for a view that ends inside the window, with rows above
     /// the row, on a page of its own; more rows than a window holds are refused.
+    ///
+    /// With more rows the client reads at most a window of 20 rows from the row on, and steps back over at most 20 rows above
+    /// it (pages/lt-y37-long-list-open/Y37LongListTests.al:101 Get(25) of 30 `R:25..R:30;R:25;R:24..R:5;R:25;R:25;C:25`, :141
+    /// FindLast, :180 a temporary list, :241 Get(5) `R:5..R:24;R:5;R:4..R:1;...`, :281 and :304 21 rows); `First` and `Last`
+    /// then read on from the edge of the rows it holds (`PageState::moved_rec_open_partial`).
     fn read_rows_above_the_moved_rec(&mut self, st: &St, start: Vec<Value>, end_reached: bool) -> Result<(), Signal> {
-        if !end_reached || st.borrow().host.is_some() {
-            return unsupported(
-                "the open read of a list on the row its OnOpenPage left Rec on, with more rows after it than a window holds (not pinned)",
-            );
+        if st.borrow().host.is_some() {
+            return unsupported("the open read of a part on the row its OnOpenPage left Rec on (not pinned)");
         }
         let rec = self.page_rec(st);
         let mut above = Vec::new();
+        let mut top_unread = false;
         while self.nav_next(st, -1)? {
-            if above.len() + st.borrow().window.len() >= Self::WINDOW {
-                return unsupported(
-                    "the open read of a list on the row its OnOpenPage left Rec on, with more rows than a window holds (not pinned)",
-                );
+            if above.len() == Self::WINDOW {
+                top_unread = true;
+                break;
             }
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
@@ -1252,6 +1278,7 @@ impl Session {
         let forward = std::mem::take(&mut s.window);
         above.extend(forward);
         s.window = above;
+        s.moved_rec_open_partial = (s.window.len() > Self::WINDOW).then_some((top_unread, !end_reached));
         drop(s);
         Ok(())
     }
@@ -1934,6 +1961,10 @@ impl Session {
     /// `next`, `last`, `previous`, `first`, pinned for a table of 3 rows). `None` when the move is not
     /// one of those.
     pub(super) fn move_in_client_rows(&mut self, st: &St, how: PageMethod) -> Result<Option<bool>, Signal> {
+        let partial = st.borrow().moved_rec_open_partial;
+        if let Some(edges) = partial {
+            return self.move_after_long_moved_rec_open(st, how, edges).map(Some);
+        }
         let find_page = self.declares(st, "onfindrecord");
         if !(self.declares(st, "onaftergetrecord") || self.filtered_find_list_without_row_triggers(st))
             || !self.is_list(st)
@@ -2078,7 +2109,9 @@ impl Session {
         }
         // Last on such a list in its primary key whose cursor stands on the last row of a view that ends inside the window reads
         // nothing either (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:409 Id_Filter_Refill `last` `Yes/4:`, after a GoToRecord
-        // miss left the cursor on row 4). In another key it is not pinned and reads the row as before.
+        // miss left the cursor on row 4). In another key the same holds for a view of one row (corpus master 97c29f86,
+        // pages/lt-y17-refill-key/Y17RefillKey.al:311 Refill_Desc_ManyThenOne `last` `Yes/10:` after a refill to one row); with more
+        // rows it is not pinned and reads the row as before.
         if how == PageMethod::Last
             && at + 1 == window.len()
             && window.len() < Self::WINDOW
@@ -2088,7 +2121,7 @@ impl Session {
             && !self.declares(st, "onnextrecord")
             && self.declares(st, "onaftergetcurrrecord")
             && self.declares(st, "onaftergetrecord")
-            && rec.borrow().key == 0
+            && (rec.borrow().key == 0 || window.len() == 1)
         {
             return Ok(Some(true));
         }
@@ -2151,6 +2184,93 @@ impl Session {
             self.read_client_row(st, target)?;
         }
         Ok(Some(true))
+    }
+
+    /// A move on a plain list whose open read on the row its OnOpenPage left Rec on held more rows than a window
+    /// (`PageState::moved_rec_open_partial`: rows above its top row, rows below its bottom row left unread). Next and Previous
+    /// inside the rows it holds read the row twice, then OnAfterGetCurrRecord; First and Last onto a held row the same; First
+    /// with rows above left unread reads the top row it holds, steps up reading each row to the first of the view, reads that
+    /// one again and runs OnAfterGetCurrRecord, and Last below the bottom row likewise (pages/lt-y37-long-list-open/
+    /// Y37LongListTests.al:103-109 `next log` `R:26;R:26;C:26;`, `first log` `R:5;R:4;R:3;R:2;R:1;R:1;C:1;`, :142-149 Next on the
+    /// last row `No` with an empty log, :246-249 `last log` `R:24;R:25;...;R:30;R:30;C:30;`). Moves past an edge with a second
+    /// block of 20 unread rows, and Next or Previous off the rows held, are not pinned.
+    fn move_after_long_moved_rec_open(
+        &mut self,
+        st: &St,
+        how: PageMethod,
+        edges: (bool, bool),
+    ) -> Result<bool, Signal> {
+        let (top_unread, bottom_unread) = edges;
+        let rec = self.page_rec(st);
+        let key = self.row_key(&rec)?;
+        let len = st.borrow().window.len();
+        let Some(at) = st.borrow().window.iter().position(|w| Self::same_key(&w.key, &key)) else {
+            return unsupported("a move on a list that opened on a moved Rec, off the rows it holds (not pinned)");
+        };
+        let walk = |s: &mut Self, up: bool| -> Result<bool, Signal> {
+            let before = s.xrec_before_move(st);
+            let edge = if up { 0 } else { len - 1 };
+            let stored = st.borrow().window[edge].stored.clone();
+            rec.borrow_mut().fields = stored;
+            s.populate_current(st)?;
+            let mut new_rows = Vec::new();
+            while s.nav_next(st, if up { -1 } else { 1 })? {
+                if new_rows.len() == Self::WINDOW {
+                    return unsupported(
+                        "First or Last on a list that opened on a moved Rec, past a second block of 20 rows (not pinned)",
+                    );
+                }
+                let key = s.row_key(&rec)?;
+                let stored = rec.borrow().fields.clone();
+                s.populate_current(st)?;
+                new_rows.push(al_builtins::value::WindowRow {
+                    key,
+                    stored,
+                    shown: rec.borrow().fields.clone(),
+                });
+            }
+            s.populate_current(st)?;
+            let shown = rec.borrow().fields.clone();
+            {
+                let mut b = st.borrow_mut();
+                if let Some(last) = new_rows.last_mut() {
+                    last.shown = shown;
+                }
+                if up {
+                    new_rows.reverse();
+                    new_rows.append(&mut b.window);
+                    b.window = new_rows;
+                } else {
+                    b.window.append(&mut new_rows);
+                }
+                if let Some((t, d)) = b.moved_rec_open_partial.as_mut() {
+                    if up {
+                        *t = false;
+                    } else {
+                        *d = false;
+                    }
+                }
+            }
+            s.current_record_trigger(st, before)?;
+            Ok(true)
+        };
+        let target = match how {
+            PageMethod::First if top_unread => return walk(self, true),
+            PageMethod::Last if bottom_unread => return walk(self, false),
+            PageMethod::First => 0,
+            PageMethod::Last => len - 1,
+            PageMethod::Next if at + 1 < len => at + 1,
+            PageMethod::Previous if at > 0 => at - 1,
+            PageMethod::Next if !bottom_unread => return Ok(false),
+            PageMethod::Previous if !top_unread => return Ok(false),
+            _ => {
+                return unsupported(format!(
+                    "{how}() past the rows a list that opened on a moved Rec holds (not pinned)"
+                ));
+            }
+        };
+        self.read_client_row(st, target)?;
+        Ok(true)
     }
 
     /// `Last` on a list whose window of 20 rows is full: the client reads the last row it holds again, then the rows after it in
@@ -3482,14 +3602,45 @@ impl Session {
         } else if !trapped && self.has_typed_page_handler(object) {
             // A Page-typed PageHandler of a Page.Run without a record: the handler runs on the page object, no page trigger runs
             // before it (no OnOpenPage) and GetRecord hands a blank record (misc/lt-y14-triage/Y14PageTriage.al:383
-            // PageTypedPageHandler_PageRun, corpus master). With a record, or on a Page variable already set up, it is not pinned.
-            if record.is_some() || field || st.borrow().instance.is_some() {
+            // PageTypedPageHandler_PageRun, corpus master).
+            // With a record no page trigger runs either, before or after the handler; the page's Rec holds the record's values
+            // (GetRecord and the page's procedures see it, also a row that is not stored) without its filters, and a field
+            // argument changes nothing (pages/lt-y17-page-handler-record/Y17PageHandlerRecord.al:218 _GetRecord, :249
+            // _EmptyHandler, :273 _PageProcedure, :301 _Close, :325 _FilteredRecord_List `filter=`, :352 _UnstoredRecord, :380
+            // _RecordAndField).
+            // A Page variable set up with SetRecord or SetTableView hands the handler its own instance (its globals, its Rec);
+            // after the run, set up or not, the variable starts again from a new instance with nothing set (:396 _SetUpVariable_Run `tag after
+            // run` = '', :426 _SetTableView_Run `reccode()`, :447 _RunTwice `handler2 tag=;reccode()`).
+            // A temporary record, and a variable set up without SetRecord or SetTableView, are not pinned.
+            // A static Page.Run(Id, Rec) made the instance already, to check the record's table (`page_op`).
+            let set_up = st.borrow().set_record.is_some();
+            if record.as_ref().is_some_and(|r| r.borrow().temporary)
+                || (st.borrow().instance.is_some() && record.is_none())
+            {
                 return unsupported(
-                    "a Page-typed PageHandler for Page.Run with a record or on a Page variable that was set up (not pinned)",
+                    "a Page-typed PageHandler for Page.Run with a temporary record, or on a Page variable set up without SetRecord or SetTableView (not pinned)",
                 );
             }
             let handler = self.take_typed_handler(UiKind::Page, object).expect("checked above");
-            self.answer_typed_page(&st, handler)?;
+            if !set_up {
+                if let Some(r) = &record {
+                    self.construct_page(&st)?;
+                    if self.has_source(&st) {
+                        let rec = self.page_rec(&st);
+                        rec.borrow_mut().fields = r.borrow().fields.clone();
+                    }
+                }
+            }
+            let r = self.answer_typed_page(&st, handler);
+            {
+                let mut s = st.borrow_mut();
+                s.instance = None;
+                s.ext_instances.clear();
+                s.inited = false;
+                s.set_record = None;
+                s.set_view = false;
+            }
+            r?;
             return Ok(Value::Null);
         }
         // A second non-modal Run of a Page variable runs its OnInit again (pages/lt-page-variable-lifecycle/
@@ -3610,6 +3761,7 @@ impl Session {
         {
             let mut s = st.borrow_mut();
             s.typed_handler = true;
+            s.typed_run_handler = true;
             s.handler_set_record = false;
             s.cursor = Cursor::Row;
         }
@@ -3620,6 +3772,7 @@ impl Session {
         {
             let mut s = st.borrow_mut();
             s.typed_handler = false;
+            s.typed_run_handler = false;
             s.cursor = Cursor::None;
         }
         handled.map(|_| ())

@@ -771,7 +771,7 @@ fn a_table_instance_holds_no_pointer_to_its_record_at_rest() {
     let src = format!(
         "{OBJECTS}\ncodeunit 50100 C {{ var Row: Record \"TG Row\";
             procedure F(): Integer begin Row.Bump(); Row.Bump(); Row.Validate(Payload, 1); exit(Row.GetCounter()); end;
-            procedure G() begin Row.\"No.\" := 'A'; Row.Insert(); Row.\"No.\" := 'A'; Row.Insert(true); end; }}"
+            procedure G() begin Row.\"No.\" := 'A'; Row.Insert(); Row.\"No.\" := 'A'; Row.Insert(true); Row.FindFirst(); end; }}"
     );
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
@@ -809,7 +809,7 @@ fn a_table_instance_holds_no_pointer_to_its_record_at_rest() {
         s.call(oi, f, inst.clone(), vec![]).unwrap().0,
         Value::Integer(3)
     ));
-    // The second Insert fails (duplicate key) after the first call set up the instance.
+    // The second Insert fails (duplicate key, raised by the read after it) after the first call set up the instance.
     assert!(s.call(oi, g, inst.clone(), vec![]).is_err());
     let Value::Record(row) = inst.borrow().globals[row_slot].clone() else {
         panic!("Row is not a record")

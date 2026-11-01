@@ -150,7 +150,7 @@ fn arg_bool(args: &[Value], i: usize) -> Result<bool, Signal> {
     }
 }
 
-fn arg_pos(args: &[Value], i: usize) -> Result<usize, Signal> {
+pub(crate) fn arg_pos(args: &[Value], i: usize) -> Result<usize, Signal> {
     match args.get(i) {
         Some(Value::Integer(p)) => Ok(*p as usize),
         other => unsupported(format!("field argument {}", other.describe())),
@@ -171,6 +171,17 @@ pub(crate) struct RecSlots {
 impl Session {
     /// The platform takes Insert on Tenant License State and refuses Modify and Delete (al-language-onprem/session/PZPlatformSurvey.al:
     /// PlatformTable_TenantLicenseState: `It is not possible to modify any record in the Tenant License State table.`, code `DB:Ok`).
+    /// Modify, Delete and DeleteAll of Document Service with triggers: what the platform's triggers do is not pinned
+    /// (al-language-onprem/platform/PtOnPremTables.al:103-123 pins them without triggers only).
+    fn document_service_trigger_refused(&self, t: &TableDef, rec: &Rec, run: bool, verb: &str) -> Result<(), Signal> {
+        if run && !rec.borrow().temporary && self.engine.program.objects[t.object as usize].id == Some(2_000_000_114) {
+            return unsupported(format!(
+                "{verb}(true) of Document Service: what the platform's trigger does is not pinned"
+            ));
+        }
+        Ok(())
+    }
+
     fn tenant_license_state_refuses(&self, t: &TableDef, verb: &str) -> Result<(), Signal> {
         if self.engine.program.objects[t.object as usize].id == Some(2_000_000_189) {
             return Err(Signal::Error(Box::new(AlError {
@@ -181,6 +192,60 @@ impl Session {
             })));
         }
         Ok(())
+    }
+
+    /// The computed tables whose writes raise "The <table> table is read-only." (code DB:Ok): Insert with and without triggers,
+    /// Modify and Delete of a row that exists, and DeleteAll (platform/lt-ag-contoso/AgPlatformReadOnly.al:14-55, Windows
+    /// Language; platform/lt-platform-tables/PtCloudTables.al:38-81, Language Selection and License Permission). A Modify or
+    /// Delete of a row that does not exist is not pinned (PtCloudTables.al:50-52 is the error of the helper's FindFirst): refused.
+    fn read_only_platform_table(&self, t: &TableDef, rec: &Rec) -> Option<AlError> {
+        let id = self.engine.program.objects[t.object as usize].id?;
+        if rec.borrow().temporary || ![2_000_000_045, 2_000_000_050, 2_000_000_043].contains(&id) {
+            return None;
+        }
+        Some(AlError {
+            message: format!("The {} table is read-only.", t.name),
+            code: "DB:Ok".into(),
+            call_stack: String::new(),
+            ..Default::default()
+        })
+    }
+
+    /// A Modify of a Feature Key row that changes one read-only column (every column but Enabled) raises the error naming the
+    /// column's caption, code `DB:Ok` (record/lt-loadfields-pagesource-validate/P81FeatureKeyModify.al:51-63;
+    /// record/TestFeatureKeyTable.al:64-78). A change to two of them, or to one together with Enabled, is not pinned: the store
+    /// refuses it. The error comes before the table events: P81FeatureKeyModify.al passes on real BC with Microsoft's
+    /// subscribers to the Feature Key events loaded.
+    fn feature_key_read_only_change(&self, t: &TableDef, rec: &Rec, stored: Option<&[Value]>) -> Result<(), Signal> {
+        let Some(old) = stored else { return Ok(()) };
+        let id = self.engine.program.objects[t.object as usize].id.unwrap_or(0);
+        if rec.borrow().temporary
+            || al_builtins::platform::virtual_table(id) != Some(al_builtins::platform::Virtual::FeatureKey)
+        {
+            return Ok(());
+        }
+        let changed: Vec<usize> = {
+            let r = rec.borrow();
+            (0..t.fields.len())
+                .filter(|&i| t.fields[i].id < 2_000_000_000)
+                .filter(|&i| match (&old[i], &r.fields[i]) {
+                    (Value::Unknown(_), Value::Unknown(_)) => false,
+                    (a, b) => !ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal),
+                })
+                .collect()
+        };
+        match changed.as_slice() {
+            [i] if t.fields[*i].id != 2 => Err(Signal::Error(Box::new(AlError {
+                message: format!(
+                    "Sorry, but the task couldn't be completed because it tried to change the \"{}\" field of the feature key, which cannot be changed. Contact your administrator or application developer.",
+                    self.field_caption(t, *i)
+                ),
+                code: "DB:Ok".into(),
+                call_stack: String::new(),
+                ..Default::default()
+            }))),
+            _ => Ok(()),
+        }
     }
 
     /// A write of the platform table Device (2000000130): an Insert with triggers raises the license error of a fresh
@@ -235,9 +300,7 @@ impl Session {
 
     /// Field values of a fresh record: `InitValue` where declared, else the type default.
     pub(crate) fn initial_fields(&mut self, table: usize) -> Vec<Value> {
-        if self.engine.table_facts.get(table).is_some_and(|f| f.ordinal_init) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OptionInitValueOrdinal);
-        }
+        crate::init_assumes::mark(self.engine.table_facts.get(table));
         // The values are the same for every record of the table, so they are worked out once per session and copied
         // (a text shares its buffer, copy on write). A value that is a shared object (a Blob's buffer) is built fresh
         // for each record in its slot of the copy (issue 6133: a local record variable of a table with a Blob field
@@ -473,9 +536,14 @@ impl Session {
     /// be "empty" or "fewer rows", which is not BC's. Rows this session wrote itself do not make
     /// the answer BC's, so they are not an exception. Temporary records are private to the session.
     /// Whether a `Get` that finds nothing, or a scan, on table object `object` is not BC's answer.
-    pub(crate) fn is_unseeded(&self, object: u32) -> bool {
-        let o = object as usize;
-        self.engine.unseeded.contains(&o) || (!self.install_scope && self.engine.platform_unseeded.contains(&o))
+    /// A platform table of `UNSEEDED_ROWS` stops being one once the session's own DeleteAll without filters emptied it (and
+    /// while that stands, `MemStore::emptied`): BC has then removed its fresh-tenant rows too, and what it holds is what the
+    /// session wrote (Power BI Blob: Microsoft's Power BI tests clear it before they insert, al-language-onprem/platform/
+    /// PtOnPremTables.al Y17_PowerBIBlob_BlobRoundTrip, corpus master 97c29f86).
+    pub(crate) fn is_unseeded(&self, t: &TableDef) -> bool {
+        let o = t.object as usize;
+        self.engine.unseeded.contains(&o)
+            || (!self.install_scope && self.engine.platform_unseeded.contains(&o) && !self.store.emptied(&self.cx, t))
     }
 
     /// Why the rows install code left in table `object` are not known (ADR-046: `InstallFacts::unknown`). Install code
@@ -488,8 +556,16 @@ impl Session {
         facts.unknown.get(&(object as usize)).map(String::as_str)
     }
 
-    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.
+    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code. Every
+    /// persistent read and write passes here, so it also marks the platform tables that are stored on an assumption: Webhook
+    /// Subscription and Webhook Notification (`webhook-tables-stored`, al-builtins platform.rs).
     pub(crate) fn install_assumed(&self, object: u32) {
+        if matches!(
+            self.engine.program.objects[object as usize].id,
+            Some(2_000_000_194 | 2_000_000_199)
+        ) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WebhookTablesStored);
+        }
         if self.install_scope {
             return;
         }
@@ -579,7 +655,7 @@ impl Session {
                 return unsupported(format!("{what} on {}: {why}", t.name));
             }
         }
-        if !temporary && self.is_unseeded(t.object) {
+        if !temporary && self.is_unseeded(t) {
             return unsupported(format!(
                 "{what} on {}: BC holds rows here that an install trigger or Company-Initialize creates, and the install baseline could not create them (ADR-013 decision 5)",
                 t.name
@@ -600,7 +676,7 @@ impl Session {
                 return unsupported(format!("{} row not found: {why}", t.name));
             }
         }
-        if !exists && self.is_unseeded(t.object) {
+        if !exists && self.is_unseeded(t) {
             return unsupported(format!(
                 "{} row not found: the rows a dependency app's install and Company-Initialize create could not be created (ADR-013 decision 5)",
                 t.name
@@ -732,6 +808,10 @@ impl Session {
         // A temporary record raises the table events and runs the triggers like any other
         // (corpus record/TestTableEventSequenceContracts.al:TemporaryRecord_RaisesTheEventsAndRunsTheTriggers).
         let (names, tail): (&[&str], Value) = match event {
+            "onbeforeinsertevent" | "onafterinsertevent" if self.run_trigger_unknown.is_some() => (
+                &["Rec", "RunTrigger"],
+                Value::Unknown(self.run_trigger_unknown.unwrap_or_default().into()),
+            ),
             "onbeforeinsertevent" | "onafterinsertevent" | "onbeforedeleteevent" | "onafterdeleteevent" => {
                 (&["Rec", "RunTrigger"], Value::Boolean(run_trigger))
             }
@@ -779,7 +859,17 @@ impl Session {
         // Before event (Rec holds the new value, xRec the old row), the field's OnValidate,
         // After event: record/TestTriggerDispatchOrder.al:TriggerOrder_Validate_FieldPipeline_IsStable.
         // That the Before event sees the new value is docs/probes-needed.md.
-        self.table_event(t, "onbeforevalidateevent", rec, Some(xrec), false, Some(&field.name))?;
+        // An error in an OnBeforeValidateEvent or OnAfterValidateEvent subscriber puts the record back too, as one in the
+        // field's OnValidate below (events/lt-db-events/DbtEvents.al:623 Validate_ErrorInSubscriber, `name`, `name3`).
+        let restore = |rec: &Rec, e: Signal, snapshot: Vec<Value>| {
+            if matches!(e, Signal::Error(_)) {
+                rec.borrow_mut().fields = snapshot;
+            }
+            e
+        };
+        if let Err(e) = self.table_event(t, "onbeforevalidateevent", rec, Some(xrec), false, Some(&field.name)) {
+            return Err(restore(rec, e, snapshot));
+        }
         // The triggers table extensions attach to the field bracket its own OnValidate
         // (record/TestTriggerDispatchOrder.al:TriggerOrder_Validate_FieldPipeline_IsStable).
         let (before, after) = self.ext_validate_order(t, field)?;
@@ -788,6 +878,7 @@ impl Session {
         }
         if let Some((object, routine)) = field.on_validate {
             if let Err(e) = self.run_trigger(object, routine, rec, Some(xrec)) {
+                let snapshot = snapshot.clone();
                 // The whole record is back at its values from before the Validate when the
                 // field's OnValidate raises, not only the validated field
                 // (record/TestValidateRaisesAndHandlerAsserterrorContracts.al:68,
@@ -803,6 +894,7 @@ impl Session {
             self.run_trigger(object, routine, rec, Some(xrec))?;
         }
         self.table_event(t, "onaftervalidateevent", rec, Some(xrec), false, Some(&field.name))
+            .map_err(|e| restore(rec, e, snapshot))
     }
 
     /// The OnBeforeValidate and OnAfterValidate triggers table extensions declare for `field`, in the order they run. Two
@@ -810,7 +902,10 @@ impl Session {
     /// (record/lt-modify-field-two/ModifyFieldTwoExtensions.al:148-169, P163_Validate_TwoExtensionsOnOneField_Order: 73328 "Ext A"
     /// then 73329 "Ext B"; events/W4ValidateOrderAndCurrFieldNo.al:331 `ext1.before;ext2.before;base.onvalidate;ext1.after;ext2.after;`,
     /// 68065 "Ext One" then 68066 "Ext Two"). In both pins the id order is also the order of the names; when the two orders differ,
-    /// or with more than two extensions or extensions of different apps, the order is not pinned and the Validate is refused.
+    /// or with more than two extensions in one app, the order is not pinned and the Validate is refused. Extensions of different
+    /// apps run app by app, an app before the apps that depend on it (al-runner issue 6486; corpus writer Y20,
+    /// tableextension/lt-bw-cross-app/Y20CrossAppValidateOrder.al:36, measured on BC; assumption until it is pinned). Two apps
+    /// of which neither depends on the other have no pinned order: refused.
     #[allow(clippy::type_complexity)]
     fn ext_validate_order(
         &self,
@@ -827,26 +922,47 @@ impl Session {
                 t.name, field.name
             ))
         };
-        let objects = &self.engine.program.objects;
+        let program = &self.engine.program;
+        let objects = &program.objects;
         let mut involved: Vec<usize> = before.iter().chain(&after).map(|&(o, _)| o).collect();
         involved.sort_unstable();
         involved.dedup();
-        if involved.len() > 2
-            || before.len() > 2
-            || after.len() > 2
-            || involved.iter().any(|&o| objects[o].app != objects[involved[0]].app)
-            || [&before, &after].iter().any(|l| l.len() == 2 && l[0].0 == l[1].0)
+        if [&before, &after]
+            .iter()
+            .any(|l| (1..l.len()).any(|i| l[..i].iter().any(|x| x.0 == l[i].0)))
         {
             return refuse();
         }
-        let mut by_id = involved.clone();
-        by_id.sort_by_key(|&o| objects[o].id);
-        let mut by_name = involved.clone();
-        by_name.sort_by_key(|&o| objects[o].name.to_ascii_lowercase());
-        if by_id != by_name || by_id.windows(2).any(|w| objects[w[0]].id == objects[w[1]].id) {
-            return refuse();
+        let mut apps: Vec<u32> = involved.iter().map(|&o| objects[o].app).collect();
+        apps.sort_unstable();
+        apps.dedup();
+        // Within one app: at most two extensions, whose id order is their name order.
+        for &app in &apps {
+            let mut by_id: Vec<usize> = involved.iter().copied().filter(|&o| objects[o].app == app).collect();
+            if by_id.len() > 2 {
+                return refuse();
+            }
+            by_id.sort_by_key(|&o| objects[o].id);
+            let mut by_name = by_id.clone();
+            by_name.sort_by_key(|&o| objects[o].name.to_ascii_lowercase());
+            if by_id != by_name || by_id.windows(2).any(|w| objects[w[0]].id == objects[w[1]].id) {
+                return refuse();
+            }
         }
-        let rank = |o: usize| by_id.iter().position(|&x| x == o);
+        // Across apps: every two of them must be ordered by a dependency.
+        if apps.len() > 1 {
+            let depends = |a: u32, b: u32| app_depends_on(&program.apps, a as usize, b as usize);
+            // An app that depends on more of the others comes later; the check below refuses any pair left unordered.
+            let all = apps.clone();
+            apps.sort_by_key(|&a| all.iter().filter(|&&b| depends(a, b)).count());
+            if apps.windows(2).any(|w| !depends(w[1], w[0])) {
+                return refuse();
+            }
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::ExtValidateAcrossAppsDependencyOrder,
+            );
+        }
+        let rank = |o: usize| (apps.iter().position(|&a| a == objects[o].app), objects[o].id);
         before.sort_by_key(|&(o, _)| rank(o));
         after.sort_by_key(|&(o, _)| rank(o));
         Ok((before, after))
@@ -980,7 +1096,7 @@ impl Session {
     fn delete_row(&mut self, t: &TableDef, rec: &Rec, run: bool) -> Result<Value, Signal> {
         let cx = self.cx_for(rec, t)?;
         // A Delete through a stale buffer follows the rule of a Modify (record/TestRecordStaleBufferWrite.al:662, :676); with
-        // triggers or events, where the check falls among them is not pinned.
+        // triggers or events, where the check falls among them is pinned for the shapes below only.
         if !rec.borrow().temporary && t.fields.iter().any(|f| f.id == 2_000_000_005) {
             let pk = Self::sql_key(rec, t, &rec.borrow().fields.clone());
             let stored = self
@@ -1008,6 +1124,45 @@ impl Session {
                     let pinned = verdict == StaleVerdict::Written
                         && !ext
                         && self.stale_after_other_deletes_only(t, &company, &pk);
+                    // A stale buffer from the variable's own Insert two or three Commits back, deleted in a transaction that
+                    // wrote nothing and took no lock: the OnBeforeDeleteEvent subscribers run, then (Delete(true)) the table's
+                    // OnDelete trigger, then DB:RecordChanged; OnAfterDeleteEvent never runs and the row stays. When another
+                    // variable Modified that row in the new transaction (the Modify rule writes the buffer), the row is deleted
+                    // and the trigger and the events run as for a fresh buffer (record/lt-sb-stale-own-modify/
+                    // Y32StaleDeleteTests.al Y32_2C_*, Y32_3C_* on corpus branch al-runtime-rs-staging-y32, al-runner issue
+                    // 6546; assumption `stale-delete-event-before-record-changed` until the file is on master). A table
+                    // extension's delete triggers and the OnDatabaseDelete global trigger are not pinned.
+                    let own_insert = {
+                        let r = rec.borrow();
+                        let mine = if let Value::BigInteger(n) = &r.fields[i] { *n } else { 0 };
+                        r.row_origin.filter(|o| o.version == mine).is_some_and(|o| {
+                            o.own_write && (o.commits + 2 == self.commits || o.commits + 3 == self.commits)
+                        })
+                    };
+                    let y32 = own_insert && !ext && !self.global_enabled(t, GlobalOp::Delete)?;
+                    let untouched_tx = self.tx.writes.is_empty()
+                        && !self.tx.rolled_back
+                        && !self.tx.lock_tx
+                        && self.tx.lock_unpinned.is_none();
+                    if y32 && verdict == StaleVerdict::Refused && untouched_tx {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::StaleDeleteEventBeforeRecordChanged,
+                        );
+                        self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
+                        if run && let Some(tr) = self.table_trigger(t, "OnDelete") {
+                            let x = Self::xrec_handle(rec, rec.borrow().fields.clone());
+                            self.run_trigger(t.object as usize, tr, rec, Some(&x))?;
+                        }
+                        return Err(self.record_changed(t, rec)?);
+                    }
+                    let row_written =
+                        y32 && verdict == StaleVerdict::Written && self.stale_row_modified_only(t, &company, &pk);
+                    if row_written {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::StaleDeleteEventBeforeRecordChanged,
+                        );
+                    }
+                    let pinned = pinned || row_written;
                     if (hooks || ext) && !pinned {
                         return unsupported(format!(
                             "a Delete through a stale {} buffer, with triggers or events: not pinned",
@@ -1792,6 +1947,28 @@ impl Session {
                     .stale_6028_shape(t, &company, pk, o.commits, deleting)
                     .expect("checked"))
             }
+            // Two or three Commits after the buffer's own write, another variable wrote the row in the transaction the last
+            // Commit closed, and the new transaction's only writes are Modifies of the buffer's row through other variables
+            // (changed or not, once or twice), with no lock: written whole, the stale buffer winning, OnModify once with xRec the
+            // buffer (record/lt-sb-stale-own-modify/Y27StaleOtherVarTests.al Y27_2C_*, Y27_3C_* on corpus branch
+            // al-runtime-rs-staging-y27, al-runner issue 6522; assumption `stale-own-insert-two-commits-row-written` until
+            // the file is on master). Y27_3C_* writes the row in both transactions between, so three Commits need it written in
+            // the one before too; a transaction between that left the row alone stays refused below, as does a row last written
+            // in the buffer's own transaction with an empty Commit after it.
+            Some(o)
+                if o.own_write
+                    && (o.commits + 2 == self.commits
+                        || (o.commits + 3 == self.commits
+                            && self.row_written_before_last_closed_tx(t, &company, pk)))
+                    && touched
+                    && committed.is_some_and(|c| c > self.tx.prior_committed_row_version)
+                    && self.stale_row_modified_only(t, &company, pk) =>
+            {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::StaleOwnInsertTwoCommitsRowWritten,
+                );
+                Ok(StaleVerdict::Written)
+            }
             Some(o) if o.own_write && contact => unsupported(format!(
                 "a stale {} buffer from an Insert older than the last Commit but one, written after the new transaction touched the table",
                 t.name
@@ -1918,6 +2095,42 @@ impl Session {
         // An Insert and a Rename of another row are measured at one to three Commits only (TE_*_InsertOtherRow_*,
         // TE_*_RenameOtherRow_*).
         other_rows_of_one_kind.then_some(StaleVerdict::Written)
+    }
+
+    /// Whether the transaction the Commit before the last one closed wrote the row `pk` of `t` by a Record write.
+    fn row_written_before_last_closed_tx(&self, t: &TableDef, company: &Option<String>, pk: &[Value]) -> bool {
+        self.tx.closed_tx_rows_before.as_ref().is_some_and(|rows| {
+            rows.iter().any(|(table, c, k)| {
+                *table == t.object
+                    && c == company
+                    && k.len() == pk.len()
+                    && k.iter()
+                        .zip(pk)
+                        .all(|(a, b)| al_builtins::ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal))
+            })
+        })
+    }
+
+    /// Whether the open transaction's only writes are Modifies of the row `pk` of `t`, with no rollback and no lock of any kind.
+    fn stale_row_modified_only(&self, t: &TableDef, company: &Option<String>, pk: &[Value]) -> bool {
+        let tx = &self.tx;
+        !tx.rolled_back
+            && !tx.lock_tx
+            && tx.lock_unpinned.is_none()
+            && !tx.isolation_lock
+            && tx.locked_tables.is_empty()
+            && self.writes_all_noted()
+            && !tx.writes.is_empty()
+            && tx.writes.iter().all(|w| {
+                w.kind == crate::state::TxWriteKind::Modify
+                    && w.table == t.object
+                    && w.company == *company
+                    && w.pk.len() == pk.len()
+                    && w.pk
+                        .iter()
+                        .zip(pk)
+                        .all(|(a, b)| al_builtins::ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal))
+            })
     }
 
     /// Whether the open transaction's only writes are Deletes of other rows of `t` and it took no lock: the neighbour shape
@@ -2174,7 +2387,6 @@ impl Session {
         let temporary = rec.borrow().temporary;
         self.unseeded_read(t, temporary, "reading rows")?;
         self.coverage_read(t, temporary)?;
-        self.scheduled_task_read(t, temporary)?;
         let key = rec.borrow().key;
         // Filters on FlowFilter fields drop out; those on FlowFields are checked per row.
         let (filters, flow_field_filters) = self.split_filters(rec);
@@ -2859,6 +3071,11 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        // ADR-062: a record method of a restricted session; an unrestricted session pays one branch.
+        if self.permissions.is_some() {
+            let from_al = std::mem::take(&mut self.permission_from_al);
+            self.permission_gate_record(method, rec, args, from_al)?;
+        }
         if self.sql.active {
             return self.record_op_counted(method, rec, args);
         }
@@ -3154,6 +3371,10 @@ impl Session {
         if !self.global_group1.is_empty() {
             self.global_group_check(rec, table, method.name())?;
         }
+        // ADR-062: a denial of a method AL code calls raises BC's error where its shape is pinned.
+        if self.permissions.is_some() {
+            self.permission_from_al = true;
+        }
         self.record_op(method, rec, args)
     }
 
@@ -3249,6 +3470,7 @@ impl Session {
         self.crm_method_check(&t, rec, method, args)?;
         self.agent_task_check(&t, rec, method)?;
         self.tenant_report_layout_check(&t, rec, method)?;
+        self.tenant_layout_cfg_check(&t, rec, method, args)?;
         self.note_table(t.object, method.writes());
         if matches!(
             method,
@@ -3264,7 +3486,6 @@ impl Session {
             let temporary = rec.borrow().temporary;
             self.unseeded_read(&t, temporary, method.name())?;
             self.coverage_read(&t, temporary)?;
-            self.scheduled_task_read(&t, temporary)?;
             // `Count` stays answered (it counts only the companies the runtime knows): refusing it loses the baseline case
             // session/TestProbeSessionMiscContracts.al:Company_Names (69815, `Count() >= 1`). Kept, not pinned.
             if !temporary && self.is_company_table(&t) && method != RecordOp::Count {
@@ -3277,7 +3498,6 @@ impl Session {
         ) {
             let temporary = rec.borrow().temporary;
             self.coverage_read(&t, temporary)?;
-            self.scheduled_task_read(&t, temporary)?;
         }
         let cx = self.cx_for(rec, &t)?;
         // A Count or IsEmpty of a table whose demo rows the corpus database holds, before the session's own code wrote to it:
@@ -3465,6 +3685,11 @@ impl Session {
         {
             self.bg_refuse_write(t.object as usize, method.name())?;
             self.gate_write(method)?;
+            if matches!(method, RecordOp::Insert | RecordOp::DeleteAll)
+                && let Some(e) = self.read_only_platform_table(&t, rec)
+            {
+                return Err(Signal::Error(Box::new(e)));
+            }
             if self.engine.program.objects[t.object as usize].id == Some(2_000_000_130) {
                 return Err(self.device_write(&t, method, args)?);
             }
@@ -3712,6 +3937,9 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::Insert => {
+                if !rec.borrow().temporary {
+                    self.page_metadata_before_insert(&t, &rec.borrow().fields)?;
+                }
                 // A temporary record has no sequence: the key stays as it is (corpus
                 // record/TestTempTableContracts.al:52).
                 let auto = if rec.borrow().temporary {
@@ -3758,6 +3986,7 @@ impl Session {
                     if let Some(tr) = self.table_trigger(&t, "OnInsert") {
                         self.run_trigger(t.object as usize, tr, rec, insert_xrec.as_ref())?;
                     }
+                    self.document_service_insert(&t, rec)?;
                     self.run_ext_trigger(&t, "OnInsert", rec, insert_xrec.as_ref())?;
                 }
                 // The SystemId the OnBeforeInsertEvent subscribers and the insert triggers left in the buffer.
@@ -4021,14 +4250,6 @@ impl Session {
                             && !rec.borrow().temporary
                             && !rec.borrow().crm
                         {
-                            if (run && !self.ext_triggers(&t, "OnAfterInsert").is_empty())
-                                || self.listened(&t, "onafterinsertevent", None)?
-                            {
-                                return unsupported(format!(
-                                    "deferred duplicate-key Insert into {}, which has an After insert event or trigger (whether it runs is not pinned)",
-                                    t.name
-                                ));
-                            }
                             match self.fail(&t, &row, true) {
                                 Err(Signal::Error(e)) => {
                                     self.tx.deferred_insert.get_or_insert((t.object as usize, *e));
@@ -4037,6 +4258,15 @@ impl Session {
                                 Err(other) => return Err(other),
                                 Ok(_) => {}
                             }
+                            // The table-extension OnAfterInsert trigger and the OnAfterInsertEvent subscribers run with the
+                            // duplicate's values, after the error is deferred: a read of the table inside them raises it and the
+                            // Insert fails (record/lt-y38-dupkey-after-event/Y38DupKeyAfterEvent.al DK_AfterEvent_Statement_ThenCount,
+                            // DK_AfterEvent_InsertFalse, DK_ExtAfterTrigger_Statement, DK_AfterEvent_ReadInsideSubscriber;
+                            // events/lt-db-events/DbtEvents.al:347 Insert_DuplicateKey).
+                            if run {
+                                self.run_ext_trigger(&t, "OnAfterInsert", rec, None)?;
+                            }
+                            self.table_event(&t, "onafterinsertevent", rec, None, run, None)?;
                             return Ok(Value::Boolean(true));
                         }
                         // A guarded Insert that fails on an existing key leaves the variable's SystemId null: the id it was given
@@ -4050,6 +4280,34 @@ impl Session {
                             }
                         }
                         let r = self.fail(&t, &row, true);
+                        // A guarded Insert of the key whose statement-form Insert is pending drops that pending error: a Commit
+                        // or a read after it raises nothing, and GetLastErrorText gives its text (Y38DupKeyAfterEvent.al
+                        // DK_AfterEvent_Statement_ThenGuardedInsert,
+                        // DK_AfterEvent_Statement_GuardedInsert_ThenCount). Another key's guarded Insert is not pinned.
+                        if self.ret_used
+                            && matches!(r, Ok(Value::Boolean(false)))
+                            && self
+                                .tx
+                                .deferred_insert
+                                .as_ref()
+                                .is_some_and(|(o, _)| *o == t.object as usize)
+                        {
+                            let same_key = format!(
+                                "The record in table {} already exists. Identification fields and values: {}",
+                                self.caption(&t),
+                                self.identification(&t, &row)?
+                            );
+                            if self
+                                .tx
+                                .deferred_insert
+                                .as_ref()
+                                .is_some_and(|(_, e)| e.message == same_key)
+                            {
+                                // GetLastErrorText then gives the duplicate's text (`guarded`).
+                                let (_, e) = self.tx.deferred_insert.take().expect("checked");
+                                self.last_error = e;
+                            }
+                        }
                         // The flag hides the key of a duplicate Insert into a table with a Blob field (error-handling/
                         // lt-last-error-text-forms/InsertDuplicateKeyExcludeFlag.al:68, :85, :102). Other tables are not pinned.
                         if has_blob && auto.is_none() && !rec.borrow().temporary {
@@ -4066,12 +4324,20 @@ impl Session {
             RecordOp::Modify => {
                 let run = arg_bool(args, 0)?;
                 self.tenant_license_state_refuses(&t, "modify")?;
+                self.document_service_trigger_refused(&t, rec, run, "Modify")?;
                 // A key value the column rounds finds the rounded row (P130DateFilters.al:635-637, `modify var`).
                 let pk = Self::sql_key(rec, &t, &rec.borrow().fields.clone());
                 let stored = self
                     .store_for(rec)
                     .get(&cx, &t, &pk)
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                self.feature_key_read_only_change(&t, rec, stored.as_deref())?;
+                if let Some(e) = self.read_only_platform_table(&t, rec) {
+                    return match stored {
+                        Some(_) => Err(Signal::Error(Box::new(e))),
+                        None => unsupported(format!("a Modify of a {} row that does not exist (not pinned)", t.name)),
+                    };
+                }
                 // A buffer older than a committed change to its row cannot be saved
                 // (record/TestRecordStaleBufferWrite.al); before a commit the last writer wins.
                 if let (Some(row), Some(i)) = (&stored, t.fields.iter().position(|f| f.id == 2_000_000_005)) {
@@ -4175,7 +4441,7 @@ impl Session {
                 }
                 // A Modify that changes no field leaves the row version as it is: Microsoft's tests Modify a record after a refresh report
                 // modified its row without a change (Create Prod. Order Lines.Copy) and pass, which a bumped version would make a
-                // stale write (record/lt-priority-assumptions/PriorityAssumptions.al:143-244, real BC 29: after a Modify that changes nothing and a Commit, the
+                // stale write (record/lt-priority-assumptions/PriorityAssumptions.al:143-244, real BC: after a Modify that changes nothing and a Commit, the
                 // other variable's Modify of a changed field is accepted, while a Modify that changed a field makes it fail with DB:RecordChanged).
                 self.check_code_storage(&t, &rec.borrow().fields, true)?;
                 self.sql_timestamp_before(&t, rec, stored_row.as_deref())?;
@@ -4326,6 +4592,21 @@ impl Session {
             RecordOp::Delete => {
                 let run = arg_bool(args, 0)?;
                 self.tenant_license_state_refuses(&t, "delete")?;
+                self.document_service_trigger_refused(&t, rec, run, "Delete")?;
+                if let Some(e) = self.read_only_platform_table(&t, rec) {
+                    let row = rec.borrow().fields.clone();
+                    let pk = Self::sql_key(rec, &t, &row);
+                    let exists = self
+                        .store_for(rec)
+                        .get(&cx, &t, &pk)
+                        .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                        .is_some();
+                    return if exists {
+                        Err(Signal::Error(Box::new(e)))
+                    } else {
+                        unsupported(format!("a Delete of a {} row that does not exist (not pinned)", t.name))
+                    };
+                }
                 // A Delete loads the missing fields of a partially loaded record first: afterwards they read as loaded, with the
                 // values of the row it deleted (record/lt-load-fields-fetched/LoadFieldsFetched.al:270-289,
                 // P170_JitLoad_After_Delete_Of_The_Same_Partial_Record_BQ, Delete without triggers). With triggers it is not pinned.
@@ -4344,6 +4625,7 @@ impl Session {
                 let run = arg_bool(args, 0)?;
                 // The platform takes no delete on Tenant License State (record/TestPlatformTablesWritableContracts.al:96-101).
                 self.tenant_license_state_refuses(&t, "delete")?;
+                self.document_service_trigger_refused(&t, rec, run, "DeleteAll")?;
                 let (filters, flow_field_filters) = self.split_filters(rec);
                 if !flow_field_filters.is_empty() {
                     return unsupported("DeleteAll with a filter on a FlowField");
@@ -4361,6 +4643,30 @@ impl Session {
                     .store_for(rec)
                     .count(&cx, &t, &filters)
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                // A platform table whose fresh-tenant rows nothing pins (`UNSEEDED_ROWS`): a DeleteAll without filters removes
+                // them in BC too, so the store marks the table emptied (`Session::is_unseeded`), even when it holds no row
+                // itself. With delete events or database triggers BC would run them for those rows: not known, refused.
+                if !temporary
+                    && filters.is_empty()
+                    && !rec.borrow().marked_only
+                    && self.engine.platform_unseeded.contains(&(t.object as usize))
+                    && self.is_unseeded(&t)
+                {
+                    let per_row = self.listened(&t, "onbeforedeleteevent", None)?
+                        || self.listened(&t, "onafterdeleteevent", None)?
+                        || self.global_enabled(&t, GlobalOp::Delete)?;
+                    if per_row {
+                        return unsupported(format!(
+                            "DeleteAll on {} with delete events or database triggers: BC runs them for the rows a fresh tenant holds there, which nothing pins",
+                            t.name
+                        ));
+                    }
+                    self.store_for(rec)
+                        .delete_all(&cx, &t, &filters)
+                        .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                    self.deletes += 1;
+                    return Ok(Value::Null);
+                }
                 // No row, no trigger and no event.
                 if n == 0 {
                     return Ok(Value::Null);
@@ -4450,6 +4756,28 @@ impl Session {
                     _ => None,
                 };
                 let args = from_id.as_deref().unwrap_or(args);
+                // More values than the primary key has fields raise, with the result used and unused
+                // (record/lt-bm-builtin-name-procedures/Y36BuiltinNameSameArity.al:146-172 Y36_SameArity_Get_IntegerArgs: two
+                // Integers on a one-field key of a table without a Caption). A table with a Caption is not pinned (name or caption).
+                if from_id.is_none() && args.len() > t.keys[0].len() {
+                    let o = &self.engine.program.objects[t.object as usize];
+                    if o.properties
+                        .iter()
+                        .any(|(k, _)| k.eq_ignore_ascii_case("Caption") || k == al_ir::EXT_CAPTION_OVER_OWN)
+                    {
+                        return unsupported(
+                            "Get with more values than the primary key has fields, on a table with a Caption (not pinned)",
+                        );
+                    }
+                    return Err(crate::transactions::al_error_code(
+                        &format!(
+                            "Too many key fields were specified, so \"{}\" could not be retrieved. The number of fields in the primary key is {}.",
+                            t.name,
+                            t.keys[0].len()
+                        ),
+                        "AL:ToManyKeyFields",
+                    ));
+                }
                 let mut pk = Vec::new();
                 for (n, &field) in t.keys[0].iter().enumerate() {
                     let ty = t.fields[field].ty.clone();
@@ -5643,10 +5971,22 @@ impl Session {
                                 al_builtins::native::text_of(&row[0]).unwrap_or_default(),
                             );
                             self.store.rename_company(&from, &to);
+                            if self.full_copies.remove(from.as_str()) {
+                                self.full_copies.insert(to.to_string());
+                            }
+                        }
+                        if !same_key && self.is_profile_row(&t, rec.borrow().temporary) {
+                            self.profile_after_rename(&t, &old_fields, &row)?;
                         }
                         if !same_key {
                             self.propagate_rename(rec, &t, &refs, &old_fields, &row)?;
-                            self.move_record_links(&t, rec, &old_fields)?;
+                            // The platform moves the record's links with system rights: a set without any grant on
+                            // Record Link renames (corpus permissions/lt-y19-perm-probes/Y19PermWrites.al
+                            // Y19_P1_Rename, rename_rim), so the session's sets do not apply here (ADR-062).
+                            let sets = self.permissions.take();
+                            let moved = self.move_record_links(&t, rec, &old_fields);
+                            self.permissions = sets;
+                            moved?;
                         }
                         self.run_ext_trigger(&t, "OnAfterRename", rec, Some(&xrec))?;
                         self.table_event(&t, "onafterrenameevent", rec, Some(&xrec), true, None)?;
@@ -5780,4 +6120,24 @@ pub(crate) fn state_with_fields(rec: &Rec, fields: Vec<Value>) -> RecordState {
     };
     st.fields = fields;
     st
+}
+
+/// Whether app `a` depends on app `b`, directly or through other apps (indexes into `apps`, dependencies by app id).
+fn app_depends_on(apps: &[al_ir::AppInfo], a: usize, b: usize) -> bool {
+    let mut seen = vec![false; apps.len()];
+    let mut stack = vec![a];
+    while let Some(x) = stack.pop() {
+        for dep in &apps[x].dependencies {
+            if let Some(i) = apps.iter().position(|p| p.id.eq_ignore_ascii_case(dep)) {
+                if i == b {
+                    return true;
+                }
+                if !seen[i] {
+                    seen[i] = true;
+                    stack.push(i);
+                }
+            }
+        }
+    }
+    false
 }

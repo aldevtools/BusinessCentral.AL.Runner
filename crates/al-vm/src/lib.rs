@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 mod autoinc;
 mod bgsession;
+mod init_assumes;
 mod state;
 pub(crate) use state::*;
 mod baseline;
@@ -39,6 +40,7 @@ mod companies;
 mod control_add_in;
 mod crm;
 mod dataset;
+mod datatransfer;
 mod dispatch;
 pub mod dotnet;
 mod effects;
@@ -57,6 +59,7 @@ mod interfaces;
 mod isdirty;
 mod pages;
 mod partial;
+mod permissions;
 mod platform;
 mod profile;
 mod queries;
@@ -70,6 +73,7 @@ mod sessionops;
 mod sqlcount;
 mod sqltime;
 mod tasks;
+mod tenant_layout_cfg;
 mod tenant_layouts;
 mod testdata;
 mod transactions;
@@ -308,16 +312,7 @@ impl Engine {
         let table_facts: Vec<TableFacts> = heads
             .iter()
             .map(|o| TableFacts {
-                // An Option InitValue written as a number no member is named (al-sema `option_init_ordinal`).
-                ordinal_init: o.table.as_ref().is_some_and(|t| {
-                    t.fields.iter().any(|f| match (&f.ty, &f.init, &f.init_text) {
-                        (al_builtins::value::RtType::Option(m), Some(al_ir::Const::Option(..)), Some(text)) => {
-                            let t = text.trim().trim_matches('"').trim();
-                            t.parse::<u32>().is_ok() && !m.iter().any(|x| x.trim().eq_ignore_ascii_case(t))
-                        }
-                        _ => false,
-                    })
-                }),
+                init_assumes: o.table.as_ref().map_or_else(Vec::new, init_assumes::of_table),
                 unresolved_init: o
                     .table
                     .as_ref()
@@ -613,6 +608,13 @@ pub(crate) enum EncryptionKey {
     Recreated,
 }
 
+/// The session language and WorkDate at the start of a test ([`Session::carried_state`]).
+#[derive(Debug, Clone, Copy)]
+pub struct CarriedState {
+    language: i32,
+    work_date: Option<i32>,
+}
+
 /// The isolated storage and the number sequences of a session at a test runner's checkpoint
 /// ([`Session::storage_checkpoint`]).
 #[derive(Debug, Clone, Default)]
@@ -804,6 +806,20 @@ pub struct Session {
     /// (`PermissionTestHelper.AddEffectivePermissionSet`) runs on with every access granted, on the assumption
     /// `permissions-not-enforced`, instead of being refused.
     pub ignore_permission_mock: bool,
+    /// `al-runner test --permissions off` (ADR-062 section 5): no access kind is enforced, whatever stage is on by
+    /// default (`permissions::Stage`).
+    pub permissions_off: bool,
+    /// The Role IDs `PermissionTestHelper.AddEffectivePermissionSet` assigned since the last `Clear` (ADR-062).
+    pub(crate) permission_roles: Vec<String>,
+    /// What the assigned sets give; `None` when the session is unrestricted (no set assigned, or sets that grant
+    /// everything such as SUPER). Every access point checks only `is_some()` (`permissions.rs`).
+    pub(crate) permissions: Option<Arc<permissions::EffectivePermissions>>,
+    /// The test runner's step assigned its sets since the last `Clear` (they are not composed: assumption
+    /// `runner-permission-sets-grant-all`); a set the test assigns on top of them leaves a session that is not fully
+    /// composed (ADR-062 probe P25).
+    pub(crate) runner_permission_sets: bool,
+    /// Set by AL code's record method call right before `record_op` of a restricted session, taken there (ADR-062).
+    pub(crate) permission_from_al: bool,
     /// The object index of the test codeunit being run (set by the test runner).
     pub test_object: Option<usize>,
     /// The `TestHttpRequestPolicy` of the running test codeunit (`None`: the property is absent).
@@ -874,6 +890,13 @@ pub struct Session {
     /// (company, table) -> why the rows of a per-company table in a company other than the session company are not known
     /// (ADR-046 decision 6, `Session::mark_company_unknown`).
     pub(crate) company_unknown: std::collections::HashMap<(String, u32), String>,
+    /// The companies made by `Database.CopyCompany` from the session company (or from another such company): they hold
+    /// the session company's rows as they were, so the rows install code wrote there are known
+    /// (`Session::copy_company`, `Session::cx_for`).
+    pub(crate) full_copies: std::collections::BTreeSet<String>,
+    /// While `Database.CopyCompany` inserts the Company row: why the `RunTrigger` of the Company's insert events is not
+    /// known. The subscribers get it as an unknown value (`Session::table_event`).
+    pub(crate) run_trigger_unknown: Option<&'static str>,
     /// The time `Sleep` has waited, added to every clock reading.
     pub(crate) waited_ms: i64,
     /// The running test's time limit in milliseconds, which its `Sleep` calls count toward (al-runner issue 5605), and
@@ -893,6 +916,10 @@ pub struct Session {
     pub(crate) render_pending_files: std::collections::HashMap<String, Arc<str>>,
     /// The instant of the last system stamp (milliseconds since the Unix epoch).
     pub(crate) last_stamp: i64,
+    /// The key and count of the draws of how far past a stamp the clock lands (`Session::stamp_millis`): the run seed's
+    /// (`al_host::seed::clock_key`), per test method once `Session::seed_test_method` ran (ADR-045 amendment 2026-10-31).
+    pub(crate) clock_key: u64,
+    pub(crate) clock_draws: u64,
     /// The date `WorkDate(Date)` set; today until then.
     pub(crate) work_date: Option<i32>,
     /// The language `GlobalLanguage(Id)` set.
@@ -982,6 +1009,7 @@ impl Session {
         let (company, user) = (host.identity.company_name(), host.identity.user_id());
         let random_seed = host.random_seed;
         let guid_seed = host.guid_seed;
+        let clock_key = al_host::seed::clock_key(host.run_seed, 0, "");
         let mut ident = platform::Ident::of(&host);
         let declared = host.identity.companies();
         let restored = match declared {
@@ -1019,6 +1047,8 @@ impl Session {
             waited_ms: 0,
             companies,
             company_unknown: Default::default(),
+            full_copies: Default::default(),
+            run_trigger_unknown: None,
             sleep_budget: None,
             slept_in_test: 0,
             encrypted: Default::default(),
@@ -1026,6 +1056,8 @@ impl Session {
             temp_files: 0,
             render_pending_files: std::collections::HashMap::new(),
             last_stamp: i64::MIN / 2,
+            clock_key,
+            clock_draws: 0,
             work_date: None,
             engine,
             last_error: AlError::default(),
@@ -1105,6 +1137,11 @@ impl Session {
             hub_disabled: false,
             runner_permission_step: false,
             ignore_permission_mock: false,
+            permissions_off: false,
+            permission_roles: Vec::new(),
+            runner_permission_sets: false,
+            permission_from_al: false,
+            permissions: None,
             test_object: None,
             http_policy: None,
             scratch_messages: None,
@@ -1131,6 +1168,7 @@ impl Session {
             application_areas: String::new(),
             tx: TxState {
                 committed_row_version: restored_row_version,
+                prior_committed_row_version: restored_row_version,
                 ..TxState::fresh()
             },
             ui_state: UiState {
@@ -1221,6 +1259,13 @@ impl Session {
     /// tests that write setup rows put the demo values back afterwards (misc/lt-qk-setup-rows/QkSetupRows.al), which leaves the
     /// runtime with the install-code row (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:798 QF_GLSetup_CorpusRow).
     pub fn start_test_method(&mut self) {
+        // A test method starts with no permission set of its own assigned: the runner's mock step (131006 OnRun) and
+        // its set step clear the assignment first; a test whose lowering was refused leaves none behind. The runner's
+        // sets, which its set step assigned just before, stay (`runner_permission_sets`; the test runner calls this
+        // again after its steps).
+        let runner = self.runner_permission_sets;
+        self.clear_permission_sets();
+        self.runner_permission_sets = runner;
         self.application_areas.clear();
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
@@ -1245,7 +1290,16 @@ impl Session {
         self.sql.committed();
         self.truncate_undo.clear();
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
+        self.tx.prior_committed_row_version = self.tx.committed_row_version;
         self.tx.committed_row_version = self.next_row_version;
+        let closed = (!self.tx.rolled_back && self.writes_all_noted()).then(|| {
+            self.tx
+                .writes
+                .iter()
+                .map(|w| (w.table, w.company.clone(), w.pk.clone()))
+                .collect()
+        });
+        self.tx.closed_tx_rows_before = std::mem::replace(&mut self.tx.closed_tx_rows, closed);
         self.tx.row_versions = Default::default();
         self.tx.rows_touched.clear();
         self.tx.tables_inserted.clear();
@@ -1584,6 +1638,24 @@ impl Session {
         self.install_without_client = on;
     }
 
+    /// The session state a test method can change for the next test besides the database and the globals: the language
+    /// (`GlobalLanguage`) and WorkDate. The test runner puts it back after a test refused while it ran (`restore_carried`).
+    pub fn carried_state(&self) -> CarriedState {
+        CarriedState {
+            language: self.global_language,
+            work_date: self.work_date,
+        }
+    }
+
+    /// Puts back what [`Session::carried_state`] took: a test refused while it ran leaves nothing of it behind, as its
+    /// database writes are rolled back (al-testrun `run.rs`).
+    pub fn restore_carried(&mut self, state: CarriedState) {
+        self.global_language = state.language;
+        self.events.event_stats.language.set(state.language);
+        al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(state.language));
+        self.work_date = state.work_date;
+    }
+
     /// Sets the session's WorkDate to the day number `day`, as `WorkDate(d)` does.
     pub fn set_work_date(&mut self, day: i32) {
         self.work_date = Some(day);
@@ -1752,6 +1824,8 @@ impl Session {
             self.guid_key = al_host::seed::guid_key(run_seed, codeunit, method);
             self.next_guid = 0;
         }
+        self.clock_key = al_host::seed::clock_key(run_seed, codeunit, method);
+        self.clock_draws = 0;
     }
 
     /// A test method begins, before the test runner's reset: until something reseeds the `Random` sequence (the reset's
@@ -1838,14 +1912,7 @@ impl Session {
         if self.engine.object_facts[*table as usize].temporary() {
             return false;
         }
-        if self
-            .engine
-            .table_facts
-            .get(*table as usize)
-            .is_some_and(|f| f.ordinal_init)
-        {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OptionInitValueOrdinal);
-        }
+        init_assumes::mark(self.engine.table_facts.get(*table as usize));
         true
     }
 
@@ -1959,6 +2026,10 @@ impl Session {
         args: Vec<Value>,
         facts: RoutineFacts,
     ) -> Result<(Value, Vec<Value>), Signal> {
+        // ADR-062: a call is an Execute access; an unrestricted session pays one branch.
+        if self.permissions.is_some() {
+            self.permission_gate_call(object)?;
+        }
         if let Some(Some(reason)) = self.engine.blocked.get(object).and_then(|o| o.get(routine)) {
             return Err(Signal::Unsupported(reason.clone()));
         }
@@ -2333,6 +2404,7 @@ impl Session {
             self.fault_site_lost = true;
             outcome = Err(Signal::Unsupported(why));
         }
+        outcome = self.close_test_pages_at_test_end(&frame, r, outcome);
         let ret = match outcome {
             Ok(()) => None,
             // A report flow call (Skip, Break, Quit) leaves every procedure between the report trigger and the call.
@@ -2456,9 +2528,8 @@ pub(crate) type AdhocTables = std::collections::HashMap<(u32, Vec<usize>), Arc<a
 pub(crate) struct TableFacts {
     /// Some field has an `InitValue` text that did not evaluate at compile time.
     pub(crate) unresolved_init: bool,
-    /// Some Option field's `InitValue` is a number no member is named: a fresh record marks assumption
-    /// option-init-value-ordinal.
-    pub(crate) ordinal_init: bool,
+    /// The assumptions the fields' `InitValue`s rest on (`init_assumes::of_table`): a fresh record marks them.
+    pub(crate) init_assumes: Vec<al_builtins::assumptions::Assumption>,
     /// The positions of the BigInteger fields with `SQLTimestamp = true`: they read the row version.
     pub(crate) sql_timestamp: Vec<usize>,
     /// Some Code field declares an `SQLDataType` other than `Varchar`: a write checks its value.
