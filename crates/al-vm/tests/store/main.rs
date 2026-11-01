@@ -50,6 +50,7 @@ mod record_ref_set_table_variant;
 mod recordref;
 mod recordref_copy_from_record;
 mod records;
+mod relation_field_qualified_const;
 mod relation_option_blank_const;
 mod relation_where_enum_filter;
 mod relation_where_flowfilter;

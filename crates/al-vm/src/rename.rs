@@ -75,6 +75,9 @@ impl Session {
                                     t.name, o.name, f.name
                                 ));
                             }
+                            for a in &arm.assumes {
+                                al_builtins::assumptions::assume(*a);
+                            }
                             refs.push(RenameRef {
                                 table: oi,
                                 pos,
