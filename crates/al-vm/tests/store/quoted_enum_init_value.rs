@@ -63,16 +63,23 @@ fn a_double_quoted_enum_init_value_does_not_mark_the_assumption() {
     assert!(!take_hits().contains(&Assumption::QuotedEnumInitValue));
 }
 
-/// alc accepts any text in single quotes here, an unknown name or another case too (corpus writer Y47's compile check);
-/// what BC makes of those is not measured, so only the exact member name is read and the rest stays refused.
+/// Another case and a trailing space name the member too (record/lt-y47-initvalue-quoted/Y47EnumInitQuoted.al
+/// Y47_InitValue_Lower and Y47_InitValue_Space, corpus branch al-runtime-rs-staging-y47). A number (whether it is the
+/// ordinal or the position is not told apart by the probe) and an unknown name stay refused.
 #[test]
-fn a_single_quoted_name_in_another_case_is_refused() {
+fn a_single_quoted_name_in_another_case_or_with_a_space_is_the_member() {
     let src = r#"
 enum 69989 "QEI Case" { value(0; " ") { } value(1; "G/L Account") { } }
 table 69990 "QEI Case T" { fields { field(1; Id; Integer) { } field(2; Kind; Enum "QEI Case") { InitValue = 'g/l account'; } } keys { key(PK; Id) { } } }
-codeunit 69991 C { procedure F(): Text var R: Record "QEI Case T"; begin R.Init(); exit(Format(R.Kind)); end; }
+table 69992 "QEI Space T" { fields { field(1; Id; Integer) { } field(2; Kind; Enum "QEI Case") { InitValue = 'G/L Account '; } } keys { key(PK; Id) { } } }
+table 69993 "QEI Digit T" { fields { field(1; Id; Integer) { } field(2; Kind; Enum "QEI Case") { InitValue = '1'; } } keys { key(PK; Id) { } } }
+codeunit 69991 C {
+    procedure F(): Text var R: Record "QEI Case T"; S: Record "QEI Space T"; begin R.Init(); S.Init(); exit(Format(R.Kind) + '|' + Format(S.Kind)); end;
+    procedure D(): Text var R: Record "QEI Digit T"; begin R.Init(); exit(Format(R.Kind)); end;
+}
 "#;
-    let r = al_testkit::run_in(src, "C", "F");
+    assert_eq!(text(al_testkit::run_in(src, "C", "F")), "G/L Account|G/L Account");
+    let r = al_testkit::run_in(src, "C", "D");
     assert!(
         matches!(&r, Err(al_builtins::native::Signal::Unsupported(w)) if w.contains("InitValue")),
         "{r:?}"
