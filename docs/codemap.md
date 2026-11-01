@@ -76,6 +76,9 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `describe.rs` (330): How a value or type reads in a refusal reason or internal error (AL type and a short value, never a debug dump). Entry: `Describe` 12.
 - `datatransfer.rs` (74): DataTransfer (install and upgrade code only). Entry: `native_for` 58.
 - `datefns.rs` (769): Date, Time and DateTime builtins. Entry: `formula_text` 237, `check_formula` 323.
+- `datefns/brackets.rs` (95): angle brackets inside a term of a date formula (`-62<D>`, `1<>D`, `C<M>`). Entry: `open`, `close`.
+- `datefns/numbers.rs` (17): a formula that is only a number above 9999. Entry: `too_large`.
+- `autoformat11.rs` (71): `Format` in code of an AutoFormatType 11 field with the format string its expression gave. Entry: `format`.
 - `errorinfo.rs` (307): ErrorInfo: the property bag, Error(ErrorInfo), collected errors. Entry: `raise` 239, `copy_of` 263, `native_for` 283.
 - `features.rs` (~150): `catalog/alc-features.txt` (what the AL compiler reports per property and element kind, data type, attribute and object type at each runtime; `tools/alc-runtimes/alc_features.py`). Entry: `feature`, `al0666_at`.
 - `evaluate.rs` (265): `Evaluate(var Variable, String [, Number])`. Entry: `evaluate` 205.
@@ -341,6 +344,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `pages/controls.rs` (588): Writing a control and the `TestField` methods. Entry: `control_set_value`, `test_control_op`.
 - `pages/actions.rs` (676): Control navigation, lookups, invoking actions, refresh after an action.
 - `pages/format.rs` (435): Reading a control: value, text, type, caption, editable, enabled, visible.
+- `pages/format_type11.rs` (30): the format string of an AutoFormatType 11 field, evaluated once per `Format`. Entry: `auto_format_type11_string`.
 - `pages/areas.rs` (104): Application areas on the test client.
 - `permissions.rs` (330): The session's permission sets (ADR-062): `SetModel` composes the Role IDs `PermissionTestHelper.AddEffectivePermissionSet` assigned from the permission set objects' source (`platform::raw_sets`: wildcards, IncludedPermissionSets), once per engine and set list; a list that grants everything (SUPER) leaves `Session::permissions` at `None` (unrestricted). A restricted session is refused at its next routine call (`Session::call_with_facts`) or record method (`records::record_op`) outside codeunit 131006, or at the end of the test (al-testrun `run.rs`). Entry: `SetModel::compose`, `Session::assign_permission_set`, `permission_gate`, `permissions_lowered_at_end`.
 - `pages/background.rs` (257): Page background tasks under the test client. Entry: `BgWorker` 11.
@@ -368,6 +372,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `queries.rs` (881): Query objects: Open, Read, column values, SaveAs. Entry: `query_op` 107, `query_column` 350.
 - `recmeta.rs` (734): Record builtins that read table metadata or guard on session state. Entry: `string_literal` 29, `mentions_table` 49, `is_blank` 60.
 - `records.rs` (1565): Record.* on the store: Insert, Modify, Delete, Get, Find, filters, triggers, events. Entry: `record_op` 733, `table_event` 205, `run_trigger` 499, `delete_row` 297, `scan` 545, `unique_violation` 346.
+- `records/flowfield_key.rs` (130): the rows of a record keyed on a row-dependent sum or count FlowField, sorted by its value. Entry: `runs`, `scan_flowfield_key`.
 - `refs.rs` (637): `RecordRef`, `FieldRef` and `KeyRef` on the VM. Entry: `record_ref_value` 42.
 - `relations.rs` (179): TableRelation: lookups and Validate checks. Entry: `field_relation` 70, `validate_relation` 94.
 - `rename.rs` (214): Rename propagation to related tables. Entry: `rename_references` 33, `propagate_rename` 86.
