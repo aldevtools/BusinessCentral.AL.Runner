@@ -1243,11 +1243,38 @@ impl Session {
         if temp_worksheet && self.temp_tree_worksheet_in_key(st) {
             return Ok(true);
         }
-        if temp_worksheet {
+        if temp_worksheet && self.tree_indentation(st).is_none() {
             // A temporary Worksheet (not a tree) whose OnOpenPage filled it and moved Rec opens on the row Rec was left on, the
             // nearest of the view in key order when Rec is outside it, as the temporary List does: in the primary key and
             // another, by OpenView, OpenEdit, Page.Run, RunModal and in lookup mode, with OnNextRecord too
             // (pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al QR_TempWs_* and QR_TempWsNext_*, writer Y57).
+            return Ok(true);
+        }
+        if temp_worksheet {
+            // A temporary tree Worksheet (outside `temp_tree_worksheet_in_key`) whose OnOpenPage moved Rec or changed its key, its
+            // order or its filters: both paths below make a choice no corpus test pins (which row it opens on), so both mark the
+            // assumption worksheet-temp-source-open-row.
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WorksheetTempSourceOpenRow);
+            // Only a Rec in the primary key, outside lookup mode and without OnNextRecord, from which `=><` reaches a row other
+            // than the first of the view, takes the assumed path (page 498 leaves Rec on an entry summary it did not insert,
+            // past the purchase line's). Any other temporary Worksheet keeps the first row, as before (the same assumption; the Item Tracking Lines page, whose OnOpenPage changes the key, reaches it in many Microsoft tests).
+            if rec.borrow().key != 0 || st.borrow().lookup || self.declares(st, "onnextrecord") {
+                return Ok(false);
+            }
+            // Where `=><` from Rec lands, as the open does (`open_on_rec_moved_by_onopenpage`): on the first row of the view the
+            // page opens as it always did.
+            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+            self.ret_used = true;
+            if !matches!(
+                self.record_op(RecordOp::Find, &probe, &mut [Value::Text("=><".into())])?,
+                Value::Boolean(true)
+            ) {
+                return Ok(false);
+            }
+            let landed = self.row_key(&probe)?;
+            if first.as_ref().is_some_and(|f| Self::same_key(f, &landed)) {
+                return Ok(false);
+            }
             return Ok(true);
         }
         // A temporary List whose row was set before the open opens on that row in lookup mode too (QrMovedTests.al:2650

@@ -1294,7 +1294,8 @@ Pinned by pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:2378-2705 (QT_Temp*, 
 procedure of the page variable fills the temporary source and leaves Rec on a row; OnOpenPage leaves Rec as it was. Code:
 `rec_moved_by_onopenpage`, `open_on_rec_moved_by_onopenpage` (pages/open.rs), `populate_window` (pages/rows.rs). A Worksheet
 whose OnOpenPage fills it and moves Rec is pinned too (QR_TempWs_*, QR_TempWsNext_*, writer Y57, 2026-11-01): it opens on Rec's
-row by every route, in its key, with OnNextRecord; the assumption `worksheet-temp-source-open-row` is gone.
+row by every route, in its key, with OnNextRecord; the assumption `worksheet-temp-source-open-row` now covers only a tree
+Worksheet outside the pinned modal open in another key.
 
 | Behavior | Status | Probe wanted | Code |
 |---|---|---|---|

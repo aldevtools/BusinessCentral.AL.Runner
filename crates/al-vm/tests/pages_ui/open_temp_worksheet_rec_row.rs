@@ -2,11 +2,27 @@
 //! view when it opens. Rows a procedure of the page variable filled before Run or RunModal, with OnOpenPage leaving Rec as it
 //! was: it opens on that row, as a List does (pinned by pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:2378-2705, the
 //! QT_Temp* tests; the modal and lookup forms are checked by the corpus run). Forms past those pins are refused. A Worksheet
-//! whose OnOpenPage filled it and moved Rec or changed its key opens on Rec's row too (QrMovedTests.al QR_TempWs_* and
-//! QR_TempWsNext_*, writer Y57).
+//! (not a tree) whose OnOpenPage filled it and moved Rec or changed its key opens on Rec's row too (QrMovedTests.al QR_TempWs_*
+//! and QR_TempWsNext_*, writer Y57); a tree Worksheet there stays under assumption `worksheet-temp-source-open-row`.
 //! The same Worksheet over a database table opens on the row OnOpenPage left Rec on (pages/lt-outside-worksheet-2/RtFillOnOpen.al).
 
 const SRC: &str = r#"
+table 69987 "OpWs Tree Row" {
+    fields { field(1; "No."; Integer) { } field(2; Indent; Integer) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+page 69988 "OpWs Tree Worksheet"
+{
+    PageType = Worksheet; SourceTable = "OpWs Tree Row"; SourceTableTemporary = true; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { ShowAsTree = true; IndentationColumn = Rec.Indent; field(NoCtl; Rec."No.") { } } } }
+    trigger OnOpenPage()
+    begin
+        Rec.Init(); Rec."No." := 1; Rec.Insert();
+        Rec.Init(); Rec."No." := 2; Rec.Indent := 1; Rec.Insert();
+        Rec.Init(); Rec."No." := 3; Rec.Insert();
+        Rec.Get(2);
+    end;
+}
 table 69980 "OpWs Row" {
     fields { field(1; "No."; Integer) { } field(2; Name; Text[30]) { } }
     keys { key(PK; "No.") { Clustered = true; } key(ByName; Name) { } }
@@ -126,6 +142,13 @@ codeunit 69984 C
         P.OpenView();
         exit(P.NoCtl.Value);
     end;
+    procedure TreeMoved(): Text
+    var
+        P: TestPage "OpWs Tree Worksheet";
+    begin
+        P.OpenView();
+        exit(P.NoCtl.Value);
+    end;
     procedure KeyChanged(): Text
     var
         P: TestPage "OpWs Key Worksheet";
@@ -219,4 +242,13 @@ fn a_temporary_worksheet_whose_key_changed_opens_on_recs_row() {
     // Rec on No. 1 ('b') in key ByName, below No. 2 ('a'): it opens on No. 1 (QrMovedTests.al QR_TempWs_OpenView_KeyGet).
     assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "KeyChanged")), "1");
     assert!(take_hits().is_empty());
+}
+
+/// A tree Worksheet is past the Y57 pins (QrMovedTests.al QR_TempWs_* are not trees): it keeps the assumed path.
+#[test]
+fn a_temporary_tree_worksheet_whose_onopenpage_moved_rec_marks_the_assumption() {
+    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+    clear_hits();
+    let _ = al_testkit::run_in(SRC, "C", "TreeMoved");
+    assert!(take_hits().contains(&Assumption::WorksheetTempSourceOpenRow));
 }

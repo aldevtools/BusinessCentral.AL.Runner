@@ -42,6 +42,7 @@ impl Session {
                 Some(al_ir::PageType::Worksheet)
             )
             && st.borrow().host.is_none()
+            && self.tree_indentation(st).is_none()
             && !self.declares(st, "onfindrecord");
         let pinned = tree_ws || flat_ws || {
             let s = st.borrow();
@@ -119,7 +120,7 @@ impl Session {
             && !self.declares(st, "onnextrecord")
     }
 
-    /// A temporary Worksheet whose OnOpenPage left Rec on the last row of the view (one row read at the open) serves the open read
+    /// A temporary Worksheet (not a tree) whose OnOpenPage left Rec on the last row of the view (one row read at the open) serves the open read
     /// from OnNextRecord as on another row: it steps back over the rows above and reads Rec's row twice
     /// (pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al QR_TempWsNext_OpenView_NoMove
     /// `O:D;R:D;N:D|1>0;N:C|-1>-1;R:C;N:B|-1>-1;R:B;N:A|-1>-1;R:A;N:A|-1>0;R:D;R:D;C:D;`, writer Y57). `rows_read` 1 also asks
@@ -127,6 +128,7 @@ impl Session {
     pub(in crate::pages) fn temp_worksheet_last_row_open(&self, st: &St, rows_read: usize) -> bool {
         rows_read == 1
             && self.page_rec(st).borrow().temporary
+            && self.tree_indentation(st).is_none()
             && self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet)
     }
 
