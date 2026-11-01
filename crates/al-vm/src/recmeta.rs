@@ -1880,6 +1880,8 @@ impl Session {
                     last_modify: None,
                     row_origin: None,
                     globals: shared.share(),
+                    // The scanned row is whole: a partial load of the variable is not the copy's (al-runner issue 6654).
+                    load: Default::default(),
                     ..r.clone()
                 }
             };

@@ -33,6 +33,7 @@ mod linked_object;
 mod loadfields;
 mod media_null_guid_filter;
 mod media_resources;
+mod modify_all_partial;
 mod modify_all_unchanged;
 mod np_blockers;
 mod option_init_ordinal;
