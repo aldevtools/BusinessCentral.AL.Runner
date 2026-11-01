@@ -3499,3 +3499,20 @@ fn a_parameterless_dictionary_takes_text_keys() {
     );
     assert_eq!(text(r), "YesNov1NoYesNovb");
 }
+
+// Y51BlobStreamPosition.al: Position follows what AL read, a Position set reads back and does not move AL, and the stream assigned
+// back to the InStream reads it from its start.
+#[test]
+fn a_position_set_on_a_stream_over_an_instream_and_the_stream_assigned_back() {
+    let host = no_host();
+    let r = run(
+        &host,
+        &format!("{STREAM_VARS} C: Char; T2: Text;"),
+        "B.Data.CreateOutStream(O); O.WriteText('abcdef'); B.Data.CreateInStream(I); S := I; \
+         I.Read(C); I.Read(C); T := Format(S.Position) + '|'; S.Position := -1; T += Format(S.Position) + '|'; \
+         I.ReadText(T2); T += T2 + '|'; I := S; I.ReadText(T2); exit(T + T2);",
+        ": Text",
+    );
+    let _ = host;
+    assert_eq!(text(r), "2|-1|cdef|abcdef");
+}

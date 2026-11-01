@@ -3,6 +3,7 @@
 //! too.
 
 mod blob_stream;
+mod blob_stream_position;
 pub mod compression;
 mod drawing;
 mod generic_dictionary;

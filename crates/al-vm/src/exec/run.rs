@@ -273,13 +273,7 @@ impl Session {
                 Op::Convert { d, a, t } => {
                     let v = take(f, a, nl);
                     let ty = &chunk.types[t as usize];
-                    // An AL stream into a DotNet variable becomes a runtime-provided System.IO.Stream (dotnet/blob_stream.rs).
-                    let v = match (ty, &v) {
-                        (al_builtins::value::RtType::DotNet(i), Value::Library(..)) => {
-                            self.al_stream_into_dotnet(v, *i)?
-                        }
-                        _ => ops::convert_plain(v, ty)?,
-                    };
+                    let v = self.convert_op(v, ty)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::ConvertFieldValue { d, a, t, arg } => {
