@@ -55,5 +55,5 @@ signature as BC counts it follows from the same rule; no corpus test measures a 
 
 ## Conformance
 
-`crates/al-test-cli/tests/dependency_positions.rs` (a dependency frame names its line; with `AL_NO_DEP_POSITIONS` the call
+`crates/al-test-cli/tests/suite/dependency_positions.rs` (a dependency frame names its line; with `AL_NO_DEP_POSITIONS` the call
 is refused again).

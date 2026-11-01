@@ -407,7 +407,7 @@ codeunit 50301 T {{ Subtype = Test;
 
 /// Outcomes of the test codeunit `codeunit` of a reporter's repro in fixtures/outside-fb, with the stand-in Library Assert.
 fn repro_outcomes(file: &str, codeunit: &str) -> Vec<(String, Outcome)> {
-    let src = format!("{}\n{}", file, include_str!("fixtures/outside-fb/LibraryAssert.al"));
+    let src = format!("{}\n{}", file, include_str!("../fixtures/outside-fb/LibraryAssert.al"));
     let o = al_testkit::outcomes_in(&src, codeunit);
     assert!(!o.is_empty());
     o
@@ -420,7 +420,7 @@ fn repro_outcomes(file: &str, codeunit: &str) -> Vec<(String, Outcome)> {
 #[test]
 fn issue_6139_second_marking_after_the_row_lost_its_flag() {
     all_pass(repro_outcomes(
-        include_str!("fixtures/outside-fb/Issue6139.al"),
+        include_str!("../fixtures/outside-fb/Issue6139.al"),
         "Reapply Probe Tests",
     ));
 }
@@ -432,7 +432,7 @@ fn issue_6139_second_marking_after_the_row_lost_its_flag() {
 #[test]
 fn issue_6141_goto_record_of_an_unmarked_row_with_a_part() {
     all_pass(repro_outcomes(
-        include_str!("fixtures/outside-fb/Issue6141.al"),
+        include_str!("../fixtures/outside-fb/Issue6141.al"),
         "GoTo Other Row Tests",
     ));
 }
@@ -443,8 +443,8 @@ fn issue_6141_goto_record_of_an_unmarked_row_with_a_part() {
 fn issue_6116_outcomes(exact: &str) -> Vec<(String, Outcome)> {
     let src = format!(
         "{}\n{}\n{}",
-        include_str!("fixtures/outside-fb/Issue6116.al"),
-        include_str!("fixtures/outside-fb/LibraryAssert.al"),
+        include_str!("../fixtures/outside-fb/Issue6116.al"),
+        include_str!("../fixtures/outside-fb/LibraryAssert.al"),
         ISSUE_6116_EXACT
     );
     al_testkit::outcomes_in(&src, exact)
