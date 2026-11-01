@@ -141,27 +141,7 @@ impl Lowerer<'_> {
                         ir::Binding::None
                     }
                 };
-                controls.push(ir::Control {
-                    name: raw.name.clone(),
-                    kind: ir::ControlKind::DataItem,
-                    parent: None,
-                    binding,
-                    props: Vec::new(),
-                    triggers: Vec::new(),
-                    part_page: None,
-                    part_link: None,
-                    owner: None,
-                    ext_triggers: Vec::new(),
-                    run_object: None,
-                    action_ref: None,
-                    prop_texts: Vec::new(),
-                    var_field: None,
-                    var_slot: None,
-                    expr_source: None,
-                    expr_call: false,
-                    array_element: None,
-                    bare_quoted_ext_source: false,
-                });
+                controls.push(data_item_control(&raw.name, binding));
                 continue;
             }
             let ow = owner_of(raw.owner);
@@ -519,6 +499,7 @@ impl Lowerer<'_> {
                 expr_call,
                 array_element,
                 bare_quoted_ext_source,
+                factbox: raw.factbox,
             });
         }
         let base = owner_of(None);
@@ -797,5 +778,31 @@ impl Lowerer<'_> {
             })
             .unwrap_or_default();
         Ok(link)
+    }
+}
+
+/// The control of a data item of a request page: the test client reads and writes the filters of its record (`binding`).
+fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
+    ir::Control {
+        name: name.to_string(),
+        kind: ir::ControlKind::DataItem,
+        parent: None,
+        binding,
+        props: Vec::new(),
+        triggers: Vec::new(),
+        part_page: None,
+        part_link: None,
+        owner: None,
+        ext_triggers: Vec::new(),
+        run_object: None,
+        action_ref: None,
+        prop_texts: Vec::new(),
+        var_field: None,
+        var_slot: None,
+        expr_source: None,
+        expr_call: false,
+        array_element: None,
+        bare_quoted_ext_source: false,
+        factbox: false,
     }
 }
