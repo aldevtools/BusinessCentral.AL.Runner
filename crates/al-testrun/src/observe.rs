@@ -648,6 +648,19 @@ impl Walk<'_> {
                 }
                 args.iter().try_for_each(|a| self.arg(a))
             }
+            // `[RunOnClient]` bookkeeping calls nothing (`DotNetOp::ClientNull`, `ClientAssign` on a value that is not the
+            // client null passes it on).
+            Expr::DotNet {
+                op: DotNetOp::ClientNull | DotNetOp::ClientAssign,
+                receiver,
+                args,
+                ..
+            } => {
+                if let Some(r) = receiver {
+                    self.expr(r)?;
+                }
+                args.iter().try_for_each(|a| self.arg(a))
+            }
             Expr::DotNet { .. } | Expr::DotNetCoerce(..) | Expr::DotNetOperand(..) => Err("calls into .NET".into()),
         }
     }

@@ -16,6 +16,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+mod flowfield_key;
+mod platform_rows;
+
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
 
 /// The `TxState::lock_unpinned` text of a read other than FindFirst under a locking ReadIsolation.
@@ -86,8 +89,8 @@ pub(crate) const MEDIA_KEY: &str = "after SetCurrentKey on a Media or MediaSet f
 /// The `RecordState::unpinned_buffer` reason of a record after `SetCurrentKey` on a FlowField whose value depends on the row (a
 /// `field()` condition), alone or after normal fields. Only `CurrentKey` is pinned: it names the fields
 /// (record/Y8SetCurrentKeyNotStored.al:84-106 `flowfield` `key=Total`, `name_then_flowfield` `key=Name,Total`;
-/// record/lt-set-current-key/SetCurrentKeyFlowFieldOrder.al:109-113 `currentKey` `Cnt`). The order of the rows is pinned for
-/// one shape only (SetCurrentKeyFlowFieldOrder.al) and not built: every method that reads rows refuses, as for [`MEDIA_KEY`].
+/// record/lt-set-current-key/SetCurrentKeyFlowFieldOrder.al:109-113 `currentKey` `Cnt`). The finds and the order of the rows
+/// run for a sum or count FlowField first in the key (`flowfield_key`); the rest refuses, as for [`MEDIA_KEY`].
 pub(crate) const FLOWFIELD_KEY: &str = "after SetCurrentKey on a FlowField whose value depends on the row only CurrentKey is pinned: the order of the rows by the FlowField's value is not built";
 
 /// Whether `rec` carries [`MEDIA_KEY`] or [`FLOWFIELD_KEY`].
@@ -556,16 +559,8 @@ impl Session {
         facts.unknown.get(&(object as usize)).map(String::as_str)
     }
 
-    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code. Every
-    /// persistent read and write passes here, so it also marks the platform tables that are stored on an assumption: Webhook
-    /// Subscription and Webhook Notification (`webhook-tables-stored`, al-builtins platform.rs).
+    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.
     pub(crate) fn install_assumed(&self, object: u32) {
-        if matches!(
-            self.engine.program.objects[object as usize].id,
-            Some(2_000_000_194 | 2_000_000_199)
-        ) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WebhookTablesStored);
-        }
         if self.install_scope {
             return;
         }
@@ -779,7 +774,7 @@ impl Session {
     }
 
     /// A record handle holding `fields` and otherwise `rec`'s state: an `xRec`.
-    fn xrec_handle(rec: &Rec, fields: Vec<Value>) -> Rec {
+    pub(crate) fn xrec_handle(rec: &Rec, fields: Vec<Value>) -> Rec {
         let mut st = state_with_fields(rec, fields);
         // The variable's xRec keeps its globals from one operation to the next (ADR-021).
         st.globals = rec.borrow().globals.xrec();
@@ -1129,8 +1124,7 @@ impl Session {
                     // OnDelete trigger, then DB:RecordChanged; OnAfterDeleteEvent never runs and the row stays. When another
                     // variable Modified that row in the new transaction (the Modify rule writes the buffer), the row is deleted
                     // and the trigger and the events run as for a fresh buffer (record/lt-sb-stale-own-modify/
-                    // Y32StaleDeleteTests.al Y32_2C_*, Y32_3C_* on corpus branch al-runtime-rs-staging-y32, al-runner issue
-                    // 6546; assumption `stale-delete-event-before-record-changed` until the file is on master). A table
+                    // Y32StaleDeleteTests.al Y32_2C_*, Y32_3C_*, al-runner issue 6546). A table
                     // extension's delete triggers and the OnDatabaseDelete global trigger are not pinned.
                     let own_insert = {
                         let r = rec.borrow();
@@ -1144,10 +1138,8 @@ impl Session {
                         && !self.tx.rolled_back
                         && !self.tx.lock_tx
                         && self.tx.lock_unpinned.is_none();
+                    // record/lt-sb-stale-own-modify/Y32StaleDeleteTests.al (al-runner issue 6546).
                     if y32 && verdict == StaleVerdict::Refused && untouched_tx {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::StaleDeleteEventBeforeRecordChanged,
-                        );
                         self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
                         if run && let Some(tr) = self.table_trigger(t, "OnDelete") {
                             let x = Self::xrec_handle(rec, rec.borrow().fields.clone());
@@ -1157,11 +1149,6 @@ impl Session {
                     }
                     let row_written =
                         y32 && verdict == StaleVerdict::Written && self.stale_row_modified_only(t, &company, &pk);
-                    if row_written {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::StaleDeleteEventBeforeRecordChanged,
-                        );
-                    }
                     let pinned = pinned || row_written;
                     if (hooks || ext) && !pinned {
                         return unsupported(format!(
@@ -1605,7 +1592,13 @@ impl Session {
         }
     }
 
-    fn run_trigger(&mut self, object: usize, routine: usize, rec: &Rec, xrec: Option<&Rec>) -> Result<(), Signal> {
+    pub(crate) fn run_trigger(
+        &mut self,
+        object: usize,
+        routine: usize,
+        rec: &Rec,
+        xrec: Option<&Rec>,
+    ) -> Result<(), Signal> {
         let entered = !self.dirty_frames.is_empty() && self.dirty_trigger_enter(rec, xrec);
         let r = self
             .call_on_record(object, routine, rec.clone(), xrec, Vec::new())
@@ -1776,7 +1769,7 @@ impl Session {
     }
 
     /// The error of a write through a stale buffer (record/TestRecordStaleBufferWrite.al).
-    fn record_changed(&self, t: &TableDef, rec: &Rec) -> Result<Signal, Signal> {
+    pub(crate) fn record_changed(&self, t: &TableDef, rec: &Rec) -> Result<Signal, Signal> {
         let identification = self.identification(t, &rec.borrow().fields)?;
         Ok(Signal::Error(Box::new(AlError {
             message: format!(
@@ -1950,9 +1943,7 @@ impl Session {
             // Two or three Commits after the buffer's own write, another variable wrote the row in the transaction the last
             // Commit closed, and the new transaction's only writes are Modifies of the buffer's row through other variables
             // (changed or not, once or twice), with no lock: written whole, the stale buffer winning, OnModify once with xRec the
-            // buffer (record/lt-sb-stale-own-modify/Y27StaleOtherVarTests.al Y27_2C_*, Y27_3C_* on corpus branch
-            // al-runtime-rs-staging-y27, al-runner issue 6522; assumption `stale-own-insert-two-commits-row-written` until
-            // the file is on master). Y27_3C_* writes the row in both transactions between, so three Commits need it written in
+            // buffer (record/lt-sb-stale-own-modify/Y27StaleOtherVarTests.al Y27_2C_*, Y27_3C_*, al-runner issue 6522). Y27_3C_* writes the row in both transactions between, so three Commits need it written in
             // the one before too; a transaction between that left the row alone stays refused below, as does a row last written
             // in the buffer's own transaction with an empty Commit after it.
             Some(o)
@@ -1964,9 +1955,6 @@ impl Session {
                     && committed.is_some_and(|c| c > self.tx.prior_committed_row_version)
                     && self.stale_row_modified_only(t, &company, pk) =>
             {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::StaleOwnInsertTwoCommitsRowWritten,
-                );
                 Ok(StaleVerdict::Written)
             }
             Some(o) if o.own_write && contact => unsupported(format!(
@@ -2328,6 +2316,11 @@ impl Session {
         ascending: bool,
         after: Option<Vec<Value>>,
     ) -> Result<Option<Vec<Value>>, Signal> {
+        if rec.borrow().adhoc.is_some() {
+            if let Some(hit) = self.scan_flowfield_key(rec, t, ascending, &after)? {
+                return Ok(hit);
+            }
+        }
         if rec.borrow().field_descending != 0 {
             return self.scan_first_field_reversed(rec, t, ascending, after);
         }
@@ -2713,37 +2706,49 @@ impl Session {
         }
     }
 
-    /// The platform's virtual table `Agent Task` (2000000262): in a test session IsEmpty fails with the agent service's
-    /// error, code DB:Ok (platform/lt-rh-agent-session/RhAgentSession.al:74-88 RH_AgentTask_TaskExistsUnknownAgent, through
-    /// "Agent Task Impl.".TaskExists, whose only read of the table is IsEmpty after two SetRange calls and ReadIsolation).
-    /// Every other read or write of it stays refused by its provider ("has no provider").
+    /// The platform's agent tables Agent (2000000260), Agent Access Control (2000000261), Agent Task (2000000262) and Agent
+    /// Task Message (2000000263): in a test session on the corpus containers every read and every insert fails with the agent
+    /// service's error, code DB:Ok, and leaves no write transaction, whatever app calls it (onprem
+    /// platform/lt-y35-agent-direct/Y35AgentDirect.al C302_AgentDirect_FindSetFiltered, _Reads, _Inserts: FindSet with a filter,
+    /// FindFirst, IsEmpty, Count, FindLast, Get, Insert(true), Insert() on Agent; platform/lt-y35-agent-api/Y35AgentApi.al
+    /// C302_AgentTaskDirect_Reads, _Inserts: FindSet, Count, Get and Insert on Agent Task, FindSet and Insert on Agent Task
+    /// Message, FindSet on Agent Access Control; C302_AgentApi_Create, _Activate, _TaskCreate through the System Application;
+    /// platform/lt-rh-agent-session/RhAgentSession.al:74-145 for IsEmpty on Agent Task and Get on Agent). Every other
+    /// operation stays refused by the provider ("has no provider").
     fn agent_task_check(&self, t: &TableDef, rec: &Rec, method: RecordOp) -> Result<(), Signal> {
         if rec.borrow().temporary {
             return Ok(());
         }
-        // IsEmpty on Agent Task (RhAgentSession.al:74-88) and Get on Agent ("Agent Impl.".GetAgent, RhAgentSession.al:101-145,
-        // AL Runner issue 5787), for a new and a null id.
         let id = self.engine.program.objects[t.object as usize].id;
-        if !matches!(
-            (method, id),
-            (RecordOp::IsEmpty, Some(2000000262)) | (RecordOp::Get, Some(2000000260))
-        ) {
+        if !matches!(id, Some(2000000260..=2000000263)) {
+            return Ok(());
+        }
+        let pinned = match id {
+            Some(2000000260) => matches!(
+                method,
+                RecordOp::FindSet
+                    | RecordOp::FindFirst
+                    | RecordOp::FindLast
+                    | RecordOp::IsEmpty
+                    | RecordOp::Count
+                    | RecordOp::Get
+                    | RecordOp::Insert
+            ),
+            Some(2000000262) => matches!(
+                method,
+                RecordOp::FindSet | RecordOp::Count | RecordOp::Get | RecordOp::IsEmpty | RecordOp::Insert
+            ),
+            Some(2000000263) => matches!(method, RecordOp::FindSet | RecordOp::Insert),
+            _ => method == RecordOp::FindSet,
+        };
+        if !pinned {
             return Ok(());
         }
         let object = &self.engine.program.objects[t.object as usize];
         let platform = self.engine.program.apps.get(object.app as usize).is_some_and(|a| {
             a.id.eq_ignore_ascii_case(crate::platform::objects::al_sema_platform_app_id())
         });
-        // Only a read from Microsoft code (the System Application) is pinned; a partner app's own read is not.
-        let microsoft = self.frames.last().is_some_and(|o| {
-            let app = self.engine.program.objects[*o].app as usize;
-            self.engine
-                .program
-                .apps
-                .get(app)
-                .is_some_and(|a| a.publisher == "Microsoft")
-        });
-        if !platform || !microsoft {
+        if !platform {
             return Ok(());
         }
         Err(crate::transactions::al_error_code(
@@ -2877,89 +2882,6 @@ impl Session {
         r
     }
 
-    /// A record method on Rec in the OnOpenPage of a page an action opens through `RunPageLink`. Real BC fills the linked fields
-    /// there and `GetFilters()` of a copy of Rec reads '' (corpus issue 712, writer QZ), while the runtime holds the link as a
-    /// filter: every read of the buffer, the filters, the view or the rows refuses. What runs: `GetFilter` of one field and
-    /// `FilterGroup` (pinned per filter group, handlers/TestActionRunPageLinkFilterGroup.al:119-131), `CurrentKey` and `Ascending`
-    /// (pinned with a RunPageView sorting, handlers/TestPageActionRunPageView.al:121-134, asserted at :341), the filter and key
-    /// setters, the table's names, and a `Get`, which ignores the filters and fills the buffer again.
-    fn run_page_link_open_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
-        let runs = matches!(
-            method,
-            RecordOp::Get
-                | RecordOp::GetFilter
-                | RecordOp::FilterGroup
-                | RecordOp::CurrentKey
-                | RecordOp::Ascending
-                | RecordOp::Reset
-                | RecordOp::SetCurrentKey
-                | RecordOp::SetAscending
-                | RecordOp::SetRange
-                | RecordOp::SetFilter
-                | RecordOp::FieldNo
-                | RecordOp::SetLoadFields
-                | RecordOp::AddLoadFields
-                | RecordOp::SetAutoCalcFields
-                | RecordOp::IsTemporary
-                | RecordOp::TableName
-                | RecordOp::TableCaption
-                | RecordOp::LockTable
-                | RecordOp::ReadIsolation
-                | RecordOp::SecurityFiltering
-        );
-        // Rec itself holds the link as filters in filter group 0: GetFilters reads them, GetRangeMin and GetRangeMax of a linked
-        // field the linked value (pages/lt-outside-worksheet-2/
-        // RtLinkRange.al:275 RT_Lr_StatusAndCode_Trap_H1 `A:Order No.: H1, Status: Released`, `Min:H1;Max:H1`, :335 a Code-only
-        // link, :354 const, :373 a filter(..) range `Min:H1;Max:H2`). Filters in another group, or several on the field, are not
-        // pinned. The target's SourceTableView puts its filters in group 2 beside the link, and GetFilters in group 0 reads the
-        // link alone (pages/W1RunObject.al:420 ViewTargetLink `id=0 filters=Grp: 2` on a Card with `where(Grp = const(1))`).
-        let link_read = match method {
-            RecordOp::GetFilters => {
-                let r = rec.borrow();
-                r.filter_group == 0 && r.filters.iter().all(|f| f.group == 0 || f.group == 2)
-            }
-            RecordOp::GetRangeMin | RecordOp::GetRangeMax => {
-                let pos = arg_pos(args, 0)?;
-                let r = rec.borrow();
-                let on_field: Vec<&FieldFilter> = r.filters.iter().filter(|f| f.field == pos).collect();
-                matches!(on_field.as_slice(), [only] if only.group == 0)
-            }
-            _ => false,
-        };
-        // With the linked fields filled (`RUN_PAGE_LINK_OPEN_FILLED`), Rec answers like any record of that buffer and view:
-        // Count() counts the linked rows of the view, Find() looks for the buffer's primary key (No for a List whose key is
-        // blank, Yes on a Card linked on its own key, reading the row), FindFirst() and FindLast() move Rec to the first or
-        // last linked row of the view, and leave the buffer as it was when there is none
-        // (pages/lt-rz-outside-page-moves/SjRunPageLinkOpenFind.al:14-21, :314-334, :353-365, :397-425, :427-450).
-        let filled = rec.borrow().unpinned_buffer == Some(RUN_PAGE_LINK_OPEN_FILLED);
-        let find_read = filled
-            && match method {
-                RecordOp::Count | RecordOp::FindFirst | RecordOp::FindLast => args.is_empty(),
-                RecordOp::Find => match args {
-                    [] => true,
-                    [Value::Text(w)] => w.as_str() == "=",
-                    _ => false,
-                },
-                _ => false,
-            };
-        if !runs && !link_read && !find_read {
-            let why = rec.borrow().unpinned_buffer.unwrap_or(RUN_PAGE_LINK_OPEN);
-            return unsupported(format!("Rec.{}() {why}", method.name()));
-        }
-        let flag = rec.borrow_mut().unpinned_buffer.take();
-        let r = self.record_op_inner(method, rec, args);
-        let refilled = matches!(
-            method,
-            RecordOp::Get | RecordOp::Find | RecordOp::FindFirst | RecordOp::FindLast
-        );
-        if !(refilled && matches!(r, Ok(Value::Boolean(true)))) {
-            rec.borrow_mut().unpinned_buffer = flag;
-        } else if find_read && matches!(method, RecordOp::FindFirst | RecordOp::FindLast) {
-            self.pages.run_page_link_open_moved = true;
-        }
-        r
-    }
-
     /// A record method on a table element record after an export under `SourceTableView` ([`XP_VIEW_AFTER_EXPORT`]). What corpus
     /// writer TS pinned runs (former assumption `xmlport-export-again` (pinned on corpus master since bump 1030); QrXpContainerOccurs.al TS_Again_* and TS_View_* on branch
     /// al-runtime-rs-staging-pub-ts): `Count` and `GetView(false)` (the view's key, the code's filters; the view's own filters
@@ -3039,23 +2961,7 @@ impl Session {
     /// of the rows run; `SetCurrentKey`, `Reset` and `Clear` give the record a key of its own again; every other method refuses.
     fn media_key_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value], why: &str) -> Result<Value, Signal> {
         let rekeys = matches!(method, RecordOp::Reset | RecordOp::SetCurrentKey | RecordOp::Clear);
-        let runs = rekeys
-            || matches!(
-                method,
-                RecordOp::CurrentKey
-                    | RecordOp::FieldNo
-                    | RecordOp::IsTemporary
-                    | RecordOp::TableName
-                    | RecordOp::TableCaption
-                    | RecordOp::Count
-                    | RecordOp::IsEmpty
-                    | RecordOp::SetRange
-                    | RecordOp::SetFilter
-                    | RecordOp::GetFilter
-                    | RecordOp::GetFilters
-                    | RecordOp::HasFilter
-                    | RecordOp::Init
-            );
+        let runs = rekeys || flowfield_key::runs(method, why, args);
         if !runs {
             return unsupported(format!("Record.{}(): {why}", method.name()));
         }
@@ -3466,11 +3372,7 @@ impl Session {
                 t.name
             ));
         }
-        self.linked_object_check(&t, rec, method)?;
-        self.crm_method_check(&t, rec, method, args)?;
-        self.agent_task_check(&t, rec, method)?;
-        self.tenant_report_layout_check(&t, rec, method)?;
-        self.tenant_layout_cfg_check(&t, rec, method, args)?;
+        self.table_op_checks(&t, rec, method, args)?;
         self.note_table(t.object, method.writes());
         if matches!(
             method,
@@ -4102,6 +4004,7 @@ impl Session {
                     }
                 }
                 let mut stored = Self::to_store(rec, view);
+                self.webhook_application_id(&t, rec, &mut stored)?;
                 if let Some(e) = self.sql_columns(rec, &t, &mut stored)? {
                     // A value the SQL column cannot hold: the Insert does not fail, the next access of the table does
                     // (errors/lt-ms-refusals-130/P130DateFilters.al:255-275, stage `get`), as for a duplicate key. With a Blob
@@ -4344,7 +4247,7 @@ impl Session {
                     let (mine, theirs) = (rec.borrow().fields[i].clone(), row[i].clone());
                     let version = |v: &Value| if let Value::BigInteger(n) = v { *n } else { 0 };
                     if self.stale_verdict(&t, rec, &cx, &pk, version(&theirs), false)? == StaleVerdict::Refused {
-                        return Err(self.record_changed(&t, rec)?);
+                        return Err(self.stale_own_insert_modify_refused(&t, rec, run)?);
                     }
                     // The buffer still holds what its own last Modify wrote and a rollback undid that write: the Modify answers
                     // true and writes nothing, so the row keeps what the rollback restored (StaleBuffer.al:76-86); a buffer

@@ -67,6 +67,27 @@ impl Lowerer<'_> {
         Ok(ir::Expr::TddStub { stub, args, ty })
     }
 
+    /// The receiver of a bare report method in a report's procedure (see `call`): the report's own instance for `RunModal`
+    /// and `Run`, else none (the VM takes the report whose code runs).
+    fn bare_report_receiver(&self, node: &SyntaxNode, name: &str) -> L<Option<Box<ir::Arg>>> {
+        let in_trigger = node
+            .ancestors()
+            .find(|a| matches!(a.kind(), SyntaxKind::Procedure | SyntaxKind::Trigger))
+            .is_none_or(|a| a.kind() == SyntaxKind::Trigger);
+        if in_trigger {
+            return Err(format!(
+                "a bare `{name}` in a trigger of the report runs while the report runs (not pinned)"
+            ));
+        }
+        if !(name.eq_ignore_ascii_case("RunModal") || name.eq_ignore_ascii_case("Run")) {
+            return Ok(None);
+        }
+        if self.ws.objects[self.oi].kind != ObjKind::Report {
+            return Err(format!("a bare `{name}` in a report extension (not pinned)"));
+        }
+        Ok(Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance))))
+    }
+
     /// A call resolved on `node` (the CallExpr, or the callee for a call without parentheses).
     pub(crate) fn call(&mut self, node: &SyntaxNode, callee: &SyntaxNode, args: &[SyntaxNode]) -> L<ir::Expr> {
         if let Some(Res::TddStub(site)) = self.res(node).cloned() {
@@ -169,6 +190,10 @@ impl Lowerer<'_> {
                 let mut out = Vec::new();
                 for (i, a) in args.iter().enumerate() {
                     let p = sig.params.get(i).ok_or("too many arguments")?;
+                    if let Some(arg) = self.run_on_client_arg(p.by_var, &p.ty, a) {
+                        out.push(arg);
+                        continue;
+                    }
                     if p.by_var {
                         let arg = self.by_var_arg(a)?;
                         // A `var` Text or Code parameter handed on to another `var` parameter keeps the declared length of the
@@ -194,8 +219,9 @@ impl Lowerer<'_> {
                         // A Variant handed to a by-value Text or Code parameter goes in as it is: the callee's binding converts it, and
                         // raises TypeConversion for a number, Boolean, Date, Enum or Option (types/lt-variant-to-text-fields/
                         // VariantNumberToTextParam.al; the text follows the session language, P147DateToText.al).
+                        // The cells the matrix pins for a Variant apply first (`Variant.Into#1`: a Byte is its character).
                         if matches!(p.ty, Ty::Text(_) | Ty::Code(_)) && matches!(self.ty_ref(a), Ty::Variant) {
-                            out.push(ir::Arg::Value(value));
+                            out.push(ir::Arg::Value(self.variant_into(&p.ty, value)?));
                             continue;
                         }
                         // A Variant handed to a by-value Record parameter goes in as it is too: the binding gives a RecordRef of
@@ -389,8 +415,7 @@ impl Lowerer<'_> {
                         Some((record, pos, kind)) => Some((record.clone(), *pos, *kind)),
                         None => args
                             .first()
-                            .and_then(|a| self.auto_format_expression_field(a))
-                            .map(|(record, pos)| (record, pos, 0)),
+                            .and_then(|a| self.auto_format_expression_field(a)),
                     }
                 } else {
                     None
@@ -490,7 +515,12 @@ impl Lowerer<'_> {
                 // `IsNull` of a `[RunOnClient]` DotNet variable: the variable can never be assigned (its constructor and
                 // `Create` raise), so it is null (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:171-176, :211-223
                 // `ok Yes`; the second pin is on corpus master from PR 790).
-                if id == "System.IsNull#1" && args.len() == 1 && self.run_on_client_var(&args[0]).is_some() {
+                // `Clear` of a `[RunOnClient]` variable: it stays null (corpus master 92fdde19,
+                // onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:454-480 Y16_RunOnClient_ClearAndVariant `cleared isnull=Yes`).
+                if (id == "System.IsNull#1" || id == "System.Clear#1")
+                    && args.len() == 1
+                    && self.run_on_client_var(&args[0]).is_some()
+                {
                     return Ok(ir::Expr::Const(ir::Const::Boolean(true)));
                 }
                 let receiver = match &receiver_node {
@@ -564,32 +594,16 @@ impl Lowerer<'_> {
                     // A bare report method in a report's or report extension's procedure is the `CurrReport.` form: the VM
                     // takes the report whose code runs (report/lt-y36-bare-report-member/Y36BareReportMember.al:206-357, also
                     // on a report variable never run and from a report extension; the checker resolves only the pinned names,
-                    // `check::calls::BARE_REPORT_MEMBERS`). In a trigger the bare form is not pinned. The bare `RunModal()`
-                    // runs the report's own instance: assumption `bare-report-member-is-self`.
+                    // `check::calls::BARE_REPORT_MEMBERS`). In a trigger the bare form is not pinned. The bare `RunModal()` and
+                    // `Run()` run the report's own instance: the triggers run once, the globals they set read back through the
+                    // variable, a second call raises ObjectHasAlreadyBeenRun (report/lt-y40-bare-report-run/Y40BareReportRun.al:
+                    // 214-377, corpus master ac3499d6). From a report extension they are not pinned.
                     None if sig.instance
                         && sig.receiver == "Report"
                         && callee.kind() == SyntaxKind::NameRef
                         && matches!(self.ws.objects[self.oi].kind, ObjKind::Report | ObjKind::ReportExtension) =>
                     {
-                        let in_trigger = node
-                            .ancestors()
-                            .find(|a| matches!(a.kind(), SyntaxKind::Procedure | SyntaxKind::Trigger))
-                            .is_none_or(|a| a.kind() == SyntaxKind::Trigger);
-                        if in_trigger {
-                            return Err(format!(
-                                "a bare `{}` in a trigger of the report runs while the report runs (not pinned)",
-                                sig.name
-                            ));
-                        }
-                        if sig.name.eq_ignore_ascii_case("RunModal") {
-                            if self.ws.objects[self.oi].kind != ObjKind::Report {
-                                return Err("a bare `RunModal` in a report extension (not pinned)".into());
-                            }
-                            self.assume(al_builtins::assumptions::Assumption::BareReportMemberIsSelf);
-                            Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance)))
-                        } else {
-                            None
-                        }
+                        self.bare_report_receiver(node, &sig.name)?
                     }
                     // An unqualified record method in table code runs on the implicit Rec.
                     None if sig.instance && matches!(sig.receiver.as_str(), "Record" | "Query") => {
@@ -817,7 +831,7 @@ impl Lowerer<'_> {
                             None
                         };
                         let expression = if without_expression.is_none() && places.is_none() {
-                            self.auto_format_expression_field(a).map(|(record, pos)| (record, pos, 0))
+                            self.auto_format_expression_field(a)
                         } else {
                             None
                         };

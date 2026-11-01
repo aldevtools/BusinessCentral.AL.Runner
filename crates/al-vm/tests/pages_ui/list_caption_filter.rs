@@ -1,7 +1,8 @@
 //! The caption of a list page whose record has a filter on a data caption field (al-runner issue 5593), pinned by
 //! pages/lt-y37-list-caption/Y37ListCaptionTests.al: only the page's DataCaptionFields count, and only a filter on one
 //! value adds it (`- Z1`, two fields joined by ` ∙ `); a range, a list, a wildcard or a blank value leaves the caption
-//! alone. A Date caption field with one date filtered fails on BC's test client and stays refused.
+//! alone. A Date caption field with one date filtered fails on BC's test client and stays refused. A field with a TableRelation
+//! adds the related record's DataCaptionFields (pages/lt-y45-list-caption-relation/Y45ListCaptionRelation.al).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -138,6 +139,18 @@ codeunit 61952 C
         exit(L.Caption());
     end;
 
+    procedure RelatedMissing(): Text
+    var
+        Bin: Record "Probe Bin";
+        L: TestPage "Probe Bin Related";
+    begin
+        Seed(Bin);
+        Bin.SetRange("Zone Rel", 'B9');
+        L.Trap();
+        Page.Run(Page::"Probe Bin Related", Bin);
+        exit(L.Caption());
+    end;
+
     procedure RelatedField(): Text
     var
         Bin: Record "Probe Bin";
@@ -198,12 +211,17 @@ fn a_date_caption_field_with_one_date_filtered_is_refused() {
     }
 }
 
-/// Base Application's Apply Customer Entries (DataCaptionFields = "Customer No.", a field with a TableRelation) shows the related
-/// customer's name too (Tests-General Journal ApplyCustomerEntriesMPH); the corpus pins fields without a TableRelation only.
+/// A caption field with a TableRelation adds the related record's own DataCaptionFields, here the related Probe Bin's "Code"
+/// (pages/lt-y45-list-caption-relation/Y45ListCaptionRelation.al:367 `Y45 Cap RefDcf - D1 ∙ Dcf One`), and nothing when no
+/// related record has the value (:147 `Y45 Cap DCF`).
 #[test]
-fn a_caption_field_with_a_table_relation_is_refused() {
-    match al_testkit::run_in(SRC, "C", "RelatedField") {
-        Err(Signal::Unsupported(why)) => assert!(why.contains("TableRelation"), "{why}"),
-        other => panic!("expected a refusal, got {other:?}"),
-    }
+fn a_caption_field_with_a_table_relation_adds_the_related_records_caption_fields() {
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(SRC, "C", "RelatedField")),
+        "Probe Bin Related - B1"
+    );
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(SRC, "C", "RelatedMissing")),
+        "Probe Bin Related"
+    );
 }

@@ -70,9 +70,11 @@ mod refs;
 mod relations;
 mod rename;
 mod reports;
+mod run_page_link_open;
 mod sessionops;
 mod sqlcount;
 mod sqltime;
+mod stale_own_modify;
 mod tasks;
 mod tenant_layout_cfg;
 mod tenant_layouts;
@@ -1221,36 +1223,7 @@ impl Session {
                 impact: Default::default(),
                 impact_on: false,
             },
-            report: ReportState {
-                rebind_after_run: false,
-                curr_report_language: None,
-                format_region: None,
-                variable_culture: Vec::new(),
-                run_language: None,
-                variable_region: false,
-                region_property: false,
-                region_in_init: None,
-                report_init_depth: None,
-                report_quit: false,
-                report_trigger: None,
-                report_flow: None,
-                flow_unwind: None,
-                request_only_page: false,
-                zero_date_view_failed: false,
-                report_executed: Vec::new(),
-                execute_parameters: None,
-                report_run_modal_done: Vec::new(),
-                print_only_if_detail: false,
-                csv_written: None,
-                report_save_tried: Vec::new(),
-                prepared: Vec::new(),
-                rp_init_done: Vec::new(),
-                rp_init_by_handler: Vec::new(),
-                report_preview_pinned: Vec::new(),
-                run_modal: false,
-                set_view_filters: Vec::new(),
-                dataset: None,
-            },
+            report: ReportState::default(),
         };
         session.seed_platform_rows(&ident);
         session

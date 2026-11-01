@@ -530,6 +530,7 @@ impl Session {
             }
             ids::REPORT_RUN_1 | ids::REPORT_RUNMODAL_1 => {
                 let (inst, quit) = self.report_instance(receiver, true)?;
+                self.run_of_running_instance(id, &inst)?;
                 // An instance that already ran (one a variable gave up after its Run) cannot run again, and the attempt resets it
                 // (report/lt-report-this-passed-on/P141ThisStored.al:P141_StoredAfterRun_RunAgain: the error, then a blank marker).
                 if id == ids::REPORT_RUN_1
@@ -551,7 +552,12 @@ impl Session {
                 // (report/lt-tn-savevalues-body-filters/TnSaveValuesBodyFilters.al:251-272, `ran=No parent=[] child=[]`).
                 if self.report_run_modal_done_on(&inst) {
                     if id == ids::REPORT_RUNMODAL_1 {
-                        self.report_clear(&inst);
+                        // The bare `RunModal()` in a procedure of the instance leaves it as it is: its globals read back
+                        // after the error (report/lt-y40-bare-report-run/Y40BareReportRun.al:252,
+                        // Y40_BareRunModal_SecondCallOnSameVariable, corpus master ac3499d6: `found=Yes visited=2`).
+                        if !Rc::ptr_eq(&running, &inst) {
+                            self.report_clear(&inst);
+                        }
                         return Err(crate::transactions::al_error_code(
                             "The object has been run. Use the function CLEAR(Report).",
                             "ObjectHasAlreadyBeenRun",
@@ -590,7 +596,10 @@ impl Session {
                 // `RunModal` does not clear it: a getter called after it reads what the run collected (corpus
                 // reportextensiontrigger/TestPrecompiledReportExtensionDataItems.al: "Run frees the variable's report
                 // instance when it ends ... RunModal keeps it", as Base Application's Reservation Worksheet relies on).
-                if id == ids::REPORT_RUN_1 && !self.report.rebind_after_run {
+                // The bare `Run()` in a procedure of the instance keeps it: the procedure and the variable read the globals
+                // the run set (report/lt-y40-bare-report-run/Y40BareReportRun.al:269, Y40_BareRun_InProcedure, corpus
+                // master ac3499d6: `found=Yes visited=2 userp=No`).
+                if id == ids::REPORT_RUN_1 && !self.report.rebind_after_run && !Rc::ptr_eq(&running, &inst) {
                     self.report_clear(&inst);
                 }
                 if id == ids::REPORT_RUNMODAL_1 && !quit && result.is_ok() {
@@ -617,14 +626,11 @@ impl Session {
                     Some(Value::Boolean(b)) => Some(*b),
                     Some(other) => return unsupported(format!("{id} with RequestWindow {}", other.describe())),
                 };
-                match args.get(2) {
-                    None | Some(Value::Boolean(false)) => {}
-                    Some(other) => {
-                        return unsupported(format!(
-                            "{id} with SystemPrinter {} (printing is not supported)",
-                            other.describe()
-                        ));
-                    }
+                // SystemPrinter `true` runs as `false`: the request page with its handler, OK, Cancel, a ReportHandler, SaveAsXml
+                // (report/lt-report-run-system-printer/Y43SystemPrinterRequestPage.al, ReportRunSystemPrinter.al:110-150; onprem
+                // report/lt-y43-sp-saveasxml/Y43SystemPrinterSaveAsXml.al).
+                if let Some(other) = args.get(2).filter(|v| !matches!(v, Value::Boolean(_))) {
+                    return unsupported(format!("{id} with SystemPrinter {}", other.describe()));
                 }
                 // For the static RunModal only `true` on a report that shows its page, and `false` hiding the page, are
                 // pinned (handlers/TestReportRequestPageSaveValues.al:211, handlers/TestReportRunExecution.al:152). `true` on a
@@ -1677,6 +1683,9 @@ impl Session {
         inst.borrow_mut().globals = globals;
         inst.borrow_mut().rerun = true;
         inst.borrow_mut().exts.clear();
+        self.report
+            .request_captions
+            .retain(|(w, _)| w.upgrade().is_some_and(|i| !Rc::ptr_eq(&i, inst)));
     }
 
     // ------------------------------------------------------------------ table views
@@ -1924,7 +1933,15 @@ impl Session {
         let outer_region = self.report.format_region.take();
         let outer_property = std::mem::take(&mut self.report.region_property);
         let outer_language = self.report.curr_report_language.take();
+        // Only a Run or RunModal is pinned as running for a nested RunModal (Y40BareReportRun.al:362).
+        let tracked = entry == Entry::Run;
+        if tracked {
+            self.report.report_running.push(Rc::downgrade(inst));
+        }
         let ran = self.report_in_world(enters, |s| s.report_body(inst, schema, shows_page, None));
+        if tracked {
+            self.report.report_running.pop();
+        }
         self.report.format_region = outer_region;
         self.report.region_property = outer_property;
         self.report.curr_report_language = outer_language;
@@ -2304,7 +2321,12 @@ impl Session {
         self.request_page_init_unshown(inst, schema, false)?;
         self.report.rp_init_by_handler.push(Rc::downgrade(inst));
         let (o, r, hi) = self.bind_page_handler(UiKind::Report, object)?;
-        self.call(o, r, hi, vec![Value::Codeunit(inst.clone())])?;
+        // The handler takes the run over: its Run or RunModal of the instance runs it (AeReportHandlerCalls.al:79-99), so the
+        // instance does not count as running while the handler runs.
+        let running = std::mem::take(&mut self.report.report_running);
+        let called = self.call(o, r, hi, vec![Value::Codeunit(inst.clone())]);
+        self.report.report_running = running;
+        called?;
         Ok(true)
     }
 
@@ -3977,27 +3999,6 @@ impl Session {
         }
     }
 
-    /// `RequestOptionsPage.Update(SaveRecord)` in a request page trigger. With `false` the controls show
-    /// the variables as they are now, which they do on every read here, so nothing is left to do
-    /// (handlers/TestReportRequestPageUpdateObjectIdContracts.al:RequestPageUpdate_RefreshesTheOtherControls:
-    /// a handler sets Source to 21 and reads Derived 42 that the trigger set before it called Update(false)).
-    /// `RequestOptionsPage.Caption := x` in the code of a report. Set while the request page's own OnOpenPage runs (in it
-    /// or in a procedure it calls), it is the caption a request page handler reads
-    /// (report/lt-aq/AqTests.al:313-330, Caption_SetInOnOpenPage_TestRequestPageCaption). Set anywhere else (Base
-    /// Application's Financial Report also sets it from OnValidate) it is dropped: whether a handler reads it back is
-    /// not pinned (assumption request-page-caption-set).
-    pub(crate) fn request_page_caption(&mut self, args: &[Value], inst: &Inst) -> Result<Value, Signal> {
-        let [arg @ (Value::Text(_) | Value::Code(_))] = args else {
-            return unsupported("RequestPage.Caption read, or set with something that is not text");
-        };
-        if let Some(st) = self.request_page_in_on_open_page(inst) {
-            st.borrow_mut().caption = al_builtins::native::text_of(arg).map(|t| t.to_string());
-            return Ok(Value::Null);
-        }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCaptionSet);
-        Ok(Value::Null)
-    }
-
     /// `RequestPage.Editable`, `LookupMode`, `ObjectId` and `Activate` from the code of an open request page
     /// (report/lt-report-requestpage-query-members/P105RpMembers.al:44-75, from a control's OnValidate):
     /// Editable reads Yes and back what was set (:117), LookupMode reads No and back what was set (:138), ObjectId is
@@ -5038,40 +5039,7 @@ impl Session {
 }
 
 #[cfg(test)]
-mod ignored_output_tests {
-    use super::*;
-
-    /// ADR-040 section 3: the list grows by evidence only. Each entry names the app, the object, and the Microsoft tests
-    /// that need the report to run; no entry is listed twice; a layout smoke test, a `CheckFileNotEmpty` test or an
-    /// Excel cell test is never a reason.
-    #[test]
-    fn the_allow_list_cites_its_tests_and_has_no_duplicates() {
-        assert_eq!(
-            IGNORED_OUTPUT.iter().map(|e| e.name).collect::<Vec<_>>(),
-            ["Post Inventory Cost to G/L", "Check"]
-        );
-        for (i, e) in IGNORED_OUTPUT.iter().enumerate() {
-            assert!(e.app.len() == 36 && e.id > 0 && !e.name.is_empty(), "{}", e.name);
-            assert!(
-                e.why.contains('(') && e.why.contains("tests") == e.why.contains("tests"),
-                "{}",
-                e.name
-            );
-            assert!(
-                IGNORED_OUTPUT[..i].iter().all(|o| (o.app, o.id) != (e.app, e.id)),
-                "{} is listed twice",
-                e.name
-            );
-            for banned in ["CheckFileNotEmpty", "VerifyCellValue", "Layout Test", "Report Layout"] {
-                assert!(
-                    !e.why.contains(banned) || e.why.contains("never"),
-                    "{}: {banned}",
-                    e.name
-                );
-            }
-        }
-    }
-}
+mod ignored_output_tests;
 
 /// Values of a report's request-page flag slot (`UseRequestPage`); any other value means "never set": the report's own
 /// property decides.
@@ -5095,14 +5063,6 @@ fn header_extension_name(name: &str, publisher: &str) -> String {
 }
 
 #[cfg(test)]
-mod header_tests {
-    /// report/lt-report-dataset-header/ReportDatasetHeaderRaw.al:174 and misc/lt-probes-needed-2/PnBReportSaveAs.al:162: the
-    /// header's ExtensionName is the app's name, " by " and its publisher.
-    #[test]
-    fn the_extension_name_of_the_header_names_the_publisher() {
-        assert_eq!(
-            super::header_extension_name("AL Language Coverage Tests", "AL Language"),
-            "AL Language Coverage Tests by AL Language"
-        );
-    }
-}
+mod header_tests;
+mod request_caption;
+mod running;

@@ -126,16 +126,14 @@ impl Lowerer<'_> {
                 | Ty::Option(_)
                 | Ty::Enum(_)
         );
-        // A table extension's sibling: an Integer and a Record are what corpus writer Y20 measured (al-runner issue 6485,
-        // Y20TableExtSiblingGlobals.al); a Record is allowed there too.
+        // A table extension's sibling: an Integer and a Record are pinned (al-runner issue 6485,
+        // tableextension/lt-y20-sibling-globals/Y20TableExtSiblingGlobals.al); a Record is allowed there too.
         let table_ext = self.ws.objects[ext].kind == crate::workspace::ObjKind::TableExtension;
-        if table_ext && (simple || matches!(ty, Ty::Record { .. })) {
-            self.assume(al_builtins::assumptions::Assumption::TableExtSiblingProtectedVar);
-        } else if table_ext {
+        if table_ext && !simple && !matches!(ty, Ty::Record { .. }) {
             return Err(format!(
                 "`{name}` (a {ty} protected variable of another extension of the table; only simple types and records are pinned)"
             ));
-        } else if !simple {
+        } else if !table_ext && !simple {
             return Err(format!(
                 "`{name}` (a {ty} protected variable of another page extension of the page; only simple types are pinned)"
             ));
@@ -770,7 +768,7 @@ impl Lowerer<'_> {
                     if set.kind() != SetExpr {
                         return Err("`in` with a non-literal set is not lowered yet".into());
                     }
-                    let mut elems = set.children().map(|e| self.set_elem(&e)).collect::<L<Vec<_>>>()?;
+                    let mut elems = self.in_set_elems(&kids[0], set)?;
                     let mut l = l;
                     // A text literal on the left of a range: the ends of the range compare in the culture order when the value is a
                     // Text (types/lt-ax-text-format-dates/AxCodeCompare.al:193-213), but a one-character literal in a range of
@@ -852,7 +850,7 @@ impl Lowerer<'_> {
                         (l, self.convert_to(&Ty::Char, &text, r)?)
                     }
                 } else {
-                    (l, r)
+                    self.char_literal_comparison(&op, &kids, l, r)?
                 };
                 let dotnet =
                     matches!(self.ty_ref(&kids[0]), Ty::DotNet(_)) || matches!(self.ty_ref(&kids[1]), Ty::DotNet(_));
@@ -900,8 +898,6 @@ impl Lowerer<'_> {
                 Err("indexing a DotNet value is not lowered yet (call get_Item / GetValue instead)".into())
             }
             TernaryExpr => {
-                // Only the conditional expression itself is the right side of the assignment, not one nested in it.
-                let target = self.ternary_target.take();
                 let cond = self.expr(&kids[0])?;
                 let yes = self.expr(&kids[1])?;
                 let no = self.expr(&kids[2])?;
@@ -909,7 +905,7 @@ impl Lowerer<'_> {
                 let no = if t != f && (matches!(t, Ty::Label) || matches!(f, Ty::Label)) {
                     self.ternary_label_pair(&t, &f, (&kids[1], &yes), (&kids[2], no))?
                 } else {
-                    self.ternary_false_branch(&t, &f, no, target.as_ref())?
+                    self.ternary_false_branch(&t, &f, no)?
                 };
                 Ok(ir::Expr::Ternary(Box::new(cond), Box::new(yes), Box::new(no)))
             }

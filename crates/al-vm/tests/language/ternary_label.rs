@@ -150,16 +150,15 @@ fn a_label_against_a_label_or_a_literal_keeps_the_taken_value() {
     ]);
 }
 
-/// The pairs no corpus test pins are refused: a TextConst branch (BC does not publish it, types/TestTernaryContracts.al:518-521),
-/// a MaxLength label against a Code[N], and an unbounded Text variable against a Label.
+/// The pairs no corpus test pins are refused: a TextConst branch (BC does not publish it, types/TestTernaryContracts.al:518-521)
+/// and a MaxLength label against a Code[N]. An unbounded Text variable against a Label is a cell of the conversion matrix
+/// (`ternary_matrix.rs`).
 #[test]
 fn unpinned_label_pairs_are_refused() {
     for (decls, yes, no) in [
         ("Lbl: TextConst ENU = 'abc';", "C20", "Lbl"),
         ("Lbl: Label 'abc', MaxLength = 5;", "C20", "Lbl"),
         ("Lbl: Label 'abc', MaxLength = 5;", "Lbl", "C20"),
-        ("Lbl: Label 'abc'; TU: Text;", "TU", "Lbl"),
-        ("Lbl: Label 'abc'; TU: Text;", "Lbl", "TU"),
     ] {
         let src = source(&[(decls, yes, no)]);
         match run_in(&src, "TL", "P0") {
@@ -191,4 +190,45 @@ fn only_unpinned_lengths_mark_the_assumption() {
     assert!(!marked(L7, "Lbl", "'xyz'"));
     assert!(!marked(L7, "''", "Lbl"));
     assert!(marked("Lbl: Label 'abc def'; C30: Code[30];", "C30", "Lbl"));
+}
+
+// types/lt-y31-conversion-matrix/Y31ConvCd.al Text10_Label (:3187-3212, Try7 :3258-3264) and Code10_Label (:3660-3700,
+// Try7 :3747-3753): `V := Res ? vText10 : vLabel` and `V := Res ? vCode10 : vLabel` into a Variant. The Label false
+// branch takes the true branch's type: `Text|abc` and `Code|ABC` whichever branch is taken.
+#[test]
+fn a_label_false_branch_into_a_variant_takes_the_true_branch_type() {
+    let src = r#"
+codeunit 69951 TV
+{
+    procedure Show(V: Variant): Text
+    var K: Text;
+    begin
+        if V.IsText() then K += ',Text';
+        if V.IsCode() then K += ',Code';
+        exit(CopyStr(K, 2) + '|' + Format(V));
+    end;
+    procedure Text10(): Text
+    var V: Variant; T10: Text[10]; Lbl: Label 'abc', Locked = true; R: Boolean; S: Text;
+    begin
+        T10 := 'abc';
+        for R := true downto false do begin
+            V := R ? T10 : Lbl;
+            S += Show(V) + ';';
+        end;
+        exit(S);
+    end;
+    procedure Code10(): Text
+    var V: Variant; C10: Code[10]; Lbl: Label 'abc', Locked = true; R: Boolean; S: Text;
+    begin
+        C10 := 'ABC';
+        for R := true downto false do begin
+            V := R ? C10 : Lbl;
+            S += Show(V) + ';';
+        end;
+        exit(S);
+    end;
+}
+"#;
+    assert_eq!(text(run_in(src, "TV", "Text10")), "Text|abc;Text|abc;");
+    assert_eq!(text(run_in(src, "TV", "Code10")), "Code|ABC;Code|ABC;");
 }

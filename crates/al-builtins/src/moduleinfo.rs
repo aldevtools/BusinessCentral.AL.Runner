@@ -451,17 +451,13 @@ fn get_resource(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out 
     use crate::stream::Encoding;
     let name = name_arg(a)?;
     // UTF8 is pinned (session/TestNavAppGetResource.al:33). The other encodings read the bytes as a stream created with
-    // them does, and no encoding reads as MSDos (corpus branch al-runtime-rs-staging-y18, session/
-    // Y18NavAppResourceEncodings.al:46-56, :68-78, :90-100, :112-122, :134-144: ReadText lines and CopyStream of UTF-16LE
-    // with and without a byte order mark, UTF-8 and Windows-1252 bytes; awaited in the pinned corpus).
+    // them does, and no encoding reads as MSDos (session/Y18NavAppResourceEncodings.al:46-58, :68-80, :90-102, :112-124,
+    // :134-146: ReadText lines and CopyStream of UTF-16LE with and without a byte order mark, UTF-8 and Windows-1252 bytes).
     let enc = match a.get(2) {
         Some(Value::Option(1, _)) => Encoding::Utf8,
         None => Encoding::MsDos,
         Some(_) => Encoding::from_arg(&a[1..])?,
     };
-    if enc != Encoding::Utf8 {
-        crate::assumptions::assume(crate::assumptions::Assumption::ResourceStreamEncoding);
-    }
     let data = resource(c, &name)?;
     // BC raises InvalidStreamData on the UTF-16 read of the Windows-1252 bytes (Y18NavAppResourceEncodings.al:138), which
     // hold an unpaired surrogate (DFF6) and have an odd length; an odd length alone reads (:94). That the surrogate raises,

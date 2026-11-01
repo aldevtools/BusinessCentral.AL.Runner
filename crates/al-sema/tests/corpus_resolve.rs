@@ -143,6 +143,10 @@ const KNOWN_GAP_FILES: &[(&str, &str)] = &[
         "report/lt-ch-report-leads/ChReportPart.al",
         "the checker does not know a part of a report's request page (RequestOptionsPage.ChPart.Page) (corpus bump 29)",
     ),
+    (
+        "record/ProbePropertyAssignmentForms.al",
+        "the checker does not resolve the assignment form of a call (`Sleep := 1`, `Target.SetCounter := 7`) (corpus bump to 92031e20)",
+    ),
 ];
 
 /// Milestone 1: every name, member and call in every corpus body resolves,

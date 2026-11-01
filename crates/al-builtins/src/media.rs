@@ -335,15 +335,16 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
             crate::assumptions::assume(crate::assumptions::Assumption::MediaExportStreamJfif300DpiKept);
             crate::stream::write_bytes(blob, &obj.bytes)
         }
-        // UTF-8 text imported with the two argument ImportStream (no MIME type) comes back as the same bytes (streams/StTMedia.al
-        // TR_MediaImportStream_TextContent_ExportStream).
-        LibraryValue::OutStream(blob, _) if plain_text(&obj) => crate::stream::write_bytes(blob, &obj.bytes),
+        // Text and binary content that is no picture comes back as the same bytes (media_export.rs).
+        LibraryValue::OutStream(blob, _) if crate::media_export::exports_unchanged(&obj) => {
+            crate::stream::write_bytes(blob, &obj.bytes)
+        }
         LibraryValue::OutStream(blob, _) => {
             // An imported PNG comes back re-encoded on every major: 68 bytes export as 99 other bytes on Windows BC 27, 28 and 29
             // (types/W7Media.al:141-145, ExportStream_OfAnImportedPicture, corpus bump 34; bc-linux #161). The export itself
-            // succeeds (streams/StTMedia.al:170 and :213, MediaExportStream and MediaExportAfterReload). The re-encoded bytes are not
-            // pinned, and neither is what BC exports for content that is no PNG: the stream's buffer is marked like an unproduced
-            // report (ADR-040) and any look at it is refused. Probe wanted (docs/probes-needed.md).
+            // succeeds (streams/StTMedia.al:170 and :213, MediaExportStream and MediaExportAfterReload). The re-encoded bytes are
+            // pinned for one 1x1 PNG only (streams/lt-y44-media-export/Y44MediaExportStream.al DocAttach_Png_ExportStream), which
+            // gives no encoder: the stream's buffer is marked like an unproduced report (ADR-040) and any look at it is refused.
             let mut buf = blob.borrow_mut();
             buf.bytes.clear();
             buf.loaded = true;
@@ -353,21 +354,6 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         other => return unsupported(format!("an OutStream was expected, got {}", other.describe())),
     }
     Ok(Value::Boolean(true))
-}
-
-/// Content the two argument ImportStream read that is plain UTF-8 text: no MIME type, no picture signature, no control
-/// characters other than tab, line feed and carriage return (the shape streams/StTMedia.al TR_MediaImportStream_TextContent_ExportStream
-/// pins). Anything else keeps the refusal of a look at what ExportStream wrote.
-fn plain_text(o: &MediaObject) -> bool {
-    o.mime.is_empty()
-        && o.pending.is_none()
-        && o.file_column.is_none()
-        && o.file_name.is_empty()
-        && !o.bytes.is_empty()
-        && png_size(&o.bytes).is_none()
-        && jpeg_size(&o.bytes).is_none()
-        && std::str::from_utf8(&o.bytes)
-            .is_ok_and(|t| t.chars().all(|c| !c.is_control() || matches!(c, '\t' | '\n' | '\r')))
 }
 
 fn set_count(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {

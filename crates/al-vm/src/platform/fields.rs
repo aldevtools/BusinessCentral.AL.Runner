@@ -280,7 +280,7 @@ fn table_entries(
         out.push(e);
     }
     if user_name_fields {
-        out.extend(user_name_system_field_rows(t, blank, tid));
+        out.extend(user_name_system_field_rows(o, t, blank, tid, &packages));
     }
 }
 
@@ -397,13 +397,6 @@ pub(crate) fn user_name_system_field(no: u32) -> Option<(&'static str, i32)> {
         .map(|&(_, name, len)| (name, len))
 }
 
-/// The columns of a [`USER_NAME_SYSTEM_FIELDS`] row that are set: TableNo, No., FieldName, Type, Len, Class (pinned above),
-/// RelationTableNo 0 (handlers 69519 FieldTable_RelationTableNo_OfConditionalRelations on BC 29: a `<>0` filter lists
-/// only the declared relations and SystemCreatedBy/SystemModifiedBy) and ObsoleteState. ObsoleteState is pinned only as
-/// not Removed (record/TestFieldObsoleteStateVirtualTable.al:66-73 on BC 29); `No` is kept, not pinned, so that a filter
-/// on it still answers (docs/probes-needed.md).
-const PINNED_USER_NAME_COLUMNS: [u32; 8] = [1, 2, 4, 5, 6, 7, 21, 25];
-
 /// The SystemId of a Field row: not the null Guid but the Field table's number, the table's number and the field's number, each as
 /// four little-endian bytes of the Guid's binary form (so the first two read as Data1 and Data2/Data3 in the text), then four zero
 /// bytes (platform/lt-wc/WcFieldRowCopy.al, al-runner issue 6313: field 2 of table 90646
@@ -449,31 +442,75 @@ fn field_row_system_id(table_no: u32, field_no: u32) -> Value {
     Value::Guid(g)
 }
 
-fn user_name_system_field_rows(t: &TableDef, blank: &Blank, tid: u32) -> Vec<Entry> {
+/// The Field rows of the [`USER_NAME_SYSTEM_FIELDS`] of table `o` (BC 29), every column as measured for an own and a Base
+/// Application table (corpus master platform/lt-y35-username-field-rows/Y35UserNameFieldRows.al C305_UserNameFieldRows_OwnTable,
+/// _Customer, _FilteredScans): TableNo, No., TableName, FieldName, Type Text, Len, Class FlowField, Enabled, Type Name
+/// Text50/Text80, ExternalName blank, Field Caption 'Created By (User Name)' and so on, RelationTableNo and RelationFieldNo 0,
+/// SQLDataType 0, OptionString blank, ObsoleteState No, ObsoleteReason blank, DataClassification SystemMetadata,
+/// IsPartOfPrimaryKey and OptimizeForTextSearch false, Access 0, IsAllowedInCustomizations true. The package ids equal field
+/// 1's for a Base Application table and differ for a table of the app under test, whose field 1 a `Get` gives null ids
+/// (`field_get`): there what they are is not pinned, and a read is refused. A column the probe did not show stays unknown.
+fn user_name_system_field_rows(
+    o: &Object,
+    t: &TableDef,
+    blank: &Blank,
+    tid: u32,
+    packages: &[(usize, Value)],
+) -> Vec<Entry> {
     static WHY: std::sync::OnceLock<std::sync::Arc<str>> = std::sync::OnceLock::new();
     let why = WHY
         .get_or_init(|| {
-            "the value of a column of the Field row of a user-name system field (SystemCreatedByUserName and the others) is not known: only TableNo, No., FieldName, Type, Len, Class, RelationTableNo and ObsoleteState are known (docs/probes-needed.md)"
+            "the value of a column of the Field row of a user-name system field (SystemCreatedByUserName and the others) is not known: only the columns Y35UserNameFieldRows.al shows are pinned (docs/probes-needed.md)"
                 .into()
         })
         .clone();
+    static PACKAGE_WHY: std::sync::OnceLock<std::sync::Arc<str>> = std::sync::OnceLock::new();
+    let package_why = PACKAGE_WHY
+        .get_or_init(|| {
+            "the package ids of the Field row of a user-name system field (SystemCreatedByUserName and the others) of a table of the app under test are not known: they differ from field 1's (Y35UserNameFieldRows.al C305_UserNameFieldRows_OwnTable)"
+                .into()
+        })
+        .clone();
+    // The app under test is the app whose two package ids are equal (`field_get`).
+    let under_test = matches!(packages, [(_, Value::Guid(a)), (_, Value::Guid(b))] if a == b);
     USER_NAME_SYSTEM_FIELDS
         .iter()
         .map(|&(id, name, len)| {
             let mut r = blank.row();
+            let caption = match id {
+                2_000_000_005 => "Created By (User Name)",
+                2_000_000_006 => "Created By (Full Name)",
+                2_000_000_007 => "Modified By (User Name)",
+                _ => "Modified By (Full Name)",
+            };
             for (i, f) in t.fields.iter().enumerate() {
-                if !PINNED_USER_NAME_COLUMNS.contains(&f.id) {
-                    r[i] = Value::Unknown(why.clone());
-                }
+                r[i] = match f.name.as_str() {
+                    "TableNo" => Value::Integer(tid as i32),
+                    "No." => Value::Integer(id as i32),
+                    "TableName" => Value::Text(o.name.chars().take(30).collect()),
+                    "FieldName" => Value::Text(name.into()),
+                    "Type" => blank.option(t, f.id, 9),
+                    "Len" => Value::Integer(len),
+                    "Class" => blank.option(t, f.id, 1),
+                    "Enabled" | "IsAllowedInCustomizations" => Value::Boolean(true),
+                    "Type Name" => Value::Text(format!("Text{len}").into()),
+                    "Field Caption" => Value::Text(caption.into()),
+                    "ExternalName" | "OptionString" | "ObsoleteReason" => Value::Text("".into()),
+                    "RelationTableNo" | "RelationFieldNo" => Value::Integer(0),
+                    "SQLDataType" | "ObsoleteState" => blank.option(t, f.id, 0),
+                    "DataClassification" => blank.option(t, f.id, 6),
+                    "IsPartOfPrimaryKey" | "OptimizeForTextSearch" => Value::Boolean(false),
+                    "Access" => match &blank.row[i] {
+                        Value::Option(..) => blank.option(t, f.id, 0),
+                        _ => Value::Integer(0),
+                    },
+                    "App Package ID" | "App Runtime Package ID" => match packages.iter().find(|(c, _)| *c == i) {
+                        Some((_, v)) if !under_test => v.clone(),
+                        _ => Value::Unknown(package_why.clone()),
+                    },
+                    _ => Value::Unknown(why.clone()),
+                };
             }
-            r[pos(t, 1)] = Value::Integer(tid as i32);
-            r[pos(t, 2)] = Value::Integer(id as i32);
-            r[pos(t, 4)] = Value::Text(name.into());
-            r[pos(t, 5)] = blank.option(t, 5, 9);
-            r[pos(t, 6)] = Value::Integer(len);
-            r[pos(t, 7)] = blank.option(t, 7, 1);
-            r[pos(t, 21)] = Value::Integer(0);
-            r[pos(t, 25)] = blank.option(t, 25, 0);
             set_field_row_system_id(t, &mut r, tid, id);
             Entry::ok(r)
         })

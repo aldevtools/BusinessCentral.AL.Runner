@@ -15,6 +15,7 @@
 
 use super::registry::{MemberFn, MemberKind, MemberRefFn, Pin, RegistryMember, RegistryType};
 use crate::Session;
+use al_builtins::describe::Describe;
 use al_builtins::dotnet_sigs::{
     AKV_PROVIDER, AL_CONFIG_SETTINGS, COPILOT_FUNCTIONS, ENVIRONMENT, GRAPH_QUERY, PERMISSION_TEST_HELPER, TENANT_INFO,
     TENANT_SETTINGS_HELPER, TEST_EXECUTION, USER_ACCOUNT_HELPER,
@@ -206,6 +207,56 @@ fn try_get_string_tenant_setting(
     };
     *out = Value::Text(value.into());
     Ok(Value::Boolean(true))
+}
+
+/// `GetPlatformVersion()`: the platform file version as a `System.Version`. Its ToString equals Base Application's
+/// `"Application System Constants".PlatformFileVersion()` on 27.5, 28.5 and 29.0 (corpus master
+/// tests/al-language-onprem-dotnet/lt-y35-platform-version/Y35PlatformVersion.al C304_GetPlatformVersion), so the runtime
+/// asks codeunit 9015 of the loaded Base Application and parses the text with `System.Version.Parse` on the host. Without
+/// that codeunit, or when the demand-driven compile left it out, the value is not known: refused.
+fn platform_version(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    no_args(args, "NavTenantSettingsHelper.GetPlatformVersion")?;
+    let program = s.engine.program.clone();
+    let found = program.objects.iter().enumerate().find_map(|(oi, o)| {
+        if o.kind != al_ir::ObjKind::Codeunit
+            || o.id != Some(al_builtins::dotnet_sigs::APPLICATION_SYSTEM_CONSTANTS)
+            || !o.name.eq_ignore_ascii_case("Application System Constants")
+            || o.uncompiled
+        {
+            return None;
+        }
+        let ri = o.routines.iter().position(|r| {
+            !r.is_trigger
+                && r.name
+                    .eq_ignore_ascii_case(al_builtins::dotnet_sigs::PLATFORM_FILE_VERSION)
+                && r.params == 0
+        })?;
+        Some((oi, ri))
+    });
+    let Some((oi, ri)) = found else {
+        return Err(Signal::Unsupported(
+            "DotNet NavTenantSettingsHelper.GetPlatformVersion: the platform file version comes from codeunit 9015 \
+             \"Application System Constants\".PlatformFileVersion, which this compile does not hold"
+                .into(),
+        ));
+    };
+    let inst = s.instance(oi);
+    let (text, _) = s.call(oi, ri, inst, Vec::new())?;
+    let text = match text {
+        Value::Text(t) | Value::Code(t) => t.to_string(),
+        other => {
+            return Err(Signal::Unsupported(format!(
+                "DotNet NavTenantSettingsHelper.GetPlatformVersion: PlatformFileVersion gave {}",
+                other.describe()
+            )));
+        }
+    };
+    let ty = al_host::dotnet::DotNetType {
+        assembly: "mscorlib".into(),
+        name: "System.Version".into(),
+        ..Default::default()
+    };
+    s.host_static_call(ty, "Parse", &[&text])
 }
 
 fn application_family(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
@@ -707,7 +758,26 @@ pub fn types() -> Vec<RegistryType> {
     all.extend(super::query_metadata::types());
     all.extend(super::generic_dictionary::types());
     all.extend(own_types());
+    all.push(camera_provider());
     all
+}
+
+/// Microsoft's client camera on the service tier (a variable without `[RunOnClient]`, or a by-value parameter that got the
+/// Camera page's provider): the static `IsAvailable()` answers No and `Create()` gives null with no error (corpus master
+/// 92fdde19, tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:244-262 and :304-326, with Y16RunOnClientShapes.al
+/// codeunit 99476). On a `[RunOnClient]` variable the calls run on the client instead (`dotnet/mod.rs` `run_on_client_call`).
+fn camera_provider() -> RegistryType {
+    const PIN: &str =
+        "tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:304-326 (corpus master 92fdde19)";
+    RegistryType {
+        clr_name: al_builtins::dotnet_sigs::CAMERA_PROVIDER.into(),
+        members: vec![
+            member("IsAvailable", Pin::Corpus(PIN.into()), |_, _, _| {
+                Ok(Value::Boolean(false))
+            }),
+            member("Create", Pin::Corpus(PIN.into()), |_, _, _| Ok(Value::Null)),
+        ],
+    }
 }
 
 fn own_types() -> Vec<RegistryType> {
@@ -763,6 +833,14 @@ fn own_types() -> Vec<RegistryType> {
                     environment_name,
                 ),
                 member("GetApplicationFamily", probe("181 ('W1')"), application_family),
+                member(
+                    "GetPlatformVersion",
+                    Pin::Corpus(
+                        "tests/al-language-onprem-dotnet/lt-y35-platform-version/Y35PlatformVersion.al:41-110 (corpus master, PR 948)"
+                            .into(),
+                    ),
+                    platform_version,
+                ),
                 member_ref(
                     "TryGetStringTenantSetting",
                     probe("209-212 (TENANTID 'default', DISPLAYNAME '', AADTENANTID 'common')"),

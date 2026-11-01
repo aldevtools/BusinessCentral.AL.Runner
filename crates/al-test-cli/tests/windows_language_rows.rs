@@ -48,7 +48,11 @@ fn windows_language_rows_are_current() {
         })
         .map(|(n, _)| n.clone())
         .collect();
-    let text = al_test_cli::windows_language::to_rust(&tables, &named);
+    // A held pin generates the empty table (`windows_language::HELD`).
+    let text = match al_test_cli::windows_language::HELD {
+        Some(_) => al_test_cli::windows_language::to_rust(&Default::default(), &[]),
+        None => al_test_cli::windows_language::to_rust(&tables, &named),
+    };
     let path = root().join("crates/al-vm/src/platform/windows_language_rows.rs");
     if std::env::var_os("UPDATE_GOLDEN").is_some() {
         std::fs::write(&path, &text).unwrap();

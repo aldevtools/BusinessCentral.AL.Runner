@@ -13,6 +13,17 @@ use std::collections::BTreeMap;
 /// The corpus folder that pins the whole table, under the corpus checkout.
 pub const FOLDER: &str = "tests/al-language/record/lt-y39-windows-language-table";
 
+/// Why the rows of [`FOLDER`] are not served yet, or `None` once they are. The folder (corpus pin 92031e20) holds the 248
+/// rows of the Windows containers of BC 27.5 and 28.5 and of a BC 29 SaaS sandbox; the Linux CI containers, which are the
+/// oracle, give 208 or 212 rows built from ICU data (Y39WindowsLanguageTable.al:9-17). Older corpus tests pin the Linux
+/// values (platform/lt-ag-contoso/AgWindowsLanguage.al: 212 rows; the QX_WindowsLanguage_* tests: `Chinese (China)`,
+/// `Korean (South Korea)`), so serving the folder's rows loses a baseline case (QX_WindowsLanguage_ByAbbreviatedName_Part2)
+/// and fails three more. Held until the corpus holds those tests back as Linux suspects too; the generated file is then
+/// the empty table, and the runtime keeps its older rows.
+pub const HELD: Option<&str> = Some(
+    "the folder's Windows/SaaS rows contradict older corpus tests that pin the Linux CI rows (al-runner issue 6558)",
+);
+
 /// The field numbers of a row text, in order: every field of the table below the system fields.
 pub const FIELDS: [u32; 16] = [1, 2, 10, 11, 20, 21, 22, 23, 24, 25, 30, 31, 32, 33, 34, 35];
 

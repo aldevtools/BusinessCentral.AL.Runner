@@ -10,7 +10,7 @@ use crate::Session;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::Signal;
-use al_builtins::value::{RecordState, Value};
+use al_builtins::value::{RecordState, RtType, Value};
 use al_data::TableDef;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -380,7 +380,10 @@ impl Session {
         if !filters.is_empty() {
             let mut items = Vec::new();
             for f in &filters {
-                let text = if option_ordinals {
+                // The numeric form of a record writes an Option filter as its ordinal (record/lt-set-current-key/
+                // Y43SetAscendingFlowField.al:234 `WHERE(Field1=1(1))`); an Enum there is not pinned and keeps its name.
+                let numeric_option = !use_names && record_form && matches!(t.fields[f.field].ty, RtType::Option(_));
+                let text = if option_ordinals || numeric_option {
                     self.filter_text(&ordinals(&f.expr))?
                 } else {
                     self.filter_text_with(&f.expr, true)?

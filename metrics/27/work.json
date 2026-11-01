@@ -2,7 +2,7 @@
   "bc_build": "27.5.46862.56249",
   "passes": {
     "extra apps: Tests-TestLibraries, Data Archive": {
-      "baseline_rows": 2320,
+      "baseline_rows": 2360,
       "cache_layers_built": 0,
       "cache_layers_hit": 0,
       "compiles": 1,
@@ -12,45 +12,45 @@
       "dependency_objects_lowered": 159,
       "dependency_routines_lowered": 4133,
       "objects_from_cache": 0,
-      "objects_from_kept": 16171,
-      "objects_loaded": 19344,
-      "objects_lowered": 2871,
-      "routines_lowered": 96,
-      "tests_run": 39
+      "objects_from_kept": 16536,
+      "objects_loaded": 19858,
+      "objects_lowered": 3020,
+      "routines_lowered": 134,
+      "tests_run": 49
     },
     "main": {
-      "baseline_rows": 2340,
+      "baseline_rows": 2380,
       "cache_layers_built": 0,
       "cache_layers_hit": 0,
       "compiles": 1,
       "dependency_apps": 8,
       "dependency_apps_from_cache": 0,
       "dependency_apps_from_source": 8,
-      "dependency_objects_lowered": 8864,
-      "dependency_routines_lowered": 103808,
+      "dependency_objects_lowered": 8865,
+      "dependency_routines_lowered": 103882,
       "objects_from_cache": 0,
       "objects_from_kept": 0,
-      "objects_loaded": 19294,
-      "objects_lowered": 9575,
-      "routines_lowered": 41565,
-      "tests_run": 18017
+      "objects_loaded": 19832,
+      "objects_lowered": 10113,
+      "routines_lowered": 45755,
+      "tests_run": 18853
     },
     "total": {
-      "baseline_rows": 4660,
+      "baseline_rows": 4740,
       "cache_layers_built": 0,
       "cache_layers_hit": 0,
       "compiles": 2,
       "dependency_apps": 21,
       "dependency_apps_from_cache": 0,
       "dependency_apps_from_source": 21,
-      "dependency_objects_lowered": 9023,
-      "dependency_routines_lowered": 107941,
+      "dependency_objects_lowered": 9024,
+      "dependency_routines_lowered": 108015,
       "objects_from_cache": 0,
-      "objects_from_kept": 16171,
-      "objects_loaded": 38638,
-      "objects_lowered": 12446,
-      "routines_lowered": 41661,
-      "tests_run": 18056
+      "objects_from_kept": 16536,
+      "objects_loaded": 39690,
+      "objects_lowered": 13133,
+      "routines_lowered": 45889,
+      "tests_run": 18902
     }
   }
 }

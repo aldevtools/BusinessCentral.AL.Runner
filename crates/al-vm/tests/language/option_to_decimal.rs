@@ -149,8 +149,12 @@ fn a_decimal_into_an_option_takes_whole_numbers_and_raises_on_a_fraction() {
         }
         other => panic!("{other:?}"),
     }
-    // Beyond Integer: not pinned.
-    assert!(matches!(call("3000000000"), Err(Signal::Unsupported(_))));
+    // Beyond Integer: ConversionCast to Int32 (types/lt-y31-conversion-matrix/Y31ConvCv.al, LT Y31 Cv Decimal
+    // `Decimal_To_Option` 2147483648.0).
+    match call("3000000000") {
+        Err(Signal::Error(e)) => assert_eq!(e.code, "ConversionCast"),
+        other => panic!("{other:?}"),
+    }
 }
 
 #[test]

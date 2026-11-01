@@ -1,10 +1,8 @@
 //! A stale buffer from the variable's own Insert, made stale by another variable's Modify and Commit in a later transaction,
 //! is written whole (the other variable's change is lost) when the new transaction modified that same row through another
-//! variable (al-runner issue 6522; corpus writer Y27, record/lt-sb-stale-own-modify/Y27StaleOtherVarTests.al on branch
-//! al-runtime-rs-staging-y27, measured on real BC). On the awaiting assumption `stale-own-insert-two-commits-row-written`
-//! until that file is on the corpus master.
+//! variable (al-runner issue 6522; record/lt-sb-stale-own-modify/Y27StaleOtherVarTests.al).
 
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+use al_builtins::assumptions::{clear_hits, take_hits};
 use al_builtins::native::Signal;
 use al_testkit::text;
 
@@ -110,7 +108,7 @@ codeunit 50390 C
     begin
         Row.Validate(Description, 'Changed');
         asserterror Row.Modify(true);
-        exit(GetLastErrorCode() + ' / ' + Stored());
+        exit(GetLastErrorCode() + ' / ' + Fields(Row) + ' / ' + Stored());
     end;
 
     procedure ModifiesQuantity(Commits: Integer): Text
@@ -235,19 +233,13 @@ fn the_stale_insert_copy_is_written_whole_after_another_variable_modified_the_ro
         for p in ["ModifiesQuantity", "ModifiesDescription"] {
             clear_hits();
             assert_eq!(text(run(p, Some(n))), WHOLE, "{p} {n}");
-            assert!(
-                take_hits().contains(&Assumption::StaleOwnInsertTwoCommitsRowWritten),
-                "{p} {n}"
-            );
+            assert!(take_hits().is_empty(), "{p} {n}");
         }
     }
     for p in ["UnchangedModify", "ModifiesTwice"] {
         clear_hits();
         assert_eq!(text(run(p, None)), WHOLE, "{p}");
-        assert!(
-            take_hits().contains(&Assumption::StaleOwnInsertTwoCommitsRowWritten),
-            "{p}"
-        );
+        assert!(take_hits().is_empty(), "{p}");
     }
     assert_eq!(
         text(run("ModifyFalse", None)),
@@ -270,14 +262,15 @@ fn an_insert_of_another_row_writes_the_buffer() {
     );
 }
 
-/// Y27_*_OtherDeletes and Y27_2C_Nothing, Y27_3C_Nothing.
+/// Y27_*_OtherDeletes and Y27_2C_Nothing, Y27_3C_Nothing (:269-299): OnValidate and OnModify run on the buffer, with xRec
+/// the buffer, before the error.
 #[test]
 fn a_deleted_row_or_no_contact_raises() {
     for n in [1, 2, 3] {
         let committed = 110 - 10 * n;
         assert_eq!(
             text(run("Deletes", Some(n))),
-            format!("DB:RecordNotFound / Original|{committed}|0|0|0||rows 1"),
+            format!("DB:RecordNotFound / Changed|100|1|1|100|Changed / Original|{committed}|0|0|0||rows 1"),
             "{n}"
         );
     }
@@ -285,7 +278,7 @@ fn a_deleted_row_or_no_contact_raises() {
         let committed = 110 - 10 * n;
         assert_eq!(
             text(run("Nothing", Some(n))),
-            format!("DB:RecordChanged / Original|{committed}|0|0|0||rows 1"),
+            format!("DB:RecordChanged / Changed|100|1|1|100|Changed / Original|{committed}|0|0|0||rows 1"),
             "{n}"
         );
     }

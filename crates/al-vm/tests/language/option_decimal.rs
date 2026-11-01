@@ -83,8 +83,13 @@ fn case_of_an_option_with_a_decimal_label() {
     };
     assert_eq!(text(call(Decimal::new(1, 0))), "D");
     assert_eq!(text(call(Decimal::new(0, 0))), "else");
+    // A fraction raises ConversionCast: the label converts to the selector's type (types/lt-y31-conversion-matrix/
+    // Y31ConvCmp.al, LT Y31 Cmp Option `Option_Decimal` `case_label.1.1p5`).
     match call(Decimal::new(15, 1)) {
-        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("fraction"), "{why}"),
-        other => panic!("expected a refusal, got {other:?}"),
+        Err(al_builtins::native::Signal::Error(e)) => assert_eq!(
+            e.message,
+            "Overflow under conversion of Microsoft.Dynamics.Nav.Runtime.Decimal18 value 1.5 to System.Int32."
+        ),
+        other => panic!("expected ConversionCast, got {other:?}"),
     }
 }

@@ -23,6 +23,7 @@ enum Req {
     Set(DotNetTarget, String, DotNetValue),
     Release(Vec<u64>),
     StreamWrite(u64, Vec<u8>),
+    StreamRead(u64),
     Close,
 }
 
@@ -94,6 +95,10 @@ impl DotNetSession for FakeSession {
             .push(Req::StreamWrite(handle, bytes.to_vec()));
         Ok(())
     }
+    fn stream_read(&mut self, handle: DotNetHandle, _max: Option<usize>) -> Result<Vec<u8>, DotNetFailure> {
+        self.0.log.lock().unwrap().push(Req::StreamRead(handle));
+        Ok(b"hello".to_vec())
+    }
     fn release(&mut self, handles: &[DotNetHandle]) {
         self.0.log.lock().unwrap().push(Req::Release(handles.to_vec()));
     }
@@ -125,6 +130,8 @@ fn handle(h: u64, ty: &str) -> DotNetValue {
 
 const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.Convert\"; \"Convert\") { }
+    type(\"System.IO.Compression.ZipArchive\"; \"ZipArchive\") { }
+    type(\"System.IO.Compression.ZipArchiveEntry\"; \"ZipArchiveEntry\") { }
     type(\"System.IO.MemoryStream\"; \"MemoryStream\") { }
     type(\"System.Text.Encoding\"; \"Encoding\") { }
     type(\"System.DateTime\"; \"ClrDateTime\") { }
@@ -161,6 +168,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.IO.MemoryStream\"; \"MsMemoryStream\") { }
     type(\"System.Environment\"; \"Environment\") { }
     type(\"System.EnvironmentVariableTarget\"; \"EnvironmentVariableTarget\") { }
+    type(\"System.Text.StringBuilder\"; \"StringBuilder\") { }
   }
   assembly(\"Microsoft.Exchange.WebServices\") { type(\"Microsoft.Exchange.WebServices.Data.ExchangeService\"; \"ExchangeService\") { } }
 }\n";
@@ -1625,11 +1633,16 @@ fn the_declared_result_types_match_the_registry() {
             "GetGroupPage" | "GetGroupInfo" | "FindFirstGroupInfoForDisplayName" | "GetUser" => continue,
             // Answers a null reference by design; graph_get_current_user_returns_null_without_an_error runs it.
             "GetCurrentUser" | "GetTenantDetail" => continue,
+            // The service-tier camera creates nothing; the al-vm language test
+            // a_camera_provider_without_run_on_client_is_not_available_and_creates_null runs it.
+            "Create" if *clr == al_builtins::dotnet_sigs::CAMERA_PROVIDER => continue,
             // Answers a null string by design (declared Object: its kind is known at run time);
             // every_environment_variable_reads_as_a_null_string_without_the_host runs it.
             "GetEnvironmentVariable" => continue,
             // Raise by design; the_key_vault_provider_without_a_key_vault_raises_the_pinned_errors runs them.
             "InitializeFromCallingAppExceptSystemApplication" | "TryGetAzureKeyVaultSecret" => continue,
+            // Needs codeunit 9015 and a host; get_platform_version_is_the_parsed_platform_file_version_of_codeunit_9015 runs it.
+            "GetPlatformVersion" => continue,
             // Refused by design (it lowers permissions); adding_an_effective_permission_set_is_refused runs it.
             "AddEffectivePermissionSet" => continue,
             // Need a staged folder; directory_info_of_a_folder_staged_for_the_company_build_* run them.
@@ -3062,4 +3075,337 @@ fn xml_document_load_and_load_xml_raise_the_xml_exception() {
         text(r),
         "A call to System.Xml.XmlDocument.LoadXml failed with this message: Data at the root level is invalid. Line 1, position 1.#DotNetInvoke:Xml"
     );
+}
+
+// ---- ZipArchive in Create mode (al-language-onprem-dotnet/lt-y44-zip-create/Y44ZipCreateMode.al, corpus PR 962) ----------
+
+/// A ZipArchive (1) over a MemoryStream (9); CreateEntry gives entry 2, 4, ...; Open on an entry gives stream entry + 1.
+fn zip_host(fail: Option<(&'static str, &'static str, &'static str)>) -> Fake {
+    let next = Arc::new(Mutex::new(2u64));
+    Fake::new(move |r| {
+        let raise = |member: &str| match fail {
+            Some((m, t, msg)) if m == member => Some(Err(DotNetFailure::Exception(DotNetException {
+                clr_type: t.into(),
+                message: msg.into(),
+                inner: vec![],
+            }))),
+            _ => None,
+        };
+        match r {
+            Req::Construct(t, _) if t == "System.IO.MemoryStream" => reply(handle(9, "System.IO.MemoryStream")),
+            Req::Construct(t, _) if t == "System.IO.Compression.ZipArchive" => {
+                reply(handle(1, "System.IO.Compression.ZipArchive"))
+            }
+            Req::Invoke(DotNetTarget::Instance(1), m, _) if m == "CreateEntry" => {
+                raise("CreateEntry").unwrap_or_else(|| {
+                    let mut n = next.lock().unwrap();
+                    let h = *n;
+                    *n += 2;
+                    reply(handle(h, "System.IO.Compression.ZipArchiveEntry"))
+                })
+            }
+            Req::Get(DotNetTarget::Instance(1), m) if m == "Entries" => raise("Entries").unwrap(),
+            Req::Invoke(DotNetTarget::Instance(1), m, _) if m == "Entries" => raise("Entries").unwrap(),
+            Req::Invoke(DotNetTarget::Instance(h), m, _) if m == "Open" && h % 2 == 0 => {
+                reply(handle(h + 1, "System.IO.Compression.DeflateStream"))
+            }
+            Req::Invoke(DotNetTarget::Instance(_), m, _) if m == "Dispose" || m == "WriteByte" => {
+                reply(DotNetValue::Null)
+            }
+            other => panic!("{other:?}"),
+        }
+    })
+}
+
+const ZIP_VARS: &str = "M: DotNet MemoryStream; Z: DotNet ZipArchive; E: DotNet ZipArchiveEntry; S: DotNet Stream;
+    B: Record \"ALT Blob\" temporary; O: OutStream; I: InStream;";
+const ZIP_OPEN: &str = "B.Data.CreateOutStream(O); O.WriteText('abc'); B.Data.CreateInStream(I); M := M.MemoryStream();
+    Z := Z.ZipArchive(M);";
+
+fn disposed(host: &Fake) -> Vec<u64> {
+    host.calls()
+        .into_iter()
+        .filter_map(|r| match r {
+            Req::Invoke(DotNetTarget::Instance(h), m, _) if m == "Dispose" => Some(h),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Y44ZipCreateMode.al Zip_TwoEntries_CopyStreamIntoOpen: the stream Open() returns is closed at the end of the statement, so
+/// the next CreateEntry works; Zip_OpenTemporaryNoCopy_SecondCreate: also when it is the receiver of a call.
+#[test]
+fn the_temporary_stream_of_zip_archive_entry_open_is_disposed_after_its_statement() {
+    let host = zip_host(None);
+    let r = run(
+        &host,
+        ZIP_VARS,
+        &format!(
+            "{ZIP_OPEN} E := Z.CreateEntry('a.txt'); CopyStream(E.Open(), I); E := Z.CreateEntry('b.txt'); E.Open().WriteByte(65); exit('ok');"
+        ),
+        ": Text",
+    );
+    assert_eq!(text(r), "ok");
+    assert_eq!(disposed(&host), vec![3, 5]);
+}
+
+/// Y44ZipCreateMode.al Zip_OpenKeptInVariable_SecondCreate: a stream kept in a variable stays open (CopyStream does not close it).
+#[test]
+fn a_zip_entry_stream_kept_in_a_variable_is_not_disposed() {
+    let host = zip_host(None);
+    let r = run(
+        &host,
+        ZIP_VARS,
+        &format!("{ZIP_OPEN} E := Z.CreateEntry('a.txt'); S := E.Open(); CopyStream(S, I); exit('ok');"),
+        ": Text",
+    );
+    assert_eq!(text(r), "ok");
+    assert_eq!(disposed(&host), Vec::<u64>::new());
+}
+
+fn zip_error(fail: (&'static str, &'static str, &'static str), body: &str) -> String {
+    let r = run(
+        &zip_host(Some(fail)),
+        ZIP_VARS,
+        &format!("{ZIP_OPEN} asserterror {body}; exit(GetLastErrorText() + '|' + GetLastErrorCode());"),
+        ": Text",
+    );
+    text(r)
+}
+
+/// Y44ZipCreateMode.al Zip_OpenKeptInVariable_SecondCreate, Zip_EntriesInCreateMode, Zip_CreateEntry_AfterDispose.
+#[test]
+fn the_pinned_zip_archive_exceptions_raise_dotnet_invoke_errors() {
+    assert_eq!(
+        zip_error(
+            (
+                "CreateEntry",
+                "System.IO.IOException",
+                "Entries cannot be created while previously created entries are still open."
+            ),
+            "Z.CreateEntry('b.txt')"
+        ),
+        "A call to System.IO.Compression.ZipArchive.CreateEntry failed with this message: Entries cannot be created while previously created entries are still open.|DotNetInvoke:IO"
+    );
+    assert_eq!(
+        zip_error(
+            (
+                "Entries",
+                "System.NotSupportedException",
+                "Cannot access entries in Create mode."
+            ),
+            "M := Z.Entries"
+        ),
+        "A call to System.IO.Compression.ZipArchive.Entries failed with this message: Cannot access entries in Create mode.|DotNetInvoke:NotSupported"
+    );
+    assert_eq!(
+        zip_error(
+            (
+                "CreateEntry",
+                "System.ObjectDisposedException",
+                "Cannot access a disposed object.\nObject name: 'System.IO.Compression.ZipArchive'."
+            ),
+            "Z.CreateEntry('b.txt')"
+        ),
+        "A call to System.IO.Compression.ZipArchive.CreateEntry failed with this message: Cannot access a disposed object.\nObject name: 'System.IO.Compression.ZipArchive'.|DotNetInvoke:ObjectDisposed"
+    );
+}
+
+/// Y44ZipCreateMode.al Zip_CreateEntry_NoObject: CreateEntry, Entries and Dispose on a ZipArchive variable that holds no object.
+#[test]
+fn a_zip_archive_member_on_no_object_raises_dotnet_variable_not_created() {
+    for (body, member) in [
+        ("Z.CreateEntry('x.txt')", "CreateEntry"),
+        ("M := Z.Entries", "Entries"),
+        ("Z.Dispose()", "Dispose"),
+    ] {
+        let r = run(
+            &zip_host(None),
+            ZIP_VARS,
+            &format!("asserterror {body}; exit(GetLastErrorText() + '|' + GetLastErrorCode());"),
+            ": Text",
+        );
+        assert_eq!(
+            text(r),
+            format!(
+                "A DotNet variable has not been instantiated. Attempting to call System.IO.Compression.ZipArchive.{member} in CodeUnit C: F|DotNetVariableNotCreated"
+            )
+        );
+    }
+}
+
+/// Y44ZipCreateMode.al ReadZip (Zip_TwoEntries_CopyStreamIntoOpen `content_<i>`): CopyStream from the temporary stream of
+/// ZipArchiveEntry.Open() reads it whole, then closes it; from a stream kept in a variable it stays refused.
+#[test]
+fn copystream_from_a_temporary_zip_entry_stream_reads_it_whole_and_closes_it() {
+    let host2 = zip_host(None);
+    let r = run(
+        &host2,
+        &format!("{ZIP_VARS} a: Text;"),
+        &format!(
+            "{ZIP_OPEN} E := Z.CreateEntry('a.txt'); B.Data.CreateOutStream(O); CopyStream(O, E.Open());
+            B.Data.CreateInStream(I); I.ReadText(a); exit(a);"
+        ),
+        ": Text",
+    );
+    assert_eq!(text(r), "hello");
+    assert!(host2.log().contains(&Req::StreamRead(3)), "{:?}", host2.log());
+    assert_eq!(disposed(&host2), vec![3]);
+    let r = run(
+        &zip_host(None),
+        ZIP_VARS,
+        &format!(
+            "{ZIP_OPEN} E := Z.CreateEntry('a.txt'); S := E.Open(); B.Data.CreateOutStream(O); CopyStream(O, S); exit('');"
+        ),
+        ": Text",
+    );
+    assert!(
+        unsupported(&r).contains("pinned only for the temporary stream"),
+        "{}",
+        unsupported(&r)
+    );
+}
+
+/// Y44ZipCreateMode.al Zip_EntriesInCreateMode `stack_list_create`: an error the DotNet collection of a `foreach` raises is
+/// reported at the line of the first statement of the body.
+#[test]
+fn an_error_in_a_dotnet_foreach_header_names_the_line_of_the_body() {
+    let r = run(
+        &zip_host(Some((
+            "Entries",
+            "System.NotSupportedException",
+            "Cannot access entries in Create mode.",
+        ))),
+        ZIP_VARS,
+        &format!("{ZIP_OPEN}\nasserterror foreach E in Z.Entries() do\nM := M;\nexit(GetLastErrorCallStack());"),
+        ": Text",
+    );
+    // ZIP_OPEN takes two lines: the foreach is line 3 of the routine, its body line 4.
+    let stack = text(r);
+    assert!(stack.starts_with("\"C\"(CodeUnit 50100).F line 4"), "{stack}");
+}
+
+// NavTenantSettingsHelper.GetPlatformVersion() is the platform file version: a System.Version whose ToString equals
+// "Application System Constants".PlatformFileVersion() (Base Application codeunit 9015) on 27.5, 28.5 and 29.0 (corpus
+// master tests/al-language-onprem-dotnet/lt-y35-platform-version/Y35PlatformVersion.al C304_GetPlatformVersion). The
+// runtime asks codeunit 9015 for the text and builds the System.Version with System.Version.Parse on the host.
+#[test]
+fn get_platform_version_is_the_parsed_platform_file_version_of_codeunit_9015() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(DotNetTarget::Static(t), m, a) if t.name == "System.Version" && m == "Parse" => {
+            assert!(
+                matches!(&a[0].value, DotNetValue::Str(s) if s == "29.0.55782.0"),
+                "{a:?}"
+            );
+            reply(handle(7, "System.Version"))
+        }
+        Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "ToString" => {
+            reply(DotNetValue::Str("29.0.55782.0".into()))
+        }
+        other => panic!("unexpected request {other:?}"),
+    });
+    let src = format!(
+        "{DOTNET}{TABLE}
+dotnet {{ assembly(\"mscorlib\") {{ type(\"System.Version\"; \"ClrVersion\") {{ }} }} }}
+codeunit 9015 \"Application System Constants\" {{ procedure PlatformFileVersion(): Text[80] begin exit('29.0.55782.0'); end; }}
+codeunit 50100 C {{ procedure F(): Text var T: DotNet NavTenantSettingsHelper; V: DotNet ClrVersion; begin V := T.GetPlatformVersion(); exit(V.ToString()); end; }}"
+    );
+    let (ws, l) = al_sema::lower::compile(
+        vec![AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![("f.al".into(), src)],
+        }],
+        &Default::default(),
+    );
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let blocked: Vec<Vec<Option<String>>> = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .collect();
+    let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
+    let ri = l.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == "F")
+        .unwrap();
+    let engine = Engine::with_dotnet(l.program, blocked, cfg(&host));
+    let mut s = Session::new(engine);
+    let inst = s.instance(oi);
+    let r = s.call(oi, ri, inst, vec![]).map(|(v, _)| v);
+    assert!(
+        matches!(&r, Ok(Value::Text(t)) if t.as_str() == "29.0.55782.0"),
+        "{r:?}"
+    );
+}
+
+// ---- [RunOnClient] ----------------------------------------------------------------------
+
+/// `run` on an engine that runs as `bc` with the fake host `host`.
+fn run_as_with(bc: &str, host: &Fake, vars: &str, body: &str, ret: &str) -> Ran {
+    let (program, blocked, oi, ri) = compile(vars, body, ret);
+    if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
+        return Ran {
+            result: Err(Signal::Unsupported(r.clone())),
+            session: None,
+        };
+    }
+    let target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
+    let engine = Engine::with_config(program, blocked, Some(target), cfg(host));
+    let mut s = Session::new(engine);
+    let inst = s.instance(oi);
+    let result = s.call(oi, ri, inst, vec![]).map(|(v, _)| v);
+    Ran {
+        result,
+        session: Some(s),
+    }
+}
+
+// A service-tier object assigned to a [RunOnClient] variable raises DotNetCreate, naming the object's assembly with the .NET
+// runtime of the BC major: 8.0.0.0 on BC 27 and 28, 10.0.0.0 on BC 29 (corpus master 92fdde19,
+// tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:393-452, Y16_RunOnClient_AssignBetweenClientAndServerVariables).
+#[test]
+fn a_service_tier_object_cannot_be_assigned_to_a_run_on_client_variable() {
+    let host = Fake::new(|r| match r {
+        Req::Construct(t, _) if t == "System.Text.StringBuilder" => reply(handle(7, "System.Text.StringBuilder")),
+        Req::Invoke(_, m, _) if m == "Append" => reply(handle(7, "System.Text.StringBuilder")),
+        other => panic!("unexpected request {other:?}"),
+    });
+    let vars = "Srv: DotNet StringBuilder; [RunOnClient] Cli: DotNet StringBuilder; Step: Text;";
+    let body = "Step := 'construct'; Srv := Srv.StringBuilder(); Srv.Append('srv'); Step := 'assign'; Cli := Srv; Step := 'assigned';";
+    for (bc, version) in [("27.5", "8.0.0.0"), ("28.5", "8.0.0.0"), ("29.0", "10.0.0.0")] {
+        let r = run_as_with(bc, &host, vars, body, "");
+        match r.result {
+            Err(Signal::Error(e)) => {
+                assert_eq!(e.code, "DotNetCreate", "{bc}");
+                assert_eq!(
+                    e.message,
+                    format!(
+                        "Cannot serialize an instance of the following .NET Framework object: assembly System.Private.CoreLib, \
+                         Version={version}, Culture=neutral, PublicKeyToken=7cec85d7bea7798e, type System.Text.StringBuilder."
+                    ),
+                    "{bc}"
+                );
+            }
+            other => panic!("{bc}: {other:?}"),
+        }
+    }
+}
+
+// A service-tier object of a type the probe did not use: its assembly name in the error is not pinned.
+#[test]
+fn another_service_tier_object_assigned_to_a_run_on_client_variable_is_refused() {
+    let host = Fake::new(|r| match r {
+        Req::Construct(t, _) if t == "System.IO.MemoryStream" => reply(handle(8, "System.IO.MemoryStream")),
+        other => panic!("unexpected request {other:?}"),
+    });
+    let r = run(
+        &host,
+        "Srv: DotNet MsMemoryStream; [RunOnClient] Cli: DotNet MsMemoryStream;",
+        "Srv := Srv.MemoryStream(); Cli := Srv;",
+        "",
+    );
+    assert!(unsupported(&r).contains("RunOnClient"), "{}", unsupported(&r));
 }

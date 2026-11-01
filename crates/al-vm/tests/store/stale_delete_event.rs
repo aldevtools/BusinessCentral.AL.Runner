@@ -3,7 +3,7 @@
 //! and the row stays (al-runner issue 6546, the reporter's repro passed on real BC; corpus writer Y32 pins it). On the
 //! awaiting assumption `stale-delete-event-before-record-changed` until that file is on the corpus master.
 
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+use al_builtins::assumptions::{clear_hits, take_hits};
 use al_builtins::native::Signal;
 use al_testkit::text;
 
@@ -112,7 +112,8 @@ fn the_before_delete_event_runs_and_then_the_delete_raises_record_changed() {
         text(run("StaleDelete")),
         "DB:RecordChanged / OnBeforeDeleteEvent; / rows 1"
     );
-    assert!(take_hits().contains(&Assumption::StaleDeleteEventBeforeRecordChanged));
+    // Pinned by the corpus (record/lt-sb-stale-own-modify/Y32StaleDeleteTests.al): no assumption is marked.
+    assert!(take_hits().is_empty());
 }
 
 /// Delete(true): OnBeforeDeleteEvent, then the OnDelete trigger, then DB:RecordChanged; OnAfterDeleteEvent never runs
