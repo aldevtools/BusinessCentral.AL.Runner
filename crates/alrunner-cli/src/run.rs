@@ -1522,6 +1522,7 @@ fn test_inner(
         // `ALRUNNER_REPORT_UNPINNED_ERRORS=1` (issue 6487, opt-in): an unpinned error text fails the test, marked.
         report_unpinned_errors: crate::unpinned::enabled(),
         permissions_off: a.permissions_off, // `--permissions off` (ADR-062 section 5).
+        check_baseline_rule: false,
         dev_endpoint_ui: crate::dev_endpoint_ui::for_major(a.dev_endpoint_ui, chosen.target.bc.major)?, // issue 3697
         perturb: Default::default(),
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
