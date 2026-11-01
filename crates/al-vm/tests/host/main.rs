@@ -10,6 +10,7 @@ mod http_cert_validation;
 mod http_headers;
 mod last_error_object;
 mod media;
+mod media_export_unchanged;
 mod platform_members;
 mod streams;
 mod task_scheduler;

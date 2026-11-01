@@ -627,69 +627,8 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 Err(_) => return Err(format!("Format of a {name} that is neither a result nor an error").into()),
             }
         }
-        // A JSON value formats as its compact text. Pinned: an empty JsonObject is `{}` and a null token `null`
-        // (types/ProbeTypeFormsAndFilters.al:Clear_JsonTypes_GiveFreshUnassigned, BC 27.5); an object or array
-        // gives its compact text; any other value is not pinned.
         Value::Library(name, l) if matches!(name.as_str(), "JsonObject" | "JsonArray" | "JsonValue" | "JsonToken") => {
-            if let crate::value::LibraryValue::Json(c) = &*l.borrow() {
-                if let Some(why) = c.unpinned {
-                    return Err(FormatFail::Unsupported(why.to_string()));
-                }
-            }
-            let container = matches!(&*l.borrow(), crate::value::LibraryValue::Json(c)
-                if matches!(&c.node, crate::json::JsonNode::Object(k) if !k.is_empty())
-                    || matches!(&c.node, crate::json::JsonNode::Array(_)));
-            if container {
-                let mut out = String::new();
-                crate::json::write_text(l, &mut out)
-                    .map_err(|_| "Format of a JSON value the writer refuses".to_string())?;
-                out
-            } else {
-                match &*l.borrow() {
-                    crate::value::LibraryValue::Json(c) => match &c.node {
-                        crate::json::JsonNode::Object(k) if k.is_empty() => "{}".to_string(),
-                        // {"a":1} formats as `{"a":1}` (streams/ProbeJsonAndInStreamBytes.al:ReadFrom_InStream_WithBomAndWithout).
-                        crate::json::JsonNode::Object(_) | crate::json::JsonNode::Array(_) => String::new(),
-                        crate::json::JsonNode::Scalar(crate::json::Scalar::Null) => "null".to_string(),
-                        // A JsonToken holding a whole number formats as its digits (json/lt-ay-json/AyJsonTokenSelectTokens.al:
-                        // 64-66 `1@a[0].n`, :116 `7@`).
-                        crate::json::JsonNode::Scalar(crate::json::Scalar::Val(Value::Integer(n)))
-                            if name == "JsonToken" && standard == 0 =>
-                        {
-                            n.to_string()
-                        }
-                        crate::json::JsonNode::Scalar(crate::json::Scalar::Val(Value::BigInteger(n)))
-                            if name == "JsonToken" && standard == 0 =>
-                        {
-                            n.to_string()
-                        }
-                        _ => {
-                            return Err(format!(
-                                "Format of {name} with content (standard format {standard}) is not pinned yet"
-                            )
-                            .into());
-                        }
-                    },
-                    crate::value::LibraryValue::Empty if name == "JsonObject" => "{}".to_string(),
-                    // A default JsonArray is `[]` (misc/lt-probes-needed-5/PnE09Platform.al:163,172 JsonValue_NeverTouched); a cleared
-                    // one is a fresh default one (types/ProbeTypeFormsAndFilters.al:Clear_JsonTypes_GiveFreshUnassigned). al-runner
-                    // issue 5956.
-                    crate::value::LibraryValue::Empty if name == "JsonArray" && standard == 0 => "[]".to_string(),
-                    // Standard format 9 of a JsonArray nobody touched raises (json/JsonWriteTo.al FormatOfEmptyJsonArrays
-                    // `untouched format 9`).
-                    crate::value::LibraryValue::Empty if name == "JsonArray" && standard == 9 => {
-                        return Err(no_such_format(9, "JsonArray"));
-                    }
-                    crate::value::LibraryValue::Empty if matches!(name.as_str(), "JsonValue" | "JsonToken") => {
-                        "null".to_string()
-                    }
-                    _ => {
-                        return Err(
-                            format!("Format of a {name} (standard format {standard}) is not pinned yet").into(),
-                        );
-                    }
-                }
-            }
+            crate::format_json::format_json(name.as_str(), l, standard)?
         }
         // A WebServiceActionContext has no text form (session/TestWebServiceActionContext.al:615-650).
         Value::Library(crate::library_kind::LibraryKind::WebServiceActionContext, _) => String::new(),
@@ -1074,7 +1013,7 @@ fn millis(ms: i64) -> String {
 /// space; format 1 adds the milliseconds (a time without any is not measured: refused); format 2 is
 /// the AL literal; format 9 the round-trip form.
 /// A standard format number the type does not have (text/TestProbeTextDateFormatContracts.al:Format_StandardNumbers_Time).
-fn no_such_format(n: i32, ty: &str) -> FormatFail {
+pub(crate) fn no_such_format(n: i32, ty: &str) -> FormatFail {
     FormatFail::Error {
         message: format!("Standard format number {n} does not exist for the type '{ty}'."),
         code: "InvalidStandardFormat".into(),

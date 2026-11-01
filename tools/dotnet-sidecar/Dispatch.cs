@@ -60,6 +60,18 @@ public sealed class Server
                 // 61400, CopyStream_WithAMemoryStream): without a count the WHOLE stream whatever its
                 // position, position 0 afterwards; with a count from the position, which follows.
                 var stream = StreamOf(req["handle"]!.GetValue<long>());
+                // The stream ZipArchiveEntry.Open() gives in Read mode, used once as the source of CopyStream without a count:
+                // all its bytes (lt-y44-zip-create/Y44ZipCreateMode.al ReadZip, Zip_TwoEntries_CopyStreamIntoOpen
+                // `content_<i>`; a compressed entry gives a DeflateStream, the empty stored one `d.txt` a SubReadStream). The
+                // runtime sends it only for a temporary Open() stream nothing read before.
+                var entryRead = stream is System.IO.Compression.DeflateStream
+                    || stream.GetType().FullName == "System.IO.Compression.SubReadStream";
+                if (entryRead && req["count"] is null)
+                {
+                    var all = new MemoryStream();
+                    stream.CopyTo(all);
+                    return Ok(new JsonObject { ["t"] = "ins", ["v"] = Convert.ToBase64String(all.ToArray()) });
+                }
                 if (stream is not MemoryStream ms)
                     throw new Refusal($"reading '{stream.GetType().FullName}' for CopyStream is not pinned (only a MemoryStream is)");
                 byte[] data;

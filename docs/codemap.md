@@ -82,6 +82,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `file.rs` (362): The `File` data type, on the host file system capability (ADR-006, `al-host::FileSystem`). Entry: `FileState` 32, `native_for` 331.
 - `filter.rs` (626): Record filters as data (shared by the VM and the store). Entry: `FilterExpr` 8, `parse_filter` 70, `parse_filter_with` 79, `FieldFilter` 371.
 - `format.rs` (619): `Format(Value [, Length] [, FormatNumber])`. Entry: `FormatCtx` 8, `FormatFail` 15, `try_format` 29, `format_value` 37.
+- `format_json.rs` (~80): `Format` of a JsonObject, JsonArray, JsonValue or JsonToken. Entry: `format_json`.
 - `formatstr.rs` (389): `Format(Value, Length, FormatString)`. Entry: `format_with_string` 50.
 - `http/mod.rs` (464): HttpClient, HttpRequestMessage, HttpResponseMessage, HttpHeaders, HttpContent, Cookie. Submodules: `content`, `cookies`, `dates`, `headers`, `header_rules`, `messages`, `send`, `uri`. Entry: `native_for` (mod.rs).
 - `iso.rs` (121): ISO 8601 text to AL date/time values (JSON strings, XML-format Evaluate). Entry: `days_in_month` 11, `parse_date` 21, `parse_time` 36, `parse_datetime` 56.
@@ -89,6 +90,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `lib.rs` (39): Crate root of the AL standard library: values, builtins, catalog.
 - `mathfns.rs` (245): Round and Power. Entry: `round` 31.
 - `media.rs` (197): `Media` and `MediaSet` fields (corpus media/). Entry: `Id` 14, `MediaObject` 18, `MediaStore` 26.
+- `media_export.rs` (~35): Which media `Media.ExportStream` gives back byte for byte (non-picture content). Entry: `exports_unchanged`.
 - `moduleinfo.rs` (287): `NavApp.GetCurrentModuleInfo` and friends, and the `ModuleInfo` type. Entry: `native_for` 169.
 - `native.rs` (1274): Native builtin implementations, registered by catalog overload id (ADR-008). Entry: `Signal` 26, `AlError` 9, `Ctx` 48, `lookup` 435, `raise` 16.
 - `ops.rs` (650): Value operations: conversion, arithmetic, comparison, truthiness. Entry: `convert` 16, `arith` 180, `compare_order` 301, `truthy` 384.
@@ -322,6 +324,9 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `dispatch.rs` (338): Event dispatch: publishers run their subscribers; EventCall; isolated events. Entry: `publish` 69, `raise` 117, `event_targets` 183, `has_listeners` 249, `subscription` 279.
 - `dotnet/mod.rs` (488): `DotNet` calls (ADR-014). Entry: `DotNetConfig` 33, `DotNetState` 58, `fit` 455.
 - `dotnet/blob_stream.rs` (495): An AL `OutStream` or `InStream` held by a `DotNet` System.IO.Stream variable (`NavBLOB+InternalStream`, Base Application `DotNet_Stream.FromOutStream`; SgDotNetStreams.al): the conversion in `Op::Convert`, the stream members, refusals of every unpinned shape. Entry: `Session::al_stream_into_dotnet` 62, `types` 471.
+- `dotnet/not_created.rs` (~55): The pinned error of a member of a `DotNet` variable that holds no object (`DotNetVariableNotCreated`). Entry: `Session::not_created`.
+- `dotnet/pinned_exceptions.rs` (~125): The .NET exceptions whose error text AL sees is pinned (`A call to ... failed with this message:`). Entry: `signal`.
+- `dotnet/zip_entry_streams.rs` (~115): The temporary stream of `ZipArchiveEntry.Open()` is closed at the end of its statement; CopyStream from it reads it whole. Entry: `Session::dotnet_apply_closing_entry_streams`.
 - `dotnet/last_error.rs` (188): The exception `GetLastErrorObject` answers and its `GetType()` (GetLastErrorObject.al). Entry: `types` 168, `exception_text` 70.
 - `dotnet/policy.rs` (269): What is refused before a `DotNet` request is sent (ADR-014 section 8). Entry: `Access` 6, `Policy` 14.
 - `dotnet/pure.rs` (~50): The `DotNet` members that answer from their arguments alone; a baseline whose install code calls any other is not kept on disk (`Engine::dotnet_called`, al-testrun `baseline_key`). Entry: `answers_from_arguments`.

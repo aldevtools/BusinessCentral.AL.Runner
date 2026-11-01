@@ -23,6 +23,7 @@ enum Req {
     Set(DotNetTarget, String, DotNetValue),
     Release(Vec<u64>),
     StreamWrite(u64, Vec<u8>),
+    StreamRead(u64),
     Close,
 }
 
@@ -94,6 +95,10 @@ impl DotNetSession for FakeSession {
             .push(Req::StreamWrite(handle, bytes.to_vec()));
         Ok(())
     }
+    fn stream_read(&mut self, handle: DotNetHandle, _max: Option<usize>) -> Result<Vec<u8>, DotNetFailure> {
+        self.0.log.lock().unwrap().push(Req::StreamRead(handle));
+        Ok(b"hello".to_vec())
+    }
     fn release(&mut self, handles: &[DotNetHandle]) {
         self.0.log.lock().unwrap().push(Req::Release(handles.to_vec()));
     }
@@ -125,6 +130,8 @@ fn handle(h: u64, ty: &str) -> DotNetValue {
 
 const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.Convert\"; \"Convert\") { }
+    type(\"System.IO.Compression.ZipArchive\"; \"ZipArchive\") { }
+    type(\"System.IO.Compression.ZipArchiveEntry\"; \"ZipArchiveEntry\") { }
     type(\"System.IO.MemoryStream\"; \"MemoryStream\") { }
     type(\"System.Text.Encoding\"; \"Encoding\") { }
     type(\"System.DateTime\"; \"ClrDateTime\") { }
@@ -3062,4 +3069,212 @@ fn xml_document_load_and_load_xml_raise_the_xml_exception() {
         text(r),
         "A call to System.Xml.XmlDocument.LoadXml failed with this message: Data at the root level is invalid. Line 1, position 1.#DotNetInvoke:Xml"
     );
+}
+
+// ---- ZipArchive in Create mode (al-language-onprem-dotnet/lt-y44-zip-create/Y44ZipCreateMode.al, corpus PR 962) ----------
+
+/// A ZipArchive (1) over a MemoryStream (9); CreateEntry gives entry 2, 4, ...; Open on an entry gives stream entry + 1.
+fn zip_host(fail: Option<(&'static str, &'static str, &'static str)>) -> Fake {
+    let next = Arc::new(Mutex::new(2u64));
+    Fake::new(move |r| {
+        let raise = |member: &str| match fail {
+            Some((m, t, msg)) if m == member => Some(Err(DotNetFailure::Exception(DotNetException {
+                clr_type: t.into(),
+                message: msg.into(),
+                inner: vec![],
+            }))),
+            _ => None,
+        };
+        match r {
+            Req::Construct(t, _) if t == "System.IO.MemoryStream" => reply(handle(9, "System.IO.MemoryStream")),
+            Req::Construct(t, _) if t == "System.IO.Compression.ZipArchive" => {
+                reply(handle(1, "System.IO.Compression.ZipArchive"))
+            }
+            Req::Invoke(DotNetTarget::Instance(1), m, _) if m == "CreateEntry" => {
+                raise("CreateEntry").unwrap_or_else(|| {
+                    let mut n = next.lock().unwrap();
+                    let h = *n;
+                    *n += 2;
+                    reply(handle(h, "System.IO.Compression.ZipArchiveEntry"))
+                })
+            }
+            Req::Get(DotNetTarget::Instance(1), m) if m == "Entries" => raise("Entries").unwrap(),
+            Req::Invoke(DotNetTarget::Instance(1), m, _) if m == "Entries" => raise("Entries").unwrap(),
+            Req::Invoke(DotNetTarget::Instance(h), m, _) if m == "Open" && h % 2 == 0 => {
+                reply(handle(h + 1, "System.IO.Compression.DeflateStream"))
+            }
+            Req::Invoke(DotNetTarget::Instance(_), m, _) if m == "Dispose" || m == "WriteByte" => {
+                reply(DotNetValue::Null)
+            }
+            other => panic!("{other:?}"),
+        }
+    })
+}
+
+const ZIP_VARS: &str = "M: DotNet MemoryStream; Z: DotNet ZipArchive; E: DotNet ZipArchiveEntry; S: DotNet Stream;
+    B: Record \"ALT Blob\" temporary; O: OutStream; I: InStream;";
+const ZIP_OPEN: &str = "B.Data.CreateOutStream(O); O.WriteText('abc'); B.Data.CreateInStream(I); M := M.MemoryStream();
+    Z := Z.ZipArchive(M);";
+
+fn disposed(host: &Fake) -> Vec<u64> {
+    host.calls()
+        .into_iter()
+        .filter_map(|r| match r {
+            Req::Invoke(DotNetTarget::Instance(h), m, _) if m == "Dispose" => Some(h),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Y44ZipCreateMode.al Zip_TwoEntries_CopyStreamIntoOpen: the stream Open() returns is closed at the end of the statement, so
+/// the next CreateEntry works; Zip_OpenTemporaryNoCopy_SecondCreate: also when it is the receiver of a call.
+#[test]
+fn the_temporary_stream_of_zip_archive_entry_open_is_disposed_after_its_statement() {
+    let host = zip_host(None);
+    let r = run(
+        &host,
+        ZIP_VARS,
+        &format!(
+            "{ZIP_OPEN} E := Z.CreateEntry('a.txt'); CopyStream(E.Open(), I); E := Z.CreateEntry('b.txt'); E.Open().WriteByte(65); exit('ok');"
+        ),
+        ": Text",
+    );
+    assert_eq!(text(r), "ok");
+    assert_eq!(disposed(&host), vec![3, 5]);
+}
+
+/// Y44ZipCreateMode.al Zip_OpenKeptInVariable_SecondCreate: a stream kept in a variable stays open (CopyStream does not close it).
+#[test]
+fn a_zip_entry_stream_kept_in_a_variable_is_not_disposed() {
+    let host = zip_host(None);
+    let r = run(
+        &host,
+        ZIP_VARS,
+        &format!("{ZIP_OPEN} E := Z.CreateEntry('a.txt'); S := E.Open(); CopyStream(S, I); exit('ok');"),
+        ": Text",
+    );
+    assert_eq!(text(r), "ok");
+    assert_eq!(disposed(&host), Vec::<u64>::new());
+}
+
+fn zip_error(fail: (&'static str, &'static str, &'static str), body: &str) -> String {
+    let r = run(
+        &zip_host(Some(fail)),
+        ZIP_VARS,
+        &format!("{ZIP_OPEN} asserterror {body}; exit(GetLastErrorText() + '|' + GetLastErrorCode());"),
+        ": Text",
+    );
+    text(r)
+}
+
+/// Y44ZipCreateMode.al Zip_OpenKeptInVariable_SecondCreate, Zip_EntriesInCreateMode, Zip_CreateEntry_AfterDispose.
+#[test]
+fn the_pinned_zip_archive_exceptions_raise_dotnet_invoke_errors() {
+    assert_eq!(
+        zip_error(
+            (
+                "CreateEntry",
+                "System.IO.IOException",
+                "Entries cannot be created while previously created entries are still open."
+            ),
+            "Z.CreateEntry('b.txt')"
+        ),
+        "A call to System.IO.Compression.ZipArchive.CreateEntry failed with this message: Entries cannot be created while previously created entries are still open.|DotNetInvoke:IO"
+    );
+    assert_eq!(
+        zip_error(
+            (
+                "Entries",
+                "System.NotSupportedException",
+                "Cannot access entries in Create mode."
+            ),
+            "M := Z.Entries"
+        ),
+        "A call to System.IO.Compression.ZipArchive.Entries failed with this message: Cannot access entries in Create mode.|DotNetInvoke:NotSupported"
+    );
+    assert_eq!(
+        zip_error(
+            (
+                "CreateEntry",
+                "System.ObjectDisposedException",
+                "Cannot access a disposed object.\nObject name: 'System.IO.Compression.ZipArchive'."
+            ),
+            "Z.CreateEntry('b.txt')"
+        ),
+        "A call to System.IO.Compression.ZipArchive.CreateEntry failed with this message: Cannot access a disposed object.\nObject name: 'System.IO.Compression.ZipArchive'.|DotNetInvoke:ObjectDisposed"
+    );
+}
+
+/// Y44ZipCreateMode.al Zip_CreateEntry_NoObject: CreateEntry, Entries and Dispose on a ZipArchive variable that holds no object.
+#[test]
+fn a_zip_archive_member_on_no_object_raises_dotnet_variable_not_created() {
+    for (body, member) in [
+        ("Z.CreateEntry('x.txt')", "CreateEntry"),
+        ("M := Z.Entries", "Entries"),
+        ("Z.Dispose()", "Dispose"),
+    ] {
+        let r = run(
+            &zip_host(None),
+            ZIP_VARS,
+            &format!("asserterror {body}; exit(GetLastErrorText() + '|' + GetLastErrorCode());"),
+            ": Text",
+        );
+        assert_eq!(
+            text(r),
+            format!(
+                "A DotNet variable has not been instantiated. Attempting to call System.IO.Compression.ZipArchive.{member} in CodeUnit C: F|DotNetVariableNotCreated"
+            )
+        );
+    }
+}
+
+/// Y44ZipCreateMode.al ReadZip (Zip_TwoEntries_CopyStreamIntoOpen `content_<i>`): CopyStream from the temporary stream of
+/// ZipArchiveEntry.Open() reads it whole, then closes it; from a stream kept in a variable it stays refused.
+#[test]
+fn copystream_from_a_temporary_zip_entry_stream_reads_it_whole_and_closes_it() {
+    let host2 = zip_host(None);
+    let r = run(
+        &host2,
+        &format!("{ZIP_VARS} a: Text;"),
+        &format!(
+            "{ZIP_OPEN} E := Z.CreateEntry('a.txt'); B.Data.CreateOutStream(O); CopyStream(O, E.Open());
+            B.Data.CreateInStream(I); I.ReadText(a); exit(a);"
+        ),
+        ": Text",
+    );
+    assert_eq!(text(r), "hello");
+    assert!(host2.log().contains(&Req::StreamRead(3)), "{:?}", host2.log());
+    assert_eq!(disposed(&host2), vec![3]);
+    let r = run(
+        &zip_host(None),
+        ZIP_VARS,
+        &format!(
+            "{ZIP_OPEN} E := Z.CreateEntry('a.txt'); S := E.Open(); B.Data.CreateOutStream(O); CopyStream(O, S); exit('');"
+        ),
+        ": Text",
+    );
+    assert!(
+        unsupported(&r).contains("pinned only for the temporary stream"),
+        "{}",
+        unsupported(&r)
+    );
+}
+
+/// Y44ZipCreateMode.al Zip_EntriesInCreateMode `stack_list_create`: an error the DotNet collection of a `foreach` raises is
+/// reported at the line of the first statement of the body.
+#[test]
+fn an_error_in_a_dotnet_foreach_header_names_the_line_of_the_body() {
+    let r = run(
+        &zip_host(Some((
+            "Entries",
+            "System.NotSupportedException",
+            "Cannot access entries in Create mode.",
+        ))),
+        ZIP_VARS,
+        &format!("{ZIP_OPEN}\nasserterror foreach E in Z.Entries() do\nM := M;\nexit(GetLastErrorCallStack());"),
+        ": Text",
+    );
+    // ZIP_OPEN takes two lines: the foreach is line 3 of the routine, its body line 4.
+    let stack = text(r);
+    assert!(stack.starts_with("\"C\"(CodeUnit 50100).F line 4"), "{stack}");
 }

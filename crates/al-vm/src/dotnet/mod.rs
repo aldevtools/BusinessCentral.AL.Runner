@@ -8,6 +8,8 @@ mod drawing;
 mod generic_dictionary;
 mod gettype;
 mod last_error;
+mod not_created;
+mod pinned_exceptions;
 pub mod policy;
 mod pure;
 use pure::CONSTRUCT;
@@ -16,7 +18,7 @@ pub mod registry;
 pub mod server_classes;
 mod staged_dir;
 mod xml_errors;
-use xml_errors::xml_load_member;
+mod zip_entry_streams;
 
 use crate::{Frame, Session};
 use al_builtins::describe::Describe;
@@ -92,6 +94,8 @@ pub struct DotNetState {
     /// Objects a `Clear` unassigned under those assumptions: another variable may still hold one, and whether the Clear
     /// disposed it is not pinned, so a later member call on it is refused.
     cleared: std::collections::HashSet<DotNetHandle>,
+    /// The streams `ZipArchiveEntry.Open()` returned that are still open (`zip_entry_streams`).
+    entry_streams: std::collections::HashSet<DotNetHandle>,
     /// `DotNetSite::result_ty` of the call `dotnet_apply` is about to make (taken at its start).
     pub(crate) result_ty: Option<usize>,
     /// The last .NET result was a null `string` (ADR-024). Set by the reply of a host call and
@@ -193,6 +197,11 @@ impl Session {
                 "DotNet {member}: the object was cleared through another variable; whether that Clear disposed it is not pinned"
             ));
         }
+        if let (Value::Null, Some(d)) = (&recv, &decl)
+            && let Some(r) = self.not_created(kind, &member, values.is_empty(), &d.name, f)
+        {
+            return r;
+        }
         let target = match (kind, &recv) {
             (MemberKind::Construct, _) => match &decl {
                 Some(d) => Target::Static(d.clone()),
@@ -217,26 +226,6 @@ impl Session {
                     clr_type.clone(),
                 ),
             },
-            // `X.GetType()` on an unassigned `System.Object` variable raises in a codeunit
-            // (tests/al-language-onprem-dotnet/lt-dotnet-interop/DotNetTypeOfDotNet.al:224 `Unassigned_error`, after
-            // GetDotNetType(X) answered System.Object: lt-bb-dotnet/BbGetDotNetType.al:364).
-            (MemberKind::Call, Value::Null)
-                if member.eq_ignore_ascii_case("GetType")
-                    && values.is_empty()
-                    && decl.as_ref().is_some_and(|d| d.name == "System.Object") =>
-            {
-                let o = &self.engine.program.objects[f.object];
-                if o.kind != al_ir::ObjKind::Codeunit || o.uncompiled {
-                    return unsupported(
-                        "GetType of an unassigned DotNet variable outside a codeunit (the object kind's spelling in the error is not pinned)",
-                    );
-                }
-                let message = format!(
-                    "A DotNet variable has not been instantiated. Attempting to call System.Object.GetType in CodeUnit {}: {}",
-                    o.name, o.routines[f.routine].name
-                );
-                return al_builtins::native::raise(message, "DotNetVariableNotCreated");
-            }
             (_, Value::Null) => match &decl {
                 Some(d) => Target::Static(d.clone()),
                 None => {
@@ -479,89 +468,14 @@ impl Session {
             }
             Err(DotNetFailure::Refused(why)) => unsupported(format!("DotNet {shown}: {why}")),
             Err(DotNetFailure::Exception(e)) => {
-                // Pinned for the MailAddress constructor only, exactly these two exception types:
-                // corpus tests/al-language-onprem-dotnet/lt-af-dotnet/AfMailAddress.al:77 (Format),
-                // :88 and :99 (Argument, Format). Any other exception stays a refusal (not pinned).
-                if kind == MemberKind::Construct && clr_type.eq_ignore_ascii_case("System.Net.Mail.MailAddress") {
-                    let code = match e.clr_type.as_str() {
-                        "System.FormatException" => Some("DotNetInvoke:Format"),
-                        "System.ArgumentException" => Some("DotNetInvoke:Argument"),
-                        _ => None,
-                    };
-                    if let Some(code) = code {
-                        return al_builtins::native::raise(
-                            format!("A call to {clr_type} failed with this message: {}", e.message),
-                            code,
-                        );
-                    }
-                }
-                // `new System.Uri(text)` of a text that is no URI (UriFormatException, as System Application Uri.IsValidUri meets
-                // it), and XmlDocument.LoadXml of a text with no root element (XmlException): the error AL sees is `A call to
-                // <type>[.<member>] failed with this message: <.NET message>`, code `DotNetInvoke:UriFormat` / `DotNetInvoke:Xml`,
-                // caught by a TryFunction and by Codeunit.Run (onprem-dotnet lt-wd-dotnet/WdTryFunctionDotNetException.al:50-102,
-                // corpus branch al-runtime-rs-staging-1030c, al-runner issue 6305). XmlDocument.Load and LoadXml raise any XmlException
-                // in the same form (lt-ae-dotnet/AeXmlDocumentLoadErrors.al:112-128 LoadXml_NotXml, :149-166 Load_EmptyStream). Other
-                // exceptions of these members stay refused.
-                let pinned = match (kind, e.clr_type.as_str()) {
-                    (MemberKind::Construct, "System.UriFormatException")
-                        if clr_type.eq_ignore_ascii_case("System.Uri") =>
-                    {
-                        Some((clr_type.to_string(), "DotNetInvoke:UriFormat"))
-                    }
-                    (MemberKind::Call, "System.Xml.XmlException")
-                        if clr_type.eq_ignore_ascii_case("System.Xml.XmlDocument") =>
-                    {
-                        xml_load_member(&member).map(|m| (format!("{clr_type}.{m}"), "DotNetInvoke:Xml"))
-                    }
-                    _ => None,
-                };
-                if let Some((called, code)) = pinned {
-                    return al_builtins::native::raise(
-                        format!("A call to {called} failed with this message: {}", e.message),
-                        code,
-                    );
-                }
-                // System.Enum.Parse(type, name) of a name that is not a member (also one in another case): writer TV, corpus
-                // branch al-runtime-rs-staging-tv 8ae7ac0b, lt-bb-dotnet/BbGetDotNetType.al
-                // TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (assumption dotnet-type-unassigned-enum).
-                if kind == MemberKind::Call
-                    && matches!(target, Target::Static(_))
-                    && clr_type.eq_ignore_ascii_case("System.Enum")
-                    && member.eq_ignore_ascii_case("Parse")
-                    && values.len() == 2
-                    && e.clr_type == "System.ArgumentException"
-                    && e.message.starts_with("Requested value '")
-                {
-                    // Pinned by tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (was assumption `dotnet-type-unassigned-enum`).
-                    return al_builtins::native::raise(
-                        format!("A call to System.Enum.Parse failed with this message: {}", e.message),
-                        "DotNetInvoke:Argument",
-                    );
-                }
-                // Encoding.GetEncoding: the sidecar registers the code-page provider, as BC's server answers code pages
-                // (corpus tests/al-language-onprem-dotnet/lt-ra-dotnet/RaEncodingCodePages.al:115, :131, :152, :244).
-                // Pinned failures: a code page out of range (ArgumentOutOfRange, :168 and :244, 99999) and an unknown
-                // name (Argument, :168). A code page in range that .NET has no data for (NotSupported) is not pinned.
-                if clr_type.eq_ignore_ascii_case("System.Text.Encoding") && member.eq_ignore_ascii_case("GetEncoding") {
-                    let code = match (e.clr_type.as_str(), values.first()) {
-                        ("System.ArgumentOutOfRangeException", Some(Value::Integer(_))) => {
-                            Some("DotNetInvoke:ArgumentOutOfRange")
-                        }
-                        ("System.ArgumentException", Some(Value::Text(_) | Value::Code(_))) => {
-                            Some("DotNetInvoke:Argument")
-                        }
-                        _ => None,
-                    };
-                    if let Some(code) = code {
-                        return al_builtins::native::raise(
-                            format!(
-                                "A call to {clr_type}.GetEncoding failed with this message: {}",
-                                e.message
-                            ),
-                            code,
-                        );
-                    }
-                }
+                pinned_exceptions::signal(
+                    kind,
+                    matches!(target, Target::Static(_)),
+                    &clr_type,
+                    &member,
+                    &values,
+                    &e,
+                )?;
                 let inner: String = e.inner.iter().map(|(t, m)| format!(" <- {t}: {m}")).collect();
                 unsupported(format!(
                     "DotNet {shown} raised the .NET exception {}: {}{inner}; the text AL would see is not pinned (ADR-014 section 7)",
@@ -1064,7 +978,7 @@ impl Session {
                 if let LibraryValue::InStream(st) = &mut *h.borrow_mut() {
                     st.pos = st.len();
                 }
-                Ok(())
+                self.close_temporary_entry_stream(out)
             }
             (None, Some((handle, clr_type))) => {
                 let Value::Library(_, h) = out else {
@@ -1079,12 +993,13 @@ impl Session {
                         return unsupported(format!("CopyStream from a DotNet stream into {}", other.describe()));
                     }
                 };
+                self.entry_stream_read_allowed(src, &clr_type, count)?;
                 self.dotnet_ready(&clr_type, "Read")?;
                 let session = self.dotnet.session.as_mut().expect("opened by dotnet_ready");
                 let max = count.map(|n| n as usize);
                 let bytes = stream_failure(&clr_type, session.stream_read(handle, max))?;
                 al_builtins::stream::write_bytes(&blob, &bytes);
-                Ok(())
+                self.close_temporary_entry_stream(src)
             }
             (None, None) => unsupported("CopyStream without a DotNet stream reached the DotNet path"),
         }

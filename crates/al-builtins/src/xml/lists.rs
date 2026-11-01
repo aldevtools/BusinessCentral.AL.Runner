@@ -4,8 +4,12 @@ use super::*;
 
 /// The nodes of an `XmlNodeList` as `XmlNode` values, for `foreach`. `None` for any other value.
 pub fn node_list_items(v: &Value) -> Option<Vec<Value>> {
-    let Value::Library(_, h) = v else { return None };
+    let Value::Library(name, h) = v else { return None };
     match &*h.borrow() {
+        // A never-assigned XmlNodeList (also the unassigned named return value of a procedure, called directly or through an
+        // interface) runs zero times (xml/lt-y44-fresh-nodelist/Y44ForeachFreshNodeList.al:76-77 ForeachNodeList_NeverAssigned,
+        // :95-96 ForeachNodeList_InterfaceEmptyReturn, :126-129 ForeachNodeList_LocalEmptyReturn).
+        LibraryValue::Empty if name.eq_ignore_ascii_case("XmlNodeList") => Some(Vec::new()),
         LibraryValue::XmlList(items) => Some(items.iter().map(|n| tagged("XmlNode", n.clone())).collect()),
         // An XmlAttributeCollection gives its XmlAttributes in document order (types/PVLabelSplitForeach.al,
         // staging 8217373).
@@ -30,6 +34,7 @@ pub(super) fn list_count(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]
 }
 
 pub(super) fn list_get(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    let never_assigned = matches!(&r, Some(Value::Library(_, h)) if matches!(&*h.borrow(), LibraryValue::Empty));
     let items = list_items(r)?;
     let Value::Integer(i) = a[0] else {
         return unsupported("node list index that is not an Integer");
@@ -40,6 +45,9 @@ pub(super) fn list_get(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) 
             Ok(Value::Boolean(true))
         }
         None if c.ret_used() => Ok(Value::Boolean(false)),
+        // Get as a statement on a never-assigned list raises (Y44ForeachFreshNodeList.al:156-157 NodeList_NeverAssigned_Members);
+        // on a filled list out of range it is not pinned.
+        None if never_assigned => crate::native::raise("Index out of bounds.", "IndexOutOfBounds"),
         None => unsupported("XmlNodeList.Get out of range, result unused (error text not pinned yet)"),
     }
 }
