@@ -2343,6 +2343,31 @@ page 50100 P {
     assert_eq!(body("Bare"), body("Qual"));
 }
 
+/// al-runner issue 6590: a bare `Run(Page::X, Rec)` in a page's code is the static `Page.Run` (pages/lt-uf-unqualified-runmodal/
+/// Y47UnqualifiedRun.al, corpus branch al-runtime-rs-staging-y47). It lowers to the `Page.Run` form behind the marker of
+/// assumption bare-page-run-is-static.
+#[test]
+fn a_bare_page_run_in_a_page_lowers_as_the_static_page_run() {
+    let src = r#"
+table 50100 T { fields { field(1; No; Code[20]) { } } }
+page 50101 L { SourceTable = T; }
+page 50100 P {
+    SourceTable = T;
+    procedure Bare() var R: Record T; begin Run(Page::L, R); Run(Page::L); end;
+    procedure Qual() var R: Record T; begin Page.Run(Page::L, R); Page.Run(Page::L); end;
+}"#;
+    let (ws, l) = lower_src(src);
+    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    assert!(reasons.is_empty(), "{reasons:?}");
+    let i = ws.objects.iter().position(|o| o.name.as_str() == "P").unwrap();
+    let p = &l.program.objects[i];
+    let body = |r: &str| format!("{:?}", p.routines.iter().find(|x| x.name == r).unwrap().body);
+    let bare = body("Bare");
+    assert!(bare.contains("BarePageRunIsStatic"), "{bare}");
+    let marker = "Assume(BarePageRunIsStatic), ";
+    assert_eq!(bare.replace(marker, ""), body("Qual"));
+}
+
 /// The work ratchet (`al-test-cli`, `metrics/<major>/work.json`): the compile counts what it lowered from source, the
 /// workspace's and the dependencies' apart. A dependency routine nothing reaches is a stub and does not count, and an
 /// object nothing reaches is a shell and does not count either.
