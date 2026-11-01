@@ -177,3 +177,21 @@ fn field_no_of_an_unpinned_column_is_not_a_read() {
     assert_eq!(o[0], ("Number".to_string(), Outcome::Pass), "{o:?}");
     assert!(matches!(&o[1].1, Outcome::NotRun(why) if why.contains("column 22")), "{o:?}");
 }
+
+// G5-04: the Tenant Media row of a two-argument import of content that is no picture has Mime Type application/octet-stream,
+// in a Media field and in a MediaSet (media/lt-y48-tenant-media/Y48TenantMediaRows.al:333 TM_DeleteRowOfHeldMedia, :484
+// `item 1 tm row`); a three-argument import keeps its type (:399).
+#[test]
+fn tenant_media_mime_type_of_a_two_argument_import_is_octet_stream() {
+    passes(
+        r#"table 50001 "M Row" { fields { field(1; Id; Integer) { } field(2; Pic; Media) { } field(3; Pics; MediaSet) { } field(4; B; Blob) { } } keys { key(PK; Id) { Clustered = true; } } }
+codeunit 50000 T { Subtype = Test;
+  local procedure Mime(Id: Guid): Text var TM: Record "Tenant Media"; begin TM.Get(Id); exit(TM.Description + '|' + TM."Mime Type"); end;
+  local procedure Stream(var B: Record "M Row"; var InS: InStream) var O: OutStream; begin Clear(B.B); B.B.CreateOutStream(O); O.WriteText('content'); B.B.CreateInStream(InS); end;
+  [Test] procedure Mimes() var R: Record "M Row"; B: Record "M Row"; InS: InStream; begin
+    R.Id := 1; R.Insert();
+    Stream(B, InS); R.Pic.ImportStream(InS, 'd'); if Mime(R.Pic.MediaId()) <> 'd|application/octet-stream' then Error(Mime(R.Pic.MediaId()));
+    Stream(B, InS); R.Pics.ImportStream(InS, 'a'); if Mime(R.Pics.Item(1)) <> 'a|application/octet-stream' then Error(Mime(R.Pics.Item(1)));
+    Stream(B, InS); R.Pic.ImportStream(InS, 'test.txt', 'text/plain'); if Mime(R.Pic.MediaId()) <> 'test.txt|text/plain' then Error(Mime(R.Pic.MediaId())); end; }"#,
+    );
+}
