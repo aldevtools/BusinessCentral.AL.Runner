@@ -234,3 +234,44 @@ fn a_lookup_on_a_host_with_row_triggers_whose_part_links_three_fields_shows_the_
         "{g}"
     );
 }
+
+/// The reporter's tests run clean: the Lookup writes the field of the page's global record (`Setting."Resource No."`) and runs
+/// the control's OnValidate, which the corpus pins (pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al: the control shows
+/// R2 and the saved setting row holds it), so assumption `page-expression-control-setvalue` is not marked.
+#[test]
+fn the_reporters_lookups_mark_no_assumption() {
+    let l = al_testkit::compile(SRC);
+    let engine = al_vm::Engine::new(l.program.clone(), al_testkit::blocked(&l));
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "Repro Lookup Link Tests")
+        .unwrap();
+    let mut hits = Vec::new();
+    let out = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Codeunit,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    for n in [
+        "TwoLinkedFieldsShowThePickedResource",
+        "ThreeLinkedFieldsShowThePickedResource",
+    ] {
+        let o = out.iter().find(|(t, _)| t == n).map(|(_, o)| format!("{o:?}"));
+        assert_eq!(o.as_deref(), Some("Pass"), "{n}");
+        let h = hits
+            .iter()
+            .find(|(t, _)| t == n)
+            .map(|(_, h)| h.clone())
+            .unwrap_or_default();
+        assert!(h.is_empty(), "{n} marks {h:?}");
+    }
+}
