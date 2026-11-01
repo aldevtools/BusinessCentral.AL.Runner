@@ -30,4 +30,3 @@ pub(crate) fn convert(v: &Value, t: &RtType) -> Option<Result<Value, Signal>> {
         _ => return None,
     })
 }
-
