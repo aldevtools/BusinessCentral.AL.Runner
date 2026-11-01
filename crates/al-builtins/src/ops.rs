@@ -1247,12 +1247,11 @@ fn int_of(v: &Value) -> Option<i64> {
 
 /// DateTime - DateTime is a Duration in milliseconds (session/TestDateTimeContracts.al:52-90). 0DT - 0DT is a 0 Duration;
 /// one undefined side raises DateInvalid (types/lt-y62-undefined-date/Y62UndefinedDate.al: DateTimeSub_BothUndefined,
-/// DateTimeSub_OneUndefined_AndDefinedPair; on corpus master, awaiting the pin).
+/// DateTimeSub_OneUndefined_AndDefinedPair, :166-203).
 fn datetime_difference(a: i64, b: i64) -> Result<Value, Signal> {
     if a > 0 && b > 0 {
         return Ok(Value::Duration(a - b));
     }
-    crate::assumptions::assume(crate::assumptions::Assumption::UndefinedDateTimeDifference);
     if a == 0 && b == 0 {
         return Ok(Value::Duration(0));
     }
