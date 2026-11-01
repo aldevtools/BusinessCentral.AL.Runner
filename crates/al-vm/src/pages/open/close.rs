@@ -20,7 +20,19 @@ impl Session {
             let s = st.borrow();
             s.modal && !s.lookup && self.engine.object_facts[object].page_type_lower() == "card"
         };
-        let action = if ok_type && (!st.borrow().modal || modal_card) {
+        // A NavigatePage (temporary or real source, after a footer action, OpenEdit or OpenView), a CardPart and a ListPart
+        // not run modally report OK too (corpus branch al-runtime-rs-staging-y65,
+        // testpageclose/lt-y65-close-page-types/Y65ClosePageTypes.al:505-558 and :636-660; al-runner issue 6670). Not on the
+        // pinned corpus yet: assumption close-action-ok-navigate-and-parts.
+        let navigate_or_part = !st.borrow().modal
+            && matches!(
+                self.engine.object_facts[object].page_type_lower(),
+                "navigatepage" | "cardpart" | "listpart"
+            );
+        if navigate_or_part {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::CloseActionOkNavigateAndParts);
+        }
+        let action = if (ok_type && (!st.borrow().modal || modal_card)) || navigate_or_part {
             "OK"
         } else {
             "Cancel"
