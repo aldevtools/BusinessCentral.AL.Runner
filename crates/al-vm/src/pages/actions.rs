@@ -2339,7 +2339,7 @@ impl Session {
     /// unknown (a new epoch), so a test that compares counters across it is refused rather than given a made-up count. They
     /// change no row and no row version.
     /// Whether the action running on `st` changed the filters or the key of the page's record (`view_before_action`).
-    fn view_changed_by_action(&self, st: &St) -> bool {
+    pub(super) fn view_changed_by_action(&self, st: &St) -> bool {
         let Some((filters, key, adhoc, ascending)) = st.borrow().view_before_action.clone() else {
             return false;
         };
@@ -2687,29 +2687,7 @@ impl Session {
         self.read_list_again_from_row_as(st, rec, key, true)
     }
 
-    /// [`Self::read_list_again_from_row`]; `read_first` false leaves out the read of the row before the others (a refresh after a
-    /// control's OnValidate, `refresh_after_validate_filter`).
-    pub(super) fn read_list_again_from_row_as(
-        &mut self,
-        st: &St,
-        rec: &Rec,
-        key: &[Value],
-        read_first: bool,
-    ) -> Result<(), Signal> {
-        // A collapsed or expanded tree with row triggers reads the rows it hides too, as when it opens
-        // (pageext/lt-page-ext-properties/Y28CollapsedTreeTests.al:170 Y28_ActionResetAndUpdate
-        // `agr1;reset count=5;agr1;agr1;agr2;agr3;agr4;agr5;agr1;agr1;agcr1`, :130 Y28_ActionCountOnRoot).
-        if self.tree_expand_all_with_row_triggers(st)
-            && self.read_tree_rows_whole(st, |this| {
-                this.read_list_again_from_row_in_view(st, rec, key, read_first)
-            })?
-        {
-            return Ok(());
-        }
-        self.read_list_again_from_row_in_view(st, rec, key, read_first)
-    }
-
-    fn read_list_again_from_row_in_view(
+    pub(super) fn read_list_again_from_row_in_view(
         &mut self,
         st: &St,
         rec: &Rec,
@@ -2803,6 +2781,7 @@ impl Session {
             moved = true;
             rows.push(row(self)?);
         }
+        self.read_start_after_full_window(st, rows.len(), read_first && !find && !with_current)?;
         if moved {
             self.ret_used = true;
             self.record_op(RecordOp::Get, rec, &mut pk)?;

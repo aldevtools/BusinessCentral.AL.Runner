@@ -794,7 +794,9 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // pass on BC 28 and 29 only.
     // Corpus bump to 21a41286 makes it 27: eight new TZ_* cases of 21155 (control add-in calls from page triggers and
     // actions) pass on BC 28 and 29 only, behind the same gate ControlAddInNotInstantiatedErrorFrom28.
-    assert!(out.contains("runtime: 27 case(s) differ between versions"), "{out}");
+    // Branch fix-left makes it 17: the numbers a Required-isolation codeunit takes are carried over, so the ten
+    // remaining RqIsolationModes.al cases (88512-88515 and the ones after them) now run and pass on BC 28 and 29 too.
+    assert!(out.contains("runtime: 17 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 

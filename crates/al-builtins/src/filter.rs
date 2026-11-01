@@ -483,7 +483,14 @@ pub fn parse_filter_with(
         text
     };
     let mut kept_placeholder = false;
-    let toks = tokenize(text, args, &mut kept_placeholder)?;
+    let mut at_placeholder = false;
+    let toks = tokenize(text, args, &mut kept_placeholder, &mut at_placeholder)?;
+    if at_placeholder && !matches!(ty, crate::value::RtType::Text(_)) {
+        return Err(format!(
+            "`@` right before a placeholder on a {} field (only Text is pinned)",
+            ty.describe()
+        ));
+    }
     // A placeholder kept as written next to a wildcard (see `tokenize`) is pinned on a Text, a Code and an Integer field only
     // (filters/W4Filters.al:661-695): on an Integer field `%1*` raises `The variable "%1*" was not understood.` and `*%1` the
     // evaluate error.
@@ -551,7 +558,12 @@ pub fn placeholder_next_to_wildcard(text: &str) -> bool {
     })
 }
 
-fn tokenize(text: &str, args: &[Value], kept_placeholder: &mut bool) -> Result<Vec<Tok>, String> {
+fn tokenize(
+    text: &str,
+    args: &[Value],
+    kept_placeholder: &mut bool,
+    at_placeholder: &mut bool,
+) -> Result<Vec<Tok>, String> {
     let c: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
     let mut raw = String::new();
@@ -645,6 +657,22 @@ fn tokenize(text: &str, args: &[Value], kept_placeholder: &mut bool) -> Result<V
                 && before.chars().all(|w| wild(&w))
                 && (out.is_empty() || matches!(out.last(), Some(Tok::Op("@"))));
             let start = before.is_empty() && (out.is_empty() || matches!(out.last(), Some(Tok::Op("<>"))));
+            // `@` right before a placeholder: the placeholder is not put in either. Pinned for the whole filter `@%1` on a Text
+            // field: a value that differs from the row only in case keeps no row (onprem platform/lt-y35-stored-tables/
+            // Y35StoredTables.al:194-195, :210). The read-back `@%1` follows `@*%1*` (filters/W4Filters.al:662, :682; a
+            // probes-needed row). Inside a longer filter or on a field other than a Text it is refused.
+            if before.is_empty() && matches!(out.last(), Some(Tok::Op("@"))) {
+                if out.len() != 1 || i + 2 != c.len() {
+                    return Err(format!(
+                        "`@` right before placeholder %{n} inside a longer filter (not pinned)"
+                    ));
+                }
+                *at_placeholder = true;
+                raw.push('%');
+                raw.push(c[i + 1]);
+                i += 2;
+                continue;
+            }
             if after_wildcard || c.get(i + 2).is_some_and(wild) {
                 if !(after_wildcard || start) {
                     return Err(format!("placeholder %{n} right before a wildcard (not pinned)"));

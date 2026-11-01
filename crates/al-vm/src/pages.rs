@@ -183,6 +183,7 @@ mod draft;
 mod format;
 mod format_type11;
 mod gotokey_find;
+mod list_refresh;
 mod lookup_refresh;
 mod open;
 mod page_var_view;

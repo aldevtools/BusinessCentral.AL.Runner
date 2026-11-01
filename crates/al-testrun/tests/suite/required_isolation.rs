@@ -546,3 +546,100 @@ fn under_runner_130450_a_refused_onrun_that_writes_nothing_known_does_not_hold_b
     assert!(matches!(outcome(&o, "OR1"), Outcome::NotRun(_)), "{o:?}");
     assert_eq!(outcome(&o, "RR1"), &Outcome::Pass, "{o:?}");
 }
+
+// Under runner 130450 a test's writes to isolated storage and its new number sequences are rolled back with the codeunit,
+// but a number a test took from an older sequence (Next) is not given back: the later codeunits see it taken
+// (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage :447-457). A test that changed an
+// older sequence otherwise (Restart, Delete) leaves what is not pinned: a later codeunit that can reach sequences is not run.
+const TEST_NEXT_130450: &str = r#"
+codeunit 50684 "Prepares Sequence"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    trigger OnRun()
+    var V: BigInteger;
+    begin
+        NumberSequence.Insert('S', 100, 1, false);
+        V := NumberSequence.Next('S', false);
+        IsolatedStorage.Set('D', 'old', DataScope::Module);
+        Commit();
+    end;
+    [Test] procedure PS1() begin end;
+}
+codeunit 50685 "Test Takes Next"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure TN1()
+    var V: BigInteger;
+    begin
+        V := NumberSequence.Next('S', false);
+        NumberSequence.Insert('N', 1, 1, false);
+        IsolatedStorage.Set('K', 'new', DataScope::Module);
+        IsolatedStorage.Delete('D', DataScope::Module);
+        Commit();
+    end;
+}
+codeunit 50686 "Reads After Test"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure RT1()
+    var V: Text;
+    begin
+        if NumberSequence.Current('S', false) <> 101 then Error('current %1', NumberSequence.Current('S', false));
+        if NumberSequence.Exists('N', false) then Error('new sequence');
+        if IsolatedStorage.Contains('K', DataScope::Module) then Error('new key');
+        if not IsolatedStorage.Get('D', DataScope::Module, V) then Error('deleted key');
+    end;
+}
+"#;
+
+#[test]
+fn under_runner_130450_a_number_a_test_took_reaches_the_later_codeunits() {
+    let o = run(TEST_NEXT_130450, false);
+    assert_eq!(outcome(&o, "TN1"), &Outcome::Pass, "{o:?}");
+    assert_eq!(outcome(&o, "RT1"), &Outcome::Pass, "{o:?}");
+    let restarted = TEST_NEXT_130450.replace(
+        "V := NumberSequence.Next('S', false);\n        NumberSequence.Insert('N'",
+        "NumberSequence.Restart('S', 5, false);\n        NumberSequence.Insert('N'",
+    );
+    let o = run(&restarted, false);
+    assert!(not_run(outcome(&o, "RT1"), "Test Takes Next"), "{o:?}");
+}
+
+// A codeunit that joins the carry chain only because its tests take numbers carries the state it started from: the install
+// code already ran for it, and a later codeunit that starts from it must not run the install code again (an install that
+// inserts a row would fail on the duplicate key).
+const TEST_NEXT_AFTER_INSTALL: &str = r#"
+codeunit 50691 "Install Row"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() var Rows: Codeunit "Rows"; begin Rows.Put('INSTALL'); end;
+}
+codeunit 50687 "Makes Sequence"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    trigger OnRun() var V: BigInteger; begin NumberSequence.Insert('S2', 1, 1, false); V := NumberSequence.Next('S2', false); end;
+    [Test] procedure MX1() begin end;
+}
+codeunit 50688 "Takes Next"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure TX1() var V: BigInteger; begin V := NumberSequence.Next('S2', false); end;
+}
+codeunit 50689 "Reads Sequence"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure RX1() var Rows: Codeunit "Rows"; begin if NumberSequence.Current('S2', false) <> 2 then Error('current'); if Rows.Count() <> 1 then Error('rows %1', Rows.Count()); end;
+}
+"#;
+
+#[test]
+fn a_codeunit_in_the_chain_for_its_tests_numbers_does_not_run_the_install_again() {
+    let o = run(TEST_NEXT_AFTER_INSTALL, false);
+    assert_eq!(outcome(&o, "RX1"), &Outcome::Pass, "{o:?}");
+}

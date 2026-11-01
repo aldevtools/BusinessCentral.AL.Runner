@@ -342,6 +342,39 @@ impl Session {
         self.isolated_storage != start.isolated_storage || self.sequences != start.sequences
     }
 
+    /// Puts into `b` the numbers the session took since `b` from the sequences `b` holds. Under runner 130450 a test's
+    /// `NumberSequence.Next` is not given back when the codeunit's writes are rolled back, while its new sequences and its
+    /// isolated storage writes are (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage
+    /// :447-457). `None`: no number was taken. `Some(false)`: a sequence of `b` was changed otherwise (Restart, Delete),
+    /// which is not pinned; `b` is left as it was.
+    pub fn carry_numbers_taken(&self, b: &mut Baseline) -> Option<bool> {
+        let mut taken = Vec::new();
+        for (k, then) in &b.sequences {
+            let Some(now) = self.sequences.get(k) else {
+                return Some(false);
+            };
+            if now == then {
+                continue;
+            }
+            let moved_on = now.increment == then.increment
+                && now.seed == then.seed
+                && match (then.last, now.last) {
+                    (None, Some(_)) => true,
+                    (Some(a), Some(z)) => (z - a).signum() == then.increment.signum(),
+                    _ => false,
+                };
+            if !moved_on {
+                return Some(false);
+            }
+            taken.push((k.clone(), now.clone()));
+        }
+        if taken.is_empty() {
+            return None;
+        }
+        b.sequences.extend(taken);
+        Some(true)
+    }
+
     /// Replaces the session's data with the baseline's (a new session starts here).
     /// The tables the install code left rows in, as the session's baseline gave them (`Baseline::install_rows`).
     pub fn install_rows(&self) -> std::collections::BTreeSet<u32> {

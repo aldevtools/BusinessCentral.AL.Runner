@@ -1006,6 +1006,8 @@ impl Session {
             && self.request_rec_moved_by_onopenpage(st)?
         {
             return self.open_on_rec_moved_by_onopenpage(st);
+        } else if self.part_rec_left_by_host(st)? {
+            return self.open_part_on_host_row(st);
         }
         self.page_first_row(st)
     }

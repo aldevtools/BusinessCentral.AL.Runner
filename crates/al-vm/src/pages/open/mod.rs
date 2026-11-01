@@ -7,6 +7,7 @@ mod landing;
 mod or_group;
 mod page_open;
 mod part_links;
+mod part_rec_row;
 mod record_refusals;
 mod temp_list_key;
 mod tree;
