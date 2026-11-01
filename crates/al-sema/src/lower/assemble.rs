@@ -669,21 +669,9 @@ pub(crate) fn build_shared<'a>(
             }
         }
         layouts[oi] = Some(request);
-        // Several extensions apply in object id order (corpus reportextensiontrigger/
-        // TestReportExtensionBaseMembersContracts.al:256, ADR-025). Their order across apps is not
-        // pinned.
         let mut exts = changing.get(&oi).cloned().unwrap_or_default();
         exts.sort_by_key(|&e| (ws.objects[e].id, e));
-        let extension_reasons = if exts.len() > 1
-            && (exts.iter().any(|&e| ws.objects[e].id.is_none())
-                || exts.iter().any(|&e| ws.objects[e].app != ws.objects[exts[0]].app))
-        {
-            vec![
-                "reportextensions of different apps change the run (their order across apps is not pinned)".to_string(),
-            ]
-        } else {
-            Vec::new()
-        };
+        let extension_reasons = extension_order_reasons(ws, &exts);
         let cx = crate::reports::Context {
             ws,
             members,
@@ -2541,4 +2529,21 @@ fn tdd_stub_list(checked: &CheckResult, sites: &[(usize, String)]) -> Vec<String
         all.dedup();
     }
     all
+}
+
+/// Why the report extensions `exts` (in object id order) that change a report's run cannot run in a pinned order. Several
+/// extensions apply in object id order (corpus reportextensiontrigger/TestReportExtensionBaseMembersContracts.al:256, ADR-025).
+/// Across apps they apply in dependency order when a dependency path orders the apps (al-runner issue 6653; corpus branch
+/// al-runtime-rs-staging-y64 85d86e7b, reportext/lt-y64-xapp-run-order/Y64XappRunOrder.al: A <- B <- C <- the test app). There
+/// the ids rise along the path, so only that is pinned: apps with no path between them, or ids against it, are refused.
+fn extension_order_reasons(ws: &Workspace, exts: &[usize]) -> Vec<String> {
+    let app = |e: usize| ws.objects[e].app;
+    let along_path = exts
+        .windows(2)
+        .all(|w| app(w[0]) == app(w[1]) || ws.app_sees(app(w[1]), app(w[0])));
+    if exts.len() > 1 && (exts.iter().any(|&e| ws.objects[e].id.is_none()) || !along_path) {
+        vec!["reportextensions of different apps change the run (their order across apps is not pinned)".to_string()]
+    } else {
+        Vec::new()
+    }
 }

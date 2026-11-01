@@ -1321,6 +1321,12 @@ fn binary_ty(op: &str, l: &Ty, r: &Ty) -> Ty {
         // Duration div / mod a number is a Decimal18 (corpus types/lt-duration-div-mod/DurationDivIntegerOverflow.al: it formats as
         // '2,160,000,000' and an assignment to an Integer overflows with the Decimal18 text).
         "div" | "mod" if matches!(l, Ty::Duration) => Ty::Decimal,
+        // The type the operator gives at run time (al-builtins `ops.rs`), so `:=` into an Integer converts it (al-runner issue
+        // 6660): a BigInteger operand makes a BigInteger (misc/lt-expressions-statements/PBinaryUnaryExpressions.al:141, :180
+        // `Big div 2` is `BigInteger 2`), and a Decimal mod keeps its fraction (types/lt-scalars/ScT70058.al:28, :37
+        // `mod_int` is 1.5).
+        "mod" if matches!(l, Ty::Decimal) || matches!(r, Ty::Decimal) => Ty::Decimal,
+        "div" | "mod" if matches!(l, Ty::BigInteger) || matches!(r, Ty::BigInteger) => Ty::BigInteger,
         "div" | "mod" => Ty::Integer,
         "/" if is_numeric(l) && is_numeric(r) => Ty::Decimal,
         "+" | "-" | "*" | "/" => match (l, r) {

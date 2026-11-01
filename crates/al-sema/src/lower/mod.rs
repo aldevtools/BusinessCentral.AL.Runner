@@ -572,6 +572,7 @@ mod call;
 mod compile;
 mod conv_matrix;
 mod convert;
+mod copy_array;
 mod coverage_ids;
 mod dotnet;
 mod dotnet_arg;
@@ -582,6 +583,7 @@ mod localize;
 #[cfg(test)]
 mod object_hash_tests;
 mod pages;
+mod request_procs;
 mod routine_lists;
 mod shared;
 mod stmt;

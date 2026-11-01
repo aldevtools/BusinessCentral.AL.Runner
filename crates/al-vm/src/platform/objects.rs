@@ -486,36 +486,23 @@ pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             ));
         }
     }
-    // BC lists one more row per table than the runtime does: a table, a codeunit and a page in one namespace count 4
-    // (metadata/lt-all-obj-namespace/AllObjNamespace.al:101). Most likely the TableData row (ordinal 0), whose
-    // columns no corpus test pins: each table gets that row poisoned, so a read that may land on it is refused and
-    // one that filters "Object Type" to another member is answered.
-    let blank = Blank::new(t);
+    // Every table has a TableData row (ordinal 0) next to its Table row, with the Table row's name, namespace, package id and
+    // runtime package id: a table of the app under test, a temporary one, a dependency's (Base Application's Customer and
+    // Contact) and the platform's (Company, the virtual Integer and AllObj) (metadata/lt-all-obj-namespace/AllObjNamespace.al:
+    // 143-218 PW_AllObj_*, :220-262 UG_AllObj_TableDataRow_OfContact_AllColumns). A table declared Moved has no Table row, and
+    // so none here.
     for o in c.objects {
-        if let (Some(id), al_ir::ObjKind::Table) = (o.id, o.kind) {
-            let mut k = blank.row();
+        if let (Some(id), al_ir::ObjKind::Table) = (o.id, o.kind)
+            && !moved(o)
+        {
+            let mut k = Blank::new(t).row();
             k[pos(t, 1)] = option(t, 1, 0);
             k[pos(t, 3)] = Value::Integer(id as i32);
-            // The TableData row of a dependency app's table (Base Application's Contact and Customer) has the Table
-            // row's name, namespace, package id and runtime package id (corpus branch al-runtime-rs-staging-ug eff7eb2a,
-            // metadata/lt-all-obj-namespace/AllObjNamespace.al UG_AllObj_TableDataRow_OfContact_AllColumns; assumption
-            // allobj-tabledata-row-of-dependency-table until the bump). The app under test's tables and the platform's
-            // are not pinned. A table declared Moved has no Table row, and so none here.
-            let dependency = c.apps.get(o.app as usize).is_some_and(|a| a.dependency);
-            if dependency && !is_platform(o) && !moved(o) {
-                k[pos(t, 4)] = Value::Text(o.name.clone().into());
-                k[pos(t, 60)] = Value::Guid(package_of(&c, o));
-                k[pos(t, 61)] = Value::Guid(runtime_package_id(&c, o));
-                k[pos(t, 62)] = Value::Text(namespace(o).into());
-                out.push(Entry::ok(k));
-                continue;
-            }
-            out.push(Entry::poisoned(
-                k,
-                format!(
-                    "the TableData row of table {id} in AllObj is not pinned (its existence and columns): no corpus test pins it (docs/probes-needed.md)"
-                ),
-            ));
+            k[pos(t, 4)] = Value::Text(o.name.clone().into());
+            k[pos(t, 60)] = Value::Guid(package_of(&c, o));
+            k[pos(t, 61)] = Value::Guid(runtime_package_id(&c, o));
+            k[pos(t, 62)] = Value::Text(namespace(o).into());
+            out.push(Entry::ok(k));
         }
     }
     out
@@ -524,33 +511,41 @@ pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
 pub(super) fn all_obj_with_caption_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
-    entries(
-        &c,
-        t,
-        |o| {
-            let (Some(id), Some(ty)) = (o.id, object_type(o.kind)) else {
-                return None;
-            };
-            Some(vec![(1, option(t, 1, ty)), (3, Value::Integer(id as i32))])
-        },
-        |o, r| {
-            let owner = c.owner(o);
-            let pkg = package_of(&c, o);
-            r[pos(t, 4)] = Value::Text(o.name.clone().into());
-            r[pos(t, 20)] = caption_value(o, 249);
-            // A subtype the runtime has no pinned text for (a CDS table) leaves only that column unknown: the other
-            // columns still answer a filter or a count (install/lt-cm-install-leads/CmInstallObjects.al:73-79).
-            r[pos(t, 30)] = match subtype_text(&c, o) {
-                Ok(s) => Value::Text(s.into()),
-                Err(why) => Value::Unknown(format!("AllObjWithCaption: {why}").into()),
-            };
-            r[pos(t, 60)] = Value::Guid(pkg);
-            r[pos(t, 61)] = Value::Guid(runtime_package_id(&c, o));
-            r[pos(t, 62)] = Value::Guid(if carries_app_id(o.kind) { owner } else { [0; 16] });
-            r[pos(t, 63)] = Value::Text(namespace(o).into());
-            Ok(())
-        },
-    )
+    let key = |o: &ObjectHead, ty: i32| Some(vec![(1, option(t, 1, ty)), (3, Value::Integer(o.id? as i32))]);
+    let mut out = entries(&c, t, |o| key(o, object_type(o.kind)?), |o, r| caption_row(&c, t, o, r));
+    // Every table has a TableData row next to its Table row, with its name, caption and subtype (metadata/lt-all-obj-namespace/
+    // AllObjNamespace.al:156-218 PW_AllObj_TableDataRowPerTableKind; al-runner issue 6643). Its package ids, app id and namespace
+    // are taken to be the Table row's, as AllObj's TableData row has them (:220-262): assumption
+    // allobjwithcaption-tabledata-columns until corpus writer Y64's probe lands. A table declared Moved has none.
+    let tables = |o: &ObjectHead| {
+        (o.kind == al_ir::ObjKind::Table && !moved(o))
+            .then(|| key(o, 0))
+            .flatten()
+    };
+    let table_data = entries(&c, t, tables, |o, r| caption_row(&c, t, o, r));
+    if !table_data.is_empty() {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::AllobjwithcaptionTabledataColumns);
+    }
+    out.extend(table_data);
+    out
+}
+
+/// The columns of the AllObjWithCaption row of object `o` after its key.
+fn caption_row(c: &Catalog, t: &TableDef, o: &ObjectHead, r: &mut Row) -> Result<(), String> {
+    let owner = c.owner(o);
+    r[pos(t, 4)] = Value::Text(o.name.clone().into());
+    r[pos(t, 20)] = caption_value(o, 249);
+    // A subtype the runtime has no pinned text for (a CDS table) leaves only that column unknown: the other
+    // columns still answer a filter or a count (install/lt-cm-install-leads/CmInstallObjects.al:73-79).
+    r[pos(t, 30)] = match subtype_text(c, o) {
+        Ok(s) => Value::Text(s.into()),
+        Err(why) => Value::Unknown(format!("AllObjWithCaption: {why}").into()),
+    };
+    r[pos(t, 60)] = Value::Guid(package_of(c, o));
+    r[pos(t, 61)] = Value::Guid(runtime_package_id(c, o));
+    r[pos(t, 62)] = Value::Guid(if carries_app_id(o.kind) { owner } else { [0; 16] });
+    r[pos(t, 63)] = Value::Text(namespace(o).into());
+    Ok(())
 }
 
 // ---- Application Object Metadata -------------------------------------------------------------------

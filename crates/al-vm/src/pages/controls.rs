@@ -219,10 +219,8 @@ impl Session {
         // testpart/QiHostSaveParts.al:500, :554 pin it (other hosts: assumption part-row-saved-before-host-set-value).
         self.save_parts_before_host_edit(st)?;
         self.save_host_before_part_edit(st)?;
-        // OnBeforeValidate and OnAfterValidate of `modify` blocks wrap the control's own OnValidate
-        // (corpus pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al:
-        // ModifiedControlBeforeAndAfterValidateWrapTheBaseControlsOwnOnValidate). Only that
-        // measured shape runs: a control bound to a record field whose table has no OnValidate of its own.
+        // OnBefore/AfterValidate of `modify` wrap the control's OnValidate on a field-bound control (pageextensiontrigger/TestModified
+        // ControlValidateTriggers_Tests.al); on a variable-bound request page control OnAfterValidate alone (6651, Y64LocalProcNames.al:445).
         let ext_validate = |name: &str| -> Vec<(usize, usize)> {
             ctl.ext_triggers
                 .iter()
@@ -231,7 +229,7 @@ impl Session {
                 .collect()
         };
         let (ext_before, ext_after) = (ext_validate("onbeforevalidate"), ext_validate("onaftervalidate"));
-        if (!ext_before.is_empty() || !ext_after.is_empty()) && !rec_bound {
+        if !rec_bound && unpinned_ext_validate(&ext_before, &ext_after, self.is_request_page(st)) {
             return unsupported("OnBeforeValidate/OnAfterValidate on a control bound to a variable (not pinned)");
         }
         // With a table OnValidate: the table's validation (its events and OnValidate) first, then the page's
@@ -1960,4 +1958,12 @@ fn mark_expression_write(st: &St, ctl: &ir::Control) {
     if !pinned {
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageExpressionControlSetValue);
     }
+}
+
+/// Whether the `modify` triggers `before` (OnBeforeValidate) and `after` (OnAfterValidate) of a control bound to a variable are a
+/// shape nothing pins: any OnBeforeValidate, and OnAfterValidate outside a request page (al-runner issue 6651; corpus branch
+/// al-runtime-rs-staging-y64 85d86e7b, reportext/lt-y64-local-proc-names/Y64LocalProcNames.al:445 `ext rp MyProc<-ext aftervalidate`
+/// after `base MyProc<-base validate`).
+fn unpinned_ext_validate(before: &[(usize, usize)], after: &[(usize, usize)], request_page: bool) -> bool {
+    !before.is_empty() || (!after.is_empty() && !request_page)
 }

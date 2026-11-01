@@ -18,6 +18,15 @@ fn field_number(name: &str) -> Option<u32> {
         .and_then(|_| name[5..].parse().ok())
 }
 
+/// A name of a user-name system FlowField (2000000005 to 2000000008): its name or `Field<n>`.
+fn user_name_field(name: &str) -> bool {
+    let name = name.trim().trim_matches('"');
+    (2_000_000_005..=2_000_000_008).any(|no| {
+        field_number(name) == Some(no)
+            || crate::platform::user_name_system_field(no).is_some_and(|(n, _)| n.eq_ignore_ascii_case(name))
+    })
+}
+
 /// A name whose absence is not pinned: a quoted name, or `Field0` (the timestamp column).
 fn unpinned_unknown(name: &str) -> bool {
     name.contains('"') || field_number(name) == Some(0)
@@ -50,6 +59,12 @@ impl Session {
     ) -> Result<Option<usize>, Signal> {
         match self.view_field(t, name) {
             Ok(p) => Ok(Some(p)),
+            // The user-name system FlowFields are fields of every table on BC 29: a condition on one is kept and filters
+            // (al-runner issue 6645; corpus branch al-runtime-rs-staging-y64 85d86e7b, system-fields/lt-y64-username-filters/
+            // Y64UserNameFilters.al:154-191). The runtime does not model these filters: refused, never dropped.
+            Err(_) if user_name_field(name) => Err(Signal::Unsupported(format!(
+                "a view condition on the user-name system FlowField `{name}` (filters on it are not supported yet)"
+            ))),
             Err(_) if runtime && alone && !unpinned_unknown(name) && plain_condition(name, cond) => Ok(None),
             Err(e) => Err(e),
         }

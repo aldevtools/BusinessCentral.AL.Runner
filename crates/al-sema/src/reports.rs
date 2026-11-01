@@ -58,6 +58,11 @@ const INERT_ITEM_PROPERTIES: &[&str] = &[
     "newpageperrecord",
 ];
 
+/// Compile-time obsolescence notes on a data item, a request page, a query column or a query filter: the element still
+/// runs as one without them (al-runner issue 6652; corpus pages/lt-x-obsolete-pending/XObsoletePending.al:255-311,
+/// :589-612, the tests at :478-566). `Removed` is no value for them (must-not-compile case 0798).
+pub(crate) const OBSOLETE_PROPERTIES: &[&str] = &["obsoletestate", "obsoletereason", "obsoletetag"];
+
 /// Sections that only matter to a layout or a request page.
 const LAYOUT_SECTIONS: &[&str] = &["rendering", "wordlayout", "rdlclayout", "excellayout"];
 
@@ -462,7 +467,8 @@ fn request_extension_reasons(exts: &[(usize, ast::Object)]) -> Vec<String> {
     for (_, e) in exts {
         let ename = e.name();
         for sec in e.sections().filter(|s| s.name().eq_ignore_ascii_case("requestpage")) {
-            for t in sec.triggers() {
+            // A procedure of the request page runs when its code calls it (al-runner issue 6651, `Lowerer::request_proc_refusal`).
+            for t in sec.triggers().filter(|t| t.syntax().kind() != SyntaxKind::Procedure) {
                 let n = t.name().to_ascii_lowercase();
                 if !["onopenpage", "onclosepage"].contains(&n.as_str()) {
                     out.push(format!(
@@ -535,6 +541,7 @@ pub fn request_layout(
             if !["caption", "savevalues", "sourcetable"].contains(&name.as_str())
                 && !SOURCE_TABLE_REQUEST_PAGE_PROPERTIES.contains(&name.as_str())
                 && !INERT_REQUEST_PAGE_PROPERTIES.contains(&name.as_str())
+                && !OBSOLETE_PROPERTIES.contains(&name.as_str())
                 && !show_filter
                 && !editable
             {
@@ -543,7 +550,7 @@ pub fn request_layout(
                     .push(format!("request page property {name} is not supported yet"));
             }
         }
-        for t in s.triggers() {
+        for t in s.triggers().filter(|t| t.syntax().kind() != SyntaxKind::Procedure) {
             let name = t.name().to_ascii_lowercase();
             if !REQUEST_PAGE_TRIGGERS.contains(&name.as_str()) {
                 layout
@@ -584,6 +591,7 @@ pub fn request_layout(
             section: i.section.clone(),
             owner: None,
             modifies: Vec::new(),
+            factbox: false,
         });
     }
     (layout, section)
@@ -633,6 +641,7 @@ fn visit(
                 }
             } else if !["dataitemtableview", "dataitemlink"].contains(&pn.as_str())
                 && !INERT_ITEM_PROPERTIES.contains(&pn.as_str())
+                && !OBSOLETE_PROPERTIES.contains(&pn.as_str())
                 && !temporary_ok
             {
                 reasons.push(format!("property {pn} of dataitem {name} is not supported yet"));

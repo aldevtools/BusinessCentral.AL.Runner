@@ -1918,7 +1918,7 @@ fn alc_param_type(t: &Ty) -> Option<String> {
 
 /// Whether `node` is inside the `requestpage` section of a report: its control, action and page triggers and its
 /// procedures.
-fn in_request_page(node: &SyntaxNode) -> bool {
+pub(crate) fn in_request_page(node: &SyntaxNode) -> bool {
     node.ancestors().any(|a| {
         a.kind() == SyntaxKind::Section
             && ast::Section::cast(a).is_some_and(|s| s.name().eq_ignore_ascii_case("requestpage"))

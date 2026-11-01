@@ -112,11 +112,18 @@ pub struct Members {
     /// (corpus must-not-compile 0074, 0075; types/PXEnumRecordRef.al:7-10).
     pub assignment_compatible: bool,
     pub procedures: Vec<ProcSig>,
+    /// The procedures declared in the object's own `requestpage` section (a report or report extension). Only the code of
+    /// that request page calls them; they are not merged into the extended object (al-runner issue 6651).
+    pub request_procedures: Vec<ProcSig>,
 }
 
 impl Members {
     pub fn field(&self, name: &str) -> Option<&FieldInfo> {
         self.fields.iter().find(|f| f.name.eq_ignore_ascii_case(name))
+    }
+    /// The procedure declared at `offset`, at the object level or in its request page.
+    pub fn procedure_at(&self, offset: usize) -> Option<&ProcSig> {
+        (self.procedures.iter().chain(&self.request_procedures)).find(|p| p.offset == offset)
     }
     pub fn procedures_named(&self, name: &str) -> Vec<&ProcSig> {
         self.procedures
@@ -479,24 +486,34 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
             });
         }
     }
-    for r in obj.routines() {
-        m.procedures.push(ProcSig {
-            name: r.name(),
-            params: r
-                .params()
-                .map(|p| ProcParam {
-                    name: p.name(),
-                    ty: p.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown),
-                    by_var: p.is_var(),
-                })
-                .collect(),
-            ret: r.return_type().map(|t| Ty::from_type_ref(&t)),
-            local: r.is_local(),
-            declared_in: i,
-            offset: r.syntax().text_range().start().into(),
-        });
+    m.procedures = obj.routines().map(|r| proc_sig(&r, i)).collect();
+    if matches!(ws.objects[i].kind, ObjKind::Report | ObjKind::ReportExtension) {
+        m.request_procedures = (obj.sections())
+            .filter(|s| s.name().eq_ignore_ascii_case("requestpage"))
+            .flat_map(|s| s.triggers().collect::<Vec<_>>())
+            .filter(|r| r.syntax().kind() == al_syntax::SyntaxKind::Procedure)
+            .map(|r| proc_sig(&r, i))
+            .collect();
     }
     m
+}
+
+fn proc_sig(r: &al_syntax::ast::Routine, declared_in: usize) -> ProcSig {
+    ProcSig {
+        name: r.name(),
+        params: r
+            .params()
+            .map(|p| ProcParam {
+                name: p.name(),
+                ty: p.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown),
+                by_var: p.is_var(),
+            })
+            .collect(),
+        ret: r.return_type().map(|t| Ty::from_type_ref(&t)),
+        local: r.is_local(),
+        declared_in,
+        offset: r.syntax().text_range().start().into(),
+    }
 }
 
 /// The `Interface = Codeunit` pairs of an implementation property (`I = C, J = D`).

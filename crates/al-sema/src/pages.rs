@@ -12,6 +12,9 @@
 use al_syntax::ast;
 use std::collections::BTreeSet;
 
+mod group_visible;
+pub use group_visible::{bound_to_procedure_call, client_expression_of, procedure_bound_value};
+
 /// What a synthetic property routine returns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropType {
@@ -34,6 +37,10 @@ impl PropType {
 const CONTROL_SECTIONS: &[&str] = &[
     "field",
     "group",
+    // A cuegroup, fixed or grid control takes any Boolean expression as Visible (al-runner issue 6675, `group_visible`).
+    "cuegroup",
+    "fixed",
+    "grid",
     "repeater",
     "part",
     "action",
@@ -477,8 +484,16 @@ fn needed(
     extension_routines: Option<&BTreeSet<String>>,
 ) -> Vec<(String, PropType, usize, String)> {
     let mut out = Vec::new();
+    // A cuegroup, fixed or grid control gets a routine for Visible only: what its other expression properties do is not pinned
+    // (pages/lt-ab-group-properties: a fixed control's Editable expression), so they stay without one and the page is refused.
+    let holder = ["cuegroup", "fixed", "grid"]
+        .iter()
+        .any(|k| section.name().eq_ignore_ascii_case(k));
     for p in section.properties() {
         let name = p.name();
+        if holder && !name.eq_ignore_ascii_case("visible") {
+            continue;
+        }
         let Some(ty) = dynamic_type(&name) else { continue };
         let value = p.value_text();
         if !is_literal(ty, &value) {
@@ -815,6 +830,8 @@ pub struct RawControl {
     /// `modify` blocks of page extensions that apply to this control, in the order the extensions
     /// apply: (extension object, the `modify` section).
     pub modifies: Vec<(usize, ast::Section)>,
+    /// Declared in the layout's `area(FactBoxes)` (or within a control there).
+    pub factbox: bool,
 }
 
 /// The control tree of a page, from syntax alone, and why the client cannot
@@ -884,10 +901,14 @@ fn implicit_promoted_category(kind: &str, target: &str) -> Option<Option<al_buil
     if kind == "addafter" && ["category_new", "category_report"].contains(&lower.as_str()) {
         return Some(None);
     }
-    (["category_category7", "category_category12", "category_new"].contains(&lower.as_str())
-        && ["addafter", "addlast"].contains(&kind))
-    // Pinned by pages/lt-up-page-ext/UpPromotedCategories.al (was assumption `pageext-implicit-promoted-category`).
-    .then_some(None)
+    if !["addafter", "addlast"].contains(&kind) {
+        return None;
+    }
+    // Pinned by pages/lt-up-page-ext/UpPromotedCategories.al (was assumption `pageext-implicit-promoted-category`) for
+    // `Category_New`, `Category_Category7` and `Category_Category12`, and for `Category_Category5` and 6 by corpus branch
+    // al-runtime-rs-staging-y64 85d86e7b, pages/lt-up-page-ext/Y64PromotedImplicit.al:229-308; every group from 4 to 20 is the
+    // same implicit group (`promoted.rs`).
+    (lower == "category_new" || promoted::numbered_category(target)).then_some(None)
 }
 
 /// A standard promoted category name (`Category_New`, `Category_Process`, `Category_Report`, `Category_CategoryN`) whose
@@ -1095,6 +1116,10 @@ impl Tree {
                 return;
             }
         };
+        if group_visible::holder_visible_awaits_pin(s) {
+            self.assumes
+                .push(al_builtins::assumptions::Assumption::HolderVisibleExpression);
+        }
         let idx = self.nodes.len();
         self.nodes.push(Node {
             name: arg0,
@@ -1426,8 +1451,13 @@ impl Tree {
             } else {
                 implicit_promoted_category(&kind, &target)
             };
+            // `modify` of an implicit group, and `addafter`/`addbefore` of the implicit actionref of a legacy promoted action
+            // (al-runner issues 6646, 6647; `promoted.rs`).
+            let implicit =
+                (kind == "modify" && promoted::numbered_category(&target) && promoted::inert_group_modify(&op.section))
+                    || (["addafter", "addbefore"].contains(&kind.as_str()) && self.legacy_promoted_ref(&target));
             if op.in_actions
-                && (process_after || legacy || added_into || other.is_some())
+                && (process_after || legacy || added_into || implicit || other.is_some())
                 && self.find_node(&target).is_none()
             {
                 // `added_into`: pinned by pageext/lt-ue-pageext-leads/UePromotedTests.al (was assumption `pageext-implicit-promoted`).
@@ -1459,6 +1489,12 @@ impl Tree {
                 self.areas[promoted].children.push(idx);
             }
         }
+        let refused: Vec<String> = pending
+            .iter()
+            .filter_map(|op| self.unpinned_anchor_modify(op))
+            .collect();
+        pending.retain(|op| self.unpinned_anchor_modify(op).is_none());
+        self.reasons.extend(refused);
         loop {
             let before = pending.len();
             let mut later = Vec::new();
@@ -1518,6 +1554,7 @@ impl Tree {
                 section: n.section,
                 owner: n.owner,
                 modifies: n.modifies,
+                factbox: false,
             });
             for c in n.children {
                 emit(slots, c, Some(here), out);
@@ -1526,12 +1563,18 @@ impl Tree {
         let mut action_areas = Vec::new();
         for a in areas {
             let mut roots = Vec::new();
+            let area_first = controls.len();
             for c in a.children {
                 let first = controls.len();
                 emit(&mut slots, c, None, &mut controls);
                 // An anchor emits nothing, so it is no root.
                 if controls.len() > first {
                     roots.push(first);
+                }
+            }
+            if !a.in_actions && a.name.eq_ignore_ascii_case("factboxes") {
+                for c in &mut controls[area_first..] {
+                    c.factbox = true;
                 }
             }
             if a.in_actions {
@@ -1834,6 +1877,8 @@ pub fn control_expr_text(value: &str, page_id: u32, globals: &[String], fields: 
     };
     (i == toks.len()).then_some(text)
 }
+
+mod promoted;
 
 #[cfg(test)]
 mod tests {
@@ -2223,9 +2268,9 @@ mod tests {
         let l = merged(base, &[ext]);
         assert!(l.reasons.is_empty(), "{:?}", l.reasons);
         assert_eq!(names(&l), ["A", "Act", "Act_Promoted"]);
-        // Other categories and positions are not pinned, and a name that is no category (alc: AL0271, must-not-compile 2290):
-        // refused.
-        for anchor in ["Category_Category5", "Category_Category21", "NoSuchGroup"] {
+        // Every group from 4 to 20 is implicit (al-runner issue 6646). A name that is no such group (alc: AL0271, must-not-compile
+        // 2290; corpus writer Y64's compile facts for 1 to 3 and 21): refused.
+        for anchor in ["Category_Category3", "Category_Category21", "NoSuchGroup"] {
             let ext = format!(
                 "pageextension 50101 E extends P {{ actions {{ addlast({anchor}) {{ actionref(Act_Promoted; Act) {{ }} }} }} }}"
             );

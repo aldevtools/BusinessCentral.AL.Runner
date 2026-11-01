@@ -240,6 +240,28 @@ fn al0161_non_protected_variable_and_local_procedure_of_the_base() {
     assert!(codes(&[BASE, &ok]).is_empty());
 }
 
+/// A report extension's request page declares its own local procedure named as a local procedure of the base report; the
+/// extension's calls bind to its own and compile (al-runner issue 6651).
+#[test]
+fn a_request_page_procedure_of_a_report_extension_named_as_a_base_local_procedure_is_its_own() {
+    let base = "table 50100 T { fields { field(1; Id; Integer) { } } } \
+        report 50100 R { dataset { dataitem(I; T) { } } \
+        requestpage { layout { area(Content) { field(MyField; MyOption) { trigger OnValidate() begin MyProc(); end; } } } \
+        trigger OnOpenPage() begin MyProc(); end; } \
+        var MyOption: Integer; local procedure MyProc() begin end; }";
+    let ext = "reportextension 50101 E extends R { requestpage { \
+        layout { modify(MyField) { trigger OnAfterValidate() begin MyProc(); end; } } \
+        trigger OnOpenPage() begin MyProc(); end; \
+        local procedure MyProc() begin end; } }";
+    assert!(
+        codes_with_dependency(&[ext], Some(base)).is_empty(),
+        "{:?}",
+        dependency_diagnostics(&[ext], Some(base))
+    );
+    // In the same app too.
+    assert!(codes(&[base, ext]).is_empty(), "{:?}", codes(&[base, ext]));
+}
+
 /// The codes of `files` compiled as an app that declares the dependency `dep`; `loaded` is the source of
 /// that dependency, or `None` when it is declared but not loaded (`--no-deps`).
 fn codes_with_dependency(files: &[&str], loaded: Option<&str>) -> Vec<String> {
@@ -520,6 +542,27 @@ fn al0118_codeunit_name_is_not_judged_when_the_platform_app_is_not_loaded() {
     // And it resolves when the platform app has it.
     let sat = "codeunit 2000000002 \"System Action Triggers\" { }";
     assert!(codes_with_platform(&[user, sub], sat).is_empty());
+}
+
+#[test]
+fn al0322_and_al0208_of_control_visible_expressions() {
+    // must-not-compile 2630-2632 (corpus branch al-runtime-rs-staging-y65, al-runner issue 6675).
+    let t = "table 50000 T { fields { field(1; Id; Code[10]) { } field(2; CueA; Integer) { } } }";
+    let arr = "page 50000 P { PageType = CardPart; SourceTable = T; layout { area(Content) { cuegroup(Cues) { \
+                   field(CueA; Rec.CueA) { Visible = ShowArr[1]; } } } } var ShowArr: array[2] of Boolean; }";
+    assert_eq!(codes(&[t, arr]), vec!["AL0322"]);
+    let method = "page 50000 P { PageType = CardPart; SourceTable = T; layout { area(Content) { cuegroup(Cues) { \
+                      field(CueA; Rec.CueA) { Visible = not Rec.IsEmpty(); } } } } }";
+    assert_eq!(codes(&[t, method]), vec!["AL0322"]);
+    let int = "page 50000 P { PageType = CardPart; SourceTable = T; layout { area(Content) { cuegroup(Cues) { Visible = 5; \
+                   field(CueA; Rec.CueA) { } } } } }";
+    assert_eq!(codes(&[t, int]), vec!["AL0208"]);
+    // A cuegroup takes an array element, a method call and a procedure call (pages/lt-y65-cue-visible/Y65CueVisible.al).
+    let ok = "page 50000 P { PageType = CardPart; SourceTable = T; layout { area(Content) { \
+                  cuegroup(A) { Visible = ShowArr[2]; field(CueA; Rec.CueA) { Visible = Rec.CueA <> 0; } } \
+                  cuegroup(B) { Visible = not Rec.IsEmpty(); } cuegroup(C) { Visible = IsShown(); } } } \
+                  var ShowArr: array[2] of Boolean; local procedure IsShown(): Boolean begin exit(true); end; }";
+    assert!(codes(&[t, ok]).is_empty(), "{:?}", codes(&[t, ok]));
 }
 
 #[test]

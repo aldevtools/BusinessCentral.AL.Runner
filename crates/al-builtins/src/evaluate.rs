@@ -4,6 +4,7 @@
 //! plainly is not a value of the type (no digits for a number, empty) fails the
 //! way the corpus shows, and every other form raises `Signal::Unsupported`.
 
+mod datetime_forms;
 use crate::describe::Describe;
 use crate::format::day_from_civil;
 use crate::native::{Ctx, Signal};
@@ -1289,10 +1290,10 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
 ///
 /// Pinned by types/lt-evaluate-format-lasterror-setview/P86Eval.al, codeunit "LT P86 Eval DateTime". Number 9 reads
 /// `yyyy-mm-dd[Thh:mm:ss[.f][Z|+hh:mm]]` (no zone means UTC) and the empty text, and rejects everything else. Number 0
-/// reads the same with `Z` or an offset, the empty text, and `m/d/y h:mm[:ss] [AM|PM]`; it rejects a time past 23:59:59,
-/// a day that does not exist and `0D`, `0T`, `0DT`. Not read: the ISO form without a zone in number 0 (BC raises
-/// `The date is not valid.`) and `10:20`, which BC completes with the current year.
-fn datetime(text: &str, number: i64) -> Result<Parsed, Signal> {
+/// reads the same with `Z` or an offset, the empty text, `m/d/y h:mm[:ss] [AM|PM]` and the forms of `datetime_forms`; it
+/// rejects a time past 23:59:59, a day that does not exist and `0D`, `0T`, `0DT`. Not read: the ISO form without a zone in
+/// number 0 (BC raises `The date is not valid.`).
+fn datetime(text: &str, number: i64, today: Option<i32>) -> Result<Parsed, Signal> {
     let t = text.trim_matches(' ');
     if t.is_empty() {
         return Ok(Parsed::Value(Value::DateTime(0)));
@@ -1317,6 +1318,15 @@ fn datetime(text: &str, number: i64) -> Result<Parsed, Signal> {
     }
     if let Some(p) = rfc1123(t) {
         return Ok(p);
+    }
+    match datetime_forms::read(t, today) {
+        Some(Some(p)) => return Ok(p),
+        Some(None) => {
+            return unsupported(format!(
+                "Evaluate of `{text}` into DateTime with format {number} (value not pinned)"
+            ));
+        }
+        None => {}
     }
     if iso && t.as_bytes().get(10) == Some(&b'T') {
         // Without a zone it is rejected, and the statement form raises `The date is not valid.` (P86Eval.al:933-1110, `t2`
@@ -2085,7 +2095,7 @@ fn evaluate_with_max(
             true,
         )?,
         Value::Time(_) => time(&text, number)?,
-        Value::DateTime(_) => datetime(&text, number)?,
+        Value::DateTime(_) => datetime(&text, number, c.today_day())?,
         // The text is kept as written once it is a form the runtime can calculate with
         // (types/TestDateFormulaContracts.al:21-139); what Format prints is docs/probes-needed.md.
         // `Evaluate(V, '1.2.3.4')`: the four-part form (session/TestMiscTypes.al:44-80).

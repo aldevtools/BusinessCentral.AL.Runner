@@ -81,7 +81,10 @@ impl super::Lowerer<'_> {
         // A Label false branch after a Text or Code true branch takes the true branch's type: `Text|abc` and `Code|ABC`
         // (Y31ConvCd.al Text10_Label :3187-3212, Code10_Label :3660-3700).
         let label_takes_text = matches!(f, Ty::Label) && matches!(t, Ty::Text(_) | Ty::Code(_));
-        if t != f && !guid && !label_takes_text && (matches!(t, Ty::Label) || matches!(f, Ty::Label)) {
+        // Two Labels hold a TextConstant in BC (types/lt-y66-ternary-label/Y66TernaryLabel.al:1029-1180, `LblMax : Lbl` and
+        // `Lbl : LblMax`, real BC values not on corpus master yet), which is not built either.
+        let two_labels = matches!(t, Ty::Label) && matches!(f, Ty::Label);
+        if (t != f || two_labels) && !guid && !label_takes_text && (matches!(t, Ty::Label) || matches!(f, Ty::Label)) {
             return Err(format!(
                 "a conditional expression with a Label branch ({t} and {f}) into a Variant: the Variant holds a Label kind that is not built"
             ));

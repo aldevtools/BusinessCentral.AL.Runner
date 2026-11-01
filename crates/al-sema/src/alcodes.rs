@@ -563,7 +563,10 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
                 duplicate_procedures(ws, oi, &obj, &mut out);
                 client_events_outside_pages(ws, oi, &obj, &mut out);
             }
-            ObjKind::Page => field_control_procedure_calls(ws, oi, &obj, &mut out),
+            ObjKind::Page => {
+                field_control_procedure_calls(ws, oi, &obj, &mut out);
+                control_visible::check(ws, oi, &obj, &page_procedures(&obj), &mut out);
+            }
             ObjKind::Query => query_joins(ws, o.file, obj.sections(), &mut out),
             ObjKind::Report => {
                 let globals = report_variable_columns(ws, o.file, &obj);
@@ -977,11 +980,7 @@ fn page_customization_variables(ws: &Workspace, oi: usize, obj: &ast::Object, ou
 /// binding on an action compiles (warning AL0573, pages/lt-qq-procedure-bound-action/QqBoundObjects.al). Other forms of a
 /// call (with arguments, inside a larger expression) are not judged.
 fn field_control_procedure_calls(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
-    let procedures: Vec<String> = obj
-        .routines()
-        .filter(|r| !r.is_trigger())
-        .map(|r| r.name().trim_matches('"').to_ascii_lowercase())
-        .collect();
+    let procedures = page_procedures(obj);
     fn walk(
         ws: &Workspace,
         file: usize,
@@ -1016,6 +1015,14 @@ fn field_control_procedure_calls(ws: &Workspace, oi: usize, obj: &ast::Object, o
         }
     }
     walk(ws, ws.objects[oi].file, &procedures, obj.sections(), out);
+}
+
+/// The names of the procedures of a page, lower case without quotes.
+fn page_procedures(obj: &ast::Object) -> Vec<String> {
+    obj.routines()
+        .filter(|r| !r.is_trigger())
+        .map(|r| r.name().trim_matches('"').to_ascii_lowercase())
+        .collect()
 }
 
 /// An object name as the compiler shows it in a message: quoted unless it is a plain identifier.
@@ -2476,5 +2483,6 @@ fn typed_names(d: &ast::VarDecl) -> Vec<(String, String)> {
         .collect()
 }
 
+mod control_visible;
 #[cfg(test)]
 mod tests;
