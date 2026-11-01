@@ -3,12 +3,43 @@
 //! so `Tests:` counts it apart from the clean passes.
 use al_testrun::runtime::TestResult;
 
+/// Whether the session answers unhandled UI on BC `major` when `--dev-endpoint-ui` is given (`on`). Measured through
+/// the dev endpoint (TestRunnerHub) on Windows containers by the corpus probe
+/// handlers/lt-y53-dev-endpoint-runner/Y53DevRunnerProbe.al: BC 27.5 fails each UI call without a handler with
+/// "Unhandled UI" as Microsoft's Test Runner app does, so the flag changes nothing there (with a note on stderr); BC 28.5
+/// answers it (`al_vm` `dev_endpoint_ui.rs`). Any other major is not measured, and the flag is refused there.
+pub fn for_major(on: bool, major: u16) -> Result<bool, String> {
+    match (on, major) {
+        (false, _) => Ok(false),
+        (true, 27) => {
+            eprintln!(
+                "note: --dev-endpoint-ui changes nothing on BC 27: its dev-endpoint test runner also fails a UI call that no handler takes"
+            );
+            Ok(false)
+        }
+        (true, 28) => Ok(true),
+        (true, n) => Err(format!(
+            "--dev-endpoint-ui: what the dev-endpoint test runner of BC {n} does with a UI call that no handler takes is not measured (measured: BC 27 and 28); run with --bc-version 28, or without the flag"
+        )),
+    }
+}
+
 /// One `warning:` line per answered UI call, naming the test, the call and the answer, in the order of the results.
 pub fn warnings(results: &[&TestResult]) -> Vec<String> {
     results
         .iter()
         .flat_map(|r| warnings_of(r.codeunit, &r.test, &r.ui_answered))
         .collect()
+}
+
+/// The lines a run prints on stderr after its summary: the `warning:` lines of the answered UI calls, then with `--tdd`
+/// the closing block of the stubs (`output::tdd_block`).
+pub fn closing_lines(results: &[&TestResult], tdd_stubs: Option<&[String]>) -> Vec<String> {
+    let mut lines = warnings(results);
+    if let Some(all) = tdd_stubs {
+        lines.extend(crate::output::tdd_block(results, all));
+    }
+    lines
 }
 
 /// The `warning:` lines of one test.
@@ -65,6 +96,15 @@ mod tests {
             entered: Vec::new(),
             dotnet: false,
         }
+    }
+
+    #[test]
+    fn the_flag_answers_only_on_the_measured_major_that_answers() {
+        assert_eq!(for_major(false, 29), Ok(false));
+        assert_eq!(for_major(true, 27), Ok(false));
+        assert_eq!(for_major(true, 28), Ok(true));
+        assert!(for_major(true, 29).unwrap_err().contains("not measured"));
+        assert!(for_major(true, 26).is_err());
     }
 
     #[test]

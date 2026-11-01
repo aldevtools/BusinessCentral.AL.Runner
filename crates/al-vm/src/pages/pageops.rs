@@ -201,7 +201,9 @@ impl Session {
                     }
                 }
                 // `--dev-endpoint-ui` (al-runner issue 3697): the measured shape gets the dev endpoint's answer.
-                if let Some(v) = self.dev_endpoint_page_run(&st, method == PageOp::PageRunModalStatic, record.is_some() || field) {
+                if let Some(v) =
+                    self.dev_endpoint_page_run(&st, method == PageOp::PageRunModalStatic, record.is_some() || field)
+                {
                     return Ok(v);
                 }
                 self.run_page_ui_with(&st, record, method == PageOp::PageRunModalStatic, field)

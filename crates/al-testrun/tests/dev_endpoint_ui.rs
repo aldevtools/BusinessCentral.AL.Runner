@@ -295,7 +295,11 @@ fn a_shape_not_measured_ends_as_it_does_without_the_flag() {
     let (off, on) = (run(false), run(true));
     let test = "SessionUpdate_NoHandler";
     assert_eq!(result(&on, test).outcome, result(&off, test).outcome);
-    assert!(!matches!(result(&on, test).outcome, Outcome::Pass), "{:?}", result(&on, test).outcome);
+    assert!(
+        !matches!(result(&on, test).outcome, Outcome::Pass),
+        "{:?}",
+        result(&on, test).outcome
+    );
     assert!(result(&on, test).ui_answered.is_empty());
     assert!(!result(&on, test).assumptions.contains(&Assumption::DevEndpointUi));
 }
@@ -303,7 +307,11 @@ fn a_shape_not_measured_ends_as_it_does_without_the_flag() {
 fn answered(rt: &CorpusRuntime, test: &str) -> Vec<String> {
     let r = result(rt, test);
     assert_eq!(r.outcome, Outcome::Pass, "{test}");
-    assert!(r.assumptions.contains(&Assumption::DevEndpointUi), "{test}: {:?}", r.assumptions);
+    assert!(
+        r.assumptions.contains(&Assumption::DevEndpointUi),
+        "{test}: {:?}",
+        r.assumptions
+    );
     r.ui_answered.clone()
 }
 
@@ -311,9 +319,18 @@ fn answered(rt: &CorpusRuntime, test: &str) -> Vec<String> {
 #[test]
 fn off_a_ui_call_without_a_handler_fails() {
     let rt = run(false);
-    for test in ["Confirm_NoDefault", "StrMenu_Default2", "Message_NoHandler", "Hyperlink_NoHandler"] {
+    for test in [
+        "Confirm_NoDefault",
+        "StrMenu_Default2",
+        "Message_NoHandler",
+        "Hyperlink_NoHandler",
+    ] {
         let r = result(&rt, test);
-        assert!(matches!(&r.outcome, Outcome::Fail(m) if m.starts_with("Unhandled UI")), "{test}: {:?}", r.outcome);
+        assert!(
+            matches!(&r.outcome, Outcome::Fail(m) if m.starts_with("Unhandled UI")),
+            "{test}: {:?}",
+            r.outcome
+        );
         assert!(r.ui_answered.is_empty());
     }
 }
@@ -334,7 +351,11 @@ fn strmenu_answers_its_default() {
     assert_eq!(answered(&rt, "StrMenu_Default2"), vec!["StrMenu Alpha,Beta,Gamma: 2"]);
     assert_eq!(answered(&rt, "StrMenu_NoDefault"), vec!["StrMenu Alpha,Beta,Gamma: 1"]);
     let r = result(&rt, "StrMenu_DefaultZero");
-    assert!(matches!(&r.outcome, Outcome::Fail(m) if m.starts_with("Unhandled UI")), "{:?}", r.outcome);
+    assert!(
+        matches!(&r.outcome, Outcome::Fail(m) if m.starts_with("Unhandled UI")),
+        "{:?}",
+        r.outcome
+    );
 }
 
 /// Message and Hyperlink return and the code goes on (Y53DevRunnerProbe.al Message_NoHandler, Hyperlink_NoHandler).
@@ -353,10 +374,17 @@ fn message_and_hyperlink_go_on() {
 #[test]
 fn a_static_page_run_answers_without_opening_the_page() {
     let rt = run(true);
-    assert_eq!(answered(&rt, "PageRunModal_NoHandler"), vec!["ModalPage 50962: Action::None"]);
+    assert_eq!(
+        answered(&rt, "PageRunModal_NoHandler"),
+        vec!["ModalPage 50962: Action::None"]
+    );
     assert_eq!(answered(&rt, "PageRun_NoHandler"), vec!["Page 50962: no answer"]);
     let r = result(&rt, "PageRunModal_OnInitPage");
-    assert!(matches!(&r.outcome, Outcome::Fail(m) if m.starts_with("Unhandled UI")), "{:?}", r.outcome);
+    assert!(
+        matches!(&r.outcome, Outcome::Fail(m) if m.starts_with("Unhandled UI")),
+        "{:?}",
+        r.outcome
+    );
 }
 
 /// Report.RunModal skips the request page and runs the report (Y53DevRunnerProbe.al ReportRunModal_RequestPage_NoHandler).
@@ -369,7 +397,11 @@ fn a_report_run_modal_skips_its_request_page() {
     );
     let off = run(false);
     let r = result(&off, "ReportRunModal_RequestPage_NoHandler");
-    assert!(matches!(&r.outcome, Outcome::Fail(m) if m.starts_with("Unhandled UI: RequestPage")), "{:?}", r.outcome);
+    assert!(
+        matches!(&r.outcome, Outcome::Fail(m) if m.starts_with("Unhandled UI: RequestPage")),
+        "{:?}",
+        r.outcome
+    );
 }
 
 /// A declared handler that never ran still fails the test, and a bound handler still answers

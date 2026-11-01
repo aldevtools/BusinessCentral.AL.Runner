@@ -131,7 +131,9 @@ pub fn serve(daemon: &[String]) -> Result<(), String> {
                     crate::output::json_row(e.codeunit, &e.codeunit_name, &e.test, &e.outcome, &e.call_stack, e.time);
                 crate::output::add_stubs(&mut row, &e.stubs);
                 crate::dev_endpoint_ui::add_json(&mut row, &e.ui_answered);
-                crate::dev_endpoint_ui::warnings_of(e.codeunit, &e.test, &e.ui_answered).iter().for_each(|w| eprintln!("{w}"));
+                crate::dev_endpoint_ui::warnings_of(e.codeunit, &e.test, &e.ui_answered)
+                    .iter()
+                    .for_each(|w| eprintln!("{w}"));
                 crate::output::add_slept(&mut row, e.slept_ms);
                 let mut line = test_line(&mut row);
                 if let Some(k) = e.entry {
@@ -977,7 +979,12 @@ mod tests {
         );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.ignore_permission_mock);
         // Issue 3697: `devEndpointUi` is `--dev-endpoint-ui` for one request.
-        assert!(run(json!({"sourcePaths": ["/a"], "devEndpointUi": true})).unwrap().0.dev_endpoint_ui);
+        assert!(
+            run(json!({"sourcePaths": ["/a"], "devEndpointUi": true}))
+                .unwrap()
+                .0
+                .dev_endpoint_ui
+        );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.dev_endpoint_ui);
         // ADR-062 section 5: `permissions: "off"` is `--permissions off` for one request.
         assert!(

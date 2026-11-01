@@ -18,9 +18,18 @@ use al_builtins::value::Value;
 impl Session {
     /// The request page of a `Report.RunModal` of report `object` with no handler bound: true when `--dev-endpoint-ui`
     /// skips it and the run goes on as after OK, for the measured shape; false to run it as without the flag.
-    pub(super) fn dev_endpoint_request_page(&mut self, object: usize, page: &al_ir::Page, want_parameters: bool) -> bool {
-        let processing_only = self.engine.program.objects[object].report.as_ref().is_some_and(|r| r.processing_only);
-        let on_init = page.triggers.iter().any(|(n, _)| n == "oninit") || page.ext_triggers.iter().any(|(n, _, _)| n == "oninit");
+    pub(super) fn dev_endpoint_request_page(
+        &mut self,
+        object: usize,
+        page: &al_ir::Page,
+        want_parameters: bool,
+    ) -> bool {
+        let processing_only = self.engine.program.objects[object]
+            .report
+            .as_ref()
+            .is_some_and(|r| r.processing_only);
+        let on_init =
+            page.triggers.iter().any(|(n, _)| n == "oninit") || page.ext_triggers.iter().any(|(n, _, _)| n == "oninit");
         // Each data item has a control of its own (its filter tab): the probe's report had one.
         let parts = page.controls.iter().any(|c| c.kind == al_ir::ControlKind::Part);
         if want_parameters
@@ -45,7 +54,8 @@ impl Session {
         }
         let engine = self.engine();
         let page = page_of(&engine, st);
-        let on_init = page.triggers.iter().any(|(n, _)| n == "oninit") || page.ext_triggers.iter().any(|(n, _, _)| n == "oninit");
+        let on_init =
+            page.triggers.iter().any(|(n, _)| n == "oninit") || page.ext_triggers.iter().any(|(n, _, _)| n == "oninit");
         if on_init || page.controls.iter().any(|c| c.kind == al_ir::ControlKind::Part) {
             return None;
         }
@@ -55,8 +65,10 @@ impl Session {
             return Some(Value::Null);
         }
         self.note_dev_endpoint_answer(kind, &shown, "Action::None");
-        let members: std::sync::Arc<[String]> =
-            al_builtins::value::ACTION_MEMBERS.iter().map(|m| m.to_string()).collect();
+        let members: std::sync::Arc<[String]> = al_builtins::value::ACTION_MEMBERS
+            .iter()
+            .map(|m| m.to_string())
+            .collect();
         let none = members.iter().position(|m| m == "None").unwrap_or(0) as i32;
         Some(Value::Option(none, members))
     }

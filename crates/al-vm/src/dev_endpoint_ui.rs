@@ -65,7 +65,10 @@ impl Session {
     pub(crate) fn note_dev_endpoint_answer(&mut self, kind: UiKind, shown: &str, said: &str) {
         assumptions::assume(Assumption::DevEndpointUi);
         let call = format!("{} {shown}", kind.label());
-        self.ui_state.dev_endpoint.answered.push(format!("{}: {said}", call.trim_end()));
+        self.ui_state
+            .dev_endpoint
+            .answered
+            .push(format!("{}: {said}", call.trim_end()));
     }
 
     /// `--dev-endpoint-ui`: answer the UI calls no handler takes as the dev-endpoint test runner does.
