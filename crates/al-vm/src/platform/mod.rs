@@ -18,6 +18,7 @@ const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
 const TENANT_REPORT_LAYOUT_OVERRIDE: u32 = 2_000_000_248;
 pub(crate) mod coverage;
 mod date;
+mod feature_key;
 mod fields;
 pub(crate) use fields::note_field_row_system_id;
 pub(crate) use fields::user_name_system_field;
@@ -643,7 +644,6 @@ impl Providers {
             Virtual::FeatureKey => host_tables::feature_key_rows(t, self.engine().target.as_ref()),
             Virtual::LanguageSelection => host_tables::language_selection_rows(t, self.engine().target.as_ref()),
             Virtual::Key => fields::key_rows(self, t),
-            Virtual::IntelligentCloud => Vec::new(),
             Virtual::Integer | Virtual::Date | Virtual::WindowsLanguage | Virtual::LicensePermission => {
                 unreachable!("generated, never listed")
             }
@@ -823,7 +823,10 @@ impl VirtualTables for Providers {
             Virtual::EventSubscription => {
                 Ok(self.with_event_stats(t, self.listed(t, Virtual::EventSubscription)?.get(t, pk)?))
             }
-            Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.get(t, pk),
+            Virtual::FeatureKey => {
+                let listing = self.feature_key_listing(store, cx, t)?;
+                feature_key::get_ignoring_case(&listing, t, pk)
+            }
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.get(t, pk),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.get(t, pk),
             Virtual::Field => Ok(self.field_get_by_key(t, pk)?.map(|r| fields::field_get(t, r))),
