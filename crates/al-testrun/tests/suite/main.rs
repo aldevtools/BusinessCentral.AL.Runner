@@ -7,6 +7,7 @@
 mod action_trigger_lazy_refusal;
 mod affected_run;
 mod baseline_cache;
+mod baseline_rule_carry;
 mod baseline_skip;
 mod capture;
 mod code_coverage_refresh;
