@@ -10,6 +10,7 @@ mod bigtext_copystream_count;
 mod bigtext_value_copy;
 mod builtin_name_same_arity;
 mod builtins;
+mod byte_char_table;
 mod byte_overflow;
 mod calc_const_guid;
 mod call_stack;

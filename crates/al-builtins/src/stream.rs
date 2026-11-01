@@ -461,6 +461,16 @@ const CP437_AS_READ: [(u8, char); 18] = [
     (0xB4, '\u{201E}'),
 ];
 
+/// The byte from 128 up an MS-DOS stream writes for a character the Byte to Char table gives (`conv::byte_char`): the
+/// byte it came from (types/lt-byte-char-high/ByteCharHigh.al:213-228, `stream_write_char200` and `stream_writetext_char200`
+/// write 200 for the Char 732 the Byte 200 gives, 139 for 239, 255 for 160; :250-255 `char8364_write` 177).
+fn msdos_table_byte(c: char) -> Option<u8> {
+    u16::try_from(c as u32)
+        .ok()
+        .and_then(crate::conv::byte_char::char_to_byte)
+        .filter(|b| *b >= 0x80)
+}
+
 /// The bytes a Windows stream keeps the call stack mark (`native::CALL_STACK_MARK`, U+FDD0) as: its UTF-8 form. In code page
 /// 1252 they would be `ï·` and the undefined byte 0x90, which no text a Windows stream wrote holds next to each other
 /// (0x90 is written only for U+0090).
@@ -485,6 +495,7 @@ impl Encoding {
                     // The euro sign is written as 0xB1 (streams/TestStreamsRuntimeContracts.al:
                     // WriteText_ExplicitEncodings_Bytes, streams/TestProbeStreamContracts.al `61 84 94 B1 00`).
                     '€' => 0xB1,
+                    c if msdos_table_byte(c).is_some() => msdos_table_byte(c).expect("checked"),
                     c => CP437_HIGH.iter().position(|u| *u == c).map_or(b'?', |i| 0x80 + i as u8),
                 })
                 .collect(),
@@ -576,7 +587,9 @@ impl Encoding {
                         && t.chars().all(|c| c.is_ascii() || c == crate::native::CALL_STACK_MARK)
                 }
                 Encoding::Windows => self.decode(&self.encode(t)) == *t,
-                Encoding::MsDos => t.chars().all(|c| c.is_ascii() || c == '€' || CP437_HIGH.contains(&c)),
+                Encoding::MsDos => t
+                    .chars()
+                    .all(|c| c.is_ascii() || c == '€' || CP437_HIGH.contains(&c) || msdos_table_byte(c).is_some()),
                 _ => false,
             }
     }
@@ -1822,9 +1835,11 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
     }
     let bytes: Vec<u8> = match &a[0] {
         // A Char is one byte in the stream's encoding (streams/TestProbeStreamContracts.al:WriteText_NonAscii_Char_Byte_Length:
-        // 65 is 41, 228 is 84 on a default stream).
+        // 65 is 41, 228 is 84 on a default stream); a Char of the Byte to Char table above 255 is its byte on an MS-DOS
+        // stream (`msdos_table_byte`).
         Value::Char(c)
-            if *c < 256 && char::from_u32(u32::from(*c)).is_some_and(|ch| enc.encode_pinned(&ch.to_string())) =>
+            if (*c < 256 || (enc == Encoding::MsDos && char::from_u32(u32::from(*c)).and_then(msdos_table_byte).is_some()))
+                && char::from_u32(u32::from(*c)).is_some_and(|ch| enc.encode_pinned(&ch.to_string())) =>
         {
             enc.encode(&char::from_u32(u32::from(*c)).expect("checked").to_string())
         }
