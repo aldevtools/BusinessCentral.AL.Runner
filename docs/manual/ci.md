@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install al-runner
         run: |
-          curl -fsSL https://github.com/aldevtools/BusinessCentral.AL.Runner/releases/download/edge/install.sh | sh -s -- v3.0.0-alpha.10
+          curl -fsSL https://github.com/aldevtools/BusinessCentral.AL.Runner/releases/download/edge/install.sh | sh -s -- v3.0.0-alpha.11
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - uses: actions/cache@v4
         with:
