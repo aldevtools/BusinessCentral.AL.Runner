@@ -632,7 +632,7 @@
           "ms_uses": 6,
           "name": "OnInitXmlPort",
           "pinned": true,
-          "runtime_reads": true,
+          "runtime_reads": false,
           "site": "pages/lt-pages-xmlport-upload-members/P112XpCsv.al:131"
         },
         {
@@ -16069,31 +16069,31 @@
         "template": "The value cannot be an empty string. (Parameter 'path')"
       },
       {
-        "code": "AL:Format",
-        "file": "crates/al-builtins/src/http.rs",
+        "code": "AL:Cookie",
+        "file": "crates/al-builtins/src/http/cookies.rs",
         "generic": false,
-        "line": 462,
+        "line": 344,
         "pinned": true,
-        "site": "network/lt-http/HttpRequest.al:76",
-        "template": "The format of the HTTP method is invalid."
+        "site": "network/lt-ay-http/AyCookieSetterExpression.al:57",
+        "template": "The 'Name'='%' part of the cookie is invalid."
       },
       {
         "code": "InvalidValue",
-        "file": "crates/al-builtins/src/http.rs",
+        "file": "crates/al-builtins/src/http/messages.rs",
         "generic": false,
-        "line": 2625,
+        "line": 70,
         "pinned": false,
         "site": null,
         "template": "The value '%' is not a valid HTTP status code."
       },
       {
-        "code": "AL:Cookie",
-        "file": "crates/al-builtins/src/http.rs",
+        "code": "AL:Format",
+        "file": "crates/al-builtins/src/http/uri.rs",
         "generic": false,
-        "line": 3040,
+        "line": 274,
         "pinned": true,
-        "site": "network/lt-ay-http/AyCookieSetterExpression.al:57",
-        "template": "The 'Name'='%' part of the cookie is invalid."
+        "site": "network/lt-http/HttpRequest.al:76",
+        "template": "The format of the HTTP method is invalid."
       },
       {
         "code": "InvalidOperation",
@@ -16610,9 +16610,9 @@
       },
       {
         "code": "FormCloseNotAllowed",
-        "file": "crates/al-vm/src/pages/open.rs",
+        "file": "crates/al-vm/src/pages/open/close.rs",
         "generic": false,
-        "line": 1642,
+        "line": 75,
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."
@@ -16853,9 +16853,9 @@
       },
       {
         "code": "",
-        "file": "crates/al-vm/src/xmlports.rs",
+        "file": "crates/al-vm/src/xmlports/import_xml.rs",
         "generic": false,
-        "line": 1569,
+        "line": 1004,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -18530,7 +18530,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-pages-xmlport-upload-members/P112XpCsv.al:131",
-        "state": "implemented"
+        "state": "unknown"
       },
       {
         "area": "triggers",
