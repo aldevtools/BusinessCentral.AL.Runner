@@ -374,6 +374,36 @@ fn al0161_currreport_request_options_page() {
     assert!(codes(&[&src("RequestOptionsPage.Update(false);")]).is_empty());
 }
 
+/// al-runner #6631: real BC (alc 18.0.41) compiles `CurrReport.RequestOptionsPage.Update(false)` in a request page
+/// control's OnValidate. AL0161 is pinned only in a procedure of the report (must-not-compile 2514); request page
+/// code and the report's triggers are not judged.
+#[test]
+fn currreport_request_options_page_compiles_outside_report_procedures() {
+    let src = |field_trigger: &str, page_trigger: &str, report_trigger: &str| {
+        format!(
+            "report 50100 \"RO Report\" {{ ProcessingOnly = true;
+    dataset {{ dataitem(\"Integer\"; \"Integer\") {{ trigger OnPreDataItem() begin {report_trigger} end; }} }}
+    requestpage {{
+        layout {{ area(content) {{ field(Direction; Direction) {{
+            trigger OnValidate() begin {field_trigger} end; }} }} }}
+        trigger OnOpenPage() begin {page_trigger} end;
+    }}
+    trigger OnPreReport() begin {report_trigger} end;
+    var Direction: Option Export,Import;
+    procedure Refresh() begin RequestOptionsPage.Update(false); end;
+    local procedure RefreshLocal() begin RequestOptionsPage.Update(); end; }}"
+        )
+    };
+    let update = "CurrReport.RequestOptionsPage.Update(false);";
+    // The reporter's shape: a request page control's OnValidate.
+    assert!(codes(&[&src(update, "", "")]).is_empty());
+    // A trigger of the request page itself.
+    assert!(codes(&[&src("", update, "")]).is_empty());
+    assert!(codes(&[&src("", "CurrReport.RequestOptionsPage.Caption := 'x';", "")]).is_empty());
+    // The report's own triggers and its data item's triggers.
+    assert!(codes(&[&src("", "", update)]).is_empty());
+}
+
 /// must-not-compile 2513-testrequestpage-typed-on-xmlport.al: a `TestRequestPage` parameter typed on an xmlport (no report of
 /// that name) is AL0185 `Report 'X' is missing`, and on a RequestPageHandler also AL0240.
 #[test]
