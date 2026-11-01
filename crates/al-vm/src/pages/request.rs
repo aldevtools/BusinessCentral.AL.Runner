@@ -282,6 +282,10 @@ impl Session {
         // handlers/TestReportRuntimeContracts.al:425-429: with no [RequestPageHandler] the page
         // opens and the run is refused with "Unhandled UI: RequestPage <report id>".
         if !self.has_page_handler(UiKind::RequestPage, object as u32) {
+            // `--dev-endpoint-ui` (al-runner issue 3697): the measured shape skips the page (`pages/dev_endpoint.rs`).
+            if self.dev_endpoint_request_page(object, page, want_parameters) {
+                return Ok((RequestClosed::Ok, None));
+            }
             return Err(self.unhandled_page(UiKind::RequestPage, object as u32));
         }
         let st: St = Rc::new(RefCell::new(PageState::closed(object as u32)));

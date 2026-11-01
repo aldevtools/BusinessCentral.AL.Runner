@@ -69,6 +69,71 @@ page 50963 "Dev Endpoint Init Card"
     end;
 }
 
+table 50965 "Dev Endpoint Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+    }
+    keys
+    {
+        key(PK; Id) { Clustered = true; }
+    }
+}
+
+report 50964 "Dev Endpoint Report"
+{
+    ProcessingOnly = true;
+    dataset
+    {
+        dataitem(Row; "Dev Endpoint Row")
+        {
+            trigger OnAfterGetRecord()
+            var
+                Log: Codeunit "Dev Endpoint Log";
+            begin
+                Log.Add('OnAfterGetRecord;');
+            end;
+        }
+    }
+    requestpage
+    {
+        layout
+        {
+            area(Content)
+            {
+                field(Opt; OptText) { }
+            }
+        }
+        trigger OnOpenPage()
+        var
+            Log: Codeunit "Dev Endpoint Log";
+        begin
+            Log.Add('ReqOnOpenPage;');
+        end;
+    }
+    var
+        OptText: Text;
+    trigger OnInitReport()
+    var
+        Log: Codeunit "Dev Endpoint Log";
+    begin
+        Log.Add('OnInitReport;');
+    end;
+    trigger OnPreReport()
+    var
+        Log: Codeunit "Dev Endpoint Log";
+    begin
+        Log.Add('OnPreReport;');
+    end;
+    trigger OnPostReport()
+    var
+        Log: Codeunit "Dev Endpoint Log";
+    begin
+        Log.Add('OnPostReport;');
+    end;
+}
+
 codeunit 50960 "Dev Endpoint UI"
 {
     Subtype = Test;
@@ -170,6 +235,19 @@ codeunit 50960 "Dev Endpoint UI"
     procedure PageRunModal_OnInitPage()
     begin
         Page.RunModal(Page::"Dev Endpoint Init Card");
+    end;
+
+    [Test]
+    procedure ReportRunModal_RequestPage_NoHandler()
+    var
+        Row: Record "Dev Endpoint Row";
+    begin
+        Row.Id := 1;
+        Row.Insert();
+        Commit();
+        Log.Clear();
+        Report.RunModal(Report::"Dev Endpoint Report");
+        if Log.Get() <> 'OnInitReport;OnPreReport;OnAfterGetRecord;OnPostReport;' then Error('ran: %1', Log.Get());
     end;
 
     [Test]
@@ -279,6 +357,19 @@ fn a_static_page_run_answers_without_opening_the_page() {
     assert_eq!(answered(&rt, "PageRun_NoHandler"), vec!["Page 50962: no answer"]);
     let r = result(&rt, "PageRunModal_OnInitPage");
     assert!(matches!(&r.outcome, Outcome::Fail(m) if m.starts_with("Unhandled UI")), "{:?}", r.outcome);
+}
+
+/// Report.RunModal skips the request page and runs the report (Y53DevRunnerProbe.al ReportRunModal_RequestPage_NoHandler).
+#[test]
+fn a_report_run_modal_skips_its_request_page() {
+    let rt = run(true);
+    assert_eq!(
+        answered(&rt, "ReportRunModal_RequestPage_NoHandler"),
+        vec!["RequestPage 50964: skipped, the report runs as after OK"]
+    );
+    let off = run(false);
+    let r = result(&off, "ReportRunModal_RequestPage_NoHandler");
+    assert!(matches!(&r.outcome, Outcome::Fail(m) if m.starts_with("Unhandled UI: RequestPage")), "{:?}", r.outcome);
 }
 
 /// A declared handler that never ran still fails the test, and a bound handler still answers
