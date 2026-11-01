@@ -992,11 +992,11 @@ fn run_version_inner(
         process_ends_after,
         // The corpus checks permissions where it pins them: a test that lowers its own is never run without them.
         ignore_permission_mock: false,
-        dev_endpoint_ui: false,
         // The corpus run is the conformance result: an unpinned error text is never reported as a failure (issue 6487).
         report_unpinned_errors: false,
         permissions_off: false,
-        perturb: Default::default(),
+        // `dev_endpoint_ui` stays off: the corpus runs as Microsoft's Test Runner app does, so unhandled UI is an error.
+        ..Default::default()
     };
     let load_time = started.elapsed();
     let rt = match grow {

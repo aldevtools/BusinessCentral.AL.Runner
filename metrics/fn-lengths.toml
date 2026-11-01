@@ -9,7 +9,7 @@
 "crates/al-builtins/src/ops.rs::arith_general" = 310
 "crates/al-builtins/src/ops.rs::convert" = 327
 "crates/al-deps/src/artifact.rs::load_with_artifacts" = 441
-"crates/alrunner-cli/src/args.rs::parse" = 511
+"crates/alrunner-cli/src/args.rs::parse" = 506
 "crates/alrunner-cli/src/run.rs::test_inner" = 1560
 "crates/al-sema/src/check/infer.rs::infer" = 505
 "crates/al-sema/src/check/mod.rs::check_inner" = 273
@@ -27,14 +27,13 @@
 "crates/al-testrun/src/impact_static.rs::build" = 332
 "crates/al-testrun/src/reach.rs::report" = 315
 "crates/al-testrun/src/runtime/corpus.rs::compile_suites_once" = 446
-"crates/al-testrun/src/runtime/corpus.rs::run_compiled_kept" = 1044
-"crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 869
+"crates/al-testrun/src/runtime/corpus.rs::run_compiled_kept" = 1041
+"crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 867
 "crates/al-version/src/gates.rs::evidence" = 670
 "crates/al-vm/src/dotnet/mod.rs::dotnet_apply" = 342
 "crates/al-vm/src/exec/compile.rs::expr_into" = 322
 "crates/al-vm/src/exec/compile.rs::stmt" = 266
 "crates/al-vm/src/exec/run.rs::run_range" = 357
-"crates/al-vm/src/lib.rs::with_host" = 251
 "crates/al-vm/src/pages/actions.rs::action_invoke_body" = 498
 "crates/al-vm/src/pages/controls.rs::control_set_value_now" = 887
 "crates/al-vm/src/pages/controls.rs::test_control_op" = 503

@@ -1174,12 +1174,7 @@ impl Session {
                 prior_committed_row_version: restored_row_version,
                 ..TxState::fresh()
             },
-            ui_state: UiState {
-                scope: None,
-                page_handler_depth: 0,
-                sent_notifications: Vec::new(),
-                dev_endpoint: Default::default(),
-            },
+            ui_state: UiState::default(),
             pages: PageClients {
                 shown_frames: Vec::new(),
                 shown_controls: std::collections::HashMap::new(),

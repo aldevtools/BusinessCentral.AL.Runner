@@ -180,6 +180,7 @@ impl TxState {
 }
 
 /// Handler functions and notifications of the running test method.
+#[derive(Default)]
 pub(crate) struct UiState {
     /// Handler functions bound to the running test method (None outside one).
     pub(crate) scope: Option<ui::UiScope>,
