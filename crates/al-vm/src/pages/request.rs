@@ -348,6 +348,7 @@ impl Session {
         let result = st.borrow().result.clone();
         match result.as_deref() {
             Some("OK") => {
+                self.refuse_ext_save_values_close(&st, "OK")?;
                 let parameters = if want_parameters {
                     Some(self.request_parameters(inst, &exts, object)?)
                 } else {
@@ -373,6 +374,7 @@ impl Session {
     fn close_after_handler_error(&mut self, st: &St, err: &al_builtins::native::AlError) -> Result<(), Signal> {
         let object = st.borrow().object as usize;
         let refuse = |what: &str| unsupported(format!("a request page handler error with {what} (close not pinned)"));
+        self.refuse_ext_save_values_close(st, "a handler error")?;
         let ext_closes = page_of(&self.engine(), st)
             .ext_triggers
             .iter()
@@ -472,6 +474,9 @@ impl Session {
             .map_err(Signal::Unsupported)?;
         self.host.files.write(&data_file, &data).map_err(Signal::Unsupported)?;
         st.borrow_mut().result = Some("SaveAsXml".into());
+        // SaveValues: the close stores the values of the page and of its extensions; the next run opens with them (al-language-onprem/
+        // report/lt-y60-reportext-saveasxml/Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun).
+        self.store_page_values(st);
         self.mark_closed(st);
         Ok(Value::Null)
     }

@@ -5,6 +5,6 @@
 "crates/al-builtins/src/native.rs" = 3419
 "crates/al-testrun/src/runtime/tests.rs" = 3760
 "crates/al-vm/src/pages/actions.rs" = 3950
-"crates/al-vm/src/pages/rows.rs" = 3780
-"crates/al-vm/src/records.rs" = 6043
-"crates/al-vm/src/reports.rs" = 5068
+"crates/al-vm/src/pages/rows.rs" = 3758
+"crates/al-vm/src/records.rs" = 5953
+"crates/al-vm/src/reports.rs" = 5063

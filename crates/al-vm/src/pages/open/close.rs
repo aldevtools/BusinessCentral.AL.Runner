@@ -20,7 +20,19 @@ impl Session {
             let s = st.borrow();
             s.modal && !s.lookup && self.engine.object_facts[object].page_type_lower() == "card"
         };
-        let action = if ok_type && (!st.borrow().modal || modal_card) {
+        // A NavigatePage (temporary or real source, after a footer action, OpenEdit or OpenView), a CardPart and a ListPart
+        // not run modally report OK too (corpus branch al-runtime-rs-staging-y65,
+        // testpageclose/lt-y65-close-page-types/Y65ClosePageTypes.al:505-558 and :636-660; al-runner issue 6670). Not on the
+        // pinned corpus yet: assumption close-action-ok-navigate-and-parts.
+        let navigate_or_part = !st.borrow().modal
+            && matches!(
+                self.engine.object_facts[object].page_type_lower(),
+                "navigatepage" | "cardpart" | "listpart"
+            );
+        if navigate_or_part {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::CloseActionOkNavigateAndParts);
+        }
+        let action = if (ok_type && (!st.borrow().modal || modal_card)) || navigate_or_part {
             "OK"
         } else {
             "Cancel"
@@ -347,6 +359,11 @@ impl Session {
         // (corpus handlers/TestPageQueryCloseError_Tests.al:1-25).
         let veto = match self.query_close_answer(st, vec![Value::Option(ordinal, members)]) {
             Err(Signal::Error(e)) => {
+                // A Confirm with no ConfirmHandler at TestPage.Close() raises its own error (query_close_unhandled.rs).
+                if let Some(raised) = test_close.then(|| self.unhandled_confirm_in_query_close(&e)).flatten() {
+                    st.borrow_mut().close_error = true;
+                    return Err(raised);
+                }
                 al_builtins::native::refuse_unpinned_text(&e, "The message shown for an error of OnQueryClosePage")?;
                 st.borrow_mut().close_error = true;
                 self.ui_message(e.message)?;
@@ -457,7 +474,9 @@ impl Session {
         if self.page_view_has_rows(st) {
             return Ok(false);
         }
-        if !self.is_list_page(st) {
+        // A Card that the static Page.RunModal(Id, Rec) opened on a record filtered to no row is the same (pages/lt-y61-page-probes/
+        // Y61StoredRecToTempCard.al:499 G617b_RecordFilteredToNoRow: OK is not found, the answer is LookupCancel).
+        if !self.is_list_page(st) && !(static_lookup && page_type == "card") {
             return Err(Signal::Unsupported(format!(
                 "OK of a {page_type} page in lookup mode that shows no row (only a list page is pinned)"
             )));

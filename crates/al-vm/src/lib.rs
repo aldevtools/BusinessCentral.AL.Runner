@@ -68,6 +68,7 @@ mod permissions;
 mod platform;
 mod profile;
 mod queries;
+mod query_date_filter;
 mod read_only_tables;
 mod recmeta;
 mod recordid_bookmark;

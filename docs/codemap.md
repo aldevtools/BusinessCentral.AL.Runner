@@ -360,6 +360,8 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `pages/draft.rs` (304): New rows, drafts, saving a row, activating a control.
 - `pages/controls.rs` (588): Writing a control and the `TestField` methods. Entry: `control_set_value`, `test_control_op`.
 - `pages/actions.rs` (676): Control navigation, lookups, invoking actions, refresh after an action.
+- `pages/caption_runs.rs` (~60): How many times a page open runs the CaptionClass expressions with an empty record, where the corpus pins it. Entry: `caption_empty_runs_pinned`.
+- `pages/modify_denied.rs` (~55): A drill-down whose code changed the row on a list whose ModifyAllowed is false. Entry: `navigate_settled`.
 - `pages/format.rs` (435): Reading a control: value, text, type, caption, editable, enabled, visible.
 - `pages/format_type11.rs` (30): the format string of an AutoFormatType 11 field, evaluated once per `Format`. Entry: `auto_format_type11_string`.
 - `pages/areas.rs` (104): Application areas on the test client.

@@ -79,12 +79,11 @@ codeunit 69968 C
     refused(al_testkit::run_in(src, "C", "OnDoc"), "empty text");
 }
 
-/// A list whose repeater (not the page) says `Editable = false`: whether it shows the blank new-row line is not pinned (the
-/// corpus pins only page-level `Editable = false`, handlers/TestPageNewRowLine_Tests.al). Tests-ERM 139846
-/// ShouldOpenJobQueueEntriesForCreatedJobQueuesIfOptionSelected walks Job Queue Entries (repeater Editable = false) and
-/// expects no blank line; landing on it is refused. Walking the data rows still works.
+/// A list whose repeater (not the page) says `Editable = false` shows no blank new-row line: Next on the last row answers false
+/// (pinned since corpus branch al-runtime-rs-staging-y65, pages/lt-y65-readonly-repeater/Y65ReadOnlyRepeater.al:255; the cases
+/// are in `read_only_repeater_new_line.rs`; an Editable expression other than page variables stays refused there).
 #[test]
-fn the_blank_line_of_a_list_whose_repeater_is_read_only_is_refused() {
+fn a_list_whose_repeater_is_read_only_has_no_blank_line() {
     let src = r#"
 table 69969 "RR Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
 page 69970 "RR List"
@@ -117,5 +116,5 @@ codeunit 69971 C
 }
 "#;
     assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "Walk")), "12");
-    refused(al_testkit::run_in(src, "C", "PastTheEnd"), "repeater");
+    assert!(!al_testkit::boolean(al_testkit::run_in(src, "C", "PastTheEnd")));
 }

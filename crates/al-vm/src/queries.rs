@@ -308,9 +308,12 @@ impl Session {
                     }
                     let engine = self.engine.clone();
                     let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize]);
+                    let date_ctx = self.query_date_context();
                     Some(
-                        al_builtins::filter::parse_filter_with(&text, &args[2..], &ty, &enums)
-                            .map_err(|e| Signal::Unsupported(format!("SetFilter: {e}")))?,
+                        al_builtins::filter::with_date_context(date_ctx, || {
+                            al_builtins::filter::parse_filter_with(&text, &args[2..], &ty, &enums)
+                        })
+                        .map_err(|e| Signal::Unsupported(format!("SetFilter: {e}")))?,
                     )
                 };
                 let mut q = qs.borrow_mut();
@@ -1035,12 +1038,14 @@ impl Session {
             } else if schema.stored {
                 plan.scan[c.item].push(FieldFilter { field, expr, group: 0 });
             } else {
-                // A filter() element over a FlowField is pinned for a query of one data item without a Method column
-                // (query/lt-cg-query-leads/CgQueryLeads.al:759,792): with a join or a grouping, which rows it is calculated
-                // on is not pinned.
-                if c.filter_element && (def.items.len() > 1 || def.columns.iter().any(|c| c.method.is_some())) {
+                // A filter() element over a FlowField is calculated on the rows of its own data item, before the join and the
+                // grouping (query/lt-cg-query-leads/CgQueryLeads.al:759,792 for one data item; query/lt-y62-flowfield-filter-join/
+                // Y62QueryFlowFieldJoin.al for the top data item of an inner or a left outer join, with and without a Method
+                // column, writer Y62): `plan.post` filters the joined rows by it before `group_rows` groups them. On a joined data
+                // item, and with a right or full outer join, it is not pinned.
+                if c.filter_element && (item.parent.is_some() || has_right) {
                     return unsupported(
-                        "a filter() element over a FlowField in a query with a join or a Method column (not pinned)",
+                        "a filter() element over a FlowField of a joined data item, or in a query with a right or full outer join (not pinned)",
                     );
                 }
                 // P130QueryOuterFlow.al filters only the parent: a filter on a FlowField column of an outer-joined
@@ -1055,7 +1060,8 @@ impl Session {
     }
 
     fn parse_query_filter(&self, text: &str, ty: &RtType) -> Result<FilterExpr, Signal> {
-        self.parse_filter_text(text, ty)
+        let text = crate::query_date_filter::static_text(text, ty)?;
+        self.parse_filter_text(&text, ty)
             .map_err(|e| Signal::Unsupported(format!("query filter: {e}")))
     }
 

@@ -629,6 +629,9 @@ pub fn record_ref_into_record(rec: &crate::value::RecordState) -> Result<Value, 
 #[cold]
 #[inline(never)]
 fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
+    if let Some(r) = crate::conv_undefined::convert(&v, t) {
+        return r;
+    }
     match (&v, t) {
         (Value::Date(n, false), RtType::DateTime) if *n >= 0 => Ok(date_to_datetime(*n)),
         // A RecordRef a Variant holds, assigned to a Record (record/lt-ar-records/ArRecordProbes.al:333 VariantRecordRef_AssignedToRecord

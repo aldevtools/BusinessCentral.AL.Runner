@@ -117,6 +117,12 @@ impl Session {
         st.borrow_mut().parts = kept.clone();
         st.borrow_mut().hidden_parts = hidden.clone();
         for (_, child) in kept.into_iter().chain(hidden) {
+            // A filter the host's OnOpenPage set on the part's Rec (through a procedure of the part) does not narrow the rows the
+            // part shows: it opens on all rows and a new line (pages/lt-y61-page-probes/Y61RunPageLinkCopyFilter.al:328
+            // G616_PartUpdateForm_VarRec `part filters=Parent Code: P1` read in the procedure, `part rows` = `P1/A,P1/B,P2/C,/,`).
+            if child.borrow().instance.is_some() && self.has_source(&child) {
+                self.page_rec(&child).borrow_mut().filters.retain(|f| f.group != 0);
+            }
             self.open_page_as(&child, mode, None, None, true)?;
         }
         Ok(())

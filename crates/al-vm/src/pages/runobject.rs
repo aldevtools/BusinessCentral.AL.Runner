@@ -287,9 +287,13 @@ impl Session {
             };
             // An Option and a Date field are filled too (:499 RPL_Card_OptionLink `kind=B`, :517 RPL_Card_DateLink); a FlowFilter
             // field of Code is filled with nothing, the link stays its filter (:458 RPL_List_FlowFilterLink `code= ... filters=Code
-            // Filter: P1`).
+            // Filter: P1`), and so does a Date FlowFilter whose host filter is a range (pages/lt-y61-page-probes/
+            // Y61RunPageLinkCopyFilter.al:407 G616_FlowFilterLink_CopyFilter `getfilter date=03/01/24..03/31/24`, `code=P1`).
             let flow_filter = self.engine.field_facts[table.object as usize][pf].class == ir::FieldClass::FlowFilter;
             let ty = &table.fields[pf].ty;
+            if flow_filter && matches!(ty, RtType::Date) && link_filters.iter().any(|f| f.field == pf) {
+                continue;
+            }
             let filled = matches!(
                 ty,
                 RtType::Code(_) | RtType::Text(_) | RtType::Integer | RtType::Option(_) | RtType::Date
@@ -313,6 +317,25 @@ impl Session {
             }
         }
         Ok(Some((fill, Rc::new(link_filters))))
+    }
+
+    /// `field(F)` of a link whose host field F is a Date FlowFilter: the target takes the host's filter on F, a range of dates
+    /// (pages/lt-y61-page-probes/Y61RunPageLinkCopyFilter.al:407 G616_FlowFilterLink_CopyFilter `getfilter date=03/01/24..03/31/24`,
+    /// :348 G616_PartUpdateForm_FlowFilterLink). `None` for a host field that is no FlowFilter; a FlowFilter of another type, or
+    /// a host without exactly one filter on it, is refused (not pinned).
+    fn link_of_host_flow_filter(&mut self, host_rec: &Rec, hf: usize) -> Result<Option<FilterExpr>, Signal> {
+        let table = self.table(host_rec)?;
+        if self.engine.field_facts[table.object as usize][hf].class != ir::FieldClass::FlowFilter {
+            return Ok(None);
+        }
+        let r = host_rec.borrow();
+        let on_field: Vec<&FieldFilter> = r.filters.iter().filter(|f| f.field == hf).collect();
+        match on_field.as_slice() {
+            [one] if matches!(table.fields[hf].ty, RtType::Date) => Ok(Some(one.expr.clone())),
+            _ => unsupported(
+                "RunPageLink field() of a host FlowFilter other than a Date one with one filter (not pinned)",
+            ),
+        }
     }
 
     /// The record the target opens on: the host's stored row for `RunPageOnRec`, narrowed by
@@ -421,14 +444,18 @@ impl Session {
                         };
                         // The host's current row; a host that shows no row links to the blank value
                         // (as a part's link does, testpart/TestPartProviderMove.al).
-                        let value = if host.borrow().cursor == Cursor::None {
-                            let host_ty = self.table(host_rec)?.fields[*hf].ty.clone();
-                            Value::default_for(&host_ty)
+                        if let Some(expr) = self.link_of_host_flow_filter(host_rec, *hf)? {
+                            (*pf, expr)
                         } else {
-                            host_rec.borrow().fields[*hf].clone()
-                        };
-                        let value = ops::convert(value, &ty)?;
-                        (*pf, FilterExpr::Range(Some(value.clone()), Some(value)))
+                            let value = if host.borrow().cursor == Cursor::None {
+                                let host_ty = self.table(host_rec)?.fields[*hf].ty.clone();
+                                Value::default_for(&host_ty)
+                            } else {
+                                host_rec.borrow().fields[*hf].clone()
+                            };
+                            let value = ops::convert(value, &ty)?;
+                            (*pf, FilterExpr::Range(Some(value.clone()), Some(value)))
+                        }
                     }
                     ir::LinkEntry::Filter(pf, text) => {
                         // An empty term selects the rows whose field is blank (pages/lt-ao-testpage/AoTests.al:513-560 RunPageLink, :845-887
