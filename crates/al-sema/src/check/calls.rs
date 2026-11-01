@@ -397,8 +397,7 @@ impl<'a> Checker<'a> {
                 .collect();
         }
         // A bare `Run(Page::X[, Rec[, FieldNo]])` in a page's code is the static Page.Run (pages/lt-uf-unqualified-runmodal/
-        // Y47UnqualifiedRun.al, corpus branch al-runtime-rs-staging-y47; al-runner issue 6590; the lowering marks assumption
-        // bare-page-run-is-static). The bare `Run()` is the page's own instance, which raises; it stays unresolved.
+        // Y47UnqualifiedRun.al:237-325; al-runner issue 6590). The bare `Run()` is the page's own instance, which raises; it stays unresolved.
         if c.is_empty() && n.eq_ignore_ascii_case("run") && self.ws.objects[sc.oi].kind == ObjKind::Page {
             c = (self.catalog.overloads("Page", n).into_iter())
                 .filter(|s| !s.instance)

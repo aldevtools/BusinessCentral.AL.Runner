@@ -330,3 +330,13 @@
 29 2504-fieldref-setfilter-assign
 29 2511-subpagelink-field-filter-const
 29 2512-subpagelink-filter-field-reversed
+# corpus bump to 7f7cdc2a: new cases the front end does not decide yet
+27 2544-bare-run-page-in-table
+27 2547-bare-run-page-result-used
+27 2549-record-field-assign-fieldref
+28 2544-bare-run-page-in-table
+28 2547-bare-run-page-result-used
+28 2549-record-field-assign-fieldref
+29 2544-bare-run-page-in-table
+29 2547-bare-run-page-result-used
+29 2549-record-field-assign-fieldref

@@ -1,8 +1,7 @@
 //! An Enum field whose `InitValue` names the member in single quotes (`InitValue = 'G/L Account';`, al-runner issue 6585):
 //! the member of that name, on a fresh variable, after Init and after Insert, as the double-quoted form gives
-//! (types/TestBlankEnumInitTests.Codeunit.al). Not pinned yet: assumption quoted-enum-init-value.
+//! (record/lt-y47-initvalue-quoted/Y47EnumInitQuoted.al).
 
-use al_builtins::assumptions::{Assumption, take_hits};
 use al_testkit::text;
 
 const SRC: &str = r#"
@@ -50,21 +49,17 @@ codeunit 69988 C
 "#;
 
 #[test]
-fn a_single_quoted_enum_init_value_is_the_member_of_that_name_and_marks_its_assumption() {
-    take_hits();
+fn a_single_quoted_enum_init_value_is_the_member_of_that_name() {
     assert_eq!(text(al_testkit::run_in(SRC, "C", "F")), "G/L Account|G/L Account|Yes");
-    assert!(take_hits().contains(&Assumption::QuotedEnumInitValue));
 }
 
 #[test]
-fn a_double_quoted_enum_init_value_does_not_mark_the_assumption() {
-    take_hits();
+fn a_double_quoted_enum_init_value_is_the_member_of_that_name() {
     assert_eq!(text(al_testkit::run_in(SRC, "C", "Plain")), "G/L Account");
-    assert!(!take_hits().contains(&Assumption::QuotedEnumInitValue));
 }
 
 /// Another case and a trailing space name the member too (record/lt-y47-initvalue-quoted/Y47EnumInitQuoted.al
-/// Y47_InitValue_Lower and Y47_InitValue_Space, corpus branch al-runtime-rs-staging-y47). A number (whether it is the
+/// Y47_InitValue_Lower and Y47_InitValue_Space). A number (whether it is the
 /// ordinal or the position is not told apart by the probe) and an unknown name stay refused.
 #[test]
 fn a_single_quoted_name_in_another_case_or_with_a_space_is_the_member() {

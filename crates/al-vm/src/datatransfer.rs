@@ -7,9 +7,9 @@
 //!   join fields (and the source filters keep); the others stay as they were (S2, S4);
 //! - `CopyFields` without a join on one table copies the mapped fields within each row the source filters keep (S3).
 //!
-//! Corpus writer Y47 measured on real BC that an unmapped field of a `CopyRows` row gets its InitValue and that no table
-//! trigger runs (record/lt-as-records/Y47DtInstall.al, corpus branch al-runtime-rs-staging-y47; al-runner issue 6586):
-//! assumption datatransfer-install-initvalue-no-triggers marks the copies that rely on it. Everything else is refused.
+//! An unmapped field of a `CopyRows` row gets its InitValue and no table trigger runs (record/lt-as-records/Y47DtInstall.al
+//! S1-S3 and Y47DtInstallRead.al:54-72; al-runner issue 6586). A destination with a table extension is refused: the file
+//! has none. Everything else is refused.
 
 use crate::Session;
 use al_builtins::datatransfer::Plan;
@@ -156,22 +156,17 @@ impl Session {
         Ok(())
     }
 
-    /// Marks assumption datatransfer-install-initvalue-no-triggers when table `no` has triggers that the copy does not run.
-    fn dt_mark_triggers(&self, no: i32) {
+    /// Refuses a copy into table `no` when it has a table extension: what the copy does with its code is not pinned
+    /// (record/lt-as-records/Y47DtInstall.al has no table extension).
+    fn dt_refuse_extensions(&self, no: i32) -> Result<(), Signal> {
         let Some(object) = self.compiled_table(no as u32) else {
-            return;
+            return Ok(());
         };
         let o = &self.engine.program.objects[object];
-        let triggered = o.routines.iter().any(|r| {
-            ["OnInsert", "OnModify", "OnValidate"]
-                .iter()
-                .any(|t| r.name.eq_ignore_ascii_case(t))
-        }) || o.table.as_ref().is_some_and(|t| !t.extensions.is_empty());
-        if triggered {
-            al_builtins::assumptions::assume(
-                al_builtins::assumptions::Assumption::DataTransferInstallInitValueNoTriggers,
-            );
+        if o.table.as_ref().is_some_and(|t| !t.extensions.is_empty()) {
+            return refuse("DataTransfer into a table that has a table extension (not pinned)");
         }
+        Ok(())
     }
 
     fn dt_copy_rows(&mut self, plan: &Plan) -> Result<(), Signal> {
@@ -182,23 +177,7 @@ impl Session {
         let (dt, _, drec) = self.dt_rows(plan.destination, &[])?;
         let object = self.compiled_table(plan.destination as u32).expect("checked");
         let fresh = self.initial_fields(object);
-        let mapped: Vec<i32> = plan
-            .fields
-            .iter()
-            .map(|f| f.1)
-            .chain(plan.constants.iter().map(|c| c.1))
-            .collect();
-        let init_used = self.engine.program.objects[object].table.as_ref().is_some_and(|t| {
-            t.fields
-                .iter()
-                .any(|f| f.init.is_some() && !mapped.iter().any(|m| i64::from(*m) == i64::from(f.id)))
-        });
-        if init_used {
-            al_builtins::assumptions::assume(
-                al_builtins::assumptions::Assumption::DataTransferInstallInitValueNoTriggers,
-            );
-        }
-        self.dt_mark_triggers(plan.destination);
+        self.dt_refuse_extensions(plan.destination)?;
         let cx = self.cx_for(&drec, &dt)?;
         for source in rows {
             let mut row = fresh.clone();
@@ -214,7 +193,7 @@ impl Session {
     }
 
     fn dt_copy_fields(&mut self, plan: &Plan) -> Result<(), Signal> {
-        self.dt_mark_triggers(plan.destination);
+        self.dt_refuse_extensions(plan.destination)?;
         let (st, sources, _) = self.dt_rows(plan.source, &plan.source_filters)?;
         let changed: Vec<Vec<Value>> = if plan.joins.is_empty() {
             if plan.source != plan.destination || !plan.destination_filters.is_empty() {

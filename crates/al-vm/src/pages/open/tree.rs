@@ -22,9 +22,9 @@ impl Session {
     /// OnAfterGetRecord or OnAfterGetCurrRecord. When it opens it reads the rows below the level-0 rows too, though it shows only the
     /// level-0 rows (al-runner issue 6119; corpus writer TW, branch al-runtime-rs-staging-tw, pages/lt-page-runtime/TwTreeExpandTriggers.al:123; the reporter's run on real BC: rows 1, 2, 3 (a child of 2) and 4 with Rec on 4 read `R4;R3;R2;R1;R4;
     /// R4;C4`; which rows show is pages/lt-page-controls-aa/AaPartsLists.al:272 AA_Repeater_TreeExpandedRows). CollapseAll reads the
-    /// same (al-runner issue 6523; corpus writer Y28, branch al-runtime-rs-staging-y28,
-    /// pageext/lt-page-ext-properties/Y28CollapsedTreeTests.al:38 Y28_CollapsedOpenAndWalk `agr1;agr2;agr3;agr4;agr5;agr1;agr1;agcr1`,
-    /// assumption `tree-cut-testpage-only` until that pin lands). A tree without TreeInitialState is not pinned and stays as it was.
+    /// same (al-runner issue 6523;
+    /// pageext/lt-page-ext-properties/Y28CollapsedTreeTests.al:38 Y28_CollapsedOpenAndWalk `agr1;agr2;agr3;agr4;agr5;agr1;agr1;agcr1`).
+    /// A tree without TreeInitialState is not pinned and stays as it was.
     pub(in crate::pages) fn tree_expand_all_with_row_triggers(&self, st: &St) -> bool {
         let engine = self.engine();
         let pinned = page_of(&engine, st).controls.iter().any(|c| {
@@ -103,7 +103,7 @@ impl Session {
 
     /// The keys of the rows a tree shows: a row without a parent in the view (no row before it, in the page's order, with a lower
     /// level) shows whatever its level; any other row when its parent shows and is expanded (pages/lt-ah-pages/AhPageTests.al:986-993
-    /// for Expand; corpus writer Y28, branch al-runtime-rs-staging-y28, pageext/lt-page-ext-properties/Y28CollapsedTreeTests.al:94
+    /// for Expand; pageext/lt-page-ext-properties/Y28CollapsedTreeTests.al:94
     /// Y28_SetRangeChildrenInOnOpenPage `walk` 2,3,5 for rows below level 0 whose parent the view leaves out).
     pub(super) fn tree_visible(rows: &[(Vec<Value>, i32)], expanded: &[Vec<Value>]) -> Vec<Vec<Value>> {
         let mut stack: Vec<(i32, bool)> = Vec::new();
@@ -133,8 +133,6 @@ impl Session {
         let Some(level) = self.tree_level_field(st)? else {
             return Ok(());
         };
-        // Awaits the Y28 pin (al-runner issue 6523).
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TreeCutTestPageOnly);
         let rec = self.page_rec(st);
         rec.borrow_mut().filters.retain(|f| f.group != TREE_GROUP);
         let rows = self.tree_rows(&rec, level)?;

@@ -1,8 +1,9 @@
 //! A TestPage local to the test method that is still open when the test method returns closes then, as `Close()` closes
 //! it: OnQueryClosePage with the action OK, then OnClosePage; an unsaved SetValue is saved first; a Confirm in the trigger
 //! goes to the test's ConfirmHandler; a veto (the trigger answers false) leaves the test passing. OpenEdit and OpenView are
-//! measured for a page with OnQueryClosePage; a global TestPage is not closed (testpageclose/Y47CloseAtTestEnd.al, corpus branch al-runtime-rs-staging-y47;
-//! al-runner issue 6587; assumption test-end-closes-open-testpages until the file is on corpus master).
+//! measured for a page with OnQueryClosePage; a global TestPage is not closed (testpageclose/Y47CloseAtTestEnd.al:127-321;
+//! al-runner issue 6587). The file leaves one page open per test: two or more close in the order of their declaration,
+//! assumption test-end-close-order.
 
 use super::*;
 
@@ -34,8 +35,10 @@ impl Session {
                 pages.push(st.clone());
             }
         }
+        if pages.len() > 1 {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TestEndCloseOrder);
+        }
         for st in pages {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TestEndClosesOpenTestPages);
             match self.page_close(&st) {
                 Ok(_) => {}
                 Err(Signal::Error(_)) => {
