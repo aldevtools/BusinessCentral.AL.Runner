@@ -43,6 +43,7 @@ mod evaluate_boolean_german;
 mod evaluate_byte_char;
 mod evaluate_date_blanks;
 mod evaluate_date_language;
+mod evaluate_datetime_iso_space;
 mod evaluate_duration;
 mod evaluate_option_captions;
 mod evaluate_option_rejects;
