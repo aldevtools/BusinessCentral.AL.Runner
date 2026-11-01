@@ -23,7 +23,11 @@ runs:
       with:
         components: ${{ inputs.components }}
     # One cache per job: rust-cache keys on the job name, so the three jobs do not overwrite each other.
+    # Saved only on main: a pull request can restore main's entry, but nothing else can use what a pull request
+    # saves, and it counts against the 10 GB limit of the repository's cache.
     - uses: Swatinem/rust-cache@v2
+      with:
+        save-if: ${{ github.ref == 'refs/heads/main' }}
 
     # ADR-014: DotNet calls run in a .NET 8 sidecar process. The SDK builds it and the runtime
     # runs it. ICU is on the ubuntu image. CI must never skip a .NET test silently.
