@@ -950,6 +950,12 @@ impl Session {
                 Value::Text(_) => Value::Text(text.into()),
                 Value::Code(_) => Value::Code(text.into()),
                 Value::Boolean(_) if text == "true" || text == "false" => Value::Boolean(text == "true"),
+                // The `yyyy-MM-dd` form RunRequestPage writes (report/lt-report-requestpage/RptRequestPage.al:878-893
+                // RunRequestPage_ThenExecute_AppliesValues: `<Field name="DateVal">2021-06-05</Field>` gives 2021-06-05 in
+                // OnPreReport). Other texts are not pinned.
+                Value::Date(..) if text.len() == 10 && al_builtins::iso::parse_date(&text).is_some() => {
+                    Value::Date(al_builtins::iso::parse_date(&text).expect("checked above"), false)
+                }
                 Value::Integer(_) | Value::Decimal(_) | Value::Option(..) | Value::Enum(..) => {
                     let ty = match &current {
                         Value::Integer(_) => RtType::Integer,
