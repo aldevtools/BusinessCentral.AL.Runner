@@ -294,6 +294,65 @@ Risks:
 Use the flag to run the rest of the test's logic. Do not use it to check
 permissions. In `serve`, the `runTests` field `ignorePermissionMock` does the same.
 
+## UI calls without a handler
+
+A test that calls `Confirm`, `StrMenu`, `Message`, `Page.RunModal` or another UI
+method needs a handler function for it. Without one, the call fails with
+`Unhandled UI: ...`. AL Runner does this because Microsoft's Test Runner app
+(used by BcContainerHelper and AL-Go) does it.
+
+The test runner that VS Code uses through the dev endpoint behaves differently
+on BC 28: it answers such a call itself. Some of Microsoft's tests were written
+for that runner and declare no handler. `--dev-endpoint-ui` runs tests the way
+that runner does:
+
+```bash
+al-runner test ./MyApp ./MyApp.Test --bc-version 28 --dev-endpoint-ui
+```
+
+These are the answers, measured on BC 28.5 through the dev endpoint:
+
+| Call | Answer |
+|---|---|
+| `Confirm(Question)` | No |
+| `Confirm(Question, Default)` | The default |
+| `StrMenu(Options)` | 1 |
+| `StrMenu(Options, Default, ...)` with a default from 1 to the number of options | The default |
+| `Message(...)` | The call returns. |
+| `Hyperlink(Url)` | The call returns. |
+| `Page.RunModal(Id)` | `Action::None`. The page does not open, and none of its triggers runs. |
+| `Page.Run(Id)` | The call returns. The page does not open, and none of its triggers runs. |
+| `Report.RunModal(...)` of a processing-only report | The request page is skipped; none of its triggers runs. The report runs as after OK. |
+
+Only these shapes are answered. Any other call still fails with `Unhandled UI`,
+also with the flag. Some examples: `StrMenu` with default 0, a page run with a
+record, a page with a source table, an `OnInit` trigger or a part, a report
+with a layout, a request page with an `OnInit` trigger, or a call made while a
+handler of the same kind is bound. The flag does not change the other handler
+rules: a declared handler that never runs still fails the test, and a bound
+handler still answers.
+
+The answers depend on the BC version:
+
+- BC 27: the dev-endpoint runner also fails each such call. The flag changes
+  nothing and prints a note.
+- BC 28: the answers above.
+- BC 29 and other versions: not measured yet. The flag is refused with an error.
+
+Risks:
+
+- A test that passes with the flag fails under Microsoft's Test Runner app,
+  because it did not handle a dialog.
+- Each answered call prints a warning on stderr, with the test, the call and the
+  answer: `warning: dev-endpoint UI: Codeunit50100.MyTest had no handler for
+  Confirm Post the order?: false (answered as the dev-endpoint test runner does)`.
+- Each such test is a flagged pass with the assumption `dev-endpoint-ui`: the
+  summary counts it apart from clean passes. `--junit` adds a `dev_endpoint_ui`
+  property with the answered calls, and `--output-json` adds `uiAnswered` to the
+  test.
+
+In `serve`, the `runTests` field `devEndpointUi` does the same.
+
 ## Test framework features of BC 29
 
 Business Central 29 adds two test framework features: test handlers and data-driven tests.
