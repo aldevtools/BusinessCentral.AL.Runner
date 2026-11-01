@@ -25,7 +25,7 @@ impl Session {
         let temp_worksheet_view = st.borrow().mode == PageMode::View
             && engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet)
             && self.page_rec(st).borrow().temporary;
-        Ok(has_repeater
+        let offered = has_repeater
             && !tree
             && (st.borrow().mode == PageMode::Edit || temp_worksheet_view)
             // A list handed over in lookup mode has no new-row line (corpus
@@ -34,7 +34,10 @@ impl Session {
             // line (:180; pages/lt-be-runmodal-onlookup/BeRunModalOnLookup.al:616, :916).
             && !(st.borrow().lookup_set && st.borrow().lookup && self.is_list_page(st))
             && !prop_false("Editable")
-            && !flag_denied(&engine, object, "InsertAllowed")?)
+            && !flag_denied(&engine, object, "InsertAllowed")?;
+        drop(engine);
+        // A repeater whose Editable is false shows no line (`repeater_line`).
+        Ok(offered && self.repeater_line(st)? != RepeaterLine::Denied)
     }
 
     /// Whether a repeater of the page declares `Editable` with anything but the literal `true`.
@@ -403,13 +406,13 @@ impl Session {
     }
 
     pub(in crate::pages) fn land_on_new_line(&mut self, st: &St) -> Result<(), Signal> {
-        // The corpus pins the blank line's absence only for `Editable = false` on the page (handlers/TestPageNewRowLine_Tests.al
-        // RO arm). Whether a repeater that says Editable (false, or an expression) shows it is not pinned: Tests-ERM 139846
-        // ShouldOpenJobQueueEntriesForCreatedJobQueuesIfOptionSelected walks Job Queue Entries, whose repeater says
-        // `Editable = false`, and expects no blank line, so landing on it is refused rather than run.
-        if self.repeater_says_editable(st) {
+        // A repeater whose Editable is false or true by its value is pinned (`repeater_line`; New() on a repeater that says
+        // false lands on a blank row and raises nothing, pages/lt-y65-readonly-repeater/Y65ReadOnlyRepeater.al:255 `new=ok:`).
+        // Another expression is not pinned: Tests-ERM 139846 ShouldOpenJobQueueEntriesForCreatedJobQueuesIfOptionSelected walks
+        // a list that must show no blank line, so landing on it is refused rather than run.
+        if self.repeater_line(st)? == RepeaterLine::Unknown {
             return unsupported(
-                "the blank new-row line of a list whose repeater says Editable (whether it shows is not pinned)",
+                "the blank new-row line of a list whose repeater's Editable is an expression other than page variables (whether it shows is not pinned)",
             );
         }
         st.borrow_mut().blank_after_empty_last = false;

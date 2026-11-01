@@ -860,7 +860,7 @@ impl Session {
             }
             PageMethod::Editable => {
                 self.require_open(st)?;
-                Ok(Value::Boolean(self.page_editable(st)))
+                self.test_page_editable(st).map(Value::Boolean)
             }
             PageMethod::Trap => {
                 // The next plain Page.Run of this page type opens into this variable
