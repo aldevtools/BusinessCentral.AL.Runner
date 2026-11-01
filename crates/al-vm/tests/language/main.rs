@@ -75,6 +75,7 @@ mod format_json_value;
 mod format_precision_standard;
 mod format_precision_strings;
 mod format_recordid_number;
+mod format_second_dec;
 mod format_variant_number;
 mod guid_max_str_len;
 mod guid_text_compare;

@@ -9,6 +9,7 @@
 //! (types/TestDateRoundFormatStringContracts.al:Format_PictureCodes; handlers/TestPageTemporalSetValue_Page.al:47-65).
 //! Any other code, or one of these on another type or in another width, is refused.
 
+mod second_dec;
 use crate::describe::Describe;
 use crate::format::{FormatCtx, civil_from_day, format_value};
 use crate::value::Value;
@@ -328,6 +329,7 @@ pub fn format_with_field_places(
                 (_, "Hours24,2" | "Minutes,2" | "Seconds,2" | "Day,2" | "Month,2" | "Year4" | "Year,2") => {
                     out.push_str(&part)
                 }
+                (Value::Time(_) | Value::DateTime(_), t) if second_dec::without_width(t) => out.push_str(&part),
                 _ => {
                     return Err(format!(
                         "format string `{template}`: `<Filler Character,0>` after `<{text}>` on {} (not pinned)",
@@ -864,6 +866,9 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
     if let Some(part) = time_code_alias(v, code)? {
         return Ok(part);
     }
+    if let Some(part) = second_dec::part(v, code) {
+        return part;
+    }
     let (day_no, closing) = match v {
         Value::Date(n, c) if *n > 0 => (Some(*n), *c),
         Value::DateTime(t) if *t > 0 => (Some((t - 1).div_euclid(86_400_000) as i32 + 1), false),
@@ -998,8 +1003,6 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         ("Thousands,3", _, Some(ms)) => format!("{:>3}", ms % 1000),
         // On a DateTime with no milliseconds it is empty (types/lt-datetime/Format.al:QR_DateTime_Format_StampStrings_Afternoon
         // `a15`, `a16`); on a Time that is not pinned.
-        ("Second dec", _, Some(ms)) if matches!(v, Value::DateTime(_)) && ms % 1000 == 0 => String::new(),
-        ("Second dec", _, Some(ms)) => format!(".{:03}", ms % 1000),
         // The ISO 8601 week of a Date, without padding: 2024-03-05 is `10` (QR_Date_Format_StampStrings `d9`), 2021-01-04 `1`,
         // 2024-01-17 `3`, 2021-01-03 `53` and 2024-12-30 `1` (the ISO year is not shown: `<Week>.<Year4>` is `53.2021`, `1.2024`).
         // `<Week,2>` pads with a zero: `01` (types/lt-format-week-code/FormatWeekCodeIso.al:21-123; types/lt-datetime/
@@ -1029,7 +1032,6 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         // `<Quarter>` is 1 to 4, a closing date shows the quarter of its day, `<quarter>` is read too
         // (types/lt-quarter-duration/FormatQuarterDuration.al:30-110). On a DateTime it is not pinned.
         ("Quarter", Some((_, m, _)), _) if matches!(v, Value::Date(..)) => format!("{}", (m - 1) / 3 + 1),
-        ("Second dec,3", _, Some(_)) => "***".to_string(),
         ("AM/PM", _, Some(ms)) => (if ms / 3_600_000 < 12 { "AM" } else { "PM" }).to_string(),
         // A name that is no code at all is an invalid format, as for a number: only the pinned names (`invalid_time_code`).
         _ if matches!(v, Value::Time(_)) && invalid_time_code(code) => {
