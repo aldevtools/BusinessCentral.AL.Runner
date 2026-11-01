@@ -186,6 +186,7 @@ mod open;
 mod page_var_view;
 mod pageops;
 mod refill;
+mod refresh_new_line;
 mod rows;
 mod runobject;
 mod shown;

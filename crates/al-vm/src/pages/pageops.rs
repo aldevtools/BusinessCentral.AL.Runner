@@ -1376,6 +1376,9 @@ impl Session {
             // (corpus handlers/TestPageTriggerEvents.al, ModifyRecordEvent_PageDrivenSave_*).
             // Page code that inserted the new row itself and copied it into Rec hands the page
             // that row (corpus handlers/TestPageOpenNewAfterGetCurrRecord.al:44-63).
+            if self.save_found_row_from_new_line(st)? {
+                return Ok(());
+            }
             if st.borrow().draft && !st.borrow().draft_stored && {
                 let rec = self.page_rec(st);
                 self.stored_row(&rec)?.is_some()

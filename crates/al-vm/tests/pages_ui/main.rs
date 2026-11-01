@@ -89,6 +89,7 @@ mod tree_refill_by_validate;
 mod trigger_errors;
 mod trust_refusals;
 mod unopened_page_var;
+mod update_from_new_line;
 mod update_no_arg_never_run;
 mod unpinned_testpage_paths;
 mod update_filter_away_row;

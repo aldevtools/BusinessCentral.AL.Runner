@@ -2012,7 +2012,7 @@ impl Session {
     }
 
     /// The rows of the page's view, counted on a copy of its record.
-    fn view_row_count(&mut self, st: &St) -> Result<i32, Signal> {
+    pub(super) fn view_row_count(&mut self, st: &St) -> Result<i32, Signal> {
         let rec = self.page_rec(st);
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         self.ret_used = true;
@@ -2552,10 +2552,11 @@ impl Session {
         };
         let shape = {
             let s = st.borrow();
-            s.open && !s.dirty && !s.draft && s.host.is_none()
+            s.open && !s.dirty && (!s.draft || s.cursor == Cursor::NewLine) && s.host.is_none()
         };
-        // The new-row line is pinned on a Worksheet only (Y17JournalBatchSwitch.al); a List that offers it keeps the refresh below.
-        let shape = shape && (!st.borrow().new_line || self.is_worksheet(st));
+        // A page that offers the new-row line is pinned on a Worksheet (Y17JournalBatchSwitch.al), and on a List from that line
+        // (`validate_refresh_start`); from a row a List that offers it keeps the refresh below.
+        let shape = shape && (!st.borrow().new_line || self.is_worksheet(st) || st.borrow().cursor == Cursor::NewLine);
         if !shape
             || !self.has_source(st)
             || !self.is_list(st)
@@ -2583,13 +2584,9 @@ impl Session {
             (false, false) => {}
             _ => return Ok(false),
         }
-        let on_row = st.borrow().cursor == Cursor::Row;
-        if on_row && self.stored_row(&rec)?.is_none() {
+        let Some(on_row) = self.validate_refresh_start(st)? else {
             return Ok(false);
-        }
-        if !on_row && st.borrow().cursor != Cursor::None {
-            return Ok(false);
-        }
+        };
         let curr = |this: &mut Self| -> Result<(), Signal> {
             let r = (|| {
                 if without_curr {

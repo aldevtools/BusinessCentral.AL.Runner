@@ -371,13 +371,24 @@ impl Session {
     /// A top-level Card, Document or ListPlus page with a source table, no repeater, opened for edit.
     pub(super) fn runs_on_blank_record(&self, st: &St) -> bool {
         let object = st.borrow().object as usize;
-        matches!(
+        let card = matches!(
             self.engine.object_facts[object].page_type,
             Some(al_ir::PageType::Card | al_ir::PageType::Document | al_ir::PageType::ListPlus)
-        ) && st.borrow().mode == PageMode::Edit
+        ) && !self.is_list(st);
+        (card || self.empty_worksheet_without_insert(st))
+            && st.borrow().mode == PageMode::Edit
             && st.borrow().host.is_none()
             && self.has_source(st)
-            && !self.is_list(st)
+    }
+
+    /// A Worksheet with `InsertAllowed = false`, opened for edit over an empty view, runs OnNewRecord and OnAfterGetCurrRecord
+    /// once on a blank record, as a Card does, and shows no row (pages/lt-y50-update-from-new-line/Y50UpdateFromNewLine.al:628
+    /// G520_NoNewLine_EmptyView_ToBatchWithRows `open` = `/:N:B3/0 below=Yes;C:B3/0`). A List and a tree are not pinned.
+    fn empty_worksheet_without_insert(&self, st: &St) -> bool {
+        let object = st.borrow().object as usize;
+        matches!(self.engine.object_facts[object].page_type, Some(al_ir::PageType::Worksheet))
+            && self.tree_indentation(st).is_none()
+            && flag_denied(&self.engine(), object, "InsertAllowed").unwrap_or(false)
     }
 
     pub(in crate::pages) fn land_on_new_line(&mut self, st: &St) -> Result<(), Signal> {
