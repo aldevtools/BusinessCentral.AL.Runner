@@ -374,15 +374,16 @@ fn al0161_currreport_request_options_page() {
     assert!(codes(&[&src("RequestOptionsPage.Update(false);")]).is_empty());
 }
 
-/// al-runner #6631: real BC (alc 18.0.41) compiles `CurrReport.RequestOptionsPage.Update(false)` in a request page
-/// control's OnValidate. AL0161 is pinned only in a procedure of the report (must-not-compile 2514); request page
-/// code and the report's triggers are not judged.
+/// al-runner #6631: real BC compiles `CurrReport.RequestOptionsPage.Update(false)` in all request page code (control,
+/// action and request page triggers, a procedure of the requestpage) and gives AL0161 everywhere else in the report: its
+/// triggers, its data item triggers (must-not-compile 2580-2584) and its procedures (2514). Pin:
+/// report/lt-request-options-page-access/RequestOptionsPageAccess.al.
 #[test]
-fn currreport_request_options_page_compiles_outside_report_procedures() {
-    let src = |field_trigger: &str, page_trigger: &str, report_trigger: &str| {
+fn currreport_request_options_page_by_location() {
+    let src = |field_trigger: &str, page_trigger: &str, report_trigger: &str, item_trigger: &str| {
         format!(
             "report 50100 \"RO Report\" {{ ProcessingOnly = true;
-    dataset {{ dataitem(\"Integer\"; \"Integer\") {{ trigger OnPreDataItem() begin {report_trigger} end; }} }}
+    dataset {{ dataitem(\"Integer\"; \"Integer\") {{ trigger OnPreDataItem() begin {item_trigger} end; }} }}
     requestpage {{
         layout {{ area(content) {{ field(Direction; Direction) {{
             trigger OnValidate() begin {field_trigger} end; }} }} }}
@@ -395,13 +396,14 @@ fn currreport_request_options_page_compiles_outside_report_procedures() {
         )
     };
     let update = "CurrReport.RequestOptionsPage.Update(false);";
-    // The reporter's shape: a request page control's OnValidate.
-    assert!(codes(&[&src(update, "", "")]).is_empty());
-    // A trigger of the request page itself.
-    assert!(codes(&[&src("", update, "")]).is_empty());
-    assert!(codes(&[&src("", "CurrReport.RequestOptionsPage.Caption := 'x';", "")]).is_empty());
-    // The report's own triggers and its data item's triggers.
-    assert!(codes(&[&src("", "", update)]).is_empty());
+    let denied = vec!["AL0161 'RequestOptionsPage' is inaccessible due to its protection level".to_string()];
+    // Request page code compiles.
+    assert!(codes(&[&src(update, "", "", "")]).is_empty());
+    assert!(codes(&[&src("", update, "", "")]).is_empty());
+    assert!(codes(&[&src("", "CurrReport.RequestOptionsPage.Caption := 'x';", "", "")]).is_empty());
+    // Report triggers and data item triggers are AL0161.
+    assert_eq!(messages(&src("", "", update, "")), denied);
+    assert_eq!(messages(&src("", "", "", update)), denied);
 }
 
 /// must-not-compile 2513-testrequestpage-typed-on-xmlport.al: a `TestRequestPage` parameter typed on an xmlport (no report of
