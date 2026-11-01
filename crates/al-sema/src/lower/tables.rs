@@ -678,9 +678,31 @@ impl Lowerer<'_> {
                         init_const(v, &f.ty).or_else(|| match f.ty {
                             // A member of the field's enum, by name; a blank-named member too
                             // (types/TestBlankEnumInitTests.Codeunit.al).
+                            // A member named in single quotes, `InitValue = 'G/L Account';` (al-runner issue 6585): the
+                            // VM marks assumption quoted-enum-init-value (al-vm `init_assumes`).
                             Ty::Enum(_) => {
                                 let file = self.ws.objects[f.declared_in.unwrap_or(oi)].file;
-                                self.calc_const(file, v, &f.ty).ok()
+                                let v = v.trim();
+                                let named = v
+                                    .strip_prefix('\'')
+                                    .and_then(|x| x.strip_suffix('\''))
+                                    .filter(|x| !x.contains('\''));
+                                match named {
+                                    // A member's name, in any case and with spaces around it
+                                    // (record/lt-y47-initvalue-quoted/Y47EnumInitQuoted.al, corpus branch
+                                    // al-runtime-rs-staging-y47). A number and an unknown name stay refused.
+                                    Some(n) => {
+                                        self.calc_const(file, &format!("\"{}\"", n.trim()), &f.ty)
+                                            .ok()
+                                            .filter(|c| {
+                                                matches!(c, ir::Const::Enum(e, o) if self.members[*e as usize]
+                                            .enum_values
+                                            .iter()
+                                            .any(|(v, name)| *v as i32 == *o && name.eq_ignore_ascii_case(n.trim())))
+                                            })
+                                    }
+                                    None => self.calc_const(file, v, &f.ty).ok(),
+                                }
                             }
                             _ => None,
                         })
