@@ -4,6 +4,22 @@
 use super::*;
 
 impl Session {
+    /// The checks of `record_op_inner` that refuse or fail an operation on one table before it runs.
+    pub(super) fn table_op_checks(
+        &mut self,
+        t: &TableDef,
+        rec: &Rec,
+        method: RecordOp,
+        args: &[Value],
+    ) -> Result<(), Signal> {
+        self.linked_object_check(t, rec, method)?;
+        self.crm_method_check(t, rec, method, args)?;
+        self.agent_task_check(t, rec, method)?;
+        self.mcp_configuration_delete_check(t, rec, method)?;
+        self.tenant_report_layout_check(t, rec, method)?;
+        self.tenant_layout_cfg_check(t, rec, method, args)
+    }
+
     /// The platform table Webhook Subscription (2000000199): an Insert stores a blank "Application ID" (field 7) as 'NAV'
     /// (corpus master onprem platform/lt-y35-stored-tables/Y35StoredTables.al C303_Webhook_RowsAndWrites, the rows read back).
     /// Another value AL set is not pinned: refused. What the variable holds afterwards is not pinned either: only the stored row changes.

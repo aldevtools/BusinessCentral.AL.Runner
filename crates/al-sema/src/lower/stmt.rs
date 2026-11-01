@@ -1493,26 +1493,8 @@ impl Lowerer<'_> {
         let place = self.place(&kids[0])?;
         let target_ty = self.ty_of(&kids[0]);
         self.refuse_label_ternary_into_variant(&target_ty, &kids[1])?;
-        let plain = !sig_tokens(n).into_iter().any(|t| {
-            matches!(
-                t.kind(),
-                SyntaxKind::PlusAssign | SyntaxKind::MinusAssign | SyntaxKind::StarAssign | SyntaxKind::SlashAssign
-            )
-        });
-        // A `[RunOnClient]` variable read into a service-tier DotNet variable (`run_on_client_value`). A Variant holds the client
-        // variable's null, which is a DotNet value (corpus master 92fdde19, onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:454-466
-        // `variant isdotnet=Yes`).
-        let rhs = match self.run_on_client_value(&kids[1]) {
-            Some(v) if plain && matches!(target_ty, Ty::DotNet(_)) => Ok(v),
-            Some(_) if plain && matches!(target_ty, Ty::Variant) => Ok(ir::Expr::DotNet {
-                ty: None,
-                receiver: None,
-                op: ir::DotNetOp::ClientNull,
-                args: Vec::new(),
-            }),
-            _ => self.expr(&kids[1]),
-        };
-        let rhs = rhs?;
+        let rhs = self.run_on_client_assigned(n, &target_ty, &kids[1]);
+        let rhs = rhs.map_or_else(|| self.expr(&kids[1]), Ok)?;
         let rhs = self.tdd_fit(&kids[0], &target_ty, rhs);
         let op = sig_tokens(n).into_iter().find(|t| {
             matches!(

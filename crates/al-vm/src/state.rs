@@ -312,6 +312,7 @@ pub(crate) struct VariableCulture {
 }
 
 /// The report being run: language, trigger flow, dataset.
+#[derive(Default)]
 pub(crate) struct ReportState {
     /// `Report.Run` on a variable: the variable gets a new instance when the run ends and the old one keeps its state for whoever holds it.
     pub(crate) rebind_after_run: bool,

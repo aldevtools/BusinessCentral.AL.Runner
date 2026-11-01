@@ -3372,12 +3372,7 @@ impl Session {
                 t.name
             ));
         }
-        self.linked_object_check(&t, rec, method)?;
-        self.crm_method_check(&t, rec, method, args)?;
-        self.agent_task_check(&t, rec, method)?;
-        self.mcp_configuration_delete_check(&t, rec, method)?;
-        self.tenant_report_layout_check(&t, rec, method)?;
-        self.tenant_layout_cfg_check(&t, rec, method, args)?;
+        self.table_op_checks(&t, rec, method, args)?;
         self.note_table(t.object, method.writes());
         if matches!(
             method,

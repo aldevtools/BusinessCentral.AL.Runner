@@ -429,29 +429,9 @@ impl Gate {
     /// The corpus guards that pin both sides.
     pub fn evidence(self) -> &'static [Evidence] {
         match self {
-            Gate::AutoFormatAmountFieldRoundsFrom28 => &[
-                Evidence {
-                    file: "types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al",
-                    lines: "684,697,749,762",
-                },
-                Evidence {
-                    file: "misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al",
-                    lines: "99,104,127,132,155,160,183,188",
-                },
-                // AutoFormatType 1, 4 and 5 without an expression, in StrSubstNo and Format (al-builtins format_auto_format_field).
-                Evidence {
-                    file: "misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al",
-                    lines: "193,199,204,216",
-                },
-            ],
-            Gate::DotNetRuntime10From29 => &[Evidence {
-                file: "../al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al",
-                lines: "443",
-            }],
-            Gate::ExceptionTraceValueTaskFrameFrom29 => &[Evidence {
-                file: "../al-language-onprem-dotnet/lt-az-dotnet/AzLastErrorObject.al",
-                lines: "212",
-            }],
+            Gate::AutoFormatAmountFieldRoundsFrom28
+            | Gate::DotNetRuntime10From29
+            | Gate::ExceptionTraceValueTaskFrameFrom29 => self.evidence_of_first_gates(),
             Gate::DocxMediaRezippedFrom29 => &[Evidence {
                 file: "../al-language-onprem/media/MediaFiles.al",
                 lines: "506,511",
@@ -1058,6 +1038,36 @@ impl Gate {
                     lines: "294,314",
                 },
             ],
+        }
+    }
+
+    /// The evidence of the first gates of `evidence` (split out to keep that function short).
+    fn evidence_of_first_gates(self) -> &'static [Evidence] {
+        match self {
+            Gate::AutoFormatAmountFieldRoundsFrom28 => &[
+                Evidence {
+                    file: "types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al",
+                    lines: "684,697,749,762",
+                },
+                Evidence {
+                    file: "misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al",
+                    lines: "99,104,127,132,155,160,183,188",
+                },
+                // AutoFormatType 1, 4 and 5 without an expression, in StrSubstNo and Format (al-builtins format_auto_format_field).
+                Evidence {
+                    file: "misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al",
+                    lines: "193,199,204,216",
+                },
+            ],
+            Gate::DotNetRuntime10From29 => &[Evidence {
+                file: "../al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al",
+                lines: "443",
+            }],
+            Gate::ExceptionTraceValueTaskFrameFrom29 => &[Evidence {
+                file: "../al-language-onprem-dotnet/lt-az-dotnet/AzLastErrorObject.al",
+                lines: "212",
+            }],
+            _ => unreachable!("evidence_of_first_gates of {self:?}"),
         }
     }
 }

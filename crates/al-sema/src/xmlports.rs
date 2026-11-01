@@ -205,10 +205,9 @@ pub fn layout(obj: &ast::Object) -> Layout {
             // An XmlPort marked obsolete with Pending still exports as before; the reason and the tag are compile-time notes
             // (misc/lt-u-obsolete-pending/UObsoleteObjects.al:221-240, UObsoletePending.al:103-140). Another state is not pinned.
             "obsoletestate" if value.trim().eq_ignore_ascii_case("pending") => {}
-            "obsoletereason" | "obsoletetag" => {}
-            // Export and Import never open the request page; for Xmlport.Run the property is not pinned (al-vm xmlports.rs
-            // refuses a Run of a port that declares it).
-            "userequestpage" => {}
+            // UseRequestPage: Export and Import never open the request page; for Xmlport.Run the property is not pinned (al-vm
+            // xmlports/run_request.rs refuses a Run of a port that declares it).
+            "obsoletereason" | "obsoletetag" | "userequestpage" => {}
             // xmlport/TestXmlPortTextFormatsContracts.al: VariableText and FixedText pin these; an Xml port's encoding is not pinned.
             "textencoding" if value.trim().eq_ignore_ascii_case("utf8") => out.utf8 = true,
             // Checked after the loop: MSDOS, WINDOWS and UTF16 are pinned for a VariableText export.
@@ -1102,37 +1101,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         nodes.push(node);
     }
     reasons.extend(layout.reasons.iter().cloned());
-    // Pinned: one declared namespace that a field element of the port uses (YXmlPortProps.al:
-    // NodeProperties_Export_NamesPrefixesAutoCalc); beside a used one or the empty prefix `""`, also a namespace no element uses:
-    // the root still declares it (xmlport/lt-bd-xmlport/BdXmlPort.al:407 `q`; xmlport/lt-y17-xmlport-ns/
-    // Y17XmlPortNamespacesTests.al:60 `u`). A prefix that is not declared, every namespace unused, and a prefix on an
-    // attribute alone are not pinned.
-    {
-        let used: Vec<&str> = nodes.iter().filter_map(|n| n.ns_prefix.as_deref()).collect();
-        let element_uses = |prefix: &str| {
-            nodes.iter().any(|n| {
-                matches!(
-                    n.kind,
-                    ir::XmlNodeKind::Field | ir::XmlNodeKind::Text | ir::XmlNodeKind::Table
-                ) && n.ns_prefix.as_deref() == Some(prefix)
-            })
-        };
-        let any_used = layout.namespaces.iter().any(|(p, _)| p.is_empty() || element_uses(p));
-        for (prefix, _) in &layout.namespaces {
-            if !any_used && !element_uses(prefix) {
-                run_reasons.push(format!(
-                    "xmlport namespace `{prefix}` that no field element uses (not pinned)"
-                ));
-            }
-        }
-        for u in used {
-            if !layout.namespaces.iter().any(|(p, _)| p == u) {
-                run_reasons.push(format!(
-                    "NamespacePrefix `{u}` is not a declared namespace (not pinned)"
-                ));
-            }
-        }
-    }
+    namespace_reasons(&layout, &nodes, &mut run_reasons);
     ir::XmlPort {
         direction: layout.direction,
         format: layout.format,
@@ -1164,6 +1133,38 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         // `xmlport-linked-max-unbounded`, `xmlport-root-min-occurs-once`); no layout rests on an assumption now.
         assumes: Vec::new(),
         request_page: layout.request_page,
+    }
+}
+
+/// Pinned: one declared namespace that a field element of the port uses (YXmlPortProps.al:
+/// NodeProperties_Export_NamesPrefixesAutoCalc); beside a used one or the empty prefix `""`, also a namespace no element uses:
+/// the root still declares it (xmlport/lt-bd-xmlport/BdXmlPort.al:407 `q`; xmlport/lt-y17-xmlport-ns/
+/// Y17XmlPortNamespacesTests.al:60 `u`). A prefix that is not declared, every namespace unused, and a prefix on an
+/// attribute alone are not pinned.
+fn namespace_reasons(layout: &Layout, nodes: &[ir::XmlNode], run_reasons: &mut Vec<String>) {
+    let used: Vec<&str> = nodes.iter().filter_map(|n| n.ns_prefix.as_deref()).collect();
+    let element_uses = |prefix: &str| {
+        nodes.iter().any(|n| {
+            matches!(
+                n.kind,
+                ir::XmlNodeKind::Field | ir::XmlNodeKind::Text | ir::XmlNodeKind::Table
+            ) && n.ns_prefix.as_deref() == Some(prefix)
+        })
+    };
+    let any_used = layout.namespaces.iter().any(|(p, _)| p.is_empty() || element_uses(p));
+    for (prefix, _) in &layout.namespaces {
+        if !any_used && !element_uses(prefix) {
+            run_reasons.push(format!(
+                "xmlport namespace `{prefix}` that no field element uses (not pinned)"
+            ));
+        }
+    }
+    for u in used {
+        if !layout.namespaces.iter().any(|(p, _)| p == u) {
+            run_reasons.push(format!(
+                "NamespacePrefix `{u}` is not a declared namespace (not pinned)"
+            ));
+        }
     }
 }
 

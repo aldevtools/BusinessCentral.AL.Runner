@@ -228,6 +228,61 @@ const TICKS_PER_DAY: i64 = 864_000_000_000;
 
 impl Session {
     /// A DotNet operation on evaluated operands (the bytecode's `DotNet` instruction).
+    /// What a DotNet member `member` of kind `kind` is called on: the declared type for a constructor and a static member, else
+    /// the object or the boxed primitive `recv` holds (see `dotnet_apply`).
+    fn dotnet_target(
+        &mut self,
+        kind: MemberKind,
+        recv: &Value,
+        decl: Option<&DotNetType>,
+        member: &str,
+    ) -> Result<Target, Signal> {
+        Ok(match (kind, recv) {
+            (MemberKind::Construct, _) => match decl {
+                Some(d) => Target::Static(d.clone()),
+                None => return unsupported("DotNet constructor without a declared type"),
+            },
+            (_, Value::DotNet(o)) => match &o.kind {
+                DotNetKind::Host { handle, clr_type } => Target::Host(*handle, clr_type.clone()),
+                DotNetKind::Internal { type_name, .. } => Target::Internal(o.clone(), type_name.clone()),
+                // An enum value is boxed for the call, as a primitive is: its members (`Equals`, `ToString`,
+                // the static members of its type) are .NET's
+                // (tests/al-language-onprem-dotnet/lt-dotnet-interop/XmlNodeTypeEquals.al, XmlNodeTypeFormat.al).
+                DotNetKind::Enum {
+                    clr_type,
+                    name,
+                    ordinal,
+                } => Target::Boxed(
+                    DotNetValue::Enum {
+                        ty: clr_type.clone(),
+                        name: name.clone(),
+                        ordinal: *ordinal,
+                    },
+                    clr_type.clone(),
+                ),
+            },
+            (_, Value::Null) => match decl {
+                Some(d) => Target::Static(d.clone()),
+                None => {
+                    return unsupported(format!(
+                        "DotNet member '{member}' on an unassigned DotNet value (the error BC raises is not pinned)"
+                    ));
+                }
+            },
+            // A primitive the variable holds (a `DotNet DateTime` that got a `DateTime`): the host boxes
+            // it for the call (ADR-024).
+            (_, other) => match boxed_clr_type(other) {
+                Some(t) => {
+                    let wire = self
+                        .value_to_wire(other, 0, &mut StreamBook::default())
+                        .map_err(|e| prefix(e, t))?;
+                    Target::Boxed(wire, t.to_string())
+                }
+                None => return unsupported(format!("DotNet member '{member}' on {}", other.describe())),
+            },
+        })
+    }
+
     pub(crate) fn dotnet_apply(
         &mut self,
         ty: Option<usize>,
@@ -283,50 +338,7 @@ impl Session {
         {
             return r;
         }
-        let target = match (kind, &recv) {
-            (MemberKind::Construct, _) => match &decl {
-                Some(d) => Target::Static(d.clone()),
-                None => return unsupported("DotNet constructor without a declared type"),
-            },
-            (_, Value::DotNet(o)) => match &o.kind {
-                DotNetKind::Host { handle, clr_type } => Target::Host(*handle, clr_type.clone()),
-                DotNetKind::Internal { type_name, .. } => Target::Internal(o.clone(), type_name.clone()),
-                // An enum value is boxed for the call, as a primitive is: its members (`Equals`, `ToString`,
-                // the static members of its type) are .NET's
-                // (tests/al-language-onprem-dotnet/lt-dotnet-interop/XmlNodeTypeEquals.al, XmlNodeTypeFormat.al).
-                DotNetKind::Enum {
-                    clr_type,
-                    name,
-                    ordinal,
-                } => Target::Boxed(
-                    DotNetValue::Enum {
-                        ty: clr_type.clone(),
-                        name: name.clone(),
-                        ordinal: *ordinal,
-                    },
-                    clr_type.clone(),
-                ),
-            },
-            (_, Value::Null) => match &decl {
-                Some(d) => Target::Static(d.clone()),
-                None => {
-                    return unsupported(format!(
-                        "DotNet member '{member}' on an unassigned DotNet value (the error BC raises is not pinned)"
-                    ));
-                }
-            },
-            // A primitive the variable holds (a `DotNet DateTime` that got a `DateTime`): the host boxes
-            // it for the call (ADR-024).
-            (_, other) => match boxed_clr_type(other) {
-                Some(t) => {
-                    let wire = self
-                        .value_to_wire(other, 0, &mut StreamBook::default())
-                        .map_err(|e| prefix(e, t))?;
-                    Target::Boxed(wire, t.to_string())
-                }
-                None => return unsupported(format!("DotNet member '{member}' on {}", other.describe())),
-            },
-        };
+        let target = self.dotnet_target(kind, &recv, decl.as_ref(), &member)?;
         let clr_type = match &target {
             Target::Static(d) => d.name.clone(),
             Target::Host(_, t) | Target::Internal(_, t) | Target::Boxed(_, t) => t.clone(),

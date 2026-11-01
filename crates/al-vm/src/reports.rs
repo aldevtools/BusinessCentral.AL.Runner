@@ -530,23 +530,7 @@ impl Session {
             }
             ids::REPORT_RUN_1 | ids::REPORT_RUNMODAL_1 => {
                 let (inst, quit) = self.report_instance(receiver, true)?;
-                // A RunModal of the instance that is running now (the bare `RunModal()` in a procedure its OnPreReport calls)
-                // raises the error and runs nothing; the run goes on (report/lt-y40-bare-report-run/Y40BareReportRun.al:362,
-                // Y40_BareRunModal_InsidePreReport, corpus master ac3499d6). A Run there is not pinned.
-                if self
-                    .report
-                    .report_running
-                    .iter()
-                    .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)))
-                {
-                    if id == ids::REPORT_RUN_1 {
-                        return unsupported("Report.Run of the report instance that is running (not pinned)");
-                    }
-                    return Err(crate::transactions::al_error_code(
-                        "The object has been run. Use the function CLEAR(Report).",
-                        "ObjectHasAlreadyBeenRun",
-                    ));
-                }
+                self.run_of_running_instance(id, &inst)?;
                 // An instance that already ran (one a variable gave up after its Run) cannot run again, and the attempt resets it
                 // (report/lt-report-this-passed-on/P141ThisStored.al:P141_StoredAfterRun_RunAgain: the error, then a blank marker).
                 if id == ids::REPORT_RUN_1
@@ -5081,3 +5065,4 @@ fn header_extension_name(name: &str, publisher: &str) -> String {
 #[cfg(test)]
 mod header_tests;
 mod request_caption;
+mod running;

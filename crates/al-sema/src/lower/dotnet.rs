@@ -140,6 +140,32 @@ impl Lowerer<'_> {
             .then(|| format!("variable `{name}` has the attribute RunOnClient, which is not supported"))
     }
 
+    /// A `[RunOnClient]` variable read by a plain `:=` (the assignment `n`) into a service-tier DotNet variable (`run_on_client_value`). A Variant
+    /// holds the client variable's null, which is a DotNet value (corpus master 92fdde19, onprem-dotnet/lt-bg-runonclient/
+    /// BgRunOnClient.al:454-466 `variant isdotnet=Yes`). `None` for any other assignment.
+    pub(crate) fn run_on_client_assigned(&self, n: &SyntaxNode, target: &Ty, rhs: &SyntaxNode) -> Option<ir::Expr> {
+        let compound = sig_tokens(n).into_iter().any(|t| {
+            matches!(
+                t.kind(),
+                SyntaxKind::PlusAssign | SyntaxKind::MinusAssign | SyntaxKind::StarAssign | SyntaxKind::SlashAssign
+            )
+        });
+        if compound {
+            return None;
+        }
+        let v = self.run_on_client_value(rhs)?;
+        match target {
+            Ty::DotNet(_) => Some(v),
+            Ty::Variant => Some(ir::Expr::DotNet {
+                ty: None,
+                receiver: None,
+                op: ir::DotNetOp::ClientNull,
+                args: Vec::new(),
+            }),
+            _ => None,
+        }
+    }
+
     /// A `[RunOnClient]` variable handed to a DotNet parameter. To a `var` parameter, the parameter stands for the client
     /// variable, so a call on it runs on the client (corpus master 92fdde19, onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:
     /// 282-302 Y16_RunOnClient_CreateThroughVarParameter; :264-280 for the Camera page's OnOpen). Nothing comes back: the
