@@ -63,13 +63,13 @@ impl Session {
 
     /// SetValue on a control bound to a page variable saves the row the page holds an edit of first, then validates (inside the
     /// repeater on a page that has one); a control bound to a field of Rec saves nothing (al-runner issue 6629; corpus pages/lt-y45-save-before-action/
-    /// Y45SaveBeforeAction.al NextField_* of corpus writer Y55, branch al-runtime-rs-staging-y55 813f0efc, measured on BC 27.5, 28.5, 29.0: :2051 NextField_Worksheet_NameThenPageVar
+    /// Y45SaveBeforeAction.al NextField_*, pinned since corpus 2c42c8aa, the same on BC 27.5, 28.5, 29.0: :2051 NextField_Worksheet_NameThenPageVar
     /// `set act` `pM new/old db=old/1;eBM new t=Yes db=old/1;tM new/old db=old/1;eAM db=new/1;pvAct rec=new/1 db=new/1`, the
     /// same on a Card :2206, a List :2356, a Document header :2445 and after GoToRecord :2534; :2085 NameThenRecField `set qty`
     /// `vQty 5;pvQty 5 db=old/1`). A new row is inserted first (:2603 NextField_Card_New_CodePageVarName `pI N1 ;eBI N1
     /// t=Yes;tI N1  db=none;pvAct rec=/0 db=/0`), a part saves its own line (:2704 NextField_Part_DescThenPageVar `lpM new/a
     /// db=a/1;lM new/a db=a/1;lpvAct rec=new/1 db=new/1 head=old/1`, :2883 NextField_Part_New_DescThenPageVar `lpI 30000 x;lI
-    /// 30000 x db=none;lpvAct`). The probe is not on the pinned corpus yet (assumption page-var-validate-saves-row-first).
+    /// 30000 x db=none;lpvAct`).
     pub(super) fn save_before_page_var_validate(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
         let engine = self.engine();
         if !matches!(
@@ -95,7 +95,6 @@ impl Session {
         if !open || !dirty || !row || !self.has_source(st) {
             return Ok(());
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageVarValidateSavesRowFirst);
         if draft {
             let object = st.borrow().object as usize;
             let delayed = engine.program.objects[object]
