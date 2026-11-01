@@ -23,7 +23,9 @@ impl Session {
             }
             if s.cursor == Cursor::None {
                 if part {
-                    return unsupported("the caption of a list part with DataCaptionExpression and no row (not pinned)");
+                    return unsupported(
+                        "the caption of a list part with DataCaptionExpression and no row (not pinned)",
+                    );
                 }
                 return Ok(base);
             }
@@ -31,7 +33,9 @@ impl Session {
         let value = self.data_caption_expression_value(st)?;
         if value.is_empty() {
             if part {
-                return unsupported("the caption of a list part with DataCaptionExpression whose value is empty (not pinned)");
+                return unsupported(
+                    "the caption of a list part with DataCaptionExpression whose value is empty (not pinned)",
+                );
             }
             return Ok(base);
         }

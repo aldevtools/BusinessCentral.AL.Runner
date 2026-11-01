@@ -386,8 +386,10 @@ impl Session {
     /// G520_NoNewLine_EmptyView_ToBatchWithRows `open` = `/:N:B3/0 below=Yes;C:B3/0`). A List and a tree are not pinned.
     fn empty_worksheet_without_insert(&self, st: &St) -> bool {
         let object = st.borrow().object as usize;
-        matches!(self.engine.object_facts[object].page_type, Some(al_ir::PageType::Worksheet))
-            && self.tree_indentation(st).is_none()
+        matches!(
+            self.engine.object_facts[object].page_type,
+            Some(al_ir::PageType::Worksheet)
+        ) && self.tree_indentation(st).is_none()
             && flag_denied(&self.engine(), object, "InsertAllowed").unwrap_or(false)
     }
 

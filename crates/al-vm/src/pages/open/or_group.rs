@@ -7,7 +7,11 @@ impl Session {
     /// without them; its marks and MarkedOnly stay (pages/lt-y50-or-group-page-rec/Y50OrGroupPageRec.al:432
     /// G521_PageRunRec_OrMarks `open g0=Marked: Yes gm1=Marked: Yes`, :521 G521_SetTableView_GroupMinus1Current_Lookup `open g0=
     /// gm1= n=5`: the page shows every row).
-    pub(super) fn drop_handed_or_group(&mut self, st: &St) {
+    pub(super) fn drop_handed_or_group(&mut self, st: &St, has_source: bool) {
+        st.borrow_mut().or_group_handed = false;
+        if !has_source {
+            return;
+        }
         let rec = self.page_rec(st);
         let before = rec.borrow().filters.len();
         rec.borrow_mut()
@@ -39,5 +43,14 @@ impl Session {
         let rec = self.page_rec(st);
         let r = rec.borrow();
         r.marked_only || r.marks.is_empty()
+    }
+
+    /// After OnOpenPage: the FilterGroup(-1) filters it left go (`drop_or_group`), then a tree's cut (`apply_tree_cut`).
+    pub(super) fn cut_rec_after_onopenpage(&mut self, st: &St, has_source: bool) -> Result<(), Signal> {
+        if has_source {
+            self.drop_or_group(st)?;
+            self.apply_tree_cut(st)?;
+        }
+        Ok(())
     }
 }

@@ -73,5 +73,8 @@ codeunit 50313 "UNR Test"
 
 #[test]
 fn update_without_argument_on_a_page_variable_that_never_ran() {
-    assert_eq!(text(al_testkit::run_in(SRC, "UNR Test", "Run")), "after hello|after Id: 2|done");
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "UNR Test", "Run")),
+        "after hello|after Id: 2|done"
+    );
 }

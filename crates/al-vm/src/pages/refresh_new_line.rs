@@ -30,7 +30,6 @@ impl Session {
                 s.placeholder_line = false;
                 Ok(Some(true))
             }
-            _ => Ok(None),
         }
     }
 

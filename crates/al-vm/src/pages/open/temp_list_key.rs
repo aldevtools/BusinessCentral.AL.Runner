@@ -32,15 +32,14 @@ impl Session {
     /// A tree Worksheet (`temp_tree_worksheet_in_key`) is pinned on a row its Rec's primary key has only.
     pub(super) fn temp_list_key_open(&mut self, st: &St) -> Result<TempListKeyOpen, Signal> {
         let tree_ws = self.temp_tree_worksheet_in_key(st);
-        let pinned = tree_ws
-            || {
-                let s = st.borrow();
-                !s.modal && !s.lookup && s.host.is_none()
-            } && matches!(
-                self.engine.object_facts[st.borrow().object as usize].page_type,
-                Some(al_ir::PageType::List)
-            ) && !self.declares(st, "onfindrecord")
-                && !self.declares(st, "onnextrecord");
+        let pinned = tree_ws || {
+            let s = st.borrow();
+            !s.modal && !s.lookup && s.host.is_none()
+        } && matches!(
+            self.engine.object_facts[st.borrow().object as usize].page_type,
+            Some(al_ir::PageType::List)
+        ) && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord");
         if !pinned {
             return unsupported(
                 "a list over a temporary source opened without a record whose OnOpenPage changed its key and left Rec on a row other than the first of its view (not pinned)",
@@ -49,7 +48,10 @@ impl Session {
         let rec = self.page_rec(st);
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         self.ret_used = true;
-        let has_rows = matches!(self.record_op(RecordOp::FindFirst, &probe, &mut [])?, Value::Boolean(true));
+        let has_rows = matches!(
+            self.record_op(RecordOp::FindFirst, &probe, &mut [])?,
+            Value::Boolean(true)
+        );
         let mut pk = self.row_key(&rec)?;
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         self.ret_used = true;
@@ -99,7 +101,10 @@ impl Session {
                 self.engine.object_facts[s.object as usize].page_type,
                 Some(al_ir::PageType::Worksheet)
             )
-            && { drop(s); self.tree_indentation(st).is_some() }
+            && {
+                drop(s);
+                self.tree_indentation(st).is_some()
+            }
             && !self.declares(st, "onfindrecord")
             && !self.declares(st, "onnextrecord")
     }

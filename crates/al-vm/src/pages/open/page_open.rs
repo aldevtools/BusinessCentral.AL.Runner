@@ -282,7 +282,6 @@ impl Session {
             }
             s.opening = true;
             s.or_group_dropped = false;
-            s.or_group_handed = false;
             s.unpinned_filter_fields = Vec::new();
             s.placeholder_line = false;
             s.gone_blank_no_new_line = false;
@@ -499,9 +498,7 @@ impl Session {
                 }
             }
             self.pages.run_page_link_open_moved = false;
-            if has_source {
-                self.drop_handed_or_group(st);
-            }
+            self.drop_handed_or_group(st, has_source);
             let opened = self.page_trigger(st, "onopenpage", vec![]);
             st.borrow_mut().opening = false;
             st.borrow_mut().run_page_link_open_moved = std::mem::take(&mut self.pages.run_page_link_open_moved);
@@ -526,10 +523,7 @@ impl Session {
                 st.borrow_mut().onopenpage_kept_rec = kept;
             }
             self.page_event(st, "onopenpageevent", None, None)?;
-            if has_source {
-                self.drop_or_group(st)?;
-                self.apply_tree_cut(st)?;
-            }
+            self.cut_rec_after_onopenpage(st, has_source)?;
             if unattended {
                 return Ok(());
             }
