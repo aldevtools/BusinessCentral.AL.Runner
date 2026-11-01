@@ -120,9 +120,9 @@ fn a_negative_capacity_raises() {
 }
 
 #[test]
-fn a_key_that_is_not_an_integer_is_refused() {
-    // Only boxed Int32 keys are pinned: how other kinds compare is not.
-    let r = run("D := D.Dictionary(1); D.Add('k', 'x'); exit('');");
+fn a_key_that_is_not_an_integer_or_a_text_is_refused() {
+    // Only boxed Int32 and String keys are pinned (Y51DotNetDictNoCap.al): how other kinds compare is not.
+    let r = run("D := D.Dictionary(1); D.Add(1.5, 'x'); exit('');");
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
@@ -133,14 +133,14 @@ fn a_value_that_is_not_a_text_is_refused() {
 }
 
 #[test]
-fn add_to_a_dictionary_without_a_capacity_is_refused() {
-    // Only the capacity constructor is pinned with entries (Y17DotNetDictionary.al:36).
-    let r = run("D := D.Dictionary(); D.Add(1, 'x'); exit('');");
-    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+fn a_dictionary_without_a_capacity_fills_the_same() {
+    // Y51DotNetDictNoCap.al:DnDictNoCap_IntegerKeys.
+    let r = run("D := D.Dictionary(); D.Add(1, 'x'); exit(Format(D.Count));");
+    assert_eq!(text(r), "1");
 }
 
 #[test]
 fn a_member_that_is_not_pinned_is_refused() {
-    let r = run("D := D.Dictionary(1); D.Remove(1); exit('');");
+    let r = run("D := D.Dictionary(1); D.Clear(); exit('');");
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
