@@ -483,29 +483,6 @@ impl Session {
         r
     }
 
-    /// How many times each CaptionClass expression of `t` runs with an empty record when page `st` opens, where writer SX
-    /// pinned it (SxCaptionClassCount.al:190-369): a Card or a List of its own (no host, not modal) opened with OpenView or
-    /// OpenEdit, over a table with one expression field (Card 8, List 7) or two whose expressions are the same text
-    /// (Card 18, List 16 in all: 9 and 8 for each; with the same expression which field ran is not observable).
-    /// `None` for any other shape: three or more fields do not follow from these counts (two fields are not twice one).
-    fn caption_empty_runs_pinned(&self, st: &St, exprs: &[(usize, String)]) -> Option<usize> {
-        use al_ir::PageType;
-        let s = st.borrow();
-        if s.host.is_some() || s.modal || !matches!(s.mode, PageMode::View | PageMode::Edit) {
-            return None;
-        }
-        let card = match self.engine.object_facts[s.object as usize].page_type.as_ref() {
-            Some(PageType::Card) => true,
-            Some(PageType::List) => false,
-            _ => return None,
-        };
-        match exprs {
-            [_] => Some(if card { 8 } else { 7 }),
-            [(_, ea), (_, eb)] if ea.trim() == eb.trim() => Some(if card { 9 } else { 8 }),
-            _ => None,
-        }
-    }
-
     /// Why the empty-record runs of a page open are refused: the CaptionClass expression of a field of `t` can leave
     /// something behind (`Engine::lasting_effect`), so how many times BC runs it, which is not pinned, can be read later.
     /// Writes only to variables of SingleInstance codeunits are kept (`effects::Effect::Kept`): refusing them costs
@@ -538,6 +515,8 @@ impl Session {
         match (page_type(st), host) {
             // A Card opened with OpenEdit too (QdCaptionClassAreas.al:1110-1137 QO_Card_OpenEdit, corpus bump 45).
             (Some(PageType::Card), None) => matches!(mode, PageMode::View | PageMode::Edit),
+            // A Worksheet as a List (`caption_runs_like`).
+            (Some(PageType::Worksheet), None) => self.caption_runs_like(st).is_some(),
             // A Document page and its ListPart opened with OpenEdit or OpenNew (QdCaptionClassAreas.al:958-1110, corpus bump 45).
             // OpenView too (QdCaptionClassAreas.al:1866-1894 SI_Doc_OpenView_GoToKey `open`).
             (Some(PageType::Document), None) => matches!(mode, PageMode::View | PageMode::Edit | PageMode::New),
@@ -1998,7 +1977,7 @@ impl Session {
                     "{how}() on a list whose open read stepped back from a full first window over the rows above it (not pinned)"
                 ));
             }
-        } else if st.borrow().window.len() > Self::WINDOW && !st.borrow().window_whole && !st.borrow().window_read_up {
+        } else if self.window_past_first_block_unpinned(st, how)? {
             return Ok(None);
         }
         if st.borrow().window_read_up && find_page && st.borrow().host.is_none() {
@@ -2853,7 +2832,7 @@ impl Session {
             }
             return Ok(Value::Boolean(found));
         }
-        if let Some(found) = self.go_to_key_current_only(st, &want)? {
+        if let Some(found) = self.go_to_key_current_only(st, &want, result_used)? {
             return Ok(Value::Boolean(found));
         }
         if let Some(found) = self.go_to_key_in_client_rows(st, &want)? {

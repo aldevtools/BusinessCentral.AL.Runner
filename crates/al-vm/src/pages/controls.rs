@@ -1800,7 +1800,8 @@ impl Session {
             },
             PageMethod::Visible => Ok(Value::Boolean(self.control_visible(st, idx)?)),
             PageMethod::Invoke => self.action_invoke(st, idx),
-            PageMethod::DrillDown | PageMethod::AssistEdit | PageMethod::Lookup => self.control_navigate(st, idx, m),
+            PageMethod::DrillDown => self.drill_down_on_denied_modify(st, idx),
+            PageMethod::AssistEdit | PageMethod::Lookup => self.control_navigate(st, idx, m),
             // SetValue on a field of a cuegroup does nothing and raises nothing
             // (handlers/TestPageCueGroupFixedGridContracts.al:CueGroup_SetValue_IsSilentlyIgnored).
             PageMethod::SetValue if self.in_cue_group(st, idx) => Ok(Value::Null),

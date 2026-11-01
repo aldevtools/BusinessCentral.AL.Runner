@@ -86,6 +86,12 @@ impl Session {
                 // RPL_List_FlowFilterLink `cf=P1 hostcount=1`), and a temporary Rec inserts a row, also one outside the link
                 // (:476 RPL_TempList_InsertInOpen `insert blank=Yes`, then `count=1` inside the link), with Init between the inserts.
                 RecordOp::CalcFields => true,
+                // Rec answers the link filter like any record: HasFilter, GetView, and CopyFilter of the linked field or of a FlowFilter
+                // (the target's own filter is replaced, by nothing for a FlowFilter the link does not set), also through a var parameter
+                // of a part's procedure (pages/lt-y61-page-probes/Y61RunPageLinkCopyFilter.al:302 G616_CopyFilter_LinkedField_ToOther
+                // `after=P1`, :315 _FlowFilterNotLinked_ToOther `after= hasfilter=No`, :328 G616_PartUpdateForm_VarRec, :394
+                // `hasfilter=Yes;...;view=VERSION(1) SORTING(Field1) WHERE(Field1=1(P1))`, :407 G616_FlowFilterLink_CopyFilter).
+                RecordOp::HasFilter | RecordOp::GetView | RecordOp::CopyFilter => true,
                 RecordOp::Insert | RecordOp::Init => rec.borrow().temporary && args.is_empty(),
                 _ => false,
             };
