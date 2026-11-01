@@ -61,6 +61,7 @@ mod single_instance_test_codeunit;
 mod start_session_record;
 mod testfilter_qualified_field;
 mod testpage_close_at_test_end;
+mod testpage_close_query_close_unhandled;
 mod timeout_after_refused_test;
 mod translated_reads;
 mod unknown_reach_reason_stable;
