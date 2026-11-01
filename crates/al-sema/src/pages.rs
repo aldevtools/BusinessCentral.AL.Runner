@@ -884,10 +884,18 @@ fn implicit_promoted_category(kind: &str, target: &str) -> Option<Option<al_buil
     if kind == "addafter" && ["category_new", "category_report"].contains(&lower.as_str()) {
         return Some(None);
     }
-    (["category_category7", "category_category12", "category_new"].contains(&lower.as_str())
-        && ["addafter", "addlast"].contains(&kind))
-    // Pinned by pages/lt-up-page-ext/UpPromotedCategories.al (was assumption `pageext-implicit-promoted-category`).
-    .then_some(None)
+    if !["addafter", "addlast"].contains(&kind) {
+        return None;
+    }
+    // Pinned by pages/lt-up-page-ext/UpPromotedCategories.al (was assumption `pageext-implicit-promoted-category`) for
+    // `Category_New`, `Category_Category7` and `Category_Category12`. Every other group from 4 to 20 is the same implicit group
+    // (`promoted.rs`), on an assumption until its run is pinned.
+    if ["category_new", "category_category7", "category_category12"].contains(&lower.as_str()) {
+        return Some(None);
+    }
+    promoted::numbered_category(target).then_some(Some(
+        al_builtins::assumptions::Assumption::PageextImplicitPromotedAnchors,
+    ))
 }
 
 /// A standard promoted category name (`Category_New`, `Category_Process`, `Category_Report`, `Category_CategoryN`) whose
@@ -1426,10 +1434,19 @@ impl Tree {
             } else {
                 implicit_promoted_category(&kind, &target)
             };
+            // `modify` of an implicit group, and `addafter`/`addbefore` of the implicit actionref of a legacy promoted action
+            // (al-runner issues 6646, 6647; `promoted.rs`).
+            let implicit =
+                (kind == "modify" && promoted::numbered_category(&target) && promoted::inert_group_modify(&op.section))
+                    || (["addafter", "addbefore"].contains(&kind.as_str()) && self.legacy_promoted_ref(&target));
             if op.in_actions
-                && (process_after || legacy || added_into || other.is_some())
+                && (process_after || legacy || added_into || implicit || other.is_some())
                 && self.find_node(&target).is_none()
             {
+                if implicit {
+                    self.assumes
+                        .push(al_builtins::assumptions::Assumption::PageextImplicitPromotedAnchors);
+                }
                 // `added_into`: pinned by pageext/lt-ue-pageext-leads/UePromotedTests.al (was assumption `pageext-implicit-promoted`).
                 if let Some(Some(a)) = other {
                     self.assumes.push(a);
@@ -1459,6 +1476,12 @@ impl Tree {
                 self.areas[promoted].children.push(idx);
             }
         }
+        let refused: Vec<String> = pending
+            .iter()
+            .filter_map(|op| self.unpinned_anchor_modify(op))
+            .collect();
+        pending.retain(|op| self.unpinned_anchor_modify(op).is_none());
+        self.reasons.extend(refused);
         loop {
             let before = pending.len();
             let mut later = Vec::new();
@@ -1834,6 +1857,8 @@ pub fn control_expr_text(value: &str, page_id: u32, globals: &[String], fields: 
     };
     (i == toks.len()).then_some(text)
 }
+
+mod promoted;
 
 #[cfg(test)]
 mod tests {
@@ -2223,9 +2248,9 @@ mod tests {
         let l = merged(base, &[ext]);
         assert!(l.reasons.is_empty(), "{:?}", l.reasons);
         assert_eq!(names(&l), ["A", "Act", "Act_Promoted"]);
-        // Other categories and positions are not pinned, and a name that is no category (alc: AL0271, must-not-compile 2290):
-        // refused.
-        for anchor in ["Category_Category5", "Category_Category21", "NoSuchGroup"] {
+        // Every group from 4 to 20 is implicit (al-runner issue 6646). A name that is no such group (alc: AL0271, must-not-compile
+        // 2290; corpus writer Y64's compile facts for 1 to 3 and 21): refused.
+        for anchor in ["Category_Category3", "Category_Category21", "NoSuchGroup"] {
             let ext = format!(
                 "pageextension 50101 E extends P {{ actions {{ addlast({anchor}) {{ actionref(Act_Promoted; Act) {{ }} }} }} }}"
             );

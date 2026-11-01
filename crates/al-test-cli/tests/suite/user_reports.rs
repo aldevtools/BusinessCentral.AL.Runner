@@ -2243,14 +2243,11 @@ fn issue_6217_extension_adds_after_an_undeclared_promoted_category() {
     }
 }
 
-/// Issue 6217: the forms corpus PR 808 does not pin (another category, addbefore/addfirst) stay refused as not pinned.
+/// Issue 6217: the forms corpus PR 808 does not pin (addbefore/addfirst) stay refused as not pinned. Another numbered group from
+/// 4 to 20 is the same implicit group (al-runner issue 6646, tests/suite/pageext_implicit_promoted.rs).
 #[test]
 fn issue_6217_unpinned_promoted_category_forms_stay_refused() {
-    for anchor in [
-        "addbefore(Category_Category7)",
-        "addfirst(Category_Category7)",
-        "addafter(Category_Category5)",
-    ] {
+    for anchor in ["addbefore(Category_Category7)", "addfirst(Category_Category7)"] {
         let results = run_with_deps(&[], &issue_6217_objects(anchor));
         assert!(
             matches!(&results[..], [(_, Outcome::NotRun(why))] if why.contains("not pinned")),
