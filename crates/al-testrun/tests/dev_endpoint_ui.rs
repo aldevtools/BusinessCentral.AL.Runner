@@ -141,65 +141,65 @@ codeunit 50960 "Dev Endpoint UI"
     var
         Log: Codeunit "Dev Endpoint Log";
 
-    // The shapes of the corpus probe Y53DevRunnerProbe.al (codeunit 97530), measured through the dev endpoint
+    // The shapes of UiHandlerModes.al:129-144 (corpus branch al-runtime-rs-staging-y53), measured through the dev endpoint
     // (TestRunnerHub) on a BC 28.5 container: the call returns at once with the value below.
     [Test]
-    procedure Confirm_NoDefault()
+    procedure()
     begin
         if Confirm('Go on?') then Error('Confirm(Q) answered Yes');
     end;
 
     [Test]
-    procedure Confirm_DefaultTrue()
+    procedure()
     begin
         if not Confirm('Go on?', true) then Error('Confirm(Q, true) answered No');
     end;
 
     [Test]
-    procedure Confirm_DefaultFalse()
+    procedure()
     begin
         if Confirm('Go on?', false) then Error('Confirm(Q, false) answered Yes');
     end;
 
     [Test]
-    procedure StrMenu_Default2()
+    procedure()
     begin
         if StrMenu('Alpha,Beta,Gamma', 2, 'Pick') <> 2 then Error('StrMenu default 2 did not answer 2');
     end;
 
     [Test]
-    procedure StrMenu_NoDefault()
+    procedure()
     begin
         if StrMenu('Alpha,Beta,Gamma') <> 1 then Error('StrMenu without a default did not answer 1');
     end;
 
     [Test]
-    procedure StrMenu_DefaultZero()
+    procedure()
     begin
         StrMenu('Alpha,Beta,Gamma', 0);
     end;
 
     [Test]
-    procedure Message_NoHandler()
+    procedure()
     begin
         Message('Done %1', 7);
     end;
 
     [Test]
-    procedure Hyperlink_NoHandler()
+    procedure()
     begin
         Hyperlink('https://example.invalid/y53');
     end;
 
     [Test]
     [HandlerFunctions('UnusedConfirm')]
-    procedure DeclaredHandler_NotUsed()
+    procedure()
     begin
     end;
 
     [Test]
     [HandlerFunctions('ConfirmYes')]
-    procedure Confirm_HandlerStillAnswers()
+    procedure()
     begin
         if not Confirm('Handled?', false) then Error('the bound handler did not answer');
     end;
@@ -216,7 +216,7 @@ codeunit 50960 "Dev Endpoint UI"
     end;
 
     [Test]
-    procedure PageRunModal_NoHandler()
+    procedure()
     begin
         Log.Clear();
         if Page.RunModal(Page::"Dev Endpoint Card") <> Action::None then Error('RunModal did not answer None');
@@ -224,7 +224,7 @@ codeunit 50960 "Dev Endpoint UI"
     end;
 
     [Test]
-    procedure PageRun_NoHandler()
+    procedure()
     begin
         Log.Clear();
         Page.Run(Page::"Dev Endpoint Card");
@@ -232,13 +232,13 @@ codeunit 50960 "Dev Endpoint UI"
     end;
 
     [Test]
-    procedure PageRunModal_OnInitPage()
+    procedure()
     begin
         Page.RunModal(Page::"Dev Endpoint Init Card");
     end;
 
     [Test]
-    procedure ReportRunModal_RequestPage_NoHandler()
+    procedure()
     var
         Row: Record "Dev Endpoint Row";
     begin
@@ -335,7 +335,7 @@ fn off_a_ui_call_without_a_handler_fails() {
     }
 }
 
-/// Confirm answers its default; an omitted default is No (Y53DevRunnerProbe.al Confirm_*_NoHandler, BC 28.5 dev endpoint).
+/// Confirm answers its default; an omitted default is No (UiHandlerModes.al:129-144, BC 28.5 dev endpoint).
 #[test]
 fn confirm_answers_its_default() {
     let rt = run(true);
@@ -344,7 +344,7 @@ fn confirm_answers_its_default() {
     assert_eq!(answered(&rt, "Confirm_DefaultFalse"), vec!["Confirm Go on?: false"]);
 }
 
-/// StrMenu answers its default, 1 when omitted (Y53DevRunnerProbe.al StrMenu_*_NoHandler). Default 0 was not measured.
+/// StrMenu answers its default, 1 when omitted (UiHandlerModes.al:129-144). Default 0 was not measured.
 #[test]
 fn strmenu_answers_its_default() {
     let rt = run(true);
@@ -358,7 +358,7 @@ fn strmenu_answers_its_default() {
     );
 }
 
-/// Message and Hyperlink return and the code goes on (Y53DevRunnerProbe.al Message_NoHandler, Hyperlink_NoHandler).
+/// Message and Hyperlink return and the code goes on (UiHandlerModes.al:129-144).
 #[test]
 fn message_and_hyperlink_go_on() {
     let rt = run(true);
@@ -369,8 +369,8 @@ fn message_and_hyperlink_go_on() {
     );
 }
 
-/// Page.RunModal(Id) answers Action::None and Page.Run(Id) returns, and no page trigger runs (Y53DevRunnerProbe.al
-/// PageRunModal_NoHandler, PageRun_NoHandler). A page with an OnInit trigger was not measured.
+/// Page.RunModal(Id) answers Action::None and Page.Run(Id) returns, and no page trigger runs (UiHandlerModes.al:129-144
+///). A page with an OnInit trigger was not measured.
 #[test]
 fn a_static_page_run_answers_without_opening_the_page() {
     let rt = run(true);
@@ -387,7 +387,7 @@ fn a_static_page_run_answers_without_opening_the_page() {
     );
 }
 
-/// Report.RunModal skips the request page and runs the report (Y53DevRunnerProbe.al ReportRunModal_RequestPage_NoHandler).
+/// Report.RunModal skips the request page and runs the report (UiHandlerModes.al:129-144).
 #[test]
 fn a_report_run_modal_skips_its_request_page() {
     let rt = run(true);
@@ -405,7 +405,7 @@ fn a_report_run_modal_skips_its_request_page() {
 }
 
 /// A declared handler that never ran still fails the test, and a bound handler still answers
-/// (Y53DevRunnerProbe.al DeclaredHandler_NotUsed, Confirm_DefaultFalse_HandlerAnswersYes).
+/// (UiHandlerModes.al:129-144).
 #[test]
 fn handlers_keep_their_rules() {
     let (off, on) = (run(false), run(true));

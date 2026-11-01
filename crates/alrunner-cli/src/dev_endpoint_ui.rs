@@ -5,7 +5,7 @@ use al_testrun::runtime::TestResult;
 
 /// Whether the session answers unhandled UI on BC `major` when `--dev-endpoint-ui` is given (`on`). Measured through
 /// the dev endpoint (TestRunnerHub) on Windows containers by the corpus probe
-/// handlers/lt-y53-dev-endpoint-runner/Y53DevRunnerProbe.al: BC 27.5 fails each UI call without a handler with
+/// handlers/lt-ui-handler-modes/UiHandlerModes.al:129-144 (corpus branch al-runtime-rs-staging-y53): BC 27.5 fails each UI call without a handler with
 /// "Unhandled UI" as Microsoft's Test Runner app does, so the flag changes nothing there (with a note on stderr); BC 28.5
 /// answers it (`al_vm` `dev_endpoint_ui.rs`). Any other major is not measured, and the flag is refused there.
 pub fn for_major(on: bool, major: u16) -> Result<bool, String> {

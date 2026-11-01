@@ -1,15 +1,15 @@
 //! `--dev-endpoint-ui` (al-runner issue 3697) for `Page.Run(Id)` and `Page.RunModal(Id)` with no handler bound.
 //!
-//! Measured through the dev endpoint (TestRunnerHub) on a BC 28.5 container by the corpus probe
-//! handlers/lt-y53-dev-endpoint-runner/Y53DevRunnerProbe.al (codeunit 97530, page 97532: a card with no source table,
-//! no OnInit and no part): PageRunModal_NoHandler returns `Action::None` and PageRun_NoHandler returns, and neither runs
-//! a page trigger (OnOpenPage, OnQueryClosePage, OnClosePage). Only that shape is answered: a record argument, a source
-//! table, an OnInit trigger (page or extension), a part, a pending Trap() or a handler of the kind bound for any page
-//! leave the call as it is without the flag.
+//! Measured through the dev endpoint (TestRunnerHub) on a BC 28.5 container (corpus branch al-runtime-rs-staging-y53,
+//! handlers/lt-ui-handler-modes/UiHandlerModes.al:138-139, DevEndpointTestRunner_MeasuredValues), on a card with no
+//! source table, no OnInit and no part: `Page.RunModal(Id)` returns `Action::None`, `Page.Run(Id)` returns, and neither
+//! runs a page trigger (OnOpenPage, OnQueryClosePage, OnClosePage). Only that shape is answered: a record argument, a
+//! source table, an OnInit trigger (page or extension), a part, a pending Trap() or a handler of the kind bound for any
+//! page leave the call as it is without the flag.
 //!
-//! The same probe's ReportRunModal_RequestPage_NoHandler (report 97533: processing only, one Integer data item, a request
-//! page with a field, OnOpenPage and OnQueryClosePage, no OnInit, no part) skips the request page (none of
-//! its triggers runs) and runs the report: OnInitReport, OnPreReport, OnAfterGetRecord, OnPostReport.
+//! The same lines (:140), on a processing-only report with one data item and a request page with a field, OnOpenPage
+//! and OnQueryClosePage, no OnInit and no part: `Report.RunModal` skips the request page (none of its triggers runs) and
+//! runs the report: OnInitReport, OnPreReport, OnAfterGetRecord, OnPostReport.
 use super::{St, page_of};
 use crate::Session;
 use crate::ui::UiKind;

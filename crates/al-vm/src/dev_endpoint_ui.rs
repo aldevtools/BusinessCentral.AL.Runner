@@ -23,11 +23,10 @@ pub(crate) struct DevEndpointUi {
 /// The dev-endpoint answer to a UI call of `kind` with handler arguments `args`, as the final values of the handler
 /// parameters a bound handler would leave and the answer as the warning names it; `None` for a shape not measured.
 ///
-/// Measured through the dev endpoint (TestRunnerHub) on a BC 28.5 container by the corpus probe
-/// handlers/lt-y53-dev-endpoint-runner/Y53DevRunnerProbe.al (codeunit 97530): `Confirm` answers its default, No when it
-/// is omitted (Confirm_NoDefault_NoHandler, Confirm_DefaultTrue_NoHandler, Confirm_DefaultFalse_NoHandler); `StrMenu`
-/// answers its default, 1 when omitted (StrMenu_Default2_NoHandler, StrMenu_NoDefault_NoHandler); `Message` returns
-/// (Message_NoHandler). The arguments already hold the omitted defaults (`native.rs` `confirm`, `str_menu`).
+/// Measured through the dev endpoint (TestRunnerHub) on a BC 28.5 container (corpus branch al-runtime-rs-staging-y53,
+/// handlers/lt-ui-handler-modes/UiHandlerModes.al:132-137, DevEndpointTestRunner_MeasuredValues): `Confirm` answers
+/// its default, No when it is omitted; `StrMenu` answers its default, 1 when omitted; `Message` returns. The arguments
+/// already hold the omitted defaults (`native.rs` `confirm`, `str_menu`).
 fn answer(kind: UiKind, args: &[Value]) -> Option<(Vec<Value>, String)> {
     match (kind, args) {
         (UiKind::Confirm, [_, Value::Boolean(b)]) => Some((args.to_vec(), b.to_string())),
@@ -44,7 +43,7 @@ fn answer(kind: UiKind, args: &[Value]) -> Option<(Vec<Value>, String)> {
 
 impl Session {
     /// `Hyperlink(url)` with no `[HyperlinkHandler]` bound: true when `--dev-endpoint-ui` lets the call return, as it does
-    /// through the dev endpoint (Y53DevRunnerProbe.al Hyperlink_NoHandler, BC 28.5).
+    /// through the dev endpoint (UiHandlerModes.al:129-144, BC 28.5).
     pub(crate) fn dev_endpoint_hyperlink(&mut self, url: &str) -> bool {
         if !self.dev_endpoint_unhandled(UiKind::Hyperlink) {
             return false;
