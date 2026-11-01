@@ -183,6 +183,7 @@ mod draft;
 mod format;
 mod format_type11;
 mod gotokey_find;
+mod inserted_rows;
 mod list_refresh;
 mod lookup_refresh;
 mod open;

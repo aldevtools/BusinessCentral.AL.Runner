@@ -2853,7 +2853,7 @@ impl Session {
             }
             return Ok(Value::Boolean(found));
         }
-        if let Some(found) = self.go_to_key_current_only(st, &want)? {
+        if let Some(found) = self.go_to_key_current_only(st, &want, result_used)? {
             return Ok(Value::Boolean(found));
         }
         if let Some(found) = self.go_to_key_in_client_rows(st, &want)? {
@@ -2913,8 +2913,7 @@ impl Session {
                 );
             }
         }
-        let before_fields = rec.borrow().fields.clone();
-        let (before_cursor, before_draft) = (st.borrow().cursor, st.borrow().draft);
+        let (before_fields, before_cursor, before_draft) = self.go_to_key_walk_start(st)?;
         let mut at = self.nav_find(st, "-")?;
         let mut found = false;
         // The last block this scan read: whether it was full and the key of its last row.

@@ -1073,7 +1073,9 @@ impl Session {
         let r = self.action_invoke_body(st, idx);
         st.borrow_mut().view_before_action = outer_view;
         let r = match r {
-            Ok(v) => self.drop_window_of_the_old_view(st, view_before).map(|()| v),
+            Ok(v) => (self.drop_window_of_the_old_view(st, view_before))
+                .and_then(|()| self.hold_rows_an_action_inserted(st))
+                .map(|()| v),
             e => e,
         };
         let held = {

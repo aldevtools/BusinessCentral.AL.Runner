@@ -8,7 +8,17 @@ impl Session {
     /// first row, then steps on row by row until the key is there, each arrival one current-record read; standing on the first row it
     /// does not read that row again (pages/lt-testpage-list-rows/ListRowsWindow.al:GoToKeyLastThenRow2_OnlyCurr41Rows `C2;...;C41`, then
     /// back to row 2: `C1;C2`). A key equal to the row the cursor stands on (not the first) and a miss are not pinned.
-    pub(super) fn go_to_key_current_only(&mut self, st: &St, want: &[Value]) -> Result<Option<bool>, Signal> {
+    ///
+    /// Standing on the first row it holds, a key it does not find raises 'The row does not exist on the TestPage.' and the page stays
+    /// on its row: a row the test stored before that row while the page was open (pages/lt-y65-gotorecord-action-insert/
+    /// Y65GoToRecordActionInsert.al:641 `test inserts A, no action` `on B |error:...|TestRowNotFound|now B`). The reads of such a
+    /// miss are not pinned; a miss from another row is refused.
+    pub(super) fn go_to_key_current_only(
+        &mut self,
+        st: &St,
+        want: &[Value],
+        result_used: bool,
+    ) -> Result<Option<bool>, Signal> {
         if !self.declares(st, "onaftergetcurrrecord")
             || self.declares(st, "onaftergetrecord")
             || self.declares(st, "onfindrecord")
@@ -49,6 +59,15 @@ impl Session {
             let r = self.arrive(st);
             self.torn_down_on_error(st, r)?;
             found = Self::same_key(&self.row_key(&rec)?, want);
+        }
+        if !found && on_first {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionInsertedRowsHeld);
+            rec.borrow_mut().fields = origin_fields;
+            self.set_xrec(st);
+            if !result_used {
+                return Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"));
+            }
+            return Ok(Some(false));
         }
         if !found {
             rec.borrow_mut().fields = origin_fields;
