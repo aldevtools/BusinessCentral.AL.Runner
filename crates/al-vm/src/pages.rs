@@ -184,6 +184,7 @@ mod rows;
 mod runobject;
 mod shown;
 mod dirty_step;
+mod caption_relation;
 pub(crate) use shown::ShownNote;
 
 impl Session {
