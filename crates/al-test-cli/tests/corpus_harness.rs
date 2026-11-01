@@ -761,8 +761,10 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bump to master 92031e20 makes it 238: five tests of 21155 (Y17_TenantReportLayoutCfg_InsertModifyDelete, _Shapes,
     // Y40_TenantReportLayoutOverride_InsertModifyDelete, _SeenByReportLayoutList, _TypedRecord) and nine BigInteger and Enum
     // conversions of the Y31 conversion matrix (types/lt-y31-conversion-matrix/, `#if BC29PLUS`; gate
-    // BigIntegerToEnumVariableFrom29) run on BC 29 only.
-    assert!(out.contains("oracle: 238 case(s) differ between versions"), "{out}");
+    // BigIntegerToEnumVariableFrom29) run on BC 29 only. Corpus bump to master 7f7cdc2a makes it 239:
+    // Y47_SelectTokens_ArrayFilter (json/lt-db-json-leads/DbJPathLeads.al, `#if BC28PLUS`; gate JsonSelectTokensListFrom28)
+    // runs on BC 28 and 29 only.
+    assert!(out.contains("oracle: 239 case(s) differ between versions"), "{out}");
     // The known BC 29 differences are gated (ADR-015 3.4), so the runtime passes the same cases on every version, among the
     // cases every oracle has. One difference is known and open (corpus bump 10, backlog): the runtime passes
     // 71500 Get_Uses_Primary_Key_Not_Current_Key on BC 27 only. A new difference would be listed here.
