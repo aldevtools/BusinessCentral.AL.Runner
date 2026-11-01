@@ -279,10 +279,42 @@ impl<'a> Lowerer<'a> {
     /// that implements it (types/TestEnumDefaultImplTests.Codeunit.al:30-42); everything else
     /// is refused.
     pub(crate) fn convert_to(&mut self, target: &Ty, src: &Ty, value: ir::Expr) -> L<ir::Expr> {
+        // A Variant into an Integer anywhere (`:=`, a by-value argument, `exit`): a BigInteger beyond Integer raises
+        // TypeConversion:Overflow (types/lt-y31-conversion-matrix/Y31ConvCv.al, LT Y31 Cv Variant `Variant_To_Integer` big in all
+        // three; types/lt-variant/VaTConvert.al:183-184).
+        if matches!(src, Ty::Variant) && matches!(target, Ty::Integer) && !is_builtin(&value, "Variant.IntoInteger#1") {
+            return Ok(ir::Expr::Builtin {
+                id: super::call::builtin_id("Variant.IntoInteger#1")?,
+                receiver: None,
+                args: vec![ir::Arg::Value(self.variant_into(target, value)?)],
+                ret_used: true,
+            });
+        }
+        // The other cells the matrix pins for a Variant (`Variant.Into#1`).
+        let value = if matches!(src, Ty::Variant) && !is_builtin(&value, "Variant.Into#1") {
+            self.variant_into(target, value)?
+        } else {
+            value
+        };
         // A text literal of one character is a Char once it goes into a Variant (types/lt-variant/VaTIs*.al:Is_Text_Code_Char_Byte
         // `V := 'a'` is IsChar and not IsText; `V := 'ab'` and `V := ''` are Text; a Text variable holding 'a' stays Text).
         if matches!(self.rt(target), Ok(RtType::Variant))
             && matches!(&value, ir::Expr::Const(ir::Const::Text(s)) if s.encode_utf16().count() == 1)
+        {
+            let ch = self.convert_to(&Ty::Char, src, value)?;
+            return self.convert_to(target, &Ty::Char, ch);
+        }
+        // Into a number it is a Char too: `I := 'a'` is 97 (types/lt-y31-conversion-matrix/Y31ConvCv.al, LT Y31 Cv Literals
+        // `LitChar1_To_Integer`, `_BigInteger`, `_Decimal`, `_Byte`, `_Option`, `_Duration`).
+        if matches!(
+            self.rt(target),
+            Ok(RtType::Integer
+                | RtType::BigInteger
+                | RtType::Decimal
+                | RtType::Byte
+                | RtType::Option(_)
+                | RtType::Duration)
+        ) && matches!(&value, ir::Expr::Const(ir::Const::Text(s)) if s.encode_utf16().count() == 1)
         {
             let ch = self.convert_to(&Ty::Char, src, value)?;
             return self.convert_to(target, &Ty::Char, ch);
@@ -409,89 +441,44 @@ impl<'a> Lowerer<'a> {
                     self.assume(al_builtins::assumptions::Assumption::TernaryLabelBranch)
                 }
             }
+            // The other pairs of the run matrix: the false branch converts to the true branch's type (types/lt-y31-conversion-
+            // matrix/Y31ConvCd.al, LT Y31 Cd Text `Text_Label`, LT Y31 Cd Label `Label_Text`, `Label_Char`, `Label_Guid`).
+            _ if super::conv_matrix::covers(al_builtins::conv::Family::Cd, t, f) => {}
             _ => return unpinned(),
         }
         self.convert_to(t, f, value)
     }
 
-    pub(crate) fn ternary_false_branch(&mut self, t: &Ty, f: &Ty, value: ir::Expr, target: Option<&Ty>) -> L<ir::Expr> {
+    pub(crate) fn ternary_false_branch(&mut self, t: &Ty, f: &Ty, value: ir::Expr) -> L<ir::Expr> {
         if t == f || matches!(t, Ty::Unknown) || matches!(f, Ty::Unknown) {
             return Ok(value);
         }
-        // A text literal that fits a Text of any length is the same value in it.
-        let literal_fits = |n: &Option<u32>| match &value {
-            ir::Expr::Const(ir::Const::Text(s)) => n.is_none_or(|n| s.encode_utf16().count() as u64 <= u64::from(n)),
-            _ => false,
-        };
+        // A pair of the run matrix of implicit conversions: the false branch converts to the true branch's type when it is
+        // taken, as `:=` converts it (corpus types/lt-y31-conversion-matrix/Y31ConvCd.al, LT Y31 Cd: a Text[10] true branch
+        // makes an 11-character Text fail StringLengthExceeded, a Byte true branch makes the Char 'a' a Byte, an Option true
+        // branch makes a Duration its ordinal; the numbers, Char, Byte, Option, Enum, Duration, Text, Code, Guid and Label).
+        // Also types/TestTernaryContracts.al:236-337, types/lt-qx-ternary-sized/QxTernarySized.al:142-155,
+        // types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al:107-150, types/lt-up-ternary/UpTernary.al:111-188.
+        if super::conv_matrix::covers(al_builtins::conv::Family::Cd, t, f) {
+            return self.convert_to(t, f, value);
+        }
         let pinned = match (t, f) {
-            (Ty::Integer, Ty::Decimal) | (Ty::Decimal, Ty::Integer) => true,
-            (Ty::Code(_), Ty::Text(_) | Ty::Code(_)) => true,
-            (Ty::Text(None), Ty::Text(_) | Ty::Code(_)) => true,
-            (Ty::Text(n), Ty::Text(_)) if literal_fits(n) => true,
-            // A Text or Code no longer than the Text true branch fits it: its conversion cannot fail.
-            (Ty::Text(Some(n)), Ty::Text(Some(m)) | Ty::Code(Some(m))) if m <= n => true,
-            (Ty::Text(Some(_)), Ty::Text(Some(_)) | Ty::Code(Some(_))) if target == Some(t) => true,
+            // Code[N] against another Code length (types/TestTernaryContracts.al:BN_Ternary_Code20TrueBranch :289-337).
+            (Ty::Code(_), Ty::Code(_)) => true,
+            // A Code true branch takes a Guid false branch as its text in braces, 38 characters, which fits a Code of 38 and more
+            // (types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al:107-150, Code[40]; al-runner issue 6160).
+            (Ty::Code(Some(n)), Ty::Guid) if *n >= 38 => true,
+            // A Text true branch takes a Variant false branch's text, a Variant true branch keeps what the false branch is
+            // (BN_Ternary_VariantBranch :173-233).
             (Ty::Text(_), Ty::Variant) => true,
             (Ty::Variant, _) => true,
-            // A Guid true branch converts a Text, Code or literal false branch to a Guid; a Text or Code true branch takes a Guid
-            // false branch as its text in braces, 38 characters, which fits an unbounded Text or a Text or Code of 38 and more
-            // (types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al:107-150, Text, Code[40] and a literal; al-runner issue 6160).
-            (Ty::Guid, Ty::Text(_) | Ty::Code(_)) => true,
-            (Ty::Text(None), Ty::Guid) => true,
-            (Ty::Text(Some(n)) | Ty::Code(Some(n)), Ty::Guid) if *n >= 38 => true,
-            // A Text[N] true branch converts an unbounded Text false branch to Text[N]: a value that fits is returned unchanged,
-            // a longer one fails StringLengthExceeded with the value in the message cut to 200 characters plus `...`
-            // (types/lt-up-ternary/UpTernary.al:111, :119, :128 with :152-157 and :183-188, a Text[250] true branch against a
-            // StrSubstNo result and a Text variable, corpus PR 808 at branch commit 910da83e; types/TestTernaryContracts.al:
-            // 390-391 for Text[10], pinned on master; al-runner issue 6213). Text[250] runs on the assumption
-            // `ternary-unbounded-text-false-branch` until PR 808 is in the pinned corpus.
-            // Another length N is not pinned: refused.
-            (Ty::Text(Some(10)), Ty::Text(None)) => true,
-            (Ty::Text(Some(250)), Ty::Text(None)) => {
-                // Pinned by types/lt-up-ternary/UpTernary.al (was assumption `ternary-unbounded-text-false-branch`).
-                true
-            }
-            // A Text[50] true branch and a built-in function returning Text as false branch (CompanyName(), UserId(),
-            // Format(x)): a value that fits is returned unchanged (lt-ss1030/SsTernaryBuiltinText.al:47-69, corpus branch
-            // al-runtime-rs-staging-ss1030 at c36d14ea, not yet on master; al-runner issue 6213 reopened). A longer value is
-            // not pinned for this length: refused when the branch is taken.
-            (Ty::Text(Some(50)), Ty::Text(None)) => {
-                return Ok(ir::Expr::FitOrRefuse {
-                    max: 50,
-                    why: format!(
-                        "a conditional expression whose false branch ({f}) holds a value longer than its true branch ({t}): the conversion is not pinned for this length"
-                    ),
-                    inner: Box::new(value),
-                });
-            }
             // An interface true branch takes a codeunit false branch that implements it, as an assignment to the interface does:
-            // the false branch calls the codeunit's implementation (types/lt-up-ternary/UpTernary.al:60, :70, :81 with :216-227,
-            // corpus PR 808 at branch commit 910da83e; al-runner issue 6215). The reverse order does not compile (AL0122,
-            // must-not-compile 2291 of the same commit) and stays refused here. Runs on the assumption
-            // `ternary-interface-codeunit-branch` until PR 808 is in the pinned corpus.
-            (Ty::Object(ObjKind::Interface, _), Ty::Object(ObjKind::Codeunit, _)) => {
-                // Pinned by types/lt-up-ternary/UpTernary.al (was assumption `ternary-interface-codeunit-branch`).
-                true
-            }
+            // the false branch calls the codeunit's implementation (types/lt-up-ternary/UpTernary.al:60, :70, :81 with :216-227;
+            // al-runner issue 6215). The reverse order does not compile (AL0122, must-not-compile 2291) and stays refused here.
+            (Ty::Object(ObjKind::Interface, _), Ty::Object(ObjKind::Codeunit, _)) => true,
             _ => false,
         };
-        // Pinned by types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al (was assumption `ternary-guid-branch`).
         if !pinned {
-            // A longer Text or Code false branch anywhere else is not pinned. Microsoft's DemoTool needs it to run (Base App
-            // AccScheduleLine.Table.al:113 `Description := Description = '' ? GLAccCategory.Description : Description`, a
-            // Text[80] true branch and a Text[100] false branch into a Text[100] field), so it runs on the registered
-            // assumption `ternary-longer-text-false-branch-fits` (hard rule 3 exception): a value no longer than the true
-            // branch passes unchanged, a longer one is refused when the branch is taken.
-            if let (Ty::Text(Some(n)), Ty::Text(Some(_)) | Ty::Code(Some(_))) = (t, f) {
-                self.assume(al_builtins::assumptions::Assumption::TernaryLongerTextFalseBranchFits);
-                return Ok(ir::Expr::FitOrRefuse {
-                    max: *n,
-                    why: format!(
-                        "a conditional expression whose false branch ({f}) holds a value longer than its true branch ({t}): whether BC converts it is not pinned"
-                    ),
-                    inner: Box::new(value),
-                });
-            }
             return Err(format!(
                 "a conditional expression whose branches have different types ({t} and {f}): the conversion of the false branch is not pinned"
             ));
@@ -732,4 +719,9 @@ fn is_identity_scalar(t: &RtType) -> bool {
             | RtType::Duration
             | RtType::Guid
     )
+}
+
+/// Whether `e` is a call of the builtin `id`.
+fn is_builtin(e: &ir::Expr, id: &str) -> bool {
+    matches!(e, ir::Expr::Builtin { id: b, .. } if super::call::builtin_id(id).is_ok_and(|i| i == *b))
 }

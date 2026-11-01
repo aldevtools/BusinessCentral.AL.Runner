@@ -150,16 +150,15 @@ fn a_label_against_a_label_or_a_literal_keeps_the_taken_value() {
     ]);
 }
 
-/// The pairs no corpus test pins are refused: a TextConst branch (BC does not publish it, types/TestTernaryContracts.al:518-521),
-/// a MaxLength label against a Code[N], and an unbounded Text variable against a Label.
+/// The pairs no corpus test pins are refused: a TextConst branch (BC does not publish it, types/TestTernaryContracts.al:518-521)
+/// and a MaxLength label against a Code[N]. An unbounded Text variable against a Label is a cell of the conversion matrix
+/// (`ternary_matrix.rs`).
 #[test]
 fn unpinned_label_pairs_are_refused() {
     for (decls, yes, no) in [
         ("Lbl: TextConst ENU = 'abc';", "C20", "Lbl"),
         ("Lbl: Label 'abc', MaxLength = 5;", "C20", "Lbl"),
         ("Lbl: Label 'abc', MaxLength = 5;", "Lbl", "C20"),
-        ("Lbl: Label 'abc'; TU: Text;", "TU", "Lbl"),
-        ("Lbl: Label 'abc'; TU: Text;", "Lbl", "TU"),
     ] {
         let src = source(&[(decls, yes, no)]);
         match run_in(&src, "TL", "P0") {

@@ -770,7 +770,7 @@ impl Lowerer<'_> {
                     if set.kind() != SetExpr {
                         return Err("`in` with a non-literal set is not lowered yet".into());
                     }
-                    let mut elems = set.children().map(|e| self.set_elem(&e)).collect::<L<Vec<_>>>()?;
+                    let mut elems = self.in_set_elems(&kids[0], set)?;
                     let mut l = l;
                     // A text literal on the left of a range: the ends of the range compare in the culture order when the value is a
                     // Text (types/lt-ax-text-format-dates/AxCodeCompare.al:193-213), but a one-character literal in a range of
@@ -852,7 +852,7 @@ impl Lowerer<'_> {
                         (l, self.convert_to(&Ty::Char, &text, r)?)
                     }
                 } else {
-                    (l, r)
+                    self.char_literal_comparison(&op, &kids, l, r)?
                 };
                 let dotnet =
                     matches!(self.ty_ref(&kids[0]), Ty::DotNet(_)) || matches!(self.ty_ref(&kids[1]), Ty::DotNet(_));
@@ -900,8 +900,6 @@ impl Lowerer<'_> {
                 Err("indexing a DotNet value is not lowered yet (call get_Item / GetValue instead)".into())
             }
             TernaryExpr => {
-                // Only the conditional expression itself is the right side of the assignment, not one nested in it.
-                let target = self.ternary_target.take();
                 let cond = self.expr(&kids[0])?;
                 let yes = self.expr(&kids[1])?;
                 let no = self.expr(&kids[2])?;
@@ -909,7 +907,7 @@ impl Lowerer<'_> {
                 let no = if t != f && (matches!(t, Ty::Label) || matches!(f, Ty::Label)) {
                     self.ternary_label_pair(&t, &f, (&kids[1], &yes), (&kids[2], no))?
                 } else {
-                    self.ternary_false_branch(&t, &f, no, target.as_ref())?
+                    self.ternary_false_branch(&t, &f, no)?
                 };
                 Ok(ir::Expr::Ternary(Box::new(cond), Box::new(yes), Box::new(no)))
             }

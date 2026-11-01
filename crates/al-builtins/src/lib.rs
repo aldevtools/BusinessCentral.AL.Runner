@@ -19,6 +19,7 @@ pub mod builtin_id;
 pub mod catalog;
 pub mod collation;
 pub mod collections;
+pub mod conv;
 pub mod datatransfer;
 pub mod datefns;
 pub mod describe;

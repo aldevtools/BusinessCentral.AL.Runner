@@ -344,9 +344,6 @@ pub(crate) struct Lowerer<'a> {
     tys: Vec<tys::TyRec>,
     /// Records are made (inside a routine only).
     tys_on: bool,
-    /// The type of the target of the plain assignment whose right side is the conditional expression being lowered
-    /// (`ternary_false_branch`).
-    ternary_target: Option<Ty>,
     /// Scratch for `seal_stmts`.
     roots: Vec<tys::Shape>,
 }
@@ -573,6 +570,7 @@ fn sig_tokens(n: &SyntaxNode) -> Vec<al_syntax::SyntaxToken> {
 mod assemble;
 mod call;
 mod compile;
+mod conv_matrix;
 mod convert;
 mod coverage_ids;
 mod dotnet;

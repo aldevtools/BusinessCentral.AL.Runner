@@ -1159,7 +1159,8 @@ fn one_step(seg: &[Event]) -> Option<()> {
 }
 
 /// A builtin given a counter value (as receiver or argument) would read its number: refused, except the Variant type tests
-/// (`IsBigInteger`: SqlCounters.al:87-103). Checked only while the counters are active.
+/// (`IsBigInteger`: SqlCounters.al:87-103) and `Variant.Into#1`, which hands a counter on unread to the conversion after it
+/// (`al_builtins::conv::variant_into`). Checked only while the counters are active.
 #[cold]
 #[inline(never)]
 pub(crate) fn guard(
@@ -1168,6 +1169,9 @@ pub(crate) fn guard(
     args: &[Value],
 ) -> Result<(), al_builtins::native::Signal> {
     let tainted = |v: &Value| matches!(v, Value::SqlCount(_));
+    if id.name() == "Variant.Into#1" {
+        return Ok(());
+    }
     if args.iter().any(tainted) || (recv.is_some_and(tainted) && !id.name().starts_with("Variant.Is")) {
         return Err(al_builtins::sqlcount::refusal(&format!(
             "{} given the value",

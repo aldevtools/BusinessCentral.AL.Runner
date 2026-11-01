@@ -92,6 +92,13 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `moduleinfo.rs` (287): `NavApp.GetCurrentModuleInfo` and friends, and the `ModuleInfo` type. Entry: `native_for` 169.
 - `native.rs` (1274): Native builtin implementations, registered by catalog overload id (ADR-008). Entry: `Signal` 26, `AlError` 9, `Ctx` 48, `lookup` 435, `raise` 16.
 - `ops.rs` (650): Value operations: conversion, arithmetic, comparison, truthiness. Entry: `convert` 16, `arith` 180, `compare_order` 301, `truthy` 384.
+- `conv/` (~630 + generated `rows.rs`): Implicit conversions at run time from the run matrix of corpus writer Y31
+  (`types/lt-y31-conversion-matrix/`). `rows.rs` is the table of its cells (family, source kind, target kind, what BC gave),
+  generated from the corpus files by `tests/conv_matrix_rows.rs` (`UPDATE_GOLDEN=1`); `engine.rs` converts the number cells
+  (a checked .NET cast, Char and Byte through code page 437) and the Variant cells; `arith.rs` and `compare.rs` the operator
+  cells `ops::arith` and `ops::compare_operator` ask first; `variant.rs` is `Variant.Into#1`, which the lowering puts around a
+  conversion from a Variant so that the Variant cells apply only there. Entry: `convert_cell`, `arith_cell`, `compare_cell`,
+  `variant_into`, `verdict`.
 - `pagebuiltins.rs` (123): `TestPage`, `TestPart`, `TestField`, `TestAction` and `TestFilter` methods (ADR-012).
 - `pagefmt.rs` (683): The text a page control shows for a value (ADR-012), en-US. Entry: `Blank` 11, `ControlFormat` 37, `parse_decimal_places` 50, `parse_precision` 62.
 - `platform.rs` (259): The registry of platform tables that have a native row provider (ADR-013 decision 7, ADR-019). Entry: `Provider` 14, `Virtual` 23, `provider` 157, `virtual_table` 162.
@@ -181,6 +188,9 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `lower/tables.rs` (518): Table schemas: relations, field triggers, CalcFormulas. Entry: `table_schema` 311, `relation_arms` 10, `lower_calc` 445.
 - `lower/pages.rs` (458): Page control trees, `RunObject`, part links. Entry: `page` 8, `run_object` 292.
 - `lower/convert.rs` (359): Name resolution helpers, runtime types, conversion of a value to a target type. Entry: `rt` 67, `convert_to` 186.
+- `lower/conv_matrix.rs` (~160): The run matrix cells (`al_builtins::conv`) in the lowering: the false branch of `?:` converts to
+  the true branch's type, an element of `in`/a case label to the selector's type, `Guid += Text` keeps the Guid, a Label
+  branch into a Variant is refused, a Variant source gets `Variant.Into#1`. Entry: `covers`, `matrix_set_elem`, `variant_into`.
 - `lower/stmt.rs` (737): Routines and statements. Entry: `routine` 5, `stmt` 277, `assign` 425, `place` 670.
 - `lower/expr.rs` (636): Expressions, constants, operands, controls. Entry: `expr` 280, `constant` 228.
 - `lower/dotnet.rs` (76): Arguments and members of `DotNet` values (ADR-014). Entry: `dotnet_arg` 7, `dotnet_member` 30.

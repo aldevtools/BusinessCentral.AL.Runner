@@ -78,6 +78,10 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         (Value::BigInteger(n), T::Decimal) => return Ok(Value::Decimal(keep_18_digits(Decimal::from(*n)))),
         _ => {}
     }
+    // A cell of the conversion matrix between numbers (`conv`).
+    if let Some(r) = crate::conv::convert_cell(&v, t) {
+        return r;
+    }
     Ok(match (v, t) {
         (v, T::Variant) => v,
         // A number into its own type is the number (what the general arm below gives, without the round trip through a
@@ -208,130 +212,19 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         (Value::Enum(_, o), T::Option(m)) => Value::Option(o, m.clone().into()),
         (Value::Enum(_, o), T::Integer) => Value::Integer(o),
         (Value::Enum(_, o), T::Decimal) => Value::Decimal(Decimal::from(o)),
-        // A BigInteger into an Option likewise: an ordinal the Option lacks and a negative one are kept, one beyond
-        // Integer raises ConversionCast (types/lt-bigint-enum-option/BigIntToEnumOption.al:95-145; argument, field and
-        // Validate: types/lt-implicit-conversions/P79BigOption.al:194-218).
-        (Value::BigInteger(n), T::Option(m)) => Value::Option(bigint_ordinal(n)?, m.clone().into()),
-        (Value::Option(o, _), T::Integer) => Value::Integer(o),
+        // The conversions between numbers (Integer, BigInteger, Decimal, Char, Byte, an Option's and a Duration's number) into
+        // another number type but Decimal are the cells of the conversion matrix (`conv::convert_cell`, called above): a checked
+        // cast, an ordinal the Option lacks and a negative one kept (types/lt-bigint-enum-option/BigIntToEnumOption.al:95-145,
+        // types/lt-implicit-conversions/P79BigOption.al:194-218, P79OptionDecimal.al:80-107, types/PRDecimalToInteger.al,
+        // types/lt-filter-enum-relation-duration-guid/D_Duration.al:211-218). What is left here is a number into a Decimal
+        // and a Char or Byte into its own type.
         // An Option into a Decimal is its ordinal: assignment, argument and Validate (al-runner issue 6060;
         // types/lt-implicit-conversions/P79OptionDecimal.al:40-77, :139-179).
         (Value::Option(o, _), T::Decimal) => Value::Decimal(Decimal::from(o)),
-        // A Decimal into an Option: a whole number is the ordinal, kept when the Option lacks it; a fraction raises
-        // ConversionCast (P79OptionDecimal.al:80-107 DecimalToOption_Assign). Beyond Integer is not pinned.
-        (Value::Decimal(d), T::Option(m)) => {
-            if d.fract() != Decimal::ZERO {
-                return raise(
-                    format!(
-                        "Overflow under conversion of Microsoft.Dynamics.Nav.Runtime.Decimal18 value {d} to System.Int32."
-                    ),
-                    "ConversionCast",
-                );
-            }
-            match i32::try_from(d.mantissa() / 10i128.pow(d.scale())) {
-                Ok(n) => Value::Option(n, m.clone().into()),
-                Err(_) => return unsupported(format!("{d} into an Option (beyond Integer, not pinned)")),
-            }
-        }
-        (Value::Integer(n), T::Duration) => Value::Duration(i64::from(n)),
-        (Value::BigInteger(n), T::Duration) => Value::Duration(n),
-        // A Duration into an Integer, BigInteger or Decimal is its milliseconds; into an Integer a value beyond its range raises
-        // ConversionCast (types/lt-filter-enum-relation-duration-guid/D_Duration.al:DateTimeMinusDateTime_To_Integer,
-        // Duration_To_BigInteger_Decimal).
-        (Value::Duration(ms), T::Integer) => match i32::try_from(ms) {
-            Ok(i) => Value::Integer(i),
-            Err(_) => {
-                return raise(
-                    format!("Overflow under conversion of System.Int64 value {ms} to System.Int32."),
-                    "ConversionCast",
-                );
-            }
-        },
-        (Value::Duration(ms), T::BigInteger) => Value::BigInteger(ms),
+        // A Duration into a Decimal is its milliseconds (D_Duration.al:Duration_To_BigInteger_Decimal).
         (Value::Duration(ms), T::Decimal) => Value::Decimal(Decimal::from(ms)),
-        (Value::Integer(i), T::Option(m)) => Value::Option(i, m.clone().into()),
-        // A Duration is a count of milliseconds.
-        (v, T::Duration) if as_decimal(&v).is_some() && !matches!(v, Value::Text(_) | Value::Code(_)) => {
-            let d = as_decimal(&v).expect("numeric");
-            match i64::try_from(d.mantissa() / 10i128.pow(d.scale())) {
-                Ok(ms) if d.fract() == Decimal::ZERO => Value::Duration(ms),
-                // A fraction raises and leaves the target unchanged (types/lt-filter-enum-relation-duration-guid/D_Duration.al:211-212,
-                // 217-218). A value beyond Int64 is not pinned.
-                Ok(_) => {
-                    return raise(
-                        format!(
-                            "Overflow under conversion of Microsoft.Dynamics.Nav.Runtime.Decimal18 value {} to System.Int64.",
-                            d.normalize()
-                        ),
-                        "ConversionCast",
-                    );
-                }
-                Err(_) => return unsupported(format!("{d} as a Duration (beyond Int64, not pinned)")),
-            }
-        }
-        // Numbers.
-        (v, T::Integer | T::BigInteger | T::Decimal | T::Byte | T::Char)
-            if as_decimal(&v).is_some() && !matches!(v, Value::Text(_) | Value::Code(_)) =>
-        {
-            let d = as_decimal(&v).expect("numeric");
-            // A Decimal with a fraction, or beyond the range, does not convert into an Integer or a BigInteger: no
-            // rounding (types/PRDecimalToInteger.al: ConversionCast, `value 1.5`, `value 3000000000.0`).
-            let cast_error = |to: &str| {
-                raise::<Value>(
-                    format!(
-                        "Overflow under conversion of Microsoft.Dynamics.Nav.Runtime.Decimal18 value {d} to System.{to}."
-                    ),
-                    "ConversionCast",
-                )
-            };
-            match t {
-                T::Decimal => Value::Decimal(d),
-                T::Integer | T::BigInteger if matches!(v, Value::Decimal(_)) && d.fract() != Decimal::ZERO => {
-                    return cast_error(if matches!(t, T::Integer) { "Int32" } else { "Int64" });
-                }
-                _ if d.fract() != Decimal::ZERO => {
-                    return unsupported(format!(
-                        "rounding {d} into {} (not pinned by the corpus yet)",
-                        t.describe()
-                    ));
-                }
-                T::Integer => match i32::try_from(d.mantissa() / 10i128.pow(d.scale())) {
-                    Ok(n) => Value::Integer(n),
-                    Err(_) if matches!(v, Value::Decimal(_)) => return cast_error("Int32"),
-                    // A BigInteger beyond an Integer (types/lt-scalars/ScT70057.al:140-160; types/lt-implicit-conversions/
-                    // P79BigOption.al:129-132, P79Enums.al:116-118; calcfields/lt-bm-flowfield-conversions/BmFlowFieldConversions.al:
-                    // 159-161).
-                    Err(_) if matches!(v, Value::BigInteger(_)) => {
-                        return raise(
-                            format!("Overflow under conversion of System.Int64 value {d} to System.Int32."),
-                            "ConversionCast",
-                        );
-                    }
-                    Err(_) => return unsupported(format!("{d} overflows Integer")),
-                },
-                T::BigInteger => match i64::try_from(d.mantissa() / 10i128.pow(d.scale())) {
-                    Ok(n) => Value::BigInteger(n),
-                    Err(_) if matches!(v, Value::Decimal(_)) => return cast_error("Int64"),
-                    Err(_) => return unsupported(format!("{d} overflows BigInteger")),
-                },
-                // An Integer beyond a Byte raises (misc/lt-probes-needed-2/PnBErrorsCollections.al:560-562, 582-583,
-                // Arithmetic_ErrorTexts `byteOverflow`: 300). Other sources are not pinned.
-                T::Byte => match u8::try_from(d.mantissa() / 10i128.pow(d.scale())) {
-                    Ok(b) => Value::Byte(b),
-                    Err(_) if matches!(v, Value::Integer(_)) => {
-                        return raise(
-                            format!("Overflow under conversion of System.Int32 value {d} to System.Byte."),
-                            "ConversionCast",
-                        );
-                    }
-                    Err(_) => return unsupported(format!("{d} overflows Byte")),
-                },
-                T::Char => Value::Char(
-                    u16::try_from(d.mantissa() / 10i128.pow(d.scale()))
-                        .or_else(|_| unsupported(format!("{d} overflows Char")))?,
-                ),
-                _ => unreachable!(),
-            }
-        }
+        (v @ Value::Char(_), T::Char) | (v @ Value::Byte(_), T::Byte) => v,
+        (v, T::Decimal) if as_decimal(&v).is_some() => Value::Decimal(as_decimal(&v).expect("numeric")),
         // The untracked call stack marker moves between Text slots unread (see `native::text_of`).
         (Value::Text(s), T::Text(_)) if s.has_marker() => Value::Text(s),
         // A Date, Time or DateTime handed to a Text or Code (`FieldRef.Value` straight into a Text, Text[30] or Code[20] parameter
@@ -656,6 +549,10 @@ pub fn arith(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             return Ok(V::Decimal(keep_18_digits(res)));
         }
     }
+    // An arithmetic cell of the conversion matrix (`conv`).
+    if let Some(res) = crate::conv::arith_cell(op, l, r) {
+        return res;
+    }
     arith_general(op, l, r)
 }
 
@@ -797,6 +694,7 @@ fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
                 "TypeConversion",
             )
         }
+        // A Variant holding a kind whose conversion into `t` raises the same error for every value the conversion matrix tries.
         _ => unsupported(format!("conversion of {} to {t}", v.describe(), t = t.describe())),
     }
 }
@@ -1075,15 +973,9 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         {
             let ms = match n {
                 V::Decimal(d) if d.fract().is_zero() => d.to_i64(),
-                V::Decimal(d) => {
-                    return crate::native::raise(
-                        format!(
-                            "Overflow under conversion of Microsoft.Dynamics.Nav.Runtime.Decimal18 value {} to System.Int64.",
-                            d.normalize()
-                        ),
-                        "ConversionCast",
-                    );
-                }
+                // A subtraction names the negated amount (types/lt-y31-conversion-matrix/Y31ConvAr.al, LT Y31 Ar DateTime
+                // `DateTime_Decimal`: DT - 1.5 names -1.5).
+                V::Decimal(d) => return crate::conv::datetime_fraction_error(op, *d),
                 other => int_of(other),
             };
             let moved = ms.and_then(|ms| {
@@ -1197,8 +1089,10 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         // corpus record/lt-record-conversion-assumptions/DateDecimalWhole.al:P98_DatePlusMinusWholeDecimal. A fraction raises
         // (the next arm).
         (V::Date(a, c), n) if matches!(op, Arith::Add | Arith::Sub) && whole_days(n).is_some() => {
-            // The result stays within 0001-01-01 and 9999-12-31, an undefined date takes no days, and the sum of days is
-            // computed in 32 bits (Arithmetic.al:Date_Arithmetic_Errors, Date_Plus_Minus_Integer `af39`, `af41`).
+            // The result stays within 0001-01-01 and 9999-12-31, an undefined date takes no days, and the sum is computed in 32
+            // bits on twice the day number (a date and its closing date): 2024-01-01 + 2147483647 and 2026-01-31 - 2147483647
+            // overflow, +/- 3000000 is an invalid date (Arithmetic.al:Date_Arithmetic_Errors, Date_Plus_Minus_Integer `af39`,
+            // `af41`; types/lt-y31-conversion-matrix/Y31ConvAr.al, LT Y31 Ar Date `Date_Integer` `sub.d.max`).
             let n = whole_days(n).expect("whole");
             let Ok(n) = i32::try_from(n) else {
                 return raise("Arithmetic operation resulted in an overflow.", "AL:Overflow");
@@ -1208,7 +1102,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             } else {
                 a.checked_sub(n)
             };
-            let Some(sum) = sum else {
+            let Some(sum) = sum.filter(|s| s.checked_mul(2).is_some()) else {
                 return raise("Arithmetic operation resulted in an overflow.", "AL:Overflow");
             };
             if *a == 0 || !(1..=3_652_059).contains(&sum) {
@@ -1383,6 +1277,10 @@ fn date_invalid<T>() -> Result<T, Signal> {
 /// `=`, `<>`, `<`, ... on two values in AL code: as [`compare`], except that an undefined date against 0001-01-01 raises
 /// (types/lt-datetime/Arithmetic.al:Date_Comparisons `af72`, `af75`, `af79`).
 pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering, Signal> {
+    // A comparison cell of the conversion matrix (`conv`).
+    if let Some(o) = crate::conv::compare_cell(l, r, ordered) {
+        return o;
+    }
     if let (Value::Date(a, _), Value::Date(b, _)) = (l, r) {
         if (*a == 0 && *b == 1) || (*a == 1 && *b == 0) {
             return date_invalid();
