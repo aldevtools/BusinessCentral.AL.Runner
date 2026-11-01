@@ -34,6 +34,7 @@ mod tests;
 mod text;
 mod text_columns;
 mod value;
+mod wraps;
 
 use self::container_tree::*;
 use self::pass::*;
@@ -42,6 +43,7 @@ use self::sequence::*;
 use self::shape::*;
 use self::text::*;
 use self::text_columns::*;
+use self::wraps::*;
 use self::value::*;
 
 type Inst = Rc<RefCell<Instance>>;

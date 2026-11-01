@@ -976,6 +976,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                     && nested_text_shape(layout, i).is_none()
                     && !raw.parent.is_some_and(|p| nested_text_shape(layout, p) == Some(i))
                     && !containers::container_tree_shape(layout, i)
+                    && !containers::wrap_shape(layout, i)
                 {
                     run_reasons.push(format!(
                         "triggers of the container text element {} are not supported (not pinned)",

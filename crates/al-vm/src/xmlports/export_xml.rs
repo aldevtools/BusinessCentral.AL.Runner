@@ -522,6 +522,19 @@ impl Session {
                         return Ok(());
                     }
                 }
+                // `table_wrap` below a table element or a `field_wrap`, and a `field_wrap` (wraps.rs).
+                ir::XmlNodeKind::Text
+                    if field_wrap(schema, child, node)
+                        || (table_wrap(schema, child)
+                            && (schema.node(node).kind == ir::XmlNodeKind::Table
+                                || schema.node(node).parent.is_some_and(|t| field_wrap(schema, node, t)))) =>
+                {
+                    let e = got!(self.xp_export_wrap(inst, schema, child));
+                    out.children.push(Node::Elem(e));
+                    if Self::xp_quit(inst) {
+                        return Ok(());
+                    }
+                }
                 // A text element holding only attributes below a table element is written as any container (xmlport/
                 // lt-sg-xmlport-occurs/SgXmlPortOccurs.al:78-110 SG_AttrBelowText_Export_*). Its own text beside a field
                 // attribute is not pinned.
