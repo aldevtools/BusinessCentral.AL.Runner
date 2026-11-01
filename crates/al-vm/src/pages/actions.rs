@@ -1073,9 +1073,7 @@ impl Session {
         let r = self.action_invoke_body(st, idx);
         st.borrow_mut().view_before_action = outer_view;
         let r = match r {
-            Ok(v) => (self.drop_window_of_the_old_view(st, view_before))
-                .and_then(|()| self.hold_rows_an_action_inserted(st))
-                .map(|()| v),
+            Ok(v) => self.settle_rows_after_action(st, view_before).map(|()| v),
             e => e,
         };
         let held = {
@@ -2370,7 +2368,7 @@ impl Session {
         self.same_filters(before, now) && before.key == now.key && before.ascending == now.ascending
     }
 
-    fn drop_window_of_the_old_view(&mut self, st: &St, before: Option<ListView>) -> Result<(), Signal> {
+    pub(super) fn drop_window_of_the_old_view(&mut self, st: &St, before: Option<ListView>) -> Result<(), Signal> {
         let Some(before) = before else {
             return Ok(());
         };

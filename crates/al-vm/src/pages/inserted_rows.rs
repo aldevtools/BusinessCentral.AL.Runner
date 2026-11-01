@@ -6,6 +6,16 @@ use super::*;
 use al_builtins::record_op::RecordOp;
 
 impl Session {
+    /// What an action leaves behind in the list: the window of the old view is dropped, then the rows the action inserted are held.
+    pub(super) fn settle_rows_after_action(
+        &mut self,
+        st: &St,
+        view_before: Option<actions::ListView>,
+    ) -> Result<(), Signal> {
+        self.drop_window_of_the_old_view(st, view_before)?;
+        self.hold_rows_an_action_inserted(st)
+    }
+
     /// After an action, the client holds the rows of the view as they are now: a row the action inserted, before the row the list
     /// stands on or after it, is among them, with `CurrPage.Update()`, `Update(false)` and without an update, so GoToRecord
     /// finds it on a Worksheet with both row triggers, with neither, with only one of them and on a List with both
