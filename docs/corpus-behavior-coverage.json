@@ -5806,7 +5806,7 @@
           "name": "Editable",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:175"
+          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:177"
         },
         {
           "corpus_uses": 2,
@@ -11458,7 +11458,7 @@
           "name": "Enabled",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:281"
+          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:285"
         },
         {
           "corpus_uses": 2,
@@ -11467,7 +11467,7 @@
           "name": "FileUploadAction",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:343"
+          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:349"
         },
         {
           "corpus_uses": 1,
@@ -11476,7 +11476,7 @@
           "name": "ShowAsTree",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:342"
+          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:348"
         },
         {
           "corpus_uses": 1,
@@ -11629,7 +11629,7 @@
           "name": "FileUploadAction",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:133"
+          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:134"
         },
         {
           "corpus_uses": 1,
@@ -11665,7 +11665,7 @@
           "name": "ShowAsTree",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:132"
+          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:134"
         },
         {
           "corpus_uses": 4,
@@ -11683,7 +11683,7 @@
           "name": "Enabled",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:176"
+          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:178"
         },
         {
           "corpus_uses": 2,
@@ -11692,7 +11692,7 @@
           "name": "FileUploadAction",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:238"
+          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:241"
         },
         {
           "corpus_uses": 1,
@@ -11728,7 +11728,7 @@
           "name": "ShowAsTree",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:237"
+          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:240"
         },
         {
           "corpus_uses": 4,
@@ -11737,7 +11737,7 @@
           "name": "Visible",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:177"
+          "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:178"
         },
         {
           "corpus_uses": 1,
@@ -15066,9 +15066,9 @@
       "dimension": "syntax",
       "items": [
         {
-          "corpus_uses": 1072333,
+          "corpus_uses": 1072336,
           "group": "expression",
-          "ms_uses": 1810026,
+          "ms_uses": 1810044,
           "name": "NameRef",
           "pinned": true,
           "runtime_reads": true,
@@ -15102,9 +15102,9 @@
           "site": "ALTCallstackModuleInfos.al:26"
         },
         {
-          "corpus_uses": 50126,
+          "corpus_uses": 50129,
           "group": "statement",
-          "ms_uses": 189174,
+          "ms_uses": 189192,
           "name": "Block",
           "pinned": true,
           "runtime_reads": true,
@@ -15129,9 +15129,9 @@
           "site": "ALTIsolatedStorageOwner.al:25"
         },
         {
-          "corpus_uses": 8710,
+          "corpus_uses": 8713,
           "group": "statement",
-          "ms_uses": 81512,
+          "ms_uses": 81530,
           "name": "ExitStmt",
           "pinned": true,
           "runtime_reads": true,
@@ -15194,7 +15194,7 @@
         {
           "corpus_uses": 1528,
           "group": "expression",
-          "ms_uses": 24382,
+          "ms_uses": 24383,
           "name": "PrefixExpr not",
           "pinned": true,
           "runtime_reads": true,
@@ -16036,7 +16036,7 @@
         "code": "",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 1620,
+        "line": 1630,
         "pinned": true,
         "site": "records/W4PlatformAndMeta.al:632",
         "template": "The value \"%\" can't be evaluated into type TableFilter.%"
@@ -16045,7 +16045,7 @@
         "code": "Evaluate",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 2286,
+        "line": 2296,
         "pinned": true,
         "site": "codeunit/TestCrossAppDispatch.al:61",
         "template": "Evaluate"
@@ -16054,7 +16054,7 @@
         "code": "",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 2289,
+        "line": 2299,
         "pinned": true,
         "site": "codeunit/TestCrossAppDispatch.al:61",
         "template": "Evaluate"
@@ -16108,7 +16108,7 @@
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/json.rs",
         "generic": false,
-        "line": 2571,
+        "line": 2588,
         "pinned": true,
         "site": "json/JsonObjectBasics.al:377",
         "template": "The requested operation cannot be performed in this context."
@@ -16189,10 +16189,28 @@
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/native.rs",
         "generic": false,
-        "line": 944,
+        "line": 946,
         "pinned": true,
         "site": "codeunit/TestInterfaceRuntimeContracts.al:85",
         "template": "Interface not initialized"
+      },
+      {
+        "code": "Dialog",
+        "file": "crates/al-builtins/src/native/dialog.rs",
+        "generic": false,
+        "line": 41,
+        "pinned": true,
+        "site": "errorinfo/lt-errnotif/EnTDialogSession.al:65",
+        "template": "The operation failed because the dialog box is not open."
+      },
+      {
+        "code": "",
+        "file": "crates/al-builtins/src/native/dialog.rs",
+        "generic": false,
+        "line": 97,
+        "pinned": true,
+        "site": "errorinfo/lt-errnotif/EnTDialogSession.al:61",
+        "template": "No parameter with index '%' was found in the format string '%'."
       },
       {
         "code": "AL:DivideByZero",
@@ -16306,7 +16324,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1249,
+        "line": 1263,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -16621,7 +16639,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 2068,
+        "line": 2069,
         "pinned": true,
         "site": "codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:95",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -16888,8 +16906,8 @@
         "template": "The date is not valid."
       }
     ],
-    "pinned": 99,
-    "sites": 103
+    "pinned": 101,
+    "sites": 105
   },
   "language": {
     "bc": "27-29",
@@ -22409,7 +22427,7 @@
         "owner": "PageCueGroup",
         "pinned": true,
         "scope": "",
-        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:281",
+        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:285",
         "state": "implemented"
       },
       {
@@ -22424,7 +22442,7 @@
         "owner": "PageCueGroup",
         "pinned": true,
         "scope": "",
-        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:343",
+        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:349",
         "state": "implemented"
       },
       {
@@ -22559,7 +22577,7 @@
         "owner": "PageCueGroup",
         "pinned": true,
         "scope": "",
-        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:342",
+        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:348",
         "state": "implemented"
       },
       {
@@ -24059,7 +24077,7 @@
         "owner": "PageFixed",
         "pinned": true,
         "scope": "",
-        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:133",
+        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:134",
         "state": "implemented"
       },
       {
@@ -24194,7 +24212,7 @@
         "owner": "PageFixed",
         "pinned": true,
         "scope": "",
-        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:132",
+        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:134",
         "state": "implemented"
       },
       {
@@ -24269,7 +24287,7 @@
         "owner": "PageGrid",
         "pinned": true,
         "scope": "",
-        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:175",
+        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:177",
         "state": "implemented"
       },
       {
@@ -24284,7 +24302,7 @@
         "owner": "PageGrid",
         "pinned": true,
         "scope": "",
-        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:176",
+        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:178",
         "state": "implemented"
       },
       {
@@ -24299,7 +24317,7 @@
         "owner": "PageGrid",
         "pinned": true,
         "scope": "",
-        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:238",
+        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:241",
         "state": "implemented"
       },
       {
@@ -24434,7 +24452,7 @@
         "owner": "PageGrid",
         "pinned": true,
         "scope": "",
-        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:237",
+        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:240",
         "state": "implemented"
       },
       {
@@ -24479,7 +24497,7 @@
         "owner": "PageGrid",
         "pinned": true,
         "scope": "",
-        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:177",
+        "site": "pages/lt-ab-group-properties/ABGroupFixtures.al:178",
         "state": "implemented"
       },
       {
@@ -29969,7 +29987,7 @@
           28,
           29
         ],
-        "ms_uses": 189174,
+        "ms_uses": 189192,
         "name": "begin",
         "owner": "keyword",
         "pinned": true,
@@ -30029,7 +30047,7 @@
           28,
           29
         ],
-        "ms_uses": 81512,
+        "ms_uses": 81530,
         "name": "exit",
         "owner": "keyword",
         "pinned": true,
@@ -30104,7 +30122,7 @@
           28,
           29
         ],
-        "ms_uses": 24382,
+        "ms_uses": 24383,
         "name": "not",
         "owner": "keyword",
         "pinned": true,
