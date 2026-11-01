@@ -312,6 +312,11 @@ impl Session {
                 s.blank_on_open = true;
             }
             self.populate_expressions(st)
+        } else if self.empty_temp_navigate_page_by_set_record(st) {
+            let rec = self.page_rec(st);
+            let blank = self.initial_fields(rec.borrow().table as usize);
+            rec.borrow_mut().fields = blank;
+            self.populate_expressions(st)
         } else {
             // A list part that shows no row of a host opened for view runs its OnNewRecord once, the link value set without
             // validation, and then shows no row (pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:883

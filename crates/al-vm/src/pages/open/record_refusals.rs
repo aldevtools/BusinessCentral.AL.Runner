@@ -52,4 +52,22 @@ impl Session {
         }
         Ok(())
     }
+
+    /// A NavigatePage over a temporary table, handed a record by SetRecord of a Page variable, that finds no row when it opens: after
+    /// OnOpenPage (which read the record's fields) its Rec is the blank record, an action's Modify looks for `Code=''`
+    /// (pages/lt-y61-page-probes/Y61StoredRecToTempCard.al:468 G617b_NavigatePage_SetRecord_RunModal_Agree). Pinned for a page without
+    /// OnNewRecord and OnAfterGetCurrRecord (whether they run there is not); `false` for those.
+    pub(in crate::pages) fn empty_temp_navigate_page_by_set_record(&self, st: &St) -> bool {
+        let navigate = matches!(
+            self.engine.object_facts[st.borrow().object as usize].page_type,
+            Some(al_ir::PageType::NavigatePage)
+        );
+        navigate
+            && st.borrow().host.is_none()
+            && st.borrow().set_record.is_some()
+            && self.has_source(st)
+            && self.page_rec(st).borrow().temporary
+            && !self.declares(st, "onnewrecord")
+            && !self.declares(st, "onaftergetcurrrecord")
+    }
 }

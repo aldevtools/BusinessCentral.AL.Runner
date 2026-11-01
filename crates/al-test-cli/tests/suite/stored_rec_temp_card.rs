@@ -45,6 +45,14 @@ page 69973 "TC Card"
     trigger OnAfterGetRecord() var L: Codeunit "TC Log Mgt"; begin L.Add('agr ' + Rec.Code + '/' + Rec.Name); end;
     procedure Result(): Text begin exit(Rec.Code + '/' + Rec.Name + '/' + Format(Rec.Enabled) + '/count=' + Format(Rec.Count())); end;
 }
+page 69975 "TC Navigate"
+{
+    PageType = NavigatePage; SourceTable = "TC Row"; SourceTableTemporary = true; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { field(CodeCtl; Rec.Code) { } field(NameCtl; Rec.Name) { } } }
+    actions { area(Processing) { action(Agree) { InFooterBar = true; trigger OnAction() begin Rec.Enabled := true; Rec.Modify(); CurrPage.Close(); end; } } }
+    trigger OnOpenPage() var L: Codeunit "TC Log Mgt"; begin L.Add('open ' + Rec.Code + '/temp=' + Format(Rec.IsTemporary()) + '/count=' + Format(Rec.Count())); end;
+    procedure Result(): Text begin exit(Rec.Code + '/' + Format(Rec.Enabled)); end;
+}
 codeunit 69974 C
 {
     Subtype = Test;
@@ -121,6 +129,30 @@ codeunit 69974 C
         exit(Seen + '|' + R + '|' + Stored() + '|' + P.Result() + '|' + R2.Code + '/' + Format(R2.Enabled) + '|' + PN.Name);
     end;
 
+    [TryFunction]
+    local procedure TryAgree(var P: TestPage "TC Navigate")
+    begin
+        P.Agree.Invoke();
+    end;
+
+    [ModalPageHandler]
+    procedure NavHandler(var P: TestPage "TC Navigate")
+    var L: Codeunit "TC Log Mgt";
+    begin
+        Seen := L.Take() + '|' + P.CodeCtl.Value() + '|' + Outcome(TryAgree(P));
+    end;
+
+    local procedure NavigateAgree(): Text
+    var PN: Record "TC Row"; R2: Record "TC Row"; P: Page "TC Navigate"; R: Text;
+    begin
+        Seed();
+        PN.Get('N1');
+        P.SetRecord(PN);
+        R := Format(P.RunModal());
+        P.GetRecord(R2);
+        exit(Seen + '|' + R + '|' + Stored() + '|' + P.Result() + '|' + R2.Code + '/' + Format(R2.Enabled));
+    end;
+
     local procedure SetRecordDelete(): Text
     var PN: Record "TC Row"; P: Page "TC Card"; R: Text;
     begin
@@ -167,6 +199,7 @@ codeunit 69974 C
     [Test] [HandlerFunctions('Handler')] procedure T_SetRecordAgree() begin Error('%1', SetRecordAgree()); end;
     [Test] [HandlerFunctions('Handler')] procedure T_SetRecordDelete() begin Error('%1', SetRecordDelete()); end;
     [Test] [HandlerFunctions('Handler')] procedure T_RunModalIdRecRename() begin Error('%1', RunModalIdRecRename()); end;
+    [Test] [HandlerFunctions('NavHandler')] procedure T_NavigateAgree() begin Error('%1', NavigateAgree()); end;
     [Test] procedure T_RunIdRecTrap() begin Error('%1', RunIdRecTrap()); end;
     [Test] [HandlerFunctions('Handler')] procedure T_FilteredToNoRow() begin Error('%1', FilteredToNoRow()); end;
 }
@@ -284,5 +317,16 @@ fn run_modal_with_a_record_filtered_to_no_row() {
             "LookupCancel",
             STORED
         ]
+    );
+}
+
+/// Y61StoredRecToTempCard.al:468 G617b_NavigatePage_SetRecord_RunModal_Agree: a NavigatePage shows the blank row like the Card, and
+/// its Rec is the blank record (the Modify looks for `Code=''`).
+#[test]
+fn set_record_of_a_stored_row_opens_the_temporary_navigate_page_empty() {
+    let out = run("NavigateAgree");
+    assert_eq!(
+        out,
+        ["open N1/temp=Yes/count=0", "", GONE, "OK", STORED, "/Yes", "/Yes"]
     );
 }
