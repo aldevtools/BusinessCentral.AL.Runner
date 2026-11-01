@@ -126,6 +126,30 @@ impl Session {
         }
     }
 
+    /// Before an action reads the row of a page that holds an edit again (it asks for that refresh here): a top-level page
+    /// without row triggers saves the row first; the read clears the edit, which was lost before (pages/lt-y65-code-change-next-field/Y65CodeChangeNextField.al:413
+    /// Y65_Worksheet_SecretThenAction, :594 Y65_Card_TableTriggerChangeThenAction `peek db ... cnt=7`; writer Y65's corpus branch,
+    /// assumption page-var-validate-code-change-saved until the pin; the save before an action is pinned for pages with row
+    /// triggers by pages/lt-y45-save-before-action/Y45SaveBeforeAction.al, file header lines 7-26).
+    pub(super) fn save_edit_before_action_read(&mut self, st: &St) -> Result<(), Signal> {
+        let edited = {
+            let s = st.borrow();
+            s.open && s.dirty && !s.draft && s.cursor == Cursor::Row && s.host.is_none()
+        };
+        if edited
+            && self.has_source(st)
+            && !self.declares(st, "onaftergetrecord")
+            && !self.declares(st, "onaftergetcurrrecord")
+        {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageVarValidateCodeChangeSaved);
+            self.save_row(st)?;
+        }
+        // The refresh the action asks for reads the row again.
+        st.borrow_mut().refresh = true;
+        st.borrow_mut().refresh_by_update = false;
+        Ok(())
+    }
+
     fn save_before_page_var_validate_row(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
         let engine = self.engine();
         if !matches!(
