@@ -1674,6 +1674,17 @@ fn kind_of(v: &Value) -> &'static str {
 /// pinned, so anything else is Unsupported (ADR-014 section 4).
 pub(crate) fn fit(v: Value, t: &RtType) -> Result<Value, Signal> {
     use RtType as T;
+    // A .NET Int64 into an Integer: the number when it fits, else an overflow error and the slot keeps its value
+    // (tests/al-language-onprem-dotnet/lt-y51-dotnet-int64/Y51DotNetInt64IntoInteger.al:49-175, also through a var parameter).
+    if let (Value::BigInteger(n), T::Integer) = (&v, t) {
+        return match i32::try_from(*n) {
+            Ok(i) => Ok(Value::Integer(i)),
+            Err(_) => al_builtins::native::raise(
+                format!("Overflow under conversion of System.Int64 value {n} to System.Int32."),
+                "ConversionCast",
+            ),
+        };
+    }
     let ok = matches!(
         (&v, t),
         (_, T::Variant)

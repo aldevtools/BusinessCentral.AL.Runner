@@ -986,8 +986,25 @@ fn a_result_of_another_kind_is_not_stored_into_a_typed_variable() {
     let e = result_of(DotNetValue::Int32(7), "Text", ": Text").expect_err("refused");
     let Signal::Unsupported(why) = e else { panic!() };
     assert!(why.contains("Integer") && why.contains("not pinned"), "{why}");
-    // A narrowing result (long into Integer) is refused too.
-    assert!(result_of(DotNetValue::Int64(7), "Integer", ": Integer").is_err());
+}
+
+// Y51DotNetInt64IntoInteger.al: a .NET long into an Integer is the number when it fits, else an overflow error.
+#[test]
+fn a_long_result_into_an_integer_narrows_or_overflows() {
+    assert!(matches!(
+        result_of(DotNetValue::Int64(7), "Integer", ": Integer"),
+        Ok(Value::Integer(7))
+    ));
+    match result_of(DotNetValue::Int64(3_000_000_000), "Integer", ": Integer") {
+        Err(Signal::Error(e)) => {
+            assert_eq!(
+                e.message,
+                "Overflow under conversion of System.Int64 value 3000000000 to System.Int32."
+            );
+            assert_eq!(e.code, "ConversionCast");
+        }
+        other => panic!("{other:?}"),
+    }
 }
 
 #[test]
@@ -1654,7 +1671,7 @@ fn the_declared_result_types_match_the_registry() {
             // (Count and Item of a runtime-made Dictionary`2 too: tests/host/generic_dictionary.rs runs them.)
             "FromStream" | "Fields" | "Count" | "Item" | "FieldNo" | "TableNo" | "FieldName" => continue,
             // Need a dictionary made with a capacity, or a pair of one; tests/host/generic_dictionary.rs runs them.
-            "Add" | "ContainsKey" | "Key" | "Value" => continue,
+            "Add" | "ContainsKey" | "Key" | "Value" | "Remove" | "TryGetValue" | "Values" => continue,
             _ => vec![],
         };
         let mut s = Session::new(Engine::new(al_ir::Program::default(), vec![]));
