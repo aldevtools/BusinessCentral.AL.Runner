@@ -62,6 +62,7 @@ mod list_read_order;
 mod list_refused_validate_close;
 mod list_update_without_current;
 mod long_list_moved_rec_open;
+mod lookup_deferred_refresh_part_move;
 mod lookup_global_record_field;
 mod lookup_ok_no_row;
 mod lookup_three_field_link_row_triggers;
