@@ -931,21 +931,16 @@ const IMPLICIT_LIST_AREAS: &[&str] = &["FactBoxes"];
 /// The implicit `layout` areas of a page of type `page_type`; other page types are not pinned. A Worksheet, a Document and a
 /// ListPlus take FactBoxes as a List does (al-runner issue 6490; corpus writer Y20, pageext/lt-bc-implicit-areas/Y20ImplicitFactBoxes.al);
 /// a part page does not (must-not-compile 2351, 2352). On a StandardDialog, a ConfirmationDialog and a NavigatePage the extension
-/// compiles but the part is not on the page, which is not modeled: refused. The three new page types are measured on BC, not
-/// yet pinned: the assumption that comes back is marked when an extension adds to the area.
+/// compiles but the part is not on the page, which is not modeled: refused. The assumption that comes back, none at present,
+/// is marked when an extension adds to the area.
 fn implicit_layout_areas(page_type: &str) -> (&'static [&'static str], Option<al_builtins::assumptions::Assumption>) {
     if page_type.eq_ignore_ascii_case("Card") {
         (IMPLICIT_CARD_AREAS, None)
-    } else if page_type.eq_ignore_ascii_case("List") {
-        (IMPLICIT_LIST_AREAS, None)
-    } else if ["Worksheet", "Document", "ListPlus"]
+    } else if ["List", "Worksheet", "Document", "ListPlus"]
         .iter()
         .any(|t| page_type.eq_ignore_ascii_case(t))
     {
-        (
-            IMPLICIT_LIST_AREAS,
-            Some(al_builtins::assumptions::Assumption::PageExtImplicitFactBoxesMorePageTypes),
-        )
+        (IMPLICIT_LIST_AREAS, None)
     } else {
         (&[], None)
     }
@@ -2179,11 +2174,7 @@ mod tests {
             let l = merged(&page, &[part]);
             assert!(l.reasons.is_empty(), "{ty}: {:?}", l.reasons);
             assert_eq!(names(&l), ["Number", "BCPart"], "{ty}");
-            assert_eq!(
-                l.assumes,
-                [al_builtins::assumptions::Assumption::PageExtImplicitFactBoxesMorePageTypes],
-                "{ty}"
-            );
+            assert!(l.assumes.is_empty(), "{ty}");
         }
         let list_part =
             "page 50100 P { PageType = ListPart; layout { area(Content) { field(Number; Rec.Number) { } } } }";

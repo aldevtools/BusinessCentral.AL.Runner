@@ -130,14 +130,12 @@ impl Session {
         let rec = self.page_rec(st);
         // A collapsed tree: the client reads every row of the tree as the flat page reads its view, keeps the row it stood on
         // when its key came back (else Rec's row), keeps the rows it had expanded by key, shows the parent of a kept row below the
-        // top level expanded, and holds the rows the cut shows (al-runner issue 6550; corpus writer Y34, RmTempRefill.al
+        // top level expanded, and holds the rows the cut shows (al-runner issue 6550; pages/lt-outside-worksheet/RmTempRefill.al
         // Y34_Tree_Fewer_AB_To_B `R:B;R:B-1;R:B-2;R:B;R:B;C:B;` rows `B`, Y34_Tree_SameKeys_AB_To_CD_FromSecondRoot
         // `R:D;R:D;R:D-1;R:D-2;R:D;R:C-2;R:C-1;R:C;R:D;R:D;C:D;` rows `C D`, Y34_Tree_ExpandedBefore_AB_To_B rows `B B-1 B-2`,
         // Y34_Tree_EndOnLastRow_A_To_AB rows `A A-1 A-2 B` (Rec's own row, B-2, does not expand B),
         // Y34_Tree_KeptKeyIsChild_AB_To_aBc_FromSecondRoot rows `a B B-1 B-2 c`). A refill to no rows is not built.
         if rec.borrow().filters.iter().any(|f| f.group == super::open::TREE_GROUP) {
-            // Awaits the Y34 pin (al-runner issue 6550).
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TreeRefillByValidateRereads);
             let Some(level) = self.tree_level_field(st)? else {
                 return unsupported("a tree whose IndentationColumn is not an Integer field (not pinned)");
             };
