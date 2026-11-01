@@ -9,9 +9,72 @@ use al_testrun::Outcome;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun, TestResult};
 
 const SRC: &str = r#"
+codeunit 50961 "Dev Endpoint Log"
+{
+    SingleInstance = true;
+    var
+        Seen: Text;
+    procedure Add(T: Text)
+    begin
+        Seen += T;
+    end;
+    procedure Get(): Text
+    begin
+        exit(Seen);
+    end;
+    procedure Clear()
+    begin
+        Seen := '';
+    end;
+}
+
+page 50962 "Dev Endpoint Card"
+{
+    PageType = Card;
+    layout
+    {
+        area(Content)
+        {
+            field(Info; InfoText) { }
+        }
+    }
+    var
+        InfoText: Text;
+    trigger OnOpenPage()
+    var
+        Log: Codeunit "Dev Endpoint Log";
+    begin
+        Log.Add('OnOpenPage;');
+    end;
+    trigger OnQueryClosePage(CloseAction: Action): Boolean
+    var
+        Log: Codeunit "Dev Endpoint Log";
+    begin
+        Log.Add('OnQueryClosePage;');
+        exit(true);
+    end;
+    trigger OnClosePage()
+    var
+        Log: Codeunit "Dev Endpoint Log";
+    begin
+        Log.Add('OnClosePage;');
+    end;
+}
+
+page 50963 "Dev Endpoint Init Card"
+{
+    PageType = Card;
+    trigger OnInit()
+    begin
+    end;
+}
+
 codeunit 50960 "Dev Endpoint UI"
 {
     Subtype = Test;
+
+    var
+        Log: Codeunit "Dev Endpoint Log";
 
     // The shapes of the corpus probe Y53DevRunnerProbe.al (codeunit 97530), measured through the dev endpoint
     // (TestRunnerHub) on a BC 28.5 container: the call returns at once with the value below.
@@ -85,6 +148,28 @@ codeunit 50960 "Dev Endpoint UI"
     procedure ConfirmYes(Question: Text[1024]; var Reply: Boolean)
     begin
         Reply := true;
+    end;
+
+    [Test]
+    procedure PageRunModal_NoHandler()
+    begin
+        Log.Clear();
+        if Page.RunModal(Page::"Dev Endpoint Card") <> Action::None then Error('RunModal did not answer None');
+        if Log.Get() <> '' then Error('page triggers ran: %1', Log.Get());
+    end;
+
+    [Test]
+    procedure PageRun_NoHandler()
+    begin
+        Log.Clear();
+        Page.Run(Page::"Dev Endpoint Card");
+        if Log.Get() <> '' then Error('page triggers ran: %1', Log.Get());
+    end;
+
+    [Test]
+    procedure PageRunModal_OnInitPage()
+    begin
+        Page.RunModal(Page::"Dev Endpoint Init Card");
     end;
 
     [Test]
@@ -183,6 +268,17 @@ fn message_and_hyperlink_go_on() {
         answered(&rt, "Hyperlink_NoHandler"),
         vec!["Hyperlink https://example.invalid/y53: no answer"]
     );
+}
+
+/// Page.RunModal(Id) answers Action::None and Page.Run(Id) returns, and no page trigger runs (Y53DevRunnerProbe.al
+/// PageRunModal_NoHandler, PageRun_NoHandler). A page with an OnInit trigger was not measured.
+#[test]
+fn a_static_page_run_answers_without_opening_the_page() {
+    let rt = run(true);
+    assert_eq!(answered(&rt, "PageRunModal_NoHandler"), vec!["ModalPage 50962: Action::None"]);
+    assert_eq!(answered(&rt, "PageRun_NoHandler"), vec!["Page 50962: no answer"]);
+    let r = result(&rt, "PageRunModal_OnInitPage");
+    assert!(matches!(&r.outcome, Outcome::Fail(m) if m.starts_with("Unhandled UI")), "{:?}", r.outcome);
 }
 
 /// A declared handler that never ran still fails the test, and a bound handler still answers

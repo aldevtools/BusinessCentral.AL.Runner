@@ -46,15 +46,23 @@ impl Session {
     /// `Hyperlink(url)` with no `[HyperlinkHandler]` bound: true when `--dev-endpoint-ui` lets the call return, as it does
     /// through the dev endpoint (Y53DevRunnerProbe.al Hyperlink_NoHandler, BC 28.5).
     pub(crate) fn dev_endpoint_hyperlink(&mut self, url: &str) -> bool {
-        if !self.ui_state.dev_endpoint.on || self.ui_state.scope.as_ref().is_none_or(|s| s.in_handler) {
+        if !self.dev_endpoint_unhandled(UiKind::Hyperlink) {
             return false;
         }
         self.note_dev_endpoint_answer(UiKind::Hyperlink, url, "no answer");
         true
     }
 
+    /// Whether `--dev-endpoint-ui` may answer a UI call of `kind` here: the flag is on, a test method runs, no handler
+    /// function runs, and the test bound no handler of `kind` (for any page).
+    pub(crate) fn dev_endpoint_unhandled(&self, kind: UiKind) -> bool {
+        self.ui_state.dev_endpoint.on
+            && self.ui_state.scope.as_ref().is_some_and(|s| !s.in_handler)
+            && !self.has_ui_handler(kind)
+    }
+
     /// Marks the assumption and keeps the answer for the runner's warning.
-    fn note_dev_endpoint_answer(&mut self, kind: UiKind, shown: &str, said: &str) {
+    pub(crate) fn note_dev_endpoint_answer(&mut self, kind: UiKind, shown: &str, said: &str) {
         assumptions::assume(Assumption::DevEndpointUi);
         let call = format!("{} {shown}", kind.label());
         self.ui_state.dev_endpoint.answered.push(format!("{}: {said}", call.trim_end()));

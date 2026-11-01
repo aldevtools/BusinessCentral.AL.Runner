@@ -175,6 +175,7 @@ pub(crate) mod request;
 pub(crate) use request::RequestClosed;
 mod actions;
 mod controls;
+mod dev_endpoint;
 mod draft;
 mod format;
 mod open;
