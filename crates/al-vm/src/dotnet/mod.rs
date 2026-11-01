@@ -16,6 +16,7 @@ mod pinned_exceptions;
 pub mod policy;
 mod pure;
 use pure::CONSTRUCT;
+mod business_chart_data;
 mod query_metadata;
 pub mod registry;
 pub mod server_classes;

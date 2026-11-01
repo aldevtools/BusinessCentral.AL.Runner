@@ -1672,6 +1672,8 @@ fn the_declared_result_types_match_the_registry() {
             "FromStream" | "Fields" | "Count" | "Item" | "FieldNo" | "TableNo" | "FieldName" => continue,
             // Need a dictionary made with a capacity, or a pair of one; tests/host/generic_dictionary.rs runs them.
             "Add" | "ContainsKey" | "Key" | "Value" | "Remove" | "TryGetValue" | "Values" => continue,
+            // Need a BusinessChartData object; tests/host/business_chart_data.rs runs them.
+            "ClearMeasures" | "AddMeasure" | "XDimension" => continue,
             _ => vec![],
         };
         let mut s = Session::new(Engine::new(al_ir::Program::default(), vec![]));

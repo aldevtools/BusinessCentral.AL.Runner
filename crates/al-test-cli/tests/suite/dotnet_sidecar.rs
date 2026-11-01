@@ -1134,6 +1134,43 @@ fn an_indexer_is_called_by_its_indexer_name_with_its_arguments() {
     sess.close();
 }
 
+/// AL assigns through a .NET indexer by calling it with the index arguments and the value last: System Application
+/// "Business Chart Impl." writes `DataRow.Item(ColumnName, Value)` and reads `DataRow.Item(ColumnName)` back (corpus
+/// tests/al-language/misc/lt-au-language-edges/AuEdgeTests.al:608 BusinessChartBuffer_Initialize_InTest, real BC 27-29:
+/// SetValueByIndex(0, 0, 7) then GetValue answers 7).
+#[test]
+fn an_indexer_called_with_one_argument_more_than_its_index_is_assigned() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let table = handle_of(
+        &sess
+            .construct(&ty("System.Data.DataTable"), vec![s("DataTable")])
+            .unwrap(),
+    );
+    let cols = handle_of(&sess.get_property(DotNetTarget::Instance(table), "Columns").unwrap());
+    sess.invoke(DotNetTarget::Instance(cols), "Add", vec![s("Month")])
+        .unwrap();
+    let row = handle_of(&sess.invoke(DotNetTarget::Instance(table), "NewRow", vec![]).unwrap());
+    sess.invoke(DotNetTarget::Instance(row), "Item", vec![s("Month"), s("Jan")])
+        .unwrap();
+    let v = sess
+        .invoke(DotNetTarget::Instance(row), "Item", vec![s("Month")])
+        .unwrap();
+    assert_eq!(text_of(&v), "Jan");
+    // An Integer value also fits the two-argument getter `Item(String, DataRowVersion)`; the setter is the closer fit.
+    sess.invoke(
+        DotNetTarget::Instance(row),
+        "Item",
+        vec![s("Month"), arg(DotNetValue::Int32(7))],
+    )
+    .unwrap();
+    let v = sess
+        .invoke(DotNetTarget::Instance(row), "Item", vec![s("Month")])
+        .unwrap();
+    assert_eq!(text_of(&v), "7");
+    sess.close();
+}
+
 /// `foreach` over an XmlAttributeCollection with no attributes (Base App "XML DOM Management".AddNamespaces, al-runner
 /// issue 6316): GetEnumerator returns System.Xml.EmptyEnumerator, which implements IEnumerator.MoveNext and Current only
 /// explicitly. The loop calls them by name, so they answer through the IEnumerator interface: MoveNext is false.
