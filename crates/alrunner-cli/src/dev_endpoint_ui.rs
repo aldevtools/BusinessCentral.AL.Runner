@@ -104,7 +104,8 @@ mod tests {
         assert_eq!(for_major(false, 29), Ok(false));
         assert_eq!(for_major(true, 27), Ok(false));
         assert_eq!(for_major(true, 28), Ok(true));
-        assert!(for_major(true, 29).unwrap_err().contains("not measured"));
+        assert_eq!(for_major(true, 29), Ok(true));
+        assert!(for_major(true, 30).unwrap_err().contains("not measured"));
         assert!(for_major(true, 26).is_err());
     }
 

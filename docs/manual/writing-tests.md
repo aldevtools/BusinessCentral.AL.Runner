@@ -336,8 +336,8 @@ The answers depend on the BC version:
 
 - BC 27: the dev-endpoint runner also fails each such call. The flag changes
   nothing and prints a note.
-- BC 28: the answers above.
-- BC 29 and other versions: not measured yet. The flag is refused with an error.
+- BC 28 and 29: the answers above (BC 29 was measured on a SaaS Dev sandbox, with the same values as BC 28.5).
+- Other versions: not measured yet. The flag is refused with an error.
 
 Risks:
 
