@@ -807,8 +807,9 @@ pub struct XmlNode {
     /// `AutoCalcField` of a field node as declared (`None`: not declared; a FlowField is calculated then, by an assumption).
     #[serde(default)]
     pub auto_calc: Option<bool>,
-    /// `Unbound = true` on a field element: its import is as without it, its export is not pinned
-    /// (YXmlPortProps.al:712, BC's export of such a port does not end).
+    /// `Unbound = true` on a field element or a leaf text element: a field element imports as without it, its export is not
+    /// pinned (YXmlPortProps.al:712, BC's export of such a port does not end). A text element imports as without it in an Xml
+    /// port and takes every further column on a VariableText import (Y60XpUnboundText.al); its export does not end either.
     #[serde(default)]
     pub unbound: bool,
     /// `Occurrence` of a text or field attribute as declared: `Some(true)` Required, `Some(false)` Optional, `None` not declared
