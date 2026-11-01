@@ -129,6 +129,7 @@ impl<'a> Checker<'a> {
     pub(crate) fn pick(&mut self, sc: &Scope, node: &SyntaxNode, cands: &[Cand], args: &[Ty], name: &str) -> Ty {
         let argc = args.len();
         let field_only = std::mem::take(&mut self.field_only_args);
+        let variant_args = std::mem::take(&mut self.variant_args);
         // The best arity match by how many arguments fit; the first wins a tie.
         // An app under test that declares a runtime below the catalog's sees only the overloads of its own runtime
         // (al-runner issue 5573): a tagged overload newer than it is hidden for it too.
@@ -156,9 +157,10 @@ impl<'a> Checker<'a> {
                     .zip(&c.param_tys)
                     .enumerate()
                     .filter(|(i, _)| !(is_proc && field_only.contains(i)))
-                    .map(|(_, ap)| ap)
-                    .filter(|(a, p)| {
-                        if is_proc {
+                    .filter(|(i, (a, p))| {
+                        if is_proc && variant_args.contains(i) {
+                            fits_proc(&Ty::Variant, p)
+                        } else if is_proc {
                             fits_proc(a, p) || self.implements_param(sc.file, a, p)
                         } else {
                             fits(a, p)

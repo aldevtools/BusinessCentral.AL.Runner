@@ -976,13 +976,15 @@ pub fn drain_in(v: &mut Value) -> Result<Vec<u8>, Signal> {
 }
 
 fn with_in<T>(r: Option<&mut Value>, f: impl FnOnce(&mut InState) -> Result<T, Signal>) -> Result<T, Signal> {
-    with_in_of(r, false, false, f)
+    with_in_of(r, false, f)
 }
 
 /// `InStream.OwnerOutOfScope` (invented): the routine that created the stream on its own local (a Temp Blob, the Blob field
 /// of a temporary record) hands it back and ends. BC reads it as empty: Length 0, EOS Yes, ReadText gives '' and EOS stays
-/// Yes (streams/lt-dc-stream-leads/DcInStreamScope.al:107-126, :128-166, al-runner issue 5688). Any other use of it is not
-/// pinned and refused.
+/// Yes (streams/lt-dc-stream-leads/DcInStreamScope.al:107-126, :128-166, al-runner issue 5688). It is an empty stream for every
+/// other use too: HttpContent.WriteFrom, CopyStream into an OutStream or a Blob field, Read, ReadText with a length, Position 1,
+/// ResetPosition, Position(1) out of range, a `var` parameter and an assignment (streams/lt-y62-gone-instream/Y62GoneInStream.al,
+/// writer Y62). Only the DotNet uses of it stay refused (`owner_gone`, dotnet/blob_stream.rs).
 pub(crate) fn owner_out_of_scope(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     with_in(r, |s| {
         s.source = Source::Snapshot(Vec::new());
@@ -1039,12 +1041,10 @@ pub fn create_empty_in(v: &Value) -> bool {
     true
 }
 
-/// [`with_in`]; `handed_ok` lets a stream HttpContent.WriteFrom took through (only `EOS` reads it), `gone_ok` one whose
-/// owner went out of scope (only `Length`, `EOS` and `ReadText` read it).
+/// [`with_in`]; `handed_ok` lets a stream HttpContent.WriteFrom took through (only `EOS` and `Length` read it).
 fn with_in_of<T>(
     r: Option<&mut Value>,
     handed_ok: bool,
-    gone_ok: bool,
     f: impl FnOnce(&mut InState) -> Result<T, Signal>,
 ) -> Result<T, Signal> {
     let mut g = in_state(r)?;
@@ -1058,11 +1058,6 @@ fn with_in_of<T>(
             }
             if s.not_initialized {
                 return unsupported("use of an InStream a Report layout call left uncreated (only EOS is pinned)");
-            }
-            if s.owner_gone && !gone_ok {
-                return unsupported(
-                    "use of an InStream whose owning local went out of scope (only Length, EOS and ReadText are pinned)",
-                );
             }
             f(s)
         }
@@ -1131,7 +1126,7 @@ fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     }
     // A stream HttpContent.WriteFrom took is not at its end (network/lt-db-http-leads/DbHttpContentLeads.al:310): its position
     // did not move.
-    with_in_of(r, true, true, |s| Ok(Value::Boolean(s.pos >= s.len())))
+    with_in_of(r, true, |s| Ok(Value::Boolean(s.pos >= s.len())))
 }
 
 fn in_reset(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
@@ -1151,7 +1146,10 @@ fn in_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
         crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
         return Ok(Value::BigInteger(1));
     }
-    with_in_of(r, false, true, |s| Ok(Value::BigInteger(s.len() as i64)))
+    // A cleared stream raises (Y62GoneInStream.al:GoneStream_Clear); the length of a stream WriteFrom took is its whole length
+    // (GoneStream_HttpContentWriteFrom `kept stream after` len=23).
+    crate::stream_cleared::refuse_cleared(r.as_deref())?;
+    with_in_of(r, true, |s| Ok(Value::BigInteger(s.len() as i64)))
 }
 
 /// `Position` is 1-based: 1 at the start, the length plus one after the last byte (streams/TestProbeStreamContracts.al:
@@ -1220,10 +1218,8 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
         return unsupported("InStream.ReadText with more arguments (not pinned)");
     }
     let mut enc_used = Encoding::Windows;
-    // `ReadText(Text)` of a stream whose owner went out of scope gives '' (DcInStreamScope.al:107-166); with a length it is
-    // not pinned.
-    let gone_ok = a.len() == 1;
-    let text = with_in_of(r, false, gone_ok, |s| {
+    crate::stream_cleared::refuse_cleared(r.as_deref())?;
+    let text = with_in_of(r, false, |s| {
         // A UTF-8 mark is taken as one only by a stream created with `TextEncoding::UTF8` (handlers/
         // TestReportSaveAsDatasetContracts.al:DatasetLines); a stream with the default encoding reads it as the three
         // characters 239, 187, 191 (al-language-onprem/handlers/TestRequestPageSaveAsXmlContracts.al:FileText). A UTF-16 mark
@@ -1332,6 +1328,12 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
     if let (2, Value::Text(_) | Value::Code(_), Some(Value::Integer(n))) = (a.len(), &a[0], a.get(1)) {
         let n = usize::try_from(*n).unwrap_or(0);
         if c.ret_used() {
+            // A stream whose owner went out of scope reads nothing: 0, and the text is empty
+            // (streams/lt-y62-gone-instream/Y62GoneInStream.al:GoneStream_ReadAndPosition `step2` `0|[]`).
+            if with_in(r.as_deref_mut(), |s| Ok(s.owner_gone && s.rest().is_empty()))? {
+                a[0] = Value::Text(String::new().into());
+                return Ok(Value::Integer(0));
+            }
             return unsupported("the result of InStream.Read(Text, Length) (not pinned)");
         }
         let text = with_in(r, |s| {

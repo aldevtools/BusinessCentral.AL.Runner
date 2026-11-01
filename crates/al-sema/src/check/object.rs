@@ -19,6 +19,7 @@ impl<'a> Checker<'a> {
             system_enums,
             sections: Default::default(),
             field_only_args: Vec::new(),
+            variant_args: Vec::new(),
             queries: (0..ws.objects.len()).map(|_| std::cell::OnceCell::new()).collect(),
             calls: Vec::new(),
             demand: std::cell::RefCell::new(demand_mode.then(|| demand::State::new(ws.objects.len()))),
@@ -863,6 +864,7 @@ impl<'a> Checker<'a> {
                     self.al_scalar_assignment(sc, rhs, target, source);
                     self.al_enum_decimal_assignment(sc, rhs, target, source);
                     self.al_no_result_assignment(sc, rhs, target, source);
+                    self.al_no_result_builtin_assignment(sc, rhs, target);
                     self.al_interface_assignment(sc, rhs, target, source);
                 }
                 if node.children_with_tokens().any(|t| t.kind() == SyntaxKind::PlusAssign) {

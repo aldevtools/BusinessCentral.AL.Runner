@@ -629,6 +629,9 @@ pub fn record_ref_into_record(rec: &crate::value::RecordState) -> Result<Value, 
 #[cold]
 #[inline(never)]
 fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
+    if let Some(r) = crate::conv_undefined::convert(&v, t) {
+        return r;
+    }
     match (&v, t) {
         (Value::Date(n, false), RtType::DateTime) if *n >= 0 => Ok(date_to_datetime(*n)),
         // A RecordRef a Variant holds, assigned to a Record (record/lt-ar-records/ArRecordProbes.al:333 VariantRecordRef_AssignedToRecord
@@ -1050,7 +1053,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             // The result is an Integer (misc/lt-expressions-statements/PBinaryUnaryExpressions.al:147: TypeOf is Integer).
             return Ok(V::Integer((a - b) as i32));
         }
-        (V::DateTime(a), V::DateTime(b)) if op == Arith::Sub && *a > 0 && *b > 0 => return Ok(V::Duration(a - b)),
+        (V::DateTime(a), V::DateTime(b)) if op == Arith::Sub => return crate::conv_undefined::datetime_sub(*a, *b),
         // An undefined date has no difference, and the whole range is too wide a difference (types/lt-datetime/
         // Arithmetic.al:Date_Plus_Minus_Integer `af30`, `af32`, `af34`).
         (V::Date(a, _), V::Date(b, _)) if op == Arith::Sub => {
@@ -2414,7 +2417,10 @@ mod tests {
             arith(Arith::Add, &dt(0), &dur(1)),
             Err(Signal::Unsupported(_))
         ));
-        assert!(matches!(arith(Arith::Sub, &dt(5), &dt(0)), Err(Signal::Unsupported(_))));
+        // One undefined DateTime in a subtraction raises DateInvalid, two subtract to 0 (types/lt-y62-undefined-date/
+        // Y62UndefinedDate.al:DateTimeSub_OneUndefined_AndDefinedPair, DateTimeSub_BothUndefined).
+        assert!(matches!(arith(Arith::Sub, &dt(5), &dt(0)), Err(Signal::Error(_))));
+        assert!(matches!(arith(Arith::Sub, &dt(0), &dt(0)), Ok(Value::Duration(0))));
         assert!(matches!(
             arith(Arith::Sub, &dur(5), &dt(5)),
             Err(Signal::Unsupported(_))

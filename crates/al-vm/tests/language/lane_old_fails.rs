@@ -179,22 +179,15 @@ codeunit 50100 C {{
     }
 }
 
-/// A stream whose owner went out of scope: only Length, EOS and ReadText are pinned (DcInStreamScope.al:107-166); anything
-/// else is refused when it runs.
+/// A stream whose owner went out of scope is an empty stream for the other uses too: Position is 1
+/// (streams/lt-y62-gone-instream/Y62GoneInStream.al:GoneStream_ReadAndPosition `step3`).
 #[test]
-fn an_instream_of_a_local_out_of_scope_refuses_other_uses() {
+fn an_instream_of_a_local_out_of_scope_is_an_empty_stream() {
     let src = r#"table 50101 B { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } }
 codeunit 50100 C {
   local procedure FromLocal() Result: InStream var R: Record B temporary; O: OutStream; begin R.Data.CreateOutStream(O); O.WriteText('x'); R.Data.CreateInStream(Result); end;
-  procedure ReadInt(): Text var S: InStream; I: Integer; begin S := FromLocal(); S.Read(I); exit(Format(I)); end;
   procedure Pos(): Text var S: InStream; begin S := FromLocal(); exit(Format(S.Position())); end; }"#;
-    for routine in ["ReadInt", "Pos"] {
-        let r = out(al_testkit::run_in(src, "C", routine));
-        assert!(
-            r.starts_with("refused:") && r.contains("out of scope"),
-            "{routine}: {r}"
-        );
-    }
+    assert_eq!(out(al_testkit::run_in(src, "C", "Pos")), "1");
 }
 
 /// A stream of a local handed back in a shape no corpus test pins (a record that is not temporary, a call that is not the
