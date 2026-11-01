@@ -193,6 +193,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `lower/tables.rs` (518): Table schemas: relations, field triggers, CalcFormulas. Entry: `table_schema` 311, `relation_arms` 10, `lower_calc` 445.
 - `lower/pages.rs` (458): Page control trees, `RunObject`, part links. Entry: `page` 8, `run_object` 292.
 - `lower/convert.rs` (359): Name resolution helpers, runtime types, conversion of a value to a target type. Entry: `rt` 67, `convert_to` 186.
+- `lower/copy_array.rs` (30): The array arguments of `CopyArray`: a procedure result as the source (al-runner issue 6658). Entry: `ref_arg`.
 - `lower/conv_matrix.rs` (~160): The run matrix cells (`al_builtins::conv`) in the lowering: the false branch of `?:` converts to
   the true branch's type, an element of `in`/a case label to the selector's type, `Guid += Text` keeps the Guid, a Label
   branch into a Variant is refused, a Variant source gets `Variant.Into#1`. Entry: `covers`, `matrix_set_elem`, `variant_into`.

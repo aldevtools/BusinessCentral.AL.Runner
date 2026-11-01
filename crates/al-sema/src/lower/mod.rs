@@ -572,6 +572,7 @@ mod call;
 mod compile;
 mod conv_matrix;
 mod convert;
+mod copy_array;
 mod coverage_ids;
 mod dotnet;
 mod dotnet_arg;
