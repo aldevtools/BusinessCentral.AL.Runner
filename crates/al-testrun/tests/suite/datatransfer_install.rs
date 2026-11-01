@@ -69,17 +69,18 @@ fn datatransfer_runs_inside_the_install_codeunit() {
 
 const EXT_SRC: &str = r#"
 table 50583 "DTI Ext" { fields { field(1; "Entry No."; Integer) { } field(2; Name; Text[50]) { } } keys { key(PK; "Entry No.") { Clustered = true; } } }
+table 50585 "DTI Ext Src" { fields { field(1; "Entry No."; Integer) { } } keys { key(PK; "Entry No.") { Clustered = true; } } }
 tableextension 50583 "DTI Ext Ext" extends "DTI Ext" { fields { field(50; Extra; Text[30]) { InitValue = 'x'; } } }
 codeunit 50583 "DTI Ext Install"
 {
     Subtype = Install;
     trigger OnInstallAppPerCompany()
-    var E: Record "DTI Ext"; DT: DataTransfer;
+    var E: Record "DTI Ext Src"; X: Record "DTI Ext"; DT: DataTransfer;
     begin
-        E."Entry No." := 1; E.Name := 'alpha'; E.Insert();
-        DT.SetTables(Database::"DTI Ext", Database::"DTI Ext");
-        DT.AddFieldValue(E.FieldNo(Name), E.FieldNo(Name));
-        DT.CopyFields();
+        E."Entry No." := 1; E.Insert();
+        DT.SetTables(Database::"DTI Ext Src", Database::"DTI Ext");
+        DT.AddFieldValue(E.FieldNo("Entry No."), X.FieldNo("Entry No."));
+        DT.CopyRows();
     end;
 }
 codeunit 50584 "DTI Ext Test"
@@ -94,8 +95,8 @@ codeunit 50584 "DTI Ext Test"
 }
 "#;
 
-// What a copy does with the code of a table extension of the destination is not pinned (record/lt-as-records/Y47DtInstall.al
-// has no table extension): the copy is refused.
+// What a CopyRows does with the code of a table extension of the destination is not pinned (record/lt-as-records/Y47DtInstall.al
+// has no table extension): the copy is refused. CopyFields: datatransfer_other_app_ext.rs.
 #[test]
 fn datatransfer_into_a_table_with_an_extension_is_refused() {
     let rt = CorpusRuntime::run_suites_with(
