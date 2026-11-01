@@ -69,6 +69,7 @@ codeunit 69791 M
     procedure MinusN(): DateTime begin exit(0DT - 1000); end;
     procedure PlusDuration(): DateTime var D: Duration; begin D := 0; exit(0DT + D); end;
     procedure TimeMinus(): Time begin exit(0T - 1000); end;
+    procedure DateDiff(): Integer var A: Date; B: Date; begin A := 0D; B := 0D; exit(A - B); end;
     procedure Create(): DateTime begin exit(CreateDateTime(0D, 120000T)); end;
     procedure Into(): Text
     var A: DateTime; I: Integer; B: BigInteger; D: Decimal;
@@ -99,4 +100,9 @@ fn moving_an_undefined_datetime_raises_date_invalid() {
 #[test]
 fn undefined_datetime_difference_into_numbers_and_conversions() {
     assert_eq!(text(al_testkit::run_in(MORE, "M", "Into")), "0|0|0|Yes|Yes|Yes|Yes");
+}
+
+#[test]
+fn undefined_minus_undefined_date_is_zero() {
+    assert_eq!(al_testkit::int(al_testkit::run_in(MORE, "M", "DateDiff")), 0);
 }

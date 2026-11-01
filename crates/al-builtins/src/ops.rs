@@ -1047,7 +1047,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         // Arithmetic.al:Date_Plus_Minus_Integer `af30`, `af32`, `af34`).
         (V::Date(a, _), V::Date(b, _)) if op == Arith::Sub => {
             if *a == 0 || *b == 0 || (a - b).abs() >= 3_652_058 {
-                return date_invalid();
+                return undefined_date_difference(*a, *b);
             }
             return Ok(V::Integer(a - b));
         }
@@ -1235,6 +1235,16 @@ fn int_of(v: &Value) -> Option<i64> {
         Value::BigInteger(i) => Some(*i),
         _ => None,
     }
+}
+
+/// 0D - 0D is 0 (types/lt-y65-undefined-arith/Y65UndefinedArith.al Y65_UndefinedDate_Arithmetic, writer Y65's corpus branch;
+/// assumption undefined-datetime-difference until the pin); one undefined side or too wide a difference raises DateInvalid.
+fn undefined_date_difference(a: i32, b: i32) -> Result<Value, Signal> {
+    if a == 0 && b == 0 {
+        crate::assumptions::assume(crate::assumptions::Assumption::UndefinedDateTimeDifference);
+        return Ok(Value::Integer(0));
+    }
+    date_invalid()
 }
 
 /// Duration +/- Duration as a BigInteger of milliseconds (see the caller); an overflow is not pinned.
