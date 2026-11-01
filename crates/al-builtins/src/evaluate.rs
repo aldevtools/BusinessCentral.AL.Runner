@@ -62,6 +62,8 @@ enum Parsed {
     RejectedWith(&'static str, &'static str),
     /// Rejected with this error (text, code), which the form with a used result leaves as the last error.
     RejectedLastError(String, &'static str),
+    /// Rejected; with the result used a last error is left whose text is not pinned, so that form is refused with this reason.
+    RejectedUsedRefused(String),
 }
 
 /// A Duration as `Evaluate` reads it (types/lt-datetime/Evaluate.al:380-447 Duration_Evaluate, :566-605 BT_Duration_UnitAbbreviations,
@@ -754,6 +756,13 @@ fn byte_or_char(target: &Value, text: &str) -> Result<Parsed, Signal> {
     if text.is_empty() && matches!(target, Value::Char(_)) {
         return Ok(Parsed::Rejected);
     }
+    // Letters into a Char: the statement raises the Evaluate error of a Char (types/lt-y49-evaluate-date-blanks/
+    // Y49EvaluateDateBlanks.al:299-330 `ab`); with the result used it is not pinned.
+    if matches!(target, Value::Char(_)) && text.bytes().all(|b| b.is_ascii_alphabetic()) {
+        return Ok(Parsed::RejectedUsedRefused(format!(
+            "Evaluate of `{text}` into a Char with the result used (not pinned)"
+        )));
+    }
     unsupported(format!(
         "Evaluate of `{text}` into a {} (not pinned)",
         target.describe()
@@ -1037,6 +1046,20 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
         || text.eq_ignore_ascii_case("0d")
     {
         return Ok(Parsed::Rejected);
+    }
+    // Digits in groups split by one blank are no date: `2024 03 05`, and `12 34`, which with the result used leaves a last
+    // error (types/lt-y49-evaluate-date-blanks/Y49EvaluateDateBlanks.al:79-107, :207-233 `err=Yes`).
+    let groups: Vec<usize> = text.split(' ').map(str::len).collect();
+    if text.bytes().all(|b| b.is_ascii_digit() || b == b' ') {
+        match groups.as_slice() {
+            [4, 2, 2] => return Ok(Parsed::Rejected),
+            [2, 2] => {
+                return Ok(Parsed::RejectedUsedRefused(format!(
+                    "Evaluate of `{text}` into Date with the result used: the last error it leaves is not pinned"
+                )));
+            }
+            _ => {}
+        }
     }
     unsupported(format!(
         "Evaluate of `{text}` into Date (form not pinned by the corpus)"
@@ -1386,7 +1409,10 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
     };
     match parsed {
         Parsed::Value(v) => Some(v),
-        Parsed::Rejected | Parsed::RejectedWith(..) | Parsed::RejectedLastError(..) => None,
+        Parsed::Rejected
+        | Parsed::RejectedWith(..)
+        | Parsed::RejectedLastError(..)
+        | Parsed::RejectedUsedRefused(_) => None,
     }
 }
 
@@ -2269,6 +2295,7 @@ fn evaluate_with_max(
         other => return unsupported(format!("Evaluate into {} (not pinned by the corpus)", other.describe())),
     };
     match parsed {
+        Parsed::RejectedUsedRefused(why) if c.ret_used() => unsupported(why),
         Parsed::Value(v) => {
             a[0] = v;
             Ok(Value::Boolean(true))
@@ -2284,7 +2311,7 @@ fn evaluate_with_max(
         },
         // The error of a failed statement form (session/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts,
         // `evaluate_int_overflow_statement`; types/TestProbeScalarContracts.al:Evaluate_BooleanFailureError).
-        Parsed::Rejected
+        Parsed::Rejected | Parsed::RejectedUsedRefused(_)
             if matches!(
                 a[0],
                 Value::Integer(_)
@@ -2293,6 +2320,7 @@ fn evaluate_with_max(
                     | Value::Boolean(_)
                     | Value::Time(_)
                     | Value::DateTime(_)
+                    | Value::Char(_)
             ) =>
         {
             let ty = match a[0] {
@@ -2301,6 +2329,7 @@ fn evaluate_with_max(
                 Value::Decimal(_) => "Decimal",
                 Value::Time(_) => "Time",
                 Value::DateTime(_) => "DateTime",
+                Value::Char(_) => "Char",
                 _ => "Boolean",
             };
             // A Boolean's error shows a TAB, two TABs or a space as the empty value `""` (corpus master, corpus PR 871:
@@ -2335,9 +2364,12 @@ fn evaluate_with_max(
         }
         // The error of a rejected date that looks like one (P86Eval.al:Dflt3_Error_FNone, Fmt03_Error_F0, Fmt93_Error_F9: the same
         // text as a date filter gives, SetFilter on a Date).
-        Parsed::Rejected
+        // In English every text gives this error (types/lt-y49-evaluate-date-blanks/Y49EvaluateDateBlanks.al:79-205: blanks,
+        // `,`, `_`, `!`, with and without number 9).
+        Parsed::Rejected | Parsed::RejectedUsedRefused(_)
             if matches!(a[0], Value::Date(..))
                 && (any_date_text
+                    || c.language() == 1033
                     || text
                         .bytes()
                         .all(|b| b.is_ascii_digit() || matches!(b, b'-' | b'.' | b'/'))
@@ -2370,8 +2402,9 @@ fn evaluate_with_max(
                 n => unsupported(format!("the Evaluate error of a Date in the language {n} (not pinned)")),
             }
         }
-        // With format 9 (types/lt-datetime/Evaluate.al:640-661 `eval 3000000000 fmt 9`). With another format it is not pinned.
-        Parsed::Rejected if matches!(a[0], Value::Duration(_)) && number == 9 => crate::native::raise(
+        // With format 9 (types/lt-datetime/Evaluate.al:640-661 `eval 3000000000 fmt 9`) and 0 (types/lt-y49-evaluate-date-blanks/
+        // Y49EvaluateDateBlanks.al:251-297 `abc`). With another format it is not pinned.
+        Parsed::Rejected if matches!(a[0], Value::Duration(_)) && matches!(number, 0 | 9) => crate::native::raise(
             format!("The value \"{text}\" can't be evaluated into type Duration."),
             "Evaluate",
         ),
@@ -2379,7 +2412,7 @@ fn evaluate_with_max(
             "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
             "InvalidGuidFormat",
         ),
-        Parsed::Rejected => unsupported(format!(
+        Parsed::Rejected | Parsed::RejectedUsedRefused(_) => unsupported(format!(
             "Evaluate of `{text}` failed with the result unused (error text not pinned yet)"
         )),
     }

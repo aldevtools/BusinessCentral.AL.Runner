@@ -1256,6 +1256,11 @@ pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering,
     if let Some(o) = crate::conv::compare_cell(l, r, ordered) {
         return o;
     }
+    // `=` and `<>` of two Blobs (FieldRef values) in AL code only: a page's or Modify's check whether a row changed does not
+    // go through here (`blob_compare`).
+    if let (Value::Blob(a), Value::Blob(b), false) = (l, r, ordered) {
+        return crate::blob_compare::compare(a, b);
+    }
     if let (Value::Date(a, _), Value::Date(b, _)) = (l, r) {
         if (*a == 0 && *b == 1) || (*a == 1 && *b == 0) {
             return date_invalid();
@@ -1562,7 +1567,6 @@ fn compare_general(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         // AssignmentCompatibility; other pairs are an assumption, docs/probes-needed.md).
         (V::Enum(_, a), V::Enum(_, b)) => a.cmp(b),
         (V::DateFormula(a), V::DateFormula(b)) => crate::datefns::formula_text(a).cmp(&crate::datefns::formula_text(b)),
-        (V::Blob(a), V::Blob(b)) => crate::blob_compare::compare(a, b)?,
         // SessionSettings compare by value (session/TestSessionSettings.al:513-545).
         (
             V::Library(crate::library_kind::LibraryKind::SessionSettings, a),
