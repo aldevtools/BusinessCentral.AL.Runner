@@ -513,6 +513,9 @@ impl Session {
             .find(|(k, _)| k.eq_ignore_ascii_case("AutoFormatType"))
             .map(|(_, v)| v.trim().to_string())
             .unwrap_or_default();
+        if kind == "11" {
+            return self.auto_format_type11_string(&f, rec);
+        }
         // No currency (no expression, or one that gives a blank code): the places of General Ledger Setup, run only while it holds
         // the places the probe measured (2:2 for an amount, 2:5 for a unit amount; SaUnitAmountSubst.al SetSetup). Under other
         // places BC keeps the setup it read first in the session (the file's header), which is not modelled.

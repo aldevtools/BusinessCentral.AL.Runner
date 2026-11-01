@@ -272,7 +272,7 @@ pub trait Ctx: FormatCtx {
         None
     }
     /// The places `min:max` the AutoFormat of the field numbered `field_no` of `record` gives (its AutoFormatExpression evaluated with the
-    /// record as Rec), for `Format` in code. Refused where the context has no session.
+    /// record as Rec), for `Format` in code; for AutoFormatType 11 the format string. Refused where the context has no session.
     fn auto_format_field_places(&mut self, _record: &Value, _field_no: usize) -> Result<String, Signal> {
         Err(Signal::Unsupported(
             "Format of a field with an AutoFormatExpression outside a session".into(),
@@ -1519,16 +1519,16 @@ fn format_field_string(
 /// places come from the field's AutoFormat evaluated on the record (`Ctx::auto_format_field_places`), then as
 /// `format_decimal_field`. Arguments: the value, length, format number, the record, the field's number.
 fn format_auto_format_field(ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
-    let pos = match args.get(4) {
-        Some(Value::Integer(p)) => *p as usize,
-        _ => {
-            return Err(Signal::Unsupported(
-                "Format of an AutoFormat field without its number".into(),
-            ));
-        }
+    let Some(&Value::Integer(pos)) = args.get(4) else {
+        return Err(Signal::Unsupported(
+            "Format of an AutoFormat field without its number".into(),
+        ));
     };
     let record = args.get(3).cloned().unwrap_or(Value::Null);
-    let places = ctx.auto_format_field_places(&record, pos)?;
+    let places = ctx.auto_format_field_places(&record, pos as usize)?;
+    if matches!(args.get(5), Some(Value::Integer(11))) {
+        return crate::autoformat11::format(ctx, args, &places);
+    }
     // A sixth argument 4 or 5: an amount or unit amount without an expression, which BC 27 formats as a plain Decimal
     // (misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al `A4No`, `A5No`, the `#else` side of BC28PLUS): mode 1 of
     // `format_decimal_field`.

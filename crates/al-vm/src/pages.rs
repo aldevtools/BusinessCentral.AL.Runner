@@ -177,6 +177,7 @@ mod actions;
 mod controls;
 mod draft;
 mod format;
+mod format_type11;
 mod open;
 mod pageops;
 mod refill;

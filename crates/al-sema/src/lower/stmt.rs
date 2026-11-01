@@ -613,8 +613,9 @@ impl Lowerer<'_> {
     /// Whether `arg` is a Decimal table field whose AutoFormatExpression is an expression (not a text): `Format` of it in
     /// code applies the field's AutoFormat, evaluated with the record when it runs (types/lt-auto-format-currency/
     /// QiTableFieldAutoFormat.al:400-418 QI_TableFieldExpression_FormatInCode). Gives the place of the record and the
-    /// field's number.
-    pub(crate) fn auto_format_expression_field(&mut self, arg: &SyntaxNode) -> Option<(ir::Place, usize)> {
+    /// field's number, and 11 for AutoFormatType 11 (else 0): its expression, a text literal too, is the format string
+    /// (types/lt-y43-auto-format-11/Y43AfType11.al).
+    pub(crate) fn auto_format_expression_field(&mut self, arg: &SyntaxNode) -> Option<(ir::Place, usize, i32)> {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
             return None;
         };
@@ -633,11 +634,16 @@ impl Lowerer<'_> {
         // currency's places), and for types 4 and 5 with a code that is no currency (types/lt-ax-text-format-dates/
         // AxFillerBuilderAutoFormat.al:193-260, checked when it runs); a blank text keeps its fixed places (`decimal_field_places`).
         let constant_code = matches!(prop("AutoFormatType").as_deref(), Some("1" | "2" | "4" | "5")) && expr.len() > 2;
-        if expr.starts_with('\'') && !constant_code {
+        let kind = if prop("AutoFormatType").as_deref() == Some("11") {
+            11
+        } else {
+            0
+        };
+        if expr.starts_with('\'') && !constant_code && kind != 11 {
             return None;
         }
         match self.place(arg).ok()? {
-            ir::Place::Field(base, _) => Some((*base, field as usize)),
+            ir::Place::Field(base, _) => Some((*base, field as usize, kind)),
             _ => None,
         }
     }
