@@ -90,7 +90,7 @@ impl Session {
         }
         let (open, dirty, draft, row) = {
             let s = st.borrow();
-            (s.open, s.dirty, s.draft, s.cursor == Cursor::Row)
+            (s.open, s.dirty, s.draft, s.cursor != Cursor::None)
         };
         if !open || !dirty || !row || !self.has_source(st) {
             return Ok(());
