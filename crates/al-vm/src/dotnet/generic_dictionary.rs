@@ -11,17 +11,25 @@
 //! lt-y17-dotnet-dictionary/Y17DotNetDictionary.al (walk order, `Count`, `Item`, `ContainsKey`, and the errors of a duplicate
 //! `Add`, `Item` of a missing key and a negative capacity).
 //!
-//! Served: both constructors; on a dictionary made with a capacity `Add`, `ContainsKey`, `Count` and `Item` with Integer keys
-//! and Text values; `foreach` in insertion order, and `Key`/`Value` of the pair it yields. Refused: entries in a dictionary
-//! made without a capacity (no test fills one), keys other than Integer and values other than Text (how other boxed kinds
-//! compare is not pinned), and every other member.
+//! System Application's Edit in Excel filters make one with the parameterless constructor and fill it with Text keys and .NET
+//! object values (`ContainsKey`, `Add`, `TryGetValue`, `Remove`, `.Values`). That shape is pinned by tests/
+//! al-language-onprem-dotnet/lt-y51-dotnet-dictionary/Y51DotNetDictNoCap.al: Text keys compare as .NET strings, exactly
+//! (`NAME` and `Name ` are other keys), an object value is held by reference, `.Values` walks in insertion order, and the
+//! constructor does not change any of it (DnDictNoCap_IntegerKeys).
+//!
+//! Served: both constructors; `Add`, `ContainsKey`, `Count` and `Item` with Integer or Text keys and Text or .NET object
+//! values; `TryGetValue`, `Remove` and `Values` (generic_dictionary_more.rs); `foreach` in insertion order, and `Key`/`Value`
+//! of the pair it yields. Refused: other kinds of keys and values (how other boxed kinds compare is not pinned), and every
+//! other member.
 //!
 //! State of a dictionary: `[Boolean(made with a capacity), key0, value0, key1, value1, ...]` in insertion order. State of
 //! its enumerator: `[Integer(next index), pair0, pair1, ...]`. State of a pair: `[key, value]`.
 
 use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use crate::Session;
-use al_builtins::dotnet_sigs::{GENERIC_DICTIONARY, GENERIC_DICTIONARY_ENUMERATOR, GENERIC_KEY_VALUE_PAIR};
+use al_builtins::dotnet_sigs::{
+    GENERIC_DICTIONARY, GENERIC_DICTIONARY_ENUMERATOR, GENERIC_DICTIONARY_VALUES, GENERIC_KEY_VALUE_PAIR,
+};
 use al_builtins::native::Signal;
 use al_builtins::value::{DotNetKind, DotNetObject, Value};
 use std::cell::RefCell;
@@ -30,7 +38,7 @@ use std::rc::Rc;
 const PIN: &str = "tests/al-language-onprem-dotnet/lt-qx-dotnet/QxDotNetDemoShapes.al:473; \
     al-language-onprem/platform/PtWebServiceRows.al:326";
 
-const FILL_PIN: &str = "tests/al-language-onprem-dotnet/lt-y17-dotnet-dictionary/Y17DotNetDictionary.al:56";
+pub(super) const FILL_PIN: &str = "tests/al-language-onprem-dotnet/lt-y17-dotnet-dictionary/Y17DotNetDictionary.al:56";
 
 /// What BC names the closed type in the message of a failed member call (Y17DotNetDictionary.al:126, :147).
 const CLOSED: &str = "System.Collections.Generic.Dictionary`2[System.Object,System.Object]";
@@ -57,7 +65,7 @@ fn new_dictionary(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: &[Value])
     }
 }
 
-fn object(type_name: &str, state: Vec<Value>) -> Value {
+pub(super) fn object(type_name: &str, state: Vec<Value>) -> Value {
     Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {
         type_name: type_name.into(),
         state: RefCell::new(state),
@@ -73,34 +81,51 @@ fn this_state<'a>(this: Option<&'a Rc<DotNetObject>>, type_name: &str) -> Result
     }
 }
 
-/// The entries of a dictionary made with a capacity; refused for one made without (no test fills one).
-fn filled<'a>(this: Option<&'a Rc<DotNetObject>>, member: &str) -> Result<&'a RefCell<Vec<Value>>, Signal> {
-    let state = this_state(this, GENERIC_DICTIONARY)?;
-    if !matches!(state.borrow().first(), Some(Value::Boolean(true))) {
-        return unsupported(format!(
-            "DotNet {GENERIC_DICTIONARY}.{member} on a dictionary made without a capacity (only the capacity constructor is pinned with entries)"
-        ));
-    }
-    Ok(state)
+/// The entries of a dictionary, made with a capacity or without (Y51DotNetDictNoCap.al:DnDictNoCap_IntegerKeys).
+pub(super) fn filled<'a>(this: Option<&'a Rc<DotNetObject>>, _member: &str) -> Result<&'a RefCell<Vec<Value>>, Signal> {
+    this_state(this, GENERIC_DICTIONARY)
 }
 
-/// An Integer key: the only kind pinned (boxed Int32, Y17DotNetDictionary.al:36).
-fn key_of(args: &[Value], member: &str) -> Result<i32, Signal> {
+/// A dictionary key: a boxed Int32 (Y17DotNetDictionary.al:36) or a String (Y51DotNetDictNoCap.al:DnDictNoCap_TextKeys_ContainsAdd).
+#[derive(PartialEq)]
+pub(super) enum Key {
+    Int(i32),
+    Text(String),
+}
+
+impl std::fmt::Display for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Key::Int(k) => write!(f, "{k}"),
+            Key::Text(k) => write!(f, "{k}"),
+        }
+    }
+}
+
+pub(super) fn key_of(args: &[Value], member: &str) -> Result<Key, Signal> {
     match args.first() {
-        Some(Value::Integer(k)) => Ok(*k),
+        Some(Value::Integer(k)) => Ok(Key::Int(*k)),
+        Some(Value::Text(k)) => Ok(Key::Text(k.to_string())),
         _ => unsupported(format!(
-            "DotNet {GENERIC_DICTIONARY}.{member} with a key that is not an Integer (only boxed Int32 keys are pinned)"
+            "DotNet {GENERIC_DICTIONARY}.{member} with a key that is not an Integer or a Text (only boxed Int32 and String keys are pinned)"
         )),
     }
 }
 
-fn position(state: &RefCell<Vec<Value>>, key: i32) -> Option<usize> {
-    state
-        .borrow()
-        .iter()
-        .skip(1)
-        .step_by(2)
-        .position(|k| matches!(k, Value::Integer(i) if *i == key))
+/// The index of the entry with `key`: the same kind and, for a text, the same characters (.NET's ordinal string comparer).
+pub(super) fn position(state: &RefCell<Vec<Value>>, key: &Key) -> Option<usize> {
+    state.borrow().iter().skip(1).step_by(2).position(|k| match (k, key) {
+        (Value::Integer(i), Key::Int(want)) => i == want,
+        (Value::Text(t), Key::Text(want)) => t.as_str() == want.as_str(),
+        _ => false,
+    })
+}
+
+fn stored_key(key: &Key) -> Value {
+    match key {
+        Key::Int(k) => Value::Integer(*k),
+        Key::Text(k) => Value::Text(k.as_str().into()),
+    }
 }
 
 fn add(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> Result<Value, Signal> {
@@ -108,13 +133,15 @@ fn add(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> Resu
     let key = key_of(args, "Add")?;
     let value = match args {
         [_, Value::Text(t) | Value::Code(t)] => Value::Text(t.clone()),
+        // A .NET object is held by reference (Y51DotNetDictNoCap.al:DnDictNoCap_ObjectValues `tryget_a_value_after_append`).
+        [_, v @ Value::DotNet(_)] => v.clone(),
         _ => {
             return unsupported(format!(
-                "DotNet {GENERIC_DICTIONARY}.Add with a value that is not a Text (only Text values are pinned)"
+                "DotNet {GENERIC_DICTIONARY}.Add with a value that is not a Text or a .NET object (not pinned)"
             ));
         }
     };
-    if position(state, key).is_some() {
+    if position(state, &key).is_some() {
         // Y17DotNetDictionary.al:126 DnDict_DuplicateAdd: the entries stay as they were.
         return al_builtins::native::raise(
             format!(
@@ -124,7 +151,7 @@ fn add(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> Resu
         );
     }
     let mut s = state.borrow_mut();
-    s.push(Value::Integer(key));
+    s.push(stored_key(&key));
     s.push(value);
     Ok(Value::Null)
 }
@@ -134,7 +161,7 @@ fn contains_key(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]
     if args.len() != 1 {
         return unsupported(format!("DotNet {GENERIC_DICTIONARY}.ContainsKey takes one key"));
     }
-    Ok(Value::Boolean(position(state, key_of(args, "ContainsKey")?).is_some()))
+    Ok(Value::Boolean(position(state, &key_of(args, "ContainsKey")?).is_some()))
 }
 
 fn count(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> Result<Value, Signal> {
@@ -153,7 +180,7 @@ fn item(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> Res
         ));
     }
     let key = key_of(args, "Item")?;
-    match position(state, key) {
+    match position(state, &key) {
         Some(i) => Ok(state.borrow()[2 + 2 * i].clone()),
         // Y17DotNetDictionary.al:147 DnDict_Item_Missing.
         None => al_builtins::native::raise(
@@ -188,12 +215,15 @@ pub(crate) fn foreach_start(o: &DotNetObject) -> Option<Value> {
     let DotNetKind::Internal { type_name, state } = &o.kind else {
         return None;
     };
-    if type_name != GENERIC_DICTIONARY {
-        return None;
-    }
     let mut en = vec![Value::Integer(0)];
-    for kv in state.borrow()[1..].chunks(2) {
-        en.push(object(GENERIC_KEY_VALUE_PAIR, kv.to_vec()));
+    if type_name == GENERIC_DICTIONARY {
+        for kv in state.borrow()[1..].chunks(2) {
+            en.push(object(GENERIC_KEY_VALUE_PAIR, kv.to_vec()));
+        }
+    } else if type_name == GENERIC_DICTIONARY_VALUES {
+        en.extend(state.borrow().iter().cloned());
+    } else {
+        return None;
     }
     Some(object(GENERIC_DICTIONARY_ENUMERATOR, en))
 }
@@ -215,7 +245,7 @@ pub(crate) fn foreach_next(o: &DotNetObject) -> Option<Option<Value>> {
     Some(next)
 }
 
-fn member(name: &str, kind: MemberKind, call: super::registry::MemberFn) -> RegistryMember {
+pub(super) fn member(name: &str, kind: MemberKind, call: super::registry::MemberFn) -> RegistryMember {
     RegistryMember {
         name: name.into(),
         kind,
@@ -241,6 +271,9 @@ pub fn types() -> Vec<RegistryType> {
                 member("ContainsKey", MemberKind::Call, contains_key),
                 member("Count", MemberKind::Get, count),
                 member("Item", MemberKind::Call, item),
+                member("Remove", MemberKind::Call, super::generic_dictionary_more::remove),
+                member("Values", MemberKind::Get, super::generic_dictionary_more::values),
+                super::generic_dictionary_more::try_get_value(),
             ],
         },
         RegistryType {

@@ -197,13 +197,10 @@ impl Session {
         Ok(())
     }
 
-    /// The computed tables whose writes raise "The <table> table is read-only." (code DB:Ok): Insert with and without triggers,
-    /// Modify and Delete of a row that exists, and DeleteAll (platform/lt-ag-contoso/AgPlatformReadOnly.al:14-55, Windows
-    /// Language; platform/lt-platform-tables/PtCloudTables.al:38-81, Language Selection and License Permission). A Modify or
-    /// Delete of a row that does not exist is not pinned (PtCloudTables.al:50-52 is the error of the helper's FindFirst): refused.
-    fn read_only_platform_table(&self, t: &TableDef, rec: &Rec) -> Option<AlError> {
+    /// The error of a write `method` that a read-only platform table raises (`read_only_tables::raises`).
+    fn read_only_platform_table(&self, t: &TableDef, rec: &Rec, method: RecordOp) -> Option<AlError> {
         let id = self.engine.program.objects[t.object as usize].id?;
-        if rec.borrow().temporary || ![2_000_000_045, 2_000_000_050, 2_000_000_043].contains(&id) {
+        if rec.borrow().temporary || !crate::read_only_tables::raises(id, method) {
             return None;
         }
         Some(AlError {
@@ -3517,7 +3514,7 @@ impl Session {
             self.bg_refuse_write(t.object as usize, method.name())?;
             self.gate_write(method)?;
             if matches!(method, RecordOp::Insert | RecordOp::DeleteAll)
-                && let Some(e) = self.read_only_platform_table(&t, rec)
+                && let Some(e) = self.read_only_platform_table(&t, rec, method)
             {
                 return Err(Signal::Error(Box::new(e)));
             }
@@ -4164,7 +4161,7 @@ impl Session {
                     .get(&cx, &t, &pk)
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?;
                 self.feature_key_read_only_change(&t, rec, stored.as_deref())?;
-                if let Some(e) = self.read_only_platform_table(&t, rec) {
+                if let Some(e) = self.read_only_platform_table(&t, rec, RecordOp::Modify) {
                     return match stored {
                         Some(_) => Err(Signal::Error(Box::new(e))),
                         None => unsupported(format!("a Modify of a {} row that does not exist (not pinned)", t.name)),
@@ -4425,7 +4422,7 @@ impl Session {
                 let run = arg_bool(args, 0)?;
                 self.tenant_license_state_refuses(&t, "delete")?;
                 self.document_service_trigger_refused(&t, rec, run, "Delete")?;
-                if let Some(e) = self.read_only_platform_table(&t, rec) {
+                if let Some(e) = self.read_only_platform_table(&t, rec, RecordOp::Delete) {
                     let row = rec.borrow().fields.clone();
                     let pk = Self::sql_key(rec, &t, &row);
                     let exists = self

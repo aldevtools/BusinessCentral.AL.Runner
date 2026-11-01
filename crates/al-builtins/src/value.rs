@@ -505,6 +505,9 @@ pub struct PageState {
     /// A SetValue left the row dirty since the last save: an action's save runs the modify chain even when the value is the one
     /// stored (pages/lt-y45-save-before-action/Y45SaveBeforeAction.al:371 Card_SetSameName_Action).
     pub set_value_held: bool,
+    /// The row an OnModifyRecordEvent subscriber refused to save (AllowModify false): the page does not save it again; another
+    /// edit saved after it is not pinned (al-vm pages/draft.rs `save_row`).
+    pub modify_vetoed: Option<Vec<Value>>,
     /// A new line of this part was inserted before a host action: the part's refresh after the action stays on it
     /// (pages/lt-y45-save-before-action/Y45SaveBeforeAction.al:1748 Doc_Existing_NewLine_Action `...;C H1;lC 30000`).
     pub inserted_before_host_action: bool,
@@ -577,6 +580,11 @@ pub struct PageState {
     pub lookup_refresh_deferred: bool,
     /// TestField.Lookup writes the text its OnLookup returned through the control's SetValue (`defer_lookup_refresh`).
     pub lookup_setting_value: bool,
+    /// The TestField.Lookup running on this page wrote a value (its OnLookup returned true); false after a cancelled Lookup.
+    pub lookup_value_set: bool,
+    /// The first TestPart move after the Lookup ran the refresh the Lookup left (`Session::run_lookup_refresh_left`); the
+    /// part's later moves and the host's Next are pinned until another call.
+    pub lookup_refresh_used: bool,
     /// An action turned MarkedOnly on for a list with row triggers: the later moves are refused (not built).
     pub marked_only_by_action: bool,
     /// An action runs on a list whose Rec had MarkedOnly off: a refresh after it that finds MarkedOnly on holds the marked rows it
@@ -785,6 +793,8 @@ pub struct PageState {
     pub split_burned: bool,
     /// `OnOpenPage` left filters in `FilterGroup(-1)`: the page dropped them from the rows it shows.
     pub or_group_dropped: bool,
+    /// The record handed to the page carried filters in `FilterGroup(-1)`, dropped before OnOpenPage.
+    pub or_group_handed: bool,
     /// Fields whose page filter reads back as a text nothing pins (a SourceTableView `const(0D)`): a TestPage Filter read refuses.
     pub unpinned_filter_fields: Vec<usize>,
     /// The record `Page.SetRecord` handed a page variable, shown when the page runs.
@@ -940,6 +950,7 @@ impl PageState {
             trigger_errors: Vec::new(),
             saved_before_run_object: false,
             set_value_held: false,
+            modify_vetoed: None,
             inserted_before_host_action: false,
             save_failure_depth: None,
             save_failed: false,
@@ -971,6 +982,8 @@ impl PageState {
             marked_only_unpinned: false,
             lookup_refresh_deferred: false,
             lookup_setting_value: false,
+            lookup_value_set: false,
+            lookup_refresh_used: false,
             marked_only_by_action: false,
             marking_action: false,
             marked_rows_held: false,
@@ -1044,6 +1057,7 @@ impl PageState {
             placeholder_line: false,
             split_burned: false,
             or_group_dropped: false,
+            or_group_handed: false,
             unpinned_filter_fields: Vec::new(),
             set_record: None,
             set_view: false,

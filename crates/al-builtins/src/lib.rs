@@ -16,6 +16,8 @@ pub mod xmlport;
 
 pub mod assumptions;
 mod autoformat11;
+mod blob_compare;
+pub mod bookmark;
 pub mod builtin_id;
 pub mod catalog;
 pub mod collation;
@@ -28,6 +30,7 @@ pub mod dotnet_sigs;
 pub mod errorinfo;
 pub mod evaluate;
 pub mod features;
+pub mod fieldref_value_text;
 pub mod file;
 pub mod filter;
 pub mod format;

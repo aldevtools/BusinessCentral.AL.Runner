@@ -8,6 +8,9 @@ impl Session {
     /// and records a refusal in the control's ledger (corpus handlers/TestPageValidationError_Tests.al,
     /// TestPageReadOnlySetValue.al:1-30, TestPageBooleanSpelling_Tests.al).
     pub(super) fn control_set_value(&mut self, st: &St, idx: usize, args: &mut [Value]) -> Result<Value, Signal> {
+        if st.borrow().lookup_setting_value {
+            st.borrow_mut().lookup_value_set = true;
+        }
         // A filter field (a page variable) whose OnValidate refills a temporary Worksheet: the client reads the new rows
         // (`reread_after_refill_by_validate`, RmTempRefill.al:215-:320), on a collapsed tree too (al-runner issue 6550).
         let engine = self.engine();

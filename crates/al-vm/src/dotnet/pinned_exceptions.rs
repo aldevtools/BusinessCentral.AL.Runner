@@ -47,6 +47,13 @@ pub(super) fn signal(
         (MemberKind::Call, "System.Xml.XmlException") if clr_type.eq_ignore_ascii_case("System.Xml.XmlDocument") => {
             xml_load_member(member).map(|m| (format!("{clr_type}.{m}"), "DotNetInvoke:Xml"))
         }
+        // The Position of a MemoryStream JsonObject.ReadFrom closed (lt-y51-dotnet-builtin-args/Y51DotNetBuiltinArgs.al:
+        // DotNetMemoryStream_JsonObjectReadFrom `pos_after_json`).
+        (MemberKind::Get, "System.ObjectDisposedException")
+            if clr_type.eq_ignore_ascii_case("System.IO.MemoryStream") && member.eq_ignore_ascii_case("Position") =>
+        {
+            Some((format!("{clr_type}.Position"), "DotNetInvoke:ObjectDisposed"))
+        }
         _ => None,
     };
     if let Some((called, code)) = pinned {

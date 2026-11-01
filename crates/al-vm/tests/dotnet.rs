@@ -169,6 +169,8 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.Environment\"; \"Environment\") { }
     type(\"System.EnvironmentVariableTarget\"; \"EnvironmentVariableTarget\") { }
     type(\"System.Text.StringBuilder\"; \"StringBuilder\") { }
+    type(\"System.String\"; \"ClrString\") { }
+    type(\"System.Collections.Generic.Dictionary`2\"; \"GenDict\") { }
   }
   assembly(\"Microsoft.Exchange.WebServices\") { type(\"Microsoft.Exchange.WebServices.Data.ExchangeService\"; \"ExchangeService\") { } }
 }\n";
@@ -984,8 +986,25 @@ fn a_result_of_another_kind_is_not_stored_into_a_typed_variable() {
     let e = result_of(DotNetValue::Int32(7), "Text", ": Text").expect_err("refused");
     let Signal::Unsupported(why) = e else { panic!() };
     assert!(why.contains("Integer") && why.contains("not pinned"), "{why}");
-    // A narrowing result (long into Integer) is refused too.
-    assert!(result_of(DotNetValue::Int64(7), "Integer", ": Integer").is_err());
+}
+
+// Y51DotNetInt64IntoInteger.al: a .NET long into an Integer is the number when it fits, else an overflow error.
+#[test]
+fn a_long_result_into_an_integer_narrows_or_overflows() {
+    assert!(matches!(
+        result_of(DotNetValue::Int64(7), "Integer", ": Integer"),
+        Ok(Value::Integer(7))
+    ));
+    match result_of(DotNetValue::Int64(3_000_000_000), "Integer", ": Integer") {
+        Err(Signal::Error(e)) => {
+            assert_eq!(
+                e.message,
+                "Overflow under conversion of System.Int64 value 3000000000 to System.Int32."
+            );
+            assert_eq!(e.code, "ConversionCast");
+        }
+        other => panic!("{other:?}"),
+    }
 }
 
 #[test]
@@ -1652,7 +1671,7 @@ fn the_declared_result_types_match_the_registry() {
             // (Count and Item of a runtime-made Dictionary`2 too: tests/host/generic_dictionary.rs runs them.)
             "FromStream" | "Fields" | "Count" | "Item" | "FieldNo" | "TableNo" | "FieldName" => continue,
             // Need a dictionary made with a capacity, or a pair of one; tests/host/generic_dictionary.rs runs them.
-            "Add" | "ContainsKey" | "Key" | "Value" => continue,
+            "Add" | "ContainsKey" | "Key" | "Value" | "Remove" | "TryGetValue" | "Values" => continue,
             _ => vec![],
         };
         let mut s = Session::new(Engine::new(al_ir::Program::default(), vec![]));
@@ -3408,4 +3427,92 @@ fn another_service_tier_object_assigned_to_a_run_on_client_variable_is_refused()
         "",
     );
     assert!(unsupported(&r).contains("RunOnClient"), "{}", unsupported(&r));
+}
+
+// tests/al-language-onprem-dotnet/lt-y51-dotnet-builtin-args/Y51DotNetBuiltinArgs.al:DotNetString_ErrorInfoCreate: a variable
+// declared `DotNet String` into ErrorInfo.Create is the message (the `String` overload; gap G5-22).
+#[test]
+fn a_dotnet_string_into_error_info_create_is_the_message() {
+    let host = Fake::new(|r| panic!("{r:?}"));
+    let r = run(
+        &host,
+        "S: DotNet ClrString; I: ErrorInfo;",
+        "S := 'LT dn message'; I := ErrorInfo.Create(S, true); exit(I.Message + '|' + Format(I.Collectible));",
+        ": Text",
+    );
+    assert_eq!(text(r), "LT dn message|Yes");
+}
+
+// Y51DotNetBuiltinArgs.al:DotNetMemoryStream_XmlDocumentReadFrom and DotNetMemoryStream_Null_XmlReadFrom: XmlDocument.ReadFrom reads
+// the whole MemoryStream and leaves its Position at the end; a variable that holds no object is a Conversion error.
+#[test]
+fn a_memory_stream_into_xml_document_read_from_reads_it_whole() {
+    let host = Fake::new(|r| match r {
+        Req::Construct(..) => reply(handle(9, "System.IO.MemoryStream")),
+        Req::Set(..) => reply(DotNetValue::Null),
+        other => panic!("{other:?}"),
+    });
+    let r = run(
+        &host,
+        "M: DotNet MemoryStream; D: XmlDocument;",
+        "M := M.MemoryStream(); exit(Format(XmlDocument.ReadFrom(M, D)));",
+        ": Text",
+    );
+    assert_eq!(text(r), "No");
+    let calls = host.calls();
+    assert!(calls.contains(&Req::StreamRead(9)), "{calls:?}");
+    assert!(
+        calls.contains(&Req::Set(
+            DotNetTarget::Instance(9),
+            "Position".into(),
+            DotNetValue::Int64(5)
+        )),
+        "{calls:?}"
+    );
+    let host = Fake::new(|r| panic!("{r:?}"));
+    let r = run(
+        &host,
+        "M: DotNet MemoryStream; D: XmlDocument;",
+        "XmlDocument.ReadFrom(M, D);",
+        "",
+    );
+    match r.result {
+        Err(Signal::Error(e)) => assert_eq!(e.code, "Conversion"),
+        other => panic!("{other:?}"),
+    }
+}
+
+// Y51DotNetDictNoCap.al:DnDictNoCap_TextKeys_ContainsAdd and DnDictNoCap_ObjectValues: a parameterless Dictionary`2 with Text
+// keys compared exactly, Remove, TryGetValue into a var argument, and Values in insertion order.
+#[test]
+fn a_parameterless_dictionary_takes_text_keys() {
+    let host = Fake::new(|r| panic!("{r:?}"));
+    let r = run(
+        &host,
+        "D: DotNet GenDict; V: Text; T: Text; X: Variant;",
+        "D := D.Dictionary(); D.Add('B', 'vb'); D.Add('Name', 'v1'); \
+         T := Format(D.ContainsKey('Name')) + Format(D.ContainsKey('NAME')) + Format(D.Item('Name')); \
+         T += Format(D.TryGetValue('Z', X)) + Format(D.Remove('Name')) + Format(D.Remove('Name')); \
+         foreach V in D.Values do T += V; \
+         exit(T);",
+        ": Text",
+    );
+    assert_eq!(text(r), "YesNov1NoYesNovb");
+}
+
+// Y51BlobStreamPosition.al: Position follows what AL read, a Position set reads back and does not move AL, and the stream assigned
+// back to the InStream reads it from its start.
+#[test]
+fn a_position_set_on_a_stream_over_an_instream_and_the_stream_assigned_back() {
+    let host = no_host();
+    let r = run(
+        &host,
+        &format!("{STREAM_VARS} C: Char; T2: Text;"),
+        "B.Data.CreateOutStream(O); O.WriteText('abcdef'); B.Data.CreateInStream(I); S := I; \
+         I.Read(C); I.Read(C); T := Format(S.Position) + '|'; S.Position := -1; T += Format(S.Position) + '|'; \
+         I.ReadText(T2); T += T2 + '|'; I := S; I.ReadText(T2); exit(T + T2);",
+        ": Text",
+    );
+    let _ = host;
+    assert_eq!(text(r), "2|-1|cdef|abcdef");
 }

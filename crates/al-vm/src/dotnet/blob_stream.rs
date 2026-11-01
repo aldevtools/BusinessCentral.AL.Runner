@@ -14,8 +14,10 @@
 //! - an `OutStream` assigned to a System.Object raises NotSupportedType "The type NavOutStream is unknown." (:247-264);
 //! - Base Application's `DotNet_Stream.FromOutStream` then `WriteByte` (:431-446).
 //!
-//! Not pinned, so refused: any other member (`Read`, `Seek`, a `Position` set, `SetLength`, `CopyTo`, ...); `Length` and
-//! `Position` once anything read or wrote after the assignment; a read on the
+//! `Position` after an AL read, a `Position` set and the stream assigned back to an `InStream`: blob_stream_position.rs.
+//!
+//! Not pinned, so refused: any other member (`Read`, `Seek`, `SetLength`, `CopyTo`, ...), any member but `Position` after a
+//! `Position` set; `Length` and `Position` once anything read or wrote after the assignment (but see above); a read on the
 //! `OutStream` side and a write, `Flush`, `Close` or `Dispose` on the `InStream` side; any member after `Close` or `Dispose`
 //! other than `WriteByte`; a second `Close`; a stream taken from an `OutStream` whose position is not the end of the Blob or
 //! from an `InStream` that was read from; an AL write that ends elsewhere than the .NET position and an AL read that stops
@@ -36,7 +38,7 @@ const PIN: &str = "tests/al-language-onprem-dotnet/lt-sg-dotnet/SgDotNetStreams.
 // .NET call, whether it was closed, and (OutStream side) the id written into the Blob.
 const S_OUT: usize = 0;
 const S_BLOB: usize = 1;
-const S_AL: usize = 2;
+pub(super) const S_AL: usize = 2;
 const S_POS: usize = 3;
 const S_SEEN: usize = 4;
 const S_CLOSED: usize = 5;
@@ -45,7 +47,9 @@ const S_ID: usize = 6;
 const S_START: usize = 7;
 const S_START_LEN: usize = 8;
 // Whether a .NET read or write ran on the stream, even one that moved nothing (a `ReadByte` at the end).
-const S_TOUCHED: usize = 9;
+pub(super) const S_TOUCHED: usize = 9;
+/// The Position .NET code set on the InStream side (Null when none; blob_stream_position.rs).
+pub(super) const S_SET: usize = 10;
 
 static NEXT_VIEW: AtomicU32 = AtomicU32::new(1);
 
@@ -113,6 +117,7 @@ impl Session {
                     big(buf.write_pos),
                     big(buf.bytes.len()),
                     Value::Boolean(false),
+                    Value::Null,
                 ]
             }
             LibraryValue::InStream(st) => {
@@ -138,6 +143,7 @@ impl Session {
                     big(0),
                     big(st.len()),
                     Value::Boolean(false),
+                    Value::Null,
                 ]
             }
             other => {
@@ -211,21 +217,21 @@ fn plain(buf: &BlobBuf) -> Result<(), Signal> {
     Ok(())
 }
 
-fn state_of(this: Option<&Rc<DotNetObject>>) -> Result<&RefCell<Vec<Value>>, Signal> {
+pub(super) fn state_of(this: Option<&Rc<DotNetObject>>) -> Result<&RefCell<Vec<Value>>, Signal> {
     match this.map(|o| &o.kind) {
         Some(DotNetKind::Internal { state, .. }) => Ok(state),
         _ => unsupported("DotNet Stream member on something that is not an AL stream"),
     }
 }
 
-fn blob_of(state: &RefCell<Vec<Value>>) -> Result<BlobRef, Signal> {
+pub(super) fn blob_of(state: &RefCell<Vec<Value>>) -> Result<BlobRef, Signal> {
     match &state.borrow()[S_BLOB] {
         Value::Blob(b) => Ok(b.clone()),
         _ => unsupported("DotNet Stream without its Blob"),
     }
 }
 
-fn is_out(state: &RefCell<Vec<Value>>) -> bool {
+pub(super) fn is_out(state: &RefCell<Vec<Value>>) -> bool {
     matches!(state.borrow()[S_OUT], Value::Boolean(true))
 }
 
@@ -237,6 +243,11 @@ fn is_closed(state: &RefCell<Vec<Value>>) -> bool {
 /// did to its stream since the last .NET call.
 fn open<'a>(this: Option<&'a Rc<DotNetObject>>, member: &str) -> Result<&'a RefCell<Vec<Value>>, Signal> {
     let state = state_of(this)?;
+    if !matches!(state.borrow()[S_SET], Value::Null) {
+        return unsupported(format!(
+            "DotNet Stream.{member} over an AL stream after a Position set (not pinned)"
+        ));
+    }
     if is_closed(state) {
         return unsupported(format!(
             "DotNet Stream.{member} over an AL stream after Close or Dispose (only WriteByte is pinned there)"
@@ -352,7 +363,10 @@ fn full_name(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -> R
 
 /// The state for `Length` or `Position`, refused once anything read or wrote since AL gave the stream to .NET
 /// (SgDotNetStreams.al:122-123 and :391-392 read them only right after the assignment).
-fn untouched<'a>(this: Option<&'a Rc<DotNetObject>>, member: &str) -> Result<&'a RefCell<Vec<Value>>, Signal> {
+pub(super) fn untouched<'a>(
+    this: Option<&'a Rc<DotNetObject>>,
+    member: &str,
+) -> Result<&'a RefCell<Vec<Value>>, Signal> {
     let state = open(this, member)?;
     let len = blob_of(state)?.borrow().bytes.len();
     let s = state.borrow();
@@ -374,7 +388,7 @@ fn length(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -> Resu
     Ok(state.borrow()[S_START_LEN].clone())
 }
 
-fn position(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -> Result<Value, Signal> {
+pub(super) fn position(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -> Result<Value, Signal> {
     let state = untouched(this, "Position")?;
     Ok(state.borrow()[S_POS].clone())
 }
@@ -490,7 +504,7 @@ fn dispose_call(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -
     close(this, "Dispose")
 }
 
-fn member(name: &str, kind: MemberKind, f: super::registry::MemberFn) -> RegistryMember {
+pub(super) fn member(name: &str, kind: MemberKind, f: super::registry::MemberFn) -> RegistryMember {
     RegistryMember {
         name: name.into(),
         kind,
@@ -510,7 +524,8 @@ pub fn types() -> Vec<RegistryType> {
                 member("CanWrite", MemberKind::Get, can_write),
                 member("CanSeek", MemberKind::Get, can_seek),
                 member("Length", MemberKind::Get, length),
-                member("Position", MemberKind::Get, position),
+                member("Position", MemberKind::Get, super::blob_stream_position::position_get),
+                member("Position", MemberKind::Set, super::blob_stream_position::position_set),
                 member("ReadByte", MemberKind::Call, read_byte),
                 member("WriteByte", MemberKind::Call, write_byte),
                 member("Write", MemberKind::Call, write),

@@ -141,6 +141,8 @@ pub const STAGED_FILE_INFO: &str = "<FileInfo of a staged folder>";
 /// AL declares it without type arguments (Base Application's ODataUtility, al-vm `dotnet/generic_dictionary.rs`).
 pub const GENERIC_DICTIONARY: &str = "System.Collections.Generic.Dictionary`2";
 pub const GENERIC_DICTIONARY_ENUMERATOR: &str = "<enumerator of a runtime-made Dictionary`2>";
+/// What `Values` of such a dictionary answers (no member of it is served; `foreach` walks it).
+pub const GENERIC_DICTIONARY_VALUES: &str = "<Values of a runtime-made Dictionary`2>";
 /// What `foreach` over such a dictionary yields.
 pub const GENERIC_KEY_VALUE_PAIR: &str = "System.Collections.Generic.KeyValuePair`2";
 pub const QUERY_METADATA_READER: &str = "Microsoft.Dynamics.Nav.Client.BusinessChart.QueryMetadataReader";
@@ -300,6 +302,9 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (GENERIC_DICTIONARY, "ContainsKey", Ret::Boolean),
     (GENERIC_DICTIONARY, "Count", Ret::Integer),
     (GENERIC_DICTIONARY, "Item", Ret::Object),
+    (GENERIC_DICTIONARY, "Remove", Ret::Boolean),
+    (GENERIC_DICTIONARY, "TryGetValue", Ret::Boolean),
+    (GENERIC_DICTIONARY, "Values", Ret::Object),
     (GENERIC_KEY_VALUE_PAIR, "Key", Ret::Object),
     (GENERIC_KEY_VALUE_PAIR, "Value", Ret::Object),
     (QUERY_METADATA_READER, "FromStream", Ret::Object),

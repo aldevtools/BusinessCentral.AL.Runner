@@ -55,6 +55,12 @@ pub trait FormatCtx {
         let _ = (rec, key);
         None
     }
+    /// The types of the primary key fields of the table with object index `table`, for the bookmark of a RecordId; None where
+    /// the context does not know the program.
+    fn record_id_key_types(&self, table: u32) -> Option<Vec<crate::value::RtType>> {
+        let _ = table;
+        None
+    }
 }
 
 /// A context without the format region, for the plain en-US text a region then rewrites.
@@ -82,6 +88,9 @@ impl FormatCtx for WithoutRegion<'_> {
         key: usize,
     ) -> Option<Vec<i32>> {
         self.0.key_ref_fields(rec, key)
+    }
+    fn record_id_key_types(&self, table: u32) -> Option<Vec<crate::value::RtType>> {
+        self.0.record_id_key_types(table)
     }
     fn enum_caption_refused(&self, id: u32, ordinal: Option<i32>) -> Option<String> {
         self.0.enum_caption_refused(id, ordinal)
@@ -507,34 +516,17 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 )));
             }
         },
-        // A Blob shows `*` when it holds data and one space when it does not (record/
-        // TestFormatRecordContracts.al:132-136, the cleared record shows the blank form).
-        Value::Blob(b) => {
-            let buf = b.borrow();
-            // ADR-040: the text shows whether the buffer holds data, which a pending buffer cannot say.
-            match &buf.render_pending {
-                // Content carried unread in the company build is never empty (a re-encoded picture, a re-zipped package):
-                // it shows `*` (assumption `company-build-carried-content-not-empty`).
-                Some(report) if ctx.carries_unread() && crate::stream::is_carried_mark(report) => {
-                    crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
-                    "*".to_string()
-                }
-                pending => {
-                    if let Some(report) = pending {
-                        crate::stream::note_pending_observation(report);
-                    }
-                    (if buf.bytes.is_empty() { " " } else { "*" }).to_string()
-                }
-            }
+        Value::Blob(b) => blob_text(b, ctx),
+        // The bookmark (`recordid_number`).
+        Value::Library(crate::library_kind::LibraryKind::RecordId, l) if standard == 10 => {
+            recordid_number::bookmark_text(&l.borrow(), ctx)?
         }
         Value::Date(0, _) | Value::Time(0) | Value::DateTime(0) => String::new(),
         Value::Date(day, closing) => format_date(*day, *closing, standard, ctx.language())?,
         Value::Time(t) => format_time(t - 1, standard)?,
         Value::DateTime(t) => format_datetime(t - 1, standard)?,
         Value::Duration(ms) => format_duration(*ms, standard, ctx.language())?,
-        // A formula prints without its angle brackets (types/TestDateRoundFormatStringContracts.al:
-        // DateFormula_Evaluate_ThenFormat_PrintsTheNormalizedFormula).
-        Value::DateFormula(f) => crate::datefns::formula_text(f),
+        Value::DateFormula(f) => date_formula_text(f, standard)?,
         // A Version reads `major.minor.build.revision` (session/TestBCPlatformContracts.al:120-136
         // compares the formatted AppVersion with the manifest's `1.0.0.0`).
         Value::Library(crate::library_kind::LibraryKind::Version, _) if standard == 9 => {
@@ -815,6 +807,52 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
 
 /// The value's type in a refusal text: a name, never the value's contents (a Record holds its
 /// whole row, filters and state, which made one refusal reason of a single test a page long).
+/// A Blob shows `*` when it holds data and one space when it does not (record/TestFormatRecordContracts.al:132-136, the cleared
+/// record shows the blank form).
+fn blob_text(b: &crate::stream::BlobRef, ctx: &dyn FormatCtx) -> String {
+    let buf = b.borrow();
+    // ADR-040: the text shows whether the buffer holds data, which a pending buffer cannot say.
+    match &buf.render_pending {
+        // Content carried unread in the company build is never empty (a re-encoded picture, a re-zipped package):
+        // it shows `*` (assumption `company-build-carried-content-not-empty`).
+        Some(report) if ctx.carries_unread() && crate::stream::is_carried_mark(report) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
+            "*".to_string()
+        }
+        pending => {
+            if let Some(report) = pending {
+                crate::stream::note_pending_observation(report);
+            }
+            (if buf.bytes.is_empty() && !buf.unread_content {
+                " "
+            } else {
+                "*"
+            })
+            .to_string()
+        }
+    }
+}
+
+/// A formula prints without its angle brackets in formats 0 and 9 (types/TestDateRoundFormatStringContracts.al:
+/// DateFormula_Evaluate_ThenFormat_PrintsTheNormalizedFormula; misc/lt-system-functions/RandomFormat.al:484-505). Format 2 of a
+/// formula shows the brackets, the empty one nothing: not pinned, Microsoft's System Application Test, Retention Period Test
+/// (codeunit 138700, the *DateFormulaTranslation tests) needs it (assumption `date-formula-format-two-brackets`). The other
+/// numbers are not pinned and are refused.
+fn date_formula_text(f: &str, standard: i32) -> Result<String, FormatFail> {
+    let text = crate::datefns::formula_text(f);
+    match standard {
+        0 | 9 => Ok(text),
+        // The empty formula stays empty (Retention Policy's install code writes one: Reten. Pol. Allowed Tbl. Impl.).
+        2 => {
+            crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaFormat2Brackets);
+            Ok(if text.is_empty() { text } else { format!("<{text}>") })
+        }
+        n => Err(FormatFail::Unsupported(format!(
+            "Format of a DateFormula with standard format {n} (not pinned)"
+        ))),
+    }
+}
+
 fn type_phrase(v: &Value) -> String {
     let name = match v {
         Value::Null => "an unassigned Variant",
@@ -1043,6 +1081,9 @@ fn format_time(ms_of_day: i64, standard: i32) -> Result<String, FormatFail> {
 /// (`2026-09-20T11:10:12.851Z`, no fraction when there are no milliseconds:
 /// types/TestFormatEvaluateTextContracts.al:Format_DateTime_StandardFormats). The session time zone
 /// is taken to be UTC.
+/// The years a short date shows with two digits (the en-US two-digit year window).
+const TWO_DIGIT_YEARS: std::ops::RangeInclusive<i32> = 1950..=2049;
+
 fn format_datetime(ms: i64, standard: i32) -> Result<String, FormatFail> {
     let day = ms.div_euclid(86_400_000);
     let in_day = ms.rem_euclid(86_400_000);
@@ -1053,17 +1094,13 @@ fn format_datetime(ms: i64, standard: i32) -> Result<String, FormatFail> {
         in_day / 1000 % 60,
         in_day % 1000,
     );
-    // The year 9999 shows four digits in format 0: the largest DateTime is `12/31/9999 11:59 PM` (types/lt-datetime/Format.al:377,
-    // 396). The other formats of that year are not pinned.
-    if y == 9999 && matches!(standard, 1..=3) {
-        return Err(FormatFail::Unsupported(format!(
-            "Format of a DateTime in the year 9999 with standard format {standard} (not pinned)"
-        )));
-    }
-    let date = if y == 9999 {
-        format!("{m:02}/{d:02}/{y}")
-    } else {
+    // The year has two digits from 1950 to 2049 and four otherwise (format 2 for 1753 to 5000, and formats 0 to 3 in 9998 and
+    // 9999: types/lt-y49-datetime-9999/Y49DateTime9999.al:64-209; the largest DateTime is `12/31/9999 11:59 PM`,
+    // types/lt-datetime/Format.al:377, 396).
+    let date = if TWO_DIGIT_YEARS.contains(&y) {
         format!("{m:02}/{d:02}/{:02}", y.rem_euclid(100))
+    } else {
+        format!("{m:02}/{d:02}/{y}")
     };
     Ok(match standard {
         0 | 2 => format!("{date} {}", format_time_12h(in_day)),
@@ -1334,10 +1371,11 @@ fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<Stri
         }
     };
     Ok(match standard {
-        // The year has two digits from 1931 to 2030 and four otherwise, so a text reads back into the same year
+        // The year has two digits from 1950 to 2049 and four otherwise
         // (controls/W2ValueControls.al:Date_SessionFormatTwoDigitYear_*: 1929 and 1930 give 10 characters, 1999
-        // to 2030 give 8, BC 27.5 and 29.0).
-        0 | 1 if (1931..=2030).contains(&y) => format!("{c}{m:02}/{d:02}/{yy:02}"),
+        // to 2030 give 8, BC 27.5 and 29.0; format 1: 1949 and 2050 four digits, 1950 and 2049 two,
+        // types/lt-y49-datetime-9999/Y49DateTime9999.al:172-209).
+        0 | 1 if TWO_DIGIT_YEARS.contains(&y) => format!("{c}{m:02}/{d:02}/{yy:02}"),
         0 | 1 => format!("{c}{m:02}/{d:02}/{y:04}"),
         2 => format!("{m:02}{d:02}{yy:02}{c}D"),
         3 => format!("{yy:02}/{m:02}/{d:02}"),

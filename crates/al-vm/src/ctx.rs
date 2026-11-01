@@ -32,6 +32,10 @@ impl al_builtins::format::FormatCtx for Session {
         let caption = self.caption_checked(&t).ok()?;
         Some((caption, self.engine.program.objects[table as usize].namespace.clone()))
     }
+    fn record_id_key_types(&self, table: u32) -> Option<Vec<al_builtins::value::RtType>> {
+        let t = self.engine.tables.get(table as usize)?.clone()?;
+        Some(t.keys.first()?.iter().map(|&p| t.fields[p].ty.clone()).collect())
+    }
     /// `OnInitReport` of a report with the `FormatRegion` property: the corpus reports format their values only in
     /// `OnAfterGetRecord` (report/lt-y-report-props/YReports.al:32-48), so whether `Format` there already follows the
     /// region is not pinned (docs/probes-needed.md).
@@ -442,7 +446,12 @@ impl al_builtins::native::Ctx for Session {
         text: &str,
         number: i64,
     ) -> Option<Result<Option<al_builtins::value::LibraryValue>, Signal>> {
-        Some(self.evaluate_record_id_text(text, number))
+        // Number 10 reads the bookmark form (recordid_bookmark.rs).
+        Some(if number == 10 {
+            self.evaluate_record_id_bookmark(text)
+        } else {
+            self.evaluate_record_id_text(text, number)
+        })
     }
     fn table_filter_table(
         &mut self,

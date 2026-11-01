@@ -2,29 +2,39 @@
 //! the primary key for a SORTING of one (record/lt-setview-caption-form/SetViewCaptionForm.al:179-191 SetView_UnknownField_ErrorText:
 //! `WHERE(Nothing Here=CONST(5))` sets no filter; types/lt-evaluate-format-lasterror-setview/P86SetView.al:222 SetView_Malformed `v3`
 //! `WHERE(Nope=CONST(1))`, :184 SetView_GetViewRoundTrip_NameFormSetFilter `v8` `SORTING(Nonexistent)`). Pinned only for a view
-//! given at run time, for a name that is the only condition or the only SORTING field, and for a plain name: a lowercase
-//! `field<n>`, a `Field<n>` with no such field and a quoted name are refused (gap G5-14 probes them).
+//! given at run time, for a name that is the only condition or the only SORTING field, and for a plain name or a `Field<n>`
+//! with no such field (record/lt-y51-setview-shapes/Y51SetViewShapes.al:166-172, `WHERE(Field99=1(x))` and `SORTING(Field99)`).
+//! `Field0` names the timestamp column, which the runtime does not model (Y51SetViewShapes.al:164-173): refused, as is a
+//! quoted name.
 
 use crate::Session;
 use al_builtins::native::Signal;
 use al_data::TableDef;
 
-/// A name the `Field<n>` form or a quote could stand behind: not pinned when it names no field.
-fn unpinned_unknown(name: &str) -> bool {
-    let digits = |p: &str| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit());
-    name.contains('"')
-        || name
-            .get(..5)
-            .is_some_and(|p| p.eq_ignore_ascii_case("field") && digits(&name[5..]))
+/// The number of a `Field<n>` name (any case).
+fn field_number(name: &str) -> Option<u32> {
+    name.get(..5)
+        .filter(|p| p.eq_ignore_ascii_case("field"))
+        .and_then(|_| name[5..].parse().ok())
 }
 
-/// `CONST(..)` or `FILTER(..)` and nothing after: the form of the pinned conditions.
-fn plain_condition(cond: &str) -> bool {
+/// A name whose absence is not pinned: a quoted name, or `Field0` (the timestamp column).
+fn unpinned_unknown(name: &str) -> bool {
+    name.contains('"') || field_number(name) == Some(0)
+}
+
+/// `CONST(..)` or `FILTER(..)` and nothing after: the form of the pinned conditions; on a `Field<n>` name also `1(..)`
+/// (Y51SetViewShapes.al:166 `WHERE(Field99=1(x))`).
+fn plain_condition(name: &str, cond: &str) -> bool {
     let cond = cond.trim();
     let Some(open) = cond.find('(') else {
         return false;
     };
-    matches!(cond[..open].trim().to_ascii_uppercase().as_str(), "CONST" | "FILTER") && cond.ends_with(')')
+    match cond[..open].trim().to_ascii_uppercase().as_str() {
+        "CONST" | "FILTER" => cond.ends_with(')'),
+        "1" => field_number(name).is_some() && cond.ends_with(')'),
+        _ => false,
+    }
 }
 
 impl Session {
@@ -40,7 +50,7 @@ impl Session {
     ) -> Result<Option<usize>, Signal> {
         match self.view_field(t, name) {
             Ok(p) => Ok(Some(p)),
-            Err(_) if runtime && alone && !unpinned_unknown(name) && plain_condition(cond) => Ok(None),
+            Err(_) if runtime && alone && !unpinned_unknown(name) && plain_condition(name, cond) => Ok(None),
             Err(e) => Err(e),
         }
     }
