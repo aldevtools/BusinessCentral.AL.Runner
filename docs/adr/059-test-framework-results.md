@@ -45,8 +45,8 @@ its procedure name (`al-testrun` `runtime/run.rs`, `test_handlers_refusal`, `dat
 
 ## Conformance
 
-- `crates/al-test-cli/tests/test_framework_refusals.rs`: the refusals that hold until this ADR is accepted.
-- `crates/al-test-cli/tests/data_driven_tests.rs`: decision 2 as built (2026-10-30). The row shape is
+- `crates/al-test-cli/tests/suite/test_framework_refusals.rs`: the refusals that hold until this ADR is accepted.
+- `crates/al-test-cli/tests/suite/data_driven_tests.rs`: decision 2 as built (2026-10-30). The row shape is
   `Procedure[identifier]`, pinned by corpus `al-language-testlibraries/lt-bi-test-framework/BiDataDriven.al` (corpus
   PR 861: the BC 29 reference run in its header and the result names of the corpus CI on BC 29). No `CaseId` field was
   added: the case name is the test name of the row, so every consumer of the result model works unchanged.
@@ -59,5 +59,5 @@ it as **failed**, its message starting with `[error text not pinned]` (`al_built
 new `Outcome` variant: it is `Outcome::Fail`. The summary line, every JUnit `testsuite` (property
 `report_unpinned_errors`) and the `--output-json` document (`reportUnpinnedErrors`, `unpinnedErrorFailures`) say the
 switch is on, and it is part of the `--affected` options hash. Such a run is not a conformance result: `al-test-cli`
-never sets it, so the corpus ratchet is unchanged. Tests: `crates/al-testrun/tests/report_unpinned_errors.rs`,
+never sets it, so the corpus ratchet is unchanged. Tests: `crates/al-testrun/tests/suite/report_unpinned_errors.rs`,
 `crates/alrunner-cli/src/unpinned.rs`.

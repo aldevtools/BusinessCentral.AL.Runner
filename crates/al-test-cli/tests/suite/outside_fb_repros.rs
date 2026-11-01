@@ -5,7 +5,7 @@
 use al_test_cli::report::Outcome;
 
 fn outcomes(file: &str, codeunit: &str) -> Vec<(String, Outcome)> {
-    let src = format!("{}\n{}", file, include_str!("fixtures/outside-fb/LibraryAssert.al"));
+    let src = format!("{}\n{}", file, include_str!("../fixtures/outside-fb/LibraryAssert.al"));
     let o = al_testkit::outcomes_in(&src, codeunit);
     assert!(!o.is_empty());
     o
@@ -20,13 +20,13 @@ fn all_pass(file: &str, codeunit: &str) {
 /// Issue 6119: Expand and collapse on a tree page with OnAfterGetRecord and OnAfterGetCurrRecord run no row trigger.
 #[test]
 fn issue_6119_tree_expand_with_row_triggers() {
-    all_pass(include_str!("fixtures/outside-fb/Issue6119.al"), "Tree Probe Tests");
+    all_pass(include_str!("../fixtures/outside-fb/Issue6119.al"), "Tree Probe Tests");
 }
 
 /// Issue 6117: GoToKey and GoToRecord onto the last row of a full block of rows read, with more rows after it.
 #[test]
 fn issue_6117_gotokey_last_row_of_full_block() {
-    let file = include_str!("fixtures/outside-fb/Issue6117.al");
+    let file = include_str!("../fixtures/outside-fb/Issue6117.al");
     all_pass(file, "Block Edge Tests");
     all_pass(file, "Block Edge Controls");
 }
@@ -35,7 +35,7 @@ fn issue_6117_gotokey_last_row_of_full_block() {
 /// on the first row of the view; RunModal enters on its last row.
 #[test]
 fn issue_6114_page_run_descending_view_enters_first_row() {
-    all_pass(include_str!("fixtures/outside-fb/Issue6114.al"), "View Order Tests");
+    all_pass(include_str!("../fixtures/outside-fb/Issue6114.al"), "View Order Tests");
 }
 
 /// Issue 6118: TestField.Lookup whose OnValidate calls a ListPart procedure that runs CurrPage.Update(false) on the part shows the
@@ -43,7 +43,7 @@ fn issue_6114_page_run_descending_view_enters_first_row() {
 #[test]
 fn issue_6118_lookup_onvalidate_updates_the_part() {
     all_pass(
-        include_str!("fixtures/outside-fb/Issue6118.al"),
+        include_str!("../fixtures/outside-fb/Issue6118.al"),
         "Repro Lookup Part Update Tests",
     );
 }
@@ -55,7 +55,7 @@ fn issue_6118_lookup_onvalidate_updates_the_part() {
 /// marked rows and answers false, in either key (TW's :541 and :585; al-runner issue 6141).
 #[test]
 fn issue_6115_marked_refill_with_a_part() {
-    let file = include_str!("fixtures/outside-fb/Issue6115.al");
+    let file = include_str!("../fixtures/outside-fb/Issue6115.al");
     all_pass(file, "Refill Probe Key Tests");
     all_pass(file, "Refill Probe Id Tests");
     let part_reads = format!("{file}\n{PART_READS}");

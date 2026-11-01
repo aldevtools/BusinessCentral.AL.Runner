@@ -2,7 +2,7 @@
   "corpus_commit": "92031e20d86eeba7bda6bbb944a99e8bd0bedf1a",
   "language": {
     "bc": "27-29",
-    "implemented": 1621,
+    "implemented": 1622,
     "methods": [
       {
         "bc": [
@@ -27829,7 +27829,7 @@
         "scope": "",
         "sig": "()",
         "site": "platform/lt-xmlport-session-navapp-cookie/P94XpPathFlow.al:288",
-        "state": "refused",
+        "state": "implemented",
         "type": "Xmlport"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 109,
+    "refused": 108,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",

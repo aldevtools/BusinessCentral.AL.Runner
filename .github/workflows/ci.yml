@@ -8,9 +8,10 @@ name: CI
 #
 #   test           format, clippy, and every test that runs in a plain debug `cargo test`
 #   corpus         release build, the corpus pass rate for every BC version, and the demand-driven
-#                  compile against the eager compile (the normal run first and alone, then the three eager runs side by side)
-#   release-tests  everything that needs an optimised build: the perf budgets, the tests that run
-#                  the finished `al-test-cli` over the whole corpus, and the network tests
+#                  compile against the eager compile (the normal run first and alone, then the three eager runs side by side),
+#                  then `dev_tooling` against the same release build
+#   release-tests  the rest of what needs an optimised build: the perf budgets, `corpus_harness` (runs the
+#                  finished `al-test-cli` over the whole corpus), and the network tests
 #
 # Owner amendment, 2026-10-31: the four comparisons that cost runner time and have not failed on a pull request
 # since they were added run on a push to main, on the nightly schedule and on manual dispatch, not on a pull request.
@@ -23,14 +24,16 @@ name: CI
 # whole pinned corpus (`corpus_harness`, `dev_tooling`) are gated behind the `cli-e2e` feature of
 # al-test-cli, which is on by default (so `cargo test` and `check.sh` still run them). The `test` job
 # builds with `--no-default-features`, because the unoptimised binary needs minutes for them, and the
-# `release-tests` job runs them with the release binary.
+# `corpus` and `release-tests` jobs run them with the release binary.
 
 on:
   push:
     # corpus-bump/**: the corpus bump bot (.github/workflows/corpus-bump-bot.yml) opens its pull request with the
     # workflow token, which starts no pull_request run; the push of its branch (deploy key) runs CI instead.
     branches: [main, release, 'corpus-bump/**']
+  # ready_for_review: a draft pull request runs no job (see `jobs` below); marking it ready starts the run.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   schedule:
     - cron: "17 5 * * *"
   workflow_dispatch:
@@ -51,8 +54,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Owner, 2026-11-01: a draft pull request runs no job. Agents open their feature pull requests as drafts (a merge
+# train lands them, and its own pull request runs CI); the free plan allows 20 Linux jobs at once for the whole
+# organisation. Every job below has `if: github.event.pull_request.draft != true`, which is true on every other
+# event. A skipped job counts as passed for the ruleset, and a draft cannot merge anyway.
 jobs:
   test:
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     env:
       # Line tables are enough for a panic's location; full debug info made the debug test build
@@ -68,11 +76,12 @@ jobs:
       - run: cargo fmt --all --check
       # Default features: clippy also lints the two corpus-wide test files.
       - run: cargo clippy --all-targets -- -D warnings
-      # Without the cli-e2e feature: `corpus_harness` and `dev_tooling` run in the release-tests job.
+      # Without the cli-e2e feature: `dev_tooling` runs in the corpus job and `corpus_harness` in the release-tests job.
       - run: cargo test --workspace --no-default-features
 
   # Fails when a dependency has a license that is not on the allow-list in deny.toml.
   licenses:
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -86,6 +95,7 @@ jobs:
   # link, no tests. Test code of the workspace is not checked on Windows.
   portable:
     name: portable check (${{ matrix.os }})
+    if: github.event.pull_request.draft != true
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -95,9 +105,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo check --locked --workspace
 
   corpus:
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     # actions: read lets the step time guard read main's earlier runs of this job (tools/step_time_guard.py).
     permissions:
@@ -264,6 +277,12 @@ jobs:
         run: |
           python3 tools/step_time_guard.py "${{ steps.corpus_step.outputs.seconds }}" \
             --step "Corpus pass rate, and the demand-driven compile against the eager compile"
+
+      # The developer-tool tests that run `al-test-cli` over the corpus (about 1 min), against the release binary built
+      # above. In the release-tests job they made it end 2 to 3 minutes after this one; here they reuse the release
+      # build. The `test` job leaves them out (see the header).
+      - name: CLI end-to-end test (dev_tooling)
+        run: cargo test --release --no-fail-fast -p al-test-cli --test dev_tooling
 
       # ADR-022. The measured run: every dependency app comes from the compile cache
       # (`--require-compile-cache` turns a miss into an error). Its outcomes must be those of the
@@ -446,6 +465,7 @@ jobs:
           retention-days: 90
 
   release-tests:
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -470,20 +490,24 @@ jobs:
             -p al-test-cli --test perf_vm \
             -p al-data --lib \
             -- --ignored --nocapture
-      - name: Ignored release checks (corpus_resolve_deps, platform_tables)
+      # Three groups of release tests, side by side (tools/run_test_binaries.sh builds them in one cargo call, then
+      # starts every binary at once; `cargo test` ran one after the other):
+      #   corpus_resolve_deps, platform_tables  the ignored release checks that are not budgets.
+      #   corpus_harness                        runs `al-test-cli` over the whole pinned corpus and its oracle
+      #                                         (`--no-deps`), against the release binary. The `test` job leaves it out
+      #                                         (see the header); `dev_tooling` runs in the corpus job. Its tests share
+      #                                         one corpus run through a static, so it keeps one process per binary.
+      #   network, network_deps                 the only tests that use the network: Microsoft's artifact feed, read
+      #                                         by range. They use fresh cache directories, so they check the
+      #                                         protocol and the real archives, not a cache.
+      - name: Release tests (corpus_resolve_deps, platform_tables, corpus_harness, network)
         run: |
-          cargo test --release --no-fail-fast \
-            -p al-test-cli --test corpus_resolve_deps \
-            -p al-test-cli --test platform_tables \
-            -- --ignored --nocapture
-
-      # The tests that run `al-test-cli` over the whole pinned corpus and its oracle (`--no-deps`),
-      # against the release binary. The `test` job leaves them out (see the header).
-      - name: CLI end-to-end tests (corpus_harness, dev_tooling)
-        run: |
-          cargo test --release --no-fail-fast \
-            -p al-test-cli --test corpus_harness \
-            -p al-test-cli --test dev_tooling
+          tools/run_test_binaries.sh --release -- \
+            "al-test-cli:corpus_resolve_deps:--ignored --nocapture" \
+            "al-test-cli:platform_tables:--ignored --nocapture" \
+            al-test-cli:corpus_harness \
+            "al-deps:network:--ignored --nocapture" \
+            "al-test-cli:network_deps:--ignored --nocapture"
 
       # ADR-050 decision 12: edits of the corpus app; per edit the --affected selection plus the stored outcomes of the
       # skipped codeunits must equal a full run (about 5 s per run, two runs per narrowed edit).
@@ -493,15 +517,6 @@ jobs:
         run: |
           cargo test --release --no-fail-fast \
             -p al-test-cli --test affected_differential \
-            -- --ignored --nocapture
-
-      # The only tests that use the network: Microsoft's artifact feed, read by range. They use
-      # fresh cache directories, so they check the protocol and the real archives, not a cache.
-      - name: Artifact feed (network)
-        run: |
-          cargo test --release --no-fail-fast \
-            -p al-deps --test network \
-            -p al-test-cli --test network_deps \
             -- --ignored --nocapture
 
   # The GitHub cache of the repository has a limit of 10 GB, and a push to main saves a new compile-cache entry

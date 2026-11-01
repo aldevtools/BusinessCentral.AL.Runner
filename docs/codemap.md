@@ -2,7 +2,7 @@
 
 Read this before you open a source file. It says which module owns what, where the entry points
 are, and how the main flows call through the crates. File names are checked by a test
-(`crates/al-test-cli/tests/codemap.rs`): a listed file that no longer exists fails `cargo test`.
+(`crates/al-test-cli/tests/suite/codemap.rs`): a listed file that no longer exists fails `cargo test`.
 Line numbers are a snapshot and drift; find the current line with `rust-analyzer` (`documentSymbol`,
 `workspaceSymbol`) or `grep -n "fn name"`. The bullets in "Crates and modules" must stay one per file:
 `- `path.rs` (lines): what it owns. Entry: ...`.

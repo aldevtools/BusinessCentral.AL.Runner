@@ -42,7 +42,7 @@ compile is at hand.
    a change of code leaves the numbers as they are. The offsets of routines in a file do move, but they are looked up
    when the file is lowered. The positions are renumbered exactly as the assembly of a complete compile numbers them.
 4. **Proof.** `Compiled::same_lowering_as` compares the program, why routines are refused, the calls, the diagnostics
-   and the baseline decision. The test `crates/al-testrun/tests/incremental.rs` runs edits (an expression, a statement
+   and the baseline decision. The test `crates/al-testrun/tests/suite/incremental.rs` runs edits (an expression, a statement
    more, a literal, a local variable more, a comment, a statement in a procedure with a `var` parameter, a change of a
    left-out test codeunit that makes it stay) and compares after each with a complete compile of the same texts; a
    declaration change and a text that does not parse compile everything again. `ALRUNNER_CHECK_INCREMENTAL=1` makes
