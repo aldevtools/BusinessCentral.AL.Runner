@@ -147,6 +147,28 @@ fn text_arg(a: &[Value], i: usize) -> Result<String, Signal> {
     }
 }
 
+/// A four-argument import (blank description and MIME type) named `.xlsx` or `.docx` reads the content as an Office document:
+/// text content raises MediaUnsupportedFormat and no media is made (media/lt-y48-tenant-media/Y48TenantMediaRows.al:600-631
+/// TM_RowOfFourArgImport_MoreNames `attach D`, `attach H`, writer Y57). Other content under those names imports as before.
+fn office_header_check(bytes: &[u8], description: &str, mime: &str, file_name: &str) -> Result<(), Signal> {
+    if file_name.is_empty() || !description.is_empty() || !mime.is_empty() {
+        return Ok(());
+    }
+    let office = match file_name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).as_deref() {
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        _ => return Ok(()),
+    };
+    // Other content imports as before this check.
+    if bytes.is_empty() || !bytes.iter().all(|b| b.is_ascii_graphic() || b.is_ascii_whitespace() || *b == b' ') {
+        return Ok(());
+    }
+    crate::native::raise(
+        format!("Microsoft Office document cannot be imported. File header is corrupt (MIME type: {office}."),
+        "MediaUnsupportedFormat",
+    )
+}
+
 /// Reads the rest of an `InStream` (the bytes it has not handed out yet).
 fn drain(v: &Value) -> Result<Vec<u8>, Signal> {
     let Value::Library(_, h) = v else {
@@ -189,6 +211,7 @@ fn import_object(c: &mut dyn Ctx, a: &[Value]) -> Result<Id, Signal> {
         None | Some(Value::Null) => String::new(),
         Some(_) => text_arg(a, 3)?,
     };
+    office_header_check(&bytes, &description, &mime, &file_name)?;
     let id = c.new_guid();
     // A PNG without a MIME type is `image/png`, and its Tenant Media row has its size (corpus
     // media/PXMediaFileName.al: `Mime Type` is `image/png` also when it is omitted, 1 x 1).

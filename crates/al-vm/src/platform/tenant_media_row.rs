@@ -10,7 +10,9 @@ use al_builtins::media::MediaObject;
 /// - A four argument import with a blank description and MIME type (Base Application's Document Attachment.ImportAttachment):
 ///   Description blank, File Name the given name, Mime Type from its extension: `.txt` text/plain, none
 ///   application/octet-stream, `.PDF` application/pdf (Y48TenantMediaRows.al:312-329 TM_RowOfFourArgImport, BC 27.5, 28.5,
-///   29.0 and a SaaS sandbox). Another extension, or a description or MIME type next to the file name, is not pinned.
+///   29.0 and a SaaS sandbox), `.json` application/json, `.TXT` text/plain, `.csv` text/csv, `.xml` text/xml (:600-631
+///   TM_RowOfFourArgImport_MoreNames, writer Y57). Another extension, or a description or MIME type next to the file name, is
+///   not pinned. An `.xlsx` or `.docx` name on content that is no Office document raises at the import (al-builtins `media`).
 pub(super) fn columns(o: &MediaObject) -> Result<(String, String, String), String> {
     const OCTET: &str = "application/octet-stream";
     if o.file_name.is_empty() {
@@ -19,7 +21,7 @@ pub(super) fn columns(o: &MediaObject) -> Result<(String, String, String), Strin
     }
     let not_pinned = || {
         "a Tenant Media row of a media imported with a file name: its Description and Mime Type are pinned only for a blank \
-         description and MIME type and a file name ending in .txt, .pdf or no extension"
+         description and MIME type and a file name ending in .txt, .pdf, .json, .csv, .xml or no extension"
             .to_string()
     };
     if !o.description.is_empty() || !o.mime.is_empty() {
@@ -30,6 +32,9 @@ pub(super) fn columns(o: &MediaObject) -> Result<(String, String, String), Strin
         None => OCTET,
         Some("txt") => "text/plain",
         Some("pdf") => "application/pdf",
+        Some("json") => "application/json",
+        Some("csv") => "text/csv",
+        Some("xml") => "text/xml",
         Some(_) => return Err(not_pinned()),
     };
     Ok((String::new(), mime.to_string(), o.file_name.clone()))
