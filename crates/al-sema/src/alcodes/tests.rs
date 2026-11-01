@@ -523,6 +523,27 @@ fn al0118_codeunit_name_is_not_judged_when_the_platform_app_is_not_loaded() {
 }
 
 #[test]
+fn al0322_and_al0208_of_control_visible_expressions() {
+    // must-not-compile 2630-2632 (corpus branch al-runtime-rs-staging-y65, al-runner issue 6675).
+    let t = "table 50000 T { fields { field(1; Id; Code[10]) { } field(2; CueA; Integer) { } } }";
+    let arr = "page 50000 P { PageType = CardPart; SourceTable = T; layout { area(Content) { cuegroup(Cues) { \
+                   field(CueA; Rec.CueA) { Visible = ShowArr[1]; } } } } var ShowArr: array[2] of Boolean; }";
+    assert_eq!(codes(&[t, arr]), vec!["AL0322"]);
+    let method = "page 50000 P { PageType = CardPart; SourceTable = T; layout { area(Content) { cuegroup(Cues) { \
+                      field(CueA; Rec.CueA) { Visible = not Rec.IsEmpty(); } } } } }";
+    assert_eq!(codes(&[t, method]), vec!["AL0322"]);
+    let int = "page 50000 P { PageType = CardPart; SourceTable = T; layout { area(Content) { cuegroup(Cues) { Visible = 5; \
+                   field(CueA; Rec.CueA) { } } } } }";
+    assert_eq!(codes(&[t, int]), vec!["AL0208"]);
+    // A cuegroup takes an array element, a method call and a procedure call (pages/lt-y65-cue-visible/Y65CueVisible.al).
+    let ok = "page 50000 P { PageType = CardPart; SourceTable = T; layout { area(Content) { \
+                  cuegroup(A) { Visible = ShowArr[2]; field(CueA; Rec.CueA) { Visible = Rec.CueA <> 0; } } \
+                  cuegroup(B) { Visible = not Rec.IsEmpty(); } cuegroup(C) { Visible = IsShown(); } } } \
+                  var ShowArr: array[2] of Boolean; local procedure IsShown(): Boolean begin exit(true); end; }";
+    assert!(codes(&[t, ok]).is_empty(), "{:?}", codes(&[t, ok]));
+}
+
+#[test]
 fn al0322_a_field_control_property_bound_to_a_procedure_call() {
     // must-not-compile 2000: Visible, Enabled and Editable of a field control bound to a call of a page procedure.
     let t = "table 52000 T { fields { field(1; Id; Integer) { } field(2; A; Integer) { } } }";

@@ -12,6 +12,9 @@
 use al_syntax::ast;
 use std::collections::BTreeSet;
 
+mod group_visible;
+pub use group_visible::{bound_to_procedure_call, client_expression_of, procedure_bound_value};
+
 /// What a synthetic property routine returns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropType {
@@ -34,6 +37,10 @@ impl PropType {
 const CONTROL_SECTIONS: &[&str] = &[
     "field",
     "group",
+    // A cuegroup, fixed or grid control takes any Boolean expression as Visible (al-runner issue 6675, `group_visible`).
+    "cuegroup",
+    "fixed",
+    "grid",
     "repeater",
     "part",
     "action",
@@ -477,8 +484,16 @@ fn needed(
     extension_routines: Option<&BTreeSet<String>>,
 ) -> Vec<(String, PropType, usize, String)> {
     let mut out = Vec::new();
+    // A cuegroup, fixed or grid control gets a routine for Visible only: what its other expression properties do is not pinned
+    // (pages/lt-ab-group-properties: a fixed control's Editable expression), so they stay without one and the page is refused.
+    let holder = ["cuegroup", "fixed", "grid"]
+        .iter()
+        .any(|k| section.name().eq_ignore_ascii_case(k));
     for p in section.properties() {
         let name = p.name();
+        if holder && !name.eq_ignore_ascii_case("visible") {
+            continue;
+        }
         let Some(ty) = dynamic_type(&name) else { continue };
         let value = p.value_text();
         if !is_literal(ty, &value) {
@@ -1095,6 +1110,10 @@ impl Tree {
                 return;
             }
         };
+        if group_visible::holder_visible_awaits_pin(s) {
+            self.assumes
+                .push(al_builtins::assumptions::Assumption::HolderVisibleExpression);
+        }
         let idx = self.nodes.len();
         self.nodes.push(Node {
             name: arg0,
