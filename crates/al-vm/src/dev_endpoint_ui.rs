@@ -32,7 +32,7 @@ fn answer(kind: UiKind, args: &[Value]) -> Option<(Vec<Value>, String)> {
         (UiKind::Confirm, [_, Value::Boolean(b)]) => Some((args.to_vec(), b.to_string())),
         // Only a default that names an option was measured (2, and 1 when omitted); 0 or past the last option was not.
         (UiKind::StrMenu, [Value::Text(options), Value::Integer(n), _])
-            if *n >= 1 && (*n as usize) <= options.to_string().split(',').count() =>
+            if *n >= 1 && (*n as usize) <= options.as_ref().split(',').count() =>
         {
             Some((args.to_vec(), n.to_string()))
         }
