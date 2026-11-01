@@ -39,7 +39,9 @@ impl Session {
                         "TestFilter.GetFilter of a SourceTableView const(0D) or filter(0D) (the filter text is not pinned)",
                     );
                 }
-                if st.borrow().or_group_dropped {
+                // With MarkedOnly it reads the page's own filters, the dropped ones gone (pages/lt-y50-or-group-page-rec/
+                // Y50OrGroupPageRec.al:491 G521_OnOpenPage_OrMarks_TestPageFilter `getfilter` = `Yes/`).
+                if st.borrow().or_group_dropped && !rec.borrow().marked_only {
                     return unsupported(
                         "TestFilter.GetFilter on a page whose OnOpenPage left FilterGroup(-1) filters (not pinned)",
                     );

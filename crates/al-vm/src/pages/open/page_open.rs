@@ -282,6 +282,7 @@ impl Session {
             }
             s.opening = true;
             s.or_group_dropped = false;
+            s.or_group_handed = false;
             s.unpinned_filter_fields = Vec::new();
             s.placeholder_line = false;
             s.gone_blank_no_new_line = false;
@@ -498,6 +499,9 @@ impl Session {
                 }
             }
             self.pages.run_page_link_open_moved = false;
+            if has_source {
+                self.drop_handed_or_group(st);
+            }
             let opened = self.page_trigger(st, "onopenpage", vec![]);
             st.borrow_mut().opening = false;
             st.borrow_mut().run_page_link_open_moved = std::mem::take(&mut self.pages.run_page_link_open_moved);
@@ -732,8 +736,8 @@ impl Session {
 
     /// Filters OnOpenPage left in `FilterGroup(-1)` do not limit the rows the page shows: the record counts the OR rows inside the
     /// trigger, the page shows every row (pages/lt-cd-testpage-leads/CdTestPageLeads.al:776 Item63_FilterGroupMinus1_InOnOpenPage).
-    /// What the page's `Rec` holds in group -1 afterwards is not pinned, so a page with code that could read it later (another
-    /// trigger, a control or action trigger, an extension) is refused, and so is a TestPage `Filter` read (see `test_filter_op`).
+    /// Later code reads Rec without them (`or_group_drop_pinned` says which shapes are pinned; the others are refused on a page
+    /// with code that could read Rec later). A TestPage `Filter` read is pinned with MarkedOnly only (see `test_filter_op`).
     pub(super) fn drop_or_group(&mut self, st: &St) -> Result<(), Signal> {
         let rec = self.page_rec(st);
         if !rec
@@ -745,9 +749,9 @@ impl Session {
             return Ok(());
         }
         let reads_later = self.page_code_runs(st, false);
-        if reads_later {
+        if reads_later && !self.or_group_drop_pinned(st) {
             return unsupported(
-                "FilterGroup(-1) filters left by OnOpenPage on a page with code that runs later (what Rec holds then is not pinned)",
+                "FilterGroup(-1) filters left by OnOpenPage, with marks but without MarkedOnly, on a page with code that runs later (what Rec holds then is not pinned)",
             );
         }
         rec.borrow_mut()
@@ -898,6 +902,9 @@ impl Session {
                 let from_start = self.is_list(st);
                 st.borrow_mut().window_from_start = from_start;
                 return Ok(());
+            }
+            if self.handed_or_group_list_on_row(st)? {
+                return self.open_on_rec_moved_by_onopenpage(st);
             }
             if self.stored_row(&rec)?.is_some() {
                 self.ret_used = true;
