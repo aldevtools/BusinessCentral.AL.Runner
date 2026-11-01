@@ -331,15 +331,8 @@ impl Session {
         // pages/lt-be-card-onfindrecord/BeCardOnFindRecord.al:374 CardTemp_PageRun_StoredRec `O:1/stored/;R:1/stored/`), but
         // whether the row is copied into the page's temporary table or read from the database (which decides what the page
         // writes, counts and steps to) is not pinned: refused (docs/probes-needed.md).
-        if let (Some(r), true) = (&record, has_source) {
-            let page_temp = self.page_rec(st).borrow().temporary;
-            if page_temp && !r.borrow().temporary && !self.is_list(st) && self.stored_row(r)?.is_some() {
-                self.mark_closed(st);
-                return unsupported(
-                    "a stored record handed to a card whose source table is temporary (whether the row is copied into the temporary table is not pinned)",
-                );
-            }
-        }
+        // A record keyed on a row-dependent FlowField: refused (`page_record_refusal`).
+        self.page_record_refusal(st, record.as_ref(), has_source)?;
         if let (Some(r), true) = (&record, has_source) {
             let rec = self.page_rec(st);
             let src = r.borrow();
