@@ -27,6 +27,7 @@ mod codeunit_run_variant_recordref;
 mod codeunit_this_run;
 mod collections_old_value;
 mod continue_stmt;
+mod copyarray_call_source;
 mod corpus_failures_1;
 mod cross_app;
 mod dataformats;
