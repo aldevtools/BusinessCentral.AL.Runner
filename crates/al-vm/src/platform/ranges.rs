@@ -89,6 +89,7 @@ pub(crate) fn of_expr(e: &FilterExpr, num: &dyn Fn(&Value) -> Option<i64>, lo: i
             }
             acc
         }
+        FilterExpr::EmptyViewValue => vec![(lo, hi)],
         FilterExpr::Like(..) | FilterExpr::NotLike(..) | FilterExpr::AtSignAlone(_) => {
             return Err("a wildcard filter on a numeric field".into());
         }

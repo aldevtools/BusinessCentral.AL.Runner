@@ -83,6 +83,7 @@ mod transactions;
 mod translations;
 mod ui;
 mod usertable;
+mod view_empty;
 mod view_unknown;
 mod views;
 mod xmlports;
