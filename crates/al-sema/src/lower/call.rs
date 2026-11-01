@@ -757,9 +757,9 @@ impl Lowerer<'_> {
                             out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(fid as i32))));
                             continue;
                         }
-                        (true, Some(Res::Field { table, id })) => {
-                            self.readable_field_pos(table, id)?;
-                            let field = self.field_ref(table, id);
+                        (true, Some(Res::Field { table, id: fid })) => {
+                            self.named_field_pos(table, fid, &id)?;
+                            let field = self.field_ref(table, fid);
                             out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::FieldPos(field as u32))));
                             continue;
                         }

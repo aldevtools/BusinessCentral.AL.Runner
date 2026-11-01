@@ -164,3 +164,16 @@ fn published_application_lists_the_application_row() {
     O.SetRange("App Package ID", A."Package ID"); if not O.IsEmpty() then Error('objects'); end; }"#,
     );
 }
+
+// G5-01 (runtime note): FieldNo of an unpinned column reads no value, so it is not refused (the shape of Base Application's
+// Data Classification Eval. Data: `DummyPublishedApplication.FieldNo(Blob)`); a read of the column still is.
+#[test]
+fn field_no_of_an_unpinned_column_is_not_a_read() {
+    let o = outcomes(
+        r#"codeunit 50000 T { Subtype = Test;
+  [Test] procedure Number() var A: Record "Published Application"; begin if A.FieldNo(Blob) <> 22 then Error('%1', A.FieldNo(Blob)); end;
+  [Test] procedure Read() var A: Record "Published Application"; begin A.CalcFields(Blob); end; }"#,
+    );
+    assert_eq!(o[0], ("Number".to_string(), Outcome::Pass), "{o:?}");
+    assert!(matches!(&o[1].1, Outcome::NotRun(why) if why.contains("column 22")), "{o:?}");
+}
