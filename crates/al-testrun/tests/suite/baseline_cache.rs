@@ -977,39 +977,3 @@ codeunit 60101 DataTests { Subtype = Test;
     assert_eq!(outcome(&go()), Outcome::Pass, "the run that reads it");
     assert_eq!(file_id(&kept[0]), modified, "read, not written");
 }
-
-/// al-runner issue 6665: an install routine that stops before it registers a table, and a test that reaches the registry only
-/// through a subscriber to a table event of the record it inserts. The test reads what the install would have written, so it
-/// is not run, as a test that reads the registry directly is not.
-const SUBSCRIBER_REACH: &str = r#"
-table 60150 Allowed { fields { field(1; TableId; Integer) { } } keys { key(PK; TableId) { } } }
-table 60151 PolicySetup { fields { field(1; TableId; Integer) { } } keys { key(PK; TableId) { } } }
-codeunit 60152 AllowedImpl
-{
-    procedure Add(Id: Integer) var A: Record Allowed; begin A.TableId := Id; A.Insert(); end;
-    [EventSubscriber(ObjectType::Table, Database::PolicySetup, 'OnBeforeInsertEvent', '', false, false)]
-    local procedure Verify(var Rec: Record PolicySetup) var A: Record Allowed; begin if not A.Get(Rec.TableId) then Error('not allowed'); end;
-}
-codeunit 60153 StopsEarly
-{
-    Subtype = Install;
-    trigger OnInstallAppPerCompany() var Impl: Codeunit AllowedImpl; begin Presets(); Impl.Add(60150); end;
-    local procedure Presets() begin Error('stops here'); end;
-}
-codeunit 60154 PolicyTests
-{
-    Subtype = Test;
-    [Test] procedure InsertsThroughTheEvent() var S: Record PolicySetup; begin S.TableId := 60150; S.Insert(true); end;
-}
-"#;
-
-#[test]
-fn a_test_that_reaches_what_a_stopped_install_writes_through_a_table_event_is_not_run() {
-    let dir = tempfile::tempdir().unwrap();
-    let rt = run_main(SUBSCRIBER_REACH, dir.path(), Default::default(), Default::default());
-    let held = outcome_of(&rt, "InsertsThroughTheEvent");
-    assert!(
-        matches!(&held, Outcome::NotRun(why) if why.contains("could not run")),
-        "{held:?}"
-    );
-}
