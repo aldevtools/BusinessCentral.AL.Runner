@@ -558,16 +558,8 @@ impl Session {
         facts.unknown.get(&(object as usize)).map(String::as_str)
     }
 
-    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code. Every
-    /// persistent read and write passes here, so it also marks the platform tables that are stored on an assumption: Webhook
-    /// Subscription and Webhook Notification (`webhook-tables-stored`, al-builtins platform.rs).
+    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.
     pub(crate) fn install_assumed(&self, object: u32) {
-        if matches!(
-            self.engine.program.objects[object as usize].id,
-            Some(2_000_000_194 | 2_000_000_199)
-        ) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WebhookTablesStored);
-        }
         if self.install_scope {
             return;
         }
@@ -2713,43 +2705,108 @@ impl Session {
         }
     }
 
-    /// The platform's virtual table `Agent Task` (2000000262): in a test session IsEmpty fails with the agent service's
-    /// error, code DB:Ok (platform/lt-rh-agent-session/RhAgentSession.al:74-88 RH_AgentTask_TaskExistsUnknownAgent, through
-    /// "Agent Task Impl.".TaskExists, whose only read of the table is IsEmpty after two SetRange calls and ReadIsolation).
-    /// Every other read or write of it stays refused by its provider ("has no provider").
+    /// The platform's agent tables Agent (2000000260), Agent Access Control (2000000261), Agent Task (2000000262) and Agent
+    /// Task Message (2000000263): in a test session on the corpus containers every read and every insert fails with the agent
+    /// service's error, code DB:Ok, and leaves no write transaction, whatever app calls it (onprem
+    /// platform/lt-y35-agent-direct/Y35AgentDirect.al C302_AgentDirect_FindSetFiltered, _Reads, _Inserts: FindSet with a filter,
+    /// FindFirst, IsEmpty, Count, FindLast, Get, Insert(true), Insert() on Agent; platform/lt-y35-agent-api/Y35AgentApi.al
+    /// C302_AgentTaskDirect_Reads, _Inserts: FindSet, Count, Get and Insert on Agent Task, FindSet and Insert on Agent Task
+    /// Message, FindSet on Agent Access Control; C302_AgentApi_Create, _Activate, _TaskCreate through the System Application;
+    /// platform/lt-rh-agent-session/RhAgentSession.al:74-145 for IsEmpty on Agent Task and Get on Agent). Every other
+    /// operation stays refused by the provider ("has no provider").
     fn agent_task_check(&self, t: &TableDef, rec: &Rec, method: RecordOp) -> Result<(), Signal> {
         if rec.borrow().temporary {
             return Ok(());
         }
-        // IsEmpty on Agent Task (RhAgentSession.al:74-88) and Get on Agent ("Agent Impl.".GetAgent, RhAgentSession.al:101-145,
-        // AL Runner issue 5787), for a new and a null id.
         let id = self.engine.program.objects[t.object as usize].id;
-        if !matches!(
-            (method, id),
-            (RecordOp::IsEmpty, Some(2000000262)) | (RecordOp::Get, Some(2000000260))
-        ) {
+        if !matches!(id, Some(2000000260..=2000000263)) {
+            return Ok(());
+        }
+        let pinned = match id {
+            Some(2000000260) => matches!(
+                method,
+                RecordOp::FindSet
+                    | RecordOp::FindFirst
+                    | RecordOp::FindLast
+                    | RecordOp::IsEmpty
+                    | RecordOp::Count
+                    | RecordOp::Get
+                    | RecordOp::Insert
+            ),
+            Some(2000000262) => matches!(
+                method,
+                RecordOp::FindSet | RecordOp::Count | RecordOp::Get | RecordOp::IsEmpty | RecordOp::Insert
+            ),
+            Some(2000000263) => matches!(method, RecordOp::FindSet | RecordOp::Insert),
+            _ => method == RecordOp::FindSet,
+        };
+        if !pinned {
             return Ok(());
         }
         let object = &self.engine.program.objects[t.object as usize];
         let platform = self.engine.program.apps.get(object.app as usize).is_some_and(|a| {
             a.id.eq_ignore_ascii_case(crate::platform::objects::al_sema_platform_app_id())
         });
-        // Only a read from Microsoft code (the System Application) is pinned; a partner app's own read is not.
-        let microsoft = self.frames.last().is_some_and(|o| {
-            let app = self.engine.program.objects[*o].app as usize;
-            self.engine
-                .program
-                .apps
-                .get(app)
-                .is_some_and(|a| a.publisher == "Microsoft")
-        });
-        if !platform || !microsoft {
+        if !platform {
             return Ok(());
         }
         Err(crate::transactions::al_error_code(
             "Agents are temporarily unavailable. Please try again later. You can check the Business Central Admin Center and Microsoft 365 Service Health dashboard for updates.",
             "DB:Ok",
         ))
+    }
+
+    /// The platform table Webhook Subscription (2000000199): an Insert stores a blank "Application ID" (field 7) as 'NAV'
+    /// (corpus master onprem platform/lt-y35-stored-tables/Y35StoredTables.al C303_Webhook_RowsAndWrites, the rows read back).
+    /// Another value AL set is not pinned: refused. What the variable holds afterwards is not pinned either: only the stored row changes.
+    fn webhook_application_id(&self, t: &TableDef, rec: &Rec, stored: &mut [Value]) -> Result<(), Signal> {
+        if rec.borrow().temporary || self.engine.program.objects[t.object as usize].id != Some(2000000199) {
+            return Ok(());
+        }
+        let Some(pos) = t.fields.iter().position(|f| f.id == 7) else {
+            return Ok(());
+        };
+        match &stored[pos] {
+            // 'NAV' (a row read back and inserted again) is stored as 'NAV' whether the platform fills or keeps it.
+            Value::Text(v) | Value::Code(v) if v.as_str() == "NAV" => Ok(()),
+            Value::Text(v) | Value::Code(v) if v.is_empty() => {
+                stored[pos] = Value::Text("NAV".into());
+                Ok(())
+            }
+            _ => unsupported(
+                "an Insert into Webhook Subscription with an Application ID: whether the platform keeps it is not pinned",
+            ),
+        }
+    }
+
+    /// A Delete or DeleteAll of the platform table MCP Configuration (2000000292) while MCP Configuration Tool (2000000293)
+    /// holds rows: BC 27.5 deletes the configuration's tools with it, BC 28.5 and 29.0 keep them (corpus master onprem
+    /// platform/lt-y35-stored-tables/Y35StoredTables.al C303_McpTool_ParentChecks). The BC 27 table set is the one whose tool
+    /// table has no "API Version" field (BC 28 and later); there the delete is refused, as the cascade is not followed.
+    fn mcp_configuration_delete_check(&self, t: &TableDef, rec: &Rec, method: RecordOp) -> Result<(), Signal> {
+        if rec.borrow().temporary
+            || !matches!(method, RecordOp::Delete | RecordOp::DeleteAll)
+            || self.engine.program.objects[t.object as usize].id != Some(2000000292)
+        {
+            return Ok(());
+        }
+        let program = &self.engine.program;
+        let Some(oi) = program
+            .objects
+            .iter()
+            .position(|o| o.kind == al_ir::ObjKind::Table && o.id == Some(2000000293))
+        else {
+            return Ok(());
+        };
+        let Some(Some(tools)) = self.engine.tables.get(oi) else {
+            return Ok(());
+        };
+        if tools.fields.iter().any(|f| f.name == "API Version") || self.store.stored_rows(&self.cx, tools).is_empty() {
+            return Ok(());
+        }
+        unsupported(
+            "a Delete of an MCP Configuration while MCP Configuration Tool holds rows, on a major whose tool table has no API Version field: there the platform deletes the configuration's tools with it (not followed)",
+        )
     }
 
     /// A `LinkedObject = true` table has no SQL table behind it in a test database: Insert and Count raise the SQL error
@@ -3370,6 +3427,7 @@ impl Session {
         self.linked_object_check(&t, rec, method)?;
         self.crm_method_check(&t, rec, method, args)?;
         self.agent_task_check(&t, rec, method)?;
+        self.mcp_configuration_delete_check(&t, rec, method)?;
         self.tenant_report_layout_check(&t, rec, method)?;
         self.tenant_layout_cfg_check(&t, rec, method, args)?;
         self.note_table(t.object, method.writes());
@@ -4003,6 +4061,7 @@ impl Session {
                     }
                 }
                 let mut stored = Self::to_store(rec, view);
+                self.webhook_application_id(&t, rec, &mut stored)?;
                 if let Some(e) = self.sql_columns(rec, &t, &mut stored)? {
                     // A value the SQL column cannot hold: the Insert does not fail, the next access of the table does
                     // (errors/lt-ms-refusals-130/P130DateFilters.al:255-275, stage `get`), as for a duplicate key. With a Blob

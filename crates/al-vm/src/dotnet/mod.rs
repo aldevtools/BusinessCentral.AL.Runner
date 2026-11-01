@@ -909,6 +909,38 @@ impl Session {
         }
     }
 
+    /// A static `member` of the .NET type `ty` called from the runtime itself, after the policy, with text arguments
+    /// (a registry member that builds a real .NET value, such as `NavTenantSettingsHelper.GetPlatformVersion`).
+    pub(crate) fn host_static_call(&mut self, ty: DotNetType, member: &str, args: &[&str]) -> Result<Value, Signal> {
+        let shown = format!("{}.{member}", ty.name);
+        let engine = self.engine.clone();
+        if let Err(why) =
+            engine
+                .dotnet
+                .policy
+                .check(Some(ty.assembly.as_str()), &ty.name, Access::MemberWithText(member))
+        {
+            return unsupported(format!("DotNet {shown}: {why}"));
+        }
+        self.dotnet_ready(&ty.name, member)?;
+        let wire = args
+            .iter()
+            .map(|a| DotNetArg {
+                value: DotNetValue::Str((*a).to_string()),
+                by_ref: false,
+            })
+            .collect();
+        let session = self.dotnet.session.as_mut().expect("opened by dotnet_ready");
+        match session.invoke(DotNetTarget::Static(ty.clone()), member, wire) {
+            Ok(r) => self.wire_to_value(r.value).map_err(|e| prefix(e, &shown)),
+            Err(e) => Err(match e {
+                DotNetFailure::Refused(why) => MoveNextFailure::Refused(Signal::Unsupported(why)),
+                DotNetFailure::Exception(e) => MoveNextFailure::Exception(e),
+            }
+            .signal(&ty.name, member)),
+        }
+    }
+
     fn host_get(
         &mut self,
         handle: DotNetHandle,
