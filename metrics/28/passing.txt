@@ -8894,6 +8894,7 @@
 70873 SetView_SortingFieldLists
 70873 SetView_SortingNonKeyField_Descending
 70873 SetView_SortingNonKeyField_WithWhere
+70873 SetView_SortingWithFieldNumbersAndErrors
 70873 SetView_ThenResetAndGetView
 70876 CalcFormula_CountWhereEmptyTerms
 70876 CalcFormula_SetAutoCalcFieldsAndFilterOnFlowField
@@ -9372,6 +9373,7 @@
 71204 OpenView_FilterBeforeOpen
 71204 Page_Editable_And_Close_Twice
 71204 Part_Hidden_And_Disabled_Access
+71204 Tree_Rows_WhileCollapsed
 71205 AssistEdit_Trigger
 71205 Drilldown_Trigger
 71205 Lookup_Trigger_EditMode
@@ -9888,6 +9890,7 @@
 71704 SetView_GetViewRoundTrip_NameFormSetFilter
 71704 SetView_MixedNameAndCaption
 71704 SetView_NameForm_ReportId
+71704 SetView_UnknownField_ErrorText
 71719 Integer_ErrorInfo_EqualAndDifferent
 71719 Integer_Plain_EqualAndDifferent
 71720 Text_ErrorInfo_EqualAndDifferent
@@ -12529,6 +12532,7 @@
 73533 TaskExists_ReadyFlagAndFailureCodeunit
 73533 TaskExists_TwoTasks
 73533 TaskExists_Unknown
+73535 SetView_Sorting
 73544 P130_Modal_Mixed_PageForA_TestPageForB
 73544 P130_Modal_Mixed_TestPageForA_PageForB
 73544 P130_Modal_PagePair_AThenB
@@ -12986,8 +12990,10 @@
 73924 Array_ClearWhole
 73925 Array_ArrayLen_Dimensions
 73925 Array_ArrayLen_Row
+73927 Copy_FromRecord
 73927 Copy_FromRecordRef_Filters
 73927 Copy_FromRecordRef_Values
+73927 Copy_FromRecord_WithView
 73927 Copy_ShareTable_False_ChangeThroughCopy
 73927 Copy_ShareTable_Temporary
 73927 Copy_ShareTable_True_ChangeThroughCopy
@@ -13397,6 +13403,7 @@
 74212 PageCaption_SetAndRead
 74212 RunModal_Accept
 74212 RunModal_CancelKeepsSetView
+74212 RunModal_HandlerSetsBadView
 74212 RunModal_HandlerSetsView
 74214 CanCreateTask_Twice
 74214 CancelTask_UnknownIds
@@ -13680,7 +13687,11 @@
 74411 SetValue_Part1
 74411 SetValue_Part2
 74412 Char_Byte_Option_Readback
+74412 DateTime_Readback
+74412 Date_Readback
 74412 Duration_BigInteger_Readback
+74412 TextToTyped
+74412 Time_Readback
 74413 Array_GetChar_GetTime
 74414 Object_GetChar
 74414 Object_Values
@@ -15985,6 +15996,7 @@
 85481 Guid_ComparedWithText
 85481 MixedExpressions_TypeAndValue
 85481 OptionWithBlankMembers_IntegerAssignment
+85484 RecordToRecordRef_Implicit
 85484 VariantVarParameter_HoldingRecord
 85546 CY_Sleep_Zero_ReturnsWithoutError
 85548 CY_TableCaption_LongerThan80_PerSource
