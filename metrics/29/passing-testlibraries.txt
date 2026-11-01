@@ -26,6 +26,7 @@
 81577 BiTs_Row2_FalseInGlobalTriggersSubscriber
 81577 BiTs_Row3_FalseInOnAfterSubscriber
 81577 BiTs_Row4_OnlyInsertInGlobalTriggersSubscriber
+81578 C302_B2_TestWritesStorage
 81579 C306_A6_SeesOwnOnRun
 81586 C306_B6_OnRunSequences
 81586 C306_B6_OnRunStorage
