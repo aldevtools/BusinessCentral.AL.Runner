@@ -16,6 +16,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+mod flowfield_key;
+
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
 
 /// The `TxState::lock_unpinned` text of a read other than FindFirst under a locking ReadIsolation.
@@ -86,8 +88,8 @@ pub(crate) const MEDIA_KEY: &str = "after SetCurrentKey on a Media or MediaSet f
 /// The `RecordState::unpinned_buffer` reason of a record after `SetCurrentKey` on a FlowField whose value depends on the row (a
 /// `field()` condition), alone or after normal fields. Only `CurrentKey` is pinned: it names the fields
 /// (record/Y8SetCurrentKeyNotStored.al:84-106 `flowfield` `key=Total`, `name_then_flowfield` `key=Name,Total`;
-/// record/lt-set-current-key/SetCurrentKeyFlowFieldOrder.al:109-113 `currentKey` `Cnt`). The order of the rows is pinned for
-/// one shape only (SetCurrentKeyFlowFieldOrder.al) and not built: every method that reads rows refuses, as for [`MEDIA_KEY`].
+/// record/lt-set-current-key/SetCurrentKeyFlowFieldOrder.al:109-113 `currentKey` `Cnt`). The finds and the order of the rows
+/// run for a sum or count FlowField first in the key (`flowfield_key`); the rest refuses, as for [`MEDIA_KEY`].
 pub(crate) const FLOWFIELD_KEY: &str = "after SetCurrentKey on a FlowField whose value depends on the row only CurrentKey is pinned: the order of the rows by the FlowField's value is not built";
 
 /// Whether `rec` carries [`MEDIA_KEY`] or [`FLOWFIELD_KEY`].
@@ -2330,6 +2332,11 @@ impl Session {
         ascending: bool,
         after: Option<Vec<Value>>,
     ) -> Result<Option<Vec<Value>>, Signal> {
+        if rec.borrow().adhoc.is_some() {
+            if let Some(hit) = self.scan_flowfield_key(rec, t, ascending, &after)? {
+                return Ok(hit);
+            }
+        }
         if rec.borrow().field_descending != 0 {
             return self.scan_first_field_reversed(rec, t, ascending, after);
         }
@@ -3041,23 +3048,7 @@ impl Session {
     /// of the rows run; `SetCurrentKey`, `Reset` and `Clear` give the record a key of its own again; every other method refuses.
     fn media_key_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value], why: &str) -> Result<Value, Signal> {
         let rekeys = matches!(method, RecordOp::Reset | RecordOp::SetCurrentKey | RecordOp::Clear);
-        let runs = rekeys
-            || matches!(
-                method,
-                RecordOp::CurrentKey
-                    | RecordOp::FieldNo
-                    | RecordOp::IsTemporary
-                    | RecordOp::TableName
-                    | RecordOp::TableCaption
-                    | RecordOp::Count
-                    | RecordOp::IsEmpty
-                    | RecordOp::SetRange
-                    | RecordOp::SetFilter
-                    | RecordOp::GetFilter
-                    | RecordOp::GetFilters
-                    | RecordOp::HasFilter
-                    | RecordOp::Init
-            );
+        let runs = rekeys || flowfield_key::runs(method, why);
         if !runs {
             return unsupported(format!("Record.{}(): {why}", method.name()));
         }
