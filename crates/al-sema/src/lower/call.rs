@@ -624,72 +624,8 @@ impl Lowerer<'_> {
                     let clears_dotnet =
                         id == "System.Clear#1" && matches!(self.ty_ref(a), Ty::DotNet(al) if !al.is_empty());
                     if let (false, Ty::DotNet(alias)) = (clears_dotnet, self.ty_of(a)) {
-                        // `IsNull(DotNet)` takes the value as it is. A `Variant` parameter takes a
-                        // primitive, an object or an enum as it is (`Format` of an object is its
-                        // `ToString()`). A scalar parameter takes a DotNet result (no static type)
-                        // when its run-time kind fits the parameter, as in an assignment (ADR-024
-                        // section 2). Anything else is refused.
-                        // A collection method's element parameter (`Dictionary.Add(Key: TKey, Value: TValue)`,
-                        // `List.Add(Value: T)`) is the element type of the receiver's declared collection.
-                        let pty: String = match (p.ty.as_str(), receiver_node.as_ref().map(|r| self.ty_of(r))) {
-                            ("TKey", Some(Ty::Dictionary(k, _))) => element_param_name(&k),
-                            ("TValue", Some(Ty::Dictionary(_, v))) => element_param_name(&v),
-                            ("T", Some(Ty::List(e))) => element_param_name(&e),
-                            _ => p.ty.clone(),
-                        };
-                        let scalar = match pty.as_str() {
-                            "Text" | "Code" => Some(RtType::Text(None)),
-                            "Integer" => Some(RtType::Integer),
-                            "BigInteger" => Some(RtType::BigInteger),
-                            "Decimal" => Some(RtType::Decimal),
-                            "Boolean" => Some(RtType::Boolean),
-                            "Char" => Some(RtType::Char),
-                            "Byte" => Some(RtType::Byte),
-                            "Date" => Some(RtType::Date),
-                            "Time" => Some(RtType::Time),
-                            "DateTime" => Some(RtType::DateTime),
-                            "Duration" => Some(RtType::Duration),
-                            "Guid" => Some(RtType::Guid),
-                            // A .NET String passed to SecretStrSubstNo is the secret's content; another kind is
-                            // refused when it runs, as `fit` takes only a Text into a Text slot
-                            // (tests/al-language-onprem-dotnet/TestDotNetValueKindsContracts.al:463).
-                            "SecretText" if id.starts_with("SecretText.SecretStrSubstNo#") => Some(RtType::Text(None)),
-                            _ => None,
-                        };
-                        let value = match pty.as_str() {
-                            "DotNet" => self.expr(a)?,
-                            // CopyStream takes a DotNet stream as it is; the VM copies the bytes
-                            // through the host (ADR-024 section 3).
-                            "InStream" | "OutStream" if !p.by_var && id.starts_with("System.CopyStream#") => {
-                                self.expr(a)?
-                            }
-                            "Any" | "Variant" if !p.by_var => {
-                                ir::Expr::DotNetOperand(Box::new(self.expr(a)?), ir::OperandUse::Variant)
-                            }
-                            _ => match scalar {
-                                Some(rt) if !p.by_var && alias.is_empty() => ir::Expr::DotNetCoerce(
-                                    rt,
-                                    Box::new(ir::Expr::DotNetOperand(Box::new(self.expr(a)?), ir::OperandUse::Strict)),
-                                ),
-                                // A variable declared `DotNet String` into a Text or Code slot: it reads as a Text and
-                                // nothing as '' (tests/al-language-onprem-dotnet/lt-dotnet-interop/DotNetOperandStringEq.al),
-                                // then fits the slot like a DotNet result. System Application Uri.GetSegments adds one to a
-                                // List of [Text] (al-runner issue 6298).
-                                Some(rt @ RtType::Text(None))
-                                    if !p.by_var
-                                        && pty == "Text"
-                                        && self.declared_clr_type(&alias).as_deref() == Some("System.String") =>
-                                {
-                                    ir::Expr::DotNetCoerce(rt, Box::new(self.operand(a, ir::OperandUse::Strict)?))
-                                }
-                                _ => {
-                                    return Err(format!(
-                                        "a DotNet value passed to builtin {id}: its type is only known at run time; assign it to a typed variable first"
-                                    ));
-                                }
-                            },
-                        };
-                        out.push(ir::Arg::Value(value));
+                        let receiver_ty = receiver_node.as_ref().map(|r| self.ty_of(r));
+                        out.push(ir::Arg::Value(self.dotnet_builtin_arg(&id, p, a, &alias, receiver_ty)?));
                         continue;
                     }
                     // A bare control name in a field position of a test page method.
@@ -759,9 +695,9 @@ impl Lowerer<'_> {
                             out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(fid as i32))));
                             continue;
                         }
-                        (true, Some(Res::Field { table, id })) => {
-                            self.readable_field_pos(table, id)?;
-                            let field = self.field_ref(table, id);
+                        (true, Some(Res::Field { table, id: fid })) => {
+                            self.named_field_pos(table, fid, &id)?;
+                            let field = self.field_ref(table, fid);
                             out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::FieldPos(field as u32))));
                             continue;
                         }
@@ -1131,7 +1067,7 @@ pub(super) fn builtin_id(id: &str) -> Result<ir::BuiltinId, String> {
 
 /// The parameter type name a collection element of type `t` stands for, in the spelling of the
 /// builtin catalog (empty when no DotNet value may be passed for it).
-fn element_param_name(t: &Ty) -> String {
+pub(super) fn element_param_name(t: &Ty) -> String {
     match t {
         Ty::Integer => "Integer",
         Ty::BigInteger => "BigInteger",

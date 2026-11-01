@@ -1,6 +1,7 @@
 //! Expand(true) on a tree row already expanded and Expand(false) on one not expanded change nothing: no error, IsExpanded
 //! unchanged, the same rows show (pages/lt-page-runtime/P82TestPage.al:283-289 Tree_Expand_IsExpanded, :336-341
-//! Tree_Rows_WhileCollapsed). A leaf row stays refused (gap G5-17).
+//! Tree_Rows_WhileCollapsed). Expand(true) on a leaf without a parent changes nothing either; a leaf under a parent stays
+//! refused (pages/lt-y50-tree-expand-leaf/Y50TreeExpandLeaf.al, gap G5-17).
 
 use al_builtins::native::Signal;
 
@@ -48,6 +49,17 @@ codeunit 51622 C
         Tree.OpenView();
         Tree.GoToKey('N3');
         Tree.Expand(true);
+        exit(Format(Tree.IsExpanded()) + Tree.NoCtl.Value() + '|' + Walk(Tree));
+    end;
+    procedure LeafUnderParent(): Text
+    var Tree: TestPage "TX Tree";
+    begin
+        Seed();
+        Tree.OpenView();
+        Tree.GoToKey('N1');
+        Tree.Expand(true);
+        Tree.GoToKey('N2');
+        Tree.Expand(true);
     end;
 }
 "#;
@@ -61,9 +73,14 @@ fn a_second_expand_or_collapse_changes_nothing() {
 }
 
 #[test]
-fn expand_of_a_leaf_row_stays_refused() {
+fn expand_of_a_leaf_row_without_parent_changes_nothing() {
+    assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "Leaf")), "NoN3|N1N3");
+}
+
+#[test]
+fn expand_of_a_leaf_row_under_a_parent_stays_refused() {
     assert!(matches!(
-        al_testkit::run_in(SRC, "C", "Leaf"),
+        al_testkit::run_in(SRC, "C", "LeafUnderParent"),
         Err(Signal::Unsupported(_))
     ));
 }

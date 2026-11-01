@@ -71,6 +71,10 @@ pub enum Gate {
     RequestPageExtensionRecordTriggerOrderFrom28,
     /// `FieldRef.Value` set from an Option text that is not a value: the Evaluate error from BC 28, `The type NavOption is unknown.` before (record/lt-u-table-field-props/UTableCdsOrdinals.al, corpus bump 26; fieldref/TestFieldRefValue.al:294).
     OptionFieldRefSetEvaluateErrorFrom28,
+    /// `FieldRef.Validate` of an Enum field given the caption of a member that is no member name: the Evaluate error of an Option
+    /// (`The value "<text>" can't be evaluated into type Option.`, code Evaluate:Format) from BC 28, `The type NavOption is unknown.`
+    /// (NotSupportedType) before (text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:307-314). Consumed by al-vm `fieldref_validate.rs`.
+    EnumFieldRefValidateCaptionEvaluateErrorFrom28,
     /// `FieldRef.Value` set from a text that is no number on an Integer, BigInteger or Decimal field: the Evaluate error
     /// (code Evaluate:Format) from BC 28, `The type Nav<Type> is unknown.` (NotSupportedType) before. The split of the same
     /// error for an Option field is pinned (record/lt-u-table-field-props/UTableCdsOrdinals.al:170,175); for numbers it is
@@ -314,6 +318,7 @@ impl Gate {
         Gate::GetTextArgumentEvaluateErrorFrom28,
         Gate::RequestPageExtensionRecordTriggerOrderFrom28,
         Gate::OptionFieldRefSetEvaluateErrorFrom28,
+        Gate::EnumFieldRefValidateCaptionEvaluateErrorFrom28,
         Gate::FieldRefTextNumberEvaluateErrorFrom28,
         Gate::MetadataNotFoundNamesTheCallerFrom28,
         Gate::FullyQualifiedNameRunAndOpenFrom28,
@@ -411,6 +416,7 @@ impl Gate {
             | Gate::PartLineBeforeHostKeyFrom28
             | Gate::RequestPageExtensionRecordTriggerOrderFrom28
             | Gate::OptionFieldRefSetEvaluateErrorFrom28
+            | Gate::EnumFieldRefValidateCaptionEvaluateErrorFrom28
             | Gate::FieldRefTextNumberEvaluateErrorFrom28
             | Gate::MetadataNotFoundNamesTheCallerFrom28
             | Gate::FullyQualifiedNameRunAndOpenFrom28
@@ -433,12 +439,10 @@ impl Gate {
             | Gate::DotNetRuntime10From29
             | Gate::ExceptionTraceValueTaskFrameFrom29
             | Gate::OptionFieldRefSetEvaluateErrorFrom28
+            | Gate::EnumFieldRefValidateCaptionEvaluateErrorFrom28
             | Gate::FieldRefTextNumberEvaluateErrorFrom28
-            | Gate::JsonSelectTokensListFrom28 => self.evidence_of_first_gates(),
-            Gate::DocxMediaRezippedFrom29 => &[Evidence {
-                file: "../al-language-onprem/media/MediaFiles.al",
-                lines: "506,511",
-            }],
+            | Gate::JsonSelectTokensListFrom28
+            | Gate::DocxMediaRezippedFrom29 => self.evidence_of_first_gates(),
             Gate::OtherRecordOptionCaptionFrom29 => &[Evidence {
                 file: "pages/lt-sa-other-record-control/SaOtherRecordControl.al",
                 lines: "284,290,295,300",
@@ -1033,6 +1037,10 @@ impl Gate {
                     lines: "193,199,204,216",
                 },
             ],
+            Gate::DocxMediaRezippedFrom29 => &[Evidence {
+                file: "../al-language-onprem/media/MediaFiles.al",
+                lines: "506,511",
+            }],
             Gate::DotNetRuntime10From29 => &[Evidence {
                 file: "../al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al",
                 lines: "443",
@@ -1052,6 +1060,10 @@ impl Gate {
                     lines: "307",
                 },
             ],
+            Gate::EnumFieldRefValidateCaptionEvaluateErrorFrom28 => &[Evidence {
+                file: "text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al",
+                lines: "307",
+            }],
             Gate::FieldRefTextNumberEvaluateErrorFrom28 => &[
                 Evidence {
                     file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",

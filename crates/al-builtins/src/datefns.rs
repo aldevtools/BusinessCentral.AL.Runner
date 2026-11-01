@@ -909,6 +909,13 @@ pub fn evaluate_formula(text: &str) -> Result<Evaluated, Signal> {
             _ => None,
         }));
     }
+    // Letters only, none a time unit or `C`: the statement raises the time-unit error with the text upper-cased
+    // (types/lt-y49-evaluate-date-blanks/Y49EvaluateDateBlanks.al:299-330 `zz`).
+    if n.bytes().all(|b| b.is_ascii_uppercase() && !b"DWMQYC".contains(&b)) {
+        return Ok(Evaluated::Rejected(Some(format!(
+            "The date formula '{n}' should include a time unit.\\\\Time units can be: D,WD,W,M,Q, or Y.\\C, meaning current time unit based on date, can be specified as a prefix to the time unit."
+        ))));
+    }
     if n.contains('.') || is_garbage_formula(&n) || long_number {
         return Ok(Evaluated::Rejected(None));
     }

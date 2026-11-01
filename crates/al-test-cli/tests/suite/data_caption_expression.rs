@@ -1,8 +1,9 @@
 //! The caption of a page with `DataCaptionExpression`: the page caption, ` - ` and the expression's value, evaluated when
 //! the caption is read. Pinned on a card with a source table (pages/lt-page-autoformat-lookups/P113DataCaption.al:83-88,
 //! :264-279, P113_DC_DataCaptionExpression: `P113 Expr - EXPR-Alpha`, after GoToKey `... - EXPR-Beta`). An expression whose
-//! value is empty, a page with no source table (al-runner issue 6320), a new row and a list page are not pinned and are
-//! refused.
+//! value is empty, a page with no source table (al-runner issue 6320) and a new row are not pinned and are refused. A list
+//! page shows the caption, ` - ` and the value for its current row (pages/lt-y50-list-caption-expr/Y50ListCaptionExpr.al:391-409,
+//! G518_List_RowExpr).
 
 use al_testkit::outcomes_in;
 
@@ -73,12 +74,13 @@ codeunit 50103 T
         Card.OpenNew();
         if Card.Caption() = '' then;
     end;
-    [Test] procedure ListIsRefused()
+    [Test] procedure ListWithRows()
     var List: TestPage "DC List";
     begin
         Seed();
         List.OpenView();
-        if List.Caption() = '' then;
+        if List.Caption() <> 'DC List - EXPR-Alpha' then
+            Error('%1', List.Caption());
     end;
     [ModalPageHandler]
     procedure EditorHandler(var Editor: TestPage "DC Editor")
@@ -94,11 +96,11 @@ fn the_caption_of_a_page_with_a_data_caption_expression() {
     let o = outcomes_in(SRC, "T");
     let get = |n: &str| format!("{:?}", o.iter().find(|(name, _)| name == n).map(|(_, x)| x));
     assert_eq!(get("CardWithRows"), "Some(Pass)");
+    assert_eq!(get("ListWithRows"), "Some(Pass)");
     for t in [
         "EditorWithoutSourceTable",
         "EmptyExpressionIsRefused",
         "NewRowIsRefused",
-        "ListIsRefused",
     ] {
         let g = get(t);
         assert!(g.contains("NotRun") && g.contains("DataCaptionExpression"), "{t}: {g}");

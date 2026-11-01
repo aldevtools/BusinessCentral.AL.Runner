@@ -235,18 +235,16 @@ fn filter_group_minus_1_from_on_open_page_does_not_limit_the_rows_shown() {
     ));
 }
 
-// What Rec holds at group -1 after OnOpenPage is not pinned: a page that reads Rec again later is refused.
+// The filters OnOpenPage left in group -1 are dropped after it, also on a page with later triggers: the list shows every
+// row (pages/lt-y50-or-group-page-rec/Y50OrGroupPageRec.al:468-485, G521_OnOpenPage_OrOnly_LaterCode).
 #[test]
-fn filter_group_minus_1_left_on_a_page_with_later_triggers_is_refused() {
-    not_run_with(
-        &format!(
-            r#"
+fn filter_group_minus_1_left_on_a_page_with_later_triggers_is_dropped() {
+    passes(&format!(
+        r#"
     [Test] procedure OrGroupReads() var List: TestPage "PV OrGroup Reads"; Result: Text;
-    begin Seed(); List.OpenView(); {WALK} List.Close(); end;
+    begin Seed(); List.OpenView(); {WALK} List.Close(); Check('ids', Result, '1,2,3,4,'); end;
 "#
-        ),
-        "FilterGroup(-1)",
-    );
+    ));
 }
 
 // pages/lt-cd-testpage-leads/CdTestPageLeads.al:587 Item59_EnumSubPageLink_NewLine: Next() onto the blank line, then New():

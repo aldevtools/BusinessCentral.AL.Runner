@@ -677,14 +677,9 @@ impl Dataset {
         out.push_str("      <xs:complexType>\r\n        <xs:choice minOccurs=\"0\" maxOccurs=\"unbounded\">\r\n");
         out.push_str("          <xs:element name=\"Result\" msdata:Locale=\"en-US\">\r\n            <xs:complexType>\r\n              <xs:sequence>\r\n");
         for (name, ty) in &schema {
-            // AqSaveAsXml.al:247 `<xs:element name="DayC" msdata:DateTimeMode="Local" type="xs:dateTime"`.
-            let mode = if *ty == "xs:dateTime" {
-                " msdata:DateTimeMode=\"Local\""
-            } else {
-                ""
-            };
+            let attributes = crate::data_file_types::element_attributes(ty);
             out.push_str(&format!(
-                "                <xs:element name=\"{name}\"{mode} type=\"{ty}\" minOccurs=\"0\" />\r\n"
+                "                <xs:element name=\"{name}\" {attributes} minOccurs=\"0\" />\r\n"
             ));
             if *ty == "xs:decimal" {
                 out.push_str(&format!(
@@ -1110,6 +1105,29 @@ mod tests {
         assert_eq!(
             rows_of(&text),
             "<Result>|<DayC>2024-12-25T00:00:00+00:00</DayC>|<FlagC>true</FlagC>|<KindC>Gamma</KindC>|</Result>|<Result>|<FlagC>false</FlagC>|<KindC>Alpha</KindC>|</Result>|</DataSet>|"
+        );
+    }
+
+    // al-language-onprem/report/lt-y51-saveasxml-time/Y51SaveAsXmlTime.al:276: a Guid names its .NET type in `msdata:DataType`.
+    #[test]
+    fn a_guid_column_names_its_dotnet_type() {
+        let g = crate::data_file_types::of_value(&al_builtins::value::Value::Guid([0; 16]), 29)
+            .unwrap()
+            .0;
+        let items = declared(&[("Row", &[("GC", g)])]);
+        let mut d = Dataset::default();
+        d.begin(
+            "Row",
+            None,
+            &[col("GC", g, "00000000-0000-0000-0000-000000000000")],
+            false,
+            false,
+        );
+        d.end_row(false);
+        let text = data_file(d, &items).unwrap();
+        assert_eq!(
+            schema_columns(&text),
+            "<xs:element name=\"GC\" msdata:DataType=\"System.Guid, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e\" type=\"xs:string\" minOccurs=\"0\" />|"
         );
     }
 

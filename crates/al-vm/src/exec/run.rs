@@ -273,25 +273,15 @@ impl Session {
                 Op::Convert { d, a, t } => {
                     let v = take(f, a, nl);
                     let ty = &chunk.types[t as usize];
-                    // An AL stream into a DotNet variable becomes a runtime-provided System.IO.Stream (dotnet/blob_stream.rs).
-                    let v = match (ty, &v) {
-                        (al_builtins::value::RtType::DotNet(i), Value::Library(..)) => {
-                            self.al_stream_into_dotnet(v, *i)?
-                        }
-                        _ => ops::convert_plain(v, ty)?,
-                    };
+                    let v = self.convert_op(v, ty)?;
                     set(&mut f.locals[d as usize], v);
                 }
-                Op::ConvertFieldValue { d, a, t, arg } => {
+                Op::ConvertFieldValue { d, a, t } => {
                     let v = take(f, a, nl);
                     let ty = &chunk.types[t as usize];
-                    ops::fieldref_enum_into_text_refused(&v, ty)?;
-                    if arg {
-                        ops::fieldref_number_into_text_arg_refused(&v, ty)?;
-                    }
-                    // A number is its Format text, checked against the variable's length (misc/lt-y13-triage/
-                    // Y13FieldRefValueToText.al:96-153, corpus master).
-                    let v = match ops::number_into_text_field(&v, ty, &*self) {
+                    // A number is its Format text and an Enum its caption, checked against the variable's or parameter's length
+                    // (misc/lt-y13-triage/Y13FieldRefValueToText.al:96-153; text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:207-353).
+                    let v = match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, &*self) {
                         Some(r) => r?,
                         None => ops::convert_plain(v, ty)?,
                     };
@@ -1053,6 +1043,7 @@ impl Session {
         let Some(native) = site.native else {
             return Err(Signal::Unsupported(format!("builtin {}", site.id)));
         };
+        let dotnet_stream = self.dotnet_stream_into_instream(site.id, &mut values)?;
         if matches!(
             site.id,
             al_builtins::builtin_id::ids::MEDIA_IMPORTSTREAM_1 | al_builtins::builtin_id::ids::MEDIA_IMPORTSTREAM_2
@@ -1158,6 +1149,9 @@ impl Session {
         );
         if let (Some(row), Some(ir::Arg::Ref(p)), Ok(_)) = (copy_array_row_back, site.args.first(), &result) {
             self.write(p, row, f)?;
+        }
+        if let Some(arg) = dotnet_stream {
+            self.dotnet_stream_after(arg, &result)?;
         }
         if let Ok(Value::Guid(id)) = &result {
             self.note_media_resources_import(site, *id, f)?;
