@@ -12,6 +12,7 @@ mod control_properties;
 mod control_text;
 mod control_values;
 mod control_var_field;
+mod cue_visible_expressions;
 mod curr_field_no_assign;
 mod draft_key_by_action;
 mod drilldown_marked_only_part;
