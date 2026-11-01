@@ -39,6 +39,7 @@ mod callstack;
 mod companies;
 mod control_add_in;
 mod crm;
+mod data_file_types;
 mod dataset;
 mod datatransfer;
 mod dispatch;
