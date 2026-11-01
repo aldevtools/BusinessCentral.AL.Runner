@@ -63,7 +63,7 @@ owns what). `CLAUDE.md` lists the project rules in full. The short version:
 
 - **Test first.** Every behavior starts as a failing test, and every bug fix starts with a test
   that reproduces the bug. Unit tests live next to the code or in the crate's `tests/` folder.
-  A user's report gets a regression test in `crates/al-test-cli/tests/user_reports.rs`.
+  A user's report gets a regression test in `crates/al-test-cli/tests/suite/user_reports.rs`.
 - **Cite the pin.** Put the corpus `file:line` in a comment at the code that implements it.
 - **Do not edit `corpus/` or `oracle/`**, and do not remove lines from
   `metrics/<major>/passing.txt`. Those files are the reference the project is measured against.
