@@ -1284,8 +1284,10 @@ fn run_routine(lowered: &Lowered, session: &mut Session, oi: usize, ri: usize) -
     }
 }
 
-/// The tables a routine that could not run touches, with those of the event subscribers it would have set off.
-fn touched(engine: &Engine, lowered: &Lowered, oi: usize, ri: usize) -> BTreeSet<u32> {
+/// The tables a routine that could not run touches, with those of the event subscribers it would have set off. A test or
+/// OnRun is measured the same way, so a test that reaches what the routine writes only through a subscriber (a table event of
+/// the record it inserts) is not run either (al-runner issue 6665).
+pub(crate) fn touched(engine: &Engine, lowered: &Lowered, oi: usize, ri: usize) -> BTreeSet<u32> {
     let mut t = crate::runtime::tables_touched(lowered, oi, ri);
     for (so, sr) in crate::runtime::subscribers_reached(engine, lowered, oi, ri) {
         t.extend(crate::runtime::tables_touched(lowered, so, sr));
