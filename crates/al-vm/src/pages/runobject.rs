@@ -89,7 +89,9 @@ impl Session {
         self.settle_after_action(st)?;
         // A list whose edit was saved before the codeunit reads its rows again first, then its row as below
         // (pages/lt-y45-save-before-action/Y45SaveBeforeAction.al:431 List_SetName_RunObjectCodeunit `cu H1 ...;R H1;R H2;R H1;R H1;C H1`).
-        if std::mem::take(&mut st.borrow_mut().saved_before_run_object) && self.is_list(st) {
+        // A Document host saved that way reads its parts after its row (:670 Doc_SetName_RunObjectCodeunit `...;R H1;C H1;lC 10000`).
+        let saved = std::mem::take(&mut st.borrow_mut().saved_before_run_object);
+        if saved && self.is_list(st) {
             let rec = self.page_rec(st);
             if self.stored_row(&rec)?.is_some() {
                 let key = self.row_key(&rec)?;
@@ -99,6 +101,9 @@ impl Session {
         // The host reads its row again after a codeunit, even one that wrote nothing
         // (handlers/TestPageRunObjectContracts.al:248-270).
         self.reread_host_row(st, true)?;
+        if saved && !self.is_list(st) && st.borrow().open && !st.borrow().parts.is_empty() {
+            self.sync_parts(st)?;
+        }
         self.run_refresh(st)
     }
 

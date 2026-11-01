@@ -801,4 +801,115 @@ codeunit 92899 C
         TP.ReadAct.Invoke();
         exit(Log.Take());
     end;
+
+    procedure DocRunCu(): Text
+    var
+        TP: TestPage "LT Y45 Doc";
+    begin
+        Init();
+        TP.OpenEdit();
+        TP.Name.SetValue('new');
+        Log.Take();
+        TP.RunCu.Invoke();
+        exit(Log.Take());
+    end;
+
+    procedure CardModifyErrorState(): Text
+    var
+        TP: TestPage "LT Y45 Head Card";
+        Seen: Text;
+    begin
+        Init();
+        Commit();
+        TP.OpenEdit();
+        TP.Name.SetValue('boom');
+        Log.Take();
+        ClearLastError();
+        TP.ReadAct.Invoke();
+        Seen := Log.Take() + '|' + GetLastErrorText() + '|' + Format(TP.ValidationErrorCount()) + '|' + Format(TP.Name.ValidationErrorCount());
+        Seen += '|' + Log.HeadDb('H1') + '|' + TP.Name.Value;
+        asserterror TP.Name.SetValue('fine');
+        Seen += '|' + GetLastErrorText() + '|' + Log.Take();
+        TP.ReadAct.Invoke();
+        TP.Close();
+        exit(Seen + '|' + Log.Take());
+    end;
+
+    procedure CardModifyErrorNext(): Text
+    var
+        TP: TestPage "LT Y45 Head Card";
+        Seen: Text;
+    begin
+        Init();
+        Commit();
+        TP.OpenEdit();
+        TP.Name.SetValue('boom');
+        Log.Take();
+        Seen := Format(TP.Next()) + '|' + Log.Take();
+        TP.Close();
+        exit(Seen + '|' + Log.Take());
+    end;
+
+    procedure DocModifyErrorLineAction(): Text
+    var
+        TP: TestPage "LT Y45 Doc";
+        Seen: Text;
+    begin
+        Init();
+        Commit();
+        TP.OpenEdit();
+        TP.Name.SetValue('boom');
+        Log.Take();
+        TP.Lines.LineAct.Invoke();
+        Seen := Log.Take() + '|' + Format(TP.ValidationErrorCount());
+        asserterror TP.Name.SetValue('fine');
+        exit(Seen + '|' + GetLastErrorText());
+    end;
+
+    procedure ListModifyErrorSetAgain(): Text
+    var
+        TP: TestPage "LT Y45 Head List";
+    begin
+        Init();
+        Commit();
+        TP.OpenEdit();
+        TP.Name.SetValue('boom');
+        TP.ReadAct.Invoke();
+        asserterror TP.Name.SetValue('fine');
+        exit(GetLastErrorText());
+    end;
+
+    procedure CardValidateErrorSteps(): Text
+    var
+        TP: TestPage "LT Y45 Head Card";
+        Seen: Text;
+    begin
+        Init();
+        Commit();
+        TP.OpenEdit();
+        TP.Name.SetValue('new');
+        asserterror TP.Qty.SetValue(-1);
+        Seen := GetLastErrorText() + '|' + TP.Qty.Value + '|' + Format(TP.Qty.ValidationErrorCount());
+        Log.Take();
+        TP.ReadAct.Invoke();
+        Seen += '|' + Log.Take() + '|' + Format(TP.Next()) + '|' + Log.Take();
+        TP.Close();
+        exit(Seen + '|' + Log.Take() + '|' + Log.HeadDb('H1'));
+    end;
+
+    procedure ListValidateErrorAction(): Text
+    var
+        TP: TestPage "LT Y45 Head List";
+        Seen: Text;
+    begin
+        Init();
+        Commit();
+        TP.OpenEdit();
+        TP.Name.SetValue('new');
+        asserterror TP.Qty.SetValue(-1);
+        Seen := GetLastErrorText();
+        Log.Take();
+        TP.ReadAct.Invoke();
+        exit(Seen + '|' + Log.Take());
+    end;
 }

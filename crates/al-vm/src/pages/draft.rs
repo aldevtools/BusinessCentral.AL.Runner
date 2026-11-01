@@ -666,6 +666,9 @@ impl Session {
                 );
             }
         }
+        if modified.is_err() {
+            st.borrow_mut().save_failure_depth = Some(self.frames.len());
+        }
         modified?;
         st.borrow_mut().dirty = false;
         self.set_xrec(st);

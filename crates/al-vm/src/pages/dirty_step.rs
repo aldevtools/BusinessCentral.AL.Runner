@@ -4,6 +4,7 @@
 //! OnModify, OnAfterModifyEvent), then run.
 
 use super::*;
+use al_builtins::page_op::{PageMethod, PageOp};
 
 impl Session {
     /// A RunObject action on a top-level page whose row holds an edit: the row is saved first and nothing is read before the
@@ -22,7 +23,12 @@ impl Session {
         let host = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
         if let Some(host) = host {
             if host.borrow().open && host.borrow().dirty && !host.borrow().draft && host.borrow().cursor == Cursor::Row {
-                self.save_row(&host)?;
+                // A host whose save fails: the part action still runs (:1473 Doc_ModifyError_LineAction `pM boom/old;...;tM
+                // boom/old db=old/1;lact 10000 rec=a db=a head=old/1`).
+                let depth = self.frames.len();
+                host.borrow_mut().save_failure_depth = None;
+                let saved = self.save_row(&host);
+                self.hold_failed_save(&host, depth, saved)?;
             }
             return self.save_row(st);
         }
@@ -54,5 +60,135 @@ impl Session {
         self.save_row(st)?;
         st.borrow_mut().saved_before_run_object = run_object == Some(ir::RunKind::Codeunit);
         Ok(())
+    }
+
+    /// The page the client saves for: the page itself, or the host of a part.
+    fn top_page(st: &St) -> St {
+        st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()).unwrap_or_else(|| st.clone())
+    }
+
+    /// A save the client made before a step, at call depth `depth`, that failed with an AL error of the table's OnModify: no
+    /// error reaches the test, GetLastErrorText holds it and the page counts one validation error on no control
+    /// (Y45SaveBeforeAction.al:1808 Card_ModifyError_Action_PageState `last error` `Modify refused for boom.`, `page errors` 1,
+    /// :1190 Card_ModifyError_Action `errors name` 0, `db after step` old/1, `page name` boom). Another error passes through.
+    fn hold_failed_save(&mut self, st: &St, depth: usize, r: Result<(), Signal>) -> Result<(), Signal> {
+        match r {
+            Err(Signal::Error(e)) if e.code == "Dialog" && st.borrow().save_failure_depth == Some(depth) => {
+                let mut s = st.borrow_mut();
+                s.save_failed = true;
+                s.errors.push((usize::MAX, e.message.clone()));
+                drop(s);
+                self.last_error = *e;
+                Ok(())
+            }
+            other => other,
+        }
+    }
+
+    /// A top-level Card or List whose table's OnValidate refused the last entry (SetValue raised TestValidation): an action
+    /// and Next run nothing and raise nothing, Next answers No (Y45SaveBeforeAction.al:1296 Card_ValidateError_Action and :1427
+    /// List_ValidateError_Action `step` empty, :1342 Card_ValidateError_Next `next` No).
+    fn refused_entry_held(&self, st: &St) -> bool {
+        let s = st.borrow();
+        s.host.is_none() && s.dirty && !s.trigger_errors.is_empty() && !s.errors.is_empty()
+    }
+
+    /// `TestPage.*` with the rules above in front.
+    pub(super) fn test_page_op_held(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
+        let name = method.method();
+        let top = Self::top_page(st);
+        if top.borrow().save_failed && top.borrow().open {
+            // Next answers No, Close closes and runs nothing (:1228 Card_ModifyError_Next `next` No, `close` empty).
+            return match name {
+                PageMethod::Next if Rc::ptr_eq(&top, st) => Ok(Value::Boolean(false)),
+                PageMethod::Close if Rc::ptr_eq(&top, st) => {
+                    self.mark_closed(st);
+                    Ok(Value::Null)
+                }
+                PageMethod::ValidationErrorCount => self.test_page_op(method, st, args),
+                _ => unsupported(format!("TestPage.{name} on a page whose save before a step failed (not pinned)")),
+            };
+        }
+        if name == PageMethod::Next && self.is_card(st) && self.refused_entry_held(st) {
+            return Ok(Value::Boolean(false));
+        }
+        // Close then runs no close trigger either (:1296 Card_ValidateError_Action `close` empty, the page's OnQueryClosePage
+        // logs). It stores nothing and leaves the error as the last error, as `close_with` does after such a refusal
+        // (pages/lt-ah-pages/AhPageTests.al:155-159).
+        if name == PageMethod::Close && (self.is_card(st) || self.is_list(st)) && self.refused_entry_held(st) {
+            let trigger_errors = st.borrow().trigger_errors.clone();
+            self.last_error = match trigger_errors.as_slice() {
+                [(_, message)] if !self.is_list(st) => al_builtins::native::AlError {
+                    message: message.clone(),
+                    code: "ClientValidateField:NSValidateField".into(),
+                    ..Default::default()
+                },
+                _ => al_builtins::native::unpinned_error(),
+            };
+            self.mark_closed(st);
+            return Ok(Value::Null);
+        }
+        let card_next = name == PageMethod::Next && self.is_card(st) && st.borrow().host.is_none() && st.borrow().dirty;
+        if !card_next {
+            return self.test_page_op(method, st, args);
+        }
+        let depth = self.frames.len();
+        st.borrow_mut().save_failure_depth = None;
+        let r = self.test_page_op(method, st, args);
+        let failed = matches!(&r, Err(Signal::Error(_))) && st.borrow().save_failure_depth == Some(depth);
+        if !failed {
+            return r;
+        }
+        self.hold_failed_save(st, depth, r.map(|_| ()))?;
+        Ok(Value::Boolean(false))
+    }
+
+    /// `TestField.*` and `TestAction.*` with the rules above in front.
+    pub(super) fn test_control_op_held(&mut self, method: PageOp, c: &ControlRef, args: &mut [Value]) -> Result<Value, Signal> {
+        let m = method.method();
+        let st = &c.page;
+        let top = Self::top_page(st);
+        if top.borrow().save_failed && top.borrow().open {
+            let own = Rc::ptr_eq(&top, st);
+            return match m {
+                // :1808 Card_ModifyError_Action_PageState `set again error` (with the Refresh hint on a Card and a Document page),
+                // :1907 List_ModifyError_Action_PageState (without it on a List); nothing runs (`set again` empty).
+                PageMethod::SetValue if own => {
+                    let ControlTarget::Control(idx) = c.target else {
+                        return unsupported("SetValue on a page whose save before a step failed (not pinned)");
+                    };
+                    let engine = self.engine();
+                    let name = page_of(&engine, st).controls[idx].name.clone();
+                    let hint = if self.is_list(st) { "" } else { " (Select Refresh to discard errors)" };
+                    Err(error_code(
+                        format!(
+                            "Validation error for Field: {name},  Message = 'This field cannot be validated since the key fields are not valid.{hint}'"
+                        ),
+                        "TestValidation",
+                    ))
+                }
+                // `second action` empty, no error.
+                PageMethod::Invoke if own => Ok(Value::Null),
+                PageMethod::Value if args.is_empty() => self.test_control_op(method, c, args),
+                PageMethod::ValidationErrorCount => self.test_control_op(method, c, args),
+                _ => unsupported(format!("{m} on a page whose save before a step failed (not pinned)")),
+            };
+        }
+        if m != PageMethod::Invoke || !matches!(c.target, ControlTarget::Control(_)) || st.borrow().host.is_some() {
+            return self.test_control_op(method, c, args);
+        }
+        if (self.is_card(st) || self.is_list(st)) && self.refused_entry_held(st) {
+            return Ok(Value::Null);
+        }
+        let depth = self.frames.len();
+        st.borrow_mut().save_failure_depth = None;
+        let r = self.test_control_op(method, c, args);
+        if !st.borrow().dirty || st.borrow().save_failure_depth != Some(depth) {
+            return r;
+        }
+        match r {
+            Err(Signal::Error(e)) => self.hold_failed_save(st, depth, Err(Signal::Error(e))).map(|()| Value::Null),
+            other => other,
+        }
     }
 }
