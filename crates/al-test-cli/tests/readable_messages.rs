@@ -15,12 +15,12 @@ const KEPT: &[(&str, &str, &str)] = &[
         "a row text written as a Rust string literal into the generated windows_language_rows.rs, never shown",
     ),
     (
-        "al-vm/src/xmlports.rs",
+        "al-vm/src/xmlports/pass.rs",
         r#"format!("{:?}", r.filters)"#,
         "the filters of a table element record at the end of an XmlPort pass, compared for equality with the next pass's, never shown",
     ),
     (
-        "al-vm/src/xmlports.rs",
+        "al-vm/src/xmlports/pass.rs",
         r#"first_key: format!("{:?}", (r.key, &r.adhoc, r.ascending, r.field_descending)),"#,
         "the key of a table element record at the first XmlPort pass, compared for equality with later passes', never shown",
     ),
@@ -55,7 +55,7 @@ const KEPT: &[(&str, &str, &str)] = &[
         "the key of the dependencies kept between serve requests, compared for equality, never shown",
     ),
     (
-        "al-vm/src/pages/open.rs",
+        "al-vm/src/pages/open/page_open.rs",
         r#"Ok(Some((r.key, r.ascending, format!("{:?}", r.filters), pk)))"#,
         "the filters of a page's Rec before and after OnOpenPage, compared for equality, never shown",
     ),

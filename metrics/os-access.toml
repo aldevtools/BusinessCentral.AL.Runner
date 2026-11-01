@@ -1,0 +1,14 @@
+# OS access ratchet (crates/al-test-cli/tests/os_access_ratchet.rs; ADR-006: core crates do no OS
+# access). Each row is a source file of a core crate that named an OS API (environment, files,
+# processes, network) when the ratchet started; its count is the number of places then. A file may
+# not gain places. When one loses some, lower its count; at 0, delete the row. Never raise a count or
+# add a row: take the value as a parameter or through al-host. Owner decides otherwise.
+"crates/al-host/src/inproc.rs" = 1
+"crates/al-sema/src/base_access.rs" = 1
+"crates/al-sema/src/check/mod.rs" = 3
+"crates/al-sema/src/lower/assemble.rs" = 5
+"crates/al-sema/src/lower/compile.rs" = 2
+"crates/al-sema/src/lower/shared.rs" = 1
+"crates/al-vm/src/exec/compile.rs" = 1
+"crates/al-vm/src/exec/mod.rs" = 1
+"crates/al-vm/src/profile.rs" = 6

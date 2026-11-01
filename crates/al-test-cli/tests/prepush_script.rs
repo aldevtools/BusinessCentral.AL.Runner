@@ -32,11 +32,12 @@ fn plan(files: &[&str]) -> Vec<String> {
     String::from_utf8_lossy(&o.stdout).lines().map(str::to_string).collect()
 }
 
-const FIXED: [&str; 4] = [
+const FIXED: [&str; 5] = [
     "cargo fmt --all --check",
     "cargo test -p al-version --test no_version_literals --test gate_completeness -q",
     "cargo test -p al-builtins --lib -q assumptions",
     "cargo test -p al-builtins --test builtin_ids_current -q",
+    "cargo test -p al-test-cli --test file_size_ratchet --test fn_length_ratchet --test os_access_ratchet -q",
 ];
 
 #[test]
