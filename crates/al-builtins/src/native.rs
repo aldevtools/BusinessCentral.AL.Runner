@@ -2893,6 +2893,13 @@ fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result
             name.clone(),
             std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::XmlList(Vec::new()))),
         ),
+        // A cleared Dialog, opened or not, is a closed one: Update and Close raise that it is not open and Open works again; ClearAll
+        // and Clear of a `var` parameter do the same (al-runner issue 6656; corpus branch al-runtime-rs-staging-y64 85d86e7b,
+        // pages/lt-page-runtime/P82Dialog.al:442-547).
+        Value::Library(name, _) if name.as_str() == "Dialog" => Value::Library(
+            name.clone(),
+            std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Empty)),
+        ),
         other => return unsupported(&format!("Clear of a {} value", value_kind(other))),
     };
     Ok(Value::Null)

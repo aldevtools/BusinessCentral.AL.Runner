@@ -17,6 +17,7 @@ mod caption_class_areas;
 mod caption_setup_written;
 mod case_code_label_longer;
 mod clear_all_temp_rows;
+mod clear_dialog;
 mod clear_enum;
 mod clear_errorinfo;
 mod code_compare;
