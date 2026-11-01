@@ -1289,7 +1289,7 @@ fn run_codeunit_inner(
         };
         CARRIED.with(|c| *c.borrow_mut() = Some(carried));
     }
-    if let Some(left) = onrun_left {
+    if let Some(left) = super::numbers_taken::left_after_tests(&session, obj, onrun_left, onrun_from) {
         CARRIED.with(|c| *c.borrow_mut() = Some(left));
     }
     out

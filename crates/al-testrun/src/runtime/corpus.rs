@@ -1436,7 +1436,7 @@ impl CorpusRuntime {
                             // Under Disabled isolation OnRun's writes are carried with the rest.
                             onrun_carry: *i != TestIsolation::Disabled
                                 && !on_hub(lowered, oi, *hub, hub_path)
-                                && onrun_writes(&engine, lowered, oi),
+                                && (onrun_writes(&engine, lowered, oi) || tests_take_numbers(&engine, lowered, oi)),
                             leak: None,
                             without_baseline: false,
                             coverage: opts.coverage,
@@ -2471,6 +2471,19 @@ fn onrun_writes(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bo
             let f = reach_facts(&engine.events, lowered, &index, oi, r);
             f.state_writes & (state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE) != 0
         })
+}
+
+/// Whether a test of test codeunit `oi` can take a number from a number sequence. Under runner 130450 the codeunit's rollback
+/// does not give it back (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage :457), so
+/// such a codeunit joins the carry chain as one whose OnRun writes (`numbers_taken.rs`). Counted only through what the
+/// tests are known to write, as for OnRun.
+fn tests_take_numbers(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
+    use super::written::{ReachIndex, reach_facts, state};
+    let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
+    let o = &lowered.program.objects[oi];
+    (0..o.routines.len())
+        .filter(|&r| o.routines[r].attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test")))
+        .any(|r| reach_facts(&engine.events, lowered, &index, oi, r).state_writes & state::NUMBER_SEQUENCE != 0)
 }
 
 /// Whether the static reach of test codeunit `oi` (its tests and its `OnRun`) can read or change isolated storage or a

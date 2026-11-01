@@ -867,6 +867,7 @@ mod corpus;
 mod data_driven;
 mod grow;
 mod handlers;
+mod numbers_taken;
 mod run;
 mod runner_reset;
 #[cfg(test)]
