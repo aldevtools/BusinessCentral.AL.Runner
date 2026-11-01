@@ -79,6 +79,21 @@ impl Lowerer<'_> {
                 if a.filter_conditions.get(k).copied().unwrap_or(false) {
                     // The filter text as written; AL quotes an identifier with `"`, the filter grammar with `'`.
                     let raw = a.condition_raw.get(k).cloned().unwrap_or_default();
+                    // `filter(Type::Parent)`, one member qualified with the condition's own field, is `filter(Parent)`
+                    // (record/lt-y65-rename-const-relation/Y65RenameConstRelation.al RefFilter; assumption
+                    // relation-const-field-qualified until the pin).
+                    let raw = match field_qualified_member(&raw, name) {
+                        // A member that is not a plain name keeps its AL quotes, which the next step turns into filter quotes.
+                        Some(member) if member.chars().all(|c| c.is_alphanumeric() || c == '_') => {
+                            field_qualified = true;
+                            member
+                        }
+                        Some(member) => {
+                            field_qualified = true;
+                            format!("\"{member}\"")
+                        }
+                        None => raw,
+                    };
                     let raw = if raw.contains('"') { rewrite_quotes(&raw) } else { raw };
                     conditions.push(ir::RelationCond {
                         field: pos,
@@ -101,17 +116,13 @@ impl Lowerer<'_> {
                 // (record/lt-sc-enum-const-relation/ScEnumConstRelation.al:52-53, :101-140). Another enum is not pinned.
                 let raw = a.condition_raw.get(k).map(String::as_str).unwrap_or_default();
                 let qualified = match (&own.fields[pos].ty, raw.split_once("::")) {
-                    // `const(Type::"Item Attribute")`, qualified with the condition's own Enum field, names the member as
-                    // `const("Item Attribute")` does. Not pinned yet (al-runner issue 6677, the reporter's run on BC; assumption
-                    // relation-const-field-qualified). The same form on an Option field is not pinned and stays not understood.
-                    (Ty::Enum(_), Some((qualifier, member)))
-                        if qualifier
-                            .trim()
-                            .trim_matches('"')
-                            .eq_ignore_ascii_case(name.trim().trim_matches('"')) =>
-                    {
+                    // `const(Type::Parent)` on an Enum field and `const(Kind::Parent)` on an Option field, the member qualified with
+                    // the condition's own field, name the member as `const(Parent)` does (record/lt-y65-rename-const-relation/
+                    // Y65RenameConstRelation.al RefQualified, RefOptionQualified; assumption relation-const-field-qualified until
+                    // the pin).
+                    (Ty::Enum(_) | Ty::Option(_), Some(_)) if field_qualified_member(raw, name).is_some() => {
                         field_qualified = true;
-                        Some(member.trim().trim_matches('"').to_string())
+                        field_qualified_member(raw, name)
                     }
                     (Ty::Enum(field_enum), Some((qualifier, member))) => {
                         let parts: Vec<String> = vec![qualifier.trim().trim_matches('"').to_string()];
@@ -1072,4 +1083,18 @@ fn split_unquoted_bars(text: &str) -> Vec<&str> {
     }
     parts.push(&text[start..]);
     parts
+}
+
+/// The member of `Field::Member` when `Field` is the condition's own field `name` (quotes ignored) and the member is a
+/// single name; `None` for any other text.
+fn field_qualified_member(raw: &str, name: &str) -> Option<String> {
+    let (qualifier, member) = raw.trim().split_once("::")?;
+    let member = member.trim().trim_matches('"').trim();
+    let single = !member.is_empty() && !member.contains(['|', '&', '<', '>', '=', '.', '*', '(', ')', ':', '\'']);
+    (single
+        && qualifier
+            .trim()
+            .trim_matches('"')
+            .eq_ignore_ascii_case(name.trim().trim_matches('"')))
+    .then(|| member.to_string())
 }

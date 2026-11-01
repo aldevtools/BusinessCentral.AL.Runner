@@ -54,6 +54,7 @@ codeunit 69795 C
 "#;
 
 const OPTION_SRC: &str = r#"
+enum 69795 "Kind Enum" { Extensible = true; value(0; "Item Attribute") { } value(1; "Custom Attribute") { } }
 table 69796 "Base Attr"
 {
     fields { field(1; Name; Text[250]) { } }
@@ -69,6 +70,11 @@ table 69798 OptLink
         {
             TableRelation = if (Kind = const(Kind::"Item Attribute")) "Base Attr".Name;
         }
+        field(6; Type; Enum "Kind Enum") { }
+        field(7; "Filter Name"; Text[250])
+        {
+            TableRelation = if (Type = filter(Type::"Item Attribute")) "Base Attr".Name;
+        }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
@@ -80,6 +86,17 @@ codeunit 69795 C
         A.Name := 'Colour'; A.Insert();
         L.Validate("Option Name", 'Colour');
         exit(L."Option Name");
+    end;
+
+    procedure ValidateFilter(): Text
+    var A: Record "Base Attr"; L: Record OptLink; R: Text;
+    begin
+        A.Name := 'Colour'; A.Insert();
+        L.Validate("Filter Name", 'Colour');
+        R := L."Filter Name";
+        L.Type := L.Type::"Custom Attribute";
+        L.Validate("Filter Name", 'Nothing');
+        exit(R + '|' + L."Filter Name");
     end;
 }
 "#;
@@ -94,11 +111,17 @@ fn a_rename_of_the_related_table_parses_the_arm_and_keeps_a_field_without_valida
     assert_eq!(text(al_testkit::run_in(SRC, "C", "RenameAttr")), "YesNo");
 }
 
-// The same qualified form on an Option field is not pinned (whether BC compiles it is not known): it stays refused.
+// The same qualified form on an Option field, and `filter(Type::X)`, name the member too
+// (record/lt-y65-rename-const-relation/Y65RenameConstRelation.al RefOptionQualified, RefFilter).
 #[test]
-fn an_option_field_qualified_const_arm_stays_refused() {
-    assert!(matches!(
-        al_testkit::run_in(OPTION_SRC, "C", "ValidateOption"),
-        Err(al_builtins::native::Signal::Unsupported(_))
-    ));
+fn an_option_field_qualified_const_arm_validates() {
+    assert_eq!(text(al_testkit::run_in(OPTION_SRC, "C", "ValidateOption")), "Colour");
+}
+
+#[test]
+fn a_field_qualified_filter_arm_validates_only_its_member() {
+    assert_eq!(
+        text(al_testkit::run_in(OPTION_SRC, "C", "ValidateFilter")),
+        "Colour|Nothing"
+    );
 }
