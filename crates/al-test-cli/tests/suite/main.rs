@@ -7,6 +7,7 @@ mod action_filter_drops_last_row;
 mod action_filter_goto_key;
 mod action_widens_view_first;
 mod action_widens_view_window;
+mod allobj_tabledata_rows;
 mod array_size_mismatch;
 mod autoformat_units;
 mod awaiting_assumptions;
