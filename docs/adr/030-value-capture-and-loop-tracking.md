@@ -62,7 +62,7 @@ that just ran, next to the code that was just typed.
 
 ## Conformance
 
-`crates/al-testrun/tests/capture.rs` (values, parameters, callee scopes, loop passes and tags, nesting across calls and
+`crates/al-testrun/tests/suite/capture.rs` (values, parameters, callee scopes, loop passes and tags, nesting across calls and
 `closedBy`, an error through a loop, each flag alone, the bound); `crates/alrunner-cli/src/capture.rs` (the JSON shapes);
 `crates/alrunner-cli/tests/serve.rs` (`execute` with both flags against the example of v2's documentation, and `runTests`
 lines).
