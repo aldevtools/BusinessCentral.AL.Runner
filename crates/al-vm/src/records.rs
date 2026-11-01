@@ -1597,7 +1597,13 @@ impl Session {
         }
     }
 
-    pub(crate) fn run_trigger(&mut self, object: usize, routine: usize, rec: &Rec, xrec: Option<&Rec>) -> Result<(), Signal> {
+    pub(crate) fn run_trigger(
+        &mut self,
+        object: usize,
+        routine: usize,
+        rec: &Rec,
+        xrec: Option<&Rec>,
+    ) -> Result<(), Signal> {
         let entered = !self.dirty_frames.is_empty() && self.dirty_trigger_enter(rec, xrec);
         let r = self
             .call_on_record(object, routine, rec.clone(), xrec, Vec::new())

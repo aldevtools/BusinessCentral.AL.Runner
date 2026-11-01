@@ -863,96 +863,7 @@ impl Gate {
                 file: "pages/lt-cc-page-leads/CcPageLeads.al",
                 lines: "801",
             }],
-            Gate::ProbedValuesDifferFrom28 => &[
-                Evidence {
-                    file: "collections/lt-cs-odd-leads/CsCollections.al",
-                    lines: "594,607",
-                },
-                Evidence {
-                    file: "pages/lt-ao-testpage/AoTests.al",
-                    lines: "786",
-                },
-                Evidence {
-                    file: "events/lt-platform-events-v/PeVTests.al",
-                    lines: "725",
-                },
-                Evidence {
-                    file: "pages/lt-px-controls/PxControls.al",
-                    lines: "1115,1118,1125,1128",
-                },
-                Evidence {
-                    file: "network/lt-http-send-failure/LtDaSendFailure.al",
-                    lines: "10,140",
-                },
-                Evidence {
-                    file: "install/lt-bf-install-probes/BfInstallTests.al",
-                    lines: "84,89,124,131",
-                },
-                Evidence {
-                    file: "query/lt-az-query/AzQueryTests.al",
-                    lines: "262,284,291",
-                },
-                Evidence {
-                    file: "platform/lt-aw-fresh-tenant/AwTests.al",
-                    lines: "229,245,261,277,293,611",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-1/PnACalcFieldsBC29.al",
-                    lines: "210",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-2/PnBPages.al",
-                    lines: "297",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-2/PnBReportSaveAs.al",
-                    lines: "185,291",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-3/PnC21Metadata.al",
-                    lines: "297,385,468",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-5/PnE06Media.al",
-                    lines: "65",
-                },
-                Evidence {
-                    file: "pages/lt-page-runtime/P82TestField.al",
-                    lines: "77,208",
-                },
-                Evidence {
-                    file: "recordref/lt-recordref-fieldref-members/P92DirtyRef.al",
-                    lines: "8",
-                },
-                Evidence {
-                    file: "misc/lt-open-overloads-collections-isolated/P107RecRefNames.al",
-                    lines: "99",
-                },
-                Evidence {
-                    file: "record/lt-testfield-fielderror-typed/P96ErrorInfo.al",
-                    lines: "142",
-                },
-                Evidence {
-                    file: "record/lt-testfield-fielderror-typed/P96Temporal.al",
-                    lines: "171",
-                },
-                Evidence {
-                    file: "streams/StTCopyBlob.al",
-                    lines: "451,456,462,484",
-                },
-                Evidence {
-                    file: "error-handling/lt-last-error-text-forms/FindEmptyTableExcludeFlag.al",
-                    lines: "76",
-                },
-                Evidence {
-                    file: "metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al",
-                    lines: "220",
-                },
-                Evidence {
-                    file: "record/lt-qd-captionclass-areas/QdCaptionClassAreas.al",
-                    lines: "808",
-                },
-            ],
+            Gate::ProbedValuesDifferFrom28 => PROBED_VALUES_DIFFER_FROM_28,
             Gate::ProbedValuesDifferFrom29 => &[
                 Evidence {
                     file: "platform/lt-y35-agent-api/Y35AgentApi.al",
@@ -1197,6 +1108,98 @@ pub fn test_runner_root_scope(target: Option<&Target>) -> Option<&'static str> {
 pub fn platform_table_scopes_known(bc_major: Option<u32>) -> bool {
     bc_major.is_some_and(|m| m >= 27)
 }
+
+/// The evidence of [`Gate::ProbedValuesDifferFrom28`], out of `Gate::evidence` to keep that function short.
+const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
+    Evidence {
+        file: "collections/lt-cs-odd-leads/CsCollections.al",
+        lines: "594,607",
+    },
+    Evidence {
+        file: "pages/lt-ao-testpage/AoTests.al",
+        lines: "786",
+    },
+    Evidence {
+        file: "events/lt-platform-events-v/PeVTests.al",
+        lines: "725",
+    },
+    Evidence {
+        file: "pages/lt-px-controls/PxControls.al",
+        lines: "1115,1118,1125,1128",
+    },
+    Evidence {
+        file: "network/lt-http-send-failure/LtDaSendFailure.al",
+        lines: "10,140",
+    },
+    Evidence {
+        file: "install/lt-bf-install-probes/BfInstallTests.al",
+        lines: "84,89,124,131",
+    },
+    Evidence {
+        file: "query/lt-az-query/AzQueryTests.al",
+        lines: "262,284,291",
+    },
+    Evidence {
+        file: "platform/lt-aw-fresh-tenant/AwTests.al",
+        lines: "229,245,261,277,293,611",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-1/PnACalcFieldsBC29.al",
+        lines: "210",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-2/PnBPages.al",
+        lines: "297",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-2/PnBReportSaveAs.al",
+        lines: "185,291",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-3/PnC21Metadata.al",
+        lines: "297,385,468",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-5/PnE06Media.al",
+        lines: "65",
+    },
+    Evidence {
+        file: "pages/lt-page-runtime/P82TestField.al",
+        lines: "77,208",
+    },
+    Evidence {
+        file: "recordref/lt-recordref-fieldref-members/P92DirtyRef.al",
+        lines: "8",
+    },
+    Evidence {
+        file: "misc/lt-open-overloads-collections-isolated/P107RecRefNames.al",
+        lines: "99",
+    },
+    Evidence {
+        file: "record/lt-testfield-fielderror-typed/P96ErrorInfo.al",
+        lines: "142",
+    },
+    Evidence {
+        file: "record/lt-testfield-fielderror-typed/P96Temporal.al",
+        lines: "171",
+    },
+    Evidence {
+        file: "streams/StTCopyBlob.al",
+        lines: "451,456,462,484",
+    },
+    Evidence {
+        file: "error-handling/lt-last-error-text-forms/FindEmptyTableExcludeFlag.al",
+        lines: "76",
+    },
+    Evidence {
+        file: "metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al",
+        lines: "220",
+    },
+    Evidence {
+        file: "record/lt-qd-captionclass-areas/QdCaptionClassAreas.al",
+        lines: "808",
+    },
+];
 
 #[cfg(test)]
 mod tests {

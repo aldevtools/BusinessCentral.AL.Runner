@@ -745,7 +745,13 @@ impl Session {
                 // Before BC 29 a max of an Enum field into an Option FlowField keeps the Enum member, and no row gives the
                 // Enum's first member; from BC 29 it is an Option ordinal (Y20FlowFieldLookupEnumIntoOption.al:189-198,
                 // `#if BC29PLUS`; al-runner issue 6481).
-                let src_ty = self.engine.program.objects[calc.table].table.as_ref().expect("table").fields[at].ty.clone();
+                let src_ty = self.engine.program.objects[calc.table]
+                    .table
+                    .as_ref()
+                    .expect("table")
+                    .fields[at]
+                    .ty
+                    .clone();
                 if calc.method == M::Max
                     && matches!((&f.ty, &src_ty), (RtType::Option(_), RtType::Enum(_)))
                     && !self.has(al_version::Gate::ProbedValuesDifferFrom29)

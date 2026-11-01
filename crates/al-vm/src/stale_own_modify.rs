@@ -5,8 +5,8 @@
 //! modify triggers, modify event subscribers and the OnDatabaseModify global trigger are not pinned there: with any of
 //! them the error comes before the trigger, as before.
 
-use crate::globaltriggers::GlobalOp;
 use crate::Session;
+use crate::globaltriggers::GlobalOp;
 use al_builtins::native::Signal;
 use al_builtins::value::{RecordState, Value};
 use al_data::TableDef;
@@ -17,8 +17,17 @@ type Rec = Rc<RefCell<RecordState>>;
 
 impl Session {
     /// The error of a refused stale Modify, after the OnModify trigger when the buffer has the Y27 shape.
-    pub(crate) fn stale_own_insert_modify_refused(&mut self, t: &TableDef, rec: &Rec, run: bool) -> Result<Signal, Signal> {
-        let i = t.fields.iter().position(|f| f.id == 2_000_000_005).expect("a table with SystemRowVersion");
+    pub(crate) fn stale_own_insert_modify_refused(
+        &mut self,
+        t: &TableDef,
+        rec: &Rec,
+        run: bool,
+    ) -> Result<Signal, Signal> {
+        let i = t
+            .fields
+            .iter()
+            .position(|f| f.id == 2_000_000_005)
+            .expect("a table with SystemRowVersion");
         let own_insert = {
             let r = rec.borrow();
             let mine = if let Value::BigInteger(n) = &r.fields[i] { *n } else { 0 };
