@@ -1159,3 +1159,27 @@ fn move_next_and_current_answer_through_ienumerator_on_an_explicit_implementatio
     assert_eq!(more.value, DotNetValue::Bool(false));
     sess.close();
 }
+
+// A generic type AL declares without type arguments (System Application's ABS/AFS Operation Payload declares
+// `GenericSortedDictionary2` and calls `SortedDictionary.SortedDictionary()`): BC closes it over System.Object, as the closed
+// type name in its messages shows (tests/al-language-onprem-dotnet/lt-y17-dotnet-dictionary/Y17DotNetDictionary.al:126, :147).
+#[test]
+fn an_open_generic_type_is_constructed_closed_over_object() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let d = sess
+        .construct(&ty("System.Collections.Generic.SortedDictionary`2"), vec![])
+        .unwrap();
+    assert!(
+        matches!(&d.value, DotNetValue::Handle { ty, .. } if ty.starts_with("System.Collections.Generic.SortedDictionary`2[[System.Object")),
+        "{:?}",
+        d.value
+    );
+    let d = handle_of(&d);
+    sess.invoke(DotNetTarget::Instance(d), "Add", vec![s("b"), s("2")])
+        .unwrap();
+    sess.invoke(DotNetTarget::Instance(d), "Add", vec![s("a"), s("1")])
+        .unwrap();
+    let n = sess.get_property(DotNetTarget::Instance(d), "Count").unwrap();
+    assert_eq!(n.value, DotNetValue::Int32(2));
+}

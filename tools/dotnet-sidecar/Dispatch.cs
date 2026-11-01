@@ -82,6 +82,12 @@ public sealed class Server
             case "construct":
             {
                 var type = DeclaredType(req["type"]!);
+                // A generic type AL declares without type arguments is made closed over System.Object, as BC does: the type
+                // its messages name is `Dictionary`2[System.Object,System.Object]` (tests/al-language-onprem-dotnet/
+                // lt-y17-dotnet-dictionary/Y17DotNetDictionary.al:126, :147). System Application's ABS and AFS Operation Payload
+                // make a SortedDictionary`2 so.
+                if (type.IsGenericTypeDefinition)
+                    type = type.MakeGenericType(type.GetGenericArguments().Select(_ => typeof(object)).ToArray());
                 var args = DecodeArgs(req);
                 var (best, coerced, _) = Pick(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance), args, $"new {type.FullName}");
                 object? obj = ((ConstructorInfo)best).Invoke(coerced);

@@ -747,6 +747,10 @@ fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
             LibraryValue::Empty => raise(RECORD_REF_NOT_OPEN, "Conversion"),
             _ => unsupported(format!("conversion of {} to {t}", v.describe(), t = t.describe())),
         },
+        // A Record into a RecordRef variable or by-value parameter: see `record_into_recordref`.
+        (Value::Record(_), RtType::Library(crate::library_kind::LibraryKind::RecordRef)) => {
+            crate::record_into_recordref::record_into_recordref(&v)
+        }
         // A Variant holding true assigned to a Decimal is 1 (types/lt-variant-time-enum/VariantTextTimeEnumFilter.al:
         // Variant_CodeAndOtherTypes_ToDecimal `boolean`); false is not pinned.
         (Value::Boolean(true), RtType::Decimal) => Ok(Value::Decimal(Decimal::ONE)),

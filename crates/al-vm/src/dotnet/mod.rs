@@ -15,6 +15,8 @@ mod query_metadata;
 pub mod registry;
 pub mod server_classes;
 mod staged_dir;
+mod xml_errors;
+use xml_errors::xml_load_member;
 
 use crate::{Frame, Session};
 use al_builtins::describe::Describe;
@@ -497,7 +499,9 @@ impl Session {
                 // it), and XmlDocument.LoadXml of a text with no root element (XmlException): the error AL sees is `A call to
                 // <type>[.<member>] failed with this message: <.NET message>`, code `DotNetInvoke:UriFormat` / `DotNetInvoke:Xml`,
                 // caught by a TryFunction and by Codeunit.Run (onprem-dotnet lt-wd-dotnet/WdTryFunctionDotNetException.al:50-102,
-                // corpus branch al-runtime-rs-staging-1030c, al-runner issue 6305). Other exceptions of these members stay refused.
+                // corpus branch al-runtime-rs-staging-1030c, al-runner issue 6305). XmlDocument.Load and LoadXml raise any XmlException
+                // in the same form (lt-ae-dotnet/AeXmlDocumentLoadErrors.al:112-128 LoadXml_NotXml, :149-166 Load_EmptyStream). Other
+                // exceptions of these members stay refused.
                 let pinned = match (kind, e.clr_type.as_str()) {
                     (MemberKind::Construct, "System.UriFormatException")
                         if clr_type.eq_ignore_ascii_case("System.Uri") =>
@@ -505,11 +509,9 @@ impl Session {
                         Some((clr_type.to_string(), "DotNetInvoke:UriFormat"))
                     }
                     (MemberKind::Call, "System.Xml.XmlException")
-                        if clr_type.eq_ignore_ascii_case("System.Xml.XmlDocument")
-                            && member.eq_ignore_ascii_case("LoadXml")
-                            && e.message == "Root element is missing." =>
+                        if clr_type.eq_ignore_ascii_case("System.Xml.XmlDocument") =>
                     {
-                        Some((format!("{clr_type}.LoadXml"), "DotNetInvoke:Xml"))
+                        xml_load_member(&member).map(|m| (format!("{clr_type}.{m}"), "DotNetInvoke:Xml"))
                     }
                     _ => None,
                 };
