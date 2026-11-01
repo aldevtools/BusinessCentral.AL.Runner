@@ -497,6 +497,15 @@ pub struct PageState {
     /// not one of the client's own checks, with the trigger's message: Close validates those again
     /// (pages/lt-ah-pages/AhPageTests.al:155-159).
     pub trigger_errors: Vec<(usize, String)>,
+    /// A RunObject action saved the row's edit before its target ran (pages/lt-y45-save-before-action/
+    /// Y45SaveBeforeAction.al:431 List_SetName_RunObjectCodeunit): a list reads its rows again after the codeunit.
+    pub saved_before_run_object: bool,
+    /// A SetValue left the row dirty since the last save: an action's save runs the modify chain even when the value is the one
+    /// stored (pages/lt-y45-save-before-action/Y45SaveBeforeAction.al:371 Card_SetSameName_Action).
+    pub set_value_held: bool,
+    /// A new line of this part was inserted before a host action: the part's refresh after the action stays on it
+    /// (pages/lt-y45-save-before-action/Y45SaveBeforeAction.al:1748 Doc_Existing_NewLine_Action `...;C H1;lC 30000`).
+    pub inserted_before_host_action: bool,
     /// The started line's insert was refused and the client moved on without raising
     /// (corpus handlers/TestPageFailedInsert_Tests.al:1-30): `refused` keeps the line, `pending`
     /// is the line left behind by Previous()/First(), whose insert fails again at Close().
@@ -920,6 +929,9 @@ impl PageState {
             errors: Vec::new(),
             values_allowed_refused_row: None,
             trigger_errors: Vec::new(),
+            saved_before_run_object: false,
+            set_value_held: false,
+            inserted_before_host_action: false,
             refused: false,
             close_error: false,
             close_vetoed: false,

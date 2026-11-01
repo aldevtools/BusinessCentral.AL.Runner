@@ -183,6 +183,7 @@ mod refill;
 mod rows;
 mod runobject;
 mod shown;
+mod dirty_step;
 pub(crate) use shown::ShownNote;
 
 impl Session {

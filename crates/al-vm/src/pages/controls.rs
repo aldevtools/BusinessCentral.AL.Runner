@@ -26,6 +26,9 @@ impl Session {
                 self.reread_after_refill_by_validate(st, &held, expanded)?;
             }
         }
+        if r.is_ok() && st.borrow().dirty && !st.borrow().draft {
+            st.borrow_mut().set_value_held = true;
+        }
         // The control now holds an explicit value (see `PageState::set_controls`).
         if !st.borrow().set_controls.contains(&idx) {
             st.borrow_mut().set_controls.push(idx);

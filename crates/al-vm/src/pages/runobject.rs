@@ -87,6 +87,15 @@ impl Session {
         }
         // What the codeunit did to the host's row is shown like the effects of an OnAction.
         self.settle_after_action(st)?;
+        // A list whose edit was saved before the codeunit reads its rows again first, then its row as below
+        // (pages/lt-y45-save-before-action/Y45SaveBeforeAction.al:431 List_SetName_RunObjectCodeunit `cu H1 ...;R H1;R H2;R H1;R H1;C H1`).
+        if std::mem::take(&mut st.borrow_mut().saved_before_run_object) && self.is_list(st) {
+            let rec = self.page_rec(st);
+            if self.stored_row(&rec)?.is_some() {
+                let key = self.row_key(&rec)?;
+                self.read_list_again_from_row_as(st, &rec, &key, false)?;
+            }
+        }
         // The host reads its row again after a codeunit, even one that wrote nothing
         // (handlers/TestPageRunObjectContracts.al:248-270).
         self.reread_host_row(st, true)?;

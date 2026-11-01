@@ -1134,6 +1134,7 @@ impl Session {
             return Ok(Value::Null);
         }
         let engine = self.engine();
+        self.save_before_action(st, idx)?;
         // A client sends the row it stands on to the server before it runs an action (corpus
         // handlers/TestPageAutoSplitKey_Tests.al:TestPage_ActionInvoke_OnANewSubpageRow_*).
         let was_dirty = st.borrow().dirty;
@@ -1150,9 +1151,6 @@ impl Session {
             return unsupported(
                 "an action on a page whose row holds an edit, with a part linked by field(filter(...)) (the runtime does not keep the edit here)",
             );
-        }
-        if st.borrow().host.is_some() {
-            self.save_row(st)?;
         }
         // A new row of a card whose key a SetValue typed is stored before the next action's trigger (pages/lt-table-globals-page/
         // TableGlobalsPageWithoutValidation.al:318 QG_NewDraft_KeyTyped_ThenBumpAction: `stored after the SetValue` No, `stored
@@ -2715,7 +2713,7 @@ impl Session {
 
     /// [`Self::read_list_again_from_row`]; `read_first` false leaves out the read of the row before the others (a refresh after a
     /// control's OnValidate, `refresh_after_validate_filter`).
-    fn read_list_again_from_row_as(
+    pub(super) fn read_list_again_from_row_as(
         &mut self,
         st: &St,
         rec: &Rec,
