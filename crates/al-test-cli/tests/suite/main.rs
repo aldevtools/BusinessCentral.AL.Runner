@@ -96,6 +96,7 @@ mod page_open_record;
 mod page_run_field_arg;
 mod page_trigger_errors;
 mod page_views;
+mod pageext_implicit_promoted;
 mod pageext_move_actions;
 mod pageext_worksheet_factbox;
 mod pagemisc;
