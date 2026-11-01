@@ -441,11 +441,8 @@ impl Gate {
             | Gate::OptionFieldRefSetEvaluateErrorFrom28
             | Gate::EnumFieldRefValidateCaptionEvaluateErrorFrom28
             | Gate::FieldRefTextNumberEvaluateErrorFrom28
-            | Gate::JsonSelectTokensListFrom28 => self.evidence_of_first_gates(),
-            Gate::DocxMediaRezippedFrom29 => &[Evidence {
-                file: "../al-language-onprem/media/MediaFiles.al",
-                lines: "506,511",
-            }],
+            | Gate::JsonSelectTokensListFrom28
+            | Gate::DocxMediaRezippedFrom29 => self.evidence_of_first_gates(),
             Gate::OtherRecordOptionCaptionFrom29 => &[Evidence {
                 file: "pages/lt-sa-other-record-control/SaOtherRecordControl.al",
                 lines: "284,290,295,300",
@@ -1040,6 +1037,10 @@ impl Gate {
                     lines: "193,199,204,216",
                 },
             ],
+            Gate::DocxMediaRezippedFrom29 => &[Evidence {
+                file: "../al-language-onprem/media/MediaFiles.al",
+                lines: "506,511",
+            }],
             Gate::DotNetRuntime10From29 => &[Evidence {
                 file: "../al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al",
                 lines: "443",

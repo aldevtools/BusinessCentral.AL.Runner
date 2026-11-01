@@ -85,6 +85,7 @@ mod np_blockers_68;
 mod np_blockers_69;
 mod numeric_extends_target;
 mod option_enum_bigtext;
+mod or_group_page_rec;
 mod outside_fb_repros;
 mod outside_rt_pages;
 mod outside_sc_pins;
@@ -125,6 +126,7 @@ mod stale_delete_triggers;
 mod stale_updlock_read;
 mod step_time_guard;
 mod subpagelink_field_filter;
+mod temp_list_key_open;
 mod test_framework_refusals;
 mod testpage_action_without_parentheses;
 mod this_in_objects;
@@ -139,6 +141,7 @@ mod y14_pins;
 mod y17_expr_refresh;
 mod y17_page_pins;
 mod y41_page_probes;
+mod y48_platform_probes;
 
 /// A file in this folder that no `mod` line names is never compiled, so its tests never run (a merge can move a new
 /// test file here).

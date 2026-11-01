@@ -15,7 +15,7 @@
 "crates/al-sema/src/check/object.rs::object_ctx" = 271
 "crates/al-sema/src/lower/assemble.rs::build_shared" = 603
 "crates/al-sema/src/lower/assemble.rs::lower_core" = 534
-"crates/al-sema/src/lower/call.rs::call" = 737
+"crates/al-sema/src/lower/call.rs::call" = 689
 "crates/al-sema/src/lower/expr.rs::expr_raw" = 421
 "crates/al-sema/src/lower/pages.rs::page" = 507
 "crates/al-sema/src/lower/shared.rs::lower_object" = 510
@@ -28,8 +28,8 @@
 "crates/al-testrun/src/runtime/corpus.rs::run_compiled_kept" = 1044
 "crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 863
 "crates/al-version/src/gates.rs::evidence" = 583
-"crates/al-vm/src/exec/compile.rs::expr_into" = 320
-"crates/al-vm/src/exec/run.rs::run_range" = 357
+"crates/al-vm/src/exec/compile.rs::expr_into" = 319
+"crates/al-vm/src/exec/run.rs::run_range" = 348
 "crates/al-vm/src/pages/actions.rs::action_invoke_body" = 484
 "crates/al-vm/src/pages/controls.rs::control_set_value_now" = 887
 "crates/al-vm/src/pages/controls.rs::test_control_op" = 503
