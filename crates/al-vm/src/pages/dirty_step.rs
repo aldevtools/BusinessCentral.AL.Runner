@@ -113,9 +113,9 @@ impl Session {
             );
         }
         match self.save_row(st) {
-            Err(Signal::Error(_)) => unsupported(
-                "an error while the row is saved before a page variable control validates (not pinned)",
-            ),
+            Err(Signal::Error(_)) => {
+                unsupported("an error while the row is saved before a page variable control validates (not pinned)")
+            }
             other => other,
         }
     }
