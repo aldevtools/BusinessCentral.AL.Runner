@@ -61,6 +61,65 @@ impl Session {
         self.save_before_run_object(st, idx)
     }
 
+    /// SetValue on a control bound to a page variable saves the row the page holds an edit of first, then validates (inside the
+    /// repeater on a page that has one); a control bound to a field of Rec saves nothing (al-runner issue 6629; corpus pages/lt-y45-save-before-action/
+    /// Y45SaveBeforeAction.al NextField_* of corpus writer Y55, branch al-runtime-rs-staging-y55 813f0efc, measured on BC 27.5, 28.5, 29.0: :2051 NextField_Worksheet_NameThenPageVar
+    /// `set act` `pM new/old db=old/1;eBM new t=Yes db=old/1;tM new/old db=old/1;eAM db=new/1;pvAct rec=new/1 db=new/1`, the
+    /// same on a Card :2206, a List :2356, a Document header :2445 and after GoToRecord :2534; :2085 NameThenRecField `set qty`
+    /// `vQty 5;pvQty 5 db=old/1`). A new row is inserted first (:2603 NextField_Card_New_CodePageVarName `pI N1 ;eBI N1
+    /// t=Yes;tI N1  db=none;pvAct rec=/0 db=/0`), a part saves its own line (:2704 NextField_Part_DescThenPageVar `lpM new/a
+    /// db=a/1;lM new/a db=a/1;lpvAct rec=new/1 db=new/1 head=old/1`, :2883 NextField_Part_New_DescThenPageVar `lpI 30000 x;lI
+    /// 30000 x db=none;lpvAct`). The probe is not on the pinned corpus yet (assumption page-var-validate-saves-row-first).
+    pub(super) fn save_before_page_var_validate(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
+        let engine = self.engine();
+        if !matches!(
+            page_of(&engine, st).controls[idx].binding,
+            ir::Binding::Var(_) | ir::Binding::BaseVar(_)
+        ) {
+            return Ok(());
+        }
+        // A page variable outside the repeater of a page that has one (a journal's batch field in a header group) saves
+        // nothing first: its OnValidate runs, then its CurrPage.SaveRecord saves (pages/lt-y17-journal-batch/
+        // Y17JournalBatchSwitch.al:522 UpdWs_BatchSwitch_AfterEdit `validate log` `V:start 20000;M:B1/20000;...`).
+        let has_repeater = page_of(&engine, st)
+            .controls
+            .iter()
+            .any(|c| c.kind == ir::ControlKind::Repeater);
+        if has_repeater && !self.in_repeater(st, idx) {
+            return Ok(());
+        }
+        let (open, dirty, draft, row) = {
+            let s = st.borrow();
+            (s.open, s.dirty, s.draft, s.cursor != Cursor::None)
+        };
+        if !open || !dirty || !row || !self.has_source(st) {
+            return Ok(());
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageVarValidateSavesRowFirst);
+        if draft {
+            let object = st.borrow().object as usize;
+            let delayed = engine.program.objects[object]
+                .properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case("DelayedInsert") && v.trim().eq_ignore_ascii_case("true"));
+            if delayed || st.borrow().typed_before_key {
+                return unsupported(
+                    "SetValue on a page variable control of a new row typed before its key or on a DelayedInsert page (whether the row is inserted first is not pinned)",
+                );
+            }
+        } else if Self::same_values(&self.page_rec(st).borrow().fields, &self.page_xrec_fields(st)) {
+            return unsupported(
+                "SetValue on a page variable control of a row set to the values it holds (whether the row is saved first is not pinned)",
+            );
+        }
+        match self.save_row(st) {
+            Err(Signal::Error(_)) => {
+                unsupported("an error while the row is saved before a page variable control validates (not pinned)")
+            }
+            other => other,
+        }
+    }
+
     fn save_before_run_object(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
         let engine = self.engine();
         let run_object = page_of(&engine, st).controls[idx].run_object.as_ref().map(|r| r.kind);

@@ -100,3 +100,4 @@ mod validate_filter_refresh;
 mod view_blank_date;
 mod view_boolean_filter_text;
 mod widen_view_from_last;
+mod worksheet_save_before_validate;

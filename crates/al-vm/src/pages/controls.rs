@@ -162,9 +162,9 @@ impl Session {
                 st.borrow_mut().typed_before_key = true;
             }
         }
+        self.save_before_page_var_validate(st, idx)?;
         if matches!(page_of(&self.engine(), st).controls[idx].binding, ir::Binding::Field(_)) && self.has_source(st) {
-            let rec = self.page_rec(st);
-            self.reset_table_globals(&rec);
+            self.reset_table_globals(&self.page_rec(st));
         }
         let writes = self.write_mark();
         let inserted_by_trigger = st.borrow().new_row_inserted_by_trigger;
