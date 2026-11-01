@@ -569,8 +569,7 @@ fn under_runner_130450_a_refused_onrun_that_writes_nothing_known_does_not_hold_b
 
 // Under runner 130450 a test's writes to isolated storage and its new number sequences are rolled back with the codeunit,
 // but a number a test took from an older sequence (Next) is not given back: the later codeunits see it taken
-// (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage :447-457). A test that changed an
-// older sequence otherwise (Restart, Delete) leaves what is not pinned: a later codeunit that can reach sequences is not run.
+// (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage :447-457).
 const TEST_NEXT_130450: &str = r#"
 codeunit 50684 "Prepares Sequence"
 {
@@ -624,8 +623,10 @@ fn under_runner_130450_a_number_a_test_took_reaches_the_later_codeunits() {
         "V := NumberSequence.Next('S', false);\n        NumberSequence.Insert('N'",
         "NumberSequence.Restart('S', 5, false);\n        NumberSequence.Insert('N'",
     );
+    // The Restart is rolled back with the codeunit (SeqCarry.al R1_Act :325-347, read by R2_Act :406-411): the later
+    // codeunit sees the number OnRun took, 100, not the 101 a Next in the test would have left.
     let o = run(&restarted, false);
-    assert!(not_run(outcome(&o, "RT1"), "Test Takes Next"), "{o:?}");
+    assert_eq!(outcome(&o, "RT1"), &Outcome::Fail("current 100".into()), "{o:?}");
 }
 
 // A codeunit that joins the carry chain only because its tests take numbers carries the state it started from: the install
@@ -716,7 +717,7 @@ fn under_runner_130450_a_delete_a_test_made_is_rolled_back_for_the_later_codeuni
     let flagged = assumptions_of(TEST_DELETE_130450, "RD1");
     assert_eq!(
         flagged,
-        vec![al_builtins::assumptions::Assumption::SequenceDeleteRolledBackWithCodeunit]
+        vec![al_builtins::assumptions::Assumption::SequenceChangeRolledBackWithCodeunit]
     );
     let took_first = TEST_DELETE_130450.replace(
         "NumberSequence.Delete('D', false);",
@@ -724,4 +725,145 @@ fn under_runner_130450_a_delete_a_test_made_is_rolled_back_for_the_later_codeuni
     );
     let o = run(&took_first, false);
     assert!(not_run(outcome(&o, "RD1"), "Deletes"), "{o:?}");
+}
+
+// Issue 6638, the reporter's repro: the install creates a sequence, an earlier codeunit restarts it, and a later codeunit
+// inserts its own row and takes a number from the sequence. BC runs all three and passes them.
+const ISSUE_6638: &str = r#"
+codeunit 50621 "Repro Seq Install"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany()
+    begin
+        if not NumberSequence.Exists('REPROSEQ') then
+            NumberSequence.Insert('REPROSEQ', 1, 1);
+    end;
+}
+codeunit 50630 "Repro Seq Restart Test"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure RestartOfTheSequenceTheInstallCreatedKeepsIt()
+    begin
+        NumberSequence.Restart('REPROSEQ');
+        if not NumberSequence.Exists('REPROSEQ') then Error('The sequence still exists after Restart');
+    end;
+}
+codeunit 50631 "Repro Seq Later Test"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure ALaterCodeunitInsertsAndReadsItsOwnRow()
+    var Rows: Codeunit "Rows";
+    begin
+        Rows.Put('First');
+        if Rows.Count() <> 1 then Error('The row the test inserted is there');
+    end;
+    [Test] procedure ALaterCodeunitTakesANumberFromTheSequence()
+    begin
+        if NumberSequence.Next('REPROSEQ') < 1 then Error('The number taken is at least the start value');
+    end;
+}
+"#;
+
+#[test]
+fn issue_6638_a_restart_in_an_earlier_codeunit_leaves_the_later_codeunits_runnable() {
+    let o = run(ISSUE_6638, false);
+    assert_eq!(
+        outcome(&o, "RestartOfTheSequenceTheInstallCreatedKeepsIt"),
+        &Outcome::Pass,
+        "{o:?}"
+    );
+    assert_eq!(
+        outcome(&o, "ALaterCodeunitInsertsAndReadsItsOwnRow"),
+        &Outcome::Pass,
+        "{o:?}"
+    );
+    assert_eq!(
+        outcome(&o, "ALaterCodeunitTakesANumberFromTheSequence"),
+        &Outcome::Pass,
+        "{o:?}"
+    );
+    // The Restart is rolled back: the later codeunit takes the install's first number, 1, not the 0 of a seedless Restart.
+    let exact = ISSUE_6638.replace(
+        "NumberSequence.Next('REPROSEQ') < 1",
+        "NumberSequence.Next('REPROSEQ') <> 1",
+    );
+    let o = run(&exact, false);
+    assert_eq!(
+        outcome(&o, "ALaterCodeunitTakesANumberFromTheSequence"),
+        &Outcome::Pass,
+        "{o:?}"
+    );
+}
+
+// Under runner 130450 a test's Restart of an older sequence is rolled back with the codeunit, and so are the numbers it
+// took after the Restart; those it took before stay taken. A Restart in the OnRun trigger carries. Corpus branch
+// al-runtime-rs-staging-y56, codeunit/lt-seq-carry/SeqCarry.al R1_Act :325-347, read by R2_Act :406-411 (SaaS BC 29:
+// Y56-I-R Current 2, Y56-I-RS 1, Y56-O-R 1).
+const TEST_RESTART_130450: &str = r#"
+codeunit 50695 "Makes Restart Sequences"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    trigger OnRun()
+    var V: BigInteger;
+    begin
+        NumberSequence.Insert('R', 1, 1, false);
+        NumberSequence.Insert('RS', 1, 1, false);
+        NumberSequence.Insert('OR', 1, 1, false);
+        NumberSequence.Restart('OR', 10, false);
+        V := NumberSequence.Next('OR', false);
+        Commit();
+    end;
+    [Test] procedure MR1() begin end;
+}
+codeunit 50696 "Restarts"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    trigger OnRun() begin end;
+    [Test] procedure RS1()
+    var V: BigInteger;
+    begin
+        V := NumberSequence.Next('R', false);
+        V := NumberSequence.Next('R', false);
+        NumberSequence.Restart('R', 1, false);
+        V := NumberSequence.Next('R', false);
+        V := NumberSequence.Next('RS', false);
+        NumberSequence.Restart('RS', 50, false);
+        NumberSequence.Restart('OR', 30, false);
+    end;
+    [Test] procedure RS2()
+    begin
+        if NumberSequence.Current('R', false) <> 1 then Error('same codeunit r %1', NumberSequence.Current('R', false));
+        if NumberSequence.Current('RS', false) <> 50 then Error('same codeunit rs');
+    end;
+}
+codeunit 50697 "Reads After Restart"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure RR1()
+    begin
+        if NumberSequence.Current('R', false) <> 2 then Error('current r %1', NumberSequence.Current('R', false));
+        if NumberSequence.Current('RS', false) <> 1 then Error('current rs %1', NumberSequence.Current('RS', false));
+        if NumberSequence.Current('OR', false) <> 10 then Error('current or %1', NumberSequence.Current('OR', false));
+        if NumberSequence.Next('R', false) <> 3 then Error('next r');
+    end;
+}
+"#;
+
+#[test]
+fn under_runner_130450_a_restart_a_test_made_is_rolled_back_for_the_later_codeunits() {
+    let o = run(TEST_RESTART_130450, false);
+    assert_eq!(outcome(&o, "RS1"), &Outcome::Pass, "{o:?}");
+    assert_eq!(outcome(&o, "RS2"), &Outcome::Pass, "{o:?}");
+    assert_eq!(outcome(&o, "RR1"), &Outcome::Pass, "{o:?}");
+    let restarted_and_deleted = TEST_RESTART_130450.replace(
+        "NumberSequence.Restart('OR', 30, false);",
+        "NumberSequence.Restart('OR', 30, false);\n        NumberSequence.Delete('RS', false);",
+    );
+    let o = run(&restarted_and_deleted, false);
+    assert!(not_run(outcome(&o, "RR1"), "Restarts"), "{o:?}");
 }

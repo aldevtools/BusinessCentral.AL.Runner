@@ -348,26 +348,40 @@ impl Session {
         self.isolated_storage != start.isolated_storage || self.sequences != start.sequences
     }
 
+    /// Forgets the Restarts and Deletes of number sequences so far: [`Session::carry_numbers_taken`] then counts only
+    /// those made after this call.
+    pub fn forget_sequence_changes(&mut self) {
+        self.sequences_changed.clear();
+    }
+
     /// Puts into `b` the numbers the session took since `b` from the sequences `b` holds. Under runner 130450 a test's
     /// `NumberSequence.Next` is not given back when the codeunit's writes are rolled back, while its new sequences and its
     /// isolated storage writes are (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage
-    /// :447-457). A test's Delete of a sequence of `b`, and what it did with the name after (Insert, Next), is rolled
-    /// back too (corpus branch al-runtime-rs-staging-y56, codeunit/lt-seq-carry/SeqCarry.al:100-104 D1_Act, read by
-    /// D2_Act :164-165). `None`: no number was taken. `Some(false)`: a sequence of `b` was changed otherwise (Restart, or
-    /// Delete after numbers were taken from it or it was restarted), which is not pinned; `b` is left as it was.
+    /// :447-457). A test's Restart of a sequence of `b` is rolled back too, with the numbers taken after it: the later
+    /// codeunits see the sequence as it was just before the first Restart, the numbers taken before it included. A test's
+    /// Delete of a sequence of `b` that it had not taken numbers from, and what it did with the name after (Insert,
+    /// Next), is rolled back the same way. Corpus branch al-runtime-rs-staging-y56, codeunit/lt-seq-carry/SeqCarry.al
+    /// (SaaS BC 29): Restart R1_Act :325-347, read by R2_Act :406-411; Delete D1_Act :108-114, read by D2_Act :174-176.
+    /// `None`: no number was taken and nothing was rolled back. `Some(false)`: a sequence of `b` was changed otherwise (a
+    /// Delete after numbers were taken from it, or both Restart and Delete), which is not pinned; `b` is left as it was.
     pub fn carry_numbers_taken(&self, b: &mut Baseline) -> Option<bool> {
         let mut taken = Vec::new();
         let mut rolled_back = Vec::new();
         for (k, then) in &b.sequences {
-            if self.sequences.get(k) == Some(then) {
+            if let Some(c) = self.sequences_changed.get(k) {
+                let seen = match (c.restarted, c.deleted) {
+                    (true, false) => &c.before,
+                    (false, true) if c.before == *then => then,
+                    _ => return Some(false),
+                };
+                rolled_back.push(k.clone());
+                if seen != then {
+                    taken.push((k.clone(), seen.clone()));
+                }
                 continue;
             }
-            if let Some(before) = self.sequences_deleted.get(k) {
-                if before == then {
-                    rolled_back.push(k.clone());
-                    continue;
-                }
-                return Some(false);
+            if self.sequences.get(k) == Some(then) {
+                continue;
             }
             let Some(now) = self.sequences.get(k) else {
                 return Some(false);
@@ -409,7 +423,7 @@ impl Session {
         self.isolated_storage = b.isolated_storage.clone();
         self.isolated_committed = b.isolated_storage.clone();
         self.sequences = b.sequences.clone();
-        self.sequences_deleted.clear();
+        self.sequences_changed.clear();
         self.sequences_rolled_back = b.sequences_rolled_back.clone();
         // The install ran on a clock that its own Sleep calls had moved forward (hours, in Business Central's install
         // code); the session starts on the real clock again, and a stamp must not stay ahead of it: a row inserted by the
