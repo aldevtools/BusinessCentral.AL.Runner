@@ -52,6 +52,8 @@ pub enum Virtual {
     /// session/PZPublishedApplicationColumns.al Logo_*, corpus branch al-runtime-rs-staging-ug); any other read is refused.
     Media,
     MetadataPermissionSet,
+    /// One row per include and exclude of a permission set object (al-vm `platform/permission_set_rel.rs`).
+    MetadataPermissionSetRel,
     PermissionSet,
     /// The assignable rows of Permission Set (the table is walked through this one); not a table.
     PermissionSetAssignable,
@@ -181,6 +183,11 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
         "Aggregate Permission Set",
         Provider::Virtual(Virtual::AggregatePermissionSet),
     ),
+    (
+        2_000_000_252,
+        "Metadata Permission Set Rel.",
+        Provider::Virtual(Virtual::MetadataPermissionSetRel),
+    ),
     (2_000_000_165, "Tenant Permission Set", Provider::Stored),
     (2_000_000_166, "Tenant Permission", Provider::Stored),
     (2_000_000_253, "Tenant Permission Set Rel.", Provider::Stored),
@@ -308,6 +315,13 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     // the Blob File it is given (al-language-onprem/platform/PtOnPremTables.al Y17_PowerBIBlob_InsertModifyDelete,
     // Y17_PowerBIBlob_BlobRoundTrip, corpus master 97c29f86). A fresh tenant holds demo rows nothing pins: `UNSEEDED_ROWS`.
     (2_000_000_144, "Power BI Blob", Provider::Stored),
+    // OnPrem; a stored table that sets Default Role Center and Disable Personalization of its profile's All Profile row, with
+    // two Base Application rows on a fresh tenant (al-language-onprem/platform/lt-y35-stored-tables/Y35StoredTables.al:483-620,
+    // lt-y59-tenant-profile-setting/Y59AllProfileGhostSetting.al; al-vm platform/profile_settings.rs).
+    (2_000_000_083, "Tenant Profile Setting", Provider::Stored),
+    // A stored tenant table: Insert(false), a duplicate Insert (false), Modify(false), key order, filters, any User SID; Date and
+    // Time stay as written (platform/lt-y59-page-personalization/Y59PageDataPersonalization.al, corpus master 9cf26907).
+    (2_000_000_080, "Page Data Personalization", Provider::Stored),
     // OnPrem; a plain stored table: Insert (a blank Id and Context too), a duplicate Insert (false), Get, SetRange, Modify,
     // Rename, Delete and DeleteAll, no validation (al-language-onprem/platform/PtOnPremTables.al:365, :395, corpus master
     // ac3499d6). A fresh tenant holds demo rows nothing pins: `UNSEEDED_ROWS`.
