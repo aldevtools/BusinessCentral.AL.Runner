@@ -411,8 +411,6 @@ fn run_codeunit_inner(
     let carried_from = carries.then(|| session.capture_baseline());
     // Under runner 130450 what the OnRun trigger writes reaches the later codeunits (`Scratch::onrun_carry`).
     let onrun_from = (scratch.onrun_carry && !execute).then(|| session.capture_baseline());
-    // A Restart or Delete of a number sequence before here (install code) is not one the codeunit's tests made.
-    session.forget_sequence_changes();
     let mut onrun_left: Option<Carried> = None;
     // The tables an earlier Disabled codeunit left rows in (`Scratch::leak`): a read of one is noted, and the codeunit
     // then runs again from what that codeunit left (`corpus.rs`).
@@ -496,8 +494,6 @@ fn run_codeunit_inner(
                 if let Some(start) = &onrun_from {
                     let everything = session.storage_or_sequences_differ(start);
                     let mut baseline = session.capture_baseline();
-                    // OnRun's own Restart or Delete carries; only the tests' are rolled back (`numbers_taken.rs`).
-                    session.forget_sequence_changes();
                     baseline.workspace_installs = Some(skipped_installs.clone());
                     // The rows OnRun wrote are in the session company only.
                     baseline.install_rows = Some(session.install_rows());

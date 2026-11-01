@@ -284,9 +284,11 @@ impl Session {
         self.store.backed_rows(company, object).is_some_and(|r| !r.is_empty())
     }
 
-    /// Commits and captures the session's data.
+    /// Commits and captures the session's data. The Restarts and Deletes of number sequences so far are part of it:
+    /// [`Session::carry_numbers_taken`] counts only those made after (a Restart in OnRun carries, SeqCarry.al R1/R2).
     pub fn capture_baseline(&mut self) -> Baseline {
         self.commit_transaction();
+        self.sequences_changed.clear();
         Baseline {
             store: self.store.clone().detached(),
             next_guid: self.next_guid,
@@ -348,12 +350,6 @@ impl Session {
         self.isolated_storage != start.isolated_storage || self.sequences != start.sequences
     }
 
-    /// Forgets the Restarts and Deletes of number sequences so far: [`Session::carry_numbers_taken`] then counts only
-    /// those made after this call.
-    pub fn forget_sequence_changes(&mut self) {
-        self.sequences_changed.clear();
-    }
-
     /// Puts into `b` the numbers the session took since `b` from the sequences `b` holds. Under runner 130450 a test's
     /// `NumberSequence.Next` is not given back when the codeunit's writes are rolled back, while its new sequences and its
     /// isolated storage writes are (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage
@@ -361,7 +357,7 @@ impl Session {
     /// codeunits see the sequence as it was just before the first Restart, the numbers taken before it included. A test's
     /// Delete of a sequence of `b` that it had not taken numbers from, and what it did with the name after (Insert,
     /// Next), is rolled back the same way. Corpus branch al-runtime-rs-staging-y56, codeunit/lt-seq-carry/SeqCarry.al
-    /// (SaaS BC 29): Restart R1_Act :325-347, read by R2_Act :406-411; Delete D1_Act :108-114, read by D2_Act :174-176.
+    /// (SaaS): Restart R1_Act :325-347, read by R2_Act :406-411; Delete D1_Act :108-114, read by D2_Act :174-176.
     /// `None`: no number was taken and nothing was rolled back. `Some(false)`: a sequence of `b` was changed otherwise (a
     /// Delete after numbers were taken from it, or both Restart and Delete), which is not pinned; `b` is left as it was.
     pub fn carry_numbers_taken(&self, b: &mut Baseline) -> Option<bool> {
