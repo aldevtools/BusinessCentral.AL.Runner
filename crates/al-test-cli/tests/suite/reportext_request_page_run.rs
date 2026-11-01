@@ -169,3 +169,44 @@ codeunit 62790 T
     let o = al_testkit::outcomes_in(src, "T");
     assert_eq!(o[0].1, Outcome::Pass);
 }
+
+// Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun ('first log' after an earlier saved run): the values a SaveAsXml
+// close stored reach the next run without changing what the extension's data item triggers read.
+#[test]
+fn a_run_after_a_saved_run_reads_its_data_items() {
+    let src = r#"
+table 62720 "RZ Row" { fields { field(1; Id; Integer) { } field(2; Name; Text[20]) { } } keys { key(PK; Id) { } } }
+codeunit 62723 "RZ Log" { SingleInstance = true; var L: Text; procedure Add(E: Text) begin L += E + ';'; end; procedure Take(): Text var R: Text; begin R := L; L := ''; exit(R); end; }
+report 62721 "RZ Saved"
+{
+    ProcessingOnly = false;
+    dataset { dataitem(Header; "RZ Row") { column(HName; Name) { } dataitem(Line; "RZ Row") { DataItemLink = Id = field(Id); column(LName; Name) { } } } }
+    requestpage { SaveValues = true; layout { area(Content) { group(Options) { field(ShowAll; ShowAll) { } } } } }
+    var ShowAll: Boolean;
+}
+reportextension 62722 "RZ Saved X" extends "RZ Saved"
+{
+    dataset { modify(Line) { trigger OnAfterAfterGetRecord() begin Log.Add('line ' + Format(Line.Id)); end; } }
+    requestpage { layout { addlast(Options) { field(NoteText; NoteText) { } } } }
+    var NoteText: Text[50]; Log: Codeunit "RZ Log";
+}
+codeunit 62790 T
+{
+    Subtype = Test;
+    [Test] [HandlerFunctions('H')] procedure Run()
+    var R: Record "RZ Row"; L: Codeunit "RZ Log"; First: Text; Second: Text;
+    begin
+        R.DeleteAll(); R.Id := 1; R.Name := 'one'; R.Insert(); R.Id := 2; R.Name := 'two'; R.Insert(); Commit();
+        Report.Run(Report::"RZ Saved"); First := L.Take();
+        Report.Run(Report::"RZ Saved"); Second := L.Take();
+        if First + '#' + Second <> 'line 1;line 2;#line 1;line 2;' then Error(First + '#' + Second);
+    end;
+    [RequestPageHandler] procedure H(var P: TestRequestPage "RZ Saved")
+    begin
+        P.NoteText.SetValue('hello'); P.ShowAll.SetValue(true);
+        P.SaveAsXml(TemporaryPath() + 'p.xml', TemporaryPath() + 'd.xml');
+    end;
+}"#;
+    let o = al_testkit::outcomes_in(src, "T");
+    assert_eq!(o[0].1, Outcome::Pass);
+}

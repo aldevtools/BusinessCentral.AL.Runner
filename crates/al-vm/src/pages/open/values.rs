@@ -177,7 +177,17 @@ impl Session {
                 // P147_Text_StoredVsCaller_Ok, P147_Boolean_CallerFalseOverStoredTrue, P147_Option_CallerSelectedOverStoredAll).
                 continue;
             }
-            inst.borrow_mut().globals[slot] = detached(&v);
+            // A stored data item record is copied into the record the instance holds: a reportextension's triggers reach the base
+            // data item through it (Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun, `ext line 1` in a run after a
+            // saved one).
+            let cur = inst.borrow().globals[slot].clone();
+            match (&cur, &v) {
+                (Value::Record(c), Value::Record(s)) => {
+                    let stored = s.borrow().clone();
+                    *c.borrow_mut() = stored;
+                }
+                _ => inst.borrow_mut().globals[slot] = detached(&v),
+            }
         }
     }
 }
