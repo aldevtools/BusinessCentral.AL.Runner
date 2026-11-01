@@ -912,4 +912,18 @@ codeunit 92899 C
         TP.ReadAct.Invoke();
         exit(Seen + '|' + Log.Take());
     end;
+
+    procedure DocNewHeadThenLine(): Text
+    var
+        TP: TestPage "LT Y45 Doc";
+    begin
+        Init();
+        TP.OpenNew();
+        TP."Code".SetValue('N1');
+        TP.Name.SetValue('nn');
+        Log.Take();
+        TP.Lines.New();
+        TP.Lines.Desc.SetValue('nl');
+        exit(Log.Take());
+    end;
 }

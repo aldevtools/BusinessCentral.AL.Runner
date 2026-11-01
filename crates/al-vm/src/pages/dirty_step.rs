@@ -109,6 +109,17 @@ impl Session {
                 _ => unsupported(format!("TestPage.{name} on a page whose save before a step failed (not pinned)")),
             };
         }
+        // New() on a part of a host opened with OpenNew whose row a SetValue already inserted: the host's edit is saved first (Y45SaveBeforeAction.al:1684
+        // Doc_New_HeadThenLine_Action `set line` `pM nn/ db=/0;eBM nn t=Yes db=/0;tM nn/ db=/0;eAM db=nn/0;lpN;lC 0;vDesc nl/`).
+        if name == PageMethod::New && !Rc::ptr_eq(&top, st) {
+            let stored_new = {
+                let h = top.borrow();
+                h.open && h.mode == PageMode::New && h.dirty && !h.draft && h.cursor == Cursor::Row
+            };
+            if stored_new {
+                self.save_row(&top)?;
+            }
+        }
         if name == PageMethod::Next && self.is_card(st) && self.refused_entry_held(st) {
             return Ok(Value::Boolean(false));
         }

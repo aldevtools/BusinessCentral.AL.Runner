@@ -98,3 +98,12 @@ fn a_refused_entry_holds_the_next_step() {
         "Validation error for Field: Qty,  Message = 'Qty must not be negative.'|"
     );
 }
+
+// :1684 Doc_New_HeadThenLine_Action: New() on the part saves the new host row a SetValue inserted.
+#[test]
+fn a_part_new_saves_the_inserted_new_host_first() {
+    assert_eq!(
+        step("DocNewHeadThenLine"),
+        "pM nn/ db=/0;eBM nn t=Yes db=/0;tM nn/ db=/0;eAM db=nn/0;lpN;lC 0;vDesc nl/"
+    );
+}
