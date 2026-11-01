@@ -3,6 +3,8 @@
 //! `1()` and `FILTER()` on a Text, Date or Integer field set a filter BC writes back as `==` and that keeps every row;
 //! `CONST()` on a Text field selects the blank value. `CONST()` on an Integer is an Evaluate error, read by the parser
 //! (types/lt-evaluate-format-lasterror-setview/P86SetView.al:139). Other field types keep the parser's refusal.
+//! `1(==)` and `FILTER(==)`, the text GetView writes for that filter, are the same filter when set again; `CONST(==)` on a
+//! Text field is the literal text `==` (Y51SetViewShapes.al:269-345, SetView_DoubleEquals*).
 
 use crate::Session;
 use al_builtins::filter::FilterExpr;
@@ -19,13 +21,19 @@ impl Session {
         value: &str,
         runtime: bool,
     ) -> Result<Option<FilterExpr>, Signal> {
-        if !runtime || !value.trim().is_empty() {
+        let value = value.trim();
+        if !runtime {
             return Ok(None);
         }
+        let literal = match value {
+            "" => "''",
+            "==" => "'=='",
+            _ => return Ok(None),
+        };
         Ok(match (kind, ty) {
             ("1" | "FILTER", RtType::Text(_) | RtType::Date | RtType::Integer) => Some(FilterExpr::EmptyViewValue),
             ("CONST", RtType::Text(_)) => Some(
-                self.parse_filter_text("''", ty)
+                self.parse_filter_text(literal, ty)
                     .map_err(|e| Signal::Unsupported(format!("SetView: {e}")))?,
             ),
             _ => None,
