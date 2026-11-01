@@ -1605,7 +1605,7 @@ impl Session {
                     // A Blob of a stored row read without CalcFields: a record's own field answers HasValue true and its stream reads
                     // nothing (streams/TestInOutStream.al InOutStream_WriteText_BlobHasValue, streams/TestBlob.al
                     // Blob_Get_WithoutCalcFields_InStreamReadsEmpty), and the value FieldRef.Value hands out is an empty Blob:
-                    // HasValue No, Length 0, an empty text, after Get + RecordRef.GetTable and after RecordRef.Open + FindFirst
+                    // HasValue No, Length 0, an empty text (Format `*`), after Get + RecordRef.GetTable and after RecordRef.Open + FindFirst
                     // (recordref/lt-refs/RfTValues.al:QP_Blob_GetTable_ValueWithoutCalcFields, QP_Blob_OpenFind_ValueWithoutCalcFields).
                     // Microsoft's Temp Blob Impl.FromFieldRef relies on it (it asks HasValue, then CalcField).
                     if let Value::Blob(b) = &v {
@@ -1614,7 +1614,7 @@ impl Session {
                             !buf.loaded && !buf.bytes.is_empty() && !buf.temp_row
                         };
                         if unloaded {
-                            return Ok(Value::Blob(al_builtins::stream::new_blob()));
+                            return Ok(Value::Blob(al_builtins::stream::unread_content_blob()));
                         }
                     }
                     // A read loads a field the partial buffer left out (RecordRefIsDirtyEdges.al:IsDirty_SetLoadFields_ReadUnloadedThenCompare).

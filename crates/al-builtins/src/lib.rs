@@ -16,6 +16,7 @@ pub mod xmlport;
 
 pub mod assumptions;
 mod autoformat11;
+mod blob_compare;
 pub mod builtin_id;
 pub mod catalog;
 pub mod collation;

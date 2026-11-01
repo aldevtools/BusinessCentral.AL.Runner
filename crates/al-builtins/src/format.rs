@@ -523,7 +523,12 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                     if let Some(report) = pending {
                         crate::stream::note_pending_observation(report);
                     }
-                    (if buf.bytes.is_empty() { " " } else { "*" }).to_string()
+                    (if buf.bytes.is_empty() && !buf.unread_content {
+                        " "
+                    } else {
+                        "*"
+                    })
+                    .to_string()
                 }
             }
         }
@@ -1043,6 +1048,9 @@ fn format_time(ms_of_day: i64, standard: i32) -> Result<String, FormatFail> {
 /// (`2026-09-20T11:10:12.851Z`, no fraction when there are no milliseconds:
 /// types/TestFormatEvaluateTextContracts.al:Format_DateTime_StandardFormats). The session time zone
 /// is taken to be UTC.
+/// The years a short date shows with two digits (the en-US two-digit year window).
+const TWO_DIGIT_YEARS: std::ops::RangeInclusive<i32> = 1950..=2049;
+
 fn format_datetime(ms: i64, standard: i32) -> Result<String, FormatFail> {
     let day = ms.div_euclid(86_400_000);
     let in_day = ms.rem_euclid(86_400_000);
@@ -1053,17 +1061,13 @@ fn format_datetime(ms: i64, standard: i32) -> Result<String, FormatFail> {
         in_day / 1000 % 60,
         in_day % 1000,
     );
-    // The year 9999 shows four digits in format 0: the largest DateTime is `12/31/9999 11:59 PM` (types/lt-datetime/Format.al:377,
-    // 396). The other formats of that year are not pinned.
-    if y == 9999 && matches!(standard, 1..=3) {
-        return Err(FormatFail::Unsupported(format!(
-            "Format of a DateTime in the year 9999 with standard format {standard} (not pinned)"
-        )));
-    }
-    let date = if y == 9999 {
-        format!("{m:02}/{d:02}/{y}")
-    } else {
+    // The year has two digits from 1950 to 2049 and four otherwise (format 2 for 1753 to 5000, and formats 0 to 3 in 9998 and
+    // 9999: types/lt-y49-datetime-9999/Y49DateTime9999.al:64-209; the largest DateTime is `12/31/9999 11:59 PM`,
+    // types/lt-datetime/Format.al:377, 396).
+    let date = if TWO_DIGIT_YEARS.contains(&y) {
         format!("{m:02}/{d:02}/{:02}", y.rem_euclid(100))
+    } else {
+        format!("{m:02}/{d:02}/{y}")
     };
     Ok(match standard {
         0 | 2 => format!("{date} {}", format_time_12h(in_day)),
@@ -1334,10 +1338,11 @@ fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<Stri
         }
     };
     Ok(match standard {
-        // The year has two digits from 1931 to 2030 and four otherwise, so a text reads back into the same year
+        // The year has two digits from 1950 to 2049 and four otherwise
         // (controls/W2ValueControls.al:Date_SessionFormatTwoDigitYear_*: 1929 and 1930 give 10 characters, 1999
-        // to 2030 give 8, BC 27.5 and 29.0).
-        0 | 1 if (1931..=2030).contains(&y) => format!("{c}{m:02}/{d:02}/{yy:02}"),
+        // to 2030 give 8, BC 27.5 and 29.0; format 1: 1949 and 2050 four digits, 1950 and 2049 two,
+        // types/lt-y49-datetime-9999/Y49DateTime9999.al:172-209).
+        0 | 1 if TWO_DIGIT_YEARS.contains(&y) => format!("{c}{m:02}/{d:02}/{yy:02}"),
         0 | 1 => format!("{c}{m:02}/{d:02}/{y:04}"),
         2 => format!("{m:02}{d:02}{yy:02}{c}D"),
         3 => format!("{yy:02}/{m:02}/{d:02}"),

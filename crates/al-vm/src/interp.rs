@@ -1375,6 +1375,7 @@ impl Session {
                                             first_write_truncates: false,
                                             file: false,
                                             dotnet_view: 0,
+                                            unread_content: false,
                                         },
                                     )))
                                 }
