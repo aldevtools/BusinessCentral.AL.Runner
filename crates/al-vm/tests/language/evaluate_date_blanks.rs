@@ -25,6 +25,11 @@ codeunit 50774 C {
     begin
         Evaluate(X, 'ab');
     end;
+    procedure Df()
+    var X: DateFormula;
+    begin
+        Evaluate(X, 'zz');
+    end;
     procedure Bi()
     var X: BigInteger;
     begin
@@ -90,5 +95,13 @@ fn duration_char_and_biginteger_statements_raise_their_evaluate_errors() {
     assert_eq!(
         al_testkit::error_message(al_testkit::run_in(SRC, "C", "Bi")),
         "The value \"x\" can't be evaluated into type BigInteger."
+    );
+}
+
+#[test]
+fn a_dateformula_of_letters_that_are_no_time_unit_raises_the_time_unit_error() {
+    assert_eq!(
+        al_testkit::error_message(al_testkit::run_in(SRC, "C", "Df")),
+        "The date formula 'ZZ' should include a time unit.\\\\Time units can be: D,WD,W,M,Q, or Y.\\C, meaning current time unit based on date, can be specified as a prefix to the time unit."
     );
 }
