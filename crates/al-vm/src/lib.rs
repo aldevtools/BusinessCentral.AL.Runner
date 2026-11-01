@@ -40,6 +40,7 @@ mod companies;
 mod control_add_in;
 mod crm;
 mod dataset;
+mod dev_endpoint_ui;
 mod datatransfer;
 mod dispatch;
 pub mod dotnet;
@@ -1177,6 +1178,7 @@ impl Session {
                 scope: None,
                 page_handler_depth: 0,
                 sent_notifications: Vec::new(),
+                dev_endpoint: Default::default(),
             },
             pages: PageClients {
                 shown_frames: Vec::new(),

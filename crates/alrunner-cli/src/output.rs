@@ -296,6 +296,7 @@ pub fn json_tdd(results: &[&TestResult], exit_code: u8, wall_s: f64, tdd_stubs: 
         .map(|r| {
             let mut row = json_row(r.codeunit, &r.codeunit_name, &r.test, &r.outcome, &r.call_stack, r.time);
             add_stubs(&mut row, &r.stubs);
+            crate::dev_endpoint_ui::add_json(&mut row, &r.ui_answered);
             add_slept(&mut row, r.slept_ms);
             // A pass that ran through an unprobed assumption (additive: v2 readers ignore it); the matrix report shows
             // it as PASS* (ADR-052 3.6).
@@ -510,6 +511,7 @@ fn suites_of<'a>(
                             if !r.stubs.is_empty() {
                                 p.push(("stubbed".into(), r.stubs.join(", ")));
                             }
+                            p.extend(crate::dev_endpoint_ui::junit_property(r));
                             p
                         },
                     }
@@ -645,6 +647,7 @@ mod tests {
             captured: None,
             impact: Vec::new(),
             stubs: Vec::new(),
+            ui_answered: Vec::new(),
             slept_ms: 0,
             entered: Vec::new(),
             dotnet: false,

@@ -1521,8 +1521,8 @@ fn test_inner(
         ignore_permission_mock: a.ignore_permission_mock,
         // `ALRUNNER_REPORT_UNPINNED_ERRORS=1` (issue 6487, opt-in): an unpinned error text fails the test, marked.
         report_unpinned_errors: crate::unpinned::enabled(),
-        // `--permissions off` (ADR-062 section 5).
-        permissions_off: a.permissions_off,
+        permissions_off: a.permissions_off, // `--permissions off` (ADR-062 section 5).
+        dev_endpoint_ui: a.dev_endpoint_ui, // `--dev-endpoint-ui` (issue 3697): unhandled UI answered, flagged.
         perturb: Default::default(),
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: (a.run_selected_only && selection.active() && !a.execute).then(|| {
@@ -2292,12 +2292,12 @@ fn test_inner(
             peak_memory_mb().map_or(String::new(), |m| format!(", peak memory {m} MB"))
         );
     }
-    // `--tdd` (ADR-051 decision 8): v2's closing block on stderr, the stubs and the tests that ran one.
+    // `--dev-endpoint-ui` (issue 3697): a warning per answered UI call. `--tdd` (ADR-051 decision 8): v2's closing
+    // block on stderr, the stubs and the tests that ran one.
     let tdd_stubs: Option<&[String]> = a.tdd.then(|| rt.tdd_stubs());
-    if let Some(all) = tdd_stubs {
-        for line in output::tdd_block(&results, all) {
-            eprintln!("{line}");
-        }
+    let tdd = tdd_stubs.map(|all| output::tdd_block(&results, all)).unwrap_or_default();
+    for line in crate::dev_endpoint_ui::warnings(&results).into_iter().chain(tdd) {
+        eprintln!("{line}");
     }
     let mut code = output::exit_code(&counts, a.allow_not_run);
     if let Some(r) = &affected {

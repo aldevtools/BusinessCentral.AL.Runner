@@ -70,7 +70,7 @@ impl UiKind {
         }
     }
 
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             UiKind::Message => "Message",
             UiKind::Confirm => "Confirm",
@@ -304,6 +304,9 @@ impl Session {
             )));
         }
         let Some(h) = scope.handlers.iter_mut().find(|h| h.kind == kind) else {
+            if let Some(finals) = self.dev_endpoint_answer(kind, shown, &args) {
+                return Ok((Value::Boolean(true), finals));
+            }
             // Text and code: corpus handlers/TestUnhandledUiAndDialogDefaults.al:68-107 (ONE space
             // after the kind; Confirm quotes the question, StrMenu the options only).
             return Err(Signal::Error(Box::new(AlError {
