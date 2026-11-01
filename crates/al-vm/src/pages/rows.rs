@@ -1019,12 +1019,12 @@ impl Session {
         // window or not (pages/lt-testpage-list-rows/ListRowsOpenAG.al:OpenView_OnlyRec5Rows_ReadsAtOpen `1-5,1`,
         // OpenView_OnlyRec30Rows_ReadsAtOpen `1-20,1`; with both triggers: `1-5,1,1` then the current-record read).
         let agcr = self.declares(st, "onaftergetcurrrecord");
-        let single = !agcr && st.borrow().host.is_none() && end_reached;
+        let single = !agcr && !self.reads_as_part(st) && end_reached;
         // A view of one row without OnAfterGetCurrRecord is read once, on a page and in a part (pages/lt-ai-list-order/
         // AiListOrderTests.al:655 Next_OneRow_Plain `open` = `R:R1001`; pages/lt-part-subpageview-filter/PartViewFilter.al:317,
         // :336 `open-ConstTen` = `AGR(H1/10)` once).
         let one_row_read_once = walked == 0 && !agcr && end_reached;
-        if (walked > 0 || st.borrow().host.is_some()) && !single && !one_row_read_once {
+        if (walked > 0 || self.reads_as_part(st)) && !single && !one_row_read_once {
             self.page_trigger(st, "onaftergetrecord", vec![])?;
         }
         if std::mem::take(&mut st.borrow_mut().open_reads_above) {
@@ -1042,7 +1042,7 @@ impl Session {
         // `open`: rows 1 to 20, row 1, row 1). A list without the trigger reads 21 times: handlers/TestPageRuntimeContracts.al:
         // TestPage_List_OpenReads21Rows.
         if (end_reached || (opening && self.declares(st, "onaftergetcurrrecord")))
-            && st.borrow().host.is_none()
+            && !self.reads_as_part(st)
             && !one_row_read_once
         {
             self.page_trigger(st, "onaftergetrecord", vec![])?;
@@ -1239,7 +1239,7 @@ impl Session {
     /// FindLast, :180 a temporary list, :241 Get(5) `R:5..R:24;R:5;R:4..R:1;...`, :281 and :304 21 rows); `First` and `Last`
     /// then read on from the edge of the rows it holds (`PageState::moved_rec_open_partial`).
     fn read_rows_above_the_moved_rec(&mut self, st: &St, start: Vec<Value>, end_reached: bool) -> Result<(), Signal> {
-        if st.borrow().host.is_some() {
+        if st.borrow().host.is_some() && !st.borrow().part_on_host_row {
             return unsupported("the open read of a part on the row its OnOpenPage left Rec on (not pinned)");
         }
         let rec = self.page_rec(st);

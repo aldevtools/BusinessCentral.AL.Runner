@@ -433,3 +433,21 @@ fn placeholder_next_to_a_wildcard_stays_as_written() {
         ]
     );
 }
+
+/// onprem platform/lt-y35-stored-tables/Y35StoredTables.al:194-195, :210 (C303_Webhook_RowsAndWrites): `@%1` with a value
+/// that differs from the row only in case keeps no row; the `@` does not make the placeholder's value case-insensitive. The
+/// placeholder stays as written, as next to a wildcard (`@*%1*`, filters/W4Filters.al:662, :682); its read-back is a
+/// probes-needed row.
+#[test]
+fn at_sign_before_a_placeholder_keeps_it_as_written() {
+    let src = PH_WILD.replace(
+        "    procedure Forms(): Text",
+        "    procedure AtPlaceholder(): Text\n    begin\n        Add(1, 'ABC', 'abc', 18); Add(4, 'A', 'a', 80);\n        exit(Pat(3, '@%1', 'ABC') + '\\' + Pat(3, '@%1', 'abc'));\n    end;\n\n    procedure AtPlaceholderCode(): Text\n    begin\n        exit(Pat(2, '@%1', 'abc'));\n    end;\n\n    procedure Forms(): Text",
+    );
+    assert_eq!(
+        lines(run(&src, "AtPlaceholder")),
+        ["filter=[Txt: @%1] ids=", "filter=[Txt: @%1] ids="]
+    );
+    // On a Code field it is not pinned.
+    assert!(matches!(run(&src, "AtPlaceholderCode"), Err(Signal::Unsupported(_))));
+}

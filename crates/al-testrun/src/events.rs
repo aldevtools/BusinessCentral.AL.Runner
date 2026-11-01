@@ -44,6 +44,8 @@ pub struct TestEvent {
     pub captured: Option<CapturedAt>,
     /// `--tdd` (ADR-051 decision 5): the stubs that ran while the test ran, sorted (`TestResult::stubs`).
     pub stubs: Vec<String>,
+    /// `--dev-endpoint-ui`: the UI calls answered for the test (`TestResult::ui_answered`).
+    pub ui_answered: Vec<String>,
     /// The entry of the run the test ran for (`RunOptions::entries`), as the caller's hook sets it; `None` otherwise.
     pub entry: Option<usize>,
 }

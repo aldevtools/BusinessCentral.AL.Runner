@@ -336,6 +336,9 @@ pub struct TestResult {
     /// `--tdd` (ADR-051): the signatures of the stubs that ran while the test ran, sorted. A test with any is stubbed,
     /// whatever its outcome. Empty without `--tdd`.
     pub stubs: Vec<String>,
+    /// `--dev-endpoint-ui` (`RunOptions::dev_endpoint_ui`): the UI calls no handler took that got the dev-endpoint
+    /// answer, in order, each as `<call> <shown>: <answer>`. A test with any also hit the assumption `dev-endpoint-ui`.
+    pub ui_answered: Vec<String>,
     /// With `RunOptions::impact_trace`, for `--affected` (ADR-050): the workspace objects whose code the test ran
     /// (`affected::object_key`), sorted. The first test of a codeunit also holds what ran before it.
     pub entered: Vec<String>,
@@ -526,12 +529,10 @@ pub(crate) struct Unit {
     leak: Option<Arc<std::collections::BTreeSet<u32>>>,
     /// See `RunOptions::on_run_rows`.
     on_run_rows: OnRunRows,
-    /// See `RunOptions::ignore_permission_mock`.
-    ignore_permission_mock: bool,
+    /// See `session_flags.rs`.
+    flags: session_flags::SessionFlags,
     /// See `RunOptions::report_unpinned_errors`.
     report_unpinned_errors: bool,
-    /// See `RunOptions::permissions_off`.
-    permissions_off: bool,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -557,6 +558,8 @@ pub(crate) struct Scratch {
     traces: Vec<(String, Vec<String>)>,
     /// `--tdd`: the stubs each test reached (`TestResult::stubs`).
     stubbed: Vec<(String, Vec<String>)>,
+    /// `--dev-endpoint-ui`: the UI calls answered for each test (`TestResult::ui_answered`).
+    ui_answered: Vec<(String, Vec<String>)>,
     /// The time each test that slept asked `Sleep` for (`TestResult::slept_ms`).
     slept: Vec<(String, u64)>,
     /// With `trace`: the workspace objects each test entered and whether it ran DotNet (`TestResult::entered`).
@@ -574,12 +577,10 @@ pub(crate) struct Scratch {
     onrun_carry: bool,
     /// How the codeunit's `OnRun` shows in its rows (`RunOptions::on_run_rows`).
     on_run_rows: OnRunRows,
-    /// See `RunOptions::ignore_permission_mock`.
-    ignore_permission_mock: bool,
+    /// See `session_flags.rs`.
+    flags: session_flags::SessionFlags,
     /// See `RunOptions::report_unpinned_errors`.
     report_unpinned_errors: bool,
-    /// See `RunOptions::permissions_off`.
-    permissions_off: bool,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -664,9 +665,8 @@ fn run_unit(
             leak: u.leak.clone(),
             onrun_carry: u.onrun_carry,
             on_run_rows: u.on_run_rows,
-            ignore_permission_mock: u.ignore_permission_mock,
+            flags: u.flags,
             report_unpinned_errors: u.report_unpinned_errors,
-            permissions_off: u.permissions_off,
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
             ..Default::default()
@@ -710,6 +710,7 @@ fn run_unit(
             coverage,
             captured: None,
             stubs: Vec::new(),
+            ui_answered: Vec::new(),
             entry: None,
             slept_ms: 0,
         };
@@ -867,8 +868,11 @@ mod corpus;
 mod data_driven;
 mod grow;
 mod handlers;
+mod numbers_taken;
 mod run;
 mod runner_reset;
+mod session_flags;
+mod test_marks;
 #[cfg(test)]
 mod tests;
 pub(crate) mod written;
