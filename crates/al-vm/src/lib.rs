@@ -65,6 +65,7 @@ mod platform;
 mod profile;
 mod queries;
 mod recmeta;
+mod recordid_bookmark;
 mod recordref_copy;
 mod records;
 mod refs;

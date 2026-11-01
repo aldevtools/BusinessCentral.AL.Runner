@@ -1971,6 +1971,28 @@ pub fn evaluate_key_part(c: &mut dyn Ctx, ty: &crate::value::RtType, text: &str,
     }
 }
 
+/// The format number `Evaluate` reads `target` with, for the number given, or `None` where that number is not pinned for it.
+fn pinned_number(number: i64, target: &Value, variable_option: bool) -> Option<i64> {
+    let pinned = number == 0
+        || number == 9
+        // Number 2 is read for a DateFormula only, as number 0 (docs/probes-needed.md).
+        || (number == 2 && matches!(target, Value::DateFormula(_)))
+        || (matches!(number, 1 | 2) && matches!(target, Value::Text(_) | Value::Code(_)))
+        || (matches!(number, 1..=3) && matches!(target, Value::Duration(_)))
+        || matches!(target, Value::Date(..))
+        // An Option variable reads number 2 as 0 (types/lt-option-evaluate-captions/OptionEvaluateCaptions.al:270 FormatNumber
+        // `var 2 lower`).
+        || (number == 2 && variable_option && matches!(target, Value::Option(..)))
+        // Number 10 is the bookmark of a RecordId (`into_record_id`).
+        || (number == 10 && matches!(target, Value::Library(crate::library_kind::LibraryKind::RecordId, _)));
+    // A Text, an Integer and a Guid read number 10 as the default (types/lt-y49-recordid-format10/Y49RecordIdFormat10.al:265-301
+    // `text` `Yes [x]`, `integer` `Yes 12`, `guid`, also as a statement).
+    if number == 10 && matches!(target, Value::Text(_) | Value::Integer(_) | Value::Guid(_)) {
+        return Some(0);
+    }
+    pinned.then_some(number)
+}
+
 fn evaluate_with_max(
     c: &mut dyn Ctx,
     a: &mut [Value],
@@ -1992,21 +2014,11 @@ fn evaluate_with_max(
         Some(Value::Integer(n)) => i64::from(*n),
         Some(other) => return unsupported(format!("Evaluate format number {}", other.describe())),
     };
-    // Number 2 is read for a DateFormula only, as number 0 (docs/probes-needed.md).
-    if number != 0
-        && number != 9
-        && !(number == 2 && matches!(a[0], Value::DateFormula(_)))
-        && !(matches!(number, 1 | 2) && matches!(a[0], Value::Text(_) | Value::Code(_)))
-        && !(matches!(number, 1..=3) && matches!(a[0], Value::Duration(_)))
-        && !matches!(a[0], Value::Date(..))
-        // An Option variable reads number 2 as 0 (types/lt-option-evaluate-captions/OptionEvaluateCaptions.al:270 FormatNumber
-        // `var 2 lower`).
-        && !(number == 2 && variable_option && matches!(a[0], Value::Option(..)))
-    {
+    let Some(number) = pinned_number(number, &a[0], variable_option) else {
         return unsupported(format!(
             "Evaluate with format number {number} (not pinned by the corpus)"
         ));
-    }
+    };
     if matches!(&a[0], Value::Library(crate::library_kind::LibraryKind::FieldRef, _)) {
         return into_field_ref(c, a, number);
     }

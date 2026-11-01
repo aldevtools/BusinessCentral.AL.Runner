@@ -55,6 +55,12 @@ pub trait FormatCtx {
         let _ = (rec, key);
         None
     }
+    /// The types of the primary key fields of the table with object index `table`, for the bookmark of a RecordId; None where
+    /// the context does not know the program.
+    fn record_id_key_types(&self, table: u32) -> Option<Vec<crate::value::RtType>> {
+        let _ = table;
+        None
+    }
 }
 
 /// A context without the format region, for the plain en-US text a region then rewrites.
@@ -82,6 +88,9 @@ impl FormatCtx for WithoutRegion<'_> {
         key: usize,
     ) -> Option<Vec<i32>> {
         self.0.key_ref_fields(rec, key)
+    }
+    fn record_id_key_types(&self, table: u32) -> Option<Vec<crate::value::RtType>> {
+        self.0.record_id_key_types(table)
     }
     fn enum_caption_refused(&self, id: u32, ordinal: Option<i32>) -> Option<String> {
         self.0.enum_caption_refused(id, ordinal)
@@ -507,30 +516,10 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 )));
             }
         },
-        // A Blob shows `*` when it holds data and one space when it does not (record/
-        // TestFormatRecordContracts.al:132-136, the cleared record shows the blank form).
-        Value::Blob(b) => {
-            let buf = b.borrow();
-            // ADR-040: the text shows whether the buffer holds data, which a pending buffer cannot say.
-            match &buf.render_pending {
-                // Content carried unread in the company build is never empty (a re-encoded picture, a re-zipped package):
-                // it shows `*` (assumption `company-build-carried-content-not-empty`).
-                Some(report) if ctx.carries_unread() && crate::stream::is_carried_mark(report) => {
-                    crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
-                    "*".to_string()
-                }
-                pending => {
-                    if let Some(report) = pending {
-                        crate::stream::note_pending_observation(report);
-                    }
-                    (if buf.bytes.is_empty() && !buf.unread_content {
-                        " "
-                    } else {
-                        "*"
-                    })
-                    .to_string()
-                }
-            }
+        Value::Blob(b) => blob_text(b, ctx),
+        // The bookmark (`recordid_number`).
+        Value::Library(crate::library_kind::LibraryKind::RecordId, l) if standard == 10 => {
+            recordid_number::bookmark_text(&l.borrow(), ctx)?
         }
         Value::Date(0, _) | Value::Time(0) | Value::DateTime(0) => String::new(),
         Value::Date(day, closing) => format_date(*day, *closing, standard, ctx.language())?,
@@ -820,6 +809,32 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
 
 /// The value's type in a refusal text: a name, never the value's contents (a Record holds its
 /// whole row, filters and state, which made one refusal reason of a single test a page long).
+/// A Blob shows `*` when it holds data and one space when it does not (record/TestFormatRecordContracts.al:132-136, the cleared
+/// record shows the blank form).
+fn blob_text(b: &crate::stream::BlobRef, ctx: &dyn FormatCtx) -> String {
+    let buf = b.borrow();
+    // ADR-040: the text shows whether the buffer holds data, which a pending buffer cannot say.
+    match &buf.render_pending {
+        // Content carried unread in the company build is never empty (a re-encoded picture, a re-zipped package):
+        // it shows `*` (assumption `company-build-carried-content-not-empty`).
+        Some(report) if ctx.carries_unread() && crate::stream::is_carried_mark(report) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
+            "*".to_string()
+        }
+        pending => {
+            if let Some(report) = pending {
+                crate::stream::note_pending_observation(report);
+            }
+            (if buf.bytes.is_empty() && !buf.unread_content {
+                " "
+            } else {
+                "*"
+            })
+            .to_string()
+        }
+    }
+}
+
 fn type_phrase(v: &Value) -> String {
     let name = match v {
         Value::Null => "an unassigned Variant",
