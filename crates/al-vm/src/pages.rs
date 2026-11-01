@@ -179,6 +179,7 @@ mod draft;
 mod format;
 mod gotokey_find;
 mod open;
+mod page_var_view;
 mod pageops;
 mod refill;
 mod rows;

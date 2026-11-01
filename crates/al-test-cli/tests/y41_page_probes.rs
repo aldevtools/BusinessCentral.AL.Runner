@@ -128,3 +128,65 @@ codeunit 69413 T
 fn go_to_key_on_a_find_list_with_current_record_trigger_walks_past_the_window() {
     passes(&gk_source());
 }
+
+// G4-05: SetTableView hands a Page variable the marks and MarkedOnly of the record (the page shows only the marked rows, also for a
+// temporary record and with no mark at all), and SetSelectionFilter after LookupOK hands back the marked set; SetRecord hands no
+// marks over (Y41PageVarMarkedOnly.al:140 _Shown, :158 _SelectionAfter, :186 _FilterGroups, :222 _NoMarks, :240
+// PVM_SetRecord_MarkedOnly, :258 _TempRec).
+const PVM: &str = r#"
+table 69420 "PV Row" { fields { field(1; "No."; Code[20]) { } field(2; Group; Integer) { } field(3; Qty; Decimal) { } }
+    keys { key(PK; "No.") { Clustered = true; } } }
+codeunit 69421 "PV Log" { SingleInstance = true; var Buf: Text;
+    procedure Add(T: Text) begin if Buf <> '' then Buf += ';'; Buf += T; end;
+    procedure Take(): Text var R: Text; begin R := Buf; Buf := ''; exit(R); end; }
+page 69422 "PV List" { PageType = List; SourceTable = "PV Row"; Editable = false;
+    layout { area(Content) { repeater(Rows) { field(NoCtl; Rec."No.") { } } } }
+    trigger OnOpenPage() var L: Codeunit "PV Log"; begin
+        L.Add('open filters=' + Rec.GetFilters() + ' mo=' + Format(Rec.MarkedOnly()) + ' count=' + Format(Rec.Count()) + ' at=' + Rec."No."); end; }
+codeunit 69423 T
+{
+    Subtype = Test;
+    var L: Codeunit "PV Log";
+    local procedure Seed() var R: Record "PV Row"; i: Integer; begin R.DeleteAll();
+        for i := 1 to 6 do begin R."No." := 'R' + Format(i); R.Group := 1; if i > 4 then R.Group := 2; R.Qty := 10 * i; R.Insert(); end; end;
+    local procedure Mark(var R: Record "PV Row"; Keys: Text) var P: Text; begin foreach P in Keys.Split(',') do begin R.Get(P); R.Mark(true); end; end;
+    local procedure Walk(var P: TestPage "PV List") var S: Text; begin
+        S := 'at=' + P.NoCtl.Value() + ' shown='; if P.First() then repeat S += P.NoCtl.Value() + ','; until not P.Next(); L.Add(S); end;
+    local procedure Check(Got: Text; Want: Text) begin if Got <> Want then Error('got %1, want %2', Got, Want); end;
+    local procedure Describe(var R: Record "PV Row"): Text var S: Text; begin
+        S := R.GetFilters() + '|' + Format(R.MarkedOnly()) + '|' + Format(R.Count()) + '|';
+        if R.FindSet() then repeat S += R."No." + ','; until R.Next() = 0; exit(S); end;
+    [ModalPageHandler] procedure WalkCancel(var P: TestPage "PV List") begin Walk(P); P.Cancel().Invoke(); end;
+    [ModalPageHandler] procedure WalkR4Ok(var P: TestPage "PV List") begin Walk(P); L.Add('goto=' + Format(P.GoToKey('R4'))); P.OK().Invoke(); end;
+    [Test] [HandlerFunctions('WalkCancel')] procedure Shown() var R: Record "PV Row"; P: Page "PV List"; begin
+        Seed(); R.SetRange(Group, 1); Mark(R, 'R2,R4'); R.MarkedOnly(true); P.SetTableView(R); P.LookupMode(true);
+        Check(Format(P.RunModal()), 'LookupCancel');
+        Check(L.Take(), 'open filters=Marked: Yes, Group: 1 mo=Yes count=2 at=;at=R2 shown=R2,R4,'); end;
+    [Test] [HandlerFunctions('WalkR4Ok')] procedure SelectionAfter() var R: Record "PV Row"; R2: Record "PV Row"; P: Page "PV List"; begin
+        Seed(); R.SetRange(Group, 1); Mark(R, 'R2,R4'); R.MarkedOnly(true); P.SetTableView(R); P.LookupMode(true);
+        Check(Format(P.RunModal()), 'LookupOK'); L.Take();
+        P.SetSelectionFilter(R2); Check(Describe(R2), 'Marked: Yes, Group: 1|Yes|2|R2,R4,'); end;
+    [Test] [HandlerFunctions('WalkR4Ok')] procedure FilterGroups() var R: Record "PV Row"; R2: Record "PV Row"; P: Page "PV List"; begin
+        Seed(); R.FilterGroup(-1); R.SetFilter(Qty, '>=%1', 30); R.SetFilter(Group, '%1', 2); R.FilterGroup(2); R.SetRange(Group, 1);
+        if R.FindSet() then repeat R.Mark(true); until R.Next() = 0;
+        R.MarkedOnly(true); R.FilterGroup(0); P.SetTableView(R); P.LookupMode(true);
+        Check(Format(P.RunModal()), 'LookupOK');
+        Check(L.Take(), 'open filters=Marked: Yes mo=Yes count=2 at=;at=R3 shown=R3,R4,;goto=Yes');
+        P.SetSelectionFilter(R2); Check(Describe(R2), 'Marked: Yes|Yes|2|R3,R4,'); end;
+    [Test] [HandlerFunctions('WalkCancel')] procedure NoMarks() var R: Record "PV Row"; P: Page "PV List"; begin
+        Seed(); R.SetRange(Group, 1); R.MarkedOnly(true); P.SetTableView(R); P.LookupMode(true); P.RunModal();
+        Check(L.Take(), 'open filters=Marked: Yes, Group: 1 mo=Yes count=0 at=;at= shown='); end;
+    [Test] [HandlerFunctions('WalkCancel')] procedure SetRecordMarked() var R: Record "PV Row"; P: Page "PV List"; begin
+        Seed(); Mark(R, 'R2,R4'); R.MarkedOnly(true); R.Get('R4'); P.SetRecord(R); P.LookupMode(true); P.RunModal();
+        Check(L.Take(), 'open filters= mo=No count=6 at=R4;at=R4 shown=R1,R2,R3,R4,R5,R6,'); end;
+    [Test] [HandlerFunctions('WalkCancel')] procedure TempRec() var S: Record "PV Row"; R: Record "PV Row" temporary; P: Page "PV List"; begin
+        Seed(); if S.FindSet() then repeat R := S; R.Insert(); until S.Next() = 0;
+        R.SetRange(Group, 1); Mark(R, 'R2,R4'); R.MarkedOnly(true); P.SetTableView(R); P.LookupMode(true); P.RunModal();
+        Check(L.Take(), 'open filters=Marked: Yes, Group: 1 mo=Yes count=2 at=;at=R2 shown=R2,R4,'); end;
+}
+"#;
+
+#[test]
+fn a_page_variable_takes_the_marks_through_set_table_view_and_not_through_set_record() {
+    passes(PVM);
+}
