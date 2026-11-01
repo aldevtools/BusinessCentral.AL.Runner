@@ -607,3 +607,39 @@ fn under_runner_130450_a_number_a_test_took_reaches_the_later_codeunits() {
     let o = run(&restarted, false);
     assert!(not_run(outcome(&o, "RT1"), "Test Takes Next"), "{o:?}");
 }
+
+// A codeunit that joins the carry chain only because its tests take numbers carries the state it started from: the install
+// code already ran for it, and a later codeunit that starts from it must not run the install code again (an install that
+// inserts a row would fail on the duplicate key).
+const TEST_NEXT_AFTER_INSTALL: &str = r#"
+codeunit 50691 "Install Row"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() var Rows: Codeunit "Rows"; begin Rows.Put('INSTALL'); end;
+}
+codeunit 50687 "Makes Sequence"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    trigger OnRun() var V: BigInteger; begin NumberSequence.Insert('S2', 1, 1, false); V := NumberSequence.Next('S2', false); end;
+    [Test] procedure MX1() begin end;
+}
+codeunit 50688 "Takes Next"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure TX1() var V: BigInteger; begin V := NumberSequence.Next('S2', false); end;
+}
+codeunit 50689 "Reads Sequence"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure RX1() var Rows: Codeunit "Rows"; begin if NumberSequence.Current('S2', false) <> 2 then Error('current'); if Rows.Count() <> 1 then Error('rows %1', Rows.Count()); end;
+}
+"#;
+
+#[test]
+fn a_codeunit_in_the_chain_for_its_tests_numbers_does_not_run_the_install_again() {
+    let o = run(TEST_NEXT_AFTER_INSTALL, false);
+    assert_eq!(outcome(&o, "RX1"), &Outcome::Pass, "{o:?}");
+}

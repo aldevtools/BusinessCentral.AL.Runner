@@ -12,6 +12,7 @@ pub(super) fn left_after_tests(
     obj: &al_ir::Object,
     onrun_left: Option<Carried>,
     start: Option<al_vm::Baseline>,
+    skipped_installs: &[(std::collections::BTreeSet<u32>, String)],
 ) -> Option<Carried> {
     let has_onrun = obj
         .routines
@@ -19,13 +20,19 @@ pub(super) fn left_after_tests(
         .any(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun"));
     let mut left = match onrun_left {
         Some(left) => left,
-        None if !has_onrun => Carried {
-            baseline: Some(start?),
-            tables: Default::default(),
-            unfinished: None,
-            storage_why: None,
-            everything: false,
-        },
+        None if !has_onrun => {
+            // The install code already ran for this state, as for what an OnRun left (`run.rs`).
+            let mut baseline = start?;
+            baseline.workspace_installs = Some(skipped_installs.to_vec());
+            baseline.install_rows = Some(session.install_rows());
+            Carried {
+                baseline: Some(baseline),
+                tables: Default::default(),
+                unfinished: None,
+                storage_why: None,
+                everything: false,
+            }
+        }
         None => return None,
     };
     let Some(b) = left.baseline.as_mut() else {
