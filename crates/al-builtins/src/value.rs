@@ -453,6 +453,8 @@ pub struct PageState {
     pub open_reads_above: bool,
     /// The list opened on the row its OnOpenPage left Rec on (see `open_on_rec_moved_by_onopenpage`).
     pub opened_on_moved_rec: bool,
+    /// A list part opens on the row the host's code left its Rec on (`part_rec_row.rs`): its open read reads the rows above.
+    pub part_on_host_row: bool,
     /// The page's source is temporary and its OnOpenPage left Rec as it stood before (key, order, filters and row): the row
     /// was set before the open, for example by a procedure of the page variable (see `rec_moved_by_onopenpage`).
     pub onopenpage_kept_rec: bool,
@@ -919,6 +921,7 @@ impl PageState {
             landing_first: false,
             open_reads_above: false,
             opened_on_moved_rec: false,
+            part_on_host_row: false,
             onopenpage_kept_rec: false,
             open_rec_unpinned: None,
             run_page_link_opened: false,
