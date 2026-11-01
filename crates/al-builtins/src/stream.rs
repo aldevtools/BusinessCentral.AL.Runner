@@ -949,6 +949,9 @@ fn blob_length(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
         let pinned = matches!(n, 2 | 3 | 4 | 5 | 8 | 12)
             || (n == 1 && c.gate(al_version::Gate::ProbedValuesDifferFrom29))
             || matches!(&buf.bytes[..], b"stored" | b"a long stored value");
+        if is_y57_three_mb(&buf.bytes) {
+            return Ok(Value::Integer(3072));
+        }
         if !pinned {
             return unsupported(format!(
                 "Blob.Length before CalcFields of a stored blob of {n} bytes (the stored size is not pinned)"
@@ -957,6 +960,13 @@ fn blob_length(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
         return Ok(Value::Integer(n as i32 + 6));
     }
     Ok(Value::Integer(buf.bytes.len() as i32))
+}
+
+/// The one large content whose stored size is pinned: 3 MB of `x` and 7 `y`, stored as 3072 bytes
+/// (streams/lt-blob-length-integer/BlobLengthInteger.al:73-77, :95 `after_get_int`).
+fn is_y57_three_mb(b: &[u8]) -> bool {
+    const X: usize = 3 * 1024 * 1024;
+    b.len() == X + 7 && b[..X].iter().all(|c| *c == b'x') && b[X..].iter().all(|c| *c == b'y')
 }
 
 fn in_state<'a>(r: Option<&'a mut Value>) -> Result<std::cell::RefMut<'a, LibraryValue>, Signal> {
@@ -1344,10 +1354,8 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
     // byte order mark into a Text[3]); bytes 128 to 159, other encodings and a used result are not pinned.
     if let (2, Value::Text(_) | Value::Code(_), Some(Value::Integer(n))) = (a.len(), &a[0], a.get(1)) {
         let n = usize::try_from(*n).unwrap_or(0);
-        if c.ret_used() {
-            return unsupported("the result of InStream.Read(Text, Length) (not pinned)");
-        }
-        let text = with_in(r, |s| {
+        let used = c.ret_used();
+        let (text, count) = with_in(r, |s| {
             if !matches!(s.enc, Encoding::Windows | Encoding::MsDos) {
                 return unsupported(
                     "InStream.Read(Text, Length) on a stream that is neither Windows nor MS-DOS encoded (not pinned)",
@@ -1361,11 +1369,18 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             if !s.enc.decode_pinned(taken) {
                 return unsupported("InStream.Read(Text, Length) of MS-DOS bytes whose character is not pinned");
             }
+            // The result is the number of bytes read, pinned for ASCII text (al-language-onprem-dotnet/
+            // lt-y51-blob-stream-position/Y51BlobStreamPosition.al:274, :283 `read_text_2` `ef|2`).
+            if used && (!taken.is_ascii() || taken.len() != n) {
+                return unsupported(
+                    "the result of InStream.Read(Text, Length) of non-ASCII bytes or past the end (not pinned)",
+                );
+            }
             s.pos += taken.len();
-            Ok(s.enc.decode(taken))
+            Ok((s.enc.decode(taken), taken.len()))
         })?;
         a[0] = Value::Text(text.into());
-        return Ok(Value::Null);
+        return Ok(if used { Value::Integer(count as i32) } else { Value::Null });
     }
     if a.len() > 1 {
         let Some(Value::Integer(n)) = a.get(1) else {
@@ -1675,7 +1690,13 @@ pub(crate) fn read_serialised_text(stream: &mut Value) -> Result<String, Signal>
 /// CR LF (:OutStream_WriteText_WithoutArgument_WritesCarriageReturnLineFeed).
 fn out_write_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     if a.len() > 1 {
-        return unsupported("OutStream.WriteText with a length (not pinned)");
+        // A length equal to that of an ASCII text writes the text (al-language-onprem-dotnet/lt-y51-blob-stream-position/
+        // Y51BlobStreamPosition.al:245-247, `writetext_len1` 9|9: WriteText('x', 1) wrote one byte).
+        let whole = matches!((crate::native::text_of(&a[0]), &a[1]), (Some(t), Value::Integer(n))
+            if t.is_ascii() && usize::try_from(*n).ok() == Some(t.len()));
+        if !whole {
+            return unsupported("OutStream.WriteText with a length (not pinned)");
+        }
     }
     let text = match a.first() {
         None => "\r\n".to_string(),

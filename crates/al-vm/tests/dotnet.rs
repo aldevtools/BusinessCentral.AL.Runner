@@ -3516,3 +3516,40 @@ fn a_position_set_on_a_stream_over_an_instream_and_the_stream_assigned_back() {
     let _ = host;
     assert_eq!(text(r), "2|-1|cdef|abcdef");
 }
+
+// Y51BlobStreamPosition.al:224-254 (BlobStream_Position_AfterWrites, writer Y57): before any .NET read or write, Position and
+// Length of a stream over an OutStream follow every AL write.
+#[test]
+fn position_and_length_follow_al_writes_before_any_dotnet_write() {
+    let host = no_host();
+    let r = run(
+        &host,
+        &format!("{STREAM_VARS} By: Byte; N: Integer;"),
+        "B.Data.CreateOutStream(O); S := O; T := Format(S.Position) + '|' + Format(S.Length) + ';'; \
+         O.WriteText('abc'); T += Format(S.Position) + '|' + Format(S.Length) + ';'; By := 139; O.Write(By); \
+         T += Format(S.Position) + '|' + Format(S.Length) + ';'; N := 1; O.Write(N); \
+         T += Format(S.Position) + '|' + Format(S.Length) + ';'; O.WriteText('x', 1); \
+         exit(T + Format(S.Position) + '|' + Format(S.Length));",
+        ": Text",
+    );
+    assert_eq!(text(r), "0|0;3|3;4|4;8|8;9|9");
+}
+
+// Y51BlobStreamPosition.al:256-291 (BlobStream_Position_AfterReads): Position follows the AL reads, Read(Text, 2) answers 2;
+// a Position set after the end reads back as set, EOS stays Yes, and the next ReadText reads nothing and leaves Position at the end.
+#[test]
+fn position_follows_al_reads_and_a_set_after_the_end_does_not_restart() {
+    let host = no_host();
+    let r = run(
+        &host,
+        &format!("{STREAM_VARS} By: Byte; N: Integer; T2: Text;"),
+        "B.Data.CreateOutStream(O); O.WriteText('abcdefghij'); B.Data.CreateInStream(I); S := I; I.Read(By); \
+         T := Format(S.Position) + ';'; N := I.ReadText(T2, 3); T += Format(S.Position) + '|' + T2 + '|' + Format(N) + ';'; \
+         N := I.Read(T2, 2); T += Format(S.Position) + '|' + T2 + '|' + Format(N) + ';'; \
+         N := I.ReadText(T2); T += Format(S.Position) + '|' + T2 + '|' + Format(N) + '|' + Format(I.EOS()) + ';'; \
+         S.Position := 2; T += Format(S.Position) + '|' + Format(I.EOS()) + ';'; \
+         N := I.ReadText(T2); exit(T + Format(S.Position) + '|' + T2 + '|' + Format(N));",
+        ": Text",
+    );
+    assert_eq!(text(r), "1;4|bcd|3;6|ef|2;10|ghij|4|Yes;2|Yes;10||0");
+}
