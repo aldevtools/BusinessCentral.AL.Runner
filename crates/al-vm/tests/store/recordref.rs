@@ -880,3 +880,25 @@ codeunit 50100 C { procedure Run() var RR: RecordRef; begin RR.Open(2000000297);
     assert!(run(Some("OnPrem")).is_ok());
     assert!(matches!(run(None), Err(Signal::Unsupported(_))));
 }
+
+/// Printer (2000000039) is refused to a Cloud-target app: `RecordRef.Open` raises the compilation-target error
+/// (platform/lt-y21-env-columns/Y21EnvColumns.al:43-50 Y21_Printer_RecordRefRefused). Another target is not pinned.
+#[test]
+fn recordref_open_of_printer_is_refused_to_a_cloud_app() {
+    let src = r#"
+table 2000000039 Printer { fields { field(1; ID; Text[250]) { } } keys { key(PK; ID) { } } }
+codeunit 50100 C { procedure Run() var RR: RecordRef; begin RR.Open(2000000039); end; }"#;
+    let run = |target: Option<&str>| {
+        let mut l = al_testkit::compile(src);
+        for a in &mut std::sync::Arc::make_mut(&mut l.program).apps {
+            a.target = target.map(String::from);
+        }
+        al_testkit::Built::new(l).run("Run")
+    };
+    assert_eq!(
+        al_testkit::error_message(run(Some("Cloud"))),
+        "You cannot open record 2000000039 from a RecordRef data type when you are using target Cloud."
+    );
+    assert!(matches!(run(Some("OnPrem")), Err(Signal::Unsupported(_))));
+    assert!(matches!(run(None), Err(Signal::Unsupported(_))));
+}
