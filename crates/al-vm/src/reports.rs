@@ -617,14 +617,11 @@ impl Session {
                     Some(Value::Boolean(b)) => Some(*b),
                     Some(other) => return unsupported(format!("{id} with RequestWindow {}", other.describe())),
                 };
-                match args.get(2) {
-                    None | Some(Value::Boolean(false)) => {}
-                    Some(other) => {
-                        return unsupported(format!(
-                            "{id} with SystemPrinter {} (printing is not supported)",
-                            other.describe()
-                        ));
-                    }
+                // SystemPrinter `true` runs as `false`: the request page with its handler, OK, Cancel, a ReportHandler, SaveAsXml
+                // (report/lt-report-run-system-printer/Y43SystemPrinterRequestPage.al, ReportRunSystemPrinter.al:110-150; onprem
+                // report/lt-y43-sp-saveasxml/Y43SystemPrinterSaveAsXml.al).
+                if let Some(other) = args.get(2).filter(|v| !matches!(v, Value::Boolean(_))) {
+                    return unsupported(format!("{id} with SystemPrinter {}", other.describe()));
                 }
                 // For the static RunModal only `true` on a report that shows its page, and `false` hiding the page, are
                 // pinned (handlers/TestReportRequestPageSaveValues.al:211, handlers/TestReportRunExecution.al:152). `true` on a
