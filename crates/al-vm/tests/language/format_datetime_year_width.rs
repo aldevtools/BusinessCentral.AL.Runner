@@ -49,3 +49,36 @@ fn format_3_of_a_datetime_in_a_variant_does_not_exist() {
         "Standard format number 3 does not exist for the type 'Variant'."
     );
 }
+
+const DF: &str = r#"
+codeunit 50779 D {
+    procedure Format2(): Text
+    var F: DateFormula;
+    begin
+        Evaluate(F, '<-1W>');
+        exit(Format(F, 0, 2));
+    end;
+    procedure Format1(): Text
+    var F: DateFormula;
+    begin
+        Evaluate(F, '<-1W>');
+        exit(Format(F, 0, 1));
+    end;
+}
+"#;
+
+/// Format 0 and 9 of a DateFormula are pinned (misc/lt-system-functions/RandomFormat.al:484-505); Microsoft's Retention Period
+/// Impl. writes format 2, which BC shows with the angle brackets (`<-1W>`, System Application Test, Retention Period Test;
+/// assumption date-formula-format-two-brackets). Format 1 is not pinned and refused.
+#[test]
+fn format_2_of_a_date_formula_is_bracketed() {
+    assert_eq!(al_testkit::text(al_testkit::run_in(DF, "D", "Format2")), "<-1W>");
+}
+
+#[test]
+fn format_1_of_a_date_formula_is_refused() {
+    match al_testkit::run_in(DF, "D", "Format1") {
+        Err(al_builtins::native::Signal::Unsupported(r)) => assert!(r.contains("DateFormula"), "{r}"),
+        other => panic!("{other:?}"),
+    }
+}

@@ -526,9 +526,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         Value::Time(t) => format_time(t - 1, standard)?,
         Value::DateTime(t) => format_datetime(t - 1, standard)?,
         Value::Duration(ms) => format_duration(*ms, standard, ctx.language())?,
-        // A formula prints without its angle brackets (types/TestDateRoundFormatStringContracts.al:
-        // DateFormula_Evaluate_ThenFormat_PrintsTheNormalizedFormula).
-        Value::DateFormula(f) => crate::datefns::formula_text(f),
+        Value::DateFormula(f) => date_formula_text(f, standard)?,
         // A Version reads `major.minor.build.revision` (session/TestBCPlatformContracts.al:120-136
         // compares the formatted AppVersion with the manifest's `1.0.0.0`).
         Value::Library(crate::library_kind::LibraryKind::Version, _) if standard == 9 => {
@@ -832,6 +830,25 @@ fn blob_text(b: &crate::stream::BlobRef, ctx: &dyn FormatCtx) -> String {
             })
             .to_string()
         }
+    }
+}
+
+/// A formula prints without its angle brackets in formats 0 and 9 (types/TestDateRoundFormatStringContracts.al:
+/// DateFormula_Evaluate_ThenFormat_PrintsTheNormalizedFormula; misc/lt-system-functions/RandomFormat.al:484-505). Format 2 of a
+/// formula that is not empty shows the brackets: not pinned, Microsoft's System Application Test, Retention Period Test
+/// (codeunit 138700, the *DateFormulaTranslation tests) needs it (assumption `date-formula-format-two-brackets`). The other
+/// numbers are not pinned and are refused.
+fn date_formula_text(f: &str, standard: i32) -> Result<String, FormatFail> {
+    let text = crate::datefns::formula_text(f);
+    match standard {
+        0 | 9 => Ok(text),
+        2 if !text.is_empty() => {
+            crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaFormat2Brackets);
+            Ok(format!("<{text}>"))
+        }
+        n => Err(FormatFail::Unsupported(format!(
+            "Format of a DateFormula with standard format {n} (not pinned)"
+        ))),
     }
 }
 

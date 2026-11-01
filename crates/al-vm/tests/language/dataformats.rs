@@ -1230,13 +1230,13 @@ fn evaluate_into_an_enum_reads_the_xml_ordinal_and_member_names() {
 #[test]
 fn evaluate_a_date_formula_with_format_number_2() {
     // System Application stores `Format(DateFormula, 0, 2)` and reads it back with `Evaluate(.., 2)`
-    // ("Reten. Pol. Allowed Tbl. Impl."). The formula text is the same as in format 0, which
-    // types/TestDateFormulaContracts.al:21-139 pins; the runtime has the English formula letters only.
+    // ("Reten. Pol. Allowed Tbl. Impl."). Format 2 shows the formula in angle brackets (assumption
+    // date-formula-format-two-brackets, System Application Test, Retention Period Test).
     let t = text_of(
         "F: DateFormula; G: DateFormula; R: Boolean;",
         "Evaluate(F, '<-1Y>', 2); R := Evaluate(G, Format(F, 0, 2), 2); exit(Format(R) + Format(G, 0, 2) + Format(F, 0, 2));",
     );
-    assert_eq!(t, "Yes-1Y-1Y");
+    assert_eq!(t, "Yes<-1Y><-1Y>");
 }
 
 #[test]
