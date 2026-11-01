@@ -9,6 +9,7 @@
 //! A provider reads the compiled program, never the OS (ADR-006). Every observable rule carries
 //! the corpus line that pins it; a column or a shape nothing pins is refused, not guessed.
 
+mod application_row;
 mod apps;
 
 /// The platform table Media Resources (`al_builtins::platform::REGISTRY`).
@@ -18,6 +19,7 @@ const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
 const TENANT_REPORT_LAYOUT_OVERRIDE: u32 = 2_000_000_248;
 pub(crate) mod coverage;
 mod date;
+mod feature_key;
 mod fields;
 pub(crate) use fields::note_field_row_system_id;
 pub(crate) use fields::user_name_system_field;
@@ -36,6 +38,7 @@ pub(crate) mod profiles;
 pub(crate) mod ranges;
 mod reports;
 mod seed;
+mod tenant_media_row;
 mod windows_language_rows;
 pub(crate) use permissions::{RawSet, inherent_attribute, object_grants, raw_sets, table_inherent};
 pub(crate) use seed::SESSION_USER_FULL_NAME;
@@ -392,8 +395,8 @@ impl Providers {
     }
 
     /// One `Tenant Media` row per imported media object, in id order: ID, Description, Content, Mime
-    /// Type, Height, Width and File Name (empty), as the importing methods leave them (corpus
-    /// media/PXMediaFileName.al, media/TestMediaSetPersistence.al:180-207).
+    /// Type, Height, Width and File Name, as the importing methods leave them (corpus
+    /// media/PXMediaFileName.al, media/TestMediaSetPersistence.al:180-207; `tenant_media_row::columns`).
     fn tenant_media_rows(&self, t: &TableDef) -> Vec<mat::Entry> {
         let objects = self.media.objects.borrow();
         let mut ids: Vec<_> = objects.keys().copied().collect();
@@ -403,15 +406,10 @@ impl Providers {
                 let o = &objects[&id];
                 let mut row = blank(t);
                 row[pos(t, 1)] = Value::Guid(id);
-                // The four argument import: what the file name changes in this row (its File Name, and
-                // the Description and Mime Type the platform derives from it when they are empty) is not
-                // pinned (docs/probes-needed.md, `Media.ImportStream(.., FileName)`).
-                if !o.file_name.is_empty() {
-                    return mat::Entry::poisoned(
-                        row,
-                        "a Tenant Media row of a media imported with a file name: its File Name, Description and Mime Type are not pinned".into(),
-                    );
-                }
+                let (description, mime, file_name) = match tenant_media_row::columns(o) {
+                    Ok(c) => c,
+                    Err(why) => return mat::Entry::poisoned(row, why),
+                };
                 if self.media.outside_tenant.borrow().contains(&id) {
                     return mat::Entry::poisoned(
                         row,
@@ -422,12 +420,13 @@ impl Providers {
                 }
                 // ADR-044: the picture was never produced; its content, MIME type and size are unknown.
                 if let Some(what) = &o.pending {
-                    let al_builtins::native::Signal::Unsupported(why) = al_builtins::stream::render_pending_error(what) else {
+                    let al_builtins::native::Signal::Unsupported(why) = al_builtins::stream::render_pending_error(what)
+                    else {
                         unreachable!("render_pending_error is a refusal")
                     };
                     return mat::Entry::poisoned(row, why);
                 }
-                row[pos(t, 2)] = Value::Text(o.description.clone().into());
+                row[pos(t, 2)] = Value::Text(description.into());
                 let blob = al_builtins::stream::new_blob();
                 al_builtins::stream::write_bytes(&blob, &o.bytes);
                 if al_builtins::media::jpg_holding_png(o) {
@@ -438,7 +437,7 @@ impl Providers {
                     blob.borrow_mut().render_pending = Some(al_builtins::stream::MEDIA_PNG_STORED_REENCODED.into());
                 }
                 row[pos(t, 3)] = Value::Blob(blob);
-                row[pos(t, 4)] = Value::Text(o.mime.clone().into());
+                row[pos(t, 4)] = Value::Text(mime.into());
                 row[pos(t, 5)] = Value::Integer(o.height);
                 row[pos(t, 6)] = Value::Integer(o.width);
                 if let (Some(file), Some(p)) = (
@@ -451,8 +450,17 @@ impl Providers {
                         }
                     };
                 }
+                if let Some(p) = t.fields.iter().position(|f| f.name.eq_ignore_ascii_case("File Name"))
+                    && !file_name.is_empty()
+                {
+                    row[p] = Value::Text(file_name.into());
+                }
                 // The row names the session company (platform/W6TenantMedia.al:TenantMedia_RowAfterImportStream).
-                if let Some(p) = t.fields.iter().position(|f| f.name.eq_ignore_ascii_case("Company Name")) {
+                if let Some(p) = t
+                    .fields
+                    .iter()
+                    .position(|f| f.name.eq_ignore_ascii_case("Company Name"))
+                {
                     row[p] = Value::Text(self.ident.company.clone().into());
                 }
                 mat::Entry::ok(row)
@@ -643,7 +651,6 @@ impl Providers {
             Virtual::FeatureKey => host_tables::feature_key_rows(t, self.engine().target.as_ref()),
             Virtual::LanguageSelection => host_tables::language_selection_rows(t, self.engine().target.as_ref()),
             Virtual::Key => fields::key_rows(self, t),
-            Virtual::IntelligentCloud => Vec::new(),
             Virtual::Integer | Virtual::Date | Virtual::WindowsLanguage | Virtual::LicensePermission => {
                 unreachable!("generated, never listed")
             }
@@ -823,7 +830,10 @@ impl VirtualTables for Providers {
             Virtual::EventSubscription => {
                 Ok(self.with_event_stats(t, self.listed(t, Virtual::EventSubscription)?.get(t, pk)?))
             }
-            Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.get(t, pk),
+            Virtual::FeatureKey => {
+                let listing = self.feature_key_listing(store, cx, t)?;
+                feature_key::get_ignoring_case(&listing, t, pk)
+            }
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.get(t, pk),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.get(t, pk),
             Virtual::Field => Ok(self.field_get_by_key(t, pk)?.map(|r| fields::field_get(t, r))),

@@ -63,6 +63,7 @@ mod permissions;
 mod platform;
 mod profile;
 mod queries;
+mod read_only_tables;
 mod recmeta;
 mod recordref_copy;
 mod records;

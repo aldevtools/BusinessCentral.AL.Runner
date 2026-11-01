@@ -1969,8 +1969,8 @@ fn code_coverage_tests_run_method_id_is_the_one_number_of_a_test_procedure() {
 
 /// Published Application.Description (15) holds the manifest's description as UTF-8 text (onprem
 /// session/PZPublishedApplicationColumns.al:55, :59). An app whose manifest description is not known (here the System app,
-/// whose source carries no manifest) is refused rather than answered blank, and so is a read of the row of the Application
-/// aggregate, which the program has no app for.
+/// whose source carries no manifest) is refused rather than answered blank, and so is the Description of the row of the
+/// Application aggregate, which the program has no app for.
 #[test]
 fn published_application_description_is_the_manifest_text() {
     let mut src = String::from(
@@ -1980,7 +1980,7 @@ fn published_application_description_is_the_manifest_text() {
     A.CalcFields(Description); if not A.Description.HasValue() then Error('no value');
     A.Description.CreateInStream(InS, TextEncoding::UTF8); InS.ReadText(T, 40); if T <> 'Ground-up test suite covering the in-sco' then Error(T); end;
   [Test] procedure NotKnown() var A: Record "Published Application"; begin A.SetRange(Name, 'System'); A.FindFirst(); A.CalcFields(Description); if A.Description.HasValue() then; end;
-  [Test] procedure ApplicationRow() var A: Record "Published Application"; begin A.SetRange(ID, 'c1335042-3002-4257-bf8a-75c898ccb1b8'); if A.FindFirst() then; end;
+  [Test] procedure ApplicationRow() var A: Record "Published Application"; begin A.SetRange(ID, 'c1335042-3002-4257-bf8a-75c898ccb1b8'); A.FindFirst(); A.CalcFields(Description); if A.Description.HasValue() then; end;
   [Test] procedure OtherName() var A: Record "Published Application"; begin A.SetRange(Name, 'main'); if A.Count() <> 1 then Error('count'); end; }"#,
     );
     src.push('\n');
@@ -1995,8 +1995,9 @@ fn published_application_description_is_the_manifest_text() {
     let why = not_run(&o, "NotKnown");
     assert!(why.contains("Description"), "{why}");
     // The Application aggregate has no app in the program; a tier always publishes it (PZPublishedApplicationColumns.al:58).
+    // Its row is listed, but the content of its Description is not pinned (application_row.rs).
     let why = not_run(&o, "ApplicationRow");
-    assert!(why.contains("Application app"), "{why}");
+    assert!(why.contains("Description") && why.contains("Application app"), "{why}");
     passes(&o, "OtherName");
 }
 
