@@ -45,6 +45,7 @@ pub mod pinned_columns;
 pub mod platform;
 pub mod platform_native;
 pub mod querybuiltins;
+pub mod record_into_recordref;
 pub mod record_op;
 pub mod refs;
 pub mod sessionfns;

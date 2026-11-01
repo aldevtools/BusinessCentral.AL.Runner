@@ -988,7 +988,7 @@ impl Session {
             // direction and current row as Record.Copy does; a target that was never opened raises "The record is
             // not open." (RecordNotOpened); ShareTable is accepted only for two temporary records, which then share
             // the table (types/PWMisc.al:RecordRef_Copy_*, records/W4SortKeys.al:RecordRef_Ascending, BC 27.5 and
-            // 29.0). A Record as the source is not pinned.
+            // 29.0). A Record as the source: `recordref_copy::copy_source_record`.
             "Copy" => {
                 let dst = match &*lib.borrow() {
                     LibraryValue::RecordRef(r) => r.clone(),
@@ -1007,9 +1007,7 @@ impl Session {
                         LibraryValue::RecordRef(r) => r.clone(),
                         _ => return unsupported("RecordRef.Copy from a RecordRef that is not open (not pinned)"),
                     },
-                    other => {
-                        return unsupported(format!("RecordRef.Copy from {} (not pinned)", other.describe()));
-                    }
+                    other => crate::recordref_copy::copy_source_record(other, &dst)?,
                 };
                 if src.borrow().table != dst.borrow().table {
                     return unsupported("RecordRef.Copy between two tables (not pinned)");
@@ -2242,15 +2240,5 @@ fn record_method(method: &str) -> RecordOp {
 /// `CalcFields`: a `CalcField` through the ref loads that copy and leaves the record's Blob unloaded
 /// (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:369, `Temp Blob`.FromRecord, 'row after from record').
 fn own_unloaded_blobs(copy: &mut al_builtins::value::RecordState) {
-    for v in &mut copy.fields {
-        if let Value::Blob(b) = v {
-            let unloaded = {
-                let b = b.borrow();
-                b.db_row && !b.loaded
-            };
-            if unloaded {
-                *b = al_builtins::stream::copy_blob_db_row(b);
-            }
-        }
-    }
+    al_builtins::record_into_recordref::own_unloaded_blobs(copy);
 }

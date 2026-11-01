@@ -400,7 +400,7 @@ impl Session {
     /// The field a view names: by name or `Field<n>`; failing that by caption, which is what
     /// `GetView` writes; a name wins over a caption (record/lt-setview-caption/SetViewByCaption.al: SetView_CaptionInWhere
     /// `name_beta_is_also_a_caption`, SetView_CaptionInSorting).
-    fn view_field(&self, t: &TableDef, name: &str) -> Result<usize, Signal> {
+    pub(crate) fn view_field(&self, t: &TableDef, name: &str) -> Result<usize, Signal> {
         if let Some(p) = field_by_name(t, name) {
             return Ok(p);
         }
@@ -452,10 +452,13 @@ impl Session {
             match word.as_str() {
                 "VERSION" => {}
                 "SORTING" => {
-                    let wanted = inner
-                        .split(',')
-                        .map(|n| self.view_field(t, n.trim()))
-                        .collect::<Result<Vec<_>, _>>()?;
+                    let Some(wanted) = self.view_sorting_fields(t, inner, view, runtime)? else {
+                        key = Some(0);
+                        adhoc = None;
+                        sorting_len = 1;
+                        rest = after.trim();
+                        continue;
+                    };
                     sorting_len = wanted.len();
                     // Fields no key starts with order the rows by themselves, as SetCurrentKey does (a view that
                     // GetView wrote for such a key sets it back). Not pinned for SetView; Microsoft's tests set views
@@ -482,11 +485,15 @@ impl Session {
                     order_dirs = Some(dirs);
                 }
                 "WHERE" => {
-                    for item in split_top(inner, ',') {
+                    let items = split_top(inner, ',');
+                    let alone = items.len() == 1;
+                    for item in items {
                         let (field, cond) = item
                             .split_once('=')
                             .ok_or_else(|| Signal::Unsupported(format!("view condition `{item}`")))?;
-                        let pos = self.view_field(t, field.trim())?;
+                        let Some(pos) = self.view_where_field(t, field.trim(), cond, runtime, alone)? else {
+                            continue;
+                        };
                         let cond = cond.trim();
                         let open = cond
                             .find('(')
@@ -623,7 +630,7 @@ impl Session {
 /// BC's error for a view that does not parse: a carriage return and a backslash join the
 /// sentence to the view text (record/TestRecordViewCopyMarkContracts.al:130,
 /// SetView_ReplacesTheFilters_KeepsTheDirection_AndRejectsGarbage).
-fn invalid_view(view: &str) -> Signal {
+pub(crate) fn invalid_view(view: &str) -> Signal {
     Signal::Error(Box::new(al_builtins::native::AlError {
         message: format!("Invalid expression of type: table view.{}{view}", crate::records::BR),
         code: "DB:Ok".into(),

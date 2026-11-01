@@ -234,7 +234,7 @@ impl Session {
     /// IsExpanded reads which (pages/lt-ah-pages/AhPageTests.al:950-961 Walk, :986-993 Tree_ThroughPageRun `T1 T5` -> `T1 T2 T4 T5`
     /// -> `T1 T5`, GoToKey of a hidden child `No`). A row's parent is the nearest row before it, in the page's order, with a lower
     /// level. Pinned only for a page without row triggers, a primary key of one field, expanding a row with children and collapsing
-    /// an expanded one; anything else is refused.
+    /// an expanded one, and a second Expand of either; anything else is refused.
     pub(in crate::pages) fn tree_expand(&mut self, st: &St, on: bool) -> Result<(), Signal> {
         for t in ["onfindrecord", "onnextrecord"] {
             if self.declares(st, t) {
@@ -278,6 +278,9 @@ impl Session {
                 (false, Some(i)) => {
                     s.expanded.remove(i);
                 }
+                // A second Expand(true) or Expand(false) on a row with children changes nothing (pages/lt-page-runtime/P82TestPage.al:
+                // 283-289 Tree_Expand_IsExpanded, :336-341 Tree_Rows_WhileCollapsed; a page without row triggers).
+                (true, Some(_)) | (false, None) if has_children && !row_triggers => return Ok(()),
                 _ => {
                     return unsupported(
                         "Expand(true) on a tree row without children or one already expanded, or Expand(false) on a row not expanded (not pinned)",

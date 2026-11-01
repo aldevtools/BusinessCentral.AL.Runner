@@ -1040,7 +1040,8 @@ fn as_text(s: &Scalar) -> Result<Value, Signal> {
         Scalar::Raw(t) => Ok(Value::Text(t.clone().into())),
         // A Byte, an Option, a Duration, a Date, a Time and a DateTime read as the text they are written as, without the quotes
         // (json/lt-json-typed-overloads/P101ValueSetValue.al: P101_SetValue_Byte :120-125, _Option :268-271, _Date :299-304,
-        // _Time :332-337, _DateTime :360-363, _Duration :391-396). A Time or DateTime with milliseconds is not pinned.
+        // _Time :332-337, _DateTime :360-363, _Duration :391-396). A Time or DateTime with milliseconds reads as written too
+        // (json/lt-json-overloads/P88DateTimeReadback.al:121-210: `14:30:15.123`, `2024-03-15T14:30:15.1230000Z`).
         Scalar::Val(
             v @ (Value::Byte(_)
             | Value::Option(..)
@@ -1048,9 +1049,7 @@ fn as_text(s: &Scalar) -> Result<Value, Signal> {
             | Value::Date(..)
             | Value::Time(_)
             | Value::DateTime(_)),
-        ) if !matches!(v, Value::Time(t) if *t > 0 && (*t - 1) % 1000 != 0)
-            && !matches!(v, Value::DateTime(t) if *t > 0 && (*t - 1) % 1000 != 0) =>
-        {
+        ) => {
             let mut out = String::new();
             write(&new_handle(JsonNode::Scalar(Scalar::Val(v.clone()))), &mut out)?;
             let text = out.strip_prefix('"').and_then(|t| t.strip_suffix('"')).unwrap_or(&out);
@@ -1106,9 +1105,11 @@ fn as_date(s: &Scalar) -> Result<Value, Signal> {
             Some(d) => Ok(Value::Date(d, false)),
             None => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavDate")),
         },
-        Scalar::Val(Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_)) => {
-            Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavDate"))
-        }
+        // A Time or DateTime held reads as no Date (json/lt-json-overloads/P88DateTimeReadback.al:121-210, Time_Readback and
+        // DateTime_Readback `_asdate`).
+        Scalar::Val(
+            Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Time(_) | Value::DateTime(_),
+        ) => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavDate")),
         other => unsupported(format!(
             "reading {} as Date (conversion not pinned yet)",
             other.describe()
@@ -1123,9 +1124,10 @@ fn as_datetime(s: &Scalar) -> Result<Value, Signal> {
             Some(d) => Ok(Value::DateTime(d)),
             None => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavDateTime")),
         },
-        Scalar::Val(Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_)) => {
-            Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavDateTime"))
-        }
+        // A Date or Time held reads as no DateTime (P88DateTimeReadback.al:78-163, Date_Readback and Time_Readback `_asdatetime`).
+        Scalar::Val(
+            Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Date(..) | Value::Time(_),
+        ) => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavDateTime")),
         other => unsupported(format!(
             "reading {} as DateTime (conversion not pinned yet)",
             other.describe()
@@ -1135,14 +1137,18 @@ fn as_datetime(s: &Scalar) -> Result<Value, Signal> {
 
 fn as_time(s: &Scalar) -> Result<Value, Signal> {
     match s {
+        // An undefined Time is written `"00:00:00"` and reads back as midnight (json/lt-json-overloads/P88DateTimeReadback.al:
+        // 121-163 Time_Readback `time_blank_astime`).
+        Scalar::Val(Value::Time(0)) => Ok(Value::Time(1)),
         Scalar::Val(Value::Time(t)) => Ok(Value::Time(*t)),
         Scalar::Val(Value::Text(t)) => match crate::iso::parse_time(t) {
             Some(t) => Ok(Value::Time(t)),
             None => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavTime")),
         },
-        Scalar::Val(Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_)) => {
-            Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavTime"))
-        }
+        // A Date or DateTime held reads as no Time (P88DateTimeReadback.al:78-119, :166-210, `_astime`).
+        Scalar::Val(
+            Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Date(..) | Value::DateTime(_),
+        ) => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavTime")),
         other => unsupported(format!(
             "reading {} as Time (conversion not pinned yet)",
             other.describe()
