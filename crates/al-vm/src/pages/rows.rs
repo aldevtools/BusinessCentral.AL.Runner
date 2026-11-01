@@ -3516,7 +3516,7 @@ impl Session {
         // handlers/TestPageModalNewRowLine_Tests.al:164 NotEditable_RunModalById_HasNoNewRowLine): what Rec holds then is not
         // pinned (only GetRecord of a page variable after OK on an empty table is, errors/lt-ms-refusals-129/P129PageMisc.al:633
         // `id=0`), so a later use of Rec refuses. A partner test reached it.
-        let lookup_ok = matches!(answer, Value::Option(n, m) if m.get(*n as usize).is_some_and(|a| a == "LookupOK"));
+        let lookup_ok = matches!(answer, Value::Option(n, m) if m.get(*n as usize).is_some_and(|a| a == "LookupOK" || statement && a == "OK"));
         if let (true, false, Some(r), None) = (lookup_ok, statement, handed, picked.as_ref()) {
             if self.has_source(st) && !self.page_view_has_rows(st) {
                 r.borrow_mut().unpinned_buffer = Some(
@@ -3527,10 +3527,10 @@ impl Session {
         }
         if let (true, Some(r), Some(fields)) = (closed_on_row, handed, picked) {
             if r.borrow().fields.len() == fields.len() {
-                // Called as a statement, whether Rec takes the row the page closed on is not pinned: when that row is not the
-                // one Rec holds, any later use of Rec refuses (docs/probes-needed.md, lane-lookups-30).
+                // Called as a statement, Rec keeps its values after OK (pages/lt-y41-page-probes/Y41RunModalStatementRec.al:195, :283,
+                // :298); after Cancel on another row that is not pinned, a later use of Rec refuses (docs/probes-needed.md:679).
                 if statement {
-                    if !Self::same_values(&r.borrow().fields, &fields) {
+                    if !lookup_ok && !Self::same_values(&r.borrow().fields, &fields) {
                         r.borrow_mut().unpinned_buffer = Some(
                             "Rec after Page.RunModal(Id, Rec) called as a statement, closed on another row (whether Rec takes that row is not pinned)",
                         );
