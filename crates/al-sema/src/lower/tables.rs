@@ -71,6 +71,7 @@ impl Lowerer<'_> {
         let mut arms = Vec::new();
         for a in parsed {
             let mut conditions = Vec::new();
+            let mut field_qualified = false;
             for (k, (name, value)) in a.conditions.iter().enumerate() {
                 let Some(pos) = field_pos(own, name) else {
                     return Vec::new();
@@ -100,6 +101,18 @@ impl Lowerer<'_> {
                 // (record/lt-sc-enum-const-relation/ScEnumConstRelation.al:52-53, :101-140). Another enum is not pinned.
                 let raw = a.condition_raw.get(k).map(String::as_str).unwrap_or_default();
                 let qualified = match (&own.fields[pos].ty, raw.split_once("::")) {
+                    // `const(Type::"Item Attribute")`, qualified with the condition's own Enum field, names the member as
+                    // `const("Item Attribute")` does. Not pinned yet (al-runner issue 6677, the reporter's run on BC; assumption
+                    // relation-const-field-qualified). The same form on an Option field is not pinned and stays not understood.
+                    (Ty::Enum(_), Some((qualifier, member)))
+                        if qualifier
+                            .trim()
+                            .trim_matches('"')
+                            .eq_ignore_ascii_case(name.trim().trim_matches('"')) =>
+                    {
+                        field_qualified = true;
+                        Some(member.trim().trim_matches('"').to_string())
+                    }
                     (Ty::Enum(field_enum), Some((qualifier, member))) => {
                         let parts: Vec<String> = vec![qualifier.trim().trim_matches('"').to_string()];
                         let same = matches!(
@@ -224,6 +237,9 @@ impl Lowerer<'_> {
                     let mut v = Vec::new();
                     if quoted {
                         v.push(al_builtins::assumptions::Assumption::TableRelationQuotes);
+                    }
+                    if field_qualified {
+                        v.push(al_builtins::assumptions::Assumption::RelationConstFieldQualified);
                     }
                     v
                 },
