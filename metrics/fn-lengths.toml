@@ -10,7 +10,7 @@
 "crates/al-deps/src/artifact.rs::load_with_artifacts" = 441
 "crates/alrunner-cli/src/args.rs::parse" = 506
 "crates/alrunner-cli/src/run.rs::test_inner" = 1560
-"crates/al-sema/src/check/infer.rs::infer" = 499
+"crates/al-sema/src/check/infer.rs::infer" = 498
 "crates/al-sema/src/check/mod.rs::check_inner" = 273
 "crates/al-sema/src/check/object.rs::object_ctx" = 271
 "crates/al-sema/src/lower/assemble.rs::build_shared" = 603
@@ -25,13 +25,13 @@
 "crates/al-testrun/src/impact_static.rs::build" = 332
 "crates/al-testrun/src/reach.rs::report" = 315
 "crates/al-testrun/src/runtime/corpus.rs::compile_suites_once" = 446
-"crates/al-testrun/src/runtime/corpus.rs::run_compiled_kept" = 1044
-"crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 863
-"crates/al-version/src/gates.rs::evidence" = 583
+"crates/al-testrun/src/runtime/corpus.rs::run_compiled_kept" = 1030
+"crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 859
+"crates/al-version/src/gates.rs::evidence" = 581
 "crates/al-vm/src/exec/compile.rs::expr_into" = 319
 "crates/al-vm/src/exec/run.rs::run_range" = 348
 "crates/al-vm/src/pages/actions.rs::action_invoke_body" = 484
-"crates/al-vm/src/pages/controls.rs::control_set_value_now" = 887
+"crates/al-vm/src/pages/controls.rs::control_set_value_now" = 885
 "crates/al-vm/src/pages/controls.rs::test_control_op" = 503
 "crates/al-vm/src/pages/open/page_open.rs::open_page_as" = 311
 "crates/al-vm/src/pages/pageops.rs::test_page_op" = 276
