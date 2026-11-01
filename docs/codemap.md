@@ -83,7 +83,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `filter.rs` (626): Record filters as data (shared by the VM and the store). Entry: `FilterExpr` 8, `parse_filter` 70, `parse_filter_with` 79, `FieldFilter` 371.
 - `format.rs` (619): `Format(Value [, Length] [, FormatNumber])`. Entry: `FormatCtx` 8, `FormatFail` 15, `try_format` 29, `format_value` 37.
 - `formatstr.rs` (389): `Format(Value, Length, FormatString)`. Entry: `format_with_string` 50.
-- `http.rs` (85): `HttpRequestMessage`: `Method`, `SetRequestUri`, `GetRequestUri`; nothing is sent. Entry: `native_for` 71.
+- `http/mod.rs` (464): HttpClient, HttpRequestMessage, HttpResponseMessage, HttpHeaders, HttpContent, Cookie. Submodules: `content`, `cookies`, `dates`, `headers`, `header_rules`, `messages`, `send`, `uri`. Entry: `native_for` (mod.rs).
 - `iso.rs` (121): ISO 8601 text to AL date/time values (JSON strings, XML-format Evaluate). Entry: `days_in_month` 11, `parse_date` 21, `parse_time` 36, `parse_datetime` 56.
 - `json.rs` (1415): JsonObject, JsonArray, JsonToken and JsonValue. Entry: `Handle` 17, `JsonCell` 21, `JsonNode` 27, `Scalar` 34.
 - `lib.rs` (39): Crate root of the AL standard library: values, builtins, catalog.
@@ -107,7 +107,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `value.rs` (859): Runtime values (ADR-010). Entry: `Value` 70, `RtType` 26, `Instance` 605, `DotNetObject` 133.
 - `version.rs` (33): The Version type. Entry: `native_for` 20.
 - `wsac.rs` (119): `WebServiceActionContext`. Entry: `native_for` 104.
-- `xml.rs` (2642): XmlDocument, XmlElement, XmlAttribute, XmlText, XmlCData, XmlComment, XmlProcessingInstruction, XmlDeclaration, XmlNode,. Entry: `XmlCell` 23, `XData` 29, `escape_text` 774, `escape_attr` 786.
+- `xml/mod.rs` (252): XmlDocument, XmlElement, XmlAttribute, XmlText, XmlCData, XmlComment, XmlProcessingInstruction, XmlDeclaration, XmlNode,. Submodules: `dom` (node store), `parse`, `write`, `write_to`, `xpath`, `select`, `queries`, `read`, `read_tree`, `tree`, `edit`, `attrs`, `names`, `node_types`, `lists`, `manager`. Entry: `native_for` (mod.rs), `XmlCell`, `XData` (dom.rs), `escape_text`, `escape_attr` (write.rs).
 - `xmlport.rs` (286): The document side of XmlPort import and export (Format = Xml). Entry: `Elem` 12, `Node` 19, `ReadFailure` 58, `parse` 66.
 
 ### al-data
@@ -335,7 +335,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `state.rs` (117): Sub-states of `Session`: `TxState`, `UiState`, `PageClients`, `EventState`, `CoverageState`, `ReportState` (the .NET host state is `dotnet::DotNetState`).
 - `pages.rs` (432): The page test client (ADR-012): shared helpers, page triggers and events, the handle to a control. The rest is split by topic into `pages/`.
 - `pages/pageops.rs` (538): The `TestPage.*` and `TestField.*` methods. Entry: `page_op`, `test_page_op`.
-- `pages/open.rs` (891): Opening and closing a page, rows loaded on open. Entry: `page_open`, `open_page_as`, `page_close`, `close_with`.
+- `pages/open/mod.rs` (20): Opening and closing a page, rows loaded on open. Submodules: `page_open`, `close`, `landing`, `part_links`, `tree`, `values`. Entry: `page_open`, `open_page_as` (page_open.rs), `page_close`, `close_with` (close.rs).
 - `pages/rows.rs` (976): The row window, navigation, `GoToKey`, `Find`, modal answers. Entry: `populate_window`, `page_move`, `page_go_to_key`.
 - `pages/draft.rs` (304): New rows, drafts, saving a row, activating a control.
 - `pages/controls.rs` (588): Writing a control and the `TestField` methods. Entry: `control_set_value`, `test_control_op`.
@@ -379,7 +379,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `transactions.rs` (446): Transactions as AL code sees them. Entry: `TxModel` 15, `CommitBehavior` 27, `codeunit_run` 193.
 - `ui.rs` (347): Dialogs raised by the code under test (`Message`, `Confirm`, `StrMenu`) and the test handler functions that answer them. Entry: `UiKind` 18, `UiHandler` 66, `dispatch_ui` 158, `dispatch_ui_returning` 163.
 - `views.rs` (510): Filter and view text: SetView, GetFilters, filter group text, AL property views (`property_view`). Entry: `parse_filter_text` 28, `filter_text` 50, `get_filters` 117, `property_view`.
-- `xmlports.rs` (1304): XmlPort import and export (Format = Xml).
+- `xmlports/mod.rs` (678): XmlPort import and export (Format = Xml). Submodules: `export_xml`, `import_xml`, `import_record`, `pass`, `sequence`, `shape`, `text`, `value`.
 
 ## Flows
 
