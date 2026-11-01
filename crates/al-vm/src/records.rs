@@ -779,7 +779,7 @@ impl Session {
     }
 
     /// A record handle holding `fields` and otherwise `rec`'s state: an `xRec`.
-    fn xrec_handle(rec: &Rec, fields: Vec<Value>) -> Rec {
+    pub(crate) fn xrec_handle(rec: &Rec, fields: Vec<Value>) -> Rec {
         let mut st = state_with_fields(rec, fields);
         // The variable's xRec keeps its globals from one operation to the next (ADR-021).
         st.globals = rec.borrow().globals.xrec();
@@ -1129,8 +1129,7 @@ impl Session {
                     // OnDelete trigger, then DB:RecordChanged; OnAfterDeleteEvent never runs and the row stays. When another
                     // variable Modified that row in the new transaction (the Modify rule writes the buffer), the row is deleted
                     // and the trigger and the events run as for a fresh buffer (record/lt-sb-stale-own-modify/
-                    // Y32StaleDeleteTests.al Y32_2C_*, Y32_3C_* on corpus branch al-runtime-rs-staging-y32, al-runner issue
-                    // 6546; assumption `stale-delete-event-before-record-changed` until the file is on master). A table
+                    // Y32StaleDeleteTests.al Y32_2C_*, Y32_3C_*, al-runner issue 6546). A table
                     // extension's delete triggers and the OnDatabaseDelete global trigger are not pinned.
                     let own_insert = {
                         let r = rec.borrow();
@@ -1598,7 +1597,7 @@ impl Session {
         }
     }
 
-    fn run_trigger(&mut self, object: usize, routine: usize, rec: &Rec, xrec: Option<&Rec>) -> Result<(), Signal> {
+    pub(crate) fn run_trigger(&mut self, object: usize, routine: usize, rec: &Rec, xrec: Option<&Rec>) -> Result<(), Signal> {
         let entered = !self.dirty_frames.is_empty() && self.dirty_trigger_enter(rec, xrec);
         let r = self
             .call_on_record(object, routine, rec.clone(), xrec, Vec::new())
@@ -1769,7 +1768,7 @@ impl Session {
     }
 
     /// The error of a write through a stale buffer (record/TestRecordStaleBufferWrite.al).
-    fn record_changed(&self, t: &TableDef, rec: &Rec) -> Result<Signal, Signal> {
+    pub(crate) fn record_changed(&self, t: &TableDef, rec: &Rec) -> Result<Signal, Signal> {
         let identification = self.identification(t, &rec.borrow().fields)?;
         Ok(Signal::Error(Box::new(AlError {
             message: format!(
@@ -1943,9 +1942,7 @@ impl Session {
             // Two or three Commits after the buffer's own write, another variable wrote the row in the transaction the last
             // Commit closed, and the new transaction's only writes are Modifies of the buffer's row through other variables
             // (changed or not, once or twice), with no lock: written whole, the stale buffer winning, OnModify once with xRec the
-            // buffer (record/lt-sb-stale-own-modify/Y27StaleOtherVarTests.al Y27_2C_*, Y27_3C_* on corpus branch
-            // al-runtime-rs-staging-y27, al-runner issue 6522; assumption `stale-own-insert-two-commits-row-written` until
-            // the file is on master). Y27_3C_* writes the row in both transactions between, so three Commits need it written in
+            // buffer (record/lt-sb-stale-own-modify/Y27StaleOtherVarTests.al Y27_2C_*, Y27_3C_*, al-runner issue 6522). Y27_3C_* writes the row in both transactions between, so three Commits need it written in
             // the one before too; a transaction between that left the row alone stays refused below, as does a row last written
             // in the buffer's own transaction with an empty Commit after it.
             Some(o)
@@ -1957,9 +1954,6 @@ impl Session {
                     && committed.is_some_and(|c| c > self.tx.prior_committed_row_version)
                     && self.stale_row_modified_only(t, &company, pk) =>
             {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::StaleOwnInsertTwoCommitsRowWritten,
-                );
                 Ok(StaleVerdict::Written)
             }
             Some(o) if o.own_write && contact => unsupported(format!(
@@ -4337,7 +4331,7 @@ impl Session {
                     let (mine, theirs) = (rec.borrow().fields[i].clone(), row[i].clone());
                     let version = |v: &Value| if let Value::BigInteger(n) = v { *n } else { 0 };
                     if self.stale_verdict(&t, rec, &cx, &pk, version(&theirs), false)? == StaleVerdict::Refused {
-                        return Err(self.record_changed(&t, rec)?);
+                        return Err(self.stale_own_insert_modify_refused(&t, rec, run)?);
                     }
                     // The buffer still holds what its own last Modify wrote and a rollback undid that write: the Modify answers
                     // true and writes nothing, so the row keeps what the rollback restored (StaleBuffer.al:76-86); a buffer

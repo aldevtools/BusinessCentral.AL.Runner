@@ -72,6 +72,7 @@ mod reports;
 mod sessionops;
 mod sqlcount;
 mod sqltime;
+mod stale_own_modify;
 mod tasks;
 mod tenant_layout_cfg;
 mod tenant_layouts;
