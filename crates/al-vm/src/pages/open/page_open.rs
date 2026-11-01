@@ -5,9 +5,10 @@ use al_builtins::record_op::RecordOp;
 type TempRecPosition = (usize, bool, String, Vec<Value>);
 impl Session {
     pub(in crate::pages) fn page_open(&mut self, st: &St, mode: PageMode) -> Result<Value, Signal> {
-        // corpus testpageclose/TestPageClosingActions.al:19-24: an open variable cannot be opened.
+        // corpus testpageclose/TestPageClosingActions.al:19-24: an open variable cannot be opened; the code is
+        // TestPageAlreadyOpen (codeunit/lt-qu-commit-isolation/BlankKeyRowNextTest.al:274, F2_Read_CloseLeftOpen).
         if st.borrow().open {
-            return Err(error(ALREADY_OPEN));
+            return Err(error_code(ALREADY_OPEN, "TestPageAlreadyOpen"));
         }
         // OpenNew of a Worksheet fails with NotSupportedPageViewMode (corpus pageext/lt-bl-implicit-creation/
         // ImplicitCreation.al:308-318 Worksheet_OpenNew), before OnInit or OnOpenPage run (Y8OpenNewPageTypes.al:306-317,
