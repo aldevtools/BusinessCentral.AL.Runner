@@ -20,8 +20,9 @@ pub const FOLDER: &str = "tests/al-language/record/lt-y39-windows-language-table
 /// `Korean (South Korea)`), so serving the folder's rows loses a baseline case (QX_WindowsLanguage_ByAbbreviatedName_Part2)
 /// and fails three more. Held until the corpus holds those tests back as Linux suspects too; the generated file is then
 /// the empty table, and the runtime keeps its older rows.
-pub const HELD: Option<&str> =
-    Some("the folder's Windows/SaaS rows contradict older corpus tests that pin the Linux CI rows (al-runner issue 6558)");
+pub const HELD: Option<&str> = Some(
+    "the folder's Windows/SaaS rows contradict older corpus tests that pin the Linux CI rows (al-runner issue 6558)",
+);
 
 /// The field numbers of a row text, in order: every field of the table below the system fields.
 pub const FIELDS: [u32; 16] = [1, 2, 10, 11, 20, 21, 22, 23, 24, 25, 30, 31, 32, 33, 34, 35];
