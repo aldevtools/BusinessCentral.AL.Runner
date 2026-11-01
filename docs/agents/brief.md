@@ -29,6 +29,9 @@ on the main machine or as a remote worker (`docs/agents/remote-worker.md`).
   read a result. Do not write another compile-and-call helper. The tests of `al-vm` are five area binaries
   (`tests/{store,pages_ui,reporting,language,host}/main.rs` with one module per file) plus two that need a process of
   their own (`dotnet.rs`; `base_access_refused.rs` sets an environment variable): a new test file is a module of its area.
+  The tests of `al-test-cli` and `al-testrun` are one binary each (`tests/suite/main.rs`); a new test file is a module
+  there unless it must run by name (`--test NAME`), needs a feature, or needs a process of its own (see the head of
+  each `main.rs`).
 - **Keep files small.** `file_size_ratchet` (part of `cargo test -p al-test-cli`) fails when a Rust file under
   `crates/*/src` passes 3,000 lines, or when a file listed in `metrics/file-sizes.toml` grows past its cap.
   Put new code in a new module, not in a listed file. Never raise a cap or add a row: split the file (see
@@ -303,6 +306,13 @@ Run these in order. Do not skip any.
    folder it takes under a minute. Push only when it ends with "all checks passed".
    It does not replace `check.sh`, and it installs no git hook; `tools/prepush.sh -h`
    shows how to add one yourself.
+10. Open a feature pull request as a draft: `gh pr create --draft ...`. CI runs
+    no job on a draft (owner, 2026-11-01): the organisation's free plan runs at
+    most 20 Linux jobs at once, shared with the corpus repository, and a merge
+    train lands the feature pull requests later. Its pull request is opened
+    ready (no `--draft`), and that run is the full gate. To run CI on one
+    feature pull request anyway, mark it ready (`gh pr ready N`); a ready
+    pull request runs CI on every push, as before.
 
 ## Report
 

@@ -841,7 +841,7 @@ impl Session {
                 // loses baseline cases, so the earlier behavior stays: at open nothing more happens (handlers/
                 // TestPageActionRunObjectKindsPrecompiled_Tests.al:101, Base Application's Receivables-Payables); after a
                 // host move that left a shown part without a link alone, that part fills again, as every move made it do
-                // before (crates/al-test-cli/tests/list_read_order.rs, Microsoft's ERM Base Calendar 134233).
+                // before (crates/al-test-cli/tests/suite/list_read_order.rs, Microsoft's ERM Base Calendar 134233).
                 if skipped_unlinked && !hidden && !linked {
                     child.borrow_mut().refresh = false;
                     self.sync_part(st, i, &child)?;

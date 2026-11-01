@@ -192,7 +192,7 @@ stays a handle and every call on it goes to the sidecar.
 
 ### Conformance
 
-The differential test (`crates/al-test-cli/tests/dotnet_diff.rs`) covers every served member on every Windows id of the
+The differential test (`crates/al-test-cli/tests/suite/dotnet_diff.rs`) covers every served member on every Windows id of the
 table, on UTC, and on edge ticks (year 1, year 9999, leap days, DST switch instants of several zones); `inproc.txt`
 lists the members as before.
 
@@ -215,5 +215,5 @@ of the host, which the sidecar has and the stand-in does not claim to match.
 
 ### Conformance
 
-`crates/al-test-cli/tests/dotnet_diff.rs` calls `GetUtcOffset` on every id of the zone list (the stand-in must forward all
+`crates/al-test-cli/tests/suite/dotnet_diff.rs` calls `GetUtcOffset` on every id of the zone list (the stand-in must forward all
 but `UTC`) and on `UTC` and `utc` for every tick of the edge list, and compares each answer with the sidecar's.
