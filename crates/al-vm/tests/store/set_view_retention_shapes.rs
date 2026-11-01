@@ -145,3 +145,64 @@ codeunit 69992 D
     );
     assert_eq!(text(al_testkit::run_in(&src, "D", "F")), "|VERSION(1) SORTING(Field1)|3");
 }
+
+#[test]
+fn a_single_equals_value_raises_and_the_double_equals_view_round_trips_in_filter_group_10() {
+    // Y51SetViewShapes.al:284, :293 `text_single_eq`: `1(=)` raises "A value is expected after the '='." (InvalidFilterExpression).
+    match run("WHERE(Field4=1(=))") {
+        Err(Signal::Error(e)) => {
+            assert_eq!(e.message, "A value is expected after the '='.");
+            assert_eq!(e.code, "InvalidFilterExpression");
+        }
+        other => panic!("expected an error, got {other:?}"),
+    }
+    // :311-351 SetView_DoubleEquals_RoundTrip: the view GetView wrote for `1()` set again, also in filter group 10.
+    let src = format!(
+        r#"{TABLE}
+codeunit 69993 G
+{{
+    procedure F(): Text
+    var R: Record "SVR Row"; RR: RecordRef; RR2: RecordRef; V: Text; T: Text;
+    begin
+        R."Entry No." := 1; R.Insert(); R."Entry No." := 2; R.Insert(); R."Entry No." := 3; R.Insert();
+        RR.Open(69990); RR.SetView('WHERE(Field4=1())'); V := RR.GetView(false);
+        RR2.Open(69990); RR2.FilterGroup := 10; RR2.SetView(V);
+        T := V + '|' + RR2.GetView(false) + '|' + RR2.GetFilters() + '|' + Format(RR2.Count());
+        RR2.FilterGroup := 0; T += '|' + RR2.GetView(false);
+        RR2.FilterGroup := 10; RR2.SetView(''); exit(T + '|' + RR2.GetView(false) + '|' + Format(RR2.Count()));
+    end;
+}}
+"#
+    );
+    assert_eq!(
+        text(al_testkit::run_in(&src, "G", "F")),
+        "VERSION(1) SORTING(Field1) WHERE(Field4=1(==))|VERSION(1) SORTING(Field1) WHERE(Field4=1(==))|Description: ==|3|VERSION(1) SORTING(Field1)|VERSION(1) SORTING(Field1)|3"
+    );
+}
+
+#[test]
+fn setfilter_single_equals_on_text_raises_the_filter_error() {
+    // Y51SetViewShapes.al:344, :352 `setfilter_eq`.
+    let src = format!(
+        r#"{TABLE}
+codeunit 69994 E
+{{
+    procedure F()
+    var R: Record "SVR Row";
+    begin
+        R.SetFilter(Description, '=');
+    end;
+}}
+"#
+    );
+    match al_testkit::run_in(&src, "E", "F") {
+        Err(Signal::Error(e)) => {
+            assert_eq!(
+                e.message,
+                "The filter \"=\" is not valid for the Description field on the SVR Row table. A value is expected after the '='."
+            );
+            assert_eq!(e.code, "Filter:CSide");
+        }
+        other => panic!("expected an error, got {other:?}"),
+    }
+}

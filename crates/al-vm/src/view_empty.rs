@@ -25,6 +25,13 @@ impl Session {
         if !runtime {
             return Ok(None);
         }
+        // `1(=)` on a Text field raises (Y51SetViewShapes.al:284, :293 `text_single_eq`).
+        if value == "=" && matches!((kind, ty), ("1" | "FILTER", RtType::Text(_))) {
+            return Err(crate::transactions::al_error_code(
+                "A value is expected after the '='.",
+                "InvalidFilterExpression",
+            ));
+        }
         let literal = match value {
             "" => "''",
             "==" => "'=='",
@@ -38,5 +45,32 @@ impl Session {
             ),
             _ => None,
         })
+    }
+
+    /// `SetFilter` of `==` or `=` alone on a Text field, without placeholders: `==` keeps no filter (true), `=` raises the
+    /// filter error (record/lt-y51-setview-shapes/Y51SetViewShapes.al:343-352 `setfilter_eqeq`, `setfilter_eq`). Other texts:
+    /// false.
+    pub(crate) fn setfilter_equals_text(
+        &self,
+        t: &al_data::TableDef,
+        pos: usize,
+        text: &str,
+        nargs: usize,
+    ) -> Result<bool, Signal> {
+        if nargs > 2 || !matches!(t.fields[pos].ty, RtType::Text(_)) {
+            return Ok(false);
+        }
+        match text.trim() {
+            "==" => Ok(true),
+            "=" => Err(crate::transactions::al_error_code(
+                &format!(
+                    "The filter \"=\" is not valid for the {} field on the {} table. A value is expected after the '='.",
+                    self.field_caption(t, pos),
+                    self.caption(t)
+                ),
+                "Filter:CSide",
+            )),
+            _ => Ok(false),
+        }
     }
 }
