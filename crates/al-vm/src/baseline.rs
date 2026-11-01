@@ -17,6 +17,10 @@ pub struct Baseline {
     autoinc: std::collections::HashMap<(String, u32), i64>,
     isolated_storage: std::collections::HashMap<(String, String), (String, bool, bool)>,
     sequences: std::collections::HashMap<(String, String), crate::sessionops::Sequence>,
+    /// The sequences whose state here relies on a test's Delete being rolled back with its codeunit
+    /// ([`Session::carry_numbers_taken`]): a session that uses one marks the assumption. Not part of the bytes: such a
+    /// baseline stays on its thread.
+    sequences_rolled_back: std::collections::BTreeSet<(String, String)>,
     last_stamp: i64,
     /// The workspace app's own install codeunits ran once, before this capture (the runner does it once per run, as
     /// publishing an app does, not once per test codeunit): the tables of those that could not run, and why.
@@ -220,6 +224,7 @@ impl Baseline {
             autoinc,
             isolated_storage,
             sequences,
+            sequences_rolled_back: Default::default(),
             last_stamp,
             workspace_installs,
             company_built,
@@ -290,6 +295,7 @@ impl Session {
             autoinc: self.autoinc.clone(),
             isolated_storage: self.isolated_storage.clone(),
             sequences: self.sequences.clone(),
+            sequences_rolled_back: self.sequences_rolled_back.clone(),
             last_stamp: self.last_stamp,
             workspace_installs: None,
             company_built: false,
@@ -345,17 +351,27 @@ impl Session {
     /// Puts into `b` the numbers the session took since `b` from the sequences `b` holds. Under runner 130450 a test's
     /// `NumberSequence.Next` is not given back when the codeunit's writes are rolled back, while its new sequences and its
     /// isolated storage writes are (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage
-    /// :447-457). `None`: no number was taken. `Some(false)`: a sequence of `b` was changed otherwise (Restart, Delete),
-    /// which is not pinned; `b` is left as it was.
+    /// :447-457). A test's Delete of a sequence of `b`, and what it did with the name after (Insert, Next), is rolled
+    /// back too (corpus branch al-runtime-rs-staging-y56, codeunit/lt-seq-carry/SeqCarry.al:100-104 D1_Act, read by
+    /// D2_Act :164-165). `None`: no number was taken. `Some(false)`: a sequence of `b` was changed otherwise (Restart, or
+    /// Delete after numbers were taken from it or it was restarted), which is not pinned; `b` is left as it was.
     pub fn carry_numbers_taken(&self, b: &mut Baseline) -> Option<bool> {
         let mut taken = Vec::new();
+        let mut rolled_back = Vec::new();
         for (k, then) in &b.sequences {
+            if self.sequences.get(k) == Some(then) {
+                continue;
+            }
+            if let Some(before) = self.sequences_deleted.get(k) {
+                if before == then {
+                    rolled_back.push(k.clone());
+                    continue;
+                }
+                return Some(false);
+            }
             let Some(now) = self.sequences.get(k) else {
                 return Some(false);
             };
-            if now == then {
-                continue;
-            }
             let moved_on = now.increment == then.increment
                 && now.seed == then.seed
                 && match (then.last, now.last) {
@@ -368,10 +384,11 @@ impl Session {
             }
             taken.push((k.clone(), now.clone()));
         }
-        if taken.is_empty() {
+        if taken.is_empty() && rolled_back.is_empty() {
             return None;
         }
         b.sequences.extend(taken);
+        b.sequences_rolled_back.extend(rolled_back);
         Some(true)
     }
 
@@ -392,6 +409,8 @@ impl Session {
         self.isolated_storage = b.isolated_storage.clone();
         self.isolated_committed = b.isolated_storage.clone();
         self.sequences = b.sequences.clone();
+        self.sequences_deleted.clear();
+        self.sequences_rolled_back = b.sequences_rolled_back.clone();
         // The install ran on a clock that its own Sleep calls had moved forward (hours, in Business Central's install
         // code); the session starts on the real clock again, and a stamp must not stay ahead of it: a row inserted by the
         // first test would otherwise be stamped hours after CurrentDateTime (corpus record/TestSystemFieldStampsContracts.al:
@@ -464,6 +483,7 @@ mod tests {
             )]
             .into_iter()
             .collect(),
+            sequences_rolled_back: Default::default(),
             last_stamp: 639_277_389_274_520,
             workspace_installs: Some(vec![([50000_u32, 50001].into_iter().collect(), "why".to_string())]),
             company_built: true,

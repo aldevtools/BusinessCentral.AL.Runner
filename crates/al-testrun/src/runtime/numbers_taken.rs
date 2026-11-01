@@ -63,8 +63,8 @@ fn left_after_tests(
             left.everything = true;
             left.storage_why.get_or_insert_with(|| {
                 format!(
-                    "an earlier codeunit under runner 130450, {}, changed a number sequence other than by taking numbers \
-                     (Restart, Delete): what the later codeunits see of it is not pinned",
+                    "an earlier codeunit under runner 130450, {}, restarted a number sequence, or deleted one after \
+                     taking numbers from it: what the later codeunits see of it is not pinned",
                     obj.name
                 )
             });

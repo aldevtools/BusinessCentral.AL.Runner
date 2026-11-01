@@ -44,6 +44,26 @@ fn run(src: &str, required: bool) -> Vec<(u32, String, Outcome)> {
     out
 }
 
+fn assumptions_of(src: &str, test: &str) -> Vec<al_builtins::assumptions::Assumption> {
+    let rt = CorpusRuntime::run_suites_with(
+        vec![AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![("main.al".into(), format!("{ROWS}\n{src}"))],
+        }],
+        vec![al_sema::AppKind::Workspace],
+        &[],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions::default(),
+    );
+    let r = rt.results().iter().find(|r| r.test == test);
+    r.unwrap_or_else(|| panic!("no {test}")).assumptions.clone()
+}
+
 fn outcome<'a>(o: &'a [(u32, String, Outcome)], test: &str) -> &'a Outcome {
     &o.iter()
         .find(|(_, t, _)| t == test)
@@ -642,4 +662,66 @@ codeunit 50689 "Reads Sequence"
 fn a_codeunit_in_the_chain_for_its_tests_numbers_does_not_run_the_install_again() {
     let o = run(TEST_NEXT_AFTER_INSTALL, false);
     assert_eq!(outcome(&o, "RX1"), &Outcome::Pass, "{o:?}");
+}
+
+// Under runner 130450 a test that deletes an older sequence, or deletes it and inserts it again, has that rolled back with
+// the codeunit: the later codeunits see the sequence as it was (corpus branch al-runtime-rs-staging-y56,
+// codeunit/lt-seq-carry/SeqCarry.al:100-104 D1_Act, read by D2_Act :164-165, SaaS BC 29). A test that took numbers from the
+// sequence before it deleted it leaves what is not pinned: a later codeunit that can reach sequences is not run.
+const TEST_DELETE_130450: &str = r#"
+codeunit 50692 "Makes Sequences"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    trigger OnRun()
+    begin
+        NumberSequence.Insert('D', 1, 1, false);
+        NumberSequence.Insert('DI', 1, 1, false);
+        Commit();
+    end;
+    [Test] procedure MS1() begin end;
+}
+codeunit 50693 "Deletes"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure DL1()
+    begin
+        NumberSequence.Delete('D', false);
+        NumberSequence.Delete('DI', false);
+        NumberSequence.Insert('DI', 40, 1, false);
+        if NumberSequence.Current('DI', false) <> 40 then Error('reinserted');
+    end;
+}
+codeunit 50694 "Reads After Delete"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure RD1()
+    begin
+        if not NumberSequence.Exists('D', false) then Error('deleted');
+        if NumberSequence.Current('D', false) <> 1 then Error('current d %1', NumberSequence.Current('D', false));
+        if NumberSequence.Current('DI', false) <> 1 then Error('current di %1', NumberSequence.Current('DI', false));
+        if NumberSequence.Next('DI', false) <> 1 then Error('next di');
+    end;
+}
+"#;
+
+#[test]
+fn under_runner_130450_a_delete_a_test_made_is_rolled_back_for_the_later_codeunits() {
+    let o = run(TEST_DELETE_130450, false);
+    assert_eq!(outcome(&o, "DL1"), &Outcome::Pass, "{o:?}");
+    assert_eq!(outcome(&o, "RD1"), &Outcome::Pass, "{o:?}");
+    // Not on the pinned corpus yet (fast flow, al-runner issue 6638): the later test is a flagged pass.
+    let flagged = assumptions_of(TEST_DELETE_130450, "RD1");
+    assert_eq!(
+        flagged,
+        vec![al_builtins::assumptions::Assumption::SequenceDeleteRolledBackWithCodeunit]
+    );
+    let took_first = TEST_DELETE_130450.replace(
+        "NumberSequence.Delete('D', false);",
+        "if NumberSequence.Next('D', false) <> 1 then Error('next');\n        NumberSequence.Delete('D', false);",
+    );
+    let o = run(&took_first, false);
+    assert!(not_run(outcome(&o, "RD1"), "Deletes"), "{o:?}");
 }

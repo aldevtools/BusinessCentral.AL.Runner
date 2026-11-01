@@ -475,6 +475,11 @@ impl Session {
             _ => 1,
         };
         let key = self.sequence_key(args, scope)?;
+        if self.sequences_rolled_back.contains(&key) {
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::SequenceDeleteRolledBackWithCodeunit,
+            );
+        }
         let name = key.1.clone();
         // session/TestNumberSequenceRuntimeContracts.al:NumberSequence_MissingSequence_Texts: the name is
         // quoted and the code is `AL`.
@@ -512,7 +517,9 @@ impl Session {
             // Deleting a sequence that is not there is not an error
             // (error-handling/TestNumberSequenceTrappableErrors.al:117-126).
             "Delete" => {
-                self.sequences.remove(&key);
+                if let Some(before) = self.sequences.remove(&key) {
+                    self.sequences_deleted.entry(key).or_insert(before);
+                }
                 Ok(Value::Null)
             }
             "Current" => match self.sequences.get(&key) {

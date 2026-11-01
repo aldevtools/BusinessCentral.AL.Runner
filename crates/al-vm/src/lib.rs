@@ -704,6 +704,11 @@ pub struct Session {
     pub(crate) crm_stores: std::collections::HashMap<String, crm::CrmStore>,
     /// Number sequences by (company, name); a global sequence has an empty company.
     pub(crate) sequences: std::collections::HashMap<(String, String), sessionops::Sequence>,
+    /// Each sequence this session deleted, as it was just before its first `NumberSequence.Delete` (`numbers_taken.rs` in
+    /// al-testrun: what a codeunit under runner 130450 leaves of it).
+    pub(crate) sequences_deleted: std::collections::HashMap<(String, String), sessionops::Sequence>,
+    /// The sequences whose state relies on a Delete an earlier codeunit's test made being rolled back (`Baseline`).
+    pub(crate) sequences_rolled_back: std::collections::BTreeSet<(String, String)>,
     /// The one instance of each `SingleInstance = true` codeunit in this session.
     singletons: std::collections::HashMap<usize, Rc<RefCell<Instance>>>,
     pub(crate) store: al_data::memory::MemStore,
@@ -1137,6 +1142,8 @@ impl Session {
             gl_setup_written: false,
             setup_caption_read_early: false,
             sequences,
+            sequences_deleted: Default::default(),
+            sequences_rolled_back: Default::default(),
             table_connections: Default::default(),
             default_table_connection: Default::default(),
             crm_stores: Default::default(),
