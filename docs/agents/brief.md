@@ -303,6 +303,13 @@ Run these in order. Do not skip any.
    folder it takes under a minute. Push only when it ends with "all checks passed".
    It does not replace `check.sh`, and it installs no git hook; `tools/prepush.sh -h`
    shows how to add one yourself.
+10. Open a feature pull request as a draft: `gh pr create --draft ...`. CI runs
+    no job on a draft (owner, 2026-11-01): the organisation's free plan runs at
+    most 20 Linux jobs at once, shared with the corpus repository, and a merge
+    train lands the feature pull requests later. Its pull request is opened
+    ready (no `--draft`), and that run is the full gate. To run CI on one
+    feature pull request anyway, mark it ready (`gh pr ready N`); a ready
+    pull request runs CI on every push, as before.
 
 ## Report
 
