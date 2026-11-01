@@ -116,3 +116,19 @@ fn intelligent_cloud_is_an_ordinary_table() {
     IC."Primary Key" := 'LTY48'; IC.Insert(); if IC2.Count() <> 1 then Error('other key'); end; }"#,
     );
 }
+
+// G5-03: "Security Filter" (12) of an Expanded Permission row of a permissionset object is blank, plain and with format 9, and
+// copies into a Tenant Permission as blank (permissions/lt-y48-security-filter/Y48ExpandedSecurityFilter.al:120
+// EP_SecurityFilter_MetadataSet).
+#[test]
+fn expanded_permission_security_filter_of_a_metadata_set_is_blank() {
+    passes(
+        r#"table 50001 "SF Table" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
+permissionset 50002 "LTPSMETA" { Assignable = true; Permissions = tabledata "SF Table" = R; }
+codeunit 50000 T { Subtype = Test;
+  [Test] procedure Blank() var EP: Record "Expanded Permission"; TP: Record "Tenant Permission"; begin
+    EP.SetRange("Role ID", 'LTPSMETA'); EP.FindFirst();
+    if Format(EP."Security Filter") <> '' then Error('format'); if Format(EP."Security Filter", 0, 9) <> '' then Error('format 9');
+    TP."Security Filter" := EP."Security Filter"; if Format(TP."Security Filter", 0, 9) <> '' then Error('copied'); end; }"#,
+    );
+}
