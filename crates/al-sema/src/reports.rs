@@ -584,6 +584,7 @@ pub fn request_layout(
             section: i.section.clone(),
             owner: None,
             modifies: Vec::new(),
+            factbox: false,
         });
     }
     (layout, section)

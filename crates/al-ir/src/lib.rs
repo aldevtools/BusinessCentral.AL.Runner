@@ -1075,6 +1075,9 @@ pub struct Control {
     /// (`field("LT WD Profile"; "LT WD Profile Code")`): from BC 28 a TestPage cannot read it (pages/lt-wd/WdBareQuotedField.al:185).
     #[serde(default)]
     pub bare_quoted_ext_source: bool,
+    /// Declared in the layout's `area(FactBoxes)`.
+    #[serde(default)]
+    pub factbox: bool,
 }
 
 /// The action an `actionref` delegates to.

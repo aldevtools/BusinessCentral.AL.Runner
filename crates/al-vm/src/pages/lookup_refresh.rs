@@ -18,7 +18,7 @@ impl Session {
     /// pages/lt-y15/Y15LookupThreeFieldLink.al:314 Y26_ThreeLinkCurr_LookupRefresh `lookup log`
     /// `lookup;h-fn R1;validate R2;h-fn R1`, `current no` `R1/`, `part current` `R1/`, every read log empty; :574
     /// Y26_ThreeLinkCurr_RegionsSet; two entries the same: :379 Y26_TwoLinkCurr_LookupRefresh, :509 Y26_TwoLinkPlain_LookupRefresh;
-    /// al-runner issue 6519). Y26 measured one part; with more the Lookup is left as it was. BC computes the host's function controls within the Lookup (`h-fn`),
+    /// al-runner issue 6519). Y26 measured one part, Y63 a second one (below); with others the Lookup is left as it was. BC computes the host's function controls within the Lookup (`h-fn`),
     /// which this runtime does not: a host with an expression control that calls anything is left as it was. The refresh
     /// runs at the next Lookup, Next or TestPart move (:639 Y26_ThreeLinkCurr_LookupTwice, :314 `next log`, :722 Y54 `part next
     /// log`); `lookup_refresh_deferred_call` runs it where that is built and refuses the other calls.
@@ -29,7 +29,7 @@ impl Session {
                 && s.open
                 && !s.draft
                 && s.cursor == Cursor::Row
-                && s.parts.len() == 1
+                && matches!(s.parts.len(), 1 | 2)
                 && s.refresh
                 && s.refresh_by_update
                 && s.refresh_update_false
@@ -49,30 +49,46 @@ impl Session {
             ir::Binding::Expr(r) => c.owner.is_none() && call_free_routine(&engine.program, object, r),
             _ => true,
         });
-        let parts_ok = st.borrow().parts.iter().all(|(i, q)| {
+        let part = |i: usize, q: &St, page_type: &str, links: usize| {
             let q = q.borrow();
-            let list_part = matches!(
-                &engine.object_facts[q.object as usize].page_type,
-                Some(ir::PageType::Other(o)) if o == "listpart"
-            );
-            list_part
+            let c = &page.controls[i];
+            matches!(&engine.object_facts[q.object as usize].page_type, Some(ir::PageType::Other(o)) if o == page_type)
                 && q.parts.is_empty()
-                && page.controls[*i].part_link.as_ref().is_some_and(|l| {
-                    l.view.is_none()
-                        && l.provider.is_none()
-                        && matches!(
-                            l.entries.as_slice(),
-                            [ir::LinkEntry::Field(..), ir::LinkEntry::Field(..)]
-                                | [
-                                    ir::LinkEntry::Field(..),
-                                    ir::LinkEntry::Field(..),
-                                    ir::LinkEntry::Field(..)
-                                ]
-                        )
-                })
-        });
+                && match &c.part_link {
+                    None => links == 0,
+                    Some(l) => {
+                        l.view.is_none()
+                            && l.provider.is_none()
+                            && l.entries.len() == links
+                            && l.entries.iter().all(|e| matches!(e, ir::LinkEntry::Field(..)))
+                    }
+                }
+        };
+        let factbox = |i: usize| page.controls[i].factbox;
+        let parts: Vec<(usize, St)> = st.borrow().parts.iter().map(|(i, q)| (*i, q.clone())).collect();
+        let (parts_ok, second_part) = match parts.as_slice() {
+            [(i, q)] => (part(*i, q, "listpart", 2) || part(*i, q, "listpart", 3), false),
+            // A second part (corpus writer Y63, SaaS BC 29, Y15LookupThreeFieldLink.al Y63_TwoPart_LookupReadEachControl,
+            // Y63_CardPart_LookupReadEachControl on branch al-runtime-rs-staging-y63, al-runner issue 6639): `lookup log`
+            // `lookup;h-fn R1;validate R2;h-fn R1`, `read log` and `close log` empty, every part `R1|R1/|R1/` as before. Measured with
+            // an unlinked ListPart declared before the linked one, and with a CardPart in the FactBoxes area linked by one field.
+            // With the linked ListPart first, reading its controls ran the refresh (Y63_PartThenOther_LinkedPartNextFirst
+            // `after lookup log`): left as it was.
+            [(i, q), (j, r)] => (
+                !factbox(*i)
+                    && ((part(*i, q, "listpart", 0) && part(*j, r, "listpart", 3) && !factbox(*j))
+                        || (part(*i, q, "listpart", 3) && part(*j, r, "cardpart", 1) && factbox(*j))),
+                true,
+            ),
+            _ => (false, false),
+        };
         drop(engine);
         if calls_nothing && parts_ok {
+            if second_part {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::LookupLinkDefersRefreshWithSecondPart,
+                );
+            }
             let mut s = st.borrow_mut();
             s.refresh = false;
             s.lookup_refresh_deferred = true;
@@ -120,7 +136,10 @@ impl Session {
         // host's OnAfterGetCurrRecord (Y15LookupThreeFieldLink.al:991 Y54_Y15Host_PartWalkAfterLookup `part next log` `agcr R1`,
         // the page's `open log` at :213). With OnAfterGetRecord BC reads the host's rows as when the page opens (:722 `part next
         // log`), which `run_refresh` does not.
-        let shape = !self.declares(&root, "onaftergetrecord")
+        // A host with a second part (Y63): the first call on any part runs the refresh with every part, as the page opens
+        // (`part next log`, `other next log`, `card next log`), which `run_refresh` does not: refused.
+        let shape = root.borrow().parts.len() == 1
+            && !self.declares(&root, "onaftergetrecord")
             && shown_tree(&root)
                 .iter()
                 .skip(1)

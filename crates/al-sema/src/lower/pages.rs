@@ -161,6 +161,7 @@ impl Lowerer<'_> {
                     expr_call: false,
                     array_element: None,
                     bare_quoted_ext_source: false,
+                    factbox: false,
                 });
                 continue;
             }
@@ -519,6 +520,7 @@ impl Lowerer<'_> {
                 expr_call,
                 array_element,
                 bare_quoted_ext_source,
+                factbox: raw.factbox,
             });
         }
         let base = owner_of(None);

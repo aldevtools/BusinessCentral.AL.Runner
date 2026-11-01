@@ -815,6 +815,8 @@ pub struct RawControl {
     /// `modify` blocks of page extensions that apply to this control, in the order the extensions
     /// apply: (extension object, the `modify` section).
     pub modifies: Vec<(usize, ast::Section)>,
+    /// Declared in the layout's `area(FactBoxes)` (or within a control there).
+    pub factbox: bool,
 }
 
 /// The control tree of a page, from syntax alone, and why the client cannot
@@ -1518,6 +1520,7 @@ impl Tree {
                 section: n.section,
                 owner: n.owner,
                 modifies: n.modifies,
+                factbox: false,
             });
             for c in n.children {
                 emit(slots, c, Some(here), out);
@@ -1526,12 +1529,18 @@ impl Tree {
         let mut action_areas = Vec::new();
         for a in areas {
             let mut roots = Vec::new();
+            let area_first = controls.len();
             for c in a.children {
                 let first = controls.len();
                 emit(&mut slots, c, None, &mut controls);
                 // An anchor emits nothing, so it is no root.
                 if controls.len() > first {
                     roots.push(first);
+                }
+            }
+            if !a.in_actions && a.name.eq_ignore_ascii_case("factboxes") {
+                for c in &mut controls[area_first..] {
+                    c.factbox = true;
                 }
             }
             if a.in_actions {
