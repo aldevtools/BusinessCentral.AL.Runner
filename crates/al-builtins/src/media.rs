@@ -154,13 +154,21 @@ fn office_header_check(bytes: &[u8], description: &str, mime: &str, file_name: &
     if file_name.is_empty() || !description.is_empty() || !mime.is_empty() {
         return Ok(());
     }
-    let office = match file_name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).as_deref() {
+    let office = match file_name
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .as_deref()
+    {
         Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         _ => return Ok(()),
     };
     // Other content imports as before this check.
-    if bytes.is_empty() || !bytes.iter().all(|b| b.is_ascii_graphic() || b.is_ascii_whitespace() || *b == b' ') {
+    if bytes.is_empty()
+        || !bytes
+            .iter()
+            .all(|b| b.is_ascii_graphic() || b.is_ascii_whitespace() || *b == b' ')
+    {
         return Ok(());
     }
     crate::native::raise(

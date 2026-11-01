@@ -177,7 +177,10 @@ fn a_temporary_worksheet_filled_before_it_opens_is_pinned_and_marks_no_assumptio
     use al_builtins::assumptions::{clear_hits, take_hits};
     clear_hits();
     let _ = al_testkit::run_in(SRC, "C", "FilledByProcedure");
-    assert!(take_hits().is_empty(), "QrMovedTests.al:2665 QT_TempWs_Run_B pins this open");
+    assert!(
+        take_hits().is_empty(),
+        "QrMovedTests.al:2665 QT_TempWs_Run_B pins this open"
+    );
 }
 
 #[test]
@@ -185,7 +188,10 @@ fn a_temporary_worksheet_whose_onopenpage_filled_it_is_pinned_and_marks_no_assum
     use al_builtins::assumptions::{clear_hits, take_hits};
     clear_hits();
     let _ = al_testkit::run_in(SRC, "C", "FilledInOnOpenPage");
-    assert!(take_hits().is_empty(), "QrMovedTests.al QR_TempWs_OpenView_NoMove pins this open");
+    assert!(
+        take_hits().is_empty(),
+        "QrMovedTests.al QR_TempWs_OpenView_NoMove pins this open"
+    );
 }
 
 /// QT_TempWsNext_* pin OnNextRecord for RunModal and lookup mode only; Page.Run of such a page is past the pins.

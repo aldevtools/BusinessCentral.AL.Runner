@@ -2,6 +2,7 @@
 
 mod autoinc_non_key;
 mod blob_calcfields_after_run;
+mod blob_length_large;
 mod blob_write_unloaded;
 mod bump_36_transferfields_system_fields;
 mod clear_table_filter;
@@ -10,7 +11,6 @@ mod crm_connection;
 mod delete_all_cascade;
 mod dupkey_after_event;
 mod fieldref_blob_unloaded;
-mod blob_length_large;
 mod fieldref_from_fieldref;
 mod fieldref_variant_into_text;
 mod filter_invalid_expr;

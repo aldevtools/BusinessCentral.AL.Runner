@@ -99,10 +99,15 @@ fn a_double_equals_value_is_the_filter_getview_writes_for_an_empty_value() {
     // Y51SetViewShapes.al:269-295 (SetView_DoubleEqualsValue): `1(==)` and `FILTER(==)` on a Text, Date or Integer field
     // filter nothing and read back as `==`; with a second field the other filter still applies (:298-308).
     let all = |n: &str, cap: &str| {
-        format!("VERSION(1) SORTING(Field1) WHERE({n}=1(==))|VERSION(1) SORTING(Entry No.) WHERE({cap}=FILTER(==))|{cap}: ==|3|1,2,3,")
+        format!(
+            "VERSION(1) SORTING(Field1) WHERE({n}=1(==))|VERSION(1) SORTING(Entry No.) WHERE({cap}=FILTER(==))|{cap}: ==|3|1,2,3,"
+        )
     };
     assert_eq!(text(run("WHERE(Field4=1(==))")), all("Field4", "Description"));
-    assert_eq!(text(run("VERSION(1) SORTING(Field1) WHERE(Field4=1(==))")), all("Field4", "Description"));
+    assert_eq!(
+        text(run("VERSION(1) SORTING(Field1) WHERE(Field4=1(==))")),
+        all("Field4", "Description")
+    );
     assert_eq!(
         text(run("VERSION(1) SORTING(Entry No.) WHERE(Description=FILTER(==))")),
         all("Field4", "Description")
@@ -143,7 +148,10 @@ codeunit 69992 D
 }}
 "#
     );
-    assert_eq!(text(al_testkit::run_in(&src, "D", "F")), "|VERSION(1) SORTING(Field1)|3");
+    assert_eq!(
+        text(al_testkit::run_in(&src, "D", "F")),
+        "|VERSION(1) SORTING(Field1)|3"
+    );
 }
 
 #[test]

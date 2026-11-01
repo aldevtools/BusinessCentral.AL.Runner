@@ -73,7 +73,14 @@ fn range(from: i32, to: i32) -> String {
     let mut b = al_testkit::Built::from_source(SRC);
     let (o, r) = b.routine_in("C", "Range");
     let (v, _) = b
-        .call(o, r, vec![al_builtins::value::Value::Integer(from), al_builtins::value::Value::Integer(to)])
+        .call(
+            o,
+            r,
+            vec![
+                al_builtins::value::Value::Integer(from),
+                al_builtins::value::Value::Integer(to),
+            ],
+        )
         .unwrap();
     text(Ok(v))
 }

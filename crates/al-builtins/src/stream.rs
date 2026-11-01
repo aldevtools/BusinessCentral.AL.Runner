@@ -1380,7 +1380,11 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             Ok((s.enc.decode(taken), taken.len()))
         })?;
         a[0] = Value::Text(text.into());
-        return Ok(if used { Value::Integer(count as i32) } else { Value::Null });
+        return Ok(if used {
+            Value::Integer(count as i32)
+        } else {
+            Value::Null
+        });
     }
     if a.len() > 1 {
         let Some(Value::Integer(n)) = a.get(1) else {
@@ -1859,7 +1863,8 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
         // 65 is 41, 228 is 84 on a default stream); a Char of the Byte to Char table above 255 is its byte on an MS-DOS
         // stream (`msdos_table_byte`).
         Value::Char(c)
-            if (*c < 256 || (enc == Encoding::MsDos && char::from_u32(u32::from(*c)).and_then(msdos_table_byte).is_some()))
+            if (*c < 256
+                || (enc == Encoding::MsDos && char::from_u32(u32::from(*c)).and_then(msdos_table_byte).is_some()))
                 && char::from_u32(u32::from(*c)).is_some_and(|ch| enc.encode_pinned(&ch.to_string())) =>
         {
             enc.encode(&char::from_u32(u32::from(*c)).expect("checked").to_string())

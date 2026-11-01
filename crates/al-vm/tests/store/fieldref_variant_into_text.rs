@@ -137,7 +137,10 @@ fn value_of_a_variant_field_value_into_text_runs_no_onvalidate() {
 fn literal_variants_format_with_thousands_and_a_long_one_raises() {
     // Y47ValidateFieldRef.al:517-569 (Y57_ValidateVariantLiteral_IntoText): `1,234.5`, `3000000000`, `No`, and 11 digits
     // into a Text[10] raise StringLengthExceeded.
-    assert_eq!(text(al_testkit::run_in(SRC, "C", "Literals")), "[1,234.5] vTxt=1,234.5;");
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "Literals")),
+        "[1,234.5] vTxt=1,234.5;"
+    );
     assert_eq!(
         text(al_testkit::run_in(SRC, "C", "LiteralsMore")),
         "[3000000000] vTxt=3000000000;|[No] vTxt=No;"
