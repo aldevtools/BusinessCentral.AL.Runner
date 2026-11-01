@@ -534,7 +534,21 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
                 "the number error of date formula `{text}`: several opening brackets and no closing one are not pinned"
             ));
         }
-        let shown = if !compact.contains('>') && opens == 1 {
+        // Brackets inside the outer pair stay in the message: `<CY>+<-10Y>` shows 'CY>+<-10Y' (al-runner issue 6648; corpus
+        // branch al-runtime-rs-staging-y64 85d86e7b, types/lt-date-formula-edges/DateFormulaEdges.al:705-706). Pinned for an
+        // upper-case formula in one outer pair.
+        let inner = compact
+            .strip_prefix('<')
+            .and_then(|t| t.strip_suffix('>'))
+            .filter(|t| t.contains(['<', '>']));
+        let shown = if let Some(inner) = inner {
+            if inner.chars().any(|c| c.is_ascii_lowercase()) {
+                return unsupported(format!(
+                    "the number error of date formula `{text}` in lower case (not pinned)"
+                ));
+            }
+            inner.to_string()
+        } else if !compact.contains('>') && opens == 1 {
             format!("<{body}")
         } else {
             body.to_string()
@@ -815,13 +829,16 @@ fn normalize_formula(text: &str) -> Result<String, Signal> {
     for (i, &c) in chars.iter().enumerate() {
         match c {
             '<' => {
-                let edge = i == 0 || matches!(chars[i - 1], '<' | '+' | '-');
+                // After `>`: the `><` between two bracketed terms, which the `>` arm below accepted.
+                let edge = i == 0 || matches!(chars[i - 1], '<' | '+' | '-' | '>');
                 if !edge && matches!(brackets::open(text, &chars, i)?, brackets::Inside::Refuse) {
                     return refuse("an angle bracket inside a term");
                 }
             }
             '>' => {
-                let tail_ok = chars[i + 1..].iter().all(|c| *c == '>') || matches!(chars.get(i + 1), Some('+' | '-'));
+                let tail_ok = chars[i + 1..].iter().all(|c| matches!(c, '<' | '>'))
+                    || matches!(chars.get(i + 1), Some('+' | '-'))
+                    || brackets::between_terms(text, &chars, i)?;
                 if !tail_ok && matches!(brackets::close(&chars, i), brackets::Inside::Refuse) {
                     return refuse("an angle bracket inside a term");
                 }
@@ -888,6 +905,10 @@ pub fn evaluate_formula(text: &str) -> Result<Evaluated, Signal> {
     // A bracket inside a term can raise a missing number or time unit error (see [`brackets`]).
     let n = match normalize_formula(text) {
         Err(Signal::Error(e)) if e.message.contains("should include a") => return Ok(Evaluated::Failed(e.message)),
+        // Two bracketed terms, the second without a sign: as `<1D><1D>` above (`brackets::between_terms`).
+        Err(Signal::Error(e)) if e.message.contains("must include plus (+) or minus (-)") => {
+            return Ok(Evaluated::Rejected(Some(e.message)));
+        }
         n => n?,
     };
     if n.is_empty() {
@@ -932,8 +953,15 @@ pub fn evaluate_formula(text: &str) -> Result<Evaluated, Signal> {
     }
     match parse_formula(&n) {
         Ok(_) => {}
-        // The errors of a formula without a number or a time unit.
-        Err(Signal::Error(e)) if e.message.contains("should include a") => return Ok(Evaluated::Failed(e.message)),
+        // The errors of a formula without a number or a time unit. Read from the text as written, so that a bracket inside the
+        // outer pair stays in the message, as in CalcDate (`<CY>+<-10Y>`, DateFormulaEdges.al:705-706 on corpus branch
+        // al-runtime-rs-staging-y64).
+        Err(Signal::Error(e)) if e.message.contains("should include a") => {
+            return Ok(Evaluated::Failed(match parse_formula(text) {
+                Err(Signal::Error(w)) if w.message.contains("should include a") => w.message,
+                _ => e.message,
+            }));
+        }
         Err(e) => return Err(e),
     }
     Ok(Evaluated::Stored(format!("<{n}>")))
@@ -1707,11 +1735,9 @@ mod tests {
             Ok(super::Evaluated::Rejected(None))
         ));
         assert!(matches!(calc("1D+", date(2024, 1, 15)), Err(Signal::Unsupported(_))));
+        // Two bracketed terms, the second with a sign, join (al-runner issue 6648, `brackets::between_terms`).
+        is_date(calc("<1D><+1D>", date(2024, 1, 15)), 2024, 1, 17);
         // Other places of a bracket inside a term stay refused.
-        assert!(matches!(
-            calc("<1D><+1D>", date(2024, 1, 15)),
-            Err(Signal::Unsupported(_))
-        ));
         assert!(matches!(
             calc("<1D> <1D>", date(2024, 1, 15)),
             Err(Signal::Unsupported(_))
