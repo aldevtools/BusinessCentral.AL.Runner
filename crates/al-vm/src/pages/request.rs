@@ -1007,7 +1007,12 @@ impl Session {
                     "a parameter for the data item {name}, which the request page does not have"
                 ));
             };
-            self.require_filters_shown(object)?;
+            // An Execute (`skip_unknown`) applies the view also where the request page hides the filters
+            // (session/lt-y22-copy-company/Y22CopyCompany.al:301-323: report 357 "Copy Company" has `ShowFilter = false`
+            // and copies only the company its parameters' view names).
+            if !skip_unknown {
+                self.require_filters_shown(object)?;
+            }
             let ir::Binding::Var(slot) = c.binding else { continue };
             let Value::Record(rec) = inst.borrow().globals[slot].clone() else {
                 continue;
