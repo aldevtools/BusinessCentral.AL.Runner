@@ -1181,9 +1181,8 @@ impl Session {
         let pinned_type = matches!(page_type, Some(al_ir::PageType::Card | al_ir::PageType::List));
         let list_type = matches!(page_type, Some(al_ir::PageType::List));
         let worksheet_type = matches!(page_type, Some(al_ir::PageType::Worksheet));
-        // A Worksheet over a temporary source whose row was set before the open is pinned (`set_before` below); one whose
-        // OnOpenPage moved Rec opens as a List does under assumption worksheet-temp-source-open-row. A Worksheet over a
-        // database table stays refused below.
+        // A Worksheet over a temporary source whose row was set before the open is pinned (`set_before` below), and so is one
+        // whose OnOpenPage moved Rec (writer Y57, below). A Worksheet over a database table is handled below.
         let temp_worksheet = rec.borrow().temporary && matches!(page_type, Some(al_ir::PageType::Worksheet));
         let set_before = temp_worksheet && st.borrow().onopenpage_kept_rec;
         if rec.borrow().temporary && !pinned_type && !temp_worksheet {
@@ -1245,30 +1244,10 @@ impl Session {
             return Ok(true);
         }
         if temp_worksheet {
-            // A temporary Worksheet whose OnOpenPage moved Rec or changed its key, its order or its filters: both paths below
-            // make a choice no corpus test pins (which row it opens on), so both mark the assumption
-            // worksheet-temp-source-open-row.
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WorksheetTempSourceOpenRow);
-            // Only a Rec in the primary key, outside lookup mode and without OnNextRecord, from which `=><` reaches a row other
-            // than the first of the view, takes the assumed path (page 498 leaves Rec on an entry summary it did not insert,
-            // past the purchase line's). Any other temporary Worksheet keeps the first row, as before (the same assumption; the Item Tracking Lines page, whose OnOpenPage changes the key, reaches it in many Microsoft tests).
-            if rec.borrow().key != 0 || st.borrow().lookup || self.declares(st, "onnextrecord") {
-                return Ok(false);
-            }
-            // Where `=><` from Rec lands, as the open does (`open_on_rec_moved_by_onopenpage`): on the first row of the view the
-            // page opens as it always did.
-            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-            self.ret_used = true;
-            if !matches!(
-                self.record_op(RecordOp::Find, &probe, &mut [Value::Text("=><".into())])?,
-                Value::Boolean(true)
-            ) {
-                return Ok(false);
-            }
-            let landed = self.row_key(&probe)?;
-            if first.as_ref().is_some_and(|f| Self::same_key(f, &landed)) {
-                return Ok(false);
-            }
+            // A temporary Worksheet (not a tree) whose OnOpenPage filled it and moved Rec opens on the row Rec was left on, the
+            // nearest of the view in key order when Rec is outside it, as the temporary List does: in the primary key and
+            // another, by OpenView, OpenEdit, Page.Run, RunModal and in lookup mode, with OnNextRecord too
+            // (pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al QR_TempWs_* and QR_TempWsNext_*, writer Y57).
             return Ok(true);
         }
         // A temporary List whose row was set before the open opens on that row in lookup mode too (QrMovedTests.al:2650

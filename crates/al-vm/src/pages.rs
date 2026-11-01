@@ -174,6 +174,7 @@ mod parts;
 pub(crate) mod request;
 pub(crate) use request::RequestClosed;
 mod actions;
+mod caption_class;
 mod caption_expr_list;
 mod caption_relation;
 mod controls;

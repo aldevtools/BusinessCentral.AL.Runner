@@ -2,7 +2,8 @@
 //! view when it opens. Rows a procedure of the page variable filled before Run or RunModal, with OnOpenPage leaving Rec as it
 //! was: it opens on that row, as a List does (pinned by pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:2378-2705, the
 //! QT_Temp* tests; the modal and lookup forms are checked by the corpus run). Forms past those pins are refused. A Worksheet
-//! whose OnOpenPage moved Rec or changed its key is not pinned: assumption `worksheet-temp-source-open-row`.
+//! whose OnOpenPage filled it and moved Rec or changed its key opens on Rec's row too (QrMovedTests.al QR_TempWs_* and
+//! QR_TempWsNext_*, writer Y57).
 //! The same Worksheet over a database table opens on the row OnOpenPage left Rec on (pages/lt-outside-worksheet-2/RtFillOnOpen.al).
 
 const SRC: &str = r#"
@@ -173,24 +174,18 @@ fn a_worksheet_over_a_database_table_whose_onopenpage_moves_rec_opens_on_that_ro
 
 #[test]
 fn a_temporary_worksheet_filled_before_it_opens_is_pinned_and_marks_no_assumption() {
-    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+    use al_builtins::assumptions::{clear_hits, take_hits};
     clear_hits();
     let _ = al_testkit::run_in(SRC, "C", "FilledByProcedure");
-    assert!(
-        !take_hits().contains(&Assumption::WorksheetTempSourceOpenRow),
-        "QrMovedTests.al:2665 QT_TempWs_Run_B pins this open"
-    );
+    assert!(take_hits().is_empty(), "QrMovedTests.al:2665 QT_TempWs_Run_B pins this open");
 }
 
 #[test]
-fn a_temporary_worksheet_whose_onopenpage_filled_it_still_marks_the_assumption() {
-    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+fn a_temporary_worksheet_whose_onopenpage_filled_it_is_pinned_and_marks_no_assumption() {
+    use al_builtins::assumptions::{clear_hits, take_hits};
     clear_hits();
     let _ = al_testkit::run_in(SRC, "C", "FilledInOnOpenPage");
-    assert!(
-        take_hits().contains(&Assumption::WorksheetTempSourceOpenRow),
-        "the open must mark the assumption"
-    );
+    assert!(take_hits().is_empty(), "QrMovedTests.al QR_TempWs_OpenView_NoMove pins this open");
 }
 
 /// QT_TempWsNext_* pin OnNextRecord for RunModal and lookup mode only; Page.Run of such a page is past the pins.
@@ -212,13 +207,10 @@ fn a_temporary_worksheet_in_a_key_set_before_page_run_is_refused() {
 }
 
 #[test]
-fn a_temporary_worksheet_whose_key_changed_opens_on_its_first_row_and_marks_the_same_assumption() {
-    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+fn a_temporary_worksheet_whose_key_changed_opens_on_recs_row() {
+    use al_builtins::assumptions::{clear_hits, take_hits};
     clear_hits();
-    // First row of the view in key ByName: No. 2 ('a').
-    assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "KeyChanged")), "2");
-    assert!(
-        take_hits().contains(&Assumption::WorksheetTempSourceOpenRow),
-        "the first-row path must mark the assumption"
-    );
+    // Rec on No. 1 ('b') in key ByName, below No. 2 ('a'): it opens on No. 1 (QrMovedTests.al QR_TempWs_OpenView_KeyGet).
+    assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "KeyChanged")), "1");
+    assert!(take_hits().is_empty());
 }

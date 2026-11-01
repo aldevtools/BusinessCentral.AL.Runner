@@ -29,10 +29,21 @@ impl Session {
     ///
     /// Run modally, in lookup mode, with OnFindRecord or OnNextRecord, or another page type is not pinned and is refused.
     ///
-    /// A tree Worksheet (`temp_tree_worksheet_in_key`) is pinned on a row its Rec's primary key has only.
+    /// A tree Worksheet (`temp_tree_worksheet_in_key`) is pinned on a row its Rec's primary key has only. So is a Worksheet without
+    /// a tree, by OpenView, Page.Run, RunModal and in lookup mode, with OnNextRecord too: SetCurrentKey(Name) and Get(B) open on
+    /// B and read as above (pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al QR_TempWs_OpenView_KeyGet
+    /// `O:B;R:B;R:B;R:A;R:B;R:C;R:D;R:B;R:B;R:B;C:B;`, _PageRun_KeyGet, _RunModal_KeyGet, _LookupMode_KeyGet,
+    /// QR_TempWsNext_OpenView_KeyGet, QR_TempWsNext_LookupMode_KeyGet, writer Y57).
     pub(super) fn temp_list_key_open(&mut self, st: &St) -> Result<TempListKeyOpen, Signal> {
         let tree_ws = self.temp_tree_worksheet_in_key(st);
-        let pinned = tree_ws || {
+        let flat_ws = !tree_ws
+            && matches!(
+                self.engine.object_facts[st.borrow().object as usize].page_type,
+                Some(al_ir::PageType::Worksheet)
+            )
+            && st.borrow().host.is_none()
+            && !self.declares(st, "onfindrecord");
+        let pinned = tree_ws || flat_ws || {
             let s = st.borrow();
             !s.modal && !s.lookup && s.host.is_none()
         } && matches!(
@@ -56,9 +67,9 @@ impl Session {
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         self.ret_used = true;
         let on_row = has_rows && matches!(self.record_op(RecordOp::Get, &probe, &mut pk)?, Value::Boolean(true));
-        if tree_ws && !on_row {
+        if (tree_ws || flat_ws) && !on_row {
             return unsupported(
-                "a temporary tree Worksheet whose OnOpenPage changed its key and left Rec on a key no row has (not pinned)",
+                "a temporary Worksheet whose OnOpenPage changed its key and left Rec on a key no row has (not pinned)",
             );
         }
         if !has_rows {
@@ -87,8 +98,7 @@ impl Session {
     /// left Rec on the last row it inserted; the page opens on that row and reads as a list in such a key does: the row first,
     /// the rows above it, then the row three times (pages/lt-y50-tree-expand-leaf/Y50TreeExpandLeaf.al:263
     /// G517_Flat_ExpandTrueOnFirst_ThenNext `No/30:agr 30;agr 30;agr 20;agr 10;agr 30;agr 30;agr 30;agcr 30`, :296 MIXED on 40,
-    /// :351 the tree without row triggers or TreeInitialState on 30). Without a tree it stays under assumption
-    /// worksheet-temp-source-open-row.
+    /// :351 the tree without row triggers or TreeInitialState on 30). Without a tree see `temp_list_key_open`.
     pub(super) fn temp_tree_worksheet_in_key(&self, st: &St) -> bool {
         let rec = self.page_rec(st);
         let s = st.borrow();
@@ -107,5 +117,27 @@ impl Session {
             }
             && !self.declares(st, "onfindrecord")
             && !self.declares(st, "onnextrecord")
+    }
+
+    /// A temporary Worksheet whose OnOpenPage left Rec on the last row of the view (one row read at the open) serves the open read
+    /// from OnNextRecord as on another row: it steps back over the rows above and reads Rec's row twice
+    /// (pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al QR_TempWsNext_OpenView_NoMove
+    /// `O:D;R:D;N:D|1>0;N:C|-1>-1;R:C;N:B|-1>-1;R:B;N:A|-1>-1;R:A;N:A|-1>0;R:D;R:D;C:D;`, writer Y57). `rows_read` 1 also asks
+    /// whether Next from the last row onto the new-row line skips OnNextRecord: it does there (`next log` `C:;`).
+    pub(in crate::pages) fn temp_worksheet_last_row_open(&self, st: &St, rows_read: usize) -> bool {
+        rows_read == 1
+            && self.page_rec(st).borrow().temporary
+            && self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet)
+    }
+
+    /// A temporary Worksheet with OnNextRecord whose OnOpenPage changed its key and left Rec on a row (`temp_list_key_open`):
+    /// the open reads Rec's row once more after the rows above it, and Next and Previous read each row once more, as a list
+    /// without OnNextRecord does in such a key (QrMovedTests.al QR_TempWsNext_OpenView_KeyGet `...;N:D|-1>0;R:B;R:B;R:B;C:B;`,
+    /// `next log` `R:A;R:A;R:A;C:A;`, QR_TempWsNext_LookupMode_KeyGet, writer Y57).
+    pub(in crate::pages) fn temp_worksheet_next_in_key(&self, st: &St) -> bool {
+        st.borrow().temp_reads_once_more
+            && self.page_rec(st).borrow().key != 0
+            && self.declares(st, "onnextrecord")
+            && self.temp_worksheet_last_row_open(st, 1)
     }
 }
