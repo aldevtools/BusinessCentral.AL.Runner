@@ -7,7 +7,6 @@
 
 use crate::Session;
 use crate::records::Rec;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
 use al_builtins::ops;
@@ -22,6 +21,9 @@ const CORPUS_OTHER_COMPANY: &str = "My Company";
 
 /// Base Application's app id.
 const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
+
+/// Base Application's Company Information table.
+const COMPANY_INFORMATION: u32 = 79;
 
 /// The Base Application tables that hold no row in [`CORPUS_OTHER_COMPANY`] (see [`Session::starts_empty_in`]): Company
 /// Information, General Ledger Setup, Source Code Setup, Sales & Receivables Setup, CDS Connection Setup, CRM Connection
@@ -139,7 +141,9 @@ impl Session {
         if t.per_company
             && !r.temporary
             && (self.engine.unseeded.contains(&(t.object as usize))
-                || ((self.baseline_rows.contains(&t.object) || self.backs_rows(t.object)) && !full_copy))
+                || ((self.baseline_rows.contains(&t.object) || self.backs_rows(t.object))
+                    && !full_copy
+                    && !self.starts_empty_in_made(company, t)))
         {
             return unsupported(format!(
                 "{} in company {company}: a company BC creates holds the rows installing the apps and Company-Initialize make there, and this runtime made them only for the session company",
@@ -185,6 +189,24 @@ impl Session {
                     && obj.id.is_some_and(|id| EMPTY_IN_CORPUS_OTHER_COMPANY.contains(&id))
             }
         }
+    }
+
+    /// Whether `company` is one AL code made in this run (a Company row the run did not declare, or a copy of one; ADR-046:
+    /// the run's own companies are the session company and the declared ones) and `t` a table pinned to hold no row in
+    /// such a company as it is made: Company Information, whose primary-key row a test inserts in the company it made
+    /// with `Company.Insert` (session/lt-y22-copy-company/Y22CopyCompany.al:90-94; the copy holds that row as it is, :132,
+    /// :154). Its rows there are then what AL code wrote; a copy of the company holds them as the source did.
+    fn starts_empty_in_made(&self, company: &str, t: &TableDef) -> bool {
+        let program = &self.engine.program;
+        let obj = &program.objects[t.object as usize];
+        company != &*self.cx.company
+            && !self.companies.iter().any(|c| c == company)
+            && !self.full_copies.contains(company)
+            && program
+                .apps
+                .get(obj.app as usize)
+                .is_some_and(|a| a.id.eq_ignore_ascii_case(BASE_APPLICATION_APP_ID))
+            && obj.id == Some(COMPANY_INFORMATION)
     }
 
     /// `CurrentCompany` of `rec`.
@@ -240,7 +262,7 @@ impl Session {
     /// `Database.CopyCompany(SourceName, DestinationName)`. The errors: a source that is not a company is RecordNotFound
     /// on the Company table and makes no destination, also when the result is used; the source as its own destination is
     /// RecordExists (lt-o-small-builtins/OSmallBuiltins.al:92-112). The destination names that fail, and the result `true`
-    /// of a copy: session/lt-y22-copy-company/Y22CopyCompany.al (corpus writer Y22, SaaS, newest major). Every other shape is
+    /// of a copy: session/lt-y22-copy-company/Y22CopyCompany.al (corpus pin 92031e20, BC 27-29). Every other shape is
     /// refused.
     pub(crate) fn copy_company(&mut self, args: &[Value]) -> Result<Value, Signal> {
         let (Some(source), Some(destination)) = (
@@ -253,11 +275,6 @@ impl Session {
         let source_is = self.company_spelled(&source)?;
         let destination_is = self.company_spelled(&destination)?;
         // Errors whose result form is not pinned.
-        // What only Y22's probe shows, not yet in the pinned corpus, marks the assumption.
-        let measured_by_y22 = |e: Signal| {
-            assume(Assumption::CopyCompanyInSaas);
-            e
-        };
         let statement_only = |s: &Self, e: Signal| {
             if s.ret_used {
                 unsupported("Database.CopyCompany with the result used, on an error only its statement form pins")
@@ -272,7 +289,7 @@ impl Session {
                     &format!("The Company does not exist. Identification fields and values: Name='{source}'"),
                     "DB:RecordNotFound",
                 );
-                Err(if self.ret_used { measured_by_y22(e) } else { e })
+                Err(e)
             }
             Some(true) if destination == source => {
                 // OSmallBuiltins.al:102, :109-110.
@@ -290,7 +307,7 @@ impl Session {
                     "Company name cannot be empty or only consist of spaces.",
                     "DB:Ok",
                 );
-                statement_only(self, measured_by_y22(e))
+                statement_only(self, e)
             }
             // Y22CopyCompany.al Y22_CopyCompany_DestinationNames (31 characters; the Company name holds 30).
             Some(true) if destination.chars().count() > 30 && destination_is.is_none() => {
@@ -301,7 +318,7 @@ impl Session {
                     ),
                     "StringLengthExceeded",
                 );
-                statement_only(self, measured_by_y22(e))
+                statement_only(self, e)
             }
             // Y22CopyCompany.al Y22_CopyCompany_DestinationNames (the source's name in lower case).
             Some(true) if destination != source && destination.to_lowercase() == source.to_lowercase() => {
@@ -311,7 +328,7 @@ impl Session {
                     ),
                     "DB:Ok",
                 );
-                statement_only(self, measured_by_y22(e))
+                statement_only(self, e)
             }
             Some(true) if destination_is == Some(false) && !destination.trim().is_empty() => {
                 self.copy_company_rows(&source, &destination)?;
@@ -329,12 +346,11 @@ impl Session {
     }
 
     /// The copy of `Database.CopyCompany` (session/lt-y22-copy-company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows,
-    /// SaaS, newest major, corpus writer Y22): a new Company row with the destination's name, `Evaluation Company` as the source's,
+    /// corpus pin 92031e20): a new Company row with the destination's name, `Evaluation Company` as the source's,
     /// `Display Name` and `Business Profile Id` empty, a new `Id` and `SystemId`; every per-company row of the source as it
     /// is (system fields included); tables that are not per company unchanged. No trigger or table event of a copied row
     /// and no database trigger runs; the Company's `OnAfterInsertEvent` runs once for the new row.
     fn copy_company_rows(&mut self, source: &str, destination: &str) -> Result<Value, Signal> {
-        assume(Assumption::CopyCompanyInSaas);
         // Copying the session company inside a test meets the test runner's own row on BC
         // (lt-o-small-builtins/OSmallBuiltins.al:87-90).
         if self.in_test_codeunit && source == &*self.cx.company {
@@ -350,7 +366,9 @@ impl Session {
                 "Database.CopyCompany of a company with rows written in the open transaction (not pinned)",
             );
         }
-        if !self.companies.is_empty() && source != &*self.cx.company {
+        // A company AL code made in the run is copied as without the opt-in: its rows are what AL code wrote there
+        // (Y22CopyCompany.al copies such a company, the corpus runs under the opt-in).
+        if source != &*self.cx.company && self.companies.iter().any(|c| c == source) {
             return unsupported(
                 "Database.CopyCompany of a company other than the session company under --companies (ADR-046 decision 5: its rows are not all known)",
             );

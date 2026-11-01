@@ -180,6 +180,7 @@ impl TxState {
 }
 
 /// Handler functions and notifications of the running test method.
+#[derive(Default)]
 pub(crate) struct UiState {
     /// Handler functions bound to the running test method (None outside one).
     pub(crate) scope: Option<ui::UiScope>,
@@ -187,6 +188,8 @@ pub(crate) struct UiState {
     pub(crate) page_handler_depth: usize,
     /// Ids of the notifications a `[SendNotificationHandler]` took in this session.
     pub(crate) sent_notifications: Vec<[u8; 16]>,
+    /// `--dev-endpoint-ui` (al-runner issue 3697).
+    pub(crate) dev_endpoint: crate::dev_endpoint_ui::DevEndpointUi,
 }
 
 /// What the TestPage client keeps between calls.

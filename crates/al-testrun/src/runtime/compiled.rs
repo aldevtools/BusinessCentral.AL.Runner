@@ -121,6 +121,11 @@ pub struct RunOptions {
     /// `al-runner test --permissions off` (ADR-062 section 5): no access kind is enforced, whatever stages are on by
     /// default. While no stage is on (today) it changes nothing.
     pub permissions_off: bool,
+    /// `al-runner test --dev-endpoint-ui` (al-runner issue 3697): a UI call no handler takes gets the answer of Business
+    /// Central's dev-endpoint test runner, for the shapes measured there (`al_vm` `dev_endpoint_ui.rs`), instead of
+    /// "Unhandled UI". Each such test hits the assumption `dev-endpoint-ui` (a flagged pass), and its answered calls are in
+    /// `TestResult::ui_answered`. Default `false`: the TestRunner codeunit mode, as the corpus runs.
+    pub dev_endpoint_ui: bool,
     /// A variant of a stability run (ADR-058): what the runner changes in its steps around each test and in the
     /// session's host values. The default is a normal run.
     pub perturb: crate::stability::Perturb,
