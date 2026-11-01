@@ -335,6 +335,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `dotnet/pure.rs` (~50): The `DotNet` members that answer from their arguments alone; a baseline whose install code calls any other is not kept on disk (`Engine::dotnet_called`, al-testrun `baseline_key`). Entry: `answers_from_arguments`.
 - `dotnet/registry.rs` (113): Runtime-provided .NET classes (ADR-014 section 1). Entry: `MemberKind` 19, `Pin` 28, `MemberFn` 45, `RegistryMember` 47.
 - `dotnet/query_metadata.rs` (200): Microsoft's `QueryMetadataReader` over a query's Application Object Metadata (ReQueryMetadataShapes.al). Entry: `types`, `from_stream`.
+- `dotnet/business_chart_data.rs` (109): Microsoft's `BusinessChartData` behind "Business Chart Impl." (AuEdgeTests.al:608): constructor, `ClearMeasures`, `AddMeasure`, `XDimension`. Entry: `types`.
 - `errorcollect.rs` (140): ErrorBehavior::Collect scopes. Entry: `declares_collect` 44, `collect_error` 71, `close_error_scope` 86.
 - `events.rs` (601): Event publishers and subscribers. Entry: `Registry` 37, `build` 116, `Subscriber` 14, `Publisher` 26.
 - `faultsite.rs` (57): Where a refusal or a failure was raised, for `al-test-cli --explain`. Entry: `FaultFrame` 14, `trace_faults` 23, `fault_site` 30, `note_fault` 40.
