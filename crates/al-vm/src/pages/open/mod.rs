@@ -6,6 +6,7 @@ mod close;
 mod landing;
 mod page_open;
 mod part_links;
+mod record_refusals;
 mod tree;
 mod values;
 

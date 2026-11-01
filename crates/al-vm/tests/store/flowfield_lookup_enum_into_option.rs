@@ -175,3 +175,40 @@ fn a_max_of_an_enum_into_an_option_flowfield_is_an_option_ordinal() {
 fn a_filter_on_the_option_flowfield_compares_ordinals() {
     assert_eq!(run("Filter"), "2|1|1");
 }
+
+/// Runs `routine` of codeunit `T` on a BC `bc` target.
+fn run_on(bc: &str, routine: &str) -> String {
+    let target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
+    let apps = vec![al_sema::workspace::AppSource {
+        id: "a".into(),
+        name: "a".into(),
+        dependencies: vec![],
+        files: vec![("f.al".into(), SRC.into())],
+    }];
+    let (ws, l) = al_sema::lower::compile_for(apps, &Default::default(), &target);
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let blocked: Vec<Vec<Option<String>>> = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .collect();
+    let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
+    let ri = l.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == routine)
+        .unwrap();
+    let engine = al_vm::Engine::with_target(l.program, blocked, Some(target));
+    let mut s = al_vm::Session::new(engine);
+    let inst = s.instance(oi);
+    out(s.call(oi, ri, inst, vec![]).map(|(v, _)| v))
+}
+
+#[test]
+fn before_bc_29_a_max_of_an_enum_into_an_option_flowfield_keeps_the_enum_member() {
+    // Y20FlowFieldLookupEnumIntoOption.al:194-197 (`#else` of `#if BC29PLUS`): BC 27 and 28 format the max as the Enum
+    // member, and no row as the Enum's first member.
+    assert_eq!(run_on("27.5", "Max"), "One/1|Five/5|Zero/0");
+    assert_eq!(run_on("28.5", "Max"), "One/1|Five/5|Zero/0");
+    assert_eq!(run_on("29.0", "Max"), "Uno/1|5/5|Nil/0");
+}

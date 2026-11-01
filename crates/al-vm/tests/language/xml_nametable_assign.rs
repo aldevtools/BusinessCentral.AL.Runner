@@ -30,7 +30,8 @@ fn assigning_the_name_table_of_a_namespace_manager_calls_its_setter() {
         .iter()
         .map(|a| a.info().id)
         .collect();
-    assert!(hits.contains(&"nametable-assign-is-call"), "{hits:?}");
+    // Pinned by xml/XmlXPathNamespaces.al Y29_NameTable_AssignForm_SelectsLikeCallForm: no assumption is marked.
+    assert!(!hits.contains(&"nametable-assign-is-call"), "{hits:?}");
 }
 
 // The assignment form of the other members with one form that takes one value is the call too (corpus writer Y29 on

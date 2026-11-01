@@ -512,6 +512,9 @@ pub(crate) struct DotNetSite {
     pub recv: Option<u16>,
     pub arg_regs: Vec<u16>,
     pub args: Vec<ir::Arg>,
+    /// The call is the collection of a `foreach`: the position of the first statement of its body, where an error the call
+    /// raises is reported (`Compiler::foreach`).
+    pub header_pos: Option<u32>,
 }
 
 pub(crate) struct ForSite {

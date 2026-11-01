@@ -219,9 +219,9 @@ codeunit 69952 C
     procedure GoToKeyFar(): Text
     var P: TestPage "FL List";
     begin
-        Seed(25);
+        Seed(45);
         P.OpenView();
-        P.GoToKey(22);
+        P.GoToKey(42);
         exit(P.Id.Value());
     end;
 }
@@ -238,11 +238,12 @@ fn opening_a_descending_find_list_with_on_after_get_curr_record_stands_on_the_la
     assert_eq!(al_testkit::text(al_testkit::run_in(&src, "C", "Descending")), "1");
 }
 
-/// pages/lt-ai-list-order/AiListOrderTests.al:999, :1020: GoToKey on an OnFindRecord list with a full window of 20 rows makes
-/// the client ask the page for the rows around the key. That is not implemented, so it is refused.
+/// GoToKey on an OnFindRecord list with OnAfterGetCurrRecord past its first window of 20 rows is pinned when the rest of the view
+/// is read in one block that ends it (pages/lt-y41-page-probes/Y41GoToKeyFindListCurr.al, 30 rows). With 45 rows the client reads
+/// a second full block, which is not pinned, so it is refused.
 #[test]
-fn go_to_key_on_a_find_list_with_a_full_window_is_refused() {
-    refused(al_testkit::run_in(FIND_LIST, "C", "GoToKeyFar"), "full window");
+fn go_to_key_on_a_find_list_past_a_second_full_block_is_refused() {
+    refused(al_testkit::run_in(FIND_LIST, "C", "GoToKeyFar"), "second full block");
 }
 
 /// An error with an empty text out of a TestPage action's Invoke ends the Invoke quietly: the test goes on, the last error

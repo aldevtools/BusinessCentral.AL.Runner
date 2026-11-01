@@ -271,12 +271,11 @@ fn signup_context_and_document_service_are_stored_tables() {
 }
 
 /// Webhook Subscription and Webhook Notification are ordinary tables, empty on a fresh tenant, that take Insert, Modify,
-/// Delete and DeleteAll with and without triggers. No corpus test pins them: Microsoft's PayPal Payments Standard tests need
-/// them (MS - PayPal Standard Tests: DeleteAll of both in Initialize, then TestWebhookIsCreatedWhenSettingupAccount and the
-/// others insert, filter and delete subscriptions, and insert notifications to run the app's OnAfterInsertEvent subscriber),
-/// so every persistent access is a flagged pass (assumption `webhook-tables-stored`).
+/// Delete and DeleteAll with and without triggers, as Microsoft's PayPal Payments Standard tests use them (corpus master onprem
+/// platform/lt-y35-stored-tables/Y35StoredTables.al pins them; the assumption `webhook-tables-stored` that stood in is gone):
+/// a pass relies on no assumption. A row read back holds 'NAV' as Application ID and inserts again.
 #[test]
-fn webhook_tables_are_stored_tables_on_an_assumption() {
+fn webhook_tables_are_stored_tables() {
     let src = r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Writes() var W: Record "Webhook Subscription"; begin if not W.IsEmpty() then Error('rows');
     W."Subscription ID" := 'acct'; W.Endpoint := 'https://x/notify'; W."Created By" := 'https://paypal'; W."Company Name" := 'C';
@@ -303,13 +302,12 @@ fn webhook_tables_are_stored_tables_on_an_assumption() {
         &mut hits,
         None,
     );
-    let a = al_builtins::assumptions::Assumption::WebhookTablesStored;
-    let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && m.contains(&a));
+    let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && !m.is_empty());
     let get = |n: &str| out.iter().find(|(x, _)| x == n).map(|(_, o)| o.clone()).expect(n);
     assert_eq!(get("Writes"), Outcome::Pass);
-    assert!(flagged("Writes"), "Writes not flagged");
+    assert!(!flagged("Writes"), "Writes flagged");
     assert_eq!(get("Notification"), Outcome::Pass);
-    assert!(flagged("Notification"), "Notification not flagged");
+    assert!(!flagged("Notification"), "Notification flagged");
     assert_eq!(get("Temporary"), Outcome::Pass);
     assert!(!flagged("Temporary"), "a temporary record relies on nothing");
 }
@@ -2080,8 +2078,12 @@ codeunit 50002 "H" { procedure Open(No: Integer) var RR: RecordRef; begin RR.Ope
 /// BC 29 adds four FlowFields to every table, listed in the Field table after SystemModifiedBy: 2000000005
 /// SystemCreatedByUserName and 2000000007 SystemModifiedByUserName (Text 50), 2000000006 SystemCreatedByFullName and
 /// 2000000008 SystemModifiedByFullName (Text 80) (system-fields/W6SystemFieldStamps.al:239-246; metadata/W6FieldKeyRows.al:
-/// 167-168, :267-268). Their other columns are not pinned. A FieldRef to one reads its value only after CalcField (the value
-/// before it is not pinned and is refused; refs.rs `user_name_fieldref_op`).
+/// 167-168, :267-268). Their other columns: Enabled, Type Name Text50/Text80, Field Caption 'Created By (User Name)' and so on,
+/// DataClassification SystemMetadata, all others blank or zero (Access and IsAllowedInCustomizations count as pinned once the
+/// corpus bump regenerates `pinned_columns.rs`) (corpus master
+/// platform/lt-y35-username-field-rows/Y35UserNameFieldRows.al C305_UserNameFieldRows_OwnTable). Their package ids differ
+/// from field 1's for a table of the app under test, and what they are is not pinned: refused. A FieldRef to one reads its
+/// value only after CalcField (the value before it is not pinned and is refused; refs.rs `user_name_fieldref_op`).
 #[test]
 fn bc_29_lists_the_user_name_system_fields_in_the_field_table() {
     let src = r#"table 50001 "R" { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } } keys { key(PK; Id) { } } }
@@ -2090,14 +2092,22 @@ codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Names() var F: Record Field; N: Text; begin F.SetRange(TableNo, 50001); F.SetFilter("No.", '>=%1', 2000000004); if F.FindSet() then repeat N += F.FieldName + ';' until F.Next() = 0; if N <> 'SystemModifiedBy;SystemCreatedByUserName;SystemCreatedByFullName;SystemModifiedByUserName;SystemModifiedByFullName;' then Error('%1', N); end;
   [Test] procedure Columns() var F: Record Field; begin F.Get(50001, 2000000006); if (F.Len <> 80) or (F.Class <> F.Class::FlowField) or (F.Type <> F.Type::Text) then Error('columns'); end;
   [Test] procedure RelationAndState() var F: Record Field; begin F.SetRange(TableNo, 50001); F.SetFilter("No.", '>=%1', 2000000005); F.SetFilter(RelationTableNo, '<>0'); if not F.IsEmpty() then Error('relation'); F.SetRange(RelationTableNo); F.SetRange(ObsoleteState, F.ObsoleteState::Removed); if not F.IsEmpty() then Error('removed'); end;
-  [Test] procedure Caption() var F: Record Field; begin F.Get(50001, 2000000006); if F."Field Caption" = '' then; end;
+  [Test] procedure Caption() var F: Record Field; begin F.Get(50001, 2000000006); if F."Field Caption" <> 'Created By (Full Name)' then Error('%1', F."Field Caption"); end;
+  [Test] procedure AllColumns() var F: Record Field; begin F.Get(50001, 2000000007);
+      if (F.TableName <> 'R') or not F.Enabled or (F."Type Name" <> 'Text50') or (F.ExternalName <> '') or (F."Field Caption" <> 'Modified By (User Name)') then Error('a');
+      if (F.RelationFieldNo <> 0) or (F.SQLDataType <> 0) or (F.OptionString <> '') or (F.ObsoleteReason <> '') then Error('b');
+      if (F.DataClassification <> F.DataClassification::SystemMetadata) or F.IsPartOfPrimaryKey or F.OptimizeForTextSearch then Error('c');
+      F.SetRange(TableNo, 50001); F.SetRange(DataClassification, F.DataClassification::EndUserIdentifiableInformation); if not F.IsEmpty() then Error('euii'); end;
+  [Test] procedure Package() var F: Record Field; begin F.Get(50001, 2000000005); if IsNullGuid(F."App Package ID") then; end;
   [Test] procedure FieldRef() var R: Record R; RR: RecordRef; begin RR.GetTable(R); if Format(RR.Field(2000000005).Value()) = '' then; end; }"#;
     let o = outcomes_bc("main", src, al_sema::check::Roots::default(), "29.0.0.0");
     passes(&o, "TextCount");
     passes(&o, "Names");
     passes(&o, "Columns");
     passes(&o, "RelationAndState");
-    assert!(not_run(&o, "Caption").contains("not known"));
+    passes(&o, "Caption");
+    passes(&o, "AllColumns");
+    assert!(not_run(&o, "Package").contains("not known"), "{o:?}");
     assert!(not_run(&o, "FieldRef").contains("before CalcField"));
     // BC 27 has none of them (W6FieldKeyRows.al:169-170).
     let o = outcomes(&src.replace("<> 5", "<> 1"));
@@ -2427,8 +2437,8 @@ fn a_tests_run_method_id_is_refused_where_its_number_would_show() {
 
 // "Agent Task".TaskExists (System Application, through "Agent Task Impl.".TaskExists): IsEmpty on the virtual table Agent Task
 // after two SetRange calls and ReadIsolation fails with the agent service's error, code DB:Ok (platform/lt-rh-agent-session/
-// RhAgentSession.al:74-88 RH_AgentTask_TaskExistsUnknownAgent). The same read from a partner app, and any other operation on
-// the table, are not pinned: refused.
+// RhAgentSession.al:74-88 RH_AgentTask_TaskExistsUnknownAgent), from a partner app too. An operation no probe covers
+// (Modify) stays refused.
 #[test]
 fn agent_task_is_empty_from_microsoft_code_reports_agents_unavailable() {
     let src = r#"codeunit 50000 "T" { Subtype = Test;
@@ -2445,16 +2455,16 @@ fn agent_task_is_empty_from_microsoft_code_reports_agents_unavailable() {
       AgentTask.SetRange("External ID", 'missing');
       Exists := not AgentTask.IsEmpty();
   end;
-  [Test] procedure TaskCount() var AgentTask: Record "Agent Task"; begin if AgentTask.Count() = 0 then; end; }"#;
+  [Test] procedure TaskModify() var AgentTask: Record "Agent Task"; begin AgentTask.Modify(); end; }"#;
     let o = outcomes_app("ms-sysapp", src, al_sema::check::Roots::default());
     assert_eq!(
         o.iter().find(|(n, _)| n == "TaskExists").map(|(_, o)| o),
         Some(&Outcome::Pass),
         "{o:?}"
     );
-    assert!(not_run(&o, "TaskCount").contains("has no provider"));
-    let partner = outcomes(src);
-    assert!(not_run(&partner, "TaskExists").contains("has no provider"));
+    assert!(not_run(&o, "TaskModify").contains("has no provider"));
+    // The same from this app (platform/lt-y35-agent-api/Y35AgentApi.al C302_AgentTaskDirect_Reads).
+    passes(&outcomes(src), "TaskExists");
 }
 
 // Application Object Metadata of a query and Microsoft's QueryMetadataReader over its Metadata Blob (ODataUtility.
@@ -2757,8 +2767,8 @@ codeunit 50001 H { procedure InsertFail() var A: Record "Active Session"; begin 
 
 // Agent.GetDisplayName, GetUserName and IsActive (System Application, through "Agent Impl.".GetAgent): Get on the platform table
 // Agent fails with the agent service's error, code DB:Ok, for a new and for a null id, also inside a TryFunction
-// (platform/lt-rh-agent-session/RhAgentSession.al:101-145, AL Runner issue 5787). The same read from a partner app and any
-// other operation on the table are not pinned: refused.
+// (platform/lt-rh-agent-session/RhAgentSession.al:101-145, AL Runner issue 5787), from a partner app too. An operation no
+// probe covers (Delete) stays refused.
 #[test]
 fn agent_get_from_microsoft_code_reports_agents_unavailable() {
     let src = r#"codeunit 50000 "T" { Subtype = Test;
@@ -2772,16 +2782,16 @@ fn agent_get_from_microsoft_code_reports_agents_unavailable() {
   [TryFunction] local procedure TryGet(Id: Guid) var Agent: Record Agent; begin
       if not Agent.Get(Id) then Error('not found');
   end;
-  [Test] procedure AgentCount() var Agent: Record Agent; begin if Agent.Count() = 0 then; end; }"#;
+  [Test] procedure AgentDelete() var Agent: Record Agent; begin Agent.Delete(); end; }"#;
     let o = outcomes_app("ms-sysapp", src, al_sema::check::Roots::default());
     assert_eq!(
         o.iter().find(|(n, _)| n == "GetAgent").map(|(_, o)| o),
         Some(&Outcome::Pass),
         "{o:?}"
     );
-    assert!(not_run(&o, "AgentCount").contains("has no provider"));
-    let partner = outcomes(src);
-    assert!(not_run(&partner, "GetAgent").contains("has no provider"));
+    assert!(not_run(&o, "AgentDelete").contains("has no provider"));
+    // The same from this app (onprem platform/lt-y35-agent-direct/Y35AgentDirect.al C302_AgentDirect_Reads).
+    passes(&outcomes(src), "GetAgent");
 }
 
 // NavUserAccountHelper.IsPermissionSetAssigned(user, company, role, app id, scope), which "User Permissions".
@@ -4236,4 +4246,111 @@ codeunit 50000 "T" { Subtype = Test;
         .expect("test codeunit T");
     let o = run_codeunit(&engine, &l, oi);
     passes(&o, "UserRow");
+}
+
+// On the corpus containers every read and every insert of the agent tables fails with the agent service's error, code DB:Ok,
+// and leaves no write transaction, from this app as from the System Application's Agent API: Agent (FindSet with a filter,
+// FindFirst, IsEmpty, Count, FindLast, Get, Insert(true), Insert()), Agent Task (FindSet, Count, Get, Insert), Agent Task
+// Message (FindSet, Insert) and Agent Access Control (FindSet) (onprem platform/lt-y35-agent-direct/Y35AgentDirect.al
+// C302_AgentDirect_FindSetFiltered, _Reads, _Inserts; platform/lt-y35-agent-api/Y35AgentApi.al C302_AgentTaskDirect_Reads,
+// _Inserts, C302_AgentApi_Create). A temporary record is an ordinary temporary table. Other operations stay refused.
+#[test]
+fn every_read_and_insert_of_the_agent_tables_reports_agents_unavailable() {
+    let unavailable = "Agents are temporarily unavailable. Please try again later. You can check the Business Central Admin Center and Microsoft 365 Service Health dashboard for updates.";
+    let src = format!(
+        r#"codeunit 50000 "T" {{ Subtype = Test;
+  local procedure Check(Ran: Boolean) begin
+      if Ran then Error('no error');
+      if GetLastErrorText() <> '{unavailable}' then Error(GetLastErrorText());
+      if GetLastErrorCode() <> 'DB:Ok' then Error(GetLastErrorCode());
+      if Database.IsInWriteTransaction() then Error('write transaction');
+      ClearLastError();
+  end;
+  [TryFunction] local procedure AgentFindSet() var A: Record Agent; begin A.SetFilter("User Name", '%1|%2', 'A', 'B'); A.FindSet(); end;
+  [TryFunction] local procedure AgentFindFirst() var A: Record Agent; begin A.SetFilter("User Name", 'X'); A.FindFirst(); end;
+  [TryFunction] local procedure AgentFindLast() var A: Record Agent; begin A.FindLast(); end;
+  [TryFunction] local procedure AgentIsEmpty() var A: Record Agent; begin if A.IsEmpty() then; end;
+  [TryFunction] local procedure AgentCount() var A: Record Agent; begin if A.Count() = 0 then; end;
+  [TryFunction] local procedure AgentGet() var A: Record Agent; begin if A.Get(CreateGuid()) then; end;
+  [TryFunction] local procedure TaskFindSet() var T: Record "Agent Task"; begin if T.FindSet() then; end;
+  [TryFunction] local procedure TaskCount() var T: Record "Agent Task"; begin if T.Count() = 0 then; end;
+  [TryFunction] local procedure TaskGet() var T: Record "Agent Task"; begin if T.Get(1) then; end;
+  [TryFunction] local procedure MessageFindSet() var M: Record "Agent Task Message"; begin if M.FindSet() then; end;
+  [TryFunction] local procedure AccessFindSet() var C: Record "Agent Access Control"; begin if C.FindSet() then; end;
+  [Test] procedure Reads() begin
+      Check(AgentFindSet()); Check(AgentFindFirst()); Check(AgentFindLast()); Check(AgentIsEmpty()); Check(AgentCount());
+      Check(AgentGet()); Check(TaskFindSet()); Check(TaskCount()); Check(TaskGet()); Check(MessageFindSet()); Check(AccessFindSet());
+  end;
+  [Test] procedure Inserts() var A: Record Agent; T: Record "Agent Task"; M: Record "Agent Task Message"; begin
+      A.Init(); A."User Name" := 'LT'; asserterror A.Insert(true); Check(false);
+      asserterror A.Insert(); Check(false);
+      asserterror T.Insert(); Check(false);
+      asserterror M.Insert(); Check(false);
+  end;
+  [Test] procedure Temporary() var A: Record Agent temporary; begin A.Init(); A."User Name" := 'LT'; A.Insert(); if not A.FindFirst() then Error('temp'); end;
+  [Test] procedure ModifyStaysRefused() var A: Record Agent; begin A.Modify(); end; }}"#
+    );
+    let o = outcomes(&src);
+    for t in ["Reads", "Inserts", "Temporary"] {
+        passes(&o, t);
+    }
+    assert!(not_run(&o, "ModifyStaysRefused").contains("has no provider"), "{o:?}");
+    let o = outcomes_app("ms-sysapp", &src, al_sema::check::Roots::default());
+    for t in ["Reads", "Inserts"] {
+        passes(&o, t);
+    }
+}
+
+// Webhook Subscription, Webhook Notification, MCP Configuration Tool and Privacy Notice Approval are ordinary stored tables,
+// empty on the corpus containers (corpus master onprem platform/lt-y35-stored-tables/Y35StoredTables.al, main
+// platform/lt-y35-privacy-approval/Y35PrivacyApproval.al). The platform fills a blank "Application ID" of a webhook
+// subscription with 'NAV' (C303_Webhook_RowsAndWrites); one AL sets is not pinned. A Delete of an MCP Configuration that has
+// tools deletes them on BC 27.5 and keeps them from BC 28 (C303_McpTool_ParentChecks): on the BC 27 table set (the tool table
+// has no "API Version") it is refused. Privacy Notice's FlowFields read the approvals per exact User SID (C303_PrivacyNotice_
+// FlowFields).
+#[test]
+fn the_webhook_mcp_tool_and_privacy_approval_tables_are_stored() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Webhook() var S: Record "Webhook Subscription"; R: Record "Webhook Subscription"; begin
+      if not S.IsEmpty() then Error('start');
+      S."Subscription ID" := 'A'; S.Endpoint := 'e'; S."Created By" := 'X PAYPAL Y'; if not S.Insert() then Error('insert');
+      if S.Insert() then Error('duplicate');
+      R.Get('A', 'e'); if R."Application ID" <> 'NAV' then Error('%1', R."Application ID");
+      R.SetFilter("Created By", '@*paypal*'); if R.Count() <> 1 then Error('filter'); R.Reset(); R.DeleteAll(); if not R.IsEmpty() then Error('left'); end;
+  [Test] procedure WebhookAppId() var S: Record "Webhook Subscription"; begin S."Subscription ID" := 'B'; S."Application ID" := 'OWN'; S.Insert(); end;
+  [Test] procedure Notification() var N: Record "Webhook Notification"; begin N.ID := CreateGuid(); N."Subscription ID" := 'S'; N."Sequence Number" := 7; N.Insert(); N.Reset(); if N.Count() <> 1 then Error('count'); end;
+  [Test] procedure Tool() var T: Record "MCP Configuration Tool"; R: Record "MCP Configuration Tool"; begin
+      T.ID := CreateGuid(); T."Object Type" := T."Object Type"::Page; T."Object ID" := 1; T."Allow Read" := true; T.Insert();
+      if not R.GetBySystemId(T.SystemId) then Error('systemid'); R."Allow Delete" := true; R.Modify(); R.SetRange(ID, T.ID); R.ModifyAll("Allow Read", false);
+      R.Get(T.ID, T."Object Type", 1); if R."Allow Read" or not R."Allow Delete" then Error('row'); R.Delete(); end;
+  [Test] procedure ConfigDeleteWithTools() var C: Record "MCP Configuration"; T: Record "MCP Configuration Tool"; begin
+      C.Name := 'LT'; C.Insert(); T.ID := C.SystemId; T."Object ID" := 1; T.Insert(); C.Delete(); end;
+  [Test] procedure ConfigDeleteWithoutTools() var C: Record "MCP Configuration"; begin C.Name := 'LT'; C.Insert(); C.Delete(); end;
+  [Test] procedure Approval() var A: Record "Privacy Notice Approval"; N: Record "Privacy Notice"; Admin: Guid; begin
+      N.ID := 'LT'; N.Insert(); A.ID := 'LT'; A."User SID" := Admin; A.Approved := true; A.Insert();
+      if not IsNullGuid(A."Approver User SID") then Error('approver');
+      N.SetRange("User SID Filter", Admin); N.CalcFields(Enabled, Disabled); if not N.Enabled or N.Disabled then Error('admin');
+      N.SetRange("User SID Filter", UserSecurityId()); N.CalcFields(Enabled, Disabled); if N.Enabled or N.Disabled then Error('user');
+      A.SetRange(ID, 'LT'); A.DeleteAll(); if not A.IsEmpty() then Error('left'); end;
+  [Test] procedure TenantProfileSettingStaysRefused() var S: Record "Tenant Profile Setting"; begin if S.IsEmpty() then; end; }"#,
+    );
+    for t in [
+        "Webhook",
+        "Notification",
+        "Tool",
+        "ConfigDeleteWithoutTools",
+        "Approval",
+    ] {
+        passes(&o, t);
+    }
+    assert!(not_run(&o, "WebhookAppId").contains("Application ID"), "{o:?}");
+    assert!(
+        not_run(&o, "ConfigDeleteWithTools").contains("MCP Configuration"),
+        "{o:?}"
+    );
+    assert!(
+        not_run(&o, "TenantProfileSettingStaysRefused").contains("has no provider"),
+        "{o:?}"
+    );
 }

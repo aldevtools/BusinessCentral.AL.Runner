@@ -620,6 +620,32 @@ impl Checker<'_> {
         }
     }
 
+    /// `PlatformFileVersion` of a dependency's codeunit 9015 "Application System Constants": the runtime calls it for a
+    /// `NavTenantSettingsHelper.GetPlatformVersion()` the checked code makes, and nothing in the apps names that call.
+    pub(super) fn reach_platform_file_version(&self) {
+        if self.demand.borrow().is_none() {
+            return;
+        }
+        for i in 0..self.ws.objects.len() {
+            let o = &self.ws.objects[i];
+            if o.kind == ObjKind::Codeunit
+                && o.id == Some(al_builtins::dotnet_sigs::APPLICATION_SYSTEM_CONSTANTS)
+                && o.name.eq_ignore_ascii_case("Application System Constants")
+                && self.ws.is_dependency(i)
+                && self.ws.usable(i)
+            {
+                for r in self.routines_of(i).iter() {
+                    if !r.is_trigger()
+                        && r.name()
+                            .eq_ignore_ascii_case(al_builtins::dotnet_sigs::PLATFORM_FILE_VERSION)
+                    {
+                        self.reach(i, usize::from(r.syntax().text_range().start()));
+                    }
+                }
+            }
+        }
+    }
+
     /// Reaches the procedures the routine just checked calls.
     pub(super) fn take_calls(&mut self) {
         let calls = std::mem::take(&mut self.calls);

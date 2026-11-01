@@ -1969,16 +1969,10 @@ codeunit 50101 T
 
 #[test]
 fn issue_6213_text_n_true_branch_and_unbounded_text_false_branch() {
-    // Another length than the pinned 10 and 250 (here Text[30]) is not pinned: refused.
+    // Another length than 10 and 250 (here Text[30]) runs too: the false branch converts to the true branch's Text[N] for
+    // every length (types/lt-y31-conversion-matrix/Y31ConvCd.al:3015 Text10_Text).
     for (name, outcome) in run_with_deps(&[], ISSUE_6213_OBJECTS) {
-        if name.ends_with("OtherLength") {
-            assert!(
-                matches!(&outcome, Outcome::NotRun(why) if why.contains("Text[30] and Text") && why.contains("not pinned")),
-                "{outcome:?}"
-            );
-        } else {
-            assert_eq!(outcome, Outcome::Pass, "{name}");
-        }
+        assert_eq!(outcome, Outcome::Pass, "{name}");
     }
 }
 
@@ -1986,7 +1980,8 @@ fn issue_6213_text_n_true_branch_and_unbounded_text_false_branch() {
 /// UserId(), Format(x)) compiles; a false value that fits is returned unchanged, and the result assigned to a shorter Text
 /// fails as that assignment does. Pins: lt-ss1030/SsTernaryBuiltinText.al (corpus branch al-runtime-rs-staging-ss1030 at
 /// c36d14ea, not yet on master): Ternary_TextNTrue_BuiltinFalse_ValuesAndLengths (:47-69) and _IntoShorterTarget (:71-98).
-/// A false value longer than 50 is not pinned for this length: refused when the branch is taken.
+/// A false value longer than 50 raises StringLengthExceeded when the branch is taken, as a false branch longer than the true
+/// branch's Text[N] does (types/lt-y31-conversion-matrix/Y31ConvCd.al:3015 Text10_Text, `eleven` and `guidlow`).
 const ISSUE_6213B_OBJECTS: &str = "
 codeunit 50100 \"TB Holder\"
 {
@@ -2081,7 +2076,7 @@ fn issue_6213_text_50_true_branch_and_builtin_text_false_branch() {
     for (name, outcome) in run_with_deps(&[], ISSUE_6213B_OBJECTS) {
         if name.ends_with("LongerThanTheTrueBranch") {
             assert!(
-                matches!(&outcome, Outcome::NotRun(why) if why.contains("not pinned")),
+                matches!(&outcome, Outcome::Fail(why) if why.starts_with("The length of the string is 60, but it must be less than or equal to 50 characters.")),
                 "{outcome:?}"
             );
         } else {

@@ -48,6 +48,24 @@ codeunit 50495 C
         R3 := StrSubstNo('count=%1 filters=[%2]', Back.Count(), Back.GetFilters());
         exit(StrSubstNo('first{%1} second{%2} back{%3}', R1, R2, R3));
     end;
+    procedure TempSecond(): Text
+    var First: Record "VGP Row"; Temp: Record "VGP Row" temporary; Real: Record "VGP Row"; V: Variant; RR: RecordRef; R1, R2: Text;
+    begin
+        Seed();
+        Temp.No := 'T1';
+        Temp.Insert();
+        First.SetRange(No, 'A');
+        V := First;
+        Temp.FindFirst();
+        V := Temp;
+        RR.GetTable(V);
+        R1 := StrSubstNo('temp=%1 count=%2 filters=[%3]', RR.IsTemporary(), RR.Count(), RR.GetFilters());
+        V := Real;
+        Clear(RR);
+        RR.GetTable(V);
+        R2 := StrSubstNo('temp=%1 count=%2 filters=[%3]', RR.IsTemporary(), RR.Count(), RR.GetFilters());
+        exit(R1 + ' / ' + R2);
+    end;
     procedure NoRecFilter(): Text
     var First: Record "VGP Row"; Filtered: Record "VGP Row"; V: Variant; RR: RecordRef;
     begin
@@ -115,5 +133,15 @@ fn the_new_view_wins_in_another_codeunit_by_var_and_by_value() {
     assert_eq!(
         text(al_testkit::run_in(SRC, "C", "OtherCodeunit")),
         "count=0 filters=[No: NONE]/count=0 filters=[No: NONE]"
+    );
+}
+
+/// A temporary record on either side: the Variant holds the new record whole, as a Variant that held nothing would
+/// (recordref/lt-y23-variant-view/Y23VariantRecordView.al:289-303 Y23_SecondRecordTemporary `temp`, `real after temp`).
+#[test]
+fn a_temporary_record_on_either_side_replaces_the_record_the_variant_holds() {
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "TempSecond")),
+        "temp=Yes count=0 filters=[] / temp=No count=1 filters=[]"
     );
 }

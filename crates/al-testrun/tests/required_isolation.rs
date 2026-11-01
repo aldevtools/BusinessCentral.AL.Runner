@@ -468,3 +468,81 @@ codeunit 50672 "Reads Other"
     );
     assert_eq!(outcome(&o, "RO1"), &Outcome::Pass, "{o:?}");
 }
+
+// Under runner 130450 what a test codeunit's OnRun leaves in isolated storage and in the number sequences, committed and
+// open, reaches the later codeunits as its rows do; the TestRunnerHub (BC 28+) drops it with the rows
+// (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al C301_B1_OnRunCommittedStorage, C301_B1_OnRunSequences,
+// C301_B1_OnRunOpenWrites; C306_B6_OnRunStorage for the hub).
+const ONRUN_STORAGE_130450: &str = r#"
+codeunit 50680 "OnRun Storage"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    trigger OnRun()
+    var V: BigInteger;
+    begin
+        IsolatedStorage.Set('C', 'committed', DataScope::Module);
+        NumberSequence.Insert('S', 100, 1, false);
+        V := NumberSequence.Next('S', false);
+        Commit();
+        IsolatedStorage.Set('O', 'open', DataScope::Module);
+    end;
+    [Test] procedure OS1() begin end;
+}
+codeunit 50681 "Reads Storage"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure RS1()
+    var V: Text;
+    begin
+        if not IsolatedStorage.Get('C', DataScope::Module, V) then Error('no committed key');
+        if not IsolatedStorage.Get('O', DataScope::Module, V) then Error('no open key');
+        if not NumberSequence.Exists('S', false) then Error('no sequence');
+        if NumberSequence.Next('S', false) <> 101 then Error('next');
+    end;
+}
+"#;
+
+#[test]
+fn under_runner_130450_what_onrun_left_in_storage_and_sequences_reaches_the_later_codeunits() {
+    let o = run(ONRUN_STORAGE_130450, false);
+    assert_eq!(outcome(&o, "RS1"), &Outcome::Pass, "{o:?}");
+    let o = run(ONRUN_STORAGE_130450, true);
+    assert_eq!(outcome(&o, "RS1"), &Outcome::Fail("no committed key".into()), "{o:?}");
+}
+
+// An OnRun the lowering refuses (its reach is not known) that statically writes no table and no storage does not join the
+// carry chain, as main's rule for tables has it (`onrun_writes`): a later codeunit that reads a table the refused
+// codeunit's tests write still runs, the tests' own writes being rolled back with the codeunit. With `--no-deps` on BC 27
+// every OnRun that reaches a Microsoft app is refused so.
+const ONRUN_REFUSED_130450: &str = r#"
+codeunit 50682 "OnRun Refused"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    trigger OnRun()
+    var V: Variant; T: Text; L: Label 'abc', Locked = true; B: Boolean;
+    begin
+        V := B ? L : T;
+    end;
+    [Test] procedure OR1() var Rows: Codeunit "Rows"; begin Rows.Put('own'); end;
+}
+codeunit 50683 "Reads Rows"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    [Test] procedure RR1()
+    var Rows: Codeunit "Rows";
+    begin
+        if Rows.Count() <> 0 then Error('rows');
+    end;
+}
+"#;
+
+#[test]
+fn under_runner_130450_a_refused_onrun_that_writes_nothing_known_does_not_hold_back_a_later_codeunit() {
+    let o = run(ONRUN_REFUSED_130450, false);
+    assert!(matches!(outcome(&o, "OR1"), Outcome::NotRun(_)), "{o:?}");
+    assert_eq!(outcome(&o, "RR1"), &Outcome::Pass, "{o:?}");
+}

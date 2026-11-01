@@ -458,6 +458,43 @@ impl<'a> Checker<'a> {
 
     /// AL0161 (corpus must-not-compile 0356, 0358, 0359): `C.Name` on a codeunit variable of another codeunit, where `Name`
     /// is only declared `local` or is a global variable (never reachable through a variable).
+    /// A member of a test page that is itself the receiver of another member: the control of that name (see `infer`).
+    fn receiver_control_member(&mut self, sc: &Scope, node: &SyntaxNode, base: &Ty, name: &str) -> Option<E> {
+        if matches!(base, Ty::TestPage(_) | Ty::TestRequestPage(_) | Ty::TestPart(_))
+            && !(matches!(base, Ty::TestPart(_)) && name.eq_ignore_ascii_case("Page"))
+            && node
+                .parent()
+                .is_some_and(|p| p.kind() == SyntaxKind::MemberExpr && p.children().next().as_ref() == Some(node))
+        {
+            return self.page_control_member(sc, base, name);
+        }
+        None
+    }
+
+    /// `CurrReport.RequestOptionsPage` is AL0161; the bare `RequestOptionsPage` is the report's request page
+    /// (must-not-compile 2514-currreport-requestoptionspage.al; report/lt-y40-bare-report-run/Y40BareReportRun.al:156).
+    fn currreport_request_options_page(
+        &mut self,
+        sc: &Scope,
+        node: &SyntaxNode,
+        recv: &SyntaxNode,
+        base: &Ty,
+        name: &str,
+    ) {
+        if matches!(base, Ty::Object(ObjKind::Report, _))
+            && name.eq_ignore_ascii_case("RequestOptionsPage")
+            && recv.kind() == SyntaxKind::NameRef
+            && recv.text().to_string().trim().eq_ignore_ascii_case("CurrReport")
+        {
+            self.diag(
+                sc,
+                node,
+                "AL0161",
+                "'RequestOptionsPage' is inaccessible due to its protection level".to_string(),
+            );
+        }
+    }
+
     pub(crate) fn al_codeunit_access(&mut self, sc: &Scope, node: &SyntaxNode, base: &Ty, name: &str) {
         // A local procedure of a table, called through a record of it (corpus must-not-compile 0359). Judged on the
         // table's own source, so a procedure of a table extension is never taken for it.
@@ -1433,16 +1470,10 @@ impl<'a> Checker<'a> {
                 // `Part.Page` is the page the part shows, also when that page has a control called Page (Base
                 // Application's Purch. Invoice Subform has a group "Page"): real BC compiles
                 // `CurrPage.PurchLines.Page.ForceTotalsCalculation()`; no corpus test names a control Page.
-                if matches!(base_ty, Ty::TestPage(_) | Ty::TestRequestPage(_) | Ty::TestPart(_))
-                    && !(matches!(base_ty, Ty::TestPart(_)) && mname.eq_ignore_ascii_case("Page"))
-                    && node
-                        .parent()
-                        .is_some_and(|p| p.kind() == MemberExpr && p.children().next().as_ref() == Some(node))
-                {
-                    if let Some(e) = self.page_control_member(sc, &base_ty, &mname) {
-                        return e;
-                    }
+                if let Some(e) = self.receiver_control_member(sc, node, &base_ty, &mname) {
+                    return e;
                 }
+                self.currreport_request_options_page(sc, node, &kids[0], &base_ty, &mname);
                 self.al_codeunit_access(sc, node, &base_ty, &mname);
                 match self.member(sc, &base_ty, &mname) {
                     Some(e) => e,

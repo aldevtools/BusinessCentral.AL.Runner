@@ -536,8 +536,8 @@ impl Session {
     /// pages/lt-y1-6288/Y1ExternalReapplyMarks.al:223 Y1_Reapply_FirstAfterExternalRefresh `first` `true/1`, `goto 2 after`
     /// `false/1`, `next after` `false/1`, `goto 1 after` `true/1`; :278 Y1_Reapply_GoToRecordAfterRefreshWithoutFirst `goto 2`
     /// `false/1`, `goto 2 again` `false/1`; al-runner issue 6288). Which row triggers run while the client reads the new view is
-    /// not pinned: none run here. Pinned for a list in its primary key whose marked rows fit a window and hold Rec's row; another
-    /// key is an assumption (al-runner issue 6467).
+    /// not pinned: none run here. Pinned for a list whose marked rows fit a window and hold Rec's row (another key:
+    /// pages/lt-y15/Y15ReapplyMarksSecondaryKey.al:269, al-runner issue 6467; a GoToRecord first in another key is assumed).
     fn marked_view_changed_by_move(
         &mut self,
         st: &St,
@@ -568,9 +568,10 @@ impl Session {
             return Ok(r);
         }
         // In a key other than the primary key the client holds the marked rows in that key's order and stays on Rec's row too
-        // (al-runner issue 6467; corpus writer Y15, branch al-runtime-rs-staging-y15, pages/lt-y15/
-        // Y15ReapplyMarksSecondaryKey.al:267 `goto 2 after` `false/1/1`, `next after` `false/1/1`, `last after` `true/1/1`; :345;
-        // assumption `reapply-marks-other-key` until that file is pinned).
+        // (al-runner issue 6467; pages/lt-y15/Y15ReapplyMarksSecondaryKey.al:269 Y15_SK_FirstAfterExternalRefresh `goto 2 after`
+        // `false/1/1`, `next after` `false/1/1`, `last after` `true/1/1`). A GoToRecord as the first move after the refresh
+        // (:354 Y15_SK_GoToRecordAfterRefreshWithoutFirst) does not run here yet: an earlier test of its codeunit is refused, so
+        // that move stays the assumption `reapply-marks-other-key`.
         let other_key = rec.borrow().key != 0;
         let refuse = || {
             unsupported(
@@ -603,7 +604,7 @@ impl Session {
         if !rows.iter().any(|w| Self::same_key(&w.key, &at)) {
             return refuse();
         }
-        if other_key {
+        if other_key && method == PageOp::TestPageGoToRecord {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReapplyMarksOtherKey);
         }
         let want = st.borrow_mut().go_to_want.take();
@@ -622,8 +623,8 @@ impl Session {
         self.ret_used = true;
         self.record_op(RecordOp::Get, &rec, &mut pk)?;
         // In another key, when the trigger left Rec on another row than the move reached, the refresh runs OnAfterGetCurrRecord
-        // on Rec's row; on the same row it runs no trigger (corpus writer Y15, branch al-runtime-rs-staging-y15, pages/lt-y15/
-        // Y15ReapplyMarksSecondaryKey.al:267 `first` `true/1/1 agcr2;agcr1`, :345 `goto 1` `true/1/1 agcr1`). In the primary key
+        // on Rec's row; on the same row it runs no trigger (pages/lt-y15/Y15ReapplyMarksSecondaryKey.al:269 `first`
+        // `true/1/1 agcr2;agcr1`, :354 `goto 1` `true/1/1 agcr1`, which does not run here yet). In the primary key
         // which triggers run is not pinned: none run.
         let started = st.borrow().agcr_started.clone();
         if other_key && started.is_some_and(|f| !Self::same_key(&table.primary_key(&f), &at)) {
@@ -1134,26 +1135,10 @@ impl Session {
             return Ok(Value::Null);
         }
         let engine = self.engine();
+        self.save_before_action(st, idx)?;
         // A client sends the row it stands on to the server before it runs an action (corpus
         // handlers/TestPageAutoSplitKey_Tests.al:TestPage_ActionInvoke_OnANewSubpageRow_*).
         let was_dirty = st.borrow().dirty;
-        // An action on a host whose row holds an edit, with a part linked by field(filter(...)): BC saves the edit and the part
-        // follows it (pages/lt-y37-link-filter/Y37LinkFilterTests.al:418-450), while the runtime reads the stored row back here.
-        if was_dirty
-            && st.borrow().host.is_none()
-            && page_of(&engine, st).controls.iter().any(|c| {
-                c.part_link
-                    .as_ref()
-                    .is_some_and(|l| l.entries.iter().any(|e| matches!(e, ir::LinkEntry::FieldFilter(..))))
-            })
-        {
-            return unsupported(
-                "an action on a page whose row holds an edit, with a part linked by field(filter(...)) (the runtime does not keep the edit here)",
-            );
-        }
-        if st.borrow().host.is_some() {
-            self.save_row(st)?;
-        }
         // A new row of a card whose key a SetValue typed is stored before the next action's trigger (pages/lt-table-globals-page/
         // TableGlobalsPageWithoutValidation.al:318 QG_NewDraft_KeyTyped_ThenBumpAction: `stored after the SetValue` No, `stored
         // after BumpOnly` Yes, `Seen after BumpOnly` I0, `LastCount after ReadCount` 2).
@@ -2430,13 +2415,11 @@ impl Session {
             rec.borrow_mut().fields = fields;
             return Ok(());
         }
-        // No row of the new view follows: the page stands on the nearest row before it, and moves go on from there (corpus writer
-        // Y15, branch al-runtime-rs-staging-y15, pages/lt-y15/Y15ActionNarrowsBelowLast.al:237 Y15_NV_ReporterShape `after show
-        // included` `2/Yes`, `next end` `false/2`; :269 Next `false/2`, Previous `true/1`; :294 GoToRecord and GoToKey; :320 the
-        // same without CurrPage.Update). A view left without rows shows a blank row, and First and Last answer false (:345
-        // `after none` `[]`, `none first` `false/[]`). Assumption `action-filter-no-row-after-moves` until that file is pinned
-        // (al-runner issue 6468).
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionFilterNoRowAfterMoves);
+        // No row of the new view follows: the page stands on the nearest row before it, and moves go on from there
+        // (pages/lt-y15/Y15ActionNarrowsBelowLast.al:237 Y15_NV_ReporterShape `after show included` `2/Yes`, `next end`
+        // `false/2`; :269 Next `false/2`, Previous `true/1`; :294 GoToRecord and GoToKey; :320 the same without
+        // CurrPage.Update). A view left without rows shows a blank row, and First and Last answer false (:345
+        // `after none` `[]`, `none first` `false/[]`; al-runner issue 6468).
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         self.ret_used = true;
         if matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(-1)])?, Value::Integer(n) if n != 0) {
@@ -2502,20 +2485,14 @@ impl Session {
             return self.read_list_again_from_row(st, &rec, &key);
         }
         // The row the list stood on was the first of the old view; an action that changed the view can put rows before it, and
-        // then the list reads as on a later row (al-runner issue 6470: corpus writer Y15, branch al-runtime-rs-staging-y15,
-        // pages/lt-y15/Y15ActionWidensView.al:198 `after action` `A20/6 28:A20-A01`).
+        // then the list reads as on a later row (al-runner issue 6470: pages/lt-y15/Y15ActionWidensView.al:199
+        // `after action` `A20/6 28:A20-A01`).
         let first = {
             let s = st.borrow();
             s.window_from_start
                 && s.window.len() < Self::WINDOW
                 && s.window.first().is_some_and(|w| Self::same_key(&w.key, &key))
-        } && {
-            let rows_before = self.view_changed_by_action(st) && self.has_row_before(&rec)?;
-            if rows_before {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionWidensViewHoldsAll);
-            }
-            !rows_before
-        };
+        } && { !(self.view_changed_by_action(st) && self.has_row_before(&rec)?) };
         if !first {
             return self.read_list_again_from_row(st, &rec, &key);
         }
@@ -2715,7 +2692,7 @@ impl Session {
 
     /// [`Self::read_list_again_from_row`]; `read_first` false leaves out the read of the row before the others (a refresh after a
     /// control's OnValidate, `refresh_after_validate_filter`).
-    fn read_list_again_from_row_as(
+    pub(super) fn read_list_again_from_row_as(
         &mut self,
         st: &St,
         rec: &Rec,
@@ -2957,13 +2934,10 @@ impl Session {
             // :308-342 with OnAfterGetCurrRecord too: GoToKey(2,50) and Next after the filter change show their rows; al-runner
             // issue 6381). With more rows
             // than a window, a page that reads its rows from the table holds what the refresh read: the way back reached the
-            // first row of the view, so the rows are the new view's from its start (al-runner issue 6469, a regression of the
-            // refusal below: First goes to A01 and Next walks the whole view, as on real BC; assumption
-            // `action-refresh-holds-read-rows`). With OnFindRecord the rows are not pinned: the next move is refused.
+            // first row of the view, so the rows are the new view's from its start (al-runner issue 6469:
+            // pages/lt-y15/Y15ActionWidensView.al:365 Y15_WV_FromLast25 `first` `true/A01 0:-`, `count` `25/A25`, `next`
+            // `true/A03`, `last after` `true/A25`). With OnFindRecord the rows are not pinned: the next move is refused.
             let held = back.len() + rows.len() > Self::WINDOW;
-            if held && !find {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionRefreshHoldsReadRows);
-            }
             let mut s = st.borrow_mut();
             if held && find {
                 s.window = Vec::new();
@@ -3082,11 +3056,10 @@ impl Session {
             );
         }
         // A page without a source table refreshes its parts on CurrPage.Update: an unlinked ListPart reads its rows again and
-        // shows what its OnAfterGetRecord computes now (corpus writer Y15, branch al-runtime-rs-staging-y15, pages/lt-y15/
-        // Y15WorksheetPartRefresh.al:226 the Worksheet of al-runner issue 6465: SetValue runs the part's `AGR1;AGR1;AGCR1` and
-        // the part shows `(A)`; :287 two rows, the part stays on its row; :320 without CurrPage.Update no part trigger runs).
+        // shows what its OnAfterGetRecord computes now (pages/lt-y15/Y15WorksheetPartRefresh.al:226 the Worksheet of al-runner
+        // issue 6465: SetValue runs the part's `AGR1;AGR1;AGCR1` and the part shows `(A)`; :287 two rows, the part stays on its
+        // row, `setvalue log` `AGR1;AGR2;AGR1;AGR1;AGCR1`; :320 without CurrPage.Update no part trigger runs).
         if by_update && st.borrow().open && !self.has_source(st) && !without_parts && !st.borrow().parts.is_empty() {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SourcelessHostUpdateRefreshesParts);
             st.borrow_mut().refresh = false;
             return self.sync_parts(st);
         }

@@ -86,7 +86,9 @@ pub enum Gate {
     /// compiled from BC 28 on, and BC 27 refuses the methods at compile time (json/lt-json-selecttokens/SelectTokensList.al,
     /// corpus bump 27). Not consumed yet.
     JsonSelectTokensListFrom28,
-    /// The system table Windows Language has 212 rows from BC 29 (208 before) (platform/lt-ag-contoso/AgWindowsLanguage.al, corpus bump 26). Not consumed yet.
+    /// The system table Windows Language has 212 rows from BC 29 (208 before) (platform/lt-ag-contoso/AgWindowsLanguage.al, corpus bump 26).
+    /// The flag columns count the same rows (platform/lt-y21-env-columns/Y21EnvColumns.al:120 Y21_WindowsLanguage_Flags). Not
+    /// consumed yet.
     WindowsLanguageRowsFrom29,
     /// The platform table Language Selection has the row ff-NG and other rows from BC 29 (platform/lt-platform-rows-fresh/PlatformRowsLanguageSelection.al, corpus bump 26). Consumed by the Language Selection provider (al-vm platform/host_tables.rs).
     LanguageSelectionRowsFrom29,
@@ -110,7 +112,8 @@ pub enum Gate {
     GetTextArgumentEvaluateErrorFrom28,
     /// A BigInteger can be assigned to an Enum variable from BC 29 (an Option variable accepts it in every version).
     /// Before, it is refused with AL0122 (types/lt-bigint-enum-option/BigIntToEnumOption.al, corpus bump 20; must-not-compile
-    /// case 0451). Not consumed yet.
+    /// case 0451). The conversion matrix holds its BigInteger and Enum pairs back the same way (types/lt-y31-conversion-matrix/,
+    /// Y31ConvCd.al, Y31ConvCmp.al, Y31ConvCv.al, Y31ConvSus.al). Not consumed yet.
     BigIntegerToEnumVariableFrom29,
     /// `Base64Convert.FromBase64` of text that is not Base64 raises from BC 28 (types/PVBase64.al, corpus bump 9).
     /// Not consumed yet.
@@ -166,7 +169,11 @@ pub enum Gate {
     /// (report/lt-am-rdlc-output/AMRdlcOutput.al:9-11). Corpus bump 34 lifts the RDLC holds of
     /// report/lt-ci-report-leads/CiReportRunLeads.al, which then has no guard left. Corpus bump 36 asserts the control add-in
     /// error of pages/lt-f3-pages/F3ValidationAddinFilter.al:409,447 only from BC 29, the one major checked on Windows; BC 27
-    /// and 28 stay held on Linux there (BC 27.5 gives a client callback error, :417-420). Not consumed yet.
+    /// and 28 stay held on Linux there (BC 27.5 gives a client callback error, :417-420). From BC 29 the Max FlowField of an Enum
+    /// field into an Option field formats as the Option member (or the number the Option lacks), BC 27 and 28 as the Enum member
+    /// (record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al:190 Y20_Max_EnumIntoOption_Result; consumed by al-vm
+    /// flowfields.rs). The System Application enum "Agent Metadata Provider" has the value "Personal Agent" from BC 29
+    /// (platform/lt-y35-agent-api/Y35AgentApi.al:39, a dependency app's source).
     ProbedValuesDifferFrom29,
     /// `Base64Convert.ToBase64` of a Text with `TextEncoding::Windows` or `MSDos` and no code page gives the code page 1252
     /// bytes from BC 28 (`äöü` is `5Pb8`); before, the UTF-8 bytes (`w6TDtsO8`) (types/PVBase64.al, corpus bump 13).
@@ -237,6 +244,11 @@ pub enum Gate {
     /// do not (al-language-onprem-dotnet/lt-az-dotnet/AzLastErrorObject.al:212-216 ToString_OtherCodeunit). Consumed by `al-vm`
     /// dotnet/last_error.rs `exception_text`.
     ExceptionTraceValueTaskFrameFrom29,
+    /// The .NET runtime of the service tier is .NET 10 from BC 29, .NET 8 before: the error for a service-tier object assigned
+    /// to a `[RunOnClient]` variable names `System.Private.CoreLib, Version=10.0.0.0` on BC 29 and `Version=8.0.0.0` on BC 27.5
+    /// and 28.5 (al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:443-447,
+    /// Y16_RunOnClient_AssignBetweenClientAndServerVariables). Consumed by `al-vm` dotnet/mod.rs `run_on_client_assign`.
+    DotNetRuntime10From29,
     /// A list action that deletes two or three worksheet lines of a filtered page and leaves Rec on a key no row has runs
     /// OnNewRecord and OnAfterGetCurrRecord once on BC 28, twice on BC 27 and from BC 29 (pages/lt-outside-worksheet-2/
     /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`; two lines:
@@ -257,6 +269,14 @@ pub enum Gate {
     /// "HeaderFooterPart" and "ThemePart" from BC 29 (platform/lt-ug-report-layout-list/UgReportLayoutList.al:116-123,
     /// 150-157, corpus master 21a41286). Not consumed yet: ReportLayoutList_AllColumns_* are refused on every major.
     ReportLayoutListColumnsFrom28,
+    /// In a list in a secondary key whose OnDrillDown turned MarkedOnly on, First and Next without an outside refresh give
+    /// `true/1/1` and `false/1/1` on BC 28, and `true/2/2` and `true/1/1` on BC 27 and from BC 29 (pages/lt-y15/
+    /// Y15ReapplyMarksSecondaryKey.al:336 Y15_SK_MovesWithoutRefresh, checked on Windows BC 28.5). BC 28 only:
+    /// [`Gate::MarkedSecondaryKeyMovesAgainFrom29`] ends it. Not consumed yet: the test is refused on every major.
+    MarkedSecondaryKeyMovesFrom28,
+    /// The end of [`Gate::MarkedSecondaryKeyMovesFrom28`]: from BC 29 the moves give the BC 27 values again
+    /// (pages/lt-y15/Y15ReapplyMarksSecondaryKey.al:336). Not consumed yet.
+    MarkedSecondaryKeyMovesAgainFrom29,
     /// The SystemId of a row of the platform table Field is the Guid made of 2000000041, the table number and the field number
     /// from BC 28; on BC 27 it is the null Guid for every row, and `GetBySystemId` of the null Guid finds the row of table 3,
     /// field 1 (platform/lt-field-row-systemid/FieldRowSystemId.al:56-169, guarded `#if BC28PLUS`). Consumed by `al-vm`
@@ -286,6 +306,8 @@ impl Gate {
         Gate::ThreeLineLeavesKeyOnceFrom28,
         Gate::ExtControlBareQuotedSourceNotFoundFrom28,
         Gate::ReportLayoutListColumnsFrom28,
+        Gate::MarkedSecondaryKeyMovesFrom28,
+        Gate::MarkedSecondaryKeyMovesAgainFrom29,
         Gate::ThreeLineLeavesKeyTwiceAgainFrom29,
         Gate::ReportLayoutSelectionPartNamesFrom29,
         Gate::ReportPartNamePropertiesFrom29,
@@ -329,6 +351,7 @@ impl Gate {
         Gate::OtherRecordOptionCaptionFrom29,
         Gate::JpegMediaSetKeptFrom29,
         Gate::ExceptionTraceValueTaskFrameFrom29,
+        Gate::DotNetRuntime10From29,
     ];
 
     /// The first BC major with the new behaviour.
@@ -366,7 +389,9 @@ impl Gate {
             | Gate::OtherRecordOptionCaptionFrom29
             | Gate::JpegMediaSetKeptFrom29
             | Gate::ThreeLineLeavesKeyTwiceAgainFrom29
-            | Gate::ExceptionTraceValueTaskFrameFrom29 => 29,
+            | Gate::MarkedSecondaryKeyMovesAgainFrom29
+            | Gate::ExceptionTraceValueTaskFrameFrom29
+            | Gate::DotNetRuntime10From29 => 29,
             Gate::ReportSaveAsDataItemIdentity
             | Gate::FeatureKeyListChangedFrom28
             | Gate::FromBase64InvalidTextRaises
@@ -396,32 +421,17 @@ impl Gate {
             | Gate::AutoFormatAmountFieldRoundsFrom28
             | Gate::TestRunnerHubRequiredIsolationFrom28
             | Gate::LicensePermissionTopRangePageFrom28
-            | Gate::ReportLayoutListColumnsFrom28 => 28,
+            | Gate::ReportLayoutListColumnsFrom28
+            | Gate::MarkedSecondaryKeyMovesFrom28 => 28,
         }
     }
 
     /// The corpus guards that pin both sides.
     pub fn evidence(self) -> &'static [Evidence] {
         match self {
-            Gate::AutoFormatAmountFieldRoundsFrom28 => &[
-                Evidence {
-                    file: "types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al",
-                    lines: "684,697,749,762",
-                },
-                Evidence {
-                    file: "misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al",
-                    lines: "99,104,127,132,155,160,183,188",
-                },
-                // AutoFormatType 1, 4 and 5 without an expression, in StrSubstNo and Format (al-builtins format_auto_format_field).
-                Evidence {
-                    file: "misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al",
-                    lines: "193,199,204,216",
-                },
-            ],
-            Gate::ExceptionTraceValueTaskFrameFrom29 => &[Evidence {
-                file: "../al-language-onprem-dotnet/lt-az-dotnet/AzLastErrorObject.al",
-                lines: "212",
-            }],
+            Gate::AutoFormatAmountFieldRoundsFrom28
+            | Gate::DotNetRuntime10From29
+            | Gate::ExceptionTraceValueTaskFrameFrom29 => self.evidence_of_first_gates(),
             Gate::DocxMediaRezippedFrom29 => &[Evidence {
                 file: "../al-language-onprem/media/MediaFiles.al",
                 lines: "506,511",
@@ -508,6 +518,22 @@ impl Gate {
             }],
             Gate::BigIntegerToEnumVariableFrom29 => &[
                 Evidence {
+                    file: "types/lt-y31-conversion-matrix/Y31ConvCd.al",
+                    lines: "1998,2093",
+                },
+                Evidence {
+                    file: "types/lt-y31-conversion-matrix/Y31ConvCmp.al",
+                    lines: "928,957,1145,1153",
+                },
+                Evidence {
+                    file: "types/lt-y31-conversion-matrix/Y31ConvCv.al",
+                    lines: "1218,1271,1449,1658",
+                },
+                Evidence {
+                    file: "types/lt-y31-conversion-matrix/Y31ConvSus.al",
+                    lines: "9,88,127,192",
+                },
+                Evidence {
                     file: "misc/lt-au-language-edges/AuEdgeTests.al",
                     lines: "72",
                 },
@@ -551,6 +577,10 @@ impl Gate {
             Gate::ReportLayoutListColumnsFrom28 => &[Evidence {
                 file: "platform/lt-ug-report-layout-list/UgReportLayoutList.al",
                 lines: "116,119,150,153",
+            }],
+            Gate::MarkedSecondaryKeyMovesFrom28 | Gate::MarkedSecondaryKeyMovesAgainFrom29 => &[Evidence {
+                file: "pages/lt-y15/Y15ReapplyMarksSecondaryKey.al",
+                lines: "336",
             }],
             Gate::ThreeLineLeavesKeyOnceFrom28 | Gate::ThreeLineLeavesKeyTwiceAgainFrom29 => &[
                 Evidence {
@@ -660,10 +690,20 @@ impl Gate {
                     lines: "8",
                 },
             ],
-            Gate::WindowsLanguageRowsFrom29 => &[Evidence {
-                file: "platform/lt-ag-contoso/AgWindowsLanguage.al",
-                lines: "58",
-            }],
+            Gate::WindowsLanguageRowsFrom29 => &[
+                Evidence {
+                    file: "record/lt-y39-windows-language-table/Y39WindowsLanguageTable.al",
+                    lines: "31,361",
+                },
+                Evidence {
+                    file: "platform/lt-ag-contoso/AgWindowsLanguage.al",
+                    lines: "58",
+                },
+                Evidence {
+                    file: "platform/lt-y21-env-columns/Y21EnvColumns.al",
+                    lines: "120",
+                },
+            ],
             Gate::LanguageSelectionRowsFrom29 => &[Evidence {
                 file: "platform/lt-platform-rows-fresh/PlatformRowsLanguageSelection.al",
                 lines: "238,377,401,489,581",
@@ -723,6 +763,10 @@ impl Gate {
                 lines: "145",
             }],
             Gate::PlatformMetadataColumnsFrom29 => &[
+                Evidence {
+                    file: "platform/lt-y35-username-field-rows/Y35UserNameFieldRows.al",
+                    lines: "86,104,144",
+                },
                 Evidence {
                     file: "system-fields/W6SystemFieldStamps.al",
                     lines: "182",
@@ -810,97 +854,16 @@ impl Gate {
                 file: "pages/lt-cc-page-leads/CcPageLeads.al",
                 lines: "801",
             }],
-            Gate::ProbedValuesDifferFrom28 => &[
-                Evidence {
-                    file: "collections/lt-cs-odd-leads/CsCollections.al",
-                    lines: "594,607",
-                },
-                Evidence {
-                    file: "pages/lt-ao-testpage/AoTests.al",
-                    lines: "786",
-                },
-                Evidence {
-                    file: "events/lt-platform-events-v/PeVTests.al",
-                    lines: "725",
-                },
-                Evidence {
-                    file: "pages/lt-px-controls/PxControls.al",
-                    lines: "1115,1118,1125,1128",
-                },
-                Evidence {
-                    file: "network/lt-http-send-failure/LtDaSendFailure.al",
-                    lines: "10,140",
-                },
-                Evidence {
-                    file: "install/lt-bf-install-probes/BfInstallTests.al",
-                    lines: "84,89,124,131",
-                },
-                Evidence {
-                    file: "query/lt-az-query/AzQueryTests.al",
-                    lines: "262,284,291",
-                },
-                Evidence {
-                    file: "platform/lt-aw-fresh-tenant/AwTests.al",
-                    lines: "229,245,261,277,293,611",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-1/PnACalcFieldsBC29.al",
-                    lines: "210",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-2/PnBPages.al",
-                    lines: "297",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-2/PnBReportSaveAs.al",
-                    lines: "185,291",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-3/PnC21Metadata.al",
-                    lines: "297,385,468",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-5/PnE06Media.al",
-                    lines: "65",
-                },
-                Evidence {
-                    file: "pages/lt-page-runtime/P82TestField.al",
-                    lines: "77,208",
-                },
-                Evidence {
-                    file: "recordref/lt-recordref-fieldref-members/P92DirtyRef.al",
-                    lines: "8",
-                },
-                Evidence {
-                    file: "misc/lt-open-overloads-collections-isolated/P107RecRefNames.al",
-                    lines: "99",
-                },
-                Evidence {
-                    file: "record/lt-testfield-fielderror-typed/P96ErrorInfo.al",
-                    lines: "142",
-                },
-                Evidence {
-                    file: "record/lt-testfield-fielderror-typed/P96Temporal.al",
-                    lines: "171",
-                },
-                Evidence {
-                    file: "streams/StTCopyBlob.al",
-                    lines: "451,456,462,484",
-                },
-                Evidence {
-                    file: "error-handling/lt-last-error-text-forms/FindEmptyTableExcludeFlag.al",
-                    lines: "76",
-                },
-                Evidence {
-                    file: "metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al",
-                    lines: "220",
-                },
-                Evidence {
-                    file: "record/lt-qd-captionclass-areas/QdCaptionClassAreas.al",
-                    lines: "808",
-                },
-            ],
+            Gate::ProbedValuesDifferFrom28 => PROBED_VALUES_DIFFER_FROM_28,
             Gate::ProbedValuesDifferFrom29 => &[
+                Evidence {
+                    file: "platform/lt-y35-agent-api/Y35AgentApi.al",
+                    lines: "39",
+                },
+                Evidence {
+                    file: "record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al",
+                    lines: "190",
+                },
                 Evidence {
                     file: "report/lt-am-report-output/AMReportOutputTests.al",
                     lines: "286",
@@ -1077,6 +1040,36 @@ impl Gate {
             ],
         }
     }
+
+    /// The evidence of the first gates of `evidence` (split out to keep that function short).
+    fn evidence_of_first_gates(self) -> &'static [Evidence] {
+        match self {
+            Gate::AutoFormatAmountFieldRoundsFrom28 => &[
+                Evidence {
+                    file: "types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al",
+                    lines: "684,697,749,762",
+                },
+                Evidence {
+                    file: "misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al",
+                    lines: "99,104,127,132,155,160,183,188",
+                },
+                // AutoFormatType 1, 4 and 5 without an expression, in StrSubstNo and Format (al-builtins format_auto_format_field).
+                Evidence {
+                    file: "misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al",
+                    lines: "193,199,204,216",
+                },
+            ],
+            Gate::DotNetRuntime10From29 => &[Evidence {
+                file: "../al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al",
+                lines: "443",
+            }],
+            Gate::ExceptionTraceValueTaskFrameFrom29 => &[Evidence {
+                file: "../al-language-onprem-dotnet/lt-az-dotnet/AzLastErrorObject.al",
+                lines: "212",
+            }],
+            _ => unreachable!("evidence_of_first_gates: a gate its match does not list"),
+        }
+    }
 }
 
 impl Target {
@@ -1136,6 +1129,98 @@ pub fn test_runner_root_scope(target: Option<&Target>) -> Option<&'static str> {
 pub fn platform_table_scopes_known(bc_major: Option<u32>) -> bool {
     bc_major.is_some_and(|m| m >= 27)
 }
+
+/// The evidence of [`Gate::ProbedValuesDifferFrom28`], out of `Gate::evidence` to keep that function short.
+const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
+    Evidence {
+        file: "collections/lt-cs-odd-leads/CsCollections.al",
+        lines: "594,607",
+    },
+    Evidence {
+        file: "pages/lt-ao-testpage/AoTests.al",
+        lines: "786",
+    },
+    Evidence {
+        file: "events/lt-platform-events-v/PeVTests.al",
+        lines: "725",
+    },
+    Evidence {
+        file: "pages/lt-px-controls/PxControls.al",
+        lines: "1115,1118,1125,1128",
+    },
+    Evidence {
+        file: "network/lt-http-send-failure/LtDaSendFailure.al",
+        lines: "10,140",
+    },
+    Evidence {
+        file: "install/lt-bf-install-probes/BfInstallTests.al",
+        lines: "84,89,124,131",
+    },
+    Evidence {
+        file: "query/lt-az-query/AzQueryTests.al",
+        lines: "262,284,291",
+    },
+    Evidence {
+        file: "platform/lt-aw-fresh-tenant/AwTests.al",
+        lines: "229,245,261,277,293,611",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-1/PnACalcFieldsBC29.al",
+        lines: "210",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-2/PnBPages.al",
+        lines: "297",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-2/PnBReportSaveAs.al",
+        lines: "185,291",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-3/PnC21Metadata.al",
+        lines: "297,385,468",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-5/PnE06Media.al",
+        lines: "65",
+    },
+    Evidence {
+        file: "pages/lt-page-runtime/P82TestField.al",
+        lines: "77,208",
+    },
+    Evidence {
+        file: "recordref/lt-recordref-fieldref-members/P92DirtyRef.al",
+        lines: "8",
+    },
+    Evidence {
+        file: "misc/lt-open-overloads-collections-isolated/P107RecRefNames.al",
+        lines: "99",
+    },
+    Evidence {
+        file: "record/lt-testfield-fielderror-typed/P96ErrorInfo.al",
+        lines: "142",
+    },
+    Evidence {
+        file: "record/lt-testfield-fielderror-typed/P96Temporal.al",
+        lines: "171",
+    },
+    Evidence {
+        file: "streams/StTCopyBlob.al",
+        lines: "451,456,462,484",
+    },
+    Evidence {
+        file: "error-handling/lt-last-error-text-forms/FindEmptyTableExcludeFlag.al",
+        lines: "76",
+    },
+    Evidence {
+        file: "metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al",
+        lines: "220",
+    },
+    Evidence {
+        file: "record/lt-qd-captionclass-areas/QdCaptionClassAreas.al",
+        lines: "808",
+    },
+];
 
 #[cfg(test)]
 mod tests {

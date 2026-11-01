@@ -338,10 +338,10 @@ fn a_longer_text_false_branch_into_the_true_branch_type_fits_or_fails_its_length
 }
 
 // Into a target longer than the true branch (Base App Acc. Schedule Line, `Description := Description = '' ? GLAccCategory.Description
-// : Description`): whether BC converts the false branch to Text[80] is not pinned. A value that fits Text[80] is the same either
-// way; a longer one is refused when it is taken.
+// : Description`): BC converts the false branch to the true branch's Text[80], a longer value fails StringLengthExceeded
+// (types/lt-y31-conversion-matrix/Y31ConvCd.al, LT Y31 Cd Text10 `Text10_Text`: 11 characters against a Text[10] true branch).
 #[test]
-fn a_longer_text_false_branch_into_another_target_passes_what_fits_and_refuses_the_rest() {
+fn a_longer_text_false_branch_into_another_target_fails_the_true_branch_length() {
     let run = |len: i32| {
         al_testkit::run_with(
             SIZED,
@@ -352,6 +352,9 @@ fn a_longer_text_false_branch_into_another_target_passes_what_fits_and_refuses_t
         .map(|(v, _)| v)
     };
     assert_eq!(text(run(80)), "80");
-    let r = run(81);
-    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+    let e = al_testkit::error_message(run(81));
+    assert!(
+        e.starts_with("The length of the string is 81, but it must be less than or equal to 80 characters."),
+        "{e}"
+    );
 }

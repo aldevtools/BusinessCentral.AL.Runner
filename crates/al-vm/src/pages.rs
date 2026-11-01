@@ -128,7 +128,7 @@ fn flag_denied(engine: &Engine, object: usize, name: &str) -> Result<bool, Signa
 }
 
 /// `'text'` → `text`; anything else as written.
-fn unquote(s: &str) -> String {
+pub(crate) fn unquote(s: &str) -> String {
     let t = s.trim();
     match t.strip_prefix('\'').and_then(|x| x.strip_suffix('\'')) {
         Some(inner) => inner.replace("''", "'"),
@@ -137,7 +137,7 @@ fn unquote(s: &str) -> String {
 }
 
 /// Whether a property value as written is one Text literal (`'..'`, with `''` for a quote inside), not an expression.
-fn is_text_literal(s: &str) -> bool {
+pub(crate) fn is_text_literal(s: &str) -> bool {
     let t = s.trim();
     t.len() >= 2 && t.starts_with('\'') && t.ends_with('\'') && !t[1..t.len() - 1].replace("''", "").contains('\'')
 }
@@ -174,10 +174,15 @@ mod parts;
 pub(crate) mod request;
 pub(crate) use request::RequestClosed;
 mod actions;
+mod caption_relation;
 mod controls;
+mod dirty_step;
 mod draft;
 mod format;
+mod format_type11;
+mod gotokey_find;
 mod open;
+mod page_var_view;
 mod pageops;
 mod refill;
 mod rows;

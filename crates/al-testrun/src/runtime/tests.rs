@@ -2614,59 +2614,53 @@ fn an_open_after_the_last_row_is_not_flagged() {
 }
 
 // The lowering can mark a statement as resting on an assumption (`Lowerer::assume`, `Stmt::Assume`): the test is flagged only when the
-// statement runs. A Text[80] true branch with a longer Text false branch outside the pinned target shape (QxTernarySized.al:142-155)
-// rests on `ternary-longer-text-false-branch-fits` (Base App AccScheduleLine.Table.al:113); the exact-target shape does not.
-const TERNARY_LONGER_FALSE: &str = "codeunit 60170 T
+// statement runs. A Code[30] true branch against a Label false branch rests on `ternary-label-branch` (only Code[20] and Text[10] are
+// pinned, types/TestTernaryContracts.al TI_Ternary_*); a Code[20] true branch does not.
+const TERNARY_LABEL: &str = "codeunit 60170 T
 {
     Subtype = Test;
 
-    [Test]
-    procedure IntoALongerTarget()
     var
-        T80: Text[80];
-        T100: Text[100];
-        R: Text[100];
+        Lbl: Label 'abc';
+
+    [Test]
+    procedure UnpinnedLength()
+    var
+        C30: Code[30];
+        R: Code[30];
     begin
-        T100 := 'abc';
-        R := T80 = '' ? T80 : T100;
-        R := T80 <> '' ? T80 : T100;
-        if R <> 'abc' then Error('R %1', R);
+        R := C30 = '' ? C30 : Lbl;
+        R := C30 <> '' ? C30 : Lbl;
+        if R <> 'ABC' then Error('R %1', R);
     end;
 
     [Test]
-    procedure IntoTheTrueBranchType()
+    procedure PinnedLength()
     var
-        T80: Text[80];
-        T100: Text[100];
-        R: Text[80];
+        C20: Code[20];
+        R: Code[20];
     begin
-        T100 := 'abc';
-        R := T80 <> '' ? T80 : T100;
+        R := C20 <> '' ? C20 : Lbl;
     end;
 
     [Test]
     procedure NotRun()
     var
-        T80: Text[80];
-        T100: Text[100];
-        R: Text[100];
+        C30: Code[30];
+        R: Code[30];
         B: Boolean;
     begin
         if B then
-            R := T80 <> '' ? T80 : T100;
+            R := C30 <> '' ? C30 : Lbl;
     end;
 }";
 
 #[test]
-fn a_longer_text_false_branch_outside_the_pinned_target_is_flagged_only_when_its_statement_runs() {
-    let hits = assumptions_of(TERNARY_LONGER_FALSE);
+fn an_unpinned_label_branch_length_is_flagged_only_when_its_statement_runs() {
+    let hits = assumptions_of(TERNARY_LABEL);
     let of = |n: &str| hits.iter().find(|(t, _)| t == n).map(|(_, h)| h.clone());
-    assert_eq!(
-        of("IntoALongerTarget"),
-        Some(vec!["ternary-longer-text-false-branch-fits"]),
-        "{hits:?}"
-    );
-    assert_eq!(of("IntoTheTrueBranchType"), None, "{hits:?}");
+    assert_eq!(of("UnpinnedLength"), Some(vec!["ternary-label-branch"]), "{hits:?}");
+    assert_eq!(of("PinnedLength"), None, "{hits:?}");
     assert_eq!(of("NotRun"), None, "{hits:?}");
 }
 
@@ -2784,15 +2778,15 @@ fn the_marks_of_a_test_do_not_depend_on_what_ran_before_it_or_on_the_run() {
 /// A test refused before it starts also leaves out what BC would have committed (a cleanup, a setup the later tests
 /// rely on; Tests-ERM "Discount Setup Notifications": a refused test that would have reset the posting setups, then a
 /// test that failed on the rows the test before it left). Here the refused test's reach holds the construct it is refused
-/// for (`XmlPort.Run`), so what it would have done is not known: it may change anything, the shared globals and session
+/// for (a Label true branch into a Variant), so what it would have done is not known: it may change anything, the shared globals and session
 /// state included, so every later failure is not trusted, under Codeunit and Function isolation alike (coordinator's
 /// decision 2026-10-19, owner's priority: no false results).
 #[test]
 fn a_failure_after_a_test_refused_before_it_started_for_a_construct_in_its_reach_is_not_trusted() {
-    let src = "xmlport 61410 X { schema { textelement(Root) { } } }
-        table 61412 Row { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+    let src = "table 61412 Row { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
         codeunit 61411 Shared { Subtype = Test;
-            [Test] procedure Refused() var P: XmlPort X; R: Record Row; begin R.DeleteAll(); P.Run(); end;
+            [Test] procedure Refused() var V: Variant; T: Text; L: Label 'abc', Locked = true; B: Boolean; R: Record Row;
+            begin R.DeleteAll(); V := B ? L : T; end;
             [Test] procedure Fails() var R: Record Row; begin R.Id := 1; R.Insert(); Error('x'); end;
             [Test] procedure FailsOther() begin Error('y'); end; }";
     let (ws, l) = al_sema::lower::compile(

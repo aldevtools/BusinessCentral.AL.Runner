@@ -513,6 +513,9 @@ impl Session {
             .find(|(k, _)| k.eq_ignore_ascii_case("AutoFormatType"))
             .map(|(_, v)| v.trim().to_string())
             .unwrap_or_default();
+        if kind == "11" {
+            return self.auto_format_type11_string(&f, rec);
+        }
         // No currency (no expression, or one that gives a blank code): the places of General Ledger Setup, run only while it holds
         // the places the probe measured (2:2 for an amount, 2:5 for a unit amount; SaUnitAmountSubst.al SetSetup). Under other
         // places BC keeps the setup it read first in the session (the file's header), which is not modelled.
@@ -1292,19 +1295,11 @@ impl Session {
                 if !pinned_type || filters.len() > 1 {
                     return refused();
                 }
-                // A caption field with a TableRelation shows more than its value on BC (Base Application's Apply Customer
-                // Entries, DataCaptionFields = "Customer No.": the customer's name too, Tests-General Journal
-                // ApplyCustomerEntriesMPH); the corpus pins fields without one only.
                 let related = engine.program.objects[table.object as usize]
                     .table
                     .as_ref()
                     .and_then(|t| t.fields.get(i))
                     .is_none_or(|f| f.relation);
-                if related {
-                    return unsupported(
-                        "the caption of a list whose record has a filter on a data caption field with a TableRelation (not pinned)",
-                    );
-                }
                 let one = match &filters[0] {
                     al_builtins::filter::FilterExpr::Eq(v) => Some(v.clone()),
                     al_builtins::filter::FilterExpr::Range(Some(a), Some(b))
@@ -1314,6 +1309,20 @@ impl Session {
                     }
                     _ => None,
                 };
+                // A field with a TableRelation adds what `related_caption_parts` says; a value no related record has drops the
+                // suffix (pages/lt-y45-list-caption-relation/Y45ListCaptionRelation.al:147), pinned with no other caption field.
+                if let (true, Some(v)) = (related, one.as_ref()) {
+                    match self.related_caption_parts(&rec, i, v)? {
+                        Some(mut more) => parts.append(&mut more),
+                        None if names.split(',').filter(|n| !n.trim().is_empty()).count() == 1 => return Ok(base),
+                        None => {
+                            return unsupported(
+                                "the caption of a list filtered to a value no related record has, with another data caption field (not pinned)",
+                            );
+                        }
+                    }
+                    continue;
+                }
                 let text = one
                     .map(|v| pagefmt::control_text(&v, &pagefmt::ControlFormat::default(), &|_, o| o.to_string()))
                     .unwrap_or_default();

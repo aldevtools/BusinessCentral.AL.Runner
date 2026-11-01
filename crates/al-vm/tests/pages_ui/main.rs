@@ -24,6 +24,7 @@ mod findlist_desc_window;
 mod findlist_update_first;
 mod findrecord_view;
 mod flowfield_drilldown;
+mod flowfield_key_page_run;
 mod format_test_control;
 mod gone_row;
 mod gone_row_key_filter;
@@ -34,6 +35,7 @@ mod host_save_record_parts;
 mod list_caption_filter;
 mod secondary_key_marked_refill;
 
+mod dirty_save;
 mod empty_worksheet_filled_by_action;
 mod expr_refresh_points;
 mod find_field_expression_controls;

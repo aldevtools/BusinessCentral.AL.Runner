@@ -432,6 +432,18 @@ impl Walk<'_> {
             Expr::InterfaceTest { value, .. } | Expr::EnumImpl { value, .. } => self.expr(value, at, inst),
             Expr::Control { page, .. } => self.expr(page, at, inst),
             Expr::QueryColumn { query, .. } => self.expr(query, at, inst),
+            // `[RunOnClient]` bookkeeping calls nothing (al_ir `DotNetOp::ClientNull`, `ClientAssign`).
+            Expr::DotNet {
+                op: al_ir::DotNetOp::ClientNull | al_ir::DotNetOp::ClientAssign,
+                receiver,
+                args,
+                ..
+            } => {
+                if let Some(r) = receiver {
+                    self.expr(r, at, inst)?;
+                }
+                self.args(args, at, inst)
+            }
             Expr::DotNet { .. } => Err("calls a .NET member".into()),
             Expr::Builtin {
                 id,

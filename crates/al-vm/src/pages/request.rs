@@ -284,6 +284,7 @@ impl Session {
         if !self.has_page_handler(UiKind::RequestPage, object as u32) {
             return Err(self.unhandled_page(UiKind::RequestPage, object as u32));
         }
+        self.request_page_opens_after_caption_set(inst);
         let st: St = Rc::new(RefCell::new(PageState::closed(object as u32)));
         {
             let mut s = st.borrow_mut();

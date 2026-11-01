@@ -25,6 +25,7 @@ mod export_xml;
 mod import_record;
 mod import_xml;
 mod pass;
+mod run_request;
 mod sequence;
 mod shape;
 #[cfg(test)]
@@ -389,10 +390,9 @@ impl Session {
                         "XmlPortExportDirection",
                     ));
                 }
-                unsupported(
-                    "Xmlport.Run of an existing xmlport: where a run without a stream writes or reads (a file on the service tier a test cannot read) and what the request window does are not pinned",
-                )
+                self.xp_run_static_existing(args, import, &inst, &schema)
             }
+            ids::XMLPORT_RUN_1 => self.xp_run_instance(receiver),
             other => unsupported(format!("builtin {other}")),
         }
     }

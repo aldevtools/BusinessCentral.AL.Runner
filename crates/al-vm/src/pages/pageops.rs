@@ -208,7 +208,7 @@ impl Session {
                 let arg_false = matches!(args.first(), Some(Value::Boolean(false)));
                 self.lookup_refresh_deferred_call(method, &st, None)?;
                 self.marked_only_unshown_call(method, &st, |s| {
-                    s.shown_client_call(method, &st, None, arg_false, |s| s.test_page_op(method, &st, args))
+                    s.shown_client_call(method, &st, None, arg_false, |s| s.test_page_op_held(method, &st, args))
                 })
             }
             Some(Value::TestControl(c)) => {
@@ -218,7 +218,7 @@ impl Session {
                 self.lookup_refresh_deferred_call(method, &page, Some(&c.target))?;
                 self.marked_only_unshown_call(method, &page, |s| {
                     s.shown_client_call(method, &c.page, Some(&c.target), false, |s| {
-                        s.test_control_op(method, &c, args)
+                        s.test_control_op_held(method, &c, args)
                     })
                 })
             }
@@ -880,13 +880,7 @@ impl Session {
             // handlers/TestPageSetRecord.al).
             PageMethod::SetRecord => match args.first() {
                 Some(Value::Record(r)) => {
-                    // Whether the page variable takes the marks of the record is not pinned (only Page.RunModal(Id, Rec) is,
-                    // misc/lt-protected-var-abs-query-views/P146ViewMarkedTemp.al:304).
-                    if r.borrow().marked_only {
-                        return unsupported(
-                            "SetRecord on a Page variable with a record whose MarkedOnly is on (not pinned)",
-                        );
-                    }
+                    self.page_var_set_record_marked_only(st, r)?;
                     // A call on a Page variable that never ran constructs the page, and its OnInit runs then
                     // (pages/lt-page-variable-lifecycle/PageVariableLifecycle.al:158 PageVar_MethodCallBeforeRun `afterSetRecord = I`).
                     if !st.borrow().typed_handler && !st.borrow().open {
@@ -910,6 +904,7 @@ impl Session {
                     // (record/lt-loadfields-pagesource-validate/P81PageTempSource.al:PageVar_SetRecord_TempRecord: `D1`, `D2`).
                     copy.borrow_mut().temporary = false;
                     copy.borrow_mut().temp_id = None;
+                    Self::without_marked_only(&copy);
                     let mut s = st.borrow_mut();
                     s.set_record = Some(copy);
                     s.set_view = false;
@@ -923,6 +918,11 @@ impl Session {
             // filtered to that row (handlers/TestPageCloseTriggersSelectionCardPageContracts.al:239-250). A
             // record that already has filters, and a page on no row, are not pinned.
             PageMethod::SetSelectionFilter => {
+                if let Some(Value::Record(dst)) = args.first() {
+                    if self.selection_of_a_closed_marked_only_page(st, dst)? {
+                        return Ok(Value::Null);
+                    }
+                }
                 // A Page variable that never ran and has no OnInit is built here for its blank record (the blank-row path below;
                 // pages/lt-page-runtime/P82PageVar.al:86 BeforeRun_Members `selectionfilter = Yes`). One with OnInit is not pinned.
                 if st.borrow().instance.is_none()
@@ -945,7 +945,7 @@ impl Session {
                 if src.borrow().table != dst.borrow().table {
                     return unsupported("Page.SetSelectionFilter into a record of another table (not pinned)");
                 }
-                if st.borrow().cursor != Cursor::Row {
+                if st.borrow().cursor != Cursor::Row && !self.closed_on_handler_set_record(st) {
                     // A page on no row because its table is empty selects nothing, and the record keeps no filter
                     // (pages/lt-page-runtime/P82CurrPage.al:SetSelectionFilter_EmptyPage: `sel=0 filter=''`). A page on no row
                     // over a table that has rows is not pinned.
@@ -958,28 +958,7 @@ impl Session {
                     if table_empty {
                         return self.record_op(RecordOp::SetRecFilter, dst, &mut []);
                     }
-                    // A TestPage whose own filter shows no row of a table that has rows hands the record that filter
-                    // (pages/lt-selection-filter-no-row/SelectionFilterNoRow.al:TestPage_FilteredToNothing: the page filter
-                    // `Id: 99` on key field Id, `Count` 0, `Id: 99`). Only that shape (one range of one value on the first key
-                    // field, a record without filters or marks) is pinned.
-                    let t = self.table(dst)?;
-                    let page_filters = src.borrow().filters.clone();
-                    let single_key_value = page_filters.len() == 1
-                        && page_filters[0].field == t.keys[0][0]
-                        && match &page_filters[0].expr {
-                            al_builtins::filter::FilterExpr::Eq(_) => true,
-                            al_builtins::filter::FilterExpr::Range(Some(a), Some(b)) => {
-                                al_builtins::ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal)
-                            }
-                            _ => false,
-                        };
-                    if single_key_value
-                        && st.borrow().open
-                        && dst.borrow().filters.is_empty()
-                        && dst.borrow().marks.is_empty()
-                        && !dst.borrow().marked_only
-                    {
-                        dst.borrow_mut().filters = page_filters;
+                    if self.selection_of_a_test_page_filtered_to_nothing(st, &src, dst)? {
                         return Ok(Value::Null);
                     }
                     // A page whose Rec is the blank record (a part that is hidden, or not yet on a row) hands a record without
@@ -1026,7 +1005,10 @@ impl Session {
                         let s = st.borrow();
                         s.set_record.is_none() && !s.set_view
                     };
-                    if !(blank_rec && plain_dst && (st.borrow().host.is_some() || unopened_var)) {
+                    if !(blank_rec
+                        && plain_dst
+                        && (st.borrow().host.is_some() || unopened_var || self.on_open_new_row(st)))
+                    {
                         return unsupported(
                             "Page.SetSelectionFilter of a page on no row of a table that has rows (not pinned)",
                         );
@@ -1178,43 +1160,8 @@ impl Session {
                 dst.borrow_mut().fields = fields;
                 Ok(Value::Null)
             }
-            // `P.SetTableView(Rec)` hands the page variable the view of Rec (filters and sorting) but not its
-            // position, so the page opens on its first row (corpus handlers/TestPageModalNewRowLine_Tests.al:
-            // ReEditable_LookupModeTrue_HasNoNewRowLine, Plain_LookupModeFalse_HasTheNewRowLine).
             PageMethod::SetTableView => match args.first() {
-                Some(Value::Record(r)) => {
-                    if r.borrow().marked_only {
-                        return unsupported(
-                            "SetTableView on a Page variable with a record whose MarkedOnly is on (not pinned)",
-                        );
-                    }
-                    let copy = Rc::new(RefCell::new(r.borrow().clone()));
-                    // The view is its filters and sorting only: the rows of a temporary record stay with it (Item Tracking Summary is handed
-                    // `SetTableView(TempGlobalEntrySummary)` and then fills its own temporary Rec; the page must keep that Rec).
-                    copy.borrow_mut().temporary = false;
-                    copy.borrow_mut().temp_id = None;
-                    let table = copy.borrow().table as usize;
-                    // A record SetRecord handed the page earlier stays the position the page opens on: SetRecord gives the
-                    // position and SetTableView the filters (Microsoft's VendEntry-Apply Posted Entries calls both with the
-                    // same record and its page reads Rec in OnOpenPage; not pinned, docs/probes-needed.md).
-                    let kept = st.borrow().set_record.as_ref().map(|p| p.borrow().fields.clone());
-                    let fields = match kept {
-                        Some(f) if f.len() == copy.borrow().fields.len() => {
-                            al_builtins::assumptions::assume(
-                                al_builtins::assumptions::Assumption::SetTableViewKeepsSetRecordPosition,
-                            );
-                            f
-                        }
-                        _ => self.initial_fields(table),
-                    };
-                    copy.borrow_mut().fields = fields;
-                    let mut s = st.borrow_mut();
-                    s.set_record = Some(copy);
-                    s.set_view = true;
-                    drop(s);
-                    self.seed_unopened_rec(st);
-                    Ok(Value::Null)
-                }
+                Some(Value::Record(r)) => self.page_var_set_table_view(st, r),
                 other => unsupported(format!("Page.SetTableView with {}", other.describe())),
             },
             PageMethod::EnqueueBackgroundTask => {

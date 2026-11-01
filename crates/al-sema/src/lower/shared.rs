@@ -244,7 +244,6 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         tdd_globals: HashMap::default(),
         tys: Vec::new(),
         tys_on: false,
-        ternary_target: None,
         roots: Vec::new(),
     }
 }
@@ -706,17 +705,7 @@ pub(crate) fn lower_object<'a>(
     // A report's request page properties (`SaveValues`, `Caption`) read like a page's: the
     // report's own `Caption` wins over the request page's
     // (corpus handlers/TestReportRequestPageCaption.al).
-    let mut properties: Vec<(String, String)> = obj.properties().map(|p| (p.name(), p.value_text())).collect();
-    if let Some(sec) = &request_section {
-        for p in sec.properties() {
-            let name = p.name();
-            if name.eq_ignore_ascii_case("Caption") && properties.iter().any(|(k, _)| k.eq_ignore_ascii_case("Caption"))
-            {
-                continue;
-            }
-            properties.push((name, p.value_text()));
-        }
-    }
+    let mut properties = object_properties(&obj, request_section.as_ref());
     // A tableextension's Caption is the caption of a table that declares none (tableextension/TestTableExtFieldModify.al:
     // 168-178: TableCaption, RecordRef.Caption and AllObjWithCaption of the table). With a Caption on the table too, or on
     // two extensions, which one wins is not pinned: the reads of the caption refuse (`CAPTION_REFUSED`). One extension's Caption
@@ -1268,4 +1257,23 @@ pub(crate) fn over_max_length(obj: &ast::Object) -> Vec<String> {
             )
         })
         .collect()
+}
+
+/// An object's properties, and for a report its request page's ones (see `lower_object`).
+fn object_properties(obj: &ast::Object, request_section: Option<&ast::Section>) -> Vec<(String, String)> {
+    let mut properties: Vec<(String, String)> = obj.properties().map(|p| (p.name(), p.value_text())).collect();
+    if let Some(sec) = request_section {
+        for p in sec.properties() {
+            let name = p.name();
+            if name.eq_ignore_ascii_case("Caption") {
+                properties.push((ir::REQUEST_PAGE_CAPTION_PROPERTY.to_string(), p.value_text()));
+            }
+            if name.eq_ignore_ascii_case("Caption") && properties.iter().any(|(k, _)| k.eq_ignore_ascii_case("Caption"))
+            {
+                continue;
+            }
+            properties.push((name, p.value_text()));
+        }
+    }
+    properties
 }

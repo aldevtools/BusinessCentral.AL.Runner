@@ -1025,12 +1025,9 @@ impl Session {
                 LibraryValue::Empty => return Ok(Value::Integer(0)),
                 _ => {}
             },
-            // A RecordRef that is not open (never opened, closed, cleared) answers 2000000000 without an error (corpus
-            // branch al-runtime-rs-staging-y30, recordref/W4RecordRefGetUnopened.al:178-194, Y30_SystemIdNo_NotOpen).
-            "SystemIdNo" if matches!(&*lib.borrow(), LibraryValue::Empty) => {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RecordRefSystemIdNoNotOpen);
-                return Ok(Value::Integer(2_000_000_000));
-            }
+            // A RecordRef that is not open (never opened, closed, cleared) answers the system field numbers without an error
+            // (`unopened_system_field_no`).
+            m if let Some(n) = unopened_system_field_no(lib, m) => return Ok(Value::Integer(n)),
             // A RecordRef never opened answers false (PXEnumRecordRef.al:293-298); with the result
             // unused nothing pins what it raises.
             "GetBySystemId" if matches!(&*lib.borrow(), LibraryValue::Empty) => {
@@ -2242,4 +2239,22 @@ fn record_method(method: &str) -> RecordOp {
 /// (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:369, `Temp Blob`.FromRecord, 'row after from record').
 fn own_unloaded_blobs(copy: &mut al_builtins::value::RecordState) {
     al_builtins::record_into_recordref::own_unloaded_blobs(copy);
+}
+
+/// The field numbers a RecordRef that is not open (never opened, closed, cleared) answers without an error: SystemIdNo is
+/// 2000000000 (recordref/W4RecordRefGetUnopened.al:178-194, Y30_SystemIdNo_NotOpen), the audit fields 2000000001-2000000004,
+/// as when it is open (corpus master ac3499d6, recordref/W4RecordRefGetUnopened.al:317, Y40_SystemAuditFieldNos_NotOpen;
+/// BC 27.5/28.5/29.0).
+fn unopened_system_field_no(lib: &Lib, method: &str) -> Option<i32> {
+    if !matches!(&*lib.borrow(), LibraryValue::Empty) {
+        return None;
+    }
+    match method {
+        "SystemIdNo" => Some(2_000_000_000),
+        "SystemCreatedAtNo" => Some(2_000_000_001),
+        "SystemCreatedByNo" => Some(2_000_000_002),
+        "SystemModifiedAtNo" => Some(2_000_000_003),
+        "SystemModifiedByNo" => Some(2_000_000_004),
+        _ => None,
+    }
 }

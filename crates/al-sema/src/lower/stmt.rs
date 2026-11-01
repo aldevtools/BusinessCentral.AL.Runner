@@ -613,8 +613,9 @@ impl Lowerer<'_> {
     /// Whether `arg` is a Decimal table field whose AutoFormatExpression is an expression (not a text): `Format` of it in
     /// code applies the field's AutoFormat, evaluated with the record when it runs (types/lt-auto-format-currency/
     /// QiTableFieldAutoFormat.al:400-418 QI_TableFieldExpression_FormatInCode). Gives the place of the record and the
-    /// field's number.
-    pub(crate) fn auto_format_expression_field(&mut self, arg: &SyntaxNode) -> Option<(ir::Place, usize)> {
+    /// field's number, and 11 for AutoFormatType 11 (else 0): its expression, a text literal too, is the format string
+    /// (types/lt-y43-auto-format-11/Y43AfType11.al).
+    pub(crate) fn auto_format_expression_field(&mut self, arg: &SyntaxNode) -> Option<(ir::Place, usize, i32)> {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
             return None;
         };
@@ -633,11 +634,16 @@ impl Lowerer<'_> {
         // currency's places), and for types 4 and 5 with a code that is no currency (types/lt-ax-text-format-dates/
         // AxFillerBuilderAutoFormat.al:193-260, checked when it runs); a blank text keeps its fixed places (`decimal_field_places`).
         let constant_code = matches!(prop("AutoFormatType").as_deref(), Some("1" | "2" | "4" | "5")) && expr.len() > 2;
-        if expr.starts_with('\'') && !constant_code {
+        let kind = if prop("AutoFormatType").as_deref() == Some("11") {
+            11
+        } else {
+            0
+        };
+        if expr.starts_with('\'') && !constant_code && kind != 11 {
             return None;
         }
         match self.place(arg).ok()? {
-            ir::Place::Field(base, _) => Some((*base, field as usize)),
+            ir::Place::Field(base, _) => Some((*base, field as usize, kind)),
             _ => None,
         }
     }
@@ -1113,6 +1119,24 @@ impl Lowerer<'_> {
                             .convert_to(&decl, self.ty_ref(e), v)
                             .map(|v| ir::Stmt::Exit(Some(v)));
                     }
+                    // A Variant returned as an Integer checks the range as `:=` does, and every Variant meets the cells the matrix
+                    // pins for a Variant (`convert_to`, `Variant.Into#1`).
+                    if let (Some(decl @ Ty::Integer), Ty::Variant) = (self.ret_decl.clone(), self.ty_ref(e)) {
+                        return self.convert_to(&decl, &Ty::Variant, v).map(|v| ir::Stmt::Exit(Some(v)));
+                    }
+                    let v = match (self.ret_decl.clone(), self.ty_ref(e)) {
+                        (Some(decl), Ty::Variant) => self.variant_into(&decl, v)?,
+                        _ => v,
+                    };
+                    // A one-character literal returned as a number is a Char, as in `:=` (`convert_to`; LT Y31 Cv Literals
+                    // `LitChar1_To_Integer` exit).
+                    if let Some(decl @ (Ty::Integer | Ty::BigInteger | Ty::Decimal | Ty::Byte | Ty::Option(_) | Ty::Duration)) =
+                        self.ret_decl.clone()
+                    {
+                        if matches!(&v, ir::Expr::Const(ir::Const::Text(s)) if s.encode_utf16().count() == 1) {
+                            return self.convert_to(&decl, self.ty_ref(e), v).map(|v| ir::Stmt::Exit(Some(v)));
+                        }
+                    }
                     Ok(ir::Stmt::Exit(Some(match (self.ty_ref(e), &self.ret_ty) {
                         (Ty::DotNet(a), Some(rt)) if a.is_empty() && !matches!(rt, RtType::DotNet(_)) => {
                             ir::Expr::DotNetCoerce(rt.clone(), Box::new(v))
@@ -1200,10 +1224,10 @@ impl Lowerer<'_> {
                 ret_used: false,
             }));
         }
-        // `V := V.Create()` or `V := V.Ctor()` on a `[RunOnClient]` variable: the right side raises first
-        // (`dotnet_member`), so it is lowered before the refused variable on the left.
-        if kids[0].kind() == SyntaxKind::NameRef && self.run_on_client_var(&kids[0]).is_some() {
-            self.expr(&kids[1])?;
+        // `V := rhs` on a `[RunOnClient]` variable: `V := V.Create()` or `V := V.Ctor()` raises on the right side first
+        // (`dotnet_member`), a service-tier object raises in the assignment (`run_on_client_assign`).
+        if let Some(why) = self.run_on_client_var(&kids[0]) {
+            return self.run_on_client_assign(n, kids, why);
         }
         // `X.Property := value` on a DotNet value (ADR-014).
         if let Some(Res::DotNetMember(name)) = self.res(&kids[0]).cloned() {
@@ -1388,9 +1412,8 @@ impl Lowerer<'_> {
                 if compound {
                     return Err("compound assignment to a setter-form builtin is not lowered yet".into());
                 }
-                if id == "XmlNamespaceManager.NameTable#1" {
-                    self.assume(al_builtins::assumptions::Assumption::NametableAssignIsCall);
-                }
+                // `NsMgr.NameTable := Doc.NameTable` is the call form (al-runner issue 6526;
+                // xml/XmlXPathNamespaces.al Y29_NameTable_AssignForm_SelectsLikeCallForm).
                 let receiver = if member {
                     let recv = kids[0].children().next().ok_or("member base")?;
                     // `CurrReport` is the running report: the VM takes it when a report builtin has
@@ -1469,18 +1492,9 @@ impl Lowerer<'_> {
         }
         let place = self.place(&kids[0])?;
         let target_ty = self.ty_of(&kids[0]);
-        let plain = !sig_tokens(n).into_iter().any(|t| {
-            matches!(
-                t.kind(),
-                SyntaxKind::PlusAssign | SyntaxKind::MinusAssign | SyntaxKind::StarAssign | SyntaxKind::SlashAssign
-            )
-        });
-        if plain && kids[1].kind() == SyntaxKind::TernaryExpr {
-            self.ternary_target = Some(target_ty.clone());
-        }
-        let rhs = self.expr(&kids[1]);
-        self.ternary_target = None;
-        let rhs = rhs?;
+        self.refuse_label_ternary_into_variant(&target_ty, &kids[1])?;
+        let rhs = self.run_on_client_assigned(n, &target_ty, &kids[1]);
+        let rhs = rhs.map_or_else(|| self.expr(&kids[1]), Ok)?;
         let rhs = self.tdd_fit(&kids[0], &target_ty, rhs);
         let op = sig_tokens(n).into_iter().find(|t| {
             matches!(
@@ -1493,6 +1507,9 @@ impl Lowerer<'_> {
             )
         });
         let op_kind = op.map(|t| t.kind());
+        if op_kind == Some(SyntaxKind::PlusAssign) && self.guid_plus_text_is_kept(&target_ty, &kids[1]) {
+            return Ok(ir::Stmt::Expr(rhs));
+        }
         let value = match op_kind {
             Some(SyntaxKind::PlusAssign) => {
                 ir::Expr::Binary(ir::BinOp::Add, Box::new(ir::Expr::Load(place.clone())), Box::new(rhs))
@@ -1643,7 +1660,7 @@ impl Lowerer<'_> {
                         let value = self.convert_to(&target_ty, &Ty::Variant, checked)?;
                         return Ok(ir::Stmt::Assign(place, value));
                     }
-                    _ => value,
+                    _ => self.variant_into(&target_ty, value)?,
                 };
                 return Ok(ir::Stmt::Assign(
                     place,
@@ -1671,6 +1688,7 @@ impl Lowerer<'_> {
             Some(SyntaxKind::Assign) | None => self.convert_to(&target_ty, self.ty_ref(&kids[1]), value)?,
             Some(_) => ir::Expr::Convert(self.rt(&target_ty)?, Box::new(value)),
         };
+        let value = self.guard_var_dotnet_param(&place, &target_ty, value);
         if let Some((l, flag)) = self.qcp_ret {
             if place == ir::Place::Local(l) {
                 // An assignment to the named return value of an OnQueryClosePage notes that it has one.
@@ -1699,7 +1717,7 @@ impl Lowerer<'_> {
             t @ Ty::Code(_) => Some(t),
             _ => None,
         };
-        let option_selector = matches!(self.ty_of(&kids[0]), Ty::Option(_));
+        let selector = self.ty_of(&kids[0]);
         let mut branches = Vec::new();
         let mut otherwise = Vec::new();
         for k in &kids[1..] {
@@ -1711,10 +1729,12 @@ impl Lowerer<'_> {
                     for p in &parts {
                         if is_stmt(p.kind()) {
                             body.extend(self.stmt(p));
+                        } else if let Some(label) =
+                            self.matrix_set_elem(al_builtins::conv::Family::CmpCase, &selector, p)?
+                        {
+                            labels.push(label);
                         } else if let Some(code) = &code_selector {
                             labels.push(self.code_case_label(code, p)?);
-                        } else if option_selector && matches!(self.ty_of(p), Ty::Decimal) {
-                            labels.push(self.option_case_decimal_label(p)?);
                         } else {
                             labels.push(self.set_elem(p)?);
                         }
@@ -1749,33 +1769,6 @@ impl Lowerer<'_> {
         })
     }
 
-    /// A Decimal label of a `case` with an Option selector: a Decimal variable that holds a whole number compares with the
-    /// ordinal (`case O of D:` with `D = 1` matches `O::Quantity`, types/PROptionInteger.al:308-322
-    /// QS_Case_OptionSelector_DecimalVariableLabel). A fraction is not pinned (the corpus notes an overflow error from the
-    /// Linux container for `D = 1.5`, :319-320) and is refused when it runs, and so is a value outside Integer. A label that is
-    /// not a plain name is refused (it would be evaluated twice); a Decimal literal does not compile (AL0398).
-    fn option_case_decimal_label(&mut self, n: &SyntaxNode) -> L<ir::SetElem> {
-        let e = self.expr(n)?;
-        if !matches!(e, ir::Expr::Load(_)) {
-            return Err("a case label of Decimal type other than a variable on an Option selector (not pinned)".into());
-        }
-        let bin = |op, a: ir::Expr, b: ir::Expr| ir::Expr::Binary(op, Box::new(a), Box::new(b));
-        let int = |i: i32| ir::Expr::Const(ir::Const::Integer(i));
-        let whole = bin(ir::BinOp::Eq, bin(ir::BinOp::Mod, e.clone(), int(1)), int(0));
-        let in_range = bin(
-            ir::BinOp::And,
-            bin(ir::BinOp::Ge, e.clone(), int(i32::MIN)),
-            bin(ir::BinOp::Le, e.clone(), int(i32::MAX)),
-        );
-        Ok(ir::SetElem::One(ir::Expr::Ternary(
-            Box::new(bin(ir::BinOp::And, whole, in_range)),
-            Box::new(e),
-            Box::new(ir::Expr::Refused(
-                "a case label of an Option holding a Decimal with a fraction or outside Integer (not pinned)".into(),
-            )),
-        )))
-    }
-
     /// One label of a `case` with a Code selector (see `case`).
     fn code_case_label(&mut self, code: &Ty, n: &SyntaxNode) -> L<ir::SetElem> {
         let bound = |this: &mut Self, c: &SyntaxNode| -> L<ir::Expr> {
@@ -1789,11 +1782,8 @@ impl Lowerer<'_> {
                 (Ty::Code(_), Ty::Code(None)) => Ok(e),
                 // A longer Code label is converted to the selector's Code as a Text label is: a value that fits compares as it is,
                 // a longer one raises StringLengthExceeded when the label is reached (al-runner issue 6491; corpus writer Y20,
-                // types/lt-y20-case-code-label/Y20CaseCodeLabel.al:18, measured on BC; assumption until it is pinned).
-                (t @ Ty::Code(_), Ty::Code(Some(_))) => {
-                    this.assume(al_builtins::assumptions::Assumption::CaseCodeLabelLongerType);
-                    this.convert_to(code, &t, e)
-                }
+                // types/lt-y20-case-code-label/Y20CaseCodeLabel.al:18).
+                (t @ Ty::Code(_), Ty::Code(Some(_))) => this.convert_to(code, &t, e),
                 (t @ Ty::Code(_), _) => Err(format!(
                     "a case label of type {t} with a selector of type {code}: whether the label is converted to the selector's length is not pinned"
                 )),

@@ -16,10 +16,13 @@
 81564 BiIp_RequiredPermissionsRaise
 81564 BiIp_ScopeBoth
 81564 BiIp_ScopePermissions
+81566 C302_A0_Prepared
+81567 C301_A1_SeesOwnOnRun
 81577 BiTs_Row1_FlagsLeftAlone
 81577 BiTs_Row2_FalseInGlobalTriggersSubscriber
 81577 BiTs_Row3_FalseInOnAfterSubscriber
 81577 BiTs_Row4_OnlyInsertInGlobalTriggersSubscriber
+81579 C306_A6_SeesOwnOnRun
 81596 DatabaseTriggerDeleteFalseDeleted
 81596 DeleteEventsDeleteFalseDeleted
 81596 OnDeleteTriggerDeleteTrueDeleted

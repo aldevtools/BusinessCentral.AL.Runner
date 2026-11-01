@@ -272,7 +272,7 @@ pub trait Ctx: FormatCtx {
         None
     }
     /// The places `min:max` the AutoFormat of the field numbered `field_no` of `record` gives (its AutoFormatExpression evaluated with the
-    /// record as Rec), for `Format` in code. Refused where the context has no session.
+    /// record as Rec), for `Format` in code; for AutoFormatType 11 the format string. Refused where the context has no session.
     fn auto_format_field_places(&mut self, _record: &Value, _field_no: usize) -> Result<String, Signal> {
         Err(Signal::Unsupported(
             "Format of a field with an AutoFormatExpression outside a session".into(),
@@ -611,9 +611,8 @@ const REGISTRY: &[(&str, NativeFn)] = &[
     ("System.Variant2Time#1", variant_2_time),
     // Whether the host can create tasks is not pinned (corpus session/TestTaskSchedulerCloudBehavior.al
     // pins only that CreateTask returns a task id): a run that reaches the question is refused.
-    // The URL of the web client depends on the server's address, which a host has not been asked
-    // for: a run that builds one is refused (session/TestFinalCoverage.al:105-125 asks only that
-    // GetUrl does not throw).
+    // The URL of the web client depends on the server's address, which a host has not been asked for: a run that builds
+    // one is refused (session/TestFinalCoverage.al:105-125 asks only that GetUrl does not throw).
     // Measured on real BC: session/TestEnvironmentUserTenantContracts.al:237-241.
     ("Session.CurrentExecutionMode#1", |_, _, _| {
         let members: std::sync::Arc<[String]> = crate::sysenum::option_members("ExecutionMode")
@@ -696,12 +695,12 @@ const REGISTRY: &[(&str, NativeFn)] = &[
     ("Codeunit.Run#2", vm_only),
     ("Codeunit.Run#3", vm_only),
     ("Database.IsInWriteTransaction#1", vm_only),
-    // XmlPort import and export run triggers and write records: the VM runs them
-    // (al-vm xmlports.rs).
+    // XmlPort import and export run triggers and write records: the VM runs them (al-vm xmlports.rs).
     ("Xmlport.Export#1", vm_only),
     ("Xmlport.Export#2", vm_only),
     ("Xmlport.Import#1", vm_only),
     ("Xmlport.Import#2", vm_only),
+    ("Xmlport.Run#1", vm_only),
     ("Xmlport.Run#2", vm_only),
     ("Xmlport.SetSource#1", vm_only),
     ("Xmlport.SetDestination#1", vm_only),
@@ -802,9 +801,11 @@ const REGISTRY: &[(&str, NativeFn)] = &[
         Ok(Value::Boolean(match a.first() {
             Some(Value::Null) => true,
             // GetLastErrorObject without a last error (GetLastErrorObject.al:290-296).
+            // A `var` parameter that stands for a [RunOnClient] variable (`dotnet_sigs::RUN_ON_CLIENT_NULL`).
             Some(Value::DotNet(o)) => matches!(
                 &o.kind,
-                crate::value::DotNetKind::Internal { type_name, .. } if type_name == crate::dotnet_sigs::NULL_EXCEPTION
+                crate::value::DotNetKind::Internal { type_name, .. }
+                    if type_name == crate::dotnet_sigs::NULL_EXCEPTION || type_name == crate::dotnet_sigs::RUN_ON_CLIENT_NULL
             ),
             _ => false,
         }))
@@ -999,13 +1000,10 @@ const REGISTRY: &[(&str, NativeFn)] = &[
 /// Builtins that are refused on purpose, with the reason. No corpus test pins what they answer, so
 /// the lowering says so instead of "is not implemented" (hard rule 3; each has a line in
 /// `docs/probes-needed.md`, "Builtins refused until a probe pins them").
-pub fn refusal(id: &str) -> Option<&'static str> {
-    Some(match id {
-        "Xmlport.Run#1" => {
-            "Xmlport.Run is in no corpus test, so where a run without a stream writes or reads (a file on the service tier a test cannot read) and what the request window does are not pinned"
-        }
-        _ => return None,
-    })
+/// None is refused this way now (the last one, `Xmlport.Run#1`, is pinned by corpus master ac3499d6,
+/// xmlport/lt-y40-xmlport-request-page/Y40XmlPortRequestPage.al).
+pub fn refusal(_id: &str) -> Option<&'static str> {
+    None
 }
 
 fn all() -> impl Iterator<Item = &'static (&'static str, NativeFn)> {
@@ -1021,6 +1019,7 @@ fn all() -> impl Iterator<Item = &'static (&'static str, NativeFn)> {
         .chain(crate::sessionfns::REGISTRY)
         .chain(crate::media::REGISTRY)
         .chain(crate::moduleinfo::REGISTRY)
+        .chain(crate::conv::REGISTRY)
 }
 
 /// Implementations chosen per catalog signature instead of being listed by id
@@ -1092,6 +1091,7 @@ pub const INVENTED_IDS: &[&str] = &[
     "Interface.AssertAssigned#1",
     "Variant.IntoInteger#1",
     "Variant.IntoOption#1",
+    "Variant.Into#1",
     "Text.MaxStrLenOfVarParameter#1",
     "InStream.OwnerOutOfScope#1",
     "System.TranslatedText#1",
@@ -1519,16 +1519,16 @@ fn format_field_string(
 /// places come from the field's AutoFormat evaluated on the record (`Ctx::auto_format_field_places`), then as
 /// `format_decimal_field`. Arguments: the value, length, format number, the record, the field's number.
 fn format_auto_format_field(ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
-    let pos = match args.get(4) {
-        Some(Value::Integer(p)) => *p as usize,
-        _ => {
-            return Err(Signal::Unsupported(
-                "Format of an AutoFormat field without its number".into(),
-            ));
-        }
+    let Some(&Value::Integer(pos)) = args.get(4) else {
+        return Err(Signal::Unsupported(
+            "Format of an AutoFormat field without its number".into(),
+        ));
     };
     let record = args.get(3).cloned().unwrap_or(Value::Null);
-    let places = ctx.auto_format_field_places(&record, pos)?;
+    let places = ctx.auto_format_field_places(&record, pos as usize)?;
+    if matches!(args.get(5), Some(Value::Integer(11))) {
+        return crate::autoformat11::format(ctx, args, &places);
+    }
     // A sixth argument 4 or 5: an amount or unit amount without an expression, which BC 27 formats as a plain Decimal
     // (misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al `A4No`, `A5No`, the `#else` side of BC28PLUS): mode 1 of
     // `format_decimal_field`.
@@ -3288,6 +3288,7 @@ pub(crate) mod tests {
             "Interface.AssertAssigned#1",
             "Variant.IntoInteger#1",
             "Variant.IntoOption#1",
+            "Variant.Into#1",
             "InStream.OwnerOutOfScope#1",
             "System.TranslatedText#1",
             "System.TextConstText#1",
@@ -3351,8 +3352,7 @@ pub(crate) mod tests {
     #[test]
     fn the_call_stack_of_a_recorded_error_is_refused_not_invented() {
         // codeunit/TestCodeunitAlCallStack.al expects AL frames such as `(CodeUnit 60211)`. The VM
-        // fills them in (al-vm/tests/language/call_stack.rs); an error that has no frame gets a marker no
-        // text function reads.
+        // fills them in (al-vm/tests/language/call_stack.rs); an error that has no frame gets a marker no text function reads.
         let mut ctx = TestCtx::default();
         let f = lookup("System.GetLastErrorCallStack#1").unwrap();
         assert!(matches!(f(&mut ctx, None, &mut []), Ok(Value::Text(ref s)) if s.is_empty()));

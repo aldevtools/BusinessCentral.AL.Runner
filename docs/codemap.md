@@ -76,12 +76,16 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `describe.rs` (330): How a value or type reads in a refusal reason or internal error (AL type and a short value, never a debug dump). Entry: `Describe` 12.
 - `datatransfer.rs` (74): DataTransfer (install and upgrade code only). Entry: `native_for` 58.
 - `datefns.rs` (769): Date, Time and DateTime builtins. Entry: `formula_text` 237, `check_formula` 323.
+- `datefns/brackets.rs` (95): angle brackets inside a term of a date formula (`-62<D>`, `1<>D`, `C<M>`). Entry: `open`, `close`.
+- `datefns/numbers.rs` (17): a formula that is only a number above 9999. Entry: `too_large`.
+- `autoformat11.rs` (71): `Format` in code of an AutoFormatType 11 field with the format string its expression gave. Entry: `format`.
 - `errorinfo.rs` (307): ErrorInfo: the property bag, Error(ErrorInfo), collected errors. Entry: `raise` 239, `copy_of` 263, `native_for` 283.
 - `features.rs` (~150): `catalog/alc-features.txt` (what the AL compiler reports per property and element kind, data type, attribute and object type at each runtime; `tools/alc-runtimes/alc_features.py`). Entry: `feature`, `al0666_at`.
 - `evaluate.rs` (265): `Evaluate(var Variable, String [, Number])`. Entry: `evaluate` 205.
 - `file.rs` (362): The `File` data type, on the host file system capability (ADR-006, `al-host::FileSystem`). Entry: `FileState` 32, `native_for` 331.
 - `filter.rs` (626): Record filters as data (shared by the VM and the store). Entry: `FilterExpr` 8, `parse_filter` 70, `parse_filter_with` 79, `FieldFilter` 371.
 - `format.rs` (619): `Format(Value [, Length] [, FormatNumber])`. Entry: `FormatCtx` 8, `FormatFail` 15, `try_format` 29, `format_value` 37.
+- `format_json.rs` (~80): `Format` of a JsonObject, JsonArray, JsonValue or JsonToken. Entry: `format_json`.
 - `formatstr.rs` (389): `Format(Value, Length, FormatString)`. Entry: `format_with_string` 50.
 - `http/mod.rs` (464): HttpClient, HttpRequestMessage, HttpResponseMessage, HttpHeaders, HttpContent, Cookie. Submodules: `content`, `cookies`, `dates`, `headers`, `header_rules`, `messages`, `send`, `uri`. Entry: `native_for` (mod.rs).
 - `iso.rs` (121): ISO 8601 text to AL date/time values (JSON strings, XML-format Evaluate). Entry: `days_in_month` 11, `parse_date` 21, `parse_time` 36, `parse_datetime` 56.
@@ -89,9 +93,17 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `lib.rs` (39): Crate root of the AL standard library: values, builtins, catalog.
 - `mathfns.rs` (245): Round and Power. Entry: `round` 31.
 - `media.rs` (197): `Media` and `MediaSet` fields (corpus media/). Entry: `Id` 14, `MediaObject` 18, `MediaStore` 26.
+- `media_export.rs` (~35): Which media `Media.ExportStream` gives back byte for byte (non-picture content). Entry: `exports_unchanged`.
 - `moduleinfo.rs` (287): `NavApp.GetCurrentModuleInfo` and friends, and the `ModuleInfo` type. Entry: `native_for` 169.
 - `native.rs` (1274): Native builtin implementations, registered by catalog overload id (ADR-008). Entry: `Signal` 26, `AlError` 9, `Ctx` 48, `lookup` 435, `raise` 16.
 - `ops.rs` (650): Value operations: conversion, arithmetic, comparison, truthiness. Entry: `convert` 16, `arith` 180, `compare_order` 301, `truthy` 384.
+- `conv/` (~630 + generated `rows.rs`): Implicit conversions at run time from the run matrix of corpus writer Y31
+  (`types/lt-y31-conversion-matrix/`). `rows.rs` is the table of its cells (family, source kind, target kind, what BC gave),
+  generated from the corpus files by `tests/conv_matrix_rows.rs` (`UPDATE_GOLDEN=1`); `engine.rs` converts the number cells
+  (a checked .NET cast, Char and Byte through code page 437) and the Variant cells; `arith.rs` and `compare.rs` the operator
+  cells `ops::arith` and `ops::compare_operator` ask first; `variant.rs` is `Variant.Into#1`, which the lowering puts around a
+  conversion from a Variant so that the Variant cells apply only there. Entry: `convert_cell`, `arith_cell`, `compare_cell`,
+  `variant_into`, `verdict`.
 - `pagebuiltins.rs` (123): `TestPage`, `TestPart`, `TestField`, `TestAction` and `TestFilter` methods (ADR-012).
 - `pagefmt.rs` (683): The text a page control shows for a value (ADR-012), en-US. Entry: `Blank` 11, `ControlFormat` 37, `parse_decimal_places` 50, `parse_precision` 62.
 - `platform.rs` (259): The registry of platform tables that have a native row provider (ADR-013 decision 7, ADR-019). Entry: `Provider` 14, `Virtual` 23, `provider` 157, `virtual_table` 162.
@@ -181,6 +193,9 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `lower/tables.rs` (518): Table schemas: relations, field triggers, CalcFormulas. Entry: `table_schema` 311, `relation_arms` 10, `lower_calc` 445.
 - `lower/pages.rs` (458): Page control trees, `RunObject`, part links. Entry: `page` 8, `run_object` 292.
 - `lower/convert.rs` (359): Name resolution helpers, runtime types, conversion of a value to a target type. Entry: `rt` 67, `convert_to` 186.
+- `lower/conv_matrix.rs` (~160): The run matrix cells (`al_builtins::conv`) in the lowering: the false branch of `?:` converts to
+  the true branch's type, an element of `in`/a case label to the selector's type, `Guid += Text` keeps the Guid, a Label
+  branch into a Variant is refused, a Variant source gets `Variant.Into#1`. Entry: `covers`, `matrix_set_elem`, `variant_into`.
 - `lower/stmt.rs` (737): Routines and statements. Entry: `routine` 5, `stmt` 277, `assign` 425, `place` 670.
 - `lower/expr.rs` (636): Expressions, constants, operands, controls. Entry: `expr` 280, `constant` 228.
 - `lower/dotnet.rs` (76): Arguments and members of `DotNet` values (ADR-014). Entry: `dotnet_arg` 7, `dotnet_member` 30.
@@ -312,6 +327,9 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `dispatch.rs` (338): Event dispatch: publishers run their subscribers; EventCall; isolated events. Entry: `publish` 69, `raise` 117, `event_targets` 183, `has_listeners` 249, `subscription` 279.
 - `dotnet/mod.rs` (488): `DotNet` calls (ADR-014). Entry: `DotNetConfig` 33, `DotNetState` 58, `fit` 455.
 - `dotnet/blob_stream.rs` (495): An AL `OutStream` or `InStream` held by a `DotNet` System.IO.Stream variable (`NavBLOB+InternalStream`, Base Application `DotNet_Stream.FromOutStream`; SgDotNetStreams.al): the conversion in `Op::Convert`, the stream members, refusals of every unpinned shape. Entry: `Session::al_stream_into_dotnet` 62, `types` 471.
+- `dotnet/not_created.rs` (~55): The pinned error of a member of a `DotNet` variable that holds no object (`DotNetVariableNotCreated`). Entry: `Session::not_created`.
+- `dotnet/pinned_exceptions.rs` (~125): The .NET exceptions whose error text AL sees is pinned (`A call to ... failed with this message:`). Entry: `signal`.
+- `dotnet/zip_entry_streams.rs` (~115): The temporary stream of `ZipArchiveEntry.Open()` is closed at the end of its statement; CopyStream from it reads it whole. Entry: `Session::dotnet_apply_closing_entry_streams`.
 - `dotnet/last_error.rs` (188): The exception `GetLastErrorObject` answers and its `GetType()` (GetLastErrorObject.al). Entry: `types` 168, `exception_text` 70.
 - `dotnet/policy.rs` (269): What is refused before a `DotNet` request is sent (ADR-014 section 8). Entry: `Access` 6, `Policy` 14.
 - `dotnet/pure.rs` (~50): The `DotNet` members that answer from their arguments alone; a baseline whose install code calls any other is not kept on disk (`Engine::dotnet_called`, al-testrun `baseline_key`). Entry: `answers_from_arguments`.
@@ -341,6 +359,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `pages/controls.rs` (588): Writing a control and the `TestField` methods. Entry: `control_set_value`, `test_control_op`.
 - `pages/actions.rs` (676): Control navigation, lookups, invoking actions, refresh after an action.
 - `pages/format.rs` (435): Reading a control: value, text, type, caption, editable, enabled, visible.
+- `pages/format_type11.rs` (30): the format string of an AutoFormatType 11 field, evaluated once per `Format`. Entry: `auto_format_type11_string`.
 - `pages/areas.rs` (104): Application areas on the test client.
 - `permissions.rs` (330): The session's permission sets (ADR-062): `SetModel` composes the Role IDs `PermissionTestHelper.AddEffectivePermissionSet` assigned from the permission set objects' source (`platform::raw_sets`: wildcards, IncludedPermissionSets), once per engine and set list; a list that grants everything (SUPER) leaves `Session::permissions` at `None` (unrestricted). A restricted session is refused at its next routine call (`Session::call_with_facts`) or record method (`records::record_op`) outside codeunit 131006, or at the end of the test (al-testrun `run.rs`). Entry: `SetModel::compose`, `Session::assign_permission_set`, `permission_gate`, `permissions_lowered_at_end`.
 - `pages/background.rs` (257): Page background tasks under the test client. Entry: `BgWorker` 11.
@@ -348,6 +367,8 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `pages/parts.rs` (324): Page parts (ADR-012 follow-up).
 - `pages/request.rs` (571): The request page of a report. Entry: `RequestClosed` 18, `action_id` 532.
 - `pages/runobject.rs` (321): `RunObject` actions (ADR-012 follow-up).
+- `pages/dirty_step.rs`: What the client saves before the next step (an action, a RunObject, a part's New) and a page that holds a failed save or a refused entry (corpus pages/lt-y45-save-before-action). Entry: `save_before_action`, `test_page_op_held`, `test_control_op_held`.
+- `pages/caption_relation.rs`: What a list caption adds for a DataCaptionFields field with a TableRelation. Entry: `related_caption_parts`.
 - `pages/shown.rs` (662): When a page computes its expression controls (al-runner issue 5765): the values kept at the pinned refresh points, the values a list computes per row as it reads its rows (`row_exprs`), what each TestPage call does to them, and the reads it refuses. Entry: `shown_client_call`, `shown_value`, `shown_opened`, `row_expr_value`.
 - `partial.rs` (271): Partial records (SetLoadFields, LoadFields). Entry: `note_partial_fetch` 54, `load_fields_op` 122, `load_fields_row` 212.
 - `platform/apps.rs` (67): The tables that list the apps of the tenant.
@@ -368,13 +389,14 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `queries.rs` (881): Query objects: Open, Read, column values, SaveAs. Entry: `query_op` 107, `query_column` 350.
 - `recmeta.rs` (734): Record builtins that read table metadata or guard on session state. Entry: `string_literal` 29, `mentions_table` 49, `is_blank` 60.
 - `records.rs` (1565): Record.* on the store: Insert, Modify, Delete, Get, Find, filters, triggers, events. Entry: `record_op` 733, `table_event` 205, `run_trigger` 499, `delete_row` 297, `scan` 545, `unique_violation` 346.
+- `records/flowfield_key.rs` (130): the rows of a record keyed on a row-dependent sum or count FlowField, sorted by its value. Entry: `runs`, `scan_flowfield_key`.
 - `refs.rs` (637): `RecordRef`, `FieldRef` and `KeyRef` on the VM. Entry: `record_ref_value` 42.
 - `relations.rs` (179): TableRelation: lookups and Validate checks. Entry: `field_relation` 70, `validate_relation` 94.
 - `rename.rs` (214): Rename propagation to related tables. Entry: `rename_references` 33, `propagate_rename` 86.
 - `reports.rs` (1209): Report objects at run time: dataset walk, triggers, request page, `Report.SaveAs` and the dataset rows. Entry: `report_builtin` 80, `first_use` 314, `report_save_as` 936, `dataset_begin` 1109.
 - `sessionops.rs` (422): Builtins that act on session state. Entry: `Sequence` 11.
 - `sqlcount.rs` (950): The model behind `SqlStatementsExecuted` / `SqlRowsRead`: record methods logged after the first read, segments between two reads sized (`sized`: nine measured shapes right after a Commit, N = 1, 2, 5, 10, 20) or classified by sign against the pinned sequences (session/lt-bl-sql-counters/SqlCounters.al), or summed from each method's cost under the insert-buffer rule (`SqlCounters::cost`, SkSqlBudget.al: every fifth buffered Insert sends one statement, a Count sends what is left, the first write to a table by its Global Triggers setup; the AL code of Global Triggers events is muted, `mute_begin`), a new epoch for anything else; `guard` refuses a builtin given a counter value. Entry: `SqlCounters::read`, `enter`, `leave`, `guard`.
-- `tasks.rs` (110): `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask`, `SetTaskReady`: the tasks of the running transaction (a rollback drops them; a task whose creation was committed is refused). Entry: `Session::task_scheduler_op`, `Tasks`.
+- `tasks.rs` (110): `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask`, `SetTaskReady`: the tasks of the running transaction (a rollback drops them; a committed task stays until cancelled and never runs). Entry: `Session::task_scheduler_op`, `Tasks`.
 - `testdata.rs` (420): Test data (ADR-020): `TestBacking` maps a provider's columns onto the compiled table's fields, rebuilds the values and builds the table once per thread. Entry: `TestBacking`, `convert`, `sql_name`.
 - `transactions.rs` (446): Transactions as AL code sees them. Entry: `TxModel` 15, `CommitBehavior` 27, `codeunit_run` 193.
 - `ui.rs` (347): Dialogs raised by the code under test (`Message`, `Confirm`, `StrMenu`) and the test handler functions that answer them. Entry: `UiKind` 18, `UiHandler` 66, `dispatch_ui` 158, `dispatch_ui_returning` 163.
