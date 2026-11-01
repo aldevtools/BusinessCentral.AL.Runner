@@ -112,7 +112,8 @@ pub enum Gate {
     GetTextArgumentEvaluateErrorFrom28,
     /// A BigInteger can be assigned to an Enum variable from BC 29 (an Option variable accepts it in every version).
     /// Before, it is refused with AL0122 (types/lt-bigint-enum-option/BigIntToEnumOption.al, corpus bump 20; must-not-compile
-    /// case 0451). Not consumed yet.
+    /// case 0451). The conversion matrix holds its BigInteger and Enum pairs back the same way (types/lt-y31-conversion-matrix/,
+    /// Y31ConvCd.al, Y31ConvCmp.al, Y31ConvCv.al, Y31ConvSus.al). Not consumed yet.
     BigIntegerToEnumVariableFrom29,
     /// `Base64Convert.FromBase64` of text that is not Base64 raises from BC 28 (types/PVBase64.al, corpus bump 9).
     /// Not consumed yet.
@@ -170,7 +171,9 @@ pub enum Gate {
     /// error of pages/lt-f3-pages/F3ValidationAddinFilter.al:409,447 only from BC 29, the one major checked on Windows; BC 27
     /// and 28 stay held on Linux there (BC 27.5 gives a client callback error, :417-420). From BC 29 the Max FlowField of an Enum
     /// field into an Option field formats as the Option member (or the number the Option lacks), BC 27 and 28 as the Enum member
-    /// (record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al:190 Y20_Max_EnumIntoOption_Result). Not consumed yet.
+    /// (record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al:190 Y20_Max_EnumIntoOption_Result; consumed by al-vm
+    /// flowfields.rs). The System Application enum "Agent Metadata Provider" has the value "Personal Agent" from BC 29
+    /// (platform/lt-y35-agent-api/Y35AgentApi.al:39, a dependency app's source).
     ProbedValuesDifferFrom29,
     /// `Base64Convert.ToBase64` of a Text with `TextEncoding::Windows` or `MSDos` and no code page gives the code page 1252
     /// bytes from BC 28 (`äöü` is `5Pb8`); before, the UTF-8 bytes (`w6TDtsO8`) (types/PVBase64.al, corpus bump 13).
@@ -524,6 +527,22 @@ impl Gate {
             }],
             Gate::BigIntegerToEnumVariableFrom29 => &[
                 Evidence {
+                    file: "types/lt-y31-conversion-matrix/Y31ConvCd.al",
+                    lines: "1998,2093",
+                },
+                Evidence {
+                    file: "types/lt-y31-conversion-matrix/Y31ConvCmp.al",
+                    lines: "928,957,1145,1153",
+                },
+                Evidence {
+                    file: "types/lt-y31-conversion-matrix/Y31ConvCv.al",
+                    lines: "1218,1271,1449,1658",
+                },
+                Evidence {
+                    file: "types/lt-y31-conversion-matrix/Y31ConvSus.al",
+                    lines: "9,88,127,192",
+                },
+                Evidence {
                     file: "misc/lt-au-language-edges/AuEdgeTests.al",
                     lines: "72",
                 },
@@ -682,6 +701,10 @@ impl Gate {
             ],
             Gate::WindowsLanguageRowsFrom29 => &[
                 Evidence {
+                    file: "record/lt-y39-windows-language-table/Y39WindowsLanguageTable.al",
+                    lines: "31,361",
+                },
+                Evidence {
                     file: "platform/lt-ag-contoso/AgWindowsLanguage.al",
                     lines: "58",
                 },
@@ -749,6 +772,10 @@ impl Gate {
                 lines: "145",
             }],
             Gate::PlatformMetadataColumnsFrom29 => &[
+                Evidence {
+                    file: "platform/lt-y35-username-field-rows/Y35UserNameFieldRows.al",
+                    lines: "86,104,144",
+                },
                 Evidence {
                     file: "system-fields/W6SystemFieldStamps.al",
                     lines: "182",
@@ -927,6 +954,10 @@ impl Gate {
                 },
             ],
             Gate::ProbedValuesDifferFrom29 => &[
+                Evidence {
+                    file: "platform/lt-y35-agent-api/Y35AgentApi.al",
+                    lines: "39",
+                },
                 Evidence {
                     file: "record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al",
                     lines: "190",
