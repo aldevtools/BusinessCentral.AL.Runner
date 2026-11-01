@@ -2344,8 +2344,7 @@ page 50100 P {
 }
 
 /// al-runner issue 6590: a bare `Run(Page::X, Rec)` in a page's code is the static `Page.Run` (pages/lt-uf-unqualified-runmodal/
-/// Y47UnqualifiedRun.al, corpus branch al-runtime-rs-staging-y47). It lowers to the `Page.Run` form behind the marker of
-/// assumption bare-page-run-is-static.
+/// Y47UnqualifiedRun.al:237-325). It lowers to the `Page.Run` form.
 #[test]
 fn a_bare_page_run_in_a_page_lowers_as_the_static_page_run() {
     let src = r#"
@@ -2362,10 +2361,7 @@ page 50100 P {
     let i = ws.objects.iter().position(|o| o.name.as_str() == "P").unwrap();
     let p = &l.program.objects[i];
     let body = |r: &str| format!("{:?}", p.routines.iter().find(|x| x.name == r).unwrap().body);
-    let bare = body("Bare");
-    assert!(bare.contains("BarePageRunIsStatic"), "{bare}");
-    let marker = "Assume(BarePageRunIsStatic), ";
-    assert_eq!(bare.replace(marker, ""), body("Qual"));
+    assert_eq!(body("Bare"), body("Qual"));
 }
 
 /// The work ratchet (`al-test-cli`, `metrics/<major>/work.json`): the compile counts what it lowered from source, the

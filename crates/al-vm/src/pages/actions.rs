@@ -2699,8 +2699,8 @@ impl Session {
         key: &[Value],
         read_first: bool,
     ) -> Result<(), Signal> {
-        // A collapsed or expanded tree with row triggers reads the rows it hides too, as when it opens (corpus writer Y28, branch
-        // al-runtime-rs-staging-y28, pageext/lt-page-ext-properties/Y28CollapsedTreeTests.al:170 Y28_ActionResetAndUpdate
+        // A collapsed or expanded tree with row triggers reads the rows it hides too, as when it opens
+        // (pageext/lt-page-ext-properties/Y28CollapsedTreeTests.al:170 Y28_ActionResetAndUpdate
         // `agr1;reset count=5;agr1;agr1;agr2;agr3;agr4;agr5;agr1;agr1;agcr1`, :130 Y28_ActionCountOnRoot).
         if self.tree_expand_all_with_row_triggers(st)
             && self.read_tree_rows_whole(st, |this| {

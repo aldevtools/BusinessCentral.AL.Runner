@@ -1,8 +1,6 @@
 //! `SelectToken(Path, var JsonToken)` with a filter `[?(@.name == x)]` or `[?(@.name > n)]`: the forms
 //! json/lt-db-json-leads/DbJPathLeads.al:52-85 and json/lt-dc-json-leads/DcJsonLeads.al:286-345 pin, and the root forms
-//! `$[?(..)]` and `$.[?(..)]` on a JsonArray of al-runner issue 6588.
-
-use al_builtins::assumptions::{Assumption, take_hits};
+//! `$[?(..)]` and `$.[?(..)]` on a JsonArray of al-runner issue 6588 (DbJPathLeads.al:249-250, :353-354).
 
 fn run(body: &str) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
     let src = format!(
@@ -65,15 +63,12 @@ fn a_filter_statement_without_one_match_raises() {
 
 #[test]
 fn a_filter_on_the_root_array_selects_the_match() {
-    take_hits();
     let body = r#"A.ReadFrom('[{"id":1,"name":"first"},{"id":2,"name":"second"}]');
         A.SelectToken('$[?(@.id==2)]', T); T.AsObject().Get('name', T); S := T.AsValue().AsText();"#;
     assert_eq!(text(&format!("{body} exit(S);")), "second");
-    assert!(!take_hits().contains(&Assumption::SelectTokenDotBeforeIndexer));
     let body = r#"A.ReadFrom('[{"id":1,"name":"first"},{"id":2,"name":"second"}]');
         A.SelectToken('$.[?(@.id==2)]', T); T.AsObject().Get('name', T); S := T.AsValue().AsText();"#;
     assert_eq!(text(&format!("{body} exit(S);")), "second");
-    assert!(take_hits().contains(&Assumption::SelectTokenDotBeforeIndexer));
 }
 
 #[test]
@@ -87,8 +82,8 @@ fn a_double_quoted_indexer_answers_false_when_the_result_is_used() {
     );
 }
 
-/// json/lt-db-json-leads/DbJPathLeads.al Y47_ArrayFilter_ReporterShapes and Y47_ArrayFilter_Neighbours (corpus branch
-/// al-runtime-rs-staging-y47, al-runner issue 6588).
+/// json/lt-db-json-leads/DbJPathLeads.al Y47_ArrayFilter_ReporterShapes and Y47_ArrayFilter_Neighbours (al-runner
+/// issue 6588).
 #[test]
 fn the_neighbour_filters_of_the_reporter_shape() {
     let out = text(
