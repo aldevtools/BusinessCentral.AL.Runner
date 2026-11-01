@@ -1900,6 +1900,11 @@ impl Session {
                 }
                 Ok(Value::Boolean(true))
             }
+            // No filter on these fields can be set (SetFilter and SetRange on the FieldRef are refused below, a view that names one
+            // is refused in `view_where_field`), so GetFilter is the empty text, as BC gives it with no filter (al-runner issue
+            // 6645; corpus branch al-runtime-rs-staging-y64 85d86e7b, system-fields/lt-y64-username-filters/Y64UserNameFilters.al:
+            // 85-108).
+            "GetFilter" if args.is_empty() => Ok(Value::Text("".into())),
             "Value" if args.is_empty() => match value {
                 Some(v) => Ok(Value::Text(v.into())),
                 None => unsupported(format!(

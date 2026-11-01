@@ -132,6 +132,7 @@ mod testpage_action_without_parentheses;
 mod this_in_objects;
 mod unpinned_error_result;
 mod update_draft_row;
+mod user_name_getfilter;
 mod user_reports;
 mod values_allowed_setvalue;
 mod with_statement;
