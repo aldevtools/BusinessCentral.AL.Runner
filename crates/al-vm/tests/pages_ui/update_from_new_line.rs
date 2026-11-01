@@ -70,6 +70,14 @@ page 51543 "NL Ws NoIns"
     trigger OnAfterGetCurrRecord() begin L.Add('C:' + Rec."Batch Name" + '/' + Format(Rec."Line No.")); end;
     trigger OnNewRecord(BelowxRec: Boolean) begin L.Add('N:' + Rec."Batch Name" + '/' + Format(Rec."Line No.")); end;
 }
+page 51545 "NL Ws NoIns Ed"
+{
+    PageType = Worksheet; SourceTable = "NL Line"; InsertAllowed = false;
+    layout { area(Content) { repeater(Rows) { Editable = false; field("Line No."; Rec."Line No.") { } } } }
+    var L: Codeunit "NL Log";
+    trigger OnAfterGetCurrRecord() begin L.Add('C:' + Rec."Batch Name" + '/' + Format(Rec."Line No.")); end;
+    trigger OnNewRecord(BelowxRec: Boolean) begin L.Add('N:' + Rec."Batch Name" + '/' + Format(Rec."Line No.")); end;
+}
 codeunit 51544 C
 {
     local procedure Add(B: Code[10]; N: Integer; No: Code[20])
@@ -94,6 +102,13 @@ codeunit 51544 C
     procedure UpdTrue(): Text begin exit(Switch(true)); end;
     procedure NoIns(): Text
     var W: TestPage "NL Ws NoIns"; L: Codeunit "NL Log";
+    begin
+        L.Take();
+        W.OpenEdit();
+        exit(W."Line No.".Value() + ':' + L.Take());
+    end;
+    procedure NoInsEditable(): Text
+    var W: TestPage "NL Ws NoIns Ed"; L: Codeunit "NL Log";
     begin
         L.Take();
         W.OpenEdit();
@@ -127,4 +142,9 @@ fn update_true_from_the_new_line_modifies_the_row_find_moved_rec_onto() {
 #[test]
 fn an_empty_worksheet_without_insert_runs_on_a_blank_record() {
     assert_eq!(run("NoIns"), ":N:B3/0;C:B3/0;");
+}
+
+#[test]
+fn an_empty_worksheet_without_insert_whose_repeater_says_editable_opens_as_before() {
+    assert_eq!(run("NoInsEditable"), ":");
 }

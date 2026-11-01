@@ -383,13 +383,16 @@ impl Session {
 
     /// A Worksheet with `InsertAllowed = false`, opened for edit over an empty view, runs OnNewRecord and OnAfterGetCurrRecord
     /// once on a blank record, as a Card does, and shows no row (pages/lt-y50-update-from-new-line/Y50UpdateFromNewLine.al:628
-    /// G520_NoNewLine_EmptyView_ToBatchWithRows `open` = `/:N:B3/0 below=Yes;C:B3/0`). A List and a tree are not pinned.
+    /// G520_NoNewLine_EmptyView_ToBatchWithRows `open` = `/:N:B3/0 below=Yes;C:B3/0`). A List, a tree and a repeater that says
+    /// Editable are not pinned: they open as before (Tests-SCM-Warehouse SCM Warehouse VII
+    /// PickWithUnreservedQuantityWithAlwaysCreatePickLine opens such a page).
     fn empty_worksheet_without_insert(&self, st: &St) -> bool {
         let object = st.borrow().object as usize;
         matches!(
             self.engine.object_facts[object].page_type,
             Some(al_ir::PageType::Worksheet)
         ) && self.tree_indentation(st).is_none()
+            && !self.repeater_says_editable(st)
             && flag_denied(&self.engine(), object, "InsertAllowed").unwrap_or(false)
     }
 
