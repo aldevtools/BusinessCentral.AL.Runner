@@ -41,6 +41,22 @@ impl Session {
                 part.borrow_mut().inserted_before_host_action = inserted;
             }
         }
+        // A host with a part linked by field(filter(...)) saves its edit before the action, and the part reads its rows once, at
+        // the action's CurrPage.Update (pages/lt-y37-link-filter/Y37LinkFilterTests.al:418 LT_C311_Link_ValueChangedOnPage
+        // `update log` `LP.c B2 ...` once, `rows after update` B1,B2, and after a reopen).
+        let engine = self.engine();
+        let filter_linked = page_of(&engine, st).controls.iter().any(|c| {
+            c.part_link
+                .as_ref()
+                .is_some_and(|l| l.entries.iter().any(|e| matches!(e, ir::LinkEntry::FieldFilter(..))))
+        });
+        let edited = {
+            let s = st.borrow();
+            s.open && s.dirty && !s.draft && s.cursor == Cursor::Row
+        };
+        if filter_linked && edited && self.has_source(st) {
+            self.save_row(st)?;
+        }
         self.save_before_run_object(st, idx)
     }
 

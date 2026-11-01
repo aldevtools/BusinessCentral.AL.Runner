@@ -1138,20 +1138,6 @@ impl Session {
         // A client sends the row it stands on to the server before it runs an action (corpus
         // handlers/TestPageAutoSplitKey_Tests.al:TestPage_ActionInvoke_OnANewSubpageRow_*).
         let was_dirty = st.borrow().dirty;
-        // An action on a host whose row holds an edit, with a part linked by field(filter(...)): BC saves the edit and the part
-        // follows it (pages/lt-y37-link-filter/Y37LinkFilterTests.al:418-450), while the runtime reads the stored row back here.
-        if was_dirty
-            && st.borrow().host.is_none()
-            && page_of(&engine, st).controls.iter().any(|c| {
-                c.part_link
-                    .as_ref()
-                    .is_some_and(|l| l.entries.iter().any(|e| matches!(e, ir::LinkEntry::FieldFilter(..))))
-            })
-        {
-            return unsupported(
-                "an action on a page whose row holds an edit, with a part linked by field(filter(...)) (the runtime does not keep the edit here)",
-            );
-        }
         // A new row of a card whose key a SetValue typed is stored before the next action's trigger (pages/lt-table-globals-page/
         // TableGlobalsPageWithoutValidation.al:318 QG_NewDraft_KeyTyped_ThenBumpAction: `stored after the SetValue` No, `stored
         // after BumpOnly` Yes, `Seen after BumpOnly` I0, `LastCount after ReadCount` 2).
