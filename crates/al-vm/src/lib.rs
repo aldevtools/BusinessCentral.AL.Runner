@@ -67,6 +67,7 @@ mod refs;
 mod relations;
 mod rename;
 mod reports;
+mod run_page_link_open;
 mod sessionops;
 mod sqlcount;
 mod sqltime;

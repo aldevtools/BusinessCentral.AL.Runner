@@ -218,7 +218,9 @@ impl Session {
         page_type: &str,
     ) -> Result<Option<al_builtins::value::RunPageLinkFill>, Signal> {
         let Some(link) = &ro.link else { return Ok(None) };
-        if link.view.is_some() || !matches!(page_type, "list" | "card") {
+        // A ListPlus, Document and Worksheet target behave as a List or Card (pages/lt-y41-page-probes/Y41RunPageLinkOnOpen.al:440,
+        // :571, :589).
+        if !matches!(page_type, "list" | "card" | "listplus" | "document" | "worksheet") {
             return Ok(None);
         }
         let table = self.table(rec)?;
@@ -229,18 +231,56 @@ impl Session {
             .filter(|f| f.group == RUN_LINK_GROUP)
             .cloned()
             .collect();
-        // Only the link's own filters: a handed record carries nothing else (no RunPageOnRec, no view).
-        if link_filters.len() != r.filters.len() || link_filters.len() != link.entries.len() {
+        // A RunPageView beside the link: the field of each of its single-value filters is filled too, and GetFilters shows only
+        // the link (Y41RunPageLinkOnOpen.al:553 RPL_Card_LinkPlusView `code=P1 number=7 ... filters=Code: P1`).
+        let view_filters: Vec<&FieldFilter> = r.filters.iter().filter(|f| f.group == RUN_VIEW_GROUP).collect();
+        // Only the link's own filters and the view's: a handed record carries nothing else (no RunPageOnRec).
+        let only_link_and_view = link_filters.len() + view_filters.len() == r.filters.len();
+        if !only_link_and_view
+            || link_filters.len() != link.entries.len()
+            || (link.view.is_some() != !view_filters.is_empty())
+        {
             return Ok(None);
         }
         let mut fill = Vec::new();
-        for (i, entry) in link.entries.iter().enumerate() {
-            let pf = match entry {
-                ir::LinkEntry::Field(pf, _) => *pf,
-                ir::LinkEntry::Filter(pf, _) if link.consts.contains(&i) => *pf,
-                ir::LinkEntry::Filter(..) | ir::LinkEntry::FieldFilter(..) => return Ok(None),
+        for f in &view_filters {
+            let ty = &table.fields[f.field].ty;
+            let flow_filter =
+                self.engine.field_facts[table.object as usize][f.field].class == ir::FieldClass::FlowFilter;
+            let value = match &f.expr {
+                FilterExpr::Eq(v) => v.clone(),
+                FilterExpr::Range(Some(a), Some(b)) if ops::compare(a, b).is_ok_and(|o| o.is_eq()) => a.clone(),
+                _ => return Ok(None),
             };
-            if !matches!(table.fields[pf].ty, RtType::Code(_) | RtType::Text(_) | RtType::Integer) {
+            let filled = matches!(
+                ty,
+                RtType::Code(_) | RtType::Text(_) | RtType::Integer | RtType::Option(_) | RtType::Date
+            );
+            let Ok(value) = ops::convert(value, ty) else {
+                return Ok(None);
+            };
+            if !filled || flow_filter {
+                return Ok(None);
+            }
+            fill.push((f.field, value));
+        }
+        for entry in &link.entries {
+            // A filter('P1') entry of one value is filled as a const one is (Y41RunPageLinkOnOpen.al:535 RPL_Card_FilterEntry
+            // `code=P1`); a filter of more values fails the value check below.
+            let pf = match entry {
+                ir::LinkEntry::Field(pf, _) | ir::LinkEntry::Filter(pf, _) => *pf,
+                ir::LinkEntry::FieldFilter(..) => return Ok(None),
+            };
+            // An Option and a Date field are filled too (:499 RPL_Card_OptionLink `kind=B`, :517 RPL_Card_DateLink); a FlowFilter
+            // field of Code is filled with nothing, the link stays its filter (:458 RPL_List_FlowFilterLink `code= ... filters=Code
+            // Filter: P1`).
+            let flow_filter = self.engine.field_facts[table.object as usize][pf].class == ir::FieldClass::FlowFilter;
+            let ty = &table.fields[pf].ty;
+            let filled = matches!(
+                ty,
+                RtType::Code(_) | RtType::Text(_) | RtType::Integer | RtType::Option(_) | RtType::Date
+            );
+            if !filled || (flow_filter && !matches!(ty, RtType::Code(_))) {
                 return Ok(None);
             }
             let Some(f) = link_filters.iter().find(|f| f.field == pf) else {
@@ -254,7 +294,9 @@ impl Session {
             let Ok(value) = ops::convert(value, &table.fields[pf].ty) else {
                 return Ok(None);
             };
-            fill.push((pf, value));
+            if !flow_filter {
+                fill.push((pf, value));
+            }
         }
         Ok(Some((fill, Rc::new(link_filters))))
     }

@@ -261,3 +261,130 @@ codeunit 69435 T
 fn selection_filter_of_a_page_closed_by_a_typed_handler_and_of_open_new() {
     passes(SEL);
 }
+
+// G4-04: Rec in the OnOpenPage of a page an action opens through RunPageLink, for a ListPlus, Document and Worksheet target, an
+// Option, Date and filter('P1') link, a FlowFilter link (no field filled, CalcFields uses it) and a temporary List that inserts in
+// OnOpenPage (Y41RunPageLinkOnOpen.al:440 RPL_ListPlus_FieldLinks, :458 _List_FlowFilterLink, :476 _TempList_InsertInOpen, :499
+// _Card_OptionLink, :517 _Card_DateLink, :535 _Card_FilterEntry, :571 _Document_FieldLink, :589 _Worksheet_FieldLink).
+fn rpl_target(id: u32, name: &str, page_type: &str, tag: &str, extra: &str) -> String {
+    format!(
+        r#"page {id} "{name}" {{ PageType = {page_type}; SourceTable = "RL Target"; {extra}
+    layout {{ area(Content) {{ repeater(Rows) {{ field(CodeCtl; Rec."Code") {{ }} field(NumberCtl; Rec.Number) {{ }} }} }} }}
+    var L: Codeunit "RL Log";
+    trigger OnOpenPage() begin L.Add('{tag} open ' + Rec.Describe() + ' read=' + Rec."Code" + '/' + Format(Rec.Number)); end;
+    trigger OnAfterGetCurrRecord() begin L.Add('{tag} agcr ' + Rec.Describe()); end; }}
+"#
+    )
+}
+
+fn rpl_source() -> String {
+    let mut src = String::from(
+        r#"
+table 69440 "RL Host" { fields { field(1; "Code"; Code[20]) { } field(2; Number; Integer) { } field(3; Kind; Option) { OptionMembers = A,B; }
+    field(4; Day; Date) { } } keys { key(PK; "Code") { Clustered = true; } } }
+table 69441 "RL Target" { fields { field(1; "Code"; Code[20]) { } field(2; Number; Integer) { } field(3; Kind; Option) { OptionMembers = A,B; }
+    field(4; Day; Date) { } field(5; "Code Filter"; Code[20]) { FieldClass = FlowFilter; }
+    field(6; "Host Count"; Integer) { FieldClass = FlowField; CalcFormula = count("RL Host" where("Code" = field("Code Filter"))); } }
+    keys { key(PK; "Code", Number) { Clustered = true; } }
+    procedure Describe(): Text begin
+        exit('code=' + Rec."Code" + ' number=' + Format(Rec.Number) + ' kind=' + Format(Rec.Kind) + ' day=' + Format(Rec.Day, 0, 9) +
+            ' filters=' + Rec.GetFilters() + ' gf0=' + Rec.GetFilter("Code") + ' count=' + Format(Rec.Count())); end; }
+codeunit 69442 "RL Log" { SingleInstance = true; var Buf: Text;
+    procedure Add(T: Text) begin if Buf <> '' then Buf += ';'; Buf += T; end;
+    procedure Take(): Text var R: Text; begin R := Buf; Buf := ''; exit(R); end; }
+page 69443 "RL FF List" { PageType = List; SourceTable = "RL Target";
+    layout { area(Content) { repeater(Rows) { field(CodeCtl; Rec."Code") { } field(NumberCtl; Rec.Number) { } } } }
+    var L: Codeunit "RL Log";
+    trigger OnOpenPage() begin Rec.CalcFields("Host Count");
+        L.Add('list open ' + Rec.Describe() + ' cf=' + Rec.GetFilter("Code Filter") + ' hostcount=' + Format(Rec."Host Count")); end; }
+page 69444 "RL Temp List" { PageType = List; SourceTable = "RL Target"; SourceTableTemporary = true;
+    layout { area(Content) { repeater(Rows) { field(CodeCtl; Rec."Code") { } field(NumberCtl; Rec.Number) { } } } }
+    var L: Codeunit "RL Log";
+    trigger OnOpenPage() begin L.Add('temp open ' + Rec.Describe()); Rec."Code" := '';
+        L.Add('temp insert blank=' + Format(Rec.Insert()) + ' ' + Rec.Describe());
+        Rec.Init(); Rec."Code" := 'T1'; Rec.Number := 1; Rec.Insert(); Rec.Init(); Rec."Code" := 'P1'; Rec.Number := 2; Rec.Insert();
+        L.Add('temp after inserts ' + Rec.Describe()); end; }
+page 69445 "RL Host Card" { PageType = Card; SourceTable = "RL Host";
+    layout { area(Content) { group(G) { field(CodeCtl; Rec."Code") { } } } }
+    actions { area(Processing) {
+        action(ToListPlus) { RunObject = page "RL ListPlus"; RunPageLink = "Code" = field("Code"), Number = field(Number); }
+        action(ToDocument) { RunObject = page "RL Document"; RunPageLink = "Code" = field("Code"), Number = field(Number); }
+        action(ToWorksheet) { RunObject = page "RL Worksheet"; RunPageLink = "Code" = field("Code"), Number = field(Number); }
+        action(ToFlowFilterList) { RunObject = page "RL FF List"; RunPageLink = "Code Filter" = field("Code"); }
+        action(ToTempList) { RunObject = page "RL Temp List"; RunPageLink = "Code" = field("Code"); }
+        action(CardOption) { RunObject = page "RL Card"; RunPageLink = Kind = field(Kind); }
+        action(CardDate) { RunObject = page "RL Card"; RunPageLink = Day = field(Day); }
+        action(CardFilter) { RunObject = page "RL Card"; RunPageLink = "Code" = filter('P1'); } } } }
+codeunit 69446 T
+{
+    Subtype = Test;
+    var L: Codeunit "RL Log";
+    local procedure Seed(var Host: TestPage "RL Host Card") var H: Record "RL Host"; T: Record "RL Target"; begin
+        H.DeleteAll(); T.DeleteAll();
+        H."Code" := 'P1'; H.Number := 7; H.Kind := 1; H.Day := 20260115D; H.Insert();
+        H."Code" := 'P2'; H.Number := 9; H.Kind := 0; H.Day := 20260116D; H.Insert();
+        T."Code" := 'P1'; T.Number := 7; T.Kind := 0; T.Day := 20260115D; T.Insert();
+        T."Code" := 'P1'; T.Number := 8; T.Kind := 1; T.Day := 20260116D; T.Insert();
+        T."Code" := 'P2'; T.Number := 7; T.Kind := 0; T.Day := 20260115D; T.Insert();
+        Host.OpenView(); Host.GoToKey('P1'); L.Take(); end;
+    local procedure Check(Got: Text; Want: Text) begin if Got <> Want then Error('got %1, want %2', Got, Want); end;
+    [Test] procedure ListPlus() var H: TestPage "RL Host Card"; P: TestPage "RL ListPlus"; begin
+        Seed(H); P.Trap(); H.ToListPlus.Invoke();
+        Check(L.Take(), 'listplus open code=P1 number=7 kind=A day= filters=Code: P1, Number: 7 gf0=P1 count=1 read=P1/7;listplus agcr code=P1 number=7 kind=A day=2026-01-15 filters=Code: P1, Number: 7 gf0=P1 count=1'); end;
+    [Test] procedure Document() var H: TestPage "RL Host Card"; P: TestPage "RL Document"; begin
+        Seed(H); P.Trap(); H.ToDocument.Invoke();
+        Check(L.Take(), 'document open code=P1 number=7 kind=A day= filters=Code: P1, Number: 7 gf0=P1 count=1 read=P1/7;document agcr code=P1 number=7 kind=A day=2026-01-15 filters=Code: P1, Number: 7 gf0=P1 count=1'); end;
+    [Test] procedure Worksheet() var H: TestPage "RL Host Card"; P: TestPage "RL Worksheet"; begin
+        Seed(H); P.Trap(); H.ToWorksheet.Invoke();
+        Check(L.Take(), 'worksheet open code=P1 number=7 kind=A day= filters=Code: P1, Number: 7 gf0=P1 count=1 read=P1/7;worksheet agcr code=P1 number=7 kind=A day=2026-01-15 filters=Code: P1, Number: 7 gf0=P1 count=1'); end;
+    [Test] procedure FlowFilterLink() var H: TestPage "RL Host Card"; P: TestPage "RL FF List"; begin
+        Seed(H); P.Trap(); H.ToFlowFilterList.Invoke();
+        Check(L.Take(), 'list open code= number=0 kind=A day= filters=Code Filter: P1 gf0= count=3 cf=P1 hostcount=1');
+        Check(P.CodeCtl.Value + '/' + P.NumberCtl.Value, 'P1/7'); end;
+    [Test] procedure TempInsert() var H: TestPage "RL Host Card"; P: TestPage "RL Temp List"; S: Text; begin
+        Seed(H); P.Trap(); H.ToTempList.Invoke();
+        Check(L.Take(), 'temp open code=P1 number=0 kind=A day= filters=Code: P1 gf0=P1 count=0;temp insert blank=Yes code= number=0 kind=A day= filters=Code: P1 gf0=P1 count=0;temp after inserts code=P1 number=2 kind=A day= filters=Code: P1 gf0=P1 count=1');
+        if P.First() then repeat S += P.CodeCtl.Value + '/' + P.NumberCtl.Value + ','; until not P.Next(); Check(S, 'P1/2,P1/0,'); end;
+    [Test] procedure OptionLink() var H: TestPage "RL Host Card"; P: TestPage "RL Card"; begin
+        Seed(H); P.Trap(); H.CardOption.Invoke();
+        Check(L.Take(), 'card open code= number=0 kind=B day= filters=Kind: B gf0= count=1 read=/0;card agcr code=P1 number=8 kind=B day=2026-01-16 filters=Kind: B gf0= count=1'); end;
+    [Test] procedure DateLink() var H: TestPage "RL Host Card"; P: TestPage "RL Card"; begin
+        Seed(H); P.Trap(); H.CardDate.Invoke();
+        Check(L.Take(), 'card open code= number=0 kind=A day=2026-01-15 filters=Day: 01/15/26 gf0= count=2 read=/0;card agcr code=P1 number=7 kind=A day=2026-01-15 filters=Day: 01/15/26 gf0= count=2'); end;
+    [Test] procedure FilterEntry() var H: TestPage "RL Host Card"; P: TestPage "RL Card"; begin
+        Seed(H); P.Trap(); H.CardFilter.Invoke();
+        Check(L.Take(), 'card open code=P1 number=0 kind=A day= filters=Code: P1 gf0=P1 count=2 read=P1/0;card agcr code=P1 number=7 kind=A day=2026-01-15 filters=Code: P1 gf0=P1 count=2'); end;
+}
+"#,
+    );
+    src += &rpl_target(69447, "RL ListPlus", "ListPlus", "listplus", "");
+    src += &rpl_target(69448, "RL Document", "Document", "document", "");
+    src += &rpl_target(69449, "RL Worksheet", "Worksheet", "worksheet", "");
+    src += &rpl_target(69450, "RL Card", "Card", "card", "");
+    src
+}
+
+#[test]
+fn rec_in_the_on_open_page_of_a_run_page_link_target_in_the_y41_shapes() {
+    passes(&rpl_source());
+}
+
+// G4-04 T7: a RunPageView beside the link fills its const field too; GetFilters shows only the link (Y41RunPageLinkOnOpen.al:553
+// RPL_Card_LinkPlusView).
+#[test]
+fn a_run_page_view_beside_the_link_fills_its_const_field() {
+    let src = rpl_source()
+        .replace(
+            r#"action(CardOption) {"#,
+            r#"action(CardLinkView) { RunObject = page "RL Card"; RunPageLink = "Code" = field("Code"); RunPageView = sorting(Number) where(Number = const(7)); }
+        action(CardOption) {"#,
+        )
+        .replace(
+            "[Test] procedure OptionLink()",
+            r#"[Test] procedure LinkPlusView() var H: TestPage "RL Host Card"; P: TestPage "RL Card"; begin
+        Seed(H); P.Trap(); H.CardLinkView.Invoke();
+        Check(L.Take(), 'card open code=P1 number=7 kind=A day= filters=Code: P1 gf0=P1 count=1 read=P1/7;card agcr code=P1 number=7 kind=A day=2026-01-15 filters=Code: P1 gf0=P1 count=1'); end;
+    [Test] procedure OptionLink()"#,
+        );
+    passes(&src);
+}
