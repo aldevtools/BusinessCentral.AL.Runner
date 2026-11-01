@@ -423,12 +423,20 @@ impl<'a> Lowerer<'a> {
                 "a conditional expression whose branches have different types ({t} and {f}): the conversion of the false branch is not pinned"
             ))
         };
+        // A MaxLength label against a Text or Code branch, sized or not, either way, is as a label without MaxLength (al-runner
+        // issue 6659; awaiting types/lt-y66-ternary-label/Y66TernaryLabel.al:65-1335, real BC values).
+        let other = if matches!(t, Ty::Label) { f } else { t };
+        if maxlength && !(matches!(t, Ty::Label) && literal(&value).is_some()) {
+            if !matches!(other, Ty::Text(_) | Ty::Code(_)) {
+                return unpinned();
+            }
+            self.assume(al_builtins::assumptions::Assumption::TernaryMaxLengthLabel);
+        }
         match (t, f) {
             // Pinned on master (:464, :504-516): a Label true branch, MaxLength or not, takes a literal false branch as it is.
             (Ty::Label, Ty::Text(_)) if literal(&value).is_some() => {}
             // Pinned on master (:466): an empty literal true branch takes a Label false branch as it is.
             (Ty::Text(_), Ty::Label) if !maxlength && literal(yes.1).is_some_and(|s| s.is_empty()) => {}
-            _ if maxlength => return unpinned(),
             // A Guid true branch makes the Label a Guid (a text that is no GUID fails InvalidGuidFormat when that branch is taken);
             // a Label true branch makes the Guid a Text in braces (types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al:24-55, :61-75,
             // :78-104, :153-180; al-runner issue 6160).

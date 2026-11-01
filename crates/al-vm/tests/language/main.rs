@@ -145,6 +145,7 @@ mod ternary_args;
 mod ternary_guid_label;
 mod ternary_label;
 mod ternary_matrix;
+mod ternary_maxlength_label;
 mod test_contexts;
 mod text_append;
 mod text_decimal_args;
