@@ -754,6 +754,10 @@ pub struct XmlPort {
     /// The unprobed assumptions the port's layout rests on; the VM marks them when the port runs.
     #[serde(default)]
     pub assumes: Vec<al_builtins::assumptions::Assumption>,
+    /// The port declares a request page with content (controls, triggers): Export and Import from code never open it, a Run
+    /// with the request window does (al-vm `xmlports.rs`, `XMLPORT_RUN_1`).
+    #[serde(default)]
+    pub request_page: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -981,6 +985,10 @@ impl Binding {
         }
     }
 }
+
+/// The property under which a report's `properties` keep its request page's own `Caption` as written (the report's `Caption`,
+/// when it declares one, wins under `Caption`). `RequestOptionsPage.Caption` reads it (al-vm `reports.rs`).
+pub const REQUEST_PAGE_CAPTION_PROPERTY: &str = "RequestPage.Caption";
 
 /// The name of the routine the lowering makes from a page's `DataCaptionExpression` (`al_sema::pages::data_caption_routine`):
 /// it returns the expression's value as Text.

@@ -1242,6 +1242,8 @@ impl Session {
                 report_executed: Vec::new(),
                 execute_parameters: None,
                 report_run_modal_done: Vec::new(),
+                report_running: Vec::new(),
+                request_captions: Vec::new(),
                 print_only_if_detail: false,
                 csv_written: None,
                 report_save_tried: Vec::new(),

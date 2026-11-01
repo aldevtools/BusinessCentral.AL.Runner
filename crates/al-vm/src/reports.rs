@@ -530,6 +530,23 @@ impl Session {
             }
             ids::REPORT_RUN_1 | ids::REPORT_RUNMODAL_1 => {
                 let (inst, quit) = self.report_instance(receiver, true)?;
+                // A RunModal of the instance that is running now (the bare `RunModal()` in a procedure its OnPreReport calls)
+                // raises the error and runs nothing; the run goes on (report/lt-y40-bare-report-run/Y40BareReportRun.al:362,
+                // Y40_BareRunModal_InsidePreReport, corpus master ac3499d6). A Run there is not pinned.
+                if self
+                    .report
+                    .report_running
+                    .iter()
+                    .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)))
+                {
+                    if id == ids::REPORT_RUN_1 {
+                        return unsupported("Report.Run of the report instance that is running (not pinned)");
+                    }
+                    return Err(crate::transactions::al_error_code(
+                        "The object has been run. Use the function CLEAR(Report).",
+                        "ObjectHasAlreadyBeenRun",
+                    ));
+                }
                 // An instance that already ran (one a variable gave up after its Run) cannot run again, and the attempt resets it
                 // (report/lt-report-this-passed-on/P141ThisStored.al:P141_StoredAfterRun_RunAgain: the error, then a blank marker).
                 if id == ids::REPORT_RUN_1
@@ -551,7 +568,12 @@ impl Session {
                 // (report/lt-tn-savevalues-body-filters/TnSaveValuesBodyFilters.al:251-272, `ran=No parent=[] child=[]`).
                 if self.report_run_modal_done_on(&inst) {
                     if id == ids::REPORT_RUNMODAL_1 {
-                        self.report_clear(&inst);
+                        // The bare `RunModal()` in a procedure of the instance leaves it as it is: its globals read back
+                        // after the error (report/lt-y40-bare-report-run/Y40BareReportRun.al:252,
+                        // Y40_BareRunModal_SecondCallOnSameVariable, corpus master ac3499d6: `found=Yes visited=2`).
+                        if !Rc::ptr_eq(&running, &inst) {
+                            self.report_clear(&inst);
+                        }
                         return Err(crate::transactions::al_error_code(
                             "The object has been run. Use the function CLEAR(Report).",
                             "ObjectHasAlreadyBeenRun",
@@ -590,7 +612,10 @@ impl Session {
                 // `RunModal` does not clear it: a getter called after it reads what the run collected (corpus
                 // reportextensiontrigger/TestPrecompiledReportExtensionDataItems.al: "Run frees the variable's report
                 // instance when it ends ... RunModal keeps it", as Base Application's Reservation Worksheet relies on).
-                if id == ids::REPORT_RUN_1 && !self.report.rebind_after_run {
+                // The bare `Run()` in a procedure of the instance keeps it: the procedure and the variable read the globals
+                // the run set (report/lt-y40-bare-report-run/Y40BareReportRun.al:269, Y40_BareRun_InProcedure, corpus
+                // master ac3499d6: `found=Yes visited=2 userp=No`).
+                if id == ids::REPORT_RUN_1 && !self.report.rebind_after_run && !Rc::ptr_eq(&running, &inst) {
                     self.report_clear(&inst);
                 }
                 if id == ids::REPORT_RUNMODAL_1 && !quit && result.is_ok() {
@@ -1674,6 +1699,9 @@ impl Session {
         inst.borrow_mut().globals = globals;
         inst.borrow_mut().rerun = true;
         inst.borrow_mut().exts.clear();
+        self.report
+            .request_captions
+            .retain(|(w, _)| w.upgrade().is_some_and(|i| !Rc::ptr_eq(&i, inst)));
     }
 
     // ------------------------------------------------------------------ table views
@@ -1921,7 +1949,15 @@ impl Session {
         let outer_region = self.report.format_region.take();
         let outer_property = std::mem::take(&mut self.report.region_property);
         let outer_language = self.report.curr_report_language.take();
+        // Only a Run or RunModal is pinned as running for a nested RunModal (Y40BareReportRun.al:362).
+        let tracked = entry == Entry::Run;
+        if tracked {
+            self.report.report_running.push(Rc::downgrade(inst));
+        }
         let ran = self.report_in_world(enters, |s| s.report_body(inst, schema, shows_page, None));
+        if tracked {
+            self.report.report_running.pop();
+        }
         self.report.format_region = outer_region;
         self.report.region_property = outer_property;
         self.report.curr_report_language = outer_language;
@@ -2301,7 +2337,12 @@ impl Session {
         self.request_page_init_unshown(inst, schema, false)?;
         self.report.rp_init_by_handler.push(Rc::downgrade(inst));
         let (o, r, hi) = self.bind_page_handler(UiKind::Report, object)?;
-        self.call(o, r, hi, vec![Value::Codeunit(inst.clone())])?;
+        // The handler takes the run over: its Run or RunModal of the instance runs it (AeReportHandlerCalls.al:79-99), so the
+        // instance does not count as running while the handler runs.
+        let running = std::mem::take(&mut self.report.report_running);
+        let called = self.call(o, r, hi, vec![Value::Codeunit(inst.clone())]);
+        self.report.report_running = running;
+        called?;
         Ok(true)
     }
 
@@ -3983,16 +4024,87 @@ impl Session {
     /// (report/lt-aq/AqTests.al:313-330, Caption_SetInOnOpenPage_TestRequestPageCaption). Set anywhere else (Base
     /// Application's Financial Report also sets it from OnValidate) it is dropped: whether a handler reads it back is
     /// not pinned (assumption request-page-caption-set).
+    ///
+    /// From the code of a report (a procedure, also called on a variable never run, and a report trigger) the getter reads the
+    /// request page's `Caption`, and after a set the caption set, also inside a later run (report/lt-y40-bare-report-run/
+    /// Y40BareReportRun.al:344, Y40_BareRequestOptionsPage_Caption, corpus master ac3499d6). The caption of a report that also
+    /// declares its own Caption, or of a request page without one, is not pinned.
     pub(crate) fn request_page_caption(&mut self, args: &[Value], inst: &Inst) -> Result<Value, Signal> {
+        self.report.request_captions.retain(|(w, _)| w.strong_count() > 0);
+        let own = self
+            .report
+            .request_captions
+            .iter()
+            .position(|(w, _)| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)));
         let [arg @ (Value::Text(_) | Value::Code(_))] = args else {
-            return unsupported("RequestPage.Caption read, or set with something that is not text");
+            if !args.is_empty() {
+                return unsupported("RequestPage.Caption set with something that is not text");
+            }
+            if let Some(st) = self.request_page_in_on_open_page(inst) {
+                if let Some(c) = st.borrow().caption.clone() {
+                    return Ok(Value::Text(c.into()));
+                }
+            }
+            if let Some(i) = own {
+                return Ok(Value::Text(self.report.request_captions[i].1.clone().into()));
+            }
+            let engine = self.engine.clone();
+            let o = &engine.program.objects[inst.borrow().object as usize];
+            let prop = |name: &str| {
+                o.properties
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                    .map(|(_, v)| v)
+            };
+            return match (prop(ir::REQUEST_PAGE_CAPTION_PROPERTY), prop("Caption")) {
+                (Some(rp), Some(caption))
+                    if rp == caption && o.kind == ir::ObjKind::Report && crate::pages::is_text_literal(rp) =>
+                {
+                    Ok(Value::Text(crate::pages::unquote(rp).into()))
+                }
+                _ => unsupported(
+                    "RequestPage.Caption read in a report without a request page Caption, or that declares its own Caption (not pinned)",
+                ),
+            };
         };
+        let text = al_builtins::native::text_of(arg)
+            .map(|t| t.to_string())
+            .unwrap_or_default();
         if let Some(st) = self.request_page_in_on_open_page(inst) {
-            st.borrow_mut().caption = al_builtins::native::text_of(arg).map(|t| t.to_string());
+            st.borrow_mut().caption = Some(text);
             return Ok(Value::Null);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCaptionSet);
+        match own {
+            Some(i) => self.report.request_captions[i].1 = text,
+            None => self.report.request_captions.push((Rc::downgrade(inst), text)),
+        }
+        // What a request page handler then reads is the assumption: marked here once the page was made, else when it opens.
+        if self.request_page_open(inst) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCaptionSet);
+        }
         Ok(Value::Null)
+    }
+
+    /// Whether the request page of the report `inst` is an instance of was made (it opens, is open or was open): a caption
+    /// set then may be what its handler reads.
+    fn request_page_open(&self, inst: &Inst) -> bool {
+        let object = inst.borrow().object as usize;
+        let Some(page) = self.engine.program.objects[object].page.as_ref() else {
+            return false;
+        };
+        matches!(inst.borrow().globals.get(page.curr_page_slot), Some(Value::TestPage(_)))
+    }
+
+    /// A request page opens on `inst`: a caption its code set before is the assumption `request-page-caption-set`.
+    pub(crate) fn request_page_opens_after_caption_set(&self, inst: &Inst) {
+        if self
+            .report
+            .request_captions
+            .iter()
+            .any(|(w, _)| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+        {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCaptionSet);
+        }
     }
 
     /// `RequestPage.Editable`, `LookupMode`, `ObjectId` and `Activate` from the code of an open request page

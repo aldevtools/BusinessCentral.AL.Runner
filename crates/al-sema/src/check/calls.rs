@@ -408,10 +408,10 @@ impl<'a> Checker<'a> {
         // A bare report method in a report's or report extension's code is the method of the report itself, as the
         // `CurrReport.` form (report/lt-y36-bare-report-member/Y36BareReportMember.al:4-17, 96-166: UseRequestPage getter
         // and setter, ObjectId, IsReadOnly, Language, FormatRegion, PrintOnlyIfDetail, SetTableView; the lowering hands
-        // them the receiver `CurrReport` gets). The bare `RunModal()` runs the report's own instance (assumption
-        // `bare-report-member-is-self`). Bare Preview, Skip, Quit, PageNo, TotalsCausedBy, ShowOutput, NewPage and
-        // CreateTotals are AL0161 (must-not-compile 2505-2509). Run, Execute and RunRequestPage compile bare too (:7-8),
-        // what they do is not pinned: they are not resolved here, and the lowering refuses the call.
+        // them the receiver `CurrReport` gets). The bare `RunModal()` and `Run()` run the report's own instance
+        // (report/lt-y40-bare-report-run/Y40BareReportRun.al:214-377, corpus master ac3499d6). Bare Preview, Skip, Quit, PageNo, TotalsCausedBy, ShowOutput, NewPage and
+        // CreateTotals are AL0161 (must-not-compile 2505-2509). Execute and RunRequestPage compile bare too (:7-8), what
+        // they do is not pinned: they are not resolved here, and the lowering refuses the call.
         if c.is_empty()
             && let Some(report) = sc.globals.get("currreport").cloned()
             && matches!(self.ws.objects[sc.oi].kind, ObjKind::Report | ObjKind::ReportExtension)
@@ -863,4 +863,7 @@ pub(crate) const BARE_REPORT_MEMBERS: &[&str] = &[
     "PrintOnlyIfDetail",
     "SetTableView",
     "RunModal",
+    // Runs the report's own instance, as RunModal does (report/lt-y40-bare-report-run/Y40BareReportRun.al:269, corpus master
+    // ac3499d6).
+    "Run",
 ];

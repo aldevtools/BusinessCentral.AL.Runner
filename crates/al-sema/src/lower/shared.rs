@@ -709,6 +709,9 @@ pub(crate) fn lower_object<'a>(
     if let Some(sec) = &request_section {
         for p in sec.properties() {
             let name = p.name();
+            if name.eq_ignore_ascii_case("Caption") {
+                properties.push((ir::REQUEST_PAGE_CAPTION_PROPERTY.to_string(), p.value_text()));
+            }
             if name.eq_ignore_ascii_case("Caption") && properties.iter().any(|(k, _)| k.eq_ignore_ascii_case("Caption"))
             {
                 continue;

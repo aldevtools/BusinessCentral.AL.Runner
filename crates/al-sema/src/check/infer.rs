@@ -1443,6 +1443,20 @@ impl<'a> Checker<'a> {
                         return e;
                     }
                 }
+                // `CurrReport.RequestOptionsPage` is AL0161; the bare `RequestOptionsPage` is the report's request page
+                // (must-not-compile 2514-currreport-requestoptionspage.al; report/lt-y40-bare-report-run/Y40BareReportRun.al:156).
+                if matches!(base_ty, Ty::Object(ObjKind::Report, _))
+                    && mname.eq_ignore_ascii_case("RequestOptionsPage")
+                    && kids[0].kind() == SyntaxKind::NameRef
+                    && kids[0].text().to_string().trim().eq_ignore_ascii_case("CurrReport")
+                {
+                    self.diag(
+                        sc,
+                        node,
+                        "AL0161",
+                        "'RequestOptionsPage' is inaccessible due to its protection level".to_string(),
+                    );
+                }
                 self.al_codeunit_access(sc, node, &base_ty, &mname);
                 match self.member(sc, &base_ty, &mname) {
                     Some(e) => e,

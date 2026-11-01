@@ -564,8 +564,10 @@ impl Lowerer<'_> {
                     // A bare report method in a report's or report extension's procedure is the `CurrReport.` form: the VM
                     // takes the report whose code runs (report/lt-y36-bare-report-member/Y36BareReportMember.al:206-357, also
                     // on a report variable never run and from a report extension; the checker resolves only the pinned names,
-                    // `check::calls::BARE_REPORT_MEMBERS`). In a trigger the bare form is not pinned. The bare `RunModal()`
-                    // runs the report's own instance: assumption `bare-report-member-is-self`.
+                    // `check::calls::BARE_REPORT_MEMBERS`). In a trigger the bare form is not pinned. The bare `RunModal()` and
+                    // `Run()` run the report's own instance: the triggers run once, the globals they set read back through the
+                    // variable, a second call raises ObjectHasAlreadyBeenRun (report/lt-y40-bare-report-run/Y40BareReportRun.al:
+                    // 214-377, corpus master ac3499d6). From a report extension they are not pinned.
                     None if sig.instance
                         && sig.receiver == "Report"
                         && callee.kind() == SyntaxKind::NameRef
@@ -581,11 +583,10 @@ impl Lowerer<'_> {
                                 sig.name
                             ));
                         }
-                        if sig.name.eq_ignore_ascii_case("RunModal") {
+                        if sig.name.eq_ignore_ascii_case("RunModal") || sig.name.eq_ignore_ascii_case("Run") {
                             if self.ws.objects[self.oi].kind != ObjKind::Report {
-                                return Err("a bare `RunModal` in a report extension (not pinned)".into());
+                                return Err(format!("a bare `{}` in a report extension (not pinned)", sig.name));
                             }
-                            self.assume(al_builtins::assumptions::Assumption::BareReportMemberIsSelf);
                             Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance)))
                         } else {
                             None

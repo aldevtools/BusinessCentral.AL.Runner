@@ -79,7 +79,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0161",
-        "a page extension names a non-protected variable or a local procedure of its base page, or a report extension does; a Cloud app names an internal agent table of the platform; a subscriber to the internal event GetRoleCenterBannerPartID of System Action Triggers; a page customization names a variable of its page in Editable of a modify",
+        "a page extension names a non-protected variable or a local procedure of its base page, or a report extension does; a Cloud app names an internal agent table of the platform; a subscriber to the internal event GetRoleCenterBannerPartID of System Action Triggers; a page customization names a variable of its page in Editable of a modify; `CurrReport.RequestOptionsPage` (case 2514)",
     ),
     (
         "AL0162",
@@ -191,7 +191,11 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
     ),
     (
         "AL0185",
-        "reported only for the platform table Integer named bare by a Record variable or a report data item of a file in a namespace without `using System.Utilities;` (`platform_integer_without_using`: cases 2081, 2082), and for a variable of a codeunit type nobody declares (`unknown_codeunit_variables`: case 0213); any other missing object is not decided.",
+        "reported only for the platform table Integer named bare by a Record variable or a report data item of a file in a namespace without `using System.Utilities;` (`platform_integer_without_using`: cases 2081, 2082), for a variable of a codeunit type nobody declares (`unknown_codeunit_variables`: case 0213), and for a TestRequestPage parameter typed on a name no report has (`test_request_pages_of_no_report`: case 2513); any other missing object is not decided.",
+    ),
+    (
+        "AL0240",
+        "reported only for a RequestPageHandler whose var TestRequestPage parameter is typed on a name no report has (`test_request_pages_of_no_report`: case 2513); other handler signatures are not judged.",
     ),
     (
         "AL0666",
@@ -535,6 +539,7 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
         subscriber_publishers(ws, oi, &obj, &mut out);
         platform_integer_without_using(ws, oi, &obj, &mut out);
         unknown_codeunit_variables(ws, oi, &obj, &mut out);
+        test_request_pages_of_no_report(ws, oi, &obj, &mut out);
         ambiguous_dotnet_aliases(ws, oi, &obj, &mut out);
         object_properties(ws, oi, &obj, &mut out);
         object_triggers(ws, oi, &obj, &mut out);
@@ -706,6 +711,52 @@ fn unknown_codeunit_variables(ws: &Workspace, oi: usize, obj: &ast::Object, out:
             "AL0185",
             format!("Codeunit '{}' is missing", parts[0]),
         );
+    }
+}
+
+/// AL0185 `Report 'X' is missing`: a `TestRequestPage` parameter typed on a name no report has (must-not-compile
+/// 2513-testrequestpage-typed-on-xmlport.al: an xmlport's name; TestRequestPage takes a report only). On a procedure with the
+/// RequestPageHandler attribute the handler's signature is then AL0240, its parameter's type shown blank. Only a one-segment
+/// name is judged; an id, a namespace-qualified name and a variable declaration keep compiling (not pinned).
+fn test_request_pages_of_no_report(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
+    let file = ws.objects[oi].file;
+    for p in obj.routines() {
+        for (i, param) in p.params().enumerate() {
+            let Some(t) = param.type_ref() else { continue };
+            if !t.type_name().eq_ignore_ascii_case("TestRequestPage") {
+                continue;
+            }
+            let parts = t.object_name_parts();
+            if parts.len() != 1 || parts[0].parse::<u32>().is_ok() || ws.names_object(file, ObjKind::Report, &parts) {
+                continue;
+            }
+            push(
+                out,
+                ws,
+                file,
+                offset_of(t.syntax()),
+                "AL0185",
+                format!("Report '{}' is missing", parts[0]),
+            );
+            // The pinned handler takes the page by var; another shape of the signature is not pinned.
+            if param.is_var()
+                && p.attributes()
+                    .any(|a| a.name().eq_ignore_ascii_case("RequestPageHandler"))
+            {
+                let name = p.name();
+                push(
+                    out,
+                    ws,
+                    file,
+                    offset_of(p.syntax()),
+                    "AL0240",
+                    format!(
+                        "The signature of procedure '{name}' does not match the signature required by attribute 'RequestPageHandler': parameter {} is expected to be of type 'var TestRequestPage' but found type 'var '. The expected signature is: {name}(var RequestPage: TestRequestPage).",
+                        i + 1
+                    ),
+                );
+            }
+        }
     }
 }
 
@@ -2756,6 +2807,48 @@ mod tests {
             .filter(|d| d.code.starts_with("AL"))
             .map(|d| format!("{} {}", d.code, d.message))
             .collect()
+    }
+
+    /// must-not-compile 2514-currreport-requestoptionspage.al: `CurrReport.RequestOptionsPage` is AL0161; the bare
+    /// `RequestOptionsPage` compiles (report/lt-y40-bare-report-run/Y40BareReportRun.al:156-166).
+    #[test]
+    fn al0161_currreport_request_options_page() {
+        let src = |body: &str| {
+            format!(
+                "report 50000 R {{ requestpage {{ layout {{ area(Content) {{ field(N; Note) {{ }} }} }} }}
+    var Note: Text[30];
+    procedure Refresh() begin {body} end; }}"
+            )
+        };
+        assert_eq!(
+            messages(&src("CurrReport.RequestOptionsPage.Update();")),
+            vec!["AL0161 'RequestOptionsPage' is inaccessible due to its protection level".to_string()]
+        );
+        assert!(codes(&[&src("RequestOptionsPage.Update(false);")]).is_empty());
+    }
+
+    /// must-not-compile 2513-testrequestpage-typed-on-xmlport.al: a `TestRequestPage` parameter typed on an xmlport (no report of
+    /// that name) is AL0185 `Report 'X' is missing`, and on a RequestPageHandler also AL0240.
+    #[test]
+    fn al0185_test_request_page_typed_on_an_xmlport() {
+        let src = "xmlport 50000 \"MNC XP\" { schema { textelement(Root) { } } }
+codeunit 50001 H { Subtype = Test;
+    [RequestPageHandler]
+    procedure XmlPortRequestPage(var RP: TestRequestPage \"MNC XP\") begin end; }";
+        let other = "codeunit 2000000001 Other { }";
+        assert_eq!(
+            messages_with_platform(&[src], other),
+            vec![
+                "AL0240 The signature of procedure 'XmlPortRequestPage' does not match the signature required by attribute \
+                 'RequestPageHandler': parameter 1 is expected to be of type 'var TestRequestPage' but found type 'var '. The \
+                 expected signature is: XmlPortRequestPage(var RequestPage: TestRequestPage)."
+                    .to_string(),
+                "AL0185 Report 'MNC XP' is missing".to_string(),
+            ]
+        );
+        // On a report of that name: no error.
+        let report = "report 50002 \"MNC XP\" { }";
+        assert!(codes_with_platform(&[src, report], other).is_empty());
     }
 
     /// must-not-compile 0213-unknown-codeunit-var.al:7: a variable of a codeunit type nobody declares is AL0185

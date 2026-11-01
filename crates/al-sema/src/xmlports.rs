@@ -55,6 +55,8 @@ pub struct Layout {
     pub run_reasons: Vec<String>,
     /// Reasons only an export refuses (see `ir::XmlPort::export_unsupported`).
     pub export_reasons: Vec<String>,
+    /// See `ir::XmlPort::request_page`.
+    pub request_page: bool,
 }
 
 /// `Table.Field` at the first dot outside quotes: a table name may hold a dot (`"Data Exch. Def".Code`).
@@ -181,6 +183,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         reasons: Vec::new(),
         run_reasons: Vec::new(),
         export_reasons: Vec::new(),
+        request_page: false,
     };
     let (mut default_namespace, mut use_default_namespace) = (None::<String>, Some(false));
     let mut bc_namespace = false;
@@ -203,8 +206,8 @@ pub fn layout(obj: &ast::Object) -> Layout {
             // (misc/lt-u-obsolete-pending/UObsoleteObjects.al:221-240, UObsoletePending.al:103-140). Another state is not pinned.
             "obsoletestate" if value.trim().eq_ignore_ascii_case("pending") => {}
             "obsoletereason" | "obsoletetag" => {}
-            // UseRequestPage only matters for Run, which is not implemented: Export and Import
-            // never open the request page.
+            // Export and Import never open the request page; for Xmlport.Run the property is not pinned (al-vm xmlports.rs
+            // refuses a Run of a port that declares it).
             "userequestpage" => {}
             // xmlport/TestXmlPortTextFormatsContracts.al: VariableText and FixedText pin these; an Xml port's encoding is not pinned.
             "textencoding" if value.trim().eq_ignore_ascii_case("utf8") => out.utf8 = true,
@@ -413,7 +416,10 @@ pub fn layout(obj: &ast::Object) -> Layout {
                     || request_page_has_only_empty_sections(&top)
                     || request_page_is_caption_with_empty_layout_and_actions(&top)
                     || request_page_is_source_table_only(&top) => {}
-            "requestpage" => out.run_reasons.push("request pages are not supported yet".into()),
+            // A request page with content never opens for Export and Import from code (instance or static), which run with
+            // the globals as code set them; Xmlport.Run with the request window opens it (xmlport/lt-y40-xmlport-request-page/
+            // Y40XmlPortRequestPage.al:283-423, corpus master ac3499d6; al-vm xmlports.rs).
+            "requestpage" => out.request_page = true,
             other => out
                 .reasons
                 .push(format!("xmlport section {other} is not supported yet")),
@@ -1157,6 +1163,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Linked_Unbounded_* and TS_RootOnce_* (were assumptions
         // `xmlport-linked-max-unbounded`, `xmlport-root-min-occurs-once`); no layout rests on an assumption now.
         assumes: Vec::new(),
+        request_page: layout.request_page,
     }
 }
 
@@ -1187,10 +1194,11 @@ mod tests {
     // platform/lt-ag-contoso/AgXmlPortImport.al:94-96 (xmlport 78422, RequestPage_EmptySection_ImportAndExport at
     // :312-327): a `requestpage { }` with nothing in it changes nothing for Xmlport.Import and Export. The same holds
     // with empty `layout` and `actions` sections, both or one alone (xmlports 87564-87566 at :835-912,
-    // QX_RequestPage_EmptyLayoutAndActions_ImportAndExport at :476). One with a control, an action, a property or a
-    // trigger is not pinned.
+    // QX_RequestPage_EmptyLayoutAndActions_ImportAndExport at :476). One with content never opens for Export and Import
+    // either (xmlport/lt-y40-xmlport-request-page/Y40XmlPortRequestPage.al:283-345, corpus master ac3499d6): it only marks
+    // the port as having a request page, which a Run with the request window opens.
     #[test]
-    fn an_empty_request_page_runs_and_one_with_content_is_refused() {
+    fn a_request_page_never_refuses_export_and_import() {
         let schema = "schema { textelement(R) { } }";
         for sub in [
             "requestpage { }",
@@ -1200,6 +1208,7 @@ mod tests {
         ] {
             let l = layout_of(&format!("xmlport 1 X {{ {schema} {sub} }}"));
             assert!(l.run_reasons.is_empty(), "{sub}: {:?}", l.run_reasons);
+            assert!(!l.request_page, "{sub}");
         }
         for full in [
             "requestpage { layout { area(content) { field(F; F) { } } } }",
@@ -1208,11 +1217,8 @@ mod tests {
             "requestpage { trigger OnOpenPage() begin end; }",
         ] {
             let l = layout_of(&format!("xmlport 1 X {{ {schema} {full} }}"));
-            assert!(
-                l.run_reasons.iter().any(|r| r.contains("request pages")),
-                "{full}: {:?}",
-                l.run_reasons
-            );
+            assert!(l.run_reasons.is_empty(), "{full}: {:?}", l.run_reasons);
+            assert!(l.request_page, "{full}");
         }
     }
 
@@ -1388,11 +1394,8 @@ mod tests {
         assert!(all.contains("Format = binary"), "{all}");
         assert!(all.contains("property minoccurs"), "{all}");
         assert!(all.contains("trigger onprexmlitem"), "{all}");
-        assert!(all.contains("request pages"), "{all}");
-        assert!(
-            !l.reasons.join(";").contains("request pages"),
-            "a request page is a run reason"
-        );
+        assert!(!all.contains("request pages"), "{all}");
+        assert!(l.request_page);
     }
 
     // Mutation-testing additions (docs/status.md debt).

@@ -1030,6 +1030,19 @@ impl Session {
             "SystemIdNo" if matches!(&*lib.borrow(), LibraryValue::Empty) => {
                 return Ok(Value::Integer(2_000_000_000));
             }
+            // The audit field numbers of a RecordRef that is not open (never opened, closed, cleared): 2000000001-2000000004
+            // without an error, as when it is open (corpus master ac3499d6, recordref/W4RecordRefGetUnopened.al:317,
+            // Y40_SystemAuditFieldNos_NotOpen; BC 27.5/28.5/29.0).
+            "SystemCreatedAtNo" | "SystemCreatedByNo" | "SystemModifiedAtNo" | "SystemModifiedByNo"
+                if matches!(&*lib.borrow(), LibraryValue::Empty) =>
+            {
+                return Ok(Value::Integer(match method {
+                    "SystemCreatedAtNo" => 2_000_000_001,
+                    "SystemCreatedByNo" => 2_000_000_002,
+                    "SystemModifiedAtNo" => 2_000_000_003,
+                    _ => 2_000_000_004,
+                }));
+            }
             // A RecordRef never opened answers false (PXEnumRecordRef.al:293-298); with the result
             // unused nothing pins what it raises.
             "GetBySystemId" if matches!(&*lib.borrow(), LibraryValue::Empty) => {

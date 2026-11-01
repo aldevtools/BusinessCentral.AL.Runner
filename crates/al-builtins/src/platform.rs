@@ -314,6 +314,10 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     // the Blob File it is given (al-language-onprem/platform/PtOnPremTables.al Y17_PowerBIBlob_InsertModifyDelete,
     // Y17_PowerBIBlob_BlobRoundTrip, corpus master 97c29f86). A fresh tenant holds demo rows nothing pins: `UNSEEDED_ROWS`.
     (2_000_000_144, "Power BI Blob", Provider::Stored),
+    // OnPrem; a plain stored table: Insert (a blank Id and Context too), a duplicate Insert (false), Get, SetRange, Modify,
+    // Rename, Delete and DeleteAll, no validation (al-language-onprem/platform/PtOnPremTables.al:365, :395, corpus master
+    // ac3499d6). A fresh tenant holds demo rows nothing pins: `UNSEEDED_ROWS`.
+    (2_000_000_145, "Power BI Default Selection", Provider::Stored),
 ];
 
 /// Stored tables that a fresh tenant fills with rows no corpus test pins. The runtime starts them empty, so it treats them as
@@ -324,8 +328,9 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
 /// (onprem platform/PtWebServiceRows.al:237, :267 'counts before'); what Tenant Web Service Filter (6712) holds is not pinned.
 /// Power BI Blob (2000000144) holds demo rows on a fresh tenant (8 on the Linux CI containers, recorded and not asserted:
 /// PtOnPremTables.al Y17_PowerBIBlob_BlobRoundTrip); once the session's own DeleteAll without filters has emptied it, it is
-/// answered (al-vm `Session::is_unseeded`).
-pub const UNSEEDED_ROWS: &[u32] = &[6710, 6711, 6712, 2_000_000_144];
+/// answered (al-vm `Session::is_unseeded`). Power BI Default Selection (2000000145) likewise (8 demo rows on the Linux CI
+/// containers, Ignored: PtOnPremTables.al:365, corpus master ac3499d6).
+pub const UNSEEDED_ROWS: &[u32] = &[6710, 6711, 6712, 2_000_000_144, 2_000_000_145];
 
 /// Platform tables that only the System app of a later major declares (the registry above is checked against the System app
 /// of the first major the corpus pins, `tests/platform_tables.rs`). Ordinary stored tables here, written by install code:
@@ -338,6 +343,10 @@ pub const LATER_MAJORS: &[(u32, &str, Provider)] = &[
     // BC 29 on. Empty on a fresh tenant and writable; an Insert checks the layout parts it names (al-vm
     // tenant_layout_cfg.rs; platform/lt-platform-tables/PtCloudTables.al Y17_TenantReportLayoutCfg_*, corpus master 97c29f86).
     (2_000_000_249, "Tenant Report Layout Cfg", Provider::Stored),
+    // BC 29 on. Empty on a fresh tenant; Insert, a duplicate Insert (false), Modify, Rename, Delete and DeleteAll, with no
+    // validation of the report or the company (platform/lt-platform-tables/PtCloudTables.al:794, :824, corpus master
+    // ac3499d6). Report Layout List shows its overrides (al-vm platform/reports.rs `apply_layout_overrides`, :901).
+    (2_000_000_248, "Tenant Report Layout Override", Provider::Stored),
 ];
 
 /// The provider of platform table `id`, if it has one.
