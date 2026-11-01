@@ -2482,7 +2482,12 @@ fn tests_take_numbers(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize)
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
     let o = &lowered.program.objects[oi];
     (0..o.routines.len())
-        .filter(|&r| o.routines[r].attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test")))
+        .filter(|&r| {
+            o.routines[r]
+                .attributes
+                .iter()
+                .any(|a| a.name.eq_ignore_ascii_case("Test"))
+        })
         .any(|r| reach_facts(&engine.events, lowered, &index, oi, r).state_writes & state::NUMBER_SEQUENCE != 0)
 }
 

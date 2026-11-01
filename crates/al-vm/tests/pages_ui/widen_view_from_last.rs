@@ -40,9 +40,7 @@ codeunit 69963 C
 fn widen(total: i32) -> String {
     let mut b = al_testkit::Built::from_source(SRC);
     let (oi, ri) = b.routine_in("C", "Widen");
-    let (v, _) = b
-        .call(oi, ri, vec![al_builtins::value::Value::Integer(total)])
-        .unwrap();
+    let (v, _) = b.call(oi, ri, vec![al_builtins::value::Value::Integer(total)]).unwrap();
     al_testkit::text(Ok(v))
 }
 

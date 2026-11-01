@@ -11,7 +11,12 @@ impl Session {
     /// Y15_PartRefresh_TwoRowsPartOnFirst (`open log` `AGR2;AGR1;AGR2;AGR2;AGCR2`, `at open` `2/B`: rows 1 and 2 inserted, the
     /// last insert leaves Rec on row 2). Another host or part keeps the first row, as before (not pinned).
     pub(super) fn part_rec_left_by_host(&mut self, st: &St) -> Result<bool, Signal> {
-        let Some((host, control)) = st.borrow().host.as_ref().and_then(|(h, c)| h.upgrade().map(|h| (h, *c))) else {
+        let Some((host, control)) = st
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, c)| h.upgrade().map(|h| (h, *c)))
+        else {
             return Ok(false);
         };
         let host_has_source = {
@@ -32,7 +37,9 @@ impl Session {
             || !list_part
             || !rec.borrow().temporary
             || rec.borrow().key != 0
-            || ["onopenpage", "onfindrecord", "onnextrecord"].iter().any(|t| self.declares(st, t))
+            || ["onopenpage", "onfindrecord", "onnextrecord"]
+                .iter()
+                .any(|t| self.declares(st, t))
         {
             return Ok(false);
         }

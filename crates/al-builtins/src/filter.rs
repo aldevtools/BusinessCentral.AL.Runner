@@ -659,7 +659,9 @@ fn tokenize(
             // probes-needed row). Inside a longer filter or on a field other than a Text it is refused.
             if before.is_empty() && matches!(out.last(), Some(Tok::Op("@"))) {
                 if out.len() != 1 || i + 2 != c.len() {
-                    return Err(format!("`@` right before placeholder %{n} inside a longer filter (not pinned)"));
+                    return Err(format!(
+                        "`@` right before placeholder %{n} inside a longer filter (not pinned)"
+                    ));
                 }
                 *at_placeholder = true;
                 raw.push('%');
