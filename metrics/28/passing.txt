@@ -11015,6 +11015,8 @@
 72501 NestedArrays
 72501 RemoveAtAndRemove
 72501 SetAtIndex
+72502 NumericTextGetters
+72502 SetValueRoundtrip
 72502 Sq_DigitText_BigIntegerByteOption
 72502 UN_BooleanTextGetters
 72502 UN_BooleanTextGetters_2
@@ -11570,6 +11572,7 @@
 73020 Open_TemporaryFalse_ExplicitCompany
 73021 FieldExist_Cases
 73021 Field_Active_Flags
+73021 Field_ByNumber_Properties
 73021 Field_Invalid_Numbers
 73021 KeyRef_Record
 73021 Keys_Basics
@@ -11925,8 +11928,11 @@
 73188 P128_ArrayRow_TextRowByVar
 73193 P163_AllObjWithCaption_ALNamespace_ByObjectKind
 73193 P163_AllObj_ALNamespace_ByObjectKind
+73193 P163_AllObj_FilterOnALNamespace
 73193 P163_CodeunitMetadata_ALNamespace
 73193 P163_TableMetadata_ALNamespace
+73193 PW_AllObj_RowsOfTheNamespace
+73193 PW_AllObj_TableDataRowPerTableKind
 73193 UG_AllObj_TableDataRow_OfContact_AllColumns
 73193 UG_AllObj_TableDataRow_OfMissingTable_EveryAccessForm
 73209 P163_PageMetadata_FilterOnPageType
@@ -12459,8 +12465,12 @@
 73524 Fmt91_Return_F9
 73524 Fmt92_Error_F9
 73524 Fmt92_Return_F9
+73525 Dflt1_Error_FNone
+73525 Dflt1_Return_FNone
 73525 Dflt2_Error_FNone
 73525 Dflt2_Return_FNone
+73525 Fmt01_Error_F0
+73525 Fmt01_Return_F0
 73525 Fmt02_Error_F0
 73525 Fmt02_Return_F0
 73525 Fmt91_Error_F9
@@ -14445,6 +14455,9 @@
 75058 ObsoletePending_PageCustomization_CardOpens
 75058 ObsoletePending_PermissionSet_RowAndGrants
 75058 ObsoletePending_Profile_RowInAllProfile
+75058 ObsoletePending_QueryColumnAndFilter_StillWork
+75058 ObsoletePending_ReportDataItemAndRequestPage_SaveAsXml
+75058 ObsoletePending_ReportObsoleteDataItem_SaveAsXml
 75058 ObsoletePending_ReportPlain_SaveAsXml
 75058 ObsoletePending_TableFieldGroup_RowsStillReadable
 75510 AdditionalSearchTermsML_Report_CompilesAndRuns
@@ -15078,6 +15091,7 @@
 80007 UQ_TimeZone_LookupById
 80011 AT_FieldAttribute_EmptyField_Export
 80150 Array_CopyArray_OneDimIntoRow
+80150 BusinessChartBuffer_Initialize_InTest
 80150 Case_OnlyElseBranch
 80150 ControlAddIn_Events_OnTestPage
 80150 Dictionary_TwoRemovesTwoAdds_KeyOrder
