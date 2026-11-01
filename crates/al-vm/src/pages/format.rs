@@ -1466,6 +1466,13 @@ impl Session {
             {
                 return Ok(false);
             }
+            // A repeater whose Editable is false, the literal or a page variable, makes its fields read No; a variable that is
+            // true leaves them as they were (pages/lt-y65-readonly-repeater/Y65ReadOnlyRepeater.al:255, :297, :339, :422, :443).
+            if page_of(&engine, st).controls[p].kind == ir::ControlKind::Repeater
+                && self.repeater_line(st)? == super::open::RepeaterLine::Denied
+            {
+                return Ok(false);
+            }
             cue = page_of(&engine, st).controls[p].parent;
         }
         // A page that opened for edit over an empty view shows no row, and its fields read No (pages/lt-page-types-empty-table/

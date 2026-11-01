@@ -94,11 +94,8 @@ fn char_and_byte_go_through_code_page_437() {
         convert(Value::Char(65535), &RtType::Byte),
         Ok(Value::Byte(63))
     ));
-    // A byte or character the table does not hold is refused, not guessed.
-    assert!(matches!(
-        convert(Value::Byte(200), &RtType::Char),
-        Err(Signal::Unsupported(_))
-    ));
+    // Every byte is pinned (types/lt-byte-char-high/ByteCharHigh.al: 200 is 732); a character neither table holds is refused.
+    assert!(matches!(convert(Value::Byte(200), &RtType::Char), Ok(Value::Char(732))));
     assert!(matches!(
         convert(Value::Char(300), &RtType::Byte),
         Err(Signal::Unsupported(_))

@@ -1230,8 +1230,8 @@ fn evaluate_into_an_enum_reads_the_xml_ordinal_and_member_names() {
 #[test]
 fn evaluate_a_date_formula_with_format_number_2() {
     // System Application stores `Format(DateFormula, 0, 2)` and reads it back with `Evaluate(.., 2)`
-    // ("Reten. Pol. Allowed Tbl. Impl."). Format 2 shows the formula in angle brackets (assumption
-    // date-formula-format-two-brackets, System Application Test, Retention Period Test).
+    // ("Reten. Pol. Allowed Tbl. Impl."). Format 2 shows the formula in angle brackets
+    // (types/lt-y62-dateformula-format/Y62DateFormulaFormat.al:DateFormulaFormat_Std2_English).
     let t = text_of(
         "F: DateFormula; G: DateFormula; R: Boolean;",
         "Evaluate(F, '<-1Y>', 2); R := Evaluate(G, Format(F, 0, 2), 2); exit(Format(R) + Format(G, 0, 2) + Format(F, 0, 2));",

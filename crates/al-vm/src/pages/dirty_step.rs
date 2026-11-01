@@ -71,6 +71,86 @@ impl Session {
     /// db=a/1;lM new/a db=a/1;lpvAct rec=new/1 db=new/1 head=old/1`, :2883 NextField_Part_New_DescThenPageVar `lpI 30000 x;lI
     /// 30000 x db=none;lpvAct`).
     pub(super) fn save_before_page_var_validate(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
+        st.borrow_mut().rec_before_var_validate = None;
+        self.save_before_page_var_validate_row(st, idx)?;
+        // What the control's OnValidate writes into Rec in code is part of the row's edit (`after_validate_rows`).
+        let engine = self.engine();
+        let var_bound = matches!(
+            page_of(&engine, st).controls[idx].binding,
+            ir::Binding::Var(_) | ir::Binding::BaseVar(_)
+        );
+        let on_row = {
+            let s = st.borrow();
+            s.open && !s.draft && s.cursor == Cursor::Row
+        };
+        // Pinned inside the repeater of a Worksheet or List and on a Card; a page variable in a header group outside the
+        // repeater moves Rec to other rows (the journal batch switch above), which is no edit.
+        let has_repeater = page_of(&engine, st)
+            .controls
+            .iter()
+            .any(|c| c.kind == ir::ControlKind::Repeater);
+        if var_bound && on_row && (!has_repeater || self.in_repeater(st, idx)) && self.has_source(st) {
+            let fields = self.page_rec(st).borrow().fields.clone();
+            st.borrow_mut().rec_before_var_validate = Some(fields);
+        }
+        Ok(())
+    }
+
+    /// After a control validated: the row CurrPage.SaveRecord stored becomes xRec, and a change a page variable control's
+    /// OnValidate made to Rec in code marks the row edited, so the next page variable SetValue, an action, Next or Close saves
+    /// it (pages/lt-y65-code-change-next-field/Y65CodeChangeNextField.al:305 Y65_Worksheet_Reporter_NameSecretActivate,
+    /// :327 _SecretOnlyThenActivate, :413 _SecretThenAction, :433 _SecretThenClose, :452 _SecretThenNext, :553 Card, :614 List;
+    /// writer Y65's corpus branch, assumption page-var-validate-code-change-saved until the pin).
+    pub(super) fn after_validate_rows(&mut self, st: &St) {
+        let pending_xrec = st.borrow_mut().xrec_after_validate.take();
+        if let Some(fields) = pending_xrec {
+            self.set_xrec_fields(st, fields);
+        }
+        let Some(before) = st.borrow_mut().rec_before_var_validate.take() else {
+            return;
+        };
+        let on_row = {
+            let s = st.borrow();
+            s.open && !s.draft && s.cursor == Cursor::Row
+        };
+        let rec = self.page_rec(st);
+        // A Rec moved to another row (its key changed) is no edit of the row.
+        let Ok(key) = self.table(&rec).map(|t| t.keys[0].clone()) else {
+            return;
+        };
+        let now = rec.borrow().fields.clone();
+        let same_row = key.iter().all(|&k| Self::same_values(&now[k..=k], &before[k..=k]));
+        if on_row && same_row && !Self::same_values(&now, &before) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageVarValidateCodeChangeSaved);
+            st.borrow_mut().dirty = true;
+        }
+    }
+
+    /// Before an action reads the row of a page that holds an edit again (it asks for that refresh here): a top-level page
+    /// without row triggers saves the row first; the read clears the edit, which was lost before (pages/lt-y65-code-change-next-field/Y65CodeChangeNextField.al:413
+    /// Y65_Worksheet_SecretThenAction, :594 Y65_Card_TableTriggerChangeThenAction `peek db ... cnt=7`; writer Y65's corpus branch,
+    /// assumption page-var-validate-code-change-saved until the pin; the save before an action is pinned for pages with row
+    /// triggers by pages/lt-y45-save-before-action/Y45SaveBeforeAction.al, file header lines 7-26).
+    pub(super) fn save_edit_before_action_read(&mut self, st: &St) -> Result<(), Signal> {
+        let edited = {
+            let s = st.borrow();
+            s.open && s.dirty && !s.draft && s.cursor == Cursor::Row && s.host.is_none()
+        };
+        if edited
+            && self.has_source(st)
+            && !self.declares(st, "onaftergetrecord")
+            && !self.declares(st, "onaftergetcurrrecord")
+        {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageVarValidateCodeChangeSaved);
+            self.save_row(st)?;
+        }
+        // The refresh the action asks for reads the row again.
+        st.borrow_mut().refresh = true;
+        st.borrow_mut().refresh_by_update = false;
+        Ok(())
+    }
+
+    fn save_before_page_var_validate_row(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
         let engine = self.engine();
         if !matches!(
             page_of(&engine, st).controls[idx].binding,

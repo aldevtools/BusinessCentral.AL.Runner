@@ -22,19 +22,26 @@ impl Session {
     /// The variables a SaveValues page stores: (owner, global slot) of every control bound to a variable. On a page that
     /// includes the variables of its page extensions, their own and the base page's protected ones they bind
     /// (misc/lt-probes-needed-6/PnF02SaveValuesExt.al:157-205, SaveValues_Ext_OkThenReopen `second_B`, `second_D`,
-    /// `second_E`); a request page keeps its own only (a report extension's is not pinned).
+    /// `second_E`); a request page keeps its own, and the own ones of a reportextension that changes the run
+    /// (al-language-onprem/report/lt-y60-reportext-saveasxml/Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun:
+    /// `basis=Details showall=Yes`); another report extension's is not pinned.
     pub(in crate::pages) fn var_slots(&self, st: &St) -> Vec<(Option<usize>, usize)> {
         let engine = self.engine();
         let request = self.is_request_page(st);
+        let object = st.borrow().object as usize;
+        let changing = engine.program.objects[object]
+            .report
+            .as_ref()
+            .map_or(&[][..], |r| r.extensions.as_slice());
         let mut slots: Vec<(Option<usize>, usize)> = page_of(&engine, st)
             .controls
             .iter()
             .filter_map(|c| {
                 if request {
-                    return if let (ir::Binding::Var(slot), None) = (&c.binding, c.owner) {
-                        Some((None, *slot))
-                    } else {
-                        None
+                    return match (&c.binding, c.owner) {
+                        (ir::Binding::Var(slot), None) => Some((None, *slot)),
+                        (ir::Binding::Var(slot), Some(e)) if changing.contains(&e) => Some((Some(e), *slot)),
+                        _ => None,
                     };
                 }
                 if !matches!(c.binding, ir::Binding::Var(_) | ir::Binding::BaseVar(_)) {
@@ -46,6 +53,26 @@ impl Session {
         slots.sort_unstable();
         slots.dedup();
         slots
+    }
+
+    /// A SaveValues request page that a reportextension changing the run extends: the close by SaveAsXml stores the values of the
+    /// base and the extension, and the close by Cancel stores nothing (al-language-onprem/report/lt-y60-reportext-saveasxml/
+    /// Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun). The close by `close` (OK, an error) is not pinned.
+    pub(in crate::pages) fn refuse_ext_save_values_close(&self, st: &St, close: &str) -> Result<(), Signal> {
+        let object = st.borrow().object as usize;
+        let o = &self.engine.program.objects[object];
+        let changing = o.report.as_ref().map_or(&[][..], |r| r.extensions.as_slice());
+        let extended = o.page.as_ref().is_some_and(|p| {
+            p.controls
+                .iter()
+                .any(|c| c.owner.is_some_and(|e| changing.contains(&e)))
+        });
+        if extended && self.save_values(st) {
+            return unsupported(format!(
+                "a SaveValues request page that a reportextension changing the run extends, closed by {close} (not pinned)"
+            ));
+        }
+        Ok(())
     }
 
     pub(in crate::pages) fn store_page_values(&mut self, st: &St) {
@@ -151,7 +178,17 @@ impl Session {
                 // P147_Text_StoredVsCaller_Ok, P147_Boolean_CallerFalseOverStoredTrue, P147_Option_CallerSelectedOverStoredAll).
                 continue;
             }
-            inst.borrow_mut().globals[slot] = detached(&v);
+            // A stored data item record is copied into the record the instance holds: a reportextension's triggers reach the base
+            // data item through it (Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun, `ext line 1` in a run after a
+            // saved one).
+            let cur = inst.borrow().globals[slot].clone();
+            match (&cur, &v) {
+                (Value::Record(c), Value::Record(s)) => {
+                    let stored = s.borrow().clone();
+                    *c.borrow_mut() = stored;
+                }
+                _ => inst.borrow_mut().globals[slot] = detached(&v),
+            }
         }
     }
 }

@@ -43,7 +43,12 @@ impl Session {
                 );
             }
             // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_ImportTwice_SameSource, TT_ImportTwice_SameStreamAgain, TT_ImportTwice_NewSourceOtherRows, TT_ImportTwice_NewSourceSameRows, TT_ImportTwice_Direct (was assumption `xmlport-import-again`).
-            return Ok(Value::Null);
+            // A schema without a table element reads the new source again, its globals kept (al-runner issue 6657; awaiting
+            // xmlport/lt-y66-xmlport-var-members/Y66XmlPortVarMembers.al:235-277 `got = a;a;`).
+            if schema.xp().nodes.iter().any(|n| n.table.is_some()) {
+                return Ok(Value::Null);
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlPortImportAgainTextOnly);
         }
         if guarded {
             // A guarded import needs a transaction world of its own, which BC refuses to open
@@ -611,7 +616,8 @@ impl Session {
                     }
                 }
                 ir::XmlNodeKind::Text if !schema.children(child).is_empty() => {
-                    self.xp_import_container(inst, schema, child, ce)?
+                    self.xp_import_container(inst, schema, child, ce)?;
+                    self.xp_container_assigned(inst, schema, child, ce)?;
                 }
                 ir::XmlNodeKind::Text => {
                     self.xp_assign_leaf_text(inst, schema, child, ce)?;

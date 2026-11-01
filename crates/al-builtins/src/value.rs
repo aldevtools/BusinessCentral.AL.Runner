@@ -565,6 +565,9 @@ pub struct PageState {
     pub read_keeps_xrec: bool,
     /// The row CurrPage.SaveRecord stored inside a control's validation: it becomes xRec once the SetValue returns.
     pub xrec_after_validate: Option<Vec<Value>>,
+    /// Rec as it was when a page variable control started to validate; a change its OnValidate makes in code marks the row
+    /// edited (`pages/dirty_step.rs`, al-runner issue 6669).
+    pub rec_before_var_validate: Option<Vec<Value>>,
     /// CurrPage.Update ran while the page's row was stored but outside the view the action had just set (list refresh).
     pub view_left: bool,
     /// An OnDrillDown turned MarkedOnly on for Rec without `CurrPage.Update`: the client still shows the rows of the view
@@ -977,6 +980,7 @@ impl PageState {
             refresh_without_parts: false,
             read_keeps_xrec: false,
             xrec_after_validate: None,
+            rec_before_var_validate: None,
             view_left: false,
             marked_only_unshown: false,
             marked_only_unpinned: false,
