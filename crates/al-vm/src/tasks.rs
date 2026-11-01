@@ -10,16 +10,16 @@
 //! - an unknown codeunit or failure codeunit raises the missing-object error (PlTTaskScheduler.al:150-160, 172-182);
 //!   codeunit 0 and an unknown company do not (PlTTaskScheduler.al:162-170, 184-193).
 //!
-//! A task whose creation was committed is still there and has not run, ready or not, with a Not Before in the future or
-//! none: Get answers Yes with the same columns, a count of Is Ready and User ID counts it, an exist() FlowField sees it,
-//! TaskExists answers Yes and CancelTask removes it (platform/lt-y43-task-after-commit/Y43TaskAfterCommit.al, corpus master,
-//! al-runner issue 6592). SetTaskReady of such a task changes its Not Before to a value no test pins: refused.
+//! After the creating transaction commits the task stays as created and never runs, also after a pause and in the next
+//! test of the codeunit (platform/lt-y43-task-after-commit/Y43TaskAfterCommit.al:121-300, BC 27.5, 28.5, 29.0 and SaaS):
+//! its row reads the same, TaskExists answers true, SetTaskReady answers true and makes it ready, CancelTask removes it.
+//! Not Before is blank for a task created without one and the given value otherwise (:139-148, :302-317); after
+//! SetTaskReady it is only pinned as not blank (:288), so it is refused when read.
 //!
 //! A task of the open transaction has its row in the Scheduled Task table: Get answers Yes, a filter on ID counts it, and
 //! CancelTask removes it (platform/lt-wd/WdScheduledTaskGet.al, corpus branch al-runtime-rs-staging-1030c, al-runner issue
 //! 6315). Its User ID, User Name, Company, Run Codeunit and Is Ready (No for a task created not ready) are pinned by
-//! session/lt-cn-session-leads/CnSessionLeads.al:23-46; Is Ready Yes for a task created ready, and Not Before blank, or
-//! the time given (Y43TaskAfterCommit.al:133-142, :282-298); every other column is refused when read (`platform::unknown`).
+//! session/lt-cn-session-leads/CnSessionLeads.al:23-46; every other column is refused when read (`platform::unknown`).
 
 use crate::Session;
 use al_builtins::builtin_id::ids;
@@ -32,7 +32,7 @@ use al_builtins::value::Value;
 pub(crate) struct Tasks {
     /// Created in the running transaction: a rollback drops them.
     open: std::collections::BTreeSet<[u8; 16]>,
-    /// Created in a transaction that was committed: they are still there (Y43TaskAfterCommit.al).
+    /// Created in a transaction that was committed: they stay until cancelled.
     committed: std::collections::BTreeSet<[u8; 16]>,
 }
 
@@ -59,33 +59,71 @@ impl Session {
     pub(crate) fn task_scheduler_op(&mut self, id: al_ir::BuiltinId, args: &[Value]) -> Option<Result<Value, Signal>> {
         let answer = match id {
             ids::TASKSCHEDULER_CREATETASK_1 | ids::TASKSCHEDULER_CREATETASK_2 => self.create_task(args),
-            ids::TASKSCHEDULER_TASKEXISTS_1 => self.task_id(args, "TaskExists", true).map(|t| {
-                Value::Boolean(t.is_some_and(|t| self.tasks.open.contains(&t) || self.tasks.committed.contains(&t)))
-            }),
-            ids::TASKSCHEDULER_CANCELTASK_1 => self.task_id(args, "CancelTask", true).map(|t| {
-                let removed = t.is_some_and(|t| self.tasks.open.remove(&t) || self.tasks.committed.remove(&t));
-                if let (true, Some(t)) = (removed, t) {
+            ids::TASKSCHEDULER_TASKEXISTS_1 => self
+                .task_id(args, "TaskExists")
+                .map(|t| Value::Boolean(self.task_exists(t))),
+            ids::TASKSCHEDULER_CANCELTASK_1 => self.task_id(args, "CancelTask").map(|t| {
+                let removed = self.task_exists(t);
+                if removed {
+                    self.tasks.open.remove(&t);
+                    self.tasks.committed.remove(&t);
                     self.remove_task_row(t);
                 }
                 Value::Boolean(removed)
             }),
-            ids::TASKSCHEDULER_SETTASKREADY_1 => self.task_id(args, "SetTaskReady", false).map(|_| Value::Null),
+            ids::TASKSCHEDULER_SETTASKREADY_1 => self.set_task_ready(args),
             _ => return None,
         };
         Some(answer)
     }
 
-    /// The task id argument; refused for a task whose creation was committed unless `committed_ok`.
-    fn task_id(&self, args: &[Value], what: &str, committed_ok: bool) -> Result<Option<[u8; 16]>, Signal> {
+    /// The task id argument.
+    fn task_id(&self, args: &[Value], what: &str) -> Result<[u8; 16], Signal> {
         let Some(Value::Guid(g)) = args.first() else {
             return unsupported(format!("TaskScheduler.{what} with id {}", args.first().describe()));
         };
-        if !committed_ok && self.tasks.committed.contains(g) {
-            return unsupported(format!(
-                "TaskScheduler.{what} of a task whose creation was committed (the Not Before it leaves is not pinned)"
-            ));
+        Ok(*g)
+    }
+
+    /// Whether the session created the task and it was not cancelled. Where the program has the Scheduled Task table its
+    /// row decides, so a task whose row a rollback of the test runner took back is gone with it.
+    fn task_exists(&self, t: [u8; 16]) -> bool {
+        if !(self.tasks.open.contains(&t) || self.tasks.committed.contains(&t)) {
+            return false;
         }
-        Ok(Some(*g))
+        let Some(def) = self.table_def(SCHEDULED_TASK) else {
+            return true;
+        };
+        matches!(
+            al_data::Store::get(&self.store, &self.cx, &def, &[Value::Guid(t)]),
+            Ok(Some(_))
+        )
+    }
+
+    /// SetTaskReady(Id): a task of the session answers true and becomes ready (Y43TaskAfterCommit.al:284-288); an unknown
+    /// id returns (PlTTaskScheduler.al), its answer is not pinned. A NotBefore argument is not pinned.
+    fn set_task_ready(&mut self, args: &[Value]) -> Result<Value, Signal> {
+        let t = self.task_id(args, "SetTaskReady")?;
+        if args.len() > 1 {
+            return unsupported("TaskScheduler.SetTaskReady with a NotBefore argument");
+        }
+        if !self.task_exists(t) {
+            return Ok(Value::Null);
+        }
+        if let Some(def) = self.table_def(SCHEDULED_TASK) {
+            let cx = self.cx.clone();
+            if let Ok(Some(mut row)) = al_data::Store::get(&self.store, &cx, &def, &[Value::Guid(t)]) {
+                for (i, f) in def.fields.iter().enumerate() {
+                    if f.name.eq_ignore_ascii_case("Is Ready") {
+                        row[i] = Value::Boolean(true);
+                    } else if f.name.eq_ignore_ascii_case("Not Before") {
+                        row[i] = crate::platform::unknown(&def, f.id, "a task after SetTaskReady");
+                    }
+                }
+                let _ = al_data::Store::modify(&mut self.store, &cx, &def, row);
+            }
+        }
+        Ok(Value::Boolean(true))
     }
 
     /// The row of a task created in the open transaction (the module comment lists the pinned columns). The store's
@@ -116,20 +154,22 @@ impl Session {
         if let Some(cu) = args.first() {
             set("Run Codeunit", cu.clone());
         }
-        // Is Ready for a task created ready or not (Y43TaskAfterCommit.al:142, :170-180), Company for a task created without a
-        // company argument, Not Before blank or the time given (:142, :293-298).
-        match args.get(2) {
-            None | Some(Value::Boolean(true)) => set("Is Ready", Value::Boolean(true)),
-            Some(Value::Boolean(false)) => set("Is Ready", Value::Boolean(false)),
-            Some(_) => {}
-        }
-        match args.get(4) {
-            None => set("Not Before", Value::DateTime(Default::default())),
-            Some(v @ Value::DateTime(_)) => set("Not Before", v.clone()),
-            Some(_) => {}
+        // Is Ready: No for a task created not ready, Yes for one created ready or without the argument (Y43TaskAfterCommit.al:
+        // 139-148, 176-178). Company is pinned for a task created without a company argument.
+        if let None | Some(Value::Boolean(_)) = args.get(2) {
+            set(
+                "Is Ready",
+                Value::Boolean(!matches!(args.get(2), Some(Value::Boolean(false)))),
+            );
         }
         if args.len() < 4 {
             set("Company", Value::Text(self.cx.company.clone().into()));
+        }
+        // Y43TaskAfterCommit.al:139-148 (blank without one), :302-317 (the value given).
+        match args.get(4) {
+            None => set("Not Before", Value::DateTime(0)),
+            Some(v @ Value::DateTime(_)) => set("Not Before", v.clone()),
+            Some(_) => {}
         }
         let cx = self.cx.clone();
         let _ = al_data::Store::insert(&mut self.store, &cx, &t, row);

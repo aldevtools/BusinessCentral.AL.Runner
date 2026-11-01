@@ -5,6 +5,7 @@ mod agent_natives;
 mod append_char;
 mod array_params;
 mod assumption_truth;
+mod autoformat_type11;
 mod bigtext_copystream_count;
 mod bigtext_value_copy;
 mod builtin_name_same_arity;

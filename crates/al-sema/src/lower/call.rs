@@ -390,8 +390,7 @@ impl Lowerer<'_> {
                         Some((record, pos, kind)) => Some((record.clone(), *pos, *kind)),
                         None => args
                             .first()
-                            .and_then(|a| self.auto_format_expression_field(a))
-                            .map(|(record, pos)| (record, pos, 0)),
+                            .and_then(|a| self.auto_format_expression_field(a)),
                     }
                 } else {
                     None
@@ -818,7 +817,7 @@ impl Lowerer<'_> {
                             None
                         };
                         let expression = if without_expression.is_none() && places.is_none() {
-                            self.auto_format_expression_field(a).map(|(record, pos)| (record, pos, 0))
+                            self.auto_format_expression_field(a)
                         } else {
                             None
                         };

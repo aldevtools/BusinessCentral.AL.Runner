@@ -179,6 +179,7 @@ mod controls;
 mod dirty_step;
 mod draft;
 mod format;
+mod format_type11;
 mod open;
 mod pageops;
 mod refill;

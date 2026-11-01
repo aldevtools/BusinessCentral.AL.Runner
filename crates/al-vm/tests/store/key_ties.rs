@@ -139,10 +139,10 @@ codeunit 69996 C
         exit(Owner.CurrentKey());
     end;
 
-    procedure ByRowFlowFieldThenFind()
+    procedure ByIdThenRowFlowFieldThenFind()
     var Owner: Record "KT Owner";
     begin
-        Owner.SetCurrentKey(Cnt);
+        Owner.SetCurrentKey(Id, Cnt);
         if Owner.FindSet() then;
     end;
 
@@ -157,15 +157,15 @@ codeunit 69996 C
 
 // records/W4SortKeys.al:459, :471: a FlowField whose value is the same for every row is accepted and the key stays the primary
 // key. A FlowField that depends on the row is reported as the key, alone and after a normal field (record/
-// Y8SetCurrentKeyNotStored.al:84-106; SetCurrentKeyFlowFieldOrder.al:109-113). The order of the rows by it is not built: a read
-// refuses.
+// Y8SetCurrentKeyNotStored.al:84-106; SetCurrentKeyFlowFieldOrder.al:109-113). The order of the rows is built only with the
+// FlowField first (flowfield_key_order.rs): after a normal field a read refuses.
 #[test]
 fn set_current_key_on_a_flow_field_that_depends_on_the_row_names_it_and_refuses_reads() {
     assert_eq!(text(al_testkit::run_in(FLOW, "C", "ByConstantFlowField")), "Id");
     assert_eq!(text(al_testkit::run_in(FLOW, "C", "ByRowFlowField")), "Cnt");
     assert_eq!(text(al_testkit::run_in(FLOW, "C", "ByIdThenRowFlowField")), "Id,Cnt");
     assert_eq!(text(al_testkit::run_in(FLOW, "C", "ByRowFlowFieldThenClear")), "Id");
-    let r = al_testkit::run_in(FLOW, "C", "ByRowFlowFieldThenFind");
+    let r = al_testkit::run_in(FLOW, "C", "ByIdThenRowFlowFieldThenFind");
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 

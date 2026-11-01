@@ -14,5 +14,6 @@ mod media_export_unchanged;
 mod platform_members;
 mod streams;
 mod task_scheduler;
+mod task_scheduler_after_commit;
 mod xml_read_bom;
 mod xml_read_stream_options;
