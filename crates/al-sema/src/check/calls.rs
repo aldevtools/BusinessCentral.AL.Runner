@@ -275,6 +275,20 @@ impl<'a> Checker<'a> {
                 return Some(cs);
             }
         }
+        // A procedure declared in the request page of the report or report extension whose request page code calls it (al-runner
+        // issue 6651: a report extension's request page calls its own local procedure named as a local one of the base report;
+        // the extending app compiles with alc). A procedure of the same name the code could also reach (one of the report
+        // itself, or a non-local one of the base report) is refused by the lowering (`Lowerer::request_proc_refusal`).
+        if super::infer::in_request_page(node) {
+            let mine = self.members[sc.oi]
+                .request_procedures
+                .iter()
+                .filter(|p| p.name.eq_ignore_ascii_case(n));
+            let c: Vec<Cand> = mine.map(proc_cand).collect();
+            if !c.is_empty() {
+                return Some(c);
+            }
+        }
         // In a report data item's trigger or column source, a procedure of the data item's table runs before the report's of
         // the same name; in a report trigger the report's runs (report/lt-cj-report-leads/CjDataset.al:215-241,
         // SameNameProcedure_ExtensionField_SaveAsXml: `FooCol = table 1,..`, `row 1 foo=table 1`, `prereport foo=report`).

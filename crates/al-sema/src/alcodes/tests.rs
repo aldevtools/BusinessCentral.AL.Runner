@@ -240,6 +240,28 @@ fn al0161_non_protected_variable_and_local_procedure_of_the_base() {
     assert!(codes(&[BASE, &ok]).is_empty());
 }
 
+/// A report extension's request page declares its own local procedure named as a local procedure of the base report; the
+/// extension's calls bind to its own and compile (al-runner issue 6651).
+#[test]
+fn a_request_page_procedure_of_a_report_extension_named_as_a_base_local_procedure_is_its_own() {
+    let base = "table 50100 T { fields { field(1; Id; Integer) { } } } \
+        report 50100 R { dataset { dataitem(I; T) { } } \
+        requestpage { layout { area(Content) { field(MyField; MyOption) { trigger OnValidate() begin MyProc(); end; } } } \
+        trigger OnOpenPage() begin MyProc(); end; } \
+        var MyOption: Integer; local procedure MyProc() begin end; }";
+    let ext = "reportextension 50101 E extends R { requestpage { \
+        layout { modify(MyField) { trigger OnAfterValidate() begin MyProc(); end; } } \
+        trigger OnOpenPage() begin MyProc(); end; \
+        local procedure MyProc() begin end; } }";
+    assert!(
+        codes_with_dependency(&[ext], Some(base)).is_empty(),
+        "{:?}",
+        dependency_diagnostics(&[ext], Some(base))
+    );
+    // In the same app too.
+    assert!(codes(&[base, ext]).is_empty(), "{:?}", codes(&[base, ext]));
+}
+
 /// The codes of `files` compiled as an app that declares the dependency `dep`; `loaded` is the source of
 /// that dependency, or `None` when it is declared but not loaded (`--no-deps`).
 fn codes_with_dependency(files: &[&str], loaded: Option<&str>) -> Vec<String> {
