@@ -3,6 +3,25 @@ use al_builtins::page_op::PageMethod;
 use al_builtins::record_op::RecordOp;
 
 impl Session {
+    /// OpenNew of a List whose page says `Editable = false` and that has a SourceTableView opens on its first row as OpenView
+    /// does, with no OnNewRecord (pages/lt-y41-page-probes/Y41SelectionAfterClose.al:295 G401_OpenNew_List_SourceTableView,
+    /// `agcr id=1`, shown 1; the shape of Purchase Invoices). Without the view, or on another page type, it is not pinned and
+    /// opens a new row as before.
+    pub(super) fn open_new_mode(&self, st: &St, mode: PageMode) -> PageMode {
+        let object = st.borrow().object as usize;
+        let engine = self.engine();
+        let facts = &engine.object_facts[object];
+        let read_only = engine.program.objects[object]
+            .properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"));
+        let list = facts.page_type == Some(al_ir::PageType::List);
+        if mode == PageMode::New && list && read_only && facts.has_source_table_view && st.borrow().host.is_none() {
+            return PageMode::View;
+        }
+        mode
+    }
+
     /// `TestPage.New()` (corpus handlers/TestPageInsertAllowed_Tests.al:70 New_OnInsertAllowedFalsePage_IsDenied,
     /// handlers/TestPageOpenNewAfterGetCurrRecord.al New_OnAnOpenCard_RunsOnAfterGetCurrRecordForTheNewRecord).
     pub(super) fn new_record(&mut self, st: &St) -> Result<Value, Signal> {

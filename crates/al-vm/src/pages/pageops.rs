@@ -945,7 +945,7 @@ impl Session {
                 if src.borrow().table != dst.borrow().table {
                     return unsupported("Page.SetSelectionFilter into a record of another table (not pinned)");
                 }
-                if st.borrow().cursor != Cursor::Row {
+                if st.borrow().cursor != Cursor::Row && !self.closed_on_handler_set_record(st) {
                     // A page on no row because its table is empty selects nothing, and the record keeps no filter
                     // (pages/lt-page-runtime/P82CurrPage.al:SetSelectionFilter_EmptyPage: `sel=0 filter=''`). A page on no row
                     // over a table that has rows is not pinned.
@@ -958,28 +958,7 @@ impl Session {
                     if table_empty {
                         return self.record_op(RecordOp::SetRecFilter, dst, &mut []);
                     }
-                    // A TestPage whose own filter shows no row of a table that has rows hands the record that filter
-                    // (pages/lt-selection-filter-no-row/SelectionFilterNoRow.al:TestPage_FilteredToNothing: the page filter
-                    // `Id: 99` on key field Id, `Count` 0, `Id: 99`). Only that shape (one range of one value on the first key
-                    // field, a record without filters or marks) is pinned.
-                    let t = self.table(dst)?;
-                    let page_filters = src.borrow().filters.clone();
-                    let single_key_value = page_filters.len() == 1
-                        && page_filters[0].field == t.keys[0][0]
-                        && match &page_filters[0].expr {
-                            al_builtins::filter::FilterExpr::Eq(_) => true,
-                            al_builtins::filter::FilterExpr::Range(Some(a), Some(b)) => {
-                                al_builtins::ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal)
-                            }
-                            _ => false,
-                        };
-                    if single_key_value
-                        && st.borrow().open
-                        && dst.borrow().filters.is_empty()
-                        && dst.borrow().marks.is_empty()
-                        && !dst.borrow().marked_only
-                    {
-                        dst.borrow_mut().filters = page_filters;
+                    if self.selection_of_a_test_page_filtered_to_nothing(st, &src, dst)? {
                         return Ok(Value::Null);
                     }
                     // A page whose Rec is the blank record (a part that is hidden, or not yet on a row) hands a record without
@@ -1026,7 +1005,10 @@ impl Session {
                         let s = st.borrow();
                         s.set_record.is_none() && !s.set_view
                     };
-                    if !(blank_rec && plain_dst && (st.borrow().host.is_some() || unopened_var)) {
+                    if !(blank_rec
+                        && plain_dst
+                        && (st.borrow().host.is_some() || unopened_var || self.on_open_new_row(st)))
+                    {
                         return unsupported(
                             "Page.SetSelectionFilter of a page on no row of a table that has rows (not pinned)",
                         );

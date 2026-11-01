@@ -1,4 +1,5 @@
-//! `SetTableView` and `SetRecord` on a Page variable: what the page takes of the record it is handed.
+//! `SetTableView` and `SetRecord` on a Page variable: what the page takes of the record it is handed, and what
+//! `SetSelectionFilter` hands back after the page closed.
 
 use super::*;
 
@@ -93,5 +94,54 @@ impl Session {
         d.marks = r.marks.clone();
         d.marked_only = true;
         Ok(true)
+    }
+
+    /// A Page variable whose Page-typed ModalPageHandler called SetRecord, after the run: SetSelectionFilter hands the key filter on
+    /// that row as on a row the page stands on, after LookupOK and LookupCancel, and replaces the record's filters, group 2 too
+    /// (pages/lt-y41-page-probes/Y41SelectionAfterClose.al:198 G401_PageVar_HandlerSetRecord_LookupOK `Id: 3`, count 1, :221
+    /// _FilterGroup2View, :272 _Cancel).
+    pub(super) fn closed_on_handler_set_record(&self, st: &St) -> bool {
+        let s = st.borrow();
+        s.handler_set_record && !s.open && !s.typed_handler && s.host.is_none()
+    }
+
+    /// The blank new row of a list opened with OpenNew: SetSelectionFilter in OnAfterGetCurrRecord hands the filter on the blank
+    /// key, `Id: 0` and a count of 0 (pages/lt-y41-page-probes/Y41SelectionAfterClose.al:309 G401_OpenNew_List_NoView).
+    pub(super) fn on_open_new_row(&self, st: &St) -> bool {
+        let s = st.borrow();
+        s.open && s.draft && s.mode == PageMode::New && s.host.is_none() && self.is_list(st)
+    }
+
+    /// A TestPage whose own filter shows no row of a table that has rows hands the record that filter
+    /// (pages/lt-selection-filter-no-row/SelectionFilterNoRow.al:TestPage_FilteredToNothing: the page filter
+    /// `Id: 99` on key field Id, `Count` 0, `Id: 99`). Only that shape (one range of one value on the first key
+    /// field, a record without filters or marks) is pinned.
+    pub(super) fn selection_of_a_test_page_filtered_to_nothing(
+        &mut self,
+        st: &St,
+        src: &Rec,
+        dst: &Rec,
+    ) -> Result<bool, Signal> {
+        let t = self.table(dst)?;
+        let page_filters = src.borrow().filters.clone();
+        let single_key_value = page_filters.len() == 1
+            && page_filters[0].field == t.keys[0][0]
+            && match &page_filters[0].expr {
+                al_builtins::filter::FilterExpr::Eq(_) => true,
+                al_builtins::filter::FilterExpr::Range(Some(a), Some(b)) => {
+                    al_builtins::ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal)
+                }
+                _ => false,
+            };
+        if single_key_value
+            && st.borrow().open
+            && dst.borrow().filters.is_empty()
+            && dst.borrow().marks.is_empty()
+            && !dst.borrow().marked_only
+        {
+            dst.borrow_mut().filters = page_filters;
+            return Ok(true);
+        }
+        Ok(false)
     }
 }

@@ -190,3 +190,74 @@ codeunit 69423 T
 fn a_page_variable_takes_the_marks_through_set_table_view_and_not_through_set_record() {
     passes(PVM);
 }
+
+// G4-01: after a Page-typed ModalPageHandler closed a Page variable, SetSelectionFilter hands the key filter on the row the
+// handler gave SetRecord (also after LookupCancel; Sel's filters, group 2 too, are replaced), `Id: 0` with count 0 without
+// SetRecord; a TestPage handler that moved with GoToKey(3) gives `Id: 3`. OpenNew on a list that is not editable opens on its first
+// row without OnNewRecord; on an editable list it runs OnNewRecord and the selection is `Id: 0` (Y41SelectionAfterClose.al:198
+// _HandlerSetRecord_LookupOK, :221 _FilterGroup2View, :251 _NoSetRecord, :272 _Cancel, :295 OpenNew_List_SourceTableView, :309
+// _NoView, :323 _TestPageHandler_GoToKeyOk).
+const SEL: &str = r#"
+table 69430 "SL Row" { fields { field(1; Id; Integer) { } field(2; Grp; Code[10]) { } } keys { key(PK; Id) { Clustered = true; } } }
+codeunit 69431 "SL Log" { SingleInstance = true; var Buf: Text;
+    procedure Add(T: Text) begin if Buf <> '' then Buf += ';'; Buf += T; end;
+    procedure Take(): Text var R: Text; begin R := Buf; Buf := ''; exit(R); end; }
+page 69432 "SL List" { PageType = List; SourceTable = "SL Row";
+    layout { area(Content) { repeater(Rows) { field(IdCtl; Rec.Id) { } } } }
+    procedure GetSelected(var Sel: Record "SL Row") begin CurrPage.SetSelectionFilter(Sel); end;
+    procedure CurrentId(): Integer begin exit(Rec.Id); end; }
+page 69433 "SL New List" { PageType = List; SourceTable = "SL Row"; SourceTableView = where(Grp = const('A')); Editable = false;
+    layout { area(Content) { repeater(Rows) { field(IdCtl; Rec.Id) { } } } }
+    var L: Codeunit "SL Log";
+    trigger OnNewRecord(BelowxRec: Boolean) begin L.Add('new'); end;
+    trigger OnAfterGetCurrRecord() var S: Record "SL Row"; begin CurrPage.SetSelectionFilter(S);
+        L.Add('agcr id=' + Format(Rec.Id) + ' filters=' + S.GetFilters() + ' count=' + Format(S.Count())); end; }
+page 69434 "SL New List NoView" { PageType = List; SourceTable = "SL Row";
+    layout { area(Content) { repeater(Rows) { field(IdCtl; Rec.Id) { } } } }
+    var L: Codeunit "SL Log";
+    trigger OnNewRecord(BelowxRec: Boolean) begin L.Add('new'); end;
+    trigger OnAfterGetCurrRecord() var S: Record "SL Row"; begin CurrPage.SetSelectionFilter(S);
+        L.Add('agcr id=' + Format(Rec.Id) + ' filters=' + S.GetFilters() + ' count=' + Format(S.Count())); end; }
+codeunit 69435 T
+{
+    Subtype = Test;
+    var L: Codeunit "SL Log"; RowId: Integer;
+    local procedure Seed() var R: Record "SL Row"; i: Integer; begin R.DeleteAll();
+        for i := 1 to 5 do begin R.Id := i; R.Grp := 'A'; if i > 3 then R.Grp := 'B'; R.Insert(); end; L.Take(); end;
+    local procedure Check(Got: Text; Want: Text) begin if Got <> Want then Error('got %1, want %2', Got, Want); end;
+    local procedure Describe(var S: Record "SL Row"): Text var T: Text; begin
+        T := Format(S.Count()) + '|' + S.GetFilters() + '|' + Format(S.MarkedOnly()) + '|';
+        if S.FindSet() then repeat T += Format(S.Id) + ','; until S.Next() = 0; exit(T); end;
+    [ModalPageHandler] procedure SetRecordOk(var P: Page "SL List"; var Response: Action) var R: Record "SL Row"; begin
+        Check(Format(P.CurrentId()), '0'); R.Get(RowId); P.SetRecord(R); Response := Action::LookupOK; end;
+    [ModalPageHandler] procedure SetRecordCancel(var P: Page "SL List"; var Response: Action) var R: Record "SL Row"; begin
+        R.Get(RowId); P.SetRecord(R); Response := Action::LookupCancel; end;
+    [ModalPageHandler] procedure PlainOk(var P: Page "SL List"; var Response: Action) begin Response := Action::LookupOK; end;
+    [ModalPageHandler] procedure GoToOk(var P: TestPage "SL List") begin P.GoToKey(3); P.OK().Invoke(); end;
+    [Test] [HandlerFunctions('SetRecordOk')] procedure SetRecordLookupOK() var S: Record "SL Row"; P: Page "SL List"; begin
+        Seed(); RowId := 3; P.LookupMode(true); Check(Format(P.RunModal()), 'LookupOK'); Check(Format(P.CurrentId()), '3');
+        P.GetSelected(S); Check(Describe(S), '1|Id: 3|No|3,'); end;
+    [Test] [HandlerFunctions('SetRecordOk')] procedure FilterGroup2View() var S: Record "SL Row"; P: Page "SL List"; begin
+        Seed(); RowId := 2; S.FilterGroup(2); S.SetRange(Grp, 'A'); S.FilterGroup(0); P.SetTableView(S); P.LookupMode(true);
+        Check(Format(P.RunModal()), 'LookupOK'); Check(Format(P.CurrentId()), '2');
+        P.GetSelected(S); Check(Describe(S), '1|Id: 2|No|2,'); S.FilterGroup(2); Check(S.GetFilters(), ''); end;
+    [Test] [HandlerFunctions('PlainOk')] procedure NoSetRecord() var S: Record "SL Row"; P: Page "SL List"; begin
+        Seed(); P.LookupMode(true); Check(Format(P.RunModal()), 'LookupOK'); Check(Format(P.CurrentId()), '0');
+        P.GetSelected(S); Check(Describe(S), '0|Id: 0|No|'); end;
+    [Test] [HandlerFunctions('SetRecordCancel')] procedure SetRecordCancelled() var S: Record "SL Row"; P: Page "SL List"; begin
+        Seed(); RowId := 3; P.LookupMode(true); Check(Format(P.RunModal()), 'LookupCancel'); Check(Format(P.CurrentId()), '3');
+        P.GetSelected(S); Check(Describe(S), '1|Id: 3|No|3,'); end;
+    [Test] [HandlerFunctions('GoToOk')] procedure TestPageGoTo() var S: Record "SL Row"; P: Page "SL List"; begin
+        Seed(); P.LookupMode(true); Check(Format(P.RunModal()), 'LookupOK'); Check(Format(P.CurrentId()), '3');
+        P.GetSelected(S); Check(Describe(S), '1|Id: 3|No|3,'); end;
+    [Test] procedure OpenNewNotEditable() var TP: TestPage "SL New List"; begin
+        Seed(); TP.OpenNew(); Check(L.Take(), 'agcr id=1 filters=Id: 1 count=1'); Check(TP.IdCtl.Value(), '1'); TP.Close(); end;
+    [Test] procedure OpenNewEditable() var TP: TestPage "SL New List NoView"; begin
+        Seed(); TP.OpenNew(); Check(L.Take(), 'new;agcr id=0 filters=Id: 0 count=0'); Check(TP.IdCtl.Value(), '0'); TP.Close(); end;
+}
+"#;
+
+#[test]
+fn selection_filter_of_a_page_closed_by_a_typed_handler_and_of_open_new() {
+    passes(SEL);
+}
