@@ -498,15 +498,14 @@ fn the_bytes_of_an_exported_media_are_refused_on_every_major() {
     // types/W7Media.al:141-145 (ExportStream_OfAnImportedPicture, corpus bump 34): Windows BC re-encodes the imported 68-byte PNG
     // to 99 bytes on 27, 28 and 29 (bc-linux #161), bytes the corpus does not pin. The export itself succeeds
     // (streams/StTMedia.al:170, MediaExportStream), so only a look at the exported bytes is refused.
-    // ExportLengthNoPng imports control bytes, not text: plain UTF-8 text exports as the same bytes (assumption
-    // media-text-content-exported, streams/StTMedia.al TR_MediaImportStream_TextContent_ExportStream).
+    // ExportLengthNoPng imports control bytes, no picture: they export unchanged on every major
+    // (streams/lt-y44-media-export/Y44MediaExportStream.al Media_Binary_ExportStream, corpus PR 962).
     let r = |bc: &str, routine: &str| out(run_on(bc, MEDIA_EXPORT, routine));
     for bc in ["27.5", "28.5", "29.0"] {
         assert_eq!(r(bc, "ExportOnly"), "exported", "{bc}");
-        for routine in ["ExportLength", "ExportLengthNoPng"] {
-            let got = r(bc, routine);
-            assert!(got.starts_with("refused:"), "{bc} {routine}: {got}");
-        }
+        let got = r(bc, "ExportLength");
+        assert!(got.starts_with("refused:"), "{bc} ExportLength: {got}");
+        assert_eq!(r(bc, "ExportLengthNoPng"), "8", "{bc}");
     }
 }
 

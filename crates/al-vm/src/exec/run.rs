@@ -903,7 +903,11 @@ impl Session {
             });
         }
         self.dotnet.result_ty = site.result_ty;
-        self.dotnet_apply(site.ty, recv, values, places, &site.op, f)
+        let r = self.dotnet_apply_closing_entry_streams(site.ty, recv, values, places, &site.op, f);
+        if let (Err(Signal::Error(_)), Some(p)) = (&r, site.header_pos) {
+            self.at_line_of(p);
+        }
+        r
     }
 
     /// A builtin whose operands are all values (`BuiltinSite::plain`): what `run_builtin` does for it, without the

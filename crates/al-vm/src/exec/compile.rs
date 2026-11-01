@@ -560,10 +560,7 @@ impl<'a> Compiler<'a> {
                 self.patch(over, end);
             }
             E::DotNet { ty, receiver, op, args } => {
-                let recv = match receiver.as_deref() {
-                    Some(r) => Some(self.expr_copy(r)?),
-                    None => None,
-                };
+                let recv = receiver.as_deref().map(|r| self.expr_copy(r)).transpose()?;
                 let (arg_regs, site_args) = self.arg_regs(args)?;
                 self.chunk.dotnets.push(DotNetSite {
                     ty: *ty,
@@ -572,6 +569,7 @@ impl<'a> Compiler<'a> {
                     recv,
                     arg_regs,
                     args: site_args,
+                    header_pos: None,
                 });
                 let s = (self.chunk.dotnets.len() - 1) as u32;
                 self.emit(Op::DotNet { s, d });
@@ -913,6 +911,58 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    /// `foreach var in collection do body`.
+    fn foreach(&mut self, var: &'a ir::Place, collection: &'a ir::Expr, body: &'a [ir::Stmt]) -> R<()> {
+        let coll = self.expr_copy(collection)?;
+        // An error the DotNet member of the header raises is reported at the line of the first statement of the body
+        // (al-language-onprem-dotnet/lt-y44-zip-create/Y44ZipCreateMode.al:326, :332 and :335, Zip_EntriesInCreateMode `stack_list_create`
+        // `List line 5` for `foreach ZipArchiveEntry in ZipArchive.Entries() do` at line 4 of the routine; corpus PR 962).
+        if let (ir::Expr::DotNet { .. }, Some(ir::Stmt::Pos(p)), Some(site)) =
+            (collection, body.first(), self.chunk.dotnets.last_mut())
+        {
+            site.header_pos = Some(*p);
+        }
+        let rvar = self.rplace(var)?;
+        let lid = if self.captured { Some(self.alloc()?) } else { None };
+        let items = self.alloc()?;
+        let at = self.alloc()?;
+        let watch = self.alloc()?;
+        let ver = self.alloc()?;
+        self.chunk.foreachs.push(ForeachSite {
+            var: rvar,
+            coll,
+            items,
+            at,
+            watch,
+            ver,
+            collection: matches!(collection, ir::Expr::Load(_)).then(|| collection.clone()),
+            cap_loop: lid,
+        });
+        let site = (self.chunk.foreachs.len() - 1) as u32;
+        self.emit(Op::ForeachInit { s: site });
+        let top = self.here();
+        let next = self.emit(Op::ForeachNext { s: site, t: 0 });
+        self.loops.push(LoopCtx {
+            depth: self.cap_depth,
+            brk: Vec::new(),
+            cont: Vec::new(),
+        });
+        let mark = self.next;
+        self.block(body)?;
+        self.next = mark;
+        let l = self.loops.pop().ok_or(())?;
+        self.emit(Op::Jump { t: top });
+        let end = self.here();
+        if let Some(a) = lid {
+            self.emit(Op::CapLoopExit { a });
+        }
+        self.emit(Op::Clear { a: items });
+        self.patch(next, end);
+        self.patch_all(l.cont, top);
+        self.patch_all(l.brk, end);
+        Ok(())
+    }
+
     fn stmt(&mut self, s: &'a ir::Stmt) -> R<()> {
         use ir::Stmt as S;
         match s {
@@ -1119,47 +1169,7 @@ impl<'a> Compiler<'a> {
                     *e = end;
                 }
             }
-            S::Foreach { var, collection, body } => {
-                let coll = self.expr_copy(collection)?;
-                let rvar = self.rplace(var)?;
-                let lid = if self.captured { Some(self.alloc()?) } else { None };
-                let items = self.alloc()?;
-                let at = self.alloc()?;
-                let watch = self.alloc()?;
-                let ver = self.alloc()?;
-                self.chunk.foreachs.push(ForeachSite {
-                    var: rvar,
-                    coll,
-                    items,
-                    at,
-                    watch,
-                    ver,
-                    collection: matches!(collection, ir::Expr::Load(_)).then(|| collection.clone()),
-                    cap_loop: lid,
-                });
-                let site = (self.chunk.foreachs.len() - 1) as u32;
-                self.emit(Op::ForeachInit { s: site });
-                let top = self.here();
-                let next = self.emit(Op::ForeachNext { s: site, t: 0 });
-                self.loops.push(LoopCtx {
-                    depth: self.cap_depth,
-                    brk: Vec::new(),
-                    cont: Vec::new(),
-                });
-                let mark = self.next;
-                self.block(body)?;
-                self.next = mark;
-                let l = self.loops.pop().ok_or(())?;
-                self.emit(Op::Jump { t: top });
-                let end = self.here();
-                if let Some(a) = lid {
-                    self.emit(Op::CapLoopExit { a });
-                }
-                self.emit(Op::Clear { a: items });
-                self.patch(next, end);
-                self.patch_all(l.cont, top);
-                self.patch_all(l.brk, end);
-            }
+            S::Foreach { var, collection, body } => self.foreach(var, collection, body)?,
             S::Assume(a) => {
                 self.emit(Op::Assume { a: *a });
             }

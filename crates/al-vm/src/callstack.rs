@@ -33,6 +33,14 @@ impl Session {
         }
     }
 
+    /// Moves the current statement position of the top frame to `p` for the error being raised, without a coverage hit (the
+    /// header of a DotNet `foreach`: `Compiler::foreach`).
+    pub(crate) fn at_line_of(&mut self, p: u32) {
+        if let Some(top) = self.call_stack.last_mut() {
+            top.pos = p;
+        }
+    }
+
     /// Sets the frames of the test runner that stand below a test's frames (the corpus job and
     /// `al-runner` set them; a session without a runner has none).
     pub fn set_runner_frames(&mut self, frames: String) {
