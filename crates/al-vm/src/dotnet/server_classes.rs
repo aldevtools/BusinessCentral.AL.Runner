@@ -756,6 +756,7 @@ pub fn types() -> Vec<RegistryType> {
     all.extend(super::drawing::types());
     all.extend(super::staged_dir::types());
     all.extend(super::query_metadata::types());
+    all.extend(super::business_chart_data::types());
     all.extend(super::generic_dictionary::types());
     all.extend(own_types());
     all.push(camera_provider());

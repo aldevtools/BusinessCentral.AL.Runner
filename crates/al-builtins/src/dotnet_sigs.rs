@@ -148,6 +148,8 @@ pub const GENERIC_KEY_VALUE_PAIR: &str = "System.Collections.Generic.KeyValuePai
 pub const QUERY_METADATA_READER: &str = "Microsoft.Dynamics.Nav.Client.BusinessChart.QueryMetadataReader";
 pub const QUERY_FIELDS_LIST: &str = "<fields of a query metadata reader>";
 pub const QUERY_FIELDS: &str = "Microsoft.Dynamics.Nav.Client.BusinessChart.QueryFields";
+/// The chart model behind System Application's "Business Chart Impl." (al-vm `dotnet/business_chart_data.rs`).
+pub const BUSINESS_CHART_DATA: &str = "Microsoft.Dynamics.Nav.Client.BusinessChart.BusinessChartData";
 
 pub const SIGS: &[(&str, &str, Ret)] = &[
     (GRAPH_QUERY, "GraphQuery", Ret::Object),
@@ -314,6 +316,10 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (QUERY_FIELDS, "FieldNo", Ret::Integer),
     (QUERY_FIELDS, "TableNo", Ret::Integer),
     (QUERY_FIELDS, "FieldName", Ret::Text),
+    (BUSINESS_CHART_DATA, "BusinessChartData", Ret::Object),
+    (BUSINESS_CHART_DATA, "ClearMeasures", Ret::Void),
+    (BUSINESS_CHART_DATA, "AddMeasure", Ret::Void),
+    (BUSINESS_CHART_DATA, "XDimension", Ret::Text),
 ];
 
 /// The declared result of `member` on `clr_type`, if the runtime provides that member.

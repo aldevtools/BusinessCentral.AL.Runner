@@ -229,3 +229,19 @@ Accepted (owner, 2026-11-01).
    need its own ADR.
 7. **Row 20, Copilot service settings:** the `ALCopilotFunctions` members that read Copilot settings from the service
    (86 tests in the measurement sets) stay refused, like other online-only services.
+
+## Server classes, per class (2026-11-01)
+
+The owner approved on 2026-10-29 that pure BC server classes are registered (ADR-014 section 1). A class is served when
+it needs no session, network or service and a corpus test pins what AL sees. Per class of the measurement sets:
+
+- **`BusinessChartData`** (System Application "Business Chart Impl."): served (`al-vm/src/dotnet/business_chart_data.rs`):
+  the constructor, `ClearMeasures`, `AddMeasure`, `XDimension` (corpus `misc/lt-au-language-edges/AuEdgeTests.al:608`).
+  `ShowChartCondensed`, `DataTable` and the JSON `Update` sends to the add-in stay refused (not pinned).
+- **`AzureMLHelper`** (Base Application "Azure ML Connector"): stays refused. It calls Azure ML over the network (row 17).
+- **`AzureKeyVaultClientHelper`** (System Application "Azure Key Vault"): stays refused (row 9, decision 1 of 2026-10-29).
+  Microsoft's tests pass a `MockAzureKeyVaultSecretProvider`; what the helper does with it (the `AllowedApplicationSecrets`
+  list, a missing name) needs a probe first.
+- **`MockGraphQuery`**, **`ALSearch`**, **`NavPageSummaryALFunctions`** / **`NavPageActionALFunctions`**,
+  **`PasswordGenerator`**, **`VSCodeRequestHelper`**: stay refused until a corpus probe pins what AL sees. None needs the
+  network by itself, so each can be served once its probe lands.
