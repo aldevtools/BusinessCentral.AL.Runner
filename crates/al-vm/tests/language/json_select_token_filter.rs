@@ -86,3 +86,20 @@ fn a_double_quoted_indexer_answers_false_when_the_result_is_used() {
         "No"
     );
 }
+
+/// json/lt-db-json-leads/DbJPathLeads.al Y47_ArrayFilter_ReporterShapes and Y47_ArrayFilter_Neighbours (corpus branch
+/// al-runtime-rs-staging-y47, al-runner issue 6588).
+#[test]
+fn the_neighbour_filters_of_the_reporter_shape() {
+    let out = text(
+        r#"A.ReadFrom('[{"id":1,"name":"first"},{"id":2,"name":"second"}]');
+        O.Add('a', A);
+        S := Sel(O, '$.a[?(@.id==''2'')]');
+        S += '|' + Sel(O, '$.a[?(@.id!=1)].name');
+        S += '|' + Sel(O, '$.a[?(@.id<=1)].name');
+        S += '|' + Sel(O, '$.a[?(@.id == 2)].name');
+        S += '|' + Sel(O, '$.a[?(@.x==2)]');
+        exit(S);"#,
+    );
+    assert_eq!(out, r#"No [] |Yes ["second"] |Yes ["first"] |Yes ["second"] |No [] "#);
+}

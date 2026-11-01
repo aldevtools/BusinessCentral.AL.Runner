@@ -2237,8 +2237,8 @@ fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
                     if b.get(i) == Some(&b'.') {
                         descent = true;
                         i += 1;
-                    } else if b.get(i) == Some(&b'[') {
-                        // `$.[?(@.id==2)]` (al-runner issue 6588): the dot before an indexer is skipped.
+                    } else if b.get(i) == Some(&b'[') && b.get(i + 1) == Some(&b'?') {
+                        // `$.[?(@.id==2)]` (al-runner issue 6588): the dot before a filter is skipped.
                         crate::assumptions::assume(crate::assumptions::Assumption::SelectTokenDotBeforeIndexer);
                         continue;
                     }

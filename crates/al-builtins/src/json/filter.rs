@@ -1,5 +1,6 @@
-//! `SelectToken` paths with a filter indexer `[?(@.name == x)]` or `[?(@.name > n)]`: the forms
-//! json/lt-db-json-leads/DbJPathLeads.al:52-85 and json/lt-dc-json-leads/DcJsonLeads.al:286-345 pin.
+//! `SelectToken` paths with a filter indexer `[?(@.name == x)]`, `!=`, `>` or `<=`: the forms
+//! json/lt-db-json-leads/DbJPathLeads.al:52-85 and json/lt-dc-json-leads/DcJsonLeads.al:286-345 pin, and the `Y47_*` tests
+//! of DbJPathLeads.al on corpus branch al-runtime-rs-staging-y47 (al-runner issue 6588, measured on real BC).
 
 use super::{Handle, JsonNode, Scalar, Seg, error, tagged, with_node};
 use crate::native::{Ctx, Signal};
@@ -13,10 +14,22 @@ pub(super) enum Operand {
     Text(String),
 }
 
-/// One filter indexer: `@.<name> == <operand>`, or `@.<name> > <whole number>` (DbJPathLeads.al:62).
+/// The comparison of a filter.
+#[derive(Clone, Copy, PartialEq)]
+enum Op {
+    Eq,
+    /// `!=` (`Y47_ArrayFilter_Neighbours` `ne`).
+    Ne,
+    /// `>` (DbJPathLeads.al:62).
+    Gt,
+    /// `<=` (`Y47_ArrayFilter_Neighbours` `le`).
+    Le,
+}
+
+/// One filter indexer: `@.<name> <op> <operand>`; only `==` compares a text.
 pub(super) struct Filter {
     name: String,
-    greater: bool,
+    op: Op,
     rhs: Operand,
 }
 
@@ -33,15 +46,18 @@ pub(super) fn parse(inner: &str) -> Result<Filter, FilterErr> {
     let Some(f) = inner.strip_prefix("?(").and_then(|s| s.strip_suffix(')')) else {
         return Err(refused("SelectToken filter form not pinned by the corpus"));
     };
-    let (lhs, rhs, greater) = match (f.split_once("=="), f.split_once('>')) {
-        (Some((l, r)), None) => (l, r, false),
-        (None, Some((l, r))) if !r.starts_with('=') => (l, r, true),
-        _ => {
-            return Err(refused(
-                "SelectToken filter that is not a == or > comparison (not pinned)",
-            ));
-        }
+    let ops = [("==", Op::Eq), ("!=", Op::Ne), ("<=", Op::Le), (">", Op::Gt)];
+    let found: Vec<(&str, &str, Op)> = ops
+        .iter()
+        .filter_map(|(t, op)| f.split_once(t).map(|(l, r)| (l, r, *op)))
+        .collect();
+    let not_one = "SelectToken filter that is not one ==, !=, > or <= comparison (not pinned)";
+    let [(lhs, rhs, op)] = found[..] else {
+        return Err(refused(not_one));
     };
+    if rhs.starts_with('=') || f.contains(['&', '|']) || (f.contains('<') && op != Op::Le) {
+        return Err(refused(not_one));
+    }
     let name = lhs.trim().strip_prefix("@.").unwrap_or("");
     if name.is_empty() || !name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') {
         return Err(refused("SelectToken filter on something else than @.name (not pinned)"));
@@ -53,7 +69,7 @@ pub(super) fn parse(inner: &str) -> Result<Filter, FilterErr> {
         return Err(FilterErr::Invalid);
     } else if let Some(t) = rhs.strip_prefix('\'').and_then(|s| s.strip_suffix('\''))
         && !t.contains(['\'', '\\'])
-        && !greater
+        && op == Op::Eq
     {
         Operand::Text(t.to_string())
     } else {
@@ -63,7 +79,7 @@ pub(super) fn parse(inner: &str) -> Result<Filter, FilterErr> {
     };
     Ok(Filter {
         name: name.to_string(),
-        greater,
+        op,
         rhs: operand,
     })
 }
@@ -94,12 +110,21 @@ fn keep(h: &Handle, f: &Filter) -> Result<Vec<Handle>, Signal> {
             (JsonNode::Scalar(Scalar::Val(Value::Integer(v))), Operand::Int(r)) => Some(i64::from(*v).cmp(r)),
             (JsonNode::Scalar(Scalar::Val(Value::BigInteger(v))), Operand::Int(r)) => Some((*v).cmp(r)),
             (JsonNode::Scalar(Scalar::Val(Value::Text(v))), Operand::Text(r)) => Some(v.as_str().cmp(r.as_str())),
+            // A text against a number matches nothing (`Y47_ArrayFilter_Neighbours` `str_vs_number`, `@.id=='2'`).
+            (JsonNode::Scalar(Scalar::Val(Value::Integer(_) | Value::BigInteger(_))), Operand::Text(_)) => {
+                Some(std::cmp::Ordering::Less)
+            }
             _ => None,
         });
-        match hit {
-            Some(o) if (f.greater && o.is_gt()) || (!f.greater && o.is_eq()) => out.push(k),
-            Some(_) => {}
-            None => return refuse("a filter that compares a value of another kind"),
+        let keep = match (hit, f.op) {
+            (None, _) => return refuse("a filter that compares a value of another kind"),
+            (Some(o), Op::Eq) => o.is_eq(),
+            (Some(o), Op::Ne) => o.is_ne(),
+            (Some(o), Op::Gt) => o.is_gt(),
+            (Some(o), Op::Le) => o.is_le(),
+        };
+        if keep {
+            out.push(k);
         }
     }
     Ok(out)
