@@ -94,3 +94,4 @@ mod update_new_line_filter;
 mod validate_filter_refresh;
 mod view_blank_date;
 mod view_boolean_filter_text;
+mod widen_view_from_last;
