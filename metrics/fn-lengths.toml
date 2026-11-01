@@ -4,8 +4,8 @@
 # the limit in the same file. A function may not grow past its cap. When one shrinks, lower its cap;
 # at 250 lines or fewer, delete the row. Never raise a cap or add a row: extract steps into functions
 # of their own. Owner decides otherwise.
-"crates/al-builtins/src/evaluate.rs::evaluate_with_max" = 322
-"crates/al-builtins/src/format.rs::format_value" = 340
+"crates/al-builtins/src/evaluate.rs::evaluate_with_max" = 319
+"crates/al-builtins/src/format.rs::format_value" = 329
 "crates/al-builtins/src/ops.rs::arith_general" = 302
 "crates/al-deps/src/artifact.rs::load_with_artifacts" = 441
 "crates/alrunner-cli/src/args.rs::parse" = 511
@@ -28,8 +28,8 @@
 "crates/al-testrun/src/runtime/corpus.rs::run_compiled_kept" = 1044
 "crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 863
 "crates/al-version/src/gates.rs::evidence" = 608
-"crates/al-vm/src/exec/compile.rs::expr_into" = 320
-"crates/al-vm/src/exec/run.rs::run_range" = 357
+"crates/al-vm/src/exec/compile.rs::expr_into" = 319
+"crates/al-vm/src/exec/run.rs::run_range" = 353
 "crates/al-vm/src/pages/actions.rs::action_invoke_body" = 484
 "crates/al-vm/src/pages/controls.rs::control_set_value_now" = 887
 "crates/al-vm/src/pages/controls.rs::test_control_op" = 503
@@ -38,7 +38,7 @@
 "crates/al-vm/src/pages/pageops.rs::test_page_op_inner" = 644
 "crates/al-vm/src/recmeta.rs::record_meta_op" = 501
 "crates/al-vm/src/records.rs::record_op_inner" = 2145
-"crates/al-vm/src/refs.rs::fieldref_op" = 318
+"crates/al-vm/src/refs.rs::fieldref_op" = 314
 "crates/al-vm/src/refs.rs::recordref_op_inner" = 480
 "crates/al-vm/src/reports.rs::report_builtin" = 549
 "crates/al-vm/src/reports.rs::report_save_core" = 371

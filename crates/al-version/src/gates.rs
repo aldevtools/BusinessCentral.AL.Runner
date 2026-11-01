@@ -638,25 +638,9 @@ impl Gate {
                 file: "pages/lt-ab-tests/ABTests.al",
                 lines: "1236",
             }],
-            Gate::OptionFieldRefSetEvaluateErrorFrom28 => &[Evidence {
-                file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
-                lines: "170,175",
-            }],
-            Gate::EnumFieldRefValidateCaptionEvaluateErrorFrom28 => &[Evidence {
-                file: "text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al",
-                lines: "307",
-            }],
-            Gate::FieldRefTextNumberEvaluateErrorFrom28 => &[
-                Evidence {
-                    file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
-                    lines: "170,175",
-                },
-                // The number types (and Boolean, Date, Guid and Option at :294) set from a text through FieldRef.Value.
-                Evidence {
-                    file: "fieldref/TestFieldRefValue.al",
-                    lines: "215,242,294",
-                },
-            ],
+            Gate::OptionFieldRefSetEvaluateErrorFrom28
+            | Gate::EnumFieldRefValidateCaptionEvaluateErrorFrom28
+            | Gate::FieldRefTextNumberEvaluateErrorFrom28 => self.evidence_of_evaluate_error_gates(),
             Gate::MetadataNotFoundNamesTheCallerFrom28 => &[
                 Evidence {
                     file: "report/lt-t-validate-layout/TValidateLayout.al",
@@ -1048,6 +1032,32 @@ impl Gate {
                     lines: "294,314",
                 },
             ],
+        }
+    }
+
+    /// The evidence of the gates of an Evaluate error through a FieldRef (split out to keep `evidence` short).
+    fn evidence_of_evaluate_error_gates(self) -> &'static [Evidence] {
+        match self {
+            Gate::OptionFieldRefSetEvaluateErrorFrom28 => &[Evidence {
+                file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
+                lines: "170,175",
+            }],
+            Gate::EnumFieldRefValidateCaptionEvaluateErrorFrom28 => &[Evidence {
+                file: "text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al",
+                lines: "307",
+            }],
+            Gate::FieldRefTextNumberEvaluateErrorFrom28 => &[
+                Evidence {
+                    file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
+                    lines: "170,175",
+                },
+                // The number types (and Boolean, Date, Guid and Option at :294) set from a text through FieldRef.Value.
+                Evidence {
+                    file: "fieldref/TestFieldRefValue.al",
+                    lines: "215,242,294",
+                },
+            ],
+            _ => unreachable!("only the FieldRef Evaluate error gates"),
         }
     }
 
