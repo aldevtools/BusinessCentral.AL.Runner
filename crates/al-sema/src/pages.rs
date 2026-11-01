@@ -888,14 +888,10 @@ fn implicit_promoted_category(kind: &str, target: &str) -> Option<Option<al_buil
         return None;
     }
     // Pinned by pages/lt-up-page-ext/UpPromotedCategories.al (was assumption `pageext-implicit-promoted-category`) for
-    // `Category_New`, `Category_Category7` and `Category_Category12`. Every other group from 4 to 20 is the same implicit group
-    // (`promoted.rs`), on an assumption until its run is pinned.
-    if ["category_new", "category_category7", "category_category12"].contains(&lower.as_str()) {
-        return Some(None);
-    }
-    promoted::numbered_category(target).then_some(Some(
-        al_builtins::assumptions::Assumption::PageextImplicitPromotedAnchors,
-    ))
+    // `Category_New`, `Category_Category7` and `Category_Category12`, and for `Category_Category5` and 6 by corpus branch
+    // al-runtime-rs-staging-y64 85d86e7b, pages/lt-up-page-ext/Y64PromotedImplicit.al:229-308; every group from 4 to 20 is the
+    // same implicit group (`promoted.rs`).
+    (lower == "category_new" || promoted::numbered_category(target)).then_some(None)
 }
 
 /// A standard promoted category name (`Category_New`, `Category_Process`, `Category_Report`, `Category_CategoryN`) whose
@@ -1443,10 +1439,6 @@ impl Tree {
                 && (process_after || legacy || added_into || implicit || other.is_some())
                 && self.find_node(&target).is_none()
             {
-                if implicit {
-                    self.assumes
-                        .push(al_builtins::assumptions::Assumption::PageextImplicitPromotedAnchors);
-                }
                 // `added_into`: pinned by pageext/lt-ue-pageext-leads/UePromotedTests.al (was assumption `pageext-implicit-promoted`).
                 if let Some(Some(a)) = other {
                     self.assumes.push(a);
