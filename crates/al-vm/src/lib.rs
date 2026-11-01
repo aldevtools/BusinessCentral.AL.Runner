@@ -50,6 +50,7 @@ mod errorcollect;
 pub mod events;
 mod ext_validate_order;
 mod faultsite;
+mod fieldref_length;
 mod fieldref_validate;
 mod filterevents;
 mod filterpage;

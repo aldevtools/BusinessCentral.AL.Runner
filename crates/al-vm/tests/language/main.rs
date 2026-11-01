@@ -55,6 +55,7 @@ mod ext_validate_across_apps;
 mod failed_insert_system_id;
 mod fieldref_blob_compare;
 mod fieldref_enum_into_text;
+mod fieldref_length_more_kinds;
 mod fieldref_number_into_text_variable;
 mod fieldref_option_ordinal_arg;
 mod fieldref_text_into_integer;

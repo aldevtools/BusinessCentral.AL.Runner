@@ -1832,29 +1832,7 @@ impl Session {
             | "OptionString" => self.enum_metadata(method, &t, pos, args),
             // A field with `Enabled = false` is not active (record/TestProbeRecordRefContracts.al:KeyRef_And_FieldRef_Active).
             "Active" => Ok(Value::Boolean(self.field_enabled(&t, pos))),
-            "Length" => match &field.ty {
-                RtType::Text(Some(n)) | RtType::Code(Some(n)) => Ok(Value::Integer(*n as i32)),
-                // fieldref/lt-fieldref-length-kinds/FieldRefLengthKinds.al:78-126: Option and Enum 4 whatever the
-                // member names, Integer 4, Decimal 12, Date 4, Boolean 4, Guid 16, BigInteger 8, Blob 8, Time 4,
-                // Duration 8, DateTime 8. Text and Code without a length are not pinned.
-                RtType::Option(_)
-                | RtType::Enum(_)
-                | RtType::Integer
-                | RtType::Date
-                | RtType::Boolean
-                | RtType::Time => Ok(Value::Integer(4)),
-                RtType::Decimal => Ok(Value::Integer(12)),
-                RtType::Guid => Ok(Value::Integer(16)),
-                RtType::BigInteger | RtType::Duration | RtType::DateTime => Ok(Value::Integer(8)),
-                RtType::Library(al_builtins::library_kind::LibraryKind::Blob) => Ok(Value::Integer(8)),
-                // record/lt-media-length-find-empty/MediaLengthFindEmpty.al:56-75: Media 16, MediaSet 16.
-                RtType::Library(
-                    al_builtins::library_kind::LibraryKind::Media | al_builtins::library_kind::LibraryKind::MediaSet,
-                ) => Ok(Value::Integer(16)),
-                // The Security Filter columns of Permission and Metadata Permission (permissions/W6PermissionColumns.al:82,119).
-                RtType::Library(k) if k.as_str() == "TableFilter" => Ok(Value::Integer(504)),
-                other => unsupported(format!("FieldRef.Length of a {} field", other.describe())),
-            },
+            "Length" => crate::fieldref_length::length(&field.ty),
             "SetRange" | "SetFilter" => {
                 let mut a = vec![Value::Integer(pos as i32)];
                 a.extend(args.iter().cloned());
