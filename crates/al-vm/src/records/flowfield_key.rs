@@ -11,8 +11,8 @@ use super::*;
 
 /// The methods that run on a record marked with `why` ([`super::MEDIA_KEY`] or [`super::FLOWFIELD_KEY`]) besides the ones
 /// that give it a key of its own again: those that do not depend on the key or the order of the rows, and on a FlowField
-/// key the finds, the walk and the sort order (checked when the rows are read, [`Session::scan_flowfield_key`]).
-pub(super) fn runs(method: RecordOp, why: &str) -> bool {
+/// key the finds (`Find` with `-` or `+` only), the walk and the sort order (checked when the rows are read, [`Session::scan_flowfield_key`]).
+pub(super) fn runs(method: RecordOp, why: &str, args: &[Value]) -> bool {
     let independent = matches!(
         method,
         RecordOp::CurrentKey
@@ -42,7 +42,10 @@ pub(super) fn runs(method: RecordOp, why: &str) -> bool {
                     | RecordOp::GetAscending
                     | RecordOp::GetView
                     | RecordOp::CalcFields
-            ))
+            )
+            || why == FLOWFIELD_KEY
+                && method == RecordOp::Find
+                && matches!(args.first(), Some(Value::Text(w)) if w.as_str() == "-" || w.as_str() == "+"))
 }
 
 impl Session {

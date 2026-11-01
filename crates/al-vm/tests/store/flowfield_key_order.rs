@@ -109,6 +109,30 @@ codeunit 69962 "FK Probe"
         exit(T);
     end;
 
+    // Find('-') and Find('+') are FindFirst and FindLast; Find('=') is refused.
+    procedure FindForms(): Text
+    var R: Record "FK Header"; T: Text;
+    begin
+        Seed();
+        Filter(R);
+        R.SetCurrentKey(Amount);
+        R.Ascending(false);
+        if R.Find('-') then
+            repeat
+                T += R."No." + ' ';
+            until R.Next() = 0;
+        R.Find('+');
+        exit(T + R."No.");
+    end;
+
+    procedure FindEqual(): Boolean
+    var R: Record "FK Header";
+    begin
+        Seed();
+        R.SetCurrentKey(Amount);
+        exit(R.Find('='));
+    end;
+
     // Only a sum and a count are pinned.
     procedure ExistKey(): Boolean
     var R: Record "FK Header";
@@ -144,5 +168,15 @@ fn a_count_flowfield_key() {
 #[test]
 fn another_flowfield_kind_stays_refused() {
     let r = al_testkit::run_in(SRC, "FK Probe", "ExistKey");
+    assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
+}
+
+#[test]
+fn find_minus_and_plus_on_a_flowfield_key() {
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "FK Probe", "FindForms")),
+        "H2 H4 H1 H3 H5 H5"
+    );
+    let r = al_testkit::run_in(SRC, "FK Probe", "FindEqual");
     assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
 }
