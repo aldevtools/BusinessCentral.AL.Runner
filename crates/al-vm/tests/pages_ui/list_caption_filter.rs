@@ -216,6 +216,12 @@ fn a_date_caption_field_with_one_date_filtered_is_refused() {
 /// related record has the value (:147 `Y45 Cap DCF`).
 #[test]
 fn a_caption_field_with_a_table_relation_adds_the_related_records_caption_fields() {
-    assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "RelatedField")), "Probe Bin Related - B1");
-    assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "RelatedMissing")), "Probe Bin Related");
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(SRC, "C", "RelatedField")),
+        "Probe Bin Related - B1"
+    );
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(SRC, "C", "RelatedMissing")),
+        "Probe Bin Related"
+    );
 }

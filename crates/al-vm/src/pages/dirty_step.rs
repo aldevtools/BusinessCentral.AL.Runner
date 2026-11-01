@@ -22,7 +22,8 @@ impl Session {
     pub(super) fn save_before_action(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
         let host = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
         if let Some(host) = host {
-            if host.borrow().open && host.borrow().dirty && !host.borrow().draft && host.borrow().cursor == Cursor::Row {
+            if host.borrow().open && host.borrow().dirty && !host.borrow().draft && host.borrow().cursor == Cursor::Row
+            {
                 // A host whose save fails: the part action still runs (:1473 Doc_ModifyError_LineAction `pM boom/old;...;tM
                 // boom/old db=old/1;lact 10000 rec=a db=a head=old/1`).
                 let depth = self.frames.len();
@@ -80,7 +81,11 @@ impl Session {
 
     /// The page the client saves for: the page itself, or the host of a part.
     fn top_page(st: &St) -> St {
-        st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()).unwrap_or_else(|| st.clone())
+        st.borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, _)| h.upgrade())
+            .unwrap_or_else(|| st.clone())
     }
 
     /// A save the client made before a step, at call depth `depth`, that failed with an AL error of the table's OnModify: no
@@ -122,7 +127,9 @@ impl Session {
                     Ok(Value::Null)
                 }
                 PageMethod::ValidationErrorCount => self.test_page_op(method, st, args),
-                _ => unsupported(format!("TestPage.{name} on a page whose save before a step failed (not pinned)")),
+                _ => unsupported(format!(
+                    "TestPage.{name} on a page whose save before a step failed (not pinned)"
+                )),
             };
         }
         // New() on a part of a host opened with OpenNew whose row a SetValue already inserted: the host's edit is saved first (Y45SaveBeforeAction.al:1684
@@ -171,7 +178,12 @@ impl Session {
     }
 
     /// `TestField.*` and `TestAction.*` with the rules above in front.
-    pub(super) fn test_control_op_held(&mut self, method: PageOp, c: &ControlRef, args: &mut [Value]) -> Result<Value, Signal> {
+    pub(super) fn test_control_op_held(
+        &mut self,
+        method: PageOp,
+        c: &ControlRef,
+        args: &mut [Value],
+    ) -> Result<Value, Signal> {
         let m = method.method();
         let st = &c.page;
         let top = Self::top_page(st);
@@ -186,7 +198,11 @@ impl Session {
                     };
                     let engine = self.engine();
                     let name = page_of(&engine, st).controls[idx].name.clone();
-                    let hint = if self.is_list(st) { "" } else { " (Select Refresh to discard errors)" };
+                    let hint = if self.is_list(st) {
+                        ""
+                    } else {
+                        " (Select Refresh to discard errors)"
+                    };
                     Err(error_code(
                         format!(
                             "Validation error for Field: {name},  Message = 'This field cannot be validated since the key fields are not valid.{hint}'"
@@ -214,7 +230,9 @@ impl Session {
             return r;
         }
         match r {
-            Err(Signal::Error(e)) => self.hold_failed_save(st, depth, Err(Signal::Error(e))).map(|()| Value::Null),
+            Err(Signal::Error(e)) => self
+                .hold_failed_save(st, depth, Err(Signal::Error(e)))
+                .map(|()| Value::Null),
             other => other,
         }
     }

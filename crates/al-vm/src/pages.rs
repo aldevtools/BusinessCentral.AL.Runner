@@ -174,7 +174,9 @@ mod parts;
 pub(crate) mod request;
 pub(crate) use request::RequestClosed;
 mod actions;
+mod caption_relation;
 mod controls;
+mod dirty_step;
 mod draft;
 mod format;
 mod open;
@@ -183,8 +185,6 @@ mod refill;
 mod rows;
 mod runobject;
 mod shown;
-mod dirty_step;
-mod caption_relation;
 pub(crate) use shown::ShownNote;
 
 impl Session {

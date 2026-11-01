@@ -11,7 +11,12 @@ impl Session {
     /// is not used: :130 List_Dcf_FilterRefNo_Caption `- R1`, :164 a blank Name `- R2`, :384 `- E1`). `None` when no related
     /// record has the value (:147 List_Dcf_FilterRefNoMissingRef_Caption, :418: no suffix). A conditional or filtered relation,
     /// one to another field than a one-field primary key, and a blank DataCaptionFields value are not pinned.
-    pub(super) fn related_caption_parts(&mut self, rec: &Rec, pos: usize, value: &Value) -> Result<Option<Vec<String>>, Signal> {
+    pub(super) fn related_caption_parts(
+        &mut self,
+        rec: &Rec,
+        pos: usize,
+        value: &Value,
+    ) -> Result<Option<Vec<String>>, Signal> {
         let engine = self.engine();
         let table = self.table(rec)?;
         let field = engine.program.objects[table.object as usize]
@@ -19,12 +24,17 @@ impl Session {
             .as_ref()
             .and_then(|t| t.fields.get(pos))
             .ok_or_else(|| Signal::Unsupported("a caption field of a table without a schema".into()))?;
-        let refused = || unsupported("the caption of a list filtered on a data caption field with this TableRelation (not pinned)");
+        let refused = || {
+            unsupported("the caption of a list filtered on a data caption field with this TableRelation (not pinned)")
+        };
         let [arm] = field.relation_arms.as_slice() else {
             return refused();
         };
-        let (Some(target), true, Some(true)) = (arm.table, arm.conditions.is_empty(), arm.wheres.as_ref().map(Vec::is_empty))
-        else {
+        let (Some(target), true, Some(true)) = (
+            arm.table,
+            arm.conditions.is_empty(),
+            arm.wheres.as_ref().map(Vec::is_empty),
+        ) else {
             return refused();
         };
         let Some(related) = engine.tables[target].clone() else {
@@ -51,7 +61,11 @@ impl Session {
             .unwrap_or_default();
         let fmt = |v: &Value| pagefmt::control_text(v, &pagefmt::ControlFormat::default(), &|_, o| o.to_string());
         let mut parts = Vec::new();
-        for name in names.split(',').map(|n| n.trim().trim_matches('"')).filter(|n| !n.is_empty()) {
+        for name in names
+            .split(',')
+            .map(|n| n.trim().trim_matches('"'))
+            .filter(|n| !n.is_empty())
+        {
             let Some(i) = related.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name)) else {
                 return refused();
             };
