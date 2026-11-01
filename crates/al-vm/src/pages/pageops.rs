@@ -1261,14 +1261,17 @@ impl Session {
             //   :150-152, :199-201, :227 and :246 after SetRecord and SetTableView);
             // - its modal page closed: `Update(false)` and `SaveRecord()` do nothing (ClosedPageVariableCurrPageUpdate.al:70
             //   Update_AfterModalClosed; P82PageVar.al:136-142 AfterRunModal_Members).
-            // `Update()` without an argument, and `Update(true)` after the page closed, stay refused (not pinned).
+            // - never ran, `Update()` without an argument: does nothing, also on a NavigatePage without a source table and
+            //   before a RunModal of the same variable (pages/lt-y50-update-never-run/Y50UpdateNeverRun.al:241-255 T1, :259 T2,
+            //   :278 T3, :317 T5); after a modal run closed with OK, `Update()` and `Update(true)` do nothing (:336-352 T6,
+            //   `closed_after_modal_ok` in `test_page_op`).
             PageMethod::Update | PageMethod::SaveRecord
                 if method.recv() == PageRecv::Page && self.page_var_not_shown(st) && {
                     let ran = st.borrow().ran;
                     match (method, args.first()) {
                         (PageOp::PageSaveRecord, _) => true,
                         (_, Some(Value::Boolean(false))) => true,
-                        (_, Some(Value::Boolean(true))) => !ran,
+                        (_, Some(Value::Boolean(true)) | None) => !ran,
                         _ => false,
                     }
                 } =>

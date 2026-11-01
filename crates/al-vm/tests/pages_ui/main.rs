@@ -32,6 +32,7 @@ mod goto_next_call;
 mod gotokey_walk_parts;
 mod group_enabled_field;
 mod host_save_record_parts;
+mod list_caption_expression;
 mod list_caption_filter;
 mod secondary_key_marked_refill;
 
@@ -88,6 +89,7 @@ mod tree_refill_by_validate;
 mod trigger_errors;
 mod trust_refusals;
 mod unopened_page_var;
+mod update_no_arg_never_run;
 mod unpinned_testpage_paths;
 mod update_filter_away_row;
 mod update_new_line_filter;
