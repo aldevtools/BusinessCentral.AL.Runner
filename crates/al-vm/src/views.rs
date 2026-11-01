@@ -190,6 +190,7 @@ impl Session {
             FilterExpr::NotLike(p, ci) => format!("<>{}{p}", if *ci { "@" } else { "" }),
             // filters/lt-wc/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
+            FilterExpr::EmptyViewValue => "==".to_string(),
             FilterExpr::Or(xs) => xs
                 .iter()
                 .map(|x| self.filter_text_with(x, iso))
@@ -530,12 +531,14 @@ impl Session {
                             // member with parentheses keeps its quotes (record/TestCalcFormulaQuotedFilterTests.Codeunit.al:60308).
                             .filter(|v| !v.contains('\'') && !v.contains('"') && v.starts_with(['<', '>']))
                             .unwrap_or(value);
+                        let empty = self.empty_view_value(&kind, &ty, value, runtime)?;
                         // `filter('')` on a Date field reaches here as an empty value: it selects the blank date, as `filter(0D)`
                         // (`''` here) does. Pinned for a top-level page's SourceTableView (filter group 2, no SubPageView), by
                         // OpenView and by Page.Run on a record (pages/lt-cd-testpage-leads/CdTestPageLeads.al:842-870
                         // SH_SourceTableView_DateFilterBlank_Rows; Item58_SourceTableView_Filter0D at :521 for filter(0D)). An
                         // action's RunPageView, a part's view or another object's view is the assumption `view-blank-date-filter`.
-                        let value = if kind == "FILTER"
+                        let value = if empty.is_none()
+                            && kind == "FILTER"
                             && matches!(ty, al_builtins::value::RtType::Date)
                             && value.trim().is_empty()
                         {
@@ -555,9 +558,13 @@ impl Session {
                             work_date: self.work_date_day().unwrap_or_else(|| self.today_day_number()),
                             language: self.global_language,
                         };
-                        let expr =
-                            al_builtins::filter::with_date_context(date_ctx, || self.parse_filter_text(value, &ty))
-                                .map_err(|e| Signal::Unsupported(format!("SetView: {e}")))?;
+                        let expr = match empty {
+                            Some(e) => e,
+                            None => {
+                                al_builtins::filter::with_date_context(date_ctx, || self.parse_filter_text(value, &ty))
+                                    .map_err(|e| Signal::Unsupported(format!("SetView: {e}")))?
+                            }
+                        };
                         filters.retain(|f| f.field != pos);
                         filters.push(FieldFilter {
                             field: pos,
@@ -662,6 +669,7 @@ fn ordinals(e: &FilterExpr) -> FilterExpr {
         FilterExpr::Like(p, ci) => FilterExpr::Like(p.clone(), *ci),
         FilterExpr::NotLike(p, ci) => FilterExpr::NotLike(p.clone(), *ci),
         FilterExpr::AtSignAlone(n) => FilterExpr::AtSignAlone(*n),
+        FilterExpr::EmptyViewValue => FilterExpr::EmptyViewValue,
     }
 }
 
@@ -912,14 +920,16 @@ fn split_top_with(s: &str, sep: char, quotes: bool) -> Option<Vec<&str>> {
     quote.is_none().then_some(out)
 }
 
-/// A view names a field by its name or, in the numeric form, as `Field<n>`.
+/// A view names a field by its name or, in the numeric form, as `Field<n>` in any case (`field2`, `fIeLd4`:
+/// record/lt-y51-setview-shapes/Y51SetViewShapes.al:118-131, SetView_LowercaseFieldN).
 fn field_by_name(t: &TableDef, name: &str) -> Option<usize> {
     let name = name.trim_matches('"');
     if let Some(p) = t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name)) {
         return Some(p);
     }
-    name.strip_prefix("Field")
-        .and_then(|n| n.parse::<u32>().ok())
+    name.get(..5)
+        .filter(|p| p.eq_ignore_ascii_case("field"))
+        .and_then(|_| name[5..].parse::<u32>().ok())
         .and_then(|id| t.fields.iter().position(|f| f.id == id))
 }
 

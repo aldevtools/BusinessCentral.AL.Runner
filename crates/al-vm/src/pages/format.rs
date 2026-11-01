@@ -1169,13 +1169,11 @@ impl Session {
     /// The caption of a page with `DataCaptionExpression`: the page caption, ` - ` and the expression's value, evaluated now.
     /// Pinned on a card with a source table, standing on a stored row (pages/lt-page-autoformat-lookups/P113DataCaption.al:83-88,
     /// :264-279, P113_DC_DataCaptionExpression: `P113 Expr - EXPR-Alpha`, after GoToKey `P113 Expr - EXPR-Beta`). A page with
-    /// no source table (al-runner issue 6320), a list, a new row, no row, and an expression whose value is empty are not pinned
-    /// and are refused.
+    /// no source table (al-runner issue 6320), a new row, no row, and an expression whose value is empty are not pinned
+    /// and are refused. A list, worksheet or list part: `caption_expr_list.rs`.
     fn data_caption_expression_caption(&mut self, st: &St, base: String) -> Result<String, Signal> {
-        let engine = self.engine();
-        let object = st.borrow().object as usize;
         if self.is_list(st) {
-            return unsupported("the caption of a list page with DataCaptionExpression (not pinned)");
+            return self.list_data_caption_expression_caption(st, base);
         }
         if !self.has_source(st) {
             return unsupported("the caption of a page with DataCaptionExpression and no source table (not pinned)");
@@ -1189,17 +1187,7 @@ impl Session {
                 return unsupported("the caption of a page with DataCaptionExpression and no row (not pinned)");
             }
         }
-        let Some(r) = engine.program.objects[object]
-            .routines
-            .iter()
-            .position(|x| x.name == ir::DATA_CAPTION_ROUTINE)
-        else {
-            return unsupported("the caption of a page with DataCaptionExpression (the expression was not compiled)");
-        };
-        let value = match self.owner_routine(st, None, r)? {
-            Value::Text(t) | Value::Code(t) => t.to_string(),
-            _ => return unsupported("the caption of a page with DataCaptionExpression (the expression is no text)"),
-        };
+        let value = self.data_caption_expression_value(st)?;
         if value.is_empty() {
             return unsupported("the caption of a page with DataCaptionExpression whose value is empty (not pinned)");
         }

@@ -391,6 +391,10 @@ public sealed class Server
         if (pt == typeof(decimal) && (a is int or long or byte or short)) return 3;
         // An AL Decimal is a .NET decimal; a double parameter takes it by numeric conversion.
         if (a is decimal && pt.IsPrimitive && pt != typeof(bool) && pt != typeof(char)) return 4;
+        // A one-character AL text into a char[] (String.Split(','), whose one-argument form is `params char[]`): the
+        // character (tests/al-language-onprem-dotnet/TestDotNetValueKindsContracts.al:250 Foreach_OverClrCollections,
+        // lt-y51-dotnet-builtin-args/Y51DotNetBuiltinArgs.al DotNetString_ErrorInfoCreate `Source.Split(',')`).
+        if (pt == typeof(char[]) && a is string { Length: 1 }) return 5;
         return -1;
     }
 
@@ -409,6 +413,7 @@ public sealed class Server
         if (pt.IsAssignableFrom(a.GetType())) return new Boxed(a);
         if (pt.IsEnum && a is int i) return new Boxed(Enum.ToObject(pt, i));
         if (pt.IsEnum && a is long l) return new Boxed(Enum.ToObject(pt, l));
+        if (pt == typeof(char[]) && a is string { Length: 1 } one) return new Boxed(one.ToCharArray());
         try { return new Boxed(Convert.ChangeType(a, pt, CultureInfo.InvariantCulture)); }
         catch (Exception ex) when (ex is InvalidCastException or OverflowException or FormatException) { return null; }
     }

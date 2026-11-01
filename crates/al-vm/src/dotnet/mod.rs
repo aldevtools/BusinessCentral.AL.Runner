@@ -3,10 +3,13 @@
 //! too.
 
 mod blob_stream;
+mod blob_stream_position;
 pub mod compression;
 mod drawing;
 mod generic_dictionary;
+mod generic_dictionary_more;
 mod gettype;
+pub(crate) mod instream_arg;
 mod last_error;
 mod not_created;
 mod pinned_exceptions;
@@ -954,11 +957,27 @@ impl Session {
         let current = self
             .host_get(en_handle, "Current", &en_type, f)
             .map_err(|e| e.signal(&en_type, "Current"))?;
+        // TestDotNetValueKindsContracts.al:299-329 (Foreach_Failures_HaveTheirTextsAndCodes): BC 28 and later read the element
+        // by Evaluate; a Date over a text there has a text the corpus pins only by its start, and is refused.
+        let bc28 = self.engine.target.as_ref().map_or(29, |t| t.bc.major) >= 28;
         let item = match self.dotnet_coerce(current.clone(), &var_ty) {
             Ok(v) => v,
             Err(unfit) => {
                 return Err(match (&current, &var_ty) {
-                    (Value::Integer(_), RtType::Text(_) | RtType::Code(_)) => {
+                    (Value::Integer(n), RtType::Text(_)) if bc28 => {
+                        match al_builtins::native::raise::<()>(
+                            format!("The value \"{n}\" can't be evaluated into type Text."),
+                            "Evaluate:Argument",
+                        ) {
+                            Err(e) => e,
+                            Ok(()) => unreachable!(),
+                        }
+                    }
+                    (Value::Text(_), RtType::Date) if bc28 => Signal::Unsupported(
+                        "foreach of a Date over a .NET text: on this major the corpus pins only the start of the error text"
+                            .into(),
+                    ),
+                    (Value::Integer(_), RtType::Text(_) | RtType::Code(_)) if !bc28 => {
                         match al_builtins::native::raise::<()>(
                             "Invalid Conversion. Source: Int32, Destination: NavText.",
                             "Argument",
@@ -967,7 +986,7 @@ impl Session {
                             Ok(()) => unreachable!(),
                         }
                     }
-                    (Value::Text(_), RtType::Date) => {
+                    (Value::Text(_), RtType::Date) if !bc28 => {
                         match al_builtins::native::raise::<()>(
                             "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavText to System.DateTime.",
                             "Conversion",
@@ -1656,6 +1675,17 @@ fn kind_of(v: &Value) -> &'static str {
 /// pinned, so anything else is Unsupported (ADR-014 section 4).
 pub(crate) fn fit(v: Value, t: &RtType) -> Result<Value, Signal> {
     use RtType as T;
+    // A .NET Int64 into an Integer: the number when it fits, else an overflow error and the slot keeps its value
+    // (tests/al-language-onprem-dotnet/lt-y51-dotnet-int64/Y51DotNetInt64IntoInteger.al:49-175, also through a var parameter).
+    if let (Value::BigInteger(n), T::Integer) = (&v, t) {
+        return match i32::try_from(*n) {
+            Ok(i) => Ok(Value::Integer(i)),
+            Err(_) => al_builtins::native::raise(
+                format!("Overflow under conversion of System.Int64 value {n} to System.Int32."),
+                "ConversionCast",
+            ),
+        };
+    }
     let ok = matches!(
         (&v, t),
         (_, T::Variant)

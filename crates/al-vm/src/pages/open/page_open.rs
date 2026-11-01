@@ -498,6 +498,7 @@ impl Session {
                 }
             }
             self.pages.run_page_link_open_moved = false;
+            self.drop_handed_or_group(st, has_source);
             let opened = self.page_trigger(st, "onopenpage", vec![]);
             st.borrow_mut().opening = false;
             st.borrow_mut().run_page_link_open_moved = std::mem::take(&mut self.pages.run_page_link_open_moved);
@@ -522,10 +523,7 @@ impl Session {
                 st.borrow_mut().onopenpage_kept_rec = kept;
             }
             self.page_event(st, "onopenpageevent", None, None)?;
-            if has_source {
-                self.drop_or_group(st)?;
-                self.apply_tree_cut(st)?;
-            }
+            self.cut_rec_after_onopenpage(st, has_source)?;
             if unattended {
                 return Ok(());
             }
@@ -732,8 +730,8 @@ impl Session {
 
     /// Filters OnOpenPage left in `FilterGroup(-1)` do not limit the rows the page shows: the record counts the OR rows inside the
     /// trigger, the page shows every row (pages/lt-cd-testpage-leads/CdTestPageLeads.al:776 Item63_FilterGroupMinus1_InOnOpenPage).
-    /// What the page's `Rec` holds in group -1 afterwards is not pinned, so a page with code that could read it later (another
-    /// trigger, a control or action trigger, an extension) is refused, and so is a TestPage `Filter` read (see `test_filter_op`).
+    /// Later code reads Rec without them (`or_group_drop_pinned` says which shapes are pinned; the others are refused on a page
+    /// with code that could read Rec later). A TestPage `Filter` read is pinned with MarkedOnly only (see `test_filter_op`).
     pub(super) fn drop_or_group(&mut self, st: &St) -> Result<(), Signal> {
         let rec = self.page_rec(st);
         if !rec
@@ -745,9 +743,9 @@ impl Session {
             return Ok(());
         }
         let reads_later = self.page_code_runs(st, false);
-        if reads_later {
+        if reads_later && !self.or_group_drop_pinned(st) {
             return unsupported(
-                "FilterGroup(-1) filters left by OnOpenPage on a page with code that runs later (what Rec holds then is not pinned)",
+                "FilterGroup(-1) filters left by OnOpenPage, with marks but without MarkedOnly, on a page with code that runs later (what Rec holds then is not pinned)",
             );
         }
         rec.borrow_mut()
@@ -898,6 +896,9 @@ impl Session {
                 let from_start = self.is_list(st);
                 st.borrow_mut().window_from_start = from_start;
                 return Ok(());
+            }
+            if self.handed_or_group_list_on_row(st)? {
+                return self.open_on_rec_moved_by_onopenpage(st);
             }
             if self.stored_row(&rec)?.is_some() {
                 self.ret_used = true;
@@ -1239,6 +1240,9 @@ impl Session {
             }
             return Ok(true);
         }
+        if temp_worksheet && self.temp_tree_worksheet_in_key(st) {
+            return Ok(true);
+        }
         if temp_worksheet {
             // A temporary Worksheet whose OnOpenPage moved Rec or changed its key, its order or its filters: both paths below
             // make a choice no corpus test pins (which row it opens on), so both mark the assumption
@@ -1339,16 +1343,22 @@ impl Session {
     /// view. A view with no row is not pinned.
     pub(super) fn open_on_rec_moved_by_onopenpage(&mut self, st: &St) -> Result<(), Signal> {
         let rec = self.page_rec(st);
-        // A temporary source in a key other than the primary key is not pinned: a card keeps the read after the find it had, a
-        // list is refused.
+        // A temporary source in a key other than the primary key: a card keeps the read after the find it had.
         let temp_key = rec.borrow().key != 0 && rec.borrow().temporary;
-        let list = self.is_list(st);
         // A temporary Worksheet in a key set before the open (`rec_moved_by_onopenpage` lets only the pinned form through) reads
         // as a list over a database table in such a key does: the row of Rec's primary key first, then each row once more
         // (QrMovedTests.al:2458 QT_TempWs_RunModal_ByName_B `O:B;R:B;R:B;R:A;R:B;R:C;R:D;R:B;R:B;R:B;C:B;`, next `R:A;R:A;R:A;C:A;`,
         // as :345 QR_List_OpenView_SetCurrentKeyGet).
-        let temp_ws_key = temp_key && self.temp_worksheet_set_before_open(st);
-        if temp_ws_key {
+        let mut temp_ws_key = temp_key && self.temp_worksheet_set_before_open(st);
+        // A temporary List whose OnOpenPage changed the key (`temp_list_key_open`, gap G5-19).
+        let list = self.is_list(st);
+        if temp_key && list && !temp_ws_key {
+            match self.temp_list_key_open(st)? {
+                super::temp_list_key::TempListKeyOpen::Opened => return Ok(()),
+                super::temp_list_key::TempListKeyOpen::ReadOnceMore
+                | super::temp_list_key::TempListKeyOpen::FromBuffer => temp_ws_key = true,
+            }
+        } else if temp_ws_key {
             let mut pk = self.row_key(&rec)?;
             self.ret_used = true;
             if !matches!(self.record_op(RecordOp::Get, &rec, &mut pk)?, Value::Boolean(true)) {
@@ -1360,11 +1370,6 @@ impl Session {
             st.borrow_mut().temp_reads_once_more = true;
         }
         let find = self.declares(st, "onfindrecord");
-        if temp_key && list && !temp_ws_key {
-            return unsupported(
-                "a list over a temporary source opened without a record whose OnOpenPage changed its key and left Rec on a row other than the first of its view (not pinned)",
-            );
-        }
         // The first row of the view, to tell whether `=><` lands on it (a copy of the record, so the page's own is not moved).
         let first = if list {
             let probe = Rc::new(RefCell::new(rec.borrow().clone()));

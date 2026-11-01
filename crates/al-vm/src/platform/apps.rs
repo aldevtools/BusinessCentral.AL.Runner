@@ -120,30 +120,9 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
             Some(Entry::ok(r))
         })
         .collect::<Vec<_>>();
-    // The `Application` aggregate holds no source, so the program has no app for it; a tier always publishes it (onprem
-    // session/PZPublishedApplicationColumns.al:53, :58 reads its row). Its columns are not known here: a read that may land
-    // on it refuses, while a filter on another ID, Name or Publisher passes it by.
-    let application = al_builtins::moduleinfo::APPLICATION_APP_ID;
-    if !p
-        .engine()
-        .program
-        .apps
-        .iter()
-        .any(|a| a.id.eq_ignore_ascii_case(application))
-    {
-        if let Some(id) = al_builtins::ops::parse_guid(application) {
-            let mut k = blank(t);
-            k[pos(t, 3)] = Value::Guid(id);
-            k[pos(t, 4)] = Value::Text("Application".into());
-            k[pos(t, 5)] = Value::Text("Microsoft".into());
-            rows.push(
-                Entry::poisoned(
-                    k,
-                    "the row of the Application app (it holds no source, so its columns are not known)".into(),
-                )
-                .with_known_cols(vec![pos(t, 3), pos(t, 4), pos(t, 5)]),
-            );
-        }
+    // The `Application` aggregate (application_row.rs).
+    if let Some(id) = super::application_row::application_id(p) {
+        rows.push(super::application_row::published_application_row(p, t, id));
     }
     rows
 }
@@ -193,7 +172,21 @@ pub(super) fn nav_app_extra_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             r[pos(t, 3)] = Value::Boolean(true);
             Some(Entry::ok(r))
         })
+        .chain(application_runtime_row(p, t, true))
         .collect()
+}
+
+/// The NAV App Extra or Installed Application row of the Application app: Tenant Visible, PerTenant Or Installed and Installed
+/// are Yes for it (onprem session/PZPublishedApplicationColumns.al:53-57).
+fn application_runtime_row(p: &Providers, t: &TableDef, extra: bool) -> Option<Entry> {
+    let id = super::application_row::application_id(p)?;
+    let mut r = blank(t);
+    r[pos(t, 1)] = Value::Guid(super::application_row::runtime_package_id(id));
+    if extra {
+        r[pos(t, 2)] = Value::Boolean(true);
+        r[pos(t, 3)] = Value::Boolean(true);
+    }
+    Some(Entry::ok(r))
 }
 
 /// Installed Application: "Runtime Package ID" (1). One row per listed app: every app of the run is installed
@@ -209,5 +202,6 @@ pub(super) fn installed_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
             r[pos(t, 1)] = Value::Guid(ids::runtime_package_id(id, a.dependency));
             Some(Entry::ok(r))
         })
+        .chain(application_runtime_row(p, t, false))
         .collect()
 }

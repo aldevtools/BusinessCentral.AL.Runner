@@ -471,100 +471,21 @@ impl Session {
             }
             return Ok(Some(format!("filter={}", encode(&parts.join(" AND "))?)));
         }
-        // The bookmark: the table number, then the primary key fields. Only a key of one Code[10], Code[20] or Code[50]
-        // field, one Integer field, a Code[20] and an Integer field (in that order), or two Code[20] fields is pinned
-        // (TGetUrl.al:439-447 GetUrl_Web_BookmarkOfCodeKeys for Code[10], Code[50] and two Code[20]), and an Enum or Option field
-        // followed by a Code[20] field (platform/lt-system-database-members/GetUrlBookmarkEnumKey.al:80-170).
+        // The bookmark: the table number, then the primary key fields (al_builtins::bookmark, which names the pinned keys).
         let table_id = match self.engine.program.objects[t.object as usize].id {
             Some(id) => id,
             None => return unsupported("GetUrl bookmark of a table without an id"),
         };
         let r = rec.borrow();
-        let mut data: Vec<u8> = table_id.to_le_bytes().to_vec();
-        let mut size = 6usize;
         let key = &t.keys[0];
         let shape: Vec<&RtType> = key.iter().map(|&p| &t.fields[p].ty).collect();
-        let ok = matches!(
-            shape.as_slice(),
-            [RtType::Code(Some(10 | 20 | 50))]
-                | [RtType::Integer]
-                | [RtType::Code(Some(20)), RtType::Integer]
-                | [RtType::Code(Some(20)), RtType::Code(Some(20))]
-                | [RtType::Enum(_) | RtType::Option(_), RtType::Code(Some(20))]
-                | [RtType::Enum(_)]
-        );
-        if !ok {
+        if !al_builtins::bookmark::url_shape_pinned(&shape) {
             return unsupported(
                 "GetUrl bookmark of a primary key other than Code[10], Code[20], Code[50], Integer, Code[20] and Integer, or two Code[20] (not pinned)",
             );
         }
-        let two_codes = key.len() == 2 && matches!(shape[1], RtType::Code(_));
-        // An empty Code after an Enum or Option field is pinned (GetUrlBookmarkEnumKey.al:102, :151).
-        let enum_code = key.len() == 2 && matches!(shape[0], RtType::Enum(_) | RtType::Option(_));
-        // A key of one Code[20] field: every Code that starts with a digit is pinned (GetUrlBookmarkDigitCode.al:117-163,
-        // corpus master).
-        let one_code20 = matches!(shape.as_slice(), [RtType::Code(Some(20))]);
-        for &p in key.iter() {
-            match &r.fields[p] {
-                Value::Code(c) => {
-                    let s = c.as_str();
-                    if !s.is_ascii() {
-                        return unsupported("GetUrl bookmark of a Code value with a non-ASCII character (not pinned)");
-                    }
-                    if s.is_empty() && key.len() > 1 && !two_codes && !enum_code {
-                        return unsupported("GetUrl bookmark of an empty Code in a two-field key (not pinned)");
-                    }
-                    // A non-empty Code is marked 0xff, an empty one 0x00 (TGetUrl.al:446-447 `two second empty`,
-                    // `two first empty`). A Code of six digits is marked 0x06 (GetUrlBookmarkEnumKey.al:149-150
-                    // `order 106001`); a Code that starts with a digit in another form is not pinned, except in a key of one
-                    // Code[20] field: there a Code of digits only is marked with its digit count (`1` 0x01, `007` 0x03, 20
-                    // digits 0x14) and digits followed by other characters (`1A`, `12345A`, `1-2`, `1 2`) 0xff
-                    // (platform/lt-system-database-members/GetUrlBookmarkDigitCode.al:117-163, corpus master).
-                    let marker = if s.is_empty() {
-                        0x00
-                    } else if one_code20 && s.starts_with(|c: char| c.is_ascii_digit()) {
-                        if s.bytes().all(|b| b.is_ascii_digit()) {
-                            s.len() as u8
-                        } else {
-                            0xff
-                        }
-                    } else if s.starts_with(|c: char| c.is_ascii_digit()) {
-                        if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_digit()) {
-                            return unsupported(
-                                "GetUrl bookmark of a Code value that starts with a digit (pinned only for six digits)",
-                            );
-                        }
-                        0x06
-                    } else {
-                        0xff
-                    };
-                    data.extend_from_slice(&[0x02, 0x7b, marker]);
-                    for b in s.bytes() {
-                        data.extend_from_slice(&[b, 0]);
-                    }
-                    data.extend_from_slice(&[0, 0]);
-                    size += 5 + 2 * s.len();
-                }
-                // An Enum field is marked 0x8b and carries the value's number, an Option field its ordinal
-                // (GetUrlBookmarkEnumKey.al:99-104 `fifth A1` = 5, :168-169 `fifth A1` = 2). An Enum as the only key field: its
-                // zero bytes at the end are dropped like any (`pWQBAACL` for 0, `...AQ==` for 1; GetUrlBookmarkDigitCode.al:166-184,
-                // corpus master). An Option as the only key field is not pinned (refused above).
-                Value::Enum(_, n) | Value::Option(n, _) => {
-                    data.extend_from_slice(&[0x00, 0x8b]);
-                    data.extend_from_slice(&n.to_le_bytes());
-                    size += 6;
-                }
-                Value::Integer(n) => {
-                    data.extend_from_slice(&[0x00, 0x87]);
-                    data.extend_from_slice(&n.to_le_bytes());
-                    size += 6;
-                }
-                other => return unsupported(format!("GetUrl bookmark of a key value {}", other.describe())),
-            }
-        }
-        while data.last() == Some(&0) {
-            data.pop();
-        }
+        let values: Vec<&Value> = key.iter().map(|&p| &r.fields[p]).collect();
+        let (size, data) = al_builtins::bookmark::encode(table_id, &shape, &values).map_err(Signal::Unsupported)?;
         let b64 = base64(&data)
             .replace('+', "%2b")
             .replace('/', "%2f")

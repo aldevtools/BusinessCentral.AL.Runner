@@ -743,9 +743,10 @@ fn foreach_over_clr_collections() {
 #[test]
 fn foreach_failures_have_their_pinned_texts_and_codes() {
     let want = [
+        // The newest major: the BC28PLUS text (al-language-onprem-dotnet/TestDotNetValueKindsContracts.al:299-306).
         (
             "ForeachTextOverInts",
-            "Invalid Conversion. Source: Int32, Destination: NavText.|Argument",
+            "The value \"1\" can't be evaluated into type Text.|Evaluate:Argument",
         ),
         (
             "ForeachModified",
@@ -755,14 +756,14 @@ fn foreach_failures_have_their_pinned_texts_and_codes() {
             "ForeachNull",
             "A DotNet variable has not been instantiated. Attempting to call System.Collections.ArrayList.GetEnumerator in CodeUnit C: ForeachNull|DotNetVariableNotCreated",
         ),
-        (
-            "ForeachDateOverText",
-            "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavText to System.DateTime.|Conversion",
-        ),
     ];
     for (name, text) in want {
         if let Some(got) = txt(name) {
             assert_eq!(got, text, "{name}");
         }
+    }
+    // On BC 28 and later the corpus pins only the start of the Date-over-text error, so it is refused.
+    if let Some(r) = refusal("ForeachDateOverText") {
+        assert!(r.contains("foreach of a Date over a .NET text"), "{r}");
     }
 }

@@ -574,6 +574,7 @@ mod conv_matrix;
 mod convert;
 mod coverage_ids;
 mod dotnet;
+mod dotnet_arg;
 mod expr;
 mod extend;
 

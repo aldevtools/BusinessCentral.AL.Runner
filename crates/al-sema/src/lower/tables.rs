@@ -394,6 +394,17 @@ impl Lowerer<'_> {
         self.field_pos(table, id).ok_or_else(|| "field position".to_string())
     }
 
+    /// The position of field `id` named as an argument of builtin `builtin`: as [`Self::readable_field_pos`], but `FieldNo`
+    /// reads the number, not the column's value, so an unpinned platform column is not refused there (Base Application's
+    /// Data Classification Eval. Data: `DummyPublishedApplication.FieldNo(Blob)`, batch-5a G5-01; FieldNo is the field's
+    /// number as declared).
+    pub(crate) fn named_field_pos(&mut self, table: usize, id: u32, builtin: &str) -> L<usize> {
+        if builtin == "Record.FieldNo#1" {
+            return self.field_pos(table, id).ok_or_else(|| "field position".to_string());
+        }
+        self.readable_field_pos(table, id)
+    }
+
     /// The triggers named `trigger` that `modify(field)` blocks of the table's `extensions` declare.
     pub(crate) fn ext_field_triggers(
         &self,

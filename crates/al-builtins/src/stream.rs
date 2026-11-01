@@ -70,6 +70,10 @@ pub struct BlobBuf {
     /// The id of the `DotNet` System.IO.Stream an `OutStream` on this buffer was given to (al-vm `dotnet/blob_stream.rs`), or 0.
     /// `CreateOutStream` and `Import` set it back to 0: what the .NET stream does after that is not pinned.
     pub dotnet_view: u32,
+    /// The empty Blob `FieldRef.Value` hands out for a stored row's Blob that holds content and was not read with CalcFields
+    /// ([`unread_content_blob`]): `Format` shows `*` (text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:383) and a comparison
+    /// sees a Blob with content (`blob_compare`). A copy does not keep it.
+    pub unread_content: bool,
 }
 
 thread_local! {
@@ -330,6 +334,7 @@ pub fn new_blob() -> BlobRef {
         first_write_truncates: false,
         file: false,
         dotnet_view: 0,
+        unread_content: false,
     }))
 }
 
@@ -339,6 +344,14 @@ pub fn copy_blob_temp_row(b: &BlobRef) -> BlobRef {
     let c = copy_blob(b, false);
     c.borrow_mut().temp_row = true;
     c
+}
+
+/// The value `FieldRef.Value` hands out for a stored row's Blob with content that was not read with CalcFields: empty
+/// (`HasValue` No, `Length` 0, recordref/lt-refs/RfTValues.al:QP_Blob_GetTable_ValueWithoutCalcFields), marked `unread_content`.
+pub fn unread_content_blob() -> BlobRef {
+    let b = new_blob();
+    b.borrow_mut().unread_content = true;
+    b
 }
 
 pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
@@ -359,6 +372,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         first_write_truncates: false,
         file: false,
         dotnet_view: 0,
+        unread_content: false,
     }))
 }
 
@@ -834,6 +848,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         first_write_truncates: false,
         file: false,
         dotnet_view: 0,
+        unread_content: false,
     });
     set_stream(
         &a[0],

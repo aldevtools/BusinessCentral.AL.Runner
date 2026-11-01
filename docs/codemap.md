@@ -353,7 +353,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `state.rs` (117): Sub-states of `Session`: `TxState`, `UiState`, `PageClients`, `EventState`, `CoverageState`, `ReportState` (the .NET host state is `dotnet::DotNetState`).
 - `pages.rs` (432): The page test client (ADR-012): shared helpers, page triggers and events, the handle to a control. The rest is split by topic into `pages/`.
 - `pages/pageops.rs` (538): The `TestPage.*` and `TestField.*` methods. Entry: `page_op`, `test_page_op`.
-- `pages/open/mod.rs` (20): Opening and closing a page, rows loaded on open. Submodules: `page_open`, `close`, `landing`, `part_links`, `tree`, `values`. Entry: `page_open`, `open_page_as` (page_open.rs), `page_close`, `close_with` (close.rs).
+- `pages/open/mod.rs` (20): Opening and closing a page, rows loaded on open. Submodules: `page_open`, `close`, `landing`, `or_group`, `part_links`, `record_refusals`, `temp_list_key`, `tree`, `values`. Entry: `page_open`, `open_page_as` (page_open.rs), `page_close`, `close_with` (close.rs).
 - `pages/rows.rs` (976): The row window, navigation, `GoToKey`, `Find`, modal answers. Entry: `populate_window`, `page_move`, `page_go_to_key`.
 - `pages/draft.rs` (304): New rows, drafts, saving a row, activating a control.
 - `pages/controls.rs` (588): Writing a control and the `TestField` methods. Entry: `control_set_value`, `test_control_op`.
@@ -369,6 +369,10 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `pages/runobject.rs` (321): `RunObject` actions (ADR-012 follow-up).
 - `pages/dirty_step.rs`: What the client saves before the next step (an action, a RunObject, a part's New) and a page that holds a failed save or a refused entry (corpus pages/lt-y45-save-before-action). Entry: `save_before_action`, `test_page_op_held`, `test_control_op_held`.
 - `pages/caption_relation.rs`: What a list caption adds for a DataCaptionFields field with a TableRelation. Entry: `related_caption_parts`.
+- `pages/caption_expr_list.rs`: The caption of a List, Worksheet or ListPart with DataCaptionExpression (gap G5-18). Entry: `list_data_caption_expression_caption`, `data_caption_expression_value`.
+- `pages/refresh_new_line.rs`: Where the refresh after a control's OnValidate changed the filters starts, including from the new-row line, and Update(true) from that line (gap G5-20). Entry: `validate_refresh_start`, `save_found_row_from_new_line`.
+- `pages/open/temp_list_key.rs`: A List over a temporary source whose OnOpenPage changed its key, and a temporary tree Worksheet in a changed key: the page opens on Rec's row (gaps G5-19, G5-17). Entry: `temp_list_key_open`, `temp_tree_worksheet_in_key`.
+- `pages/open/or_group.rs`: FilterGroup(-1) on a page's Rec: dropped from a handed record before OnOpenPage, and after it (gap G5-21). Entry: `drop_handed_or_group`, `or_group_drop_pinned`, `cut_rec_after_onopenpage`.
 - `pages/shown.rs` (662): When a page computes its expression controls (al-runner issue 5765): the values kept at the pinned refresh points, the values a list computes per row as it reads its rows (`row_exprs`), what each TestPage call does to them, and the reads it refuses. Entry: `shown_client_call`, `shown_value`, `shown_opened`, `row_expr_value`.
 - `partial.rs` (271): Partial records (SetLoadFields, LoadFields). Entry: `note_partial_fetch` 54, `load_fields_op` 122, `load_fields_row` 212.
 - `platform/apps.rs` (67): The tables that list the apps of the tenant.

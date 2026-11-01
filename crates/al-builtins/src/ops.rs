@@ -703,43 +703,12 @@ fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
     }
 }
 
-/// An Enum `FieldRef.Value()` returns, converted straight into a Text or Code variable or a by-value parameter: refused. A number
-/// there is its Format text, checked against the variable's length (misc/lt-y13-triage/Y13FieldRefValueToText.al:96-153, corpus
-/// master: Integer, Decimal, BigInteger and the field 0 timestamp into Text, Text[30], Code[20]; Code[3] raises
-/// StringLengthExceeded), as into a record's field (`number_into_text_field`). Whether an Enum is its caption there, as into a
-/// field, is not pinned. docs/probes-needed.md "FieldRef.Value of an Enum into a Text or Code variable".
-#[cold]
-pub fn fieldref_enum_into_text_refused(v: &Value, t: &RtType) -> Result<(), Signal> {
-    if matches!(t, RtType::Text(_) | RtType::Code(_)) && matches!(v, Value::Enum(..)) {
-        return unsupported(format!(
-            "FieldRef.Value of {} into a {} variable (whether it is its caption is not pinned)",
-            v.describe(),
-            t.describe()
-        ));
-    }
-    Ok(())
-}
-
-/// A number `FieldRef.Value()` returns, passed straight as a Text or Code argument: refused. The corpus pins the assignment to a
-/// variable (`fieldref_enum_into_text_refused`), not the conversion into a by-value parameter (docs/probes-needed.md
-/// "FieldRef.Value of an Enum into a Text or Code variable").
-#[cold]
-pub fn fieldref_number_into_text_arg_refused(v: &Value, t: &RtType) -> Result<(), Signal> {
-    if matches!(t, RtType::Text(_) | RtType::Code(_))
-        && matches!(v, Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_))
-    {
-        return unsupported(format!(
-            "FieldRef.Value of {} passed as a {} argument (not pinned)",
-            v.describe(),
-            t.describe()
-        ));
-    }
-    Ok(())
-}
-
 /// A number `FieldRef.Value()` returns, assigned to a Text or Code field of a record: its default `Format` text (types/lt-variant-to-text-fields/
 /// VariantFieldRefBigIntToText.al:TextField_FromFieldRefValue_Numbers); an Enum goes in as its caption (types/lt-enum-to-text-fieldref/EnumToTextFieldRef.al:FieldRefValue_EnumToTextField_PerMember). Base Application's Workflow Table Relation Value.CreateNew does `Value := FieldRef.Value()` into
-/// a Text[250] field (114 Tests-Workflow tests). A Variant into a Text *variable* is not this: it raises (VaTCompare.al:af117).
+/// a Text[250] field (114 Tests-Workflow tests). The same holds into a Text or Code variable or by-value parameter: a number is its
+/// Format text (misc/lt-y13-triage/Y13FieldRefValueToText.al:96-153; text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:290-327,
+/// as an argument), an Enum its caption (Y49FieldRefIntoText.al:207-269: Text[250], Text, Code[20] upper-cased, Code[3] raises
+/// StringLengthExceeded). A Variant into a Text *variable* is not this: it raises (VaTCompare.al:af117).
 /// `None` when the value is no number or the target no Text or Code.
 #[cold]
 #[inline(never)]
@@ -763,9 +732,11 @@ pub fn number_into_text_field(
         Ok(text) => text,
         Err(e) => return Some(Err(Signal::Unsupported(e))),
     };
+    // The length is checked before the upper-casing: the error shows the caption as written (`Value: Beta Cap`,
+    // text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:229-230).
     Some(if code {
-        upper_code_checked(text.trim())
-            .and_then(|u| fit(u, *max))
+        fit(text.trim().to_string(), *max)
+            .and_then(|t| upper_code_checked(&t))
             .map(|c| Value::Code(c.into()))
     } else {
         fit_txt(text.into(), *max).map(Value::Text)
@@ -1284,6 +1255,11 @@ pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering,
     // A comparison cell of the conversion matrix (`conv`).
     if let Some(o) = crate::conv::compare_cell(l, r, ordered) {
         return o;
+    }
+    // `=` and `<>` of two Blobs (FieldRef values) in AL code only: a page's or Modify's check whether a row changed does not
+    // go through here (`blob_compare`).
+    if let (Value::Blob(a), Value::Blob(b), false) = (l, r, ordered) {
+        return crate::blob_compare::compare(a, b);
     }
     if let (Value::Date(a, _), Value::Date(b, _)) = (l, r) {
         if (*a == 0 && *b == 1) || (*a == 1 && *b == 0) {
