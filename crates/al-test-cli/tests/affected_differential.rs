@@ -235,6 +235,29 @@ fn edits(app: &AppSource, routine_edits: usize) -> Vec<Edit> {
         };
         out.push(edit);
     }
+    // Edits that must flip an outcome, so the sensitivity check below has something to see whatever the corpus holds:
+    // an `Error` call at the start of the first `[Test]` procedure of a few files. The even sample above reaches a
+    // tested routine only by luck, and it stopped doing so when the corpus grew.
+    let mut flips = 0;
+    for &f in &files {
+        let (name, text) = &app.files[f];
+        let lines: Vec<&str> = text.lines().collect();
+        let test = routines(text)
+            .into_iter()
+            .find(|&(header, _, _)| header > 0 && lines[header - 1].trim().eq_ignore_ascii_case("[Test]"));
+        if let Some((header, begin, _)) = test {
+            let pad = " ".repeat(indent(lines[begin]) + 4);
+            out.push(Edit {
+                file: f,
+                what: format!("an Error call at the start of the test in {name}:{}", header + 1),
+                text: with_line(text, begin + 1, &format!("{pad}Error('affected differential edit');")),
+            });
+            flips += 1;
+            if flips == 3 {
+                break;
+            }
+        }
+    }
     let mut kinds = BTreeSet::new();
     for &f in &files {
         let (name, text) = &app.files[f];
