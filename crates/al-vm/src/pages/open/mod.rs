@@ -8,6 +8,7 @@ mod or_group;
 mod page_open;
 mod part_links;
 mod part_rec_row;
+mod query_close_unhandled;
 mod record_refusals;
 mod repeater_new_line;
 pub(in crate::pages) use repeater_new_line::RepeaterLine;

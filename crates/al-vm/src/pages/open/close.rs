@@ -359,6 +359,11 @@ impl Session {
         // (corpus handlers/TestPageQueryCloseError_Tests.al:1-25).
         let veto = match self.query_close_answer(st, vec![Value::Option(ordinal, members)]) {
             Err(Signal::Error(e)) => {
+                // A Confirm with no ConfirmHandler at TestPage.Close() raises its own error (query_close_unhandled.rs).
+                if let Some(raised) = test_close.then(|| self.unhandled_confirm_in_query_close(&e)).flatten() {
+                    st.borrow_mut().close_error = true;
+                    return Err(raised);
+                }
                 al_builtins::native::refuse_unpinned_text(&e, "The message shown for an error of OnQueryClosePage")?;
                 st.borrow_mut().close_error = true;
                 self.ui_message(e.message)?;
