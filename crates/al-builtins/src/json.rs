@@ -16,6 +16,7 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 mod filter;
+mod text_number;
 
 pub type Handle = Rc<RefCell<LibraryValue>>;
 
@@ -907,6 +908,11 @@ fn digit_text(s: &Scalar) -> Option<Option<i64>> {
     if all_digits(digits) {
         return t.parse::<i64>().ok().map(Some);
     }
+    if text_number::outside_number_alphabet(t) {
+        // `n/a`: the conversion error (writer Y65, assumption json-text-number-shapes until the pin).
+        crate::assumptions::assume(crate::assumptions::Assumption::JsonTextNumberShapes);
+        return Some(None);
+    }
     match t.split_once('.') {
         Some((a, b)) if all_digits(a) && all_digits(b) => Some(None),
         _ => None,
@@ -956,6 +962,14 @@ fn as_duration(s: &Scalar) -> Result<Value, Signal> {
         if let Ok(n) = t.trim().parse::<i64>() {
             return Ok(Value::Duration(n));
         }
+        // `n/a`: the conversion error (json/JsonValueGetters.al TextGetters `text_asduration` "hello"; Y65_NotANumberText_EveryGetter,
+        // assumption json-text-number-shapes until the pin).
+        if text_number::outside_number_alphabet(t) {
+            if !t.bytes().all(|b| b.is_ascii_alphabetic()) {
+                crate::assumptions::assume(crate::assumptions::Assumption::JsonTextNumberShapes);
+            }
+            return Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavDuration"));
+        }
     }
     as_i64(s).map(Value::Duration)
 }
@@ -978,9 +992,30 @@ fn blank_padded_digits(t: &str) -> bool {
     all_digits(t.trim_matches(' '))
 }
 
-/// `digits e digits` (AjScalars.al: "1e2").
-fn exponent_digits(t: &str) -> bool {
-    t.split_once('e').is_some_and(|(a, b)| all_digits(a) && all_digits(b))
+fn decimal_from_text(t: &str) -> Result<Value, Signal> {
+    use text_number::TextNumber;
+    let mark = |measured: bool| {
+        if measured {
+            crate::assumptions::assume(crate::assumptions::Assumption::JsonTextNumberShapes);
+        }
+    };
+    match text_number::decimal_text(t) {
+        TextNumber::Number { value, measured } => {
+            mark(measured);
+            // Beyond the Decimal range: the range error (JsonValueGetters.al Y65_DecimalShapedText_AsDecimal_2, writer Y65).
+            if let Some(crate::format::FormatFail::Error { message, code }) = crate::format::decimal_range_error(&value)
+            {
+                crate::assumptions::assume(crate::assumptions::Assumption::JsonTextNumberShapes);
+                return Err(error(message, &code));
+            }
+            Ok(Value::Decimal(value))
+        }
+        TextNumber::NotANumber { measured } => {
+            mark(measured);
+            Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.Decimal18"))
+        }
+        TextNumber::Unpinned => unsupported(format!("reading Text '{t}' as Decimal (conversion not pinned yet)")),
+    }
 }
 
 fn as_decimal(s: &Scalar) -> Result<Value, Signal> {
@@ -994,26 +1029,8 @@ fn as_decimal(s: &Scalar) -> Result<Value, Signal> {
         Scalar::Raw(t) if t.parse::<Decimal>().is_ok() && t.bytes().all(|b| b.is_ascii_digit() || b == b'-') => {
             Ok(Value::Decimal(t.parse::<Decimal>().expect("checked")))
         }
-        // A text of digits reads as the number (`"42"`), a text of letters raises the conversion error
-        // (json/JsonValueGetters.al:NumericTextGetters `numtext_asdecimal`, TextGetters `text_asdecimal`). A point, a sign or
-        // blanks in the text are not pinned.
-        Scalar::Val(Value::Text(t) | Value::Code(t)) if !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()) => t
-            .parse::<Decimal>()
-            .map(Value::Decimal)
-            .or_else(|_| unsupported("a text of digits beyond the Decimal range read as Decimal")),
-        Scalar::Val(Value::Text(t) | Value::Code(t)) if !t.is_empty() && t.bytes().all(|b| b.is_ascii_alphabetic()) => {
-            Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.Decimal18"))
-        }
-        // types/lt-aj-probes/AjScalars.al:150-209: "100.00" reads 100, "-3.5" reads -3.5, " 7 " (blanks around digits) reads 7;
-        // "" and "1e2" raise the conversion error. Other shapes (blanks around a sign or a point, a plus sign) are not pinned.
-        Scalar::Val(Value::Text(t) | Value::Code(t)) if signed_point_number(t) || blank_padded_digits(t) => t
-            .trim_matches(' ')
-            .parse::<Decimal>()
-            .map(Value::Decimal)
-            .or_else(|_| unsupported("a numeric text beyond the Decimal range read as Decimal")),
-        Scalar::Val(Value::Text(t) | Value::Code(t)) if t.is_empty() || exponent_digits(t) => {
-            Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.Decimal18"))
-        }
+        // The shapes of a text and what they read as: `json/text_number.rs`.
+        Scalar::Val(Value::Text(t) | Value::Code(t)) => decimal_from_text(t),
         other => unsupported(format!(
             "reading {} as Decimal (conversion not pinned yet)",
             other.describe()
