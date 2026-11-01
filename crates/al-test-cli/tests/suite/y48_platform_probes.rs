@@ -135,10 +135,13 @@ fn intelligent_cloud_is_an_ordinary_table() {
 
 // G5-03: "Security Filter" (12) of an Expanded Permission row of a permissionset object is blank, plain and with format 9, and
 // copies into a Tenant Permission as blank (permissions/lt-y48-security-filter/Y48ExpandedSecurityFilter.al:120
-// EP_SecurityFilter_MetadataSet).
+// EP_SecurityFilter_MetadataSet). That file is on corpus master (corpus PR 980) but not yet in the corpus pin, so the
+// generated pinned_columns.rs does not list column 12 and the read is refused. The corpus bump that brings the file in
+// makes this test fail: then assert a pass again.
 #[test]
 fn expanded_permission_security_filter_of_a_metadata_set_is_blank() {
-    passes(
+    refused_with(
+        "column 12 of platform table 'Expanded Permission'",
         r#"table 50001 "SF Table" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
 permissionset 50002 "LTPSMETA" { Assignable = true; Permissions = tabledata "SF Table" = R; }
 codeunit 50000 T { Subtype = Test;
@@ -146,6 +149,16 @@ codeunit 50000 T { Subtype = Test;
     EP.SetRange("Role ID", 'LTPSMETA'); EP.FindFirst();
     if Format(EP."Security Filter") <> '' then Error('format'); if Format(EP."Security Filter", 0, 9) <> '' then Error('format 9');
     TP."Security Filter" := EP."Security Filter"; if Format(TP."Security Filter", 0, 9) <> '' then Error('copied'); end; }"#,
+    );
+}
+
+fn refused_with(why: &str, src: &str) {
+    let o = outcomes(src);
+    assert!(!o.is_empty());
+    assert!(
+        o.iter()
+            .all(|(_, r)| matches!(r, Outcome::NotRun(m) if m.contains(why))),
+        "{o:?}"
     );
 }
 

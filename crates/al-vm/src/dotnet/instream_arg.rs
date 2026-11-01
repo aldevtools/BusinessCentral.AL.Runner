@@ -55,11 +55,12 @@ impl Session {
                     "Conversion",
                 );
             }
-            Some(Value::DotNet(o)) => match &o.kind {
+            Some(v @ Value::DotNet(o)) => match &o.kind {
                 DotNetKind::Host { handle, clr_type } if clr_type == MEMORY_STREAM => *handle,
                 _ => {
                     return unsupported(format!(
-                        "a DotNet {o:?} as an InStream argument (only a MemoryStream is pinned)"
+                        "{} as an InStream argument (only a MemoryStream is pinned)",
+                        al_builtins::describe::Describe::describe(v)
                     ));
                 }
             },
@@ -122,7 +123,7 @@ impl Session {
         .value
         {
             DotNetValue::Int64(n) => Ok(n),
-            other => unsupported(format!("DotNet {MEMORY_STREAM}.Position answered {other:?}")),
+            _ => unsupported(format!("DotNet {MEMORY_STREAM}.Position did not answer an Int64")),
         }
     }
 
