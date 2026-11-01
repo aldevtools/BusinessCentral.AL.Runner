@@ -3,23 +3,24 @@
 //! so `Tests:` counts it apart from the clean passes.
 use al_testrun::runtime::TestResult;
 
-/// Whether the session answers unhandled UI on BC `major` when `--dev-endpoint-ui` is given (`on`). Measured through
-/// the dev endpoint (TestRunnerHub) on Windows containers by the corpus probe
-/// handlers/lt-ui-handler-modes/UiHandlerModes.al:129-144 (corpus branch al-runtime-rs-staging-y53): BC 27.5 fails each UI call without a handler with
-/// "Unhandled UI" as Microsoft's Test Runner app does, so the flag changes nothing there (with a note on stderr); BC 28.5
-/// answers it (`al_vm` `dev_endpoint_ui.rs`). Any other major is not measured, and the flag is refused there.
+/// Whether the session answers unhandled UI on BC `major` when `--dev-endpoint-ui` is given (`on`), as
+/// `al_version::dev_endpoint_answers_unhandled_ui` says the dev-endpoint test runner does: where it fails such a call as
+/// Microsoft's Test Runner app does, the flag changes nothing (with a note on stderr); where it was not measured, the flag
+/// is refused.
 pub fn for_major(on: bool, major: u16) -> Result<bool, String> {
-    match (on, major) {
-        (false, _) => Ok(false),
-        (true, 27) => {
+    if !on {
+        return Ok(false);
+    }
+    match al_version::dev_endpoint_answers_unhandled_ui(major) {
+        Some(true) => Ok(true),
+        Some(false) => {
             eprintln!(
-                "note: --dev-endpoint-ui changes nothing on BC 27: its dev-endpoint test runner also fails a UI call that no handler takes"
+                "note: --dev-endpoint-ui changes nothing on BC {major}: its dev-endpoint test runner also fails a UI call that no handler takes"
             );
             Ok(false)
         }
-        (true, 28) => Ok(true),
-        (true, n) => Err(format!(
-            "--dev-endpoint-ui: what the dev-endpoint test runner of BC {n} does with a UI call that no handler takes is not measured (measured: BC 27 and 28); run with --bc-version 28, or without the flag"
+        None => Err(format!(
+            "--dev-endpoint-ui: what the dev-endpoint test runner of BC {major} does with a UI call that no handler takes is not measured; pick a measured version with --bc-version (see the manual, Writing tests), or run without the flag"
         )),
     }
 }
