@@ -170,6 +170,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.EnvironmentVariableTarget\"; \"EnvironmentVariableTarget\") { }
     type(\"System.Text.StringBuilder\"; \"StringBuilder\") { }
     type(\"System.String\"; \"ClrString\") { }
+    type(\"System.Collections.Generic.Dictionary`2\"; \"GenDict\") { }
   }
   assembly(\"Microsoft.Exchange.WebServices\") { type(\"Microsoft.Exchange.WebServices.Data.ExchangeService\"; \"ExchangeService\") { } }
 }\n";
@@ -3462,4 +3463,22 @@ fn a_memory_stream_into_xml_document_read_from_reads_it_whole() {
         Err(Signal::Error(e)) => assert_eq!(e.code, "Conversion"),
         other => panic!("{other:?}"),
     }
+}
+
+// Y51DotNetDictNoCap.al:DnDictNoCap_TextKeys_ContainsAdd and DnDictNoCap_ObjectValues: a parameterless Dictionary`2 with Text
+// keys compared exactly, Remove, TryGetValue into a var argument, and Values in insertion order.
+#[test]
+fn a_parameterless_dictionary_takes_text_keys() {
+    let host = Fake::new(|r| panic!("{r:?}"));
+    let r = run(
+        &host,
+        "D: DotNet GenDict; V: Text; T: Text; X: Variant;",
+        "D := D.Dictionary(); D.Add('B', 'vb'); D.Add('Name', 'v1'); \
+         T := Format(D.ContainsKey('Name')) + Format(D.ContainsKey('NAME')) + Format(D.Item('Name')); \
+         T += Format(D.TryGetValue('Z', X)) + Format(D.Remove('Name')) + Format(D.Remove('Name')); \
+         foreach V in D.Values do T += V; \
+         exit(T);",
+        ": Text",
+    );
+    assert_eq!(text(r), "YesNov1NoYesNovb");
 }

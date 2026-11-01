@@ -6,6 +6,7 @@ mod blob_stream;
 pub mod compression;
 mod drawing;
 mod generic_dictionary;
+mod generic_dictionary_more;
 mod gettype;
 pub(crate) mod instream_arg;
 mod last_error;
