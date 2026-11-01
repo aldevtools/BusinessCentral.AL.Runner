@@ -2418,6 +2418,7 @@ impl Session {
             self.fault_site_lost = true;
             outcome = Err(Signal::Unsupported(why));
         }
+        outcome = self.close_test_pages_at_test_end(&frame, r, outcome);
         let ret = match outcome {
             Ok(()) => None,
             // A report flow call (Skip, Break, Quit) leaves every procedure between the report trigger and the call.
