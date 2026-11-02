@@ -164,9 +164,7 @@ fn the_first_part_move_after_a_lookup_runs_the_refresh_it_left() {
     ] {
         assert_eq!(get(pass), "Some(Pass)", "{pass}");
     }
-    let g = get("HostNextWhilePending");
-    assert!(
-        g.contains("NotRun") && g.contains("BC runs the refresh of the OnValidate's CurrPage.Update(false) first"),
-        "{g}"
-    );
+    // The host's own Next as the first call after the Lookup runs the refresh, then moves (Y15_ThreeLink_RegionsSetPartFollowsRow
+    // `next`; assumption lookup-pending-refresh-at-host-next).
+    assert_eq!(get("HostNextWhilePending"), "Some(Pass)");
 }

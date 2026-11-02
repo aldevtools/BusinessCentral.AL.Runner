@@ -223,7 +223,8 @@ fn a_lookup_on_a_host_with_row_triggers_whose_part_links_three_fields_shows_the_
     assert_eq!(get("LoggedLookupRunsNoRowTrigger"), "Some(Pass)");
     // Pinned by Y15LookupThreeFieldLink.al Y26_*_LookupRefresh `part fn` `R1/`: a part function control keeps what it showed.
     assert_eq!(get("PartFunctionAfterTheLookup"), "Some(Pass)");
-    for refused in ["NextAfterTheLookup"] {
+    let refused = "NextAfterTheLookup";
+    {
         let g = get(refused);
         assert!(
             g.contains("NotRun") && g.contains("BC runs the refresh of the OnValidate's CurrPage.Update(false) first"),
