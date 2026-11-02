@@ -193,9 +193,15 @@ impl Session {
             // filters/lt-wc/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
             FilterExpr::EmptyViewValue => "==".to_string(),
+            // The blank DateTime next to another alternative reads back as the range `''..''` (record/lt-y71-setview-datetime/
+            // Y71SetViewDateTime.al:125-127 dt_empty_or, :207-209 sca_empty_or); a Date stays `''` (:289-291). Alone it is not pinned
+            // here and stays `''`.
             FilterExpr::Or(xs) => xs
                 .iter()
-                .map(|x| self.filter_text_with(x, iso))
+                .map(|x| match x {
+                    FilterExpr::Eq(Value::DateTime(0)) => Ok("''..''".to_string()),
+                    x => self.filter_text_with(x, iso),
+                })
                 .collect::<Result<Vec<_>, _>>()?
                 .join("|"),
             FilterExpr::And(xs) => {

@@ -39,6 +39,7 @@ mod debugger;
 mod dmy2date_short_forms;
 mod datetime_range_errors;
 mod duration_date_arith;
+mod setview_blank_datetime_or;
 mod failed_insert_then_modify;
 mod duration_mod_format;
 mod enum_arithmetic;
