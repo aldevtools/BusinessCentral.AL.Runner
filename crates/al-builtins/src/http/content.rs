@@ -186,9 +186,20 @@ pub(super) fn read_as_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
 }
 
 /// `GetHeaders(var Headers)` hands out the content's own header list (network/TestHttpRequestMessage.al:39); the
-/// uninitialized content of a request raises `NotInitialized` (network/lt-http/HttpRequest.al:FreshRequestContent).
-pub(super) fn get_headers(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    let (list, uninit) = with_content(r, |s| (s.headers.clone(), s.uninitialized))?;
+/// uninitialized content of a request raises `NotInitialized` (network/lt-http/HttpRequest.al:FreshRequestContent). With the
+/// result used it answers false, raises nothing, leaves the headers variable as it was and the content uninitialized
+/// (network/lt-y62-content-headers/Y62ContentHeaders.al:GetHeaders_ResultUsed_FreshRequest, _ThenStatementAndReadAs); on a
+/// copy of such a content that is not pinned.
+pub(super) fn get_headers(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    let (list, uninit, copied) = with_content(r, |s| (s.headers.clone(), s.uninitialized, s.copied))?;
+    if uninit && c.ret_used() {
+        if copied {
+            return unsupported(
+                "HttpContent.GetHeaders with its result used, on a copy of the content of a request that has none (not pinned)",
+            );
+        }
+        return Ok(Value::Boolean(false));
+    }
     if uninit {
         return raise(
             "Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.",

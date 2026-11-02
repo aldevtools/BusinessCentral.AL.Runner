@@ -39,6 +39,95 @@ pub(crate) fn declared(ty: &RtType, major: u16) -> Option<&'static str> {
         RtType::Duration => Some("xs:string"),
         RtType::BigInteger => Some("xs:long"),
         RtType::Guid => guid_type(major),
+        // An Option or Enum field: the member name (Y60SaveAsXmlNoRow.al Columns_TableFields_NoRow `KindC`, `CatC`).
+        RtType::Option(_) | RtType::Enum(_) => Some("xs:string"),
+        _ => None,
+    }
+}
+
+/// The type tag of an expression column (a global, an array element, a field read through a record variable) of static type
+/// `ty` when no row is written: the type of its AL type, pinned for Code, Text, Integer, Decimal, Boolean, Date, Option and Enum
+/// (al-language-onprem/report/lt-y60-saveasxml-norow/Y60SaveAsXmlNoRow.al Columns_Expressions_NoRow, the same as with rows:
+/// Columns_Expressions_WithRow). Other types are not pinned for an expression.
+pub(crate) fn expression(ty: &RtType) -> Option<&'static str> {
+    match ty {
+        RtType::Code(_) | RtType::Text(_) | RtType::Option(_) | RtType::Enum(_) => Some("xs:string"),
+        RtType::Integer => Some("xs:int"),
+        RtType::Decimal => Some("xs:decimal"),
+        RtType::Boolean => Some("xs:boolean"),
+        RtType::Date => Some("xs:dateTime"),
+        _ => None,
+    }
+}
+
+/// The type tag of a written Option or Enum value whose text is its member name: `xs:string` (Y60SaveAsXmlNoRow.al
+/// Columns_Expressions_WithRow `<VarOpt>Second</VarOpt>`, `<VarEnum>Y</VarEnum>`, `<RecOpt>C</RecOpt>`; Columns_OptionEnum_BlankAndNonBlank
+/// `<KindC>A</KindC>`, `<CatC>X</CatC>`: the first member too). A caption other than the name is not pinned. `enum_members` are
+/// the ordinals and names of the Enum's type.
+pub(crate) fn member(value: &Value, text: &str, enum_members: Option<&[(i32, String)]>) -> Option<&'static str> {
+    let name = match value {
+        Value::Option(n, names) => usize::try_from(*n).ok().and_then(|i| names.get(i)).cloned(),
+        Value::Enum(_, ord) => enum_members?.iter().find(|(o, _)| o == ord).map(|(_, n)| n.clone()),
+        _ => None,
+    }?;
+    (name == text).then_some("xs:string")
+}
+
+impl crate::Session {
+    /// `member` for a written column value with text `text`.
+    pub(crate) fn data_file_member_type(&self, value: &Value, text: &str) -> Option<&'static str> {
+        let members = match value {
+            Value::Enum(id, _) => self
+                .engine
+                .program
+                .objects
+                .get(*id as usize)
+                .map(|o| o.enum_values.as_slice()),
+            _ => None,
+        };
+        member(value, text, members)
+    }
+}
+
+/// The type tag of report column `c` of object `object` when no row is written: a field of the data item's `table` of a type
+/// `declared` knows, else the static type of its source expression (`expression`).
+pub(crate) fn column(
+    vm: &crate::Session,
+    object: usize,
+    table: Option<&al_data::TableDef>,
+    c: &al_ir::ReportColumn,
+    major: u16,
+) -> Option<&'static str> {
+    if let Some(f) = c.field.zip(table).and_then(|(pos, t)| t.fields.get(pos)) {
+        return declared(&f.ty, major);
+    }
+    let routine = vm.engine.program.objects[object].routines.get(c.routine?)?;
+    match routine.body.stmts().as_slice() {
+        [al_ir::Stmt::Exit(Some(al_ir::Expr::Load(place)))] => expression(&place_type(vm, object, place)?),
+        _ => None,
+    }
+}
+
+/// The static type of `place` in a routine of `object`: a global of the object, an element of a global array, a field of a
+/// global record. Other places give `None`.
+fn place_type(vm: &crate::Session, object: usize, place: &al_ir::Place) -> Option<RtType> {
+    match place {
+        al_ir::Place::Global(s) => vm.engine.program.objects[object].globals.get(*s).map(|g| g.ty.clone()),
+        al_ir::Place::Index(p, _) => match place_type(vm, object, p)? {
+            RtType::Array(_, elem) => Some(*elem),
+            _ => None,
+        },
+        al_ir::Place::Field(p, pos) => match place_type(vm, object, p)? {
+            RtType::Record(t, _) => vm
+                .engine
+                .tables
+                .get(t as usize)?
+                .as_ref()?
+                .fields
+                .get(*pos)
+                .map(|f| f.ty.clone()),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -132,5 +221,49 @@ mod tests {
         assert!(of_value(&g, 30).is_none());
         assert_eq!(declared(&RtType::BigInteger, 29), Some("xs:long"));
         assert_eq!(text(&Value::Duration(5)), "<same>");
+    }
+
+    // al-language-onprem/report/lt-y60-saveasxml-norow/Y60SaveAsXmlNoRow.al Columns_TableFields_NoRow,
+    // Columns_Expressions_NoRow: Option and Enum fields are xs:string; an expression column has the type of its AL type.
+    #[test]
+    fn option_enum_fields_and_expression_columns_have_their_type_without_a_row() {
+        assert_eq!(declared(&RtType::Option(vec!["A".into()]), 29), Some("xs:string"));
+        assert_eq!(declared(&RtType::Enum(5), 27), Some("xs:string"));
+        let want = [
+            (RtType::Code(Some(10)), Some("xs:string")),
+            (RtType::Text(None), Some("xs:string")),
+            (RtType::Integer, Some("xs:int")),
+            (RtType::Decimal, Some("xs:decimal")),
+            (RtType::Boolean, Some("xs:boolean")),
+            (RtType::Date, Some("xs:dateTime")),
+            (RtType::Option(vec!["A".into()]), Some("xs:string")),
+            (RtType::Enum(3), Some("xs:string")),
+            (RtType::Time, None),
+            (RtType::Guid, None),
+            (RtType::Variant, None),
+        ];
+        for (ty, tag) in want {
+            assert_eq!(expression(&ty), tag, "{ty:?}");
+        }
+    }
+
+    // Columns_Expressions_WithRow, Columns_OptionEnum_BlankAndNonBlank: an Option or Enum value written as its member name is
+    // xs:string, the first member too.
+    #[test]
+    fn an_option_written_as_its_member_name_is_a_string() {
+        let names: std::sync::Arc<[String]> = std::sync::Arc::from(vec!["First".to_string(), "Second".to_string()]);
+        assert_eq!(
+            member(&Value::Option(1, names.clone()), "Second", None),
+            Some("xs:string")
+        );
+        assert_eq!(
+            member(&Value::Option(0, names.clone()), "First", None),
+            Some("xs:string")
+        );
+        assert_eq!(member(&Value::Option(1, names), "Zweite", None), None);
+        let enum_names = vec![(0, "X".to_string()), (1, "Y".to_string())];
+        assert_eq!(member(&Value::Enum(9, 1), "Y", Some(&enum_names)), Some("xs:string"));
+        assert_eq!(member(&Value::Enum(9, 1), "Why", Some(&enum_names)), None);
+        assert_eq!(member(&Value::Integer(1), "1", None), None);
     }
 }

@@ -428,6 +428,13 @@ fn dotted_datetime_text(t: &str) -> bool {
         && clock.is_none_or(|c| digit_groups(c, ':', 2) && c.split(':').all(|p| p.len() == 2))
 }
 
+/// Whether the Date filter context is an English session.
+fn english_session() -> bool {
+    DATE_CONTEXT
+        .with(std::cell::Cell::get)
+        .is_some_and(|c| c.language == 1033)
+}
+
 /// The first and the last instant of `day` a date-alone DateTime filter covers.
 fn day_start(day: i32) -> Value {
     Value::DateTime((i64::from(day) - 1) * 86_400_000 + 1)
@@ -880,6 +887,13 @@ impl Parser<'_> {
             }
             T::DateTime if datetime_filter_text(text.trim()).is_some() => {
                 datetime_filter_text(text.trim()).unwrap_or(Value::DateTime(0))
+            }
+            // A four-digit year, and texts that are no DateTime (`date_filter_forms`).
+            T::DateTime if english_session() && crate::date_filter_forms::english_datetime(text.trim()).is_some() => {
+                match crate::date_filter_forms::english_datetime(text.trim()) {
+                    Some(Ok(v)) => v,
+                    _ => return Err(not_evaluated("DateTime", text.trim())),
+                }
             }
             // Format(false) = 'No' is used as a filter value in the corpus. The words BC accepts,
             // in any case, are Yes, True, 1 and No, False, 0
@@ -1369,6 +1383,12 @@ fn date_filter_value(t: &str) -> Result<Value, String> {
         } else {
             return Err(needs_session());
         }
+    }
+    // A month and a day without a year, and slash forms with impossible numbers (`date_filter_forms`).
+    if let Some(c) = ctx.filter(|_| english)
+        && let Some(read) = crate::date_filter_forms::english_date(text, c.work_date)
+    {
+        return read.map_err(|()| format!("{INVALID_DATE}{t}"));
     }
     // The texts the corpus pins as invalid: a number of 4 to 8 digits that is no date, `0`, a text with a letter no
     // date formula uses (P81DateFilters.al:SetFilter_Date_InvalidTexts, EmptyAndZeroForms `0`, `000000`), and three two-digit

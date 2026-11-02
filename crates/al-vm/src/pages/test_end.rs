@@ -41,6 +41,16 @@ impl Session {
         for st in pages {
             match self.page_close(&st) {
                 Ok(_) => {}
+                // An error of OnQueryClosePage (a Confirm with no ConfirmHandler, an AL Error with no MessageHandler) stops the
+                // close and the test passes; OnClosePage does not run (corpus CI of branch al-runtime-rs-staging-y65,
+                // testpageclose/lt-y65-close-page-types/Y65ClosePageTypes.al:853 Y65_Open07, :907 Y65_Open10, :977 Y65_Open12,
+                // :996 Y65_Open13 and their _Read tests `open card;qc card OK;`; al-runner issue 6673). Not on the pinned corpus
+                // yet: assumption test-page-close-query-close-unhandled.
+                Err(Signal::Error(_)) if st.borrow().close_error => {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::TestPageCloseQueryCloseUnhandled,
+                    );
+                }
                 Err(Signal::Error(_)) => {
                     return Err(Signal::Unsupported(
                         "an error while an open TestPage closes at the end of the test (not pinned)".into(),

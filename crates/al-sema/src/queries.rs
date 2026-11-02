@@ -567,7 +567,12 @@ impl Builder<'_> {
                     None
                 }
             },
-            CondValue::Filter(raw) => Some(ir::CalcValue::Filter(rewrite_quotes(raw))),
+            // `filter('>0')`: a filter written as one AL string is that filter's text, as in a DataItemTableFilter
+            // (query/lt-y62-flowfield-filter-join/Y62QueryFlowFieldJoin.al:FlowFieldFilter_Join_Method `mode1`, writer Y62).
+            CondValue::Filter(raw) => Some(ir::CalcValue::Filter(match whole_literal(raw) {
+                Some(inner) if !inner.is_empty() => inner,
+                _ => rewrite_quotes(raw),
+            })),
             _ => {
                 self.reason("ColumnFilter with field(...) is not supported yet");
                 None

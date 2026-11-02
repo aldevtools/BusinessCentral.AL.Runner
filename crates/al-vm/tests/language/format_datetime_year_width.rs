@@ -67,18 +67,15 @@ codeunit 50779 D {
 }
 "#;
 
-/// Format 0 and 9 of a DateFormula are pinned (misc/lt-system-functions/RandomFormat.al:484-505); Microsoft's Retention Period
-/// Impl. writes format 2, which BC shows with the angle brackets (`<-1W>`, System Application Test, Retention Period Test;
-/// assumption date-formula-format-two-brackets). Format 1 is not pinned and refused.
+/// Format 0 and 9 of a DateFormula are pinned (misc/lt-system-functions/RandomFormat.al:484-505); format 2 shows the angle
+/// brackets and format 1 in English none (types/lt-y62-dateformula-format/Y62DateFormulaFormat.al:DateFormulaFormat_Std1_English,
+/// _Std2_English).
 #[test]
 fn format_2_of_a_date_formula_is_bracketed() {
     assert_eq!(al_testkit::text(al_testkit::run_in(DF, "D", "Format2")), "<-1W>");
 }
 
 #[test]
-fn format_1_of_a_date_formula_is_refused() {
-    match al_testkit::run_in(DF, "D", "Format1") {
-        Err(al_builtins::native::Signal::Unsupported(r)) => assert!(r.contains("DateFormula"), "{r}"),
-        other => panic!("{other:?}"),
-    }
+fn format_1_of_a_date_formula_in_english_has_no_brackets() {
+    assert_eq!(al_testkit::text(al_testkit::run_in(DF, "D", "Format1")), "-1W");
 }

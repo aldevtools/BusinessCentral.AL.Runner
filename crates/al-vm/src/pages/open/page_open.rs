@@ -5,9 +5,10 @@ use al_builtins::record_op::RecordOp;
 type TempRecPosition = (usize, bool, String, Vec<Value>);
 impl Session {
     pub(in crate::pages) fn page_open(&mut self, st: &St, mode: PageMode) -> Result<Value, Signal> {
-        // corpus testpageclose/TestPageClosingActions.al:19-24: an open variable cannot be opened.
+        // corpus testpageclose/TestPageClosingActions.al:19-24: an open variable cannot be opened; the code is
+        // TestPageAlreadyOpen (codeunit/lt-qu-commit-isolation/BlankKeyRowNextTest.al:274, F2_Read_CloseLeftOpen).
         if st.borrow().open {
-            return Err(error(ALREADY_OPEN));
+            return Err(error_code(ALREADY_OPEN, "TestPageAlreadyOpen"));
         }
         // OpenNew of a Worksheet fails with NotSupportedPageViewMode (corpus pageext/lt-bl-implicit-creation/
         // ImplicitCreation.al:308-318 Worksheet_OpenNew), before OnInit or OnOpenPage run (Y8OpenNewPageTypes.al:306-317,
@@ -1180,9 +1181,8 @@ impl Session {
         let pinned_type = matches!(page_type, Some(al_ir::PageType::Card | al_ir::PageType::List));
         let list_type = matches!(page_type, Some(al_ir::PageType::List));
         let worksheet_type = matches!(page_type, Some(al_ir::PageType::Worksheet));
-        // A Worksheet over a temporary source whose row was set before the open is pinned (`set_before` below); one whose
-        // OnOpenPage moved Rec opens as a List does under assumption worksheet-temp-source-open-row. A Worksheet over a
-        // database table stays refused below.
+        // A Worksheet over a temporary source whose row was set before the open is pinned (`set_before` below), and so is one
+        // whose OnOpenPage moved Rec (writer Y57, below). A Worksheet over a database table is handled below.
         let temp_worksheet = rec.borrow().temporary && matches!(page_type, Some(al_ir::PageType::Worksheet));
         let set_before = temp_worksheet && st.borrow().onopenpage_kept_rec;
         if rec.borrow().temporary && !pinned_type && !temp_worksheet {
@@ -1243,10 +1243,17 @@ impl Session {
         if temp_worksheet && self.temp_tree_worksheet_in_key(st) {
             return Ok(true);
         }
+        if temp_worksheet && self.tree_indentation(st).is_none() {
+            // A temporary Worksheet (not a tree) whose OnOpenPage filled it and moved Rec opens on the row Rec was left on, the
+            // nearest of the view in key order when Rec is outside it, as the temporary List does: in the primary key and
+            // another, by OpenView, OpenEdit, Page.Run, RunModal and in lookup mode, with OnNextRecord too
+            // (pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al QR_TempWs_* and QR_TempWsNext_*, writer Y57).
+            return Ok(true);
+        }
         if temp_worksheet {
-            // A temporary Worksheet whose OnOpenPage moved Rec or changed its key, its order or its filters: both paths below
-            // make a choice no corpus test pins (which row it opens on), so both mark the assumption
-            // worksheet-temp-source-open-row.
+            // A temporary tree Worksheet (outside `temp_tree_worksheet_in_key`) whose OnOpenPage moved Rec or changed its key, its
+            // order or its filters: both paths below make a choice no corpus test pins (which row it opens on), so both mark the
+            // assumption worksheet-temp-source-open-row.
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WorksheetTempSourceOpenRow);
             // Only a Rec in the primary key, outside lookup mode and without OnNextRecord, from which `=><` reaches a row other
             // than the first of the view, takes the assumed path (page 498 leaves Rec on an entry summary it did not insert,

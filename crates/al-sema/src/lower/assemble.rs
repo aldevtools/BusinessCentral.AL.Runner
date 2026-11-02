@@ -655,11 +655,13 @@ pub(crate) fn build_shared<'a>(
                 .sections()
                 .filter(|s| s.name().eq_ignore_ascii_case("requestpage"))
                 .any(|s| has_trigger(&s));
+            // SaveValues: the SaveAsXml and Cancel closes are pinned (al-language-onprem/report/lt-y60-reportext-saveasxml/
+            // Y60ReportExtSaveAsXml.al); the VM refuses the other closes (`refuse_ext_save_values_close`).
             let why = match (save_values, foreign, triggers) {
-                (true, _, _) => Some("a request page with SaveValues".to_string()),
+                (true, Some(_), _) | (true, None, true) => Some("a request page with SaveValues".to_string()),
                 (false, Some(c), _) => Some(format!("field {} not bound to a variable of the extension", c.name)),
                 (false, None, true) => Some("a trigger on the extension's request page".to_string()),
-                (false, None, false) => None,
+                (_, None, false) => None,
             };
             if let Some(why) = why {
                 page_reasons[oi].push(format!(

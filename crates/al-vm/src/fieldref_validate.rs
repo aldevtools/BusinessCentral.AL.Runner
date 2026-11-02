@@ -43,7 +43,19 @@ impl Session {
             }
         }
         let mut a = vec![Value::Integer(pos as i32)];
-        a.extend(args.iter().cloned());
+        // A number, Enum, Option, Date or Boolean into a Text or Code field goes in as its Format text
+        // (recordref/lt-y47-validate-fieldref/Y47ValidateFieldRef.al:461-492, Y57_ValidateVariantValue_IntoText).
+        let first = args
+            .first()
+            .and_then(|v| al_builtins::fieldref_value_text::variant_into_text_field(v, &t.fields[pos].ty, &*self))
+            .transpose()?;
+        match first {
+            Some(v) => {
+                a.push(v);
+                a.extend(args.iter().skip(1).cloned());
+            }
+            None => a.extend(args.iter().cloned()),
+        }
         self.record_op(RecordOp::Validate, rec, &mut a)
     }
 }

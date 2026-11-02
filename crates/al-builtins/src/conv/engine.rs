@@ -135,29 +135,21 @@ fn point(src: Kind, dst: Kind, input: u32) -> Option<&'static str> {
         .map(|(_, b)| b)
 }
 
-/// A Byte into a Char: the character of code page 437, `Byte_To_Char` 255 is U+00A0 (`\u00A0|160`).
+/// A Byte into a Char: the character of the fixed table (`super::byte_char`).
 fn byte_to_char(b: u8) -> Result<Value, Signal> {
     byte_as_char(b).map(Value::Char)
 }
 
-/// The character of code page 437 a Byte converts to: ASCII as it is, a byte from 128 up as the table holds it.
+/// The character a Byte converts to (types/lt-byte-char-high/ByteCharHigh.al, see `super::byte_char`).
 pub(super) fn byte_as_char(b: u8) -> Result<u16, Signal> {
-    if b < 0x80 {
-        return Ok(u16::from(b));
-    }
-    let shown = point(Kind::Byte, Kind::Char, u32::from(b)).and_then(|p| p.rsplit_once('|')?.1.parse::<u16>().ok());
-    shown.ok_or_else(|| {
-        Signal::Unsupported(format!(
-            "Byte {b} into a Char: the character of a byte from 128 up is pinned only for the bytes the conversion matrix tries"
-        ))
-    })
+    Ok(super::byte_char::byte_to_char(b))
 }
 
-/// A Char into a Byte: the byte of code page 437 that BC's Format shows as the character the table holds
-/// (`Char_To_Byte` 255 shows `ÿ`, 256 `A`, 65535 `?`).
+/// A Char into a Byte: the byte of the fixed table (ByteCharHigh.al, `super::byte_char`); another character is the byte of
+/// code page 437 that BC's Format shows as the character the conversion matrix holds (`Char_To_Byte` 256 shows `A`, 65535 `?`).
 fn char_to_byte(c: u16) -> Result<Value, Signal> {
-    if c < 0x80 {
-        return Ok(Value::Byte(c as u8));
+    if let Some(b) = super::byte_char::char_to_byte(c) {
+        return Ok(Value::Byte(b));
     }
     let shown = point(Kind::Char, Kind::Byte, u32::from(c)).filter(|s| s.chars().count() == 1);
     match shown.map(|s| crate::stream::Encoding::MsDos.encode(s)) {

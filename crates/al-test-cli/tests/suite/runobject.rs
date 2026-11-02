@@ -608,14 +608,16 @@ fn a_by_value_copy_of_rec_of_a_run_page_link_target_has_no_filters() {
 // linked fields filled (pages/lt-rz-outside-page-moves/SjRunPageLinkOpenFind.al; tests/run_page_link_open_find.rs).
 #[test]
 fn filter_and_view_reads_of_rec_in_onopenpage_of_a_run_page_link_target_are_refused() {
-    let ops = ["GetView", "HasFilter", "IsEmpty"];
-    let mut tests = String::from(
+    // GetView and HasFilter answer the link filter (pages/lt-y61-page-probes/Y61RunPageLinkCopyFilter.al, fix-c6c); IsEmpty is not pinned.
+    let ops = ["IsEmpty"];
+    let helper = String::from(
         "[PageHandler] procedure Handler(var P: TestPage \"RO Lines Op Reader\") begin P.Close(); end;
         local procedure Read(Op: Text) var H: Record \"RO Head\"; L: Record \"RO Line\"; P: Codeunit \"RO Probe\"; Host: TestPage \"RO Reader Host\"; begin
             P.Reset(); H.DeleteAll(); L.DeleteAll(); P.SetSeen(Op);
             H.\"No.\" := 'H1'; H.Insert(); L.\"Head No.\" := 'H1'; L.\"Line No.\" := 1; L.Insert();
             Host.OpenEdit(); Host.GoToRecord(H); Host.ReadOp.Invoke(); end;",
     );
+    let mut tests = helper.clone();
     for op in ops {
         tests += &format!("[Test] [HandlerFunctions('Handler')] procedure {op}x() begin Read('{op}'); end;");
     }
@@ -624,6 +626,11 @@ fn filter_and_view_reads_of_rec_in_onopenpage_of_a_run_page_link_target_are_refu
     for (n, why) in &got {
         assert!(why.contains("RunPageLink"), "{n}: {why}");
     }
+    let mut ran = helper;
+    for op in ["GetView", "HasFilter"] {
+        ran += &format!("[Test] [HandlerFunctions('Handler')] procedure {op}x() begin Read('{op}'); end;");
+    }
+    passes(&ran);
     passes(
         "[PageHandler] procedure Handler(var P: TestPage \"RO Lines Op Reader\") begin P.Close(); end;
         [Test] [HandlerFunctions('Handler')] procedure GetFilterRuns() var H: Record \"RO Head\"; L: Record \"RO Line\"; P: Codeunit \"RO Probe\"; Host: TestPage \"RO Reader Host\"; begin
