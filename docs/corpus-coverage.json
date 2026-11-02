@@ -1,5 +1,5 @@
 {
-  "corpus_commit": "34ca226fee34fb8b7ec0a0735f31ebc817b6a5e0",
+  "corpus_commit": "48433dfe9ada6c15d81ba0fd68e70d4e5e87c036",
   "language": {
     "bc": "27-29",
     "implemented": 1633,
@@ -415,7 +415,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al:46",
+        "site": "network/lt-http-cookies/HttpCookieForms.al:55",
         "state": "implemented",
         "type": "Cookie"
       },
@@ -431,7 +431,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al:46",
+        "site": "network/lt-http-cookies/HttpCookieForms.al:55",
         "state": "implemented",
         "type": "Cookie"
       },
@@ -447,7 +447,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al:46",
+        "site": "network/lt-http-cookies/HttpCookieForms.al:55",
         "state": "implemented",
         "type": "Cookie"
       },
@@ -479,7 +479,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al:46",
+        "site": "network/lt-http-cookies/HttpCookieForms.al:55",
         "state": "implemented",
         "type": "Cookie"
       },
@@ -495,7 +495,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al:46",
+        "site": "network/lt-http-cookies/HttpCookieForms.al:55",
         "state": "implemented",
         "type": "Cookie"
       },
@@ -5242,7 +5242,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, var Cookie)",
-        "site": "xml/lt-xml-attr-doc-http-members/P97ReqCookie.al:25",
+        "site": "network/lt-http-cookies/HttpCookieForms.al:336",
         "state": "implemented",
         "type": "HttpRequestMessage"
       },
@@ -5354,7 +5354,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Cookie)",
-        "site": "xml/lt-xml-attr-doc-http-members/P97ReqCookieObj.al:30",
+        "site": "network/lt-http-cookies/HttpCookieForms.al:321",
         "state": "implemented",
         "type": "HttpRequestMessage"
       },
@@ -5434,7 +5434,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, var Cookie)",
-        "site": "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al:58",
+        "site": "network/lt-http-cookies/HttpCookieForms.al:50",
         "state": "implemented",
         "type": "HttpResponseMessage"
       },
@@ -5450,7 +5450,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al:57",
+        "site": "network/lt-http-cookies/HttpCookieForms.al:41",
         "state": "implemented",
         "type": "HttpResponseMessage"
       },
@@ -12872,7 +12872,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "record/TestRecordCount.al:61",
+        "site": "permissions/lt-y19-perm-probes/Y24PermReads.al:262",
         "state": "implemented",
         "type": "Record"
       },
@@ -13399,7 +13399,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Boolean)",
-        "site": "Y69XbTriggerSubs.al:29",
+        "site": "Y3XaInstallEvents.al:60",
         "state": "implemented",
         "type": "Record"
       },
@@ -28190,19 +28190,19 @@
           "id": "Cookie.Domain#1",
           "pinned": true,
           "signature": "Cookie.Domain inst () -> Text",
-          "site": "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al:46"
+          "site": "network/lt-http-cookies/HttpCookieForms.al:55"
         },
         {
           "id": "Cookie.Expires#1",
           "pinned": true,
           "signature": "Cookie.Expires inst () -> DateTime",
-          "site": "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al:46"
+          "site": "network/lt-http-cookies/HttpCookieForms.al:55"
         },
         {
           "id": "Cookie.HttpOnly#1",
           "pinned": true,
           "signature": "Cookie.HttpOnly inst () -> Boolean",
-          "site": "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al:46"
+          "site": "network/lt-http-cookies/HttpCookieForms.al:55"
         },
         {
           "id": "Cookie.Name#1",
@@ -28214,13 +28214,13 @@
           "id": "Cookie.Path#1",
           "pinned": true,
           "signature": "Cookie.Path inst () -> Text",
-          "site": "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al:46"
+          "site": "network/lt-http-cookies/HttpCookieForms.al:55"
         },
         {
           "id": "Cookie.Secure#1",
           "pinned": true,
           "signature": "Cookie.Secure inst () -> Boolean",
-          "site": "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al:46"
+          "site": "network/lt-http-cookies/HttpCookieForms.al:55"
         },
         {
           "id": "Cookie.Value#1",
@@ -30155,7 +30155,7 @@
           "id": "HttpRequestMessage.GetCookie#1",
           "pinned": true,
           "signature": "HttpRequestMessage.GetCookie inst (Name: Text, var Cookie: Cookie) -> Boolean?",
-          "site": "xml/lt-xml-attr-doc-http-members/P97ReqCookie.al:25"
+          "site": "network/lt-http-cookies/HttpCookieForms.al:336"
         },
         {
           "id": "HttpRequestMessage.GetCookieNames#1",
@@ -30197,7 +30197,7 @@
           "id": "HttpRequestMessage.SetCookie#1",
           "pinned": true,
           "signature": "HttpRequestMessage.SetCookie inst (Cookie: Cookie) -> Boolean?",
-          "site": "xml/lt-xml-attr-doc-http-members/P97ReqCookieObj.al:30"
+          "site": "network/lt-http-cookies/HttpCookieForms.al:321"
         },
         {
           "id": "HttpRequestMessage.SetCookie#2",
@@ -30234,13 +30234,13 @@
           "id": "HttpResponseMessage.GetCookie#1",
           "pinned": true,
           "signature": "HttpResponseMessage.GetCookie inst (Name: Text, var Cookie: Cookie) -> Boolean?",
-          "site": "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al:58"
+          "site": "network/lt-http-cookies/HttpCookieForms.al:50"
         },
         {
           "id": "HttpResponseMessage.GetCookieNames#1",
           "pinned": true,
           "signature": "HttpResponseMessage.GetCookieNames inst () -> List of [Text]",
-          "site": "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al:57"
+          "site": "network/lt-http-cookies/HttpCookieForms.al:41"
         },
         {
           "id": "HttpResponseMessage.Headers#1",
@@ -33004,7 +33004,7 @@
           "id": "Record.CountApprox#1",
           "pinned": true,
           "signature": "Record.CountApprox inst () -> Integer",
-          "site": "record/TestRecordCount.al:61"
+          "site": "permissions/lt-y19-perm-probes/Y24PermReads.al:262"
         },
         {
           "id": "Record.CurrentCompany#1",
@@ -33208,7 +33208,7 @@
           "id": "Record.Insert#2",
           "pinned": true,
           "signature": "Record.Insert inst (RunTrigger: Boolean) -> Boolean?",
-          "site": "Y69XbTriggerSubs.al:29"
+          "site": "Y3XaInstallEvents.al:60"
         },
         {
           "id": "Record.Insert#3",
