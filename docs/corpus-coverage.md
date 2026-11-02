@@ -2391,8 +2391,8 @@ The overloads of the runtime's own catalog (`crates/al-builtins/catalog/signatur
 
 ### Xmlport
 
-- `Xmlport.Break#1` `Xmlport.Break inst ()`: pages/lt-pages-xmlport-upload-members/P112XpCsv.al:152
-- `Xmlport.BreakUnbound#1` `Xmlport.BreakUnbound inst ()`: pages/lt-pages-xmlport-upload-members/P112XpCsv.al:154
+- `Xmlport.Break#1` `Xmlport.Break inst ()`: must-not-compile/cases/2642-xmlport-variable-break-quit-skip.al:21
+- `Xmlport.BreakUnbound#1` `Xmlport.BreakUnbound inst ()`: must-not-compile/cases/2642-xmlport-variable-break-quit-skip.al:22
 - `Xmlport.CurrentPath#1` `Xmlport.CurrentPath inst () -> Text`: platform/lt-xmlport-session-navapp-cookie/P94Fixtures.al:214
 - `Xmlport.Export#1` `Xmlport.Export inst () -> Boolean?`: handlers/TestPageActionRunObjectKinds_Tests.al:182
 - `Xmlport.Export#2` `Xmlport.Export static (Number: Integer, var OutStream: OutStream, ?var Record: Record) -> Boolean?`: errors/lt-ms-refusals-129/P129CallstackXmlPort.al:140
@@ -2402,13 +2402,13 @@ The overloads of the runtime's own catalog (`crates/al-builtins/catalog/signatur
 - `Xmlport.Import#1` `Xmlport.Import inst () -> Boolean?`: codeunit/TestWriteTxTestBoundary.al:310
 - `Xmlport.Import#2` `Xmlport.Import static (Number: Integer, var InStream: InStream, ?var Record: Record) -> Boolean?`: error-handling/TestAssertErrorRollbackNestedTransaction.al:117
 - `Xmlport.ImportFile#1` `Xmlport.ImportFile inst (?ImportFile: Boolean) -> Boolean?`: xmlport/lt-xmlport-query-datatransfer/XmlPortFixtures.al:265
-- `Xmlport.Quit#1` `Xmlport.Quit inst ()`: pages/lt-pages-xmlport-upload-members/P112XpCsv.al:156
+- `Xmlport.Quit#1` `Xmlport.Quit inst ()`: must-not-compile/cases/2642-xmlport-variable-break-quit-skip.al:23
 - `Xmlport.RecordSeparator#1` `Xmlport.RecordSeparator inst (?Separator: Text) -> Text?`: platform/lt-xmlport-session-navapp-cookie/P94Fixtures.al:353
 - `Xmlport.Run#1` `Xmlport.Run inst ()`: platform/lt-xmlport-session-navapp-cookie/P94XpPathFlow.al:288
 - `Xmlport.Run#2` `Xmlport.Run static (Number: Integer, ?RequestWindow: Boolean, ?Import: Boolean, ?var Record: Record)`: errors/lt-az-error-texts/AzErrorTexts.al:572
 - `Xmlport.SetDestination#1` `Xmlport.SetDestination inst (var OutStream: OutStream)`: handlers/TestPageActionRunObjectKinds_Tests.al:181
 - `Xmlport.SetSource#1` `Xmlport.SetSource inst (var InStream: InStream)`: codeunit/TestWriteTxTestBoundary.al:309
 - `Xmlport.SetTableView#1` `Xmlport.SetTableView inst (var Record: Record)`: xml/lt-xmlport-run-export/XmlportRunExport.al:159
-- `Xmlport.Skip#1` `Xmlport.Skip inst ()`: pages/lt-pages-xmlport-upload-members/P112XpCsv.al:150
+- `Xmlport.Skip#1` `Xmlport.Skip inst ()`: must-not-compile/cases/2642-xmlport-variable-break-quit-skip.al:24
 - `Xmlport.TableSeparator#1` `Xmlport.TableSeparator inst (?Separator: Text) -> Text?`: platform/lt-xmlport-session-navapp-cookie/P94Fixtures.al:353
 - `Xmlport.TextEncoding#1` `Xmlport.TextEncoding inst (?Encoding: TextEncoding) -> TextEncoding?`: must-not-compile/cases/2651-xmlport-textencoding-assigned-integer.al:28
