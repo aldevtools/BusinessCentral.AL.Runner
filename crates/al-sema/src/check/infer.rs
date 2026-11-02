@@ -1412,7 +1412,6 @@ impl<'a> Checker<'a> {
                             | ObjKind::Table
                             | ObjKind::TableExtension
                     )
-                    && !sc_has_var(sc, "this")
                 {
                     if let Some(e) = kids.get(1).and_then(|m| self.this_member(sc, node, m)) {
                         return e;
