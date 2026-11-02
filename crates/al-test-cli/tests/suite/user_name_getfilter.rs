@@ -71,3 +71,27 @@ fn getfilter_of_a_user_name_flow_field_without_a_filter_is_empty() {
         "{o:?}"
     );
 }
+
+/// FieldRef.Name of SystemCreatedByUserName is its name (fieldref/lt-y66-fieldref-length-types/Y66FieldRefLengthTypes.al:
+/// 99-108, BC 29).
+const NAME: &str = "
+table 69672 \"UN Name Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
+codeunit 69673 T {
+    Subtype = Test;
+
+    [Test]
+    procedure FieldName()
+    var
+        RecRef: RecordRef;
+    begin
+        RecRef.Open(Database::\"UN Name Row\");
+        if RecRef.Field(2000000005).Name() <> 'SystemCreatedByUserName' then
+            Error('got %1', RecRef.Field(2000000005).Name());
+    end;
+}";
+
+#[test]
+fn name_of_a_user_name_flow_field() {
+    let o = run(NAME);
+    assert_eq!(o[0], ("FieldName".to_string(), Outcome::Pass), "{o:?}");
+}
