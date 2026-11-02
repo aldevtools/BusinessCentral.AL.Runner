@@ -563,6 +563,8 @@ pub(crate) fn is_assign_call(receiver: &str, name: &str) -> bool {
             | ("RecordRef", "ChangeCompany")
             | ("FieldRef", "Validate")
             | ("Dialog", "HideSubsequentDialogs")
+            // `Sleep := 1` is `Sleep(1)` (record/ProbePropertyAssignmentForms.al:564 Y29_Collections_Text_Sleep_AssignForms).
+            | ("System", "Sleep")
     )
 }
 

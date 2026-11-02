@@ -145,6 +145,7 @@ mod this_in_objects;
 mod typed_handler_set_up_variable;
 mod unpinned_error_result;
 mod update_draft_row;
+mod user_name_filters;
 mod user_name_getfilter;
 mod user_reports;
 mod values_allowed_setvalue;

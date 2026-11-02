@@ -167,6 +167,10 @@ impl Session {
                 "DB:Ok",
             );
         }
+        // The user-name system FlowFields (BC 29) have no formula: the platform calculates them (`calc_value_inner`).
+        if ir::user_name_field_no(f.id).is_some() {
+            return Ok(());
+        }
         if let Some(reason) = &f.calc_refusal {
             return unsupported(reason.clone());
         }
@@ -548,6 +552,13 @@ impl Session {
         let engine = self.engine.clone();
         let table = rec.borrow().table as usize;
         let f = &engine.program.objects[table].table.as_ref().expect("table").fields[pos];
+        // The user-name system FlowFields: the user name or full name of the user in SystemCreatedBy / SystemModifiedBy, a
+        // lookup in the User table (system-fields/W6SystemFieldStamps.al:239-246; the filters on them:
+        // lt-y64-username-filters/Y64UserNameFilters.al).
+        if let Some(no) = ir::user_name_field_no(f.id) {
+            let (name, _) = crate::platform::user_name_system_field(no).expect("2000000005 to 2000000008");
+            return Ok(Value::Text(self.user_name_field_value(rec, no, name)?.into()));
+        }
         let calc = f.calc.as_ref().expect("checked by check_calc_field");
         let filters = self.calc_filters(rec, calc, stack)?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
