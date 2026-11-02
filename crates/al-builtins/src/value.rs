@@ -492,6 +492,10 @@ pub struct PageState {
     pub focus_in_row: bool,
     /// Validation errors the client holds: (control index, stored text).
     pub errors: Vec<(usize, String)>,
+    /// A SetValue of a value that is not a Text, whose text is longer than the control's field: (control index, the text, the error
+    /// the save raises). The control shows the text; the next SetValue of the control drops it; the Close raises the error
+    /// (pages/lt-y80-setvalue-types/Y80SetValueTypes.al Y80_ST_Card_ShortCtl_*).
+    pub deferred_overlong: Option<(usize, String, String)>,
     /// The control and the list row (its key) where a control's ValuesAllowed refused an entry: a Value read of that control on
     /// another row is not pinned (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al:313-316).
     pub values_allowed_refused_row: Option<(usize, Vec<Value>)>,
@@ -974,6 +978,7 @@ impl PageState {
             selection_on_rec: false,
             focus: None,
             focus_in_row: false,
+            deferred_overlong: None,
             errors: Vec::new(),
             values_allowed_refused_row: None,
             trigger_errors: Vec::new(),

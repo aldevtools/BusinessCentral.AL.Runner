@@ -97,6 +97,9 @@ impl Session {
     fn control_set_value_now(&mut self, st: &St, idx: usize, args: &mut [Value]) -> Result<Value, Signal> {
         // Taken first: a trigger that runs below may call SetValue itself.
         let from_variant = std::mem::take(&mut self.set_value_from_variant);
+        if st.borrow().deferred_overlong.as_ref().is_some_and(|(i, _, _)| *i == idx) {
+            st.borrow_mut().deferred_overlong = None;
+        }
         // A subscriber to OnBeforeValidateEvent / OnAfterValidateEvent of this control would run in BC; the client does
         // not raise them yet, so a write to such a control is refused (a page that is merely opened is not).
         {
@@ -420,51 +423,78 @@ impl Session {
         let text = match &arg {
             _ if old_ordinal.is_some() => old_ordinal.clone().unwrap_or_default().into(),
             Value::Text(t) | Value::Code(t) => t.clone(),
-            // A Decimal handed to a text control is its Format text: 1.11, 1,234,567.5, 0, -3.5
-            // (misc/lt-y14-triage/Y14Small.al:237, en-US, corpus master).
-            Value::Decimal(_) if matches!(ty, RtType::Text(_)) => {
+            // A Decimal handed to a text or code control is its Format text: 1.11, 1,234,567.5, 0, -3.5
+            // (misc/lt-y14-triage/Y14Small.al:237, en-US, corpus master; pages/lt-y80-setvalue-types/Y80SetValueTypes.al
+            // Y80_ST_Card_TxtCtl_Decimals and _CdCtl_Decimals: `dec 1234` is `1,234`, `dec 100000` is `100,000`; needs corpus bump).
+            Value::Decimal(_) if matches!(ty, RtType::Text(_) | RtType::Code(_)) => {
+                if !rec_bound {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::SetValueWholeNumberIntoTextControl,
+                    );
+                }
                 match al_builtins::format::format_value(&arg, 0, 0, &*self) {
                     Ok(t) => t.into(),
                     Err(_) => return unsupported("SetValue of a Decimal on a text control whose Format fails"),
                 }
             }
-            // A whole number handed to a text or code control is its digits (WhseItemTrackingPageHandler of SCM RTAM Item Tracking-II sets
-            // `Serial No.` to `TrackingQuantity2 + AssignTracking`, a Decimal); unprobed (assumption setvalue-whole-number-into-text-control).
-            // Beyond 999 Format adds a thousands separator, which is not pinned for a control, so that stays refused.
-            Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_)
-                if matches!(ty, RtType::Text(_) | RtType::Code(_)) =>
-            {
-                let n = match &arg {
-                    Value::Integer(i) => Some(i64::from(*i)),
-                    Value::BigInteger(i) => Some(*i),
-                    Value::Decimal(d) if d.fract().is_zero() => i64::try_from(d.trunc()).ok(),
-                    _ => None,
-                };
-                match n {
-                    Some(n) if n.abs() < 1000 => {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::SetValueWholeNumberIntoTextControl,
-                        );
-                        n.to_string().into()
-                    }
-                    _ => {
-                        return unsupported(format!(
-                            "SetValue of {} on a text control (how BC writes it is not pinned)",
-                            arg.describe()
-                        ));
-                    }
+            // An Integer or BigInteger handed to a text or code control is its digits, with no thousands separator
+            // (Y80SetValueTypes.al Y80_ST_Card_TxtCtl_Integers `int 1234567` is `1234567`, _BigIntegers `big 5000000000`; the same
+            // on a List and on a Code control; needs corpus bump). On a control bound to a variable it is unprobed (assumption
+            // setvalue-whole-number-into-text-control; WhseItemTrackingPageHandler of SCM RTAM Item Tracking-II sets a Decimal).
+            Value::Integer(_) | Value::BigInteger(_) if matches!(ty, RtType::Text(_) | RtType::Code(_)) => {
+                if !rec_bound {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::SetValueWholeNumberIntoTextControl,
+                    );
+                }
+                match &arg {
+                    Value::Integer(i) => i.to_string().into(),
+                    Value::BigInteger(i) => i.to_string().into(),
+                    _ => unreachable!(),
                 }
             }
             // An Enum handed to a text control (Analysis Types' "Item Ledger Entry Type Filter".SetValue(Enum)): the generic conversion
             // raises TypeConversion for a Variant holding an Enum, which is not what a control does; how the client writes it is not pinned.
-            Value::Enum(..) if matches!(ty, RtType::Text(_) | RtType::Code(_)) => {
-                return unsupported("SetValue of an Enum on a text control (how BC writes it is not pinned)");
+            // A Boolean (`Yes`, `YES`), a Duration, an Option and an Enum value are their Format text: `1 minute 30 seconds`, `B`, and the caption `First Kind`
+            // (upper-cased on a Code control: `1 MINUTE 30 SECONDS`, `FIRST KIND`); pages/lt-y80-setvalue-types/Y80SetValueTypes.al
+            // Y80_ST_Card_TxtCtl_Others `duration`, _TxtCtl_Enums `option`, `enum first`, and the _CdCtl_ twins (needs corpus bump).
+            Value::Duration(_) | Value::Option(..) | Value::Enum(..) | Value::Boolean(_) if matches!(ty, RtType::Text(_) | RtType::Code(_)) => {
+                match al_builtins::format::format_value(&arg, 0, 0, &*self) {
+                    Ok(t) => {
+                        if rec_bound && bounded_text_len(&ty).is_some_and(|max| Value::text_len(&t) > max) {
+                            let max = bounded_text_len(&ty).unwrap_or_default();
+                            return Ok(self.defer_overlong(st, idx, max, &t));
+                        }
+                        let converted = ops::convert(Value::Text(t.into()), &ty)?;
+                        self.control_text(st, idx, &converted)?.into()
+                    }
+                    Err(_) => return unsupported("SetValue of an Enum, Option or Duration on a text control whose Format fails"),
+                }
             }
             other => {
+                if rec_bound
+                    && let Some(max) = bounded_text_len(&ty)
+                    && !matches!(other, Value::Text(_) | Value::Code(_))
+                    && let Ok(Value::Text(full)) = ops::convert(other.clone(), &RtType::Text(None))
+                    && Value::text_len(&full) > max
+                {
+                    return Ok(self.defer_overlong(st, idx, max, &full));
+                }
                 let converted = ops::convert(other.clone(), &ty)?;
                 self.control_text(st, idx, &converted)?.into()
             }
         };
+        // A value that is not a Text and whose text is longer than the field is not refused at the SetValue: the control shows it
+        // and the save at Close raises the error (Y80_ST_*_ShortCtl_*, and Guid on a Text[30] control in Y80_ST_*_TxtCtl_Others;
+        // needs corpus bump).
+        if rec_bound
+            && !matches!(arg, Value::Text(_) | Value::Code(_))
+            && let Some(max) = bounded_text_len(&ty)
+            && Value::text_len(&text) > max
+        {
+            let full = text.to_string();
+            return Ok(self.defer_overlong(st, idx, max, &full));
+        }
         // An Enum control that holds a refused entry shows the ordinal (see PageMethod::Value); an empty entry then is that
         // ordinal's text, which is refused as any ordinal is (pages/lt-page-enum-control/PageEnumControlCaptionless.al:107,
         // :109: `Your entry of '0'` after two refusals, on a table field of a card). Not pinned for a control bound to a
@@ -1211,6 +1241,14 @@ impl Session {
         let st = &c.page;
         let m = method.method();
         let field_read = m == PageMethod::Value && args.is_empty();
+        if field_read && let ControlTarget::Control(i) = &c.target {
+            let held = st.borrow().deferred_overlong.clone();
+            if let Some((held_idx, text, _)) = held
+                && held_idx == *i
+            {
+                return Ok(Value::Text(text.into()));
+            }
+        }
         self.first_part_access(st, m, field_read)?;
         // A new host whose part shows rows of the blank key: a read of a host field and OK are pinned (PartLineBeforeHostKey.al:
         // 2116 QH_BlankRows_ReadHostControl, :1939 QH_BlankRows_OkInvoke), and Activate of a host field: of a non-key field it
@@ -1907,4 +1945,24 @@ fn mark_expression_write(st: &St, ctl: &ir::Control) {
 /// after `base MyProc<-base validate`).
 fn unpinned_ext_validate(before: &[(usize, usize)], after: &[(usize, usize)], request_page: bool) -> bool {
     !before.is_empty() || (!after.is_empty() && !request_page)
+}
+
+/// The length a Text or Code control's field allows.
+fn bounded_text_len(ty: &RtType) -> Option<usize> {
+    match ty {
+        RtType::Text(Some(n)) => Some(*n as usize),
+        RtType::Code(Some(n)) => Some(*n as usize),
+        _ => None,
+    }
+}
+
+impl Session {
+    /// Notes a SetValue whose text is longer than the field (see `PageState::deferred_overlong`).
+    fn defer_overlong(&mut self, st: &St, idx: usize, max: usize, full: &str) -> Value {
+        let len = Value::text_len(full);
+        let message =
+            format!("The length of the string is {len}, but it must be less than or equal to {max} characters. Value: {full}");
+        st.borrow_mut().deferred_overlong = Some((idx, full.to_string(), message));
+        Value::Null
+    }
 }
