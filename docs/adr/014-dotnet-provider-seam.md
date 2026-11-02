@@ -808,7 +808,7 @@ ending, and the next session gets a new process.
 ### Fallback
 
 The alternative of **one sidecar per test codeunit** is today's behavior (a session is a test codeunit). It stays as
-the fallback and as the switch: `ALRUNNER_DOTNET_FRESH=1` and a run option turn reuse off, and reuse starts off in the
+the fallback and as the switch: `ALRUNNER_DOTNET_FRESH=1` and a run option turn reuse off, and reuse started off in the
 first release of the change. It is turned on by default only when the differential (6) shows zero differences on the full
 corpus and the Microsoft run, and the count of reusable sessions makes the gain worth it. An alternative that is not
 proposed: a collectible `AssemblyLoadContext` per session. It would unload test and add-in assemblies but not the
@@ -821,9 +821,9 @@ Accepted as written (project owner, 2026-11-02). Reuse stays off until a differe
 
 ### Implementation status (2026-11-02)
 
-Built, off by default. `ALRUNNER_DOTNET_REUSE=1` hands a clean process to the next session; `ALRUNNER_DOTNET_REUSE=count` asks every
+Built, and on by default since 2026-11-02 (owner 2026-11-02; differential 12 of 12 identical). A clean process goes to the next session unless `ALRUNNER_DOTNET_FRESH=1` (or `ALRUNNER_DOTNET_REUSE=0`) is set; `ALRUNNER_DOTNET_REUSE=count` asks every
 process to `reset` at the end of its session and reports the tally at the end of the run, but still kills the process;
-`ALRUNNER_DOTNET_FRESH=1` turns both off. The sidecar's `reset` (`tools/dotnet-sidecar/Reuse.cs`) releases all handles and
+`ALRUNNER_DOTNET_FRESH=1` turns reuse off. The sidecar's `reset` (`tools/dotnet-sidecar/Reuse.cs`) releases all handles and
 stream bridges, puts back culture, current directory and environment, and reports the process dirty when a session loaded an
 assembly outside the .NET shared framework, named a type in a namespace that can reach state the check does not see
 (`System.Threading`, `System.Diagnostics`, `System.Net`, `System.Reflection`, `System.Runtime`, `System.Console`,

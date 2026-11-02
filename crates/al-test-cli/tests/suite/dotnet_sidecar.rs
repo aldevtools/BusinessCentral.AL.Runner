@@ -389,7 +389,7 @@ fn a_session_killed_by_its_deadline_never_reaches_the_next_one() {
 }
 
 #[test]
-fn reuse_is_off_unless_asked_for() {
+fn reuse_is_on_by_default_and_fresh_turns_it_off() {
     let Some(h) = host() else { return };
     for _ in 0..2 {
         let mut sess = h.open_session(&DotNetSessionConfig::default());
@@ -397,12 +397,21 @@ fn reuse_is_off_unless_asked_for() {
         sess.close();
     }
     let st = h.stats();
-    assert_eq!((st.started, st.reused, st.reset_clean), (2, 0, 0), "{st:?}");
+    assert_eq!((st.started, st.reused, st.reset_clean), (1, 1, 2), "{st:?}");
+    use al_test_cli::dotnet::Reuse;
+    let env = |k: &'static str, v: &'static str| move |q: &str| (q == k).then(|| v.to_string());
+    assert_eq!(Reuse::from_env(&|_| None), Reuse::On);
+    assert_eq!(Reuse::from_env(&env("ALRUNNER_DOTNET_FRESH", "1")), Reuse::Off);
+    assert_eq!(Reuse::from_env(&env("ALRUNNER_DOTNET_REUSE", "count")), Reuse::Count);
+    assert_eq!(Reuse::from_env(&env("ALRUNNER_DOTNET_REUSE", "0")), Reuse::Off);
 }
 
 #[test]
 fn the_sidecar_runs_with_en_us_culture_utc_a_cleared_environment_and_an_empty_working_directory() {
-    let Some(h) = host() else { return };
+    // The folder is removed when the session closes only for a process that is not kept for the next session.
+    let mut cfg = config();
+    cfg.reuse = Some(al_test_cli::dotnet::Reuse::Off);
+    let Some(h) = host_with(cfg) else { return };
     let mut sess = h.open_session(&DotNetSessionConfig::default());
     let culture = sess
         .get_property(st("System.Globalization.CultureInfo"), "CurrentCulture")

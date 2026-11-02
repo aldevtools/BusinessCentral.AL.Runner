@@ -42,7 +42,7 @@ pub struct SidecarConfig {
     /// Deadline of one call; on expiry the process is killed (ADR-014 section 10).
     pub timeout: Duration,
     /// Reuse of a clean process by the next session (ADR-014 amendment 2026-11-02); `None`: `ALRUNNER_DOTNET_REUSE`
-    /// and `ALRUNNER_DOTNET_FRESH` decide, and without them it is off.
+    /// and `ALRUNNER_DOTNET_FRESH` decide, and without them it is on.
     pub reuse: Option<Reuse>,
 }
 
@@ -92,17 +92,17 @@ pub struct SidecarStats {
     /// Requests after the start, and their total time.
     pub calls: usize,
     pub call_total: Duration,
-    /// ADR-014 amendment 2026-11-02, with `ALRUNNER_DOTNET_REUSE` set: sessions that ended with a process that was still
+    /// ADR-014 amendment 2026-11-02, with reuse on or counting: sessions that ended with a process that was still
     /// equal to a fresh one (`reset` found nothing dirty), ...
     pub reset_clean: usize,
     /// ... sessions that ended with a process that was not (it is killed), ...
     pub reset_dirty: usize,
-    /// ... and sessions that were given such a clean process instead of a new one (only with `ALRUNNER_DOTNET_REUSE=1`).
+    /// ... and sessions that were given such a clean process instead of a new one (reuse on).
     pub reused: usize,
 }
 
-/// What `ALRUNNER_DOTNET_REUSE` asks for (ADR-014 amendment 2026-11-02). Off unless set; `ALRUNNER_DOTNET_FRESH=1` turns
-/// it off whatever else is set.
+/// What `ALRUNNER_DOTNET_REUSE` asks for (ADR-014 amendment 2026-11-02). On unless set otherwise (owner, 2026-11-02);
+/// `ALRUNNER_DOTNET_FRESH=1` turns it off whatever else is set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reuse {
     /// Today: one process per session, killed at its end.
@@ -119,9 +119,9 @@ impl Reuse {
             return Reuse::Off;
         }
         match env("ALRUNNER_DOTNET_REUSE").as_deref() {
-            Some("1") => Reuse::On,
+            Some("0") => Reuse::Off,
             Some("count") => Reuse::Count,
-            _ => Reuse::Off,
+            _ => Reuse::On,
         }
     }
 }
@@ -164,7 +164,7 @@ struct Shared {
     stats: Mutex<SidecarStats>,
     pool: Pool,
     reuse: Reuse,
-    /// Why `reset` found a process dirty, with how often (reported by `shutdown` when `ALRUNNER_DOTNET_REUSE` is set).
+    /// Why `reset` found a process dirty, with how often (reported by `shutdown` unless reuse is off).
     dirty_reasons: Mutex<std::collections::BTreeMap<String, usize>>,
 }
 
