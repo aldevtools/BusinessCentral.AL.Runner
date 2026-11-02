@@ -713,6 +713,9 @@ fn permission_helper_add_set(s: &mut Session, _: Option<&Rc<DotNetObject>>, args
     if s.runner_permission_step {
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RunnerPermissionSetsGrantAll);
         s.runner_permission_sets = true;
+        if let [Value::Text(role) | Value::Code(role)] = args {
+            s.shadow_add_role(role.as_ref());
+        }
         return Ok(Value::Null);
     }
     let [Value::Text(role) | Value::Code(role)] = args else {

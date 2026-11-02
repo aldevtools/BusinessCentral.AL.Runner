@@ -223,6 +223,10 @@ impl Session {
             })));
         }
         if let Some(why) = page.restricted_refusals.first() {
+            if self.shadow_active {
+                self.shadow_note("unknown", "page open", why);
+                return Ok(());
+            }
             self.mark_closed(st);
             return unsupported(why.clone());
         }
