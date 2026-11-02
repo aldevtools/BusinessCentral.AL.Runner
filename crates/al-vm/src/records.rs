@@ -1726,7 +1726,7 @@ impl Session {
     /// Commit that the new transaction touched. A stale buffer of another origin whose row the new transaction wrote is written
     /// under the assumption stale-buffer-other-origin-written. The three shapes of al-runner issue 6028 (`stale_6028_shape`) are
     /// pinned by record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_*.
-    fn stale_verdict(
+    pub(crate) fn stale_verdict(
         &mut self,
         t: &TableDef,
         rec: &Rec,
@@ -4108,13 +4108,7 @@ impl Session {
                             }
                         }
                         let r = self.fail(&t, &row, true);
-                        // The buffer keeps the version it had: a Modify through it is refused when the row is newer (Y71FailedInsertModify.al).
-                        if self.ret_used && matches!(r, Ok(Value::Boolean(false))) && !rec.borrow().temporary {
-                            if let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_005) {
-                                let mut b = rec.borrow_mut();
-                                b.failed_insert = Some(if let Value::BigInteger(n) = &b.fields[i] { *n } else { 0 });
-                            }
-                        }
+                        self.note_failed_insert(&t, rec, &r);
                         // A guarded Insert of the key whose statement-form Insert is pending drops that pending error: a Commit
                         // or a read after it raises nothing, and GetLastErrorText gives its text (Y38DupKeyAfterEvent.al
                         // DK_AfterEvent_Statement_ThenGuardedInsert,
@@ -4178,17 +4172,7 @@ impl Session {
                 if let (Some(row), Some(i)) = (&stored, t.fields.iter().position(|f| f.id == 2_000_000_005)) {
                     let (mine, theirs) = (rec.borrow().fields[i].clone(), row[i].clone());
                     let version = |v: &Value| if let Value::BigInteger(n) = v { *n } else { 0 };
-                    // After a failed Insert the events and triggers run first and the write raises (the check below;
-                    // Y71FailedInsertModify.al:FailedInsert_ThenModify_CommitBetween `BeforeModify:No,BeforeModify:No`).
-                    let after_failed_insert = rec
-                        .borrow()
-                        .failed_insert
-                        .is_some_and(|v| v != 0 && v == version(&mine));
-                    if self.stale_verdict(&t, rec, &cx, &pk, version(&theirs), false)? == StaleVerdict::Refused
-                        && !after_failed_insert
-                    {
-                        return Err(self.stale_own_insert_modify_refused(&t, rec, run)?);
-                    }
+                    self.refuse_stale_modify(&t, rec, &cx, &pk, run, (version(&mine), version(&theirs)))?;
                     // The buffer still holds what its own last Modify wrote and a rollback undid that write: the Modify answers
                     // true and writes nothing, so the row keeps what the rollback restored (StaleBuffer.al:76-86); a buffer
                     // changed since writes the whole row (:167-168). The triggers, events and database triggers of such a
@@ -4287,18 +4271,7 @@ impl Session {
                 // stale write (record/lt-priority-assumptions/PriorityAssumptions.al:143-244, real BC: after a Modify that changes nothing and a Commit, the
                 // other variable's Modify of a changed field is accepted, while a Modify that changed a field makes it fail with DB:RecordChanged).
                 self.check_code_storage(&t, &rec.borrow().fields, true)?;
-                // A buffer whose Insert failed on the existing key and whose row another writer changed since it was read cannot be
-                // saved, with no Commit in between (record/lt-y71-failed-insert-modify/Y71FailedInsertModify.al:FailedInsert_ThenModify_*).
-                // A buffer never read (version 0) writes.
-                if let (Some(row), Some(i)) = (&stored_row, t.fields.iter().position(|f| f.id == 2_000_000_005)) {
-                    let failed = rec.borrow_mut().failed_insert.take();
-                    let version = |v: &Value| if let Value::BigInteger(n) = v { *n } else { 0 };
-                    let mine = version(&rec.borrow().fields[i]);
-                    // Only while the buffer still holds the version it had at the failed Insert (a Get since gives it a new one).
-                    if failed.is_some_and(|v| v != 0 && v == mine && v < version(&row[i])) {
-                        return Err(self.record_changed(&t, rec)?);
-                    }
-                }
+                self.check_failed_insert_stale(&t, rec, stored_row.as_deref())?;
                 self.sql_timestamp_before(&t, rec, stored_row.as_deref())?;
                 // A bulk ModifyAll(.., false) without subscribers stamps SystemModifiedAt of a row that has the value already
                 // (RcBTriggers.al:ModifyAll_Equal_Value_Rows_BQ) and gives it a new row version, with or without an OnModify
@@ -5900,7 +5873,7 @@ fn is_media_field(t: &TableDef, i: usize) -> bool {
 
 /// What [`Session::stale_verdict`] decided for a write through a buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StaleVerdict {
+pub(crate) enum StaleVerdict {
     /// The buffer is not stale.
     Fresh,
     /// Stale, and written all the same.
