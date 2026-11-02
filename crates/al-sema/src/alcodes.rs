@@ -21,6 +21,7 @@
 //! for the shapes the compile matrix measured; those are listed in [`NOT_CHECKED`], with what is decided.
 
 use crate::workspace::{AppKind, Diagnostic, ObjKind, Resolution, Workspace};
+use al_syntax::ast::NodeText;
 use al_syntax::{SyntaxKind, SyntaxNode, ast};
 
 /// The AL codes this front end reports, with what each one covers.
@@ -1056,9 +1057,9 @@ fn subscriber_publishers(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut
             let (Some((kl, kr)), Some((pl, pr))) = (scope(&kind), scope(&publisher)) else {
                 continue;
             };
-            if !kl.text().to_string().eq_ignore_ascii_case("ObjectType")
-                || !kr.text().to_string().eq_ignore_ascii_case("Codeunit")
-                || !pl.text().to_string().eq_ignore_ascii_case("Codeunit")
+            if !kl.text_string().eq_ignore_ascii_case("ObjectType")
+                || !kr.text_string().eq_ignore_ascii_case("Codeunit")
+                || !pl.text_string().eq_ignore_ascii_case("Codeunit")
                 || pr.kind() != SyntaxKind::NameRef
             {
                 continue;
@@ -1476,14 +1477,11 @@ const PARAM_NAME_ENDS_LIST: &[&str] = &["begin", "procedure", "trigger"];
 /// are most of the tree, so they are not entered.
 fn declarations(obj: &SyntaxNode) -> (Vec<ast::VarDecl>, Vec<SyntaxNode>) {
     let (mut decls, mut types) = (Vec::new(), Vec::new());
-    let mut walk = obj.preorder();
-    while let Some(ev) = walk.next() {
-        let rowan::WalkEvent::Enter(n) = ev else { continue };
+    let is_match = |k| matches!(k, SyntaxKind::VarDecl | SyntaxKind::TypeRef);
+    for n in ast::find_nodes(obj, is_match, |k| k != SyntaxKind::Block) {
         match n.kind() {
-            SyntaxKind::Block => walk.skip_subtree(),
             SyntaxKind::VarDecl => decls.extend(ast::VarDecl::cast(n)),
-            SyntaxKind::TypeRef => types.push(n),
-            _ => {}
+            _ => types.push(n),
         }
     }
     (decls, types)
@@ -1493,19 +1491,11 @@ fn parameter_names(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mut Vec<
     const INVALID: &str =
         "Syntax error, identifier expected. Provide a valid name (letters, digits, and underscores only).";
     // Statement blocks and var sections hold no parameter list; they are most of the tree, so they are not entered.
-    let mut params = Vec::new();
-    let mut walk = obj.preorder();
-    while let Some(ev) = walk.next() {
-        let rowan::WalkEvent::Enter(n) = ev else { continue };
-        match n.kind() {
-            SyntaxKind::Block | SyntaxKind::VarSection => walk.skip_subtree(),
-            SyntaxKind::Param => {
-                params.push(n);
-                walk.skip_subtree();
-            }
-            _ => {}
-        }
-    }
+    let params = ast::find_nodes(
+        obj,
+        |k| k == SyntaxKind::Param,
+        |k| !matches!(k, SyntaxKind::Block | SyntaxKind::VarSection | SyntaxKind::Param),
+    );
     for p in params {
         let toks: Vec<al_syntax::SyntaxToken> = p
             .children_with_tokens()
@@ -1868,12 +1858,12 @@ fn ambiguous_bare_calls(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut 
         return;
     }
     let app = &ws.apps[ws.objects[oi].app].name;
-    for call in obj.syntax().descendants().filter(|n| n.kind() == SyntaxKind::CallExpr) {
+    for call in ast::descendants_of_kind(obj.syntax(), SyntaxKind::CallExpr) {
         let Some(callee) = call.children().next() else { continue };
         if callee.kind() != SyntaxKind::NameRef || call.children().skip(1).any(|a| a.children().next().is_some()) {
             continue;
         }
-        let name = callee.text().to_string().trim().to_string();
+        let name = callee.text_string().trim().to_string();
         let Some(n) = ambiguous.iter().find(|n| n.eq_ignore_ascii_case(&name)) else {
             continue;
         };
@@ -2122,7 +2112,7 @@ pub fn check_context(ws: &Workspace, app: usize, ctx: &AppContext) -> Vec<Diagno
                 continue;
             }
             let root = SyntaxNode::new_root(ws.green(fi));
-            for n in root.descendants().filter(|n| n.kind() == SyntaxKind::TypeRef) {
+            for n in ast::descendants_of_kind(&root, SyntaxKind::TypeRef) {
                 let Some(t) = ast::TypeRef::cast(n.clone()) else {
                     continue;
                 };
@@ -2419,7 +2409,7 @@ fn routine_scope(ws: &Workspace, object: usize, offset: usize) -> Option<(String
         if !a.name().eq_ignore_ascii_case("Scope") {
             return None;
         }
-        let arg = a.args()?.text().to_string();
+        let arg = a.args()?.text_string();
         let arg = arg
             .trim()
             .trim_start_matches('(')
@@ -2443,11 +2433,11 @@ fn onprem_method_calls(ws: &Workspace, file: usize, obj: &ast::Object, out: &mut
             }
         }
         vars.extend(r.local_var_decls().flat_map(|d| typed_names(&d)));
-        for call in body.descendants().filter(|n| n.kind() == SyntaxKind::CallExpr) {
+        for call in ast::descendants_of_kind(&body, SyntaxKind::CallExpr) {
             let Some(callee) = call.children().next() else { continue };
             let method = match callee.kind() {
                 SyntaxKind::NameRef => {
-                    let name = callee.text().to_string().trim().to_string();
+                    let name = callee.text_string().trim().to_string();
                     (name.eq_ignore_ascii_case("GetLastErrorObject") && !own_procs.contains(&name.to_ascii_lowercase()))
                         .then_some(name)
                 }
@@ -2459,8 +2449,8 @@ fn onprem_method_calls(ws: &Workspace, file: usize, obj: &ast::Object, out: &mut
                     if recv.kind() != SyntaxKind::NameRef {
                         continue;
                     }
-                    let recv_name = recv.text().to_string().trim().trim_matches('"').to_ascii_lowercase();
-                    let method = m.text().to_string().trim().to_string();
+                    let recv_name = recv.text_string().trim().trim_matches('"').to_ascii_lowercase();
+                    let method = m.text_string().trim().to_string();
                     let ty = vars
                         .iter()
                         .rev()

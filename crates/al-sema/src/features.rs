@@ -80,7 +80,7 @@ pub fn check_from(ws: &Workspace, catalog: &Catalog, first: usize) -> Vec<Diagno
             out.gate(FeatureKind::Property, ctx, &p.name(), Some(&p.value_text()), p.syntax())
         });
         // Data types as a variable declares them (the form alc was asked about).
-        for n in obj.syntax().descendants().filter(|n| n.kind() == SyntaxKind::VarDecl) {
+        for n in al_syntax::ast::descendants_of_kind(obj.syntax(), SyntaxKind::VarDecl) {
             let Some(t) = ast::VarDecl::cast(n.clone()).and_then(|d| d.type_ref()) else {
                 continue;
             };

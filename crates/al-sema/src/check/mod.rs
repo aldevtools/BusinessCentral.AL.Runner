@@ -7,6 +7,7 @@ use crate::types::Ty;
 use crate::workspace::{Diagnostic, ObjKind, Resolution, Workspace};
 use al_builtins::catalog::Catalog;
 use al_builtins::signature::Signature;
+use al_syntax::ast::NodeText;
 use al_syntax::{SyntaxKind, SyntaxNode, ast};
 use posmap::{FxMap as HashMap, FxSet as HashSet};
 
@@ -1404,7 +1405,7 @@ fn receiver_of(t: &Ty) -> Option<String> {
 /// For `Rec.ReadIsolation` and `Rec.SecurityFiltering` written before `::`: the system option the
 /// property takes and the position of member `member` in it.
 fn system_option_of_property(base: &SyntaxNode, member: &str) -> Option<(&'static str, usize)> {
-    let text = base.text().to_string();
+    let text = base.text_string();
     let last = text.rsplit('.').next()?.trim().trim_matches('"').to_ascii_lowercase();
     let enum_name = match last.as_str() {
         "readisolation" => "IsolationLevel",
