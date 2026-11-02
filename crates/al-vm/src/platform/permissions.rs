@@ -237,16 +237,21 @@ fn parse_grants<O: al_ir::ObjectInfo + ?Sized>(
     o: &O,
     ids: &dyn Fn(al_ir::ObjKind, &str) -> Result<u32, String>,
 ) -> Result<Vec<Grant>, String> {
-    parse_grants_with(o, ids, None)
+    parse_grants_with(o, ids, None, None)
 }
 
 /// The grants of `o`'s `Permissions` property. With `wildcards`, a grant on a whole object type (`tabledata * = RIMD`,
 /// `system * = X`) merges its levels into the slot of that type ([`crate::permissions::kind_slot`]); without, it is an
 /// error, as for the grants tables, which do not list such a grant row by row.
+///
+/// With `unread_system`, a grant on one named system object (`system "Tools, Security, Roles" = X`) goes there instead of
+/// being an error: the program has no id for a system object, so the row is not built, and only a System access can
+/// depend on it (a row is keyed on object type and id, ADR-062 pin 10; al-runner issue 6717).
 fn parse_grants_with<O: al_ir::ObjectInfo + ?Sized>(
     o: &O,
     ids: &dyn Fn(al_ir::ObjKind, &str) -> Result<u32, String>,
     mut wildcards: Option<&mut crate::permissions::Wildcards>,
+    mut unread_system: Option<&mut Vec<String>>,
 ) -> Result<Vec<Grant>, String> {
     let Some(text) = prop(o, "Permissions") else {
         return Ok(Vec::new());
@@ -281,6 +286,13 @@ fn parse_grants_with<O: al_ir::ObjectInfo + ?Sized>(
             for (have, add) in w[slot].iter_mut().zip(level) {
                 *have = merge(*have, add);
             }
+            continue;
+        }
+        if kind_word == "system"
+            && let Some(unread) = unread_system.as_deref_mut()
+        {
+            parse_mask(mask).ok_or_else(|| bad("has a letter that is not R, I, M, D or X"))?;
+            unread.push(format!("permission set '{}': `{entry}`", o.name()));
             continue;
         }
         let (kind, ty) = match kind_word.as_str() {
@@ -640,10 +652,15 @@ fn content_of<O: al_ir::ObjectInfo + ?Sized>(
     ids: &dyn Fn(al_ir::ObjKind, &str) -> Result<u32, String>,
 ) -> Result<crate::permissions::Content, String> {
     let mut wild = crate::permissions::Wildcards::default();
-    parse_grants_with(o, ids, Some(&mut wild)).map(|list| {
+    let mut unread_system = Vec::new();
+    parse_grants_with(o, ids, Some(&mut wild), Some(&mut unread_system)).map(|list| {
         let mut explicit: Vec<(i32, u32, [u8; 5])> = list.into_iter().map(|g| (g.kind, g.id, g.level)).collect();
         explicit.sort_unstable_by_key(|&(k, id, _)| (k, id));
-        crate::permissions::Content { wild, explicit }
+        crate::permissions::Content {
+            wild,
+            explicit,
+            unread_system,
+        }
     })
 }
 
