@@ -207,6 +207,15 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         {
             Value::Null
         }
+        // The Key Vault client and Microsoft's test provider hold names and values only: "Azure Key Vault Impl.".ClearSecrets
+        // clears both and the next read builds a new client (onprem-dotnet/lt-y58-key-vault/Y58AzureKeyVault.al:245
+        // KeyVault_Cache, 'read after ClearSecrets' = not set up; corpus master 7330f181).
+        Value::DotNet(o)
+            if matches!(&o.kind, crate::value::DotNetKind::Internal { type_name, .. }
+                if type_name == crate::dotnet_sigs::KEY_VAULT_HELPER || type_name == crate::dotnet_sigs::KEY_VAULT_MOCK_PROVIDER) =>
+        {
+            Value::Null
+        }
         // Excel Buffer.CloseBook clears its worksheet and workbook writers after the workbook's Close, and its worksheet and
         // workbook readers: the variables become unassigned (assumptions clear-closed-workbook-writer and clear-workbook-reader,
         // from Microsoft's Tests-ERM; the context marks them). A later call on the object through another
