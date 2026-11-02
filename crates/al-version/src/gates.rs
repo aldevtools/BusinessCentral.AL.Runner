@@ -106,6 +106,9 @@ pub enum Gate {
     ModuleInfoAndNavAppResourceMethodsFrom29,
     /// DataSourceContext and TestHandlerContext exist from BC 29 (lt-ac/ACContexts.al, corpus bump 26). Not consumed yet.
     DataSourceAndTestHandlerContextFrom29,
+    /// The System Application's MCP configuration (MCP Utilities, the MCP Config Card) exists from BC 29; the probe codeunit is
+    /// compiled only from BC 29 (platform/lt-y71-mcp-config-card/Y71McpConfigCard.al:10-12). Not consumed yet.
+    McpConfigurationFrom29,
     /// The IsolatedStorage.Get overloads with an IsolationLevel exist from BC 29 (lt-ac/ACIsolatedStorageIsolation.al, corpus bump 26). Not consumed yet.
     IsolatedStorageIsolationLevelOverloadsFrom29,
     /// `Record.IsDirty()` exists from BC 29 (lt-ac/ACRecordIsDirty.al, corpus bump 26). Not consumed yet.
@@ -334,6 +337,7 @@ impl Gate {
         Gate::ObsoleteRequiredPendingAttributeFrom29,
         Gate::ModuleInfoAndNavAppResourceMethodsFrom29,
         Gate::DataSourceAndTestHandlerContextFrom29,
+        Gate::McpConfigurationFrom29,
         Gate::IsolatedStorageIsolationLevelOverloadsFrom29,
         Gate::RecordIsDirtyFrom29,
         Gate::BigIntegerToEnumVariableFrom29,
@@ -388,6 +392,7 @@ impl Gate {
             | Gate::ObsoleteRequiredPendingAttributeFrom29
             | Gate::ModuleInfoAndNavAppResourceMethodsFrom29
             | Gate::DataSourceAndTestHandlerContextFrom29
+            | Gate::McpConfigurationFrom29
             | Gate::IsolatedStorageIsolationLevelOverloadsFrom29
             | Gate::RecordIsDirtyFrom29
             | Gate::CaseTimeZeroLabelFrom29
@@ -445,7 +450,8 @@ impl Gate {
             | Gate::EnumFieldRefValidateCaptionEvaluateErrorFrom28
             | Gate::FieldRefTextNumberEvaluateErrorFrom28
             | Gate::JsonSelectTokensListFrom28
-            | Gate::DocxMediaRezippedFrom29 => self.evidence_of_first_gates(),
+            | Gate::DocxMediaRezippedFrom29
+            | Gate::PlatformMetadataColumnsFrom29 => self.evidence_of_first_gates(),
             Gate::OtherRecordOptionCaptionFrom29 => &[Evidence {
                 file: "pages/lt-sa-other-record-control/SaOtherRecordControl.al",
                 lines: "284,290,295,300",
@@ -709,6 +715,10 @@ impl Gate {
                 file: "lt-ac/ACContexts.al",
                 lines: "10",
             }],
+            Gate::McpConfigurationFrom29 => &[Evidence {
+                file: "platform/lt-y71-mcp-config-card/Y71McpConfigCard.al",
+                lines: "12",
+            }],
             Gate::IsolatedStorageIsolationLevelOverloadsFrom29 => &[Evidence {
                 file: "lt-ac/ACIsolatedStorageIsolation.al",
                 lines: "7",
@@ -743,42 +753,6 @@ impl Gate {
                 file: "types/PVBase64.al",
                 lines: "145",
             }],
-            Gate::PlatformMetadataColumnsFrom29 => &[
-                Evidence {
-                    file: "platform/lt-y35-username-field-rows/Y35UserNameFieldRows.al",
-                    lines: "86,104,144",
-                },
-                Evidence {
-                    file: "system-fields/W6SystemFieldStamps.al",
-                    lines: "182",
-                },
-                Evidence {
-                    file: "metadata/W6AllObj.al",
-                    lines: "207,212",
-                },
-                Evidence {
-                    file: "metadata/W6FieldKeyRows.al",
-                    lines: "167,262",
-                },
-                Evidence {
-                    file: "metadata/W6TableCodeunitMetadata.al",
-                    lines: "258",
-                },
-                Evidence {
-                    file: "recordref/lt-recordref-fieldref-members/P92Fields.al",
-                    lines: "72",
-                },
-                // The four user-name system fields in the Field rows of a table (corpus bump 54).
-                Evidence {
-                    file: "types/lt-aj-probes/AjMisc.al",
-                    lines: "612,626,640",
-                },
-                // A temporary copy of the Field row of a user-name system field (al-runner issue 6313; the file is `#if BC29PLUS`).
-                Evidence {
-                    file: "platform/lt-wc/WcFieldRowCopy.al",
-                    lines: "9",
-                },
-            ],
             Gate::TableFilterEvaluateError => &[Evidence {
                 file: "records/W4PlatformAndMeta.al",
                 lines: "288,298,304,761",
@@ -948,6 +922,47 @@ impl Gate {
     /// The evidence of the first gates of `evidence` (split out to keep that function short).
     fn evidence_of_first_gates(self) -> &'static [Evidence] {
         match self {
+            Gate::PlatformMetadataColumnsFrom29 => &[
+                Evidence {
+                    file: "platform/lt-y35-username-field-rows/Y35UserNameFieldRows.al",
+                    lines: "86,104,144",
+                },
+                Evidence {
+                    file: "system-fields/W6SystemFieldStamps.al",
+                    lines: "182",
+                },
+                Evidence {
+                    file: "metadata/W6AllObj.al",
+                    lines: "207,212",
+                },
+                Evidence {
+                    file: "metadata/W6FieldKeyRows.al",
+                    lines: "167,262",
+                },
+                Evidence {
+                    file: "metadata/W6TableCodeunitMetadata.al",
+                    lines: "258",
+                },
+                Evidence {
+                    file: "recordref/lt-recordref-fieldref-members/P92Fields.al",
+                    lines: "72",
+                },
+                // The four user-name system fields in the Field rows of a table (corpus bump 54).
+                Evidence {
+                    file: "types/lt-aj-probes/AjMisc.al",
+                    lines: "612,626,640",
+                },
+                // A temporary copy of the Field row of a user-name system field (al-runner issue 6313; the file is `#if BC29PLUS`).
+                Evidence {
+                    file: "platform/lt-wc/WcFieldRowCopy.al",
+                    lines: "9",
+                },
+                // FieldRef of the user-name system field SystemCreatedByUserName (field 2000000005).
+                Evidence {
+                    file: "fieldref/lt-y66-fieldref-length-types/Y66FieldRefLengthTypes.al",
+                    lines: "99,107",
+                },
+            ],
             Gate::AutoFormatAmountFieldRoundsFrom28 => &[
                 Evidence {
                     file: "types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al",
@@ -999,6 +1014,12 @@ impl Gate {
                 Evidence {
                     file: "fieldref/TestFieldRefValue.al",
                     lines: "215,242,294",
+                },
+                // FieldRef.Value of an Integer, Text, Date or Guid field into a Blob: the Evaluate error from BC 28, the
+                // conversion error before (al-builtins `fieldref_value_text.rs` fieldref_value_into_blob).
+                Evidence {
+                    file: "types/lt-y71-value-conversions/Y71ValueConversions.al",
+                    lines: "501,511,521,531",
                 },
                 // FieldRef.Validate and FieldRef.Value of an Integer field from a FieldRef holding a text.
                 Evidence {

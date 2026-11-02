@@ -278,13 +278,7 @@ impl Session {
                 }
                 Op::ConvertFieldValue { d, a, t } => {
                     let v = take(f, a, nl);
-                    let ty = &chunk.types[t as usize];
-                    // A number is its Format text and an Enum its caption, checked against the variable's or parameter's length
-                    // (misc/lt-y13-triage/Y13FieldRefValueToText.al:96-153; text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:207-353).
-                    let v = match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, &*self) {
-                        Some(r) => r?,
-                        None => ops::convert_plain(v, ty)?,
-                    };
+                    let v = self.convert_field_value(v, &chunk.types[t as usize])?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::DbgHit { p } => self.debug_hit(p, &f.locals[..nl as usize]),
@@ -929,6 +923,19 @@ impl Session {
         drop(recv);
         self.return_vec(values);
         result.map_err(|e| Self::name_builtin_refusal(site, e))
+    }
+
+    /// `FieldRef.Value` into a Text, Code or Blob. A number is its Format text and an Enum its caption, checked against the
+    /// variable's or parameter's length (misc/lt-y13-triage/Y13FieldRefValueToText.al:96-153;
+    /// text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:207-353).
+    fn convert_field_value(&self, v: Value, ty: &al_builtins::value::RtType) -> Result<Value, Signal> {
+        let from28 = self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28);
+        match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, self)
+            .or_else(|| al_builtins::fieldref_value_text::fieldref_value_into_blob(&v, ty, self, from28))
+        {
+            Some(r) => r,
+            None => ops::convert_plain(v, ty),
+        }
     }
 
     /// A refusal about a text argument names the builtin that refused it.

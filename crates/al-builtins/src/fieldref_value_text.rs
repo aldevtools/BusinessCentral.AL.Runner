@@ -51,3 +51,44 @@ pub fn variant_into_text_field(
         _ => crate::ops::number_into_text_field(v, t, ctx),
     }
 }
+
+/// A `FieldRef.Value()` of a field that is no Blob, assigned to a Blob: from BC 28 `The value "<Format>" can't be evaluated into
+/// type BLOB.` (Evaluate:Argument), in BC 27 `Invalid Conversion. Source: Nav<Type>, Destination: NavBLOB.` (Argument), for an
+/// Integer, Text, Date and Guid field; the Blob keeps no value (types/lt-y71-value-conversions/Y71ValueConversions.al:440-547).
+/// Other types are refused. `None` when the target is no Blob or the value is one.
+pub fn fieldref_value_into_blob(
+    v: &Value,
+    t: &RtType,
+    ctx: &dyn crate::format::FormatCtx,
+    evaluate_error: bool,
+) -> Option<Result<Value, Signal>> {
+    if !matches!(t, RtType::Library(n) if n.eq_ignore_ascii_case("Blob")) || matches!(v, Value::Blob(_)) {
+        return None;
+    }
+    let nav = match v {
+        Value::Integer(_) => "NavInteger",
+        Value::Text(_) => "NavText",
+        Value::Date(..) => "NavDate",
+        Value::Guid(_) => "NavGuid",
+        other => {
+            return Some(Err(Signal::Unsupported(format!(
+                "FieldRef.Value of {} into a Blob (not pinned)",
+                crate::describe::Describe::describe(other)
+            ))));
+        }
+    };
+    // `evaluate_error`: the gate FieldRefTextNumberEvaluateErrorFrom28.
+    if !evaluate_error {
+        return Some(crate::native::raise(
+            format!("Invalid Conversion. Source: {nav}, Destination: NavBLOB."),
+            "Argument",
+        ));
+    }
+    Some(match crate::format::try_format(v, 0, 0, ctx) {
+        Ok(text) => crate::native::raise(
+            format!("The value \"{text}\" can't be evaluated into type BLOB."),
+            "Evaluate:Argument",
+        ),
+        Err(e) => Err(Signal::Unsupported(e)),
+    })
+}

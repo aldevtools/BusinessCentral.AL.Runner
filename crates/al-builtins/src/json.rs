@@ -836,14 +836,10 @@ fn as_boolean(s: &Scalar) -> Result<Value, Signal> {
             Err(conversion(NAV_JSON_VALUE, "System.Boolean"))
         }
         // An empty text and a text of digits raise the same error (json/JsonValueGetters.al UN_BooleanTextGetters_2 "0",
-        // UN_BooleanTextGetters_3 "1", UN_BooleanTextGetters_4 ""). Any other text (blanks inside, punctuation, a mix) is
-        // assumed to (json-other-text-as-boolean-conversion-error).
-        Scalar::Val(Value::Text(t) | Value::Code(t)) => {
-            if !t.bytes().all(|b| b.is_ascii_digit()) {
-                crate::assumptions::assume(crate::assumptions::Assumption::JsonOtherTextAsBooleanConversionError);
-            }
-            Err(conversion(NAV_JSON_VALUE, "System.Boolean"))
-        }
+        // UN_BooleanTextGetters_3 "1", UN_BooleanTextGetters_4 ""), and so does any other text: blanks inside, punctuation,
+        // a mix of letters and digits ('not a boolean', 'a1', '-', 'true!': misc/lt-y70-assumptions/Y70Probes.al:557-596,
+        // JsonValue_AsBooleanOtherText, JsonValue_OtherGettersOtherText).
+        Scalar::Val(Value::Text(_) | Value::Code(_)) => Err(conversion(NAV_JSON_VALUE, "System.Boolean")),
         // A JSON number 0 reads No and 1 reads Yes (json/JsonValueGetters.al UN_BooleanTextGetters_5, same branch and
         // assumption). Other numbers are not pinned.
         Scalar::Val(Value::Integer(n @ (0 | 1))) => {

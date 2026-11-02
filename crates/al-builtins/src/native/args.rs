@@ -32,11 +32,10 @@ pub fn text_of(v: &Value) -> Option<crate::text::Txt> {
 }
 
 pub(super) fn text_arg(args: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
-    // A Guid where a Text is expected is its text form, as in an assignment (`CopyStr(CreateGuid(), 1, 50)` in
-    // Microsoft's Match General Jnl Lines UT, 61 tests; unprobed, docs/probes-needed.md "A Guid assigned to a Text
-    // or Code"; hard rule 3 exception, owner 2026-10-15).
+    // A Guid where a Text is expected is its text form, as in an assignment (types/lt-guid-as-text-argument/
+    // GuidAsTextArgument.al: CopyStr, StrLen, UpperCase, StrPos, Notification.SetData and more; misc/lt-y70-assumptions/
+    // Y70Probes.al:264-343: EndsWith, LastIndexOf, Split, TextBuilder, Trim*, IndexOfAny, Replace, StrSubstNo).
     if let Some(Value::Guid(g)) = args.get(i) {
-        crate::assumptions::assume(crate::assumptions::Assumption::GuidAsTextArgument);
         return Ok(crate::format::format_guid(g).into());
     }
     args.get(i).and_then(text_of).map_or_else(

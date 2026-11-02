@@ -189,6 +189,9 @@ fn only_unpinned_lengths_mark_the_assumption() {
     assert!(!marked(L7, "Lbl", "'xyz'"));
     assert!(!marked(L7, "''", "Lbl"));
     assert!(marked("Lbl: Label 'abc def'; C30: Code[30];", "C30", "Lbl"));
+    // Y66TernaryLabel.al pins Text[100], Text[3], Code[3], Code[10] and Code[250] either way (al-runner issue 6659).
+    assert!(!marked("Lbl: Label 'abc def'; T100: Text[100];", "T100", "Lbl"));
+    assert!(!marked("Lbl: Label 'abc def'; C250: Code[250];", "Lbl", "C250"));
 }
 
 // types/lt-y31-conversion-matrix/Y31ConvCd.al Text10_Label (:3187-3212, Try7 :3258-3264) and Code10_Label (:3660-3700,

@@ -262,7 +262,22 @@ impl Session {
             rec.borrow_mut().fields[*pos] = v.clone();
         }
         if validate {
+            let top_level = st.borrow().host.is_none();
             for (pos, v) in stamped {
+                // A list that opens on its new line with a filter value its table relation does not find raises nothing on BC (a
+                // where(field()) relation to a two-field key whose row is there for another template only: pages/lt-y72-page-probes/
+                // Y72CaptionRelationWhere.al Caption_WhereField_BatchNotInTemplate, `line` blank); whether the relation is checked
+                // without its where() or not at all is not pinned.
+                if top_level
+                    && matches!(
+                        self.validate_relation(&rec, &table, pos, v.clone()),
+                        Err(Signal::Error(_))
+                    )
+                {
+                    return unsupported(
+                        "the new line of a list whose filter value its table relation does not find (whether the relation is checked is not pinned)",
+                    );
+                }
                 self.ret_used = false;
                 self.record_op(RecordOp::Validate, &rec, &mut [Value::Integer(pos as i32), v])?;
             }

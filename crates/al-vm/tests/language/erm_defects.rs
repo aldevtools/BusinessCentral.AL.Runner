@@ -93,7 +93,7 @@ fn name_of_a_field_ref_that_was_never_assigned_raises_not_initialized() {
 }
 
 /// Base Application's `Error Message Handler.ShowNotification` does `Notification.SetData('RegisterID', RegisterID)`
-/// with a Guid (27 Tests-ERM tests). The Guid is its text form (assumption guid-as-text-argument).
+/// with a Guid (27 Tests-ERM tests). The Guid is its text form (misc/lt-y70-assumptions/Y70Probes.al:264-343).
 #[test]
 fn notification_set_data_takes_a_guid_as_its_text_form() {
     let r = run(

@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 mod autoinc;
 mod bgsession;
+mod get_key_value;
 mod state;
 pub(crate) use state::*;
 mod baseline;

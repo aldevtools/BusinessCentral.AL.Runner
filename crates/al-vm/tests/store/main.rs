@@ -59,6 +59,7 @@ mod record_ref_set_table_variant;
 mod recordref;
 mod recordref_copy_from_record;
 mod recordref_load_fields;
+mod recordref_zero_field_numbers;
 mod records;
 mod relation_field_qualified_const;
 mod relation_option_blank_const;

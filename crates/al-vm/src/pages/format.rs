@@ -822,20 +822,15 @@ impl Session {
                         _ => None,
                     },
                 );
-            // ExtendedDatatype = Masked shows ten bullets for a text of 11 characters (pages/lt-page-presentation-properties/
-            // P119PageFields.al:P119_SetValues `secret`). Whether the count is fixed or the length capped at ten is not pinned,
-            // so a shorter text is refused; the empty text shows empty (`secret-value`).
-            if ext.as_ref().is_some_and(|e| e.trim().eq_ignore_ascii_case("masked")) {
-                if let Value::Text(t) | Value::Code(t) = v {
-                    let n = t.chars().count();
-                    if n >= 10 {
-                        text = "\u{2022}".repeat(10);
-                    } else if n > 0 {
-                        return unsupported(
-                            "a Masked control that shows a text shorter than ten characters (not pinned)",
-                        );
-                    }
-                }
+            // ExtendedDatatype = Masked shows ten bullets for any text that is not empty, whatever its length, on a field (Text or
+            // Code, the property on the page or on the table field) and on a page variable; the empty text shows empty
+            // (pages/lt-y72-page-probes/Y72MaskedShortText.al header, Masked_LengthSweep_Field, Masked_PageVariable_Short;
+            // P119PageFields.al:P119_SetValues `secret`).
+            if ext.as_ref().is_some_and(|e| e.trim().eq_ignore_ascii_case("masked"))
+                && let Value::Text(t) | Value::Code(t) = v
+                && !t.is_empty()
+            {
+                text = "\u{2022}".repeat(10);
             }
             if ext.is_some_and(|e| e.trim().eq_ignore_ascii_case("ratio")) {
                 match v {

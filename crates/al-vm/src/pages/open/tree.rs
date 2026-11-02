@@ -24,14 +24,21 @@ impl Session {
     /// R4;C4`; which rows show is pages/lt-page-controls-aa/AaPartsLists.al:272 AA_Repeater_TreeExpandedRows). CollapseAll reads the
     /// same (al-runner issue 6523;
     /// pageext/lt-page-ext-properties/Y28CollapsedTreeTests.al:38 Y28_CollapsedOpenAndWalk `agr1;agr2;agr3;agr4;agr5;agr1;agr1;agcr1`).
-    /// A tree without TreeInitialState is not pinned and stays as it was.
+    /// A tree without TreeInitialState reads the same (Y72TreeDefaultState.al).
     pub(in crate::pages) fn tree_expand_all_with_row_triggers(&self, st: &St) -> bool {
         let engine = self.engine();
         let pinned = page_of(&engine, st).controls.iter().any(|c| {
             c.kind == ir::ControlKind::Repeater
                 && matches!(c.prop("showastree"), Some(ir::PropVal::Lit(v)) if unquote(v).eq_ignore_ascii_case("true"))
-                && matches!(c.prop("treeinitialstate"), Some(ir::PropVal::Lit(v))
-                    if unquote(v).eq_ignore_ascii_case("expandall") || unquote(v).eq_ignore_ascii_case("collapseall"))
+                && match c.prop("treeinitialstate") {
+                    // No TreeInitialState opens collapsed and reads as CollapseAll does (pages/lt-y72-page-probes/
+                    // Y72TreeDefaultState.al TreeDefault_OpenShows `agr 10 .. agr 60;agr 10;agr 10;agcr 10`).
+                    None => true,
+                    Some(ir::PropVal::Lit(v)) => {
+                        unquote(v).eq_ignore_ascii_case("expandall") || unquote(v).eq_ignore_ascii_case("collapseall")
+                    }
+                    Some(_) => false,
+                }
         });
         drop(engine);
         pinned && (self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord"))
@@ -49,6 +56,10 @@ impl Session {
             return Ok(false);
         }
         let rec = self.page_rec(st);
+        // A tree over a page variable that OnAfterGetRecord sets moves by the levels its open read (`tree_var.rs`).
+        if self.tree_var_slot(st).is_some() && rec.borrow().filters.iter().any(|f| f.group == TREE_GROUP) {
+            return Ok(false);
+        }
         let table = self.table(&rec)?;
         let name = expr
             .trim()
@@ -130,12 +141,13 @@ impl Session {
     /// Y28_ActionGetChildAndUpdate). That parent is expanded as Expand(true) would; a row whose grandparent is collapsed too is not
     /// pinned.
     pub(in crate::pages) fn apply_tree_cut(&mut self, st: &St) -> Result<(), Signal> {
-        let Some(level) = self.tree_level_field(st)? else {
+        let level = self.tree_level_field(st)?;
+        if level.is_none() && (self.tree_var_slot(st).is_none() || st.borrow().tree_levels.is_empty()) {
             return Ok(());
-        };
+        }
         let rec = self.page_rec(st);
         rec.borrow_mut().filters.retain(|f| f.group != TREE_GROUP);
-        let rows = self.tree_rows(&rec, level)?;
+        let rows = self.tree_rows_of(st, &rec, level)?;
         let current = self.row_key(&rec)?;
         let mut expanded = st.borrow().expanded.clone();
         let mut shown = Self::tree_visible(&rows, &expanded);
@@ -159,29 +171,17 @@ impl Session {
         let plain = expanded.is_empty()
             && top.len() == shown.len()
             && top.iter().zip(&shown).all(|(a, b)| Self::same_key(a, b));
-        let cut = if plain {
-            al_builtins::filter::FieldFilter {
+        let cut = match level {
+            Some(level) if plain => al_builtins::filter::FieldFilter {
                 field: level,
                 expr: al_builtins::filter::FilterExpr::Eq(Value::Integer(0)),
                 group: TREE_GROUP,
+            },
+            _ if rows.is_empty() => {
+                st.borrow_mut().tree_shown = shown;
+                return Ok(());
             }
-        } else {
-            let table = self.table(&rec)?;
-            if table.keys[0].len() != 1 {
-                return unsupported(
-                    "a tree over a table whose primary key has several fields that shows rows below level 0 when it opens or after an action (not pinned)",
-                );
-            }
-            al_builtins::filter::FieldFilter {
-                field: table.keys[0][0],
-                expr: al_builtins::filter::FilterExpr::Or(
-                    shown
-                        .iter()
-                        .map(|k| al_builtins::filter::FilterExpr::Eq(k[0].clone()))
-                        .collect(),
-                ),
-                group: TREE_GROUP,
-            }
+            _ => self.tree_key_cut(&rec, &rows, &shown)?,
         };
         rec.borrow_mut().filters.push(cut);
         st.borrow_mut().tree_shown = shown;
@@ -231,7 +231,7 @@ impl Session {
     /// `Expand(on)` on the row a tree stands on: Expand(true) shows the row's direct children, Expand(false) hides them again, and
     /// IsExpanded reads which (pages/lt-ah-pages/AhPageTests.al:950-961 Walk, :986-993 Tree_ThroughPageRun `T1 T5` -> `T1 T2 T4 T5`
     /// -> `T1 T5`, GoToKey of a hidden child `No`). A row's parent is the nearest row before it, in the page's order, with a lower
-    /// level. Pinned only for a page without row triggers, a primary key of one field, expanding a row with children and collapsing
+    /// level. Pinned only for a page without row triggers, expanding a row with children and collapsing
     /// an expanded one, a second Expand of either, and Expand(true) on a leaf without a parent; anything else is refused.
     pub(in crate::pages) fn tree_expand(&mut self, st: &St, on: bool) -> Result<(), Signal> {
         for t in ["onfindrecord", "onnextrecord"] {
@@ -253,19 +253,19 @@ impl Session {
             );
         }
         if st.borrow().cursor != Cursor::Row || st.borrow().draft {
+            // Expand(true) on a tree whose view holds no row raises nothing on BC, after an open that ran OnAfterGetCurrRecord once
+            // on the blank record (pages/lt-y72-page-probes/Y72TreeDefaultState.al TreeDefault_ExpandOnEmptyTree `open log` =
+            // `agcr 0`); the runtime's open of an empty tree runs no trigger, so the case stays refused.
             return unsupported("Expand on a tree page that stands on no stored row (not pinned)");
         }
-        let Some(level) = self.tree_level_field(st)? else {
-            return unsupported("Expand on a tree whose IndentationColumn is not an Integer field (not pinned)");
-        };
+        let level = self.tree_level_field(st)?;
         let rec = self.page_rec(st);
-        let table = self.table(&rec)?;
-        if table.keys[0].len() != 1 {
-            return unsupported("Expand on a tree over a table whose primary key has several fields (not pinned)");
+        let var_cut = rec.borrow().filters.iter().any(|f| f.group == TREE_GROUP) && self.tree_var_slot(st).is_some();
+        if level.is_none() && !var_cut {
+            return unsupported("Expand on a tree whose IndentationColumn is not an Integer field (not pinned)");
         }
-        let pk = table.keys[0][0];
         let current = self.row_key(&rec)?;
-        let rows = self.tree_rows(&rec, level)?;
+        let rows = self.tree_rows_of(st, &rec, level)?;
         let at = rows.iter().position(|(k, _)| Self::same_key(k, &current));
         let has_children = at.is_some_and(|i| rows.get(i + 1).is_some_and(|(_, l)| *l > rows[i].1));
         {
@@ -300,31 +300,19 @@ impl Session {
         // Which rows show (`tree_visible`).
         let expanded = st.borrow().expanded.clone();
         let shown_keys = Self::tree_visible(&rows, &expanded);
-        let shown: Vec<_> = shown_keys
-            .iter()
-            .map(|k| al_builtins::filter::FilterExpr::Eq(k[0].clone()))
-            .collect();
         st.borrow_mut().tree_shown = shown_keys.clone();
+        let cut = match level {
+            Some(level) if expanded.is_empty() => al_builtins::filter::FieldFilter {
+                field: level,
+                expr: al_builtins::filter::FilterExpr::Eq(Value::Integer(0)),
+                group: TREE_GROUP,
+            },
+            _ => self.tree_key_cut(&rec, &rows, &shown_keys)?,
+        };
         {
             let mut r = rec.borrow_mut();
             r.filters.retain(|f| f.group != TREE_GROUP);
-            let expr = if expanded.is_empty() {
-                r.filters.push(al_builtins::filter::FieldFilter {
-                    field: level,
-                    expr: al_builtins::filter::FilterExpr::Eq(Value::Integer(0)),
-                    group: TREE_GROUP,
-                });
-                None
-            } else {
-                Some(al_builtins::filter::FilterExpr::Or(shown))
-            };
-            if let Some(expr) = expr {
-                r.filters.push(al_builtins::filter::FieldFilter {
-                    field: pk,
-                    expr,
-                    group: TREE_GROUP,
-                });
-            }
+            r.filters.push(cut);
         }
         // The rows the open read stay as they are (see above): the record finds its row again under the new cut, and holds the
         // values the page shows.

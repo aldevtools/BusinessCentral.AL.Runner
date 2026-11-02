@@ -432,7 +432,7 @@ pub(super) fn page_action_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             continue;
         };
         match page_actions(&c, o, page, t, &key) {
-            Ok(rows) => out.extend(rows.into_iter().map(Entry::ok)),
+            Ok(rows) => out.extend(rows),
             Err(why) => out.push(Entry::poisoned_prefix(key, 1, why)),
         }
     }
@@ -445,16 +445,21 @@ fn page_actions(
     page: &al_ir::Page,
     t: &TableDef,
     key: &al_data::Row,
-) -> Result<Vec<al_data::Row>, String> {
+) -> Result<Vec<Entry>, String> {
     use al_ir::ControlKind as K;
     let mut rows = Vec::new();
     let mut next = 1;
-    for area in &page.action_areas {
+    for (n, area) in page.action_areas.iter().enumerate() {
         if area.name.is_empty() {
             return Err(format!(
                 "page '{}': actions written outside an area are not pinned",
                 o.name
             ));
+        }
+        // The rows of area(Promoted) are seen by name only (`page_action_promoted`).
+        if area.name.eq_ignore_ascii_case("promoted") {
+            rows.extend(super::page_action_promoted::promoted_rows(o, page, area, n, t, key)?);
+            continue;
         }
         let container = next;
         let mut r = key.clone();
@@ -463,8 +468,11 @@ fn page_actions(
         r[pos(t, 4)] = Value::Integer(0);
         r[pos(t, 5)] = Value::Integer(0);
         r[pos(t, 6)] = option(t, 6, 0);
-        r[pos(t, 8)] = Value::Text(truncate(&area.name, 120).into());
-        rows.push(r);
+        // An action container has no name: no row is named after its area (pages/lt-y72-page-probes/
+        // Y72PageActionControlRows.al PageAction_FilterByName_ActionRef `Promoted` empty; record/TestPageActionVirtualTable.al
+        // QZ_PageAction_CaptionColumn, the first row `=[|]`).
+        r[pos(t, 8)] = Value::Text("".into());
+        rows.push(Entry::ok(r));
         next += 1;
         // Depth first below the container.
         let mut stack: Vec<(usize, i32, i32)> = area.roots.iter().rev().map(|&i| (i, 1, container)).collect();
@@ -503,7 +511,7 @@ fn page_actions(
                 },
             };
             r[pos(t, 16)] = Value::Integer(run_id);
-            rows.push(r);
+            rows.push(Entry::ok(r));
             let me = next;
             next += 1;
             let kids: Vec<usize> = page

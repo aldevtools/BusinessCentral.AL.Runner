@@ -1192,6 +1192,44 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "Nesting");
 }
 
+/// Page Action of a page with area(Promoted) (pages/lt-y72-page-probes/Y72PageActionControlRows.al
+/// PageAction_FilterByName_ActionRef): no row is named after an actionref or an area, the referenced action has its one row, and
+/// a read that may see the area's other rows refuses.
+#[test]
+fn a_promoted_area_is_seen_by_name_only() {
+    let o = outcomes(
+        r#"page 50001 "Target" { PageType = Card; }
+page 50002 "P" { PageType = Card;
+  actions { area(Processing) { action(Tools) { RunObject = page Target; } } area(Promoted) { actionref(Tools_Promoted; Tools) { } } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure ByName(Name: Text): Text var A: Record "Page Action"; begin
+    A.SetRange("Page ID", 50002); A.SetRange(Name, Name); if A.IsEmpty() then exit('empty'); A.FindFirst(); exit(Format(A.Count()) + '/' + Format(A.RunObjectID)); end;
+  [Test] procedure Names() begin
+    if ByName('Tools') + '|' + ByName('Tools_Promoted') + '|' + ByName('Processing') <> '1/50001|empty|empty' then Error('%1', ByName('Tools')); end;
+  [Test] procedure All() var A: Record "Page Action"; begin A.SetRange("Page ID", 50002); if A.Count() = 0 then; end; }"#,
+    );
+    passes(&o, "Names");
+    assert!(not_run(&o, "All").contains("Promoted area"));
+}
+
+/// Page Control Field of a control bound to a quoted field of a record variable: FieldNo 0, the source expression as written
+/// (pages/lt-y72-page-probes/Y72PageActionControlRows.al PageControl_RecVarQuotedSpacedField).
+#[test]
+fn a_record_variable_field_with_a_quoted_name_is_named_as_written() {
+    let o = outcomes(
+        r#"table 50001 "Thing" { fields { field(1; "No."; Code[20]) { } field(2; "Phone No."; Text[30]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+page 50002 "P" { PageType = Card; SourceTable = Thing;
+  layout { area(Content) { field(ContactPhone; Contact."Phone No.") { Editable = false; } } }
+  var Contact: Record Thing; }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Row() var C: Record "Page Control Field"; begin
+    C.SetRange(PageNo, 50002); C.SetRange(ControlName, 'ContactPhone'); C.FindFirst();
+    if StrSubstNo('%1|%2|%3', C.FieldNo, C.SourceExpression, C.Editable) <> '0|Contact."Phone No."|false' then
+      Error('%1|%2|%3', C.FieldNo, C.SourceExpression, C.Editable); end; }"#,
+    );
+    passes(&o, "Row");
+}
+
 /// Event Subscription (record/TestEventSubscriptionVirtualTable.al): rows of compiled subscribers.
 #[test]
 fn event_subscribers_are_rows_keyed_by_codeunit_and_function() {
@@ -4388,7 +4426,7 @@ codeunit 50000 "T" { Subtype = Test;
 /// al-runner issue 6662: a User whose "Authentication Email" is a formatted Guid ('{...}@EXAMPLE.COM') was refused as not
 /// pinned. Corpus writer Y66 measured it on real BC 27.5, 28.5 and 29.0: the insert succeeds and the address is kept as given
 /// (al-language-onprem/access-control/lt-y66-auth-email-local-part/Y66AuthEmailLocalPart.al:25-42, corpus branch
-/// al-runtime-rs-staging-y66; assumption `user-auth-email-rfc-forms` until the pin holds it). The reporter's snippet, plus a read
+/// pinned since corpus master 34ca226f). The reporter's snippet, plus a read
 /// back, on BC 29 and 27.
 #[test]
 fn a_user_whose_authentication_email_has_a_formatted_guid_local_part_is_inserted_and_kept() {

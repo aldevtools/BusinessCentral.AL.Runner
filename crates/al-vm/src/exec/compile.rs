@@ -437,8 +437,7 @@ impl<'a> Compiler<'a> {
                 let inner = a;
                 let a = self.expr_any(a)?;
                 self.note_dotnet_result_ty(t, inner);
-                let field_value = matches!(t, RtType::Text(_) | RtType::Code(_))
-                    && matches!(&**inner, ir::Expr::Builtin { id, .. } if *id == al_builtins::builtin_id::ids::FIELDREF_VALUE_1);
+                let field_value = is_field_value_conversion(t, inner);
                 self.chunk.types.push(t.clone());
                 let t = (self.chunk.types.len() - 1) as u32;
                 if field_value {
@@ -1267,4 +1266,11 @@ fn arg_pure(a: &ir::Arg) -> bool {
         ir::Arg::Ref(ir::Place::Local(_) | ir::Place::Global(_)) => true,
         ir::Arg::Ref(_) => false,
     }
+}
+
+/// A conversion of `FieldRef.Value` into a Text, Code or Blob, which runs `Op::ConvertFieldValue`.
+fn is_field_value_conversion(t: &RtType, inner: &ir::Expr) -> bool {
+    (matches!(t, RtType::Text(_) | RtType::Code(_))
+        || matches!(t, RtType::Library(n) if n.eq_ignore_ascii_case("Blob")))
+        && matches!(inner, ir::Expr::Builtin { id, .. } if *id == al_builtins::builtin_id::ids::FIELDREF_VALUE_1)
 }

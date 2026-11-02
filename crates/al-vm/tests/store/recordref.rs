@@ -373,6 +373,12 @@ fn a_ref_that_is_not_open_raises_record_not_opened_where_the_corpus_pins_it() {
         "F",
     ));
     assert_eq!(m, "The record is not open.");
+    // IsDirty after Clear (misc/lt-y70-assumptions/Y70Probes.al:964-1018, RecordRefIsDirty_Shapes `after_clear`).
+    let m = err(run(
+        "procedure F(): Boolean var RR: RecordRef; begin RR.Open(50900); Clear(RR); exit(RR.IsDirty()); end;",
+        "F",
+    ));
+    assert_eq!(m, "The record is not open.");
     // A method the corpus does not pin on a ref never opened is refused.
     let m = unsupported(run("procedure F() var RR: RecordRef; begin RR.ClearMarks(); end;", "F"));
     assert!(m.contains("not open"), "{m}");

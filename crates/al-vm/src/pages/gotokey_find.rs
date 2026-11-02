@@ -155,8 +155,9 @@ impl Session {
     /// Y61GoToKeyEdges.al: :212 a key in the second block of 45 rows (arriving on row 20 reads one full block of 20 more rows,
     /// `R:020;N:1=1;R:021;...;R:040`), :241 the first row while standing on it reads nothing and from row 10 is one move, :270 the
     /// current row (not the first) walks from the first row, :299 a miss from row 10 walks back to row 10 (`...;R:010;F:==Yes;R:010;
-    /// C:010`), and with the result unused raises the row error after the same walk over the view now held whole. A third block of
-    /// rows and a view of exactly 20 rows are refused. `None` when the page or its window is not of that kind.
+    /// C:010`), and with the result unused raises the row error after the same walk over the view now held whole; a third block of
+    /// rows and views of exactly 20 and 40 rows read the same way (Y72FindPagesEdges.al). `None` when the page or its window is not of
+    /// that kind.
     pub(super) fn go_to_key_find_list_curr(
         &mut self,
         st: &St,
@@ -197,15 +198,10 @@ impl Session {
             found = first_is_want;
         }
         let mut idx = 1;
+        // Arriving on the last row held reads the next block of up to 20 rows, the third and later blocks too, and a view of exactly
+        // 20 or 40 rows reads `N:1=0` there (pages/lt-y72-page-probes/Y72FindPagesEdges.al:498 FindList_GoToKey_ThirdBlock, :535
+        // _FromSecondBlock, :558 _Exactly20, :585 _Exactly40, :615 _Exactly21, :637 _ThirdBlock_Missing).
         while !found && idx < st.borrow().window.len() {
-            {
-                let s = st.borrow();
-                if idx + 1 == s.window.len() && s.window.len() >= 2 * Self::WINDOW && !s.window_eof {
-                    return unsupported(
-                        "GoToKey past a second full block of rows of a find list with OnAfterGetCurrRecord (not pinned)",
-                    );
-                }
-            }
             let r = self.arrive_held(st, idx);
             self.torn_down_on_error(st, r)?;
             found = Self::same_key(&st.borrow().window[idx].key, want);

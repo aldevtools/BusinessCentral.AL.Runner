@@ -142,6 +142,7 @@ mod temp_list_key_open;
 mod test_framework_refusals;
 mod testpage_action_without_parentheses;
 mod this_in_objects;
+mod typed_handler_set_up_variable;
 mod unpinned_error_result;
 mod update_draft_row;
 mod user_name_getfilter;

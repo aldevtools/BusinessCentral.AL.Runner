@@ -39,8 +39,9 @@ fn text(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
 
 /// A Text argument that may be a Guid: the Guid's upper-case text form, as in an assignment. Pinned for the functions that
 /// call this (types/lt-guid-as-text-argument/GuidAsTextArgument.al:108-146, Guid_AsTextArgument_MoreStringFunctions: DelStr,
-/// PadStr, ConvertStr, IncStr, SelectStr, InsStr, DelChr, Contains, IndexOf, StartsWith, Replace). Other text functions keep
-/// refusing a Guid.
+/// PadStr, ConvertStr, IncStr, SelectStr, InsStr, DelChr, Contains, IndexOf, StartsWith, Replace; and
+/// misc/lt-y70-assumptions/Y70Probes.al:264-311, GuidAsText_OtherFunctions: EndsWith, LastIndexOf, Split, TrimStart, TrimEnd,
+/// IndexOfAny). Other text functions keep refusing a Guid.
 fn text_or_guid(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
     if let Some(Value::Guid(g)) = a.get(i) {
         return Ok(crate::format::format_guid(g).into());
@@ -126,7 +127,7 @@ fn starts_with(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
 }
 
 fn ends_with(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let (s, sub) = (recv_text(&r)?, text(a, 0)?);
+    let (s, sub) = (recv_text(&r)?, text_or_guid(a, 0)?);
     // types/TestFormatEvaluateTextContracts.al:Text_EmptyArguments_ContainsStartsEndsAreTrueIndexOfIsOne.
     Ok(Value::Boolean(s.ends_with(sub.as_str())))
 }
@@ -217,7 +218,7 @@ fn index_of(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult 
 /// `StartIndex` characters (`'hello'.LastIndexOf('l', 3) = 3`), both in
 /// types/TestFormatEvaluateTextContracts.al:Text_EmptyArguments_ContainsStartsEndsAreTrueIndexOfIsOne.
 fn last_index_of(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let (st, sb) = (recv_text(&r)?, text(a, 0)?);
+    let (st, sb) = (recv_text(&r)?, text_or_guid(a, 0)?);
     // A start index is valid from 1 to one past the end (corpus
     // text/lt-text-instance/Search1.Codeunit.al:LastIndexOf_StartIndex: 10 of 9 characters is
     // allowed, 0, -1 and 100 are not; misc/lt-probes-needed-1/PnATextFunctions.al:LastIndexOf_Cases).
@@ -286,9 +287,9 @@ fn index_of_any(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
                 other => unsupported(format!("IndexOfAny list element {}", other.describe())),
             })
             .collect::<Result<_, _>>()?,
-        v => match text_of(v) {
-            Some(t) => u16s(&t),
-            None => return unsupported("IndexOfAny with something that is not a list of characters or text"),
+        v => match text_or_guid(std::slice::from_ref(v), 0) {
+            Ok(t) => u16s(&t),
+            Err(_) => return unsupported("IndexOfAny with something that is not a list of characters or text"),
         },
     };
     Ok(Value::Integer(
@@ -363,8 +364,8 @@ fn trim_with(r: &Option<&mut Value>, a: &[Value], start: bool, end: bool) -> NRe
     let s = recv_text(r)?;
     let set: Option<Vec<char>> = match a.first() {
         Some(v) => Some(
-            text_of(v)
-                .ok_or_else(|| Signal::Unsupported("Trim characters that are not text".into()))?
+            text_or_guid(std::slice::from_ref(v), 0)
+                .map_err(|_| Signal::Unsupported("Trim characters that are not text".into()))?
                 .chars()
                 .collect(),
         ),
@@ -494,9 +495,9 @@ fn split(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
         many => many
             .iter()
             .map(|v| {
-                text_of(v)
+                text_or_guid(std::slice::from_ref(v), 0)
                     .map(|t| u16s(&t))
-                    .ok_or_else(|| Signal::Unsupported("Split separator that is not text".into()))
+                    .map_err(|_| Signal::Unsupported("Split separator that is not text".into()))
             })
             .collect::<Result<_, _>>()?,
     };
