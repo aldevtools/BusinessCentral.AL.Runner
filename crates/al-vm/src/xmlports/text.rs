@@ -133,9 +133,26 @@ impl Session {
                         Some(RtType::Text(_) | RtType::Code(_))
                     )
                 };
+                // A line feed inside a text field value, not at its end (a trailing one is dropped, AgXmlPortImport.al:678), reads as
+                // a space: `b<LF>2` under a CR/LF record separator gives `b 2`
+                // (xmlport/lt-y67-xmlport-separators/Y67XpSeparators.al:Assign_Import `record sep crlf token`). A carriage return
+                // inside the value is not pinned and refused.
+                let spaced;
+                let v = if variable && is_text && v.trim_end_matches(['\n', '\r']).contains(['\n', '\r']) {
+                    let body = v.trim_end_matches(['\n', '\r']);
+                    if body.contains('\r') {
+                        return unsupported(
+                            "a VariableText import text value with a carriage return inside (not pinned)",
+                        );
+                    }
+                    spaced = body.replace('\n', " ");
+                    spaced.as_str()
+                } else {
+                    v.as_str()
+                };
                 // A fixed-width field is padded with spaces.
                 let v = if variable {
-                    v.as_str()
+                    v
                 } else if is_text {
                     v.trim_end()
                 } else {
