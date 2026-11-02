@@ -1669,6 +1669,15 @@ impl Session {
         Ok(self.tx.committed_row_version.max(rv.sent).max(1))
     }
 
+    /// Records an Insert of `rec` for `stale_verdict`, keyed as the SQL row is (`sql_key`); a temporary table's is not
+    /// recorded, so its key is not worked out.
+    fn note_insert(&mut self, rec: &Rec, t: &TableDef, before: u64) {
+        if !rec.borrow().temporary {
+            let pk = crate::sqltime::rounded_key(&t.primary_key(&rec.borrow().fields));
+            self.note_write(rec, t, crate::state::TxWriteKind::Insert, &pk, before);
+        }
+    }
+
     /// Records a ModifyAll, DeleteAll, Rename or Truncate of a database table: `stale_verdict` does not tell its writes apart.
     pub(crate) fn note_other_write(&mut self, rec: &Rec, t: &TableDef) {
         let now = self.store.change_counter();
@@ -3984,8 +3993,7 @@ impl Session {
                             self.sql.pre_insert(t.object, plain, ops);
                             self.sql.pre_inserted(al_data::memory::store_ops());
                         }
-                        let pk = Self::sql_key(rec, &t, &rec.borrow().fields.clone());
-                        self.note_write(rec, &t, crate::state::TxWriteKind::Insert, &pk, before);
+                        self.note_insert(rec, &t, before);
                         Self::clear_blob_written(rec);
                         rec.borrow_mut().inserted = true;
                         if !rec.borrow().temporary {
