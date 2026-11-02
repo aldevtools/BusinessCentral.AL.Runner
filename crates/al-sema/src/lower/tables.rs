@@ -71,7 +71,6 @@ impl Lowerer<'_> {
         let mut arms = Vec::new();
         for a in parsed {
             let mut conditions = Vec::new();
-            let mut field_qualified = false;
             for (k, (name, value)) in a.conditions.iter().enumerate() {
                 let Some(pos) = field_pos(own, name) else {
                     return Vec::new();
@@ -80,18 +79,11 @@ impl Lowerer<'_> {
                     // The filter text as written; AL quotes an identifier with `"`, the filter grammar with `'`.
                     let raw = a.condition_raw.get(k).cloned().unwrap_or_default();
                     // `filter(Type::Parent)`, one member qualified with the condition's own field, is `filter(Parent)`
-                    // (record/lt-y65-rename-const-relation/Y65RenameConstRelation.al RefFilter; assumption
-                    // relation-const-field-qualified until the pin).
+                    // (record/lt-y65-rename-const-relation/Y65RenameConstRelation.al RefFilter).
                     let raw = match field_qualified_member(&raw, name) {
                         // A member that is not a plain name keeps its AL quotes, which the next step turns into filter quotes.
-                        Some(member) if member.chars().all(|c| c.is_alphanumeric() || c == '_') => {
-                            field_qualified = true;
-                            member
-                        }
-                        Some(member) => {
-                            field_qualified = true;
-                            format!("\"{member}\"")
-                        }
+                        Some(member) if member.chars().all(|c| c.is_alphanumeric() || c == '_') => member,
+                        Some(member) => format!("\"{member}\""),
                         None => raw,
                     };
                     let raw = if raw.contains('"') { rewrite_quotes(&raw) } else { raw };
@@ -118,10 +110,8 @@ impl Lowerer<'_> {
                 let qualified = match (&own.fields[pos].ty, raw.split_once("::")) {
                     // `const(Type::Parent)` on an Enum field and `const(Kind::Parent)` on an Option field, the member qualified with
                     // the condition's own field, name the member as `const(Parent)` does (record/lt-y65-rename-const-relation/
-                    // Y65RenameConstRelation.al RefQualified, RefOptionQualified; assumption relation-const-field-qualified until
-                    // the pin).
+                    // Y65RenameConstRelation.al RefQualified, RefOptionQualified).
                     (Ty::Enum(_) | Ty::Option(_), Some(_)) if field_qualified_member(raw, name).is_some() => {
-                        field_qualified = true;
                         field_qualified_member(raw, name)
                     }
                     (Ty::Enum(field_enum), Some((qualifier, member))) => {
@@ -248,9 +238,6 @@ impl Lowerer<'_> {
                     let mut v = Vec::new();
                     if quoted {
                         v.push(al_builtins::assumptions::Assumption::TableRelationQuotes);
-                    }
-                    if field_qualified {
-                        v.push(al_builtins::assumptions::Assumption::RelationConstFieldQualified);
                     }
                     v
                 },

@@ -121,7 +121,6 @@ impl Session {
         let now = rec.borrow().fields.clone();
         let same_row = key.iter().all(|&k| Self::same_values(&now[k..=k], &before[k..=k]));
         if on_row && same_row && !Self::same_values(&now, &before) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageVarValidateCodeChangeSaved);
             st.borrow_mut().dirty = true;
         }
     }
@@ -141,7 +140,6 @@ impl Session {
             && !self.declares(st, "onaftergetrecord")
             && !self.declares(st, "onaftergetcurrrecord")
         {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageVarValidateCodeChangeSaved);
             self.save_row(st)?;
         }
         // The refresh the action asks for reads the row again.

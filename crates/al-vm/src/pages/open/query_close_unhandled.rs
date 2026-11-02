@@ -16,7 +16,6 @@ impl Session {
         if e.code != "MissingUIHandler" || !e.message.starts_with("Unhandled UI: Confirm ") {
             return None;
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TestPageCloseQueryCloseUnhandled);
         Some(error_code(e.message.clone(), "TestWrapped"))
     }
 }

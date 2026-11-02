@@ -181,11 +181,6 @@ impl Session {
             String::new()
         };
         let key = (company, name.to_string());
-        if self.sequences_rolled_back.contains(&key) {
-            al_builtins::assumptions::assume(
-                al_builtins::assumptions::Assumption::SequenceChangeRolledBackWithCodeunit,
-            );
-        }
         Ok(key)
     }
 
