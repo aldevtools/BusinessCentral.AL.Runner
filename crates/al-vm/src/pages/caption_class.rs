@@ -12,6 +12,35 @@ impl Session {
     /// autoformat/TestCaptionClassResolverFailure.al: an error the subscriber raises reaches the
     /// open, and a subscriber that claims nothing changes nothing). The language handed to the
     /// event is the session language (types/PSCaptionClass.al).
+    /// The caption a control's CaptionClass text stands for. `3,` with nothing after the comma shows the caption of the last other
+    /// control on the same field (its Caption, else the field's caption), or the control's own caption when it is the only one on
+    /// its field (pages/lt-y80-captionclass-empty/Y80CaptionClassEmpty.al, Y80_CC_Card_OpenView, _OpenEdit, _OpenNew,
+    /// Y80_CC_List_*, Y80_CC_Worksheet_*, Y80_CC_Doc_AfterNext: the same on BC 27, 28 and 29, on every page type and open mode,
+    /// after a move and after a SetValue; `CtlLit`, `CtlExpr`, `CtlAlone`, `CtlAloneExpr`, `CtlVar`). The literal and the
+    /// expression forms behave the same. Needs a corpus bump for the Y80 file.
+    pub(super) fn caption_class_text_for(&mut self, st: &St, idx: usize, text: &str) -> Result<String, Signal> {
+        if text != "3," {
+            return self.caption_class_text(st, text);
+        }
+        self.refuse_caption_class_translate()?;
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let me = &page.controls[idx];
+        let others: Vec<usize> = (0..page.controls.len())
+            .filter(|&i| i != idx && page.controls[i].binding == me.binding && page.controls[i].var_field == me.var_field)
+            .collect();
+        let me_bound = matches!(me.binding, al_ir::Binding::Field(_)) || me.var_field.is_some();
+        let Some(&last) = others.last().filter(|_| me_bound) else {
+            return self.control_caption_plain(st, idx);
+        };
+        if page.controls[last].prop("captionclass").is_some() {
+            return unsupported(
+                "CaptionClass '3,' over a control whose last other control on the field has a CaptionClass of its own (which caption BC reads is not pinned)",
+            );
+        }
+        self.control_caption_plain(st, last)
+    }
+
     pub(super) fn caption_class_text(&mut self, st: &St, text: &str) -> Result<String, Signal> {
         self.refuse_caption_class_translate()?;
         if let Some(rest) = text.strip_prefix("3,") {

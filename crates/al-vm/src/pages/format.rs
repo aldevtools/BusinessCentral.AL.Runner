@@ -1013,8 +1013,16 @@ impl Session {
                     "Caption() of a CaptionClass expression that changed since the page filled (whether BC resolves it again is not pinned)",
                 );
             }
-            return self.caption_class_text(st, &c);
+            return self.caption_class_text_for(st, idx, &c);
         }
+        self.control_caption_plain(st, idx)
+    }
+
+    /// The control's caption with no CaptionClass of its own: its `Caption`, else the source field's `CaptionClass` or
+    /// `Caption`, else its name.
+    pub(super) fn control_caption_plain(&mut self, st: &St, idx: usize) -> Result<String, Signal> {
+        let engine = self.engine();
+        let ctl = &page_of(&engine, st).controls[idx];
         let own_caption = match ctl.prop("caption") {
             Some(ir::PropVal::Lit(c)) => Some(unquote(c)),
             _ => None,
@@ -1103,7 +1111,7 @@ impl Session {
             // resolved again).
             return Ok(());
         }
-        let caption = self.caption_class_text(st, text)?;
+        let caption = self.caption_class_text_for(st, idx, text)?;
         let mut s = st.borrow_mut();
         s.control_captions.retain(|(i, _, _)| *i != idx);
         s.control_captions.push((idx, text.to_string(), caption));
