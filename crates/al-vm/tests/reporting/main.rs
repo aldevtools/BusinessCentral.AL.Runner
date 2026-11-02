@@ -43,6 +43,7 @@ mod request_page_oninit_first_use;
 mod user_gaps_xml_blob;
 mod xmlport_attr_container;
 mod xmlport_bigtext;
+mod xmlport_bigtext_attr;
 mod xmlport_calcfields_attrs;
 mod xmlport_container_in_table;
 mod xmlport_container_skip;
