@@ -597,6 +597,19 @@ impl Session {
             // and the value of a guarded import, are not pinned either.
             if let Some(flow) = Self::xp_flow(inst) {
                 Self::xp_clear_flow(inst);
+                // An export whose result is used writes the declaration alone and returns true, for an Xml port with Encoding = UTF8
+                // (xmlport/lt-ay-xmlport/AyXmlPortFlowTriggers.al:586-625 Export_pre_Break, _BreakUnbound, _Quit, and :790-835 _Bytes:
+                // 54 bytes, no line break, no OnPostXmlPort). Other ports and encodings are not pinned.
+                if dir == Dir::Export
+                    && ret_used
+                    && flow != Flow::Skip
+                    && schema.xp().format == ir::XmlFormat::Xml
+                    && schema.xp().xml_utf8
+                    && !schema.xp().utf8
+                    && !schema.xp().inline_schema
+                {
+                    return self.xp_export_declaration_only(inst, &schema);
+                }
                 if dir == Dir::Export || ret_used || flow == Flow::Skip {
                     return unsupported(
                         "Break, BreakUnbound, Quit or Skip in OnPreXmlPort of an export, a guarded import, or Skip there (not pinned)",
@@ -611,6 +624,7 @@ impl Session {
             Dir::Export => self.xp_export(inst, &schema, ret_used),
             Dir::Import => self.xp_import(inst, &schema, ret_used, static_form),
         };
+        inst.borrow_mut().xp_text.retain(|(k, _)| *k != XP_STOPPED);
         // Quit ends the run at once: no OnPostXmlPort, and the run succeeded (Export_Quit).
         if Self::xp_flow(inst) == Some(Flow::Quit) && matches!(run, Err(Signal::Exit(None)) | Ok(_)) {
             Self::xp_clear_flow(inst);
@@ -686,3 +700,6 @@ const XP_IMPORTED: u8 = 15;
 
 /// The `Instance::xp_text` kind that says an Import of the instance ended in an error.
 const XP_IMPORT_FAILED: u8 = 16;
+
+/// The `Instance::xp_text` kind that says an export ended in a Break of a leaf text element below the root: nothing else is passed.
+const XP_STOPPED: u8 = 30;
