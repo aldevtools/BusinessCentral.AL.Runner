@@ -32,6 +32,27 @@ pub enum FilterExpr {
     /// An empty value in a view's `1()` or `FILTER()`: BC keeps every row and writes the filter back as `==`
     /// (record/lt-y51-setview-shapes/Y51SetViewShapes.al:141-154, SetView_EmptyFilterValue, on Text, Date and Integer fields).
     EmptyViewValue,
+    /// Built by a store for a Code field the database stores as a number (`SQLDataType` Integer, BigInteger or Variant), never
+    /// by the language: `inner` holds BigInteger bounds and is applied to the number the field's text is (a text that is no
+    /// number stays text, which no bound matches).
+    NumCode(Box<FilterExpr>),
+}
+
+/// The number a Code text of plain digits is.
+pub fn code_number(v: &Value) -> Option<i64> {
+    match v {
+        Value::Code(s) | Value::Text(s) => {
+            let s = s.trim();
+            if s.is_empty() {
+                Some(0)
+            } else if s.bytes().all(|c| c.is_ascii_digit()) {
+                s.parse().ok()
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
 }
 
 impl FilterExpr {
@@ -74,6 +95,10 @@ impl FilterExpr {
             FilterExpr::EmptyViewValue => true,
             FilterExpr::Or(xs) => xs.iter().any(|x| x.matches(v)),
             FilterExpr::And(xs) => xs.iter().all(|x| x.matches(v)),
+            FilterExpr::NumCode(inner) => match code_number(v) {
+                Some(n) => inner.matches(&Value::BigInteger(n)),
+                None => inner.matches(v),
+            },
         }
     }
 }
