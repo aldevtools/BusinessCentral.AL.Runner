@@ -3,7 +3,7 @@
 use super::*;
 
 /// A stored (uncompressed) ZIP with CRC-32s, enough for `al-deps`.
-fn zip(entries: &[(&str, &str)]) -> Vec<u8> {
+pub(super) fn zip(entries: &[(&str, &str)]) -> Vec<u8> {
     fn crc32(data: &[u8]) -> u32 {
         let mut c = !0u32;
         for &b in data {

@@ -547,6 +547,13 @@ pub fn folder_logo(dir: &Path, declared: Option<&str>) -> Option<al_ir::AppLogo>
     }
 }
 
+/// The packaged resources of the package file at `path` ([`crate::package::read_resources`]: `resources/` of a `.app`
+/// with its names decoded, the `resourceFolders` of a source archive), read with the build variables of `hint`.
+pub fn package_resources_at(path: &Path, hint: Option<&str>) -> Result<Resources, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    crate::package::read_resources(&bytes, &vars_for(path, hint)).map_err(|e| format!("{}: {e}", path.display()))
+}
+
 /// The logo of the package file at `path` ([`crate::package::read_logo`]); `None` when it is not known or the package
 /// cannot be read (reading its sources reports that error).
 pub fn package_logo_at(path: &Path, hint: Option<&str>) -> Option<al_ir::AppLogo> {
