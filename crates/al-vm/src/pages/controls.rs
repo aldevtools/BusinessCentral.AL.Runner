@@ -1457,7 +1457,7 @@ impl Session {
         // A control whose Visible is the literal false, or that sits in a group whose Visible is,
         // is not on the runtime page at all (corpus handlers/TestPageFieldVisibleGroup_Tests.al:1-30).
         // Neither is one that application areas removed.
-        self.check_areas_pinned(st, idx)?;
+        self.access_by_permission_check(st, idx, m)?;
         // From BC 28 a page extension's control whose source is a bare quoted name of a table extension's field is not found
         // by a TestPage read of its Value (pages/lt-wd/WdBareQuotedField.al:185-198 WD_BareNameExt_ValueReadError, `The field
         // with ID = n is not found on the page.`, TestFieldNotFound). Its other methods are not pinned (Editable() raises the
@@ -1470,19 +1470,9 @@ impl Session {
                 m.name()
             ));
         }
-        // A control guarded by AccessByPermission that the session's permission sets do not grant is not on the page: the same
-        // error as for a removed control (Y24PermExecute.al Y24_P21_AccessByPermissionPage: Value, Visible and Enabled).
-        let guarded = self.access_by_permission_off(st, idx)?;
-        if guarded && !matches!(m, PageMethod::Value | PageMethod::Visible | PageMethod::Enabled) {
-            return unsupported(format!(
-                "TestPage.{}() of a control that AccessByPermission leaves off the page (only Value, Visible and Enabled are pinned)",
-                m.name()
-            ));
-        }
         if bare_ext
-            || guarded
             || self.control_eliminated(st, idx)
-            || self.area_removed(st, idx)
+            || self.off_page(st, idx)
             || self.action_without_behaviour(st, idx)
         {
             let engine = self.engine();

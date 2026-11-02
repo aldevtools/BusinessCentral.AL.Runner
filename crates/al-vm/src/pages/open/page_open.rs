@@ -204,6 +204,7 @@ impl Session {
     /// Y24_P20_ExecutePageRun tdonly_page_run); a page with AccessByPermission is refused (probe P21).
     fn page_instance_gated(&mut self, st: &St, as_part: bool, page: &al_ir::Page) -> Result<(), Signal> {
         self.page_instance(st)?;
+        st.borrow_mut().permission_roles = self.permission_roles.clone();
         if self.permissions.is_none() {
             return Ok(());
         }
@@ -324,7 +325,6 @@ impl Session {
             s.parts = Vec::new();
             s.closed_parts = Vec::new();
             s.areas = self.application_areas.clone();
-            s.permission_roles = self.permission_roles.clone();
         }
         if let Err(e) = self.create_parts(st) {
             self.mark_closed(st);
