@@ -12765,6 +12765,7 @@
 73801 DWY2Date_Valid
 73801 Date2DWY_Invalid
 73801 Date_Parts
+73802 DateTime_Arithmetic
 73802 DateTime_Comparisons
 73802 Date_Arithmetic_Errors
 73802 Date_Comparisons
