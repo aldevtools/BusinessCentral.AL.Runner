@@ -68,4 +68,20 @@ impl Session {
             .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"));
         Ok(worksheet && only_view && !page_says_read_only && self.repeater_line(st)? == RepeaterLine::Denied)
     }
+
+    /// A List opened for edit over an empty view whose repeater's Editable is false, the literal or a page variable that is
+    /// false, runs OnNewRecord and OnAfterGetCurrRecord once on a blank record at the open, as a Card does, and shows no row
+    /// (pages/lt-y42-repeater-new-line/Y42RepeaterNewLine.al:350 NrEd_ListRepeaterFalse_Empty `log open` = `new;agcr ;`, :453
+    /// NrEd_ListRepeaterVarFalse_Empty `open editable=No;new;agcr ;`). A Worksheet or a ListPart with such a repeater is not
+    /// pinned and opens as before.
+    pub(in crate::pages) fn list_without_line_on_empty_view(&mut self, st: &St) -> Result<bool, Signal> {
+        let object = st.borrow().object as usize;
+        let shape = {
+            let s = st.borrow();
+            s.mode == PageMode::Edit && s.host.is_none() && !s.new_line
+        } && self.engine.object_facts[object].page_type == Some(al_ir::PageType::List)
+            && self.tree_indentation(st).is_none()
+            && self.has_source(st);
+        Ok(shape && self.repeater_line(st)? == RepeaterLine::Denied)
+    }
 }
