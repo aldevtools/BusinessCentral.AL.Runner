@@ -155,7 +155,10 @@ fn statement_on_a_record_never_fetched_takes_a_flow_field_and_calculates_nothing
 /// Statement_KeyAssignedNeverFetched_NameCnt: flags loaded=Yes in every field.
 #[test]
 fn function_on_a_record_never_fetched_answers_no_and_key_assigned_reads_loaded() {
-    assert_eq!(text(al_testkit::run(SRC, "NeverFetchedFunction")), "NoNoNo No YesYesYes");
+    assert_eq!(
+        text(al_testkit::run(SRC, "NeverFetchedFunction")),
+        "NoNoNo No YesYesYes"
+    );
     assert_eq!(text(al_testkit::run(SRC, "KeyAssignedStatement")), "YesYesYes");
 }
 
