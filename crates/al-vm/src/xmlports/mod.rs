@@ -22,6 +22,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 mod container_tree;
+mod einvoice_shapes;
 mod export_xml;
 mod import_record;
 mod import_xml;
@@ -37,6 +38,7 @@ mod value;
 mod wraps;
 
 use self::container_tree::*;
+use self::einvoice_shapes::*;
 use self::pass::*;
 pub(crate) use self::pass::{PassView, UnlinkedPass};
 use self::sequence::*;

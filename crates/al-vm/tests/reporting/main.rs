@@ -48,6 +48,7 @@ mod xmlport_calcfields_attrs;
 mod xmlport_container_in_table;
 mod xmlport_container_skip;
 mod xmlport_default_container;
+mod xmlport_einvoice_shapes;
 mod xmlport_empty_leaf_import;
 mod xmlport_export_again;
 mod xmlport_field_validation;

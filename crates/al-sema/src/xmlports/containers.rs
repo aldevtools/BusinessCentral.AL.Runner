@@ -88,3 +88,54 @@ pub(super) fn wrap_shape(layout: &Layout, i: usize) -> bool {
         || attributed_leaves(layout, i)
         || (table_wrap(layout, i) && layout.nodes[i].parent.is_some_and(|p| field_wrap(layout, p)))
 }
+
+/// A text element whose nodes are only text attributes, inside a container (`tree` or `table_container_shape`) that stands, through
+/// text elements, below a table element, on an export port (the PEPPOL EndpointID and CompanyID leaves,
+/// xmlport/lt-y72-xmlport-probes/Y72XpEInvoiceShapes.al; the same test as al-vm xmlports einvoice_shapes.rs `attributed_leaf`).
+pub(super) fn attributed_leaf_shape(layout: &Layout, i: usize) -> bool {
+    let Some(p) = layout.nodes[i].parent else {
+        return false;
+    };
+    layout.direction == ir::XmlDirection::Export
+        && layout.nodes[i].kind == K::Text
+        && !kids(layout, i).is_empty()
+        && attrs_only(layout, i)
+        && layout.nodes[p].kind == K::Text
+        && (tree(layout, p) || table_container_shape(layout, p))
+        && below_table(layout, p)
+}
+
+fn below_table(layout: &Layout, i: usize) -> bool {
+    let mut up = layout.nodes[i].parent;
+    while let Some(p) = up {
+        match layout.nodes[p].kind {
+            K::Table => return true,
+            K::Text => up = layout.nodes[p].parent,
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// A text element right below a table element, with a trigger, on an export port, whose nodes are leaf text elements, text
+/// elements of only text attributes, container trees and table elements without LinkTable, at least one table element and one other
+/// node (the PEPPOL TaxTotal, Item and Price, Y72XpEInvoiceShapes.al; the same test as al-vm einvoice_shapes.rs `table_container`).
+pub(super) fn table_container_shape(layout: &Layout, i: usize) -> bool {
+    let k = kids(layout, i);
+    let table = |c: usize| layout.nodes[c].kind == K::Table && layout.property(c, "LinkTable").is_none();
+    layout.direction == ir::XmlDirection::Export
+        && layout.nodes[i].kind == K::Text
+        && has_trigger(layout, i)
+        && layout.nodes[i].parent.is_some_and(|p| layout.nodes[p].kind == K::Table)
+        && k.iter().any(|&c| table(c))
+        && k.iter().any(|&c| !table(c))
+        && k.iter().all(|&c| {
+            table(c)
+                || (layout.nodes[c].kind == K::Text
+                    && (!layout.has_children(c) || attrs_only(layout, c) || tree(layout, c)))
+        })
+}
+
+fn has_trigger(layout: &Layout, i: usize) -> bool {
+    layout.nodes[i].section.triggers().next().is_some()
+}
