@@ -888,10 +888,8 @@ impl Lowerer<'_> {
                 if matches!(kids.first().map(|k| self.ty_ref(k)), Some(Ty::Text(_) | Ty::Code(_)))
                     && kids.len() == 2 =>
             {
-                Ok(ir::Expr::CharAt(
-                    Box::new(self.expr(&kids[0])?),
-                    Box::new(self.operand(&kids[1], ir::OperandUse::Value)?),
-                ))
+                let (base, index) = (self.expr(&kids[0])?, self.operand(&kids[1], ir::OperandUse::Value)?);
+                Ok(char_at_expr(base, index))
             }
             IndexExpr if matches!(kids.first().map(|k| self.ty_ref(k)), Some(Ty::DotNet(_))) => {
                 Err("indexing a DotNet value is not lowered yet (call get_Item / GetValue instead)".into())
@@ -1363,4 +1361,18 @@ fn textconst_read(texts: &[(String, String)]) -> L<ir::Expr> {
             .collect(),
         ret_used: true,
     })
+}
+
+/// `Text[i]` read: a position outside a text literal raises the .NET error, where a variable reads the character 0 past its end
+/// (text/lt-text-instance/Index1.Codeunit.al Index_Read_Literal: `'hello'[6]`, `'hello'[0]`, `''[1]`).
+fn char_at_expr(base: ir::Expr, index: ir::Expr) -> ir::Expr {
+    if let (ir::Expr::Const(ir::Const::Text(t)), ir::Expr::Const(ir::Const::Integer(i))) = (&base, &index)
+        && !(1..=t.encode_utf16().count() as i64).contains(&i64::from(*i))
+    {
+        return ir::Expr::Fail {
+            message: "Index was outside the bounds of the array.".into(),
+            code: "AL:IndexOutOfRange".into(),
+        };
+    }
+    ir::Expr::CharAt(Box::new(base), Box::new(index))
 }
