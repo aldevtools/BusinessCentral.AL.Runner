@@ -492,14 +492,8 @@ impl<'a> Checker<'a> {
     /// AL0161 for `Break`, `BreakUnbound`, `Quit` and `Skip` on an XmlPort variable: they exist only inside the XmlPort, through
     /// `currXMLport` (corpus must-not-compile 2642-xmlport-variable-break-quit-skip.al; the members a variable has:
     /// xmlport/lt-y66-xmlport-var-members/Y66XmlPortVarMembers.al). Judged for a variable of another XmlPort than the code's own.
-    pub(crate) fn al_xmlport_access(
-        &mut self,
-        sc: &Scope,
-        node: &SyntaxNode,
-        recv: &SyntaxNode,
-        base: &Ty,
-        name: &str,
-    ) {
+    pub(crate) fn al_xmlport_access(&mut self, sc: &Scope, node: &SyntaxNode, base: &Ty, name: &str) {
+        let Some(recv) = node.children().next() else { return };
         let Ty::Object(ObjKind::XmlPort, xname) = base else {
             return;
         };
@@ -559,6 +553,7 @@ impl<'a> Checker<'a> {
     }
 
     pub(crate) fn al_codeunit_access(&mut self, sc: &Scope, node: &SyntaxNode, base: &Ty, name: &str) {
+        self.al_xmlport_access(sc, node, base, name);
         // A local procedure of a table, called through a record of it (corpus must-not-compile 0359). Judged on the
         // table's own source, so a procedure of a table extension is never taken for it.
         if let Ty::Record { table, .. } = base {
@@ -973,6 +968,7 @@ impl<'a> Checker<'a> {
     fn al_unknown_member(&mut self, sc: &Scope, node: &SyntaxNode, recv: &SyntaxNode, base: &Ty, name: &str) {
         self.al_unknown_record_member(sc, node, base, name);
         self.al_unknown_builtin_member(sc, node, base, name);
+        self.al_unknown_xmlport_member(sc, node, base, name);
         self.al_unknown_test_page_member(sc, node, recv, base, name);
     }
 
@@ -1545,7 +1541,6 @@ impl<'a> Checker<'a> {
                 }
                 self.currreport_request_options_page(sc, node, &kids[0], &base_ty, &mname);
                 self.al_codeunit_access(sc, node, &base_ty, &mname);
-                self.al_xmlport_access(sc, node, &kids[0], &base_ty, &mname);
                 match self.member(sc, &base_ty, &mname) {
                     Some(e) => e,
                     None if self.tdd_member(sc, node, &kids[0], &base_ty, &mname) => E::Val(Ty::Unknown),
@@ -1555,7 +1550,6 @@ impl<'a> Checker<'a> {
                         self.al_unknown_member(sc, node, &kids[0], &base_ty, &mname);
                         // alc reports it at the member name (issue 5917: `(10,18)` for `Logic.NoSuch(1, 1)`).
                         self.al_unknown_codeunit_member(sc, kids.get(1).unwrap_or(node), &base_ty, &mname);
-                        self.al_unknown_xmlport_member(sc, node, &base_ty, &mname);
                         E::Val(Ty::Unknown)
                     }
                 }
