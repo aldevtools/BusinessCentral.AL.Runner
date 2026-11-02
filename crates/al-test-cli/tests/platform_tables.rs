@@ -338,17 +338,17 @@ codeunit 50000 "T" { Subtype = Test;
     assert!(not_run(&o, "DeleteWithMetadata").contains("Tenant Profile Page Metadata"));
 }
 
-// A name that ends in a dot (`Metadata Permission Set Rel.`, 23 of Microsoft's permission tests) is a
-// platform table with no provider, not an object outside the workspace.
+// A name that ends in a dot (`Table Synch. Setup`; until gap cycle 6 `Metadata Permission Set Rel.`, 23 of Microsoft's
+// permission tests) is a platform table with no provider, not an object outside the workspace.
 #[test]
 fn a_platform_table_whose_name_ends_in_a_dot_names_the_missing_provider() {
     let o = outcomes(
         r#"codeunit 50000 "T" { Subtype = Test;
-  [Test] procedure UsesIt() var P: Record "Metadata Permission Set Rel."; begin if P.IsEmpty() then; end; }"#,
+  [Test] procedure UsesIt() var P: Record "Table Synch. Setup"; begin if P.IsEmpty() then; end; }"#,
     );
     let why = not_run(&o, "UsesIt");
     assert!(
-        why.contains("platform table 'Metadata Permission Set Rel.' (") && why.contains("has no provider"),
+        why.contains("platform table 'Table Synch. Setup' (") && why.contains("has no provider"),
         "{why}"
     );
 }
@@ -4345,8 +4345,7 @@ fn the_webhook_mcp_tool_and_privacy_approval_tables_are_stored() {
       if not IsNullGuid(A."Approver User SID") then Error('approver');
       N.SetRange("User SID Filter", Admin); N.CalcFields(Enabled, Disabled); if not N.Enabled or N.Disabled then Error('admin');
       N.SetRange("User SID Filter", UserSecurityId()); N.CalcFields(Enabled, Disabled); if N.Enabled or N.Disabled then Error('user');
-      A.SetRange(ID, 'LT'); A.DeleteAll(); if not A.IsEmpty() then Error('left'); end;
-  [Test] procedure TenantProfileSettingStaysRefused() var S: Record "Tenant Profile Setting"; begin if S.IsEmpty() then; end; }"#,
+      A.SetRange(ID, 'LT'); A.DeleteAll(); if not A.IsEmpty() then Error('left'); end; }"#,
     );
     for t in [
         "Webhook",
@@ -4360,10 +4359,6 @@ fn the_webhook_mcp_tool_and_privacy_approval_tables_are_stored() {
     assert!(not_run(&o, "WebhookAppId").contains("Application ID"), "{o:?}");
     assert!(
         not_run(&o, "ConfigDeleteWithTools").contains("MCP Configuration"),
-        "{o:?}"
-    );
-    assert!(
-        not_run(&o, "TenantProfileSettingStaysRefused").contains("has no provider"),
         "{o:?}"
     );
 }

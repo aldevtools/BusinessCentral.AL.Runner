@@ -149,6 +149,7 @@ mod y17_expr_refresh;
 mod y17_page_pins;
 mod y41_page_probes;
 mod y48_platform_probes;
+mod y59_platform_probes;
 
 /// A file in this folder that no `mod` line names is never compiled, so its tests never run (a merge can move a new
 /// test file here).

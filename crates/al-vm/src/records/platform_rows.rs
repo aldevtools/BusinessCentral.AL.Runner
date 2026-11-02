@@ -17,7 +17,8 @@ impl Session {
         self.agent_task_check(t, rec, method)?;
         self.mcp_configuration_delete_check(t, rec, method)?;
         self.tenant_report_layout_check(t, rec, method)?;
-        self.tenant_layout_cfg_check(t, rec, method, args)
+        self.tenant_layout_cfg_check(t, rec, method, args)?;
+        self.tenant_profile_setting_check(t, rec, method, args)
     }
 
     /// The platform table Webhook Subscription (2000000199): an Insert stores a blank "Application ID" (field 7) as 'NAV'
