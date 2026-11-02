@@ -387,18 +387,21 @@ impl Lowerer<'_> {
                                         .filter(|a| crate::pages::call_source_pinned(a))
                                         .map(|a| (a.trim().to_string(), false));
                                     expr_source = call_source.or_else(|| {
-                                        args.get(1).filter(|a| crate::pages::plain_spacing(a)).and_then(|a| {
-                                            let element = crate::pages::array_element(a).is_some_and(|(v, _)| {
-                                                globals.iter().any(|g| {
-                                                    g.name.eq_ignore_ascii_case(&v) && matches!(g.ty, RtType::Array(..))
-                                                })
-                                            });
-                                            if element || found.is_some() {
-                                                Some((a.trim().to_string(), true))
-                                            } else {
-                                                crate::pages::arithmetic(a).then(|| (a.trim().to_string(), false))
-                                            }
-                                        })
+                                        args.get(1)
+                                            .filter(|a| crate::pages::source_text_pinned(a, found.is_some()))
+                                            .and_then(|a| {
+                                                let element = crate::pages::array_element(a).is_some_and(|(v, _)| {
+                                                    globals.iter().any(|g| {
+                                                        g.name.eq_ignore_ascii_case(&v)
+                                                            && matches!(g.ty, RtType::Array(..))
+                                                    })
+                                                });
+                                                if element || found.is_some() {
+                                                    Some((a.trim().to_string(), true))
+                                                } else {
+                                                    crate::pages::arithmetic(a).then(|| (a.trim().to_string(), false))
+                                                }
+                                            })
                                     });
                                 }
                             }

@@ -14,6 +14,7 @@ mod repeater_new_line;
 pub(in crate::pages) use repeater_new_line::RepeaterLine;
 mod temp_list_key;
 mod tree;
+mod tree_var;
 mod values;
 
 /// The filter group of the cut that hides the rows below indentation 0 of a tree repeater.

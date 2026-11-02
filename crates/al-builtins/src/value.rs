@@ -548,6 +548,9 @@ pub struct PageState {
     /// The rows a tree with row triggers read when it opened but does not show (below a collapsed row), in the view's order:
     /// they are not in `window`, and an Expand moves them there without reading them again.
     pub tree_hidden: Vec<WindowRow>,
+    /// The level of each row of a tree whose IndentationColumn is a page variable, by primary key: the variable's value after
+    /// OnAfterGetRecord last ran for the row (`pages/open/tree_var.rs`).
+    pub tree_levels: Vec<(Vec<Value>, i32)>,
     pub lookup: bool,
     /// The `Action` the page closed with, once it has.
     pub result: Option<String>,
@@ -973,6 +976,7 @@ impl PageState {
             expanded: Vec::new(),
             tree_shown: Vec::new(),
             tree_hidden: Vec::new(),
+            tree_levels: Vec::new(),
             lookup: false,
             result: None,
             trapping: false,

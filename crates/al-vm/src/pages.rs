@@ -203,6 +203,7 @@ mod runobject;
 mod shown;
 mod table_values_allowed;
 mod test_end;
+mod typed_handler_temp;
 pub(crate) use shown::ShownNote;
 
 impl Session {
