@@ -767,8 +767,7 @@ fresh one. So the amendment does **not** claim a general reset. It defines three
 3. **Allow-list of statics in the shared framework.** For each allowed assembly the list says which statics can be
    observed from AL and how they are put back: `CultureInfo` defaults, `Environment`, `Directory`/`Path` state,
    `Encoding` registrations (idempotent, the one provider the sidecar registers stays), `Regex` cache (not
-   observable), `Random.Shared` (the sidecar's `Random` is unseeded, so its order is not pinned today; ADR-061 and
-   section 9 apply). An assembly not in the list is dirty. The list starts small and grows by probes.
+   observable), `Random.Shared` (random numbers from .NET are not pinned, section 9). An assembly not in the list is dirty. The list starts small and grows by probes.
 
 File handles: since ADR-056 `System.IO` runs against the in-memory file system and nothing reaches the real disk,
 so open handles do not exist in the sidecar. Any found at reset make the process dirty.
