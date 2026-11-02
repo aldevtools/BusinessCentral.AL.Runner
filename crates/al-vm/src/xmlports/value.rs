@@ -126,6 +126,19 @@ impl Session {
                     None => Err(evaluate_error(text, "Enum")),
                 }
             }
+            // A TableFilter field reads its text as Evaluate does: the table-qualified text, another table's, the empty text
+            // (xmlport/lt-y67-xmlport-tablefilter/Y67XpTableFilter.al:140-171 TableFilterField_Import). A text Evaluate rejects
+            // is not pinned: BC's error for an unknown table (`Id: 1..9`) is pinned only in part.
+            RtType::Library(k) if k.as_str() == "TableFilter" => {
+                let mut args = [self.default_value(ty), Value::Text(text.to_string().into())];
+                self.ret_used = true;
+                match al_builtins::evaluate::evaluate(self, None, &mut args)? {
+                    Value::Boolean(true) => Ok(args[0].clone()),
+                    _ => unsupported(
+                        "XmlPort import of a text Evaluate does not take into a TableFilter field (error not pinned)",
+                    ),
+                }
+            }
             other => unsupported(format!(
                 "XmlPort import into a field of type {} (not pinned)",
                 other.describe()

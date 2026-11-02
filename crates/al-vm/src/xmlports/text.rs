@@ -54,18 +54,16 @@ impl Session {
     ) -> Result<(), Signal> {
         let xp = schema.xp();
         let (table, fields) = self.xp_text_layout(schema, top, xp.format == ir::XmlFormat::VariableText)?;
-        let record_sep = non_empty(text_separator(
-            set_or_declared(inst, 2, xp.record_separator.as_deref()).as_deref(),
-            "\r\n",
-        )?)?;
+        // An encoding the triggers set on an import is not pinned (Y67XpSeparators.al pins it on an export only).
+        if assigned::set_in_run(inst).is_some() {
+            return unsupported("a VariableText import whose TextEncoding the program set (not pinned)");
+        }
+        let record_sep = non_empty(assigned::separator(inst, 2, xp.record_separator.as_deref(), "\r\n")?)?;
         let variable = xp.format == ir::XmlFormat::VariableText;
         let unbound = unbound_column(schema, &fields, variable)?;
         let (fsep, fdelim) = (
-            non_empty(text_separator(
-                set_or_declared(inst, 1, xp.field_separator.as_deref()).as_deref(),
-                ",",
-            )?)?,
-            text_separator(set_or_declared(inst, 0, xp.field_delimiter.as_deref()).as_deref(), "\"")?,
+            non_empty(assigned::separator(inst, 1, xp.field_separator.as_deref(), ",")?)?,
+            assigned::separator(inst, 0, xp.field_delimiter.as_deref(), "\"")?,
         );
         for line in text.split(record_sep.as_str()).filter(|l| !l.is_empty()) {
             let values: Vec<String> = if variable {
@@ -147,17 +145,23 @@ impl Session {
     pub(super) fn xp_export_text(&mut self, inst: &Inst, schema: &Schema, top: usize) -> Result<Vec<u8>, Signal> {
         let xp = schema.xp();
         let (table, fields) = self.xp_text_layout(schema, top, false)?;
-        let record_sep = text_separator(
-            set_or_declared(inst, 2, xp.record_separator.as_deref()).as_deref(),
-            "\r\n",
-        )?;
         let variable = xp.format == ir::XmlFormat::VariableText;
-        let (fsep, fdelim) = (
-            text_separator(set_or_declared(inst, 1, xp.field_separator.as_deref()).as_deref(), ",")?,
-            text_separator(set_or_declared(inst, 0, xp.field_delimiter.as_deref()).as_deref(), "\"")?,
-        );
+        // The separators are read for each row after its OnAfterGetRecord: one set there applies from that row on
+        // (Y67XpSeparators.al:420-439 Assign_InOnAfterGetRecord_Export, m101, m111, m114).
+        let mut record_sep: Option<String> = None;
         let mut lines = Vec::new();
         let rows = for_each_row(self, inst, schema, table, |me, inst, schema| {
+            let (fsep, fdelim) = (
+                assigned::separator(inst, 1, xp.field_separator.as_deref(), ",")?,
+                assigned::separator(inst, 0, xp.field_delimiter.as_deref(), "\"")?,
+            );
+            let rsep = assigned::separator(inst, 2, xp.record_separator.as_deref(), "\r\n")?;
+            match &record_sep {
+                Some(r) if *r != rsep => {
+                    return unsupported("a RecordSeparator set after the first row of an export (not pinned)");
+                }
+                _ => record_sep = Some(rsep),
+            }
             let mut cells = Vec::new();
             for &f in &fields {
                 let v = match me.xp_field_pass(inst, schema, f) {
@@ -192,18 +196,35 @@ impl Session {
             Err(Signal::Exit(None)) if Self::xp_flow(inst) == Some(Flow::Quit) => {}
             other => other?,
         }
+        let record_sep = match record_sep {
+            Some(r) => r,
+            None => assigned::separator(inst, 2, xp.record_separator.as_deref(), "\r\n")?,
+        };
         let text = lines.join(&record_sep);
+        // An encoding the program set wins over the declared one (Y67XpSeparators.al:393-418 TextEncoding_AssignForms_Export:
+        // UTF16 72 bytes, MSDos and Windows 35 without a byte order mark, UTF8 38 with one; :420 m121 set in OnAfterGetRecord).
+        let (utf8, encoding) = match assigned::set_in_run(inst) {
+            Some(_) if !variable => {
+                return unsupported("a FixedText export whose TextEncoding the program set (not pinned)");
+            }
+            Some(1) => (true, None),
+            Some(0) => (false, Some("msdos")),
+            Some(2) => (false, Some("utf16")),
+            Some(3) => (false, Some("windows")),
+            Some(_) => return unsupported("a TextEncoding member the export does not know"),
+            None => (xp.utf8, xp.text_encoding.as_deref()),
+        };
         use al_builtins::stream::Encoding;
-        if xp.utf8 {
+        if utf8 {
             let mut out = vec![0xEF, 0xBB, 0xBF];
             out.extend_from_slice(text.as_bytes());
             Ok(out)
-        } else if variable && xp.text_encoding.as_deref() == Some("utf16") {
+        } else if variable && encoding == Some("utf16") {
             // UTF-16 little endian after FF FE (xmlport/W7XmlPortTests.al:368; XpTEncoding.al:135, 31 characters in 64 bytes).
             let mut out = vec![0xFF, 0xFE];
             out.extend(Encoding::Utf16.encode(&text));
             Ok(out)
-        } else if variable && xp.text_encoding.as_deref() == Some("windows") {
+        } else if variable && encoding == Some("windows") {
             // Code page 1252, `?` for a character it lacks (W7XmlPortTests.al:366 `E9`; XpTEncoding.al:90 `ü` and `ß`, :105
             // `€` as 80, :120 `✓` as `?`). A character outside the basic plane is not pinned.
             if text.chars().any(|c| (c as u32) > 0xFFFF) {
@@ -215,7 +236,7 @@ impl Session {
         } else if text.is_ascii() {
             Ok(text.into_bytes())
         } else if variable
-            && matches!(xp.text_encoding.as_deref(), None | Some("msdos"))
+            && matches!(encoding, None | Some("msdos"))
             && !text.contains('€')
             && Encoding::MsDos.encode_pinned(&text)
         {
@@ -244,17 +265,6 @@ pub(super) fn declared_separator(v: &str) -> Result<String, Signal> {
         }
         _ => v.to_string(),
     })
-}
-
-/// The text a setter stored for separator `kind` (0 delimiter, 1 field, 2 record, 3 table), else the declared one.
-pub(super) fn set_or_declared(inst: &Inst, kind: u8, declared: Option<&str>) -> Option<String> {
-    let set = inst
-        .borrow()
-        .xp_text
-        .iter()
-        .find(|(k, _)| *k == kind)
-        .map(|(_, v)| v.clone());
-    set.or_else(|| declared.map(str::to_string))
 }
 
 /// A field or record separator has to hold text; an empty one is not pinned.

@@ -15,7 +15,9 @@ pub(super) fn table_wrap(schema: &Schema, c: usize) -> bool {
 }
 
 /// A text element right below table element `table` whose child nodes are field elements of that table (with only attributes
-/// below them, at least one) and `table_wrap` text elements: `Info > Name (unit), Note, Sub > Child`.
+/// below them, at least one) and `table_wrap` text elements: `Info > Name (unit), Note, Sub > Child`. Also text elements of only
+/// text attributes and table elements without LinkTable (xmlport/lt-y67-xmlport-wrapper-in-table/Y67XpWrapperInTable.al:533-604
+/// `membership > loyalty, counts, Entry`).
 pub(super) fn field_wrap(schema: &Schema, c: usize, table: usize) -> bool {
     let n = schema.node(c);
     let kids = schema.children(c);
@@ -35,7 +37,8 @@ pub(super) fn field_wrap(schema: &Schema, c: usize, table: usize) -> bool {
                             )
                         })
                 }
-                ir::XmlNodeKind::Text => table_wrap(schema, k),
+                ir::XmlNodeKind::Text => table_wrap(schema, k) || attrs_only(schema, k),
+                ir::XmlNodeKind::Table => m.link_node.is_none(),
                 _ => false,
             }
         })
@@ -63,11 +66,17 @@ impl Session {
     /// Export of a `table_wrap` right below a table element or below a `field_wrap`, or of a `field_wrap`: its OnBeforePassVariable,
     /// then its nodes in schema order. A table element below it without LinkTable lists all its rows under every row above, and
     /// one without rows leaves the text element empty (Y60XpTextInTable.al TextWrap_Table_Nested_Export, TextWrap_Q3_NoRows
-    /// `<Wrap />`, TextWrap_Info_Fields_Sub_Export `row H1;a;b;info;unit;sub;child 1;child 2;`). Skip there and its own text are not
-    /// pinned.
-    pub(super) fn xp_export_wrap(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<Elem, Signal> {
+    /// `<Wrap />`, TextWrap_Info_Fields_Sub_Export `row H1;a;b;info;unit;sub;child 1;child 2;`). Skip in a `field_wrap` leaves it
+    /// out with all below it, whose triggers do not run (Y67XpWrapperInTable.al Temp_NoOuterRow_And_SkipWrapper_Export
+    /// `resp H1;inst;status;membership;`); in a `table_wrap`, and its own text, are not pinned.
+    pub(super) fn xp_export_wrap(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<Option<Elem>, Signal> {
         let own = self.xp_pass_variable(inst, schema, node)?;
+        let in_table = schema.node(node).parent.filter(|&t| field_wrap(schema, node, t));
         match Self::xp_flow(inst) {
+            Some(Flow::Skip) if in_table.is_some() => {
+                Self::xp_clear_flow(inst);
+                return Ok(None);
+            }
             Some(Flow::Quit) | None => {}
             Some(_) => {
                 return unsupported(
@@ -80,7 +89,7 @@ impl Session {
                 "XmlPort export of a text element that wraps a table element, with its own text (not pinned)",
             );
         }
-        self.xp_export_container(inst, schema, node)
+        self.xp_export_container(inst, schema, node).map(Some)
     }
 
     /// Import of an `attributed_leaves` element: its attributes, then its elements in document order (an attributed one with its

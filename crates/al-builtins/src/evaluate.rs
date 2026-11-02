@@ -1829,7 +1829,12 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
             }
             refuse()
         }
-        RtType::Text(len) if words(v) && v == value && len.is_none_or(|n| v.chars().count() <= n as usize) => {
+        // Words joined by `|` are kept as written too (xmlport/lt-y67-xmlport-tablefilter/Y67XpTableFilter.al:52 `Note=a|b`).
+        RtType::Text(len)
+            if (words(v) || (v.contains('|') && v.split('|').all(words)))
+                && v == value
+                && len.is_none_or(|n| v.chars().count() <= n as usize) =>
+        {
             Ok(Ok(v.to_string()))
         }
         RtType::Integer => {
@@ -1840,6 +1845,27 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
             let range = |s: &str| int(s) || s.split_once("..").is_some_and(|(x, y)| int(x) && int(y));
             if v.strip_prefix("<>").is_some_and(int) || v.split('|').all(range) {
                 return Ok(Ok(v.to_string()));
+            }
+            // A number in quotes is stored without them (Y67XpTableFilter.al:207 `Id='1'` gives `Id=1`).
+            if let Some(n) = v
+                .strip_prefix('\'')
+                .and_then(|w| w.strip_suffix('\''))
+                .filter(|w| int(w))
+            {
+                return Ok(Ok(n.to_string()));
+            }
+            // An alternative after `|` that reads as another condition, `<name>=...`: the name is the bad Integer
+            // (Y67XpTableFilter.al:206 `Id=1..5|Note=a`, `The value "Note" can't be evaluated into type Integer.`).
+            let (first, rest) = v.split_once('|').unwrap_or((v, ""));
+            if range(first) {
+                if let Some((name, _)) = rest
+                    .split_once('=')
+                    .filter(|(n, _)| !n.is_empty() && n.chars().all(|ch| ch.is_ascii_alphabetic()))
+                {
+                    return Ok(Err(format!(
+                        "The value \"{name}\" can't be evaluated into type Integer."
+                    )));
+                }
             }
             if !v.is_empty() && v.chars().all(|ch| ch.is_ascii_alphabetic()) {
                 return Ok(Err(format!("The value \"{v}\" can't be evaluated into type Integer.")));

@@ -18,6 +18,20 @@ pub(super) fn container_tree(schema: &Schema, c: usize) -> bool {
         })
 }
 
+/// A text element of only text attributes whose ancestors are all text elements (xmlport/lt-y67-xmlport-textattr-skip/
+/// Y67XpTextAttrSkip.al:298-374; the same shape as al-sema xmlports `attributed_outside_table`). The export writes it as a text
+/// element right below a table element (`text_in_table`): its OnBeforePassVariable, then its attributes'.
+pub(super) fn attributed_outside_table(schema: &Schema, c: usize) -> bool {
+    let mut up = schema.node(c).parent;
+    while let Some(p) = up {
+        if schema.node(p).kind != ir::XmlNodeKind::Text {
+            return false;
+        }
+        up = schema.node(p).parent;
+    }
+    schema.node(c).kind == ir::XmlNodeKind::Text && !schema.children(c).is_empty() && attrs_only(schema, c)
+}
+
 /// A `container_tree` that holds a trigger the export has to run: on itself or on a container below it.
 pub(super) fn triggered_container(schema: &Schema, c: usize) -> bool {
     fn has(schema: &Schema, c: usize) -> bool {
