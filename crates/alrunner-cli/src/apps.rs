@@ -57,6 +57,7 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
         symbols: Vec::new(),
         translations: al_deps::load::ships_translations(path),
         package_data: al_deps::load::ships_package_data(path),
+        package_data_files: al_deps::load::package_data_files(path).map_err(|e| e.to_string())?,
         translation_files: Vec::new(),
         runtime: None,
         app_json_keys: Vec::new(),

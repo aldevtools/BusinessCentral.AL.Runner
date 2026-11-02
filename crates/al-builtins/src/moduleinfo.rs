@@ -75,8 +75,9 @@ fn get_archive_record_ref(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value
 /// `DeleteArchiveData`, `RestoreArchiveData` and `LoadPackageData` outside install and upgrade code: no error for table 0
 /// and an unknown table (P94NavApp.al:93-109, 138-154, 165-181). For a table of the workspace Delete and Restore do nothing
 /// too: there is no archive (GetArchiveRecordRef of the same table answers false, P94NavApp.al:44-57; P94NavApp.al:83-91,
-/// 111-136). What `LoadPackageData` loads into a table of the workspace is not pinned (P94NavApp.al:156-163 asserts only
-/// that it returns), and install code is not pinned: both are refused.
+/// 111-136). `LoadPackageData` outside install code does nothing either, with or without a data file in the app
+/// (P94NavApp.al:156-163; install/lt-y85-package-data/Y85PackageData.al Y85_Outside_*). In install code Delete and Restore are
+/// not pinned and refused; `LoadPackageData` is the Session's (al-vm `package_data`).
 fn archive_data(c: &mut dyn Ctx, a: &mut [Value], what: &str) -> Out {
     if c.install_scope() {
         // `LoadPackageData` of a table of an app that ships no package data loads nothing, per company and per database
@@ -89,17 +90,18 @@ fn archive_data(c: &mut dyn Ctx, a: &mut [Value], what: &str) -> Out {
         {
             return Ok(Value::Null);
         }
+        if what == "LoadPackageData"
+            && let [Value::Integer(table)] = &*a
+        {
+            return c.load_package_data(*table);
+        }
         return unsupported(format!("NavApp.{what} in install code (not pinned)"));
     }
-    let Some(Value::Integer(table)) = a.first() else {
+    if !matches!(a.first(), Some(Value::Integer(_))) {
         return unsupported(format!("NavApp.{what} of table {}", a.first().describe()));
-    };
+    }
     if !matches!(a.get(1), None | Some(Value::Boolean(_))) {
         return unsupported(format!("NavApp.{what} with RunTrigger {}", a.get(1).describe()));
-    }
-    let known = *table > 0 && c.workspace_table(*table);
-    if known && what == "LoadPackageData" {
-        return unsupported("NavApp.LoadPackageData of a table of the workspace (what it loads is not pinned)");
     }
     Ok(Value::Null)
 }

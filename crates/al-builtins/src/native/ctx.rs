@@ -278,6 +278,10 @@ pub trait Ctx: FormatCtx {
     fn table_without_package_data(&self, _number: i32) -> bool {
         false
     }
+    /// `NavApp.LoadPackageData(table)` in install code with the data file of the running app (al-vm `package_data`).
+    fn load_package_data(&mut self, table: i32) -> Result<Value, Signal> {
+        Err(Signal::Unsupported(format!("NavApp.LoadPackageData of table {table}")))
+    }
     /// Whether an install codeunit is running (DataTransfer works there and only there).
     fn install_scope(&self) -> bool {
         false

@@ -600,7 +600,11 @@ pub fn ships_package_data(path: &Path) -> bool {
                 let p = e.path();
                 let name = e.file_name().to_string_lossy().to_ascii_lowercase();
                 if p.is_dir() {
-                    if !name.starts_with('.') && name != "target" && name != "node_modules" {
+                    if !name.starts_with('.')
+                        && name != "target"
+                        && name != "node_modules"
+                        && !p.join("app.json").is_file()
+                    {
                         stack.push(p);
                     }
                 } else if name.ends_with(".navxdata") {
@@ -614,6 +618,35 @@ pub fn ships_package_data(path: &Path) -> bool {
         .ok()
         .and_then(|bytes| crate::package::ships_package_data(&bytes, &vars_for(path, None)).ok())
         .unwrap_or(false)
+}
+
+/// The package data files of the app folder `dir` (`*.navxdata`, `NavApp.LoadPackageData`): path relative to the app (`/`
+/// separators) and content, sorted by path. A folder that holds an `app.json` of its own is another app and is not entered.
+/// A package file gives none (where a package keeps them is not measured).
+pub fn package_data_files(dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    if !dir.is_dir() {
+        return Ok(out);
+    }
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else { continue };
+        for e in entries.flatten() {
+            let p = e.path();
+            let name = e.file_name().to_string_lossy().to_ascii_lowercase();
+            if p.is_dir() {
+                if !name.starts_with('.') && name != "target" && name != "node_modules" && !p.join("app.json").is_file()
+                {
+                    stack.push(p);
+                }
+            } else if name.ends_with(".navxdata") {
+                let rel = p.strip_prefix(dir).unwrap_or(&p).to_string_lossy().replace('\\', "/");
+                out.push((rel, std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()))?));
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
 }
 
 /// The translation files of the app folder `dir` (`crate::package::is_translation_file`, ADR-053 step 2): name relative to the

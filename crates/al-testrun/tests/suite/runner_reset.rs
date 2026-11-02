@@ -220,6 +220,7 @@ fn run() -> CorpusRuntime {
         id_ranges: Vec::new(),
         translations: false,
         package_data: false,
+        package_data_files: Vec::new(),
         translation_files: Vec::new(),
         runtime: None,
         app_json_keys: Vec::new(),
