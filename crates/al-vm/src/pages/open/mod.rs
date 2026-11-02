@@ -6,6 +6,7 @@ mod close;
 mod landing;
 mod or_group;
 mod page_open;
+mod plain_first;
 mod part_links;
 mod part_rec_row;
 mod query_close_unhandled;
