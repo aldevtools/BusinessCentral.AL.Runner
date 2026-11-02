@@ -28,7 +28,10 @@ fn list(mut ids: Vec<Id>) -> Value {
     )))
 }
 
-fn store_ids(c: &mut dyn Ctx) -> Result<(Vec<Id>, Vec<(Id, Vec<Id>)>), Signal> {
+/// The media objects of the store, and its sets with their items.
+type StoreIds = (Vec<Id>, Vec<(Id, Vec<Id>)>);
+
+fn store_ids(c: &mut dyn Ctx) -> Result<StoreIds, Signal> {
     let Some(store) = c.media_store() else {
         return Err(Signal::Unsupported("FindOrphans: this context holds no media".into()));
     };
