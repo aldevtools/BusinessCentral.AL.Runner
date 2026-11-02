@@ -444,11 +444,52 @@ fn day_end(day: i32) -> Value {
 }
 
 /// What the text of a Date filter needs from the session: today, the work date and the language of the messages.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct DateFilterContext {
     pub today: i32,
     pub work_date: i32,
     pub language: i32,
+    /// The fiscal year of the work date, read from the Accounting Period table when the filter text holds a `Y` (the session
+    /// fills it; `None`: not looked up or not decidable from the rows the runtime holds).
+    pub fiscal_year: Option<(i32, i32)>,
+}
+
+/// The last day of the demo data the corpus company holds in Accounting Period (36 months from 2025-01-01, ADR-047 rejected
+/// seeding them): a fiscal year that starts after it is decided by the rows the runtime holds alone.
+pub const ACCOUNTING_PERIOD_DEMO_END: (i32, u32, u32) = (2027, 12, 31);
+
+/// The fiscal year `Y` stands for, from the Accounting Period rows: `rows` are the starting dates of the rows with New Fiscal
+/// Year. The year runs from the latest such row on or before `work_date` to the day before the next one, or to 9999-12-31 after
+/// the last (record/lt-y81-values/Y81DateFilterLetters.al:126 Y81_Y_FiscalYearOfWorkDate; needs corpus bump). `None` when the
+/// answer could depend on the demo rows, or when no row is on or before the work date (BC raises an error whose text depends on
+/// the demo data).
+pub fn fiscal_year_of(rows: &[i32], work_date: i32) -> Option<(i32, i32)> {
+    let start = rows.iter().copied().filter(|&d| d <= work_date).max()?;
+    let (dy, dm, dd) = ACCOUNTING_PERIOD_DEMO_END;
+    if start <= crate::format::day_from_civil(dy, dm, dd) {
+        return None;
+    }
+    let end = rows
+        .iter()
+        .copied()
+        .filter(|&d| d > work_date)
+        .min()
+        .map_or_else(|| crate::format::day_from_civil(9999, 12, 31), |next| next - 1);
+    Some((start, end))
+}
+
+/// The Tuesday of ISO week `week` (1 to 7) of the ISO year of `work_date`, which `T-<week>D` stands for in a Date filter; `T-D`
+/// (`week` 0) is the Tuesday of the week of the work date itself (record/lt-y81-values/Y81DateFilterLetters.al:274
+/// Y81_Letters_TFamily; needs corpus bump).
+fn tuesday_of_iso_week(work_date: i32, week: i32) -> i32 {
+    // 2024-01-01 was a Monday.
+    let monday_of = |d: i32| d - (d - crate::format::day_from_civil(2024, 1, 1)).rem_euclid(7);
+    let this_monday = monday_of(work_date);
+    if week == 0 {
+        return this_monday + 1;
+    }
+    let iso_year = crate::format::civil_from_day(this_monday + 3).0;
+    monday_of(crate::format::day_from_civil(iso_year, 1, 4)) + (week - 1) * 7 + 1
 }
 
 thread_local! {
@@ -1266,6 +1307,7 @@ fn date_letter_filter(t: &str) -> Option<Result<FilterExpr, String>> {
                 crate::iso::days_in_month(y, m),
             )))
         }
+        _ if let Some((start, end)) = c.fiscal_year => FilterExpr::Range(Some(date(start)), Some(date(end))),
         _ if crate::format::civil_from_day(c.today).0 == wy => FilterExpr::Range(
             Some(date(c.work_date)),
             Some(date(crate::format::day_from_civil(wy, 12, 31))),
@@ -1276,6 +1318,16 @@ fn date_letter_filter(t: &str) -> Option<Result<FilterExpr, String>> {
             ));
         }
     }))
+}
+
+/// `T-D` (0) and `T-1D` to `T-7D` (n): the texts that stand for a Tuesday of an ISO week ([`tuesday_of_iso_week`]).
+fn t_weeks(t: &str) -> Option<i32> {
+    let n = t.strip_prefix("T-")?.strip_suffix('D')?;
+    match n {
+        "" => Some(0),
+        _ if n.len() == 1 => n.parse().ok().filter(|w| (1..=7).contains(w)),
+        _ => None,
+    }
 }
 
 /// The value of one Date filter text, or the error: `INVALID_DATE` and the text for a German session or an English text of a
@@ -1289,6 +1341,13 @@ fn date_filter_value(t: &str) -> Result<Value, String> {
     match t {
         "T" | "t" => return ctx.map(|c| Value::Date(c.today, false)).ok_or_else(needs_session),
         "W" | "w" => return ctx.map(|c| Value::Date(c.work_date, false)).ok_or_else(needs_session),
+        _ if english && ctx.is_some() && t_weeks(t).is_some() => {
+            let week = t_weeks(t).unwrap_or(0);
+            return Ok(Value::Date(
+                tuesday_of_iso_week(ctx.map_or(0, |c| c.work_date), week),
+                false,
+            ));
+        }
         "CD" if english => return ctx.map(|c| Value::Date(c.today, true)).ok_or_else(needs_session),
         "cd" | "0D" if english => return ctx.map(|c| Value::Date(c.today, false)).ok_or_else(needs_session),
         _ => {}
@@ -1484,6 +1543,7 @@ mod tests {
             today,
             work_date: today + 1,
             language: 1033,
+            ..Default::default()
         };
         with_date_context(ctx, || {
             let t = parse_filter("..t", &[], &T::Date).expect("a range up to today");

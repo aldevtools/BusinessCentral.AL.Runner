@@ -117,9 +117,11 @@ impl super::Lowerer<'_> {
         let literal = no.kind() == al_syntax::SyntaxKind::Literal
             && al_syntax::ast::significant_green_tokens(no).any(|t| t.kind() == al_syntax::SyntaxKind::StringLit);
         if matches!(self.ty_of(yes), Ty::Label) && literal {
-            return Err("a conditional expression `Cond ? Label : 'literal'` as a Variant argument or the exit value of a \
+            return Err(
+                "a conditional expression `Cond ? Label : 'literal'` as a Variant argument or the exit value of a \
                  Variant function: BC 29 ends the session when the codeunit is loaded (refused statically)"
-                .into());
+                    .into(),
+            );
         }
         Ok(())
     }

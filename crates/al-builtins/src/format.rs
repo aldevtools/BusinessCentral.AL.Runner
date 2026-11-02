@@ -1365,7 +1365,9 @@ fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<Stri
         0 | 1 => format!("{c}{m:02}/{d:02}/{y:04}"),
         2 => format!("{m:02}{d:02}{yy:02}{c}D"),
         3 => format!("{yy:02}/{m:02}/{d:02}"),
-        4 => format!("{month} {d}, {y}"),
+        // The year has four digits: `June 15, 0001` (types/lt-y81-values/Y81DMY2Date.al:94-114 Y81_DMY2Date_Year1_Arithmetic
+        // `format 4`; needs corpus bump).
+        4 => format!("{month} {d}, {y:04}"),
         5 => format!("{m:02}{d:02}{yy:02}"),
         6 => format!("{yy:02}{m:02}{d:02}"),
         7 => format!("{} {d}, {y}", short(month)),
