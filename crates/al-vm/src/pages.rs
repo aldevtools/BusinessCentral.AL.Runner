@@ -196,6 +196,7 @@ mod inserted_rows;
 mod list_refresh;
 mod lookup_next;
 mod lookup_refresh;
+mod lookup_start;
 mod modify_denied;
 mod open;
 mod page_get_record;

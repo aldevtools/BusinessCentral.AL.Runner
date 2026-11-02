@@ -933,6 +933,9 @@ impl Session {
                 return Ok(());
             }
             if self.handed_or_group_list_on_row(st)? {
+                if st.borrow().lookup_held_row {
+                    self.lead_read_of_held_row(st)?;
+                }
                 return self.open_on_rec_moved_by_onopenpage(st);
             }
             if self.stored_row(&rec)?.is_some() {

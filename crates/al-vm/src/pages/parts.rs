@@ -1481,6 +1481,19 @@ impl Session {
         if table.object != self.table(&b)?.object {
             return Ok(());
         }
+        // Pinned for a host no page extension extends; on one that is extended the host did not show the part's edit on real BC
+        // (pageext/lt-u-page-props/UPageProps.al Part_UpdatePropagation_BothAndSubPart `host_after_part_both_edit = first`), so
+        // that case is refused until a probe tells the two apart.
+        let host_object = host.borrow().object as usize;
+        if self.engine.program.objects[host_object]
+            .page
+            .as_ref()
+            .is_some_and(|p| !p.extensions.is_empty())
+        {
+            return unsupported(
+                "a part edit on a host card over the same table that a page extension extends (the host's view of the edit is not pinned)",
+            );
+        }
         if !Self::same_key(
             &table.primary_key(&a.borrow().fields),
             &table.primary_key(&b.borrow().fields),

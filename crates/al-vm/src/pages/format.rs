@@ -1243,6 +1243,19 @@ impl Session {
             }
             return Ok(base);
         }
+        // The caption of an API page is not pinned: real BC shows the page name alone (pageext/lt-u-page-props/UPageProps.al
+        // ApiPage_PartAndReadOnlyIntent `page_caption = LT U Api Page`), where the data caption fields would add the key.
+        if matches!(
+            &self.engine.object_facts[object].page_type,
+            Some(al_ir::PageType::Other(t)) if t == "api"
+        ) {
+            return unsupported("the caption of an API page (not pinned)");
+        }
+        // A DataCaptionExpression a page extension sets is not pinned (the corpus pins the page's own); the caption was shown
+        // without it before, which is wrong on real BC (pageext/lt-u-page-props/UPageProps.al PageExt_PageLevel_Editable_And_DataCaptionExpression).
+        if !has_prop("DataCaptionExpression") && effective_prop(&engine, object, "DataCaptionExpression")?.is_some() {
+            return unsupported("the caption of a page whose DataCaptionExpression a page extension sets (not pinned)");
+        }
         if has_prop("DataCaptionExpression") {
             return self.data_caption_expression_caption(st, base);
         }
