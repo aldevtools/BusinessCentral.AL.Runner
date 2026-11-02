@@ -27,7 +27,10 @@ impl Session {
     /// the row again, the rows above it, the row twice more (Y50OrGroupPageRec.al:432 `R:4;R:2;R:1;R:4;R:4;C:4` on the marked
     /// rows 1, 2, 4; :521 run modally in lookup mode after SetRecord(2), `R:2;R:3;R:4;R:5;R:2;R:1;R:2;R:2;C:2`).
     pub(super) fn handed_or_group_list_on_row(&mut self, st: &St) -> Result<bool, Signal> {
-        if !st.borrow().or_group_handed || !self.is_list(st) || st.borrow().host.is_some() {
+        if !(st.borrow().or_group_handed || st.borrow().lookup_held_row)
+            || !self.is_list(st)
+            || st.borrow().host.is_some()
+        {
             return Ok(false);
         }
         let rec = self.page_rec(st);

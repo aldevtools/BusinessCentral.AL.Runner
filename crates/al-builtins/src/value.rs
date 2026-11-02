@@ -467,6 +467,9 @@ pub struct PageState {
     /// The page's source is temporary and its OnOpenPage left Rec as it stood before (key, order, filters and row): the row
     /// was set before the open, for example by a procedure of the page variable (see `rec_moved_by_onopenpage`).
     pub onopenpage_kept_rec: bool,
+    /// A lookup page handed the related row a field holds opens on it as a list opens on a row its OnOpenPage left Rec on
+    /// (`lookup_start.rs`).
+    pub lookup_held_row: bool,
     /// Set by the opener for the page's next open: while OnOpenPage runs, Rec's buffer is not pinned and a use that reads it
     /// refuses with this reason (`RecordState::unpinned_buffer`; a page an action opens through `RunPageLink`).
     pub open_rec_unpinned: Option<&'static str>,
@@ -981,6 +984,7 @@ impl PageState {
             opened_on_moved_rec: false,
             part_on_host_row: false,
             onopenpage_kept_rec: false,
+            lookup_held_row: false,
             open_rec_unpinned: None,
             run_page_link_opened: false,
             run_page_link_open_moved: false,
