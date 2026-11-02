@@ -699,6 +699,22 @@ impl<'a> Checker<'a> {
         } else {
             key = key.to_lowercase();
         }
+        // The unquoted `this` is the running object even where a variable is named `this` (al-runner issue 6750).
+        if key == "this" && super::is_this_keyword(node) {
+            if self.ws.objects[sc.oi].kind == ObjKind::Codeunit && sc.self_obj == sc.oi {
+                return Some(E::Val(Ty::Object(
+                    ObjKind::Codeunit,
+                    self.ws.objects[sc.oi].name.as_str().into(),
+                )));
+            }
+            if matches!(self.ws.objects[sc.oi].kind, ObjKind::Table | ObjKind::TableExtension)
+                && let Some(t @ Ty::Record { .. }) = sc.globals.get("rec").cloned()
+            {
+                let res = Self::global_res(sc, "rec".into());
+                self.record(sc, node, res);
+                return Some(E::Val(t));
+            }
+        }
         if let Some(t) = sc.vars.iter().rev().find_map(|frame| frame.get(&key)) {
             let t = t.clone();
             self.record(sc, node, Res::Local(key));

@@ -1870,6 +1870,7 @@ impl Session {
                     marked_only: false,
                     position: None,
                     last_modify: None,
+                    failed_insert: None,
                     row_origin: None,
                     globals: shared.share(),
                     // The scanned row is whole: a partial load of the variable is not the copy's (al-runner issue 6654).

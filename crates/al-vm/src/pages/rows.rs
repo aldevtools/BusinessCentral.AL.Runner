@@ -410,8 +410,7 @@ impl Session {
             }
             positions.push(p);
         }
-        positions.sort_unstable();
-        positions.dedup();
+        let positions = self.leave_off_denied_flowfields(st, &rec, table, positions)?;
         if positions.is_empty() {
             return Ok(());
         }
@@ -2262,7 +2261,7 @@ impl Session {
             return Ok(());
         }
         self.reread_held_row(st, target)?;
-        self.populate_current(st)?;
+        self.populate_current_pair_first(st)?;
         if self.declares(st, "onfindrecord") {
             self.nav_find(st, "=")?;
         }

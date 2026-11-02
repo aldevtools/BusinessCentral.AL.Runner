@@ -668,11 +668,7 @@ impl Lowerer<'_> {
             Literal => Ok(ir::Expr::Const(self.constant(n)?)),
             // `this` in a codeunit is the running instance (corpus handlers/ProbeEventSubscriberOrder.al:
             // `BindSubscription(this)`).
-            NameRef
-                if crate::check::is_this_keyword(n)
-                    && self.ws.objects[self.oi].kind == ObjKind::Codeunit
-                    && !self.globals.contains_key("this") =>
-            {
+            NameRef if crate::check::is_this_keyword(n) && self.ws.objects[self.oi].kind == ObjKind::Codeunit => {
                 Ok(ir::Expr::ThisInstance)
             }
             // `this` in a report is the report being run, as the instance a Report variable holds (the way
@@ -680,11 +676,7 @@ impl Lowerer<'_> {
             // ReportExtension_ThisAndPublicProcedure_BeforeAndAfterRun). That it can be passed on, to an event for
             // instance, is not pinned; Microsoft's "Whse.-Source - Create Document" does it
             // (`OnAfterPostReport(..., this)`, about 960 tests of the Tests-SCM buckets), docs/probes-needed.md.
-            NameRef
-                if crate::check::is_this_keyword(n)
-                    && self.ws.objects[self.oi].kind == ObjKind::Report
-                    && !self.globals.contains_key("this") =>
-            {
+            NameRef if crate::check::is_this_keyword(n) && self.ws.objects[self.oi].kind == ObjKind::Report => {
                 Ok(ir::Expr::ThisInstance)
             }
             ParenExpr => self.expr(&kids[0]),

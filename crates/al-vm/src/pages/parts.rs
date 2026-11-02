@@ -2181,6 +2181,9 @@ impl Session {
     ///   `PageState::empty_part_xrec`, and answers No (:1346 QL_PartLastNew_NoLines `log-1-last = S.NEW(x=3 x.ln=30000)
     ///   S.AGCR(0 r=0 x=0) S.NEW(x=3 x.ln=30000) S.AGCR(0 r=0 x=0)`, `last-result = No`).
     pub(super) fn part_last_first(&mut self, st: &St, how: PageMethod) -> Result<Option<bool>, Signal> {
+        if matches!(how, PageMethod::Last | PageMethod::First) && self.part_stays_after_lookup_refresh(st) {
+            return Ok(Some(true));
+        }
         if how == PageMethod::Last
             && !self.part_view_held(st)
             && st.borrow().host.is_some()

@@ -1126,9 +1126,19 @@ pub(crate) struct ObjCtx {
     ext_vars: std::rc::Rc<HashMap<String, usize>>,
 }
 
-/// The `this` keyword: the object whose code is running (Microsoft Learn, "this keyword").
+/// The `this` keyword: the object whose code is running (Microsoft Learn, "this keyword"). Only the unquoted spelling
+/// is the keyword, and it is always the keyword, even where a variable is declared as `this` or `"this"`; the quoted
+/// `"this"` is a plain variable (types/lt-y73-quoted-this/Y73ThisCodeunit.al, al-runner issue 6750).
 pub(crate) fn is_this_keyword(node: &SyntaxNode) -> bool {
-    node.kind() == SyntaxKind::NameRef && name_of(node).eq_ignore_ascii_case("this")
+    node.kind() == SyntaxKind::NameRef
+        && ast::significant_green_tokens(node)
+            .find(|t| {
+                matches!(
+                    t.kind,
+                    SyntaxKind::Ident | SyntaxKind::QuotedIdent | SyntaxKind::Integer
+                )
+            })
+            .is_some_and(|t| t.kind == SyntaxKind::Ident && t.text.eq_ignore_ascii_case("this"))
 }
 
 /// Whether a variable of this name is in scope, whatever frame.

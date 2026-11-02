@@ -32,6 +32,12 @@ pub fn arith_cell(op: Arith, l: &Value, r: &Value) -> Option<Result<Value, Signa
                     .and_then(|b| int_arith(op, i32::from(b), i32::from(*c)).map(Value::Integer)),
             )
         }
+        // `B += E` with a Byte target and an Enum: the sum of the byte and the ordinal, an Integer the store range-checks
+        // (Enum_Byte `compound_add`: 65 + B is `B`, 255 + B overflows with ConversionCast).
+        (Value::Byte(b), Value::Enum(_, n)) if op == Arith::Add => {
+            super::verdict(Family::AddAssign, Kind::Enum, Kind::Byte)?;
+            Some(int_arith(op, i32::from(*b), *n).map(Value::Integer))
+        }
         // An Option or Enum with an Option or Enum gives an Option of the ordinals, with no member names (Option_Option_Same,
         // Option_Enum, Enum_Option, Enum_Enum_Same: `Option|2`, shown as its number).
         (Value::Option(a, _) | Value::Enum(_, a), Value::Option(b, _) | Value::Enum(_, b)) => {
@@ -98,4 +104,19 @@ pub(crate) fn datetime_fraction_error(op: Arith, d: Decimal) -> Result<Value, Si
         ),
         "ConversionCast",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `B += E` with a Byte `B` and an Enum `E` (types/lt-y31-conversion-matrix/Y31ConvAr.al, LT Y31 Ar Enum `Enum_Byte`
+    /// `compound_add`): the sum of the byte and the ordinal, an Integer that the store into the Byte range-checks.
+    #[test]
+    fn a_byte_plus_an_enum_is_the_integer_sum() {
+        let sum = |b: u8, ord: i32| arith_cell(Arith::Add, &Value::Byte(b), &Value::Enum(7, ord));
+        assert!(matches!(sum(65, 1), Some(Ok(Value::Integer(66)))));
+        assert!(matches!(sum(255, 1), Some(Ok(Value::Integer(256)))));
+        assert!(matches!(sum(65, 5), Some(Ok(Value::Integer(70)))));
+    }
 }

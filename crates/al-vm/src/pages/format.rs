@@ -65,6 +65,9 @@ impl Session {
                 if let Some(v) = self.row_expr_value(st, idx)? {
                     return Ok(v);
                 }
+                if let Some(v) = self.fn_control_value(st, idx)? {
+                    return Ok(v);
+                }
                 self.shown_value(st, idx, |s| s.control_routine(st, idx, r))
             }
             // A label shows its caption (handlers/TestPageLabelControlContracts.al:Label_IsATestPageMember_WithItsCaption).
@@ -683,14 +686,19 @@ impl Session {
                 .to_string()
         };
         let (amount, unit_places) = (text(amount_at), text(unit_at));
-        if amount.is_empty() && unit_places.is_empty() {
+        let wanted = if unit { unit_places } else { amount };
+        // An empty places field of the currency shows two places, whatever the places of General Ledger Setup are, whether the other
+        // field is empty or not (types/lt-auto-format-currency/AutoFormatCurrencyPlaces.al Currency_AmountPlacesOnly_DefaultSetup,
+        // _UnitPlacesOnly_DefaultSetup, and the _OtherSetup twins).
+        if wanted.is_empty() {
             return Ok((2, 2));
         }
-        let wanted = if unit { unit_places } else { amount };
         match pagefmt::parse_decimal_places(&wanted) {
-            Some(p) if !wanted.is_empty() => Ok(p),
+            // Fewer places allowed than required shows the allowed ones: `2:0` gives `111` and `1,235`
+            // (AutoFormatCurrencyPlaces.al Currency_ZeroAndMixedPlaces, `mixed_*_t2`).
+            Some((min, max)) => Ok((min.min(max), max)),
             _ => unsupported(format!(
-                "AutoFormatType {kind} with the currency `{expr}`, whose places are `{wanted}` (one of the two empty is not pinned)"
+                "AutoFormatType {kind} with the currency `{expr}`, whose places are `{wanted}` (not pinned)"
             )),
         }
     }
