@@ -69,9 +69,10 @@ The current numbers are in [What works and what is refused](what-works.md#status
    that someone suspects are run on Windows.
 4. Microsoft's own tests are not compared with real Business Central test by test.
    Their pass rate is the result of AL Runner, not a measured match.
-5. Permissions are not enforced. Every access is granted, so a test that expects a
-   permission error fails here, and code that Business Central would stop for a
-   missing permission runs here.
+5. Permissions are checked only for table data writes in a session that a test
+   lowered. All other code runs with every access granted, so code that Business
+   Central would stop for a missing permission runs here, and a test that expects
+   a permission error on a read fails here.
 6. The "not trusted" rule covers failures only. A test that passes after a refused
    test stays a pass, even if the refused test would have changed its data on
    Business Central.
