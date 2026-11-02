@@ -1684,6 +1684,16 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
         .unwrap_or(table);
     let def = match c.table_filter_table(table) {
         Some(Ok(Some(def))) => def,
+        // An unknown table name: the text goes on, after a backslash, with "The metadata object Table -1 was not found."
+        // (W4PlatformAndMeta.al:706 pins the text before the backslash; xmlport/lt-y67-xmlport-tablefilter/Y67XpTableFilter.al:153
+        // pins the sentence by Contains on 27/28/29; the rest of the tail is not pinned and left out).
+        Some(Ok(None)) if table.parse::<i64>().is_err() => {
+            return reject(
+                c,
+                "\\The metadata object Table -1 was not found.",
+                "Evaluate:MetadataNotFound",
+            );
+        }
         Some(Ok(None)) => return reject(c, "", "Evaluate:MetadataNotFound"),
         Some(Err(e)) => return Err(e),
         None => return unsupported("Evaluate into TableFilter without a program"),
