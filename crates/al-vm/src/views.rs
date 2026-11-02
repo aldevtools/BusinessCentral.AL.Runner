@@ -566,7 +566,7 @@ impl Session {
                         };
                         // A Date text reads as SetFilter reads it in the session's language: `010120..` is 01/01/20..
                         // (events/lt-platform-triggers/PtObserve.al:Filter_View).
-                        let date_ctx = self.date_filter_context_for(&*value);
+                        let date_ctx = self.date_filter_context_for(value);
                         let expr = match empty {
                             Some(e) => e,
                             None => {

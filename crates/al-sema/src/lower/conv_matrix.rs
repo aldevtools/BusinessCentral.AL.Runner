@@ -94,6 +94,12 @@ impl super::Lowerer<'_> {
 }
 
 impl super::Lowerer<'_> {
+    /// The shapes refused for an argument handed to a Variant parameter.
+    pub(super) fn refuse_variant_argument(&self, target: &Ty, node: &al_syntax::SyntaxNode) -> super::L<()> {
+        self.refuse_session_ending_ternary(target, node)?;
+        self.refuse_textconst_into_variant(target, node)
+    }
+
     /// `Cond ? Label : 'literal'` (a Label before the colon, a text literal after it) as the exit value of a Variant function
     /// or as the argument of a Variant parameter: BC 29 ends the whole session when the codeunit holding it is loaded, even if
     /// the routine is never called (writer Y81, types/lt-y81-values/Y81LabelVariant.al codeunit 94259 "LT Y81 Label Variant
@@ -119,7 +125,7 @@ impl super::Lowerer<'_> {
         if matches!(self.ty_of(yes), Ty::Label) && literal {
             return Err(
                 "a conditional expression `Cond ? Label : 'literal'` as a Variant argument or the exit value of a \
-                 Variant function: BC 29 ends the session when the codeunit is loaded (refused statically)"
+                 Variant function: Business Central 29 ends the whole session when the codeunit is loaded (refused statically)"
                     .into(),
             );
         }

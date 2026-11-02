@@ -1576,6 +1576,7 @@ mod tests {
             today: 1,
             work_date: 1,
             language: 1033,
+            ..Default::default()
         };
         with_date_context(ctx, || {
             for (text, v) in [
@@ -1614,6 +1615,7 @@ mod tests {
             today: 1,
             work_date: 1,
             language: 1033,
+            ..Default::default()
         };
         with_date_context(ctx, || {
             let day = match crate::evaluate::read_text(&T::Date, "01/15/25") {
@@ -1677,6 +1679,7 @@ mod tests {
             today: 1,
             work_date: 1,
             language: 1033,
+            ..Default::default()
         };
         with_date_context(ctx, || {
             for (text, v) in [

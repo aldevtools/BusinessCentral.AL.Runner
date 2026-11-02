@@ -689,8 +689,7 @@ impl<'a> Lowerer<'a> {
                 out.push(ir::Arg::Ref(self.place(a)?));
             } else {
                 let value = self.expr(a)?;
-                self.refuse_session_ending_ternary(&p.ty, a)?;
-                self.refuse_textconst_into_variant(&p.ty, a)?;
+                self.refuse_variant_argument(&p.ty, a)?;
                 out.push(ir::Arg::Value(self.convert_to(&p.ty, self.ty_ref(a), value)?));
             }
         }

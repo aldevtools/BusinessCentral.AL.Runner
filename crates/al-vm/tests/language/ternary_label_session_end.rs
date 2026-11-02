@@ -56,13 +56,13 @@ fn reason(routine: &str) -> String {
 #[test]
 fn return_of_label_or_literal_in_a_variant_function_is_refused() {
     let r = reason("Suspect_ReturnLabelOrLiteral");
-    assert!(r.contains("BC 29 ends the session"), "{r}");
+    assert!(r.contains("Business Central 29 ends the whole session"), "{r}");
 }
 
 #[test]
 fn variant_argument_of_label_or_literal_is_refused() {
     let r = reason("Suspect_ArgumentLabelOrLiteral");
-    assert!(r.contains("BC 29 ends the session"), "{r}");
+    assert!(r.contains("Business Central 29 ends the whole session"), "{r}");
 }
 
 #[test]
