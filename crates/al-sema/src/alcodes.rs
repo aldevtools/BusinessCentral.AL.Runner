@@ -804,26 +804,36 @@ fn ambiguous_dotnet_aliases(ws: &Workspace, oi: usize, decls: &[ast::VarDecl], o
     if ws.files[file].namespace.is_some() || !ws.dotnet.iter().any(|d| d.app == app) {
         return;
     }
-    let declared = |name: &str, in_app: &dyn Fn(usize) -> bool, ns: Option<&str>| {
-        ws.dotnet.iter().any(|d| {
-            in_app(d.app)
-                && d.decl.alias.eq_ignore_ascii_case(name)
-                && match (ns, ws.files[d.file].namespace.as_deref()) {
-                    (None, None) => true,
-                    (Some(want), Some(have)) => want.eq_ignore_ascii_case(have),
-                    _ => false,
-                }
-        })
+    // The declarations of `name` in the given apps and namespace: the .NET type each one names.
+    let declared = |name: &str, in_app: &dyn Fn(usize) -> bool, ns: Option<&str>| -> Vec<&str> {
+        ws.dotnet
+            .iter()
+            .filter(|d| {
+                in_app(d.app)
+                    && d.decl.alias.eq_ignore_ascii_case(name)
+                    && match (ns, ws.files[d.file].namespace.as_deref()) {
+                        (None, None) => true,
+                        (Some(want), Some(have)) => want.eq_ignore_ascii_case(have),
+                        _ => false,
+                    }
+            })
+            .map(|d| d.decl.type_name.as_str())
+            .collect()
     };
     for t in decls.iter().filter_map(|d| d.type_ref()) {
         if !t.type_name().eq_ignore_ascii_case("DotNet") {
             continue;
         }
         let [name] = t.object_name_parts().try_into().unwrap_or_default();
-        if name.is_empty()
-            || !declared(&name, &|a| a == app, None)
-            || !declared(&name, &|a| a != app && ws.app_sees(app, a), Some("System"))
-        {
+        if name.is_empty() {
+            continue;
+        }
+        // Both declarations naming the same .NET type are one type under one name, not an ambiguity (al-runner issue 6783:
+        // the app repeats System Application's `NavTenantSettingsHelper` and BC compiles it; the pinned case 2359 maps the
+        // alias to a different type). The comparison is by type name only.
+        let own = declared(&name, &|a| a == app, None);
+        let theirs = declared(&name, &|a| a != app && ws.app_sees(app, a), Some("System"));
+        if !own.iter().any(|o| theirs.iter().any(|t| !t.eq_ignore_ascii_case(o))) {
             continue;
         }
         push(
