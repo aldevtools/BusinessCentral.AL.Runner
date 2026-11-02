@@ -176,6 +176,9 @@ pub struct Engine {
     /// `autoinc::tables_with_delete_subscribers`), found when `Truncate` first asks.
     /// The profiles that get an All Profile row (see `platform::profiles::profile_seeds`).
     pub(crate) profile_seeds: std::sync::OnceLock<Vec<(usize, i32)>>,
+    /// The tables `seed_platform_rows` visits (`platform::seed::seed_tables`), found on the first session; shared with
+    /// sibling engines, which have the same program.
+    pub(crate) seed_tables: Arc<std::sync::OnceLock<Box<[usize]>>>,
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// What a run of a routine on a transient instance can leave behind (`effects.rs`), per (object, routine).
     pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<effects::Effect>>>,
@@ -430,6 +433,7 @@ impl Engine {
             delete_subscribed: Default::default(),
             lasting_effects: Default::default(),
             profile_seeds: Default::default(),
+            seed_tables: Default::default(),
             facts,
             exec: Arc::new(exec),
             positions_by_object: Default::default(),
@@ -472,6 +476,7 @@ impl Engine {
             delete_subscribed: Default::default(),
             lasting_effects: Default::default(),
             profile_seeds: Default::default(),
+            seed_tables: self.seed_tables.clone(),
             facts: self.facts.clone(),
             exec: self.exec.clone(),
             positions_by_object: Default::default(),
@@ -538,6 +543,7 @@ impl Engine {
             codeunits: _,
             // Caches that are worked out from the program on first use.
             profile_seeds: _,
+            seed_tables: _,
             delete_subscribed: _,
             lasting_effects: _,
             positions_by_object: _,

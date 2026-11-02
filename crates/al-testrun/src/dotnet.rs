@@ -41,6 +41,9 @@ pub struct SidecarConfig {
     pub work_root: Option<PathBuf>,
     /// Deadline of one call; on expiry the process is killed (ADR-014 section 10).
     pub timeout: Duration,
+    /// Reuse of a clean process by the next session (ADR-014 amendment 2026-11-02); `None`: `ALRUNNER_DOTNET_REUSE`
+    /// and `ALRUNNER_DOTNET_FRESH` decide, and without them it is on.
+    pub reuse: Option<Reuse>,
 }
 
 impl Default for SidecarConfig {
@@ -54,6 +57,7 @@ impl Default for SidecarConfig {
             allow_roll_forward: false,
             work_root: None,
             timeout: Duration::from_secs(60),
+            reuse: None,
         }
     }
 }
@@ -88,6 +92,48 @@ pub struct SidecarStats {
     /// Requests after the start, and their total time.
     pub calls: usize,
     pub call_total: Duration,
+    /// ADR-014 amendment 2026-11-02, with reuse on or counting: sessions that ended with a process that was still
+    /// equal to a fresh one (`reset` found nothing dirty), ...
+    pub reset_clean: usize,
+    /// ... sessions that ended with a process that was not (it is killed), ...
+    pub reset_dirty: usize,
+    /// ... and sessions that were given such a clean process instead of a new one (reuse on).
+    pub reused: usize,
+}
+
+/// What `ALRUNNER_DOTNET_REUSE` asks for (ADR-014 amendment 2026-11-02). On unless set otherwise (owner, 2026-11-02);
+/// `ALRUNNER_DOTNET_FRESH=1` turns it off whatever else is set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reuse {
+    /// Today: one process per session, killed at its end.
+    Off,
+    /// Ask each process to `reset` at the end of its session and count the answers, but kill it as in `Off`.
+    Count,
+    /// Hand a process that is still clean to the next session.
+    On,
+}
+
+impl Reuse {
+    fn name(self) -> &'static str {
+        match self {
+            Reuse::Off => "Off",
+            Reuse::Count => "Count",
+            Reuse::On => "On",
+        }
+    }
+}
+
+impl Reuse {
+    pub fn from_env(env: &dyn Fn(&str) -> Option<String>) -> Reuse {
+        if env("ALRUNNER_DOTNET_FRESH").is_some_and(|v| v == "1") {
+            return Reuse::Off;
+        }
+        match env("ALRUNNER_DOTNET_REUSE").as_deref() {
+            Some("0") => Reuse::Off,
+            Some("count") => Reuse::Count,
+            _ => Reuse::On,
+        }
+    }
 }
 
 /// How many standby sidecars a run that has the Microsoft apps keeps ready (`prewarm`). The
@@ -127,6 +173,9 @@ struct Shared {
     resolved: OnceLock<Result<Resolved, String>>,
     stats: Mutex<SidecarStats>,
     pool: Pool,
+    reuse: Reuse,
+    /// Why `reset` found a process dirty, with how often (reported by `shutdown` unless reuse is off).
+    dirty_reasons: Mutex<std::collections::BTreeMap<String, usize>>,
 }
 
 impl Shared {
@@ -239,6 +288,8 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 struct Standby {
     proc: Proc,
     next_id: u64,
+    /// Left clean by an earlier session (`give_back`), not started for the pool.
+    reused: bool,
 }
 
 #[derive(Default)]
@@ -271,6 +322,16 @@ impl Pool {
         let need = st.target.saturating_sub(st.ready.len() + st.starting);
         st.starting += need;
         need
+    }
+
+    /// A process a finished session left clean (`reset`): the next session that needs one takes it. At most a few are
+    /// kept; a process beyond that is dropped (killed).
+    fn give_back(&self, s: Standby) {
+        let mut st = lock(&self.state);
+        if !st.closed && st.ready.len() < 8 {
+            st.ready.push(s);
+            self.changed.notify_all();
+        }
     }
 
     /// A background start ended. A failed one stops the pool: the session that needs a process
@@ -335,6 +396,7 @@ fn start_standbys(shared: &Arc<Shared>, n: usize) {
                     Ok(Standby {
                         proc,
                         next_id: s.next_id,
+                        reused: false,
                     })
                 })();
                 shared.pool.deposit(started);
@@ -352,12 +414,15 @@ pub struct SidecarHost {
 
 impl SidecarHost {
     pub fn new(cfg: SidecarConfig) -> SidecarHost {
+        let cfg_reuse = cfg.reuse;
         SidecarHost {
             shared: Arc::new(Shared {
                 cfg,
                 resolved: OnceLock::new(),
                 stats: Mutex::new(SidecarStats::default()),
                 pool: Pool::default(),
+                reuse: cfg_reuse.unwrap_or_else(|| Reuse::from_env(&|k| std::env::var(k).ok())),
+                dirty_reasons: Mutex::new(Default::default()),
             }),
         }
     }
@@ -396,6 +461,22 @@ impl SidecarHost {
     /// later start their own process.
     pub fn shutdown(&self) {
         self.shared.pool.close();
+        if self.shared.reuse != Reuse::Off {
+            let st = self.stats();
+            let reasons = lock(&self.shared.dirty_reasons);
+            if st.reset_clean + st.reset_dirty > 0 {
+                eprintln!(
+                    "dotnet sidecar reuse ({}): {} sessions ended clean, {} dirty, {} served by a reused process",
+                    self.shared.reuse.name(),
+                    st.reset_clean,
+                    st.reset_dirty,
+                    st.reused
+                );
+                for (why, n) in reasons.iter() {
+                    eprintln!("  dirty: {why} x{n}");
+                }
+            }
+        }
     }
 }
 
@@ -550,6 +631,7 @@ const EMBEDDED: &[(&str, &str)] = &[
     ("Marshal.cs", include_str!("../../../tools/dotnet-sidecar/Marshal.cs")),
     ("Program.cs", include_str!("../../../tools/dotnet-sidecar/Program.cs")),
     ("Resolver.cs", include_str!("../../../tools/dotnet-sidecar/Resolver.cs")),
+    ("Reuse.cs", include_str!("../../../tools/dotnet-sidecar/Reuse.cs")),
     ("global.json", include_str!("../../../tools/dotnet-sidecar/global.json")),
 ];
 
@@ -825,7 +907,14 @@ impl SidecarSession {
             Some(sb) => {
                 self.proc = Some(sb.proc);
                 self.next_id = sb.next_id;
-                lock(&self.shared.stats).from_standby += 1;
+                {
+                    let mut st = lock(&self.shared.stats);
+                    if sb.reused {
+                        st.reused += 1;
+                    } else {
+                        st.from_standby += 1;
+                    }
+                }
                 // Keep the pool at its target for the sessions that follow.
                 let need = self.shared.pool.reserve();
                 start_standbys(&self.shared, need);
@@ -1038,6 +1127,35 @@ impl SidecarSession {
         }
     }
 
+    /// Asks the process to `reset` and counts the answer. True when it is still equal to a fresh one. Any failure of the
+    /// request counts as dirty (the process is not reused).
+    fn reset_is_clean(&mut self) -> bool {
+        let answer = self.raw_request(json!({"op":"reset"}));
+        let mut st = lock(&self.shared.stats);
+        match answer {
+            Ok(v) if v["value"]["reusable"] == json!(true) => {
+                st.reset_clean += 1;
+                true
+            }
+            Ok(v) => {
+                st.reset_dirty += 1;
+                let mut reasons = lock(&self.shared.dirty_reasons);
+                for r in v["value"]["dirty"].as_array().into_iter().flatten() {
+                    // The type or assembly name after the colon is kept: the report says what to allow-list.
+                    *reasons.entry(r.as_str().unwrap_or("?").to_string()).or_default() += 1;
+                }
+                false
+            }
+            Err(_) => {
+                st.reset_dirty += 1;
+                *lock(&self.shared.dirty_reasons)
+                    .entry("reset failed".into())
+                    .or_default() += 1;
+                false
+            }
+        }
+    }
+
     fn kill(&mut self) {
         if let Some(mut p) = self.proc.take() {
             let _ = p.child.kill();
@@ -1212,6 +1330,20 @@ impl DotNetSession for SidecarSession {
         }
     }
     fn close(mut self: Box<Self>) {
+        let clean =
+            self.proc.is_some() && self.dead.is_none() && self.shared.reuse != Reuse::Off && self.reset_is_clean();
+        if clean && self.shared.reuse == Reuse::On {
+            if let Some(proc) = self.proc.take() {
+                // A line the last session wrote to stderr must not show in the death message of the next one.
+                proc.last_stderr.lock().unwrap().clear();
+                self.shared.pool.give_back(Standby {
+                    proc,
+                    next_id: self.next_id,
+                    reused: true,
+                });
+                return;
+            }
+        }
         if self.proc.is_some() && self.dead.is_none() {
             let _ = self.raw_request(json!({"op":"bye"}));
         }
