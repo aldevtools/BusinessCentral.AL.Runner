@@ -37,6 +37,12 @@ impl Session {
         if let Some(r) = self.close_after_failed_save(st) {
             return r;
         }
+        // The save of a value longer than its field fails at the Close with the code TestWrapped; the page stays open and a
+        // second Close succeeds (Y80SetValueTypes.al Y80_ST_Card_ShortCtl_Integers `close`, as Y67CloseSaveError.al:239).
+        let deferred = st.borrow_mut().deferred_overlong.take();
+        if let Some((_, _, message)) = deferred {
+            return Err(error_code(message, "TestWrapped"));
+        }
         st.borrow_mut().close_error = false;
         self.pages.close_save_error = false;
         self.pages.test_close = true;

@@ -3,6 +3,9 @@ use super::*;
 impl Session {
     /// The value a control shows: its binding, read now.
     pub(super) fn control_value(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
+        if let Some(held) = Self::deferred_value_read(st, idx) {
+            return Ok(held);
+        }
         let engine = self.engine();
         // A page variable, or an element of a page array variable (`Control::array_element`), which shows as a plain page
         // variable does (al-runner issue 6379).
@@ -1016,8 +1019,16 @@ impl Session {
                     "Caption() of a CaptionClass expression that changed since the page filled (whether BC resolves it again is not pinned)",
                 );
             }
-            return self.caption_class_text(st, &c);
+            return self.caption_class_text_for(st, idx, &c);
         }
+        self.control_caption_plain(st, idx)
+    }
+
+    /// The control's caption with no CaptionClass of its own: its `Caption`, else the source field's `CaptionClass` or
+    /// `Caption`, else its name.
+    pub(super) fn control_caption_plain(&mut self, st: &St, idx: usize) -> Result<String, Signal> {
+        let engine = self.engine();
+        let ctl = &page_of(&engine, st).controls[idx];
         let own_caption = match ctl.prop("caption") {
             Some(ir::PropVal::Lit(c)) => Some(unquote(c)),
             _ => None,
@@ -1106,7 +1117,7 @@ impl Session {
             // resolved again).
             return Ok(());
         }
-        let (caption, unknown) = self.caption_class_text_deferring(st, text)?;
+        let (caption, unknown) = self.caption_class_text_deferring_for(st, idx, text)?;
         // A caption whose text the runtime cannot know is refused where the text is read (`control_caption`), unless another
         // app's resolver could have changed state at the open (runner issue 6794).
         if let Some(why) = &unknown {

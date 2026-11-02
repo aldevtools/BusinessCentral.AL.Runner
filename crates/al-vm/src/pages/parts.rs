@@ -860,11 +860,12 @@ impl Session {
         Ok(())
     }
 
-    /// Whether the part control's SubPageView restricts, with a `const` condition, a field its SubPageLink also names.
+    /// Whether the part control's SubPageView restricts, with any condition, a field its SubPageLink also names.
     /// Such a part reads its rows last to first, once each, when the host opens (pages/lt-part-reads/PartReadsOpen.al:
     /// OpenView_SixParts_ReadsPerPartLogged `open-Same`, 3 rows; misc/lt-probes-needed-7/PnGPartTriggers.al:
-    /// OpenOrderOfHostWithSixParts, 2 rows). Only `const` on a linked field is pinned: another condition on a linked field
-    /// is refused, since the reads it gives are not known.
+    /// OpenOrderOfHostWithSixParts, 2 rows). The link overrides the view on that field, whatever the condition: filter('H1|H2'),
+    /// filter('<>H1'), filter('H2') and filter('H2..H3') give the reads and rows of the host's key
+    /// (pages/lt-y80-subpageview/Y80SubPageViewTests.al, Y80_SV_F1_* to Y80_SV_F4_* and Y80_SV_All_*; needs corpus bump).
     fn view_names_link_field(&self, host: &St, control: usize, child: &St) -> Result<bool, Signal> {
         let engine = self.engine();
         let page = page_of(&engine, host);
@@ -894,12 +895,18 @@ impl Session {
                     .trim_start()
                     .trim_start_matches('=')
                     .trim_start();
-                if !after.starts_with("const(") {
+                // A single value (`const(..)` or `filter('H2')`) reads like a const; a list, a range or a negation reads like a
+                // part with no condition on the field (Y80_SV_F1..F4).
+                found = after.starts_with("const(") || single_value_filter(after);
+                // Pinned for a part that serves its rows from the table (Y80_SV_*). A part with OnFindRecord or OnNextRecord reads
+                // and logs its filter groups differently (pages/lt-f3-pages/F3PartFiltersSM.al, F3PartTests.al): refused as before.
+                if !after.starts_with("const(")
+                    && (self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord"))
+                {
                     return unsupported(format!(
-                        "a SubPageView condition other than const on the linked field {name} (not pinned)"
+                        "a SubPageView condition other than const on the linked field {name} of a part with OnFindRecord or OnNextRecord (not pinned)"
                     ));
                 }
-                found = true;
                 break;
             }
         }
@@ -1453,6 +1460,12 @@ impl Session {
         let Some(host) = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()) else {
             return Ok(());
         };
+        // A part whose ModifyAllowed is false keeps its edit to itself: the host still shows the stored row
+        // (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_Doc_PartSet_PartNext `shown after partset` = `10/r10 part 10/p`;
+        // needs corpus bump).
+        if flag_denied(&self.engine(), st.borrow().object as usize, "ModifyAllowed")? {
+            return Ok(());
+        }
         if host.borrow().open
             && self.is_list(&host)
             && self.is_list(st)
@@ -2078,6 +2091,34 @@ impl Session {
             && !self.declares(st, "onnextrecord")
     }
 
+    /// `First()` on a ListPart opened for view (no blank line) that stands on its first row, holding its whole view read from the
+    /// start and asking no page trigger: it reads nothing and answers Yes (pages/lt-y80-subpageview/Y80SubPageViewTests.al
+    /// Y80_SV_F1_OpenView `open log reading rows`, `F1.agr(H1/20000);F1.agr(H1/20000);F1.agcr(H1/20000)` for Next only; needs
+    /// corpus bump). The same for an edit part is `part_last_first`.
+    fn view_part_on_first_row(&self, st: &St) -> Result<bool, Signal> {
+        let shape = {
+            let s = st.borrow();
+            s.host.is_some()
+                && s.open
+                && !s.new_line
+                && s.window_from_start
+                && s.window.len() < Self::WINDOW
+                && s.cursor == Cursor::Row
+                && !s.draft
+                && !s.dirty
+        } && self.is_list(st)
+            && self.has_source(st)
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord");
+        if !shape {
+            return Ok(false);
+        }
+        let rec = self.page_rec(st);
+        let key = self.row_key(&rec)?;
+        let s = st.borrow();
+        Ok(s.window.first().is_some_and(|w| Self::same_key(&w.key, &key)))
+    }
+
     /// `part_view_held` for a part that declares OnFindRecord (not OnNextRecord), shown on a Document or Card page that links it
     /// by fields and has no other part: the shape of pages/lt-y17-expr-refresh/Y17ExprRefresh.al (page 91752 in page 91753).
     fn find_part_view_held(&self, st: &St) -> bool {
@@ -2228,6 +2269,9 @@ impl Session {
         if matches!(how, PageMethod::Last | PageMethod::First) && self.find_part_view_held(st) {
             return self.find_part_last_first(st, how);
         }
+        if how == PageMethod::First && self.view_part_on_first_row(st)? {
+            return Ok(Some(true));
+        }
         if !matches!(how, PageMethod::Last | PageMethod::First) || !self.part_view_held(st) {
             return Ok(None);
         }
@@ -2355,7 +2399,10 @@ impl Session {
     pub(super) fn save_parts(&mut self, st: &St) -> Result<(), Signal> {
         let parts = st.borrow().parts.clone();
         for (_, child) in parts {
+            // A part whose ModifyAllowed is false with a typed row: the Close raises `Page cannot be saved.` (TestWrapped), as for a
+            // page of its own (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_Doc_PartSet_HostNext `close`; needs corpus bump).
             if child.borrow().open {
+                self.close_denied_modify(&child)?;
                 self.save_row(&child)?;
             }
         }
@@ -2374,4 +2421,20 @@ fn parts_linked_on(page: &ir::Page, parts: &[(usize, St)], pos: usize) -> usize 
                 .is_some_and(|l| l.provider.is_none() && l.entries.iter().any(|e| e.host_field() == Some(pos)))
         })
         .count()
+}
+
+/// Whether `after` (a lower-cased SubPageView condition after the `=`) starts with `filter('V')` where V is one plain value: no
+/// list, range, comparison, wildcard or quote inside.
+fn single_value_filter(after: &str) -> bool {
+    let Some(rest) = after.strip_prefix("filter(") else {
+        return false;
+    };
+    let Some(rest) = rest.trim_start().strip_prefix('\'') else {
+        return false;
+    };
+    let Some(end) = rest.find('\'') else {
+        return false;
+    };
+    let value = &rest[..end];
+    !value.is_empty() && !value.contains(['|', '&', '<', '>', '=', '*', '?', '@', '(', ')', '.'])
 }
