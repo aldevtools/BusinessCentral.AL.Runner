@@ -385,11 +385,9 @@ impl Lowerer<'_> {
     pub(crate) fn usercontrol_name(&self, n: &SyntaxNode) -> Option<String> {
         // Only a node whose text starts with `CurrPage.` can name one: look at its first token before the text of the whole
         // node is built (this runs for every argument of every call).
-        let first = n
-            .descendants_with_tokens()
-            .filter_map(|e| e.into_token())
-            .find(|t| !matches!(t.kind(), SyntaxKind::Whitespace | SyntaxKind::Newline))?;
-        if first.text() != "CurrPage" {
+        // Comments are trivia too, but a comment before `CurrPage` would also make the text check below fail.
+        let first = al_syntax::ast::first_significant_green_token(n)?;
+        if first.text != "CurrPage" {
             return None;
         }
         let text = n.text().to_string();
@@ -1165,11 +1163,11 @@ impl Lowerer<'_> {
             .children()
             .last()
             .and_then(|m| {
-                m.children_with_tokens()
-                    .filter_map(|e| e.into_token())
+                al_syntax::ast::significant_green_tokens(&m)
                     .find(|t| matches!(t.kind(), SyntaxKind::Ident | SyntaxKind::QuotedIdent))
+                    .map(|t| ast::unquote_ident(t.text()))
             })
-            .is_some_and(|t| ast::ident_text(&t).eq_ignore_ascii_case("Page"));
+            .is_some_and(|t| t.eq_ignore_ascii_case("Page"));
         last_is_page
             && matches!(self.ty_ref(&part), Ty::TestPart(_))
             && part.kind() == SyntaxKind::MemberExpr
@@ -1185,11 +1183,10 @@ impl Lowerer<'_> {
             .children()
             .last()
             .and_then(|m| {
-                m.children_with_tokens()
-                    .filter_map(|e| e.into_token())
+                al_syntax::ast::significant_green_tokens(&m)
                     .find(|t| matches!(t.kind(), SyntaxKind::Ident | SyntaxKind::QuotedIdent))
+                    .map(|t| ast::unquote_ident(t.text()))
             })
-            .map(|t| ast::ident_text(&t))
             .ok_or("control name")?;
         self.control_named(&recv, &name)
     }
@@ -1345,10 +1342,7 @@ impl Lowerer<'_> {
 /// A string literal (`'K'`, `'abc'`).
 pub(crate) fn is_string_literal(node: &SyntaxNode) -> bool {
     node.kind() == SyntaxKind::Literal
-        && node
-            .children_with_tokens()
-            .filter_map(|e| e.into_token())
-            .any(|t| t.kind() == SyntaxKind::StringLit)
+        && al_syntax::ast::significant_green_tokens(&node).any(|t| t.kind() == SyntaxKind::StringLit)
 }
 
 /// A read of a TextConst whose text depends on the language in force: `System.TextConstText#1` with its language codes and

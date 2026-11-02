@@ -1136,15 +1136,14 @@ fn sc_has_var(sc: &Scope, name: &str) -> bool {
 }
 
 fn name_of(node: &SyntaxNode) -> String {
-    node.children_with_tokens()
-        .filter_map(|e| e.into_token())
+    ast::significant_green_tokens(node)
         .find(|t| {
             matches!(
-                t.kind(),
+                t.kind,
                 SyntaxKind::Ident | SyntaxKind::QuotedIdent | SyntaxKind::Integer
             )
         })
-        .map(|t| ast::ident_text(&t))
+        .map(|t| ast::unquote_ident(t.text))
         .unwrap_or_default()
 }
 
@@ -1172,8 +1171,7 @@ fn split_qualified(name: &str) -> Vec<String> {
 }
 
 fn first_token(node: &SyntaxNode) -> String {
-    node.children_with_tokens()
-        .filter_map(|e| e.into_token())
+    al_syntax::ast::significant_green_tokens(&node)
         .find(|t| !t.kind().is_trivia())
         .map(|t| t.text().to_string())
         .unwrap_or_default()
@@ -1186,11 +1184,7 @@ pub(crate) fn one_char_literal(node: &SyntaxNode) -> bool {
     if node.kind() != SyntaxKind::Literal {
         return false;
     }
-    let Some(tok) = node
-        .children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .find(|t| t.kind() == SyntaxKind::StringLit)
-    else {
+    let Some(tok) = al_syntax::ast::significant_green_tokens(&node).find(|t| t.kind() == SyntaxKind::StringLit) else {
         return false;
     };
     let text = tok.text();
@@ -1250,8 +1244,7 @@ pub(crate) fn integer_and_one_char_literal(op: &str, kids: &[SyntaxNode], l: &Ty
 }
 
 fn op_token(node: &SyntaxNode) -> String {
-    node.children_with_tokens()
-        .filter_map(|e| e.into_token())
+    al_syntax::ast::significant_green_tokens(&node)
         .find(|t| !t.kind().is_trivia())
         .map(|t| t.text().to_ascii_lowercase())
         .unwrap_or_default()
@@ -1279,11 +1272,7 @@ fn member_name(node: &SyntaxNode) -> String {
 }
 
 fn literal_ty(node: &SyntaxNode) -> Ty {
-    let Some(t) = node
-        .children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .find(|t| !t.kind().is_trivia())
-    else {
+    let Some(t) = al_syntax::ast::significant_green_tokens(&node).find(|t| !t.kind().is_trivia()) else {
         return Ty::Unknown;
     };
     match t.kind() {

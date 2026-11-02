@@ -196,10 +196,7 @@ impl<'a> Checker<'a> {
         };
         let shape = match node.kind() {
             SyntaxKind::Literal => {
-                let tok = node
-                    .children_with_tokens()
-                    .filter_map(|e| e.into_token())
-                    .find(|t| !t.kind().is_trivia())?;
+                let tok = al_syntax::ast::significant_green_tokens(&node).find(|t| !t.kind().is_trivia())?;
                 match tok.kind() {
                     SyntaxKind::StringLit => {
                         let text = tok.text();
