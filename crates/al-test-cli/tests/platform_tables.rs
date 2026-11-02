@@ -4426,7 +4426,7 @@ codeunit 50000 "T" { Subtype = Test;
 /// al-runner issue 6662: a User whose "Authentication Email" is a formatted Guid ('{...}@EXAMPLE.COM') was refused as not
 /// pinned. Corpus writer Y66 measured it on real BC 27.5, 28.5 and 29.0: the insert succeeds and the address is kept as given
 /// (al-language-onprem/access-control/lt-y66-auth-email-local-part/Y66AuthEmailLocalPart.al:25-42, corpus branch
-/// al-runtime-rs-staging-y66; assumption `user-auth-email-rfc-forms` until the pin holds it). The reporter's snippet, plus a read
+/// pinned since corpus master 34ca226f). The reporter's snippet, plus a read
 /// back, on BC 29 and 27.
 #[test]
 fn a_user_whose_authentication_email_has_a_formatted_guid_local_part_is_inserted_and_kept() {

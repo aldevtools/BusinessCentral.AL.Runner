@@ -22,9 +22,8 @@ pub(crate) fn length(ty: &RtType) -> Result<Value, Signal> {
         ) => Ok(Value::Integer(16)),
         // The Security Filter columns of Permission and Metadata Permission (permissions/W6PermissionColumns.al:82,119).
         RtType::Library(k) if k.as_str() == "TableFilter" => Ok(Value::Integer(504)),
-        // DateFormula 32, RecordId 448 (al-runner issue 6663; awaiting Y66FieldRefLengthTypes.al:61).
+        // DateFormula 32, RecordId 448 (al-runner issue 6663; fieldref/lt-y66-fieldref-length-types/Y66FieldRefLengthTypes.al:61).
         RtType::DateFormula | RtType::Library(al_builtins::library_kind::LibraryKind::RecordId) => {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FieldRefLengthDateFormulaRecordId);
             Ok(Value::Integer(if matches!(ty, RtType::DateFormula) { 32 } else { 448 }))
         }
         other => Err(Signal::Unsupported(format!(

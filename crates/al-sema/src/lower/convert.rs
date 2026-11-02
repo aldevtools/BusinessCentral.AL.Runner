@@ -424,13 +424,12 @@ impl<'a> Lowerer<'a> {
             ))
         };
         // A MaxLength label against a Text or Code branch, sized or not, either way, is as a label without MaxLength (al-runner
-        // issue 6659; awaiting types/lt-y66-ternary-label/Y66TernaryLabel.al:65-1335, real BC values).
+        // issue 6659; types/lt-y66-ternary-label/Y66TernaryLabel.al:65-1335).
         let other = if matches!(t, Ty::Label) { f } else { t };
         if maxlength && !(matches!(t, Ty::Label) && literal(&value).is_some()) {
             if !matches!(other, Ty::Text(_) | Ty::Code(_)) {
                 return unpinned();
             }
-            self.assume(al_builtins::assumptions::Assumption::TernaryMaxLengthLabel);
         }
         match (t, f) {
             // Pinned on master (:464, :504-516): a Label true branch, MaxLength or not, takes a literal false branch as it is.

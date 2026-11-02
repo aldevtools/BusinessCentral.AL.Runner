@@ -24,8 +24,7 @@ fn letter_or_digit(c: char) -> bool {
 /// (TestUserAuthEmailTrigger.al:44-125). An address without `@` is invalid (:143-159).
 ///
 /// The forms corpus writer Y66 measured on real BC 27.5, 28.5 and 29.0 (tests/al-language-onprem/access-control/
-/// lt-y66-auth-email-local-part/Y66AuthEmailLocalPart.al, al-runner issue 6662; not on corpus master yet, assumption
-/// `user-auth-email-rfc-forms`): a quoted local part is kept with its quotes; an unquoted one may hold letters, digits and
+/// lt-y66-auth-email-local-part/Y66AuthEmailLocalPart.al, al-runner issue 6662): a quoted local part is kept with its quotes; an unquoted one may hold letters, digits and
 /// `!#$%&'*+/=?^_`{|}~-.` and end with a dot, but not start with one; a comment right before the `@` is dropped; a word and a
 /// space before the address drop the word (`a b@example.com` keeps `b@example.com`); the domain may be dotless, an IPv4
 /// literal in brackets, or hold `_` and a leading `-`; two `@`, an empty local part and an empty domain are invalid; a doubled
@@ -59,17 +58,7 @@ pub(crate) fn normalise_email(text: &str, doubled_dot_invalid: bool) -> Result<S
         }
         _ => return unpinned("an unbalanced angle bracket"),
     };
-    let flagged = address.contains(|c: char| !(c.is_ascii_alphanumeric() || "@._+-".contains(c)))
-        || address.starts_with('@')
-        || address.ends_with('@')
-        || address.ends_with('.')
-        || address.contains("..")
-        || address.matches('@').count() > 1;
-    let r = split_address(address, doubled_dot_invalid, &unpinned);
-    if flagged && !matches!(r, Err(EmailProblem::Unpinned(_))) {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::UserAuthEmailRfcForms);
-    }
-    r
+    split_address(address, doubled_dot_invalid, &unpinned)
 }
 
 fn split_address(
