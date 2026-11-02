@@ -421,6 +421,17 @@ Stage 1 is on by default: probes P1-P13 are merged in the corpus (master, PR 914
   stack merge into the session level; only Yes levels are pinned.
 - The end-of-test refusal of a test that is still lowered applies only under `--permissions off`.
 
+## Stage 2, first part (2026-11-02)
+
+`Record.ReadPermission` and `WritePermission` (also through a RecordRef) are decided by the session's sets
+(`Session::permission_query`, `al-vm/src/permissions.rs`) instead of answering true. Read is the Read permission; Write is
+Insert, Modify and Delete together, each decided as an access: direct Yes, or Indirect completed by the calling object's
+`Permissions` property. An unrestricted session still answers true. Pinned by Y24PermReads.al Y24_P19_ReadWritePermission
+and by the Y75 probe (`lt-y75-license/Y75PermReadWrite.al`, corpus PR 1031; not in the pin yet, the values come from its
+hand-off). A false answer for a temporary record, a system table, an extension object's code or a session that is not fully
+composed refuses the test. Reads, FlowField denials and the other read shapes (P14-P18) stay refused: the stage is not on
+by default yet.
+
 ### Decided without owner review (2026-10-31)
 
 - **An access the sets allow runs in every stage**, also a read or a call while stages 2 and 3 are off. Section 2's safety
