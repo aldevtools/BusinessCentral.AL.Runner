@@ -12316,6 +12316,15 @@
           "site": "pages/lt-x-obsolete-pending/XObsoletePending.al:243"
         },
         {
+          "corpus_uses": 1,
+          "group": "profile",
+          "ms_uses": 0,
+          "name": "ProfileDescriptionML",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "codeunit/lt-x-object-props/XObjectProps.al:162"
+        },
+        {
           "corpus_uses": 4,
           "group": "query",
           "ms_uses": 0,
@@ -13646,15 +13655,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "pageext/lt-z-modify-controls/ZModifyControls.al:91"
-        },
-        {
-          "corpus_uses": 1,
-          "group": "profile",
-          "ms_uses": 0,
-          "name": "ProfileDescriptionML",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "codeunit/lt-x-object-props/XObjectProps.al:162"
         },
         {
           "corpus_uses": 1,
@@ -26082,7 +26082,7 @@
         "pinned": true,
         "scope": "",
         "site": "codeunit/lt-x-object-props/XObjectProps.al:162",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",

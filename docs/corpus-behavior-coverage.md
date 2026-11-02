@@ -12,7 +12,7 @@ The catalog of each area is what the AL language server offers in probe files (`
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | attributes | 42 | 33 | 78.6% | 31 | 73.8% | 0 | 11 | 1 |
 | events | 23 | 16 | 69.6% | 23 | 100.0% | 0 | 0 | 0 |
-| properties | 720 | 671 | 93.2% | 609 | 84.6% | 6 | 105 | 2 |
+| properties | 720 | 671 | 93.2% | 610 | 84.7% | 6 | 104 | 2 |
 | syntax | 16 | 16 | 100.0% | 16 | 100.0% | 0 | 0 | 0 |
 | triggers | 128 | 128 | 100.0% | 118 | 92.2% | 1 | 9 | 0 |
 
@@ -81,7 +81,7 @@ Left out: 293 presentation-only properties (Caption, ToolTip, ApplicationArea, .
 | PageView | 7 | 7 | 100.0% | 6 | 85.7% | 0 | 1 | 0 |
 | PermissionSet | 8 | 8 | 100.0% | 8 | 100.0% | 0 | 0 | 0 |
 | PermissionSetExtension | 2 | 2 | 100.0% | 2 | 100.0% | 0 | 0 | 0 |
-| Profile | 8 | 8 | 100.0% | 6 | 75.0% | 0 | 2 | 0 |
+| Profile | 8 | 8 | 100.0% | 7 | 87.5% | 0 | 1 | 0 |
 | Query | 24 | 23 | 95.8% | 22 | 91.7% | 2 | 0 | 0 |
 | QueryColumn | 6 | 6 | 100.0% | 6 | 100.0% | 0 | 0 | 0 |
 | QueryDataItem | 3 | 3 | 100.0% | 3 | 100.0% | 0 | 0 | 0 |
