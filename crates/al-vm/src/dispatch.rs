@@ -429,6 +429,11 @@ impl Session {
                     .as_ref()
                     .is_some_and(|apps| apps.contains(&app))
             {
+                // A trigger setup subscriber shown to change nothing for this table: the same outcome in either order
+                // (setup_no_op.rs).
+                if self.events.setup_no_ops.contains(&(s.object, s.routine)) {
+                    continue;
+                }
                 return unsupported(format!(
                     "event {event}: a subscriber in app {} would run while an app installs that it has no dependency path \
                      to; the install order of the two is not known",
@@ -742,7 +747,16 @@ const TESTS_TESTLIBRARIES: &str = "5d86850b-0d76-4eca-bd7b-951ad998e997";
 ///   BiTriggerSetup.al:21-22;
 /// - XApp C (0df0fadc-...) runs before 130011: Y3SetupOrderTests.al:22-25 (`C: seq=2 in=NoNoNoNo | A: seq=1 in=NoNoNoNo`,
 ///   neither saw 130011's flags). XApp A and XApp D come before C through C's dependencies.
+/// - XApp A (cd6a4292-...) runs before 130011 too: the same line, A runs first and does not see 130011's flags (the order
+///   that lets the corpus install routine "LT UT Install" run in the TestLibraries job, al-runner issue 6665).
 const MEASURED_PAIRS: &[MeasuredPair] = &[
+    MeasuredPair {
+        publisher_app: BASE_APPLICATION,
+        publisher_object: 49,
+        event: "onaftergetdatabasetabletriggersetup",
+        first: "cd6a4292-f27b-4af9-89bc-15a5956f5c71",
+        later: TESTS_TESTLIBRARIES,
+    },
     MeasuredPair {
         publisher_app: BASE_APPLICATION,
         publisher_object: 49,

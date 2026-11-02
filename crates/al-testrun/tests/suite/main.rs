@@ -27,6 +27,7 @@ mod impact_static;
 mod impact_trace;
 mod incremental;
 mod install_hold_back;
+mod install_trigger_setup_order;
 mod lean_selection;
 mod login_work_date_lean;
 mod media_export_file_lazy;

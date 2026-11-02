@@ -57,6 +57,7 @@ mod filterpage;
 mod flowfields;
 mod geturl;
 mod globaltriggers;
+mod setup_no_op;
 mod hostvalues;
 mod http;
 pub mod impact;
@@ -1226,6 +1227,7 @@ impl Session {
                 skip_dependency_subscribers: false,
                 not_installed_apps: None,
                 order_unknown_apps: None,
+                setup_no_ops: Default::default(),
                 global_setups: Default::default(),
             },
             coverage: CoverageState {
