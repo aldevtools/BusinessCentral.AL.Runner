@@ -635,11 +635,9 @@ impl Lowerer<'_> {
                             )
                         })
                     {
-                        let name = a
-                            .children_with_tokens()
-                            .filter_map(|e| e.into_token())
+                        let name = al_syntax::ast::significant_green_tokens(a)
                             .find(|t| matches!(t.kind(), SyntaxKind::Ident | SyntaxKind::QuotedIdent))
-                            .map(|t| ast::ident_text(&t))
+                            .map(|t| ast::unquote_ident(t.text()))
                             .ok_or("control name")?;
                         let recv = receiver_node.clone().expect("checked");
                         out.push(ir::Arg::Value(self.control_named(&recv, &name)?));
