@@ -1748,8 +1748,9 @@ impl Session {
                 Ok(Value::Option(ord, members.into()))
             }
             "Length" => Ok(Value::Integer(len)),
-            // fieldref/lt-y66-fieldref-length-types/Y66FieldRefLengthTypes.al:99-108 (BC 29): SystemCreatedByUserName.
-            "Name" if args.is_empty() && no == 2_000_000_005 => Ok(Value::Text(name.into())),
+            // fieldref/lt-y66-fieldref-length-types/Y66FieldRefLengthTypes.al:99-108 (BC 29): SystemCreatedByUserName; all four in
+            // system-fields/lt-y64-username-filters/Y64UserNameFilters.al:Y64_UserNameFields_FieldRefGetFilter_NoFilter.
+            "Name" if args.is_empty() => Ok(Value::Text(name.into())),
             "CalcField" if args.is_empty() => {
                 let v = self.user_name_field_value(&rec, no, name)?;
                 if let LibraryValue::UserNameFieldRef { value, .. } = &mut *lib.borrow_mut() {
@@ -1769,7 +1770,7 @@ impl Session {
                 )),
             },
             other => unsupported(format!(
-                "FieldRef.{other} of the user-name system FlowField {name}: only Number, Class, Type, Length, CalcField, Value and the Name of 2000000005 are pinned (docs/probes-needed.md)"
+                "FieldRef.{other} of the user-name system FlowField {name}: only Number, Class, Type, Length, Name, GetFilter, CalcField and Value are pinned (docs/probes-needed.md)"
             )),
         }
     }
