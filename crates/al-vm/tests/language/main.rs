@@ -170,6 +170,7 @@ mod ternary_args;
 mod ternary_guid_label;
 mod ternary_label;
 mod ternary_label_session_end;
+mod ternary_label_variant;
 mod ternary_matrix;
 mod ternary_maxlength_label;
 mod test_contexts;

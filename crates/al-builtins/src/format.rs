@@ -446,8 +446,8 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             f => f,
         })?,
         // A NUL character does not show (types/lt-variant-is-text-streams/LTP89StreamText.al:Text_BytesWritten `nul_between`).
-        Value::Text(t) | Value::Code(t) if t.contains('\0') => t.replace('\0', ""),
-        Value::Text(t) | Value::Code(t) => t.to_string(),
+        Value::Text(t) | Value::TextConst(t) | Value::Code(t) if t.contains('\0') => t.replace('\0', ""),
+        Value::Text(t) | Value::TextConst(t) | Value::Code(t) => t.to_string(),
         Value::Option(o, members) => match standard {
             2 | 9 if crate::sysenum::is_field_table_type(members) => FIELD_TABLE_TYPE_ORDINALS
                 .get(*o as usize)

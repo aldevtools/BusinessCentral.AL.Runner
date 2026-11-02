@@ -118,6 +118,9 @@ pub enum Value {
     Byte(u8),
     Char(u16),
     Text(crate::text::Txt),
+    /// A Label (or TextConst) held by a Variant: the text, answering IsTextConstant and no IsText (types/lt-y81-values/
+    /// Y81LabelVariant.al; needs corpus bump). Only a Variant ever holds it; anything that takes it out reads a Text.
+    TextConst(crate::text::Txt),
     Code(crate::text::Txt),
     /// Day number (0 = undefined `0D`), closing-date flag.
     Date(i32, bool),
@@ -2169,6 +2172,7 @@ impl Value {
             Value::Byte(_) => k == "byte",
             Value::Char(_) => k == "char",
             Value::Text(_) => k == "text",
+            Value::TextConst(_) => k == "textconstant",
             Value::Code(_) => k == "code",
             Value::Date(..) => k == "date",
             Value::Time(_) => k == "time",

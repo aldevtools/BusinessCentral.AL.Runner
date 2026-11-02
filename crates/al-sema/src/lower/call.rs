@@ -211,7 +211,7 @@ impl Lowerer<'_> {
                                 continue;
                             }
                         }
-                        let value = self.expr(a)?;
+                        let value = self.expr_into(&p.ty, a)?;
                         // A Variant handed to a by-value Text or Code parameter goes in as it is: the callee's binding converts it, and
                         // raises TypeConversion for a number, Boolean, Date, Enum or Option (types/lt-variant-to-text-fields/
                         // VariantNumberToTextParam.al; the text follows the session language, P147DateToText.al).
