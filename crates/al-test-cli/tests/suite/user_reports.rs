@@ -832,8 +832,8 @@ codeunit 69541 T { Subtype = Test;
 
 /// al-runner issue 6176: robust JSON parsing reads a property of the wrong type with `AsBoolean` inside a TryFunction; the
 /// conversion error is caught and the TryFunction returns false. Pin: json/JsonValueGetters.al:172 (`text_asboolean`, a text of
-/// letters raises "Unable to convert ... System.Boolean."); the reporter's text with blanks is the assumption
-/// `json-other-text-as-boolean-conversion-error`.
+/// letters raises "Unable to convert ... System.Boolean."); the reporter's text with blanks: misc/lt-y70-assumptions/
+/// Y70Probes.al:557-579 (JsonValue_AsBooleanOtherText).
 #[test]
 fn issue_6176_json_text_as_boolean_in_a_try_function() {
     let main = "

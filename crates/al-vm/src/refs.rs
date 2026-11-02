@@ -475,6 +475,8 @@ impl Session {
                             | "RecordLevelLocking"
                             // Never opened, Open(0) and closed (recordref/lt-wc/WcRecordRefLockTable.al:89-137), with and without Wait.
                             | "LockTable"
+                            // Cleared (misc/lt-y70-assumptions/Y70Probes.al:964-1018, RecordRefIsDirty_Shapes `after_clear`).
+                            | "IsDirty"
                     )
                 }) =>
             {
@@ -711,7 +713,8 @@ impl Session {
 
     /// Whether the buffer differs from what the ref last read or wrote (`dirty_base`); a buffer that came from elsewhere
     /// (GetTable, Init) is compared with the row stored under its primary key, or with a fresh buffer when there is none
-    /// (assumption record-ref-is-dirty-against-stored-row). Stored fields only (a FlowField is not part of the row). On a
+    /// (misc/lt-y70-assumptions/Y70Probes.al:964-1018, RecordRefIsDirty_Shapes: after GetTable of a read row No, changed,
+    /// Init'd or with only the key set Yes, a key with no stored row Yes, a blank buffer with no stored row No). Stored fields only (a FlowField is not part of the row). On a
     /// partial load a field that was written without being loaded is dirty whatever it holds, and one that was never
     /// loaded is not compared (RecordRefIsDirtyEdges.al:IsDirty_SetLoadFields_*). A value that cannot be compared (a Blob)
     /// is refused: nothing pins it.
@@ -720,9 +723,6 @@ impl Session {
         let base = match rec.borrow().dirty_base.clone() {
             Some(b) => b,
             None => {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::RecordRefIsDirtyAgainstStoredRow,
-                );
                 let cx = self.cx_for(rec, t)?;
                 let pk = t.primary_key(&fields);
                 let stored = self

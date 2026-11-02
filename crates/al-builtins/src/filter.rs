@@ -938,11 +938,9 @@ impl Parser<'_> {
             // `0D` today. The empty text is no filter. A text that is none of these is an error in German (its text is pinned there);
             // in any other language it is refused.
             T::Date if !text.trim().is_empty() && !text.contains(['<', '>']) => date_filter_value(text.trim())?,
-            // The empty text is the empty formula (Microsoft's Library - ERM `GetDiscountPaymentTerm`).
-            T::DateFormula if text.trim().is_empty() => {
-                crate::assumptions::assume(crate::assumptions::Assumption::FilterEmptyTextDateFormula);
-                Value::DateFormula(String::new())
-            }
+            // The empty text is the empty formula: `''` keeps the row without a formula, `<>''` the rows with one
+            // (misc/lt-y70-assumptions/Y70Probes.al:218-262, FilterDateFormula_EmptyText `filter_two_quotes`, `filter_ne_two_quotes`).
+            T::DateFormula if text.trim().is_empty() => Value::DateFormula(String::new()),
             // A Guid text on a Media field compares with the field's media id, braced or plain, with `=` or `<>` before it: an empty
             // field equals the null Guid (al-runner issue 5991: media/lt-so-media-filter/SoMediaFilter.al SO_MediaFilter_NullGuidForms,
             // SO_MediaFilter_MediaIdOfFilledRow, SO_MediaFilter_FieldRefReproShape). Letters, `*` and a number raise the Guid format
@@ -1648,7 +1646,7 @@ mod tests {
     }
 
     /// Microsoft's Library - ERM `GetDiscountPaymentTerm` filters a DateFormula field with `<>` and the empty text: there the
-    /// empty text is the empty formula (assumption `filter-empty-text-dateformula`).
+    /// empty text is the empty formula (misc/lt-y70-assumptions/Y70Probes.al:218-262, FilterDateFormula_EmptyText).
     #[test]
     fn a_date_formula_filter_reads_the_empty_text_as_the_empty_formula() {
         use crate::value::RtType as T;
