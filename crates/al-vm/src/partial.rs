@@ -315,89 +315,9 @@ impl Session {
         let engine = self.engine.clone();
         let schema = engine.program.objects[t.object as usize].table.as_ref();
         let stored = |p: usize| schema.is_some_and(|s| s.fields.get(p).is_some_and(|f| f.stored));
-        let flow_filter = |p: usize| schema.is_some_and(|s| s.fields.get(p).is_some_and(|f| f.flow_filter));
         match method {
-            RecordOp::SetLoadFields | RecordOp::AddLoadFields => {
-                // SetLoadFields takes a FlowField and adds nothing to the request for it; AddLoadFields refuses it with
-                // an error of code DB:Ok (record/lt-priority-assumptions/PriorityAssumptions.al:282-312 SetLoadFields,
-                // :303-338 AddLoadFields, real BC 29). The error is pinned for one FlowField as the only argument, after
-                // a SetLoadFields and without a request; a longer list is not pinned. A FlowFilter is not pinned.
-                // SetLoadFields takes a FlowFilter as it takes a FlowField (record/lt-loadfields-pagesource-validate/P81LoadFields.al:
-                // 273-304 LoadFields_FlowFilterField), and answers Yes (:991-1028 BR_SetLoadFields_ReturnValue_FlowFieldAndFlowFilter:
-                // a FlowField, a FlowFilter, a normal field with and without a FlowField, no field). The function form of AddLoadFields
-                // answers No for a FlowField or a FlowFilter alone and raises nothing (`add flowfield`, `add flowfilter` ok|No);
-                // its statement form with a FlowFilter is not pinned.
-                let no_args = wanted.is_empty();
-                let mut wanted = wanted;
-                if method == RecordOp::AddLoadFields && wanted.iter().any(|&p| !stored(p)) && self.ret_used {
-                    if wanted.len() != 1 || rec.borrow().load.request.is_none() {
-                        return unsupported(
-                            "the result of AddLoadFields of a FlowField or FlowFilter among several fields or without a request (not pinned)",
-                        );
-                    }
-                    return Ok(Value::Boolean(false));
-                }
-                if method == RecordOp::AddLoadFields && wanted.iter().any(|&p| flow_filter(p)) {
-                    return unsupported("AddLoadFields of a FlowFilter in its statement form (not pinned)");
-                }
-                if method == RecordOp::AddLoadFields && wanted.iter().any(|&p| !stored(p)) {
-                    let p = wanted[0];
-                    if wanted.len() != 1 {
-                        return unsupported(
-                            "AddLoadFields with a FlowField among several fields (only a single argument is pinned)",
-                        );
-                    }
-                    let name = schema.and_then(|s| s.fields.get(p)).map_or("", |f| f.name.as_str());
-                    return al_builtins::native::raise(
-                        format!(
-                            "The field '{name}' in the '{}' table is not valid for auto loading and cannot be passed to calls to AddLoadFields, SetLoadFields, or LoadFields.",
-                            t.name
-                        ),
-                        "DB:Ok",
-                    );
-                }
-                wanted.retain(|&p| stored(p));
-                let mut r = rec.borrow_mut();
-                match (method, no_args) {
-                    // No arguments: back to the default load set (record/TestRecordPartialLoad.al:61-99).
-                    (RecordOp::SetLoadFields, true) => r.load.request = None,
-                    (RecordOp::SetLoadFields, false) => r.load.request = Some(wanted),
-                    // AddLoadFields answers Yes for a field it adds (record/TestRecordExtended.al:58-65) and No for one the request
-                    // holds already (P81LoadFields.al:1012-1024 `add normal` ok|No, after SetLoadFields(Note)).
-                    (RecordOp::AddLoadFields, _) if self.ret_used => match &mut r.load.request {
-                        None => return Ok(Value::Boolean(false)),
-                        Some(req) => {
-                            let mut added = false;
-                            for p in wanted {
-                                if !req.contains(&p) {
-                                    req.push(p);
-                                    added = true;
-                                }
-                            }
-                            return Ok(Value::Boolean(added));
-                        }
-                    },
-                    // Without a request the load is already full: nothing to add. The result is
-                    // the documentation's (docs/probes-needed.md).
-                    (RecordOp::AddLoadFields, _) => match &mut r.load.request {
-                        None => return Ok(Value::Boolean(false)),
-                        Some(req) => {
-                            for p in wanted {
-                                if !req.contains(&p) {
-                                    req.push(p);
-                                }
-                            }
-                            return Ok(Value::Boolean(true));
-                        }
-                    },
-                    _ => unreachable!(),
-                }
-                Ok(if self.ret_used {
-                    Value::Boolean(true)
-                } else {
-                    Value::Null
-                })
-            }
+            // The request and the answers: `load_fields_request` (record/lt-y67-addloadfields-flow/Y67AddLoadFlow.al).
+            RecordOp::SetLoadFields | RecordOp::AddLoadFields => self.set_or_add_load_fields(method, rec, t, wanted),
             RecordOp::SetBaseLoadFields => {
                 // Only the full-load case is pinned as callable (record/TestRecordExtended.al:71-80);
                 // what the base set holds is not.
@@ -425,14 +345,11 @@ impl Session {
                 // (PriorityAssumptions.al:282-312 flow_only_cnt_loaded, mixed_cnt_loaded; :325-333 cnt_loaded). A record
                 // that fetched nothing or a whole row is not pinned for it. A FlowFilter reads the same: Yes after a partial
                 // fetch, after a read of an unloaded field and after Next (record/lt-loadfields-pagesource-validate/
-                // P81LoadFields.al:1047-1120 RN_JitRead_UnloadedField_LoadsWhich, `_loaded_KindFilter`).
-                if flow {
-                    let r = rec.borrow();
-                    if !r.load.buffer.as_ref().is_some_and(|b| !matches!(b.have, FieldSet::All)) {
-                        return unsupported(
-                            "AreFieldsLoaded of a FlowField on a record that holds no partial fetch (not pinned)",
-                        );
-                    }
+                // P81LoadFields.al:1047-1120 RN_JitRead_UnloadedField_LoadsWhich, `_loaded_KindFilter`). After a fetch of the whole
+                // row both read as loaded too (record/lt-y67-addloadfields-flow/Y67AddLoadFlow.al:375-399 Record_NoRequest_SetStatement
+                // `1 none` loaded=YesYesYesYesYesYes). A record that fetched nothing is not pinned for them.
+                if flow && rec.borrow().load.buffer.is_none() {
+                    return unsupported("AreFieldsLoaded of a FlowField on a record that fetched nothing (not pinned)");
                 }
                 let r = rec.borrow();
                 let Some(b) = &r.load.buffer else {
