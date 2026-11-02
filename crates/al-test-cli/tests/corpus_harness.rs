@@ -763,8 +763,9 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // conversions of the Y31 conversion matrix (types/lt-y31-conversion-matrix/, `#if BC29PLUS`; gate
     // BigIntegerToEnumVariableFrom29) run on BC 29 only. Corpus bump to master 7f7cdc2a makes it 239:
     // Y47_SelectTokens_ArrayFilter (json/lt-db-json-leads/DbJPathLeads.al, `#if BC28PLUS`; gate JsonSelectTokensListFrom28)
-    // runs on BC 28 and 29 only.
-    assert!(out.contains("oracle: 239 case(s) differ between versions"), "{out}");
+    // runs on BC 28 and 29 only. Corpus bump to master 4b6013d0 makes it 244: the new BC28PLUS and BC29PLUS guards of writers
+    // Y64, Y65, Y68 and Y70 that the probed-values gates cite.
+    assert!(out.contains("oracle: 244 case(s) differ between versions"), "{out}");
     // The known BC 29 differences are gated (ADR-015 3.4), so the runtime passes the same cases on every version, among the
     // cases every oracle has. One difference is known and open (corpus bump 10, backlog): the runtime passes
     // 71500 Get_Uses_Primary_Key_Not_Current_Key on BC 27 only. A new difference would be listed here.
@@ -796,7 +797,10 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // actions) pass on BC 28 and 29 only, behind the same gate ControlAddInNotInstantiatedErrorFrom28.
     // Branch fix-left makes it 17: the numbers a Required-isolation codeunit takes are carried over, so the ten
     // remaining RqIsolationModes.al cases (88512-88515 and the ones after them) now run and pass on BC 28 and 29 too.
-    assert!(out.contains("runtime: 17 case(s) differ between versions"), "{out}");
+    // Corpus bump to master 4b6013d0 makes it 19: 93335 Y64_UserNameFields_Exist passes on BC 29 only (RecordRef.FieldExist of
+    // 2000000005 is refused before BC 29), and 70303 Y64_ModifyAll_PartialRecord_UnloadedField on BC 27 only (on 28 and 29 an
+    // earlier test of the codeunit is refused: CalcFields on a Media field).
+    assert!(out.contains("runtime: 19 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 
