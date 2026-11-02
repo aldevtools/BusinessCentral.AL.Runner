@@ -1,6 +1,6 @@
 # ADR-064: A refused test untrusts only the later tests that read what it could have written
 
-- Status: Proposed
+- Status: Accepted (by the project owner, 2026-11-02; bound only)
 - Date: 2026-11-02
 
 ## Context
@@ -102,10 +102,6 @@ unknown. Its body could write anything.
   so the state it would have left is not BC's; this failure is not trusted").
 - A test moved out of "not run" by the bound is reported as an ordinary failure, with the new line
   "after a refused test: <name> (judged independent: it cannot write)".
-- Proposed addition for passes: a pass whose reads meet the writes of an unfinished test is reported as a **flagged
-  pass** "passed after a refused test (<name>): it reads <what> that test could have written". Flagged passes are
-  counted apart from clean passes, as in hard rule 3. They never turn into failures or "not run". Passes that do
-  not meet stay clean and carry no note. The summary counts "passed after a refused test".
 
 ### 5. Risk: a false pass
 
@@ -117,8 +113,7 @@ fails. How the rule prevents it:
   are only no longer hidden. A failure caused by missing state is a false failure (the test would pass on BC). The
   report line in section 4 tells the reader to check it.
 - A false pass needs a test that passes without the refused test's writes and fails with them. Such a test reads the
-  state the refused test writes. The flagged pass in section 4 marks exactly those. Clean passes read nothing the
-  refused test could write, so they behave the same with or without it.
+  state the refused test writes. Passes are not checked (see Deferred).
 - The bound in section 3 is sound only if the write-free check is conservative. It is: any call to a routine that is
   not classified makes the routine "unknown". A test in the program that makes the check wrongly say "write-free" is
   a bug in the check and is covered by the tests below.
@@ -126,20 +121,18 @@ fails. How the rule prevents it:
 
 ### 6. Cost
 
-The reach of a passing test is walked only when the codeunit has an unfinished test. A walk is about 150 ms with
-Microsoft's apps (comment at `run.rs:993`); the summaries are cached per routine (`ReachIndex`). 10 824 passing
-tests follow a not-run test, so the worst case adds the walks of up to 10 824 tests, bounded by the number of distinct
-test routines and by the cache. Perf budgets are over their limit today (perf handoffs of 2026-11-01 and 2026-11-02):
-this cost must be measured on the full run before the pass flag is on by default. The failure side adds nothing.
+The failure side adds no walk: it already walks only unfinished tests. The bound adds one syntax-tree scan per refused routine, cached per routine.
+
+### Deferred
+
+Flagged passes after a refused test: deferred until their count and the reach-walk cost are measured (owner, 2026-11-02).
 
 ## Consequences
 
 - Fewer failures are hidden for reasons that do not matter (a refused host-only subscriber). Reports say "fails"
   where the runner can show the cause is not shared state.
-- A reader can see passes that depend on a refused test without them being downgraded.
 - The bound moves an upper limit of 1 146 Microsoft tests from "not run" to a verdict. Each is a gap finder,
   not a quality claim (whole-language goal).
-- Passing tests get a new note; JUnit and JSON gain a flag field (additive).
 - Risk accepted: the write-free check depends on the syntax tree walk being complete for new syntax. It is a
   closed list; an unknown node kind makes the routine unknown.
 
@@ -148,9 +141,7 @@ this cost must be measured on the full run before the pass flag is on by default
 - Existing tests stay: `failure_after_refused_test`, `failure_after_unfinished_test`, `timeout_after_refused_test`
   (`al-testrun/tests/suite/`), and the unit tests in `al-testrun/src/runtime/tests.rs` near line 2782.
 - New, red first: a refused subscriber that only sets a `var` parameter does not untrust a later failing test; a
-  refused routine that inserts a record does; a refused routine that calls an unclassified routine does; a later pass
-  that reads the written table is a flagged pass; a later pass that reads nothing shared is clean.
+  refused routine that inserts a record does; a refused routine that calls an unclassified routine does.
 - Differential: a full BC 29 Microsoft run before and after must differ only in tests that were "this failure is
-  not trusted" (now a verdict) and in the new pass flag. Zero lost baseline cases.
-- Implementation step 1 (no behavior change) prints how many tests the bound would move and how many passes would be
-  flagged; the owner sees both numbers before step 2 enables them.
+  not trusted" (now a verdict) only. Zero lost baseline cases.
+- Implementation step 1 (no behavior change) prints how many tests the bound would move; the owner sees the number before step 2 enables it.
