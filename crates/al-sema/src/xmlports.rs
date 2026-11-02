@@ -102,9 +102,9 @@ fn allowed_triggers(kind: ir::XmlNodeKind) -> &'static [&'static str] {
     }
 }
 
-/// Whether node `i` is a text element with `TextType = BigText` (checked in `visit`).
+/// Whether node `i` is a text element or text attribute with `TextType = BigText` (checked in `visit`).
 fn is_big_text(layout: &Layout, i: usize) -> bool {
-    layout.nodes[i].kind == ir::XmlNodeKind::Text
+    matches!(layout.nodes[i].kind, ir::XmlNodeKind::Text | ir::XmlNodeKind::TextAttr)
         && layout
             .property(i, "TextType")
             .is_some_and(|v| v.trim().eq_ignore_ascii_case("bigtext"))
@@ -152,7 +152,15 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "fieldvalidate",
         ],
         // `occurrence` is checked in `visit`: Required or Optional on a text attribute of a text or table element.
-        ir::XmlNodeKind::TextAttr => &["xmlname", "namespaceprefix", "width", "unbound", "occurrence"],
+        // `texttype` is checked in `visit`: BigText on a text attribute of a table element.
+        ir::XmlNodeKind::TextAttr => &[
+            "xmlname",
+            "namespaceprefix",
+            "width",
+            "unbound",
+            "occurrence",
+            "texttype",
+        ],
         // `texttype` is checked in `visit`: BigText or Text on a text element without children. `unbound` too, on one without
         // children (xmlport/lt-y60-xmlport-unbound-text/Y60XpUnboundText.al; the VM reads its columns and refuses its export).
         ir::XmlNodeKind::Text => &[
@@ -583,8 +591,16 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
             } else if pn == "texttype" {
                 // xmlport/lt-xmlport-bigtext/XmlPortBigText.al:178-266: BigText on a text element without children, on export
                 // and import. Text is the default. A BigText element with children, or another value, is not pinned.
+                // On a text attribute: BigText, of a table element (report/lt-u-report-props/UReportObjects.al:150,
+                // UPropertyTests.al:311-330 import, :399-400 export). The value Text there, or an attribute of a text element,
+                // is not pinned.
                 let value = p.value_text().trim().to_ascii_lowercase();
-                if s.sections().next().is_some() || !matches!(value.as_str(), "bigtext" | "text") {
+                let refused = if kind == K::TextAttr {
+                    value != "bigtext" || !parent.is_some_and(|i| out.nodes[i].kind == K::Table)
+                } else {
+                    s.sections().next().is_some() || !matches!(value.as_str(), "bigtext" | "text")
+                };
+                if refused {
                     out.run_reasons.push(format!(
                         "property texttype = {value} of {section_name} {name} is not supported (not pinned)"
                     ));

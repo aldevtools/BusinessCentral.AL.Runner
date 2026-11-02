@@ -360,8 +360,9 @@ pub(crate) fn lower_object<'a>(
     if let Some(l) = seq.xml(oi) {
         for n in &l.nodes {
             let (ty, table) = match n.kind {
-                // xmlport/lt-xmlport-bigtext/XmlPortBigText.al:54: `TextType = BigText` makes the variable a BigText.
-                ir::XmlNodeKind::Text
+                // xmlport/lt-xmlport-bigtext/XmlPortBigText.al:54: `TextType = BigText` makes the variable a BigText; on a
+                // text attribute too (report/lt-u-report-props/UPropertyTests.al:311-330).
+                ir::XmlNodeKind::Text | ir::XmlNodeKind::TextAttr
                     if n.section.properties().any(|p| {
                         p.name().eq_ignore_ascii_case("TextType")
                             && p.value_text().trim().eq_ignore_ascii_case("BigText")
