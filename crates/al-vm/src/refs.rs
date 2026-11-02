@@ -801,7 +801,7 @@ impl Session {
 
     /// `The supplied field number '<supplied>' cannot be found in the '<table caption>' table.`, code FieldNotFound
     /// (recordref/lt-refs/RfTMeta.al:114-123 names the table by its caption; P107RecRefNames.al:52-60 by a name given as text).
-    fn field_not_found(&self, t: &TableDef, supplied: &str) -> Signal {
+    pub(crate) fn field_not_found(&self, t: &TableDef, supplied: &str) -> Signal {
         crate::transactions::al_error_code(
             &format!(
                 "The supplied field number '{supplied}' cannot be found in the '{}' table.",
@@ -1048,32 +1048,8 @@ impl Session {
                 let view = al_builtins::native::text_of(args.first().unwrap_or(&Value::Null)).unwrap_or_default();
                 self.set_view(&rec, &t, &view).map(|()| Value::Null)
             }
-            // The load set of a RecordRef is given by field numbers (record/TestRecordPartialLoad.al
-            // PartialLoad_SetLoadFields_UnknownFieldNo_Throws: a number no field has is an error that
-            // names it; its text is not pinned). The rest is the Record rule (partial.rs).
-            "SetLoadFields" | "AddLoadFields" | "AreFieldsLoaded" => {
-                let mut positions = Vec::with_capacity(args.len());
-                for a in args.iter() {
-                    let Value::Integer(n) = a else {
-                        return unsupported(format!("RecordRef.{method} with {}", a.describe()));
-                    };
-                    match t.fields.iter().position(|f| i64::from(f.id) == i64::from(*n)) {
-                        Some(p) => positions.push(Value::Integer(p as i32)),
-                        // One unknown number raises FieldNotFound naming it (misc/lt-open-overloads-collections-isolated/
-                        // P107RecRefNames.al:159-171, records/W4PlatformAndMeta.al:517-518). Which number a call with
-                        // several arguments names is not pinned.
-                        None if args.len() == 1 && method != "AreFieldsLoaded" => {
-                            return Err(self.field_not_found(&t, &n.to_string()));
-                        }
-                        None => return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error()))),
-                    }
-                }
-                let op = if method == "AreFieldsLoaded" {
-                    RecordOp::AreFieldsLoaded
-                } else {
-                    record_method(method)
-                };
-                self.load_fields_op(op, &rec, &t, &positions)
+            "SetLoadFields" | "AddLoadFields" | "AreFieldsLoaded" | "LoadFields" => {
+                self.recordref_load_fields(method, &rec, &t, args)
             }
             // The fields are given by number; a read then calculates them as for a Record (record/TestSetAutoCalcFieldsOnGet.Codeunit.al:112-124
             // RecordRef_SetAutoCalcFields_ThenGet_Calculates pins Get with one FlowField; the other reads share the Record rule).

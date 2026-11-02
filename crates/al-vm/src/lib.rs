@@ -73,6 +73,7 @@ mod read_only_tables;
 mod recmeta;
 mod recordid_bookmark;
 mod recordref_copy;
+mod recordref_load_fields;
 mod records;
 mod refs;
 mod relations;
