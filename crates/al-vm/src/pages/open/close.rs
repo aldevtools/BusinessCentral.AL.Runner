@@ -475,8 +475,10 @@ impl Session {
             return Ok(false);
         }
         // A Card that the static Page.RunModal(Id, Rec) opened on a record filtered to no row is the same (pages/lt-y61-page-probes/
-        // Y61StoredRecToTempCard.al:499 G617b_RecordFilteredToNoRow: OK is not found, the answer is LookupCancel).
-        if !self.is_list_page(st) && !(static_lookup && page_type == "card") {
+        // Y61StoredRecToTempCard.al:499 G617b_RecordFilteredToNoRow: OK is not found, the answer is LookupCancel), and so is a
+        // Card page variable with LookupMode(true) over a view filtered to no row (pages/lt-y68-lookup-getrecord/
+        // Y68LookupGetRecord.al:425 Q3_TestPageHandler_OK_NoRow_Card, corpus master 0d01b0cc).
+        if !self.is_list_page(st) && page_type != "card" {
             return Err(Signal::Unsupported(format!(
                 "OK of a {page_type} page in lookup mode that shows no row (only a list page is pinned)"
             )));

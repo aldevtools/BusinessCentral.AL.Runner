@@ -1057,6 +1057,7 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
             field_validate: _,
             big_text: _,
             source_view: _,
+            calc_fields,
             triggers: _,
         } = n;
         let of_node = |i: &Option<usize>| TableOf::object(i.and_then(|i| tables.get(i).copied().flatten()));
@@ -1064,6 +1065,9 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
         for (mine, theirs) in link_fields {
             fld(v, mine, TableOf::object(*table));
             fld(v, theirs, of_node(link_node));
+        }
+        for f in calc_fields {
+            fld(v, f, TableOf::object(*table));
         }
         object_opt(v, table);
     }

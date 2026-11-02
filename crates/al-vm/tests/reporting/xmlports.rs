@@ -1731,14 +1731,18 @@ fn a_field_element_holds_a_field_element_after_its_value() {
     );
 }
 
-// Not pinned: a field element whose field attribute is missing in the document is refused.
+// A field element whose field attribute (Required by default) is missing in the document fails the schema check
+// (xmlport/lt-y68-xmlport-shapes/Y68XmlPortShapes.al:642-692 Q6_FieldElement_Attributes_Import `req missing`).
 #[test]
-fn a_field_element_without_its_field_attribute_is_refused_on_import() {
-    let why = refusal(
+fn a_field_element_without_its_required_field_attribute_fails_on_import() {
+    let r = run(
         &format!("{AF_VARS} Q: XmlPort \"ALT AF XP Attr\";"),
         "H.Stage(T, InStr, '<Root><Row><Id>2</Id><Name Kind=\"K9\">Beta</Name></Row></Root>'); Q.SetSource(InStr); Q.Import(); exit('');",
     );
-    assert!(why.contains("without its field attribute Lang"), "{why}");
+    assert_eq!(
+        al_testkit::error_message(r),
+        "Imported XML cannot validate with the schema: The required attribute 'Lang' is missing."
+    );
 }
 
 // xmlport/PWXmlPortFormatEvaluate.al:Import_Xml_Enum_Invalid: an undeclared ordinal is imported, a name that is no member raises

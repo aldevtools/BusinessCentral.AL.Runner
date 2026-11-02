@@ -832,6 +832,10 @@ pub struct XmlNode {
     /// `SourceTableView` of a table element as written (`sorting(..) order(..) where(..)`).
     #[serde(default)]
     pub source_view: Option<String>,
+    /// `CalcFields` of a table element: the positions of the FlowFields an export calculates on each row before its
+    /// OnAfterGetRecord (xmlport/lt-y68-xmlport-shapes/Y68XmlPortShapes.al:567-621).
+    #[serde(default)]
+    pub calc_fields: Vec<usize>,
     /// Triggers by lower-case name (`onbeforepassvariable`, ...) to routine index.
     pub triggers: Vec<(String, usize)>,
 }
