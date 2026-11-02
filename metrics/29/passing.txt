@@ -4935,8 +4935,12 @@
 67840 AutoInc_GuardedRun_TruncateTrueThenError_RowsAndCounterComeBack
 67857 ClosingBracket_MissingAfterPlus
 67857 Placeholders_PercentN
+67857 SG_DayOfMonth_Backward
+67857 SG_DayOfMonth_Combined
 67857 SG_DayOfMonth_D1_D15
+67857 SG_DayOfMonth_D29_D30_D31
 67857 SignsAndDigits_ErrorTexts
+67857 TV_MonthNumber_EdgesAndCombined
 67857 TV_MonthNumber_M1_M12
 67857 TV_MonthNumber_M2
 67857 TextsFromTheTestLibraries
@@ -8318,6 +8322,7 @@
 70725 RecordRef_Call_Form_Returns_Previous
 70725 RecordRef_Filters_Per_Group
 70725 RecordRef_Group_Survives_Copy_And_Close
+70725 RecordRef_Setter_Negative_And_Large
 70725 RecordRef_Setter_ReadBack
 70725 Record_Setter_ReadBack
 70726 Code_Arms_Const_Blank_Wildcard_Else
@@ -13739,7 +13744,12 @@
 74291 P135_Callstack_InterfaceAndTryFunction
 74291 P135_Callstack_ManualAndStaticSubscribers
 74291 P135_Callstack_XmlportElements
+74305 Currency_AmountPlacesOnly_DefaultSetup
+74305 Currency_AmountPlacesOnly_OtherSetup
 74305 Currency_BothPlacesEmpty_OtherSetup
+74305 Currency_UnitPlacesOnly_DefaultSetup
+74305 Currency_UnitPlacesOnly_OtherSetup
+74305 Currency_ZeroAndMixedPlaces
 74306 ApplicationAreaSetup_RowsOfTheCompany_Exist
 74306 ExperienceTierSetup_RowOfTheCompany_Exists
 74306 ExperienceTierSetup_RowOfTheCompany_Flags
@@ -14732,6 +14742,9 @@
 78001 Percent_Year
 78001 SignedWD_Minus
 78001 SignedWD_Plus
+78003 CalcSums_Duration_All
+78003 CalcSums_Duration_Filtered
+78003 CalcSums_Duration_NotInSumIndexFields
 78006 UpperLimit_ErrorCode_ThenClear
 78006 UpperLimit_MoreThanOneRange_ErrorCode
 78008 Ties_AscendingFalseThenSetAscending
@@ -17256,6 +17269,7 @@
 88980 TE_1C_Nothing_StaleDelete
 88980 TE_1C_Nothing_StaleModify
 88980 TE_1C_OtherTableInsertRead_StaleModify
+88980 TE_1C_RenameOtherRow_StaleModify
 88980 TE_2C_DeleteOtherRow_StaleModify
 88980 TE_2C_InsertOtherRow_StaleModify
 88980 TE_2C_LockOtherInsertRead_StaleDelete
@@ -17266,6 +17280,7 @@
 88980 TE_2C_Nothing_StaleDelete
 88980 TE_2C_Nothing_StaleModify
 88980 TE_2C_OtherTableInsertRead_StaleModify
+88980 TE_2C_RenameOtherRow_StaleModify
 88980 TE_3C_DeleteOtherRow_StaleDelete
 88980 TE_3C_DeleteOtherRow_StaleModify
 88980 TE_3C_InsertOtherRow_StaleDelete
@@ -17282,6 +17297,8 @@
 88980 TE_3C_Nothing_StaleModify
 88980 TE_3C_OtherTableInsertRead_StaleDelete
 88980 TE_3C_OtherTableInsertRead_StaleModify
+88980 TE_3C_RenameOtherRow_StaleDelete
+88980 TE_3C_RenameOtherRow_StaleModify
 88980 TH_10C_DeleteOtherRow_StaleDelete
 88980 TH_10C_DeleteOtherRow_StaleModify
 88980 TH_10C_LockOtherInsertRead_StaleDelete
@@ -17318,6 +17335,7 @@
 88980 Y2_10C_InsertOtherRow_StaleModify
 88980 Y2_10C_LockOtherOnly_StaleModify
 88980 Y2_10C_OtherTableInsertRead_StaleModify
+88980 Y2_10C_RenameOtherRow_StaleModify
 88980 Y2_12C_DeleteOtherRow_StaleModify
 88980 Y2_12C_InsertOtherRow_StaleDelete
 88980 Y2_12C_InsertOtherRow_StaleModify
@@ -17328,12 +17346,16 @@
 88980 Y2_12C_ModifyOtherRow_StaleModify
 88980 Y2_12C_Nothing_StaleModify
 88980 Y2_12C_OtherTableInsertRead_StaleModify
+88980 Y2_12C_RenameOtherRow_StaleDelete
+88980 Y2_12C_RenameOtherRow_StaleModify
 88980 Y2_4C_InsertOtherRow_StaleModify
 88980 Y2_4C_LockOtherOnly_StaleModify
 88980 Y2_4C_OtherTableInsertRead_StaleModify
+88980 Y2_4C_RenameOtherRow_StaleModify
 88980 Y2_5C_InsertOtherRow_StaleModify
 88980 Y2_5C_LockOtherOnly_StaleModify
 88980 Y2_5C_OtherTableInsertRead_StaleModify
+88980 Y2_5C_RenameOtherRow_StaleModify
 88980 Y2_SH_OwnInsertOnly_OneCommit_AnotherRowInsert
 88980 Y2_SH_OwnInsertOnly_TwoCommitsOtherTableBetween_AnotherRowInsert
 88980 Y2_SH_OwnModify_ThreeCommitsOtherTableBetween_AnotherRowInsert
@@ -18760,6 +18782,7 @@
 92451 Option_Integer
 92451 Option_Option_Same
 92451 Option_Time
+92452 Enum_Byte
 92452 Enum_Char
 92452 Enum_Date
 92452 Enum_DateTime
@@ -18768,6 +18791,7 @@
 92452 Enum_Integer
 92452 Enum_Option
 92452 Enum_Time
+92453 EnumImpl_Byte
 92453 EnumImpl_Char
 92453 EnumImpl_Date
 92453 EnumImpl_DateTime
