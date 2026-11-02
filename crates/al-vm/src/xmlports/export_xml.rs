@@ -58,8 +58,13 @@ impl Session {
         let blob = match inst.borrow().globals[schema.xp().destination_slot].clone() {
             Value::Library(_, h) => match &*h.borrow() {
                 LibraryValue::OutStream(blob, _) => blob.clone(),
-                _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
+                // An OutStream variable that no stream was set into.
+                _ => al_builtins::stream::new_blob(),
             },
+            // An Export without SetDestination succeeds (BC offers the document as a download, which a test cannot observe):
+            // xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Instance_Export_Without_Destination, Instance_Export_After_SetSource
+            // (needs the corpus bump). The document goes to a buffer nobody reads.
+            Value::Null => al_builtins::stream::new_blob(),
             _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
         };
         al_builtins::stream::write_bytes(&blob, br#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>"#);
@@ -72,8 +77,13 @@ impl Session {
         let blob = match inst.borrow().globals[xp.destination_slot].clone() {
             Value::Library(_, h) => match &*h.borrow() {
                 LibraryValue::OutStream(blob, _) => blob.clone(),
-                _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
+                // An OutStream variable that no stream was set into.
+                _ => al_builtins::stream::new_blob(),
             },
+            // An Export without SetDestination succeeds (BC offers the document as a download, which a test cannot observe):
+            // xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Instance_Export_Without_Destination, Instance_Export_After_SetSource
+            // (needs the corpus bump). The document goes to a buffer nobody reads.
+            Value::Null => al_builtins::stream::new_blob(),
             _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
         };
         // BC's export of a port with an unbound field element does not end (YXmlPortProps.al:715-716), nor of one with an unbound
@@ -383,8 +393,20 @@ impl Session {
         }
         let (root_name, table_name) = (&schema.node(top).xml_name, &tn.xml_name);
         let table_min = if tn.min_zero { "0" } else { "1" };
+        // With UseDefaultNamespace and no DefaultNamespace the root declares BC's namespace of the port, the schema targets it and its
+        // types are `tns:` ones (xmlport/lt-y83-xmlport-shapes/Y83XpNsTests.al:Ns_UdnInline, needs the corpus bump). Another
+        // default namespace is not pinned.
+        let (root_decl, schema_decl, tns) = match xp.default_ns.as_deref() {
+            None => (String::new(), String::new(), ""),
+            Some(ns) if ns.starts_with("urn:microsoft-dynamics-nav/xmlports/x") => (
+                format!(" xmlns=\"{ns}\""),
+                format!("xmlns:tns=\"{ns}\" elementFormDefault=\"qualified\" targetNamespace=\"{ns}\" "),
+                "tns:",
+            ),
+            Some(_) => return unsupported(shape()),
+        };
         Ok(format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-16\" standalone=\"no\"?>\r\n<{root_name}>\r\n<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">\r\n  <xs:complexType name=\"{table_name}\">\r\n    <xs:sequence>\r\n{fields}    </xs:sequence>\r\n{attrs}  </xs:complexType>\r\n  <xs:complexType name=\"{root_name}\" mixed=\"true\">\r\n    <xs:sequence>\r\n      <xs:element minOccurs=\"{table_min}\" maxOccurs=\"unbounded\" name=\"{table_name}\" type=\"{table_name}\" />\r\n    </xs:sequence>\r\n  </xs:complexType>\r\n  <xs:element name=\"{root_name}\" type=\"{root_name}\" />\r\n</xs:schema>{rows}</{root_name}>"
+            "<?xml version=\"1.0\" encoding=\"UTF-16\" standalone=\"no\"?>\r\n<{root_name}{root_decl}>\r\n<xs:schema {schema_decl}xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">\r\n  <xs:complexType name=\"{table_name}\">\r\n    <xs:sequence>\r\n{fields}    </xs:sequence>\r\n{attrs}  </xs:complexType>\r\n  <xs:complexType name=\"{root_name}\" mixed=\"true\">\r\n    <xs:sequence>\r\n      <xs:element minOccurs=\"{table_min}\" maxOccurs=\"unbounded\" name=\"{table_name}\" type=\"{tns}{table_name}\" />\r\n    </xs:sequence>\r\n  </xs:complexType>\r\n  <xs:element name=\"{root_name}\" type=\"{tns}{root_name}\" />\r\n</xs:schema>{rows}</{root_name}>"
         ))
     }
 

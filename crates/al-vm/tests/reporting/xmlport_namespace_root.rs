@@ -74,7 +74,8 @@ fn an_unused_default_namespace_changes_nothing_on_import() {
         import(p, "<Root xmlns=\"urn:x\"><R><Id>1</Id></R></Root>"),
         Err(NOT_FOUND.into())
     );
-    assert!(matches!(run(&src(p, ""), "Export"), Err(Signal::Unsupported(_))));
+    // An export writes no namespace for it (xmlport/lt-y83-xmlport-shapes/Y83XpNsTests.al:Ns_DnOnly, needs the corpus bump).
+    assert!(!matches!(run(&src(p, ""), "Export"), Err(Signal::Unsupported(_))));
     // Used, it is the namespace of every element: a root in it is imported, one without is not found
     // (xmlport/lt-bd-xmlport/BdXmlPort.al:353-370 BdDefaultNamespace_PortWithDefaultNamespace).
     let used = "DefaultNamespace = 'urn:x'; UseDefaultNamespace = true;";
@@ -161,7 +162,7 @@ fn use_default_namespace_refuses_unpinned_shapes() {
     let doc = format!("<Root xmlns=\"{BC_NS}\"><R><Id>1</Id></R></Root>");
     for p in [
         "UseDefaultNamespace = true; Namespaces = p = 'urn:p';",
-        "UseDefaultNamespace = true; UseLax = true;",
+        "UseDefaultNamespace = true; DefaultNamespace = 'urn:x'; UseLax = true;",
     ] {
         assert!(
             matches!(run(&src(p, &doc), "Import"), Err(Signal::Unsupported(_))),

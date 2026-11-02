@@ -65,7 +65,27 @@ impl Session {
             non_empty(assigned::separator(inst, 1, xp.field_separator.as_deref(), ",")?)?,
             assigned::separator(inst, 0, xp.field_delimiter.as_deref(), "\"")?,
         );
-        for line in text.split(record_sep.as_str()).filter(|l| !l.is_empty()) {
+        let mut lines: Vec<&str> = text.split(record_sep.as_str()).collect();
+        // The text after the last record separator is no record. A FixedText import skips every empty line as before.
+        if lines.last() == Some(&"") {
+            lines.pop();
+        }
+        for (line_no, line) in lines.into_iter().enumerate() {
+            if line.is_empty() {
+                if !variable {
+                    continue;
+                }
+                // An empty first line of a VariableText document is a record of one empty value
+                // (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:VariableText_ImportValueCount_1 `vt empty first line`, needs the
+                // corpus bump); pinned when the second column is a field element that must occur, so the import fails there. An
+                // empty line elsewhere is not pinned.
+                let second_needed = fields
+                    .get(1)
+                    .is_some_and(|&f| schema.node(f).kind == ir::XmlNodeKind::Field && !schema.node(f).min_zero);
+                if line_no != 0 || !second_needed {
+                    return unsupported("an empty line in a VariableText import (not pinned)");
+                }
+            }
             let values: Vec<String> = if variable {
                 split_variable(line, &fsep, &fdelim)
             } else {
@@ -82,6 +102,15 @@ impl Session {
                     })
                     .collect()
             };
+            if xp.preserve_whitespace && variable {
+                if let Some(v) = values.iter().find(|v| {
+                    v.as_str() != v.trim() && (fdelim.is_empty() || !line.contains(&format!("{fdelim}{v}{fdelim}")))
+                }) {
+                    return unsupported(format!(
+                        "a VariableText import with PreserveWhiteSpace of the unquoted value `{v}` with white space around it (not pinned)"
+                    ));
+                }
+            }
             let n = schema.node(table);
             let rec = self.xp_record(inst, n)?;
             let tbl = rec.borrow().table as usize;
@@ -127,7 +156,25 @@ impl Session {
                     self.xp_assign_variable(inst, schema, f, v.clone())?;
                 }
             }
-            if !broke && !length_pinned {
+            // A line with fewer values than the port has columns fails at the first missing column that must occur, a field
+            // element: `The Element <Amt> is expected by Min Occurs value: Once. Element received: <Item>.` before anything of the
+            // record is stored (Y83XpMiscTests.al:VariableText_ImportValueCount_1 `vt two values`, `vt one value`; needs the corpus
+            // bump). Several values too many are left out (`vt five values`, VariableText_ImportValueCount_2 `vt five values two
+            // rows`).
+            if !broke && variable && values.len() < fields.len() {
+                let lacking = schema.node(fields[values.len()]);
+                if lacking.kind == ir::XmlNodeKind::Field && !lacking.min_zero {
+                    return Err(xerr(
+                        format!(
+                            "The Element <{}> is expected by Min Occurs value: Once. Element received: <{}>.",
+                            lacking.xml_name,
+                            schema.node(table).xml_name
+                        ),
+                        "XmlPortMetadata",
+                    ));
+                }
+            }
+            if !broke && !length_pinned && !(variable && values.len() > fields.len()) {
                 return unsupported(format!(
                     "a record with {} values for a port of {} fields (not pinned)",
                     values.len(),
