@@ -720,3 +720,105 @@ separate findings.
   pinned; `ZipArchiveMode.Update` over an `OutStream` stays refused this way). A stream that stands elsewhere keeps the empty bridge.
 - Still copy-in and copy-out: no callback protocol, so item 4 stands. Additive: a new `DotNetValue` variant and an optional field
   on an existing wire tag; the protocol version is 4 (host and sidecar change together).
+
+## Amendment 2026-11-02 (Proposed): reuse a sidecar across test codeunits after a reset or recycle
+
+Replaces the rule "a new Session means a new process" (section 6) for sessions that only touched the .NET shared
+framework. Nothing else in sections 1 to 13 changes. Status: Proposed; the owner decides.
+
+### Why
+
+A full BC 29 run starts 53 sidecar processes (plus 3 more), one per session that calls `DotNet`. The CoreCLR start and
+the JIT of those processes are about 7.6 % of the run's samples, about 19 to 20 G instructions of 293 G (perf-1101,
+2026-11-01, one-thread profile). The perf budget counts them because the meter inherits to child processes. The run is
+over its budget (265 to 294 G against 231.6 G). The warm standbys (section 6, built) hide the wall time, not the
+instructions. Other work on the budget is in `perf-1101` and `perf-1103`; this is the largest single item left that
+needs an ADR change.
+
+### Saving
+
+Estimated, not measured: 53 starts cost about 0.37 G each (20 G / 53). With reuse, the number of starts drops to the
+number of times a process is recycled (below). The upper bound is about 19 G (6 to 7 % of the run). The real gain is
+lower because a session that loads a non-framework assembly (Microsoft add-ins, a partner's DLL) still gets a fresh
+process, and because the reset itself costs instructions (a few ms per session, an estimate). How many of the 53 sessions
+touch only the shared framework is not known. The first implementation step counts it: the sidecar reports, at session
+end, the assemblies loaded beyond the set it had after `hello`. That count decides whether to build the rest.
+
+### What "reset" means, and why it is not complete
+
+The sidecar loads assemblies into `AssemblyLoadContext.Default` (`tools/dotnet-sidecar/Resolver.cs:24-41`). Assemblies in
+the default context cannot be unloaded. The statics of a loaded type cannot be reset: a static constructor runs once,
+`readonly` statics cannot be assigned, and reflection over every static field is incomplete (a static in a nested or
+generic type, a thread-static, a field held by a runtime cache). No in-process way returns a process to the state of a
+fresh one. So the amendment does **not** claim a general reset. It defines three layers:
+
+1. **Clean session.** At session end the sidecar is asked to `reset`. It releases every handle (the handle counter is
+   not restarted, so a stale handle from the last session is an error, never a hit), runs a full GC with finalizers
+   awaited, and checks a fixed list of process-wide state against the values it had after `hello`:
+   - culture and UI culture (current and default), time zone, current directory, environment variables;
+   - `Console` redirection, `AppContext` switches and data, `AppDomain` data, `Thread.CurrentPrincipal`;
+   - the set of loaded assemblies, and the number of managed threads, timers and open handles.
+   A difference in the first group is repaired (set back) where .NET allows it, and counted. A difference in the
+   second group (a new assembly, an extra thread, a timer, an open handle) makes the process **dirty**.
+2. **Dirty means recycle.** A dirty process is killed and the next session gets a new one (a standby, as today). The
+   rule is: a process is reused only if its loaded assemblies are the ones a fresh sidecar has after `hello`, plus
+   an allow-list of shared-framework assemblies whose statics are listed below. A session that used anything else
+   recycles.
+3. **Allow-list of statics in the shared framework.** For each allowed assembly the list says which statics can be
+   observed from AL and how they are put back: `CultureInfo` defaults, `Environment`, `Directory`/`Path` state,
+   `Encoding` registrations (idempotent, the one provider the sidecar registers stays), `Regex` cache (not
+   observable), `Random.Shared` (the sidecar's `Random` is unseeded, so its order is not pinned today; ADR-061 and
+   section 9 apply). An assembly not in the list is dirty. The list starts small and grows by probes.
+
+File handles: since ADR-056 `System.IO` runs against the in-memory file system and nothing reaches the real disk,
+so open handles do not exist in the sidecar. Any found at reset make the process dirty.
+
+### What AL can observe if the reset is incomplete
+
+Rule 6 of CLAUDE.md applies: values, errors and database state must match BC. Reuse can show AL a static a previous test
+codeunit set: a culture, an environment variable, a cached value inside a Microsoft assembly. BC itself leaks static
+state across test codeunits (section 6 names `NavTenantSettingsHelper.testEnvironmentTypeIsSandbox`), but in an order
+the oracle does not record. Isolation per session was chosen to avoid a result that depends on test order. The
+amendment keeps that property by construction: a process is reused only after the check above finds it equal to a fresh
+one on everything the sidecar can measure, and recycles on anything it cannot. A static the check cannot see is the
+remaining risk. It is limited to the allow-listed shared-framework assemblies, where every static in the list is
+put back or shown unobservable.
+
+### The check that proves isolation
+
+New tests in `crates/al-test-cli/tests/suite/dotnet_sidecar.rs`, next to the existing
+`static_state_does_not_leak_between_sessions` (line 272) and the standby test (line 900), red first:
+
+1. Codeunit A sets a static in a loaded type (a test assembly with a public static field), codeunit B reads it. With
+   reuse on, B sees the initial value (the process was recycled, because the test assembly is not allow-listed).
+2. A sets each item of the group-one list from AL (culture, current directory, environment variable, `AppContext`
+   data); B reads and sees the initial value, and the sidecar reports it was reused (not recycled) and repaired.
+3. A starts a thread and a timer; the process is dirty and B gets a new one.
+4. A leaves an unreleased handle; B gets a stale-handle error for it.
+5. A crash or hang in A (kill on time-out) never reaches B: B gets a new process, and A's failure text is unchanged.
+6. Differential: the corpus runs with `ALRUNNER_DOTNET_FRESH=1` (today's behavior) and without it must have identical
+   JUnit outcomes and failure texts, for BC 27, 28, 29, in CI. The Microsoft run is compared the same way once.
+
+### Crash handling
+
+Unchanged in effect. A process that died or timed out is never reused (`SidecarSession::died`, `kill` in
+`crates/al-testrun/src/dotnet.rs`). A request that fails inside the sidecar does not by itself recycle it, but a
+protocol error, a timeout or an exit does. A crash while reset runs is treated as a crash of the session that was
+ending, and the next session gets a new process.
+
+### Fallback
+
+The alternative of **one sidecar per test codeunit** is today's behavior (a session is a test codeunit). It stays as
+the fallback and as the switch: `ALRUNNER_DOTNET_FRESH=1` and a run option turn reuse off, and reuse starts off in the
+first release of the change. It is turned on by default only when the differential (6) shows zero differences on the full
+corpus and the Microsoft run, and the count of reusable sessions makes the gain worth it. An alternative that is not
+proposed: a collectible `AssemblyLoadContext` per session. It would unload test and add-in assemblies but not the
+shared framework, and it changes how types resolve (section 3), so it is a larger seam change for the same
+remaining risk.
+
+### Owner decision needed
+
+Accept layers 1 to 3 as written, with reuse off by default until the differential and the count of reusable sessions
+are shown. If the count shows that most sessions load Microsoft add-ins, the amendment is withdrawn and the
+instructions of the 53 starts are handled by ReadyToRun publishing of the sidecar (a build change; perf-1101) or by
+changing what the perf meter counts.
