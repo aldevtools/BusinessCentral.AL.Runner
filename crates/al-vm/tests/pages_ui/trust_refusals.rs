@@ -119,7 +119,8 @@ codeunit 69998 C
 }
 
 /// pages/lt-ah-pages/AhPageTests.al:986-989: Expand on a tree shows the rows below the current one. That is pinned for a
-/// page without row triggers; which rows a page with OnAfterGetRecord reads again is not, so Expand there is refused.
+/// page without row triggers and with OnAfterGetRecord (pages/lt-y72-page-probes/Y72TreeDefaultState.al); which rows a page with
+/// OnFindRecord reads again is not, so Expand there is refused.
 #[test]
 fn expand_on_a_tree_page_with_row_triggers_is_refused() {
     let src = r#"
@@ -128,7 +129,7 @@ page 69961 "TR List"
 {
     PageType = List; SourceTable = "TR Row"; ApplicationArea = All; UsageCategory = None;
     layout { area(Content) { repeater(R) { ShowAsTree = true; IndentationColumn = Rec.Ind; field(Id; Rec.Id) { } } } }
-    trigger OnAfterGetRecord() begin end;
+    trigger OnFindRecord(Which: Text): Boolean begin exit(Rec.Find(Which)); end;
 }
 codeunit 69962 C
 {
@@ -240,10 +241,12 @@ fn opening_a_descending_find_list_with_on_after_get_curr_record_stands_on_the_la
 
 /// GoToKey on an OnFindRecord list with OnAfterGetCurrRecord past its first window of 20 rows is pinned when the rest of the view
 /// is read in one block that ends it (pages/lt-y41-page-probes/Y41GoToKeyFindListCurr.al, 30 rows). With 45 rows the client reads
-/// a second full block, which is not pinned, so it is refused.
+/// a second full block, pinned since (pages/lt-y61-page-probes/Y61GoToKeyEdges.al:212; later blocks
+/// pages/lt-y72-page-probes/Y72FindPagesEdges.al:498), so it runs.
 #[test]
-fn go_to_key_on_a_find_list_past_a_second_full_block_is_refused() {
-    refused(al_testkit::run_in(FIND_LIST, "C", "GoToKeyFar"), "second full block");
+fn go_to_key_on_a_find_list_past_a_second_full_block_runs() {
+    let r = al_testkit::run_in(FIND_LIST, "C", "GoToKeyFar");
+    assert!(r.is_ok(), "{r:?}");
 }
 
 /// An error with an empty text out of a TestPage action's Invoke ends the Invoke quietly: the test goes on, the last error

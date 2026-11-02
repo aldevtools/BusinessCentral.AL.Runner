@@ -294,13 +294,9 @@ fn a_testpage_filter_shows_the_rows_without_a_parent_in_the_new_view() {
     assert_eq!(run("TestPageSetFilter"), "2,3,5,|2,3,4,");
 }
 
-// Y28_VariableIndentationColumn: a tree over a page variable shows the top-level rows too (walk 1,4); which rows a variable puts at
-// level 0 is not modelled, so a move between its rows is refused rather than shown whole.
+// Y28_VariableIndentationColumn: a tree over a page variable that OnAfterGetRecord sets shows the top-level rows (walk 1,4); its levels
+// are the variable's values the open read (pages/open/tree_var.rs, pages/lt-y72-page-probes/Y72TreeDefaultState.al).
 #[test]
-fn a_tree_over_a_page_variable_is_refused() {
-    let r = al_testkit::run_in(SRC, "C", "VarTree");
-    assert!(
-        matches!(&r, Err(al_builtins::native::Signal::Unsupported(m)) if m.contains("IndentationColumn")),
-        "{r:?}"
-    );
+fn a_tree_over_a_page_variable_walks_its_top_level_rows() {
+    assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "VarTree")), "1,4,");
 }

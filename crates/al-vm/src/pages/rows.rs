@@ -441,7 +441,7 @@ impl Session {
         }
         self.populate_expressions(st)?;
         self.page_trigger(st, "onaftergetrecord", vec![])?;
-        Ok(())
+        self.note_tree_level(st)
     }
 
     /// PageType = List (a worksheet or ListPlus page with a repeater is not one; corpus
@@ -533,7 +533,8 @@ impl Session {
         {
             return Ok(());
         }
-        self.populate_window_in_view(st)
+        self.populate_window_in_view(st)?;
+        self.var_tree_cut_after_read(st)
     }
 
     /// Runs `read` (a read of the client's rows) with the tree's cut left out, then splits the rows read into the ones the cut shows
@@ -558,21 +559,22 @@ impl Session {
         let r = read(self);
         rec.borrow_mut().filters.extend(cut);
         r?;
-        let Some(level) = self.tree_level_field(st)? else {
+        let level = self.tree_level_field(st)?;
+        if level.is_none() && self.tree_var_slot(st).is_none() {
             return unsupported("a tree whose IndentationColumn is not an Integer field (not pinned)");
-        };
+        }
         self.split_tree_window(st, level);
         Ok(true)
     }
 
     /// Splits the rows the client read into the ones the tree's cut shows (`window`) and the ones it hides (`tree_hidden`).
-    pub(super) fn split_tree_window(&mut self, st: &St, level: usize) {
+    pub(super) fn split_tree_window(&mut self, st: &St, level: Option<usize>) {
         // The rows the cut shows (`apply_tree_cut`), else the level-0 ones.
         let mut s = st.borrow_mut();
         let tree_shown = std::mem::take(&mut s.tree_shown);
         let (shown, hidden): (Vec<_>, Vec<_>) = std::mem::take(&mut s.window).into_iter().partition(|w| {
             if tree_shown.is_empty() {
-                matches!(w.stored.get(level), Some(Value::Integer(0)))
+                level.is_some_and(|l| matches!(w.stored.get(l), Some(Value::Integer(0))))
             } else {
                 tree_shown.iter().any(|k| Self::same_key(k, &w.key))
             }
@@ -2478,6 +2480,9 @@ impl Session {
         }
         if let Some(r) = self.move_in_client_rows(st, how)? {
             return Ok(r);
+        }
+        if how == PageMethod::First && self.tree_first_on_first_row(st)? {
+            return Ok(true);
         }
         let cursor = st.borrow().cursor;
         let landed = match how {

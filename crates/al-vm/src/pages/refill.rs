@@ -148,7 +148,7 @@ impl Session {
             self.reread_view_after_refill_by_validate(st, held)?;
             st.borrow_mut().expanded = expanded;
             self.apply_tree_cut(st)?;
-            self.split_tree_window(st, level);
+            self.split_tree_window(st, Some(level));
             return Ok(());
         }
         self.reread_view_after_refill_by_validate(st, held)
