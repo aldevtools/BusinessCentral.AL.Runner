@@ -114,6 +114,16 @@ pub enum Reuse {
 }
 
 impl Reuse {
+    fn name(self) -> &'static str {
+        match self {
+            Reuse::Off => "Off",
+            Reuse::Count => "Count",
+            Reuse::On => "On",
+        }
+    }
+}
+
+impl Reuse {
     pub fn from_env(env: &dyn Fn(&str) -> Option<String>) -> Reuse {
         if env("ALRUNNER_DOTNET_FRESH").is_some_and(|v| v == "1") {
             return Reuse::Off;
@@ -456,8 +466,11 @@ impl SidecarHost {
             let reasons = lock(&self.shared.dirty_reasons);
             if st.reset_clean + st.reset_dirty > 0 {
                 eprintln!(
-                    "dotnet sidecar reuse ({:?}): {} sessions ended clean, {} dirty, {} served by a reused process",
-                    self.shared.reuse, st.reset_clean, st.reset_dirty, st.reused
+                    "dotnet sidecar reuse ({}): {} sessions ended clean, {} dirty, {} served by a reused process",
+                    self.shared.reuse.name(),
+                    st.reset_clean,
+                    st.reset_dirty,
+                    st.reused
                 );
                 for (why, n) in reasons.iter() {
                     eprintln!("  dirty: {why} x{n}");
