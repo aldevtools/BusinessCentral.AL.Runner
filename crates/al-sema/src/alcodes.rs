@@ -2355,6 +2355,7 @@ pub(crate) fn resolved_scope(
             "The application object or method '{name}' has scope '{scope}' and cannot be used for 'Cloud' development."
         )
     };
+    let mut scopes: std::collections::HashMap<(usize, usize), Option<(String, &'static str)>> = Default::default();
     for (fi, f) in ws.files.iter().enumerate() {
         if f.app != app {
             continue;
@@ -2374,28 +2375,12 @@ pub(crate) fn resolved_scope(
                             }
                         }
                         Res::Proc { object, offset } if ws.objects[*object].app == app => {
-                            let obj = ws.object_ast(*object);
-                            let Some(routine) = ast::routines_in(obj.syntax())
-                                .into_iter()
-                                .find(|r| usize::from(r.syntax().text_range().start()) == *offset)
-                            else {
-                                continue;
-                            };
-                            let scope = routine.attributes().find_map(|a| {
-                                if !a.name().eq_ignore_ascii_case("Scope") {
-                                    return None;
-                                }
-                                let arg = a.args()?.text().to_string();
-                                let arg = arg
-                                    .trim()
-                                    .trim_start_matches('(')
-                                    .trim_end_matches(')')
-                                    .trim()
-                                    .trim_matches('\'');
-                                ["OnPrem", "Internal"].into_iter().find(|s| s.eq_ignore_ascii_case(arg))
-                            });
-                            if let Some(scope) = scope {
-                                push(&mut out, ws, fi, offset_of(&n), "AL0296", msg(&routine.name(), scope));
+                            // Worked out once per routine: a routine is called from many places.
+                            let scoped = scopes
+                                .entry((*object, *offset))
+                                .or_insert_with(|| routine_scope(ws, *object, *offset));
+                            if let Some((name, scope)) = scoped {
+                                push(&mut out, ws, fi, offset_of(&n), "AL0296", msg(name, scope));
                             }
                         }
                         _ => {}
@@ -2424,6 +2409,28 @@ pub(crate) fn resolved_scope(
 }
 
 /// The OnPrem-only calls of one object (see [`check_context`]).
+/// The name and the `Scope` (OnPrem or Internal) of the routine of object `object` at `offset`, if it has one of them.
+fn routine_scope(ws: &Workspace, object: usize, offset: usize) -> Option<(String, &'static str)> {
+    let obj = ws.object_ast(object);
+    let routine = ast::routines_in(obj.syntax())
+        .into_iter()
+        .find(|r| usize::from(r.syntax().text_range().start()) == offset)?;
+    let scope = routine.attributes().find_map(|a| {
+        if !a.name().eq_ignore_ascii_case("Scope") {
+            return None;
+        }
+        let arg = a.args()?.text().to_string();
+        let arg = arg
+            .trim()
+            .trim_start_matches('(')
+            .trim_end_matches(')')
+            .trim()
+            .trim_matches('\'');
+        ["OnPrem", "Internal"].into_iter().find(|s| s.eq_ignore_ascii_case(arg))
+    })?;
+    Some((routine.name(), scope))
+}
+
 fn onprem_method_calls(ws: &Workspace, file: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
     let globals: Vec<(String, String)> = obj.var_decls().flat_map(|d| typed_names(&d)).collect();
     let own_procs: Vec<String> = obj.routines().map(|r| r.name().to_ascii_lowercase()).collect();
