@@ -58,10 +58,7 @@ fn stmts_flags_only(stmts: &[ir::Stmt], scalar: &dyn Fn(usize) -> bool) -> bool 
                 && branches.iter().all(|(set, body)| {
                     set.iter().all(|e| match e {
                         ir::SetElem::One(x) => expr_flags_only(x, scalar),
-                        ir::SetElem::Range(a, b) => [a, b]
-                            .into_iter()
-                            .flatten()
-                            .all(|x| expr_flags_only(x, scalar)),
+                        ir::SetElem::Range(a, b) => [a, b].into_iter().flatten().all(|x| expr_flags_only(x, scalar)),
                     }) && stmts_flags_only(body, scalar)
                 })
                 && stmts_flags_only(otherwise, scalar)
@@ -134,7 +131,8 @@ impl Session {
             let args: Vec<Value> = slots.iter().map(|&j| value(j)).collect();
             let inst = self.instance(object);
             match self.call(object, r, inst, args.clone()) {
-                Ok((_, finals)) if finals.len() >= args.len() && args.iter().zip(finals.iter()).all(|(a, f)| same(a, f)) => {}
+                Ok((_, finals))
+                    if finals.len() >= args.len() && args.iter().zip(finals.iter()).all(|(a, f)| same(a, f)) => {}
                 _ => return false,
             }
         }
