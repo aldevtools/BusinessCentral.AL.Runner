@@ -109,6 +109,16 @@ codeunit 69986 C
         exit(R);
     end;
 
+    procedure Find70ThirdBlock(): Text
+    var P: TestPage "GE Find"; L: Codeunit "GE Log Mgt"; R: Text;
+    begin
+        Seed(70);
+        P.OpenView();
+        L.Take();
+        R := Format(P.GoToKey('N055')) + '|' + L.Take() + '|' + P.NoCtl.Value();
+        exit(R);
+    end;
+
     procedure Find25FirstRow(): Text
     var P: TestPage "GE Find"; L: Codeunit "GE Log Mgt"; R: Text;
     begin
@@ -252,6 +262,19 @@ fn a_key_in_the_second_block_of_a_find_list_walks_into_it() {
     assert_eq!(out[1], want.join(";"));
     assert_eq!(out[2], "N033");
     assert_eq!(&out[3..], ["Yes", &step(34), "N034"]);
+}
+
+/// pages/lt-y72-page-probes/Y72FindPagesEdges.al:498 FindList_GoToKey_ThirdBlock: arriving on row 40 reads the third block the same
+/// way (rows 41 to 60).
+#[test]
+fn a_key_in_the_third_block_of_a_find_list_walks_into_it() {
+    let out = run("Find70ThirdBlock");
+    let mut want = steps(2, 19);
+    want.extend(block(20, 40, false));
+    want.extend(steps(20, 39));
+    want.extend(block(40, 60, false));
+    want.extend(steps(40, 55));
+    assert_eq!(out, ["Yes", &want.join(";"), "N055"]);
 }
 
 /// Y61GoToKeyEdges.al:241 G613_Find_25Rows_KeyIsFirstRow: the first row while standing on it reads nothing; from row 10 it is one move.

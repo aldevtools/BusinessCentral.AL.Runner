@@ -32,6 +32,7 @@ mod links;
 pub(crate) mod mat;
 mod metadata;
 pub(crate) mod objects;
+mod page_action_promoted;
 mod pages;
 mod permissions;
 pub(crate) mod profiles;

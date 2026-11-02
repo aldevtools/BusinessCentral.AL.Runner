@@ -19,6 +19,8 @@ pub(crate) struct Entry {
     /// The row is seen only by a lookup by its value in this column (see [`Entry::by_name_only`]); with a reason, a
     /// lookup that finds it refuses.
     pub name_only: Option<(usize, Option<String>)>,
+    /// With `name_only`: the row stands in for rows a scan does see ([`Entry::in_name_set`]).
+    pub name_set: bool,
     /// The row rests on an unprobed assumption: a read that returns or counts it marks it.
     pub assumed: Option<al_builtins::assumptions::Assumption>,
 }
@@ -31,6 +33,7 @@ impl Entry {
             known: usize::MAX,
             known_cols: Vec::new(),
             name_only: None,
+            name_set: false,
             assumed: None,
         }
     }
@@ -41,6 +44,7 @@ impl Entry {
             known: usize::MAX,
             known_cols: Vec::new(),
             name_only: None,
+            name_set: false,
             assumed: None,
         }
     }
@@ -53,6 +57,7 @@ impl Entry {
             known,
             known_cols: Vec::new(),
             name_only: None,
+            name_set: false,
             assumed: None,
         }
     }
@@ -67,6 +72,16 @@ impl Entry {
     /// finds it when `refuse` gives a reason. The Field table's rowversion row (fields.rs).
     pub(crate) fn by_name_only(mut self, col: usize, refuse: Option<String>) -> Entry {
         self.name_only = Some((col, refuse));
+        self
+    }
+    /// A stand-in for rows whose names are known to be among a set of names, but whose other values are not: a scan whose
+    /// filters on `col` leave the stand-in's name out, or whose filters on the key columns and `known` columns leave the
+    /// stand-in out, does not see it; every other scan, one without a filter on `col` included, refuses with `why`
+    /// (the "Page Action" rows of area(Promoted), page_action_promoted.rs).
+    pub(crate) fn in_name_set(mut self, col: usize, known: Vec<usize>, why: String) -> Entry {
+        self.name_only = Some((col, Some(why)));
+        self.name_set = true;
+        self.known_cols = known;
         self
     }
     /// A row whose values rest on assumption `a`: every read that returns or counts it marks `a`.
@@ -105,6 +120,8 @@ pub(crate) struct Mat {
     known: Vec<usize>,
     known_cols: Vec<Vec<usize>>,
     name_only: Vec<Option<(usize, Option<String>)>>,
+    /// Per row: a stand-in of a name set ([`Entry::in_name_set`]); empty when no row is one.
+    name_set: Vec<bool>,
     /// Per row: the assumption a read of it marks ([`Entry::assuming`]); empty when no row has one.
     assumed: Vec<Option<al_builtins::assumptions::Assumption>>,
     /// No row is poisoned. Only then are the values of the key columns all real, so the rows are in the order of
@@ -234,6 +251,7 @@ impl Mat {
         let mut known = Vec::new();
         let mut known_cols = Vec::new();
         let mut name_only = Vec::new();
+        let mut name_set = Vec::new();
         let mut assumed = Vec::new();
         for (_, e) in keyed {
             assumed.push(e.assumed);
@@ -242,6 +260,10 @@ impl Mat {
             known.push(e.known);
             known_cols.push(e.known_cols);
             name_only.push(e.name_only);
+            name_set.push(e.name_set);
+        }
+        if !name_set.contains(&true) {
+            name_set = Vec::new();
         }
         let clean = poison.iter().all(Option::is_none);
         let unknown_cols = unknown_cols(t, &rows, &poison, &name_only);
@@ -254,6 +276,7 @@ impl Mat {
             known,
             known_cols,
             name_only,
+            name_set,
             assumed,
             clean,
             unknown_cols,
@@ -284,6 +307,7 @@ impl Mat {
             known: self.known.clone(),
             known_cols: self.known_cols.clone(),
             name_only: self.name_only.clone(),
+            name_set: self.name_set.clone(),
             assumed: self.assumed.clone(),
             clean: self.clean,
             unknown_cols: self.unknown_cols.clone(),
@@ -347,9 +371,10 @@ impl Mat {
             return None;
         }
         // A row only a lookup by name finds is decided per scan (`found_by_name`), never from a memo.
-        if filters
-            .iter()
-            .any(|f| self.name_only.iter().flatten().any(|(c, _)| *c == f.field))
+        if !self.name_set.is_empty()
+            || filters
+                .iter()
+                .any(|f| self.name_only.iter().flatten().any(|(c, _)| *c == f.field))
         {
             return None;
         }
@@ -556,6 +581,17 @@ impl Mat {
             return Ok(false);
         };
         let col = *col;
+        if self.name_set.get(i).copied().unwrap_or(false) {
+            let known = |c: usize| c == col || t.keys[0].contains(&c) || self.known_cols[i].contains(&c);
+            let left_out = filters
+                .iter()
+                .any(|f| f.group != al_builtins::filter::OR_GROUP && known(f.field) && !f.expr.matches(&r[f.field]));
+            return match (left_out, refuse) {
+                (true, _) => Ok(false),
+                (false, Some(why)) => Err(refusal(t, why)),
+                (false, None) => Ok(false),
+            };
+        }
         let or_group = filters.iter().any(|f| f.group == al_builtins::filter::OR_GROUP);
         // No lookup by name: the row is not seen.
         if !filters.iter().any(|f| f.field == col) {

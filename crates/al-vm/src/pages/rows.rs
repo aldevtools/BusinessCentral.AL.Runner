@@ -3324,23 +3324,18 @@ impl Session {
             // A Page variable set up with SetRecord or SetTableView hands the handler its own instance (its globals, its Rec);
             // after the run, set up or not, the variable starts again from a new instance with nothing set (:396 _SetUpVariable_Run `tag after
             // run` = '', :426 _SetTableView_Run `reccode()`, :447 _RunTwice `handler2 tag=;reccode()`).
-            // A temporary record, and a variable set up without SetRecord or SetTableView, are not pinned.
+            // A variable its own procedures set up (Rec.Copy(Temp, true), Rec.Get, a global) hands the handler that instance as it
+            // is, and a temporary record handed to a page over a temporary source shares its rows, filters and position with the
+            // page's Rec (`typed_handler_temp_record`).
             // A static Page.Run(Id, Rec) made the instance already, to check the record's table (`page_op`).
             let set_up = st.borrow().set_record.is_some();
-            if record.as_ref().is_some_and(|r| r.borrow().temporary)
-                || (st.borrow().instance.is_some() && record.is_none())
-            {
-                return unsupported(
-                    "a Page-typed PageHandler for Page.Run with a temporary record, or on a Page variable set up without SetRecord or SetTableView (not pinned)",
-                );
-            }
             let handler = self.take_typed_handler(UiKind::Page, object).expect("checked above");
             if !set_up {
                 if let Some(r) = &record {
                     self.construct_page(&st)?;
                     if self.has_source(&st) {
                         let rec = self.page_rec(&st);
-                        rec.borrow_mut().fields = r.borrow().fields.clone();
+                        self.typed_handler_record(&rec, r)?;
                     }
                 }
             }
@@ -3512,7 +3507,7 @@ impl Session {
                 let blank = self.initial_fields(table);
                 let view_only = st.borrow().set_view && Value::all_identical(&r.borrow().fields, &blank);
                 if !view_only {
-                    rec.borrow_mut().fields = r.borrow().fields.clone();
+                    self.typed_handler_record(&rec, r)?;
                 }
             }
         }

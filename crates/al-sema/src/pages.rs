@@ -428,6 +428,14 @@ pub fn plain_spacing(text: &str) -> bool {
     !t.contains(['"', '\'', '\t', '\n', '\r']) && !t.contains("  ")
 }
 
+/// Source text of an expression-bound control that its Page Control Field row names as written: plain text with single spaces
+/// (`plain_spacing`), and for a field of a record variable also double quotes around names, kept as written (`Contact."Phone No."`,
+/// `Contact."Plain"`: pages/lt-y72-page-probes/Y72PageActionControlRows.al PageControl_RecVarQuotedSpacedField).
+pub fn source_text_pinned(text: &str, var_field: bool) -> bool {
+    let t = text.trim();
+    plain_spacing(t) || (var_field && !t.contains(['\'', '\t', '\n', '\r']) && !t.contains("  "))
+}
+
 /// Text with a `+`, `-`, `*` or `/` between spaces outside quotes and brackets (`Costs[1] + Costs[2]`): an arithmetic expression
 /// (record/TestPageControlFieldArraySource.al, ExpressionControlRow).
 pub fn arithmetic(text: &str) -> bool {

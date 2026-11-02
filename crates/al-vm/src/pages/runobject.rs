@@ -251,7 +251,7 @@ impl Session {
         // Only the link's own filters and the view's: a handed record carries nothing else (no RunPageOnRec).
         let only_link_and_view = link_filters.len() + view_filters.len() == r.filters.len();
         if !only_link_and_view
-            || link_filters.len() != link.entries.len()
+            || link_filters.len() > link.entries.len()
             || (link.view.is_some() != !view_filters.is_empty())
         {
             return Ok(None);
@@ -288,10 +288,15 @@ impl Session {
             // An Option and a Date field are filled too (:499 RPL_Card_OptionLink `kind=B`, :517 RPL_Card_DateLink); a FlowFilter
             // field of Code is filled with nothing, the link stays its filter (:458 RPL_List_FlowFilterLink `code= ... filters=Code
             // Filter: P1`), and so does a Date FlowFilter whose host filter is a range (pages/lt-y61-page-probes/
-            // Y61RunPageLinkCopyFilter.al:407 G616_FlowFilterLink_CopyFilter `getfilter date=03/01/24..03/31/24`, `code=P1`).
+            // Y61RunPageLinkCopyFilter.al:407 G616_FlowFilterLink_CopyFilter `getfilter date=03/01/24..03/31/24`, `code=P1`). A
+            // FlowFilter of Code, Integer or Date from a host FlowFilter keeps the host's filter, an expression too, and one the host
+            // has no filter on adds none (pages/lt-y72-page-probes/Y72RunPageLinkFlowFilter.al header, `HasFilter Yes`).
             let flow_filter = self.engine.field_facts[table.object as usize][pf].class == ir::FieldClass::FlowFilter;
             let ty = &table.fields[pf].ty;
-            if flow_filter && matches!(ty, RtType::Date) && link_filters.iter().any(|f| f.field == pf) {
+            if flow_filter
+                && matches!(entry, ir::LinkEntry::Field(..))
+                && matches!(ty, RtType::Code(_) | RtType::Integer | RtType::Date)
+            {
                 continue;
             }
             let filled = matches!(
@@ -319,11 +324,19 @@ impl Session {
         Ok(Some((fill, Rc::new(link_filters))))
     }
 
-    /// `field(F)` of a link whose host field F is a Date FlowFilter: the target takes the host's filter on F, a range of dates
-    /// (pages/lt-y61-page-probes/Y61RunPageLinkCopyFilter.al:407 G616_FlowFilterLink_CopyFilter `getfilter date=03/01/24..03/31/24`,
-    /// :348 G616_PartUpdateForm_FlowFilterLink). `None` for a host field that is no FlowFilter; a FlowFilter of another type, or
-    /// a host without exactly one filter on it, is refused (not pinned).
-    fn link_of_host_flow_filter(&mut self, host_rec: &Rec, hf: usize) -> Result<Option<FilterExpr>, Signal> {
+    /// `field(F)` of a link whose host field F is a FlowFilter: the target takes the host's filter on F as it is, a value, a range or
+    /// an expression, of a Code, Integer or Date FlowFilter; a host without a filter on F adds no filter (pages/lt-y72-page-probes/
+    /// Y72RunPageLinkFlowFilter.al header: Link_CodeFlowFilter_HostUnfiltered `Code: P1`, _HostOneValue `Dim Filter: D1`,
+    /// _HostExpression `D1|D2` `<>D1`, Link_IntegerFlowFilter, Link_DateFlowFilter_HostUnfiltered;
+    /// pages/lt-y61-page-probes/Y61RunPageLinkCopyFilter.al:407 G616_FlowFilterLink_CopyFilter `getfilter date=03/01/24..03/31/24`).
+    /// `None` for a host field that is no FlowFilter, `Some(None)` for no filter. Two filters on the host field, and a target field
+    /// of another type than the host's, are refused (not pinned).
+    fn link_of_host_flow_filter(
+        &mut self,
+        host_rec: &Rec,
+        hf: usize,
+        target_ty: &RtType,
+    ) -> Result<Option<Option<FilterExpr>>, Signal> {
         let table = self.table(host_rec)?;
         if self.engine.field_facts[table.object as usize][hf].class != ir::FieldClass::FlowFilter {
             return Ok(None);
@@ -331,9 +344,10 @@ impl Session {
         let r = host_rec.borrow();
         let on_field: Vec<&FieldFilter> = r.filters.iter().filter(|f| f.field == hf).collect();
         match on_field.as_slice() {
-            [one] if matches!(table.fields[hf].ty, RtType::Date) => Ok(Some(one.expr.clone())),
+            [] => Ok(Some(None)),
+            [one] if table.fields[hf].ty == *target_ty => Ok(Some(Some(one.expr.clone()))),
             _ => unsupported(
-                "RunPageLink field() of a host FlowFilter other than a Date one with one filter (not pinned)",
+                "RunPageLink field() of a host FlowFilter with several filters on it, or to a field of another type (not pinned)",
             ),
         }
     }
@@ -444,7 +458,10 @@ impl Session {
                         };
                         // The host's current row; a host that shows no row links to the blank value
                         // (as a part's link does, testpart/TestPartProviderMove.al).
-                        if let Some(expr) = self.link_of_host_flow_filter(host_rec, *hf)? {
+                        if let Some(expr) = self.link_of_host_flow_filter(host_rec, *hf, &ty)? {
+                            let Some(expr) = expr else {
+                                continue;
+                            };
                             (*pf, expr)
                         } else {
                             let value = if host.borrow().cursor == Cursor::None {
