@@ -145,10 +145,7 @@ impl Session {
         // An import of a text port whose root is a table element is refused by BC, an export is not
         // (xmlport/lt-xmlport-query-datatransfer/XpTVariableText.al:Csv_ImportBasic and the other Csv_Import tests).
         if xp.format != ir::XmlFormat::Xml && xp.nodes[top].kind == ir::XmlNodeKind::Table {
-            return Err(xerr(
-                "If you choose XMLport format Fixed Text or Variable Text, then the root element must have source type Text.",
-                "XmlPortInvalidNodeType",
-            ));
+            return Err(root_type_error());
         }
         // The root error above is pinned for WINDOWS and UTF16 (XpTEncoding.al:165-205); an import that gets further is not.
         if let Some(enc) = &xp.text_encoding {
@@ -190,6 +187,9 @@ impl Session {
             // 06-xmlport-dnsfalse.al:45). Pinned for a text element root of the document's local name.
             Err(ReadFailure::Unsupported(why)) => {
                 if let Some(local) = why.strip_prefix(al_builtins::xmlport::ROOT_IN_NAMESPACE) {
+                    if prefixed_root_and_table(xp, top) {
+                        return Err(prefixed_import_error());
+                    }
                     if xp.namespaces.is_empty()
                         && xp.nodes.iter().all(|n| n.ns_prefix.is_none())
                         && xp.nodes[top].kind == ir::XmlNodeKind::Text
@@ -252,7 +252,12 @@ impl Session {
         if xp.namespaces.iter().any(|(p, _)| p.is_empty()) {
             return unsupported("XmlPort import with the empty prefix \"\" among its Namespaces (not modelled)");
         }
-        // A prefix on a text or table element is pinned for the export only (Y17XmlPortNamespacesTests.al:60).
+        // A prefix on both the root text element and a table element fails every import with an empty prefix in the text
+        // (XpTNamespaces.al:44-97 Import_Prefixed*, :231 Import_PrefixedAsExported); other layouts are pinned for the export only
+        // (Y17XmlPortNamespacesTests.al:60).
+        if prefixed_root_and_table(xp, top) {
+            return Err(prefixed_import_error());
+        }
         if xp
             .nodes
             .iter()
@@ -456,6 +461,9 @@ impl Session {
                 ))
             }
             Ok(t) => Ok(t.to_string()),
+            // A document that declares iso-8859-1 is read as Latin-1 (XpTEncoding.al:235 Encoding_ImportXmlDeclaredLatin1: a Windows
+            // stream with `Mü` imports as `Mü`). Other declarations are not pinned.
+            Err(_) if declares_latin1(rest) => Ok(rest.iter().map(|&b| char::from(b)).collect()),
             Err(_) => unsupported("XmlPort import of a source that is not UTF-8 or UTF-16 (not pinned)"),
         }
     }
@@ -1139,4 +1147,51 @@ pub(super) fn utf16_declared_utf8(text: String) -> Result<String, Signal> {
         format!("Name cannot begin with the '.' character, hexadecimal value 0x00. Line 1, position {position}."),
         "XmlPortImport:Xml",
     ))
+}
+
+/// Whether the root text element and a table element below it both carry a NamespacePrefix that the port declares.
+fn prefixed_root_and_table(xp: &ir::XmlPort, top: usize) -> bool {
+    let declared = |n: &ir::XmlNode| {
+        n.ns_prefix
+            .as_ref()
+            .is_some_and(|p| xp.namespaces.iter().any(|(q, _)| q == p))
+    };
+    xp.nodes[top].kind == ir::XmlNodeKind::Text
+        && declared(&xp.nodes[top])
+        && xp.nodes.iter().any(|n| n.kind == ir::XmlNodeKind::Table && declared(n))
+}
+
+/// XpTNamespaces.al:52: the prefix in the text is empty whatever the document holds.
+fn prefixed_import_error() -> Signal {
+    xerr(
+        "The prefix  is not defined in the Namespaces property of the XMLPort.".to_string(),
+        "XmlPortNodeProcess",
+    )
+}
+
+pub(super) fn root_type_error() -> Signal {
+    xerr(
+        "If you choose XMLport format Fixed Text or Variable Text, then the root element must have source type Text.",
+        "XmlPortInvalidNodeType",
+    )
+}
+
+/// A VariableText or FixedText port whose one top-level element is a table element.
+pub(super) fn text_port_with_table_root(xp: &ir::XmlPort) -> bool {
+    let mut tops = xp.nodes.iter().filter(|n| n.parent.is_none());
+    xp.format != ir::XmlFormat::Xml
+        && matches!((tops.next(), tops.next()), (Some(n), None) if n.kind == ir::XmlNodeKind::Table)
+}
+
+/// Whether the bytes open with an XML declaration that names the encoding iso-8859-1.
+fn declares_latin1(bytes: &[u8]) -> bool {
+    let head: String = bytes
+        .iter()
+        .take(200)
+        .map(|&b| char::from(b).to_ascii_lowercase())
+        .collect();
+    head.starts_with("<?xml")
+        && head
+            .split_once("?>")
+            .is_some_and(|(decl, _)| decl.contains("encoding=\"iso-8859-1\"") || decl.contains("encoding='iso-8859-1'"))
 }

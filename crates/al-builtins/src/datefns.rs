@@ -295,8 +295,13 @@ fn date2dmy(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let day = match &a[0] {
         // The undefined date raises for part 1 (misc/lt-probes-needed-2/PnBDateFormat.al:135-163, Date2DWY_PartsOutOfRange
         // `undefinedDmy`); the other parts are not pinned.
-        Value::Date(0, _) if int_of(a.get(1)) == Some(1) => return raise("The date is not valid.", "DateInvalid"),
-        Value::Date(0, _) => return unsupported("Date2DMY of an undefined date with a part other than 1 (not pinned)"),
+        // The parts 0 and 4 raise the same for it (types/lt-datetime/DateFuncs.al Date2DMY_Invalid `0D what 0`, `0D what 4`).
+        Value::Date(0, _) if matches!(int_of(a.get(1)), Some(0 | 1 | 4)) => {
+            return raise("The date is not valid.", "DateInvalid");
+        }
+        Value::Date(0, _) => {
+            return unsupported("Date2DMY of an undefined date with a part other than 0, 1 and 4 (not pinned)");
+        }
         Value::Date(n, _) if *n > 0 => *n,
         other => return plain_date(other, "Date2DMY").map(|_| unreachable!()),
     };
@@ -425,14 +430,21 @@ pub(crate) fn weekday(day: i32) -> i32 {
     (day - 1).rem_euclid(7) + 1
 }
 
+/// The day number of a defined date; a closing date counts as its day (types/lt-totext-bigtext-codeunit-run/P93Date.al
+/// BT_DayOfWeek_WeekNo_Year `closing 2024-12-30`: `1|1|2024`, as 2024-12-30).
 fn receiver_date(r: Option<&mut Value>, what: &str) -> Result<i32, Signal> {
     match r {
+        Some(Value::Date(n, true)) if *n > 0 => Ok(*n),
         Some(v) => plain_date(v, what),
         None => unsupported(format!("{what} without a receiver")),
     }
 }
 
+/// The undefined date raises DateInvalid (P93Date.al BT_DayOfWeek_WeekNo_Year `0D`).
 fn day_of_week(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
+    if let Some(Value::Date(0, _)) = r.as_deref() {
+        return raise("The date is not valid.", "DateInvalid");
+    }
     Ok(Value::Integer(weekday(receiver_date(r, "Date.DayOfWeek")?)))
 }
 
@@ -1268,6 +1280,24 @@ mod tests {
         refused(calc("<W22>", date(2024, 1, 1)));
     }
 
+    /// types/lt-datetime/DateFuncs.al Date2DMY_Invalid `0D what 0`, `0D what 4`: the undefined date raises DateInvalid for the parts
+    /// 0 and 4 as for 1.
+    #[test]
+    fn date2dmy_of_the_undefined_date_raises_for_parts_0_1_and_4() {
+        for part in [0, 1, 4] {
+            match call("System.Date2DMY#1", vec![Value::Date(0, false), Value::Integer(part)]) {
+                Err(Signal::Error(e)) => {
+                    assert_eq!(
+                        (e.code.as_str(), e.message.as_str()),
+                        ("DateInvalid", "The date is not valid."),
+                        "{part}"
+                    );
+                }
+                other => panic!("{part}: {other:?}"),
+            }
+        }
+    }
+
     // `D1` on 2024-01-31 is 2024-02-01 (types/TestDateFormulaEvaluateLeftoversContracts.al:45).
     #[test]
     fn d1_at_the_end_of_a_month_and_d31_at_the_start() {
@@ -1642,7 +1672,15 @@ mod tests {
         assert_eq!(int(on("Date.DayOfWeek#1", date(2024, 1, 1))), 1);
         assert_eq!(int(on("Date.DayOfWeek#1", date(2024, 1, 7))), 7);
         assert_eq!(int(on("Date.DayOfWeek#1", date(2024, 1, 3))), 3);
-        refused(on("Date.DayOfWeek#1", Value::Date(0, false)));
+        assert!(matches!(
+            on("Date.DayOfWeek#1", Value::Date(0, false)),
+            Err(Signal::Error(_))
+        ));
+        assert_eq!(
+            int(on("Date.DayOfWeek#1", Value::Date(day_from_civil(2024, 12, 30), true))),
+            1
+        );
+        refused(on("Date.WeekNo#1", Value::Date(0, false)));
     }
 
     #[test]

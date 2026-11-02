@@ -724,8 +724,9 @@ fn tokenize(
             // wildcards and a leading `@` ignores case. `&`, `|`, `(`, `)`, `<`, `=` and `..` in it make
             // BC quote the whole value (record/TestSetFilterSpecialTextContracts.al, BC 27.5);
             // `>` is also quoted (filters/W4Filters.al:174-191), with a leading `@` too: `'@a>b@x.com'`
-            // ignores case (misc/lt-y14-triage/Y14Small.al:309, corpus master). A text with both a wildcard
-            // and one of those is not implemented here.
+            // ignores case (misc/lt-y14-triage/Y14Small.al:309, corpus master). A text with both a wildcard and one of those is
+            // quoted and keeps the wildcard (filters/W4Filters.al SetFilterPercent1_WildcardTogetherWithOperators: `a*&b` reads back
+            // `'a*&b'` and matches `a&b`); the text `*` alone is the literal text, not a wildcard (`star_alone`: `='*'`, no row).
             if let Value::Text(t) | Value::Code(t) = &arg {
                 // A lone `@` is the text `@`, quoted: GetFilters reads `'@'` and it matches only that value
                 // (misc/lt-y14-triage/Y14Small.al:309 `@`, corpus master).
@@ -739,12 +740,15 @@ fn tokenize(
                     None => (false, t.as_str()),
                 };
                 let special = body.contains(['&', '|', '(', ')', '<', '>', '=']) || body.contains("..");
-                let wildcard = body.contains(['*', '?']);
-                if (special && wildcard) || body.starts_with('@') {
-                    let ch = body.chars().find(|c| ">*?@".contains(*c)).unwrap_or('>');
+                if body.starts_with('@') {
                     return Err(format!(
-                        "placeholder %{n} holds a text with the filter character `{ch}`: how BC quotes it is not pinned"
+                        "placeholder %{n} holds a text with the filter character `@`: how BC quotes it is not pinned"
                     ));
+                }
+                if t == "*" {
+                    out.push(Tok::Typed(arg.clone()));
+                    i += 2;
+                    continue;
                 }
                 if at {
                     out.push(Tok::Op("@"));

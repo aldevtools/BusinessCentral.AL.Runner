@@ -521,7 +521,7 @@ impl Session {
         }
         if moved && st.borrow().open {
             if st.borrow().host.is_some() {
-                self.sync_dependents(st)?;
+                self.sync_dependents_then_host_follows(st, name)?;
             } else {
                 // First and Last that move the host, Next and Previous: only the linked parts follow
                 // (`sync_parts_after_move`, pages/lt-part-reads/PartReadsOpen.al:269-283, :336-379). What a First or
@@ -560,7 +560,7 @@ impl Session {
                         false
                     }
                 };
-                self.refresh_parts_asked_by_host(st, &waiting, name == PageMethod::Next, skipped_unlinked)?;
+                self.refresh_parts_unfollow(st, &waiting, name == PageMethod::Next, skipped_unlinked)?;
             }
         }
         Ok(r)

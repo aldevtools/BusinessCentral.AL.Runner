@@ -1407,6 +1407,20 @@ fn al0275_bare_dotnet_alias_declared_by_the_app_and_in_namespace_system() {
     assert!(codes_with_dependency(&[OWN, &cu("String")], None).is_empty());
 }
 
+// al-runner issue 6783: the app declares the alias once and System Application declares the same alias for the SAME
+// assembly and type. That is one type under one name, so the bare alias compiles (real BC compiles the reporter's app, whose
+// declaration equals System Application's). Only an alias naming a different type is ambiguous (must-not-compile 2359).
+#[test]
+fn al0275_same_type_declared_by_the_app_and_in_namespace_system_is_not_ambiguous() {
+    const SYSTEM: &str =
+        "namespace System;\ndotnet { assembly(mscorlib) { type(\"System.Text.StringBuilder\"; String) { } } }";
+    const OWN_SAME: &str = "dotnet { assembly(mscorlib) { type(\"System.Text.StringBuilder\"; String) { } } }";
+    const OWN_OTHER: &str = "dotnet { assembly(mscorlib) { type(\"System.String\"; String) { } } }";
+    let cu = "codeunit 52359 C { procedure P() var B: DotNet String; begin end; }";
+    assert!(codes_with_dependency(&[OWN_SAME, cu], Some(SYSTEM)).is_empty());
+    assert_eq!(codes_with_dependency(&[OWN_OTHER, cu], Some(SYSTEM)), vec!["AL0275"]);
+}
+
 // must-not-compile 2365, 2366, 2370, 2371 (corpus writer Y29, al-runner issue 6526): `X.M := v` where the builtin M has
 // no form that takes the value (no parameter, or only optional ones and more than one) is AL0129.
 #[test]
