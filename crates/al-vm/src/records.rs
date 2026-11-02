@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 mod flowfield_key;
 mod platform_rows;
+mod write_notes;
 
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
 
@@ -1020,7 +1021,7 @@ impl Session {
         // A Delete through a stale buffer follows the rule of a Modify (record/TestRecordStaleBufferWrite.al:662, :676); with
         // triggers or events, where the check falls among them is pinned for the shapes below only.
         if !rec.borrow().temporary && t.fields.iter().any(|f| f.id == 2_000_000_005) {
-            let pk = Self::sql_key(rec, t, &rec.borrow().fields.clone());
+            let pk = Self::sql_key(rec, t, &rec.borrow().fields);
             let stored = self
                 .store_for(rec)
                 .get(&cx, t, &pk)
@@ -3976,7 +3977,7 @@ impl Session {
                 let pre_ops = (!self.sql.active && !rec.borrow().temporary).then(al_data::memory::store_ops);
                 match self
                     .store_for(rec)
-                    .insert(&cx, &t, stored.clone())
+                    .insert(&cx, &t, stored)
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?
                 {
                     InsertOutcome::Inserted => {
@@ -3985,8 +3986,7 @@ impl Session {
                             self.sql.pre_insert(t.object, plain, ops);
                             self.sql.pre_inserted(al_data::memory::store_ops());
                         }
-                        let pk = Self::sql_key(rec, &t, &rec.borrow().fields.clone());
-                        self.note_write(rec, &t, crate::state::TxWriteKind::Insert, &pk, before);
+                        self.note_insert(rec, &t, before);
                         Self::clear_blob_written(rec);
                         rec.borrow_mut().inserted = true;
                         if !rec.borrow().temporary {
@@ -4156,7 +4156,7 @@ impl Session {
                 self.tenant_license_state_refuses(&t, "modify")?;
                 self.document_service_trigger_refused(&t, rec, run, "Modify")?;
                 // A key value the column rounds finds the rounded row (P130DateFilters.al:635-637, `modify var`).
-                let pk = Self::sql_key(rec, &t, &rec.borrow().fields.clone());
+                let pk = Self::sql_key(rec, &t, &rec.borrow().fields);
                 let stored = self
                     .store_for(rec)
                     .get(&cx, &t, &pk)
@@ -4333,7 +4333,7 @@ impl Session {
                 let before = self.store.change_counter();
                 match self
                     .store_for(rec)
-                    .modify(&cx, &t, stored.clone())
+                    .modify(&cx, &t, stored)
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?
                 {
                     WriteOutcome::Done => {

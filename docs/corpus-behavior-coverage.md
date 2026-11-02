@@ -12,7 +12,7 @@ The catalog of each area is what the AL language server offers in probe files (`
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | attributes | 42 | 33 | 78.6% | 31 | 73.8% | 0 | 11 | 1 |
 | events | 23 | 16 | 69.6% | 23 | 100.0% | 0 | 0 | 0 |
-| properties | 720 | 671 | 93.2% | 609 | 84.6% | 6 | 105 | 2 |
+| properties | 720 | 671 | 93.2% | 610 | 84.7% | 5 | 105 | 2 |
 | syntax | 16 | 16 | 100.0% | 16 | 100.0% | 0 | 0 | 0 |
 | triggers | 128 | 128 | 100.0% | 118 | 92.2% | 1 | 9 | 0 |
 
@@ -98,7 +98,7 @@ Left out: 293 presentation-only properties (Caption, ToolTip, ApplicationArea, .
 | XmlPort | 26 | 26 | 100.0% | 26 | 100.0% | 0 | 0 | 0 |
 | XmlPortFieldAttribute | 7 | 7 | 100.0% | 7 | 100.0% | 0 | 0 | 0 |
 | XmlPortFieldElement | 8 | 8 | 100.0% | 8 | 100.0% | 0 | 0 | 0 |
-| XmlPortTableElement | 18 | 18 | 100.0% | 17 | 94.4% | 1 | 0 | 0 |
+| XmlPortTableElement | 18 | 18 | 100.0% | 18 | 100.0% | 0 | 0 | 0 |
 | XmlPortTextAttribute | 6 | 6 | 100.0% | 6 | 100.0% | 0 | 0 | 0 |
 | XmlPortTextElement | 7 | 7 | 100.0% | 7 | 100.0% | 0 | 0 | 0 |
 
@@ -176,7 +176,7 @@ An item is **pinned** when it occurs in a corpus file in a routine that static r
 | Platform and system events | 130 | 36 | 17 | 0 | 0 |
 | Statements and expressions | 64 | 60 | 58 | 0 | 0 |
 | Method attributes | 34 | 33 | 13 | 1 | 1 |
-| Runtime error sites (text pinned) | 116 | 110 | - | 6 | - |
+| Runtime error sites (text pinned) | 117 | 110 | - | 7 | - |
 
 Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left out of the property catalog.
 
@@ -557,7 +557,7 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 |---|---|---:|---|---:|
 | procedure | `Native` | 25 | no | 0 |
 
-## Runtime error sites without a corpus test (6 of 116; 2 have too little fixed text to match)
+## Runtime error sites without a corpus test (7 of 117; 3 have too little fixed text to match)
 
 A site is pinned when a corpus string literal holds the message text. Codes are not matched. Sites with a computed message are not listed.
 
@@ -567,3 +567,4 @@ A site is pinned when a corpus string literal holds the message text. Codes are 
 - crates/al-builtins/src/testcontexts.rs:53 `The expression System.Func`1[System.Int32] cannot be type-converted to a Microsoft.Dynamics.Nav.Runtime.NavValue value.` code `TypeConversion`
 - crates/al-vm/src/control_add_in.rs:31 `The control add-in on control % on page % has not been instantiated.`
 - crates/al-vm/src/http.rs:111 `Invalid URI: The URI is empty.` code `AL:UriFormat`
+- crates/al-vm/src/pages/request_options.rs:96 `NavType` code `Argument` (generic)

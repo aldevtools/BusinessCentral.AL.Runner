@@ -297,7 +297,21 @@ pub(crate) fn reach_facts(
     object: usize,
     routine: usize,
 ) -> ReachFacts {
-    walk_reach(events, lowered, index, object, routine, false)
+    walk_reach(events, lowered, index, &[(object, routine)], &|_| false)
+}
+
+/// Whether `fact` holds of the joined reach of the routines `roots`: one walk of the union of their reaches, which
+/// stops as soon as `fact` holds. `fact` must be one that, once it holds of part of a reach, holds of all of it (a
+/// table, a state bit, a part not known); it then holds of the union exactly when it holds of the reach of one of the
+/// roots. A walk per root visits the reach they share once per root; the tests of a codeunit share most of theirs.
+pub(crate) fn union_reach_has(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    roots: &[(usize, usize)],
+    fact: &dyn Fn(&ReachFacts) -> bool,
+) -> bool {
+    fact(&walk_reach(events, lowered, index, roots, fact))
 }
 
 /// The reach facts of an unfinished test (the earlier side of [`ReachFacts::changes_read_by`]): the walk stops at
@@ -312,7 +326,7 @@ pub(crate) fn unfinished_reach_facts(
     object: usize,
     routine: usize,
 ) -> ReachFacts {
-    walk_reach(events, lowered, index, object, routine, true)
+    walk_reach(events, lowered, index, &[(object, routine)], &|f| f.unknown.is_some())
 }
 
 /// The index in the body of test routine `routine` of `object` of the statement that holds the statement position
@@ -542,14 +556,14 @@ fn walk_reach(
     events: &al_vm::events::Registry,
     lowered: &Lowered,
     index: &ReachIndex,
-    object: usize,
-    routine: usize,
-    stop_at_unknown: bool,
+    roots: &[(usize, usize)],
+    stop: &dyn Fn(&ReachFacts) -> bool,
 ) -> ReachFacts {
     let mut walk = Walk::new(events, lowered, index);
-    walk.stack.push((object, routine));
+    // Popped first root first, as a walk of each root alone starts.
+    walk.stack.extend(roots.iter().rev().copied());
     while let Some((o, r)) = walk.stack.pop() {
-        if stop_at_unknown && walk.out.unknown.is_some() {
+        if stop(&walk.out) {
             break;
         }
         if walk.first_visit(o, r) {
@@ -1431,5 +1445,36 @@ mod tests {
             format!("{fb:?}"),
             format!("{:?}", reach_facts(&events, &l, &warm, o, b))
         );
+    }
+    // One walk of several roots gives what a walk of each root gives, joined: the questions asked of the tests of a
+    // codeunit together (`corpus.rs` `tests_take_numbers`, `reaches_session_storage`) get the answer of asking each.
+    #[test]
+    fn the_union_walk_joins_the_facts_of_each_root() {
+        let src = "
+            table 50100 T { fields { field(1; K; Integer) { } } }
+            table 50104 U { fields { field(1; K; Integer) { } } }
+            codeunit 50103 Tests { Subtype = Test;
+                [Test] procedure A() var R: Record T; begin R.Insert(); end;
+                [Test] procedure B() var S: Record U; N: Integer; begin S.Insert(); N := NumberSequence.Next('X'); end;
+                [Test] procedure C() var Id: Integer; begin Codeunit.Run(Id); end; }";
+        let l = lowered(src);
+        let events = al_vm::events::Registry::build(&l.program);
+        let index = ReachIndex::new(&events, &l);
+        let (o, a) = routine(&l, "Tests", "A");
+        let (_, b) = routine(&l, "Tests", "B");
+        let (_, c) = routine(&l, "Tests", "C");
+        let has = |roots: &[(usize, usize)], fact: &dyn Fn(&ReachFacts) -> bool| {
+            let any = roots
+                .iter()
+                .any(|&(_, r)| fact(&reach_facts(&events, &l, &index, o, r)));
+            assert_eq!(union_reach_has(&events, &l, &index, roots, fact), any);
+            any
+        };
+        let all = [(o, a), (o, b), (o, c)];
+        assert!(has(&all, &|f| f.state_writes & state::NUMBER_SEQUENCE != 0));
+        assert!(has(&all, &|f| f.unknown.is_some()));
+        assert!(!has(&all[..2], &|f| f.unknown.is_some()));
+        assert!(!has(&all[..1], &|f| f.state_writes & state::NUMBER_SEQUENCE != 0));
+        assert!(!has(&all, &|f| f.writes_any));
     }
 }

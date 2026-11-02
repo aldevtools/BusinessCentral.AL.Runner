@@ -537,17 +537,18 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
             continue;
         }
         let obj = ws.object_ast(oi);
+        let (decls, types) = declarations(obj.syntax());
         if obj.kind() == "pagecustomization" {
             page_customization_variables(ws, oi, &obj, &mut out);
         }
         subscriber_publishers(ws, oi, &obj, &mut out);
-        platform_integer_without_using(ws, oi, &obj, &mut out);
-        unknown_codeunit_variables(ws, oi, &obj, &mut out);
+        platform_integer_without_using(ws, oi, &obj, &types, &mut out);
+        unknown_codeunit_variables(ws, oi, &decls, &mut out);
         test_request_pages_of_no_report(ws, oi, &obj, &mut out);
-        ambiguous_dotnet_aliases(ws, oi, &obj, &mut out);
+        ambiguous_dotnet_aliases(ws, oi, &decls, &mut out);
         object_properties(ws, oi, &obj, &mut out);
         object_triggers(ws, oi, &obj, &mut out);
-        label_trailing_commas(ws, o.file, obj.syntax(), &mut out);
+        label_trailing_commas(ws, o.file, &types, &mut out);
         if !unparsed.contains(&(ws.files[o.file].app, ws.files[o.file].path.as_str())) && !whole.contains(&o.file) {
             parameter_names(ws, o.file, obj.syntax(), &mut out);
         }
@@ -561,7 +562,7 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
             ObjKind::ReportExtension => extension_procedures(ws, oi, &obj, ObjKind::Report, &mut out),
             ObjKind::Codeunit => {
                 duplicate_procedures(ws, oi, &obj, &mut out);
-                client_events_outside_pages(ws, oi, &obj, &mut out);
+                client_events_outside_pages(ws, oi, &decls, &mut out);
             }
             ObjKind::Page => {
                 field_control_procedure_calls(ws, oi, &obj, &mut out);
@@ -585,9 +586,9 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
 /// compiles (text/lt-label-textbuilder/TxCLabel.al Y12_Label_TrailingComma); a trailing comma after a property is AL0301
 /// (must-not-compile 2330 `Locked = true,;`, 2331 `Comment = 'c',;`), two commas after the text AL0107 (2332 `'T',,;`).
 /// The diagnostic is at the comma that is wrong; the parser rejects both shapes too, so the file never runs.
-fn label_trailing_commas(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+fn label_trailing_commas(ws: &Workspace, file: usize, types: &[SyntaxNode], out: &mut Vec<Diagnostic>) {
     let significant = |t: &al_syntax::SyntaxToken| !t.kind().is_trivia();
-    for n in obj.descendants().filter(|n| n.kind() == SyntaxKind::TypeRef) {
+    for n in types {
         let mut toks: Vec<al_syntax::SyntaxToken> = n
             .descendants_with_tokens()
             .filter_map(|e| e.into_token())
@@ -645,7 +646,13 @@ fn label_trailing_commas(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mu
 /// only Integer are pinned: other platform tables, other places that name a table, a qualified name and a file whose namespace
 /// is System.Utilities or below it keep compiling. A table Integer the file finds in its own namespace, a using or among the
 /// objects without a namespace is no error.
-fn platform_integer_without_using(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
+fn platform_integer_without_using(
+    ws: &Workspace,
+    oi: usize,
+    obj: &ast::Object,
+    types: &[SyntaxNode],
+    out: &mut Vec<Diagnostic>,
+) {
     const NS: &str = "system.utilities";
     let file = ws.objects[oi].file;
     let f = &ws.files[file];
@@ -657,9 +664,9 @@ fn platform_integer_without_using(ws: &Workspace, oi: usize, obj: &ast::Object, 
         return;
     }
     let bare_integer = |parts: &[String]| matches!(parts, [p] if p.eq_ignore_ascii_case("Integer"));
-    let mut at: Vec<usize> = obj
-        .syntax()
-        .descendants()
+    let mut at: Vec<usize> = types
+        .iter()
+        .cloned()
         .filter_map(ast::TypeRef::cast)
         .filter(|t| t.type_name().eq_ignore_ascii_case("Record") && bare_integer(&t.object_name_parts()))
         .map(|t| offset_of(t.syntax()))
@@ -698,14 +705,9 @@ fn platform_integer_without_using(ws: &Workspace, oi: usize, obj: &ast::Object, 
 /// 0213-unknown-codeunit-var.al:7, a local variable). Only a variable declaration with a one-segment name is judged; a
 /// parameter, a return type, an id and a namespace-qualified name keep compiling (not pinned). `names_object` keeps the
 /// name when an app the file sees, or the platform app, is not loaded.
-fn unknown_codeunit_variables(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
+fn unknown_codeunit_variables(ws: &Workspace, oi: usize, decls: &[ast::VarDecl], out: &mut Vec<Diagnostic>) {
     let file = ws.objects[oi].file;
-    for t in obj
-        .syntax()
-        .descendants()
-        .filter_map(ast::VarDecl::cast)
-        .filter_map(|d| d.type_ref())
-    {
+    for t in decls.iter().filter_map(|d| d.type_ref()) {
         if !t.type_name().eq_ignore_ascii_case("Codeunit") {
             continue;
         }
@@ -773,8 +775,8 @@ fn test_request_pages_of_no_report(ws: &Workspace, oi: usize, obj: &ast::Object,
 /// AL0460 (corpus must-not-compile 2335): a DotNet variable of a codeunit declared both `[RunOnClient]` and `[WithEvents]`.
 /// The same declaration on a page compiles (al-language-onprem-dotnet/lt-bg-runonclient/Y16RunOnClientShapes.al, page
 /// 99475). Other object kinds are not judged.
-fn client_events_outside_pages(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
-    for d in obj.syntax().descendants().filter_map(ast::VarDecl::cast) {
+fn client_events_outside_pages(ws: &Workspace, oi: usize, decls: &[ast::VarDecl], out: &mut Vec<Diagnostic>) {
+    for d in decls {
         let names: Vec<String> = d.attributes().iter().map(|a| a.name().to_ascii_lowercase()).collect();
         if names.iter().any(|n| n == "runonclient") && names.iter().any(|n| n == "withevents") {
             push(
@@ -795,7 +797,7 @@ fn client_events_outside_pages(ws: &Workspace, oi: usize, obj: &ast::Object, out
 /// compile (al-language-onprem-dotnet/lt-y20-dotnet-fullname/Y20DotNetFullTypeName.al:27-58). Only that shape is pinned: a
 /// file or a declaration in a namespace, another namespace of the dependency, a parameter or a return type keep compiling.
 /// A dependency that is not loaded declares nothing here, so nothing is reported.
-fn ambiguous_dotnet_aliases(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
+fn ambiguous_dotnet_aliases(ws: &Workspace, oi: usize, decls: &[ast::VarDecl], out: &mut Vec<Diagnostic>) {
     let file = ws.objects[oi].file;
     let app = ws.files[file].app;
     if ws.files[file].namespace.is_some() || !ws.dotnet.iter().any(|d| d.app == app) {
@@ -812,12 +814,7 @@ fn ambiguous_dotnet_aliases(ws: &Workspace, oi: usize, obj: &ast::Object, out: &
                 }
         })
     };
-    for t in obj
-        .syntax()
-        .descendants()
-        .filter_map(ast::VarDecl::cast)
-        .filter_map(|d| d.type_ref())
-    {
+    for t in decls.iter().filter_map(|d| d.type_ref()) {
         if !t.type_name().eq_ignore_ascii_case("DotNet") {
             continue;
         }
@@ -1472,6 +1469,26 @@ const PARAM_NAME_ENDS_LIST: &[&str] = &["begin", "procedure", "trigger"];
 ///
 /// A file of the shape [`keyword_name_files`] covers gets alc's full list there instead. A file the parser did not accept is skipped (by the caller): its nodes come from the parser's recovery (a
 /// procedure without parentheses gives a parameter named `begin`), and its parse error stands for the file.
+/// The variable declarations of an object and its type references (a nested one after the one that holds it), in source
+/// order. The grammar reads a var section only in an object body and before a routine's statement block
+/// (`al_syntax::grammar::declarations::var_section`), and a type reference only in a variable declaration, a parameter, a
+/// return type and another type reference (`declarations::type_ref`), so a statement block holds none of them; the blocks
+/// are most of the tree, so they are not entered.
+fn declarations(obj: &SyntaxNode) -> (Vec<ast::VarDecl>, Vec<SyntaxNode>) {
+    let (mut decls, mut types) = (Vec::new(), Vec::new());
+    let mut walk = obj.preorder();
+    while let Some(ev) = walk.next() {
+        let rowan::WalkEvent::Enter(n) = ev else { continue };
+        match n.kind() {
+            SyntaxKind::Block => walk.skip_subtree(),
+            SyntaxKind::VarDecl => decls.extend(ast::VarDecl::cast(n)),
+            SyntaxKind::TypeRef => types.push(n),
+            _ => {}
+        }
+    }
+    (decls, types)
+}
+
 fn parameter_names(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     const INVALID: &str =
         "Syntax error, identifier expected. Provide a valid name (letters, digits, and underscores only).";
@@ -2338,6 +2355,7 @@ pub(crate) fn resolved_scope(
             "The application object or method '{name}' has scope '{scope}' and cannot be used for 'Cloud' development."
         )
     };
+    let mut scopes: std::collections::HashMap<(usize, usize), Option<(String, &'static str)>> = Default::default();
     for (fi, f) in ws.files.iter().enumerate() {
         if f.app != app {
             continue;
@@ -2357,28 +2375,12 @@ pub(crate) fn resolved_scope(
                             }
                         }
                         Res::Proc { object, offset } if ws.objects[*object].app == app => {
-                            let obj = ws.object_ast(*object);
-                            let Some(routine) = ast::routines_in(obj.syntax())
-                                .into_iter()
-                                .find(|r| usize::from(r.syntax().text_range().start()) == *offset)
-                            else {
-                                continue;
-                            };
-                            let scope = routine.attributes().find_map(|a| {
-                                if !a.name().eq_ignore_ascii_case("Scope") {
-                                    return None;
-                                }
-                                let arg = a.args()?.text().to_string();
-                                let arg = arg
-                                    .trim()
-                                    .trim_start_matches('(')
-                                    .trim_end_matches(')')
-                                    .trim()
-                                    .trim_matches('\'');
-                                ["OnPrem", "Internal"].into_iter().find(|s| s.eq_ignore_ascii_case(arg))
-                            });
-                            if let Some(scope) = scope {
-                                push(&mut out, ws, fi, offset_of(&n), "AL0296", msg(&routine.name(), scope));
+                            // Worked out once per routine: a routine is called from many places.
+                            let scoped = scopes
+                                .entry((*object, *offset))
+                                .or_insert_with(|| routine_scope(ws, *object, *offset));
+                            if let Some((name, scope)) = scoped {
+                                push(&mut out, ws, fi, offset_of(&n), "AL0296", msg(name, scope));
                             }
                         }
                         _ => {}
@@ -2407,6 +2409,28 @@ pub(crate) fn resolved_scope(
 }
 
 /// The OnPrem-only calls of one object (see [`check_context`]).
+/// The name and the `Scope` (OnPrem or Internal) of the routine of object `object` at `offset`, if it has one of them.
+fn routine_scope(ws: &Workspace, object: usize, offset: usize) -> Option<(String, &'static str)> {
+    let obj = ws.object_ast(object);
+    let routine = ast::routines_in(obj.syntax())
+        .into_iter()
+        .find(|r| usize::from(r.syntax().text_range().start()) == offset)?;
+    let scope = routine.attributes().find_map(|a| {
+        if !a.name().eq_ignore_ascii_case("Scope") {
+            return None;
+        }
+        let arg = a.args()?.text().to_string();
+        let arg = arg
+            .trim()
+            .trim_start_matches('(')
+            .trim_end_matches(')')
+            .trim()
+            .trim_matches('\'');
+        ["OnPrem", "Internal"].into_iter().find(|s| s.eq_ignore_ascii_case(arg))
+    })?;
+    Some((routine.name(), scope))
+}
+
 fn onprem_method_calls(ws: &Workspace, file: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
     let globals: Vec<(String, String)> = obj.var_decls().flat_map(|d| typed_names(&d)).collect();
     let own_procs: Vec<String> = obj.routines().map(|r| r.name().to_ascii_lowercase()).collect();

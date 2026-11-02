@@ -1978,6 +1978,9 @@ impl Session {
         if parts.len() > fields.len() {
             return Ok(None);
         }
+        if let Some(key) = crate::recordid_code_text::code_text_key(t, &parts) {
+            return Ok(key);
+        }
         let mut key = Vec::new();
         for ((v, quoted), &p) in parts.iter().zip(fields) {
             let ty = &t.fields[p].ty;
