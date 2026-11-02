@@ -78,10 +78,17 @@ pub(crate) enum Shape {
 pub(crate) struct Operand {
     pub(crate) k: K,
     pub(crate) shape: Shape,
-    /// The literal as written (for the constant diagnostics).
-    text: String,
-    /// The type as alc names it in a message.
-    name: String,
+    /// The operand's node, for the literal as written in the constant diagnostics (none for a computed operand).
+    node: Option<SyntaxNode>,
+    /// The type as alc names it in a message, worked out only for a message.
+    name: Name,
+}
+
+/// How a message names an operand's type: by its type, or by a fixed name.
+#[derive(Clone, Debug)]
+enum Name {
+    Of(Ty),
+    Fixed(&'static str),
 }
 
 /// Why a conversion is rejected.
@@ -150,6 +157,23 @@ impl Operand {
         }
     }
 
+    /// The type as alc names it in a message.
+    fn name(&self) -> String {
+        match &self.name {
+            Name::Fixed(n) => (*n).to_string(),
+            Name::Of(Ty::Enum(n)) => format!("Enum \"{n}\""),
+            Name::Of(Ty::Object(ObjKind::Interface, n)) => format!("Interface \"{n}\""),
+            Name::Of(Ty::Label) => "Label".into(),
+            Name::Of(_) if matches!(self.shape, Shape::Str(1)) => "Char".into(),
+            Name::Of(t) => t.to_string(),
+        }
+    }
+
+    /// The literal as written.
+    fn text(&self) -> String {
+        self.node.as_ref().map(|n| n.text().to_string()).unwrap_or_default()
+    }
+
     fn is_place(&self) -> bool {
         self.shape == Shape::Place
     }
@@ -179,8 +203,10 @@ impl<'a> Checker<'a> {
                 match tok.kind() {
                     SyntaxKind::StringLit => {
                         let text = tok.text();
-                        let inner = text.get(1..text.len().saturating_sub(1))?.replace("''", "'");
-                        Shape::Str(inner.chars().count())
+                        let inner = text.get(1..text.len().saturating_sub(1))?;
+                        // Each doubled quote is one character of the value (`replace` and `matches` both take the
+                        // pairs from the left).
+                        Shape::Str(inner.chars().count() - inner.matches("''").count())
                     }
                     SyntaxKind::Integer => Shape::Int,
                     SyntaxKind::Decimal => Shape::Dec,
@@ -230,8 +256,8 @@ impl<'a> Checker<'a> {
             return Some(Operand {
                 k: K::TestValue,
                 shape,
-                text: String::new(),
-                name: "Text".into(),
+                node: None,
+                name: Name::Fixed("Text"),
             });
         }
         let k = match ty {
@@ -266,18 +292,11 @@ impl<'a> Checker<'a> {
             (Shape::Str(_), _) => return None,
             (_, k) => k,
         };
-        let name = match ty {
-            Ty::Enum(n) => format!("Enum \"{n}\""),
-            Ty::Object(ObjKind::Interface, n) => format!("Interface \"{n}\""),
-            Ty::Label => "Label".into(),
-            _ if matches!(shape, Shape::Str(1)) => "Char".into(),
-            t => t.to_string(),
-        };
         Some(Operand {
             k,
             shape,
-            text: node.text().to_string(),
-            name,
+            node: Some(node.clone()),
+            name: Name::Of(ty.clone()),
         })
     }
 
@@ -366,7 +385,7 @@ impl<'a> Checker<'a> {
         no: &'static str,
         arg: usize,
     ) {
-        let s = &src.name;
+        let s = &src.name();
         let (code, message) = match why {
             Reject::No if no == "AL0133" => (
                 "AL0133",
@@ -383,14 +402,14 @@ impl<'a> Checker<'a> {
                 "AL0369",
                 format!(
                     "Constant value '{}' cannot be converted to a '{t_name}'.",
-                    src.text.trim_end_matches(['L', 'l'])
+                    src.text().trim_end_matches(['L', 'l'])
                 ),
             ),
             Reject::Ordinal => (
                 "AL0398",
                 format!(
                     "Constant value '{}' is outside of the valid ordinal range for this Option type",
-                    src.text
+                    src.text()
                 ),
             ),
         };
@@ -559,7 +578,11 @@ impl<'a> Checker<'a> {
                 sc,
                 rhs,
                 code,
-                format!("Operator '+=' {verb} operands of type '{}' and '{}'", t.name, s.name),
+                format!(
+                    "Operator '+=' {verb} operands of type '{}' and '{}'",
+                    t.name(),
+                    s.name()
+                ),
             );
             return Some(());
         }
@@ -579,16 +602,16 @@ impl<'a> Checker<'a> {
         let r = Operand {
             k: result,
             shape: Shape::Place,
-            text: String::new(),
+            node: None,
             name: match result {
-                K::Text(_) => "Text".into(),
-                K::Int => "Integer".into(),
-                K::Dec => "Decimal".into(),
+                K::Text(_) => Name::Fixed("Text"),
+                K::Int => Name::Fixed("Integer"),
+                K::Dec => Name::Fixed("Decimal"),
                 _ => t.name.clone(),
             },
         };
         if self.conv_accepts(&r, t.k, Ctx::Value).is_err() {
-            let name = t.name.clone();
+            let name = t.name();
             self.conv_report(sc, rhs, &r, &name, Reject::No, "AL0122", 0);
         }
         Some(())
@@ -621,7 +644,11 @@ impl<'a> Checker<'a> {
                 sc,
                 node,
                 code,
-                format!("Operator '{op}' {verb} operands of type '{}' and '{}'", l.name, r.name),
+                format!(
+                    "Operator '{op}' {verb} operands of type '{}' and '{}'",
+                    l.name(),
+                    r.name()
+                ),
             );
         }
         Some(())
@@ -648,13 +675,13 @@ impl<'a> Checker<'a> {
                 sc,
                 value,
                 "AL0698",
-                format!("Type {} cannot be used in a 'case' statement.", t.name),
+                format!("Type {} cannot be used in a 'case' statement.", t.name()),
             );
         }
         if let Err(why) = self.conv_accepts(&s, tk, ctx) {
             let name = match tk {
                 K::Text(Some(n)) if matches!(t.shape, Shape::Str(_)) => format!("Text[{n}]"),
-                _ => t.name.clone(),
+                _ => t.name(),
             };
             self.conv_report(sc, value, &s, &name, why, "AL0122", 0);
         }
