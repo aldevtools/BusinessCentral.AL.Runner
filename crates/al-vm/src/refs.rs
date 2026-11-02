@@ -1147,7 +1147,7 @@ impl Session {
             }
             // As Record.GetBySystemId, and a miss with the result unused raises "The <table> does not
             // exist" naming the Guid (PXEnumRecordRef.al:199-301).
-            "GetBySystemId" => self.get_by_system_id(&rec, &t, args, true),
+            "GetBySystemId" => self.get_by_system_id(&rec, &t, args),
             "AddLink" | "DeleteLink" | "DeleteLinks" | "HasLinks" | "CopyLinks" => {
                 self.record_links(record_method(method), &rec, &t, args)
             }
