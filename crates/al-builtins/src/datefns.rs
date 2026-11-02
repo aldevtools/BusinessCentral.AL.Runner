@@ -1495,10 +1495,16 @@ mod tests {
     }
 
     #[test]
+    fn dmy2date_year_zero_is_pinned_only_as_the_first_defined_date() {
+        let d = |args: Vec<i32>| call("System.DMY2Date#1", args.into_iter().map(Value::Integer).collect());
+        // (1, 1, 0) is the first defined date, 0001-01-02 (types/lt-datetime/DateFuncs.al:477 UN_DMY2Date_YearZero_Value).
+        assert!(matches!(d(vec![1, 1, 0]), Ok(Value::Date(2, false))), "{:?}", d(vec![1, 1, 0]));
+    }
+
+    #[test]
     fn dmy2date_refuses_what_the_corpus_does_not_pin() {
         let d = |args: Vec<i32>| call("System.DMY2Date#1", args.into_iter().map(Value::Integer).collect());
-        // Year 0 is no error in BC (DateFuncs.al:270-271), but the date it gives is not pinned.
-        refused(d(vec![1, 1, 0]));
+        // Year 0 with a day and a month in range, other than (1, 1, 0), is a year error (types/lt-y81-values/Y81DMY2Date.al:41-64).
         // Two parts out of range, other than a month out of range in year 0, are not pinned.
         refused(d(vec![0, 0, 2024]));
         refused(d(vec![32, 1, 0]));
