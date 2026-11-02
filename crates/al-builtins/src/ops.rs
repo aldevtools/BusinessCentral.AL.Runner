@@ -715,6 +715,12 @@ fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
                 "TypeConversion",
             )
         }
+        // A Variant holding an Integer (a FieldRef.Value of an Integer field) assigned to a Blob raises TypeConversion and leaves
+        // the Blob empty (types/lt-y71-value-conversions/Y71ValueConversions.al:543-547 `integer_via_variant`).
+        (Value::Integer(_), RtType::Library(n)) if n.eq_ignore_ascii_case("Blob") => raise(
+            "The expression Microsoft.Dynamics.Nav.Runtime.NavIndirectValue cannot be type-converted to a Microsoft.Dynamics.Nav.Runtime.NavBLOB value.",
+            "TypeConversion",
+        ),
         // A Variant holding a kind whose conversion into `t` raises the same error for every value the conversion matrix tries.
         _ => unsupported(format!("conversion of {} to {t}", v.describe(), t = t.describe())),
     }

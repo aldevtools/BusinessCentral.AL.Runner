@@ -437,7 +437,8 @@ impl<'a> Compiler<'a> {
                 let inner = a;
                 let a = self.expr_any(a)?;
                 self.note_dotnet_result_ty(t, inner);
-                let field_value = matches!(t, RtType::Text(_) | RtType::Code(_))
+                let field_value = (matches!(t, RtType::Text(_) | RtType::Code(_))
+                    || matches!(t, RtType::Library(n) if n.eq_ignore_ascii_case("Blob")))
                     && matches!(&**inner, ir::Expr::Builtin { id, .. } if *id == al_builtins::builtin_id::ids::FIELDREF_VALUE_1);
                 self.chunk.types.push(t.clone());
                 let t = (self.chunk.types.len() - 1) as u32;

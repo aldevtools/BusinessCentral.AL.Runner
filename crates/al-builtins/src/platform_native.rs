@@ -154,6 +154,20 @@ pub const TABLE: &[Entry] = &[
         id: "FeatureAccessManagement.IsSandboxEnvironmentInternal",
         run: fam_is_sandbox,
     },
+    Entry {
+        object: "MCP Utilities",
+        name: "GetSystemToolsInDynamicMode",
+        params: &[],
+        id: "MCPUtilities.GetSystemToolsInDynamicMode",
+        run: crate::mcp_natives::system_tools_in_dynamic_mode,
+    },
+    Entry {
+        object: "MCP Utilities",
+        name: "GetSystemToolsInDataQuery",
+        params: &[],
+        id: "MCPUtilities.GetSystemToolsInDataQuery",
+        run: crate::mcp_natives::system_tools_in_data_query,
+    },
 ];
 
 /// The native for the procedure `name` of the codeunit `object` with parameters of these types.

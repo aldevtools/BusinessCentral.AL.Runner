@@ -367,11 +367,17 @@ pub(super) fn headers_get_values(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut
 /// - a list gets the values appended; on false it is left as it was (:141-163 GetSecretValues_ListIsClearedOrAppended);
 /// - Remove and Clear drop the secret values (:165-186), TryAddWithoutValidation stores one (:188-208).
 ///
-/// Only the answer as a used result is pinned: a statement, and a name that is no token or a content header name, are refused.
+/// The statement form (network/lt-y71-secret-values-statement/Y71HdrSecretValuesStatement.al:115-172) fills the target the
+/// same way for a name with secret values; where the used result answers false (a missing name, a name with only plain values,
+/// the empty name) it raises `NavNclInvalidHeaderException` with code InvalidHeader, and more values than an array holds raise
+/// the CopyArray length error (ArrayLengthMismatch). A name that is no token or a content header name is refused in both forms.
 /// Whether a false answer sets the last error is not measured: it is left as it was, as GetValues does on request headers.
 pub(super) fn headers_get_secret_values(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    if !c.ret_used() {
-        return unsupported("HttpHeaders.GetSecretValues as a statement (not pinned)");
+    let statement = !c.ret_used();
+    if statement
+        && matches!(r.as_deref(), Some(Value::Library(_, cell)) if matches!(&*cell.borrow(), LibraryValue::Empty))
+    {
+        return unsupported("HttpHeaders.GetSecretValues as a statement on headers no GetHeaders filled (not pinned)");
     }
     let name = text(a, 0)?;
     let values = with_bag(r.as_deref(), |b| {
@@ -384,6 +390,12 @@ pub(super) fn headers_get_secret_values(c: &mut dyn Ctx, r: Option<&mut Value>, 
         Ok(find(&b.secret, &name).map(|(_, v)| v.clone()))
     })??;
     let Some(values) = values.filter(|_| !name.is_empty()) else {
+        if statement {
+            return raise(
+                "Exception of type 'Microsoft.Dynamics.Nav.Types.Exceptions.NavNclInvalidHeaderException' was thrown.",
+                "InvalidHeader",
+            );
+        }
         return Ok(Value::Boolean(false));
     };
     let secret = |v: String| lib("SecretText", LibraryValue::Text(v));
@@ -391,6 +403,16 @@ pub(super) fn headers_get_secret_values(c: &mut dyn Ctx, r: Option<&mut Value>, 
         Some(Value::Array(arr)) => {
             let mut arr = arr.borrow_mut();
             if values.len() > arr.len() {
+                if statement {
+                    return raise(
+                        &format!(
+                            "CopyArray: The length parameter {} does not match the length of the destination array {}.",
+                            values.len(),
+                            arr.len()
+                        ),
+                        "ArrayLengthMismatch",
+                    );
+                }
                 return Ok(Value::Boolean(false));
             }
             for (i, v) in values.into_iter().enumerate() {
@@ -400,7 +422,7 @@ pub(super) fn headers_get_secret_values(c: &mut dyn Ctx, r: Option<&mut Value>, 
         Some(Value::List(list)) => list.borrow_mut().extend(values.into_iter().map(secret)),
         other => return unsupported(format!("HttpHeaders.GetSecretValues into {}", other.describe())),
     }
-    Ok(Value::Boolean(true))
+    Ok(if statement { Value::Null } else { Value::Boolean(true) })
 }
 
 /// `TryAddWithoutValidation` adds without checking the value or the known headers: false for a name that is no

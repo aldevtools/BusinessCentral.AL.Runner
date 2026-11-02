@@ -290,12 +290,12 @@ impl Session {
         Ok(())
     }
 
-    fn table_caption(&self, table: usize) -> String {
+    pub(crate) fn table_caption(&self, table: usize) -> String {
         let t = self.engine.tables[table].clone().expect("table");
         self.caption(&t)
     }
 
-    fn is_blob_field(&self, table: usize, p: usize) -> bool {
+    pub(crate) fn is_blob_field(&self, table: usize, p: usize) -> bool {
         let f = &self.engine.program.objects[table].table.as_ref().expect("table").fields[p];
         f.stored && f.ty == RtType::Library("Blob".into())
     }

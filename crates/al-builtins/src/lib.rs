@@ -46,6 +46,7 @@ pub mod http;
 pub mod iso;
 pub mod json;
 pub mod mathfns;
+mod mcp_natives;
 pub mod media;
 mod media_export;
 pub mod media_orphans;

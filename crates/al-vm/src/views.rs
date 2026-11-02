@@ -43,7 +43,9 @@ impl Session {
     fn filter_value_with(&self, v: &Value, iso: bool) -> Result<String, Signal> {
         // A blank date shows as two single quotes, like a blank text (record/lt-record-read/RcAMisc.al:
         // SetRecFilter_Composite_And_Text_Keys `dateBlank`).
-        if matches!(v, Value::Date(0, false)) {
+        // A blank DateTime too, in a view and in GetFilters (record/lt-y71-setview-datetime/Y71SetViewDateTime.al:105-134
+        // `>''&..2025-11-01T23:59:59Z`, `''..''|...`, `Dt: >''&..11/01/25 11:59:59 PM`).
+        if matches!(v, Value::Date(0, false) | Value::DateTime(0)) {
             return Ok("''".into());
         }
         // A view writes a Boolean as `true` or `false` (:GetView_Field_Types `bool`).
