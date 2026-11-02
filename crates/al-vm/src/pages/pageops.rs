@@ -270,19 +270,6 @@ impl Session {
         if name != PageMethod::Close || st.borrow().unpinned_close {
             self.refuse_unpinned_state(st)?;
         }
-        // After a refused save the page stays on its row: a Next answers No without a move or an error (Y80_MD_List_Set_Next_Next);
-        // the other moves are not pinned from there.
-        if st.borrow().save_aborted {
-            match name {
-                PageMethod::Next => return Ok(Value::Boolean(false)),
-                PageMethod::Previous | PageMethod::First | PageMethod::Last | PageMethod::GoToKey | PageMethod::New => {
-                    return unsupported(format!(
-                        "TestPage.{name} after a save the page refused with SaveAbort (not pinned)"
-                    ));
-                }
-                _ => {}
-            }
-        }
         if method.recv() == PageRecv::TestPart {
             self.first_part_access(st, name, false)?;
         } else if st.borrow().new_host_part_rows

@@ -3,6 +3,9 @@ use super::*;
 impl Session {
     /// The value a control shows: its binding, read now.
     pub(super) fn control_value(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
+        if let Some(held) = Self::deferred_value_read(st, idx) {
+            return Ok(held);
+        }
         let engine = self.engine();
         // A page variable, or an element of a page array variable (`Control::array_element`), which shows as a plain page
         // variable does (al-runner issue 6379).

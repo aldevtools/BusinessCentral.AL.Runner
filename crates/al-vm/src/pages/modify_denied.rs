@@ -64,4 +64,18 @@ impl Session {
         self.set_xrec_fields(st, fields);
         Ok(true)
     }
+
+    /// After a save the page refused with SaveAbort the page stays on its row: a Next answers No without a move or an error
+    /// (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_List_Set_Next_Next); the other moves are not pinned from there.
+    pub(super) fn move_after_refused_save(&mut self, st: &St, how: PageMethod) -> Result<Option<Value>, Signal> {
+        if !st.borrow().save_aborted {
+            return Ok(None);
+        }
+        match how {
+            PageMethod::Next => Ok(Some(Value::Boolean(false))),
+            _ => unsupported(format!(
+                "{how}() after a save the page refused with SaveAbort (not pinned)"
+            )),
+        }
+    }
 }
