@@ -1114,6 +1114,8 @@ fn walk_report_column<V: RefVisitor>(c: &mut ReportColumn, table: TableOf, v: &m
         value_unsupported: _,
         decimal_places: _,
         option_caption_ml: _,
+        auto_format_type: _,
+        auto_format_expression: _,
     } = c;
     field_opt(v, field, table);
     field_opt(v, item_field, table);

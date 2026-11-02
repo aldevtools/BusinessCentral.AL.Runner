@@ -126,6 +126,7 @@ mod runmodal_lookup_shape;
 mod runmodal_record_first_row;
 mod runobject;
 mod save_row_gone;
+mod saveasxml_y67_columns;
 mod single_instance_test_codeunit;
 mod stale_delete_triggers;
 mod stale_updlock_read;

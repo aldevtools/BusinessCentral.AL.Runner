@@ -13,6 +13,7 @@ mod report_execute_params_date;
 mod report_execute_params_oninit;
 mod report_execute_twice_views;
 mod report_header_address;
+mod report_layout_ext_export;
 mod report_layout_list_columns;
 mod report_layout_list_export;
 mod report_layout_override;

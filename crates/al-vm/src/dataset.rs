@@ -617,8 +617,9 @@ impl Dataset {
     ///   after its C row); one that broke in OnPreDataItem gives none (:790 B3).
     /// - A Result with no column is not written (:626 B0, column-less items over an Integer loop).
     ///
-    /// A Decimal column is `xs:decimal` with its value as it is and a `<Name>Format` column (`#,##0.00`) after it
-    /// (AqSaveAsXml.al:257, `AmountCFormat`). An empty Text is `<Name />` (AqSaveAsXml.al:258 `<NameC />`). Refused: a row whose
+    /// A Decimal column is `xs:decimal` with its value as it is and a `<Name>Format` column after it, the column's
+    /// `decimalformatter` (AqSaveAsXml.al:257, `AmountCFormat` `#,##0.00`; the other formatters: lt-y67-saveasxml-columns/
+    /// Y67SaveAsXmlColumns.al:370 Columns_DecimalFormatters, `column_formatter`). An empty Text is `<Name />` (AqSaveAsXml.al:258 `<NameC />`). Refused: a row whose
     /// every nested item broke, an item that read rows and wrote none, a column of an unpinned type, a column name used twice.
     pub(crate) fn finish_data_set(self, declared: &[DeclaredItem]) -> Result<Vec<u8>, Signal> {
         let flat = &self.flat;
@@ -650,12 +651,6 @@ impl Dataset {
                 if schema.iter().any(|(n, _)| n == name) {
                     return unsupported(format!(
                         "a SaveAsXml data file with the column {name} in two data items (not pinned)"
-                    ));
-                }
-                // Only the default formatter is pinned.
-                if ty == "xs:decimal" && rows.iter().any(|r| r.cols[k].formatter.as_deref() != Some("#,##0.00")) {
-                    return unsupported(format!(
-                        "the SaveAsXml data file Decimal column {name} with a formatter other than #,##0.00 (not pinned)"
                     ));
                 }
                 schema.push((name, ty));

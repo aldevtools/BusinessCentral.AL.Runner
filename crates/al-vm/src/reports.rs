@@ -956,93 +956,6 @@ impl Session {
         Ok(object)
     }
 
-    /// `Media.ExportStream` of the Layout of a Report Layout List row (`Report.LayoutListExportStream#1`, al-sema call.rs): the bytes
-    /// of the layout's file as the app's package holds them, the answer true, the row unchanged (HasValue stays No), the same bytes
-    /// on a second export (report/lt-y17-layout-export/Y17LayoutExportTests.al:70 RDLC, :88 Word, :129 Excel, :146 twice; corpus
-    /// master). The package's file is the one the app's folder holds: the compiler writes the DataSet section of an RDLC file into
-    /// the folder at build, so the two do not differ (Y17LayoutExportTests.al:5-9). Refused: a row that names no layout of a
-    /// report's rendering section (a layout a reportextension declares, a row that is not read), and a layout whose file the app
-    /// does not hold (a Microsoft app read from its package keeps no layout files).
-    fn report_layout_list_export(&mut self, receiver: Option<Value>, args: &[Value]) -> Result<Value, Signal> {
-        let Some(Value::Record(row)) = receiver else {
-            return unsupported("Media.ExportStream of a Report Layout List Layout without its row");
-        };
-        let t = self.table(&row)?;
-        let field = |id: u32| t.fields.iter().position(|f| f.id == id);
-        let (report_id, name) = {
-            let r = row.borrow();
-            let id = field(1).and_then(|p| match r.fields.get(p) {
-                Some(Value::Integer(n)) => Some(*n),
-                _ => None,
-            });
-            let name = field(2).and_then(|p| match r.fields.get(p) {
-                Some(Value::Text(n) | Value::Code(n)) => Some(n.to_string()),
-                _ => None,
-            });
-            (id, name)
-        };
-        let engine = self.engine.clone();
-        // A layout of the rendering section by its name, or one of the legacy RDLCLayout, WordLayout and ExcelLayout properties by
-        // its LayoutFile as written (Y17LayoutExportTests.al:105 Export_LegacyProperties: the same bytes as the file).
-        let found = engine.program.objects.iter().find_map(|o| {
-            let r = o.report.as_ref()?;
-            (o.kind == ir::ObjKind::Report && report_id.is_some() && o.id.map(|i| i as i32) == report_id)
-                .then_some(())?;
-            let name = name.as_deref()?;
-            if let Some(l) = r
-                .rendering_layouts
-                .iter()
-                .find(|l| l.name == name && ["rdlc", "word", "excel"].contains(&l.kind.as_str()))
-            {
-                return Some((o.app as usize, l.name.clone(), l.path.clone()));
-            }
-            o.properties
-                .iter()
-                .filter(|(k, _)| {
-                    ["RDLCLayout", "WordLayout", "ExcelLayout"]
-                        .iter()
-                        .any(|p| k.eq_ignore_ascii_case(p))
-                })
-                .filter_map(|(_, v)| crate::recmeta::string_literal(v))
-                .find(|file| file == name)
-                .map(|file| (o.app as usize, file.clone(), layout_file_path(&file)))
-        });
-        let Some((app, layout_name, layout_path)) = found else {
-            return unsupported(format!(
-                "Media.ExportStream of the Layout of a Report Layout List row that names no RDLC, Word or Excel layout of a report's rendering section (report {}, layout '{}'; not pinned)",
-                report_id.unwrap_or(0),
-                name.unwrap_or_default()
-            ));
-        };
-        let Some(bytes) = engine
-            .program
-            .apps
-            .get(app)
-            .and_then(|a| a.layout_files.iter().find(|(p, _)| *p == layout_path))
-            .map(|(_, b)| b)
-        else {
-            return unsupported(format!(
-                "Media.ExportStream of the Layout of a Report Layout List row: the layout file {layout_path} of layout '{layout_name}' is not held by its app (a Microsoft app read from its package keeps no layout files)"
-            ));
-        };
-        match args.first() {
-            Some(Value::Library(_, h)) => match &*h.borrow() {
-                al_builtins::value::LibraryValue::OutStream(blob, _) => al_builtins::stream::write_bytes(blob, bytes),
-                _ => {
-                    return unsupported(
-                        "Media.ExportStream of a Report Layout List Layout into something not an OutStream",
-                    );
-                }
-            },
-            _ => {
-                return unsupported(
-                    "Media.ExportStream of a Report Layout List Layout into something not an OutStream",
-                );
-            }
-        }
-        Ok(Value::Boolean(true))
-    }
-
     /// The bytes of the RDLC layout file report `object` names with `DefaultRenderingLayout`, when it declares no
     /// `RDLCLayout`, `WordLayout`, `ExcelLayout` or `DefaultLayout` property and the app holds the file.
     pub(crate) fn default_rdlc_layout_file(&self, object: usize) -> Option<Vec<u8>> {
@@ -2721,23 +2634,6 @@ impl Session {
     }
 }
 
-/// A `LayoutFile` relative to the app folder, as al-sema reports.rs `resolve_layout_path` writes `RenderingLayout::path`: `/`
-/// separators, `.` and `..` resolved.
-fn layout_file_path(file: &str) -> String {
-    let file = file.replace('\\', "/");
-    let mut parts: Vec<&str> = Vec::new();
-    for c in file.split('/') {
-        match c {
-            "" | "." => {}
-            ".." => {
-                parts.pop();
-            }
-            c => parts.push(c),
-        }
-    }
-    parts.join("/")
-}
-
 /// A data item of the running report: one of its own, or one its reportextension adds.
 #[derive(Clone, Copy)]
 enum ItemRef {
@@ -4401,8 +4297,7 @@ impl Session {
             (Some(t), Some(pos)) => self.field_property(t, pos, "DecimalPlaces"),
             _ => None,
         };
-        let places = c.decimal_places.clone().or(from_field);
-        dataset::decimal_formatter(places.as_deref())
+        crate::column_formatter::of_column(c, from_field.as_deref())
     }
 
     fn dataset_column(
@@ -4612,6 +4507,8 @@ impl Session {
         let major = self.engine.target.as_ref().map_or(29, |t| t.bc.major);
         let (schema_type, data) = match crate::data_file_types::of_value(&value, major) {
             Some((ty, d)) if schema_type.is_none() && !regional && !media => (Some(ty), d),
+            // An empty Media or MediaSet field: the Guid type, the element left out (Y67SaveAsXmlColumns.al:388).
+            _ if media => (crate::data_file_types::guid_type(major), dataset::DataFileText::Omit),
             _ => (schema_type.or_else(|| self.data_file_member_type(&value, &text)), data),
         };
         Ok(Column {
