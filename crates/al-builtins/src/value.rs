@@ -380,6 +380,9 @@ pub struct PageState {
     pub draft: bool,
     /// Fields written by the client since the row was loaded.
     pub dirty: bool,
+    /// The save of a changed row failed on a page whose ModifyAllowed is false (`SaveAbort`): the change stays shown, nothing is
+    /// stored and a Next no longer moves (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_List_Set_Next_Next).
+    pub save_aborted: bool,
     /// `Visible` of each control as it was when the page opened (the property is frozen then,
     /// corpus handlers/TestPageControlPropertyLiveness_Tests.al:56).
     pub frozen_visible: Vec<bool>,
@@ -938,6 +941,7 @@ impl PageState {
             new_line: false,
             draft: false,
             dirty: false,
+            save_aborted: false,
             frozen_visible: Vec::new(),
             open_language: None,
             control_captions: Vec::new(),

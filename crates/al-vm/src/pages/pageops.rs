@@ -10,7 +10,29 @@ impl Session {
         recv: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
-        self.outside_used_tries(|s| s.page_op_outer(method, recv, args))
+        let r = self.outside_used_tries(|s| s.page_op_outer(method, recv, args));
+        self.save_abort_swallowed(method, r)
+    }
+
+    /// A save the page refused with SaveAbort (ModifyAllowed is false, see `save_row`) ends the step without raising: the error becomes
+    /// the last error and the move is not made. GoToKey raises TestRowNotFound instead (pages/lt-y80-modify-denied/Y80ModifyDenied.al
+    /// Y80_MD_List_Set_goto: ok No, `The row does not exist on the TestPage.`). The answer of a move that did not happen is not
+    /// pinned (the corpus ignores it).
+    fn save_abort_swallowed(&mut self, method: PageOp, r: Result<Value, Signal>) -> Result<Value, Signal> {
+        let Err(Signal::Error(e)) = r else { return r };
+        if e.code != "SaveAbort" {
+            return Err(Signal::Error(e));
+        }
+        match method.method() {
+            PageMethod::GoToKey => Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound")),
+            m => {
+                self.last_error = *e;
+                Ok(match m {
+                    PageMethod::Next | PageMethod::Previous | PageMethod::First | PageMethod::Last => Value::Boolean(false),
+                    _ => Value::Null,
+                })
+            }
+        }
     }
 
     fn page_op_outer(&mut self, method: PageOp, recv: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
@@ -245,6 +267,17 @@ impl Session {
         }
         if name != PageMethod::Close || st.borrow().unpinned_close {
             self.refuse_unpinned_state(st)?;
+        }
+        // After a refused save the page stays on its row: a Next answers No without a move or an error (Y80_MD_List_Set_Next_Next);
+        // the other moves are not pinned from there.
+        if st.borrow().save_aborted {
+            match name {
+                PageMethod::Next => return Ok(Value::Boolean(false)),
+                PageMethod::Previous | PageMethod::First | PageMethod::Last | PageMethod::GoToKey | PageMethod::New => {
+                    return unsupported(format!("TestPage.{name} after a save the page refused with SaveAbort (not pinned)"));
+                }
+                _ => {}
+            }
         }
         if method.recv() == PageRecv::TestPart {
             self.first_part_access(st, name, false)?;

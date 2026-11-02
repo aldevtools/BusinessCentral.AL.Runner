@@ -1451,6 +1451,12 @@ impl Session {
         let Some(host) = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()) else {
             return Ok(());
         };
+        // A part whose ModifyAllowed is false keeps its edit to itself: the host still shows the stored row
+        // (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_Doc_PartSet_PartNext `shown after partset` = `10/r10 part 10/p`;
+        // needs corpus bump).
+        if flag_denied(&self.engine(), st.borrow().object as usize, "ModifyAllowed")? {
+            return Ok(());
+        }
         if host.borrow().open
             && self.is_list(&host)
             && self.is_list(st)
@@ -2384,7 +2390,10 @@ impl Session {
     pub(super) fn save_parts(&mut self, st: &St) -> Result<(), Signal> {
         let parts = st.borrow().parts.clone();
         for (_, child) in parts {
+            // A part whose ModifyAllowed is false with a typed row: the Close raises `Page cannot be saved.` (TestWrapped), as for a
+            // page of its own (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_Doc_PartSet_HostNext `close`; needs corpus bump).
             if child.borrow().open {
+                self.close_denied_modify(&child)?;
                 self.save_row(&child)?;
             }
         }
