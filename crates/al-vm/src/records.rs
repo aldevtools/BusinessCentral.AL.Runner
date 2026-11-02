@@ -2189,8 +2189,7 @@ impl Session {
             cursor = Some(pos.clone());
             rows.push((pos, row));
         }
-        let mask = rec.borrow().field_descending;
-        let fields = Session::position_fields(t, key);
+        let (mask, fields) = (rec.borrow().field_descending, Session::position_fields(t, key));
         let order = |a: &[Value], b: &[Value]| -> Ordering {
             for (i, (x, y)) in a.iter().zip(b).enumerate() {
                 let o = Session::compare_in_position(t, &fields, i, x, y);
