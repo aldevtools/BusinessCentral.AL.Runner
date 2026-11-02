@@ -388,10 +388,6 @@ pub fn try_format(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) ->
 
 /// `Format(Value, Length, Standard)` with BC's own errors kept apart from refusals.
 pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) -> Result<String, FormatFail> {
-    // A TextConst in a Variant formats as its text (types/lt-y81-values/Y81LabelVariant.al, codeunits 94254 and 94255).
-    if let Value::TextConst(s) = v {
-        return format_value(&Value::Text(s.clone()), length, standard, ctx);
-    }
     if let Value::Unknown(why) = v {
         return Err(FormatFail::Unsupported(why.to_string()));
     }
@@ -450,8 +446,8 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             f => f,
         })?,
         // A NUL character does not show (types/lt-variant-is-text-streams/LTP89StreamText.al:Text_BytesWritten `nul_between`).
-        Value::Text(t) | Value::Code(t) if t.contains('\0') => t.replace('\0', ""),
-        Value::Text(t) | Value::Code(t) => t.to_string(),
+        Value::Text(t) | Value::TextConst(t) | Value::Code(t) if t.contains('\0') => t.replace('\0', ""),
+        Value::Text(t) | Value::TextConst(t) | Value::Code(t) => t.to_string(),
         Value::Option(o, members) => match standard {
             2 | 9 if crate::sysenum::is_field_table_type(members) => FIELD_TABLE_TYPE_ORDINALS
                 .get(*o as usize)

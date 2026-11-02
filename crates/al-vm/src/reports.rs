@@ -4390,7 +4390,7 @@ impl Session {
                 n.to_string()
             }
             Value::BigInteger(n) => n.to_string(),
-            Value::Text(s) | Value::Code(s) => {
+            Value::Text(s) | Value::TextConst(s) | Value::Code(s) => {
                 schema_type = Some("xs:string");
                 dataset::escape(s)?
             }
