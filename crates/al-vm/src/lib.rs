@@ -2626,7 +2626,7 @@ impl std::hash::Hasher for PtrHash {
 }
 
 /// How the database stores field `f`: a Code field's `SQLDataType` (record/lt-x-table-props/XTableObjects.al:127-129).
-/// `Varchar` and no property store it as text.
+/// `Varchar` and no property store it as text; any other value that is no Integer or BigInteger is `Other`.
 fn code_storage(f: &al_ir::Field) -> al_data::CodeStorage {
     if !matches!(f.ty, RtType::Code(_)) {
         return al_data::CodeStorage::Text;
@@ -2639,6 +2639,8 @@ fn code_storage(f: &al_ir::Field) -> al_data::CodeStorage {
     {
         Some(v) if v.eq_ignore_ascii_case("Integer") => al_data::CodeStorage::Integer,
         Some(v) if v.eq_ignore_ascii_case("BigInteger") => al_data::CodeStorage::BigInteger,
-        _ => al_data::CodeStorage::Text,
+        Some(v) if v.eq_ignore_ascii_case("Varchar") => al_data::CodeStorage::Text,
+        Some(_) => al_data::CodeStorage::Other,
+        None => al_data::CodeStorage::Text,
     }
 }
