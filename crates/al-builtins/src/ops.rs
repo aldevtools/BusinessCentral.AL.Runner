@@ -911,20 +911,12 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         }
         // Duration +/- Duration is a BigInteger of milliseconds: `Format(D1 + D2)` answers '4000', not a duration text, and `R := D1 + D2`
         // converts it back (corpus types/lt-duration-arithmetic/DurationAddDuration.al:Add_TwoVariables_Result, sum_format_default).
-        (V::Duration(a), V::Duration(b)) if matches!(op, Arith::Add | Arith::Sub) => {
-            let n = if op == Arith::Add {
-                a.checked_add(*b)
-            } else {
-                a.checked_sub(*b)
-            };
-            return n
-                .map(V::BigInteger)
-                .ok_or_else(|| Signal::Unsupported("Duration overflow (error text not pinned yet)".into()));
-        }
+        (V::Duration(a), V::Duration(b)) if matches!(op, Arith::Add | Arith::Sub) => return duration_sum(op, *a, *b),
         // A whole number and a Duration add and subtract as milliseconds, into a BigInteger (`duration_with_number`).
         (V::Duration(d), n) | (n, V::Duration(d)) if matches!(op, Arith::Add | Arith::Sub) && int_of(n).is_some() => {
             return duration_with_number(op, matches!(l, V::Duration(_)), *d, int_of(n).unwrap_or(0));
         }
+        (V::DateTime(0), n) if moves_undefined_datetime(op, n) => return undefined_datetime_moved(),
         // DateTime + Duration is a DateTime and DateTime - DateTime a Duration, in milliseconds
         // (types/TestDurationContracts.al:44-171, session/TestDateTimeContracts.al:52-90). The undefined
         // DateTime is not pinned.
@@ -1058,7 +1050,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         // Arithmetic.al:Date_Plus_Minus_Integer `af30`, `af32`, `af34`).
         (V::Date(a, _), V::Date(b, _)) if op == Arith::Sub => {
             if *a == 0 || *b == 0 || (a - b).abs() >= 3_652_058 {
-                return date_invalid();
+                return undefined_date_difference(*a, *b);
             }
             return Ok(V::Integer(a - b));
         }
@@ -1246,6 +1238,39 @@ fn int_of(v: &Value) -> Option<i64> {
         Value::BigInteger(i) => Some(*i),
         _ => None,
     }
+}
+
+/// 0D - 0D is 0 (types/lt-y65-undefined-arith/Y65UndefinedArith.al Y65_UndefinedDate_Arithmetic, writer Y65's corpus branch;
+/// assumption undefined-datetime-difference until the pin); one undefined side or too wide a difference raises DateInvalid.
+fn undefined_date_difference(a: i32, b: i32) -> Result<Value, Signal> {
+    if a == 0 && b == 0 {
+        crate::assumptions::assume(crate::assumptions::Assumption::UndefinedDateTimeDifference);
+        return Ok(Value::Integer(0));
+    }
+    date_invalid()
+}
+
+/// Duration +/- Duration as a BigInteger of milliseconds (see the caller); an overflow is not pinned.
+fn duration_sum(op: Arith, a: i64, b: i64) -> Result<Value, Signal> {
+    let n = if op == Arith::Add {
+        a.checked_add(b)
+    } else {
+        a.checked_sub(b)
+    };
+    n.map(Value::BigInteger)
+        .ok_or_else(|| Signal::Unsupported("Duration overflow (error text not pinned yet)".into()))
+}
+
+/// 0DT plus or minus a whole number or a Duration raises DateInvalid (types/lt-y65-undefined-arith/Y65UndefinedArith.al:
+/// Y65_UndefinedDateTime_Arithmetic `0DT + 1000`, `0DT + 0`, `0DT - 1000`, `0DT + Duration 0`; on writer Y65's corpus branch,
+/// assumption undefined-datetime-difference until the pin).
+fn moves_undefined_datetime(op: Arith, n: &Value) -> bool {
+    matches!(op, Arith::Add | Arith::Sub) && (int_of(n).is_some() || matches!(n, Value::Duration(_)))
+}
+
+fn undefined_datetime_moved() -> Result<Value, Signal> {
+    crate::assumptions::assume(crate::assumptions::Assumption::UndefinedDateTimeDifference);
+    date_invalid()
 }
 
 /// DateTime - DateTime is a Duration in milliseconds (session/TestDateTimeContracts.al:52-90). 0DT - 0DT is a 0 Duration;
@@ -2426,11 +2451,9 @@ mod tests {
             arith(Arith::Sub, &dt(3_601_000), &dt(1_000)),
             Ok(Value::Duration(3_600_000))
         ));
-        // The undefined DateTime and a Duration taken from a DateTime are not pinned.
-        assert!(matches!(
-            arith(Arith::Add, &dt(0), &dur(1)),
-            Err(Signal::Unsupported(_))
-        ));
+        // 0DT moved by a Duration raises DateInvalid (types/lt-y65-undefined-arith/Y65UndefinedArith.al); a Duration taken from a
+        // DateTime is not pinned.
+        assert!(matches!(arith(Arith::Add, &dt(0), &dur(1)), Err(Signal::Error(_))));
         // One undefined side raises DateInvalid, both a 0 Duration (types/lt-y62-undefined-date/Y62UndefinedDate.al).
         assert!(matches!(arith(Arith::Sub, &dt(5), &dt(0)), Err(Signal::Error(_))));
         assert!(matches!(arith(Arith::Sub, &dt(0), &dt(0)), Ok(Value::Duration(0))));
