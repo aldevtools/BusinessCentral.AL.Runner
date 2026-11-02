@@ -16045,7 +16045,7 @@
         "code": "Evaluate",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 2296,
+        "line": 2297,
         "pinned": true,
         "site": "codeunit/TestCrossAppDispatch.al:61",
         "template": "Evaluate"
@@ -16054,7 +16054,7 @@
         "code": "",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 2299,
+        "line": 2300,
         "pinned": true,
         "site": "codeunit/TestCrossAppDispatch.al:61",
         "template": "Evaluate"
@@ -16144,7 +16144,7 @@
         "code": "ArgumentOutOfRange",
         "file": "crates/al-builtins/src/media.rs",
         "generic": false,
-        "line": 386,
+        "line": 417,
         "pinned": true,
         "site": "streams/StTMedia.al:302",
         "template": "Argument was out of range: index."
@@ -16153,7 +16153,7 @@
         "code": "InvalidPath",
         "file": "crates/al-builtins/src/media.rs",
         "generic": false,
-        "line": 449,
+        "line": 480,
         "pinned": true,
         "site": "media/MediaFiles.al:207",
         "template": "The specified path is invalid."
@@ -16162,7 +16162,7 @@
         "code": "InvalidPath",
         "file": "crates/al-builtins/src/media.rs",
         "generic": false,
-        "line": 453,
+        "line": 484,
         "pinned": true,
         "site": "media/MediaFiles.al:209",
         "template": "Could not find a part of the path '%'."
@@ -16225,7 +16225,7 @@
         "code": "NotSupportedOperation",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 643,
+        "line": 646,
         "pinned": true,
         "site": "collections/lt-cs-odd-leads/CsCollections.al:220",
         "template": "The requested operation is not supported."
@@ -16234,7 +16234,7 @@
         "code": "AL:DivideByZero",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 784,
+        "line": 787,
         "pinned": true,
         "site": "errors/lt-az-error-texts/AzErrorTexts.al:533",
         "template": "Attempted to divide by zero."
@@ -16243,7 +16243,7 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 979,
+        "line": 982,
         "pinned": true,
         "site": "misc/lt-probes-needed-6/PnF31TimeArithmetic.al:81",
         "template": "Adding to an undefined (0T) time."
@@ -16252,7 +16252,7 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1043,
+        "line": 1046,
         "pinned": true,
         "site": "misc/lt-probes-needed-6/PnF31TimeArithmetic.al:116",
         "template": "Subtracting from an undefined (0T) time."
@@ -16261,7 +16261,7 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1046,
+        "line": 1049,
         "pinned": true,
         "site": "misc/lt-probes-needed-6/PnF31TimeArithmetic.al:115",
         "template": "Subtracting an undefined (0T) time."
@@ -16270,7 +16270,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1073,
+        "line": 1076,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16279,7 +16279,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1081,
+        "line": 1084,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16288,7 +16288,7 @@
         "code": "AL:DivideByZero",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1118,
+        "line": 1121,
         "pinned": true,
         "site": "errors/lt-az-error-texts/AzErrorTexts.al:533",
         "template": "Attempted to divide by zero."
@@ -16297,7 +16297,7 @@
         "code": "AL:DivideByZero",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1143,
+        "line": 1146,
         "pinned": true,
         "site": "errors/lt-az-error-texts/AzErrorTexts.al:533",
         "template": "Attempted to divide by zero."
@@ -16306,7 +16306,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1197,
+        "line": 1200,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16315,7 +16315,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1202,
+        "line": 1205,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16324,7 +16324,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1263,
+        "line": 1266,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -16342,7 +16342,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1098,
+        "line": 1116,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16351,7 +16351,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1292,
+        "line": 1311,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16360,7 +16360,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1498,
+        "line": 1532,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16369,7 +16369,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1530,
+        "line": 1564,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -16378,7 +16378,7 @@
         "code": "InvalidStreamMode",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1772,
+        "line": 1812,
         "pinned": true,
         "site": "streams/lt-stream-length/StreamLengthOthers.al:573",
         "template": "ALStream.ALWrite, invalid stream mode: Stream"
@@ -16387,7 +16387,7 @@
         "code": "InvalidStreamLength",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1909,
+        "line": 1952,
         "pinned": true,
         "site": "misc/lt-probes-needed-1/PnAStreamReadMisc.al:223",
         "template": "An invalid length % was specified in stream function. % was expected."
@@ -16513,7 +16513,7 @@
         "code": "NotSupportedType",
         "file": "crates/al-vm/src/dotnet/blob_stream.rs",
         "generic": false,
-        "line": 85,
+        "line": 88,
         "pinned": true,
         "site": "lt-sg-dotnet/SgDotNetStreams.al:260",
         "template": "The type NavOutStream is unknown."
@@ -16639,7 +16639,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 2069,
+        "line": 2070,
         "pinned": true,
         "site": "codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:95",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -16648,7 +16648,7 @@
         "code": "FormAbort:Dialog",
         "file": "crates/al-vm/src/pages.rs",
         "generic": false,
-        "line": 287,
+        "line": 293,
         "pinned": true,
         "site": "pages/lt-cc-page-leads/CcPageLeads.al:525",
         "template": "Page % has to close."
@@ -16657,7 +16657,7 @@
         "code": "FormCloseNotAllowed",
         "file": "crates/al-vm/src/pages/open/close.rs",
         "generic": false,
-        "line": 75,
+        "line": 87,
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."
@@ -16666,7 +16666,7 @@
         "code": "FormCloseNotAllowed",
         "file": "crates/al-vm/src/pages/rows.rs",
         "generic": false,
-        "line": 3892,
+        "line": 3721,
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."
@@ -16684,7 +16684,7 @@
         "code": "",
         "file": "crates/al-vm/src/queries.rs",
         "generic": false,
-        "line": 368,
+        "line": 371,
         "pinned": true,
         "site": "query/TestQueryTopProperty.al:179",
         "template": "Top number of rows cannot be negative"
@@ -16693,7 +16693,7 @@
         "code": "QueryNoDataSet",
         "file": "crates/al-vm/src/queries.rs",
         "generic": false,
-        "line": 821,
+        "line": 824,
         "pinned": true,
         "site": "xmlport/lt-xmlport-query-datatransfer/XpTQueryBasic.al:84",
         "template": "You have not yet retrieved a dataset for this query. The READ function can only be called after the dataset is retrieved with a call to the OPEN function."
@@ -16702,10 +16702,19 @@
         "code": "Query",
         "file": "crates/al-vm/src/queries.rs",
         "generic": false,
-        "line": 829,
+        "line": 832,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131QuerySetRangeAfterRead.al:111",
         "template": "The READ function is called on a query after query metadata has been changed by one of the following: SETFILTER, SETRANGE, SECURITYFILTERING, or TOPNUMBEROFROWS. After metadata changes, you must reopen the query by calling the OPEN function before calling the READ function."
+      },
+      {
+        "code": "",
+        "file": "crates/al-vm/src/query_date_filter.rs",
+        "generic": false,
+        "line": 28,
+        "pinned": true,
+        "site": "controls/W2ValueControls.al:221",
+        "template": "The format of the Date '%'%"
       },
       {
         "code": "DB:NoFilter",
@@ -16720,7 +16729,7 @@
         "code": "DB:Ok",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 191,
+        "line": 192,
         "pinned": true,
         "site": "record/TestPlatformTablesWritableContracts.al:107",
         "template": "It is not possible to % any record in the Tenant License State table."
@@ -16729,7 +16738,7 @@
         "code": "DB:Ok",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 207,
+        "line": 208,
         "pinned": true,
         "site": "platform/PtOnPremTables.al:135",
         "template": "The % table is read-only."
@@ -16738,7 +16747,7 @@
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 5645,
+        "line": 5646,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
@@ -16900,14 +16909,14 @@
         "code": "",
         "file": "crates/al-vm/src/xmlports/import_xml.rs",
         "generic": false,
-        "line": 1004,
+        "line": 1010,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
       }
     ],
-    "pinned": 101,
-    "sites": 105
+    "pinned": 102,
+    "sites": 106
   },
   "language": {
     "bc": "27-29",
