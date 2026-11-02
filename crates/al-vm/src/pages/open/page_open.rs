@@ -199,6 +199,40 @@ impl Session {
         self.open_page_as(st, mode, record, bind, false)
     }
 
+    /// `page_instance`, for the open of a page in a session whose permissions a test lowered (ADR-062 stage 3): a page opened without
+    /// Execute on it ends with FormAbort:Permission (Y24PermExecute.al Y24_P20_ExecuteTableDataOnly tdonly_testpage_openview,
+    /// Y24_P20_ExecutePageRun tdonly_page_run); a page with AccessByPermission is refused (probe P21).
+    fn page_instance_gated(&mut self, st: &St, as_part: bool, page: &al_ir::Page) -> Result<(), Signal> {
+        self.page_instance(st)?;
+        st.borrow_mut().permission_roles = self.permission_roles.clone();
+        if self.permissions.is_none() {
+            return Ok(());
+        }
+        if !as_part && !self.is_request_page(st) && self.permission_page_open_denied(st.borrow().object as usize)? {
+            let caption = self.page_caption(st);
+            let named = caption == self.engine.program.objects[st.borrow().object as usize].name;
+            self.mark_closed(st);
+            return Err(Signal::Error(Box::new(if named {
+                al_builtins::native::AlError {
+                    message: format!("Page {caption} has to close."),
+                    code: "FormAbort:Permission".into(),
+                    ..Default::default()
+                }
+            } else {
+                al_builtins::native::unpinned_error()
+            })));
+        }
+        if let Some(why) = page.restricted_refusals.first() {
+            if self.shadow_active {
+                self.shadow_note("unknown", "page open", why);
+                return Ok(());
+            }
+            self.mark_closed(st);
+            return unsupported(why.clone());
+        }
+        Ok(())
+    }
+
     /// `open_page`, or with `as_part` the opening of a part's page: everything up to and including
     /// the page's OnOpenPage, leaving its rows to the host (`sync_part`), which knows the link.
     pub(in crate::pages) fn open_page_as(
@@ -220,7 +254,7 @@ impl Session {
         for a in &page.assumes {
             al_builtins::assumptions::assume(*a);
         }
-        self.page_instance(st)?;
+        self.page_instance_gated(st, as_part, page)?;
         let language = al_builtins::format::FormatCtx::language(&*self);
         {
             let mut s = st.borrow_mut();

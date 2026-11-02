@@ -471,27 +471,52 @@ impl MemStore {
         Ok(())
     }
 
-    /// A read that filters a Code field stored as a number by anything but one value, or sorts by a Code field stored as a
-    /// BigInteger, is refused: neither is pinned (see [`CodeStorage`]).
-    fn code_storage_read(t: &TableDef, filters: &[FieldFilter], order: &[usize]) -> Result<(), StoreError> {
+    /// A read that filters a Code field stored as a number by anything but one value, or filters a Code field with another
+    /// SQLDataType at all, is refused; so is one that sorts by a BigInteger or other-typed Code field, or in the primary key
+    /// order of a primary key holding an Integer one: none of these is pinned (see [`CodeStorage`]). Reads in the order of
+    /// other keys, Get by exact key, Count and the writes run.
+    fn code_storage_read(t: &TableDef, filters: &[FieldFilter], order: &[usize], key: usize) -> Result<(), StoreError> {
         use al_builtins::filter::FilterExpr as E;
         let stored_as = |i: usize| t.fields.get(i).map_or(CodeStorage::Text, |f| f.code_storage);
         if let Some(f) = filters.iter().find(|f| {
             stored_as(f.field) != CodeStorage::Text
                 && !match &f.expr {
+                    _ if stored_as(f.field) == CodeStorage::Other => false,
                     E::Eq(_) | E::Ne(_) | E::RangeSame(_) => true,
                     E::Range(Some(a), Some(b)) => al_builtins::ops::compare(a, b).ok() == Some(Ordering::Equal),
                     _ => false,
                 }
         }) {
             return Err(StoreError::Refused(format!(
-                "a filter other than one value on the Code field {}, which the database stores as a number (SQLDataType): its order is not pinned",
+                "a filter {} on the Code field {}, whose SQLDataType is not Varchar: its comparison is not pinned",
+                if stored_as(f.field) == CodeStorage::Other {
+                    "of any kind"
+                } else {
+                    "other than one value"
+                },
                 t.fields[f.field].name
             )));
         }
-        if let Some(&i) = order.iter().find(|&&i| stored_as(i) == CodeStorage::BigInteger) {
+        // A value in an `Other` field is refused on write, so every row holds the empty value there: its place in a key
+        // after the first field changes no order, and the key's first field is the one whose order is observed.
+        if let Some(&i) = order.iter().enumerate().find_map(|(n, i)| {
+            match stored_as(*i) {
+                CodeStorage::BigInteger => true,
+                CodeStorage::Other => n == 0,
+                _ => false,
+            }
+            .then_some(i)
+        }) {
             return Err(StoreError::Refused(format!(
-                "sorting by the Code field {}, which the database stores as a BigInteger (SQLDataType): its order is not pinned",
+                "sorting by the Code field {}, whose SQLDataType (BigInteger, Variant or another) is not Varchar or Integer: its order is not pinned",
+                t.fields[i].name
+            )));
+        }
+        if key == 0
+            && let Some(&i) = order.iter().find(|&&i| stored_as(i) == CodeStorage::Integer)
+        {
+            return Err(StoreError::Refused(format!(
+                "Code field {} with SQLDataType = Integer in the primary key: its order is not pinned",
                 t.fields[i].name
             )));
         }
@@ -1327,7 +1352,12 @@ impl Store for MemStore {
             return v.next(self, cx, t, scan);
         }
         self.unknown_read(cx, t, scan.filters, t.keys.get(scan.key).map_or(&[], |k| k.as_slice()))?;
-        Self::code_storage_read(t, scan.filters, t.keys.get(scan.key).map_or(&[], |k| k.as_slice()))?;
+        Self::code_storage_read(
+            t,
+            scan.filters,
+            t.keys.get(scan.key).map_or(&[], |k| k.as_slice()),
+            scan.key,
+        )?;
         let Some(table) = self.table(cx, t) else {
             return Ok(None);
         };
@@ -1452,7 +1482,7 @@ impl Store for MemStore {
             return v.count(self, cx, t, f);
         }
         self.unknown_read(cx, t, f, &[])?;
-        Self::code_storage_read(t, f, &[])?;
+        Self::code_storage_read(t, f, &[], usize::MAX)?;
         Ok(self
             .table(cx, t)
             .map_or(0, |m| pk_band(&m, t, f).filter(|(_, r)| passes(r, f)).count()))
@@ -1464,7 +1494,7 @@ impl Store for MemStore {
             return Err(self.read_only(t, "DeleteAll"));
         }
         self.unknown_read(cx, t, f, &[])?;
-        Self::code_storage_read(t, f, &[])?;
+        Self::code_storage_read(t, f, &[], usize::MAX)?;
         let doomed: Vec<Key> = self
             .table(cx, t)
             .map(|table| {

@@ -65,7 +65,7 @@ pub(crate) fn days_in_month(y: i32, m: u32) -> u32 {
 
 /// A whole number of any kind DMY2Date takes: an Integer, and a Byte, BigInteger, Decimal, Option or Char that holds the same
 /// number (types/lt-y71-evaluate-dmy2date/Y71EvaluateDashedDates.al:150-228, all give 2026-03-01 for 3). A Decimal with a
-/// fraction is not pinned.
+/// fraction and a BigInteger beyond Integer are no number it takes ([`int_overflow`]).
 fn int_of(v: Option<&Value>) -> Option<i32> {
     use rust_decimal::prelude::ToPrimitive;
     match v? {
@@ -76,6 +76,21 @@ fn int_of(v: Option<&Value>) -> Option<i32> {
         Value::Byte(b) => Some(i32::from(*b)),
         _ => None,
     }
+}
+
+/// The ConversionCast a Decimal with a fraction or a BigInteger beyond Integer raises as a DMY2Date argument, before any range
+/// check (types/lt-y81-values/Y81DMY2Date.al:183-215 Y81_DMY2Date_DecimalArguments, _BigIntegerArguments; needs corpus bump).
+fn int_overflow(v: Option<&Value>) -> Option<String> {
+    let (shown, ty) = match v? {
+        Value::Decimal(d) if !d.fract().is_zero() => {
+            (d.normalize().to_string(), "Microsoft.Dynamics.Nav.Runtime.Decimal18")
+        }
+        Value::BigInteger(n) if i32::try_from(*n).is_err() => (n.to_string(), "System.Int64"),
+        _ => return None,
+    };
+    Some(format!(
+        "Overflow under conversion of {ty} value {shown} to System.Int32."
+    ))
 }
 
 /// A defined, non-closing date's day number.
@@ -94,9 +109,12 @@ fn plain_date(v: &Value, what: &str) -> Result<i32, Signal> {
 /// (errors/lt-ms-refusals-133/P133DateEvaluateFormat.al:104-218); without a host clock the short forms are refused.
 /// One part outside the calendar raises the range error that names it (types/lt-datetime/DateFuncs.al:243-302,
 /// DMY2Date_Invalid): the day against the length of its month (30 February 2024: 1 to 29), the month against 1 to 12, the year
-/// against 1 to 9999; a month out of range in year 0 raises the month's error. Year 0 itself is no error in BC, but the date it
-/// gives is not pinned, and neither is which part BC names when two are out of range: both refused.
+/// against 1 to 9999; a month out of range in year 0 raises the month's error. Year 0 is valid only as (1, 1, 0); which
+/// part BC names when two are out of range is not pinned: refused.
 fn dmy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
+    if let Some(message) = a.iter().take(3).find_map(|v| int_overflow(Some(v))) {
+        return raise(message, "ConversionCast");
+    }
     let today = || ctx.today_day().map(civil_from_day);
     let given = (int_of(a.first()), int_of(a.get(1)), int_of(a.get(2)));
     let (d, m, y) = match (a.len(), given, today()) {
@@ -129,10 +147,14 @@ fn dmy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         (true, false) if day_any_month => return range(2, m, 12),
         (false, false) if y == 0 && day_any_month => return range(2, m, 12),
         // The shortest length of the month: a day in range in every year.
+        // Year 0 is valid only as (1, 1, 0), which is (2, 1, 1); any other year 0 with a day and a month in range raises the
+        // year's error (types/lt-y81-values/Y81DMY2Date.al:41-64; needs corpus bump).
+        (false, true) if y == 0 && (d, m) == (1, 1) => return Ok(Value::Date(day_from_civil(1, 1, 2), false)),
+        (false, true) if y == 0 && (1..=31).contains(&d) => return range(3, y, 9999),
         (false, true) if y != 0 && d >= 1 && d as u32 <= days_in_month(2023, m as u32) => return range(3, y, 9999),
         _ => {
             return unsupported(format!(
-                "DMY2Date({d}, {m}, {y}): year 0, or more than one part out of range (not pinned)"
+                "DMY2Date({d}, {m}, {y}): year 0 with a day out of range, or more than one part out of range (not pinned)"
             ));
         }
     }
@@ -305,7 +327,9 @@ fn date2dmy(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         Value::Date(n, _) if *n > 0 => *n,
         other => return plain_date(other, "Date2DMY").map(|_| unreachable!()),
     };
-    let (y, m, d) = civil_from_day(day);
+    // 0001-01-02, the first defined date, reads as 1 January of year 0 (types/lt-datetime/DateFuncs.al:477 UN_DMY2Date_YearZero_Value
+    // `1.1.0`: day=1, month=1, year=0; types/lt-y81-values/Y81DMY2Date.al:62 `2.1.1` reads the same; needs corpus bump for the second).
+    let (y, m, d) = if day == 2 { (0, 1, 1) } else { civil_from_day(day) };
     match int_of(a.get(1)) {
         Some(1) => Ok(Value::Integer(d as i32)),
         Some(2) => Ok(Value::Integer(m as i32)),
@@ -1471,10 +1495,20 @@ mod tests {
     }
 
     #[test]
+    fn dmy2date_year_zero_is_pinned_only_as_the_first_defined_date() {
+        let d = |args: Vec<i32>| call("System.DMY2Date#1", args.into_iter().map(Value::Integer).collect());
+        // (1, 1, 0) is the first defined date, 0001-01-02 (types/lt-datetime/DateFuncs.al:477 UN_DMY2Date_YearZero_Value).
+        assert!(
+            matches!(d(vec![1, 1, 0]), Ok(Value::Date(2, false))),
+            "{:?}",
+            d(vec![1, 1, 0])
+        );
+    }
+
+    #[test]
     fn dmy2date_refuses_what_the_corpus_does_not_pin() {
         let d = |args: Vec<i32>| call("System.DMY2Date#1", args.into_iter().map(Value::Integer).collect());
-        // Year 0 is no error in BC (DateFuncs.al:270-271), but the date it gives is not pinned.
-        refused(d(vec![1, 1, 0]));
+        // Year 0 with a day and a month in range, other than (1, 1, 0), is a year error (types/lt-y81-values/Y81DMY2Date.al:41-64).
         // Two parts out of range, other than a month out of range in year 0, are not pinned.
         refused(d(vec![0, 0, 2024]));
         refused(d(vec![32, 1, 0]));

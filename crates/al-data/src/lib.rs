@@ -22,13 +22,16 @@ pub struct FieldDef {
 
 /// The column type of a Code field (`SQLDataType`). An `Integer` one sorts by number: the empty value first, then 9
 /// before 10 (corpus record/lt-x-table-props/XTablePropsTests.al:322-325). The order of a `BigInteger` one is not
-/// pinned: a read that sorts by it is refused, as is a filter on either other than one value.
+/// pinned: a read that sorts by it is refused, as is a filter on either other than one value. The order of a primary key
+/// that holds an `Integer` one is not pinned either. Any other SQLDataType (`Variant`) is `Other`: a read that sorts or
+/// filters by it is refused, and so is a non-empty value written into it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CodeStorage {
     #[default]
     Text,
     Integer,
     BigInteger,
+    Other,
 }
 
 #[derive(Debug, Clone, PartialEq)]

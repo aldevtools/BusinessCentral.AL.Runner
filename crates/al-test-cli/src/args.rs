@@ -107,6 +107,9 @@ pub struct Args {
     /// `--seed N` (ADR-061 section 5): the run seed for a local check. The default is the fixed seed 1, which the
     /// ratchet needs.
     pub seed: Option<i32>,
+    /// `--permission-shadow FILE` (ADR-062 stage 4): evaluate every permission check under the test runner's sets, grant it anyway
+    /// and write what would be denied to FILE. A diagnostic run, never a baseline.
+    pub permission_shadow: Option<PathBuf>,
 }
 
 /// What the command line asks for.
@@ -274,6 +277,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--baseline-diff" => a.baseline_diff = true,
             "--timings" => a.timings = true,
             "--timings-table" => a.timings_tables.push(text()?.into()),
+            "--permission-shadow" => a.permission_shadow = Some(text()?.into()),
             "--seed" => {
                 let v = text()?;
                 a.seed = Some(
@@ -289,6 +293,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--update-baseline cannot be combined with a selection ({}): the baseline would lose every case outside it",
             a.select.describe()
         ));
+    }
+    if a.update_baseline && a.permission_shadow.is_some() {
+        return Err("--update-baseline cannot be combined with --permission-shadow: a shadow run is a diagnostic, not a baseline".into());
     }
     if a.update_baseline && a.seed.is_some_and(|s| s != al_host::seed::FIXED_RUN_SEED) {
         return Err(format!(
@@ -378,6 +385,8 @@ DIAGNOSE
                               test codeunits (the --json and --markdown reports always carry the
                               times)
   --timings-table FILE        print the timing table of the --json reports named (repeatable), then stop
+  --permission-shadow FILE    check every access under the test runner's permission sets, grant it anyway, write what would be
+                              denied to FILE (ADR-062 stage 4 shadow run; a diagnostic, never a baseline)
   --seed N                    the run seed of Random and Guids per test (default: the fixed seed 1, ADR-061)
 
 BASELINE AND REPORTS

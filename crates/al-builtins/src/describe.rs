@@ -40,6 +40,7 @@ impl Describe for Value {
                 _ => format!("Char {c}"),
             },
             Value::Text(s) => format!("Text {}", quoted(s)),
+            Value::TextConst(s) => format!("TextConst {}", quoted(s)),
             Value::Code(s) => format!("Code {}", quoted(s)),
             Value::Date(0, _) => "an undefined Date".into(),
             Value::Date(_, true) => "a closing Date".into(),

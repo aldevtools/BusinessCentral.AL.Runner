@@ -2778,7 +2778,7 @@ fn the_marks_of_a_test_do_not_depend_on_what_ran_before_it_or_on_the_run() {
 /// A test refused before it starts also leaves out what BC would have committed (a cleanup, a setup the later tests
 /// rely on; Tests-ERM "Discount Setup Notifications": a refused test that would have reset the posting setups, then a
 /// test that failed on the rows the test before it left). Here the refused test's reach holds the construct it is refused
-/// for (a Label true branch into a Variant), so what it would have done is not known: it may change anything, the shared globals and session
+/// for (a Label true branch against an Integer into a Variant), so what it would have done is not known: it may change anything, the shared globals and session
 /// state included, so every later failure is not trusted, under Codeunit and Function isolation alike (coordinator's
 /// decision 2026-10-19, owner's priority: no false results).
 #[test]
@@ -2786,7 +2786,7 @@ fn a_failure_after_a_test_refused_before_it_started_for_a_construct_in_its_reach
     let src = "table 61412 Row { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
         codeunit 61411 Shared { Subtype = Test;
             [Test] procedure Refused() var V: Variant; T: Text; L: Label 'abc', Locked = true; B: Boolean; R: Record Row;
-            begin R.DeleteAll(); V := B ? L : T; end;
+            begin R.DeleteAll(); V := B ? L : 5; end;
             [Test] procedure Fails() var R: Record Row; begin R.Id := 1; R.Insert(); Error('x'); end;
             [Test] procedure FailsOther() begin Error('y'); end; }";
     let (ws, l) = al_sema::lower::compile(

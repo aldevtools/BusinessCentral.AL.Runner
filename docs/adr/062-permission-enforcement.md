@@ -421,16 +421,32 @@ Stage 1 is on by default: probes P1-P13 are merged in the corpus (master, PR 914
   stack merge into the session level; only Yes levels are pinned.
 - The end-of-test refusal of a test that is still lowered applies only under `--permissions off`.
 
-## Stage 2, first part (2026-11-02)
+## Stage 2 (2026-11-02)
 
-`Record.ReadPermission` and `WritePermission` (also through a RecordRef) are decided by the session's sets
-(`Session::permission_query`, `al-vm/src/permissions.rs`) instead of answering true. Read is the Read permission; Write is
-Insert, Modify and Delete together, each decided as an access: direct Yes, or Indirect completed by the calling object's
-`Permissions` property. An unrestricted session still answers true. Pinned by Y24PermReads.al Y24_P19_ReadWritePermission
-and by the Y75 probe (`lt-y75-license/Y75PermReadWrite.al`, corpus PR 1031; not in the pin yet, the values come from its
-hand-off). A false answer for a temporary record, a system table, an extension object's code or a session that is not fully
-composed refuses the test. Reads, FlowField denials and the other read shapes (P14-P18) stay refused: the stage is not on
-by default yet.
+Reads is on by default for the shapes the corpus pins (Y24PermReads.al, Y24PermObjectReads.al; BC 27.5, 28.5, 29.0 agree):
+
+- **ReadPermission / WritePermission** (`Session::permission_query`) answer from the sets: Read is the Read permission, Write needs
+  Insert, Modify and Delete. Y24_P19_ReadWritePermission; the R, RI, RIM, RIMD and RecordRef values come from the Y75 probe
+  (`lt-y75-license/Y75PermReadWrite.al`, corpus PR 1031, not in the pin yet). A false answer for a temporary record, a system
+  table, an extension object's code or a session that is not fully composed refuses the test.
+- **Record reads** (`read_denied`): on a table with rows, Get of an existing key, Find, FindFirst, FindLast, FindSet, IsEmpty,
+  Count and CountApprox raise `Read`, CalcSums raises `IndirectRead` (code `DB:ClientReadDenied` for both). Get of a missing key
+  raises RecordNotFound as usual. On an empty table nothing raises a permission error. A read that finds no row on a table that
+  has rows, Next, GetBySystemId and an indirect CalcSums are not pinned and refuse.
+- **FlowFields** (`permission_gate_flowfield`): CalcFields over a source table the session cannot read raises `IndirectRead` when
+  the source table has rows; the fields of SetAutoCalcFields are calculated without a check. A page control over such a FlowField
+  refuses (BC leaves the control off the page, Y24_P15 `testpage_field`).
+- **Query.Read and XmlPort.Export** (`permission_gate_object_read`): the object's own `Permissions` property and app decide, as for
+  code: without a property it needs Read (`Read` error), with `Permissions = r` the indirect grant (`IndirectRead` error).
+- **A denied read in a test that reaches a part the analysis cannot follow** (a report the runtime refuses, `InherentPermissions` on a
+  report for now) is refused at the read, for a test that holds a `Permissions Mock` variable. Going on would refuse the test later,
+  after it changed state a later test of the codeunit reads (report/lt-u-report-props/UPropertyTests.al
+  Report_RequestPagePermissions_AndInherentPermissions, then Query_InherentPermissions_UnderTheMock).
+- **A read of an empty table of a dependency app** is refused: BC's Cronus database may hold rows there (Y69SystemGrants.al
+  Y69_SY_ReporterShapes reads Customer). The empty-table rule is pinned for tables of the app under test only.
+- **Still refused**: reports (P17: BC 29 fails first on a read of Company Information by Base Application code), pages (P18:
+  FormAbort:Permission on open, the SetValue save error), reads the runtime makes for validation, relations and lookups, and
+  everything of stage 3.
 
 ### Decided without owner review (2026-10-31)
 
@@ -450,3 +466,42 @@ by default yet.
   unpinned shape and a probe id.
 - The perf budgets of CLAUDE.md unchanged for an unrestricted run.
 - Stage 4: the shadow run report is attached to the PR that turns it on.
+
+## Stage 3 (2026-11-02)
+
+Execute is on for the shapes Y24PermExecute.al pins (BC 27.5, 28.5, 29.0 agree):
+
+- **Codeunit.Run, a call on a codeunit variable, a report run, XmlPort.Export, Query.Open and a call of a table procedure** without
+  Execute raise `Sorry, the current permissions prevented the action. (<Kind> <id> <name> Execute: <app of the calling code>)`, code
+  `DB:ExecuteObjDenied` (kinds `CodeUnit`, `Report`, `XmlPort`, `Query`, `Table`). Execute on the calling codeunit does not cover
+  the objects it runs (Y24_P20_ExecuteThroughGranter).
+- **When it is checked:** when code of another object uses an instance made while the permissions were lowered (`Instance::born`).
+  Calls inside the object's own code are free, so the test codeunit's own local procedures never refuse. An instance made before
+  the set was assigned is not checked: a global of the test codeunit, the Permissions Mock (`Mock.ClearAssignments()` runs under an
+  exact set that grants it no Execute). `Set` adds All Objects, so Execute is denied only under `SetExactPermissionSet`.
+- **Pages:** opening a page (`Page.Run`, `TestPage.OpenView`, `OpenEdit`, `OpenNew`) without Execute ends with `Page <name> has to close.`,
+  code `FormAbort:Permission`.
+- **AccessByPermission** (Y24PermExecute.al Y24_P21_AccessByPermissionPage and ...RequestPage): a field or action of the page's own
+  layout (also of a request page) with `AccessByPermission = tabledata T = R`, `= I` or `codeunit C = X` is left off the page when the
+  session's level of that permission is blank: `Value`, `Visible` and `Enabled` of it raise `The field|action with ID = n is not
+  found on the page.` It is there when the level is Yes (`Set` adds All Objects, so the codeunit guard holds after any `Set` and fails
+  only under `SetExactPermissionSet` without Execute). The decision is made when the control is used, against the sets the session
+  held when the page opened. Refused: any other guard (other letters, other object types), an Indirect level, sets that are not
+  fully composed, a change of the assigned sets while the page is open, other methods of a hidden control, a group or part with the
+  property, a page-level mention, an action reference to a guarded action. Not modelled: the control still appears in the Page
+  Control Field table.
+- **GetEffectivePermission** (Y24_P22_EffectivePermission): `NavUserAccountHelper.GetEffectivePermissionForObject` answers from the
+  assigned sets for TableData, Table, Report, Codeunit and Page (the session's five levels on that object). With no set assigned the
+  user is SUPER: Yes on the four data rights for table data and Execute only for the four object types. Other object types, an
+  Indirect level and sets that are not fully composed are refused.
+- **Still refused:** a denial on a trigger of a table or page, or on an event subscriber (not pinned).
+
+## Stage 4 shadow run (2026-11-02)
+
+The shadow run is a diagnostic; stage 4 stays off. `al-test-cli --permission-shadow FILE` (or `AL_PERMISSION_SHADOW=FILE` for
+`al-runner`) composes the sets the test runner assigns (`runner_permission_step`: All Objects, D365 Full Access, Test Tables, D365 Basic,
+LOCAL) as a restricted session for every test that does not disable TestPermissions, evaluates every check, and turns each denial into
+a grant. Each line of FILE is `codeunit id`, `test`, `would deny` or `unknown`, the check (`record`, `flowfield`, `object read`,
+`execute`, `call`, `page open`, `permission query`, `accessbypermission`), the BC error text and code (or the reason it is unknown), the
+sets, and `lower bound` when a set was not composed in full. A test that assigns a set of its own ends the evaluation (probe P25).
+`permission_shadow.rs` in `al-vm` wraps the gates of `permissions.rs`; test outcomes are the same with the switch on.
