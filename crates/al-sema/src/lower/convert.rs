@@ -688,7 +688,7 @@ impl<'a> Lowerer<'a> {
             if p.by_var {
                 out.push(ir::Arg::Ref(self.place(a)?));
             } else {
-                let value = self.expr(a)?;
+                let value = self.expr_into(&p.ty, a)?;
                 self.refuse_variant_argument(&p.ty, a)?;
                 out.push(ir::Arg::Value(self.convert_to(&p.ty, self.ty_ref(a), value)?));
             }

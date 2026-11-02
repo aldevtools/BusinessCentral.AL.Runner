@@ -1107,7 +1107,7 @@ impl Lowerer<'_> {
             }
             ExitStmt => match kids.first() {
                 None => Ok(ir::Stmt::Exit(None)),
-                Some(e) => self.expr(e).and_then(|v| {
+                Some(e) => self.expr_into(&self.ret_decl.clone().unwrap_or(Ty::Boolean), e).and_then(|v| {
                     if let Some(decl) = self.ret_decl.clone() {
                         self.refuse_session_ending_ternary(&decl, e)?;
                         self.refuse_textconst_into_variant(&decl, e)?;
@@ -1496,7 +1496,7 @@ impl Lowerer<'_> {
         let target_ty = self.ty_of(&kids[0]);
         self.refuse_label_ternary_into_variant(&target_ty, &kids[1])?;
         let rhs = self.run_on_client_assigned(n, &target_ty, &kids[1]);
-        let rhs = rhs.map_or_else(|| self.expr(&kids[1]), Ok)?;
+        let rhs = rhs.map_or_else(|| self.expr_into(&target_ty, &kids[1]), Ok)?;
         let rhs = self.tdd_fit(&kids[0], &target_ty, rhs);
         let op = sig_tokens(n).into_iter().find(|t| {
             matches!(
