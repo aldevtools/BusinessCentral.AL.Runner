@@ -1989,12 +1989,9 @@ impl Session {
             match ty {
                 RtType::Code(_) | RtType::Integer | RtType::Enum(..) | RtType::Date => {
                     // The error of a value that is none is raised whether the result is used or not; the caller decides.
-                    // A Code value with blanks around it is read trimmed. Not pinned: assumption evaluate-recordid-composite-key
-                    // (Tests-Rapid Start Config. Package Record IDs).
+                    // A Code value with blanks around it is read trimmed, and the length check counts the trimmed text
+                    // (misc/lt-y70-assumptions/Y70Probes.al:661-713 EvaluateRecordId_BlanksAroundCodeKey).
                     let v = if matches!(ty, RtType::Code(_)) && v.trim() != v.as_str() {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::EvaluateRecordIdCompositeKey,
-                        );
                         v.trim()
                     } else {
                         v.as_str()
@@ -2201,7 +2198,6 @@ impl Session {
 }
 
 /// Member indexes of the IsolationLevel option (`al_builtins::sysenum`, "isolationlevel").
-pub(crate) const ISOLATION_READ_UNCOMMITTED: i32 = 1;
 pub(crate) const ISOLATION_REPEATABLE_READ: i32 = 3;
 pub(crate) const ISOLATION_UPDLOCK: i32 = 4;
 

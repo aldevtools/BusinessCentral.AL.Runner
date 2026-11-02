@@ -909,8 +909,7 @@ fn digit_text(s: &Scalar) -> Option<Option<i64>> {
         return t.parse::<i64>().ok().map(Some);
     }
     if text_number::outside_number_alphabet(t) {
-        // `n/a`: the conversion error (writer Y65, assumption json-text-number-shapes until the pin).
-        crate::assumptions::assume(crate::assumptions::Assumption::JsonTextNumberShapes);
+        // `n/a`: the conversion error (json/JsonValueGetters.al:532 Y65_NotANumberText_EveryGetter).
         return Some(None);
     }
     match t.split_once('.') {
@@ -962,12 +961,9 @@ fn as_duration(s: &Scalar) -> Result<Value, Signal> {
         if let Ok(n) = t.trim().parse::<i64>() {
             return Ok(Value::Duration(n));
         }
-        // `n/a`: the conversion error (json/JsonValueGetters.al TextGetters `text_asduration` "hello"; Y65_NotANumberText_EveryGetter,
-        // assumption json-text-number-shapes until the pin).
+        // `n/a`: the conversion error (json/JsonValueGetters.al TextGetters `text_asduration` "hello"; :532
+        // Y65_NotANumberText_EveryGetter).
         if text_number::outside_number_alphabet(t) {
-            if !t.bytes().all(|b| b.is_ascii_alphabetic()) {
-                crate::assumptions::assume(crate::assumptions::Assumption::JsonTextNumberShapes);
-            }
             return Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavDuration"));
         }
     }
@@ -978,42 +974,18 @@ fn all_digits(t: &str) -> bool {
     !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// `-?digits(.digits)?` with no blanks (AjScalars.al: "100.00", "-3.5").
-fn signed_point_number(t: &str) -> bool {
-    let t = t.strip_prefix('-').unwrap_or(t);
-    match t.split_once('.') {
-        Some((a, b)) => all_digits(a) && all_digits(b),
-        None => all_digits(t),
-    }
-}
-
-/// Digits with blanks around them (AjScalars.al: " 7 ").
-fn blank_padded_digits(t: &str) -> bool {
-    all_digits(t.trim_matches(' '))
-}
-
 fn decimal_from_text(t: &str) -> Result<Value, Signal> {
     use text_number::TextNumber;
-    let mark = |measured: bool| {
-        if measured {
-            crate::assumptions::assume(crate::assumptions::Assumption::JsonTextNumberShapes);
-        }
-    };
     match text_number::decimal_text(t) {
-        TextNumber::Number { value, measured } => {
-            mark(measured);
+        TextNumber::Number(value) => {
             // Beyond the Decimal range: the range error (JsonValueGetters.al Y65_DecimalShapedText_AsDecimal_2, writer Y65).
             if let Some(crate::format::FormatFail::Error { message, code }) = crate::format::decimal_range_error(&value)
             {
-                crate::assumptions::assume(crate::assumptions::Assumption::JsonTextNumberShapes);
                 return Err(error(message, &code));
             }
             Ok(Value::Decimal(value))
         }
-        TextNumber::NotANumber { measured } => {
-            mark(measured);
-            Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.Decimal18"))
-        }
+        TextNumber::NotANumber => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.Decimal18")),
         TextNumber::Unpinned => unsupported(format!("reading Text '{t}' as Decimal (conversion not pinned yet)")),
     }
 }

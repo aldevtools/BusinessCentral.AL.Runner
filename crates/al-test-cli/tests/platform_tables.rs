@@ -2146,11 +2146,10 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// The Field SystemId rule is measured on BC 28 and 29 for tables below and above 65536, fields 2000000000-2 and, on 29,
-/// fields 2000000005-8 (platform/lt-field-row-systemid/FieldRowSystemId.al:49-170, WcFieldRowCopy.al:48, :60-63): a read
-/// of one of those is a clean pass. A read of the SystemId of the rows of fields 2000000003-4 runs on assumption
-/// field-row-system-id. On BC 27 every Field row's SystemId is the null Guid (FieldRowSystemId.al, the `#else` branches).
+/// fields 2000000005-8 (platform/lt-field-row-systemid/FieldRowSystemId.al:49-170, WcFieldRowCopy.al:48, :60-63), and for
+/// fields 2000000003-4 (misc/lt-y70-assumptions/Y70Probes.al:780-837): every read is a clean pass. On BC 27 every Field row's SystemId is the null Guid (FieldRowSystemId.al, the `#else` branches).
 #[test]
-fn a_field_row_system_id_outside_the_measured_shapes_is_a_flagged_read() {
+fn every_field_row_system_id_read_is_a_clean_pass() {
     let src = r#"table 90646 "R" { fields { field(1; "No."; Code[20]) { } field(2; Description; Text[50]) { } } keys { key(PK; "No.") { } } }
 table 50001 "S" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { } } }
 codeunit 50000 "T" { Subtype = Test;
@@ -2181,13 +2180,12 @@ codeunit 50000 "T" { Subtype = Test;
             &mut hits,
             None,
         );
-        let a = al_builtins::assumptions::Assumption::FieldRowSystemId;
         out.iter()
             .map(|(n, o)| {
                 (
                     n.clone(),
                     *o == Outcome::Pass,
-                    hits.iter().any(|(h, m)| h == n && m.contains(&a)),
+                    hits.iter().any(|(h, m)| h == n && !m.is_empty()),
                 )
             })
             .collect::<Vec<_>>()
@@ -2199,7 +2197,7 @@ codeunit 50000 "T" { Subtype = Test;
                 ("Measured".to_string(), true, false),
                 ("BelowTableNo65536".to_string(), true, false),
                 ("SystemIdRow".to_string(), true, false),
-                ("ModifiedAtRow".to_string(), true, true),
+                ("ModifiedAtRow".to_string(), true, false),
             ],
             "{bc}"
         );

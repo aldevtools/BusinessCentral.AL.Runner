@@ -746,16 +746,15 @@ pub fn number_into_text_field(
     })
 }
 
-/// A Date into a DateTime is that day at midnight, the blank Date the blank DateTime (as CreateDateTime(D, 0T)). Not pinned;
-/// Microsoft's production order code assigns a Date to a DateTime (Tests-SCM-Manufacturing, 20 tests; assumption
-/// date-to-datetime-is-midnight). Kept off the conversion's hot path.
+/// A Date into a DateTime is that day at midnight, the blank Date the blank DateTime (as CreateDateTime(D, 0T)): through a
+/// Variant, a FieldRef and Evaluate of Format(D, 0, 9) (misc/lt-y70-assumptions/Y70Probes.al:172-216). Kept off the
+/// conversion's hot path.
 #[cold]
 #[inline(never)]
 fn date_to_datetime(n: i32) -> Value {
     if n == 0 {
         return Value::DateTime(0);
     }
-    crate::assumptions::assume(crate::assumptions::Assumption::DateToDateTime);
     Value::DateTime((i64::from(n) - 1) * 86_400_000 + 1)
 }
 

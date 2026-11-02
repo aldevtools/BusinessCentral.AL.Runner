@@ -3,7 +3,7 @@
 //! 29.0 probe (corpus branch winprobe-wc6, tests/wc6-probe/ContosoProbe.al, cu 61320 CS_OptionInitValueOrdinal);
 //! assumption option-init-value-ordinal.
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 use al_testkit::text;
 
 const SRC: &str = r#"
@@ -50,17 +50,16 @@ codeunit 69982 C
 "#;
 
 #[test]
-fn a_numeric_option_init_value_is_the_member_at_that_ordinal_and_marks_its_assumption() {
+fn a_numeric_option_init_value_is_the_member_at_that_ordinal() {
+    // misc/lt-y70-assumptions/Y70Probes.al:715-748 OptionInitValue_Ordinal.
     take_hits();
     assert_eq!(text(al_testkit::run_in(SRC, "C", "F")), "Monday/1|Monday/1|Monday/1");
-    assert!(take_hits().contains(&Assumption::OptionInitValueOrdinal));
+    assert!(take_hits().is_empty());
 }
 
 #[test]
-fn an_option_init_value_by_name_does_not_mark_the_assumption() {
-    take_hits();
+fn an_option_init_value_by_name_is_that_member() {
     assert_eq!(text(al_testkit::run_in(SRC, "C", "Named")), "B");
-    assert!(!take_hits().contains(&Assumption::OptionInitValueOrdinal));
 }
 
 /// A member named by digits that sits at another ordinal makes `InitValue = 1` ambiguous between the name and the

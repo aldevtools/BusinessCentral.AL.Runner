@@ -1252,11 +1252,8 @@ impl Store for MemStore {
                         self.touch(cx, t);
                         self.virtual_write_pending = true;
                         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FeatureKeyEnabledModify);
-                    } else {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::FeatureKeyUnchangedModify,
-                        );
                     }
+                    // A Modify that changes nothing succeeds and changes nothing (misc/lt-y70-assumptions/Y70Probes.al:868-922).
                     return Ok(WriteOutcome::Done);
                 }
             }

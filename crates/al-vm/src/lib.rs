@@ -16,7 +16,6 @@ use std::sync::Arc;
 
 mod autoinc;
 mod bgsession;
-mod init_assumes;
 mod state;
 pub(crate) use state::*;
 mod baseline;
@@ -335,7 +334,6 @@ impl Engine {
         let table_facts: Vec<TableFacts> = heads
             .iter()
             .map(|o| TableFacts {
-                init_assumes: o.table.as_ref().map_or_else(Vec::new, init_assumes::of_table),
                 unresolved_init: o
                     .table
                     .as_ref()
@@ -1277,7 +1275,6 @@ impl Session {
         self.tx.lock_unpinned = None;
         self.tx.recref_lock_tx = false;
         self.tx.isolation_lock_tables.clear();
-        self.tx.read_uncommitted_read = false;
         self.tx.locking_read_tx_unpinned = false;
     }
 
@@ -1374,7 +1371,6 @@ impl Session {
         self.tx.lock_unpinned = None;
         self.tx.recref_lock_tx = false;
         self.tx.isolation_lock_tables.clear();
-        self.tx.read_uncommitted_read = false;
         self.tx.locking_read_tx_unpinned = false;
         if self.tx.tx_phase == crate::transactions::TX_WRITE {
             self.tx.tx_phase = crate::transactions::TX_FRESH;
@@ -1905,14 +1901,12 @@ impl Session {
         }))
     }
 
-    /// A record type whose default value has no state of its own (no temporary table): a record of a stored table. The
-    /// assumption a fresh buffer of the table relies on is still marked, as [`Session::initial_fields`] marks it.
+    /// A record type whose default value has no state of its own (no temporary table): a record of a stored table.
     fn record_without_state(&self, t: &RtType) -> bool {
         let RtType::Record(table, false) = t else { return false };
         if self.engine.object_facts[*table as usize].temporary() {
             return false;
         }
-        init_assumes::mark(self.engine.table_facts.get(*table as usize));
         true
     }
 
@@ -2528,8 +2522,6 @@ pub(crate) type AdhocTables = std::collections::HashMap<(u32, Vec<usize>), Arc<a
 pub(crate) struct TableFacts {
     /// Some field has an `InitValue` text that did not evaluate at compile time.
     pub(crate) unresolved_init: bool,
-    /// The assumptions the fields' `InitValue`s rest on (`init_assumes::of_table`): a fresh record marks them.
-    pub(crate) init_assumes: Vec<al_builtins::assumptions::Assumption>,
     /// The positions of the BigInteger fields with `SQLTimestamp = true`: they read the row version.
     pub(crate) sql_timestamp: Vec<usize>,
     /// Some Code field declares an `SQLDataType` other than `Varchar`: a write checks its value.

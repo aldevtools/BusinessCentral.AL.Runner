@@ -1238,16 +1238,12 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
         num(&body[..2], 2).zip(num(&body[2..], 2)).map(|(h, m)| (h, m, 0, 0))
     } else if body.len() == 6 && number == 0 {
         // `hhmmss` reads as hours, minutes and seconds and an hour from 24 is rejected (types/lt-ax-text-format-dates/
-        // AxEvaluateText.al:44-118: `085606`, `246000`). Minutes or seconds from 60 are not pinned (assumption
-        // evaluate-time-digit-forms).
-        let r = num(&body[..2], 2)
+        // AxEvaluateText.al:44-118: `085606`, `246000`), and so are minutes or seconds from 60 (misc/lt-y70-assumptions/
+        // Y70Probes.al:123-170 `086000`, `085960`).
+        num(&body[..2], 2)
             .zip(num(&body[2..4], 2))
             .zip(num(&body[4..], 2))
-            .map(|((h, m), s)| (h, m, s, 0));
-        if r.is_some_and(|(h, m, s, _)| h < 24 && (m >= 60 || s >= 60)) {
-            crate::assumptions::assume(crate::assumptions::Assumption::EvaluateTimeDigitForms);
-        }
-        r
+            .map(|((h, m), s)| (h, m, s, 0))
     } else if (1..=2).contains(&body.len()) && number == 0 && body.bytes().all(|b| b.is_ascii_digit()) {
         // One or two digits are an hour; 24 is rejected (AxEvaluateText.al:44-118: `23`, `5`, `24`).
         num(body, 2).map(|h| (h, 0, 0, 0))

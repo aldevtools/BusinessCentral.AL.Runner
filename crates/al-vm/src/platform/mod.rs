@@ -21,7 +21,6 @@ pub(crate) mod coverage;
 mod date;
 mod feature_key;
 mod fields;
-pub(crate) use fields::note_field_row_system_id;
 pub(crate) use fields::user_name_system_field;
 mod host_tables;
 pub(crate) use host_tables::culture_name;
