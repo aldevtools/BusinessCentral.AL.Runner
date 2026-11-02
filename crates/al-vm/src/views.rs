@@ -385,7 +385,10 @@ impl Session {
                 // Y43SetAscendingFlowField.al:234 `WHERE(Field1=1(1))`); an Enum there is not pinned and keeps its name.
                 let numeric_option = !use_names && record_form && matches!(t.fields[f.field].ty, RtType::Option(_));
                 let text = if option_ordinals || numeric_option {
-                    self.filter_text(&ordinals(&f.expr))?
+                    // A Date or DateTime value takes the XML form here too (events/lt-platform-triggers/PtObserve.al:600
+                    // `WHERE(Field5=1(2020-01-01..))`); a Boolean of this form is not pinned and keeps its session form.
+                    let iso = !matches!(t.fields[f.field].ty, RtType::Boolean);
+                    self.filter_text_with(&ordinals(&f.expr), iso)?
                 } else {
                     self.filter_text_with(&f.expr, true)?
                 };

@@ -22,6 +22,7 @@ mod drilldown_marked_only_update;
 mod drilldown_marked_refill_other_key;
 mod empty_list_action;
 mod filterpage;
+mod filterpage_view_dates;
 mod find_list_full_window_rows_before;
 mod findlist_desc_window;
 mod findlist_update_first;
