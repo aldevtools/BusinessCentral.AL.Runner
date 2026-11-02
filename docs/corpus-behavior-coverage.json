@@ -7187,6 +7187,15 @@
         },
         {
           "corpus_uses": 1,
+          "group": "xmlport/tableelement",
+          "ms_uses": 1,
+          "name": "LinkTableForceInsert",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-report-page-properties/06-xmlport-linkforce.al:24"
+        },
+        {
+          "corpus_uses": 1,
           "group": "page",
           "ms_uses": 1,
           "name": "IsPreview",
@@ -11387,15 +11396,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "pageext/lt-page-ext-properties/TableSqlIndex.al:21"
-        },
-        {
-          "corpus_uses": 1,
-          "group": "xmlport/tableelement",
-          "ms_uses": 1,
-          "name": "LinkTableForceInsert",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-report-page-properties/06-xmlport-linkforce.al:24"
         },
         {
           "corpus_uses": 20,
@@ -16729,7 +16729,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 2072,
+        "line": 2074,
         "pinned": true,
         "site": "codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:95",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -16738,7 +16738,7 @@
         "code": "FormAbort:Dialog",
         "file": "crates/al-vm/src/pages.rs",
         "generic": false,
-        "line": 293,
+        "line": 295,
         "pinned": true,
         "site": "pages/lt-cc-page-leads/CcPageLeads.al:525",
         "template": "Page % has to close."
@@ -16751,6 +16751,15 @@
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."
+      },
+      {
+        "code": "Argument",
+        "file": "crates/al-vm/src/pages/request_options.rs",
+        "generic": true,
+        "line": 96,
+        "pinned": false,
+        "site": null,
+        "template": "NavType"
       },
       {
         "code": "FormCloseNotAllowed",
@@ -16819,7 +16828,7 @@
         "code": "DB:Ok",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 192,
+        "line": 193,
         "pinned": true,
         "site": "record/TestPlatformTablesWritableContracts.al:107",
         "template": "It is not possible to % any record in the Tenant License State table."
@@ -16828,7 +16837,7 @@
         "code": "DB:Ok",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 208,
+        "line": 209,
         "pinned": true,
         "site": "platform/PtOnPremTables.al:135",
         "template": "The % table is read-only."
@@ -16927,7 +16936,7 @@
         "code": "Evaluate",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 2121,
+        "line": 2124,
         "pinned": true,
         "site": "errors/lt-ms-refusals-136/P136Report.al:349",
         "template": "The format of the Date '''' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
@@ -16936,7 +16945,7 @@
         "code": "",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 3051,
+        "line": 3045,
         "pinned": true,
         "site": "handlers/TestReportRuntimeContracts.al:462",
         "template": "The object has been run. Use the function CLEAR(Report)."
@@ -17006,7 +17015,7 @@
       }
     ],
     "pinned": 110,
-    "sites": 116
+    "sites": 117
   },
   "language": {
     "bc": "27-29",
@@ -29357,7 +29366,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-report-page-properties/06-xmlport-linkforce.al:24",
-        "state": "refused"
+        "state": "implemented"
       },
       {
         "area": "properties",

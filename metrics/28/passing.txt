@@ -10734,10 +10734,13 @@
 72129 P121_RequestPage
 72131 P121_RequestPage
 72134 P121_RequestPage
+72138 P121_Export
 72146 P121_ExportImport
 72148 BP_Import_xRecInOnValidate
 72148 P121_Import
 72150 P121_Import
+72152 P121_Export
+72152 P121_Import
 72168 P121_Export
 72170 P121_Export
 72170 P121_Import
@@ -12905,6 +12908,7 @@
 73850 RunRequestPage_ReturnValue_Cancel
 73850 RunRequestPage_ReturnValue_Ok
 73850 RunRequestPage_ThenExecute_AppliesValues
+73850 RunRequestPage_ThenSaveAs_AppliesValues
 73850 SaveAs_WithoutParameters_UsesDefaults
 73850 SetTableView_ThenRequestPage_SeesViewAsFilter
 73850 SetValue_AllTypes_ReachTheReport
@@ -15098,6 +15102,7 @@
 80007 AT_TimeZone_Numbering_Probe
 80007 UQ_TimeZone_LookupById
 80011 AT_FieldAttribute_EmptyField_Export
+80011 AT_FieldAttribute_Missing_Import
 80150 Array_CopyArray_OneDimIntoRow
 80150 BusinessChartBuffer_Initialize_InTest
 80150 Case_OnlyElseBranch
