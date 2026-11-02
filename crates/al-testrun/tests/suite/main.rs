@@ -37,6 +37,7 @@ mod modify_without_change;
 mod page_insert_by_code;
 mod page_run_view;
 mod page_variable_control_no_insert;
+mod permission_read_write;
 mod permission_writes;
 mod query_after_last_row;
 mod query_close_fall_through;

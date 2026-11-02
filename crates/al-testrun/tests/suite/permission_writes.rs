@@ -9,7 +9,7 @@ use al_testrun::Outcome;
 use al_testrun::runtime::{CorpusRuntime, Manifest, RunOptions, SuiteRun};
 use std::sync::Arc;
 
-const BASE: &str = r#"
+pub(super) const BASE: &str = r#"
 dotnet
 {
     assembly("Microsoft.Dynamics.Nav.PermissionTestHelper")
@@ -722,6 +722,11 @@ impl al_host::dotnet::DotNetHost for HasDotNet {
 }
 
 fn run_with(opts: &RunOptions) -> CorpusRuntime {
+    run_main(MAIN, opts)
+}
+
+/// The `base` app (Permissions Mock) with `main` as the workspace app.
+pub(super) fn run_main(main: &str, opts: &RunOptions) -> CorpusRuntime {
     let manifest = |p: &str| Manifest {
         publisher: p.into(),
         version: "1.0.0.0".into(),
@@ -740,7 +745,7 @@ fn run_with(opts: &RunOptions) -> CorpusRuntime {
         symbols: vec![],
     };
     CorpusRuntime::try_run_suites_with(
-        vec![app("main", &["base"], MAIN), app("base", &[], BASE)],
+        vec![app("main", &["base"], main), app("base", &[], BASE)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
         &[manifest("Me"), manifest("Microsoft")],
         &Default::default(),

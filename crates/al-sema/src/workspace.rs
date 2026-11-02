@@ -200,9 +200,28 @@ pub struct Workspace {
     lazy_text: Vec<OnceLock<String>>,
     /// See [`Workspace::loaded_files`].
     loaded_files: usize,
+    /// Whether every table has the four user-name system FlowFields (`members::USER_NAME_FIELDS`): the target is BC 29 or
+    /// later. The default is the corpus symbol of the gate's BC major (`BC<major>PLUS`); a compile with a target sets it from the target's runtime
+    /// ([`Workspace::set_user_name_fields_for`]).
+    user_name_fields: bool,
 }
 
+/// The gate that says from which BC major every table has the user-name system FlowFields.
+const USER_NAME_FIELDS_GATE: al_version::Gate = al_version::Gate::PlatformMetadataColumnsFrom29;
+
 impl Workspace {
+    /// Whether every table has the user-name system FlowFields (SystemCreatedByUserName and the others, BC 29 and later).
+    pub fn user_name_fields(&self) -> bool {
+        self.user_name_fields
+    }
+
+    /// Sets [`Workspace::user_name_fields`] from the run target's BC major; `None` (no target) keeps the default.
+    pub fn set_user_name_fields_for(&mut self, bc_major: Option<u16>) {
+        if let Some(m) = bc_major {
+            self.user_name_fields = m >= USER_NAME_FIELDS_GATE.since_bc();
+        }
+    }
+
     /// The preprocessor symbols app `app` was parsed with.
     pub fn symbols_of(&self, app: usize) -> &BTreeSet<String> {
         &self.symbols[app]
@@ -282,6 +301,7 @@ impl Workspace {
             loaders,
             lazy_text: Vec::new(),
             loaded_files: 0,
+            user_name_fields: symbols.contains(&format!("BC{}PLUS", USER_NAME_FIELDS_GATE.since_bc())),
         };
         let all: Vec<&AppSource> = apps.iter().collect();
         ws.visible = (0..apps.len()).map(|i| visible_from(&all, i)).collect();

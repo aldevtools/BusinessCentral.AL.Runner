@@ -79,7 +79,8 @@ pub fn lower_for_cache_with(
         None => al_builtins::catalog::Catalog::load(),
     };
     let kinds = vec![crate::workspace::AppKind::Dependency; apps.len()];
-    let ws = Workspace::load_apps_symbols(apps, kinds, symbols, app_symbols, Vec::new());
+    let mut ws = Workspace::load_apps_symbols(apps, kinds, symbols, app_symbols, Vec::new());
+    ws.set_user_name_fields_for(catalog.bc_major());
     let members = crate::members::build(&ws);
     let roots = crate::check::Roots {
         eager: true,
@@ -170,7 +171,8 @@ impl LayerBuilder {
             None => al_builtins::catalog::Catalog::load(),
         };
         let kinds = vec![crate::workspace::AppKind::Dependency; apps.len()];
-        let ws = Workspace::load_apps_symbols(apps, kinds, symbols, app_symbols, Vec::new());
+        let mut ws = Workspace::load_apps_symbols(apps, kinds, symbols, app_symbols, Vec::new());
+        ws.set_user_name_fields_for(catalog.bc_major());
         LayerBuilder { ws, catalog }
     }
 
@@ -286,12 +288,13 @@ pub fn compile_apps_cached(
 /// position table. `ALRUNNER_EAGER_DECODE=1` decodes them all before the program is returned (the other side of the
 /// lazy/eager differential).
 pub fn compile_loaded_cached(
-    ws: Workspace,
+    mut ws: Workspace,
     load: std::time::Duration,
     catalog: &al_builtins::catalog::Catalog,
     mut roots: crate::check::Roots,
     src_shared: std::sync::Arc<dyn crate::provided::DepSource + Send>,
 ) -> Result<(Workspace, Lowered), Box<(Workspace, String)>> {
+    ws.set_user_name_fields_for(catalog.bc_major());
     let src: &dyn crate::provided::DepSource = &*src_shared;
     let blocks_started = std::time::Instant::now();
     let prepared = (|| {
@@ -444,11 +447,12 @@ pub(crate) fn compile_with_roots(
 
 /// The compile of a workspace that is loaded (`load` is how long that took, for the timings).
 pub fn compile_loaded(
-    ws: Workspace,
+    mut ws: Workspace,
     load: std::time::Duration,
     catalog: &al_builtins::catalog::Catalog,
     roots: crate::check::Roots,
 ) -> (Workspace, Lowered) {
+    ws.set_user_name_fields_for(catalog.bc_major());
     let started = std::time::Instant::now();
     let members = crate::members::build(&ws);
     let members_time = started.elapsed();
