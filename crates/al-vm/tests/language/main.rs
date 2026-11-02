@@ -37,6 +37,7 @@ mod date_decimal_fraction;
 mod date_formula_format_standard;
 mod debugger;
 mod dmy2date_short_forms;
+mod datetime_range_errors;
 mod duration_date_arith;
 mod duration_mod_format;
 mod enum_arithmetic;

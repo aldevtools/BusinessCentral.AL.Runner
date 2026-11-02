@@ -971,10 +971,15 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
                     a.checked_sub(ms)
                 }
             });
-            return moved
-                .filter(|m| *m > 0)
-                .map(V::DateTime)
-                .ok_or_else(|| Signal::Unsupported("DateTime out of range (error text not pinned yet)".into()));
+            return match (moved, ms) {
+                (Some(m), _) if (1..=MAX_DATETIME).contains(&m) => Ok(V::DateTime(m)),
+                // Moved past 9999-12-31 23:59:59.999 or before 0001-01-01 by an Integer-sized amount (types/lt-datetime/Arithmetic.al:
+                // DateTime_Arithmetic_Errors, :294-297: `max + 1`). Only that size is pinned.
+                (Some(_), Some(ms)) if i32::try_from(ms).is_ok() => date_invalid(),
+                // The largest BigInteger added or subtracted overflows (Arithmetic.al:298-301, `+ 9223372036854775807L`, `-`).
+                (_, Some(i64::MAX)) => raise("Arithmetic operation resulted in an overflow.", "AL:Overflow"),
+                _ => Err(Signal::Unsupported("DateTime out of range (error text not pinned yet)".into())),
+            };
         }
         // Time +/- an Integer or a Duration moves by that many milliseconds and wraps around midnight; Time - Time is
         // a Duration; the undefined time (0T) cannot be moved ("Adding to an undefined (0T) time." for both
@@ -1297,6 +1302,9 @@ fn datetime_difference(a: i64, b: i64) -> Result<Value, Signal> {
     }
     date_invalid()
 }
+
+/// The largest DateTime, 9999-12-31 23:59:59.999, as the runtime counts it (`datefns::create_datetime`).
+const MAX_DATETIME: i64 = 3_652_059 * 86_400_000;
 
 fn date_invalid<T>() -> Result<T, Signal> {
     raise("The date is not valid.", "DateInvalid")
