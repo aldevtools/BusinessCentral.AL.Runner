@@ -516,6 +516,21 @@ impl Session {
         }
         self.ret_used = true;
         self.record_op(RecordOp::Get, &rec, &mut start.clone())?;
+        // A part with OnAfterGetCurrRecord stands on the row it read first (the last one), which it reads twice more before
+        // OnAfterGetCurrRecord, as a forward read does on its first row (pages/lt-y80-subpageview/Y80SubPageViewTests.al
+        // Y80_SV_F3_OpenView `F3.agr(H1/20000);F3.agr(H1/10000);F3.agr(H1/20000);F3.agr(H1/20000);F3.agcr(H1/20000)`,
+        // Y80_SV_F1_HostMoves `previous log`; needs corpus bump).
+        if self.declares(st, "onaftergetcurrrecord") && rows.len() > 1 {
+            let last = rows.len() - 1;
+            rec.borrow_mut().fields = rows[last].stored.clone();
+            self.populate_current(st)?;
+            rows[last].shown = rec.borrow().fields.clone();
+            self.page_trigger(st, "onaftergetrecord", vec![])?;
+            let stored = rows[last].stored.clone();
+            self.set_xrec_fields(st, stored);
+            st.borrow_mut().window = rows;
+            return Ok(true);
+        }
         rec.borrow_mut().fields = rows[0].shown.clone();
         let first_stored = rows[0].stored.clone();
         self.set_xrec_fields(st, first_stored);
