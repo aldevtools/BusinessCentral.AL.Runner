@@ -127,6 +127,8 @@
 99393 DnInt64_IntoInteger_InRange
 99393 DnInt64_IntoInteger_OutOfRange
 99393 DnZipEntryLength_IntoIntegerVarParam
+99394 BlobStream_AssignBackToInStream_InCallee
+99394 BlobStream_AssignBack_SameProcedure
 99394 BlobStream_PositionSet_AfterALRead
 99394 BlobStream_PositionSet_OutOfRange
 99418 RJ_QueryMetadataReader_AggregateMethods
