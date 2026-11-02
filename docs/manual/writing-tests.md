@@ -39,6 +39,19 @@ a logo has a blank Logo.
 Preprocessor symbols for `#if` come from `--define SYMBOL` (repeatable), or
 `--preprocessor-symbols A,B`.
 
+### Install order
+
+Business Central installs apps one at a time, in dependency order. While an app's
+install code runs, it sees only the apps installed before it and itself. AL Runner
+does the same, for your apps among themselves and for the dependency apps among
+themselves. During the install of app A, the subscribers of an app that depends on A
+do not run, and `NavApp.GetModuleInfo` does not find that app.
+
+Two apps with no dependency path between them have no known install order. If the
+install code of one reaches a subscriber of the other, or calls `NavApp.GetModuleInfo`
+for it, the test is not run, and the reason says that the install order of the two is
+not known. Add the dependency to `app.json` to give them an order.
+
 ## A test codeunit
 
 ```al
@@ -265,20 +278,37 @@ depends on how many companies exist.
 
 ## Permissions
 
-AL Runner does not enforce permissions. Every access is granted. A test that
-lowers its own permissions (`Permissions Mock`, `Library - Lower Permissions`)
-would give a wrong answer, so it is not run, with the reason.
+AL Runner checks permissions only in a session that a test lowered, with
+`Permissions Mock` or `Library - Lower Permissions`. All other code runs with every
+access granted. This is stage 1 of ADR-062, and it is on by default.
 
-One exception: permission sets that grant everything do not lower anything.
-A test that assigns `SUPER` (`Permissions Mock.Set('SUPER')`, `Assign('SUPER')`,
-`Library - Lower Permissions.SetOutsideO365Scope()`) runs. AL Runner reads each
-set from its source and checks that the assigned sets together grant every
+In a lowered session, AL Runner checks table data writes: `Insert`, `Modify`,
+`Delete`, `Rename`, `DeleteAll` and `ModifyAll`, on a record that is not temporary,
+from code of an object that is not an extension. The permission sets the test
+assigns decide. Permission set extensions and `ExcludedPermissionSets` are applied,
+and so are the `Permissions` property of the running object and the
+`InherentPermissions` of the table and of the routines on the call stack. A write
+that the sets do not allow raises the Business Central error, in the shapes the
+corpus pins. A write that the sets allow runs.
+
+Everything else that a lowered session would deny is not run, with the reason: reads,
+FlowField calculations, `Execute` permission, writes that the runtime makes for a
+page, report, XmlPort or validation, code of extension objects, and a session whose
+sets AL Runner cannot compose fully (for example sets assigned on top of the runner's
+own sets). Reads and calls that the sets allow do run. A license does not restrict
+anything yet: `--license` changes only what License Permission answers.
+
+Permission sets that grant everything do not lower anything. A test that assigns
+`SUPER` (`Permissions Mock.Set('SUPER')`, `Assign('SUPER')`,
+`Library - Lower Permissions.SetOutsideO365Scope()`) runs without checks. AL Runner
+reads each set from its source and checks that the assigned sets together grant every
 object. Until a measurement on Business Central confirms this, such a pass is
 flagged with the assumption `permission-sets-granting-everything-unrestricted`.
-A test that assigns a narrower set is still not run, even if it adds `SUPER`
-later.
 
-`--ignore-permission-mock` runs those tests with every access granted:
+`--permissions off` turns the checks off. A test that lowers its permissions is then
+not run, with the reason, as before stage 1.
+
+`--ignore-permission-mock` runs those tests with every access granted and no checks:
 
 ```bash
 al-runner test ./MyApp ./MyApp.Test --ignore-permission-mock
@@ -287,7 +317,7 @@ al-runner test ./MyApp ./MyApp.Test --ignore-permission-mock
 Risks:
 
 - A test that passes can fail on Business Central with a permission error.
-- A test that expects a permission error fails here.
+- A test that expects a permission error fails here, because no check runs.
 - Each such pass is a flagged pass: the summary counts it apart from clean passes,
   with the assumption `permissions-not-enforced`.
 

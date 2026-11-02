@@ -600,7 +600,8 @@ selects only the tests both match)
                          `seed` property). Per test method it derives the seed of Random (AL Runner v2's
                          formula; Randomize(n) still carries over to the next test, as in BC) and the
                          Guids and SystemIds, so the same seed, apps and selection replay the same values.
-                         It does not change the clock, the work date, the test order or install code.
+                         It also draws how far past a write stamp the test clock lands
+                         (0 to 2 ms). It does not change the work date, the test order or install code.
     --seed-library       Also hand Library - Random a seed derived from the run seed, after the
                          reset step's SetSeed(1). Off by default, as real BC's test runner keeps 1.
     --ignore-permission-mock
@@ -615,7 +616,8 @@ selects only the tests both match)
                          answer prints a warning with the test, the call and the answer, and such a
                          test is a flagged pass, `dev-endpoint-ui`.
     --permissions on|off Whether AL Runner enforces permissions where a stage of its permission
-                         checks is on (default on). No stage is on yet, so both give the same result.
+                         checks is on (default on). Stage 1 is on: table data writes of a session a test
+                         lowered are checked. Other denials are not run. `off` checks nothing.
                          In `serve`: the runTests fields `ignorePermissionMock` and `devEndpointUi`.
 
 AFFECTED TESTS (ADR-050)
