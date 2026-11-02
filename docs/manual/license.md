@@ -68,8 +68,8 @@ indirectly stops the run: its format is not read yet.
 
 ## What a license does not change yet
 
-Permission checks are not enforced: a test that lowers its own permissions is
-not run, or runs with every access granted under `--ignore-permission-mock`.
-A loaded license changes only what License Permission answers. Checking your
+A loaded license changes only what License Permission answers. It does not limit
+what the permission checks allow. Those checks cover table data writes in a session
+that a test lowered; see [Writing tests](writing-tests.md#permissions). Checking your
 permission sets and the `Permissions` property of your objects against a
 customer's license is planned.

@@ -100,8 +100,16 @@ fixes that came with that work stay on. Details: [alrunner-buckets.md](alrunner-
 - **Test framework, BC 29 (ADR-059, Accepted).** Data-driven tests (`[TestDataSource]`) run with one result per
   case, `Procedure[identifier]` (`al-testrun` `runtime/data_driven.rs`). `TestHandlers` are refused; the
   `TestHandlerContext` and `DataSourceContext` members work on a fresh variable. A skipped outcome waits for a pin.
-- **Planned: license-backed permissions (ADR-060)** and the stability testing mode (ADR-058, Accepted; built in
-  open pull requests).
+- **License-backed permissions (ADR-060).** `--license FILE` and the license in the BC artifact answer License
+  Permission (`docs/manual/license.md`). The license is not yet a limit on the permission checks (ADR-062 stage 5).
+- **Permission enforcement (ADR-062, Accepted).** Stage 1 is on by default: table data writes in a session a test
+  lowered are checked (`al-vm/src/permissions.rs`); other denials refuse the test. Reads, `Execute` and the runner
+  sets (stages 2 to 4) wait for probes. `--permissions off` restores the refusal.
+- **Stability mode (ADR-058, Accepted).** `--stability` runs variants over one compile and reports flips
+  (`docs/manual/stability.md`). **Run seed (ADR-061):** `--seed N`, printed and replayable.
+- **Install order.** Apps install one at a time in dependency order; two apps with no dependency path between them have
+  no known order, and what one could see of the other is refused (`al-testrun/src/install.rs`).
+- **`--dev-endpoint-ui`** answers unhandled UI as BC 28 and 29's dev-endpoint test runner does (flagged pass).
 
 ## Largest remaining blockers
 
