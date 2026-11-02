@@ -716,6 +716,10 @@ impl<'a> Walk<'a> {
             self.unknown(|| format!("runs {}, which is not compiled", obj.name));
             return;
         }
+        // A report the runtime refuses when it runs (`Session::report_schema`): what the test does before it is not followed.
+        if let Some(why) = obj.report.as_ref().and_then(|r| r.unsupported.first()) {
+            self.unknown(|| format!("runs {}, which cannot run: {why}", obj.name));
+        }
         for x in std::iter::once(o).chain(self.extensions_of(o)) {
             let xo = &lowered.program.objects[x];
             self.stack.extend(

@@ -1083,6 +1083,16 @@ impl Session {
     /// BC's permission error: `text_word` in the message (`Read`, `IndirectRead`, `Insert`, ...), `code_word` in the code
     /// (`DB:Client<code_word>Denied`); `by` is the object whose code makes the access (its app names the error).
     fn denial_error(&self, access: Access, text_word: &str, code_word: &str, by: usize) -> Signal {
+        // A test that reaches a report the runtime cannot run is refused at its first denied read: its report would
+        // refuse it later, after the code between had changed what a later test of the codeunit observes
+        // (report/lt-u-report-props/UPropertyTests.al Report_RequestPagePermissions_AndInherentPermissions and the test
+        // after it, Query_InherentPermissions_UnderTheMock). Report permissions are not pinned (P17).
+        if let Some(why) = &self.report_refusal_after_denial {
+            return Signal::Unsupported(unpinned_denial(
+                access,
+                &format!("the test goes on to a report that cannot run ({why})"),
+            ));
+        }
         let heads = self.engine.program.objects.heads();
         let name = heads
             .iter()
@@ -1129,6 +1139,16 @@ impl Session {
         let total = al_data::Store::count(&*self.store_for(rec), &cx, &t, &[])
             .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
         if total == 0 {
+            // Pinned for a table of the app under test (Y24PermReads.al Y24_P14_ReadShapesEmptyTable). A table of a dependency
+            // app that is empty here may hold rows in BC's Cronus database (Y69SystemGrants.al Y69_SY_ReporterShapes reads
+            // Customer under a set without Read and BC denies): the answer is not known.
+            let heads = self.engine.program.objects.heads();
+            let app = heads[t.object as usize].app as usize;
+            if self.engine.program.apps.get(app).is_none_or(|a| a.dependency) {
+                return refuse(
+                    "a read of an empty table of a dependency app, which BC's database may fill with demo rows",
+                );
+            }
             return Ok(());
         }
         if method == R::Get {

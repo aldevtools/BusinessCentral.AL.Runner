@@ -438,6 +438,12 @@ Reads is on by default for the shapes the corpus pins (Y24PermReads.al, Y24PermO
   refuses (BC leaves the control off the page, Y24_P15 `testpage_field`).
 - **Query.Read and XmlPort.Export** (`permission_gate_object_read`): the object's own `Permissions` property and app decide, as for
   code: without a property it needs Read (`Read` error), with `Permissions = r` the indirect grant (`IndirectRead` error).
+- **A denied read in a test that reaches a part the analysis cannot follow** (a report the runtime refuses, `InherentPermissions` on a
+  report for now) is refused at the read, for a test that holds a `Permissions Mock` variable. Going on would refuse the test later,
+  after it changed state a later test of the codeunit reads (report/lt-u-report-props/UPropertyTests.al
+  Report_RequestPagePermissions_AndInherentPermissions, then Query_InherentPermissions_UnderTheMock).
+- **A read of an empty table of a dependency app** is refused: BC's Cronus database may hold rows there (Y69SystemGrants.al
+  Y69_SY_ReporterShapes reads Customer). The empty-table rule is pinned for tables of the app under test only.
 - **Still refused**: reports (P17: BC 29 fails first on a read of Company Information by Base Application code), pages (P18:
   FormAbort:Permission on open, the SetValue save error), reads the runtime makes for validation, relations and lookups, and
   everything of stage 3.
