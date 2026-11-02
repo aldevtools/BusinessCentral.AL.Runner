@@ -74,6 +74,7 @@ mod fieldref_length_more_kinds;
 mod fieldref_number_into_text_variable;
 mod fieldref_option_ordinal_arg;
 mod fieldref_text_into_integer;
+mod fieldref_testfield_number_on_text;
 mod filtergroup_assign;
 mod find_filtered_miss;
 mod for_date;
