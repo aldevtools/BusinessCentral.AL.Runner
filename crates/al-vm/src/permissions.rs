@@ -946,6 +946,42 @@ impl Session {
         }
     }
 
+    /// Whether the control `guard` (the value of its AccessByPermission property) is left off a page that opened under the
+    /// permission sets `opened_under`. Pinned (Y24PermExecute.al Y24_P21_AccessByPermissionPage and ...RequestPage, BC 27.5, 28.5,
+    /// 29.0): `tabledata T = R` and `= I` and `codeunit C = X`; the control is off when the session's level of that permission
+    /// is blank and there when it is Yes. An Indirect level, a session whose sets are not fully composed, a change of the
+    /// assigned sets since the page opened and every other guard are not pinned: they refuse.
+    pub(crate) fn access_by_permission_hidden(&self, guard: &str, opened_under: &[String]) -> Result<bool, Signal> {
+        let Some(eff) = self.permissions.clone() else {
+            return Ok(false);
+        };
+        if self.ignore_permission_mock {
+            assume(Assumption::PermissionsNotEnforced);
+            return Ok(false);
+        }
+        if self.permissions_off {
+            return Err(Signal::Unsupported(LOWERED.into()));
+        }
+        if opened_under != self.permission_roles.as_slice() {
+            return Err(Signal::Unsupported(
+                "the permission sets changed while a page with AccessByPermission was open (not pinned, ADR-062 probe P21)".into(),
+            ));
+        }
+        let (kind, id, slot) = crate::platform::parse_guard(&self.engine, guard).map_err(Signal::Unsupported)?;
+        let op = [Op::Read, Op::Insert, Op::Modify, Op::Delete, Op::Execute][slot];
+        match eff.level(Access { kind, id, op }) {
+            1 => Ok(false),
+            0 if eff.complete => Ok(true),
+            0 => Err(Signal::Unsupported(format!(
+                "AccessByPermission under assigned permission sets that are not fully composed, so BC may grant it: {}",
+                eff.why_incomplete.join("; ")
+            ))),
+            _ => Err(Signal::Unsupported(
+                "AccessByPermission where the session holds the permission only as Indirect (not pinned, ADR-062 probe P21)".into(),
+            )),
+        }
+    }
+
     /// The gate for the calculation of a FlowField of `rec` over table `table` (object index): an indirect read the session
     /// level allows runs (pin 6). A denial with rows in the source table is `IndirectRead` (Y24PermReads.al
     /// Y24_P15_FlowFieldsNothingOnSource: CalcFields of Lookup, Exist, Sum and Count). On an empty source table the shape is

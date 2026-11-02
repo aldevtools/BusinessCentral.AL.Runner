@@ -533,6 +533,7 @@ impl Lowerer<'_> {
                 }
             }
         }
+        let restricted_refusals = super::shared::access_by_permission_refusals(obj, &controls);
         ir::Page {
             controls,
             triggers,
@@ -543,7 +544,7 @@ impl Lowerer<'_> {
             action_areas: layout.action_areas.clone(),
             assumes: layout.assumes.clone(),
             big_integer_expressions,
-            restricted_refusals: super::shared::access_by_permission_refusals(obj),
+            restricted_refusals,
         }
     }
 

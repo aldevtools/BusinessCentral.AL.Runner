@@ -320,6 +320,7 @@ impl Session {
             s.parts = Vec::new();
             s.closed_parts = Vec::new();
             s.areas = self.application_areas.clone();
+            s.permission_roles = self.permission_roles.clone();
         }
         if let Err(e) = self.create_parts(st) {
             self.mark_closed(st);

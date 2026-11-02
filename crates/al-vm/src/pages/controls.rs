@@ -1470,7 +1470,17 @@ impl Session {
                 m.name()
             ));
         }
+        // A control guarded by AccessByPermission that the session's permission sets do not grant is not on the page: the same
+        // error as for a removed control (Y24PermExecute.al Y24_P21_AccessByPermissionPage: Value, Visible and Enabled).
+        let guarded = self.access_by_permission_off(st, idx)?;
+        if guarded && !matches!(m, PageMethod::Value | PageMethod::Visible | PageMethod::Enabled) {
+            return unsupported(format!(
+                "TestPage.{}() of a control that AccessByPermission leaves off the page (only Value, Visible and Enabled are pinned)",
+                m.name()
+            ));
+        }
         if bare_ext
+            || guarded
             || self.control_eliminated(st, idx)
             || self.area_removed(st, idx)
             || self.action_without_behaviour(st, idx)

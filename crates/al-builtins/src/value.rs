@@ -835,6 +835,8 @@ pub struct PageState {
     /// The session's application areas when the page opened: controls whose area they do not
     /// enable are not on the page.
     pub areas: String,
+    /// The permission sets the session held when the page opened (AccessByPermission is decided against them, ADR-062 stage 3).
+    pub permission_roles: Vec<String>,
     /// OnInit has run on the current instance. BC constructs a page, and so runs OnInit, when a
     /// `Page` variable is first used, which may be a procedure call before it runs (corpus
     /// handlers/TestPageOnInit_Tests.al:188 POI_SetterBeforeRunModal_RunsAfterOnInitAndSurvives);
@@ -1082,6 +1084,7 @@ impl PageState {
             parameters_wanted: false,
             request_seed: None,
             areas: String::new(),
+            permission_roles: Vec::new(),
             inited: false,
             stale: false,
             lookup_set: false,
