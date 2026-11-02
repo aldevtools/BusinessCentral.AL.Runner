@@ -845,23 +845,6 @@ pub struct Session {
     pub(crate) runner_permission_sets: bool,
     /// Set by AL code's record method call right before `record_op` of a restricted session, taken there (ADR-062).
     pub(crate) permission_from_al: bool,
-    /// True while the fields of `SetAutoCalcFields` are calculated after a read: that read is allowed (Y24PermReads.al
-    /// Y24_P15_FlowFieldsNothingOnSource, `autocalc_findfirst`).
-    pub(crate) permission_autocalc: bool,
-    /// True while a page calculates the FlowFields of its controls: BC drops such a control when the session cannot read the
-    /// source table (Y24PermReads.al Y24_P15, `testpage_field`), which the runtime does not model, so a denial refuses.
-    pub(crate) permission_page_calc: bool,
-    /// Why a report the running test reaches cannot run (set by the test runner from the static reach, `None`: no such
-    /// report). A permission denial the test would catch is refused when it is set: the test goes on to the report, is
-    /// refused there, and by then has changed state a later test of the codeunit reads (ADR-062 stage 2).
-    pub report_refusal_after_denial: Option<String>,
-    /// The object whose `Permissions` property and app decide the accesses of the next checks, where no AL frame makes them
-    /// (a query, xmlport or report reading its tables, ADR-062 stage 2). `None`: the object of the current frame.
-    pub(crate) permission_caller: Option<usize>,
-    /// The xmlport whose export runs: the reads the runtime makes for it (not AL code) are decided as that object's.
-    pub(crate) permission_run_object: Option<usize>,
-    /// The query whose method runs (the object index), for the read check of `query_rows`.
-    pub(crate) query_object: usize,
     /// The object index of the test codeunit being run (set by the test runner).
     pub test_object: Option<usize>,
     /// The `TestHttpRequestPolicy` of the running test codeunit (`None`: the property is absent).
@@ -1184,12 +1167,6 @@ impl Session {
             permission_roles: Vec::new(),
             runner_permission_sets: false,
             permission_from_al: false,
-            permission_autocalc: false,
-            permission_page_calc: false,
-            report_refusal_after_denial: None,
-            permission_caller: None,
-            permission_run_object: None,
-            query_object: 0,
             permissions: None,
             test_object: None,
             http_policy: None,

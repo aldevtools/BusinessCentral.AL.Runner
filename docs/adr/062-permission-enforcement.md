@@ -421,32 +421,16 @@ Stage 1 is on by default: probes P1-P13 are merged in the corpus (master, PR 914
   stack merge into the session level; only Yes levels are pinned.
 - The end-of-test refusal of a test that is still lowered applies only under `--permissions off`.
 
-## Stage 2 (2026-11-02)
+## Stage 2, first part (2026-11-02)
 
-Reads is on by default for the shapes the corpus pins (Y24PermReads.al, Y24PermObjectReads.al; BC 27.5, 28.5, 29.0 agree):
-
-- **ReadPermission / WritePermission** (`Session::permission_query`) answer from the sets: Read is the Read permission, Write needs
-  Insert, Modify and Delete. Y24_P19_ReadWritePermission; the R, RI, RIM, RIMD and RecordRef values come from the Y75 probe
-  (`lt-y75-license/Y75PermReadWrite.al`, corpus PR 1031, not in the pin yet). A false answer for a temporary record, a system
-  table, an extension object's code or a session that is not fully composed refuses the test.
-- **Record reads** (`read_denied`): on a table with rows, Get of an existing key, Find, FindFirst, FindLast, FindSet, IsEmpty,
-  Count and CountApprox raise `Read`, CalcSums raises `IndirectRead` (code `DB:ClientReadDenied` for both). Get of a missing key
-  raises RecordNotFound as usual. On an empty table nothing raises a permission error. A read that finds no row on a table that
-  has rows, Next, GetBySystemId and an indirect CalcSums are not pinned and refuse.
-- **FlowFields** (`permission_gate_flowfield`): CalcFields over a source table the session cannot read raises `IndirectRead` when
-  the source table has rows; the fields of SetAutoCalcFields are calculated without a check. A page control over such a FlowField
-  refuses (BC leaves the control off the page, Y24_P15 `testpage_field`).
-- **Query.Read and XmlPort.Export** (`permission_gate_object_read`): the object's own `Permissions` property and app decide, as for
-  code: without a property it needs Read (`Read` error), with `Permissions = r` the indirect grant (`IndirectRead` error).
-- **A denied read in a test that reaches a part the analysis cannot follow** (a report the runtime refuses, `InherentPermissions` on a
-  report for now) is refused at the read, for a test that holds a `Permissions Mock` variable. Going on would refuse the test later,
-  after it changed state a later test of the codeunit reads (report/lt-u-report-props/UPropertyTests.al
-  Report_RequestPagePermissions_AndInherentPermissions, then Query_InherentPermissions_UnderTheMock).
-- **A read of an empty table of a dependency app** is refused: BC's Cronus database may hold rows there (Y69SystemGrants.al
-  Y69_SY_ReporterShapes reads Customer). The empty-table rule is pinned for tables of the app under test only.
-- **Still refused**: reports (P17: BC 29 fails first on a read of Company Information by Base Application code), pages (P18:
-  FormAbort:Permission on open, the SetValue save error), reads the runtime makes for validation, relations and lookups, and
-  everything of stage 3.
+`Record.ReadPermission` and `WritePermission` (also through a RecordRef) are decided by the session's sets
+(`Session::permission_query`, `al-vm/src/permissions.rs`) instead of answering true. Read is the Read permission; Write is
+Insert, Modify and Delete together, each decided as an access: direct Yes, or Indirect completed by the calling object's
+`Permissions` property. An unrestricted session still answers true. Pinned by Y24PermReads.al Y24_P19_ReadWritePermission
+and by the Y75 probe (`lt-y75-license/Y75PermReadWrite.al`, corpus PR 1031; not in the pin yet, the values come from its
+hand-off). A false answer for a temporary record, a system table, an extension object's code or a session that is not fully
+composed refuses the test. Reads, FlowField denials and the other read shapes (P14-P18) stay refused: the stage is not on
+by default yet.
 
 ### Decided without owner review (2026-10-31)
 
