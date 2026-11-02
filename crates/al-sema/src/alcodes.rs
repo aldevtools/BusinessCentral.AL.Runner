@@ -537,14 +537,15 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
             continue;
         }
         let obj = ws.object_ast(oi);
+        let decls = var_decls(obj.syntax());
         if obj.kind() == "pagecustomization" {
             page_customization_variables(ws, oi, &obj, &mut out);
         }
         subscriber_publishers(ws, oi, &obj, &mut out);
         platform_integer_without_using(ws, oi, &obj, &mut out);
-        unknown_codeunit_variables(ws, oi, &obj, &mut out);
+        unknown_codeunit_variables(ws, oi, &decls, &mut out);
         test_request_pages_of_no_report(ws, oi, &obj, &mut out);
-        ambiguous_dotnet_aliases(ws, oi, &obj, &mut out);
+        ambiguous_dotnet_aliases(ws, oi, &decls, &mut out);
         object_properties(ws, oi, &obj, &mut out);
         object_triggers(ws, oi, &obj, &mut out);
         label_trailing_commas(ws, o.file, obj.syntax(), &mut out);
@@ -561,7 +562,7 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
             ObjKind::ReportExtension => extension_procedures(ws, oi, &obj, ObjKind::Report, &mut out),
             ObjKind::Codeunit => {
                 duplicate_procedures(ws, oi, &obj, &mut out);
-                client_events_outside_pages(ws, oi, &obj, &mut out);
+                client_events_outside_pages(ws, oi, &decls, &mut out);
             }
             ObjKind::Page => {
                 field_control_procedure_calls(ws, oi, &obj, &mut out);
@@ -698,14 +699,9 @@ fn platform_integer_without_using(ws: &Workspace, oi: usize, obj: &ast::Object, 
 /// 0213-unknown-codeunit-var.al:7, a local variable). Only a variable declaration with a one-segment name is judged; a
 /// parameter, a return type, an id and a namespace-qualified name keep compiling (not pinned). `names_object` keeps the
 /// name when an app the file sees, or the platform app, is not loaded.
-fn unknown_codeunit_variables(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
+fn unknown_codeunit_variables(ws: &Workspace, oi: usize, decls: &[ast::VarDecl], out: &mut Vec<Diagnostic>) {
     let file = ws.objects[oi].file;
-    for t in obj
-        .syntax()
-        .descendants()
-        .filter_map(ast::VarDecl::cast)
-        .filter_map(|d| d.type_ref())
-    {
+    for t in decls.iter().filter_map(|d| d.type_ref()) {
         if !t.type_name().eq_ignore_ascii_case("Codeunit") {
             continue;
         }
@@ -773,8 +769,8 @@ fn test_request_pages_of_no_report(ws: &Workspace, oi: usize, obj: &ast::Object,
 /// AL0460 (corpus must-not-compile 2335): a DotNet variable of a codeunit declared both `[RunOnClient]` and `[WithEvents]`.
 /// The same declaration on a page compiles (al-language-onprem-dotnet/lt-bg-runonclient/Y16RunOnClientShapes.al, page
 /// 99475). Other object kinds are not judged.
-fn client_events_outside_pages(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
-    for d in obj.syntax().descendants().filter_map(ast::VarDecl::cast) {
+fn client_events_outside_pages(ws: &Workspace, oi: usize, decls: &[ast::VarDecl], out: &mut Vec<Diagnostic>) {
+    for d in decls {
         let names: Vec<String> = d.attributes().iter().map(|a| a.name().to_ascii_lowercase()).collect();
         if names.iter().any(|n| n == "runonclient") && names.iter().any(|n| n == "withevents") {
             push(
@@ -795,7 +791,7 @@ fn client_events_outside_pages(ws: &Workspace, oi: usize, obj: &ast::Object, out
 /// compile (al-language-onprem-dotnet/lt-y20-dotnet-fullname/Y20DotNetFullTypeName.al:27-58). Only that shape is pinned: a
 /// file or a declaration in a namespace, another namespace of the dependency, a parameter or a return type keep compiling.
 /// A dependency that is not loaded declares nothing here, so nothing is reported.
-fn ambiguous_dotnet_aliases(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
+fn ambiguous_dotnet_aliases(ws: &Workspace, oi: usize, decls: &[ast::VarDecl], out: &mut Vec<Diagnostic>) {
     let file = ws.objects[oi].file;
     let app = ws.files[file].app;
     if ws.files[file].namespace.is_some() || !ws.dotnet.iter().any(|d| d.app == app) {
@@ -812,12 +808,7 @@ fn ambiguous_dotnet_aliases(ws: &Workspace, oi: usize, obj: &ast::Object, out: &
                 }
         })
     };
-    for t in obj
-        .syntax()
-        .descendants()
-        .filter_map(ast::VarDecl::cast)
-        .filter_map(|d| d.type_ref())
-    {
+    for t in decls.iter().filter_map(|d| d.type_ref()) {
         if !t.type_name().eq_ignore_ascii_case("DotNet") {
             continue;
         }
@@ -1472,6 +1463,27 @@ const PARAM_NAME_ENDS_LIST: &[&str] = &["begin", "procedure", "trigger"];
 ///
 /// A file of the shape [`keyword_name_files`] covers gets alc's full list there instead. A file the parser did not accept is skipped (by the caller): its nodes come from the parser's recovery (a
 /// procedure without parentheses gives a parameter named `begin`), and its parse error stands for the file.
+/// The variable declarations of an object, in source order: those of its var sections and of its routines' var sections.
+/// The grammar reads a var section only in an object body and before a routine's statement block
+/// (`al_syntax::grammar::declarations::var_section`), so a statement block holds none; the blocks are most of the tree, so
+/// they are not entered.
+fn var_decls(obj: &SyntaxNode) -> Vec<ast::VarDecl> {
+    let mut decls = Vec::new();
+    let mut walk = obj.preorder();
+    while let Some(ev) = walk.next() {
+        let rowan::WalkEvent::Enter(n) = ev else { continue };
+        match n.kind() {
+            SyntaxKind::Block => walk.skip_subtree(),
+            SyntaxKind::VarDecl => {
+                decls.extend(ast::VarDecl::cast(n));
+                walk.skip_subtree();
+            }
+            _ => {}
+        }
+    }
+    decls
+}
+
 fn parameter_names(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     const INVALID: &str =
         "Syntax error, identifier expected. Provide a valid name (letters, digits, and underscores only).";
