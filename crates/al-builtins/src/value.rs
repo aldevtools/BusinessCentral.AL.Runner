@@ -390,6 +390,9 @@ pub struct PageState {
     /// The caption each control's CaptionClass resolved to when the page filled: (control index, class text, caption).
     /// `Caption()` reads it without raising OnResolveCaptionClass again (corpus misc/W2CaptionClass.al:113-116).
     pub control_captions: Vec<(usize, String, String)>,
+    /// Why the caption in `control_captions` of a control is not known: (control index, refusal). `Caption()` refuses with it.
+    /// Only read together with a `control_captions` entry of the same control, which an open clears.
+    pub caption_refusals: Vec<(usize, String)>,
     /// The caption of each control over a table field whose CaptionClass is an expression, as the page filled it: (control
     /// index, caption). `Caption()` reads it and runs nothing (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:422-481).
     pub field_captions: Vec<(usize, String)>,
@@ -930,6 +933,7 @@ impl PageState {
             frozen_visible: Vec::new(),
             open_language: None,
             control_captions: Vec::new(),
+            caption_refusals: Vec::new(),
             field_captions: Vec::new(),
             field_captions_opened: false,
             field_captions_settled: false,
