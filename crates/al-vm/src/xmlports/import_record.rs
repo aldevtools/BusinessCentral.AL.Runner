@@ -536,12 +536,11 @@ impl Session {
         if n.auto_save {
             if modify && !n.auto_replace {
                 // AutoUpdate changes only the fields the document carries.
-                let has_assign_trigger = n.trigger("onafterinitrecord").is_some()
-                    || schema.children(node).iter().any(|&c| {
-                        let child = schema.node(c);
-                        child.trigger("onafterassignfield").is_some()
-                            || child.trigger("onafterassignvariable").is_some()
-                    });
+                let has_assign_trigger = schema.children(node).iter().any(|&c| {
+                    let child = schema.node(c);
+                    child.trigger("onafterassignfield").is_some() || child.trigger("onafterassignvariable").is_some()
+                });
+                let has_init_trigger = n.trigger("onafterinitrecord").is_some();
                 if has_assign_trigger {
                     return unsupported("AutoUpdate with triggers that assign fields (which values win is not pinned)");
                 }
@@ -551,6 +550,23 @@ impl Session {
                 self.record_op(RecordOp::Get, &rec, &mut key_args.clone())?;
                 {
                     let mut r = rec.borrow_mut();
+                    // An OnAfterInitRecord that assigns a field the document does not carry: which of its value and the stored
+                    // one wins is not pinned. When both are equal it does not matter (XmlPortTriggerFlow.al:452
+                    // NoAutoReplace_NewParentTwoChildren, :512 NoAutoReplace_ExistingChildUnderNewParent log only).
+                    if has_init_trigger
+                        && (0..imported.len()).any(|p| {
+                            !assigned.contains(&p)
+                                && t.fields[p].id < 2_000_000_000
+                                && !matches!(
+                                    al_builtins::ops::compare_order(&imported[p], &r.fields[p]),
+                                    Ok(std::cmp::Ordering::Equal)
+                                )
+                        })
+                    {
+                        return unsupported(
+                            "AutoUpdate with an OnAfterInitRecord that assigns fields the document does not carry (which values win is not pinned)",
+                        );
+                    }
                     for &p in assigned {
                         r.fields[p] = imported[p].clone();
                     }
