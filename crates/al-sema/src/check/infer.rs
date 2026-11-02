@@ -94,7 +94,7 @@ impl<'a> Checker<'a> {
             }
             (Ty::Integer | Ty::Decimal, Ty::Text(None)) if rhs.kind() == SyntaxKind::Literal => {
                 let Some(tok) =
-                    al_syntax::ast::significant_green_tokens(&rhs).find(|t| t.kind() == SyntaxKind::StringLit)
+                    al_syntax::ast::significant_green_tokens(rhs).find(|t| t.kind() == SyntaxKind::StringLit)
                 else {
                     return;
                 };
@@ -169,7 +169,7 @@ impl<'a> Checker<'a> {
         if !matches!(left_ty, Ty::Char) {
             return None;
         }
-        let tok = al_syntax::ast::significant_green_tokens(&right).find(|t| t.kind() == SyntaxKind::StringLit)?;
+        let tok = al_syntax::ast::significant_green_tokens(right).find(|t| t.kind() == SyntaxKind::StringLit)?;
         let text = tok.text();
         let chars = text
             .get(1..text.len().saturating_sub(1))?
@@ -229,7 +229,7 @@ impl<'a> Checker<'a> {
             if n.kind() != SyntaxKind::Literal {
                 return None;
             }
-            al_syntax::ast::significant_green_tokens(&n)
+            al_syntax::ast::significant_green_tokens(n)
                 .find(|t| !t.kind().is_trivia())
                 .filter(|t| t.kind() == SyntaxKind::Decimal)
                 .map(|t| t.text().to_string())
@@ -293,7 +293,7 @@ impl<'a> Checker<'a> {
             SyntaxKind::Literal => {
                 // An integer literal to a Boolean (corpus must-not-compile 0432).
                 if matches!(target, Ty::Boolean)
-                    && al_syntax::ast::significant_green_tokens(&rhs).any(|t| t.kind() == SyntaxKind::Integer)
+                    && al_syntax::ast::significant_green_tokens(rhs).any(|t| t.kind() == SyntaxKind::Integer)
                 {
                     let from = "Integer".to_string();
                     self.diag(
@@ -304,7 +304,7 @@ impl<'a> Checker<'a> {
                     );
                     return;
                 }
-                let chars = al_syntax::ast::significant_green_tokens(&rhs)
+                let chars = al_syntax::ast::significant_green_tokens(rhs)
                     .find(|t| t.kind() == SyntaxKind::StringLit)
                     .map(|tok| {
                         let text = tok.text();

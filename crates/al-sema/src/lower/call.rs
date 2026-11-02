@@ -635,7 +635,7 @@ impl Lowerer<'_> {
                             )
                         })
                     {
-                        let name = al_syntax::ast::significant_green_tokens(&a)
+                        let name = al_syntax::ast::significant_green_tokens(a)
                             .find(|t| matches!(t.kind(), SyntaxKind::Ident | SyntaxKind::QuotedIdent))
                             .map(|t| ast::unquote_ident(t.text()))
                             .ok_or("control name")?;

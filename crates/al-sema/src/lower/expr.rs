@@ -1342,7 +1342,7 @@ impl Lowerer<'_> {
 /// A string literal (`'K'`, `'abc'`).
 pub(crate) fn is_string_literal(node: &SyntaxNode) -> bool {
     node.kind() == SyntaxKind::Literal
-        && al_syntax::ast::significant_green_tokens(&node).any(|t| t.kind() == SyntaxKind::StringLit)
+        && al_syntax::ast::significant_green_tokens(node).any(|t| t.kind() == SyntaxKind::StringLit)
 }
 
 /// A read of a TextConst whose text depends on the language in force: `System.TextConstText#1` with its language codes and
