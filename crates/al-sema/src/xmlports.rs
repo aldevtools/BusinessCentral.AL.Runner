@@ -164,6 +164,9 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "unbound",
             "occurrence",
             "texttype",
+            // Documentation only: xmlport/lt-y72-xmlport-probes/Y72XpTextTypeBlankEnum.al TextTypeText_OnTextAttribute_ExportImport
+            // (`textattribute(Version) { TextType = Text; Description = 'Version'; }`, export and import as without it).
+            "description",
         ],
         // `texttype` is checked in `visit`: BigText or Text on a text element without children. `unbound` too, on one without
         // children (xmlport/lt-y60-xmlport-unbound-text/Y60XpUnboundText.al; the VM reads its columns and refuses its export).
