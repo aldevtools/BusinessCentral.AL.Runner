@@ -405,7 +405,7 @@ pub(super) fn headers_get_secret_values(c: &mut dyn Ctx, r: Option<&mut Value>, 
             if values.len() > arr.len() {
                 if statement {
                     return raise(
-                        &format!(
+                        format!(
                             "CopyArray: The length parameter {} does not match the length of the destination array {}.",
                             values.len(),
                             arr.len()

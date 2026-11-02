@@ -826,12 +826,11 @@ impl Session {
             // Code, the property on the page or on the table field) and on a page variable; the empty text shows empty
             // (pages/lt-y72-page-probes/Y72MaskedShortText.al header, Masked_LengthSweep_Field, Masked_PageVariable_Short;
             // P119PageFields.al:P119_SetValues `secret`).
-            if ext.as_ref().is_some_and(|e| e.trim().eq_ignore_ascii_case("masked")) {
-                if let Value::Text(t) | Value::Code(t) = v
-                    && !t.is_empty()
-                {
-                    text = "\u{2022}".repeat(10);
-                }
+            if ext.as_ref().is_some_and(|e| e.trim().eq_ignore_ascii_case("masked"))
+                && let Value::Text(t) | Value::Code(t) = v
+                && !t.is_empty()
+            {
+                text = "\u{2022}".repeat(10);
             }
             if ext.is_some_and(|e| e.trim().eq_ignore_ascii_case("ratio")) {
                 match v {
