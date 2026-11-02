@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 mod flowfield_key;
 mod platform_rows;
+mod write_notes;
 
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
 
@@ -1668,15 +1669,6 @@ impl Session {
             return Err("a write of the open transaction the runtime does not track");
         }
         Ok(self.tx.committed_row_version.max(rv.sent).max(1))
-    }
-
-    /// Records an Insert of `rec` for `stale_verdict`, keyed as the SQL row is (`sql_key`); a temporary table's is not
-    /// recorded, so its key is not worked out.
-    fn note_insert(&mut self, rec: &Rec, t: &TableDef, before: u64) {
-        if !rec.borrow().temporary {
-            let pk = crate::sqltime::rounded_key(&t.primary_key(&rec.borrow().fields));
-            self.note_write(rec, t, crate::state::TxWriteKind::Insert, &pk, before);
-        }
     }
 
     /// Records a ModifyAll, DeleteAll, Rename or Truncate of a database table: `stale_verdict` does not tell its writes apart.
