@@ -51,9 +51,11 @@ pub(super) fn client_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Valu
         // Whether Clear also resets the certificate setting is not pinned: the mark stays, so a request no handler answers
         // stays refused.
         let cert_validation_set = s.cert_validation_set;
+        let windows_auth_set = s.windows_auth_set;
         let cleared_after_rebuild = s.rebuilt || s.cleared_after_rebuild;
         *s = HttpClientState {
             cert_validation_set,
+            windows_auth_set,
             cleared_after_rebuild,
             ..HttpClientState::default()
         };
@@ -173,7 +175,7 @@ pub(super) fn send(
     c: &mut dyn Ctx,
     method: &str,
     url: (String, bool),
-    (cert_validation_set, cert_validation_off): (bool, bool),
+    (cert_validation_set, cert_validation_off, windows_auth_set): (bool, bool, bool),
     response: Option<&Value>,
 ) -> Out {
     let state = c.http_send(HttpOutgoing {
@@ -183,6 +185,7 @@ pub(super) fn send(
         unpinned_join: url.1,
         cert_validation_set,
         cert_validation_off,
+        windows_auth_set,
     })?;
     let Some(Value::Library(_, cell)) = response else {
         return unsupported("HttpClient call without a response variable");
@@ -230,7 +233,11 @@ macro_rules! verb {
             let (base, cert) = with_client(r, |s| {
                 (
                     s.base_address.clone(),
-                    (s.cert_validation_set, s.cert_validation_last == Some(false)),
+                    (
+                        s.cert_validation_set,
+                        s.cert_validation_last == Some(false),
+                        s.windows_auth_set,
+                    ),
                 )
             })?;
             let path = text(a, 0)?;
@@ -250,7 +257,11 @@ pub(super) fn client_send(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value
     let (base, cert) = with_client(r, |s| {
         (
             s.base_address.clone(),
-            (s.cert_validation_set, s.cert_validation_last == Some(false)),
+            (
+                s.cert_validation_set,
+                s.cert_validation_last == Some(false),
+                s.windows_auth_set,
+            ),
         )
     })?;
     let Some(Value::Library(_, req)) = a.first() else {
@@ -260,6 +271,12 @@ pub(super) fn client_send(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value
         LibraryValue::HttpRequest(s) if s.uri_secret => {
             return unsupported(
                 "HttpClient.Send of a request with a secret uri (what the request and a handler see is not pinned)",
+            );
+        }
+        // What a handler sees of a request's cookies is not pinned (http::request_cookies).
+        LibraryValue::HttpRequest(s) if s.headers.borrow().set_cookies => {
+            return unsupported(
+                "HttpClient.Send of a request with cookies set by SetCookie (what a handler sees is not pinned)",
             );
         }
         LibraryValue::HttpRequest(s) => (s.method.clone().unwrap_or_else(|| "GET".into()), s.uri.clone()),
