@@ -157,11 +157,8 @@ fn issue_6639_a_lookup_on_a_host_with_a_second_part_shows_the_picked_value() {
     let get = |n: &str| format!("{:?}", o.iter().find(|(name, _)| name == n).map(|(_, x)| x));
     assert_eq!(get("SecondListPartShowsThePickedResource"), "Some(Pass)");
     assert_eq!(get("CardFactBoxShowsThePickedResource"), "Some(Pass)");
-    let g = get("LinkedPartFirst");
-    assert!(
-        g.contains("NotRun") && g.contains("whose refresh of the page is not pinned"),
-        "{g}"
-    );
+    // Pinned by pages/lt-y15/Y15LookupThreeFieldLink.al Y63_PartThenOther_LookupReadEachControl: `resource no` `R2`.
+    assert_eq!(get("LinkedPartFirst"), "Some(Pass)");
     let g = get("PartNextAfterTheLookup");
     assert!(
         g.contains("NotRun") && g.contains("BC runs the refresh of the OnValidate's CurrPage.Update(false) first"),
@@ -169,9 +166,11 @@ fn issue_6639_a_lookup_on_a_host_with_a_second_part_shows_the_picked_value() {
     );
 }
 
-/// The reporter's two tests pass flagged: Y63's values are not on the pinned corpus yet.
+/// The reporter's tests pass clean: Y15LookupThreeFieldLink.al Y63_TwoPart_LookupReadEachControl and
+/// Y63_CardPart_LookupReadEachControl pin the values, and they run (assumption `lookup-link-defers-refresh-with-second-part`
+/// retired).
 #[test]
-fn issue_6639_the_second_part_lookups_mark_their_assumption() {
+fn issue_6639_the_second_part_lookups_mark_no_assumption() {
     let l = al_testkit::compile(SRC);
     let engine = al_vm::Engine::new(l.program.clone(), al_testkit::blocked(&l));
     let oi = l
@@ -196,12 +195,13 @@ fn issue_6639_the_second_part_lookups_mark_their_assumption() {
     for n in [
         "SecondListPartShowsThePickedResource",
         "CardFactBoxShowsThePickedResource",
+        "LinkedPartFirst",
     ] {
         let h = hits
             .iter()
             .find(|(t, _)| t == n)
             .map(|(_, h)| format!("{h:?}"))
             .unwrap_or_default();
-        assert!(h.contains("LookupLinkDefersRefreshWithSecondPart"), "{n} marks {h}");
+        assert!(h.is_empty() || h.contains("[]"), "{n} marks {h}");
     }
 }

@@ -139,6 +139,7 @@ mod permission_system_grant;
 mod private_use_chars;
 mod proc_assign;
 mod qe_decimal_digits;
+mod quoted_this_variable;
 mod rec_field_by_var;
 mod record_bare_exit;
 mod recordid_bookmark;

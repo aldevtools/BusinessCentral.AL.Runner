@@ -42,11 +42,15 @@ impl Session {
         {
             return;
         }
+        let object = st.borrow().object as usize;
+        let fn_controls = self.fn_log_controls(st);
         let engine = self.engine();
         let page = page_of(&engine, st);
-        let object = st.borrow().object as usize;
-        let calls_nothing = page.controls.iter().all(|c| match c.binding {
-            ir::Binding::Expr(r) => c.owner.is_none() && call_free_routine(&engine.program, object, r),
+        let calls_nothing = page.controls.iter().enumerate().all(|(i, c)| match c.binding {
+            // A function control runs after the Lookup's OnLookup and after its refresh (`fn_controls.rs`).
+            ir::Binding::Expr(r) => {
+                c.owner.is_none() && (call_free_routine(&engine.program, object, r) || fn_controls.contains(&i))
+            }
             _ => true,
         });
         let part = |i: usize, q: &St, page_type: &str, links: usize| {
@@ -66,32 +70,33 @@ impl Session {
         };
         let factbox = |i: usize| page.controls[i].factbox;
         let parts: Vec<(usize, St)> = st.borrow().parts.iter().map(|(i, q)| (*i, q.clone())).collect();
-        let (parts_ok, second_part) = match parts.as_slice() {
-            [(i, q)] => (part(*i, q, "listpart", 2) || part(*i, q, "listpart", 3), false),
+        let parts_ok = match parts.as_slice() {
+            [(i, q)] => part(*i, q, "listpart", 2) || part(*i, q, "listpart", 3),
             // A second part (corpus writer Y63, SaaS, Y15LookupThreeFieldLink.al Y63_TwoPart_LookupReadEachControl,
-            // Y63_CardPart_LookupReadEachControl on branch al-runtime-rs-staging-y63, al-runner issue 6639): `lookup log`
-            // `lookup;h-fn R1;validate R2;h-fn R1`, `read log` and `close log` empty, every part `R1|R1/|R1/` as before. Measured with
-            // an unlinked ListPart declared before the linked one, and with a CardPart in the FactBoxes area linked by one field.
-            // With the linked ListPart first, reading its controls ran the refresh (Y63_PartThenOther_LinkedPartNextFirst
-            // `after lookup log`): left as it was.
-            [(i, q), (j, r)] => (
+            // Y63_CardPart_LookupReadEachControl, al-runner issue 6639): `lookup log` `lookup;h-fn R1;validate R2;h-fn R1`, `read log`
+            // and `close log` empty, every part `R1|R1/|R1/` as before. Measured with an unlinked ListPart declared before the
+            // linked one, with it declared after (Y63_PartThenOther_LookupReadEachControl: the first read of a part that no call
+            // reached before runs the refresh, `lookup_refresh_deferred_call`), and with a CardPart in the FactBoxes area linked
+            // by one field.
+            [(i, q), (j, r)] => {
                 !factbox(*i)
                     && ((part(*i, q, "listpart", 0) && part(*j, r, "listpart", 3) && !factbox(*j))
-                        || (part(*i, q, "listpart", 3) && part(*j, r, "cardpart", 1) && factbox(*j))),
-                true,
-            ),
-            _ => (false, false),
+                        || (part(*i, q, "listpart", 3) && part(*j, r, "listpart", 0) && !factbox(*j))
+                        || (part(*i, q, "listpart", 3) && part(*j, r, "cardpart", 1) && factbox(*j)))
+            }
+            _ => false,
         };
         drop(engine);
         if calls_nothing && parts_ok {
-            if second_part {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::LookupLinkDefersRefreshWithSecondPart,
-                );
+            {
+                let mut s = st.borrow_mut();
+                s.refresh = false;
+                s.lookup_refresh_deferred = true;
             }
-            let mut s = st.borrow_mut();
-            s.refresh = false;
-            s.lookup_refresh_deferred = true;
+            // The host's function controls run once more within the Lookup, after the OnValidate (Y15LookupThreeFieldLink.al:373
+            // Y26_ThreeLinkCurr_LookupRefresh `lookup log` `lookup;h-fn R1;validate R2;h-fn R1`); a part's stay as they were
+            // (`part fn` `R1/`).
+            let _ = self.run_fn_controls(st, false);
         }
     }
 
@@ -107,6 +112,19 @@ impl Session {
         target: Option<&ControlTarget>,
     ) -> Result<(), Signal> {
         let root = shown_root(st);
+        if matches!(
+            method,
+            PageOp::TestPartNext | PageOp::TestPartFirst | PageOp::TestPartPrevious | PageOp::TestPartLast
+        ) && target.is_none()
+            && !Rc::ptr_eq(st, &root)
+            && self.unlinked_part_of_two(st, &root)
+        {
+            // Y63_TwoPart_PartsNextAfterCancel `other next log`, Y63_TwoPart_LinkedPartNextFirst: Next on the part without a link
+            // reads the host's row and the linked part too; not built.
+            return unsupported(format!(
+                "{method} on the ListPart without a SubPageLink of a host with a second ListPart and function controls (the reads of the host that follows are not built)"
+            ));
+        }
         if !root.borrow().lookup_refresh_deferred {
             return Ok(());
         }
@@ -117,18 +135,33 @@ impl Session {
         if method == PageOp::TestFieldValue
             && let Some(ControlTarget::Control(i)) = target
         {
+            let fn_list = self.fn_log_controls(st);
             let engine = self.engine();
             let c = &page_of(&engine, st).controls[*i];
             let read_ok = match c.binding {
-                // The host computed its expressions within the Lookup (`h-fn`); a part did not (`part fn` `R1/`, before the pick).
+                // A function control shows what its page last ran it with (`fn_controls.rs`); the host's other expressions it
+                // computed within the Lookup (`h-fn`); a part did not (`part fn` `R1/`, before the pick).
                 ir::Binding::Expr(r) => {
-                    Rc::ptr_eq(st, &root)
-                        && c.owner.is_none()
-                        && call_free_routine(&engine.program, st.borrow().object as usize, r)
+                    fn_list.contains(i)
+                        || (Rc::ptr_eq(st, &root)
+                            && c.owner.is_none()
+                            && call_free_routine(&engine.program, st.borrow().object as usize, r))
                 }
                 _ => true,
             };
             if read_ok {
+                // The first read of a part's control after the Lookup, a part no TestPage call reached before: BC runs the refresh
+                // then, with the open's reads again (Y15LookupThreeFieldLink.al:1509 Y63_CardPart_CardReadAfterLookup `card no log`,
+                // :1224 Y63_PartThenOther_LookupReadEachControl `part no log`, :1422 Y63_TwoPart_FirstPartReadAfterLookup `other no
+                // log`, :1478 Y63_PartThenOther_PartReadBeforeLookup `other no log`: the part read before the Lookup shows
+                // `R1|R1/` with no log). A part a call reached before the Lookup runs nothing (:1041 Y63_TwoPart_LookupReadEachControl,
+                // :1287 Y63_CardPart_LookupReadEachControl: `before` read every control, `read log` empty). Pinned with a second
+                // part; with one part the reads run nothing (Y26).
+                if !Rc::ptr_eq(st, &root) && root.borrow().parts.len() > 1 && !st.borrow().lookup_part_touched {
+                    root.borrow_mut().lookup_refresh_deferred = false;
+                    self.replay_open_reads(&root)?;
+                    root.borrow_mut().lookup_refresh_used = true;
+                }
                 return Ok(());
             }
         }
@@ -149,6 +182,15 @@ impl Session {
             PageOp::TestPartNext | PageOp::TestPartFirst | PageOp::TestPartPrevious | PageOp::TestPartLast
         ) && !Rc::ptr_eq(st, &root)
             && target.is_none();
+        if part_move && !self.fn_log_controls(&root).is_empty() {
+            // On a host with function controls the first TestPart move runs the refresh as the open's reads again, then moves the
+            // part (Y15LookupThreeFieldLink.al:736 Y54_ThreeLinkCurr_PartNextAfterLookup `part next log` = `open log`, :1451
+            // Y63_TwoPart_PartsReadBeforeThenNext); every control then shows the values as they are now.
+            root.borrow_mut().lookup_refresh_deferred = false;
+            self.replay_open_reads(&root)?;
+            root.borrow_mut().lookup_refresh_used = true;
+            return Ok(());
+        }
         if shape && part_move {
             // The first TestPart move runs the refresh, with the parts, then moves the part (:991 `part next` `false|R1|G1`);
             // every control shows the values as they are now (`lookup_refresh_used_effect`).
@@ -166,6 +208,45 @@ impl Session {
             "{method} after TestField.Lookup on a page with OnAfterGetRecord or OnAfterGetCurrRecord whose ListPart links two or \
              three fields: BC runs the refresh of the OnValidate's CurrPage.Update(false) first (not built)"
         ))
+    }
+
+    /// `st` is a ListPart without a SubPageLink of a host `root` with function controls and two ListParts.
+    fn unlinked_part_of_two(&mut self, st: &St, root: &St) -> bool {
+        let Some((_, idx)) = st.borrow().host.as_ref().map(|(h, i)| (h.clone(), *i)) else {
+            return false;
+        };
+        let engine = self.engine();
+        let list_parts = root
+            .borrow()
+            .parts
+            .iter()
+            .filter(|(_, q)| {
+                matches!(&engine.object_facts[q.borrow().object as usize].page_type,
+                    Some(ir::PageType::Other(o)) if o == "listpart")
+            })
+            .count();
+        let unlinked = page_of(&engine, root).controls[idx]
+            .part_link
+            .as_ref()
+            .is_none_or(|l| l.entries.is_empty());
+        list_parts == 2 && unlinked && !self.fn_log_controls(root).is_empty()
+    }
+
+    /// First or Last on a part of one row, after the refresh a Lookup left for later ran as the open's reads again
+    /// (`replay_open_reads`): the part stays on its row and reads nothing (Y15LookupThreeFieldLink.al:774
+    /// Y54_ThreeLinkCurr_PartFirstAfterLookup, :838 _PartLastAfterLookup `part first log` and `part last log`: only the refresh's
+    /// reads; :806 _PartPreviousAfterLookup `part last log` empty).
+    pub(super) fn part_stays_after_lookup_refresh(&self, st: &St) -> bool {
+        let Some(root) = st.borrow().host.as_ref().map(|_| shown_root(st)) else {
+            return false;
+        };
+        let s = st.borrow();
+        root.borrow().lookup_refresh_used
+            && s.open
+            && s.cursor == Cursor::Row
+            && !s.draft
+            && !s.dirty
+            && s.window.len() == 1
     }
 
     /// Runs the refresh of `CurrPage.Update(false)` that a TestField.Lookup on `root` left for later (`defer_lookup_refresh`),

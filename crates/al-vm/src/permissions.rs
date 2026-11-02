@@ -751,6 +751,75 @@ impl Session {
         }
     }
 
+    /// `Record.ReadPermission` and `Record.WritePermission` (also through a RecordRef): the decision function for the
+    /// access the name stands for. Read is the Read permission; Write is Insert, Modify and Delete together, each decided
+    /// as an access (direct Yes, or Indirect completed by the calling object's `Permissions` property).
+    /// Pinned: Y24PermReads.al Y24_P19_ReadWritePermission (indirect `r`, `i`, `im`, `imd`, `rimd`, and inside an object
+    /// whose Permissions names the table), and the Y75 probe for R, RI, RIM, RIMD and RecordRef (Y75PermReadWrite.al).
+    /// Not pinned, so refused when the answer would be false: a temporary record and a system table.
+    pub(crate) fn permission_answer(
+        &mut self,
+        rec: &crate::records::Rec,
+        method: al_builtins::record_op::RecordOp,
+    ) -> Result<al_builtins::value::Value, Signal> {
+        if self.permissions.is_none() {
+            return Ok(al_builtins::value::Value::Boolean(true));
+        }
+        let write = method == al_builtins::record_op::RecordOp::WritePermission;
+        self.permission_query(rec, write)
+            .map(al_builtins::value::Value::Boolean)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn permission_query(&mut self, rec: &crate::records::Rec, write: bool) -> Result<bool, Signal> {
+        let (object, temporary) = {
+            let r = rec.borrow();
+            (r.table as usize, r.temporary)
+        };
+        let id = self
+            .engine
+            .program
+            .objects
+            .heads()
+            .get(object)
+            .and_then(|o| o.id)
+            .unwrap_or(0);
+        let ops: &[Op] = if write {
+            &[Op::Insert, Op::Modify, Op::Delete]
+        } else {
+            &[Op::Read]
+        };
+        let mut refused: Option<String> = None;
+        for &op in ops {
+            if op == Op::Read && ALWAYS_READABLE.contains(&id) {
+                continue;
+            }
+            match self.permission_verdict(Access { kind: 0, id, op }, Some(object), false) {
+                Verdict::Allow => {}
+                Verdict::Refuse(why) => refused = refused.or(Some(why)),
+                Verdict::Deny { .. } if temporary => {
+                    refused = refused.or(Some(format!(
+                        "{} on a temporary record under sets that do not grant it is not pinned (ADR-062 probe P19)",
+                        if write { "WritePermission" } else { "ReadPermission" }
+                    )));
+                }
+                Verdict::Deny { .. } if id >= 2_000_000_000 => {
+                    refused = refused.or(Some(format!(
+                        "{} on a system table under sets that do not grant it is not pinned (ADR-062 probe P19)",
+                        if write { "WritePermission" } else { "ReadPermission" }
+                    )));
+                }
+                // One certain denial makes the answer false, whatever the other accesses would say.
+                Verdict::Deny { .. } => return Ok(false),
+            }
+        }
+        match refused {
+            Some(why) => Err(Signal::Unsupported(why)),
+            None => Ok(true),
+        }
+    }
+
     /// The gate for a call of a routine of `object` (an Execute access, stage 3): an allowed call runs; a denial is not
     /// pinned yet (probe P20), so it refuses the test.
     #[cold]
