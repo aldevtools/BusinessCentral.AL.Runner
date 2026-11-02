@@ -1,5 +1,6 @@
 //! DataTransfer inside an install codeunit (al-vm `datatransfer`): the reporter's same-table CopyFields with a source filter
-//! (al-runner issue 6586) and a CopyRows between two tables, as record/lt-as-records/AsDtInstaller.al S1 and S3 pin.
+//! (al-runner issue 6586) and a CopyRows between two tables, as record/lt-as-records/AsDtInstaller.al S1 and S3 pin, and both
+//! with table extensions of the same app (Y47DtInstall.al S4-S7).
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};
@@ -68,44 +69,65 @@ fn datatransfer_runs_inside_the_install_codeunit() {
 }
 
 const EXT_SRC: &str = r#"
-table 50583 "DTI Ext" { fields { field(1; "Entry No."; Integer) { } field(2; Name; Text[50]) { } } keys { key(PK; "Entry No.") { Clustered = true; } } }
-tableextension 50583 "DTI Ext Ext" extends "DTI Ext" { fields { field(50; Extra; Text[30]) { InitValue = 'x'; } } }
+table 50583 "DTI Src" { fields { field(1; "Code"; Code[20]) { } field(2; Amount; Integer) { } field(3; Label; Text[30]) { } } keys { key(PK; "Code") { Clustered = true; } }
+    trigger OnModify() begin Error('src modify'); end; }
+tableextension 50583 "DTI Src Ext" extends "DTI Src" { fields { field(50; "Ext Qty"; Integer) { } } trigger OnAfterModify() begin Error('src ext modify'); end; }
+table 50584 "DTI Dest" { fields { field(1; "Code"; Code[20]) { } field(2; Amount; Integer) { trigger OnValidate() begin Error('validate'); end; } field(3; Note; Text[30]) { } } keys { key(PK; "Code") { Clustered = true; } }
+    trigger OnInsert() begin Error('dest insert'); end; trigger OnModify() begin Error('dest modify'); end; }
+tableextension 50584 "DTI Dest Ext" extends "DTI Dest"
+{
+    fields { field(51; "Ext Amount"; Integer) { InitValue = 7; } field(52; "Ext Note"; Text[30]) { InitValue = 'ext init'; } }
+    trigger OnAfterInsert() begin Error('dest ext insert'); end;
+}
 codeunit 50583 "DTI Ext Install"
 {
     Subtype = Install;
     trigger OnInstallAppPerCompany()
-    var E: Record "DTI Ext"; DT: DataTransfer;
+    var S: Record "DTI Src"; D: Record "DTI Dest"; DT: DataTransfer; DT2: DataTransfer; DT3: DataTransfer; DT4: DataTransfer;
     begin
-        E."Entry No." := 1; E.Name := 'alpha'; E.Insert();
-        DT.SetTables(Database::"DTI Ext", Database::"DTI Ext");
-        DT.AddFieldValue(E.FieldNo(Name), E.FieldNo(Name));
-        DT.CopyFields();
+        S."Code" := 'A'; S.Amount := 10; S.Label := 'la'; S."Ext Qty" := 1; S.Insert();
+        S."Code" := 'B'; S.Amount := 20; S.Label := 'lb'; S."Ext Qty" := 2; S.Insert();
+        S."Code" := 'C'; S.Amount := 30; S.Label := 'lc'; S."Ext Qty" := 3; S.Insert();
+        DT.SetTables(Database::"DTI Src", Database::"DTI Dest");
+        DT.AddFieldValue(S.FieldNo("Code"), D.FieldNo("Code"));
+        DT.AddFieldValue(S.FieldNo("Ext Qty"), D.FieldNo(Amount));
+        DT.AddFieldValue(S.FieldNo(Amount), D.FieldNo("Ext Amount"));
+        DT.AddFieldValue(S.FieldNo(Label), D.FieldNo(Note));
+        DT.CopyRows();
+        DT2.SetTables(Database::"DTI Dest", Database::"DTI Dest");
+        DT2.AddSourceFilter(D.FieldNo("Ext Amount"), '>=%1', 20);
+        DT2.AddFieldValue(D.FieldNo("Ext Amount"), D.FieldNo(Amount));
+        DT2.AddConstantValue('k5', D.FieldNo("Ext Note"));
+        DT2.CopyFields();
+        DT3.SetTables(Database::"DTI Src", Database::"DTI Src");
+        DT3.AddSourceFilter(S.FieldNo(Amount), '=%1', 10);
+        DT3.AddConstantValue(99, S.FieldNo("Ext Qty"));
+        DT3.CopyFields();
+        DT4.SetTables(Database::"DTI Src", Database::"DTI Dest");
+        DT4.AddJoin(S.FieldNo("Code"), D.FieldNo("Code"));
+        DT4.AddSourceFilter(S.FieldNo("Ext Qty"), '>%1', 2);
+        DT4.AddFieldValue(S.FieldNo("Ext Qty"), D.FieldNo("Ext Amount"));
+        DT4.CopyFields();
     end;
 }
-codeunit 50584 "DTI Ext Test"
+codeunit 50585 "DTI Ext Test"
 {
     Subtype = Test;
     [Test]
     procedure TheInstallRan()
-    var E: Record "DTI Ext";
+    var S: Record "DTI Src"; D: Record "DTI Dest"; R: Text;
     begin
-        E.FindFirst();
+        if D.FindSet() then repeat R += D."Code" + '|' + Format(D.Amount) + '|' + D.Note + '|' + Format(D."Ext Amount") + '|' + D."Ext Note" + ';'; until D.Next() = 0;
+        if S.FindSet() then repeat R += S."Code" + '|' + Format(S.Amount) + '|' + S.Label + '|' + Format(S."Ext Qty") + ';'; until S.Next() = 0;
+        if R <> 'A|1|la|99|ext init;B|20|lb|20|k5;C|30|lc|3|k5;A|10|la|99;B|20|lb|2;C|30|lc|3;' then Error('%1', R);
     end;
 }
 "#;
 
-// What a copy does with the code of a table extension of the destination is not pinned (record/lt-as-records/Y47DtInstall.al
-// has no table extension): the copy is refused.
-#[test]
-fn datatransfer_into_a_table_with_an_extension_is_refused() {
+fn ext_outcome(apps: Vec<AppSource>, kinds: Vec<al_sema::AppKind>) -> Outcome {
     let rt = CorpusRuntime::run_suites_with(
-        vec![AppSource {
-            id: "main".into(),
-            name: "main".into(),
-            dependencies: vec![],
-            files: vec![("main.al".into(), EXT_SRC.into())],
-        }],
-        vec![al_sema::AppKind::Workspace],
+        apps,
+        kinds,
         &[],
         &Default::default(),
         None,
@@ -113,12 +135,25 @@ fn datatransfer_into_a_table_with_an_extension_is_refused() {
         &[SuiteRun::everything()],
         &RunOptions::default(),
     );
-    let o = rt.first_outcome(&CaseId {
-        codeunit: 50584,
+    rt.first_outcome(&CaseId {
+        codeunit: 50585,
         name: "TheInstallRan".into(),
-    });
-    assert!(
-        matches!(&o, Outcome::NotRun(r) if r.contains("table extension")),
-        "{o:?}"
+    })
+}
+
+// Tables with a table extension of the same app: extension fields work as source, destination, source filter and join
+// target, an unmapped extension field gets its InitValue on CopyRows, and no trigger runs (record/lt-as-records/
+// Y47DtInstall.al S4-S7 with Y57DtExtTables.al, read by Y47DtInstallRead.al Y57_DtExt_Rows).
+#[test]
+fn datatransfer_with_table_extension_fields_of_the_same_app() {
+    let o = ext_outcome(
+        vec![AppSource {
+            id: "main".into(),
+            name: "main".into(),
+            dependencies: vec![],
+            files: vec![("main.al".into(), EXT_SRC.into())],
+        }],
+        vec![al_sema::AppKind::Workspace],
     );
+    assert_eq!(o, Outcome::Pass, "{o:?}");
 }

@@ -2289,7 +2289,8 @@ fn evaluate_with_max(
         }
         // The blank-like texts store the empty formula; garbage fails and leaves the value
         // (types/TestDateFormulaDurationFormatContracts.al:28-74, TestDateFormulaEvaluateLeftoversContracts.al).
-        Value::DateFormula(_) => match crate::datefns::evaluate_formula(&text)? {
+        // The letters of the global language (types/lt-y62-dateformula-format/Y62DateFormulaFormat.al, `date_formula_language`).
+        Value::DateFormula(_) => match crate::date_formula_language::evaluate(&text, c.language())? {
             crate::datefns::Evaluated::Stored(f) => Parsed::Value(Value::DateFormula(f)),
             // A statement form raises the formula's error (types/lt-date-formula-edges/DateFormulaEdges.al:SignsAndDigits_ErrorTexts).
             crate::datefns::Evaluated::Rejected(Some(m)) if !c.ret_used() => {

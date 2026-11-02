@@ -19,16 +19,25 @@ impl Session {
         // A tree shows no blank line, opened by Page.Run, Page.RunModal or a Page variable (pages/lt-ah-pages/AhPageTests.al:986,
         // :1006, :1026, :1044 `rows_initial = T1 T5`).
         let tree = self.tree_indentation(st).is_some();
-        Ok(has_repeater
+        // A Worksheet over a temporary source carries it opened with OpenView too: Next from its last row answers true on the
+        // blank line (pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al QR_TempWs_OpenView_NoMove `next` `Yes|`, `next log`
+        // `C:;`, _FindLast, _RangeFindLast, _GetOutsideRange, QR_TempWsNext_OpenView_NoMove, writer Y57).
+        let temp_worksheet_view = st.borrow().mode == PageMode::View
+            && engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet)
+            && self.page_rec(st).borrow().temporary;
+        let offered = has_repeater
             && !tree
-            && st.borrow().mode == PageMode::Edit
+            && (st.borrow().mode == PageMode::Edit || temp_worksheet_view)
             // A list handed over in lookup mode has no new-row line (corpus
             // handlers/TestPageModalNewRowLine_Tests.al:209 Plain_LookupModeTrue_HasNoNewRowLine). A LookupMode(true) call
             // does that, and so does Page.RunModal(id, Rec) whose return value is used; called as a statement it keeps the
             // line (:180; pages/lt-be-runmodal-onlookup/BeRunModalOnLookup.al:616, :916).
             && !(st.borrow().lookup_set && st.borrow().lookup && self.is_list_page(st))
             && !prop_false("Editable")
-            && !flag_denied(&engine, object, "InsertAllowed")?)
+            && !flag_denied(&engine, object, "InsertAllowed")?;
+        drop(engine);
+        // A repeater whose Editable is false shows no line (`repeater_line`).
+        Ok(offered && self.repeater_line(st)? != RepeaterLine::Denied)
     }
 
     /// Whether a repeater of the page declares `Editable` with anything but the literal `true`.
@@ -312,6 +321,11 @@ impl Session {
                 s.blank_on_open = true;
             }
             self.populate_expressions(st)
+        } else if self.empty_temp_navigate_page_by_set_record(st) {
+            let rec = self.page_rec(st);
+            let blank = self.initial_fields(rec.borrow().table as usize);
+            rec.borrow_mut().fields = blank;
+            self.populate_expressions(st)
         } else {
             // A list part that shows no row of a host opened for view runs its OnNewRecord once, the link value set without
             // validation, and then shows no row (pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:883
@@ -397,13 +411,13 @@ impl Session {
     }
 
     pub(in crate::pages) fn land_on_new_line(&mut self, st: &St) -> Result<(), Signal> {
-        // The corpus pins the blank line's absence only for `Editable = false` on the page (handlers/TestPageNewRowLine_Tests.al
-        // RO arm). Whether a repeater that says Editable (false, or an expression) shows it is not pinned: Tests-ERM 139846
-        // ShouldOpenJobQueueEntriesForCreatedJobQueuesIfOptionSelected walks Job Queue Entries, whose repeater says
-        // `Editable = false`, and expects no blank line, so landing on it is refused rather than run.
-        if self.repeater_says_editable(st) {
+        // A repeater whose Editable is false or true by its value is pinned (`repeater_line`; New() on a repeater that says
+        // false lands on a blank row and raises nothing, pages/lt-y65-readonly-repeater/Y65ReadOnlyRepeater.al:255 `new=ok:`).
+        // Another expression is not pinned: Tests-ERM 139846 ShouldOpenJobQueueEntriesForCreatedJobQueuesIfOptionSelected walks
+        // a list that must show no blank line, so landing on it is refused rather than run.
+        if self.repeater_line(st)? == RepeaterLine::Unknown {
             return unsupported(
-                "the blank new-row line of a list whose repeater says Editable (whether it shows is not pinned)",
+                "the blank new-row line of a list whose repeater's Editable is an expression other than page variables (whether it shows is not pinned)",
             );
         }
         st.borrow_mut().blank_after_empty_last = false;

@@ -5,6 +5,7 @@
 
 use crate::Session;
 use crate::globaltriggers::GlobalOp;
+use al_builtins::date_filter_forms::datetime_rejected as dt_rejected;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr, key_cmp};
 use al_builtins::native::{AlError, Signal};
@@ -5068,7 +5069,8 @@ impl Session {
                 // (query/TestQueryRuntimeContracts.al:208-209, "an empty SetFilter clears the filter"), and the
                 // documentation says the same of a Record, also in a filter group other than 0 (types/lt-filter-enum-relation-duration-guid/
                 // A_BlankFilter.al: Blank_AfterSetFilterGt_Group0, Blank_Group2_AfterSetFilterGt).
-                if text.trim().is_empty() {
+                // `==` on a Text field keeps no filter either; `=` raises (`setfilter_equals_text`).
+                if text.trim().is_empty() || self.setfilter_equals_text(&t, pos, &text, args.len())? {
                     let mut r = rec.borrow_mut();
                     let group = r.filter_group;
                     r.filters.retain(|f| !(f.field == pos && f.group == group));
@@ -5115,16 +5117,15 @@ impl Session {
                 }
                 // An Integer or Time text of letters asks `MakeIntFilter` / `MakeTimeFilter` subscribers first (PtObserve.al:Bad_Int,
                 // Bad_Time); what BC asks `MakeDateTimeFilter` is pinned only in part (the second call of Bad_DateTime m2 carries a
-                // text made from the work date), so a DateTime text that raises it is refused.
-                // A number filter with a placeholder kept as written next to a wildcard has placeholders, so with subscribers it is
-                // refused below as well: whether BC raises the event for it is not pinned.
+                // text made from the work date), so a DateTime text that raises it is refused; Y62DateFilterShort.al:SetFilter_DateTime_TextForms pins the error for the shapes `english_datetime` rejects.
+                // A number filter with a placeholder kept as written next to a wildcard has placeholders, so with subscribers it is refused below as well: whether BC raises the event for it is not pinned.
                 if matches!(&parsed, Err(e) if e.starts_with(al_builtins::filter::NOT_EVALUATED)
                     || e.starts_with(al_builtins::filter::VARIABLE_NOT_UNDERSTOOD))
                 {
                     let event = match ty {
                         RtType::Integer => Some(("makeintfilter", "IntFilterText")),
                         RtType::Time => Some(("maketimefilter", "TimeFilterText")),
-                        RtType::DateTime => Some(("makedatetimefilter", "DateTimeFilterText")),
+                        RtType::DateTime if !dt_rejected(&text) => Some(("makedatetimefilter", "DateTimeFilterText")),
                         _ => None,
                     };
                     if let Some((event, param)) = event {

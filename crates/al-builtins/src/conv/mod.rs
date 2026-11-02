@@ -3,6 +3,7 @@
 //! converts a value of a covered cell (`engine.rs`). A cell the matrix does not cover keeps the conversion of `ops::convert`.
 
 mod arith;
+pub mod byte_char;
 mod compare;
 mod engine;
 mod rows;

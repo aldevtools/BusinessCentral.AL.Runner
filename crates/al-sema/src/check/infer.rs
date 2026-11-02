@@ -1301,7 +1301,7 @@ impl<'a> Checker<'a> {
                         E::Val(Ty::Unknown)
                     }
                     E::Callable(c) => {
-                        self.field_only_args = field_only;
+                        self.set_pick_args(sc, field_only, &args);
                         let ret = self.pick(sc, node, &c, &arg_tys, &member_name(callee));
                         // The arguments of a procedure without overloads (compile matrix contexts arg_byvalue, arg_var).
                         if let [one] = c.as_slice()

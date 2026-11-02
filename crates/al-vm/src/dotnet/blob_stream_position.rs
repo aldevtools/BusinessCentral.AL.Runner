@@ -8,9 +8,12 @@
 //!   BlobStream_AssignBackToInStream_InCallee, where the caller's InStream, which the callee's by-value parameter shares, reads
 //!   all of it afterwards and can be given to a DotNet Stream again): the InStream the stream was made from, rewound.
 //!
+//! - a `Position` set after the AL stream read to its end does not restart it: EOS stays Yes, the next `ReadText` reads nothing,
+//!   and that read at the end makes `Position` the AL position again (10 for 10 bytes; BlobStream_Position_AfterReads, writer Y57).
+//!
 //! Refused: these on the OutStream side, after a .NET read (`ReadByte`), and any other member after a Position set.
 
-use super::blob_stream::{S_AL, S_SET, S_TOUCHED, blob_of, is_out, state_of};
+use super::blob_stream::{S_AL, S_SET, S_SET_HIT_END, S_TOUCHED, blob_of, is_out, state_of};
 use super::unsupported;
 use crate::Session;
 use al_builtins::dotnet_sigs::NAV_BLOB_STREAM;
@@ -33,13 +36,17 @@ pub(super) fn position_get(s: &mut Session, this: Option<&Rc<DotNetObject>>, arg
         return super::blob_stream::position(s, this, args);
     };
     let set = state.borrow()[S_SET].clone();
-    if !matches!(set, Value::Null) {
-        return Ok(set);
-    }
+    let hit_end_at_set = matches!(state.borrow()[S_SET_HIT_END], Value::Boolean(true));
     let al = state.borrow()[S_AL].clone();
     match &al {
         Value::Library(_, h) => match &*h.borrow() {
-            LibraryValue::InStream(st) if st.live_blob().is_some() => Ok(Value::BigInteger(st.pos as i64)),
+            // A read at the end after the set: the AL position again.
+            LibraryValue::InStream(st)
+                if st.live_blob().is_some() && (matches!(set, Value::Null) || (st.hit_end && !hit_end_at_set)) =>
+            {
+                Ok(Value::BigInteger(st.pos as i64))
+            }
+            LibraryValue::InStream(st) if st.live_blob().is_some() => Ok(set),
             _ => unsupported("DotNet Stream.Position over an InStream that was created again (not pinned)"),
         },
         _ => unsupported("DotNet Stream without its InStream"),
@@ -55,7 +62,13 @@ pub(super) fn position_set(_: &mut Session, this: Option<&Rc<DotNetObject>>, arg
         [Value::BigInteger(n)] => *n,
         _ => return unsupported("DotNet Stream.Position set to something that is not a number"),
     };
-    state.borrow_mut()[S_SET] = Value::BigInteger(to);
+    let hit_end = match &state.borrow()[S_AL] {
+        Value::Library(_, h) => matches!(&*h.borrow(), LibraryValue::InStream(st) if st.hit_end),
+        _ => false,
+    };
+    let mut s = state.borrow_mut();
+    s[S_SET] = Value::BigInteger(to);
+    s[S_SET_HIT_END] = Value::Boolean(hit_end);
     Ok(Value::Null)
 }
 

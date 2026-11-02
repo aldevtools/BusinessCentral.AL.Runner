@@ -2,15 +2,18 @@
 
 mod autoinc_non_key;
 mod blob_calcfields_after_run;
+mod blob_length_large;
 mod blob_write_unloaded;
 mod bump_36_transferfields_system_fields;
 mod clear_table_filter;
 mod companies;
 mod crm_connection;
+mod date_filter_short;
 mod delete_all_cascade;
 mod dupkey_after_event;
 mod fieldref_blob_unloaded;
 mod fieldref_from_fieldref;
+mod fieldref_variant_into_text;
 mod filter_invalid_expr;
 mod find_directions;
 mod find_other_key;
@@ -37,6 +40,7 @@ mod modify_all_partial;
 mod modify_all_unchanged;
 mod np_blockers;
 mod option_init_ordinal;
+mod query_flowfield_filter_join;
 mod query_read_state;
 mod quoted_enum_init_value;
 mod record_builtins;

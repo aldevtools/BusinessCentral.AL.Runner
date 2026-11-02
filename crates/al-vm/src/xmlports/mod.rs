@@ -21,6 +21,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+mod container_tree;
 mod export_xml;
 mod import_record;
 mod import_xml;
@@ -31,14 +32,19 @@ mod shape;
 #[cfg(test)]
 mod tests;
 mod text;
+mod text_columns;
 mod value;
+mod wraps;
 
+use self::container_tree::*;
 use self::pass::*;
 pub(crate) use self::pass::{PassView, UnlinkedPass};
 use self::sequence::*;
 use self::shape::*;
 use self::text::*;
+use self::text_columns::*;
 use self::value::*;
+use self::wraps::*;
 
 type Inst = Rc<RefCell<Instance>>;
 
