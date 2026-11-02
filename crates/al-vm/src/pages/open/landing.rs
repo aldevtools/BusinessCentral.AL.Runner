@@ -307,7 +307,7 @@ impl Session {
                 st.borrow_mut().split_starts_low = stamped;
             }
             self.populate_expressions(st)
-        } else if self.runs_on_blank_record(st) {
+        } else if self.runs_on_blank_record(st) || self.list_without_line_on_empty_view(st)? {
             // A Card, a Document or a ListPlus page without a repeater, opened for edit over an empty view, runs OnNewRecord and
             // OnAfterGetCurrRecord on a blank record after OnOpenPage (no OnAfterGetRecord), and shows no row afterwards: the controls
             // read blank and are not editable (pages/lt-page-types-empty-table/PageTypesEmptyTable.al:Card_OpenEdit_EmptyTable,

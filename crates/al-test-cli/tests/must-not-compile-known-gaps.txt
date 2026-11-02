@@ -359,3 +359,10 @@
 28 2643-xmlport-variable-userequestpage
 29 2642-xmlport-variable-break-quit-skip
 29 2643-xmlport-variable-userequestpage
+# corpus bump to master 48433dfe (writer Y24, permissions lane): the Permissions property of an object takes only tabledata entries (AL0104)
+27 2360-permissions-property-codeunit-execute
+27 2361-permissions-property-object-execute
+28 2360-permissions-property-codeunit-execute
+28 2361-permissions-property-object-execute
+29 2360-permissions-property-codeunit-execute
+29 2361-permissions-property-object-execute

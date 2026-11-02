@@ -146,9 +146,11 @@ impl Session {
     /// First on the first row a tree shows, on a tree page whose only row trigger is OnAfterGetCurrRecord, reads nothing
     /// (pages/lt-y72-page-probes/Y72TreeDefaultState.al TreeDefault_RowTriggerVariants_OnAfterGetCurrRecordOnly `first log` empty;
     /// with OnAfterGetRecord the client's rows answer it, `move_in_client_rows`).
-    pub(in crate::pages) fn tree_first_on_first_row(&mut self, st: &St) -> Result<bool, Signal> {
-        if self.tree_indentation(st).is_none()
-            || self.declares(st, "onaftergetrecord")
+    pub(in crate::pages) fn first_on_first_row(&mut self, st: &St) -> Result<bool, Signal> {
+        if self.tree_indentation(st).is_none() {
+            return self.plain_list_first_on_first_row(st);
+        }
+        if self.declares(st, "onaftergetrecord")
             || !self.declares(st, "onaftergetcurrrecord")
             || ["onfindrecord", "onnextrecord"].iter().any(|t| self.declares(st, t))
             || st.borrow().cursor != Cursor::Row
