@@ -1,5 +1,6 @@
 //! Lowering of expressions, places and constants.
 use super::*;
+use al_syntax::ast::NodeText;
 
 impl Lowerer<'_> {
     /// The page or report that the page or report extension being lowered extends, with the noun
@@ -390,7 +391,7 @@ impl Lowerer<'_> {
         if first.text != "CurrPage" {
             return None;
         }
-        let text = n.text().to_string();
+        let text = n.text_string();
         let name = text
             .trim()
             .strip_prefix("CurrPage.")?
@@ -400,7 +401,7 @@ impl Lowerer<'_> {
         if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == ' ') {
             return None;
         }
-        let object = self.ws.object_ast(self.oi).syntax().text().to_string();
+        let object = self.ws.object_ast(self.oi).syntax().text_string();
         let lower_object = object.to_ascii_lowercase();
         let lower = name.to_ascii_lowercase();
         let (at, quoted) = match lower_object.find(&format!("usercontrol({lower};")) {
@@ -976,7 +977,7 @@ impl Lowerer<'_> {
                 Some(Res::ObjectId(id)) => Ok(ir::Expr::Const(ir::Const::Integer(id))),
                 _ => {
                     // `Enum::Member` of a system enum whose member list has no such member.
-                    let text = n.text().to_string();
+                    let text = n.text_string();
                     match text.split_once("::") {
                         Some((e, m)) if al_builtins::sysenum::members(e.trim()).is_some() => Err(format!(
                             "`{}::{}` is not a member of the system enum {} in the member list this runtime holds, which only holds the members a corpus probe lists: its ordinal is not pinned (docs/probes-needed.md)",
@@ -1005,7 +1006,7 @@ impl Lowerer<'_> {
                     if n.kind() == MemberExpr
                         && query == self.oi
                         && kids[0].kind() == NameRef
-                        && kids[0].text().to_string().trim().eq_ignore_ascii_case("this") =>
+                        && kids[0].text_string().trim().eq_ignore_ascii_case("this") =>
                 {
                     // `this.Id` (corpus query/PRQueryOpenColumn.al `PeekThis`).
                     let layout = self.checked.queries[query].as_ref().ok_or("query layout")?;
@@ -1276,7 +1277,7 @@ impl Lowerer<'_> {
         if subject.kind() != SyntaxKind::NameRef {
             return Err(format!(
                 "`{}` is a DotNet value used as an operand of `in`: only a variable is lowered (a member would run once per element)",
-                subject.text().to_string().trim()
+                subject.text_string().trim()
             ));
         }
         if set.kind() != SyntaxKind::SetExpr {

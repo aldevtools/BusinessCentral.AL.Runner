@@ -8,6 +8,7 @@
 //! holds a Test ID; any other read would show the runtime's own number and is refused.
 use super::*;
 use al_builtins::platform::{COVERAGE_TEST_ID, coverage_test_id_refusal};
+use al_syntax::ast::NodeText;
 
 impl Lowerer<'_> {
     /// Whether field `id` of table object `table` is a coverage `Test ID`.
@@ -35,7 +36,7 @@ impl Lowerer<'_> {
                 }
                 return Err(coverage_test_id_refusal(&format!(
                     "`{}` keeps the Test ID in a variable that is used in another way",
-                    p.text().to_string().trim()
+                    p.text_string().trim()
                 )));
             }
         }
@@ -44,7 +45,7 @@ impl Lowerer<'_> {
         }
         Err(coverage_test_id_refusal(&format!(
             "`{}`",
-            parent.as_ref().unwrap_or(n).text().to_string().trim()
+            parent.as_ref().unwrap_or(n).text_string().trim()
         )))
     }
 
@@ -79,7 +80,7 @@ impl Lowerer<'_> {
         }
         Err(format!(
             "`{}`: the value of the Code Coverage Method ID is not pinned (a compiler-assigned id, codeunit/PWCodeCoverageRows.al:308-309)",
-            parent.as_ref().unwrap_or(n).text().to_string().trim()
+            parent.as_ref().unwrap_or(n).text_string().trim()
         ))
     }
 
@@ -101,7 +102,7 @@ impl Lowerer<'_> {
                 .filter(|c| c.kind() == SyntaxKind::CallExpr)
                 .and_then(|c| c.children().next())
                 .is_some_and(|f| {
-                    let f = f.text().to_string();
+                    let f = f.text_string();
                     let name = f.rsplit('.').next().unwrap_or("").trim().to_ascii_lowercase();
                     name == "arenotequal" || name == "areequal"
                 })
@@ -277,5 +278,5 @@ fn up(n: &SyntaxNode) -> (SyntaxNode, Option<SyntaxNode>) {
 
 fn is_literal_one(n: &SyntaxNode) -> bool {
     let n = strip(n);
-    n.kind() == SyntaxKind::Literal && n.text().to_string().trim() == "1"
+    n.kind() == SyntaxKind::Literal && n.text_string().trim() == "1"
 }

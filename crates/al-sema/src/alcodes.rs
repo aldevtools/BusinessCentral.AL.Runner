@@ -21,6 +21,7 @@
 //! for the shapes the compile matrix measured; those are listed in [`NOT_CHECKED`], with what is decided.
 
 use crate::workspace::{AppKind, Diagnostic, ObjKind, Resolution, Workspace};
+use al_syntax::ast::NodeText;
 use al_syntax::{SyntaxKind, SyntaxNode, ast};
 
 /// The AL codes this front end reports, with what each one covers.
@@ -1056,9 +1057,9 @@ fn subscriber_publishers(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut
             let (Some((kl, kr)), Some((pl, pr))) = (scope(&kind), scope(&publisher)) else {
                 continue;
             };
-            if !kl.text().to_string().eq_ignore_ascii_case("ObjectType")
-                || !kr.text().to_string().eq_ignore_ascii_case("Codeunit")
-                || !pl.text().to_string().eq_ignore_ascii_case("Codeunit")
+            if !kl.text_string().eq_ignore_ascii_case("ObjectType")
+                || !kr.text_string().eq_ignore_ascii_case("Codeunit")
+                || !pl.text_string().eq_ignore_ascii_case("Codeunit")
                 || pr.kind() != SyntaxKind::NameRef
             {
                 continue;
@@ -1862,7 +1863,7 @@ fn ambiguous_bare_calls(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut 
         if callee.kind() != SyntaxKind::NameRef || call.children().skip(1).any(|a| a.children().next().is_some()) {
             continue;
         }
-        let name = callee.text().to_string().trim().to_string();
+        let name = callee.text_string().trim().to_string();
         let Some(n) = ambiguous.iter().find(|n| n.eq_ignore_ascii_case(&name)) else {
             continue;
         };
@@ -2408,7 +2409,7 @@ fn routine_scope(ws: &Workspace, object: usize, offset: usize) -> Option<(String
         if !a.name().eq_ignore_ascii_case("Scope") {
             return None;
         }
-        let arg = a.args()?.text().to_string();
+        let arg = a.args()?.text_string();
         let arg = arg
             .trim()
             .trim_start_matches('(')
@@ -2436,7 +2437,7 @@ fn onprem_method_calls(ws: &Workspace, file: usize, obj: &ast::Object, out: &mut
             let Some(callee) = call.children().next() else { continue };
             let method = match callee.kind() {
                 SyntaxKind::NameRef => {
-                    let name = callee.text().to_string().trim().to_string();
+                    let name = callee.text_string().trim().to_string();
                     (name.eq_ignore_ascii_case("GetLastErrorObject") && !own_procs.contains(&name.to_ascii_lowercase()))
                         .then_some(name)
                 }
@@ -2448,8 +2449,8 @@ fn onprem_method_calls(ws: &Workspace, file: usize, obj: &ast::Object, out: &mut
                     if recv.kind() != SyntaxKind::NameRef {
                         continue;
                     }
-                    let recv_name = recv.text().to_string().trim().trim_matches('"').to_ascii_lowercase();
-                    let method = m.text().to_string().trim().to_string();
+                    let recv_name = recv.text_string().trim().trim_matches('"').to_ascii_lowercase();
+                    let method = m.text_string().trim().to_string();
                     let ty = vars
                         .iter()
                         .rev()

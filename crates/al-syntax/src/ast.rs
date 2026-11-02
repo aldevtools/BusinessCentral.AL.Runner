@@ -125,6 +125,29 @@ pub fn significant_green_tokens(node: &SyntaxNode) -> impl Iterator<Item = Green
     })
 }
 
+/// The source text of a node, read from the green tree. `node.text_string()` formats through `SyntaxText`, which
+/// walks the subtree with a cursor node per element.
+pub trait NodeText {
+    fn text_string(&self) -> String;
+}
+
+impl NodeText for SyntaxNode {
+    fn text_string(&self) -> String {
+        fn push(g: &rowan::GreenNodeData, out: &mut String) {
+            for c in g.children() {
+                match c {
+                    rowan::NodeOrToken::Node(n) => push(n, out),
+                    rowan::NodeOrToken::Token(t) => out.push_str(t.text()),
+                }
+            }
+        }
+        let g = green_of(self);
+        let mut out = String::with_capacity(usize::from(g.text_len()));
+        push(g, &mut out);
+        out
+    }
+}
+
 /// Whether `node` or a node under it is of `kind`, read from the green tree (no cursor node per visited node).
 pub fn contains_kind(node: &SyntaxNode, kind: SyntaxKind) -> bool {
     fn any(g: &rowan::GreenNodeData, kind: rowan::SyntaxKind) -> bool {
@@ -257,13 +280,13 @@ fn children<T>(node: &SyntaxNode, cast: fn(SyntaxNode) -> Option<T>) -> impl Ite
 }
 
 fn trimmed(node: &SyntaxNode) -> String {
-    node.text().to_string().trim().to_string()
+    node.text_string().trim().to_string()
 }
 
 /// The text of `node` without the preprocessor directives (`#pragma`, ...), comments and disabled
 /// text inside it, trimmed. A property value such as a `CalcFormula` can span lines that carry them.
 fn trimmed_code(node: &SyntaxNode) -> String {
-    let text = node.text().to_string();
+    let text = node.text_string();
     if !text.contains(['#', '/']) {
         return text.trim().to_string();
     }
@@ -937,7 +960,7 @@ impl TypeRef {
                     .filter(|n| n.kind() == SyntaxKind::Literal)
                     .collect::<Vec<_>>()
             })
-            .filter_map(|l| l.text().to_string().trim().parse().ok())
+            .filter_map(|l| l.text_string().trim().parse().ok())
             .collect()
     }
     /// `Option ,A,"B C"` → `["", "A", "B C"]`.
@@ -1112,6 +1135,7 @@ mod tests {
             let kinds: std::collections::BTreeSet<u16> = root.descendants().map(|n| n.kind() as u16).collect();
             let mut checked = 0;
             for n in root.descendants() {
+                assert_eq!(n.text_string(), n.text().to_string(), "{:?}", n.kind());
                 for &k in &kinds {
                     let kind = <crate::AlLanguage as rowan::Language>::kind_from_raw(rowan::SyntaxKind(k));
                     let cursor: Vec<SyntaxNode> = n.descendants().filter(|d| d.kind() == kind).collect();
