@@ -53,6 +53,7 @@ mod filtergroup_or;
 mod find_list_descending;
 mod fixes2;
 mod fixpages;
+mod flowfield_view_find;
 mod global_filter_group_page;
 mod http_handlers;
 mod http_windows_auth;
