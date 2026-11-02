@@ -2501,3 +2501,30 @@ fn xmlport_variable_members() {
         assert!(codes(&[xp, &call(ok)]).is_empty(), "{ok}");
     }
 }
+
+// must-not-compile 2652: `currXMLport.FieldSeparator` read back is a Text, which does not convert to a Char (AL0122). A Text
+// target, and the setter call with a Char, are no errors.
+#[test]
+fn xmlport_separator_read_into_char() {
+    let xp = |stmt: &str| {
+        format!(
+            "xmlport 50710 \"Probe Sep\" {{ schema {{ textelement(Root) {{ }} }}
+            trigger OnPreXmlPort() var C: Char; T: Text; begin {stmt}; end; }}"
+        )
+    };
+    assert_eq!(
+        messages(&xp("C := currXMLport.FieldSeparator")),
+        vec!["AL0122 Cannot implicitly convert type 'Text' to 'Char'"]
+    );
+    assert_eq!(
+        messages(&xp("C := currXMLport.FieldDelimiter")),
+        vec!["AL0122 Cannot implicitly convert type 'Text' to 'Char'"]
+    );
+    for ok in [
+        "T := currXMLport.FieldSeparator",
+        "currXMLport.FieldSeparator(C)",
+        "C := 'a'",
+    ] {
+        assert!(codes(&[&xp(ok)]).is_empty(), "{ok}");
+    }
+}
