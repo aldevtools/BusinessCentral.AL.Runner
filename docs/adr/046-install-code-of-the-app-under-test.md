@@ -985,6 +985,13 @@ B's install A's and B's ran, the main app's did not; at test time all ran.
    (BC 27.5): without it, `Reten. Pol. Test Installer` (System Application Test Library) stopped on a Base Application
    subscriber to `GetGlobalTableTriggerMask`, and two tables of the install baseline lost their rows.
 5. Tests: `al-testrun/tests/install_order.rs`, `al-testrun/tests/install_order_listed.rs`.
+6. **A trigger setup subscriber that changes nothing (al-runner issue 6718, 2026-11-02).** Item 2 is not needed for a
+   subscriber to `Global Triggers.GetDatabaseTableTriggerSetup` that leaves every flag as it gets it for the table asked
+   about: the setup is then the same whether it runs (its app installed first) or not (installed later). The runtime
+   shows it in two steps (`al-vm/src/setup_no_op.rs`): the subscriber's code only assigns its parameters and locals from
+   constants and those variables, and run for that table on all 16 flag combinations it gives each back unchanged. Such a
+   subscriber is left out of the raise; any other is refused as in item 2. `GetGlobalTableTriggerMask` stays refused.
+   This follows from the facts measured above; it assumes nothing new. Test: `al-testrun/tests/suite/install_trigger_setup_order.rs`.
 
 ### Still not pinned (probes wanted)
 

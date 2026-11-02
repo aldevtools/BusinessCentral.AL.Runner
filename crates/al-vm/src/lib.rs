@@ -80,6 +80,7 @@ mod rename;
 mod reports;
 mod run_page_link_open;
 mod sessionops;
+mod setup_no_op;
 mod sqlcount;
 mod sqltime;
 mod stale_own_modify;
@@ -1227,6 +1228,7 @@ impl Session {
                 skip_dependency_subscribers: false,
                 not_installed_apps: None,
                 order_unknown_apps: None,
+                setup_no_ops: Default::default(),
                 global_setups: Default::default(),
             },
             coverage: CoverageState {
