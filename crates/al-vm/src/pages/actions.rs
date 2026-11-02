@@ -64,17 +64,6 @@ impl Session {
             || engine.events.missing_for(object, ev, Some(element)).is_some()
     }
 
-    /// Whether the control's AccessByPermission guard is not granted by the permission sets the session held when the page opened
-    /// (`Session::access_by_permission_hidden`); false for a control with no guard.
-    pub(super) fn access_by_permission_off(&self, st: &St, idx: usize) -> Result<bool, Signal> {
-        let engine = self.engine();
-        let Some(ir::PropVal::Lit(guard)) = page_of(&engine, st).controls[idx].prop("accessbypermission") else {
-            return Ok(false);
-        };
-        let opened_under = st.borrow().permission_roles.clone();
-        self.access_by_permission_hidden(guard, &opened_under)
-    }
-
     pub(super) fn control_eliminated(&self, st: &St, idx: usize) -> bool {
         let engine = self.engine();
         let page = page_of(&engine, st);

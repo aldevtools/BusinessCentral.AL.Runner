@@ -970,7 +970,10 @@ impl Session {
             )));
         }
         let mut out = [0u8; 5];
-        for (slot, op) in [Op::Read, Op::Insert, Op::Modify, Op::Delete, Op::Execute].into_iter().enumerate() {
+        for (slot, op) in [Op::Read, Op::Insert, Op::Modify, Op::Delete, Op::Execute]
+            .into_iter()
+            .enumerate()
+        {
             out[slot] = eff.level(Access { kind, id, op });
         }
         if out.contains(&2) {

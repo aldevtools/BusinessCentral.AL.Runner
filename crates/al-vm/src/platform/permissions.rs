@@ -323,7 +323,12 @@ fn parse_grants_with<O: al_ir::ObjectInfo + ?Sized>(
 /// permission slot. Only the shapes Y24PermExecute.al Y24_P21 pins are read: `tabledata` with `R` or `I`, and `codeunit` with
 /// `X`; any other guard is an error naming it.
 pub(crate) fn parse_guard(engine: &crate::Engine, text: &str) -> Result<(i32, u32, usize), String> {
-    let bad = |why: &str| format!("AccessByPermission `{}` {why} (not pinned, ADR-062 probe P21)", text.trim());
+    let bad = |why: &str| {
+        format!(
+            "AccessByPermission `{}` {why} (not pinned, ADR-062 probe P21)",
+            text.trim()
+        )
+    };
     let (head, mask) = text.rsplit_once('=').ok_or_else(|| bad("has no permission mask"))?;
     let (kind_word, name) = head
         .trim()

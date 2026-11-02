@@ -1298,7 +1298,9 @@ pub(crate) fn access_by_permission_refusals(obj: &ast::Object, controls: &[ir::C
     let guarded = |c: &ir::Control| c.prop("accessbypermission").is_some();
     let pinned = controls
         .iter()
-        .filter(|c| c.owner.is_none() && guarded(c) && matches!(c.kind, ir::ControlKind::Field | ir::ControlKind::Action))
+        .filter(|c| {
+            c.owner.is_none() && guarded(c) && matches!(c.kind, ir::ControlKind::Field | ir::ControlKind::Action)
+        })
         .count();
     let via_reference = controls
         .iter()

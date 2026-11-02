@@ -272,5 +272,9 @@ fn without_a_set_everything_is_shown() {
 }
 #[test]
 fn an_unpinned_guard_letter_refuses_the_test() {
-    assert!(matches!(outcome("AnUnpinnedGuardLetterRefuses"), Outcome::NotRun(_)), "{:?}", outcome("AnUnpinnedGuardLetterRefuses"));
+    assert!(
+        matches!(outcome("AnUnpinnedGuardLetterRefuses"), Outcome::NotRun(_)),
+        "{:?}",
+        outcome("AnUnpinnedGuardLetterRefuses")
+    );
 }
