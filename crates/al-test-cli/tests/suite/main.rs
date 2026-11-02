@@ -67,6 +67,7 @@ mod list_update_without_current;
 mod long_list_moved_rec_open;
 mod lookup_cancel_getrecord_key;
 mod lookup_card_ok_no_row;
+mod lookup_deferred_refresh_many_parts;
 mod lookup_deferred_refresh_part_move;
 mod lookup_deferred_refresh_second_part;
 mod lookup_global_record_field;

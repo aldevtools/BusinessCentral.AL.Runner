@@ -144,7 +144,7 @@ impl Session {
         Ok(())
     }
 
-    /// After the open of a host with function controls and one or two ListParts (module comment).
+    /// After the open of a host with function controls and one to four ListParts (module comment).
     pub(super) fn fn_open_tail(&mut self, st: &St) -> Result<(), Signal> {
         if self.fn_log_controls(st).is_empty() {
             return Ok(());
@@ -160,14 +160,23 @@ impl Session {
             })
             .map(|(_, q)| q.clone())
             .collect();
-        if !matches!(list_parts.len(), 1 | 2) {
+        let n = list_parts.len();
+        if !(1..=4).contains(&n) {
             return Ok(());
         }
-        for _ in 0..list_parts.len() {
+        // The host's current row n times, then each ListPart but the last of the layout once less than the one before
+        // (Y63 with one and two ListParts; R6806LookupParts.al R6806_*_LookupReadEachControl `open log` with three and four, in
+        // every position of the linked part measured there).
+        if n >= 3 {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenTailThreeOrMoreListParts);
+        }
+        for _ in 0..n {
             self.fn_current_stage(st)?;
         }
-        if list_parts.len() == 2 {
-            self.fn_current_stage(&list_parts[0])?;
+        for (i, part) in list_parts.iter().enumerate().take(n - 1) {
+            for _ in 0..(n - 1 - i) {
+                self.fn_current_stage(part)?;
+            }
         }
         Ok(())
     }
