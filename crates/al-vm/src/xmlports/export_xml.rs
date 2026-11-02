@@ -53,6 +53,19 @@ impl Session {
         result
     }
 
+    /// The export that ends in OnPreXmlPort: the XML declaration alone (54 bytes, UTF-8), result true.
+    pub(super) fn xp_export_declaration_only(&mut self, inst: &Inst, schema: &Schema) -> Result<Value, Signal> {
+        let blob = match inst.borrow().globals[schema.xp().destination_slot].clone() {
+            Value::Library(_, h) => match &*h.borrow() {
+                LibraryValue::OutStream(blob, _) => blob.clone(),
+                _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
+            },
+            _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
+        };
+        al_builtins::stream::write_bytes(&blob, br#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>"#);
+        Ok(Value::Boolean(true))
+    }
+
     pub(super) fn xp_export_inner(&mut self, inst: &Inst, schema: &Schema, guarded: bool) -> Result<Value, Signal> {
         let xp = schema.xp();
         // The document is written in its own encoding whatever the stream's own.
@@ -394,6 +407,10 @@ impl Session {
     ) -> Result<(), Signal> {
         for child in schema.children(node) {
             let c = schema.node(child);
+            // After a Break in the OnBeforePassVariable of a leaf text element below the root (below), nothing else is passed.
+            if inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_STOPPED) {
+                return Ok(());
+            }
             // A Quit in a trigger of the child leaves it out and ends the document here.
             macro_rules! got {
                 ($e:expr) => {
@@ -430,7 +447,13 @@ impl Session {
                     out.attrs.push((c.xml_name.clone(), v));
                 }
                 ir::XmlNodeKind::Field => {
-                    let v = got!(self.xp_field_text(inst, schema, child));
+                    // Break in OnBeforePassField leaves the field element out of the row alone; the row and the export go on
+                    // (xmlport/lt-ay-xmlport/AyXmlPortFlowTriggers.al:712 Export_passfield_Break: `<Row><Id>2</Id></Row>`).
+                    if got!(self.xp_site(inst, schema, child, "onbeforepassfield")) == Some(Flow::Break) {
+                        Self::xp_clear_flow(inst);
+                        continue;
+                    }
+                    let v = got!(self.xp_field_value_text(inst, schema, child));
                     let empty = v.is_empty();
                     let mut e = Elem::new(&doc_name(schema, child));
                     e.children.push(Node::Text(v));
@@ -467,6 +490,21 @@ impl Session {
                     if Self::xp_flow(inst) == Some(Flow::Skip) {
                         Self::xp_clear_flow(inst);
                         continue;
+                    }
+                    // A leaf text element below the root: Quit leaves it out and ends the document, Break leaves it out and ends the
+                    // export, the siblings after it are not passed (their OnPreXmlItem does not run) and OnPostXmlPort runs
+                    // (xmlport/lt-ay-xmlport/AyXmlPortFlowTriggers.al:628 Export_head_Break `pre1;head1;post;`, :656 Export_head_Quit
+                    // `pre1;head1;` with `<Root />`).
+                    if c.parent.is_some_and(|p| schema.node(p).parent.is_none()) {
+                        match Self::xp_flow(inst) {
+                            Some(Flow::Quit) => return Ok(()),
+                            Some(Flow::Break) => {
+                                Self::xp_clear_flow(inst);
+                                inst.borrow_mut().xp_text.push((XP_STOPPED, "1".to_string()));
+                                return Ok(());
+                            }
+                            _ => {}
+                        }
                     }
                     let mut e = Elem::new(&doc_name(schema, child));
                     e.children.push(Node::Text(v));
