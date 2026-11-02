@@ -5696,10 +5696,12 @@ impl Session {
                 };
                 match outcome {
                     RenameOutcome::Renamed => {
-                        // A Rename of another key with nothing written before it (no trigger write, no field that relates to the
-                        // table) is noted as one write of the row (`stale_neighbour_shape`).
+                        // A Rename of another key with nothing written before it (no trigger write) is noted as one write of the
+                        // row (`stale_neighbour_shape`). Fields of other tables that relate to the table do not matter while no row
+                        // follows the rename: the rows of ALT Universal, which fields of other tables relate to, are renamed this way
+                        // (record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_*_RenameOtherRow_*). A row that follows is a store
+                        // write nobody notes, which `writes_all_noted` sees.
                         if !same_key
-                            && refs.is_empty()
                             && before_store == rename_note.1
                             && self.tx.writes.len() == rename_note.0 + 1
                             && let Some(w) = self.tx.writes.last_mut()
