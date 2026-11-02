@@ -182,6 +182,8 @@ pub struct Catalog {
     alc: Vec<HashMap<usize, AlcRuntime>>,
     /// `Target::app_runtimes`: the declared runtime of an app under test below `runtime`, by app id in lower case.
     app_runtimes: HashMap<String, Runtime>,
+    /// The BC major of the run target (`for_target`); `None` for the whole catalog.
+    bc_major: Option<u16>,
 }
 
 impl Catalog {
@@ -204,6 +206,7 @@ impl Catalog {
     /// `by_id` do not depend on the target (ADR-015 3.3).
     pub fn for_target(target: &Target) -> Catalog {
         let mut c = Catalog::build(Some(target.runtime));
+        c.bc_major = Some(target.bc.major);
         c.app_runtimes = target
             .app_runtimes
             .iter()
@@ -257,6 +260,7 @@ impl Catalog {
             runtime,
             alc,
             app_runtimes: HashMap::new(),
+            bc_major: None,
         }
     }
 
@@ -336,6 +340,11 @@ impl Catalog {
             return None;
         }
         self.app_runtimes.get(&app_id.to_lowercase()).copied()
+    }
+
+    /// The BC major of the run target this catalog was made for, or `None` for the whole catalog.
+    pub fn bc_major(&self) -> Option<u16> {
+        self.bc_major
     }
 
     /// The runtime this catalog serves, or `None` when it shows everything.

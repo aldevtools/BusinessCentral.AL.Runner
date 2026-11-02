@@ -639,6 +639,18 @@ impl<'a> Checker<'a> {
         let e = self.infer(sc, target);
         if let E::Callable(c) = &e {
             let visible: Vec<&Cand> = c.iter().filter(|c| c.hidden.is_none()).collect();
+            // A bare name is an assignment call only for a global builtin whose assignment form is the call (`Sleep := 1`,
+            // record/ProbePropertyAssignmentForms.al:564); a bare procedure name keeps its own resolution (lowering).
+            if target.kind() == SyntaxKind::NameRef
+                && !(plain
+                    && !visible.is_empty()
+                    && visible.iter().all(|c| {
+                        matches!(&c.target, Res::Builtin(id) if self.catalog.by_id(id)
+                            .is_some_and(|s| crate::lower::is_assign_call(&s.receiver, &s.name)))
+                    }))
+            {
+                return self.ty_of_inferred(sc, target, e);
+            }
             let builtins = !visible.is_empty() && visible.iter().all(|c| matches!(c.target, Res::Builtin(_)));
             if builtins && !self.ws.is_dependency(sc.oi) {
                 if !plain {

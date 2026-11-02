@@ -327,6 +327,43 @@ const SYSTEM_FIELDS: &[(u32, &str, Ty)] = &[
     (2000000005, "SystemRowVersion", Ty::BigInteger),
 ];
 
+/// The FlowFields every table has from BC 29 (`Workspace::user_name_fields`): the internal id, the name, the caption, the
+/// length, and the system field that stamps the user (SystemCreatedBy 2000000002 or SystemModifiedBy 2000000004). AL code
+/// sees them as fields 2000000005 to 2000000008 (platform/lt-y35-username-field-rows/Y35UserNameFieldRows.al:88-90); the
+/// runtime keeps SystemRowVersion at 2000000005, so the table schema holds these at the ids 2000001005 to 2000001008
+/// (`al_ir::user_name_field_no`) and the VM's `refs::al_field_no` maps them back. Captions: Y64UserNameFilters.al:148-149, :230 and the Field rows
+/// of Y35UserNameFieldRows.al:88-90.
+pub const USER_NAME_FIELDS: [(u32, &str, &str, u32, u32); 4] = [
+    (
+        2_000_001_005,
+        "SystemCreatedByUserName",
+        "Created By (User Name)",
+        50,
+        2_000_000_002,
+    ),
+    (
+        2_000_001_006,
+        "SystemCreatedByFullName",
+        "Created By (Full Name)",
+        80,
+        2_000_000_002,
+    ),
+    (
+        2_000_001_007,
+        "SystemModifiedByUserName",
+        "Modified By (User Name)",
+        50,
+        2_000_000_004,
+    ),
+    (
+        2_000_001_008,
+        "SystemModifiedByFullName",
+        "Modified By (Full Name)",
+        80,
+        2_000_000_004,
+    ),
+];
+
 /// The text of the first `'…'` literal in a property value (`'It''s', Locked = true` → `It's`).
 pub(crate) fn first_string_literal(value: &str) -> Option<String> {
     let rest = value.trim().strip_prefix('\'')?;
@@ -484,6 +521,30 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
                 },
                 relation_scopes: Vec::new(),
             });
+        }
+        if ws.user_name_fields() {
+            for (id, name, caption, len, _) in USER_NAME_FIELDS {
+                m.fields.push(FieldInfo {
+                    id,
+                    name: name.to_string(),
+                    ty: Ty::Text(Some(len)),
+                    class: FieldClass::FlowField,
+                    declared_in: None,
+                    init_value: None,
+                    auto_increment: false,
+                    calc_formula: None,
+                    table_relation: false,
+                    relation_table: None,
+                    relation_tables: Vec::new(),
+                    on_validate: None,
+                    on_lookup: None,
+                    properties: vec![
+                        ("Caption".into(), format!("'{caption}'")),
+                        ("FieldClass".into(), "FlowField".into()),
+                    ],
+                    relation_scopes: Vec::new(),
+                });
+            }
         }
     }
     m.procedures = obj.routines().map(|r| proc_sig(&r, i)).collect();
