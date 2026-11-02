@@ -1811,10 +1811,6 @@ impl Session {
     // ------------------------------------------------------------------ the run
 
     fn report_run(&mut self, inst: &Inst, schema: &Schema, entry: Entry, window: bool) -> Result<(), Signal> {
-        // ADR-062 stage 3: Execute on a report made under restricted permissions (Y24PermExecute.al tdonly_report_run).
-        if self.permissions.is_some() && inst.borrow().born.0 {
-            self.permission_gate_execute(schema.object)?;
-        }
         self.report.print_only_if_detail = false;
         // `window` says whether the request page opens: the instance's UseRequestPage, which falls
         // back on the report's property (record/TestTxModelReportRun.al:11, :60-61: a report with a

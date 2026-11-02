@@ -1876,7 +1876,6 @@ impl Session {
             base: None,
             exts: Vec::new(),
             xp_text: Vec::new(),
-            born: Default::default(),
         }))
     }
 
@@ -1920,7 +1919,6 @@ impl Session {
             base: None,
             exts: Vec::new(),
             xp_text: Vec::new(),
-            born: Default::default(),
         }))
     }
 
@@ -2045,7 +2043,7 @@ impl Session {
     ) -> Result<(Value, Vec<Value>), Signal> {
         // ADR-062: a call is an Execute access; an unrestricted session pays one branch.
         if self.permissions.is_some() {
-            self.permission_gate_call(object, routine, &instance)?;
+            self.permission_gate_call(object)?;
         }
         if let Some(Some(reason)) = self.engine.blocked.get(object).and_then(|o| o.get(routine)) {
             return Err(Signal::Unsupported(reason.clone()));
