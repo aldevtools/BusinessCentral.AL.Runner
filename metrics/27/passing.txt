@@ -19579,6 +19579,8 @@
 93740 FeatureKey_Modify
 93740 FieldRow_PendingMove
 93740 FieldRow_SystemFieldSystemId
+93740 FormatCode_FillerChar
+93740 FormatCode_FillerCharPrefixes
 93740 FormatCode_WeekIsIso
 93740 JsonValue_OtherGettersOtherText
 93740 OptionInitValue_Ordinal
