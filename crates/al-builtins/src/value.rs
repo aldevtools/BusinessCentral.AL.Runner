@@ -595,6 +595,13 @@ pub struct PageState {
     /// The first TestPart move after the Lookup ran the refresh the Lookup left (`Session::run_lookup_refresh_left`); the
     /// part's later moves and the host's Next are pinned until another call.
     pub lookup_refresh_used: bool,
+    /// The host's Next is the first call after a Lookup that left its refresh for later: the move runs that refresh too
+    /// (`Session::lookup_next_refresh`).
+    pub lookup_next_refresh: bool,
+    /// That refresh runs on a host without OnAfterGetCurrRecord: its reads differ (`Session::lookup_next_refresh`).
+    pub lookup_next_plain: bool,
+    /// The host read the row of its unlinked ListPart after that part moved, and has not moved since (`Session::host_follows_part`).
+    pub host_followed_part: bool,
     /// An action turned MarkedOnly on for a list with row triggers: the later moves are refused (not built).
     pub marked_only_by_action: bool,
     /// An action runs on a list whose Rec had MarkedOnly off: a refresh after it that finds MarkedOnly on holds the marked rows it
@@ -1010,6 +1017,9 @@ impl PageState {
             lookup_setting_value: false,
             lookup_value_set: false,
             lookup_refresh_used: false,
+            lookup_next_refresh: false,
+            lookup_next_plain: false,
+            host_followed_part: false,
             marked_only_by_action: false,
             marking_action: false,
             marked_rows_held: false,
