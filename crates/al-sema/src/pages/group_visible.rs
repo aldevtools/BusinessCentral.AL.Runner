@@ -40,7 +40,7 @@ pub fn client_expression_of(kind: Option<&ControlKind>, prop: &str, value: &str)
         // `Yes 0`); the runtime reads the element, and BC 27 and 28 are not measured: refused.
         if value.contains('[') {
             return Some(ClientExpr::Refused(format!(
-                "a cuegroup's Visible bound to the array element expression `{}` (BC 29 shows the group whatever the element \
+                "a cuegroup's Visible bound to the array element expression `{}` (the newest major shows the group whatever the element \
                  holds; not served)",
                 value.trim()
             )));

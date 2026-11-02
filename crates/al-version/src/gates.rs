@@ -838,6 +838,14 @@ impl Gate {
             Gate::ProbedValuesDifferFrom28 => PROBED_VALUES_DIFFER_FROM_28,
             Gate::ProbedValuesDifferFrom29 => &[
                 Evidence {
+                    file: "pages/lt-y65-cue-visible/Y65CueVisible.al",
+                    lines: "314",
+                },
+                Evidence {
+                    file: "system-fields/lt-y64-username-filters/Y64UserNameFilters.al",
+                    lines: "39,46",
+                },
+                Evidence {
                     file: "platform/lt-y35-agent-api/Y35AgentApi.al",
                     lines: "39",
                 },
@@ -1188,6 +1196,22 @@ pub fn platform_table_scopes_known(bc_major: Option<u32>) -> bool {
 
 /// The evidence of [`Gate::ProbedValuesDifferFrom28`], out of `Gate::evidence` to keep that function short.
 const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
+    Evidence {
+        file: "misc/lt-y70-assumptions/Y70Probes.al",
+        lines: "461,466,471,497,502,809",
+    },
+    Evidence {
+        file: "pages/lt-y65-values-allowed-table-field/Y65ValuesAllowedTableField.al",
+        lines: "258,284,402,428,546",
+    },
+    Evidence {
+        file: "record/lt-loadfields-pagesource-validate/P81LoadFields.al",
+        lines: "1337,1347",
+    },
+    Evidence {
+        file: "report/lt-y68-selfclosing-params/Y68SelfClosingParams.al",
+        lines: "357",
+    },
     Evidence {
         file: "collections/lt-cs-odd-leads/CsCollections.al",
         lines: "594,607",
