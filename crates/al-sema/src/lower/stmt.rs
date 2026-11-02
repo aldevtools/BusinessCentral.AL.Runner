@@ -1825,7 +1825,6 @@ impl Lowerer<'_> {
         if a.kind() == SyntaxKind::NameRef
             && crate::check::is_this_keyword(a)
             && self.ws.objects[self.oi].kind == ObjKind::Report
-            && !self.globals.contains_key("this")
         {
             return Ok(ir::Arg::Value(self.expr(a)?));
         }
