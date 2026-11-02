@@ -794,7 +794,8 @@ fn duration_with_number(op: Arith, duration_first: bool, d: i64, k: i64) -> Resu
 
 /// Duration `/`, `div` and `mod` by a whole number, and Duration / Duration (pinned by corpus
 /// types/lt-filter-enum-relation-duration-guid/D_Duration.al:354-370 with 90000 ms: `/ 4` is 22500 ms, `div 7` is 12,857, `mod 7` is 1,
-/// Duration / Duration is the Decimal 3, `/ 7` is the Decimal 12857.1428571428571; only assigning it to a Duration raises).
+/// Duration / Duration is the Decimal 3, `/ 7` is the Decimal 12857.1428571428571; only assigning it to a Duration raises;
+/// `div` and `mod` of two Durations: types/lt-duration-div-mod/DurationDivModDuration.al).
 #[cold]
 #[inline(never)]
 fn duration_divide(op: Arith, a: i64, r: &Value) -> Result<Value, Signal> {
@@ -806,9 +807,20 @@ fn duration_divide(op: Arith, a: i64, r: &Value) -> Result<Value, Signal> {
         return raise("Attempted to divide by zero.", "AL:DivideByZero");
     }
     if by_duration {
-        // Only the quotient of two Durations is pinned.
+        // `div` and `mod` of two Durations are a BigInteger of milliseconds (25 days div 1 ms is 2160000000, which an Integer cannot
+        // hold: Overflow under conversion of System.Int64 value 2160000000 to System.Int32, DurationDivDurationOverflow.al
+        // Div_Duration_QuotientDoesNotFit; Format shows it without separators): 100000 div 30000 is 3, -100000 div 30000 is -3, 100000 mod 30000 is
+        // 10000 and -100000 mod 30000 is -10000 (types/lt-duration-div-mod/DurationDivModDuration.al Div_TwoDurations,
+        // Mod_TwoDurations; a zero divisor raises above, _ZeroDivisor).
         if op != Arith::Div {
-            return unsupported(format!("{} of two Durations (not pinned)", op.describe()));
+            let r = if op == Arith::IntDiv {
+                a.checked_div(b)
+            } else {
+                a.checked_rem(b)
+            };
+            return r
+                .map(Value::BigInteger)
+                .ok_or_else(|| Signal::Unsupported("Duration overflow (error text not pinned yet)".into()));
         }
         let q = Decimal::from(a)
             .checked_div(Decimal::from(b))
@@ -2393,6 +2405,26 @@ mod tests {
             convert(Value::Date(5, false), &RtType::Date),
             Ok(Value::Date(5, false))
         ));
+    }
+
+    /// types/lt-duration-div-mod/DurationDivModDuration.al: `div` and `mod` of two Durations count milliseconds, truncating
+    /// toward zero, and the remainder takes the sign of the dividend.
+    #[test]
+    fn div_and_mod_of_two_durations() {
+        let d = |a: i64, b: i64, op| arith(op, &Value::Duration(a), &Value::Duration(b));
+        let n = |v: Result<Value, Signal>| match v {
+            Ok(Value::BigInteger(x)) => Decimal::from(x),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(n(d(100_000, 30_000, Arith::IntDiv)), Decimal::from(3));
+        assert_eq!(n(d(30_000, 90_000, Arith::IntDiv)), Decimal::from(0));
+        assert_eq!(n(d(-100_000, 30_000, Arith::IntDiv)), Decimal::from(-3));
+        assert_eq!(n(d(100_000, -30_000, Arith::IntDiv)), Decimal::from(-3));
+        assert_eq!(n(d(100_000, 30_000, Arith::Mod)), Decimal::from(10_000));
+        assert_eq!(n(d(30_000, 90_000, Arith::Mod)), Decimal::from(30_000));
+        assert_eq!(n(d(-100_000, 30_000, Arith::Mod)), Decimal::from(-10_000));
+        assert_eq!(n(d(100_000, -30_000, Arith::Mod)), Decimal::from(10_000));
+        assert!(matches!(d(1, 0, Arith::Mod), Err(Signal::Error(_))));
     }
 
     #[test]
