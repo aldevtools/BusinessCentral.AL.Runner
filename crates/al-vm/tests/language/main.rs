@@ -129,6 +129,7 @@ mod option_to_decimal;
 mod pageworks_probes;
 mod partner_gaps_1;
 mod permission_moved_table;
+mod permission_system_grant;
 mod private_use_chars;
 mod proc_assign;
 mod qe_decimal_digits;

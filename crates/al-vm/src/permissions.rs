@@ -61,6 +61,9 @@ pub(crate) struct Content {
     pub wild: Wildcards,
     /// (object type ordinal, object id, levels), sorted by type and id.
     pub explicit: Vec<(i32, u32, Levels)>,
+    /// The grants on one named system object (`system "Tools, Security, Roles" = X`), which the program holds no id
+    /// for: what they give a System access is not known; they give nothing else (al-runner issue 6717).
+    pub unread_system: Vec<String>,
 }
 
 fn merge(a: u8, b: u8) -> u8 {
@@ -144,6 +147,12 @@ impl Content {
         }
         self.wild = wild;
         self.explicit = explicit;
+        // What an excluded named system grant takes is not known: no System grant is kept.
+        if !ex.unread_system.is_empty() {
+            self.wild[7] = [0; 5];
+            self.explicit.retain(|e| e.0 != 10);
+            why = Some("an excluded set has a grant on a named system object (not read)");
+        }
         why.map_or(Ok(()), |w| Err(w.to_string()))
     }
 
@@ -168,6 +177,11 @@ impl Content {
                     }
                 }
                 Err(i) => self.explicit.insert(i, (k, id, lv)),
+            }
+        }
+        for u in &other.unread_system {
+            if !self.unread_system.contains(u) {
+                self.unread_system.push(u.clone());
             }
         }
     }
@@ -248,7 +262,12 @@ impl SetModel {
         if visiting.contains(&i) {
             return Err(format!("permission set '{}' includes itself", set.role));
         }
-        let mut all = set.declared.clone()?;
+        // A set whose own grants are not read adds none of them, but its included sets still add theirs: the content
+        // stays a lower bound of what BC grants (al-runner issue 6717).
+        let mut all = set.declared.clone().unwrap_or_else(|e| {
+            why.push(e);
+            Content::default()
+        });
         if let Some(w) = &set.incomplete {
             why.push(w.clone());
         }
@@ -273,6 +292,7 @@ impl SetModel {
         }
         if exclude {
             for ex in &set.excludes {
+                let before = why.len();
                 let taken = match self.one_set(ex) {
                     Some(t) if self.sets[t].excludes.is_empty() => self.expanded(t, true, visiting, why),
                     Some(_) => Err(format!(
@@ -283,6 +303,14 @@ impl SetModel {
                         "permission set '{}' excludes `{ex}`, which is not one set",
                         set.role
                     )),
+                };
+                // An excluded set known only as a lower bound would take away too little.
+                let taken = match taken {
+                    Ok(_) if why.len() > before => Err(format!(
+                        "permission set '{}' excludes `{ex}`, which is not composed in full",
+                        set.role
+                    )),
+                    t => t,
                 };
                 match taken {
                     Ok(c) => {
@@ -339,22 +367,28 @@ impl SetModel {
             let mut whole = Content::default();
             let mut taken = Content::default();
             let mut ignored = Vec::new();
+            let mut exact_exclusions = true;
             for &i in &found {
                 if let Ok(c) = self.expanded(i, false, &mut Vec::new(), &mut ignored) {
                     whole.union(&c);
                 }
                 for ex in &self.sets[i].excludes {
-                    if let Some(Ok(c)) = self
+                    let mut partial = Vec::new();
+                    match self
                         .one_set(ex)
-                        .map(|t| self.expanded(t, true, &mut Vec::new(), &mut ignored))
+                        .map(|t| self.expanded(t, true, &mut Vec::new(), &mut partial))
                     {
-                        taken.union(&c);
+                        Some(Ok(c)) if partial.is_empty() => taken.union(&c),
+                        // An exclusion known only in part would take away too little from the union.
+                        _ => exact_exclusions = false,
                     }
                 }
             }
             let _ = whole.subtract(&taken);
             let whole = whole.normalized();
-            if whole != content.clone().normalized() {
+            if !exact_exclusions {
+                why.push("an assigned set excludes a set that is not composed in full (not read)".into());
+            } else if whole != content.clone().normalized() {
                 why.push("an assigned set excludes what another assigned set grants (not pinned)".into());
                 content = whole;
             }
@@ -545,6 +579,9 @@ impl EffectivePermissions {
     }
 }
 
+/// The "Object Type" ordinal of a System object in the Permission tables.
+const SYSTEM: i32 = 10;
+
 /// AllObj and Field: a narrow set reads them (Y19PermSystemTables.al, P13).
 const ALWAYS_READABLE: [u32; 2] = [2_000_000_038, 2_000_000_041];
 /// Tenant Media: the one system table whose write denial is pinned (Y19PermSystemTables.al, P13: Insert error).
@@ -629,6 +666,13 @@ impl Session {
         let mut u = eff.level(access);
         if u == 1 {
             return Verdict::Allow;
+        }
+        if access.kind == SYSTEM && !eff.content.unread_system.is_empty() {
+            return Verdict::Refuse(format!(
+                "a permission denial ({}) where an assigned set grants on a named system object, which is not read: {}",
+                access.describe(),
+                eff.content.unread_system.join("; ")
+            ));
         }
         let model = SetModel::of(&engine);
         // Inherent permissions merge into the session level (pin 5): the table's property and the attributes of every
@@ -964,6 +1008,7 @@ mod tests {
         let c = Content {
             wild: all_kinds([2, 2, 2, 2, 2]),
             explicit: vec![],
+            unread_system: vec![],
         };
         assert!(!c.grants_everything());
     }
@@ -988,6 +1033,7 @@ mod tests {
         let mut content = Content {
             wild: Wildcards::default(),
             explicit: vec![(0, 50100, [1, 2, 0, 0, 0])],
+            unread_system: vec![],
         };
         content.wild[0] = [2, 0, 0, 0, 0];
         let e = EffectivePermissions {
@@ -1054,10 +1100,12 @@ mod tests {
         let mut a = Content {
             wild: Wildcards::default(),
             explicit: vec![(0, 5, [2, 0, 0, 0, 0])],
+            unread_system: vec![],
         };
         let b = Content {
             wild: Wildcards::default(),
             explicit: vec![(0, 3, [0, 1, 0, 0, 0]), (0, 5, [1, 2, 0, 0, 0])],
+            unread_system: vec![],
         };
         a.union(&b);
         assert_eq!(a.explicit, vec![(0, 3, [0, 1, 0, 0, 0]), (0, 5, [1, 2, 0, 0, 0])]);
