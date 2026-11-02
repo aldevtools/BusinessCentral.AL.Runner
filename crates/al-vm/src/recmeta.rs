@@ -1171,7 +1171,9 @@ impl Session {
                             .and_then(|d| ops::compare(&d, want).ok())
                             == Some(Ordering::Equal);
                         if !text_number_equal {
-                            return unsupported("TestField of a number against a Text field that holds another value (message not pinned)");
+                            return unsupported(
+                                "TestField of a number against a Text field that holds another value (message not pinned)",
+                            );
                         }
                     }
                     // A Boolean true against a Text field holding '5' is equal (:219, P189_FldRefMismatch_OnTextField Bool_result Yes).
@@ -1179,7 +1181,9 @@ impl Session {
                     // refused.
                     (Value::Text(t) | Value::Code(t), Value::Boolean(b)) => {
                         if !(*b && t.as_ref() == "5") {
-                            return unsupported("TestField of a Boolean against a Text field (only true against '5' is pinned)");
+                            return unsupported(
+                                "TestField of a Boolean against a Text field (only true against '5' is pinned)",
+                            );
                         }
                         text_number_equal = true;
                     }
