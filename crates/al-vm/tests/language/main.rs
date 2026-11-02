@@ -21,6 +21,7 @@ mod case_code_label_longer;
 mod clear_all_temp_rows;
 mod clear_dialog;
 mod clear_enum;
+mod clear_version;
 mod clear_errorinfo;
 mod code_compare;
 mod codeunit_index;
