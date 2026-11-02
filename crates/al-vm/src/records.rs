@@ -4180,7 +4180,10 @@ impl Session {
                     let version = |v: &Value| if let Value::BigInteger(n) = v { *n } else { 0 };
                     // After a failed Insert the events and triggers run first and the write raises (the check below;
                     // Y71FailedInsertModify.al:FailedInsert_ThenModify_CommitBetween `BeforeModify:No,BeforeModify:No`).
-                    let after_failed_insert = rec.borrow().failed_insert.is_some_and(|v| v != 0 && v == version(&mine));
+                    let after_failed_insert = rec
+                        .borrow()
+                        .failed_insert
+                        .is_some_and(|v| v != 0 && v == version(&mine));
                     if self.stale_verdict(&t, rec, &cx, &pk, version(&theirs), false)? == StaleVerdict::Refused
                         && !after_failed_insert
                     {

@@ -64,7 +64,10 @@ codeunit 69721 C
 
 #[test]
 fn a_buffer_read_before_and_changed_elsewhere_raises() {
-    assert_eq!(text(al_testkit::run_in(SRC, "C", "ChangedElsewhere")), "DB:RecordChanged");
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "ChangedElsewhere")),
+        "DB:RecordChanged"
+    );
 }
 
 #[test]

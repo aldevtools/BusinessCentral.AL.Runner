@@ -978,7 +978,9 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
                 (Some(_), Some(ms)) if i32::try_from(ms).is_ok() => date_invalid(),
                 // The largest BigInteger added or subtracted overflows (Arithmetic.al:298-301, `+ 9223372036854775807L`, `-`).
                 (_, Some(i64::MAX)) => raise("Arithmetic operation resulted in an overflow.", "AL:Overflow"),
-                _ => Err(Signal::Unsupported("DateTime out of range (error text not pinned yet)".into())),
+                _ => Err(Signal::Unsupported(
+                    "DateTime out of range (error text not pinned yet)".into(),
+                )),
             };
         }
         // Time +/- an Integer or a Duration moves by that many milliseconds and wraps around midnight; Time - Time is

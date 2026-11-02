@@ -36,12 +36,18 @@ codeunit 69712 C
 
 #[test]
 fn past_the_maximum_raises_date_invalid() {
-    assert_eq!(text(al_testkit::run_in(SRC, "C", "PastMax")), "The date is not valid.|DateInvalid");
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "PastMax")),
+        "The date is not valid.|DateInvalid"
+    );
 }
 
 #[test]
 fn before_the_minimum_raises_date_invalid() {
-    assert_eq!(text(al_testkit::run_in(SRC, "C", "BeforeMin")), "The date is not valid.|DateInvalid");
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "BeforeMin")),
+        "The date is not valid.|DateInvalid"
+    );
 }
 
 #[test]
