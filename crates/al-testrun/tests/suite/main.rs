@@ -36,6 +36,7 @@ mod modify_without_change;
 mod page_insert_by_code;
 mod page_run_view;
 mod page_variable_control_no_insert;
+mod permission_execute;
 mod permission_read_write;
 mod permission_report_after_denial;
 mod permission_writes;

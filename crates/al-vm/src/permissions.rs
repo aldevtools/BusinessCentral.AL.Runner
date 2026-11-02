@@ -497,8 +497,7 @@ impl Stage {
     /// stage (an allowed access needs no probe, ADR-062 section 2); a denial of a stage that is off refuses the test.
     pub(crate) const fn on_by_default(self) -> bool {
         match self {
-            Stage::Writes | Stage::Reads => true,
-            Stage::Execute => false,
+            Stage::Writes | Stage::Reads | Stage::Execute => true,
         }
     }
 }
@@ -608,6 +607,7 @@ impl Session {
             self.permission_roles.push(role);
         }
         self.permissions = SetModel::of(&self.engine).compose(&self.permission_roles);
+        al_builtins::value::set_born_restricted(self.permissions.is_some());
         if self.permissions.is_none() {
             assume(Assumption::PermissionSetsGrantingEverythingUnrestricted);
         } else if self.runner_permission_sets {
@@ -633,6 +633,7 @@ impl Session {
         self.permission_roles.clear();
         self.permissions = None;
         self.runner_permission_sets = false;
+        al_builtins::value::set_born_restricted(false);
     }
 
     /// The decision function of ADR-062 section 1 for an access of a restricted session (the caller checked
@@ -821,28 +822,127 @@ impl Session {
         }
     }
 
-    /// The gate for a call of a routine of `object` (an Execute access, stage 3): an allowed call runs; a denial is not
-    /// pinned yet (probe P20), so it refuses the test.
+    /// The gate for a call of routine `routine` of `object` on `instance` (an Execute access, stage 3, probe P20).
+    /// BC checks Execute when an object made under restricted permissions is used (Y24PermExecute.al, BC 27.5, 28.5, 29.0):
+    /// - a call from the object's own code is free (the test codeunit's local procedures, a codeunit's own procedures);
+    /// - an instance made before the permissions were lowered is not checked (a global of the test codeunit, the Permissions
+    ///   Mock: `Mock.ClearAssignments()` runs under an exact set that grants it no Execute);
+    /// - Execute on the calling codeunit does not cover the objects it runs.
+    ///
+    /// The triggers of a table, page or extension run for record operations and page opens, which are not a call of the
+    /// object; the code of a subscriber is not pinned. A denial there refuses the test.
     #[cold]
     #[inline(never)]
-    pub(crate) fn permission_gate_call(&mut self, object: usize) -> Result<(), Signal> {
-        let o = &self.engine.program.objects.heads()[object];
-        let (kind, id) = execute_target(o.kind, o.id, o.extends_id);
-        if kind < 0 {
+    pub(crate) fn permission_gate_call(
+        &mut self,
+        object: usize,
+        routine: usize,
+        instance: &std::rc::Rc<std::cell::RefCell<al_builtins::value::Instance>>,
+    ) -> Result<(), Signal> {
+        if !instance.borrow().born.0 {
             return Ok(());
         }
-        let access = Access {
+        if self.permission_caller.or_else(|| self.frames.last().copied()) == Some(object) {
+            return Ok(());
+        }
+        let rt = &self.engine.program.objects[object].routines[routine];
+        let kind = self.engine.program.objects.heads()[object].kind;
+        let unpinned_site = rt
+            .attributes
+            .iter()
+            .any(|a| a.name.eq_ignore_ascii_case("EventSubscriber"))
+            || (rt.is_trigger
+                && !matches!(
+                    kind,
+                    al_ir::ObjKind::Codeunit | al_ir::ObjKind::Report | al_ir::ObjKind::XmlPort | al_ir::ObjKind::Query
+                ));
+        if unpinned_site {
+            return match self.execute_verdict(object) {
+                Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
+                Verdict::Deny { .. } => Err(Signal::Unsupported(unpinned_denial(
+                    self.execute_access(object),
+                    "an Execute denial on a trigger or an event subscriber",
+                ))),
+                Verdict::Allow => Ok(()),
+            };
+        }
+        self.permission_gate_execute(object)
+    }
+
+    /// Whether opening page `object` is denied (no Execute on it for the code that opens it).
+    pub(crate) fn permission_page_open_denied(&mut self, object: usize) -> Result<bool, Signal> {
+        if self.permission_caller.or_else(|| self.frames.last().copied()) == Some(object) {
+            return Ok(false);
+        }
+        match self.execute_verdict(object) {
+            Verdict::Allow => Ok(false),
+            Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
+            Verdict::Deny { .. } => Ok(true),
+        }
+    }
+
+    fn execute_access(&self, object: usize) -> Access {
+        let o = &self.engine.program.objects.heads()[object];
+        let (kind, id) = execute_target(o.kind, o.id, o.extends_id);
+        Access {
             kind,
             id,
             op: Op::Execute,
-        };
-        match self.permission_verdict(access, Some(object), false) {
+        }
+    }
+
+    fn execute_verdict(&mut self, object: usize) -> Verdict {
+        let access = self.execute_access(object);
+        if access.kind < 0 {
+            return Verdict::Allow;
+        }
+        self.permission_verdict(access, Some(object), false)
+    }
+
+    /// Execute on `object`, used by code of another object (Codeunit.Run, a report run, XmlPort.Export, Query.Open, a call on a
+    /// variable). The error is Y24PermExecute.al's: `(<Kind> <id> <name> Execute: <app of the calling code>)`, code
+    /// `DB:ExecuteObjDenied`. Pages end with FormAbort:Permission when opened (not built yet: refused).
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn permission_gate_execute(&mut self, object: usize) -> Result<(), Signal> {
+        if self.permission_caller.or_else(|| self.frames.last().copied()) == Some(object) {
+            return Ok(());
+        }
+        let access = self.execute_access(object);
+        match self.execute_verdict(object) {
             Verdict::Allow => Ok(()),
             Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
-            Verdict::Deny { .. } => Err(Signal::Unsupported(unpinned_denial(
-                access,
-                "ADR-062 stage 3, probe P20",
-            ))),
+            Verdict::Deny { by, .. } => {
+                let heads = self.engine.program.objects.heads();
+                let o = &heads[object];
+                let word = match access.kind {
+                    1 => "Table",
+                    3 => "Report",
+                    5 => "CodeUnit",
+                    6 => "XmlPort",
+                    9 => "Query",
+                    _ => {
+                        return Err(Signal::Unsupported(unpinned_denial(
+                            access,
+                            "an Execute denial on a page: BC ends with FormAbort:Permission when it opens (probe P20)",
+                        )));
+                    }
+                };
+                let app = self
+                    .engine
+                    .program
+                    .apps
+                    .get(heads[by].app as usize)
+                    .map(|a| a.name.as_str())
+                    .unwrap_or_default();
+                Err(crate::transactions::al_error_code(
+                    &format!(
+                        "Sorry, the current permissions prevented the action. ({word} {} {} Execute: {app})",
+                        access.id, o.name
+                    ),
+                    "DB:ExecuteObjDenied",
+                ))
+            }
         }
     }
 
@@ -898,6 +998,8 @@ impl Session {
     #[cold]
     #[inline(never)]
     pub(crate) fn permission_gate_object_read(&mut self, object: usize, tables: &[usize]) -> Result<(), Signal> {
+        // Execute on the query or xmlport itself, by the code that runs it (Y24PermExecute.al tdonly_query_open, tdonly_xmlport_export).
+        self.permission_gate_execute(object)?;
         self.permission_caller = Some(object);
         let r = self.object_read_inner(tables);
         self.permission_caller = None;
@@ -1373,13 +1475,12 @@ mod tests {
         );
     }
 
-    /// Writes is on once probes P1-P13 landed and Reads once P14-P15 did; Execute waits for its probes (ADR-062 section 5).
+    /// Writes is on once probes P1-P13 landed, Reads once P14-P15 did, Execute once P20 did (ADR-062 section 5).
     #[test]
-    fn execute_is_the_one_stage_that_is_off_by_default() {
-        for op in [Op::Insert, Op::Modify, Op::Delete, Op::Read] {
+    fn every_access_stage_is_on_by_default() {
+        for op in [Op::Insert, Op::Modify, Op::Delete, Op::Read, Op::Execute] {
             assert!(Stage::of(op).on_by_default(), "{op:?}");
         }
-        assert!(!Stage::of(Op::Execute).on_by_default());
     }
 
     #[test]

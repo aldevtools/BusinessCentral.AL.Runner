@@ -13,8 +13,7 @@ impl Lowerer<'_> {
         globals: &[ir::Slot],
         reasons: &[String],
     ) -> ir::Page {
-        let mut unsupported = reasons.to_vec();
-        let mut big_integer_expressions = Vec::new();
+        let (mut unsupported, mut big_integer_expressions) = (reasons.to_vec(), Vec::new());
         let table = self.table_of[oi];
         let extensions: Vec<usize> = self.page_extensions.get(&oi).cloned().unwrap_or_default();
         unsupported.extend(super::shared::over_max_length_of(self.ws, oi));
@@ -544,6 +543,7 @@ impl Lowerer<'_> {
             action_areas: layout.action_areas.clone(),
             assumes: layout.assumes.clone(),
             big_integer_expressions,
+            restricted_refusals: super::shared::access_by_permission_refusals(obj),
         }
     }
 
