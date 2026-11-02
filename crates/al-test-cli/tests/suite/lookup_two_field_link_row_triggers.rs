@@ -225,14 +225,18 @@ fn a_lookup_on_a_host_with_row_triggers_whose_part_links_two_fields_leaves_the_r
     let get = |n: &str| format!("{:?}", o.iter().find(|(name, _)| name == n).map(|(_, x)| x));
     assert_eq!(get("TwoLinkCurrLookupRunsNoRowTrigger"), "Some(Pass)");
     assert_eq!(get("TwoLinkPlainLookupRunsNoRowTrigger"), "Some(Pass)");
-    for refused in ["NextAfterTheLookup", "PartFunctionAfterTheLookup"] {
+    // Pinned by Y15LookupThreeFieldLink.al Y26_*_LookupRefresh `part fn` `R1/`: a part function control keeps what it showed.
+    assert_eq!(get("PartFunctionAfterTheLookup"), "Some(Pass)");
+    for refused in ["NextAfterTheLookup"] {
         let g = get(refused);
         assert!(
             g.contains("NotRun") && g.contains("BC runs the refresh of the OnValidate's CurrPage.Update(false) first"),
             "{refused}: {g}"
         );
     }
-    for refused in ["HostFunctionControl", "OneLinkWithRowTrigger"] {
+    // Pinned by Y15LookupThreeFieldLink.al Y26_TwoLinkCurr_LookupRefresh `host fn` `R1/R2`.
+    assert_eq!(get("HostFunctionControl"), "Some(Pass)");
+    for refused in ["OneLinkWithRowTrigger"] {
         let g = get(refused);
         assert!(
             g.contains("NotRun") && g.contains("whose refresh of the page is not pinned"),

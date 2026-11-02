@@ -65,6 +65,9 @@ impl Session {
                 if let Some(v) = self.row_expr_value(st, idx)? {
                     return Ok(v);
                 }
+                if let Some(v) = self.fn_control_value(st, idx)? {
+                    return Ok(v);
+                }
                 self.shown_value(st, idx, |s| s.control_routine(st, idx, r))
             }
             // A label shows its caption (handlers/TestPageLabelControlContracts.al:Label_IsATestPageMember_WithItsCaption).
