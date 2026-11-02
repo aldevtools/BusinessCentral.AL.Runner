@@ -202,7 +202,12 @@ pub(crate) fn refusal_after_denial(
         return None;
     }
     let index = reach_index.get_or_insert_with(|| engine.derived(|| ReachIndex::new(&engine.events, lowered)));
-    unfinished_reach_facts(&engine.events, lowered, index, object, r).unknown
+    // Only a report the runtime refuses counts. Any other part the walk cannot follow (a routine the demand-driven compile
+    // skipped, such as Forward Link Mgt..OnLoadHelpArticleCodes in Y24_P14_ReadShapesWithRows) is not a reason to refuse a
+    // read that real BC denies: that test ran and passed before stage 2.
+    unfinished_reach_facts(&engine.events, lowered, index, object, r)
+        .unknown
+        .filter(|why| why.contains("which cannot run"))
 }
 
 /// Whether routine `r` of object `o` is the OnAction trigger of an action of a page or page extension.
