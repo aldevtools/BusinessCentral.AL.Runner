@@ -221,18 +221,17 @@ fn a_lookup_on_a_host_with_row_triggers_whose_part_links_three_fields_shows_the_
     assert_eq!(get("TwoLinkedFieldsShowThePickedResource"), "Some(Pass)");
     assert_eq!(get("ThreeLinkedFieldsShowThePickedResource"), "Some(Pass)");
     assert_eq!(get("LoggedLookupRunsNoRowTrigger"), "Some(Pass)");
-    for refused in ["NextAfterTheLookup", "PartFunctionAfterTheLookup"] {
+    // Pinned by Y15LookupThreeFieldLink.al Y26_*_LookupRefresh `part fn` `R1/`: a part function control keeps what it showed.
+    assert_eq!(get("PartFunctionAfterTheLookup"), "Some(Pass)");
+    for refused in ["NextAfterTheLookup"] {
         let g = get(refused);
         assert!(
             g.contains("NotRun") && g.contains("BC runs the refresh of the OnValidate's CurrPage.Update(false) first"),
             "{refused}: {g}"
         );
     }
-    let g = get("HostFunctionControl");
-    assert!(
-        g.contains("NotRun") && g.contains("whose refresh of the page is not pinned"),
-        "{g}"
-    );
+    // Pinned by Y15LookupThreeFieldLink.al Y26_*_LookupRefresh `host fn` `R1/R2`: the host runs its function control in the Lookup.
+    assert_eq!(get("HostFunctionControl"), "Some(Pass)");
 }
 
 /// The reporter's tests run clean: the Lookup writes the field of the page's global record (`Setting."Resource No."`) and runs

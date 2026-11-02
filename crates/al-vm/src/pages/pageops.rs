@@ -536,7 +536,7 @@ impl Session {
                         if name == PageMethod::Next {
                             self.restore_held_xrec_of_empty_parts(st);
                         }
-                        self.sync_parts_after_move(st, name == PageMethod::Previous)?;
+                        self.sync_parts_after_move_fn(st, name)?;
                         true
                     }
                     PageMethod::First | PageMethod::Last if before.is_some() && !stayed => {

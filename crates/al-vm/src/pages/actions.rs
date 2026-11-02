@@ -206,7 +206,7 @@ impl Session {
             let inst = self.owner_instance(st, owner);
             let current = self.control_value(st, idx)?;
             let shown = self.control_text(st, idx, &current)?;
-            self.page_call(st, object, routine, inst, vec![Value::Text(shown.into())])
+            self.lookup_trigger_call(st, object, routine, inst, vec![Value::Text(shown.into())])
                 .and_then(|(v, finals)| match (v, finals.first()) {
                     (Value::Boolean(true), Some(Value::Text(t))) => {
                         // Written back as the client would type it. The OnLookup of a page extension's modify block

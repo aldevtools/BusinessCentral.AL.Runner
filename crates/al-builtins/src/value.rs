@@ -586,6 +586,8 @@ pub struct PageState {
     /// does on a host with row triggers whose ListPart links two or three fields (`Session::defer_lookup_refresh`): reads and Close
     /// run no trigger; any other TestPage call on its tree is refused until Close.
     pub lookup_refresh_deferred: bool,
+    /// A TestPage call reached this page as a part of its host (`lookup_refresh_deferred_call`).
+    pub lookup_part_touched: bool,
     /// TestField.Lookup writes the text its OnLookup returned through the control's SetValue (`defer_lookup_refresh`).
     pub lookup_setting_value: bool,
     /// The TestField.Lookup running on this page wrote a value (its OnLookup returned true); false after a cancelled Lookup.
@@ -876,6 +878,15 @@ pub struct PageState {
     /// row, after its OnAfterGetRecord: (control index, value; `None` when the expression raised an error then) (al-vm
     /// `pages/shown.rs` `note_row_exprs`).
     pub row_exprs: Vec<RowExprs>,
+    /// The same for the function controls of a page in a tree with parts: what each showed when its page last ran them for the
+    /// row (al-vm `pages/fn_controls.rs`).
+    pub fn_rows: Vec<RowExprs>,
+    /// The first repeated OnAfterGetRecord of the open read ran no function control (`fn_controls.rs`).
+    pub fn_open_skipped: bool,
+    /// The next OnAfterGetRecord runs no function control: the first of the two reads a list makes of the row it moves onto.
+    pub fn_skip_agr: bool,
+    /// The last TestField.Lookup on this page was cancelled and only reads and part moves followed (`note_lookup_cancelled`).
+    pub lookup_cancelled: bool,
     /// `row_exprs` holds what the page shows: the list read its rows, and only pinned calls followed.
     pub row_exprs_live: bool,
     /// Since that refresh only events happened that are pinned to leave this page as it is.
@@ -992,6 +1003,7 @@ impl PageState {
             marked_only_unshown: false,
             marked_only_unpinned: false,
             lookup_refresh_deferred: false,
+            lookup_part_touched: false,
             lookup_setting_value: false,
             lookup_value_set: false,
             lookup_refresh_used: false,
@@ -1051,6 +1063,10 @@ impl PageState {
             row_vars: Vec::new(),
             row_prop_vars: Vec::new(),
             row_exprs: Vec::new(),
+            fn_rows: Vec::new(),
+            fn_open_skipped: false,
+            fn_skip_agr: false,
+            lookup_cancelled: false,
             row_exprs_live: false,
             agr_xrec: None,
             agcr_xrec: None,

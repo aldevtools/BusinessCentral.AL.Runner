@@ -112,6 +112,9 @@ impl Session {
             return f(self);
         }
         let root = shown_root(st);
+        if !Rc::ptr_eq(st, &root) {
+            st.borrow_mut().lookup_part_touched = true;
+        }
         if method == PageOp::TestFieldLookup {
             root.borrow_mut().lookup_value_set = false;
         }
@@ -149,6 +152,17 @@ impl Session {
                 // Visible of a field or an action runs no trigger and changes no value (pages/lt-y17-expr-refresh/
                 // Y17ExprRefresh.al:517 RF_Visible_PartControl, :549 RF_Visible_CardControl `visible log` empty, totals kept).
                 PageMethod::Value | PageMethod::Visible if on_control && r.is_ok() => 0,
+                // After a cancelled Lookup nothing changed: a move of a part refreshes nothing and reads nothing (Y15LookupThreeFieldLink.al:894
+                // Y54_ThreeLinkCurr_PartNextAfterCancel, :1397 Y63_CardPart_PartNextAfterCancel `part next log` empty, every control as before).
+                PageMethod::First | PageMethod::Next | PageMethod::Last | PageMethod::Previous
+                    if !on_root
+                        && target.is_none()
+                        && notes.is_empty()
+                        && r.is_ok()
+                        && root.borrow().lookup_cancelled =>
+                {
+                    0
+                }
                 PageMethod::SetValue if is_p && on_control => DOUBT_SET_VALUE,
                 PageMethod::SetValue if on_root && on_control => DOUBT_HOST_SET_VALUE,
                 // GoToKey of the host as GoToRecord: on the row shown it runs the host's OnAfterGetCurrRecord only and the part's
@@ -218,6 +232,7 @@ impl Session {
                 s.shown_doubt_call = Some(method.name());
             }
         }
+        self.note_lookup_cancelled(method, st, target, &root, r.is_ok() && notes.is_empty());
         r
     }
 
@@ -530,7 +545,15 @@ impl Session {
                             t
                         })
             });
-            Rc::ptr_eq(&h, root) && list_part && link_ok
+            // A CardPart in the FactBox area linked by one field counts as a ListPart here (Y63_CardPart_PartNextAfterCancel).
+            let card_part = matches!(
+                &engine.object_facts[q.borrow().object as usize].page_type,
+                Some(ir::PageType::Other(o)) if o == "cardpart"
+            ) && page_of(&engine, &h).controls[i]
+                .part_link
+                .as_ref()
+                .is_some_and(|l| l.entries.len() == 1);
+            Rc::ptr_eq(&h, root) && (list_part || card_part) && link_ok
         });
         if !pinned {
             return false;
@@ -642,7 +665,7 @@ impl Session {
 
     /// The expression controls of `st` whose value the page keeps: the page's own controls (not an extension's) whose
     /// expression reads no record and calls only codeunit procedures that only return a value (`pure_expr`).
-    fn kept_controls(&mut self, st: &St) -> Rc<Vec<usize>> {
+    pub(super) fn kept_controls(&mut self, st: &St) -> Rc<Vec<usize>> {
         let object = st.borrow().object;
         if let Some(c) = self.pages.shown_controls.get(&object) {
             return c.clone();
