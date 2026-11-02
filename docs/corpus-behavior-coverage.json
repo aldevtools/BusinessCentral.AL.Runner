@@ -16333,7 +16333,7 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 982,
+        "line": 974,
         "pinned": true,
         "site": "misc/lt-probes-needed-6/PnF31TimeArithmetic.al:81",
         "template": "Adding to an undefined (0T) time."
@@ -16342,7 +16342,7 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1046,
+        "line": 1038,
         "pinned": true,
         "site": "misc/lt-probes-needed-6/PnF31TimeArithmetic.al:116",
         "template": "Subtracting from an undefined (0T) time."
@@ -16351,10 +16351,19 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1049,
+        "line": 1041,
         "pinned": true,
         "site": "misc/lt-probes-needed-6/PnF31TimeArithmetic.al:115",
         "template": "Subtracting an undefined (0T) time."
+      },
+      {
+        "code": "AL:Overflow",
+        "file": "crates/al-builtins/src/ops.rs",
+        "generic": false,
+        "line": 1068,
+        "pinned": true,
+        "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
+        "template": "Arithmetic operation resulted in an overflow."
       },
       {
         "code": "AL:Overflow",
@@ -16366,19 +16375,10 @@
         "template": "Arithmetic operation resulted in an overflow."
       },
       {
-        "code": "AL:Overflow",
-        "file": "crates/al-builtins/src/ops.rs",
-        "generic": false,
-        "line": 1084,
-        "pinned": true,
-        "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
-        "template": "Arithmetic operation resulted in an overflow."
-      },
-      {
         "code": "AL:DivideByZero",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1121,
+        "line": 1113,
         "pinned": true,
         "site": "errors/lt-az-error-texts/AzErrorTexts.al:533",
         "template": "Attempted to divide by zero."
@@ -16387,7 +16387,7 @@
         "code": "AL:DivideByZero",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1146,
+        "line": 1138,
         "pinned": true,
         "site": "errors/lt-az-error-texts/AzErrorTexts.al:533",
         "template": "Attempted to divide by zero."
@@ -16396,7 +16396,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1200,
+        "line": 1192,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16405,7 +16405,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1205,
+        "line": 1197,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16414,7 +16414,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1266,
+        "line": 1291,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -16729,7 +16729,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 2070,
+        "line": 2072,
         "pinned": true,
         "site": "codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:95",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
