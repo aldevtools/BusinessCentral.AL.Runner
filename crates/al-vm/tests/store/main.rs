@@ -35,6 +35,7 @@ mod key_ties;
 mod lane_codeunit_run;
 mod linked_object;
 mod loadfields;
+mod media_find_orphans;
 mod media_null_guid_filter;
 mod media_resources;
 mod modify_all_partial;

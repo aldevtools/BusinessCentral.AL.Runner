@@ -62,6 +62,7 @@ mod http;
 pub mod impact;
 mod interfaces;
 mod isdirty;
+mod media_orphans;
 mod pages;
 mod partial;
 mod permissions;

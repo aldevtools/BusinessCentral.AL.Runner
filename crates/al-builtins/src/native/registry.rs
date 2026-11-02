@@ -473,6 +473,7 @@ pub(super) fn all() -> impl Iterator<Item = &'static (&'static str, NativeFn)> {
         .chain(crate::mathfns::REGISTRY)
         .chain(crate::sessionfns::REGISTRY)
         .chain(crate::media::REGISTRY)
+        .chain(crate::media_orphans::REGISTRY)
         .chain(crate::moduleinfo::REGISTRY)
         .chain(crate::conv::REGISTRY)
 }

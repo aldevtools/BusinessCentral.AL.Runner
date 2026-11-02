@@ -328,6 +328,10 @@ pub trait Ctx: FormatCtx {
     fn media_store(&mut self) -> Option<&mut crate::media::MediaStore> {
         None
     }
+    /// The media and media sets the stored rows hold in Media and MediaSet fields (`FindOrphans`).
+    fn media_holders(&mut self) -> Result<crate::media_orphans::MediaHolders, Signal> {
+        Err(Signal::Unsupported("FindOrphans: this context has no database".into()))
+    }
     /// Whether the host file system has a file with this path (`File` data type).
     fn fs_exists(&mut self, _path: &str) -> Result<bool, Signal> {
         Err(Signal::Unsupported("File: this context has no file system".into()))
