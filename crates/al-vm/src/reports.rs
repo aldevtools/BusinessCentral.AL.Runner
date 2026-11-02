@@ -97,6 +97,9 @@ impl Schema {
     pub(crate) fn name(&self) -> &str {
         &self.engine.program.objects[self.object].name
     }
+    pub(crate) fn object(&self) -> usize {
+        self.object
+    }
 }
 
 impl Session {
@@ -2234,7 +2237,7 @@ impl Session {
         let mut run = self.report_prepare(inst, schema, !shows_page)?;
         run.dataset = save_as.is_some();
         if !shows_page {
-            self.request_page_init_unshown(inst, schema, save_as.is_some_and(|x| !x.is_empty()))?;
+            self.request_page_init_unshown(inst, schema)?;
         }
         if let Some(xml) = save_as.filter(|x| !x.is_empty()) {
             self.apply_run_parameters(inst, schema, &run, xml, false)?;
@@ -2248,6 +2251,7 @@ impl Session {
             // OnOpenPage too, also for the parameters of another report (misc/lt-y14-triage/Y14ReportSubstitute.al:389
             // `B-rp-open`, `A-rp-open`, corpus master).
             self.request_page_open_close_unshown(inst, schema)?;
+            crate::report_no_layout_file::execute_check(self, schema)?;
         }
         // The request page opens once the items' views are in force; what the handler filters is
         // what the run reads, so the views are not applied again afterwards. A cancelled page ends
@@ -2318,7 +2322,7 @@ impl Session {
                 schema.name()
             ));
         }
-        self.request_page_init_unshown(inst, schema, false)?;
+        self.request_page_init_unshown(inst, schema)?;
         self.report.rp_init_by_handler.push(Rc::downgrade(inst));
         let (o, r, hi) = self.bind_page_handler(UiKind::Report, object)?;
         // The handler takes the run over: its Run or RunModal of the instance runs it (AeReportHandlerCalls.al:79-99), so the
@@ -2333,15 +2337,11 @@ impl Session {
     /// The request page's `OnInit` runs although the page is not shown, after OnInitReport and before OnPreReport, and
     /// OnOpenPage does not: a SaveAs (misc/lt-probes-needed-2/PnBReportSaveAs.al:348 TriggerOrder, :262 Rows_SkipAndBreak),
     /// an Execute and a Run with UseRequestPage(false) (report/lt-ae-reporthandler/AeReportHandler.al:85, :121). The values of
-    /// an Execute's parameters land after it (`report_body`). Not pinned, and refused: an OnInit a reportextension adds to the
-    /// page, and the parameters string of a SaveAs (`with_parameters`), whose values may land before or after the trigger.
+    /// an Execute's or a SaveAs's parameters land after it (`report_body`). Not pinned, and refused: an OnInit a reportextension
+    /// adds to the page. The values of a SaveAs's parameters landing after it: report/lt-y68-selfclosing-params/
+    /// Y68SelfClosingParams.al:420-444 (Q1_SaveAs_SelfClosing_DataReport, a control they do not name keeps OnInit's value).
     /// Returns whether the trigger ran here.
-    fn request_page_init_unshown(
-        &mut self,
-        inst: &Inst,
-        schema: &Schema,
-        with_parameters: bool,
-    ) -> Result<bool, Signal> {
+    fn request_page_init_unshown(&mut self, inst: &Inst, schema: &Schema) -> Result<bool, Signal> {
         let engine = self.engine.clone();
         let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
             return Ok(false);
@@ -2368,12 +2368,6 @@ impl Session {
         // (report/lt-request-page-oninit/RequestPageOnInitFirstUse.al:104-185).
         if self.request_page_init_done(inst) {
             return Ok(false);
-        }
-        if with_parameters {
-            return unsupported(format!(
-                "a parameters string for report \"{}\", whose request page has an OnInit (whether the values land before or after it is not pinned)",
-                schema.name()
-            ));
         }
         self.call(schema.object, r, inst.clone(), Vec::new()).map(|_| true)
     }
@@ -3222,10 +3216,10 @@ impl Session {
                 );
             }
             // The request page's OnInit follows, as in a run without the page (report/lt-ae-reporthandler/AeReportHandler.al:
-            // 133-145 SaveAs_WithReportHandler `OnInitReport;RP OnInit ...;` with an empty parameters string; with
-            // parameters `request_page_init_unshown` refuses).
+            // 133-145 SaveAs_WithReportHandler `OnInitReport;RP OnInit ...;` with an empty parameters string; with parameters the
+            // same error follows and OnPreReport does not run, Y68SelfClosingParams.al:407-418).
             if format == "Xml" && at != 0 {
-                self.request_page_init_unshown(&inst, &schema, !parameters.is_empty())?;
+                self.request_page_init_unshown(&inst, &schema)?;
             }
             if format == "Xml" && at == 0 && quit {
                 return unsupported(
