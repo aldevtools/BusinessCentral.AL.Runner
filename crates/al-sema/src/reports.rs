@@ -897,6 +897,7 @@ impl<'a> Owner<'a> {
                 let mut include_caption = false;
                 let mut decimal_places = None;
                 let mut option_caption_ml = None;
+                let (mut auto_format_type, mut auto_format_expression) = (None, None);
                 for p in c.properties() {
                     let value = p.value_text();
                     match p.name().to_ascii_lowercase().as_str() {
@@ -910,6 +911,8 @@ impl<'a> Owner<'a> {
                         },
                         "decimalplaces" => decimal_places = Some(value.trim().to_string()),
                         "optioncaptionml" => option_caption_ml = Some(value.trim().to_string()),
+                        "autoformattype" => auto_format_type = Some(value.trim().to_string()),
+                        "autoformatexpression" => auto_format_expression = Some(value.trim().to_string()),
                         _ => {}
                     }
                 }
@@ -966,6 +969,8 @@ impl<'a> Owner<'a> {
                     value_unsupported: None,
                     decimal_places,
                     option_caption_ml,
+                    auto_format_type,
+                    auto_format_expression,
                 }
             })
             .collect()

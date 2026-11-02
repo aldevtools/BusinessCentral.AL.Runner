@@ -1,8 +1,8 @@
 {
-  "corpus_commit": "2c42c8aa2ec85fc79ddcef3e7b448a252d4b9840",
+  "corpus_commit": "4b6013d069c89f139b2d0887f83a3842dcced999",
   "language": {
     "bc": "27-29",
-    "implemented": 1622,
+    "implemented": 1633,
     "methods": [
       {
         "bc": [
@@ -155,7 +155,7 @@
           29
         ],
         "id": "Blob.CreateInStream#1",
-        "ms_uses": 147,
+        "ms_uses": 148,
         "name": "CreateInStream",
         "pinned": true,
         "scope": "",
@@ -741,7 +741,7 @@
           29
         ],
         "id": "Database.Commit#1",
-        "ms_uses": 810,
+        "ms_uses": 811,
         "name": "Commit",
         "pinned": true,
         "scope": "",
@@ -757,7 +757,7 @@
           29
         ],
         "id": "Database.CompanyName#1",
-        "ms_uses": 198,
+        "ms_uses": 200,
         "name": "CompanyName",
         "pinned": true,
         "scope": "",
@@ -1141,7 +1141,7 @@
           29
         ],
         "id": "Database.UserId#1",
-        "ms_uses": 612,
+        "ms_uses": 616,
         "name": "UserId",
         "pinned": true,
         "scope": "",
@@ -1701,7 +1701,7 @@
           29
         ],
         "id": "Dialog.Error#2",
-        "ms_uses": 5663,
+        "ms_uses": 5664,
         "name": "Error",
         "pinned": true,
         "scope": "",
@@ -1829,7 +1829,7 @@
           29
         ],
         "id": "Dictionary.Add#1",
-        "ms_uses": 879,
+        "ms_uses": 886,
         "name": "Add",
         "pinned": true,
         "scope": "",
@@ -1861,7 +1861,7 @@
           29
         ],
         "id": "Dictionary.Count#1",
-        "ms_uses": 34,
+        "ms_uses": 35,
         "name": "Count",
         "pinned": true,
         "scope": "",
@@ -1877,7 +1877,7 @@
           29
         ],
         "id": "Dictionary.Get#1",
-        "ms_uses": 193,
+        "ms_uses": 195,
         "name": "Get",
         "pinned": true,
         "scope": "",
@@ -2005,7 +2005,7 @@
           29
         ],
         "id": "Enum.AsInteger#1",
-        "ms_uses": 2063,
+        "ms_uses": 2068,
         "name": "AsInteger",
         "pinned": true,
         "scope": "",
@@ -2021,7 +2021,7 @@
           29
         ],
         "id": "Enum.FromInteger#1",
-        "ms_uses": 281,
+        "ms_uses": 282,
         "name": "FromInteger",
         "pinned": true,
         "scope": "",
@@ -2037,7 +2037,7 @@
           29
         ],
         "id": "Enum.Names#1",
-        "ms_uses": 6,
+        "ms_uses": 7,
         "name": "Names",
         "pinned": true,
         "scope": "",
@@ -2069,7 +2069,7 @@
           29
         ],
         "id": "Enum.Ordinals#1",
-        "ms_uses": 28,
+        "ms_uses": 29,
         "name": "Ordinals",
         "pinned": true,
         "scope": "",
@@ -4795,7 +4795,7 @@
         "scope": "",
         "sig": "()",
         "site": "must-not-compile/cases/0651-httpclient-defaultnetworkwindowsauth-cloud.al:12",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpClient"
       },
       {
@@ -4843,7 +4843,7 @@
         "scope": "",
         "sig": "(SecretText, SecretText, [SecretText])",
         "site": "must-not-compile/cases/0653-httpclient-windowsauth-secrettext-cloud.al:12",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpClient"
       },
       {
@@ -4859,7 +4859,7 @@
         "scope": "",
         "sig": "(Text, Text, [Text])",
         "site": "must-not-compile/cases/0652-httpclient-windowsauth-text-cloud.al:12",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpClient"
       },
       {
@@ -4874,7 +4874,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "network/lt-db-http-leads/DbHttpContentLeads.al:88",
+        "site": "must-not-compile/cases/2615-httpcontent-clear-result-used.al:11",
         "state": "implemented",
         "type": "HttpContent"
       },
@@ -5243,7 +5243,7 @@
         "scope": "",
         "sig": "(Text, var Cookie)",
         "site": "xml/lt-xml-attr-doc-http-members/P97ReqCookie.al:25",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpRequestMessage"
       },
       {
@@ -5259,7 +5259,7 @@
         "scope": "",
         "sig": "()",
         "site": "xml/lt-xml-attr-doc-http-members/P97ReqCookie.al:37",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpRequestMessage"
       },
       {
@@ -5339,7 +5339,7 @@
         "scope": "",
         "sig": "(Text)",
         "site": "xml/lt-xml-attr-doc-http-members/P97ReqCookie.al:46",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpRequestMessage"
       },
       {
@@ -5355,7 +5355,7 @@
         "scope": "",
         "sig": "(Cookie)",
         "site": "xml/lt-xml-attr-doc-http-members/P97ReqCookieObj.al:30",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpRequestMessage"
       },
       {
@@ -5371,7 +5371,7 @@
         "scope": "",
         "sig": "(Text, Text)",
         "site": "xml/lt-xml-attr-doc-http-members/P97ReqCookie.al:16",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpRequestMessage"
       },
       {
@@ -5562,7 +5562,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "lt-y51-blob-stream-position/Y51BlobStreamPosition.al:107",
+        "site": "lt-y51-blob-stream-position/Y51BlobStreamPosition.al:110",
         "state": "implemented",
         "type": "InStream"
       },
@@ -6173,7 +6173,7 @@
           29
         ],
         "id": "JsonArray.Add#11",
-        "ms_uses": 6,
+        "ms_uses": 7,
         "name": "Add",
         "pinned": true,
         "scope": "",
@@ -6301,7 +6301,7 @@
           29
         ],
         "id": "JsonArray.Count#1",
-        "ms_uses": 30,
+        "ms_uses": 31,
         "name": "Count",
         "pinned": true,
         "scope": "",
@@ -7452,7 +7452,7 @@
           29
         ],
         "id": "JsonObject.Add#1",
-        "ms_uses": 0,
+        "ms_uses": 3,
         "name": "Add",
         "pinned": true,
         "scope": "",
@@ -7580,7 +7580,7 @@
           29
         ],
         "id": "JsonObject.Add#9",
-        "ms_uses": 11,
+        "ms_uses": 12,
         "name": "Add",
         "pinned": true,
         "scope": "",
@@ -7596,7 +7596,7 @@
           29
         ],
         "id": "JsonObject.Add#10",
-        "ms_uses": 5,
+        "ms_uses": 7,
         "name": "Add",
         "pinned": true,
         "scope": "",
@@ -7612,7 +7612,7 @@
           29
         ],
         "id": "JsonObject.Add#11",
-        "ms_uses": 2,
+        "ms_uses": 3,
         "name": "Add",
         "pinned": true,
         "scope": "",
@@ -7676,7 +7676,7 @@
           29
         ],
         "id": "JsonObject.Add#15",
-        "ms_uses": 47,
+        "ms_uses": 57,
         "name": "Add",
         "pinned": true,
         "scope": "",
@@ -7740,7 +7740,7 @@
           29
         ],
         "id": "JsonObject.Contains#1",
-        "ms_uses": 2,
+        "ms_uses": 3,
         "name": "Contains",
         "pinned": true,
         "scope": "",
@@ -8332,7 +8332,7 @@
           29
         ],
         "id": "JsonObject.Replace#15",
-        "ms_uses": 0,
+        "ms_uses": 1,
         "name": "Replace",
         "pinned": true,
         "scope": "",
@@ -10026,7 +10026,7 @@
           29
         ],
         "id": "List.Add#1",
-        "ms_uses": 570,
+        "ms_uses": 571,
         "name": "Add",
         "pinned": true,
         "scope": "",
@@ -10090,7 +10090,7 @@
           29
         ],
         "id": "List.Count#1",
-        "ms_uses": 192,
+        "ms_uses": 195,
         "name": "Count",
         "pinned": true,
         "scope": "",
@@ -10106,7 +10106,7 @@
           29
         ],
         "id": "List.Get#1",
-        "ms_uses": 98,
+        "ms_uses": 101,
         "name": "Get",
         "pinned": true,
         "scope": "",
@@ -10170,7 +10170,7 @@
           29
         ],
         "id": "List.IndexOf#1",
-        "ms_uses": 12,
+        "ms_uses": 13,
         "name": "IndexOf",
         "pinned": true,
         "scope": "",
@@ -10186,7 +10186,7 @@
           29
         ],
         "id": "List.Insert#1",
-        "ms_uses": 3,
+        "ms_uses": 4,
         "name": "Insert",
         "pinned": true,
         "scope": "",
@@ -10234,7 +10234,7 @@
           29
         ],
         "id": "List.RemoveAt#1",
-        "ms_uses": 11,
+        "ms_uses": 13,
         "name": "RemoveAt",
         "pinned": true,
         "scope": "",
@@ -10351,8 +10351,8 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:231",
-        "state": "refused",
+        "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:300",
+        "state": "implemented",
         "type": "Media"
       },
       {
@@ -10426,7 +10426,7 @@
           29
         ],
         "id": "Media.MediaId#1",
-        "ms_uses": 26,
+        "ms_uses": 27,
         "name": "MediaId",
         "pinned": true,
         "scope": "",
@@ -10479,8 +10479,8 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:236",
-        "state": "refused",
+        "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:305",
+        "state": "implemented",
         "type": "MediaSet"
       },
       {
@@ -10791,7 +10791,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "misc/lt-probes-needed-1/PnAModuleInfoNull.al:23",
+        "site": "lt-y58-server-helpers/Y58ServerHelpers.al:331",
         "state": "implemented",
         "type": "ModuleInfo"
       },
@@ -11101,7 +11101,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Integer)",
-        "site": "platform/lt-xmlport-session-navapp-cookie/P94NavApp.al:163",
+        "site": "install/lt-cm-install-leads/CmInstallObjects.al:270",
         "state": "implemented",
         "type": "NavApp"
       },
@@ -11293,7 +11293,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, [Boolean])",
-        "site": "error-handling/TestNumberSequenceTrappableErrors.al:125",
+        "site": "codeunit/lt-seq-carry/SeqCarry.al:56",
         "state": "implemented",
         "type": "NumberSequence"
       },
@@ -11309,7 +11309,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, [Boolean])",
-        "site": "error-handling/TestNumberSequenceTrappableErrors.al:155",
+        "site": "codeunit/lt-seq-carry/SeqCarry.al:74",
         "state": "implemented",
         "type": "NumberSequence"
       },
@@ -11325,7 +11325,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, [Boolean])",
-        "site": "error-handling/TestNumberSequenceTrappableErrors.al:118",
+        "site": "codeunit/lt-seq-carry/SeqCarry.al:55",
         "state": "implemented",
         "type": "NumberSequence"
       },
@@ -11341,7 +11341,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, [BigInteger], [BigInteger], [Boolean])",
-        "site": "error-handling/TestNumberSequenceTrappableErrors.al:48",
+        "site": "codeunit/lt-seq-carry/SeqCarry.al:75",
         "state": "implemented",
         "type": "NumberSequence"
       },
@@ -11357,7 +11357,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, [Boolean])",
-        "site": "error-handling/TestNumberSequenceTrappableErrors.al:131",
+        "site": "codeunit/lt-seq-carry/SeqCarry.al:65",
         "state": "implemented",
         "type": "NumberSequence"
       },
@@ -11405,7 +11405,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, [BigInteger], [Boolean])",
-        "site": "error-handling/TestNumberSequenceTrappableErrors.al:143",
+        "site": "codeunit/lt-seq-carry/SeqCarry.al:391",
         "state": "implemented",
         "type": "NumberSequence"
       },
@@ -11800,7 +11800,7 @@
           29
         ],
         "id": "Page.CancelBackgroundTask#1",
-        "ms_uses": 13,
+        "ms_uses": 14,
         "name": "CancelBackgroundTask",
         "pinned": true,
         "scope": "",
@@ -11864,7 +11864,7 @@
           29
         ],
         "id": "Page.EnqueueBackgroundTask#1",
-        "ms_uses": 19,
+        "ms_uses": 20,
         "name": "EnqueueBackgroundTask",
         "pinned": true,
         "scope": "",
@@ -11880,7 +11880,7 @@
           29
         ],
         "id": "Page.GetBackgroundParameters#1",
-        "ms_uses": 17,
+        "ms_uses": 18,
         "name": "GetBackgroundParameters",
         "pinned": true,
         "scope": "",
@@ -11976,7 +11976,7 @@
           29
         ],
         "id": "Page.Run#4",
-        "ms_uses": 970,
+        "ms_uses": 972,
         "name": "Run",
         "pinned": true,
         "scope": "",
@@ -12147,7 +12147,7 @@
           29
         ],
         "id": "Page.SetBackgroundTaskResult#1",
-        "ms_uses": 17,
+        "ms_uses": 18,
         "name": "SetBackgroundTaskResult",
         "pinned": true,
         "scope": "",
@@ -12211,7 +12211,7 @@
           29
         ],
         "id": "Page.Update#1",
-        "ms_uses": 1633,
+        "ms_uses": 1634,
         "name": "Update",
         "pinned": true,
         "scope": "",
@@ -12344,7 +12344,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Joker)",
-        "site": "query/PRQueryOpenColumn.al:238",
+        "site": "misc/lt-y64-obsolete-subelements/Y64ObsoleteSub.al:374",
         "state": "implemented",
         "type": "Query"
       },
@@ -12371,7 +12371,7 @@
           29
         ],
         "id": "Query.Open#1",
-        "ms_uses": 133,
+        "ms_uses": 135,
         "name": "Open",
         "pinned": true,
         "scope": "",
@@ -12387,7 +12387,7 @@
           29
         ],
         "id": "Query.Read#1",
-        "ms_uses": 151,
+        "ms_uses": 153,
         "name": "Read",
         "pinned": true,
         "scope": "",
@@ -12579,7 +12579,7 @@
           29
         ],
         "id": "Query.SetFilter#1",
-        "ms_uses": 114,
+        "ms_uses": 118,
         "name": "SetFilter",
         "pinned": true,
         "scope": "",
@@ -12595,7 +12595,7 @@
           29
         ],
         "id": "Query.SetRange#1",
-        "ms_uses": 318,
+        "ms_uses": 324,
         "name": "SetRange",
         "pinned": true,
         "scope": "",
@@ -12691,7 +12691,7 @@
           29
         ],
         "id": "Record.CalcFields#1",
-        "ms_uses": 1592,
+        "ms_uses": 1593,
         "name": "CalcFields",
         "pinned": true,
         "scope": "",
@@ -13043,7 +13043,7 @@
           29
         ],
         "id": "Record.FieldName#1",
-        "ms_uses": 285,
+        "ms_uses": 297,
         "name": "FieldName",
         "pinned": true,
         "scope": "",
@@ -13059,7 +13059,7 @@
           29
         ],
         "id": "Record.FieldNo#1",
-        "ms_uses": 6716,
+        "ms_uses": 6733,
         "name": "FieldNo",
         "pinned": true,
         "scope": "",
@@ -13075,7 +13075,7 @@
           29
         ],
         "id": "Record.FilterGroup#1",
-        "ms_uses": 964,
+        "ms_uses": 970,
         "name": "FilterGroup",
         "pinned": true,
         "scope": "",
@@ -13107,7 +13107,7 @@
           29
         ],
         "id": "Record.FindFirst#1",
-        "ms_uses": 2731,
+        "ms_uses": 2734,
         "name": "FindFirst",
         "pinned": true,
         "scope": "",
@@ -13155,7 +13155,7 @@
           29
         ],
         "id": "Record.FindSet#1",
-        "ms_uses": 3364,
+        "ms_uses": 3366,
         "name": "FindSet",
         "pinned": true,
         "scope": "",
@@ -13186,7 +13186,7 @@
           29
         ],
         "id": "Record.Get#1",
-        "ms_uses": 12297,
+        "ms_uses": 12313,
         "name": "Get",
         "pinned": true,
         "scope": "",
@@ -13234,7 +13234,7 @@
           29
         ],
         "id": "Record.GetFilter#1",
-        "ms_uses": 1638,
+        "ms_uses": 1646,
         "name": "GetFilter",
         "pinned": true,
         "scope": "",
@@ -13314,7 +13314,7 @@
           29
         ],
         "id": "Record.GetView#1",
-        "ms_uses": 111,
+        "ms_uses": 112,
         "name": "GetView",
         "pinned": true,
         "scope": "",
@@ -13362,7 +13362,7 @@
           29
         ],
         "id": "Record.Init#1",
-        "ms_uses": 2305,
+        "ms_uses": 2308,
         "name": "Init",
         "pinned": true,
         "scope": "",
@@ -13378,7 +13378,7 @@
           29
         ],
         "id": "Record.Insert#1",
-        "ms_uses": 3099,
+        "ms_uses": 3102,
         "name": "Insert",
         "pinned": true,
         "scope": "",
@@ -13440,7 +13440,7 @@
           29
         ],
         "id": "Record.IsEmpty#1",
-        "ms_uses": 2551,
+        "ms_uses": 2554,
         "name": "IsEmpty",
         "pinned": true,
         "scope": "",
@@ -13488,7 +13488,7 @@
           29
         ],
         "id": "Record.LockTable#1",
-        "ms_uses": 756,
+        "ms_uses": 757,
         "name": "LockTable",
         "pinned": true,
         "scope": "",
@@ -13504,7 +13504,7 @@
           29
         ],
         "id": "Record.Mark#1",
-        "ms_uses": 236,
+        "ms_uses": 237,
         "name": "Mark",
         "pinned": true,
         "scope": "",
@@ -13520,7 +13520,7 @@
           29
         ],
         "id": "Record.MarkedOnly#1",
-        "ms_uses": 150,
+        "ms_uses": 151,
         "name": "MarkedOnly",
         "pinned": true,
         "scope": "",
@@ -13536,7 +13536,7 @@
           29
         ],
         "id": "Record.Modify#1",
-        "ms_uses": 3370,
+        "ms_uses": 3371,
         "name": "Modify",
         "pinned": true,
         "scope": "",
@@ -13568,7 +13568,7 @@
           29
         ],
         "id": "Record.Next#1",
-        "ms_uses": 5291,
+        "ms_uses": 5293,
         "name": "Next",
         "pinned": true,
         "scope": "",
@@ -13600,7 +13600,7 @@
           29
         ],
         "id": "Record.ReadIsolation#1",
-        "ms_uses": 319,
+        "ms_uses": 320,
         "name": "ReadIsolation",
         "pinned": true,
         "scope": "",
@@ -13616,7 +13616,7 @@
           29
         ],
         "id": "Record.ReadPermission#1",
-        "ms_uses": 323,
+        "ms_uses": 324,
         "name": "ReadPermission",
         "pinned": true,
         "scope": "",
@@ -13696,7 +13696,7 @@
           29
         ],
         "id": "Record.Reset#1",
-        "ms_uses": 3276,
+        "ms_uses": 3278,
         "name": "Reset",
         "pinned": true,
         "scope": "",
@@ -13776,7 +13776,7 @@
           29
         ],
         "id": "Record.SetCurrentKey#1",
-        "ms_uses": 2500,
+        "ms_uses": 2501,
         "name": "SetCurrentKey",
         "pinned": true,
         "scope": "",
@@ -13792,7 +13792,7 @@
           29
         ],
         "id": "Record.SetFilter#1",
-        "ms_uses": 4696,
+        "ms_uses": 4704,
         "name": "SetFilter",
         "pinned": true,
         "scope": "",
@@ -13808,7 +13808,7 @@
           29
         ],
         "id": "Record.SetLoadFields#1",
-        "ms_uses": 783,
+        "ms_uses": 788,
         "name": "SetLoadFields",
         "pinned": true,
         "scope": "",
@@ -13856,7 +13856,7 @@
           29
         ],
         "id": "Record.SetRange#1",
-        "ms_uses": 23660,
+        "ms_uses": 23682,
         "name": "SetRange",
         "pinned": true,
         "scope": "",
@@ -13888,7 +13888,7 @@
           29
         ],
         "id": "Record.SetView#1",
-        "ms_uses": 101,
+        "ms_uses": 102,
         "name": "SetView",
         "pinned": true,
         "scope": "",
@@ -14384,7 +14384,7 @@
           29
         ],
         "id": "Record.WritePermission#1",
-        "ms_uses": 100,
+        "ms_uses": 101,
         "name": "WritePermission",
         "pinned": true,
         "scope": "",
@@ -14416,7 +14416,7 @@
           29
         ],
         "id": "RecordId.TableNo#1",
-        "ms_uses": 111,
+        "ms_uses": 112,
         "name": "TableNo",
         "pinned": true,
         "scope": "",
@@ -15023,7 +15023,7 @@
           29
         ],
         "id": "RecordRef.GetBySystemId#1",
-        "ms_uses": 36,
+        "ms_uses": 37,
         "name": "GetBySystemId",
         "pinned": true,
         "scope": "",
@@ -15071,7 +15071,7 @@
           29
         ],
         "id": "RecordRef.GetTable#1",
-        "ms_uses": 937,
+        "ms_uses": 939,
         "name": "GetTable",
         "pinned": true,
         "scope": "",
@@ -15201,10 +15201,10 @@
         "id": "RecordRef.IsDirty#1",
         "ms_uses": 5,
         "name": "IsDirty",
-        "pinned": false,
+        "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": null,
+        "site": "misc/lt-y70-assumptions/Y70Probes.al:959",
         "state": "implemented",
         "type": "RecordRef"
       },
@@ -15285,7 +15285,7 @@
         "scope": "",
         "sig": "(Integer...)",
         "site": "fieldref/lt-fieldref-testfield-types/RecordRefLoadFieldsList.al:22",
-        "state": "refused",
+        "state": "implemented",
         "type": "RecordRef"
       },
       {
@@ -15391,7 +15391,7 @@
           29
         ],
         "id": "RecordRef.Number#1",
-        "ms_uses": 663,
+        "ms_uses": 665,
         "name": "Number",
         "pinned": true,
         "scope": "",
@@ -15407,7 +15407,7 @@
           29
         ],
         "id": "RecordRef.Open#2",
-        "ms_uses": 294,
+        "ms_uses": 295,
         "name": "Open",
         "pinned": true,
         "scope": "",
@@ -15486,7 +15486,7 @@
           29
         ],
         "id": "RecordRef.RecordId#1",
-        "ms_uses": 276,
+        "ms_uses": 277,
         "name": "RecordId",
         "pinned": true,
         "scope": "",
@@ -17147,7 +17147,7 @@
           29
         ],
         "id": "Session.LogMessage#2",
-        "ms_uses": 1249,
+        "ms_uses": 1255,
         "name": "LogMessage",
         "pinned": true,
         "scope": "",
@@ -17611,7 +17611,7 @@
           29
         ],
         "id": "System.Clear#1",
-        "ms_uses": 2258,
+        "ms_uses": 2260,
         "name": "Clear",
         "pinned": true,
         "scope": "",
@@ -17883,7 +17883,7 @@
           29
         ],
         "id": "System.CurrentDateTime#1",
-        "ms_uses": 456,
+        "ms_uses": 458,
         "name": "CurrentDateTime",
         "pinned": true,
         "scope": "",
@@ -18091,7 +18091,7 @@
           29
         ],
         "id": "System.Evaluate#1",
-        "ms_uses": 620,
+        "ms_uses": 627,
         "name": "Evaluate",
         "pinned": true,
         "scope": "",
@@ -18155,7 +18155,7 @@
           29
         ],
         "id": "System.Format#1",
-        "ms_uses": 2568,
+        "ms_uses": 2585,
         "name": "Format",
         "pinned": true,
         "scope": "",
@@ -18267,7 +18267,7 @@
           29
         ],
         "id": "System.GetLastErrorText#1",
-        "ms_uses": 177,
+        "ms_uses": 178,
         "name": "GetLastErrorText",
         "pinned": true,
         "scope": "",
@@ -18331,7 +18331,7 @@
           29
         ],
         "id": "System.GetUrl#1",
-        "ms_uses": 30,
+        "ms_uses": 31,
         "name": "GetUrl",
         "pinned": true,
         "scope": "",
@@ -18491,7 +18491,7 @@
           29
         ],
         "id": "System.IsNull#1",
-        "ms_uses": 125,
+        "ms_uses": 127,
         "name": "IsNull",
         "pinned": true,
         "scope": "",
@@ -18747,7 +18747,7 @@
           29
         ],
         "id": "System.WorkDate#1",
-        "ms_uses": 708,
+        "ms_uses": 716,
         "name": "WorkDate",
         "pinned": true,
         "scope": "",
@@ -20863,7 +20863,7 @@
           29
         ],
         "id": "Text.CopyStr#1",
-        "ms_uses": 1907,
+        "ms_uses": 1908,
         "name": "CopyStr",
         "pinned": true,
         "scope": "",
@@ -20980,7 +20980,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(List of [Char], [Integer])",
-        "site": "text/TestTextExtended.al:384",
+        "site": "misc/lt-y70-assumptions/Y70Probes.al:297",
         "state": "implemented",
         "type": "Text"
       },
@@ -21295,7 +21295,7 @@
           29
         ],
         "id": "Text.StrSubstNo#1",
-        "ms_uses": 3770,
+        "ms_uses": 3776,
         "name": "StrSubstNo",
         "pinned": true,
         "scope": "",
@@ -21476,7 +21476,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "text/TestTextBuilder.al:71",
+        "site": "misc/lt-y70-assumptions/Y70Probes.al:283",
         "state": "implemented",
         "type": "TextBuilder"
       },
@@ -27940,14 +27940,14 @@
         "pinned": true,
         "scope": "",
         "sig": "([TextEncoding])",
-        "site": "platform/lt-xmlport-session-navapp-cookie/P94Fixtures.al:353",
+        "site": "must-not-compile/cases/2651-xmlport-textencoding-assigned-integer.al:28",
         "state": "implemented",
         "type": "Xmlport"
       }
     ],
     "overloads": 1750,
-    "pinned": 1706,
-    "refused": 108,
+    "pinned": 1707,
+    "refused": 97,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",
@@ -27983,7 +27983,7 @@
     "unknown": 20
   },
   "overloads": 1740,
-  "pinned": 1692,
+  "pinned": 1693,
   "types": [
     {
       "methods": [
@@ -29997,7 +29997,7 @@
           "id": "HttpContent.Clear#1",
           "pinned": true,
           "signature": "HttpContent.Clear inst ()",
-          "site": "network/lt-db-http-leads/DbHttpContentLeads.al:88"
+          "site": "must-not-compile/cases/2615-httpcontent-clear-result-used.al:11"
         },
         {
           "id": "HttpContent.GetHeaders#1",
@@ -30289,7 +30289,7 @@
           "id": "InStream.Length#1",
           "pinned": true,
           "signature": "InStream.Length inst () -> BigInteger",
-          "site": "lt-y51-blob-stream-position/Y51BlobStreamPosition.al:107"
+          "site": "lt-y51-blob-stream-position/Y51BlobStreamPosition.al:110"
         },
         {
           "id": "InStream.Position#1",
@@ -32015,7 +32015,7 @@
           "id": "Media.FindOrphans#1",
           "pinned": true,
           "signature": "Media.FindOrphans static () -> List of [Guid]",
-          "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:231"
+          "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:300"
         },
         {
           "id": "Media.HasValue#1",
@@ -32070,7 +32070,7 @@
           "id": "MediaSet.FindOrphans#1",
           "pinned": true,
           "signature": "MediaSet.FindOrphans static () -> List of [Guid]",
-          "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:236"
+          "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:305"
         },
         {
           "id": "MediaSet.ImportFile#1",
@@ -32180,7 +32180,7 @@
           "id": "ModuleInfo.Publisher#1",
           "pinned": true,
           "signature": "ModuleInfo.Publisher inst () -> Text",
-          "site": "misc/lt-probes-needed-1/PnAModuleInfoNull.al:23"
+          "site": "lt-y58-server-helpers/Y58ServerHelpers.al:331"
         }
       ],
       "overloads": 7,
@@ -32283,7 +32283,7 @@
           "id": "NavApp.LoadPackageData#1",
           "pinned": true,
           "signature": "NavApp.LoadPackageData static (TableNo: Integer)",
-          "site": "platform/lt-xmlport-session-navapp-cookie/P94NavApp.al:163"
+          "site": "install/lt-cm-install-leads/CmInstallObjects.al:270"
         },
         {
           "id": "NavApp.RestoreArchiveData#1",
@@ -32369,31 +32369,31 @@
           "id": "NumberSequence.Current#1",
           "pinned": true,
           "signature": "NumberSequence.Current static (Name: Text, ?CompanySpecific: Boolean) -> BigInteger",
-          "site": "error-handling/TestNumberSequenceTrappableErrors.al:125"
+          "site": "codeunit/lt-seq-carry/SeqCarry.al:56"
         },
         {
           "id": "NumberSequence.Delete#1",
           "pinned": true,
           "signature": "NumberSequence.Delete static (Name: Text, ?CompanySpecific: Boolean)",
-          "site": "error-handling/TestNumberSequenceTrappableErrors.al:155"
+          "site": "codeunit/lt-seq-carry/SeqCarry.al:74"
         },
         {
           "id": "NumberSequence.Exists#1",
           "pinned": true,
           "signature": "NumberSequence.Exists static (Name: Text, ?CompanySpecific: Boolean) -> Boolean",
-          "site": "error-handling/TestNumberSequenceTrappableErrors.al:118"
+          "site": "codeunit/lt-seq-carry/SeqCarry.al:55"
         },
         {
           "id": "NumberSequence.Insert#1",
           "pinned": true,
           "signature": "NumberSequence.Insert static (Name: Text, ?Seed: BigInteger, ?Increment: BigInteger, ?CompanySpecific: Boolean)",
-          "site": "error-handling/TestNumberSequenceTrappableErrors.al:48"
+          "site": "codeunit/lt-seq-carry/SeqCarry.al:75"
         },
         {
           "id": "NumberSequence.Next#1",
           "pinned": true,
           "signature": "NumberSequence.Next static (Name: Text, ?CompanySpecific: Boolean) -> BigInteger",
-          "site": "error-handling/TestNumberSequenceTrappableErrors.al:131"
+          "site": "codeunit/lt-seq-carry/SeqCarry.al:65"
         },
         {
           "id": "NumberSequence.Range#1",
@@ -32411,7 +32411,7 @@
           "id": "NumberSequence.Restart#1",
           "pinned": true,
           "signature": "NumberSequence.Restart static (Name: Text, ?Seed: BigInteger, ?CompanySpecific: Boolean)",
-          "site": "error-handling/TestNumberSequenceTrappableErrors.al:143"
+          "site": "codeunit/lt-seq-carry/SeqCarry.al:391"
         }
       ],
       "overloads": 8,
@@ -32799,7 +32799,7 @@
           "id": "Query.GetFilter#1",
           "pinned": true,
           "signature": "Query.GetFilter inst (Column: Any) -> Text",
-          "site": "query/PRQueryOpenColumn.al:238"
+          "site": "misc/lt-y64-obsolete-subelements/Y64ObsoleteSub.al:374"
         },
         {
           "id": "Query.GetFilters#1",
@@ -33898,9 +33898,9 @@
         },
         {
           "id": "RecordRef.IsDirty#1",
-          "pinned": false,
+          "pinned": true,
           "signature": "RecordRef.IsDirty inst () -> Boolean",
-          "site": null
+          "site": "misc/lt-y70-assumptions/Y70Probes.al:959"
         },
         {
           "id": "RecordRef.IsEmpty#1",
@@ -34126,7 +34126,7 @@
         }
       ],
       "overloads": 86,
-      "pinned": 85,
+      "pinned": 86,
       "type": "RecordRef"
     },
     {
@@ -36210,7 +36210,7 @@
           "id": "Text.IndexOfAny#1",
           "pinned": true,
           "signature": "Text.IndexOfAny inst (Values: List of [Char], ?StartIndex: Integer) -> Integer",
-          "site": "text/TestTextExtended.al:384"
+          "site": "misc/lt-y70-assumptions/Y70Probes.al:297"
         },
         {
           "id": "Text.IndexOfAny#2",
@@ -36403,7 +36403,7 @@
           "id": "TextBuilder.Clear#1",
           "pinned": true,
           "signature": "TextBuilder.Clear inst ()",
-          "site": "text/TestTextBuilder.al:71"
+          "site": "misc/lt-y70-assumptions/Y70Probes.al:283"
         },
         {
           "id": "TextBuilder.EnsureCapacity#1",
@@ -39083,7 +39083,7 @@
           "id": "Xmlport.TextEncoding#1",
           "pinned": true,
           "signature": "Xmlport.TextEncoding inst (?Encoding: TextEncoding) -> TextEncoding?",
-          "site": "platform/lt-xmlport-session-navapp-cookie/P94Fixtures.al:353"
+          "site": "must-not-compile/cases/2651-xmlport-textencoding-assigned-integer.al:28"
         }
       ],
       "overloads": 21,

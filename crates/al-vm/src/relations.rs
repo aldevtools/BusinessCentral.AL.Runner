@@ -22,6 +22,7 @@ type Rec = Rc<RefCell<RecordState>>;
 /// `SystemCreatedBy` relates to the `User` table (corpus record/TestFieldDataClassificationVirtualTable.al:92-100).
 const USER_TABLE: i32 = 2_000_000_120;
 const SYSTEM_CREATED_BY: u32 = 2_000_000_002;
+const SYSTEM_MODIFIED_BY: u32 = 2_000_000_004;
 
 fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(what.into()))
@@ -142,11 +143,13 @@ impl Session {
     /// `FieldRef.Relation`: the id of the related table, 0 without a relation.
     pub(crate) fn field_relation(&self, rec: &Rec, t: &TableDef, pos: usize) -> Result<i32, Signal> {
         let id = t.fields[pos].id;
+        // SystemId, SystemCreatedAt and SystemModifiedAt relate to nothing, SystemCreatedBy and SystemModifiedBy to the User table, on
+        // an own and on a Base Application table (fieldref/lt-y67-system-field-relation/Y67SystemFieldRelation.al:71-126).
         if id >= 2_000_000_000 {
-            return if id == SYSTEM_CREATED_BY {
-                Ok(USER_TABLE)
-            } else {
-                unsupported(format!("the relation of system field {}", t.fields[pos].name))
+            return match id {
+                SYSTEM_CREATED_BY | SYSTEM_MODIFIED_BY => Ok(USER_TABLE),
+                2_000_000_000 | 2_000_000_001 | 2_000_000_003 => Ok(0),
+                _ => unsupported(format!("the relation of system field {}", t.fields[pos].name)),
             };
         }
         match self.relation_arm(rec, t, pos)? {

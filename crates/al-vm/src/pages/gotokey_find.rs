@@ -65,9 +65,6 @@ impl Session {
             found = Self::same_key(&self.row_key(&rec)?, want);
         }
         if !found {
-            if on_first {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionInsertedRowsHeld);
-            }
             if !Self::same_key(&self.row_key(&rec)?, &cur) {
                 rec.borrow_mut().fields = origin_fields;
                 let r = self.arrive(st);

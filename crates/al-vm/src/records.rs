@@ -302,7 +302,6 @@ impl Session {
 
     /// Field values of a fresh record: `InitValue` where declared, else the type default.
     pub(crate) fn initial_fields(&mut self, table: usize) -> Vec<Value> {
-        crate::init_assumes::mark(self.engine.table_facts.get(table));
         // The values are the same for every record of the table, so they are worked out once per session and copied
         // (a text shares its buffer, copy on write). A value that is a shared object (a Blob's buffer) is built fresh
         // for each record in its slot of the copy (issue 6133: a local record variable of a table with a Blob field
@@ -3645,7 +3644,7 @@ impl Session {
                         | RecordOp::CalcSums
                 ),
             );
-            use crate::recmeta::{ISOLATION_READ_UNCOMMITTED, ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
+            use crate::recmeta::{ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
             // The assignment of a locking isolation opened the write transaction (`RecordOp::ReadIsolation`), the read does
             // not: a Get, Find('='), IsEmpty, Count, Next or CalcFields under UpdLock or RepeatableRead set in an earlier
             // transaction leaves IsInWriteTransaction No and a guarded Codeunit.Run runs (corpus PR 896
@@ -3676,7 +3675,6 @@ impl Session {
                     }
                     self.tx.note_isolation_lock(t.object, rec.borrow().company.clone());
                 }
-                ISOLATION_READ_UNCOMMITTED => self.tx.read_uncommitted_read = true,
                 _ => {}
             }
             if method == RecordOp::FindSet {

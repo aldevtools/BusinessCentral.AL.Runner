@@ -760,16 +760,15 @@ pub fn number_into_text_field(
     })
 }
 
-/// A Date into a DateTime is that day at midnight, the blank Date the blank DateTime (as CreateDateTime(D, 0T)). Not pinned;
-/// Microsoft's production order code assigns a Date to a DateTime (Tests-SCM-Manufacturing, 20 tests; assumption
-/// date-to-datetime-is-midnight). Kept off the conversion's hot path.
+/// A Date into a DateTime is that day at midnight, the blank Date the blank DateTime (as CreateDateTime(D, 0T)): through a
+/// Variant, a FieldRef and Evaluate of Format(D, 0, 9) (misc/lt-y70-assumptions/Y70Probes.al:172-216). Kept off the
+/// conversion's hot path.
 #[cold]
 #[inline(never)]
 fn date_to_datetime(n: i32) -> Value {
     if n == 0 {
         return Value::DateTime(0);
     }
-    crate::assumptions::assume(crate::assumptions::Assumption::DateToDateTime);
     Value::DateTime((i64::from(n) - 1) * 86_400_000 + 1)
 }
 
@@ -1254,11 +1253,9 @@ fn int_of(v: &Value) -> Option<i64> {
     }
 }
 
-/// 0D - 0D is 0 (types/lt-y65-undefined-arith/Y65UndefinedArith.al Y65_UndefinedDate_Arithmetic, writer Y65's corpus branch;
-/// assumption undefined-datetime-difference until the pin); one undefined side or too wide a difference raises DateInvalid.
+/// 0D - 0D is 0 (types/lt-y65-undefined-arith/Y65UndefinedArith.al Y65_UndefinedDate_Arithmetic); one undefined side or too wide a difference raises DateInvalid.
 fn undefined_date_difference(a: i32, b: i32) -> Result<Value, Signal> {
     if a == 0 && b == 0 {
-        crate::assumptions::assume(crate::assumptions::Assumption::UndefinedDateTimeDifference);
         return Ok(Value::Integer(0));
     }
     date_invalid()
@@ -1276,25 +1273,22 @@ fn duration_sum(op: Arith, a: i64, b: i64) -> Result<Value, Signal> {
 }
 
 /// 0DT plus or minus a whole number or a Duration raises DateInvalid (types/lt-y65-undefined-arith/Y65UndefinedArith.al:
-/// Y65_UndefinedDateTime_Arithmetic `0DT + 1000`, `0DT + 0`, `0DT - 1000`, `0DT + Duration 0`; on writer Y65's corpus branch,
-/// assumption undefined-datetime-difference until the pin).
+/// Y65_UndefinedDateTime_Arithmetic `0DT + 1000`, `0DT + 0`, `0DT - 1000`, `0DT + Duration 0`).
 fn moves_undefined_datetime(op: Arith, n: &Value) -> bool {
     matches!(op, Arith::Add | Arith::Sub) && (int_of(n).is_some() || matches!(n, Value::Duration(_)))
 }
 
 fn undefined_datetime_moved() -> Result<Value, Signal> {
-    crate::assumptions::assume(crate::assumptions::Assumption::UndefinedDateTimeDifference);
     date_invalid()
 }
 
 /// DateTime - DateTime is a Duration in milliseconds (session/TestDateTimeContracts.al:52-90). 0DT - 0DT is a 0 Duration;
 /// one undefined side raises DateInvalid (types/lt-y62-undefined-date/Y62UndefinedDate.al: DateTimeSub_BothUndefined,
-/// DateTimeSub_OneUndefined_AndDefinedPair; on corpus master, awaiting the pin).
+/// DateTimeSub_OneUndefined_AndDefinedPair, :166-203).
 fn datetime_difference(a: i64, b: i64) -> Result<Value, Signal> {
     if a > 0 && b > 0 {
         return Ok(Value::Duration(a - b));
     }
-    crate::assumptions::assume(crate::assumptions::Assumption::UndefinedDateTimeDifference);
     if a == 0 && b == 0 {
         return Ok(Value::Duration(0));
     }

@@ -48,11 +48,7 @@ impl Session {
                 // testpageclose/lt-y65-close-page-types/Y65ClosePageTypes.al:853 Y65_Open07, :907 Y65_Open10, :977 Y65_Open12,
                 // :996 Y65_Open13 and their _Read tests `open card;qc card OK;`; al-runner issue 6673). Not on the pinned corpus
                 // yet: assumption test-page-close-query-close-unhandled.
-                Err(Signal::Error(_)) if st.borrow().close_error => {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::TestPageCloseQueryCloseUnhandled,
-                    );
-                }
+                Err(Signal::Error(_)) if st.borrow().close_error => {}
                 Err(Signal::Error(_)) => {
                     return Err(Signal::Unsupported(
                         "an error while an open TestPage closes at the end of the test (not pinned)".into(),

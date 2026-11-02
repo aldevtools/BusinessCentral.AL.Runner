@@ -8,6 +8,7 @@ mod compare;
 mod engine;
 mod rows;
 mod variant;
+mod variant_scalars;
 
 pub use arith::arith_cell;
 pub(crate) use arith::datetime_fraction_error;

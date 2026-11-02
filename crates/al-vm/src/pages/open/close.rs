@@ -29,9 +29,6 @@ impl Session {
                 self.engine.object_facts[object].page_type_lower(),
                 "navigatepage" | "cardpart" | "listpart"
             );
-        if navigate_or_part {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::CloseActionOkNavigateAndParts);
-        }
         let action = if (ok_type && (!st.borrow().modal || modal_card)) || navigate_or_part {
             "OK"
         } else {

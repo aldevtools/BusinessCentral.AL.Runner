@@ -188,6 +188,9 @@ impl al_builtins::native::Ctx for Session {
     fn media_store(&mut self) -> Option<&mut al_builtins::media::MediaStore> {
         Some(&mut self.media)
     }
+    fn media_holders(&mut self) -> Result<al_builtins::media_orphans::MediaHolders, Signal> {
+        self.media_holders_impl()
+    }
     fn collect_error(&mut self, info: &Value) -> bool {
         Session::collect_error(self, info)
     }

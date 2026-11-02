@@ -21,7 +21,6 @@ pub(crate) mod coverage;
 mod date;
 mod feature_key;
 mod fields;
-pub(crate) use fields::note_field_row_system_id;
 pub(crate) use fields::user_name_system_field;
 mod host_tables;
 pub(crate) use host_tables::culture_name;
@@ -32,8 +31,11 @@ mod links;
 pub(crate) mod mat;
 mod metadata;
 pub(crate) mod objects;
+mod page_temporary;
 mod pages;
+mod permission_set_rel;
 mod permissions;
+pub(crate) mod profile_settings;
 pub(crate) mod profiles;
 pub(crate) mod ranges;
 mod reports;
@@ -632,6 +634,7 @@ impl Providers {
             Virtual::ReportMetadata => reports::report_metadata_rows(self, t),
             Virtual::ReportDataItems => reports::report_data_item_rows(self, t),
             Virtual::MetadataPermissionSet => permissions::metadata_permission_set_rows(self, t),
+            Virtual::MetadataPermissionSetRel => permission_set_rel::metadata_permission_set_rel_rows(self, t),
             Virtual::PermissionSet => permissions::permission_set_rows(self, t, false),
             Virtual::PermissionSetAssignable => permissions::permission_set_rows(self, t, true),
             Virtual::AggregatePermissionSet => unreachable!("composed per read"),

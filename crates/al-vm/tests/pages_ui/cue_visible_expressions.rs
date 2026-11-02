@@ -49,7 +49,6 @@ page 69971 "CV Activities"
                 field(CueI; Rec.CueI) { Visible = ShowOpenFalse; }
             }
             cuegroup(GrpCall) { Visible = IsShown(); field(CueJ; Rec.CueJ) { } }
-            cuegroup(GrpArr) { Visible = ShowArr[2]; field(CueK; Rec.CueK) { } }
             cuegroup(GrpEmpty) { Visible = not Rec.IsEmpty(); field(CueL; Rec.CueL) { } }
         }
     }
@@ -64,7 +63,6 @@ page 69971 "CV Activities"
         end;
         ShowOpenTrue := true;
         ShowOpenFalse := false;
-        ShowArr[2] := true;
     end;
     trigger OnAfterGetRecord() begin ShowLate := true; end;
     var
@@ -72,7 +70,6 @@ page 69971 "CV Activities"
         ShowOpenFalse: Boolean;
         ShowInit: Boolean;
         ShowLate: Boolean;
-        ShowArr: array[2] of Boolean;
     local procedure IsShown(): Boolean begin exit(ShowOpenTrue); end;
 }
 codeunit 69972 C
@@ -84,7 +81,7 @@ codeunit 69972 C
             + Format(P.CueE.Visible()) + ' ' + P.CueE.Value() + ',' + Format(P.CueF.Visible()) + ' ' + P.CueF.Value() + ','
             + Format(P.CueG.Visible()) + ' ' + P.CueG.Value() + ',' + Format(P.CueH.Visible()) + ' ' + P.CueH.Value() + ','
             + Format(P.CueI.Visible()) + ' ' + P.CueI.Value() + ',' + Format(P.CueJ.Visible()) + ' ' + P.CueJ.Value() + ','
-            + Format(P.CueK.Visible()) + ' ' + P.CueK.Value() + ',' + Format(P.CueL.Visible()) + ' ' + P.CueL.Value());
+            + Format(P.CueL.Visible()) + ' ' + P.CueL.Value());
     end;
     procedure NoRowYet(): Text
     var Cue: Record "CV Cue"; P: TestPage "CV Activities"; S: Text;
@@ -111,12 +108,12 @@ codeunit 69972 C
 }
 "#;
 
-/// Y65CueVisible.al:235 (Y65_CueVisible_NoRowYet).
+/// Y65CueVisible.al:235 (Y65_CueVisible_NoRowYet). A cuegroup bound to an array element is refused (group_visible.rs).
 #[test]
 fn cuegroup_and_field_visible_expressions_read_their_value_after_open() {
     assert_eq!(
         text(al_testkit::run_in(SRC, "C", "NoRowYet")),
-        "Yes 0,No 0,Yes 0,Yes 0,Yes 0,Yes 3,No 0,Yes 0,No 0,No 0,Yes 0,Yes 0 rows=1"
+        "Yes 0,No 0,Yes 0,Yes 0,Yes 0,Yes 3,No 0,Yes 0,No 0,No 0,Yes 0 rows=1"
     );
 }
 
@@ -125,7 +122,7 @@ fn cuegroup_and_field_visible_expressions_read_their_value_after_open() {
 fn cue_field_visible_follows_the_row_the_page_shows() {
     assert_eq!(
         text(al_testkit::run_in(SRC, "C", "RowWithFlag")),
-        "Yes 0,No 0,Yes 0,Yes 0,Yes 0,No 0,Yes 0,No 4,No 0,No 0,Yes 0,Yes 0"
+        "Yes 0,No 0,Yes 0,Yes 0,Yes 0,No 0,Yes 0,No 4,No 0,No 0,Yes 0"
     );
 }
 

@@ -100,11 +100,17 @@ const CODE_NAMES: [&str; 22] = [
     "Quarter",
 ];
 
+/// `name` is a leading part of `Filler Character` shorter than it, in any case (Y70Probes.al:31-79).
+fn is_short_filler(name: &str) -> bool {
+    const FULL: &str = "Filler Character";
+    !name.is_empty() && name.len() < FULL.len() && FULL[..name.len()].eq_ignore_ascii_case(name)
+}
+
 /// The codes of `template` spelled as this module knows them: a code name in any case, and blanks after the comma and before the
 /// closing bracket of its argument (`<precision, 2:2><standard format,0>`, `<Precision,2:2 >`). A blank around the name itself makes
 /// the code invalid (`< Sign >`, `<Sign ><Integer >`, `<Sign , 1>`), which is left for the code to reject
 /// (types/lt-format-codes-textbuilder-pagerun-labels/P144FormatCodes.al:P144_Int_SignInteger, P144_Int_Precision, P144_Dec_*).
-/// `Filler Char` for `Filler Character` is not pinned (assumption `format-code-spelling`); `None` when the template needs no change.
+/// A leading part of `Filler Character` stands for it (`is_short_filler`); `None` when the template needs no change.
 fn canonical_template(template: &str) -> Option<String> {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
@@ -123,18 +129,21 @@ fn canonical_template(template: &str) -> Option<String> {
         };
         // `<Decimal,3>` is read as `<Decimals,3>` (types/lt-format-currency-prefix/FormatCurrencyPrefix.al:P157_NotAtStart `beforeSign`,
         // `integerDecimal`: `1234.5` shows `1,234.50` and `1234.50`). The bare `<Decimal>` is not pinned and stays invalid.
+        // `<Int,4>` is `<Integer,4>` (misc/lt-y70-assumptions/Y70Probes.al:65 `int_int` is `0005`).
         let name = if name.eq_ignore_ascii_case("Decimal") && arg.is_some() {
             "Decimals"
+        } else if name.eq_ignore_ascii_case("Int") && arg.is_some() {
+            "Integer"
         } else {
             name
         };
-        // `Filler Char` is the short spelling Microsoft's Data Exchange tests use (assumption `format-code-spelling`).
-        let known = CODE_NAMES.iter().find(|c| {
-            c.eq_ignore_ascii_case(name) || (**c == "Filler Character" && name.eq_ignore_ascii_case("Filler Char"))
-        });
-        if known.is_some_and(|c| *c == "Filler Character") && name.eq_ignore_ascii_case("Filler Char") {
-            crate::assumptions::assume(crate::assumptions::Assumption::FormatCodeSpelling);
-        }
+        // Any leading part of `Filler Character` names it (`Filler Char`, `Filler`, `Fil`, `F`, in any case); a longer name
+        // (`Filler Charx`, `Filler Characters`) and a blank after the comma of a short spelling (`<Filler Char, 0>`) are invalid
+        // (misc/lt-y70-assumptions/Y70Probes.al:31-79 FormatCode_FillerChar, FormatCode_FillerCharPrefixes).
+        let short_filler = is_short_filler(name) && !arg.is_some_and(|a| a.starts_with(' '));
+        let known = CODE_NAMES
+            .iter()
+            .find(|c| c.eq_ignore_ascii_case(name) || (**c == "Filler Character" && short_filler));
         let canon = match known {
             Some(c) => {
                 let arg = arg.map(|a| {
@@ -1008,11 +1017,8 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         // `<Week,2>` pads with a zero: `01` (types/lt-format-week-code/FormatWeekCodeIso.al:21-123; types/lt-datetime/
         // DateFuncs.al:427). The code on a DateTime and other widths are not pinned.
         ("Week" | "Week,2", Some(_), _) if matches!(v, Value::Date(..)) => {
+            // Every day from 2020-12-28 to 2022-01-09 gives Date2DWY's week (misc/lt-y70-assumptions/Y70Probes.al:84-121).
             let week = iso_week(day_no.unwrap_or(1));
-            // The pinned weeks are 1, 3, 10, 19, 28, 40, 52 and 53; the ISO rule for the others is an assumption.
-            if !matches!(week, 1 | 3 | 10 | 19 | 28 | 40 | 52 | 53) {
-                crate::assumptions::assume(crate::assumptions::Assumption::FormatWeekCodeIso);
-            }
             if code == "Week,2" {
                 format!("{week:02}")
             } else {
@@ -1022,11 +1028,8 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         // `<Weekday>` is the ISO day number, Monday 1 to Sunday 7: 2024-01-17 is `3` (types/lt-datetime/DateFuncs.al:415,425),
         // 2021-01-03 `7` (FormatWeekCodeIso.al:121,128). On a DateTime it is not pinned.
         ("Weekday", Some(_), _) if matches!(v, Value::Date(..)) => {
+            // Every weekday is Date2DWY's day (misc/lt-y70-assumptions/Y70Probes.al:84-121).
             let weekday = (day_no.unwrap_or(1) - 1).rem_euclid(7) + 1;
-            // Wednesday 3 and Sunday 7 are pinned; the other days follow the same ISO numbering on an assumption.
-            if !matches!(weekday, 3 | 7) {
-                crate::assumptions::assume(crate::assumptions::Assumption::FormatWeekCodeIso);
-            }
             format!("{weekday}")
         }
         // `<Quarter>` is 1 to 4, a closing date shows the quarter of its day, `<quarter>` is read too
@@ -1596,13 +1599,11 @@ mod tests {
         assert_eq!(text(fmt(d(2021, 1, 3), "<Week>-<Weekday>")), "53-7");
         assert_eq!(text(fmt(d(2024, 1, 17), "<Weekday>")), "3");
         assert_eq!(text(fmt(d(2024, 1, 17), "<Week>")), "3");
-        // A week and a weekday no corpus test pins are flagged passes.
-        use crate::assumptions::{Assumption, take_hits};
+        // Y70Probes.al:84-121: every week and weekday follows the ISO rule, with no flag.
+        use crate::assumptions::take_hits;
         take_hits();
         assert_eq!(text(fmt(d(2022, 2, 14), "<Week>")), "7");
-        assert_eq!(take_hits(), vec![Assumption::FormatWeekCodeIso]);
         assert_eq!(text(fmt(d(2022, 2, 14), "<Weekday>")), "1");
-        assert_eq!(take_hits(), vec![Assumption::FormatWeekCodeIso]);
         assert_eq!(text(fmt(d(2022, 3, 7), "<Week,2>")), "10");
         assert!(take_hits().is_empty());
         assert_eq!(text(fmt(d(2026, 5, 15), "<Quarter>/<Year>")), "2/26");
@@ -1626,6 +1627,38 @@ mod tests {
         assert_eq!(text(fmt(t("ab"), "<Text,5><Filler Character,*>")), "ab***");
         // Cutting a longer text is not pinned.
         assert!(matches!(fmt(t("abcdefg"), "<Text,5>"), Err(Signal::Unsupported(_))));
+    }
+    // misc/lt-y70-assumptions/Y70Probes.al:31-79: any leading part of `Filler Character` names it, in any case; a longer
+    // name, or a blank after the comma of a short spelling, is invalid.
+    #[test]
+    fn short_spellings_of_filler_character() {
+        let int = || Value::Integer(5);
+        for ok in [
+            "<Integer,4><Filler Char,0>",
+            "<Integer,4><Filler char,0>",
+            "<Integer,4><Filler,0>",
+            "<Integer,4><Filler C,0>",
+            "<Integer,4><Filler Cha,0>",
+            "<Integer,4><Fil,0>",
+            "<Integer,4><F,0>",
+            "<Int,4><Filler Char,0>",
+            "<integer,4><filler char,0>",
+        ] {
+            assert_eq!(text(fmt(int(), ok)), "0005", "{ok}");
+        }
+        assert_eq!(text(fmt(int(), "<Integer,4><Filler Char,#>")), "###5");
+        assert_eq!(text(fmt(int(), "<Integer,6><Filler Char,z>")), "zzzzz5");
+        assert_eq!(text(fmt(Value::Text("ab".into()), "<Text,6><Filler Char,.>")), "ab....");
+        for bad in [
+            "<Integer,4><Filler Charx,0>",
+            "<Integer,4><Filler Characters,0>",
+            "<Integer,4><Filler Char, 0>",
+        ] {
+            assert!(
+                matches!(fmt(int(), bad), Err(Signal::Error(ref e)) if e.code == "InvalidFormatString"),
+                "{bad}"
+            );
+        }
     }
     // types/lt-datetime/Format.al:134-199 (`<Day,3>`, `<Day Text>`, `<Foo>`), :412-445 (`<Foo>` on a DateTime), :473,499 and
     // types/lt-duration-sum-typed/DurationSumTyped.al:86,95 (codes on a Duration).

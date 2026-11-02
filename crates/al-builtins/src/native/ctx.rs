@@ -33,6 +33,8 @@ pub struct HttpOutgoing {
     pub cert_validation_set: bool,
     /// The last `UseServerCertificateValidation` of the client was `false`.
     pub cert_validation_off: bool,
+    /// The client had Windows authentication set: a request no `[HttpClientHandler]` answers is not pinned.
+    pub windows_auth_set: bool,
 }
 
 /// A table as `Evaluate` into a TableFilter reads it (see [`Ctx::table_filter_table`]).
@@ -327,6 +329,10 @@ pub trait Ctx: FormatCtx {
     /// The session's media objects and media sets (`Media` and `MediaSet` fields).
     fn media_store(&mut self) -> Option<&mut crate::media::MediaStore> {
         None
+    }
+    /// The media and media sets the stored rows hold in Media and MediaSet fields (`FindOrphans`).
+    fn media_holders(&mut self) -> Result<crate::media_orphans::MediaHolders, Signal> {
+        Err(Signal::Unsupported("FindOrphans: this context has no database".into()))
     }
     /// Whether the host file system has a file with this path (`File` data type).
     fn fs_exists(&mut self, _path: &str) -> Result<bool, Signal> {

@@ -836,84 +836,7 @@ impl Gate {
                 lines: "801",
             }],
             Gate::ProbedValuesDifferFrom28 => PROBED_VALUES_DIFFER_FROM_28,
-            Gate::ProbedValuesDifferFrom29 => &[
-                Evidence {
-                    file: "platform/lt-y35-agent-api/Y35AgentApi.al",
-                    lines: "39",
-                },
-                Evidence {
-                    file: "record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al",
-                    lines: "190",
-                },
-                Evidence {
-                    file: "report/lt-am-report-output/AMReportOutputTests.al",
-                    lines: "286",
-                },
-                Evidence {
-                    file: "report/lt-am-rdlc-output/AMRdlcOutput.al",
-                    lines: "313,386",
-                },
-                Evidence {
-                    file: "misc/lt-cq-odd-leads/CqOddLeadObjects.al",
-                    lines: "40,52",
-                },
-                Evidence {
-                    file: "misc/lt-cq-odd-leads/CqOddLeads.al",
-                    lines: "259,289",
-                },
-                Evidence {
-                    file: "network/lt-cz-http-leads/CzHttpOutbound.al",
-                    lines: "268",
-                },
-                Evidence {
-                    file: "query/lt-cf-query-leads/CfQueryLeads.al",
-                    lines: "283",
-                },
-                Evidence {
-                    file: "types/lt-bu-property-conversions/BuPropertyConversions.al",
-                    lines: "25,83",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-1/PnABlobLength.al",
-                    lines: "34",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-1/PnACalcFieldsBC29.al",
-                    lines: "87,253",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-2/PnBRecordMisc.al",
-                    lines: "627",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-2/PnBReportSaveAs.al",
-                    lines: "103,143,417",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-3/PnC21Metadata.al",
-                    lines: "255,427",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-5/PnE06Media.al",
-                    lines: "23",
-                },
-                Evidence {
-                    file: "misc/lt-probes-needed-5/PnE13EnumConv.al",
-                    lines: "159",
-                },
-                Evidence {
-                    file: "recordref/lt-recordref-fieldref-members/P92Fields.al",
-                    lines: "31",
-                },
-                Evidence {
-                    file: "report/lt-report-dataset-header/ReportDatasetHeaderRaw.al",
-                    lines: "192,197,202,207,212,217,222,227,232,237,242",
-                },
-                Evidence {
-                    file: "pages/lt-f3-pages/F3ValidationAddinFilter.al",
-                    lines: "409,447",
-                },
-            ],
+            Gate::ProbedValuesDifferFrom29 => PROBED_VALUES_DIFFER_FROM_29,
             Gate::Base64TextIsWindows1252From28 => &[Evidence {
                 file: "types/PVBase64.al",
                 lines: "83,88,231",
@@ -1082,6 +1005,13 @@ impl Gate {
                     file: "recordref/lt-y47-validate-fieldref/Y47ValidateFieldRef.al",
                     lines: "308,339",
                 },
+                // FieldRef.Validate and FieldRef.Value := of a Variant of each kind into each field type that cannot convert it:
+                // the Variant's Format text evaluated into the field's type from BC 28, a conversion error before (al-builtins
+                // `fieldref_variant_cells.rs`).
+                Evidence {
+                    file: "fieldref/lt-y67-fieldref-validate-variant/Y67FieldRefValidateVariant.al",
+                    lines: "368,383,388",
+                },
             ],
             Gate::JsonSelectTokensListFrom28 => &[
                 Evidence {
@@ -1180,7 +1110,110 @@ pub fn platform_table_scopes_known(bc_major: Option<u32>) -> bool {
 }
 
 /// The evidence of [`Gate::ProbedValuesDifferFrom28`], out of `Gate::evidence` to keep that function short.
+const PROBED_VALUES_DIFFER_FROM_29: &[Evidence] = &[
+    Evidence {
+        file: "pages/lt-y65-cue-visible/Y65CueVisible.al",
+        lines: "314",
+    },
+    Evidence {
+        file: "system-fields/lt-y64-username-filters/Y64UserNameFilters.al",
+        lines: "39,46",
+    },
+    Evidence {
+        file: "platform/lt-y35-agent-api/Y35AgentApi.al",
+        lines: "39",
+    },
+    Evidence {
+        file: "record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al",
+        lines: "190",
+    },
+    Evidence {
+        file: "report/lt-am-report-output/AMReportOutputTests.al",
+        lines: "286",
+    },
+    Evidence {
+        file: "report/lt-am-rdlc-output/AMRdlcOutput.al",
+        lines: "313,386",
+    },
+    Evidence {
+        file: "misc/lt-cq-odd-leads/CqOddLeadObjects.al",
+        lines: "40,52",
+    },
+    Evidence {
+        file: "misc/lt-cq-odd-leads/CqOddLeads.al",
+        lines: "259,289",
+    },
+    Evidence {
+        file: "network/lt-cz-http-leads/CzHttpOutbound.al",
+        lines: "268",
+    },
+    Evidence {
+        file: "query/lt-cf-query-leads/CfQueryLeads.al",
+        lines: "283",
+    },
+    Evidence {
+        file: "types/lt-bu-property-conversions/BuPropertyConversions.al",
+        lines: "25,83",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-1/PnABlobLength.al",
+        lines: "34",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-1/PnACalcFieldsBC29.al",
+        lines: "87,253",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-2/PnBRecordMisc.al",
+        lines: "627",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-2/PnBReportSaveAs.al",
+        lines: "103,143,417",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-3/PnC21Metadata.al",
+        lines: "255,427",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-5/PnE06Media.al",
+        lines: "23",
+    },
+    Evidence {
+        file: "misc/lt-probes-needed-5/PnE13EnumConv.al",
+        lines: "159",
+    },
+    Evidence {
+        file: "recordref/lt-recordref-fieldref-members/P92Fields.al",
+        lines: "31",
+    },
+    Evidence {
+        file: "report/lt-report-dataset-header/ReportDatasetHeaderRaw.al",
+        lines: "192,197,202,207,212,217,222,227,232,237,242",
+    },
+    Evidence {
+        file: "pages/lt-f3-pages/F3ValidationAddinFilter.al",
+        lines: "409,447",
+    },
+];
+
 const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
+    Evidence {
+        file: "misc/lt-y70-assumptions/Y70Probes.al",
+        lines: "461,466,471,497,502,809",
+    },
+    Evidence {
+        file: "pages/lt-y65-values-allowed-table-field/Y65ValuesAllowedTableField.al",
+        lines: "258,284,402,428,546",
+    },
+    Evidence {
+        file: "record/lt-loadfields-pagesource-validate/P81LoadFields.al",
+        lines: "1337,1347",
+    },
+    Evidence {
+        file: "report/lt-y68-selfclosing-params/Y68SelfClosingParams.al",
+        lines: "357",
+    },
     Evidence {
         file: "collections/lt-cs-odd-leads/CsCollections.al",
         lines: "594,607",

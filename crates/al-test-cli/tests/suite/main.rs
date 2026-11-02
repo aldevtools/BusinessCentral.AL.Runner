@@ -55,6 +55,7 @@ mod fixes2;
 mod fixpages;
 mod global_filter_group_page;
 mod http_handlers;
+mod http_windows_auth;
 mod inconsistent_at_test_end;
 mod instream_scope;
 mod isolation_probe;
@@ -130,6 +131,7 @@ mod runmodal_lookup_shape;
 mod runmodal_record_first_row;
 mod runobject;
 mod save_row_gone;
+mod saveasxml_y67_columns;
 mod single_instance_test_codeunit;
 mod stale_delete_triggers;
 mod stale_updlock_read;
@@ -153,6 +155,7 @@ mod y17_expr_refresh;
 mod y17_page_pins;
 mod y41_page_probes;
 mod y48_platform_probes;
+mod y59_platform_probes;
 
 /// A file in this folder that no `mod` line names is never compiled, so its tests never run (a merge can move a new
 /// test file here).
