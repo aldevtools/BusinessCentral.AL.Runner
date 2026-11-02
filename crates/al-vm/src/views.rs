@@ -27,9 +27,6 @@ fn needs_quotes(s: &str) -> bool {
     s.contains(['|', '&', '<', '>', '=', '(', ')']) || s.contains("..")
 }
 
-/// Characters in a value `GetFilter` cannot show yet: nothing pins them.
-const FILTER_UNPINNED: &[char] = &['*', '?', '"'];
-
 impl Session {
     /// A filter expression over a field of type `ty`, enum members by name included.
     pub(crate) fn parse_filter_text(&self, text: &str, ty: &al_builtins::value::RtType) -> Result<FilterExpr, String> {
@@ -92,7 +89,9 @@ impl Session {
                 return Ok("''".into());
             }
             if needs_quotes(s) {
-                if s.contains(FILTER_UNPINNED) || s.starts_with('@') {
+                // `*` and `?` stay in a quoted value (W4Filters.al SetFilterPercent1_WildcardTogetherWithOperators); a double quote
+                // next to an operator is not pinned.
+                if s.contains('"') || s.starts_with('@') {
                     return unsupported("a filter value that needs quoting and holds more filter characters");
                 }
                 // record/TestFilterQuotedLiterals.al:95-105: an apostrophe in a quoted value is doubled.
@@ -103,7 +102,9 @@ impl Session {
             if &**s == "@" {
                 return Ok("'@'".into());
             }
-            if s.contains(FILTER_UNPINNED) || s.starts_with('@') {
+            // A double quote is shown as it is (W4Filters.al SetFilterPercent1_GreaterThanAndDoubleQuote `x"y`, `"y`, `"`,
+            // SetFilterPercent1_WildcardTogetherWithOperators `*"*`); a lone `*` is not pinned here (see the `Eq` case of `filter_text_with`).
+            if (s.contains(['*', '?']) && !s.contains('"')) || s.starts_with('@') {
                 return unsupported("a filter value that needs quoting");
             }
         }
@@ -171,6 +172,9 @@ impl Session {
             FilterExpr::Range(Some(a), None) => format!("{}..", self.filter_value_with(a, iso)?),
             FilterExpr::Range(None, Some(b)) => format!("..{}", self.filter_value_with(b, iso)?),
             FilterExpr::Range(None, None) => return unsupported("an unbounded range filter"),
+            // The text `*` from `SetFilter(F, '%1', '*')` is the literal text, shown `='*'` (filters/W4Filters.al
+            // SetFilterPercent1_WildcardTogetherWithOperators `star_alone`).
+            FilterExpr::Eq(Value::Text(s) | Value::Code(s)) if &**s == "*" => "='*'".to_string(),
             FilterExpr::Eq(v) => self.filter_value_with(v, iso)?,
             FilterExpr::RangeSame(v) => {
                 let t = self.filter_value_with(v, iso)?;
@@ -184,7 +188,7 @@ impl Session {
             FilterExpr::Gt(v) => format!(">{}", self.filter_value_with(v, iso)?),
             FilterExpr::Ge(v) => format!(">={}", self.filter_value_with(v, iso)?),
             // With `>` too: `'@a>b@x.com'` (misc/lt-y14-triage/Y14Small.al:309, corpus master).
-            FilterExpr::Like(p, ci) if needs_quotes(p) && !p.contains(['*', '?', '\'']) => {
+            FilterExpr::Like(p, ci) if needs_quotes(p) && !p.contains('\'') => {
                 format!("'{}{p}'", if *ci { "@" } else { "" })
             }
             FilterExpr::Like(p, ci) => format!("{}{p}", if *ci { "@" } else { "" }),

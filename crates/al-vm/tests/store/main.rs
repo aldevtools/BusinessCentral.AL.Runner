@@ -18,6 +18,7 @@ mod fieldref_validate_variant_cells;
 mod fieldref_variant_into_text;
 mod filter_group_negative;
 mod filter_invalid_expr;
+mod filter_text_quoting;
 mod find_directions;
 mod find_other_key;
 mod fix_records;
