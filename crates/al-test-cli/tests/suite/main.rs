@@ -54,6 +54,7 @@ mod fixes2;
 mod fixpages;
 mod global_filter_group_page;
 mod http_handlers;
+mod http_windows_auth;
 mod inconsistent_at_test_end;
 mod instream_scope;
 mod isolation_probe;

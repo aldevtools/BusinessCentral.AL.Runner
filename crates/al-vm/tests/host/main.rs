@@ -11,6 +11,7 @@ mod http_add_certificate;
 mod http_cert_validation;
 mod http_content_get_headers;
 mod http_headers;
+mod http_request_cookies;
 mod last_error_object;
 mod media;
 mod media_export_unchanged;

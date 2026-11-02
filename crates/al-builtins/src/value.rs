@@ -1587,6 +1587,8 @@ pub struct HeaderBag {
     /// names (xml/lt-xml-attr-doc-http-members/P97ContentSecret.al:Secret_Content_Headers `keys` 1, `has_type` No). Reading
     /// the list, or a header other than the Content-Type, is refused.
     pub unnamed_secret_header: bool,
+    /// `HttpRequestMessage.SetCookie` wrote the `Cookie` header of these request headers (http::request_cookies).
+    pub set_cookies: bool,
 }
 
 /// The headers of an `HttpContent`, request, response or client, shared with every `HttpHeaders` handed out.
@@ -1710,6 +1712,9 @@ pub struct HttpClientState {
     pub rebuilt: bool,
     /// The client was rebuilt and then cleared: whether a later setting call rebuilds it again is not pinned.
     pub cleared_after_rebuild: bool,
+    /// `UseDefaultNetworkWindowsAuthentication` or `UseWindowsAuthentication` was called (also before a `Clear`): a request
+    /// of the client that no handler answers is refused (http::windows_auth).
+    pub windows_auth_set: bool,
 }
 
 impl Default for HttpClientState {
@@ -1722,6 +1727,7 @@ impl Default for HttpClientState {
             cert_validation_last: None,
             rebuilt: false,
             cleared_after_rebuild: false,
+            windows_auth_set: false,
         }
     }
 }

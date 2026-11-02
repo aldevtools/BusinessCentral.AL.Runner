@@ -196,8 +196,10 @@ mod dates;
 mod header_rules;
 mod headers;
 mod messages;
+mod request_cookies;
 mod send;
 mod uri;
+mod windows_auth;
 
 use content::*;
 use cookies::*;
@@ -205,9 +207,11 @@ use dates::*;
 use header_rules::*;
 use headers::*;
 use messages::*;
+use request_cookies::*;
 use send::*;
 use uri::*;
 pub use uri::{copy_content, is_empty_uri_form, normalize_uri};
+use windows_auth::*;
 
 pub fn native_for(sig: &Signature) -> Option<NativeFn> {
     let ty = |i: usize| sig.params.get(i).map(|p| p.ty.as_str()).unwrap_or("");
@@ -237,6 +241,10 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         ("HttpHeaders", "TryAddWithoutValidation") => Some(headers_try_add),
         ("HttpRequestMessage", "Content") => Some(request_content),
         ("HttpRequestMessage", "GetHeaders") => Some(request_get_headers),
+        ("HttpRequestMessage", "SetCookie") => Some(request_set_cookie),
+        ("HttpRequestMessage", "GetCookie") => Some(request_get_cookie),
+        ("HttpRequestMessage", "GetCookieNames") => Some(request_cookie_names),
+        ("HttpRequestMessage", "RemoveCookie") => Some(request_remove_cookie),
         ("HttpRequestMessage", "Method") => Some(method),
         ("HttpRequestMessage", "SetRequestUri") if n == 1 && ty(0) == "Text" => Some(set_request_uri),
         ("HttpRequestMessage", "GetRequestUri") => Some(get_request_uri),
@@ -255,6 +263,8 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         ("HttpClient", "Clear") => Some(client_clear),
         ("HttpClient", "UseResponseCookies") => Some(client_use_cookies),
         ("HttpClient", "UseServerCertificateValidation") => Some(client_use_cert_validation),
+        ("HttpClient", "UseDefaultNetworkWindowsAuthentication") => Some(client_use_default_network_windows_auth),
+        ("HttpClient", "UseWindowsAuthentication") => Some(client_use_windows_auth),
         ("HttpClient", "AddCertificate") => Some(client_add_certificate),
         ("HttpResponseMessage", "HttpStatusCode") => Some(response_status),
         ("HttpResponseMessage", "ReasonPhrase") => Some(response_reason),

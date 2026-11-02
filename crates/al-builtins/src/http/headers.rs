@@ -224,6 +224,7 @@ pub(super) fn headers_remove(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
         if not_here(b.kind, &name) {
             return Ok(false);
         }
+        cookie_header_guard(b, Some(&name))?;
         b.items.retain(|(n, _)| !n.eq_ignore_ascii_case(&name));
         b.secret.retain(|(n, _)| !n.eq_ignore_ascii_case(&name));
         Ok(true)
@@ -270,9 +271,11 @@ pub(super) fn headers_contains_secret(_: &mut dyn Ctx, r: Option<&mut Value>, a:
 
 pub(super) fn headers_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     with_bag(r.as_deref(), |b| {
+        cookie_header_guard(b, None)?;
         b.items.clear();
         b.secret.clear();
-    })?;
+        Ok::<_, Signal>(())
+    })??;
     Ok(Value::Null)
 }
 
@@ -299,6 +302,7 @@ pub(super) fn headers_get_values(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut
     // (lt-http-header-rules/P87Matrix.al `get=No/n=0`), where Contains raises.
     let (values, kind, restricted) = with_bag(r.as_deref(), |b| {
         unnamed_secret_header(b, Some(&name))?;
+        cookie_header_guard(b, Some(&name))?;
         if restricted_lookup(b, &name).is_err() {
             return Ok::<_, Signal>((None, b.kind, true));
         }
@@ -371,6 +375,7 @@ pub(super) fn headers_get_secret_values(c: &mut dyn Ctx, r: Option<&mut Value>, 
     }
     let name = text(a, 0)?;
     let values = with_bag(r.as_deref(), |b| {
+        cookie_header_guard(b, Some(&name))?;
         if !name.is_empty() && restricted_lookup(b, &name).is_err() {
             return unsupported(format!(
                 "HttpHeaders.GetSecretValues of `{name}`, a content header or no token (not pinned)"
@@ -408,6 +413,7 @@ pub(super) fn headers_try_add(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [V
         if name.is_empty() || name.chars().any(|c| !is_token_char(c)) {
             return Ok(Value::Boolean(false));
         }
+        cookie_header_guard(b, Some(&name))?;
         if not_here(b.kind, &name) {
             return Ok(Value::Boolean(false));
         }

@@ -33,6 +33,8 @@ pub struct HttpOutgoing {
     pub cert_validation_set: bool,
     /// The last `UseServerCertificateValidation` of the client was `false`.
     pub cert_validation_off: bool,
+    /// The client had Windows authentication set: a request no `[HttpClientHandler]` answers is not pinned.
+    pub windows_auth_set: bool,
 }
 
 /// A table as `Evaluate` into a TableFilter reads it (see [`Ctx::table_filter_table`]).
