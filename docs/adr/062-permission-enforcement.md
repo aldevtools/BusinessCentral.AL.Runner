@@ -466,3 +466,21 @@ Reads is on by default for the shapes the corpus pins (Y24PermReads.al, Y24PermO
   unpinned shape and a probe id.
 - The perf budgets of CLAUDE.md unchanged for an unrestricted run.
 - Stage 4: the shadow run report is attached to the PR that turns it on.
+
+## Stage 3 (2026-11-02)
+
+Execute is on for the shapes Y24PermExecute.al pins (BC 27.5, 28.5, 29.0 agree):
+
+- **Codeunit.Run, a call on a codeunit variable, a report run, XmlPort.Export, Query.Open and a call of a table procedure** without
+  Execute raise `Sorry, the current permissions prevented the action. (<Kind> <id> <name> Execute: <app of the calling code>)`, code
+  `DB:ExecuteObjDenied` (kinds `CodeUnit`, `Report`, `XmlPort`, `Query`, `Table`). Execute on the calling codeunit does not cover
+  the objects it runs (Y24_P20_ExecuteThroughGranter).
+- **When it is checked:** when code of another object uses an instance made while the permissions were lowered (`Instance::born`).
+  Calls inside the object's own code are free, so the test codeunit's own local procedures never refuse. An instance made before
+  the set was assigned is not checked: a global of the test codeunit, the Permissions Mock (`Mock.ClearAssignments()` runs under an
+  exact set that grants it no Execute). `Set` adds All Objects, so Execute is denied only under `SetExactPermissionSet`.
+- **Pages:** opening a page (`Page.Run`, `TestPage.OpenView`, `OpenEdit`, `OpenNew`) without Execute ends with `Page <name> has to close.`,
+  code `FormAbort:Permission`.
+- **Still refused:** a denial on a trigger of a table or page, or on an event subscriber (not pinned); a page that has a control with
+  AccessByPermission, opened in a restricted session (P21: BC leaves the control off the page); `GetEffectivePermission` for objects
+  other than table data (P22).

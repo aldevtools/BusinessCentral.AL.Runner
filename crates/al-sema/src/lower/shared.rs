@@ -1278,3 +1278,20 @@ fn object_properties(obj: &ast::Object, request_section: Option<&ast::Section>) 
     }
     properties
 }
+
+/// Why a restricted session (permission sets a test lowered) refuses to open the page of `obj`: a control with AccessByPermission is
+/// left off the page by BC when the set does not grant it (ADR-062 probe P21, Y24PermExecute.al Y24_P21_*), which is not built.
+/// Read from the object's text, so a mention in a comment refuses too: only a restricted session is affected.
+pub(crate) fn access_by_permission_refusals(obj: &ast::Object) -> Vec<String> {
+    if obj
+        .syntax()
+        .text()
+        .to_string()
+        .to_ascii_lowercase()
+        .contains("accessbypermission")
+    {
+        vec!["the page has AccessByPermission, which BC applies to the permissions of a restricted session (ADR-062 probe P21)".into()]
+    } else {
+        Vec::new()
+    }
+}
