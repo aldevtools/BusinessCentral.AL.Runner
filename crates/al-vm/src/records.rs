@@ -1726,7 +1726,7 @@ impl Session {
     /// Commit that the new transaction touched. A stale buffer of another origin whose row the new transaction wrote is written
     /// under the assumption stale-buffer-other-origin-written. The three shapes of al-runner issue 6028 (`stale_6028_shape`) are
     /// pinned by record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_*.
-    fn stale_verdict(
+    pub(crate) fn stale_verdict(
         &mut self,
         t: &TableDef,
         rec: &Rec,
@@ -3274,6 +3274,28 @@ impl Session {
         ))
     }
 
+    /// What a filter does in a negative filter group other than -1, the OR group, is not pinned (only reading the group back is:
+    /// P68F_FilterGroup.al RecordRef_Setter_Negative_And_Large).
+    fn refuse_filter_in_unpinned_group(method: RecordOp, rec: &Rec) -> Result<(), Signal> {
+        let sets_filter = matches!(
+            method,
+            RecordOp::SetRange
+                | RecordOp::SetFilter
+                | RecordOp::SetView
+                | RecordOp::SetRecFilter
+                | RecordOp::CopyFilter
+                | RecordOp::CopyFilters
+        );
+        let group = rec.borrow().filter_group;
+        if sets_filter && group < 0 && group != al_builtins::filter::OR_GROUP {
+            return unsupported(format!(
+                "{} in filter group {group}, a negative group other than -1 (not pinned)",
+                method.name()
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.connection_check(rec)?;
         if rec.borrow().unpinned_buffer.is_some() {
@@ -3287,6 +3309,7 @@ impl Session {
             }
         }
         let t = self.table(rec)?;
+        Self::refuse_filter_in_unpinned_group(method, rec)?;
         if !rec.borrow().temporary {
             self.install_assumed(t.object);
         }
@@ -4108,6 +4131,7 @@ impl Session {
                             }
                         }
                         let r = self.fail(&t, &row, true);
+                        self.note_failed_insert(&t, rec, &r);
                         // A guarded Insert of the key whose statement-form Insert is pending drops that pending error: a Commit
                         // or a read after it raises nothing, and GetLastErrorText gives its text (Y38DupKeyAfterEvent.al
                         // DK_AfterEvent_Statement_ThenGuardedInsert,
@@ -4171,9 +4195,7 @@ impl Session {
                 if let (Some(row), Some(i)) = (&stored, t.fields.iter().position(|f| f.id == 2_000_000_005)) {
                     let (mine, theirs) = (rec.borrow().fields[i].clone(), row[i].clone());
                     let version = |v: &Value| if let Value::BigInteger(n) = v { *n } else { 0 };
-                    if self.stale_verdict(&t, rec, &cx, &pk, version(&theirs), false)? == StaleVerdict::Refused {
-                        return Err(self.stale_own_insert_modify_refused(&t, rec, run)?);
-                    }
+                    self.refuse_stale_modify(&t, rec, &cx, &pk, run, (version(&mine), version(&theirs)))?;
                     // The buffer still holds what its own last Modify wrote and a rollback undid that write: the Modify answers
                     // true and writes nothing, so the row keeps what the rollback restored (StaleBuffer.al:76-86); a buffer
                     // changed since writes the whole row (:167-168). The triggers, events and database triggers of such a
@@ -4272,6 +4294,7 @@ impl Session {
                 // stale write (record/lt-priority-assumptions/PriorityAssumptions.al:143-244, real BC: after a Modify that changes nothing and a Commit, the
                 // other variable's Modify of a changed field is accepted, while a Modify that changed a field makes it fail with DB:RecordChanged).
                 self.check_code_storage(&t, &rec.borrow().fields, true)?;
+                self.check_failed_insert_stale(&t, rec, stored_row.as_deref())?;
                 self.sql_timestamp_before(&t, rec, stored_row.as_deref())?;
                 // A bulk ModifyAll(.., false) without subscribers stamps SystemModifiedAt of a row that has the value already
                 // (RcBTriggers.al:ModifyAll_Equal_Value_Rows_BQ) and gives it a new row version, with or without an OnModify
@@ -5696,10 +5719,12 @@ impl Session {
                 };
                 match outcome {
                     RenameOutcome::Renamed => {
-                        // A Rename of another key with nothing written before it (no trigger write, no field that relates to the
-                        // table) is noted as one write of the row (`stale_neighbour_shape`).
+                        // A Rename of another key with nothing written before it (no trigger write) is noted as one write of the
+                        // row (`stale_neighbour_shape`). Fields of other tables that relate to the table do not matter while no row
+                        // follows the rename: the rows of ALT Universal, which fields of other tables relate to, are renamed this way
+                        // (record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_*_RenameOtherRow_*). A row that follows is a store
+                        // write nobody notes, which `writes_all_noted` sees.
                         if !same_key
-                            && refs.is_empty()
                             && before_store == rename_note.1
                             && self.tx.writes.len() == rename_note.0 + 1
                             && let Some(w) = self.tx.writes.last_mut()
@@ -5873,7 +5898,7 @@ fn is_media_field(t: &TableDef, i: usize) -> bool {
 
 /// What [`Session::stale_verdict`] decided for a write through a buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StaleVerdict {
+pub(crate) enum StaleVerdict {
     /// The buffer is not stale.
     Fresh,
     /// Stale, and written all the same.

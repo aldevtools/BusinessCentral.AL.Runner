@@ -123,11 +123,12 @@ fn forget_extended(known: &mut [std::sync::OnceLock<crate::members::Members>], w
 /// one `compile_loaded` lowers. `None` instead of the kept part when the compile cannot be grown: without dependency apps
 /// (no demand), or with a selection, a lean compile or `--tdd` (the kept compile must have checked every object it has).
 pub fn compile_loaded_growable(
-    ws: Workspace,
+    mut ws: Workspace,
     load: std::time::Duration,
     catalog: &al_builtins::catalog::Catalog,
     roots: crate::check::Roots,
 ) -> (Workspace, Lowered, Option<Growable>) {
+    ws.set_user_name_fields_for(catalog.bc_major());
     let growable = roots.only_tests.is_none()
         && !roots.lean
         && !roots.reach_only

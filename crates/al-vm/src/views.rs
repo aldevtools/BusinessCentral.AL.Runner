@@ -193,9 +193,15 @@ impl Session {
             // filters/lt-wc/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
             FilterExpr::EmptyViewValue => "==".to_string(),
+            // The blank DateTime next to another alternative reads back as the range `''..''` (record/lt-y71-setview-datetime/
+            // Y71SetViewDateTime.al:125-127 dt_empty_or, :207-209 sca_empty_or); a Date stays `''` (:289-291). Alone it is not pinned
+            // here and stays `''`.
             FilterExpr::Or(xs) => xs
                 .iter()
-                .map(|x| self.filter_text_with(x, iso))
+                .map(|x| match x {
+                    FilterExpr::Eq(Value::DateTime(0)) => Ok("''..''".to_string()),
+                    x => self.filter_text_with(x, iso),
+                })
                 .collect::<Result<Vec<_>, _>>()?
                 .join("|"),
             FilterExpr::And(xs) => {
@@ -268,11 +274,9 @@ impl Session {
         let mut r = rec.borrow_mut();
         if let Some(v) = args.first() {
             r.filter_group = match v {
-                // The OR group: filters on different fields are alternatives (corpus
-                // record/PWFilterGroupOr.al). Other negative groups are not pinned.
-                Value::Integer(n) if *n < 0 && *n != al_builtins::filter::OR_GROUP => {
-                    return unsupported(format!("FilterGroup({n}) (only -1, the OR group, is pinned)"));
-                }
+                // The OR group: filters on different fields are alternatives (corpus record/PWFilterGroupOr.al). Another negative
+                // group is set and read back like any other (record/lt-filters-keys-finds/P68F_FilterGroup.al
+                // RecordRef_Setter_Negative_And_Large: -100 and -2147483647); a filter set in it is refused in `record_op_inner`.
                 Value::Integer(n) => *n,
                 other => return unsupported(format!("FilterGroup({})", other.describe())),
             };

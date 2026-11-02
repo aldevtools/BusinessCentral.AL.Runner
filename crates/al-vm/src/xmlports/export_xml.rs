@@ -53,6 +53,19 @@ impl Session {
         result
     }
 
+    /// The export that ends in OnPreXmlPort: the XML declaration alone (54 bytes, UTF-8), result true.
+    pub(super) fn xp_export_declaration_only(&mut self, inst: &Inst, schema: &Schema) -> Result<Value, Signal> {
+        let blob = match inst.borrow().globals[schema.xp().destination_slot].clone() {
+            Value::Library(_, h) => match &*h.borrow() {
+                LibraryValue::OutStream(blob, _) => blob.clone(),
+                _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
+            },
+            _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
+        };
+        al_builtins::stream::write_bytes(&blob, br#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>"#);
+        Ok(Value::Boolean(true))
+    }
+
     pub(super) fn xp_export_inner(&mut self, inst: &Inst, schema: &Schema, guarded: bool) -> Result<Value, Signal> {
         let xp = schema.xp();
         // The document is written in its own encoding whatever the stream's own.
@@ -85,7 +98,7 @@ impl Session {
         // shape (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespaces.al, an Integer root with MaxOccurs = Once, an OnAfterGetRecord,
         // text and table elements below; Y17XmlPortNamespacesTests.al:60-93). Without namespaces it is not pinned.
         let declares = !xp.namespaces.is_empty() || xp.default_ns.is_some();
-        let table_root = root_table_element(schema, top) || (declares && once_root(schema, top));
+        let table_root = root_table_element(schema, top) || (declares && table_root_with_content(schema, top));
         if !table_top && !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty())
         {
             return unsupported("XmlPort export whose root is not a text element with content (not pinned)");
@@ -114,17 +127,22 @@ impl Session {
                     other => other?,
                 };
                 if declares {
-                    let [root] = rows.as_mut_slice() else {
+                    // Every root declares the namespaces again, one root element after the other (xmlport/lt-y72-xmlport-probes/
+                    // Y72XpEInvoiceShapes.al DeepAttrLeaf_RealTableRoot_TwoRows: a real table root, two rows, `<Invoice xmlns:cac=...>`
+                    // twice). With no row it is not pinned.
+                    if rows.is_empty() {
                         return unsupported(
                             "XmlPort export of a table element root with namespaces written other than once (not pinned)",
                         );
-                    };
-                    if al_builtins::xmlport::has_line_end(root) {
-                        return unsupported(
-                            "XmlPort export of a text value with a line end under a table element root with namespaces (not pinned)",
-                        );
                     }
-                    declare_namespaces(root, &xp.namespaces, xp.default_ns.as_deref());
+                    for root in &mut rows {
+                        if al_builtins::xmlport::has_line_end(root) {
+                            return unsupported(
+                                "XmlPort export of a text value with a line end under a table element root with namespaces (not pinned)",
+                            );
+                        }
+                        declare_namespaces(root, &xp.namespaces, xp.default_ns.as_deref());
+                    }
                 }
                 let encoding = if xp.xml_utf8 { "UTF-8" } else { "UTF-16" };
                 let text = al_builtins::xmlport::serialize_roots(&rows, encoding);
@@ -389,6 +407,10 @@ impl Session {
     ) -> Result<(), Signal> {
         for child in schema.children(node) {
             let c = schema.node(child);
+            // After a Break in the OnBeforePassVariable of a leaf text element below the root (below), nothing else is passed.
+            if inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_STOPPED) {
+                return Ok(());
+            }
             // A Quit in a trigger of the child leaves it out and ends the document here.
             macro_rules! got {
                 ($e:expr) => {
@@ -425,7 +447,13 @@ impl Session {
                     out.attrs.push((c.xml_name.clone(), v));
                 }
                 ir::XmlNodeKind::Field => {
-                    let v = got!(self.xp_field_text(inst, schema, child));
+                    // Break in OnBeforePassField leaves the field element out of the row alone; the row and the export go on
+                    // (xmlport/lt-ay-xmlport/AyXmlPortFlowTriggers.al:712 Export_passfield_Break: `<Row><Id>2</Id></Row>`).
+                    if got!(self.xp_site(inst, schema, child, "onbeforepassfield")) == Some(Flow::Break) {
+                        Self::xp_clear_flow(inst);
+                        continue;
+                    }
+                    let v = got!(self.xp_field_value_text(inst, schema, child));
                     let empty = v.is_empty();
                     let mut e = Elem::new(&doc_name(schema, child));
                     e.children.push(Node::Text(v));
@@ -463,6 +491,21 @@ impl Session {
                         Self::xp_clear_flow(inst);
                         continue;
                     }
+                    // A leaf text element below the root: Quit leaves it out and ends the document, Break leaves it out and ends the
+                    // export, the siblings after it are not passed (their OnPreXmlItem does not run) and OnPostXmlPort runs
+                    // (xmlport/lt-ay-xmlport/AyXmlPortFlowTriggers.al:628 Export_head_Break `pre1;head1;post;`, :656 Export_head_Quit
+                    // `pre1;head1;` with `<Root />`).
+                    if c.parent.is_some_and(|p| schema.node(p).parent.is_none()) {
+                        match Self::xp_flow(inst) {
+                            Some(Flow::Quit) => return Ok(()),
+                            Some(Flow::Break) => {
+                                Self::xp_clear_flow(inst);
+                                inst.borrow_mut().xp_text.push((XP_STOPPED, "1".to_string()));
+                                return Ok(());
+                            }
+                            _ => {}
+                        }
+                    }
                     let mut e = Elem::new(&doc_name(schema, child));
                     e.children.push(Node::Text(v));
                     out.children.push(Node::Elem(e));
@@ -475,10 +518,12 @@ impl Session {
                 // The nested shape (`TextInTable::Nested`, TP_Nested_Export on branch al-runtime-rs-staging-pub-tp): the outer
                 // element's OnBeforePassVariable, its attributes, then the inner element as the text-only shape above
                 // (`pass entry;pass status;pass admission;pass admcode;`, `<admission option_value="2" />` for an empty text).
+                // The same for an attributed leaf deeper below a table element (`attributed_leaf`, einvoice_shapes.rs).
                 ir::XmlNodeKind::Text
                     if text_in_table(schema, child).is_some()
                         || nested_inner(schema, child)
                         || attributed_outside_table(schema, child)
+                        || attributed_leaf(schema, child)
                         || (attrs_only(schema, child)
                             && schema.node(node).parent.is_some_and(|t| field_wrap(schema, node, t))) =>
                 {
@@ -523,8 +568,13 @@ impl Session {
                         return Ok(());
                     }
                 }
-                // `triggered_container`: its OnBeforePassVariable decides whether it and all below it are written.
-                ir::XmlNodeKind::Text if triggered_container(schema, child) => {
+                // `triggered_container`: its OnBeforePassVariable decides whether it and all below it are written; a
+                // `table_container` (einvoice_shapes.rs) the same, with its inner table elements.
+                ir::XmlNodeKind::Text
+                    if triggered_container(schema, child)
+                        || table_container(schema, child)
+                        || tree_with_triggered_leaf(schema, child) =>
+                {
                     if let Some(e) = got!(self.xp_export_triggered_container(inst, schema, child)) {
                         out.children.push(Node::Elem(e));
                     }
@@ -779,20 +829,12 @@ impl Session {
     }
 }
 
-/// A separator property: `<LF>`, `<CR>` and `<TAB>` stand for the control characters, other text
-/// is itself. Other `<...>` names are not pinned.
-/// A declared separator as the getter shows it: `<None>` is empty, `<CR/LF>`, `<LF>`, `<CR>` and `<Tab>` are their escapes, anything
-/// else is as written (P94XpDelim.al:Getters_Declared, Getters_DeclaredTwoTables). Other tokens are not pinned.
-/// The name of node `c` in the document: a field element with a `NamespacePrefix` is `prefix:Name`.
-/// A `Format = Xml` port whose root is a table element of plain field elements, without triggers, attributes, a link or
-/// a MinOccurs (xmlports 87562 and 87563 of platform/lt-ag-contoso/AgXmlPortImport.al:784-833, the DemoTool's xmlport
-/// 101899). Other shapes of a table element root are not pinned.
-/// A table element root with MaxOccurs = Once, not linked and not optional (see `xp_export` for where it is pinned).
-pub(super) fn once_root(schema: &Schema, top: usize) -> bool {
+/// A table element root of an Xml port with content below it, not linked and not optional (with namespaces: written once per row,
+/// Y72XpEInvoiceShapes.al DeepAttrLeaf_RealTableRoot_TwoRows for a real table, Y17XmlPortNamespaces.al for MaxOccurs = Once).
+fn table_root_with_content(schema: &Schema, top: usize) -> bool {
     let n = schema.node(top);
     schema.xp().format == ir::XmlFormat::Xml
         && n.kind == ir::XmlNodeKind::Table
-        && n.max_unbounded == Some(false)
         && n.link_node.is_none()
         && !n.min_zero
         && !schema.children(top).is_empty()

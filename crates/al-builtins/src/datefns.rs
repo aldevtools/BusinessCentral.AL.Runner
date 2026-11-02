@@ -493,7 +493,7 @@ enum Term {
     WeekDay { n: i32, forward: bool },
     /// `Mn`: the first day of month `n` after the month of the date (`-Mn`: before it).
     MonthLetterFirst { n: i32, forward: bool },
-    /// `Dn`, the day letter before its number. Only `D1` on the last day of a month is pinned (see `apply`).
+    /// `Dn`, the day letter before its number: day n of the month, forward or backward (see `apply`).
     DayLetterFirst { n: i32, forward: bool },
     /// `Wn`: the Monday of ISO week `n` after the date (`W17`, `W21`, `W25` are pinned).
     WeekLetterFirst { n: i32 },
@@ -1038,15 +1038,13 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
                     day_from_civil(y, first, 1)
                 }
             }
-            // `D1` on 2024-01-31 is 2024-02-01 (types/TestDateFormulaEvaluateLeftoversContracts.al:45). That fits both "add n
-            // days" and "the next day n of a month"; nothing pins which one BC does, so any other number, sign or date is refused.
-            // `D15`, `D28`, `D29`, `D31` (corpus master, corpus PR 871: misc/lt-np4-probes/Np4DateFormulas.al NP4_CalcDate_D15,
-            // _D28, _D29, _D31): day n of the date's month, cut back to the month's
-            // length, when the date's day is below n; else day n of the next month, cut back the same way (`<D29>` on
-            // 2023-02-28 stays 2023-02-28, `<D31>` on 2023-01-31 is 2023-02-28).
-            // `D1` from any day goes the same way: day 1 of the next month (corpus master, corpus PR 886:
-            // types/lt-date-formula-edges/DateFormulaInsidePeriod.al:36-47, `<D1>` on 2024-01-01 is 2024-02-01).
-            Term::DayLetterFirst { n, forward: true } if matches!(n, 1 | 15 | 28 | 29 | 31) => {
+            // `Dn` forward: day n of the date's month, cut back to the month's length, when the date's day is below n; else day n
+            // of the next month, cut back the same way (`<D29>` on 2023-02-28 stays 2023-02-28, `<D31>` on 2023-01-31 is
+            // 2023-02-28). Pinned for D1 (types/lt-date-formula-edges/DateFormulaInsidePeriod.al:36-47, types/
+            // TestDateFormulaEvaluateLeftoversContracts.al:45), D15, D28, D29, D31 (misc/lt-np4-probes/Np4DateFormulas.al
+            // NP4_CalcDate_D15, _D28, _D29, _D31), D29, D30, D31 on seven dates each (DateFormulaEdges.al SG_DayOfMonth_D29_D30_D31)
+            // and D5 after CM (SG_DayOfMonth_Combined); every number of 1 to 31 follows the same rule.
+            Term::DayLetterFirst { n, forward: true } if (1..=31).contains(&n) => {
                 let n = n as u32;
                 if d < n {
                     day_from_civil(y, m, n.min(days_in_month(y, m)))
@@ -1054,22 +1052,19 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
                     add_months(y, m, n, 1)?
                 }
             }
-            // `-D1`: day 1 of the date's month when the date is after it, else of the month before (DateFormulaInsidePeriod.al:46-47:
-            // 2024-01-15 is 2024-01-01, 2024-01-01 is 2023-12-01). Another number is not pinned.
-            Term::DayLetterFirst { n: 1, forward: false } => {
-                if d > 1 {
-                    day_from_civil(y, m, 1)
+            // `-Dn`: day n of the date's month when the date is after it, else of the month before, cut back to the month's length
+            // (DateFormulaInsidePeriod.al:46-47; DateFormulaEdges.al SG_DayOfMonth_Backward `-D1`, `-D15`, `-D31` on seven dates each:
+            // `<-D31>` on 2024-12-31 is 2024-11-30).
+            Term::DayLetterFirst { n, forward: false } if (1..=31).contains(&n) => {
+                let n = n as u32;
+                if d > n {
+                    day_from_civil(y, m, n)
                 } else {
-                    add_months(y, m, 1, -1)?
+                    add_months(y, m, n, -1)?
                 }
             }
-            Term::DayLetterFirst { n, forward } => {
-                if !(n == 1 && forward && d == days_in_month(y, m)) {
-                    return unsupported(
-                        "date formula with the day letter before its number (`Dn`) other than `D1` on the last day of a month (not pinned)",
-                    );
-                }
-                day + 1
+            Term::DayLetterFirst { .. } => {
+                return unsupported("date formula with a day letter before a number out of 1 to 31 (not pinned)");
             }
             // The Monday of ISO week n of the date's year when it is after the date, else of the next year's week n
             // (NP4_CalcDate_W17: 2023-04-15 2023-04-24, 2023-06-30 2024-04-22). A date inside week n, its Monday included, goes to the
@@ -1269,20 +1264,92 @@ mod tests {
                 other => panic!("{f} on {y}-{m}-{d}: {other:?}"),
             }
         }
-        // Other week and quarter numbers and `-D` with a number other than 1 are not pinned.
+        // Other week and quarter numbers are not pinned.
         refused(calc("<W22>", date(2024, 1, 1)));
-        refused(calc("<-D2>", date(2024, 1, 15)));
     }
 
-    // `Dn` before its number: the only pin is `D1` on 2024-01-31 giving 2024-02-01
-    // (types/TestDateFormulaEvaluateLeftoversContracts.al:45). Whether `Dn` adds n days or goes to the next day n of a
-    // month is not pinned anywhere else, so every other date and number is refused.
+    // `D1` on 2024-01-31 is 2024-02-01 (types/TestDateFormulaEvaluateLeftoversContracts.al:45).
     #[test]
-    fn a_day_letter_before_its_number_is_pinned_only_for_d1_at_the_end_of_a_month() {
+    fn d1_at_the_end_of_a_month_and_d31_at_the_start() {
         is_date(calc("D1", date(2024, 1, 31)), 2024, 2, 1);
         // `<D31>` is pinned on corpus master now (Np4DateFormulas.al NP4_CalcDate_D31).
         is_date(calc("<D31>", date(2024, 1, 1)), 2024, 1, 31);
-        refused(calc("<D2>", date(2024, 1, 31)));
+    }
+
+    /// types/lt-date-formula-edges/DateFormulaEdges.al SG_DayOfMonth_D29_D30_D31 and SG_DayOfMonth_Backward (the dates
+    /// 2024-01-10, 01-15, 01-31, 02-29, 2023-02-28, 2024-04-30, 12-31), SG_DayOfMonth_Combined (`D5` after `CM`).
+    #[test]
+    fn a_day_letter_before_its_number_follows_the_corpus_tables() {
+        type Ymd = (i32, u32, u32);
+        let from: [Ymd; 7] = [
+            (2024, 1, 10),
+            (2024, 1, 15),
+            (2024, 1, 31),
+            (2024, 2, 29),
+            (2023, 2, 28),
+            (2024, 4, 30),
+            (2024, 12, 31),
+        ];
+        let tables: &[(&str, [Ymd; 7])] = &[
+            (
+                "<D30>",
+                [
+                    (2024, 1, 30),
+                    (2024, 1, 30),
+                    (2024, 2, 29),
+                    (2024, 2, 29),
+                    (2023, 2, 28),
+                    (2024, 5, 30),
+                    (2025, 1, 30),
+                ],
+            ),
+            (
+                "<-D15>",
+                [
+                    (2023, 12, 15),
+                    (2023, 12, 15),
+                    (2024, 1, 15),
+                    (2024, 2, 15),
+                    (2023, 2, 15),
+                    (2024, 4, 15),
+                    (2024, 12, 15),
+                ],
+            ),
+            (
+                "<-D31>",
+                [
+                    (2023, 12, 31),
+                    (2023, 12, 31),
+                    (2023, 12, 31),
+                    (2024, 1, 31),
+                    (2023, 1, 31),
+                    (2024, 3, 31),
+                    (2024, 11, 30),
+                ],
+            ),
+            (
+                "<-D1>",
+                [
+                    (2024, 1, 1),
+                    (2024, 1, 1),
+                    (2024, 1, 1),
+                    (2024, 2, 1),
+                    (2023, 2, 1),
+                    (2024, 4, 1),
+                    (2024, 12, 1),
+                ],
+            ),
+        ];
+        for (f, want) in tables {
+            for (&(y, m, d), &(ry, rm, rd)) in from.iter().zip(want) {
+                match calc(f, date(y, m, d)) {
+                    Ok(Value::Date(n, false)) => assert_eq!(n, day_from_civil(ry, rm, rd), "{f} on {y}-{m}-{d}"),
+                    other => panic!("{f} on {y}-{m}-{d}: {other:?}"),
+                }
+            }
+        }
+        // `<D5>` after `<CM>` of 2024-01-31 (CM+D5): the fifth of the next month.
+        is_date(calc("<CM+D5>", date(2024, 1, 31)), 2024, 2, 5);
     }
 
     // types/TestRoundDateTimeContracts.al:61-72: a precision of 700000 ms does not divide a day but a week.

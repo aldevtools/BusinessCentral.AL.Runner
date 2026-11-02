@@ -1016,7 +1016,9 @@ impl Session {
             }
         };
         rec.borrow_mut().fields[pos] = value.clone();
-        self.xp_validate_field(schema, node, &rec, pos, value, text.is_empty())?;
+        // One blank names member 0 of an Enum or Option as the empty text does (Y72XpTextTypeBlankEnum.al:847 `one blank attributes`).
+        let blank = text.is_empty() || (matches!(ty, RtType::Enum(_) | RtType::Option(_)) && text.trim().is_empty());
+        self.xp_validate_field(schema, node, &rec, pos, value, blank)?;
         let flow = self.xp_site(inst, schema, node, "onafterassignfield")?;
         Ok((pos, flow))
     }
@@ -1091,9 +1093,11 @@ impl Session {
         }
         // A blank field attribute is not validated, even with FieldValidate = Yes, where a blank field element is
         // (BjXmlPortDefaultValidation.al:625 'AttrDef blank'/'AttrYes blank' against :641 'ElDef blank'). Pinned for a field
-        // with a TableRelation only.
+        // with a TableRelation, and for an Enum or Option field with OnValidate, an empty or one-blank attribute giving member 0
+        // (xmlport/lt-y72-xmlport-probes/Y72XpTextTypeBlankEnum.al:847 BlankAttribute_Import_Literal `ins 5 res=0 plain=0 opt=0`,
+        // :881 with FieldValidate = Yes and DefaultFieldsValidation = false).
         if n.kind == al_ir::XmlNodeKind::FieldAttr && blank {
-            if field.relation {
+            if field.relation || matches!(t.fields[pos].ty, RtType::Enum(_) | RtType::Option(_)) {
                 return Ok(());
             }
             return unsupported(format!(

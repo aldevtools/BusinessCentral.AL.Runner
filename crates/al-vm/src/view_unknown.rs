@@ -61,7 +61,8 @@ impl Session {
             Ok(p) => Ok(Some(p)),
             // The user-name system FlowFields are fields of every table on BC 29: a condition on one is kept and filters
             // (al-runner issue 6645; corpus branch al-runtime-rs-staging-y64 85d86e7b, system-fields/lt-y64-username-filters/
-            // Y64UserNameFilters.al:154-191). The runtime does not model these filters: refused, never dropped.
+            // Y64UserNameFilters.al:154-191). A table whose schema holds them (al-sema `USER_NAME_FIELDS`) found the field above; a
+            // table compiled without them (a target below BC 29 with the gate on) refuses, never drops.
             Err(_) if user_name_field(name) => Err(Signal::Unsupported(format!(
                 "a view condition on the user-name system FlowField `{name}` (filters on it are not supported yet)"
             ))),

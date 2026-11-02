@@ -55,7 +55,6 @@ impl<'a> Lowerer<'a> {
     pub(crate) fn this_is_current_record(&self, n: &SyntaxNode) -> bool {
         n.kind() == SyntaxKind::MemberExpr
             && matches!(self.ws.objects[self.oi].kind, ObjKind::Table | ObjKind::TableExtension)
-            && !self.globals.contains_key("this")
             && n.children().next().is_some_and(|b| crate::check::is_this_keyword(&b))
     }
 
@@ -63,7 +62,6 @@ impl<'a> Lowerer<'a> {
     pub(crate) fn bare_this_of_record(&self, n: &SyntaxNode) -> bool {
         crate::check::is_this_keyword(n)
             && matches!(self.ws.objects[self.oi].kind, ObjKind::Table | ObjKind::TableExtension)
-            && !self.globals.contains_key("this")
     }
 
     /// Whether a `with` statement supplied the name `n`.

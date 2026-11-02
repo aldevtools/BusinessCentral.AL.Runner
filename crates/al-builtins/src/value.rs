@@ -586,6 +586,8 @@ pub struct PageState {
     /// does on a host with row triggers whose ListPart links two or three fields (`Session::defer_lookup_refresh`): reads and Close
     /// run no trigger; any other TestPage call on its tree is refused until Close.
     pub lookup_refresh_deferred: bool,
+    /// A TestPage call reached this page as a part of its host (`lookup_refresh_deferred_call`).
+    pub lookup_part_touched: bool,
     /// TestField.Lookup writes the text its OnLookup returned through the control's SetValue (`defer_lookup_refresh`).
     pub lookup_setting_value: bool,
     /// The TestField.Lookup running on this page wrote a value (its OnLookup returned true); false after a cancelled Lookup.
@@ -690,6 +692,9 @@ pub struct PageState {
     /// A List with Editable = false opened for view lost its only row to an action and shows no row: a later action is not
     /// pinned and is refused (pages/lt-outside-worksheet/RmWorksheetGoneRow.al SH_ListViewNotEditable_, awaiting).
     pub gone_view_list: bool,
+    /// The same for a List with Editable = false over a temporary source (`gone_read_only_temp_list`): a later action is built
+    /// (al-runner issue 6664).
+    pub gone_temp_list: bool,
     /// The part's link value failed its validation as the host opened: Last() answers No and reads nothing, a write raises
     /// TestRowNotFound (pages/lt-qj-part-propagation/QjPartPropagation.al:3766); anything else on the part is refused.
     pub link_validate_failed: bool,
@@ -876,6 +881,15 @@ pub struct PageState {
     /// row, after its OnAfterGetRecord: (control index, value; `None` when the expression raised an error then) (al-vm
     /// `pages/shown.rs` `note_row_exprs`).
     pub row_exprs: Vec<RowExprs>,
+    /// The same for the function controls of a page in a tree with parts: what each showed when its page last ran them for the
+    /// row (al-vm `pages/fn_controls.rs`).
+    pub fn_rows: Vec<RowExprs>,
+    /// The first repeated OnAfterGetRecord of the open read ran no function control (`fn_controls.rs`).
+    pub fn_open_skipped: bool,
+    /// The next OnAfterGetRecord runs no function control: the first of the two reads a list makes of the row it moves onto.
+    pub fn_skip_agr: bool,
+    /// The last TestField.Lookup on this page was cancelled and only reads and part moves followed (`note_lookup_cancelled`).
+    pub lookup_cancelled: bool,
     /// `row_exprs` holds what the page shows: the list read its rows, and only pinned calls followed.
     pub row_exprs_live: bool,
     /// Since that refresh only events happened that are pinned to leave this page as it is.
@@ -992,6 +1006,7 @@ impl PageState {
             marked_only_unshown: false,
             marked_only_unpinned: false,
             lookup_refresh_deferred: false,
+            lookup_part_touched: false,
             lookup_setting_value: false,
             lookup_value_set: false,
             lookup_refresh_used: false,
@@ -1028,6 +1043,7 @@ impl PageState {
             gone_blank_no_new_line: false,
             gone_blank_shows_line: false,
             gone_view_list: false,
+            gone_temp_list: false,
             link_validate_failed: false,
             settled_first_row: false,
             caption_assigned_closed: false,
@@ -1051,6 +1067,10 @@ impl PageState {
             row_vars: Vec::new(),
             row_prop_vars: Vec::new(),
             row_exprs: Vec::new(),
+            fn_rows: Vec::new(),
+            fn_open_skipped: false,
+            fn_skip_agr: false,
+            lookup_cancelled: false,
             row_exprs_live: false,
             agr_xrec: None,
             agcr_xrec: None,
@@ -1215,6 +1235,9 @@ pub struct RecordState {
     /// The row this variable's last Modify wrote. A later Modify of the unchanged buffer, after a rollback undid that write,
     /// writes nothing (record/lt-record-conversion-assumptions/StaleBuffer.al:76-86).
     pub last_modify: Option<Vec<Value>>,
+    /// The row version the buffer held when its Insert answered false (the key existed): a Modify through the buffer then raises
+    /// DB:RecordChanged when the stored row's version is newer (record/lt-y71-failed-insert-modify/Y71FailedInsertModify.al).
+    pub failed_insert: Option<i64>,
     /// Where the buffer's row version came from: the variable's own Insert or a Get (with that version and the number of
     /// commits of the session then). A stale buffer from the Insert of the transaction the last Commit closed may still be
     /// written (record/TestRecordStaleBufferWrite.al:395-690, `Session::stale_verdict`).

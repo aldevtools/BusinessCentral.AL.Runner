@@ -566,7 +566,7 @@ impl Session {
                 st.borrow_mut().never_stored = never;
             }
             self.sync_parts_at_open(st)?;
-            self.refresh_parts_asked_by_host(st, &waiting, true, false)
+            self.refresh_parts_then_fn_tail(st, &waiting)
         })();
         if let Err(e) = result {
             // The open raises the error itself and leaves the variable closed
