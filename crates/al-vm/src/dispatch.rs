@@ -434,6 +434,24 @@ impl Session {
                 if self.events.setup_no_ops.contains(&(s.object, s.routine)) {
                     continue;
                 }
+                // Owner decision 2026-11-02: no subscriber of the database trigger setup or of the database events of such an
+                // app is consulted during an install (pinned for the per-database part, where nothing is asked:
+                // install/lt-y69-install-trigger-setup/Y69InstallTriggerSetup.al:73-105; the per-company part is an assumption).
+                if object == engine.events.global_key
+                    && matches!(
+                        event,
+                        "getdatabasetabletriggersetup"
+                            | "ondatabaseinsert"
+                            | "ondatabasemodify"
+                            | "ondatabasedelete"
+                            | "ondatabaserename"
+                    )
+                {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::InstallUnrelatedDatabaseTriggerSubscribers,
+                    );
+                    continue;
+                }
                 return unsupported(format!(
                     "event {event}: a subscriber in app {} would run while an app installs that it has no dependency path \
                      to; the install order of the two is not known",

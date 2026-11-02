@@ -1,0 +1,6 @@
+InstallUnrelatedDatabaseTriggerSubscribers => {
+    id: "install-unrelated-database-trigger-subscribers",
+    assumed: "While an app installs, the subscribers of an app with no dependency path to it (its install order is not known) to Global Triggers GetDatabaseTableTriggerSetup and to OnDatabaseInsert, OnDatabaseModify, OnDatabaseDelete and OnDatabaseRename are not consulted, also in the per-company part of the install (owner decision 2026-11-02). Pinned for the per-database part of an install, where nothing is asked: install/lt-y69-install-trigger-setup/Y69InstallTriggerSetup.al:73-105. A subscriber that provably leaves every flag as it gets it is skipped without a mark. A test that passes through a skipped subscriber that does set a flag or reacts to a database event is a flagged pass.",
+    tests: "No Microsoft test: owner decision for partner apps whose per-company install writes tables while an unrelated app's setup subscriber (a table id test with in [...] or a case) is installed (outside issue 6755).",
+    probe: "A fixture app B with no dependency path to app A: B's GetDatabaseTableTriggerSetup subscriber sets OnDatabaseInsert for A's table and logs the call; A's OnInstallAppPerCompany writes that table with Insert(true); read whether B's subscriber ran and whether B's OnDatabaseInsert subscriber ran, with the install order A,B and B,A.",
+}
