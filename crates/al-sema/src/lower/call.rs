@@ -236,6 +236,7 @@ impl Lowerer<'_> {
                             out.push(ir::Arg::Value(value));
                             continue;
                         }
+                        self.refuse_session_ending_ternary(&p.ty, a)?;
                         self.refuse_textconst_into_variant(&p.ty, a)?;
                         // A Text or Code handed to a by-value Text or Code parameter of a TryFunction is converted by the callee's
                         // binding, inside the try: a text too long for a Code[20] parameter makes the TryFunction answer false
