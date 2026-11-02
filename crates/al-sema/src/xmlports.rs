@@ -589,6 +589,10 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
                 // filter: sorting and order on an element that is not linked (xmlport/lt-ra-xmlport/RaXmlPortExport.al:622,
                 // :654), sorting and where on a linked one (:680, :781, :793, :805). A filter on an element that is not linked
                 // runs under former assumption `xmlport-view-filter-unlinked` (pinned on corpus master since bump 1030) (al-vm xmlports.rs `xp_apply_source_views`).
+            } else if kind == K::Table && matches!(pn.as_str(), "unbound" | "width") && out.format == ir::XmlFormat::Xml
+            {
+                // Neither changes an Xml port's export or import of a table element (xmlport/lt-y-xmlport-props/YXmlPortProps.al:390
+                // BdUnbound_TableElement_ExportAndImport).
             } else if !allowed_properties(kind).contains(&pn.as_str()) {
                 // Refused when the port runs, not when it is declared: Base App's xmlport 1 sets
                 // MinOccurs, MaxOccurs, Occurrence and SourceTableView, and tests reach it only
@@ -945,14 +949,6 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
     let layout = cx.layout;
     let mut run_reasons = layout.run_reasons.clone();
     let mut export_reasons = layout.export_reasons.clone();
-    // The one test of a Width on an Xml field attribute (AyXmlPortAttributeWidth.al:199) reads the UTF-16 export with
-    // InStream.Read into a Char, which BC reads two bytes at a time and the runtime one: not pinned for the runtime yet.
-    if layout.format != ir::XmlFormat::FixedText
-        && (0..layout.nodes.len())
-            .any(|i| layout.nodes[i].kind == ir::XmlNodeKind::FieldAttr && layout.property(i, "Width").is_some())
-    {
-        run_reasons.push("property width of a fieldattribute outside a FixedText port is not supported yet".into());
-    }
     let mut nodes: Vec<ir::XmlNode> = Vec::new();
     for (i, raw) in layout.nodes.iter().enumerate() {
         let sec = &raw.section;

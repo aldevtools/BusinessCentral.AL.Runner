@@ -145,6 +145,15 @@ pub struct ObjectSym {
     pub manual_subscribers: bool,
 }
 
+/// Whether the bytes hold `maxlength` in any case. Looks at a window only where its first byte is an `m`: the text of
+/// every file of every app is searched once, so the cost per byte counts.
+fn names_max_length_in(b: &[u8]) -> bool {
+    let Some(last) = b.len().checked_sub(9) else {
+        return false;
+    };
+    (0..=last).any(|i| b[i] | 0x20 == b'm' && b[i..i + 9].eq_ignore_ascii_case(b"maxlength"))
+}
+
 /// A byte range of a parsed text.
 type ByteRange = (usize, usize);
 
@@ -809,12 +818,9 @@ impl Workspace {
 
     /// Whether the text of file `fi` names `MaxLength` anywhere, in any case. Searched once per file.
     pub fn names_max_length(&self, fi: usize) -> bool {
-        *self.files[fi].max_length.get_or_init(|| {
-            self.text(fi)
-                .as_bytes()
-                .windows(9)
-                .any(|w| w.eq_ignore_ascii_case(b"maxlength"))
-        })
+        *self.files[fi]
+            .max_length
+            .get_or_init(|| names_max_length_in(self.text(fi).as_bytes()))
     }
 
     /// The text of file `fi` as it was given: for a file of a lazy dependency app, read now (once).
@@ -1626,6 +1632,31 @@ fn visible_from(apps: &[&AppSource], start: usize) -> BTreeSet<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The search for `maxlength` finds it in any case and anywhere, as the plain window search did.
+    #[test]
+    fn max_length_is_found_in_any_case_anywhere() {
+        let naive = |b: &[u8]| b.windows(9).any(|w| w.eq_ignore_ascii_case(b"maxlength"));
+        for text in [
+            "",
+            "maxlength",
+            "MaxLength",
+            "MAXLENGTH",
+            "xmaxlengthx",
+            "field(1; A; Text[30]) { MaxLength = 5; }",
+            "maxlengt",
+            "maxlengthmaxlength",
+            "mmaxlength",
+            "MaxLengt",
+            "m",
+            "ma xlength",
+            "axlength",
+            "mmmmmmmmm",
+        ] {
+            assert_eq!(names_max_length_in(text.as_bytes()), naive(text.as_bytes()), "{text:?}");
+        }
+        assert!(names_max_length_in(b"aaaaaaaaaaaaaaaaaaaaaaMaXlEnGtH"));
+    }
 
     /// A parse is a function of the text. When a dependency file fails to parse, it is parsed once more
     /// (a fresh token cache, a fresh expansion); a second result that differs is a defect somewhere (a

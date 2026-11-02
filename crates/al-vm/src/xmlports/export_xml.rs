@@ -478,16 +478,26 @@ impl Session {
                     let v = got!(self.xp_field_value_text(inst, schema, child));
                     let empty = v.is_empty();
                     let mut e = Elem::new(&doc_name(schema, child));
-                    e.children.push(Node::Text(v));
+                    // An empty value writes no text, so the elements below it are indented like any element content
+                    // (xmlport/lt-at-partner-gaps/AtXmlPortFieldElementEdges.al:162 AT_EmptyFieldElement_ChildText_Export `<Name>` then
+                    // `<Child>c1</Child>` on its own line; :178 `<Child />`).
+                    let text_below = schema
+                        .children(child)
+                        .iter()
+                        .any(|&g| schema.node(g).kind == ir::XmlNodeKind::Text);
+                    if !(empty && text_below) {
+                        e.children.push(Node::Text(v));
+                    }
                     // The attributes and elements below a field element follow its value (AfXmlPortAttrChildren.al:255, 285, 313:
                     // `<Name Lang="en" Kind="K1">Alpha</Name>`, `<Name>Alpha<Child>c1</Child></Name>`).
                     if !schema.children(child).is_empty() {
-                        // How an empty value is written before an element below it is not pinned.
+                        // How an empty value is written before an element is pinned for leaf text elements only.
                         if empty
-                            && schema
-                                .children(child)
-                                .iter()
-                                .any(|&g| matches!(schema.node(g).kind, ir::XmlNodeKind::Text | ir::XmlNodeKind::Field))
+                            && schema.children(child).iter().any(|&g| {
+                                let k = schema.node(g).kind;
+                                k == ir::XmlNodeKind::Field
+                                    || (k == ir::XmlNodeKind::Text && !schema.children(g).is_empty())
+                            })
                         {
                             return unsupported(format!(
                                 "XmlPort export of the field element {} with an empty value and an element below it (not pinned)",

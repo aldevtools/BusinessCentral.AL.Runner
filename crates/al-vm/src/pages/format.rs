@@ -1005,6 +1005,9 @@ impl Session {
                 .find(|(i, t, _)| *i == idx && *t == c)
                 .map(|(_, _, caption)| caption.clone());
             if let Some(caption) = cached {
+                if let Some((_, why)) = st.borrow().caption_refusals.iter().find(|(i, _)| *i == idx) {
+                    return unsupported(why.clone());
+                }
                 return Ok(caption);
             }
             // A class text that changed since the page last filled: whether BC resolves it at the read is not pinned.
@@ -1103,10 +1106,21 @@ impl Session {
             // resolved again).
             return Ok(());
         }
-        let caption = self.caption_class_text(st, text)?;
+        let (caption, unknown) = self.caption_class_text_deferring(st, text)?;
+        // A caption whose text the runtime cannot know is refused where the text is read (`control_caption`), unless another
+        // app's resolver could have changed state at the open (runner issue 6794).
+        if let Some(why) = &unknown {
+            if self.foreign_caption_class_subscriber() {
+                return unsupported(why.clone());
+            }
+        }
         let mut s = st.borrow_mut();
         s.control_captions.retain(|(i, _, _)| *i != idx);
         s.control_captions.push((idx, text.to_string(), caption));
+        s.caption_refusals.retain(|(i, _)| *i != idx);
+        if let Some(why) = unknown {
+            s.caption_refusals.push((idx, why));
+        }
         Ok(())
     }
 
