@@ -972,6 +972,10 @@ impl SidecarSession {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // Windows only: the OS variables the .NET runtime needs (crate::dotnet_env).
+        for (k, v) in crate::dotnet_env::host_passthrough() {
+            cmd.env(k, v);
+        }
         if let Some(root) = r.dotnet.parent() {
             cmd.env("DOTNET_ROOT", root);
         }
