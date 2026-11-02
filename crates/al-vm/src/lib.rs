@@ -68,6 +68,7 @@ mod load_fields_request;
 mod media_orphans;
 mod pages;
 mod partial;
+mod permission_shadow;
 mod permissions;
 mod platform;
 mod profile;
@@ -843,6 +844,9 @@ pub struct Session {
     /// `runner-permission-sets-grant-all`); a set the test assigns on top of them leaves a session that is not fully
     /// composed (ADR-062 probe P25).
     pub(crate) runner_permission_sets: bool,
+    /// The shadow run (`permission_shadow.rs`): the roles of the runner's step, and whether the session evaluates them.
+    pub(crate) shadow_roles: Vec<String>,
+    pub(crate) shadow_active: bool,
     /// Set by AL code's record method call right before `record_op` of a restricted session, taken there (ADR-062).
     pub(crate) permission_from_al: bool,
     /// True while the fields of `SetAutoCalcFields` are calculated after a read: that read is allowed (Y24PermReads.al
@@ -1183,6 +1187,8 @@ impl Session {
             permissions_off: false,
             permission_roles: Vec::new(),
             runner_permission_sets: false,
+            shadow_roles: Vec::new(),
+            shadow_active: false,
             permission_from_al: false,
             permission_autocalc: false,
             permission_page_calc: false,
@@ -1282,8 +1288,11 @@ impl Session {
         // sets, which its set step assigned just before, stay (`runner_permission_sets`; the test runner calls this
         // again after its steps).
         let runner = self.runner_permission_sets;
+        let shadow_roles = std::mem::take(&mut self.shadow_roles);
         self.clear_permission_sets();
         self.runner_permission_sets = runner;
+        self.shadow_roles = shadow_roles;
+        self.shadow_begin();
         self.application_areas.clear();
         self.isolated_set_in_test.clear();
         self.demo_written.clear();

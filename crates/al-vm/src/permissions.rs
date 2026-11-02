@@ -602,6 +602,8 @@ enum Verdict {
 impl Session {
     /// `PermissionTestHelper.AddEffectivePermissionSet(RoleId)`: adds the set to the session's assigned sets.
     pub(crate) fn assign_permission_set(&mut self, role: &str) {
+        // A set the test assigns ends the shadow run's evaluation of the runner's sets (ADR-062 probe P25 stays refused).
+        self.shadow_active = false;
         let role: String = role.to_uppercase().chars().take(20).collect();
         if !self.permission_roles.contains(&role) {
             self.permission_roles.push(role);
@@ -633,6 +635,7 @@ impl Session {
         self.permission_roles.clear();
         self.permissions = None;
         self.runner_permission_sets = false;
+        self.shadow_clear();
         al_builtins::value::set_born_restricted(false);
     }
 
@@ -759,7 +762,7 @@ impl Session {
     /// Pinned: Y24PermReads.al Y24_P19_ReadWritePermission (indirect `r`, `i`, `im`, `imd`, `rimd`, and inside an object
     /// whose Permissions names the table), and the Y75 probe for R, RI, RIM, RIMD and RecordRef (Y75PermReadWrite.al).
     /// Not pinned, so refused when the answer would be false: a temporary record and a system table.
-    pub(crate) fn permission_answer(
+    pub(crate) fn permission_answer_decided(
         &mut self,
         rec: &crate::records::Rec,
         method: al_builtins::record_op::RecordOp,
@@ -833,7 +836,7 @@ impl Session {
     /// object; the code of a subscriber is not pinned. A denial there refuses the test.
     #[cold]
     #[inline(never)]
-    pub(crate) fn permission_gate_call(
+    pub(crate) fn permission_gate_call_decided(
         &mut self,
         object: usize,
         routine: usize,
@@ -870,7 +873,7 @@ impl Session {
     }
 
     /// Whether opening page `object` is denied (no Execute on it for the code that opens it).
-    pub(crate) fn permission_page_open_denied(&mut self, object: usize) -> Result<bool, Signal> {
+    pub(crate) fn permission_page_open_denied_decided(&mut self, object: usize) -> Result<bool, Signal> {
         if self.permission_caller.or_else(|| self.frames.last().copied()) == Some(object) {
             return Ok(false);
         }
@@ -904,7 +907,7 @@ impl Session {
     /// `DB:ExecuteObjDenied`. Pages end with FormAbort:Permission when opened (not built yet: refused).
     #[cold]
     #[inline(never)]
-    pub(crate) fn permission_gate_execute(&mut self, object: usize) -> Result<(), Signal> {
+    pub(crate) fn permission_gate_execute_decided(&mut self, object: usize) -> Result<(), Signal> {
         if self.permission_caller.or_else(|| self.frames.last().copied()) == Some(object) {
             return Ok(());
         }
@@ -953,7 +956,7 @@ impl Session {
     /// set gives Execute on objects and `SetExactPermissionSet` gives none. `None` when no restricted session answers it (the
     /// caller answers for the unrestricted user). Indirect levels, sets that are not fully composed and the other object types
     /// are not pinned and refuse.
-    pub(crate) fn effective_permission_levels(&self, kind: i32, id: u32) -> Result<Option<Levels>, Signal> {
+    pub(crate) fn effective_permission_levels_decided(&self, kind: i32, id: u32) -> Result<Option<Levels>, Signal> {
         let Some(eff) = self.permissions.clone() else {
             return Ok(None);
         };
@@ -995,7 +998,11 @@ impl Session {
     /// 29.0): `tabledata T = R` and `= I` and `codeunit C = X`; the control is off when the session's level of that permission
     /// is blank and there when it is Yes. An Indirect level, a session whose sets are not fully composed, a change of the
     /// assigned sets since the page opened and every other guard are not pinned: they refuse.
-    pub(crate) fn access_by_permission_hidden(&self, guard: &str, opened_under: &[String]) -> Result<bool, Signal> {
+    pub(crate) fn access_by_permission_hidden_decided(
+        &self,
+        guard: &str,
+        opened_under: &[String],
+    ) -> Result<bool, Signal> {
         let Some(eff) = self.permissions.clone() else {
             return Ok(false);
         };
@@ -1032,7 +1039,11 @@ impl Session {
     /// not pinned, so it refuses.
     #[cold]
     #[inline(never)]
-    pub(crate) fn permission_gate_flowfield(&mut self, rec: &crate::records::Rec, table: usize) -> Result<(), Signal> {
+    pub(crate) fn permission_gate_flowfield_decided(
+        &mut self,
+        rec: &crate::records::Rec,
+        table: usize,
+    ) -> Result<(), Signal> {
         if self.permission_autocalc {
             return Ok(());
         }
@@ -1077,7 +1088,11 @@ impl Session {
     /// indirect grant and the error says `IndirectRead`). Like a record read, it raises only when the table has rows.
     #[cold]
     #[inline(never)]
-    pub(crate) fn permission_gate_object_read(&mut self, object: usize, tables: &[usize]) -> Result<(), Signal> {
+    pub(crate) fn permission_gate_object_read_decided(
+        &mut self,
+        object: usize,
+        tables: &[usize],
+    ) -> Result<(), Signal> {
         // Execute on the query or xmlport itself, by the code that runs it (Y24PermExecute.al tdonly_query_open, tdonly_xmlport_export).
         self.permission_gate_execute(object)?;
         self.permission_caller = Some(object);
@@ -1125,7 +1140,7 @@ impl Session {
     /// behalf of a page, report, xmlport or validation.
     #[cold]
     #[inline(never)]
-    pub(crate) fn permission_gate_record(
+    pub(crate) fn permission_gate_record_decided(
         &mut self,
         method: al_builtins::record_op::RecordOp,
         rec: &crate::records::Rec,

@@ -18,6 +18,30 @@ use std::time::{Duration, Instant};
 /// The server base address of a corpus run (ADR-042, decided without owner review 2026-10-20).
 const CORPUS_SERVER_URL: &str = "http://bcserver:8080/BC";
 
+/// Where `--permission-shadow` writes the denials the shadow run would have raised.
+static SHADOW_FILE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// The shadow run's lines, sorted, to the file `--permission-shadow` named, and a count on stdout.
+fn write_permission_shadow() {
+    let Some(path) = SHADOW_FILE.get() else {
+        return;
+    };
+    let mut lines = al_builtins::permission_shadow::take_all();
+    lines.sort();
+    lines.dedup();
+    let denies = lines.iter().filter(|l| l.contains("\twould deny\t")).count();
+    let text = lines.join("\n") + "\n";
+    match std::fs::write(path, text) {
+        Ok(()) => println!(
+            "permission shadow: {} lines ({denies} would deny, {} unknown) in {}",
+            lines.len(),
+            lines.len() - denies,
+            path.display()
+        ),
+        Err(e) => eprintln!("error: {}: {e}", path.display()),
+    }
+}
+
 fn main() -> ExitCode {
     // A crash (SIGSEGV and the like) names the test it hit instead of ending the run without a word.
     al_testrun::crash::install();
@@ -27,6 +51,7 @@ fn main() -> ExitCode {
         .spawn(run)
         .expect("spawn runner thread");
     let result = worker.join().expect("runner thread panicked");
+    write_permission_shadow();
     // `AL_PROFILE`: a run shorter than the profiler's periodic write writes its file too (issue 6133).
     al_vm::profile_flush();
     if std::env::var_os("AL_EXEC_REPORT").is_some() {
@@ -57,6 +82,10 @@ fn run() -> Result<ExitCode, String> {
         }
         Parsed::Run(a) => *a,
     };
+    if let Some(p) = &args.permission_shadow {
+        al_builtins::permission_shadow::enable();
+        let _ = SHADOW_FILE.set(p.clone());
+    }
     if args.list_assumptions {
         let root = al_deps::cache::cache_root_from_env(args.cache_dir.as_deref());
         print!("{}", al_testrun::flagged::list(&root));

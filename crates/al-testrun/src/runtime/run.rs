@@ -1140,6 +1140,9 @@ fn run_codeunit_inner(
         if !marks.is_empty() {
             hits.push((name.clone(), marks));
         }
+        if al_builtins::permission_shadow::enabled() {
+            al_builtins::permission_shadow::drain(&format!("{}\t{name}", obj.id.unwrap_or(0)));
+        }
         // `--tdd` (ADR-051 decision 5): the stubs that ran while the test ran, its handlers and subscribers included.
         let (reached, ui_answered) = scratch.take_marks(&name, &mut session);
         let took = test_started.elapsed();
