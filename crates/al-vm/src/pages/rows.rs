@@ -416,7 +416,7 @@ impl Session {
             return Ok(());
         }
         if !rec.borrow().temporary {
-            return self.calc_fields(&rec, &positions);
+            return self.page_calc_fields(&rec, &positions);
         }
         let probe = {
             let mut p = rec.borrow().clone();
@@ -426,7 +426,7 @@ impl Session {
         };
         for p in positions {
             self.check_calc_field(table, p)?;
-            let v = self.calc_value(&probe, p, &mut Vec::new())?;
+            let v = self.page_calc_value(&probe, p)?;
             rec.borrow_mut().fields[p] = v;
         }
         Ok(())

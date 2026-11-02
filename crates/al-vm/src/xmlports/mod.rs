@@ -477,7 +477,12 @@ impl Session {
     }
 
     fn xp_run(&mut self, inst: &Inst, dir: Dir, ret_used: bool, static_form: bool) -> Result<Value, Signal> {
+        let saved = self.permission_run_object;
+        if self.permissions.is_some() {
+            self.permission_run_object = self.xp_schema(inst).ok().map(|s| s.object);
+        }
         let r = self.xp_run_tx(inst, dir, ret_used, static_form);
+        self.permission_run_object = saved;
         // The direction ImportFile() reads holds only while the port runs (see XMLPORT_IMPORTFILE_1).
         inst.borrow_mut().xp_text.retain(|(k, _)| *k != 13);
         r
@@ -531,6 +536,19 @@ impl Session {
         }
         for a in &schema.xp().assumes {
             al_builtins::assumptions::assume(*a);
+        }
+        // ADR-062: an export reads its table elements with the xmlport's own Permissions (Y24PermObjectReads.al Y24_P16_*).
+        if dir == Dir::Export && self.permissions.is_some() {
+            let mut tables = Vec::new();
+            for node in &schema.xp().nodes {
+                if let Ok(rec) = self.xp_record(inst, node) {
+                    let r = rec.borrow();
+                    if !r.temporary && !tables.contains(&(r.table as usize)) {
+                        tables.push(r.table as usize);
+                    }
+                }
+            }
+            self.permission_gate_object_read(schema.object, &tables)?;
         }
         // OnPreXmlPort runs when the port starts, in both directions
         // (handlers/TestPageActionRunObjectKinds_Tests.al:ProbeControlEachTargetRecordsItsOwnExecution pins
