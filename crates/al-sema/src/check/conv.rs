@@ -19,6 +19,7 @@
 //! Each judged site reports at most the codes the matrix holds for it; the older pinned checks (`infer.rs`) still judge
 //! the shapes this module does not.
 use super::*;
+use al_syntax::ast::NodeText;
 
 /// A type as the conversion rules see it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -171,7 +172,7 @@ impl Operand {
 
     /// The literal as written.
     fn text(&self) -> String {
-        self.node.as_ref().map(|n| n.text().to_string()).unwrap_or_default()
+        self.node.as_ref().map(|n| n.text_string()).unwrap_or_default()
     }
 
     fn is_place(&self) -> bool {

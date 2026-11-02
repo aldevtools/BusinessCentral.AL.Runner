@@ -43,39 +43,23 @@ impl Routine {
 /// Every routine under `node`, in source order. A routine's body holds only
 /// statements, so unlike `descendants()` this does not walk into routines.
 pub fn routines_in(node: &SyntaxNode) -> Vec<Routine> {
-    let mut out = Vec::new();
-    walk_outside_routines(node, |n| {
-        if let Some(r) = Routine::cast(n.clone()) {
-            out.push(r);
-        }
-    });
-    out
+    find_nodes(node, is_routine_kind, |k| !is_routine_kind(k))
+        .into_iter()
+        .map(Routine)
+        .collect()
+}
+
+fn is_routine_kind(k: SyntaxKind) -> bool {
+    matches!(k, SyntaxKind::Procedure | SyntaxKind::Trigger)
 }
 
 /// Every `Section` under `node`, in source order, not looking inside routines
 /// (sections are object structure; a routine body never contains one).
 pub fn sections_in(node: &SyntaxNode) -> Vec<Section> {
-    let mut out = Vec::new();
-    walk_outside_routines(node, |n| {
-        if n.kind() == SyntaxKind::Section {
-            out.push(Section(n.clone()));
-        }
-    });
-    out
-}
-
-/// Preorder over `node`'s descendants, calling `f` on each node and skipping the
-/// children of procedures and triggers (the routine node itself is visited).
-fn walk_outside_routines(node: &SyntaxNode, mut f: impl FnMut(&SyntaxNode)) {
-    let mut it = node.preorder();
-    while let Some(ev) = it.next() {
-        if let rowan::WalkEvent::Enter(n) = ev {
-            f(&n);
-            if matches!(n.kind(), SyntaxKind::Procedure | SyntaxKind::Trigger) {
-                it.skip_subtree();
-            }
-        }
-    }
+    find_nodes(node, |k| k == SyntaxKind::Section, |k| !is_routine_kind(k))
+        .into_iter()
+        .map(Section)
+        .collect()
 }
 
 /// AL identifiers compare case-insensitively; quoted ones lose their quotes.
@@ -141,6 +125,126 @@ pub fn significant_green_tokens(node: &SyntaxNode) -> impl Iterator<Item = Green
     })
 }
 
+/// The source text of a node, read from the green tree. `node.text_string()` formats through `SyntaxText`, which
+/// walks the subtree with a cursor node per element.
+pub trait NodeText {
+    fn text_string(&self) -> String;
+}
+
+impl NodeText for SyntaxNode {
+    fn text_string(&self) -> String {
+        fn push(g: &rowan::GreenNodeData, out: &mut String) {
+            for c in g.children() {
+                match c {
+                    rowan::NodeOrToken::Node(n) => push(n, out),
+                    rowan::NodeOrToken::Token(t) => out.push_str(t.text()),
+                }
+            }
+        }
+        let g = green_of(self);
+        let mut out = String::with_capacity(usize::from(g.text_len()));
+        push(g, &mut out);
+        out
+    }
+}
+
+/// Whether `node` or a node under it is of `kind`, read from the green tree (no cursor node per visited node).
+pub fn contains_kind(node: &SyntaxNode, kind: SyntaxKind) -> bool {
+    fn any(g: &rowan::GreenNodeData, kind: rowan::SyntaxKind) -> bool {
+        g.kind() == kind || g.children().any(|c| c.into_node().is_some_and(|n| any(n, kind)))
+    }
+    any(
+        green_of(node),
+        <crate::AlLanguage as rowan::Language>::kind_to_raw(kind),
+    )
+}
+
+/// `node.descendants().filter(|n| n.kind() == kind)`, in the same (preorder) order, `node` itself included. The search
+/// runs over the green tree; a cursor node is built only for a match and the nodes on the path down to it, not for
+/// every node of the subtree, as `descendants()` does.
+pub fn descendants_of_kind(node: &SyntaxNode, kind: SyntaxKind) -> Vec<SyntaxNode> {
+    find_nodes(node, |k| k == kind, |_| true)
+}
+
+/// The nodes from `node` down (itself included) whose kind `is_match` takes, in preorder, not looking under a node whose
+/// kind `enter` refuses (that node itself is still a candidate). Searched in the green tree, as [`descendants_of_kind`].
+pub fn find_nodes(
+    node: &SyntaxNode,
+    is_match: impl Fn(SyntaxKind) -> bool,
+    enter: impl Fn(SyntaxKind) -> bool,
+) -> Vec<SyntaxNode> {
+    struct Walk<M, E> {
+        is_match: M,
+        enter: E,
+        /// The ranges of the green nodes from below `node` down to the current one.
+        path: Vec<rowan::TextRange>,
+        /// The cursor nodes built so far along `path`: `reds[0]` is `node`, `reds[k]` the node at `path[k - 1]`.
+        reds: Vec<SyntaxNode>,
+        out: Vec<SyntaxNode>,
+    }
+    impl<M: Fn(SyntaxKind) -> bool, E: Fn(SyntaxKind) -> bool> Walk<M, E> {
+        /// The cursor node at the end of `path`, building the ones missing on the way down.
+        fn materialize(&mut self, greens: &[&rowan::GreenNodeData]) -> SyntaxNode {
+            while self.reds.len() <= self.path.len() {
+                let depth = self.reds.len() - 1;
+                let (parent, range, green) = (&self.reds[depth], self.path[depth], greens[depth]);
+                let same = |c: &SyntaxNode| c.text_range() == range && std::ptr::eq(green_of(c), green);
+                // For a node with text, the child at its range is the node; a node without text (an empty one after a
+                // parse error) can share its start with a sibling, so it is looked for among the children.
+                let child = parent
+                    .child_or_token_at_range(range)
+                    .and_then(|e| e.into_node())
+                    .filter(|c| same(c))
+                    .or_else(|| parent.children().find(|c| same(c)))
+                    .expect("a green child has its cursor node");
+                self.reds.push(child);
+            }
+            self.reds[self.path.len()].clone()
+        }
+        fn walk<'g>(
+            &mut self,
+            g: &'g rowan::GreenNodeData,
+            start: rowan::TextSize,
+            greens: &mut Vec<&'g rowan::GreenNodeData>,
+        ) {
+            let mut at = start;
+            for c in g.children() {
+                let len = c.text_len();
+                if let Some(n) = c.into_node() {
+                    self.path.push(rowan::TextRange::at(at, len));
+                    greens.push(n);
+                    let kind = <crate::AlLanguage as rowan::Language>::kind_from_raw(n.kind());
+                    if (self.is_match)(kind) {
+                        let m = self.materialize(greens);
+                        self.out.push(m);
+                    }
+                    if (self.enter)(kind) {
+                        self.walk(n, at, greens);
+                    }
+                    greens.pop();
+                    self.path.pop();
+                    self.reds.truncate(self.path.len() + 1);
+                }
+                at += len;
+            }
+        }
+    }
+    let mut w = Walk {
+        is_match,
+        enter,
+        path: Vec::new(),
+        reds: vec![node.clone()],
+        out: Vec::new(),
+    };
+    if (w.is_match)(node.kind()) {
+        w.out.push(node.clone());
+    }
+    if (w.enter)(node.kind()) {
+        w.walk(green_of(node), node.text_range().start(), &mut Vec::new());
+    }
+    w.out
+}
+
 /// The first token under `node` (at any depth) that is not trivia, read from the green tree without building a
 /// cursor node per level.
 pub fn first_significant_green_token(node: &SyntaxNode) -> Option<GreenTok<'_>> {
@@ -176,13 +280,13 @@ fn children<T>(node: &SyntaxNode, cast: fn(SyntaxNode) -> Option<T>) -> impl Ite
 }
 
 fn trimmed(node: &SyntaxNode) -> String {
-    node.text().to_string().trim().to_string()
+    node.text_string().trim().to_string()
 }
 
 /// The text of `node` without the preprocessor directives (`#pragma`, ...), comments and disabled
 /// text inside it, trimmed. A property value such as a `CalcFormula` can span lines that carry them.
 fn trimmed_code(node: &SyntaxNode) -> String {
-    let text = node.text().to_string();
+    let text = node.text_string();
     if !text.contains(['#', '/']) {
         return text.trim().to_string();
     }
@@ -856,7 +960,7 @@ impl TypeRef {
                     .filter(|n| n.kind() == SyntaxKind::Literal)
                     .collect::<Vec<_>>()
             })
-            .filter_map(|l| l.text().to_string().trim().parse().ok())
+            .filter_map(|l| l.text_string().trim().parse().ok())
             .collect()
     }
     /// `Option ,A,"B C"` → `["", "A", "B C"]`.
@@ -1017,6 +1121,51 @@ impl Attribute {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The green-tree search for nodes of a kind gives what `descendants().filter(kind)` gives, for every kind in a sample
+    /// object and from every node, a file with parse errors (empty nodes) included.
+    #[test]
+    fn descendants_of_kind_match_the_cursor_descendants() {
+        for src in [
+            "codeunit 50100 \"My CU\" { var G: Record Customer; procedure P(var X: Integer): Text[30]\n  var L: List of [Integer]; A: array[2] of Code[10];\n  begin if X > 1 then X := F(G.\"No.\", 2) else X += 1; repeat X -= 1; until X = 0; end; }",
+            "codeunit 1 C { procedure P() begin X := ; F(; end; }",
+        ] {
+            let parse = crate::parser::parse(src, &Default::default());
+            let root = SyntaxNode::new_root(parse.green.clone());
+            let kinds: std::collections::BTreeSet<u16> = root.descendants().map(|n| n.kind() as u16).collect();
+            let mut checked = 0;
+            for n in root.descendants() {
+                assert_eq!(n.text_string(), n.text().to_string(), "{:?}", n.kind());
+                for &k in &kinds {
+                    let kind = <crate::AlLanguage as rowan::Language>::kind_from_raw(rowan::SyntaxKind(k));
+                    let cursor: Vec<SyntaxNode> = n.descendants().filter(|d| d.kind() == kind).collect();
+                    assert_eq!(descendants_of_kind(&n, kind), cursor, "{kind:?} under {:?}", n.kind());
+                    assert_eq!(
+                        contains_kind(&n, kind),
+                        !cursor.is_empty(),
+                        "{kind:?} under {:?}",
+                        n.kind()
+                    );
+                    // Not looking inside routines, as `routines_in` and `sections_in` search.
+                    let mut outside = Vec::new();
+                    let mut it = n.preorder();
+                    while let Some(ev) = it.next() {
+                        if let rowan::WalkEvent::Enter(d) = ev {
+                            if d.kind() == kind {
+                                outside.push(d.clone());
+                            }
+                            if is_routine_kind(d.kind()) {
+                                it.skip_subtree();
+                            }
+                        }
+                    }
+                    assert_eq!(find_nodes(&n, |k| k == kind, |k| !is_routine_kind(k)), outside);
+                    checked += 1;
+                }
+            }
+            assert!(checked > 100);
+        }
+    }
 
     /// The green-tree token scan gives what the cursor scan gives: the same kinds, texts and ranges, trivia skipped.
     #[test]

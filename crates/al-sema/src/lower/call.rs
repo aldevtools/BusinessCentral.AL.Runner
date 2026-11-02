@@ -1,5 +1,6 @@
 //! Lowering of calls.
 use super::*;
+use al_syntax::ast::NodeText;
 
 impl Lowerer<'_> {
     /// `Rec.SecurityFiltering()` read on a variable declared with `[SecurityFiltering(...)]` answers the declared value on
@@ -29,7 +30,7 @@ impl Lowerer<'_> {
         if attrs.is_some_and(|a| a.iter().any(|a| a == "securityfiltering")) {
             return Err(format!(
                 "SecurityFiltering() of `{}`, declared with the attribute SecurityFiltering: the declared value is not kept",
-                recv.text().to_string().trim()
+                recv.text_string().trim()
             ));
         }
         Ok(())
@@ -129,7 +130,7 @@ impl Lowerer<'_> {
                     // `this.Proc()` runs on the current instance, like a bare call.
                     Some(r)
                         if r.kind() == SyntaxKind::NameRef
-                            && r.text().to_string().trim().eq_ignore_ascii_case("this") =>
+                            && r.text_string().trim().eq_ignore_ascii_case("this") =>
                     {
                         if object != self.oi {
                             return Err("`this` calls a procedure of another object".into());
@@ -529,7 +530,7 @@ impl Lowerer<'_> {
                                 self.ws.objects[self.oi].kind,
                                 ObjKind::Report | ObjKind::ReportExtension
                             )
-                            && r.text().to_string().trim().eq_ignore_ascii_case("CurrReport") =>
+                            && r.text_string().trim().eq_ignore_ascii_case("CurrReport") =>
                     {
                         None
                     }
@@ -542,7 +543,7 @@ impl Lowerer<'_> {
                                 self.ws.objects[self.oi].kind,
                                 ObjKind::Report | ObjKind::ReportExtension
                             )
-                            && r.text().to_string().trim().eq_ignore_ascii_case("RequestOptionsPage") =>
+                            && r.text_string().trim().eq_ignore_ascii_case("RequestOptionsPage") =>
                     {
                         None
                     }
@@ -736,8 +737,8 @@ impl Lowerer<'_> {
                         ir::Arg::Value(self.format_option_field(
                             args.len() == 1,
                             args.len() == 3
-                                && args[1].text().to_string().trim() == "0"
-                                && args[2].text().to_string().trim() == "9",
+                                && args[1].text_string().trim() == "0"
+                                && args[2].text_string().trim() == "9",
                             a,
                         )?)
                     // The substituted values of StrSubstNo, Message and Error are `Format`ted: an Option

@@ -16,6 +16,15 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
+  <!-- With -p:AlReadyToRun=true the publish compiles the sidecar's own code ahead of time (ReadyToRun) for the SDK's
+       portable runtime id, still framework-dependent: each sidecar process then starts without JIT-compiling the dispatch
+       code. It needs the runtime pack and the crossgen2 pack from NuGet; the runner falls back to a plain publish when
+       they cannot be had. -->
+  <PropertyGroup Condition="'$(AlReadyToRun)' == 'true'">
+    <RuntimeIdentifier>$(NETCoreSdkPortableRuntimeIdentifier)</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PublishReadyToRun>true</PublishReadyToRun>
+  </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="Marshal.cs" />
