@@ -924,6 +924,10 @@ impl Session {
                 }
             }
         }
+        // A root element with no content keeps every value (Y68SelfClosingParams.al:373-405 `root self-closing`).
+        if head.strip_suffix("\">").is_some_and(|h| xml == format!("{h}\" />")) {
+            return Ok(());
+        }
         if !xml.starts_with(&head) || !xml.ends_with("</ReportParameters>") {
             return unsupported(
                 "a parameters string this runtime did not produce for this report (its format is not pinned)",
@@ -934,7 +938,7 @@ impl Session {
             .nth(1)
             .and_then(|r| r.split("</Options>").next())
             .unwrap_or("");
-        for (name, text) in named_elements(options, "Field") {
+        for (name, text) in super::request_options::option_fields(options) {
             let Some(c) = page.controls.iter().find(|c| {
                 c.kind == ir::ControlKind::Field
                     && c.binding.var_slot(c.owner).is_some_and(|(slot, who)| {
@@ -956,45 +960,7 @@ impl Session {
             };
             let owner = owner_inst(inst, exts, who);
             let current = owner.borrow().globals[slot].clone();
-            let value = match &current {
-                Value::Text(_) => Value::Text(text.into()),
-                Value::Code(_) => Value::Code(text.into()),
-                Value::Boolean(_) if text == "true" || text == "false" => Value::Boolean(text == "true"),
-                // The `yyyy-MM-dd` form RunRequestPage writes (report/lt-report-requestpage/RptRequestPage.al:878-893
-                // RunRequestPage_ThenExecute_AppliesValues: `<Field name="DateVal">2021-06-05</Field>` gives 2021-06-05 in
-                // OnPreReport). Other texts are not pinned.
-                Value::Date(..) if text.len() == 10 && al_builtins::iso::parse_date(&text).is_some() => {
-                    Value::Date(al_builtins::iso::parse_date(&text).expect("checked above"), false)
-                }
-                Value::Integer(_) | Value::Decimal(_) | Value::Option(..) | Value::Enum(..) => {
-                    let ty = match &current {
-                        Value::Integer(_) => RtType::Integer,
-                        Value::Decimal(_) => RtType::Decimal,
-                        Value::Option(_, m) => RtType::Option(m.iter().cloned().collect()),
-                        Value::Enum(id, _) => RtType::Enum(*id),
-                        _ => unreachable!(),
-                    };
-                    let number = match &current {
-                        Value::Decimal(_) => ops::convert(Value::Text(text.clone().into()), &RtType::Decimal),
-                        _ => text
-                            .parse::<i32>()
-                            .map(Value::Integer)
-                            .map_err(|_| Signal::Unsupported(String::new())),
-                    };
-                    match (number, &current) {
-                        (Ok(Value::Integer(n)), Value::Option(_, m)) => Value::Option(n, m.clone()),
-                        (Ok(Value::Integer(n)), Value::Enum(id, _)) => Value::Enum(*id, n),
-                        (Ok(v), _) => ops::convert(v, &ty)?,
-                        (Err(_), _) => return unsupported(format!("the parameter {name} = {text}")),
-                    }
-                }
-                other => {
-                    return unsupported(format!(
-                        "a parameter for the control {name} holding {}",
-                        other.describe()
-                    ));
-                }
-            };
+            let value = self.request_option_value(&name, &text, &current)?;
             owner.borrow_mut().globals[slot] = value;
         }
         let items = xml
@@ -1270,7 +1236,7 @@ fn named_elements(xml: &str, tag: &str) -> Vec<(String, String)> {
     out
 }
 
-fn xml_unescape(s: &str) -> String {
+pub(crate) fn xml_unescape(s: &str) -> String {
     s.replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
