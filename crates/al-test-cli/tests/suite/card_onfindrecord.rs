@@ -53,10 +53,10 @@ fn a_card_with_on_find_record_is_asked_equals_and_reads_its_row_around_an_action
     assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }
 
-// BeCardOnFindRecord.al:374 CardTemp_PageRun_StoredRec: BC shows the stored row on a card over a temporary table; whether it
-// is copied into the temporary table is not pinned, so the run is refused.
+// BeCardOnFindRecord.al:374 CardTemp_PageRun_StoredRec: BC shows the stored row on a card over a temporary table; Page.Run(Id, Rec)
+// makes the card's Rec a database record (pages/lt-y61-page-probes/Y61StoredRecToTempCard.al:435), so the run goes on.
 #[test]
-fn a_stored_record_handed_to_a_temporary_card_is_refused() {
+fn a_stored_record_handed_to_a_temporary_card_runs() {
     let src = format!(
         "{OBJECTS}\ncodeunit 62791 T {{ Subtype = Test;
         [PageHandler] procedure H(var C: TestPage \"CF Card TF\") begin end;
@@ -68,8 +68,5 @@ fn a_stored_record_handed_to_a_temporary_card_is_refused() {
     );
     let o = al_testkit::outcomes_in(&src, "T");
     assert_eq!(o.len(), 1);
-    assert!(
-        matches!(&o[0].1, Outcome::NotRun(why) if why.contains("temporary")),
-        "{o:?}"
-    );
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }

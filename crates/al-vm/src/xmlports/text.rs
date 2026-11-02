@@ -59,6 +59,7 @@ impl Session {
             "\r\n",
         )?)?;
         let variable = xp.format == ir::XmlFormat::VariableText;
+        let unbound = unbound_column(schema, &fields, variable)?;
         let (fsep, fdelim) = (
             non_empty(text_separator(
                 set_or_declared(inst, 1, xp.field_separator.as_deref()).as_deref(),
@@ -89,16 +90,8 @@ impl Session {
             let fresh = self.initial_fields(tbl);
             rec.borrow_mut().fields = fresh;
             self.xp_run_trigger(inst, schema, table, "onafterinitrecord")?;
-            // Fields are read as the values come. Pinned for VariableText (AgXmlPortImport.al:678, xmlport 87567): a record that
-            // ends early leaves the field elements it lacks as initialized when each is `MinOccurs = Zero` ('crlf': `AUD;036;1;0.01`
-            // of 8 columns), and one value too many is left out ('too many columns'). Any other length is not pinned.
-            let lacking_optional = values.len() < fields.len()
-                && fields[values.len()..].iter().all(|&f| {
-                    let n = schema.node(f);
-                    n.kind == ir::XmlNodeKind::Field && n.min_zero
-                });
-            let length_pinned =
-                values.len() == fields.len() || (variable && (lacking_optional || values.len() == fields.len() + 1));
+            // Fields are read as the values come; which line lengths are pinned: `line_length_pinned`.
+            let length_pinned = line_length_pinned(schema, &fields, values.len(), variable);
             let mut assigned = Vec::new();
             let mut broke = false;
             for (&f, v) in fields.iter().zip(&values) {
@@ -128,6 +121,12 @@ impl Session {
                 if flow == Some(Flow::Break) {
                     broke = true;
                     break;
+                }
+            }
+            // The unbound text element (the last column) takes the values after the others (`unbound_column`).
+            if let Some(f) = unbound.filter(|_| !broke) {
+                for v in values.iter().skip(fields.len()) {
+                    self.xp_assign_variable(inst, schema, f, v.clone())?;
                 }
             }
             if !broke && !length_pinned {

@@ -223,3 +223,33 @@ fn published_application_columns_of_an_app_row_the_runtime_does_not_fill_are_ref
         "{o:?}"
     );
 }
+
+// Writer Y57: a four-argument import (Document Attachment's) takes the Mime Type from the file name's extension: .json
+// application/json, .TXT text/plain, .csv text/csv, .xml text/xml; an .xlsx or .docx name on text content raises
+// MediaUnsupportedFormat and writes no row (media/lt-y48-tenant-media/Y48TenantMediaRows.al:600-631
+// TM_RowOfFourArgImport_MoreNames).
+#[test]
+fn tenant_media_row_of_a_four_argument_import_takes_more_extensions() {
+    passes(
+        r#"table 50001 "M Row" { fields { field(1; Id; Integer) { } field(2; Pic; Media) { } field(4; B; Blob) { } } keys { key(PK; Id) { Clustered = true; } } }
+codeunit 50000 T { Subtype = Test;
+  local procedure Row(Id: Guid): Text var TM: Record "Tenant Media"; begin TM.Get(Id); exit(TM.Description + '|' + TM."Mime Type" + '|' + TM."File Name"); end;
+  local procedure Stream(var B: Record "M Row"; var InS: InStream) var O: OutStream; begin Clear(B.B); B.B.CreateOutStream(O); O.WriteText('content'); B.B.CreateInStream(InS); end;
+  local procedure Put(Name: Text): Text var R: Record "M Row"; B: Record "M Row"; InS: InStream; begin Stream(B, InS); R.Pic.ImportStream(InS, '', '', Name); exit(Row(R.Pic.MediaId())); end;
+  [Test] procedure Names() begin
+    if Put('a.json') <> '|application/json|a.json' then Error(Put('a.json'));
+    if Put('Test.File.F.TXT') <> '|text/plain|Test.File.F.TXT' then Error(Put('Test.File.F.TXT'));
+    if Put('g.csv') <> '|text/csv|g.csv' then Error(Put('g.csv'));
+    if Put('i.xml') <> '|text/xml|i.xml' then Error(Put('i.xml')); end;
+  [Test] procedure OfficeNamesOnText() var R: Record "M Row"; B: Record "M Row"; InS: InStream; TM: Record "Tenant Media"; N: Integer; begin
+    N := TM.Count();
+    Stream(B, InS);
+    asserterror R.Pic.ImportStream(InS, '', '', 'd.xlsx');
+    if GetLastErrorText() <> 'Microsoft Office document cannot be imported. File header is corrupt (MIME type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.' then Error(GetLastErrorText());
+    if GetLastErrorCode() <> 'MediaUnsupportedFormat' then Error(GetLastErrorCode());
+    Stream(B, InS);
+    asserterror R.Pic.ImportStream(InS, '', '', 'h.docx');
+    if GetLastErrorText() <> 'Microsoft Office document cannot be imported. File header is corrupt (MIME type: application/vnd.openxmlformats-officedocument.wordprocessingml.document.' then Error(GetLastErrorText());
+    if TM.Count() <> N then Error('a row was written'); end; }"#,
+    );
+}

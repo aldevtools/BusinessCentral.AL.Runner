@@ -1073,7 +1073,7 @@ impl Session {
         let r = self.action_invoke_body(st, idx);
         st.borrow_mut().view_before_action = outer_view;
         let r = match r {
-            Ok(v) => self.drop_window_of_the_old_view(st, view_before).map(|()| v),
+            Ok(v) => self.settle_rows_after_action(st, view_before).map(|()| v),
             e => e,
         };
         let held = {
@@ -1217,8 +1217,7 @@ impl Session {
             if doc {
                 st.borrow_mut().field_captions_action_save = 1;
             }
-            st.borrow_mut().refresh = true;
-            st.borrow_mut().refresh_by_update = false;
+            self.save_edit_before_action_read(st)?;
             let r = self.run_refresh(st);
             if doc {
                 st.borrow_mut().field_captions_action_save = 2;
@@ -2369,7 +2368,7 @@ impl Session {
         self.same_filters(before, now) && before.key == now.key && before.ascending == now.ascending
     }
 
-    fn drop_window_of_the_old_view(&mut self, st: &St, before: Option<ListView>) -> Result<(), Signal> {
+    pub(super) fn drop_window_of_the_old_view(&mut self, st: &St, before: Option<ListView>) -> Result<(), Signal> {
         let Some(before) = before else {
             return Ok(());
         };
@@ -3368,7 +3367,7 @@ impl Session {
         }
         if st.borrow().gone_view_list && st.borrow().open && st.borrow().cursor == Cursor::None {
             return unsupported(
-                "a second action on a List opened for view that lost its only row to an action (not pinned)",
+                "a second action on a list without the new-row line that lost its only row to an action (not pinned)",
             );
         }
         self.show_row_page_code_positioned(st)?;
@@ -3447,6 +3446,9 @@ impl Session {
             let new_line = self.offers_new_line(st)?;
             if !new_line && self.blank_rec_without_new_line(st)? {
                 return self.settle_on_blank_rec(st, &rec);
+            }
+            if !new_line && self.gone_read_only_temp_list(st, &rec)? {
+                return Ok(());
             }
             if !new_line
                 && (st.borrow().mode != PageMode::View
@@ -3610,7 +3612,7 @@ impl Session {
     /// (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:355 RT_UfWs_KeyFieldGroup2 `R:5;N:Yes:0:;C:Yes:0:;`, :372 filter group
     /// 0, :389 a field outside the key, :406 both key fields `N:Yes:5:`, :423 a range, :466 a List). Another filter group, a
     /// value from several filters, PopulateAllFields or a stamped field that validates are not pinned.
-    fn settle_on_blank_rec(&mut self, st: &St, rec: &Rec) -> Result<(), Signal> {
+    pub(super) fn settle_on_blank_rec(&mut self, st: &St, rec: &Rec) -> Result<(), Signal> {
         let table = rec.borrow().table as usize;
         let fresh = self.initial_fields(table);
         rec.borrow_mut().fields = fresh.clone();

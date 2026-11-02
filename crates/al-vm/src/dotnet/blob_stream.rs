@@ -20,7 +20,8 @@
 //! `Position` set; `Length` and `Position` once anything read or wrote after the assignment (but see above); a read on the
 //! `OutStream` side and a write, `Flush`, `Close` or `Dispose` on the `InStream` side; any member after `Close` or `Dispose`
 //! other than `WriteByte`; a second `Close`; a stream taken from an `OutStream` whose position is not the end of the Blob or
-//! from an `InStream` that was read from; an AL write that ends elsewhere than the .NET position and an AL read that stops
+//! from an `InStream` that was read from; after a .NET write, an AL write that ends elsewhere than the .NET position (before
+//! one the position follows the AL writes, Y51BlobStreamPosition.al BlobStream_Position_AfterWrites) and an AL read that stops
 //! before the end (whether the two positions are one is not pinned then); the `OutStream` created again; a byte value out of
 //! range; a `Write` range outside the array; an `InStream` assigned to a System.Object or any stream to another .NET type.
 //! The object is never handed on to .NET code: `value_to_wire` refuses a runtime-provided object.
@@ -50,6 +51,8 @@ const S_START_LEN: usize = 8;
 pub(super) const S_TOUCHED: usize = 9;
 /// The Position .NET code set on the InStream side (Null when none; blob_stream_position.rs).
 pub(super) const S_SET: usize = 10;
+/// Whether the AL InStream had already found its end (`hit_end`) when .NET code set the Position (blob_stream_position.rs).
+pub(super) const S_SET_HIT_END: usize = 11;
 
 static NEXT_VIEW: AtomicU32 = AtomicU32::new(1);
 
@@ -118,6 +121,7 @@ impl Session {
                     big(buf.bytes.len()),
                     Value::Boolean(false),
                     Value::Null,
+                    Value::Boolean(false),
                 ]
             }
             LibraryValue::InStream(st) => {
@@ -144,6 +148,7 @@ impl Session {
                     big(st.len()),
                     Value::Boolean(false),
                     Value::Null,
+                    Value::Boolean(false),
                 ]
             }
             other => {
@@ -274,13 +279,18 @@ fn sync(state: &RefCell<Vec<Value>>) -> Result<(), Signal> {
         }
         buf.observe()?;
         if buf.write_pos != seen {
-            if buf.write_pos != pos {
+            // Before any .NET read or write the .NET position follows the AL writes (Y51BlobStreamPosition.al:224-254,
+            // BlobStream_Position_AfterWrites, writer Y57).
+            let touched = matches!(state.borrow()[S_TOUCHED], Value::Boolean(true));
+            if buf.write_pos != pos && touched {
                 return unsupported(
                     "a DotNet Stream used after an AL write that ended elsewhere than its position (whether the two positions \
                      are one is not pinned)",
                 );
             }
-            state.borrow_mut()[S_SEEN] = big(buf.write_pos);
+            let mut s = state.borrow_mut();
+            s[S_SEEN] = big(buf.write_pos);
+            s[S_POS] = big(buf.write_pos);
         }
         return Ok(());
     }
@@ -368,6 +378,9 @@ pub(super) fn untouched<'a>(
     member: &str,
 ) -> Result<&'a RefCell<Vec<Value>>, Signal> {
     let state = open(this, member)?;
+    if follows_al_writes(state) {
+        return Ok(state);
+    }
     let len = blob_of(state)?.borrow().bytes.len();
     let s = state.borrow();
     if matches!(s[S_TOUCHED], Value::Boolean(true))
@@ -383,8 +396,18 @@ pub(super) fn untouched<'a>(
     Ok(state)
 }
 
+/// Whether the stream is an OutStream side no .NET read or write touched: its `Position` is the AL write position (`sync`) and
+/// its `Length` the Blob's (Y51BlobStreamPosition.al:224-254 BlobStream_Position_AfterWrites: 3|3, 4|4, 8|8, 9|9 after
+/// WriteText 'abc', Write(Byte), Write(Integer) and WriteText('x', 1)).
+fn follows_al_writes(state: &RefCell<Vec<Value>>) -> bool {
+    is_out(state) && !matches!(state.borrow()[S_TOUCHED], Value::Boolean(true))
+}
+
 fn length(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -> Result<Value, Signal> {
     let state = untouched(this, "Length")?;
+    if follows_al_writes(state) {
+        return Ok(big(blob_of(state)?.borrow().bytes.len()));
+    }
     Ok(state.borrow()[S_START_LEN].clone())
 }
 

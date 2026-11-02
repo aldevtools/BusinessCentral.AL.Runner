@@ -4055,6 +4055,8 @@
 67096 DeleteLastOfTwoRows_WithoutUpdate
 67096 DeleteOnlyRow_WithUpdate
 67096 DeleteOnlyRow_WithoutUpdate
+67096 SelectionFilter_CurrentRow
+67096 SelectionFilter_NoCurrentRow_TableHasRows
 67103 IsolatedEvent_FailingSubscriber_WritesAreRolledBack
 67103 IsolatedEvent_SubscriberError_DoesNotReachTheCaller
 67103 IsolatedEvent_SucceedingSubscriber_StillRunsAndKeepsItsWrite
@@ -5610,6 +5612,8 @@
 68513 QueryProperties_AboutTitleAndAboutText_RowsAreTheSame
 68513 QueryVariables_AcrossOpenAndClose
 68513 QueryVariables_LiveAsLongAsTheQueryVariable
+68520 ContainerTextElement_Export_TriggerOrder
+68520 ContainerTextElement_Import_TriggerOrder
 68520 Occurrence_TableElement_ZeroOnceAndTwoRows
 68520 Occurrence_TextElements_MissingAndOptional
 68520 Occurrence_TextElements_RepeatedAndMisplaced
@@ -9793,6 +9797,7 @@
 71613 Sq_GetSubstituteReportId_OnAfterSubscriberChanges
 71613 Sq_GetSubstituteReportId_PlatformSubscriberChanges
 71613 Sq_GetSubstituteReportId_Unbound
+71617 P102_Char
 71619 P102_Code
 71619 P102_Label
 71619 P102_Text
@@ -11952,6 +11957,7 @@
 73258 P129_WriteText_Accented_PerEncoding
 73258 P129_WriteText_Ascii_PerEncoding
 73258 P129_WriteText_Long_AndTwoWrites
+73258 P129_WriteText_QuotesBackslashAndEllipsis_PerEncoding
 73259 P129_WindowsLanguage_Filters_RangeAndSet
 73259 P129_WindowsLanguage_Get_NordicAndWestern
 73259 P129_WindowsLanguage_Get_OtherLanguages
@@ -14901,6 +14907,7 @@
 79650 Ap06_ValidationError_List
 79650 Ap06_ValidationError_ListPart
 79650 Ap08_ModifyAllowedFalse_StoredRow
+79650 Ap10_SetSelectionFilter_FilterHidesAll_RunWithFilter
 79650 Ap10_SetSelectionFilter_FilterHidesAll_TestPageFilter
 79650 Ap11_SaveRecordAndUpdate
 79650 Ap11_SaveRecordAndUpdateFalse
@@ -15419,6 +15426,7 @@
 81160 SetValue_VStrict_VariantTexts_FromBlank
 81161 PartEditableExpr_FlagFalse_SetValue
 81161 PartEditableExpr_FlagTrue_SetValue
+81161 SubpageEditableExpr_LockedLine
 81161 SubpageEditableExpr_UnlockedLine
 81162 ActionRunModal_OneRow_OpenEdit
 81162 DirectRunModal_OneRow
@@ -15453,7 +15461,9 @@
 81164 CardDbFind_PageRun_TempRec
 81164 CardDb_PageRun_StoredRec
 81164 CardDb_PageRun_TempRec
+81164 CardTempFind_PageRun_StoredRec
 81164 CardTempFind_PageRun_TempRec
+81164 CardTemp_PageRun_StoredRec
 81164 CardTemp_PageRun_TempRec
 81257 Companies_OfTheDatabase_NamesInKeyOrder
 81257 FixtureLog_RowsOfTheDependencyApp_InIdOrder
@@ -15694,6 +15704,7 @@
 84439 FlowFilter_AssignValidateSetRange_InCode
 84439 FlowFilter_SetValueOnCard
 84439 List_FlowFilterColumn_PageAndExtension
+84475 DataItemTableFilter_DateAsNumberAndAsDateLiteral
 84475 DataPerCompanyFalseTable_OpenRead
 84475 EnumColumn_SetRangeAndSetFilter_BeforeOpen
 84475 ExtensionField_DataItemLink_JoinsRows

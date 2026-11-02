@@ -317,7 +317,9 @@ fn set_value_checks_the_table_field_values_allowed() {
         al_testkit::text(al_testkit::run_in(SRC, "C", "ValuesAllowedValidate")),
         "X"
     );
-    refused(al_testkit::run_in(SRC, "C", "ValuesAllowedInteger"), "ValuesAllowed");
+    // An Integer field's list is checked too (al-runner issue 6672, pages/lt-y65-values-allowed-table-field/
+    // Y65ValuesAllowedTableField.al:280-286 `int 5`): a listed value is taken.
+    assert!(al_testkit::run_in(SRC, "C", "ValuesAllowedInteger").is_ok());
     refused(al_testkit::run_in(SRC, "C", "ValuesAllowedList"), "ValuesAllowed");
 }
 

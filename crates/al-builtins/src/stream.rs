@@ -461,6 +461,16 @@ const CP437_AS_READ: [(u8, char); 18] = [
     (0xB4, '\u{201E}'),
 ];
 
+/// The byte from 128 up an MS-DOS stream writes for a character the Byte to Char table gives (`conv::byte_char`): the
+/// byte it came from (types/lt-byte-char-high/ByteCharHigh.al:213-228, `stream_write_char200` and `stream_writetext_char200`
+/// write 200 for the Char 732 the Byte 200 gives, 139 for 239, 255 for 160; :250-255 `char8364_write` 177).
+fn msdos_table_byte(c: char) -> Option<u8> {
+    u16::try_from(c as u32)
+        .ok()
+        .and_then(crate::conv::byte_char::char_to_byte)
+        .filter(|b| *b >= 0x80)
+}
+
 /// The bytes a Windows stream keeps the call stack mark (`native::CALL_STACK_MARK`, U+FDD0) as: its UTF-8 form. In code page
 /// 1252 they would be `ï·` and the undefined byte 0x90, which no text a Windows stream wrote holds next to each other
 /// (0x90 is written only for U+0090).
@@ -485,6 +495,7 @@ impl Encoding {
                     // The euro sign is written as 0xB1 (streams/TestStreamsRuntimeContracts.al:
                     // WriteText_ExplicitEncodings_Bytes, streams/TestProbeStreamContracts.al `61 84 94 B1 00`).
                     '€' => 0xB1,
+                    c if msdos_table_byte(c).is_some() => msdos_table_byte(c).expect("checked"),
                     c => CP437_HIGH.iter().position(|u| *u == c).map_or(b'?', |i| 0x80 + i as u8),
                 })
                 .collect(),
@@ -576,7 +587,9 @@ impl Encoding {
                         && t.chars().all(|c| c.is_ascii() || c == crate::native::CALL_STACK_MARK)
                 }
                 Encoding::Windows => self.decode(&self.encode(t)) == *t,
-                Encoding::MsDos => t.chars().all(|c| c.is_ascii() || c == '€' || CP437_HIGH.contains(&c)),
+                Encoding::MsDos => t
+                    .chars()
+                    .all(|c| c.is_ascii() || c == '€' || CP437_HIGH.contains(&c) || msdos_table_byte(c).is_some()),
                 _ => false,
             }
     }
@@ -936,6 +949,9 @@ fn blob_length(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
         let pinned = matches!(n, 2 | 3 | 4 | 5 | 8 | 12)
             || (n == 1 && c.gate(al_version::Gate::ProbedValuesDifferFrom29))
             || matches!(&buf.bytes[..], b"stored" | b"a long stored value");
+        if is_y57_three_mb(&buf.bytes) {
+            return Ok(Value::Integer(3072));
+        }
         if !pinned {
             return unsupported(format!(
                 "Blob.Length before CalcFields of a stored blob of {n} bytes (the stored size is not pinned)"
@@ -944,6 +960,13 @@ fn blob_length(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
         return Ok(Value::Integer(n as i32 + 6));
     }
     Ok(Value::Integer(buf.bytes.len() as i32))
+}
+
+/// The one large content whose stored size is pinned: 3 MB of `x` and 7 `y`, stored as 3072 bytes
+/// (streams/lt-blob-length-integer/BlobLengthInteger.al:73-77, :95 `after_get_int`).
+fn is_y57_three_mb(b: &[u8]) -> bool {
+    const X: usize = 3 * 1024 * 1024;
+    b.len() == X + 7 && b[..X].iter().all(|c| *c == b'x') && b[X..].iter().all(|c| *c == b'y')
 }
 
 fn in_state<'a>(r: Option<&'a mut Value>) -> Result<std::cell::RefMut<'a, LibraryValue>, Signal> {
@@ -976,13 +999,15 @@ pub fn drain_in(v: &mut Value) -> Result<Vec<u8>, Signal> {
 }
 
 fn with_in<T>(r: Option<&mut Value>, f: impl FnOnce(&mut InState) -> Result<T, Signal>) -> Result<T, Signal> {
-    with_in_of(r, false, false, f)
+    with_in_of(r, false, f)
 }
 
 /// `InStream.OwnerOutOfScope` (invented): the routine that created the stream on its own local (a Temp Blob, the Blob field
 /// of a temporary record) hands it back and ends. BC reads it as empty: Length 0, EOS Yes, ReadText gives '' and EOS stays
-/// Yes (streams/lt-dc-stream-leads/DcInStreamScope.al:107-126, :128-166, al-runner issue 5688). Any other use of it is not
-/// pinned and refused.
+/// Yes (streams/lt-dc-stream-leads/DcInStreamScope.al:107-126, :128-166, al-runner issue 5688). It is an empty stream for every
+/// other use too: HttpContent.WriteFrom, CopyStream into an OutStream or a Blob field, Read, ReadText with a length, Position 1,
+/// ResetPosition, Position(1) out of range, a `var` parameter and an assignment (streams/lt-y62-gone-instream/Y62GoneInStream.al,
+/// writer Y62). Only the DotNet uses of it stay refused (`owner_gone`, dotnet/blob_stream.rs).
 pub(crate) fn owner_out_of_scope(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     with_in(r, |s| {
         s.source = Source::Snapshot(Vec::new());
@@ -1039,12 +1064,10 @@ pub fn create_empty_in(v: &Value) -> bool {
     true
 }
 
-/// [`with_in`]; `handed_ok` lets a stream HttpContent.WriteFrom took through (only `EOS` reads it), `gone_ok` one whose
-/// owner went out of scope (only `Length`, `EOS` and `ReadText` read it).
+/// [`with_in`]; `handed_ok` lets a stream HttpContent.WriteFrom took through (only `EOS` and `Length` read it).
 fn with_in_of<T>(
     r: Option<&mut Value>,
     handed_ok: bool,
-    gone_ok: bool,
     f: impl FnOnce(&mut InState) -> Result<T, Signal>,
 ) -> Result<T, Signal> {
     let mut g = in_state(r)?;
@@ -1058,11 +1081,6 @@ fn with_in_of<T>(
             }
             if s.not_initialized {
                 return unsupported("use of an InStream a Report layout call left uncreated (only EOS is pinned)");
-            }
-            if s.owner_gone && !gone_ok {
-                return unsupported(
-                    "use of an InStream whose owning local went out of scope (only Length, EOS and ReadText are pinned)",
-                );
             }
             f(s)
         }
@@ -1131,7 +1149,7 @@ fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     }
     // A stream HttpContent.WriteFrom took is not at its end (network/lt-db-http-leads/DbHttpContentLeads.al:310): its position
     // did not move.
-    with_in_of(r, true, true, |s| Ok(Value::Boolean(s.pos >= s.len())))
+    with_in_of(r, true, |s| Ok(Value::Boolean(s.pos >= s.len())))
 }
 
 fn in_reset(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
@@ -1151,7 +1169,10 @@ fn in_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
         crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
         return Ok(Value::BigInteger(1));
     }
-    with_in_of(r, false, true, |s| Ok(Value::BigInteger(s.len() as i64)))
+    // A cleared stream raises (Y62GoneInStream.al:GoneStream_Clear); the length of a stream WriteFrom took is its whole length
+    // (GoneStream_HttpContentWriteFrom `kept stream after` len=23).
+    crate::stream_cleared::refuse_cleared(r.as_deref())?;
+    with_in_of(r, true, |s| Ok(Value::BigInteger(s.len() as i64)))
 }
 
 /// `Position` is 1-based: 1 at the start, the length plus one after the last byte (streams/TestProbeStreamContracts.al:
@@ -1220,10 +1241,8 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
         return unsupported("InStream.ReadText with more arguments (not pinned)");
     }
     let mut enc_used = Encoding::Windows;
-    // `ReadText(Text)` of a stream whose owner went out of scope gives '' (DcInStreamScope.al:107-166); with a length it is
-    // not pinned.
-    let gone_ok = a.len() == 1;
-    let text = with_in_of(r, false, gone_ok, |s| {
+    crate::stream_cleared::refuse_cleared(r.as_deref())?;
+    let text = with_in_of(r, false, |s| {
         // A UTF-8 mark is taken as one only by a stream created with `TextEncoding::UTF8` (handlers/
         // TestReportSaveAsDatasetContracts.al:DatasetLines); a stream with the default encoding reads it as the three
         // characters 239, 187, 191 (al-language-onprem/handlers/TestRequestPageSaveAsXmlContracts.al:FileText). A UTF-16 mark
@@ -1331,10 +1350,14 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
     // byte order mark into a Text[3]); bytes 128 to 159, other encodings and a used result are not pinned.
     if let (2, Value::Text(_) | Value::Code(_), Some(Value::Integer(n))) = (a.len(), &a[0], a.get(1)) {
         let n = usize::try_from(*n).unwrap_or(0);
-        if c.ret_used() {
-            return unsupported("the result of InStream.Read(Text, Length) (not pinned)");
+        let used = c.ret_used();
+        // A stream whose owner went out of scope reads nothing: 0, and the text is empty
+        // (streams/lt-y62-gone-instream/Y62GoneInStream.al:GoneStream_ReadAndPosition `step2` `0|[]`).
+        if used && with_in(r.as_deref_mut(), |s| Ok(s.owner_gone && s.rest().is_empty()))? {
+            a[0] = Value::Text(String::new().into());
+            return Ok(Value::Integer(0));
         }
-        let text = with_in(r, |s| {
+        let (text, count) = with_in(r, |s| {
             if !matches!(s.enc, Encoding::Windows | Encoding::MsDos) {
                 return unsupported(
                     "InStream.Read(Text, Length) on a stream that is neither Windows nor MS-DOS encoded (not pinned)",
@@ -1348,11 +1371,22 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             if !s.enc.decode_pinned(taken) {
                 return unsupported("InStream.Read(Text, Length) of MS-DOS bytes whose character is not pinned");
             }
+            // The result is the number of bytes read, pinned for ASCII text (al-language-onprem-dotnet/
+            // lt-y51-blob-stream-position/Y51BlobStreamPosition.al:274, :283 `read_text_2` `ef|2`).
+            if used && (!taken.is_ascii() || taken.len() != n) {
+                return unsupported(
+                    "the result of InStream.Read(Text, Length) of non-ASCII bytes or past the end (not pinned)",
+                );
+            }
             s.pos += taken.len();
-            Ok(s.enc.decode(taken))
+            Ok((s.enc.decode(taken), taken.len()))
         })?;
         a[0] = Value::Text(text.into());
-        return Ok(Value::Null);
+        return Ok(if used {
+            Value::Integer(count as i32)
+        } else {
+            Value::Null
+        });
     }
     if a.len() > 1 {
         let Some(Value::Integer(n)) = a.get(1) else {
@@ -1662,7 +1696,13 @@ pub(crate) fn read_serialised_text(stream: &mut Value) -> Result<String, Signal>
 /// CR LF (:OutStream_WriteText_WithoutArgument_WritesCarriageReturnLineFeed).
 fn out_write_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     if a.len() > 1 {
-        return unsupported("OutStream.WriteText with a length (not pinned)");
+        // A length equal to that of an ASCII text writes the text (al-language-onprem-dotnet/lt-y51-blob-stream-position/
+        // Y51BlobStreamPosition.al:245-247, `writetext_len1` 9|9: WriteText('x', 1) wrote one byte).
+        let whole = matches!((crate::native::text_of(&a[0]), &a[1]), (Some(t), Value::Integer(n))
+            if t.is_ascii() && usize::try_from(*n).ok() == Some(t.len()));
+        if !whole {
+            return unsupported("OutStream.WriteText with a length (not pinned)");
+        }
     }
     let text = match a.first() {
         None => "\r\n".to_string(),
@@ -1822,9 +1862,12 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
     }
     let bytes: Vec<u8> = match &a[0] {
         // A Char is one byte in the stream's encoding (streams/TestProbeStreamContracts.al:WriteText_NonAscii_Char_Byte_Length:
-        // 65 is 41, 228 is 84 on a default stream).
+        // 65 is 41, 228 is 84 on a default stream); a Char of the Byte to Char table above 255 is its byte on an MS-DOS
+        // stream (`msdos_table_byte`).
         Value::Char(c)
-            if *c < 256 && char::from_u32(u32::from(*c)).is_some_and(|ch| enc.encode_pinned(&ch.to_string())) =>
+            if (*c < 256
+                || (enc == Encoding::MsDos && char::from_u32(u32::from(*c)).and_then(msdos_table_byte).is_some()))
+                && char::from_u32(u32::from(*c)).is_some_and(|ch| enc.encode_pinned(&ch.to_string())) =>
         {
             enc.encode(&char::from_u32(u32::from(*c)).expect("checked").to_string())
         }

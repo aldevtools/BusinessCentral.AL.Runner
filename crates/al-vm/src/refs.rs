@@ -1682,7 +1682,7 @@ impl Session {
                             )));
                         }
                     }
-                    let converted = ops::number_into_text_field(v, &field.ty, &*self);
+                    let converted = al_builtins::fieldref_value_text::variant_into_text_field(v, &field.ty, &*self);
                     let v = match converted {
                         Some(r) => r?,
                         None => ops::convert(v.clone(), &field.ty)?,

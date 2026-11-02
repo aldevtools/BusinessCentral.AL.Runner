@@ -60,6 +60,8 @@ pub struct Layout {
 }
 
 /// `Table.Field` at the first dot outside quotes: a table name may hold a dot (`"Data Exch. Def".Code`).
+mod containers;
+
 fn split_source_at_dot(source: &str) -> Option<(&str, &str)> {
     let mut quote: Option<char> = None;
     for (i, c) in source.char_indices() {
@@ -151,8 +153,16 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
         ],
         // `occurrence` is checked in `visit`: Required or Optional on a text attribute of a text or table element.
         ir::XmlNodeKind::TextAttr => &["xmlname", "namespaceprefix", "width", "unbound", "occurrence"],
-        // `texttype` is checked in `visit`: BigText or Text on a text element without children.
-        ir::XmlNodeKind::Text => &["xmlname", "namespaceprefix", "minoccurs", "maxoccurs", "texttype"],
+        // `texttype` is checked in `visit`: BigText or Text on a text element without children. `unbound` too, on one without
+        // children (xmlport/lt-y60-xmlport-unbound-text/Y60XpUnboundText.al; the VM reads its columns and refuses its export).
+        ir::XmlNodeKind::Text => &[
+            "xmlname",
+            "namespaceprefix",
+            "minoccurs",
+            "maxoccurs",
+            "texttype",
+            "unbound",
+        ],
     }
 }
 
@@ -564,6 +574,10 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
                     "fieldvalidate = {} of {section_name} {name} is not pinned",
                     p.value_text().trim()
                 ));
+            } else if pn == "unbound" && kind == K::Text && s.sections().next().is_some() {
+                out.run_reasons.push(format!(
+                    "property unbound of the container {section_name} {name} is not supported (not pinned)"
+                ));
             } else if pn == "xmlname" {
                 xml_name = crate::scan::unquote_xmlport(&p.value_text());
             } else if pn == "texttype" {
@@ -712,6 +726,13 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
     let (min_ok, max_ok): (&[&str], &[&str]) = match raw.kind {
         // An explicit MinOccurs = Once on the root is the default (writer TS's branch al-runtime-rs-staging-pub-ts,
         // QrXpContainerOccurs.al TS_RootOnce_*; `build` registers `xmlport-root-min-occurs-once`).
+        // MinOccurs = Zero on the root of a VariableText import port (xmlport/lt-y60-xmlport-unbound-text/Y60XpUnboundText.al,
+        // xmlports 93220-93222: the lines import as without it).
+        K::Text
+            if root && layout.format == ir::XmlFormat::VariableText && layout.direction == ir::XmlDirection::Import =>
+        {
+            (&["zero", "once"], &["once"])
+        }
         K::Text if root => (&["once"], &["once"]),
         K::Text if leaf => (&["zero", "once"], &["once", "unbounded"]),
         K::Text => (&["zero", "once"], &["once"]),
@@ -929,7 +950,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                 .property(i, "NamespacePrefix")
                 .map(|v| crate::scan::unquote_xmlport(&v)),
             auto_calc: layout.property(i, "AutoCalcField").and_then(|v| bool_prop(&v)),
-            unbound: kind == ir::XmlNodeKind::Field
+            unbound: matches!(kind, ir::XmlNodeKind::Field | ir::XmlNodeKind::Text)
                 && layout.property(i, "Unbound").and_then(|v| bool_prop(&v)) == Some(true),
             source_view: (kind == ir::XmlNodeKind::Table)
                 .then(|| layout.property(i, "SourceTableView"))
@@ -948,9 +969,10 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                 if node.slot.is_none() {
                     reasons.push(format!("variable of {} has no slot", raw.name));
                 }
-                // No corpus test pins a trigger on a container text element (one with child
-                // elements; Base App's xmlport 1 has OnAfterAssignVariable on one), so running
-                // the port is refused, not declaring it.
+                // A trigger on a container text element (one with child elements) outside the shapes below refuses running the
+                // port, not declaring it (Base App's xmlport 1 has OnAfterAssignVariable on one).
+                // Pinned: a container whose nodes are text attributes and text elements without table or field nodes below
+                // (`containers::container_tree_shape`, xmlport/lt-y60-xmlport-container-skip/Y60XpContainerSkip.al).
                 // Pinned (
                 // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TO_AttrItem_*, TO_TextContent_*): right below a
                 // table element, a text element whose nodes are only text attributes, or text attributes and leaf text and
@@ -963,6 +985,8 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                     && !text_in_table_shape(layout, i)
                     && nested_text_shape(layout, i).is_none()
                     && !raw.parent.is_some_and(|p| nested_text_shape(layout, p) == Some(i))
+                    && !containers::container_tree_shape(layout, i)
+                    && !containers::wrap_shape(layout, i)
                 {
                     run_reasons.push(format!(
                         "triggers of the container text element {} are not supported (not pinned)",

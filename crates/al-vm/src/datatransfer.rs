@@ -156,17 +156,35 @@ impl Session {
         Ok(())
     }
 
-    /// Refuses a copy into table `no` when it has a table extension: what the copy does with its code is not pinned
-    /// (record/lt-as-records/Y47DtInstall.al has no table extension).
+    /// Refuses a copy into table `no` when it has a table extension of another app. A table extension of the table's own app
+    /// is pinned: its fields are copied, filtered and joined like the table's, an unmapped one gets its InitValue on CopyRows,
+    /// and no trigger of the table or of an extension runs (record/lt-as-records/Y47DtInstall.al S4-S7 on Y57DtExtTables.al,
+    /// Y47DtInstallRead.al Y57_DtExt_Outcomes, Y57_DtExt_Rows).
     fn dt_refuse_extensions(&self, no: i32) -> Result<(), Signal> {
         let Some(object) = self.compiled_table(no as u32) else {
             return Ok(());
         };
-        let o = &self.engine.program.objects[object];
-        if o.table.as_ref().is_some_and(|t| !t.extensions.is_empty()) {
-            return refuse("DataTransfer into a table that has a table extension (not pinned)");
+        let objects = &self.engine.program.objects;
+        let app = objects[object].app;
+        if objects[object]
+            .table
+            .as_ref()
+            .is_some_and(|t| t.extensions.iter().any(|&e| objects[e].app != app))
+        {
+            return refuse("DataTransfer into a table that has a table extension of another app (not pinned)");
         }
         Ok(())
+    }
+
+    /// Marks the assumption datatransfer-other-app-extension when table `no` has a table extension (see `dt_copy_fields`).
+    fn dt_mark_extensions(&self, no: i32) {
+        let Some(object) = self.compiled_table(no as u32) else {
+            return;
+        };
+        let o = &self.engine.program.objects[object];
+        if o.table.as_ref().is_some_and(|t| !t.extensions.is_empty()) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DatatransferOtherAppExtension);
+        }
     }
 
     fn dt_copy_rows(&mut self, plan: &Plan) -> Result<(), Signal> {
@@ -193,7 +211,10 @@ impl Session {
     }
 
     fn dt_copy_fields(&mut self, plan: &Plan) -> Result<(), Signal> {
-        self.dt_refuse_extensions(plan.destination)?;
+        // CopyFields into a table with a table extension, of its own app or of another, copies, filters and joins the extension's
+        // fields like the table's and runs no trigger (record/lt-as-records/Y47DtInstallRead.al Y65_DtItemAttribute_Outcomes,
+        // writer Y65, a Base Application table with another app's extension; Y57_DtExt_* for the own app's). CopyRows stays refused.
+        self.dt_mark_extensions(plan.destination);
         let (st, sources, _) = self.dt_rows(plan.source, &plan.source_filters)?;
         let changed: Vec<Vec<Value>> = if plan.joins.is_empty() {
             if plan.source != plan.destination || !plan.destination_filters.is_empty() {

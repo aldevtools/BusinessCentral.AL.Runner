@@ -78,11 +78,135 @@ fn a_request_page_field_of_an_extension_that_changes_the_run_reaches_its_trigger
 
 #[test]
 fn save_values_or_a_trigger_on_the_extension_request_page_stays_refused() {
-    for (save, trigger) in [(true, false), (false, true)] {
-        let o = outcome(save, trigger);
-        assert!(
-            matches!(&o, Outcome::NotRun(why) if why.contains("changes the run and extends the request page")),
-            "{save} {trigger}: {o:?}"
-        );
-    }
+    let o = outcome(false, true);
+    assert!(
+        matches!(&o, Outcome::NotRun(why) if why.contains("changes the run and extends the request page")),
+        "{o:?}"
+    );
+    // With SaveValues the close by OK is not pinned (the SaveAsXml and Cancel closes are: corpus al-language-onprem/report/
+    // lt-y60-reportext-saveasxml/Y60ReportExtSaveAsXml.al).
+    let o = outcome(true, false);
+    assert!(
+        matches!(&o, Outcome::NotRun(why) if why.contains("SaveValues") && why.contains("OK")),
+        "{o:?}"
+    );
+}
+
+// Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun ('second'): a Cancel close of such a page stores nothing, the
+// report does not run, and the next run opens with the defaults.
+#[test]
+fn with_save_values_a_cancel_close_stores_nothing() {
+    let src = format!(
+        r#"{}
+codeunit 62790 T
+{{
+    Subtype = Test;
+    var Step: Integer; Seen: Text;
+    [Test] [HandlerFunctions('H')] procedure Run()
+    var A: Record "RX Account";
+    begin
+        A.DeleteAll(); A."No." := 'A'; A.Insert(); Commit();
+        Step := 1; Report.Run(Report::"RX Statement");
+        Step := 2; Report.Run(Report::"RX Statement");
+        A.Get('A');
+        if (Seen <> 'note= showall=No') or (A.Seen <> 0) then Error('%1 %2', Seen, A.Seen);
+    end;
+    [RequestPageHandler] procedure H(var P: TestRequestPage "RX Statement")
+    begin
+        if Step = 1 then begin P.NoteText.SetValue('hello'); P.ShowAll.SetValue(true); P.Cancel().Invoke(); exit; end;
+        Seen := 'note=' + P.NoteText.Value() + ' showall=' + P.ShowAll.Value();
+        P.Cancel().Invoke();
+    end;
+}}"#,
+        objects(true, false)
+    );
+    let o = al_testkit::outcomes_in(&src, "T");
+    assert_eq!(o[0].1, Outcome::Pass);
+}
+
+// Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun ('second'): the close by SaveAsXml stores the values of the
+// base and of the extension; the next run opens with them.
+#[test]
+fn with_save_values_a_save_as_xml_close_stores_the_base_and_extension_values() {
+    let src = r#"
+table 62710 "RY Row" { fields { field(1; Id; Integer) { } field(2; Name; Text[20]) { } } keys { key(PK; Id) { } } }
+report 62711 "RY Saved"
+{
+    ProcessingOnly = false;
+    dataset { dataitem(Header; "RY Row") { column(HName; Name) { } } }
+    requestpage { SaveValues = true; layout { area(Content) { group(Options) { field(ShowAll; ShowAll) { } } } } }
+    var ShowAll: Boolean;
+}
+reportextension 62712 "RY Saved X" extends "RY Saved"
+{
+    dataset { modify(Header) { trigger OnAfterAfterGetRecord() begin end; } }
+    requestpage { layout { addlast(Options) { field(NoteText; NoteText) { } } } }
+    var NoteText: Text[50];
+}
+codeunit 62790 T
+{
+    Subtype = Test;
+    var Step: Integer; Seen: Text;
+    [Test] [HandlerFunctions('H')] procedure Run()
+    var R: Record "RY Row";
+    begin
+        R.DeleteAll(); R.Id := 1; R.Name := 'one'; R.Insert(); Commit();
+        Step := 1; Report.Run(Report::"RY Saved");
+        Step := 2; Report.Run(Report::"RY Saved");
+        if Seen <> 'note=hello showall=Yes' then Error(Seen);
+    end;
+    [RequestPageHandler] procedure H(var P: TestRequestPage "RY Saved")
+    begin
+        if Step = 1 then begin
+            P.NoteText.SetValue('hello'); P.ShowAll.SetValue(true);
+            P.SaveAsXml(TemporaryPath() + 'p.xml', TemporaryPath() + 'd.xml');
+            exit;
+        end;
+        Seen := 'note=' + P.NoteText.Value() + ' showall=' + P.ShowAll.Value();
+        P.Cancel().Invoke();
+    end;
+}"#;
+    let o = al_testkit::outcomes_in(src, "T");
+    assert_eq!(o[0].1, Outcome::Pass);
+}
+
+// Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun ('first log' after an earlier saved run): the values a SaveAsXml
+// close stored reach the next run without changing what the extension's data item triggers read.
+#[test]
+fn a_run_after_a_saved_run_reads_its_data_items() {
+    let src = r#"
+table 62720 "RZ Row" { fields { field(1; Id; Integer) { } field(2; Name; Text[20]) { } } keys { key(PK; Id) { } } }
+codeunit 62723 "RZ Log" { SingleInstance = true; var L: Text; procedure Add(E: Text) begin L += E + ';'; end; procedure Take(): Text var R: Text; begin R := L; L := ''; exit(R); end; }
+report 62721 "RZ Saved"
+{
+    ProcessingOnly = false;
+    dataset { dataitem(Header; "RZ Row") { column(HName; Name) { } dataitem(Line; "RZ Row") { DataItemLink = Id = field(Id); column(LName; Name) { } } } }
+    requestpage { SaveValues = true; layout { area(Content) { group(Options) { field(ShowAll; ShowAll) { } } } } }
+    var ShowAll: Boolean;
+}
+reportextension 62722 "RZ Saved X" extends "RZ Saved"
+{
+    dataset { modify(Line) { trigger OnAfterAfterGetRecord() begin Log.Add('line ' + Format(Line.Id)); end; } }
+    requestpage { layout { addlast(Options) { field(NoteText; NoteText) { } } } }
+    var NoteText: Text[50]; Log: Codeunit "RZ Log";
+}
+codeunit 62790 T
+{
+    Subtype = Test;
+    [Test] [HandlerFunctions('H')] procedure Run()
+    var R: Record "RZ Row"; L: Codeunit "RZ Log"; First: Text; Second: Text;
+    begin
+        R.DeleteAll(); R.Id := 1; R.Name := 'one'; R.Insert(); R.Id := 2; R.Name := 'two'; R.Insert(); Commit();
+        Report.Run(Report::"RZ Saved"); First := L.Take();
+        Report.Run(Report::"RZ Saved"); Second := L.Take();
+        if First + '#' + Second <> 'line 1;line 2;#line 1;line 2;' then Error(First + '#' + Second);
+    end;
+    [RequestPageHandler] procedure H(var P: TestRequestPage "RZ Saved")
+    begin
+        P.NoteText.SetValue('hello'); P.ShowAll.SetValue(true);
+        P.SaveAsXml(TemporaryPath() + 'p.xml', TemporaryPath() + 'd.xml');
+    end;
+}"#;
+    let o = al_testkit::outcomes_in(src, "T");
+    assert_eq!(o[0].1, Outcome::Pass);
 }
