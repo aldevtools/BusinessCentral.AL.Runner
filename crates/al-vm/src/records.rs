@@ -3274,6 +3274,28 @@ impl Session {
         ))
     }
 
+    /// What a filter does in a negative filter group other than -1, the OR group, is not pinned (only reading the group back is:
+    /// P68F_FilterGroup.al RecordRef_Setter_Negative_And_Large).
+    fn refuse_filter_in_unpinned_group(method: RecordOp, rec: &Rec) -> Result<(), Signal> {
+        let sets_filter = matches!(
+            method,
+            RecordOp::SetRange
+                | RecordOp::SetFilter
+                | RecordOp::SetView
+                | RecordOp::SetRecFilter
+                | RecordOp::CopyFilter
+                | RecordOp::CopyFilters
+        );
+        let group = rec.borrow().filter_group;
+        if sets_filter && group < 0 && group != al_builtins::filter::OR_GROUP {
+            return unsupported(format!(
+                "{} in filter group {group}, a negative group other than -1 (not pinned)",
+                method.name()
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.connection_check(rec)?;
         if rec.borrow().unpinned_buffer.is_some() {
@@ -3287,6 +3309,7 @@ impl Session {
             }
         }
         let t = self.table(rec)?;
+        Self::refuse_filter_in_unpinned_group(method, rec)?;
         if !rec.borrow().temporary {
             self.install_assumed(t.object);
         }
