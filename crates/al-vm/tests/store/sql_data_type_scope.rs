@@ -1,8 +1,6 @@
-//! A Code field with `SQLDataType = Integer` in the primary key, or with another SQLDataType (`Variant`), is refused only
-//! where its sort order or comparison is observed, not at every touch of the table (runner issues on the pattern of
-//! refusals at the table definition). Pinned: Integer sorts by number under a secondary key
-//! (corpus record/lt-x-table-props/XTablePropsTests.al:322-325). Not pinned: the order of a primary key holding such a
-//! field, anything about Variant.
+//! A Code field with `SQLDataType = Integer` in the primary key, or with `Variant`, runs like any other field: no touch of the table
+//! is refused (runner issues on the pattern of refusals at the table definition). The order and the filters are in
+//! sql_data_type_numeric.rs.
 
 use al_builtins::native::Signal;
 use al_testkit::{int, text};
@@ -156,15 +154,8 @@ fn run(routine: &str) -> Result<al_builtins::value::Value, Signal> {
     al_testkit::run_in(SRC, "C", routine)
 }
 
-fn refused(routine: &str, needle: &str) {
-    match run(routine) {
-        Err(Signal::Unsupported(why)) => assert!(why.contains(needle), "{routine}: {why}"),
-        other => panic!("{routine}: {other:?}"),
-    }
-}
-
 #[test]
-fn an_integer_code_primary_key_runs_without_observing_its_order() {
+fn an_integer_code_primary_key_runs() {
     assert_eq!(text(run("PkInsertGetCount")), "b10");
     assert_eq!(int(run("PkCountAll")), 2);
     assert_eq!(int(run("PkDelete")), 1);
@@ -172,24 +163,20 @@ fn an_integer_code_primary_key_runs_without_observing_its_order() {
     assert_eq!(text(run("OtherKeyFirst")), "9");
 }
 
+// Y82PkTests.al PkInt_NumericOrder: the primary key sorts and filters by number.
 #[test]
-fn reading_in_the_order_of_an_integer_code_primary_key_is_refused() {
-    for routine in ["PkFindFirst", "PkFindSet"] {
-        refused(routine, "primary key");
-    }
-    // A range filter on the field compares numbers or text: not pinned.
-    refused("PkRange", "SQLDataType");
+fn reading_in_the_order_of_an_integer_code_primary_key_sorts_by_number() {
+    assert_eq!(text(run("PkFindFirst")), "9");
+    assert_eq!(int(run("PkFindSet")), 2);
+    assert_eq!(int(run("PkRange")), 2);
 }
 
+// Y82InsertTests.al PkVnt_Insert_Abc: a Variant field takes any value.
 #[test]
-fn a_variant_code_field_nobody_sets_does_not_stop_the_table() {
+fn a_variant_code_field_takes_values_and_sorts() {
     assert_eq!(text(run("VariantRows")), "2z2");
     assert_eq!(text(run("VariantOtherKey")), "2");
-}
-
-#[test]
-fn observing_a_variant_code_field_is_refused() {
-    refused("VariantSetValue", "Variant");
-    refused("VariantKeyOrder", "Variant");
-    refused("VariantFilter", "SQLDataType");
+    run("VariantSetValue").expect("a Variant field takes 'A'");
+    assert_eq!(int(run("VariantKeyOrder")), 1);
+    assert_eq!(int(run("VariantFilter")), 0);
 }

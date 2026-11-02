@@ -2127,94 +2127,6 @@ impl Session {
         }
     }
 
-    /// A Code field the database stores as a number (`SQLDataType = Integer`) takes the empty value and plain numbers. A
-    /// Modify of `0` or a number with a leading zero fails with error code 22928070, one of letters with 22928072
-    /// (record/lt-x-table-props/XTablePropsTests.al:352-353, :368-369, :384-385); the values '10' and '9' are taken
-    /// (:322-325). Any other value, any such value an Insert writes, and every value of a `BigInteger` one other than those
-    /// taken are not pinned: refused.
-    fn check_code_storage(&self, t: &TableDef, row: &[Value], modify: bool) -> Result<(), Signal> {
-        if !self.engine.table_facts[t.object as usize].code_sql_type {
-            return Ok(());
-        }
-        let schema = self.engine.program.objects[t.object as usize]
-            .table
-            .as_ref()
-            .expect("table");
-        for (i, f) in t.fields.iter().enumerate() {
-            if !matches!(f.ty, RtType::Code(_)) {
-                continue;
-            }
-            let declared = schema.fields[i]
-                .properties
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case("SQLDataType"))
-                .map(|(_, v)| v.trim());
-            let Some(declared) = declared.filter(|v| !v.eq_ignore_ascii_case("Varchar")) else {
-                continue;
-            };
-            // The order of the primary key and the comparison rules of another SQLDataType are not pinned, but only a read that
-            // observes them is refused (al_data::MemStore::code_storage_read), not every touch of the table.
-            if f.code_storage == al_data::CodeStorage::Other {
-                let empty = al_builtins::native::text_of(&row[i]).is_none_or(|v| v.is_empty());
-                if !empty {
-                    return unsupported(format!(
-                        "a value in the Code field {} with SQLDataType = {declared}: how the database stores and compares it is not pinned",
-                        f.name
-                    ));
-                }
-                continue;
-            }
-            let value = al_builtins::native::text_of(&row[i])
-                .map(|v| v.to_string())
-                .unwrap_or_default();
-            let digits = !value.is_empty() && value.bytes().all(|c| c.is_ascii_digit());
-            if value.is_empty() || (digits && !value.starts_with('0') && value.parse::<i32>().is_ok()) {
-                continue;
-            }
-            let number = if digits && value.starts_with('0') {
-                ("22928070", "NDBCS:BadCSideCodeData")
-            } else if value.bytes().all(|c| c.is_ascii_uppercase()) {
-                ("22928072", "NDBCS:BadSqlIntCodeData")
-            } else {
-                return unsupported(format!(
-                    "the value '{value}' in the Code field {}, which the database stores as a number: the outcome is not pinned",
-                    f.name
-                ));
-            };
-            if !modify || f.code_storage != al_data::CodeStorage::Integer {
-                return unsupported(format!(
-                    "{} of '{value}' into the Code field {} with SQLDataType = {declared}: the outcome is not pinned",
-                    if modify { "a Modify" } else { "an Insert" },
-                    f.name
-                ));
-            }
-            // Only a table named as its caption, with one Integer primary key field named as its caption, is pinned.
-            let pk = &t.keys[0];
-            if pk.len() != 1
-                || !matches!(t.fields[pk[0]].ty, RtType::Integer)
-                || self.caption(t) != t.name
-                || self.field_caption(t, pk[0]) != t.fields[pk[0]].name
-            {
-                return unsupported(format!(
-                    "the error of a value that is no integer in Code field {} of {}: the identification of this primary key is not pinned",
-                    f.name, t.name
-                ));
-            }
-            let key = match &row[pk[0]] {
-                Value::Integer(n) => n.to_string(),
-                _ => return unsupported("an Integer primary key field that holds no Integer"),
-            };
-            return Err(crate::transactions::al_error_code(
-                &format!(
-                    "The {} table contains a value that is not valid in an integer Code field:\\\\{}='{key}'\\Error code: {}",
-                    t.name, t.fields[pk[0]].name, number.0
-                ),
-                number.1,
-            ));
-        }
-        Ok(())
-    }
-
     fn restore_row_version(rec: &Rec, old: Option<(usize, Value)>) {
         if let Some((i, v)) = old {
             rec.borrow_mut().fields[i] = v;
@@ -2278,9 +2190,10 @@ impl Session {
             rows.push((pos, row));
         }
         let mask = rec.borrow().field_descending;
+        let fields = Session::position_fields(t, key);
         let order = |a: &[Value], b: &[Value]| -> Ordering {
             for (i, (x, y)) in a.iter().zip(b).enumerate() {
-                let o = ops::compare(x, y).unwrap_or(Ordering::Equal);
+                let o = Session::compare_in_position(t, &fields, i, x, y);
                 let o = if i < 32 && mask & (1 << i) != 0 { o.reverse() } else { o };
                 if o != Ordering::Equal {
                     return o;
@@ -3910,7 +3823,7 @@ impl Session {
                 if keep_id {
                     self.check_system_id_unique(rec, &t)?;
                 }
-                self.check_code_storage(&t, &rec.borrow().fields, false)?;
+                self.check_code_storage(&t, rec, false)?;
                 self.sql_timestamp_before(&t, rec, None)?;
                 let old_version = self.bump_row_version(&t, rec);
                 self.sql_timestamp_after(&t, rec);
@@ -4296,7 +4209,7 @@ impl Session {
                 // modified its row without a change (Create Prod. Order Lines.Copy) and pass, which a bumped version would make a
                 // stale write (record/lt-priority-assumptions/PriorityAssumptions.al:143-244, real BC: after a Modify that changes nothing and a Commit, the
                 // other variable's Modify of a changed field is accepted, while a Modify that changed a field makes it fail with DB:RecordChanged).
-                self.check_code_storage(&t, &rec.borrow().fields, true)?;
+                self.check_code_storage(&t, rec, true)?;
                 self.check_failed_insert_stale(&t, rec, stored_row.as_deref())?;
                 self.sql_timestamp_before(&t, rec, stored_row.as_deref())?;
                 // A bulk ModifyAll(.., false) without subscribers stamps SystemModifiedAt of a row that has the value already
@@ -5646,7 +5559,7 @@ impl Session {
                         new[field] = ops::convert(v.clone(), &ty)?;
                     }
                 }
-                self.check_rename_auto_increment(&t, &old, &new)?;
+                self.check_rename_values(rec, &t, &old, &mut new)?;
                 if self.is_profile_row(&t, rec.borrow().temporary) {
                     self.profile_before_rename(&t, &old, &new)?;
                 }

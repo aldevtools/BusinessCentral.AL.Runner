@@ -79,6 +79,7 @@ mod set_view_caption;
 mod set_view_retention_shapes;
 mod set_view_unknown_name;
 mod sql_data_type;
+mod sql_data_type_numeric;
 mod sql_data_type_scope;
 mod stale_buffer;
 mod stale_buffer_6028;
