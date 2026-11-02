@@ -524,7 +524,7 @@ fn run_codeunit_inner(
                 // The error may come from install data this run does not have: it is not trusted.
                 if let Some(why) = skipped_installs
                     .iter()
-                    .find(|(tables, _)| !tables.is_disjoint(&tables_touched(lowered, object, on_run)))
+                    .find(|(tables, _)| !tables.is_disjoint(&crate::install::touched(engine, lowered, object, on_run)))
                     .map(|(_, why)| why)
                 {
                     return on_run_refused(format!("OnRun failed after install code that did not run: {why}"));
@@ -671,7 +671,7 @@ fn run_codeunit_inner(
             Outcome::NotRun(b.text)
         } else if let Some(reason) = skipped_installs
             .iter()
-            .find(|(tables, _)| !tables.is_disjoint(&tables_touched(lowered, object, r)))
+            .find(|(tables, _)| !tables.is_disjoint(&crate::install::touched(engine, lowered, object, r)))
             .map(|(_, why)| why)
         {
             Outcome::NotRun(reason.clone())
