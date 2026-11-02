@@ -47,6 +47,7 @@ pub mod json;
 pub mod mathfns;
 pub mod media;
 mod media_export;
+pub mod media_orphans;
 pub mod moduleinfo;
 pub mod native;
 pub mod ops;

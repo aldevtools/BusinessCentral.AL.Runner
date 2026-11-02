@@ -353,7 +353,19 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
     let std9 = std == 9 && record_or_ref == Some(true);
     if composite && (std == 0 || std9) {
         if let Some(r) = ctx.format_composite(&args[0]) {
-            return r.map(|t| Value::Text(crate::format::pad(t, len).into()));
+            let t = r?;
+            // A record's text longer than a length above 0 is cut to it (errors/lt-ms-refusals-133/
+            // P133DateEvaluateFormat.al:352-361 `length 5`, `length 20`); a shorter one is not pinned.
+            if matches!(&args[0], Value::Record(_)) && len > 0 {
+                let want = usize::try_from(len).unwrap_or(0);
+                if t.chars().count() <= want {
+                    return Err(Signal::Unsupported(
+                        "Format of a record with a length its text does not reach (not pinned)".into(),
+                    ));
+                }
+                return Ok(Value::Text(t.chars().take(want).collect::<String>().into()));
+            }
+            return Ok(Value::Text(crate::format::pad(t, len).into()));
         }
     }
     format_value(&args[0], len, std, ctx)

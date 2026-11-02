@@ -81,15 +81,25 @@ fn plain_date(v: &Value, what: &str) -> Result<i32, Signal> {
     }
 }
 
-/// `DMY2Date(Day, Month, Year)` with all three parts, which is every form the corpus calls
-/// (fieldref/TestFieldRefValue.al:122, record/TestDateVirtualTableFlowField.al:65,83).
+/// `DMY2Date(Day [, Month [, Year]])` (fieldref/TestFieldRefValue.al:122, record/TestDateVirtualTableFlowField.al:65,83).
+/// A missing month and year come from Today, never from the work date, and then bound the day like given ones
+/// (errors/lt-ms-refusals-133/P133DateEvaluateFormat.al:104-218); without a host clock the short forms are refused.
 /// One part outside the calendar raises the range error that names it (types/lt-datetime/DateFuncs.al:243-302,
 /// DMY2Date_Invalid): the day against the length of its month (30 February 2024: 1 to 29), the month against 1 to 12, the year
 /// against 1 to 9999; a month out of range in year 0 raises the month's error. Year 0 itself is no error in BC, but the date it
 /// gives is not pinned, and neither is which part BC names when two are out of range: both refused.
-fn dmy2date(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
-    let (Some(d), Some(m), Some(y)) = (int_of(a.first()), int_of(a.get(1)), int_of(a.get(2))) else {
-        return unsupported("DMY2Date without all of Day, Month and Year (not pinned by the corpus)");
+fn dmy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
+    let today = || ctx.today_day().map(civil_from_day);
+    let given = (int_of(a.first()), int_of(a.get(1)), int_of(a.get(2)));
+    let (d, m, y) = match (a.len(), given, today()) {
+        (3, (Some(d), Some(m), Some(y)), _) => (d, m, y),
+        (2, (Some(d), Some(m), None), Some((ty, _, _))) => (d, m, ty),
+        (1, (Some(d), None, None), Some((ty, tm, _))) => (d, tm as i32, ty),
+        _ => {
+            return unsupported(
+                "DMY2Date with these arguments, or a short form without a clock (not pinned by the corpus)",
+            );
+        }
     };
     let range = |n: u8, v: i32, hi: u32| {
         raise(

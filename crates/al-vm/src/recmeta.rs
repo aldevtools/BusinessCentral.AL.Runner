@@ -687,7 +687,7 @@ impl Session {
                 self.set_position(rec, t, &text).map(|()| Value::Null)
             }
             RecordOp::TransferFields => self.transfer_fields(rec, t, args),
-            RecordOp::GetBySystemId => self.get_by_system_id(rec, t, args, false),
+            RecordOp::GetBySystemId => self.get_by_system_id(rec, t, args),
             RecordOp::ModifyAll => self.modify_all(rec, t, args),
             // Doc (Record.Ascending): with an argument sets the sort direction of the current key,
             // without one reads it (corpus record/TestRecordSort.al:111, TestCopyOntoTemporaryRecord.al).
@@ -1669,17 +1669,10 @@ impl Session {
     }
 
     /// `GetBySystemId(Guid)`: loads the row holding that SystemId, whatever the filters; a miss is
-    /// `false` and leaves the buffer. A miss with the result unused raises; its text is pinned only
-    /// for the RecordRef form (`raise_on_miss`), the Record form is refused there.
-    /// RecordRef: corpus branch al-runtime-rs-staging (ae3fe88), tests/al-language/types/
-    /// PXEnumRecordRef.al:199-301.
-    pub(crate) fn get_by_system_id(
-        &mut self,
-        rec: &Rec,
-        t: &TableDef,
-        args: &[Value],
-        raise_on_miss: bool,
-    ) -> Result<Value, Signal> {
+    /// `false` and leaves the buffer. A miss with the result unused raises, for a Record
+    /// (misc/lt-probes-needed-4/PnD04_GetBySystemId.al:36-47, :111-124 the null Guid) and a RecordRef
+    /// (types/PXEnumRecordRef.al:199-301).
+    pub(crate) fn get_by_system_id(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
         let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_000) else {
             return unsupported("GetBySystemId on a table without SystemId");
         };
@@ -1754,7 +1747,7 @@ impl Session {
             // "The PX Row does not exist. Identification fields and values: {x}" / DB:RecordNotFound
             // (PXEnumRecordRef.al:264-267; the probe masks what stands between the braces, here
             // the Guid as Format writes it: docs/probes-needed.md).
-            None if raise_on_miss => {
+            None => {
                 let id = al_builtins::format::try_format(&Value::Guid(*g), 0, 0, self).map_err(Signal::Unsupported)?;
                 Err(Signal::Error(Box::new(AlError {
                     message: format!(
@@ -1769,7 +1762,6 @@ impl Session {
                     ..Default::default()
                 })))
             }
-            None => unsupported("GetBySystemId of a missing row without using the result (error text not pinned)"),
         }
     }
 
