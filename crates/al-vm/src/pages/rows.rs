@@ -469,59 +469,6 @@ impl Session {
     /// populates a new window). The window is 20 rows: the corpus pins it only between 20 and 24.
     pub(super) const WINDOW: usize = 20;
 
-    /// The window of a part that reads its rows last to first, once each, without reading the first row again. Pinned
-    /// for 2 and 3 rows (pages/lt-part-reads/PartReadsOpen.al:OpenView_SixParts_ReadsPerPartLogged `open-Same`;
-    /// misc/lt-probes-needed-7/PnGPartTriggers.al:OpenOrderOfHostWithSixParts); one row or more than 3 is refused.
-    fn populate_window_backwards(
-        &mut self,
-        st: &St,
-        start: Vec<Value>,
-        why: al_builtins::value::ReadBackwards,
-    ) -> Result<bool, Signal> {
-        let rec = self.page_rec(st);
-        let mut rows: Vec<al_builtins::value::WindowRow> = Vec::new();
-        loop {
-            let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
-            rows.push(al_builtins::value::WindowRow {
-                key,
-                stored: stored.clone(),
-                shown: stored,
-            });
-            if rows.len() > 3 || !self.nav_next(st, 1)? {
-                break;
-            }
-        }
-        // At open 2 and 3 rows are pinned (see `view_names_link_field`); after a move back 1, 2 and 3
-        // (pages/lt-part-reads/PartReadsOpen.al:358-379).
-        let after_move = why == al_builtins::value::ReadBackwards::AfterMove;
-        if after_move && rows.len() > 3 {
-            // Kept, not pinned: a part of more than 3 rows after its host moved back reads first to last, as every
-            // refill did before the backward order was pinned (keeps misc/lt-probes-needed-7/PnGPartRows.al:
-            // PendingPartRowSavedWhenHostMoves, which does not log those reads).
-            self.ret_used = true;
-            self.record_op(RecordOp::Get, &rec, &mut start.clone())?;
-            return Ok(false);
-        }
-        if (rows.len() == 1 && !after_move) || rows.len() > 3 {
-            return unsupported(
-                "a part viewing its linked field with a number of rows other than 2 or 3 (reads not pinned)",
-            );
-        }
-        for row in rows.iter_mut().rev() {
-            rec.borrow_mut().fields = row.stored.clone();
-            self.populate_current(st)?;
-            row.shown = rec.borrow().fields.clone();
-        }
-        self.ret_used = true;
-        self.record_op(RecordOp::Get, &rec, &mut start.clone())?;
-        rec.borrow_mut().fields = rows[0].shown.clone();
-        let first_stored = rows[0].stored.clone();
-        self.set_xrec_fields(st, first_stored);
-        st.borrow_mut().window = rows;
-        Ok(true)
-    }
-
     pub(super) fn populate_window(&mut self, st: &St) -> Result<(), Signal> {
         // A tree with TreeInitialState = ExpandAll and row triggers reads the rows it does not show too when it opens
         // (`tree_expand_all_with_row_triggers`): the tree's cut is left out while the window is read.
@@ -1418,6 +1365,9 @@ impl Session {
 
     /// Moves the cursor; the Boolean the move methods return.
     pub(super) fn page_move(&mut self, st: &St, how: PageMethod) -> Result<Value, Signal> {
+        if let Some(answer) = self.move_after_refused_save(st, how)? {
+            return Ok(answer);
+        }
         if !self.has_source(st) {
             return unsupported(format!("{how}() on a page without a source table"));
         }

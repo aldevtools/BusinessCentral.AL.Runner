@@ -383,6 +383,9 @@ pub struct PageState {
     pub draft: bool,
     /// Fields written by the client since the row was loaded.
     pub dirty: bool,
+    /// The save of a changed row failed on a page whose ModifyAllowed is false (`SaveAbort`): the change stays shown, nothing is
+    /// stored and a Next no longer moves (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_List_Set_Next_Next).
+    pub save_aborted: bool,
     /// `Visible` of each control as it was when the page opened (the property is frozen then,
     /// corpus handlers/TestPageControlPropertyLiveness_Tests.al:56).
     pub frozen_visible: Vec<bool>,
@@ -464,6 +467,9 @@ pub struct PageState {
     /// The page's source is temporary and its OnOpenPage left Rec as it stood before (key, order, filters and row): the row
     /// was set before the open, for example by a procedure of the page variable (see `rec_moved_by_onopenpage`).
     pub onopenpage_kept_rec: bool,
+    /// A lookup page handed the related row a field holds opens on it as a list opens on a row its OnOpenPage left Rec on
+    /// (`lookup_start.rs`).
+    pub lookup_held_row: bool,
     /// Set by the opener for the page's next open: while OnOpenPage runs, Rec's buffer is not pinned and a use that reads it
     /// refuses with this reason (`RecordState::unpinned_buffer`; a page an action opens through `RunPageLink`).
     pub open_rec_unpinned: Option<&'static str>,
@@ -498,6 +504,10 @@ pub struct PageState {
     pub focus_in_row: bool,
     /// Validation errors the client holds: (control index, stored text).
     pub errors: Vec<(usize, String)>,
+    /// A SetValue of a value that is not a Text, whose text is longer than the control's field: (control index, the text, the error
+    /// the save raises). The control shows the text; the next SetValue of the control drops it; the Close raises the error
+    /// (pages/lt-y80-setvalue-types/Y80SetValueTypes.al Y80_ST_Card_ShortCtl_*).
+    pub deferred_overlong: Option<(usize, String, String)>,
     /// The control and the list row (its key) where a control's ValuesAllowed refused an entry: a Value read of that control on
     /// another row is not pinned (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al:313-316).
     pub values_allowed_refused_row: Option<(usize, Vec<Value>)>,
@@ -944,6 +954,7 @@ impl PageState {
             new_line: false,
             draft: false,
             dirty: false,
+            save_aborted: false,
             frozen_visible: Vec::new(),
             open_language: None,
             control_captions: Vec::new(),
@@ -973,6 +984,7 @@ impl PageState {
             opened_on_moved_rec: false,
             part_on_host_row: false,
             onopenpage_kept_rec: false,
+            lookup_held_row: false,
             open_rec_unpinned: None,
             run_page_link_opened: false,
             run_page_link_open_moved: false,
@@ -985,6 +997,7 @@ impl PageState {
             selection_on_rec: false,
             focus: None,
             focus_in_row: false,
+            deferred_overlong: None,
             errors: Vec::new(),
             values_allowed_refused_row: None,
             trigger_errors: Vec::new(),

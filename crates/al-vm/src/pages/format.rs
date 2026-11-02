@@ -3,6 +3,9 @@ use super::*;
 impl Session {
     /// The value a control shows: its binding, read now.
     pub(super) fn control_value(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
+        if let Some(held) = Self::deferred_value_read(st, idx) {
+            return Ok(held);
+        }
         let engine = self.engine();
         // A page variable, or an element of a page array variable (`Control::array_element`), which shows as a plain page
         // variable does (al-runner issue 6379).
@@ -1016,8 +1019,16 @@ impl Session {
                     "Caption() of a CaptionClass expression that changed since the page filled (whether BC resolves it again is not pinned)",
                 );
             }
-            return self.caption_class_text(st, &c);
+            return self.caption_class_text_for(st, idx, &c);
         }
+        self.control_caption_plain(st, idx)
+    }
+
+    /// The control's caption with no CaptionClass of its own: its `Caption`, else the source field's `CaptionClass` or
+    /// `Caption`, else its name.
+    pub(super) fn control_caption_plain(&mut self, st: &St, idx: usize) -> Result<String, Signal> {
+        let engine = self.engine();
+        let ctl = &page_of(&engine, st).controls[idx];
         let own_caption = match ctl.prop("caption") {
             Some(ir::PropVal::Lit(c)) => Some(unquote(c)),
             _ => None,
@@ -1106,7 +1117,7 @@ impl Session {
             // resolved again).
             return Ok(());
         }
-        let (caption, unknown) = self.caption_class_text_deferring(st, text)?;
+        let (caption, unknown) = self.caption_class_text_deferring_for(st, idx, text)?;
         // A caption whose text the runtime cannot know is refused where the text is read (`control_caption`), unless another
         // app's resolver could have changed state at the open (runner issue 6794).
         if let Some(why) = &unknown {
@@ -1242,6 +1253,19 @@ impl Session {
                 return unsupported("the caption of a request page on a new row (not pinned)");
             }
             return Ok(base);
+        }
+        // The caption of an API page is not pinned: real BC shows the page name alone (pageext/lt-u-page-props/UPageProps.al
+        // ApiPage_PartAndReadOnlyIntent `page_caption = LT U Api Page`), where the data caption fields would add the key.
+        if matches!(
+            &self.engine.object_facts[object].page_type,
+            Some(al_ir::PageType::Other(t)) if t == "api"
+        ) {
+            return unsupported("the caption of an API page (not pinned)");
+        }
+        // A DataCaptionExpression a page extension sets is not pinned (the corpus pins the page's own); the caption was shown
+        // without it before, which is wrong on real BC (pageext/lt-u-page-props/UPageProps.al PageExt_PageLevel_Editable_And_DataCaptionExpression).
+        if !has_prop("DataCaptionExpression") && effective_prop(&engine, object, "DataCaptionExpression")?.is_some() {
+            return unsupported("the caption of a page whose DataCaptionExpression a page extension sets (not pinned)");
         }
         if has_prop("DataCaptionExpression") {
             return self.data_caption_expression_caption(st, base);
