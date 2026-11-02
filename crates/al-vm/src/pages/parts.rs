@@ -900,7 +900,9 @@ impl Session {
                 found = after.starts_with("const(") || single_value_filter(after);
                 // Pinned for a part that serves its rows from the table (Y80_SV_*). A part with OnFindRecord or OnNextRecord reads
                 // and logs its filter groups differently (pages/lt-f3-pages/F3PartFiltersSM.al, F3PartTests.al): refused as before.
-                if !after.starts_with("const(") && (self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord")) {
+                if !after.starts_with("const(")
+                    && (self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord"))
+                {
                     return unsupported(format!(
                         "a SubPageView condition other than const on the linked field {name} of a part with OnFindRecord or OnNextRecord (not pinned)"
                     ));

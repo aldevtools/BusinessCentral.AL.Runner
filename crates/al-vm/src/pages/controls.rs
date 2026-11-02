@@ -97,7 +97,12 @@ impl Session {
     fn control_set_value_now(&mut self, st: &St, idx: usize, args: &mut [Value]) -> Result<Value, Signal> {
         // Taken first: a trigger that runs below may call SetValue itself.
         let from_variant = std::mem::take(&mut self.set_value_from_variant);
-        if st.borrow().deferred_overlong.as_ref().is_some_and(|(i, _, _)| *i == idx) {
+        if st
+            .borrow()
+            .deferred_overlong
+            .as_ref()
+            .is_some_and(|(i, _, _)| *i == idx)
+        {
             st.borrow_mut().deferred_overlong = None;
         }
         // A subscriber to OnBeforeValidateEvent / OnAfterValidateEvent of this control would run in BC; the client does
@@ -458,7 +463,9 @@ impl Session {
             // A Boolean (`Yes`, `YES`), a Duration, an Option and an Enum value are their Format text: `1 minute 30 seconds`, `B`, and the caption `First Kind`
             // (upper-cased on a Code control: `1 MINUTE 30 SECONDS`, `FIRST KIND`); pages/lt-y80-setvalue-types/Y80SetValueTypes.al
             // Y80_ST_Card_TxtCtl_Others `duration`, _TxtCtl_Enums `option`, `enum first`, and the _CdCtl_ twins (needs corpus bump).
-            Value::Duration(_) | Value::Option(..) | Value::Enum(..) | Value::Boolean(_) if matches!(ty, RtType::Text(_) | RtType::Code(_)) => {
+            Value::Duration(_) | Value::Option(..) | Value::Enum(..) | Value::Boolean(_)
+                if matches!(ty, RtType::Text(_) | RtType::Code(_)) =>
+            {
                 match al_builtins::format::format_value(&arg, 0, 0, &*self) {
                     Ok(t) => {
                         if rec_bound && bounded_text_len(&ty).is_some_and(|max| Value::text_len(&t) > max) {
@@ -468,7 +475,11 @@ impl Session {
                         let converted = ops::convert(Value::Text(t.into()), &ty)?;
                         self.control_text(st, idx, &converted)?.into()
                     }
-                    Err(_) => return unsupported("SetValue of an Enum, Option or Duration on a text control whose Format fails"),
+                    Err(_) => {
+                        return unsupported(
+                            "SetValue of an Enum, Option or Duration on a text control whose Format fails",
+                        );
+                    }
                 }
             }
             other => {
@@ -1960,8 +1971,9 @@ impl Session {
     /// Notes a SetValue whose text is longer than the field (see `PageState::deferred_overlong`).
     fn defer_overlong(&mut self, st: &St, idx: usize, max: usize, full: &str) -> Value {
         let len = Value::text_len(full);
-        let message =
-            format!("The length of the string is {len}, but it must be less than or equal to {max} characters. Value: {full}");
+        let message = format!(
+            "The length of the string is {len}, but it must be less than or equal to {max} characters. Value: {full}"
+        );
         st.borrow_mut().deferred_overlong = Some((idx, full.to_string(), message));
         Value::Null
     }

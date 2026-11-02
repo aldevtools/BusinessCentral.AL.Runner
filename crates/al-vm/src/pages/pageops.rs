@@ -28,7 +28,9 @@ impl Session {
             m => {
                 self.last_error = *e;
                 Ok(match m {
-                    PageMethod::Next | PageMethod::Previous | PageMethod::First | PageMethod::Last => Value::Boolean(false),
+                    PageMethod::Next | PageMethod::Previous | PageMethod::First | PageMethod::Last => {
+                        Value::Boolean(false)
+                    }
                     _ => Value::Null,
                 })
             }
@@ -274,7 +276,9 @@ impl Session {
             match name {
                 PageMethod::Next => return Ok(Value::Boolean(false)),
                 PageMethod::Previous | PageMethod::First | PageMethod::Last | PageMethod::GoToKey | PageMethod::New => {
-                    return unsupported(format!("TestPage.{name} after a save the page refused with SaveAbort (not pinned)"));
+                    return unsupported(format!(
+                        "TestPage.{name} after a save the page refused with SaveAbort (not pinned)"
+                    ));
                 }
                 _ => {}
             }

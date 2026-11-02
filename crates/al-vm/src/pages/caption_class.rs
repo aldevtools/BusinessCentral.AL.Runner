@@ -27,7 +27,9 @@ impl Session {
         let page = page_of(&engine, st);
         let me = &page.controls[idx];
         let others: Vec<usize> = (0..page.controls.len())
-            .filter(|&i| i != idx && page.controls[i].binding == me.binding && page.controls[i].var_field == me.var_field)
+            .filter(|&i| {
+                i != idx && page.controls[i].binding == me.binding && page.controls[i].var_field == me.var_field
+            })
             .collect();
         let me_bound = matches!(me.binding, al_ir::Binding::Field(_)) || me.var_field.is_some();
         let Some(&last) = others.last().filter(|_| me_bound) else {

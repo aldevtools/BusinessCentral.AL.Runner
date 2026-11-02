@@ -652,7 +652,12 @@ impl Session {
                 return Ok(());
             }
             // A row whose Blob an action wrote is not pinned (rp1_read_only_blob): refused as before.
-            if rec.borrow().fields.iter().any(|v| matches!(v, Value::Blob(b) if b.borrow().written)) {
+            if rec
+                .borrow()
+                .fields
+                .iter()
+                .any(|v| matches!(v, Value::Blob(b) if b.borrow().written))
+            {
                 return unsupported(
                     "saving a changed row with a written Blob on a page whose ModifyAllowed is false, other than at Close (not pinned)",
                 );
