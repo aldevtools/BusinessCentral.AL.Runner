@@ -412,6 +412,7 @@ impl Session {
         }
         positions.sort_unstable();
         positions.dedup();
+        let positions = self.leave_off_denied_flowfields(st, &rec, table, positions)?;
         if positions.is_empty() {
             return Ok(());
         }

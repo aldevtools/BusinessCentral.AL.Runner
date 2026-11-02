@@ -1457,7 +1457,7 @@ impl Session {
         // A control whose Visible is the literal false, or that sits in a group whose Visible is,
         // is not on the runtime page at all (corpus handlers/TestPageFieldVisibleGroup_Tests.al:1-30).
         // Neither is one that application areas removed.
-        self.check_areas_pinned(st, idx)?;
+        self.check_removed_pinned(st, idx, m)?;
         // From BC 28 a page extension's control whose source is a bare quoted name of a table extension's field is not found
         // by a TestPage read of its Value (pages/lt-wd/WdBareQuotedField.al:185-198 WD_BareNameExt_ValueReadError, `The field
         // with ID = n is not found on the page.`, TestFieldNotFound). Its other methods are not pinned (Editable() raises the
