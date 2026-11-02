@@ -1684,7 +1684,7 @@ impl Session {
                 {
                     return unsupported("FieldRef.CalcSum on a field of another type (not pinned)");
                 }
-                self.calc_sums(&rec, &[pos], true)?;
+                self.calc_sums(&rec, &[pos])?;
                 Ok(Value::Boolean(true))
             }
             "Validate" => self.fieldref_validate(&rec, &t, pos, args),
