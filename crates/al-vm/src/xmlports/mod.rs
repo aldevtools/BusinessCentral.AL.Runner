@@ -571,7 +571,14 @@ impl Session {
         // The source of a text-format import is read, and found empty, before OnPreXmlPort runs (P112XpCsv.al:
         // P112_Import_EmptySource, `init 1;init done;`); the text waits for the import.
         if dir == Dir::Import && schema.xp().format != ir::XmlFormat::Xml {
-            let text = self.xp_read_source(inst, schema.xp())?;
+            let text = match self.xp_read_source(inst, schema.xp()) {
+                // A table-rooted text port fails with the root error whatever the bytes are, also ones that are no UTF-8 or
+                // UTF-16 text (XpTEncoding.al:165 Encoding_ImportCsvWindows, :179 Encoding_ImportCsvUtf16; no trigger runs there).
+                Err(Signal::Unsupported(_)) if import_xml::text_port_with_table_root(schema.xp()) => {
+                    return Err(import_xml::root_type_error());
+                }
+                other => other?,
+            };
             if text.is_empty() {
                 return Err(xerr(
                     "Cannot import the specified XML document because the file is empty.",
