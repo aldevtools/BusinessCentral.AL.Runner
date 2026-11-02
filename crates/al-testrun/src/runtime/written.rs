@@ -127,6 +127,8 @@ pub(crate) struct ReachFacts {
     /// Why part of the reach is not known (a refused routine, a run by an id known only at run time): it may change
     /// anything.
     pub unknown: Option<String>,
+    /// The first report reached that the runtime refuses when it runs (also part of `unknown`, which keeps the first reason of any kind).
+    pub report_cannot_run: Option<String>,
 }
 
 impl ReachFacts {
@@ -319,6 +321,19 @@ pub(crate) fn union_reach_has(
 /// (`changes_read_by` and `random` answer from `unknown` before anything else). The rest of the facts are then
 /// incomplete and must not be read. A walk of the whole reach visits about 49 000 routines with Microsoft's apps
 /// (150 ms), once per unfinished test of a codeunit.
+pub(crate) fn report_that_cannot_run(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    object: usize,
+    routine: usize,
+) -> Option<String> {
+    walk_reach(events, lowered, index, &[(object, routine)], &|f| {
+        f.report_cannot_run.is_some()
+    })
+    .report_cannot_run
+}
+
 pub(crate) fn unfinished_reach_facts(
     events: &al_vm::events::Registry,
     lowered: &Lowered,
@@ -719,6 +734,9 @@ impl<'a> Walk<'a> {
         // A report the runtime refuses when it runs (`Session::report_schema`): what the test does before it is not followed.
         if let Some(why) = obj.report.as_ref().and_then(|r| r.unsupported.first()) {
             self.unknown(|| format!("runs {}, which cannot run: {why}", obj.name));
+            if self.out.report_cannot_run.is_none() {
+                self.out.report_cannot_run = Some(format!("runs {}, which cannot run: {why}", obj.name));
+            }
         }
         for x in std::iter::once(o).chain(self.extensions_of(o)) {
             let xo = &lowered.program.objects[x];

@@ -274,11 +274,9 @@ impl Session {
         let mut r = rec.borrow_mut();
         if let Some(v) = args.first() {
             r.filter_group = match v {
-                // The OR group: filters on different fields are alternatives (corpus
-                // record/PWFilterGroupOr.al). Other negative groups are not pinned.
-                Value::Integer(n) if *n < 0 && *n != al_builtins::filter::OR_GROUP => {
-                    return unsupported(format!("FilterGroup({n}) (only -1, the OR group, is pinned)"));
-                }
+                // The OR group: filters on different fields are alternatives (corpus record/PWFilterGroupOr.al). Another negative
+                // group is set and read back like any other (record/lt-filters-keys-finds/P68F_FilterGroup.al
+                // RecordRef_Setter_Negative_And_Large: -100 and -2147483647); a filter set in it is refused in `record_op_inner`.
                 Value::Integer(n) => *n,
                 other => return unsupported(format!("FilterGroup({})", other.describe())),
             };

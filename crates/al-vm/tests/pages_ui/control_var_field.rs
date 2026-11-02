@@ -123,6 +123,26 @@ codeunit 50104 T
         exit(W.BZCtl.Value() + '|' + W.AmtCtl.Value());
     end;
 
+    procedure AmountOnly(): Text begin exit(OneEmptyPlaces('3:3', '')); end;
+    procedure MinAboveMax(): Text begin exit(OneEmptyPlaces('2:0', '2:0')); end;
+    procedure UnitOnly(): Text begin exit(OneEmptyPlaces('', '4:4')); end;
+
+    local procedure OneEmptyPlaces(AmountPlaces: Text; UnitPlaces: Text): Text
+    var Currency: Record Currency; Settings: Record "Repro Avail. Settings"; W: TestPage "Repro Avail. Worksheet";
+    begin
+        Currency.Code := 'RPE';
+        Currency."Amount Decimal Places" := CopyStr(AmountPlaces, 1, 5);
+        Currency."Unit-Amount Decimal Places" := CopyStr(UnitPlaces, 1, 5);
+        Currency.Insert();
+        Settings.DeleteAll();
+        Settings.Init();
+        Settings."Currency Code" := 'RPE';
+        Settings.Amt := 1234.5;
+        Settings.Insert();
+        W.OpenView();
+        exit(W.AmtCtl.Value());
+    end;
+
     procedure OptionCaptionMl(): Text
     var W: TestPage "Repro Avail. Worksheet";
     begin
@@ -165,4 +185,15 @@ fn decimal_places_and_auto_format_of_another_records_field_are_taken() {
 fn option_caption_ml_of_another_records_field_is_refused() {
     let r = run_in(SRC, "T", "OptionCaptionMl");
     assert!(matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
+}
+
+/// types/lt-auto-format-currency/AutoFormatCurrencyPlaces.al Currency_AmountPlacesOnly_DefaultSetup and
+/// Currency_UnitPlacesOnly_DefaultSetup (also under other setup places): a currency with one of the two places empty shows two
+/// places for the empty one (the Amount of type 1 with `'', '4:4'` is 1,234.50) and the places it has for the other.
+#[test]
+fn a_currency_with_one_places_field_empty_shows_two_places_for_it() {
+    assert_eq!(text(run_in(SRC, "T", "AmountOnly")), "1,234.500");
+    assert_eq!(text(run_in(SRC, "T", "UnitOnly")), "1,234.50");
+    // Currency_ZeroAndMixedPlaces: '2:0' shows no places at all.
+    assert_eq!(text(run_in(SRC, "T", "MinAboveMax")), "1,235");
 }
