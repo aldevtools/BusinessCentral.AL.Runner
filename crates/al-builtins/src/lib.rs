@@ -36,6 +36,7 @@ pub mod errorinfo;
 pub mod evaluate;
 pub mod features;
 pub mod fieldref_value_text;
+pub mod fieldref_variant_cells;
 pub mod file;
 pub mod filter;
 pub mod format;

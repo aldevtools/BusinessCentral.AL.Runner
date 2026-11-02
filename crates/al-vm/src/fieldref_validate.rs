@@ -42,6 +42,13 @@ impl Session {
                 }
             }
         }
+        if let Some(v) = args.first() {
+            if let Some(r) = self.variant_into_field_cells(t, pos, v, true)? {
+                let mut a = vec![Value::Integer(pos as i32), r?];
+                a.extend(args.iter().skip(1).cloned());
+                return self.record_op(RecordOp::Validate, rec, &mut a);
+            }
+        }
         let mut a = vec![Value::Integer(pos as i32)];
         // A number, Enum, Option, Date or Boolean into a Text or Code field goes in as its Format text
         // (recordref/lt-y47-validate-fieldref/Y47ValidateFieldRef.al:461-492, Y57_ValidateVariantValue_IntoText).
@@ -57,5 +64,47 @@ impl Session {
             None => a.extend(args.iter().cloned()),
         }
         self.record_op(RecordOp::Validate, rec, &mut a)
+    }
+
+    /// `al_builtins::fieldref_variant_cells` for the field at `pos`: `None` for a cell it does not pin, and for a text into an Option
+    /// or Enum field that names one of its members (that converts by the name).
+    pub(crate) fn variant_into_field_cells(
+        &self,
+        t: &TableDef,
+        pos: usize,
+        v: &Value,
+        validate: bool,
+    ) -> Result<Option<Result<Value, Signal>>, Signal> {
+        let ty = &t.fields[pos].ty;
+        // A text into a Guid field: a Variant holding one that is no GUID raises the Evaluate error from BC 28 (Y67FieldRefValidateVariant.al
+        // Validate_Into_G_B `text abc`), a Text variable the GUID format error (fieldref/TestFieldRefValue.al:282
+        // FieldRef_Value_TextIntoBooleanDateGuidOption, `FieldRef.Value :=` only). The runtime does not see which of the two the
+        // caller passed: `FieldRef.Value :=` keeps the Text's pinned error, `FieldRef.Validate`, which no test pins for a Text, is
+        // refused.
+        if let (RtType::Guid, Value::Text(s) | Value::Code(s)) = (ty, v) {
+            let guid = al_builtins::ops::parse_guid(s.as_str()).is_some();
+            return Ok(if validate && !guid {
+                Some(Err(Signal::Unsupported(
+                    "FieldRef.Validate of a text that is no GUID into a Guid field: a Variant and a Text raise different errors, and the runtime does not tell them apart (not pinned for a Text)".into(),
+                )))
+            } else {
+                None
+            });
+        }
+        if let (RtType::Option(_) | RtType::Enum(_), Value::Text(s) | Value::Code(s)) = (ty, v) {
+            let named = match self.members_of_field(t, pos)? {
+                Some((_, members)) => members.iter().any(|(_, name, caption)| {
+                    name.eq_ignore_ascii_case(s.as_str()) || caption.eq_ignore_ascii_case(s.as_str())
+                }),
+                None => true,
+            };
+            if named {
+                return Ok(None);
+            }
+        }
+        let from28 = self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28);
+        Ok(al_builtins::fieldref_variant_cells::variant_into_field(
+            v, ty, from28, self,
+        ))
     }
 }

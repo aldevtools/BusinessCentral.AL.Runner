@@ -174,6 +174,7 @@ mod user_gaps_evaluate;
 mod user_gaps_round_duration;
 mod var_attribute_refusals;
 mod var_global_alias;
+mod variant_defined_temporal;
 mod version_gates;
 mod xml_attribute_collection_get_missing;
 mod xml_attribute_collection_set;

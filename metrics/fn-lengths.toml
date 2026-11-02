@@ -38,7 +38,6 @@
 "crates/al-vm/src/pages/pageops.rs::test_page_op_inner" = 619
 "crates/al-vm/src/recmeta.rs::record_meta_op" = 501
 "crates/al-vm/src/records.rs::record_op_inner" = 2145
-"crates/al-vm/src/refs.rs::fieldref_op" = 314
 "crates/al-vm/src/refs.rs::recordref_op_inner" = 480
 "crates/al-vm/src/reports.rs::report_builtin" = 549
 "crates/al-vm/src/reports.rs::report_save_core" = 371

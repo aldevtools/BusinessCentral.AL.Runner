@@ -39,7 +39,9 @@ pub fn variant_into_text_field(
     }
     match v {
         Value::Option(..) => fieldref_value_into_text(v, t, ctx),
-        Value::Date(..) | Value::Boolean(_) => {
+        // A Duration too: `1 second 500 milliseconds`, which a Code[20] field cannot hold (fieldref/lt-y67-fieldref-validate-variant/
+        // Y67FieldRefValidateVariant.al:303-336 Validate_Into_Txt_B, _Cod_B `duration 1500`).
+        Value::Date(..) | Value::Boolean(_) | Value::Duration(_) => {
             let text = match crate::format::try_format(v, 0, 0, ctx) {
                 Ok(text) => text,
                 Err(e) => return Some(Err(Signal::Unsupported(e))),
