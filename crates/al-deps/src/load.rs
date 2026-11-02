@@ -588,6 +588,34 @@ pub fn ships_translations(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Whether the app at `path` ships package data (`*.navxdata`, `NavApp.LoadPackageData`): a file of that name anywhere in a
+/// folder, or an entry of that name in a package file. A package that cannot be read ships none here (reading its sources
+/// reports the error).
+pub fn ships_package_data(path: &Path) -> bool {
+    if path.is_dir() {
+        let mut stack = vec![path.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&d) else { continue };
+            for e in entries.flatten() {
+                let p = e.path();
+                let name = e.file_name().to_string_lossy().to_ascii_lowercase();
+                if p.is_dir() {
+                    if !name.starts_with('.') && name != "target" && name != "node_modules" {
+                        stack.push(p);
+                    }
+                } else if name.ends_with(".navxdata") {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| crate::package::ships_package_data(&bytes, &vars_for(path, None)).ok())
+        .unwrap_or(false)
+}
+
 /// The translation files of the app folder `dir` (`crate::package::is_translation_file`, ADR-053 step 2): name relative to the
 /// app (`/` separators) and the parsed file, or why it could not be read. Sorted by name. A package gives none here.
 pub fn translation_files(dir: &Path) -> Vec<(String, Result<crate::xliff::Xliff, String>)> {

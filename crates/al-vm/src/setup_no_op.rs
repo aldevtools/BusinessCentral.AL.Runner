@@ -1,5 +1,6 @@
 //! A `GetDatabaseTableTriggerSetup` subscriber whose install order is not known and that changes nothing (al-runner
-//! issue 6718).
+//! issue 6718). Since ADR-046 amendment 6 item 7 every such subscriber is left out of the raise; this proof only keeps a
+//! pass free of the assumption mark when the subscriber provably changes nothing.
 //!
 //! While an app installs, a subscriber of an app with no dependency path to it runs only if BC installed its app first
 //! (ADR-046 amendment 6: install/lt-install-order-subscribers/InstallOrderSubscriberTests.al:66-79, :104-117), and that
