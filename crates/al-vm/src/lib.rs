@@ -1470,6 +1470,7 @@ impl Session {
                     dirty_base: None,
                     is_dirty_base: al_builtins::value::DirtyBase::Fresh,
                     last_modify: None,
+                    failed_insert: None,
                     row_origin: None,
                     globals: Default::default(),
                     unpinned_buffer: None,

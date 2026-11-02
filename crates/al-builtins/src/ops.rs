@@ -817,14 +817,11 @@ fn duration_divide(op: Arith, a: i64, r: &Value) -> Result<Value, Signal> {
         return Ok(Value::Decimal(q));
     }
     match op {
-        Arith::IntDiv | Arith::Mod => {
-            // The result formats as a Decimal (`D1 div 7` is '12,857' in Format; D_Duration.al:369).
-            Ok(Value::Decimal(Decimal::from(if op == Arith::IntDiv {
-                a / b
-            } else {
-                a % b
-            })))
-        }
+        // The result formats as a Decimal (`D1 div 7` is '12,857' in Format; D_Duration.al:369).
+        Arith::IntDiv => Ok(Value::Decimal(Decimal::from(a / b))),
+        // The remainder is a whole number that formats without a thousands separator: `3600000 mod 1000000` is '600000', not
+        // '600,000' (types/lt-datetime/Arithmetic.al:Duration_Arithmetic `A mod 1000000`, :393).
+        Arith::Mod => Ok(Value::BigInteger(a % b)),
         // The quotient is a number too (`slash-int` is `22500`, ExpressionBinaryDateTimeOperands.al:P195_Binary_DurationOperands).
         // The quotient is a Decimal and never raises; only an assignment into a Duration does when it has a fraction
         // (D_Duration.al:358-362 `asserterror D := D1 / 7`, `Dec := D1 / D2`).
@@ -974,10 +971,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
                     a.checked_sub(ms)
                 }
             });
-            return moved
-                .filter(|m| *m > 0)
-                .map(V::DateTime)
-                .ok_or_else(|| Signal::Unsupported("DateTime out of range (error text not pinned yet)".into()));
+            return datetime_moved(moved, ms);
         }
         // Time +/- an Integer or a Duration moves by that many milliseconds and wraps around midnight; Time - Time is
         // a Duration; the undefined time (0T) cannot be moved ("Adding to an undefined (0T) time." for both
@@ -1300,6 +1294,24 @@ fn datetime_difference(a: i64, b: i64) -> Result<Value, Signal> {
     }
     date_invalid()
 }
+
+/// The result of moving a DateTime by `ms` milliseconds (`moved`: the checked sum, `None` on a 64-bit overflow).
+fn datetime_moved(moved: Option<i64>, ms: Option<i64>) -> Result<Value, Signal> {
+    match (moved, ms) {
+        (Some(m), _) if (1..=MAX_DATETIME).contains(&m) => Ok(Value::DateTime(m)),
+        // Moved past 9999-12-31 23:59:59.999 or before 0001-01-01 by an Integer-sized amount (types/lt-datetime/Arithmetic.al:
+        // DateTime_Arithmetic_Errors, :294-297: `max + 1`). Only that size is pinned.
+        (Some(_), Some(ms)) if i32::try_from(ms).is_ok() => date_invalid(),
+        // The largest BigInteger added or subtracted overflows (Arithmetic.al:298-301, `+ 9223372036854775807L`, `-`).
+        (_, Some(i64::MAX)) => raise("Arithmetic operation resulted in an overflow.", "AL:Overflow"),
+        _ => Err(Signal::Unsupported(
+            "DateTime out of range (error text not pinned yet)".into(),
+        )),
+    }
+}
+
+/// The largest DateTime, 9999-12-31 23:59:59.999, as the runtime counts it (`datefns::create_datetime`).
+const MAX_DATETIME: i64 = 3_652_059 * 86_400_000;
 
 fn date_invalid<T>() -> Result<T, Signal> {
     raise("The date is not valid.", "DateInvalid")

@@ -1215,6 +1215,9 @@ pub struct RecordState {
     /// The row this variable's last Modify wrote. A later Modify of the unchanged buffer, after a rollback undid that write,
     /// writes nothing (record/lt-record-conversion-assumptions/StaleBuffer.al:76-86).
     pub last_modify: Option<Vec<Value>>,
+    /// The row version the buffer held when its Insert answered false (the key existed): a Modify through the buffer then raises
+    /// DB:RecordChanged when the stored row's version is newer (record/lt-y71-failed-insert-modify/Y71FailedInsertModify.al).
+    pub failed_insert: Option<i64>,
     /// Where the buffer's row version came from: the variable's own Insert or a Get (with that version and the number of
     /// commits of the session then). A stale buffer from the Insert of the transaction the last Commit closed may still be
     /// written (record/TestRecordStaleBufferWrite.al:395-690, `Session::stale_verdict`).
