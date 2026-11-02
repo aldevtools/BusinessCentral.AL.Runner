@@ -1504,9 +1504,9 @@ fn upperlimit_of_more_than_one_range_fails_with_not_interval_filter() {
     }
 }
 
-// Record.CalcSums of a Duration is not pinned (only FieldRef.CalcSum is, FieldRefCalcSumTypes; corpus issue 630 item 3): refused.
+// Record.CalcSums of a Duration sums it (record/lt-calcsums-duration/CalcSumsDuration.al), as FieldRef.CalcSum does (FieldRefCalcSumTypes).
 #[test]
-fn record_calcsums_of_a_duration_field_is_refused_but_fieldref_calcsum_sums_it() {
+fn record_calcsums_of_a_duration_field_sums_it_and_so_does_fieldref_calcsum() {
     const T: &str = r#"
 table 60010 "ALT Dur"
 {
@@ -1521,11 +1521,11 @@ table 60010 "ALT Dur"
         begin
             R.\"No.\" := 1; R.D := 5; R.Insert();
             R.CalcSums(D);
-            exit('ran');
+            exit(Format(R.D));
         end;",
         "F",
     );
-    assert!(unsupported(r).contains("CalcSums on D"));
+    assert_eq!(text(r), "5 milliseconds");
     let r = run_with(
         T,
         "procedure F(): Text

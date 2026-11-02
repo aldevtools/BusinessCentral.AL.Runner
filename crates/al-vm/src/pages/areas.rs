@@ -61,6 +61,9 @@ impl Session {
     /// actionref whose area the session does not enable, or that has none while the session
     /// restricts the areas.
     pub(super) fn area_removed(&self, st: &St, idx: usize) -> bool {
+        if self.flowfield_hidden(st, idx) {
+            return true;
+        }
         let Some(areas) = enabled(&st.borrow().areas) else {
             return false;
         };

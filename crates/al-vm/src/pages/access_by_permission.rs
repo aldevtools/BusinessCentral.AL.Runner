@@ -19,7 +19,7 @@ impl Session {
     /// AccessByPermission leaves off the page answers only `Value`, `Visible` and `Enabled` (Y24PermExecute.al
     /// Y24_P21_AccessByPermissionPage) with the error of a removed control; any other method is not pinned and refuses.
     pub(super) fn access_by_permission_check(&self, st: &St, idx: usize, m: PageMethod) -> Result<(), Signal> {
-        self.check_areas_pinned(st, idx)?;
+        self.check_removed_pinned(st, idx, m)?;
         let off = self.access_by_permission_off(st, idx)?;
         if off && !matches!(m, PageMethod::Value | PageMethod::Visible | PageMethod::Enabled) {
             return unsupported(format!(

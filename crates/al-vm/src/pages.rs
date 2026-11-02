@@ -168,6 +168,7 @@ type Handler = (usize, usize, Rc<RefCell<al_builtins::value::Instance>>);
 
 mod areas;
 mod background;
+mod flowfield_hidden;
 pub(crate) use background::BgWorker;
 mod filter;
 mod parts;
