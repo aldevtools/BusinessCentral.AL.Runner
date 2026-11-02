@@ -1,5 +1,4 @@
 //! What a test cannot run for: install codeunits, tables a test touches, blocked routines.
-use super::written::{ReachIndex, unfinished_reach_facts};
 use super::*;
 
 /// Runs the install code of the apps under test (`install.rs`, ADR-046 step A): per app, in dependency order, its
@@ -175,34 +174,6 @@ pub fn blocked_site(lowered: &Lowered, object: usize, routine: usize) -> Option<
         }
     }
     None
-}
-
-/// Whether routine `r` of object `o` holds a `Permissions Mock` codeunit variable, itself or as a global of the object:
-/// the test can lower its permissions (ADR-062).
-pub fn holds_permissions_mock(lowered: &Lowered, o: usize, r: usize) -> bool {
-    let objs = &lowered.program.objects;
-    let obj = &objs[o];
-    obj.routines[r].locals.iter().chain(&obj.globals).any(|s| {
-        matches!(&s.ty, al_builtins::value::RtType::Codeunit(c)
-            if objs[*c as usize].name.eq_ignore_ascii_case("Permissions Mock"))
-    })
-}
-
-/// ADR-062 stage 2: for a test that can lower its permissions, the first part of its reach that the analysis cannot follow (a
-/// report the runtime refuses). A denied read is then refused at the read, not later, after the test changed state a later
-/// test of the codeunit reads.
-pub(crate) fn refusal_after_denial(
-    engine: &Engine,
-    lowered: &Lowered,
-    reach_index: &mut Option<Arc<ReachIndex>>,
-    object: usize,
-    r: usize,
-) -> Option<String> {
-    if !holds_permissions_mock(lowered, object, r) {
-        return None;
-    }
-    let index = reach_index.get_or_insert_with(|| engine.derived(|| ReachIndex::new(&engine.events, lowered)));
-    unfinished_reach_facts(&engine.events, lowered, index, object, r).unknown
 }
 
 /// Whether routine `r` of object `o` is the OnAction trigger of an action of a page or page extension.
