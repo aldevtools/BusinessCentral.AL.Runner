@@ -537,18 +537,18 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
             continue;
         }
         let obj = ws.object_ast(oi);
-        let decls = var_decls(obj.syntax());
+        let (decls, types) = declarations(obj.syntax());
         if obj.kind() == "pagecustomization" {
             page_customization_variables(ws, oi, &obj, &mut out);
         }
         subscriber_publishers(ws, oi, &obj, &mut out);
-        platform_integer_without_using(ws, oi, &obj, &mut out);
+        platform_integer_without_using(ws, oi, &obj, &types, &mut out);
         unknown_codeunit_variables(ws, oi, &decls, &mut out);
         test_request_pages_of_no_report(ws, oi, &obj, &mut out);
         ambiguous_dotnet_aliases(ws, oi, &decls, &mut out);
         object_properties(ws, oi, &obj, &mut out);
         object_triggers(ws, oi, &obj, &mut out);
-        label_trailing_commas(ws, o.file, obj.syntax(), &mut out);
+        label_trailing_commas(ws, o.file, &types, &mut out);
         if !unparsed.contains(&(ws.files[o.file].app, ws.files[o.file].path.as_str())) && !whole.contains(&o.file) {
             parameter_names(ws, o.file, obj.syntax(), &mut out);
         }
@@ -586,9 +586,9 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
 /// compiles (text/lt-label-textbuilder/TxCLabel.al Y12_Label_TrailingComma); a trailing comma after a property is AL0301
 /// (must-not-compile 2330 `Locked = true,;`, 2331 `Comment = 'c',;`), two commas after the text AL0107 (2332 `'T',,;`).
 /// The diagnostic is at the comma that is wrong; the parser rejects both shapes too, so the file never runs.
-fn label_trailing_commas(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+fn label_trailing_commas(ws: &Workspace, file: usize, types: &[SyntaxNode], out: &mut Vec<Diagnostic>) {
     let significant = |t: &al_syntax::SyntaxToken| !t.kind().is_trivia();
-    for n in obj.descendants().filter(|n| n.kind() == SyntaxKind::TypeRef) {
+    for n in types {
         let mut toks: Vec<al_syntax::SyntaxToken> = n
             .descendants_with_tokens()
             .filter_map(|e| e.into_token())
@@ -646,7 +646,13 @@ fn label_trailing_commas(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mu
 /// only Integer are pinned: other platform tables, other places that name a table, a qualified name and a file whose namespace
 /// is System.Utilities or below it keep compiling. A table Integer the file finds in its own namespace, a using or among the
 /// objects without a namespace is no error.
-fn platform_integer_without_using(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
+fn platform_integer_without_using(
+    ws: &Workspace,
+    oi: usize,
+    obj: &ast::Object,
+    types: &[SyntaxNode],
+    out: &mut Vec<Diagnostic>,
+) {
     const NS: &str = "system.utilities";
     let file = ws.objects[oi].file;
     let f = &ws.files[file];
@@ -658,9 +664,9 @@ fn platform_integer_without_using(ws: &Workspace, oi: usize, obj: &ast::Object, 
         return;
     }
     let bare_integer = |parts: &[String]| matches!(parts, [p] if p.eq_ignore_ascii_case("Integer"));
-    let mut at: Vec<usize> = obj
-        .syntax()
-        .descendants()
+    let mut at: Vec<usize> = types
+        .iter()
+        .cloned()
         .filter_map(ast::TypeRef::cast)
         .filter(|t| t.type_name().eq_ignore_ascii_case("Record") && bare_integer(&t.object_name_parts()))
         .map(|t| offset_of(t.syntax()))
@@ -1463,25 +1469,24 @@ const PARAM_NAME_ENDS_LIST: &[&str] = &["begin", "procedure", "trigger"];
 ///
 /// A file of the shape [`keyword_name_files`] covers gets alc's full list there instead. A file the parser did not accept is skipped (by the caller): its nodes come from the parser's recovery (a
 /// procedure without parentheses gives a parameter named `begin`), and its parse error stands for the file.
-/// The variable declarations of an object, in source order: those of its var sections and of its routines' var sections.
-/// The grammar reads a var section only in an object body and before a routine's statement block
-/// (`al_syntax::grammar::declarations::var_section`), so a statement block holds none; the blocks are most of the tree, so
-/// they are not entered.
-fn var_decls(obj: &SyntaxNode) -> Vec<ast::VarDecl> {
-    let mut decls = Vec::new();
+/// The variable declarations of an object and its type references (a nested one after the one that holds it), in source
+/// order. The grammar reads a var section only in an object body and before a routine's statement block
+/// (`al_syntax::grammar::declarations::var_section`), and a type reference only in a variable declaration, a parameter, a
+/// return type and another type reference (`declarations::type_ref`), so a statement block holds none of them; the blocks
+/// are most of the tree, so they are not entered.
+fn declarations(obj: &SyntaxNode) -> (Vec<ast::VarDecl>, Vec<SyntaxNode>) {
+    let (mut decls, mut types) = (Vec::new(), Vec::new());
     let mut walk = obj.preorder();
     while let Some(ev) = walk.next() {
         let rowan::WalkEvent::Enter(n) = ev else { continue };
         match n.kind() {
             SyntaxKind::Block => walk.skip_subtree(),
-            SyntaxKind::VarDecl => {
-                decls.extend(ast::VarDecl::cast(n));
-                walk.skip_subtree();
-            }
+            SyntaxKind::VarDecl => decls.extend(ast::VarDecl::cast(n)),
+            SyntaxKind::TypeRef => types.push(n),
             _ => {}
         }
     }
-    decls
+    (decls, types)
 }
 
 fn parameter_names(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mut Vec<Diagnostic>) {
