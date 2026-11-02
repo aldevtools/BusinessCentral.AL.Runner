@@ -193,6 +193,7 @@ impl Session {
             // filters/lt-wc/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
             FilterExpr::EmptyViewValue => "==".to_string(),
+            FilterExpr::NumCode(inner) => self.filter_text_with(inner, iso)?,
             // The blank DateTime next to another alternative reads back as the range `''..''` (record/lt-y71-setview-datetime/
             // Y71SetViewDateTime.al:125-127 dt_empty_or, :207-209 sca_empty_or); a Date stays `''` (:289-291). Alone it is not pinned
             // here and stays `''`.
@@ -679,6 +680,7 @@ fn ordinals(e: &FilterExpr) -> FilterExpr {
         FilterExpr::NotLike(p, ci) => FilterExpr::NotLike(p.clone(), *ci),
         FilterExpr::AtSignAlone(n) => FilterExpr::AtSignAlone(*n),
         FilterExpr::EmptyViewValue => FilterExpr::EmptyViewValue,
+        FilterExpr::NumCode(e) => FilterExpr::NumCode(e.clone()),
     }
 }
 

@@ -2,6 +2,7 @@
 //! `SnapshotStore` extension (ADR-004), an in-memory implementation, and the
 //! contract suite every store must pass.
 
+pub mod code_storage;
 pub mod contract;
 pub mod memory;
 pub(crate) mod pmap;
@@ -20,17 +21,17 @@ pub struct FieldDef {
     pub code_storage: CodeStorage,
 }
 
-/// The column type of a Code field (`SQLDataType`). An `Integer` one sorts by number: the empty value first, then 9
-/// before 10 (corpus record/lt-x-table-props/XTablePropsTests.al:322-325). The order of a `BigInteger` one is not
-/// pinned: a read that sorts by it is refused, as is a filter on either other than one value. The order of a primary key
-/// that holds an `Integer` one is not pinned either. Any other SQLDataType (`Variant`) is `Other`: a read that sorts or
-/// filters by it is refused, and so is a non-empty value written into it.
+/// The column type of a Code field (`SQLDataType`). An `Integer` or `BigInteger` one sorts by number: the empty value first,
+/// then 9 before 10 (corpus record/lt-x-table-props/XTablePropsTests.al:322-325; the primary key, BigInteger and Variant:
+/// see [`code_storage`]). A `Variant` one sorts the texts before the numbers. Any other SQLDataType is `Other`: a read that
+/// sorts or filters by it is refused, and so is a non-empty value written into it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CodeStorage {
     #[default]
     Text,
     Integer,
     BigInteger,
+    Variant,
     Other,
 }
 
@@ -50,14 +51,12 @@ impl TableDef {
     /// The key order of two values of field `i`.
     #[inline]
     pub fn cmp_key_field(&self, i: usize, a: &Value, b: &Value) -> std::cmp::Ordering {
-        if let (Value::Code(x), Value::Code(y)) = (a, b)
-            && self.fields[i].code_storage == CodeStorage::Integer
-        {
-            // The values are written as plain numbers (the VM refuses any other), so length then text is the number order.
-            let (x, y) = (x.as_str(), y.as_str());
-            return x.len().cmp(&y.len()).then_with(|| x.cmp(y));
+        match self.fields[i].code_storage {
+            CodeStorage::Text | CodeStorage::Other => {
+                al_builtins::ops::compare_key_value(a, b).unwrap_or(std::cmp::Ordering::Equal)
+            }
+            s => code_storage::cmp_code(s, a, b),
         }
-        al_builtins::ops::compare_key_value(a, b).unwrap_or(std::cmp::Ordering::Equal)
     }
 
     pub fn primary_key(&self, row: &[Value]) -> Vec<Value> {
