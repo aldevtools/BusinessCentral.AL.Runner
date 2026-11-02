@@ -43,39 +43,23 @@ impl Routine {
 /// Every routine under `node`, in source order. A routine's body holds only
 /// statements, so unlike `descendants()` this does not walk into routines.
 pub fn routines_in(node: &SyntaxNode) -> Vec<Routine> {
-    let mut out = Vec::new();
-    walk_outside_routines(node, |n| {
-        if let Some(r) = Routine::cast(n.clone()) {
-            out.push(r);
-        }
-    });
-    out
+    find_nodes(node, is_routine_kind, |k| !is_routine_kind(k))
+        .into_iter()
+        .map(Routine)
+        .collect()
+}
+
+fn is_routine_kind(k: SyntaxKind) -> bool {
+    matches!(k, SyntaxKind::Procedure | SyntaxKind::Trigger)
 }
 
 /// Every `Section` under `node`, in source order, not looking inside routines
 /// (sections are object structure; a routine body never contains one).
 pub fn sections_in(node: &SyntaxNode) -> Vec<Section> {
-    let mut out = Vec::new();
-    walk_outside_routines(node, |n| {
-        if n.kind() == SyntaxKind::Section {
-            out.push(Section(n.clone()));
-        }
-    });
-    out
-}
-
-/// Preorder over `node`'s descendants, calling `f` on each node and skipping the
-/// children of procedures and triggers (the routine node itself is visited).
-fn walk_outside_routines(node: &SyntaxNode, mut f: impl FnMut(&SyntaxNode)) {
-    let mut it = node.preorder();
-    while let Some(ev) = it.next() {
-        if let rowan::WalkEvent::Enter(n) = ev {
-            f(&n);
-            if matches!(n.kind(), SyntaxKind::Procedure | SyntaxKind::Trigger) {
-                it.skip_subtree();
-            }
-        }
-    }
+    find_nodes(node, |k| k == SyntaxKind::Section, |k| !is_routine_kind(k))
+        .into_iter()
+        .map(Section)
+        .collect()
 }
 
 /// AL identifiers compare case-insensitively; quoted ones lose their quotes.
@@ -156,15 +140,26 @@ pub fn contains_kind(node: &SyntaxNode, kind: SyntaxKind) -> bool {
 /// runs over the green tree; a cursor node is built only for a match and the nodes on the path down to it, not for
 /// every node of the subtree, as `descendants()` does.
 pub fn descendants_of_kind(node: &SyntaxNode, kind: SyntaxKind) -> Vec<SyntaxNode> {
-    struct Walk {
-        kind: rowan::SyntaxKind,
+    find_nodes(node, |k| k == kind, |_| true)
+}
+
+/// The nodes from `node` down (itself included) whose kind `is_match` takes, in preorder, not looking under a node whose
+/// kind `enter` refuses (that node itself is still a candidate). Searched in the green tree, as [`descendants_of_kind`].
+pub fn find_nodes(
+    node: &SyntaxNode,
+    is_match: impl Fn(SyntaxKind) -> bool,
+    enter: impl Fn(SyntaxKind) -> bool,
+) -> Vec<SyntaxNode> {
+    struct Walk<M, E> {
+        is_match: M,
+        enter: E,
         /// The ranges of the green nodes from below `node` down to the current one.
         path: Vec<rowan::TextRange>,
         /// The cursor nodes built so far along `path`: `reds[0]` is `node`, `reds[k]` the node at `path[k - 1]`.
         reds: Vec<SyntaxNode>,
         out: Vec<SyntaxNode>,
     }
-    impl Walk {
+    impl<M: Fn(SyntaxKind) -> bool, E: Fn(SyntaxKind) -> bool> Walk<M, E> {
         /// The cursor node at the end of `path`, building the ones missing on the way down.
         fn materialize(&mut self, greens: &[&rowan::GreenNodeData]) -> SyntaxNode {
             while self.reds.len() <= self.path.len() {
@@ -195,11 +190,14 @@ pub fn descendants_of_kind(node: &SyntaxNode, kind: SyntaxKind) -> Vec<SyntaxNod
                 if let Some(n) = c.into_node() {
                     self.path.push(rowan::TextRange::at(at, len));
                     greens.push(n);
-                    if n.kind() == self.kind {
+                    let kind = <crate::AlLanguage as rowan::Language>::kind_from_raw(n.kind());
+                    if (self.is_match)(kind) {
                         let m = self.materialize(greens);
                         self.out.push(m);
                     }
-                    self.walk(n, at, greens);
+                    if (self.enter)(kind) {
+                        self.walk(n, at, greens);
+                    }
                     greens.pop();
                     self.path.pop();
                     self.reds.truncate(self.path.len() + 1);
@@ -208,17 +206,19 @@ pub fn descendants_of_kind(node: &SyntaxNode, kind: SyntaxKind) -> Vec<SyntaxNod
             }
         }
     }
-    let kind = <crate::AlLanguage as rowan::Language>::kind_to_raw(kind);
     let mut w = Walk {
-        kind,
+        is_match,
+        enter,
         path: Vec::new(),
         reds: vec![node.clone()],
         out: Vec::new(),
     };
-    if green_of(node).kind() == kind {
+    if (w.is_match)(node.kind()) {
         w.out.push(node.clone());
     }
-    w.walk(green_of(node), node.text_range().start(), &mut Vec::new());
+    if (w.enter)(node.kind()) {
+        w.walk(green_of(node), node.text_range().start(), &mut Vec::new());
+    }
     w.out
 }
 
@@ -1122,6 +1122,20 @@ mod tests {
                         "{kind:?} under {:?}",
                         n.kind()
                     );
+                    // Not looking inside routines, as `routines_in` and `sections_in` search.
+                    let mut outside = Vec::new();
+                    let mut it = n.preorder();
+                    while let Some(ev) = it.next() {
+                        if let rowan::WalkEvent::Enter(d) = ev {
+                            if d.kind() == kind {
+                                outside.push(d.clone());
+                            }
+                            if is_routine_kind(d.kind()) {
+                                it.skip_subtree();
+                            }
+                        }
+                    }
+                    assert_eq!(find_nodes(&n, |k| k == kind, |k| !is_routine_kind(k)), outside);
                     checked += 1;
                 }
             }

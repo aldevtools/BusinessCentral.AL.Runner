@@ -1476,14 +1476,11 @@ const PARAM_NAME_ENDS_LIST: &[&str] = &["begin", "procedure", "trigger"];
 /// are most of the tree, so they are not entered.
 fn declarations(obj: &SyntaxNode) -> (Vec<ast::VarDecl>, Vec<SyntaxNode>) {
     let (mut decls, mut types) = (Vec::new(), Vec::new());
-    let mut walk = obj.preorder();
-    while let Some(ev) = walk.next() {
-        let rowan::WalkEvent::Enter(n) = ev else { continue };
+    let is_match = |k| matches!(k, SyntaxKind::VarDecl | SyntaxKind::TypeRef);
+    for n in ast::find_nodes(obj, is_match, |k| k != SyntaxKind::Block) {
         match n.kind() {
-            SyntaxKind::Block => walk.skip_subtree(),
             SyntaxKind::VarDecl => decls.extend(ast::VarDecl::cast(n)),
-            SyntaxKind::TypeRef => types.push(n),
-            _ => {}
+            _ => types.push(n),
         }
     }
     (decls, types)
@@ -1493,19 +1490,11 @@ fn parameter_names(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mut Vec<
     const INVALID: &str =
         "Syntax error, identifier expected. Provide a valid name (letters, digits, and underscores only).";
     // Statement blocks and var sections hold no parameter list; they are most of the tree, so they are not entered.
-    let mut params = Vec::new();
-    let mut walk = obj.preorder();
-    while let Some(ev) = walk.next() {
-        let rowan::WalkEvent::Enter(n) = ev else { continue };
-        match n.kind() {
-            SyntaxKind::Block | SyntaxKind::VarSection => walk.skip_subtree(),
-            SyntaxKind::Param => {
-                params.push(n);
-                walk.skip_subtree();
-            }
-            _ => {}
-        }
-    }
+    let params = ast::find_nodes(
+        obj,
+        |k| k == SyntaxKind::Param,
+        |k| !matches!(k, SyntaxKind::Block | SyntaxKind::VarSection | SyntaxKind::Param),
+    );
     for p in params {
         let toks: Vec<al_syntax::SyntaxToken> = p
             .children_with_tokens()

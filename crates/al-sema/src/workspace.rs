@@ -1399,13 +1399,12 @@ impl Workspace {
         // A statement block holds no type reference: the grammar of statements and expressions
         // (al-syntax grammar/statements.rs, grammar/expressions.rs) never parses one, only declarations do.
         // Blocks are most of the tree, so they are not entered; the order of the rest is unchanged.
-        let mut walk = node.preorder();
-        while let Some(ev) = walk.next() {
-            let rowan::WalkEvent::Enter(n) = ev else { continue };
-            if n.kind() == al_syntax::SyntaxKind::Block {
-                walk.skip_subtree();
-                continue;
-            }
+        let type_refs = ast::find_nodes(
+            &node,
+            |k| k == al_syntax::SyntaxKind::TypeRef,
+            |k| k != al_syntax::SyntaxKind::Block,
+        );
+        for n in type_refs {
             let Some(t) = ast::TypeRef::cast(n) else { continue };
             if let Some(kind) = ObjKind::from_type_name(&t.type_name()) {
                 let parts = t.object_name_parts();
