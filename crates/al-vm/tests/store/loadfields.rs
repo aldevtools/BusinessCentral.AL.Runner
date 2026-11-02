@@ -257,7 +257,8 @@ fn a_record_ref_load_set_with_no_numbers_goes_back_to_a_full_load() {
 #[test]
 fn a_field_number_the_table_lacks_raises_field_not_found() {
     // misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:159-171 and records/W4PlatformAndMeta.al:517-518 pin
-    // the text and code for one unknown number; which number a call with several names is not pinned.
+    // the text and code for one unknown number; among several numbers the first unknown one is named
+    // (recordref/lt-y71-loadfields/Y71RecRefLoadFields.al:347-403).
     let r = text(
         "RR: RecordRef;",
         "RR.Open(50800); RR.SetLoadFields(9999); exit('no error');",
@@ -279,7 +280,12 @@ fn a_field_number_the_table_lacks_raises_field_not_found() {
         "RR.Open(50800); RR.SetLoadFields(2, 9999); exit('no error');",
     );
     match r {
-        Err(Signal::Error(e)) => assert_eq!(e.message, al_builtins::native::UNPINNED_ERROR),
+        Err(Signal::Error(e)) => assert!(
+            e.message
+                .starts_with("The supplied field number '9999' cannot be found in the '"),
+            "{}",
+            e.message
+        ),
         other => panic!("{other:?}"),
     }
 }
