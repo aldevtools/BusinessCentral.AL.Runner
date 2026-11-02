@@ -176,7 +176,7 @@ An item is **pinned** when it occurs in a corpus file in a routine that static r
 | Platform and system events | 130 | 36 | 17 | 0 | 0 |
 | Statements and expressions | 64 | 60 | 58 | 0 | 0 |
 | Method attributes | 34 | 33 | 13 | 1 | 1 |
-| Runtime error sites (text pinned) | 106 | 102 | - | 4 | - |
+| Runtime error sites (text pinned) | 116 | 110 | - | 6 | - |
 
 Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left out of the property catalog.
 
@@ -557,11 +557,13 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 |---|---|---:|---|---:|
 | procedure | `Native` | 25 | no | 0 |
 
-## Runtime error sites without a corpus test (4 of 106; 0 have too little fixed text to match)
+## Runtime error sites without a corpus test (6 of 116; 2 have too little fixed text to match)
 
 A site is pinned when a corpus string literal holds the message text. Codes are not matched. Sites with a computed message are not listed.
 
 - crates/al-builtins/src/http/messages.rs:70 `The value '%' is not a valid HTTP status code.` code `InvalidValue`
+- crates/al-builtins/src/native/unpinned.rs:35 `%%` (generic)
+- crates/al-builtins/src/native/unpinned.rs:47 `%%%` (generic)
 - crates/al-builtins/src/testcontexts.rs:53 `The expression System.Func`1[System.Int32] cannot be type-converted to a Microsoft.Dynamics.Nav.Runtime.NavValue value.` code `TypeConversion`
 - crates/al-vm/src/control_add_in.rs:31 `The control add-in on control % on page % has not been instantiated.`
 - crates/al-vm/src/http.rs:111 `Invalid URI: The URI is empty.` code `AL:UriFormat`

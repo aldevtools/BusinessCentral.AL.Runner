@@ -16186,15 +16186,6 @@
         "template": "A resource matching '%' could not be found in app '%'."
       },
       {
-        "code": "InvalidOperation",
-        "file": "crates/al-builtins/src/native.rs",
-        "generic": false,
-        "line": 946,
-        "pinned": true,
-        "site": "codeunit/TestInterfaceRuntimeContracts.al:85",
-        "template": "Interface not initialized"
-      },
-      {
         "code": "Dialog",
         "file": "crates/al-builtins/src/native/dialog.rs",
         "generic": false,
@@ -16211,6 +16202,105 @@
         "pinned": true,
         "site": "errorinfo/lt-errnotif/EnTDialogSession.al:61",
         "template": "No parameter with index '%' was found in the format string '%'."
+      },
+      {
+        "code": "InvalidStandardFormat",
+        "file": "crates/al-builtins/src/native/format_fns.rs",
+        "generic": false,
+        "line": 9,
+        "pinned": true,
+        "site": "misc/lt-probes-needed-1/PnAFormatDateTime.al:42",
+        "template": "Standard format number % does not exist for the type 'Variant'."
+      },
+      {
+        "code": "DateInvalid",
+        "file": "crates/al-builtins/src/native/format_fns.rs",
+        "generic": false,
+        "line": 232,
+        "pinned": true,
+        "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
+        "template": "The date is not valid."
+      },
+      {
+        "code": "InvalidOperation",
+        "file": "crates/al-builtins/src/native/registry.rs",
+        "generic": false,
+        "line": 399,
+        "pinned": true,
+        "site": "codeunit/TestInterfaceRuntimeContracts.al:85",
+        "template": "Interface not initialized"
+      },
+      {
+        "code": "MissingUIHandler",
+        "file": "crates/al-builtins/src/native/session_fns.rs",
+        "generic": false,
+        "line": 64,
+        "pinned": true,
+        "site": "handlers/W3Hyperlink.al:81",
+        "template": "Unhandled UI: Hyperlink %"
+      },
+      {
+        "code": "",
+        "file": "crates/al-builtins/src/native/session_fns.rs",
+        "generic": false,
+        "line": 162,
+        "pinned": true,
+        "site": "codeunit/lt-qu-commit-isolation/RqIsolationModes.al:324",
+        "template": "Sessions can only be started in tests that are run by a TestRunner that has TestIsolation set to Disabled."
+      },
+      {
+        "code": "ALSystemString",
+        "file": "crates/al-builtins/src/native/strings.rs",
+        "generic": false,
+        "line": 40,
+        "pinned": true,
+        "site": "types/TestProbeScalarContracts.al:58",
+        "template": "The value string must be numeric."
+      },
+      {
+        "code": "ALSystemString",
+        "file": "crates/al-builtins/src/native/strings.rs",
+        "generic": false,
+        "line": 45,
+        "pinned": true,
+        "site": "types/TestProbeScalarContracts.al:71",
+        "template": "The weight string must be numeric."
+      },
+      {
+        "code": "ALSystemString",
+        "file": "crates/al-builtins/src/native/strings.rs",
+        "generic": false,
+        "line": 65,
+        "pinned": true,
+        "site": "text/lt-cr-text-leads/CrTextLeads.al:386",
+        "template": "The modulus parameter cannot be less than 1."
+      },
+      {
+        "code": "",
+        "file": "crates/al-builtins/src/native/unpinned.rs",
+        "generic": true,
+        "line": 35,
+        "pinned": false,
+        "site": null,
+        "template": "%%"
+      },
+      {
+        "code": "",
+        "file": "crates/al-builtins/src/native/unpinned.rs",
+        "generic": true,
+        "line": 47,
+        "pinned": false,
+        "site": null,
+        "template": "%%%"
+      },
+      {
+        "code": "DateInvalid",
+        "file": "crates/al-builtins/src/native/values.rs",
+        "generic": false,
+        "line": 390,
+        "pinned": true,
+        "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
+        "template": "The date is not valid."
       },
       {
         "code": "AL:DivideByZero",
@@ -16915,8 +17005,8 @@
         "template": "The date is not valid."
       }
     ],
-    "pinned": 102,
-    "sites": 106
+    "pinned": 110,
+    "sites": 116
   },
   "language": {
     "bc": "27-29",
