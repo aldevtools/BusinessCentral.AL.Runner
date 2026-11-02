@@ -1019,7 +1019,7 @@ impl Session {
         // A Delete through a stale buffer follows the rule of a Modify (record/TestRecordStaleBufferWrite.al:662, :676); with
         // triggers or events, where the check falls among them is pinned for the shapes below only.
         if !rec.borrow().temporary && t.fields.iter().any(|f| f.id == 2_000_000_005) {
-            let pk = Self::sql_key(rec, t, &rec.borrow().fields.clone());
+            let pk = Self::sql_key(rec, t, &rec.borrow().fields);
             let stored = self
                 .store_for(rec)
                 .get(&cx, t, &pk)
@@ -3984,7 +3984,7 @@ impl Session {
                 let pre_ops = (!self.sql.active && !rec.borrow().temporary).then(al_data::memory::store_ops);
                 match self
                     .store_for(rec)
-                    .insert(&cx, &t, stored.clone())
+                    .insert(&cx, &t, stored)
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?
                 {
                     InsertOutcome::Inserted => {
@@ -4163,7 +4163,7 @@ impl Session {
                 self.tenant_license_state_refuses(&t, "modify")?;
                 self.document_service_trigger_refused(&t, rec, run, "Modify")?;
                 // A key value the column rounds finds the rounded row (P130DateFilters.al:635-637, `modify var`).
-                let pk = Self::sql_key(rec, &t, &rec.borrow().fields.clone());
+                let pk = Self::sql_key(rec, &t, &rec.borrow().fields);
                 let stored = self
                     .store_for(rec)
                     .get(&cx, &t, &pk)
@@ -4340,7 +4340,7 @@ impl Session {
                 let before = self.store.change_counter();
                 match self
                     .store_for(rec)
-                    .modify(&cx, &t, stored.clone())
+                    .modify(&cx, &t, stored)
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?
                 {
                     WriteOutcome::Done => {
