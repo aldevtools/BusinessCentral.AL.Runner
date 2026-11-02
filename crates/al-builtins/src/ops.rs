@@ -817,14 +817,11 @@ fn duration_divide(op: Arith, a: i64, r: &Value) -> Result<Value, Signal> {
         return Ok(Value::Decimal(q));
     }
     match op {
-        Arith::IntDiv | Arith::Mod => {
-            // The result formats as a Decimal (`D1 div 7` is '12,857' in Format; D_Duration.al:369).
-            Ok(Value::Decimal(Decimal::from(if op == Arith::IntDiv {
-                a / b
-            } else {
-                a % b
-            })))
-        }
+        // The result formats as a Decimal (`D1 div 7` is '12,857' in Format; D_Duration.al:369).
+        Arith::IntDiv => Ok(Value::Decimal(Decimal::from(a / b))),
+        // The remainder is a whole number that formats without a thousands separator: `3600000 mod 1000000` is '600000', not
+        // '600,000' (types/lt-datetime/Arithmetic.al:Duration_Arithmetic `A mod 1000000`, :393).
+        Arith::Mod => Ok(Value::BigInteger(a % b)),
         // The quotient is a number too (`slash-int` is `22500`, ExpressionBinaryDateTimeOperands.al:P195_Binary_DurationOperands).
         // The quotient is a Decimal and never raises; only an assignment into a Duration does when it has a fraction
         // (D_Duration.al:358-362 `asserterror D := D1 / 7`, `Dec := D1 / D2`).

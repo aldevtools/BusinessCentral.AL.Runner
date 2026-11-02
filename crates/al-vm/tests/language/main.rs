@@ -38,6 +38,7 @@ mod date_formula_format_standard;
 mod debugger;
 mod dmy2date_short_forms;
 mod duration_date_arith;
+mod duration_mod_format;
 mod enum_arithmetic;
 mod enum_in_set;
 mod enum_list_dictionary_list;
