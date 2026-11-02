@@ -2494,37 +2494,44 @@ fn check_baseline_rule(lowered: &Lowered, units: &mut [Unit]) {
 /// such a codeunit joins the carry chain as one whose OnRun writes (`numbers_taken.rs`). Counted only through what the
 /// tests are known to write, as for OnRun.
 fn tests_take_numbers(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
-    use super::written::{ReachIndex, reach_facts, state};
+    use super::written::{ReachIndex, state, union_reach_has};
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
     let o = &lowered.program.objects[oi];
-    (0..o.routines.len())
+    // One walk of the tests' joined reach: a walk per test went over their shared reach once per test (11 % of the
+    // full corpus run with Microsoft's apps).
+    let tests: Vec<(usize, usize)> = (0..o.routines.len())
         .filter(|&r| {
             o.routines[r]
                 .attributes
                 .iter()
                 .any(|a| a.name.eq_ignore_ascii_case("Test"))
         })
-        .any(|r| reach_facts(&engine.events, lowered, &index, oi, r).state_writes & state::NUMBER_SEQUENCE != 0)
+        .map(|r| (oi, r))
+        .collect();
+    union_reach_has(&engine.events, lowered, &index, &tests, &|f| {
+        f.state_writes & state::NUMBER_SEQUENCE != 0
+    })
 }
 
 /// Whether the static reach of test codeunit `oi` (its tests and its `OnRun`) can read or change isolated storage or a
 /// number sequence, or is not fully known. Only such a codeunit can see what an earlier Disabled codeunit left there
 /// (`Carried::everything`); one that cannot reach them does not depend on it.
 fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
-    use super::written::{ReachIndex, reach_facts, state};
+    use super::written::{ReachIndex, state, union_reach_has};
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
     let bits = state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE | state::OTHER;
     let o = &lowered.program.objects[oi];
-    (0..o.routines.len())
+    let roots: Vec<(usize, usize)> = (0..o.routines.len())
         .filter(|&r| {
             let routine = &o.routines[r];
             (routine.is_trigger && routine.name.eq_ignore_ascii_case("OnRun"))
                 || routine.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test"))
         })
-        .any(|r| {
-            let f = reach_facts(&engine.events, lowered, &index, oi, r);
-            f.unknown.is_some() || (f.state_reads | f.state_writes) & bits != 0
-        })
+        .map(|r| (oi, r))
+        .collect();
+    union_reach_has(&engine.events, lowered, &index, &roots, &|f| {
+        f.unknown.is_some() || (f.state_reads | f.state_writes) & bits != 0
+    })
 }
 
 /// Every outcome of a codeunit becomes not run, for `why`.

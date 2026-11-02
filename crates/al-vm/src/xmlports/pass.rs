@@ -211,6 +211,7 @@ impl Session {
             ) {
                 rec.borrow_mut().unpinned_buffer = None;
             }
+            self.xp_calc_listed_fields(schema, node, &rec)?;
             // Skip leaves the row out, Break ends the rows; BreakUnbound ends the trigger and the row goes on (P112_Export_Skip,
             // _Break, _BreakUnbound at getRec2).
             match self.xp_site(inst, schema, node, "onaftergetrecord") {
@@ -513,4 +514,18 @@ pub(super) fn export_triggers_below(schema: &Schema, node: usize) -> bool {
             .children(node)
             .into_iter()
             .any(|c| export_triggers_below(schema, c))
+}
+
+impl Session {
+    /// The FlowFields a table element's `CalcFields` lists, calculated on the row an export just read, before its
+    /// OnAfterGetRecord (xmlport/lt-y68-xmlport-shapes/Y68XmlPortShapes.al:567-621: `CalcFields = Total` gives `total=3.5
+    /// cnt=0` there, also on a temporary table element whose rows OnPreXmlItem copied).
+    fn xp_calc_listed_fields(&mut self, schema: &Schema, node: usize, rec: &Rec) -> Result<(), Signal> {
+        let listed = &schema.node(node).calc_fields;
+        if listed.is_empty() {
+            return Ok(());
+        }
+        let listed = listed.clone();
+        self.calc_fields(rec, &listed)
+    }
 }

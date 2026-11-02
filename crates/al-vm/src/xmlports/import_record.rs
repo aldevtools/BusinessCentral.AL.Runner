@@ -408,13 +408,18 @@ impl Session {
         elem: &Elem,
         assigned: &mut Vec<usize>,
     ) -> Result<(), Signal> {
-        // A field attribute of a field element that the document lacks: the table element's "required attribute" error is not
-        // pinned for this place (probe wanted: import a field element without its fieldattribute).
+        // A field attribute of a field element that the document lacks: an Optional one stays blank, a Required one (also by
+        // default) fails the schema check as on a table element (xmlport/lt-y68-xmlport-shapes/Y68XmlPortShapes.al:642-692
+        // Q6_FieldElement_Attributes_Import `lang missing`, `req missing`; corpus master 0d01b0cc); `xp_import_attrs` raises it.
+        // A text attribute Optional skips its trigger (`tag missing`); a Required one that is missing here is not pinned.
         for a in schema.children(node) {
             let n = schema.node(a);
-            if n.kind == ir::XmlNodeKind::FieldAttr && !elem.attrs.iter().any(|(name, _)| *name == n.xml_name) {
+            if n.kind == ir::XmlNodeKind::TextAttr
+                && n.required == Some(true)
+                && !elem.attrs.iter().any(|(name, _)| *name == n.xml_name)
+            {
                 return unsupported(format!(
-                    "XmlPort import of the field element {} without its field attribute {}: the error is not pinned (probe wanted)",
+                    "XmlPort import of the field element {} without its required text attribute {}: the error is not pinned",
                     schema.node(node).xml_name,
                     n.xml_name
                 ));
