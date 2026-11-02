@@ -61,6 +61,7 @@ pub struct Layout {
 
 /// `Table.Field` at the first dot outside quotes: a table name may hold a dot (`"Data Exch. Def".Code`).
 mod containers;
+mod table_props;
 
 fn split_source_at_dot(source: &str) -> Option<(&str, &str)> {
     let mut quote: Option<char> = None;
@@ -125,6 +126,9 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "usetemporary",
             "minoccurs",
             "maxoccurs",
+            // Checked in `table_props`.
+            "calcfields",
+            "linktableforceinsert",
         ],
         // `Unbound = true` on a field or text node changes neither the import nor the export of a field or text attribute
         // (xmlport/lt-y-xmlport-props/YXmlPortProps.al:682-722); the export of an unbound field element is refused when it runs.
@@ -608,19 +612,25 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
             } else if pn == "occurrence" {
                 // Pinned for a text attribute of the root, of a container text element and of a table element below it
                 // (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:441-560, QS_TextAttr_*; earlier on a table
-                // element below the root: report/lt-u-report-props/UPropertyTests.al:336). Below a field element it is not.
+                // element below the root: report/lt-u-report-props/UPropertyTests.al:336). Below a field element of a table element: below.
                 // On a field attribute it is pinned for one of a table element, on import (platform/lt-ag-contoso/
                 // AgXmlPortImport.al:27-53, :248 FieldAttribute_Occurrence_RequiredAndOptional_Import).
                 let value = p.value_text().trim().to_ascii_lowercase();
                 // A field attribute of a text element directly below a table element: xmlport/lt-sg-xmlport-occurs/
                 // SgXmlPortOccurs.al:78-175 SG_AttrBelowText_* (xmlport 89361), export and import.
+                // A field attribute and a text attribute of a field element of a table element: import and export
+                // (xmlport/lt-y68-xmlport-shapes/Y68XmlPortShapes.al:642-713 Q6_FieldElement_Attributes_*, corpus master 0d01b0cc).
+                let below_table_field = |i: usize| {
+                    out.nodes[i].kind == K::Field && out.nodes[i].parent.is_some_and(|g| out.nodes[g].kind == K::Table)
+                };
                 let parent_ok = parent.is_some_and(|i| match kind {
                     K::FieldAttr => {
                         out.nodes[i].kind == K::Table
                             || (out.nodes[i].kind == K::Text
                                 && out.nodes[i].parent.is_some_and(|g| out.nodes[g].kind == K::Table))
+                            || below_table_field(i)
                     }
-                    _ => matches!(out.nodes[i].kind, K::Text | K::Table),
+                    _ => matches!(out.nodes[i].kind, K::Text | K::Table) || below_table_field(i),
                 });
                 if !parent_ok || !matches!(value.as_str(), "required" | "optional") {
                     out.run_reasons.push(format!(
@@ -977,6 +987,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                 .map(|v| v.trim().eq_ignore_ascii_case("required")),
             field_validate: layout.property(i, "FieldValidate").and_then(|v| bool_prop(&v)),
             big_text: is_big_text(layout, i),
+            calc_fields: Vec::new(),
             triggers,
         };
         match kind {
@@ -1039,6 +1050,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                         raw.name
                     ));
                 }
+                table_props::lower(cx, layout, i, &mut node, &mut reasons);
                 let link_table = layout
                     .property(i, "LinkTable")
                     .map(|v| crate::scan::unquote_xmlport(&v));
