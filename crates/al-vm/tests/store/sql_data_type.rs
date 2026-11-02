@@ -158,14 +158,19 @@ fn modify_to_a_value_that_is_no_integer_fails() {
     }
 }
 
-// Not pinned: an Insert of such a value, a range filter on the field, and the order of a BigInteger Code key.
+// Y82InsertTests.al SecFInt_Insert_Abc: an Insert of such a value fails like a Modify. A range filter compares numbers (Y82PkTests.al
+// PkInt_NumericOrder `range 2..10`), and a BigInteger Code key sorts by number (Y82SecTests.al SecFBig_NumericOrder).
 #[test]
-fn unpinned_uses_of_an_integer_code_field_are_refused() {
-    for routine in ["InsertText", "RangeFilter", "BigIntegerOrder"] {
-        let r = run(routine);
-        assert!(matches!(r, Err(Signal::Unsupported(_))), "{routine}: {r:?}");
-    }
+fn an_integer_code_field_filters_and_sorts_by_number() {
+    let e = al_testkit::error_message(run("InsertText"));
+    assert_eq!(
+        e,
+        "The SDT Row table contains a value that is not valid in an integer Code field:\\\\Id='7'\\Error code: 22928072"
+    );
+    // The row with the empty value (the number 0) is outside the range 9..10.
+    assert_eq!(al_testkit::int(run("RangeFilter")), 2);
     assert_eq!(al_testkit::int(run("EqualFilter")), 1);
+    assert_eq!(al_testkit::int(run("BigIntegerOrder")), 3);
 }
 
 // XTablePropsTests.al:412-415.

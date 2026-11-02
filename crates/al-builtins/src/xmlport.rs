@@ -153,7 +153,7 @@ pub fn compact(e: &Elem) -> Option<String> {
             out.push(' ');
             out.push_str(n);
             out.push_str("=\"");
-            crate::xml::escape_attr(v, out);
+            escape_with_refs(v, out, crate::xml::escape_attr);
             out.push('"');
         }
         out.push('>');
@@ -161,7 +161,7 @@ pub fn compact(e: &Elem) -> Option<String> {
             match c {
                 Node::Elem(c) => go(c, out)?,
                 Node::Text(t) if t.is_empty() => {}
-                Node::Text(t) => crate::xml::escape_text(t, out),
+                Node::Text(t) => escape_with_refs(t, out, crate::xml::escape_text),
             }
         }
         out.push_str("</");
@@ -174,6 +174,21 @@ pub fn compact(e: &Elem) -> Option<String> {
     Some(out)
 }
 
+/// `escape` of `s`, with a control character other than tab, line feed and carriage return written as a character reference
+/// in capital hex digits, `&#x1;`, `&#xB;`, `&#x1B;` (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Xml_ControlChar_Export_1..3,
+/// needs the corpus bump; XML 1.0 and 1.1 ports alike). DEL, NEL and the line separator stay as they are.
+fn escape_with_refs(s: &str, out: &mut String, escape: fn(&str, &mut String)) {
+    let mut start = 0;
+    for (i, c) in s.char_indices() {
+        if c < ' ' && !matches!(c, '\t' | '\n' | '\r') {
+            escape(&s[start..i], out);
+            out.push_str(&format!("&#x{:X};", c as u32));
+            start = i + c.len_utf8();
+        }
+    }
+    escape(&s[start..], out);
+}
+
 fn write_elem(e: &Elem, level: usize, out: &mut String) {
     for _ in 0..level {
         out.push_str("  ");
@@ -184,7 +199,7 @@ fn write_elem(e: &Elem, level: usize, out: &mut String) {
         out.push(' ');
         out.push_str(n);
         out.push_str("=\"");
-        crate::xml::escape_attr(v, out);
+        escape_with_refs(v, out, crate::xml::escape_attr);
         out.push('"');
     }
     if e.children.iter().all(|c| matches!(c, Node::Text(t) if t.is_empty())) {
@@ -200,7 +215,7 @@ fn write_elem(e: &Elem, level: usize, out: &mut String) {
         for c in &e.children {
             match c {
                 Node::Elem(c) => write_elem(c, 0, out),
-                Node::Text(t) => crate::xml::escape_text(t, out),
+                Node::Text(t) => escape_with_refs(t, out, crate::xml::escape_text),
             }
         }
     } else if e.children.iter().any(|c| matches!(c, Node::Elem(_))) {
@@ -211,7 +226,7 @@ fn write_elem(e: &Elem, level: usize, out: &mut String) {
                     write_elem(c, level + 1, out);
                     out.push_str("\r\n");
                 }
-                Node::Text(t) => crate::xml::escape_text(t, out),
+                Node::Text(t) => escape_with_refs(t, out, crate::xml::escape_text),
             }
         }
         for _ in 0..level {
@@ -220,7 +235,7 @@ fn write_elem(e: &Elem, level: usize, out: &mut String) {
     } else {
         for c in &e.children {
             if let Node::Text(t) = c {
-                crate::xml::escape_text(t, out);
+                escape_with_refs(t, out, crate::xml::escape_text);
             }
         }
     }
@@ -284,8 +299,12 @@ pub fn field_text(v: &Value) -> Result<String, String> {
         Value::Text(s) | Value::Code(s) => Ok(s.to_string()),
         // Two places and a comma between thousands: `1,234.50`, `-0.50`
         // (xmlport/TestXmlPortExportImportContracts.al:XmlPortExport_Document_FullText).
-        Value::Decimal(d) if d.normalize().scale() <= 2 => {
-            let text = format!("{:.2}", d.round_dp(2));
+        // A positive value that needs rounding is rounded half away from zero (1.005 -> 1.01, 0.125 -> 0.13,
+        // 0.00001 -> 0.00; xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Decimal_Export_Xml, Decimal_Export_Text_Formats;
+        // needs the corpus bump). A negative one that needs rounding is not pinned.
+        Value::Decimal(d) if d.normalize().scale() <= 2 || !d.is_sign_negative() => {
+            let rounded = d.round_dp_with_strategy(2, rust_decimal::RoundingStrategy::MidpointAwayFromZero);
+            let text = format!("{rounded:.2}");
             let (sign, digits) = text.strip_prefix('-').map_or(("", text.as_str()), |t| ("-", t));
             let (int, frac) = digits.split_once('.').unwrap_or((digits, ""));
             let mut grouped = String::new();
@@ -297,7 +316,9 @@ pub fn field_text(v: &Value) -> Result<String, String> {
             }
             Ok(format!("{sign}{grouped}.{frac}"))
         }
-        Value::Decimal(d) => Err(format!("the Decimal {d}, which needs rounding to two places")),
+        Value::Decimal(d) => Err(format!(
+            "the negative Decimal {d}, which needs rounding to two places (not pinned)"
+        )),
         other => Err(format!("a value of type {}", type_name(other))),
     }
 }
@@ -445,7 +466,19 @@ mod tests {
             "1,234.50"
         );
         assert_eq!(field_text(&Value::Decimal("-0.5".parse().unwrap())).unwrap(), "-0.50");
-        assert!(field_text(&Value::Decimal("1.234".parse().unwrap())).is_err());
+        // corpus xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Decimal_Export_Xml (needs the corpus bump):
+        // a positive value that needs rounding is rounded to two places, halves away from zero.
+        for (v, t) in [
+            ("1.005", "1.01"),
+            ("0.125", "0.13"),
+            ("123456.789", "123,456.79"),
+            ("0.00001", "0.00"),
+            ("1234567.891234", "1,234,567.89"),
+        ] {
+            assert_eq!(field_text(&Value::Decimal(v.parse().unwrap())).unwrap(), t, "{v}");
+        }
+        // a negative value that needs rounding is not pinned
+        assert!(field_text(&Value::Decimal("-1.234".parse().unwrap())).is_err());
         assert!(field_text(&Value::Boolean(true)).is_err());
         assert!(matches!(field_value("15.00", &RtType::Decimal), Ok(Value::Decimal(d)) if d == Decimal::from(15)));
         assert!(matches!(
@@ -462,6 +495,18 @@ mod tests {
         assert_eq!(e.attr("b"), Some("2"));
         assert_eq!(e.attr("c"), None);
         assert_eq!(e.attr("A"), None);
+    }
+
+    #[test]
+    fn control_characters_are_written_as_references() {
+        // Y83XpMiscTests.al:Xml_ControlChar_Export_1..3 (needs the corpus bump)
+        let mut out = String::new();
+        escape_with_refs(
+            "a\u{1}b\u{B}c\u{1B}d\u{7f}e\u{85}f\t&",
+            &mut out,
+            crate::xml::escape_text,
+        );
+        assert_eq!(out, "a&#x1;b&#xB;c&#x1B;d\u{7f}e\u{85}f\t&amp;");
     }
 
     #[test]

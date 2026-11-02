@@ -36,6 +36,7 @@ pub(crate) use interp::constant;
 pub use platform::{FieldGetByKey, field_get_by_key_pairs};
 pub use profile::flush as profile_flush;
 mod callstack;
+mod code_storage_check;
 mod column_formatter;
 mod companies;
 mod control_add_in;
@@ -2675,6 +2676,7 @@ fn code_storage(f: &al_ir::Field) -> al_data::CodeStorage {
     {
         Some(v) if v.eq_ignore_ascii_case("Integer") => al_data::CodeStorage::Integer,
         Some(v) if v.eq_ignore_ascii_case("BigInteger") => al_data::CodeStorage::BigInteger,
+        Some(v) if v.eq_ignore_ascii_case("Variant") => al_data::CodeStorage::Variant,
         Some(v) if v.eq_ignore_ascii_case("Varchar") => al_data::CodeStorage::Text,
         Some(_) => al_data::CodeStorage::Other,
         None => al_data::CodeStorage::Text,

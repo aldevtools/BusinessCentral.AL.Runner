@@ -120,6 +120,11 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "namespaceprefix",
             "linktable",
             "linkfields",
+            // Inert for Export and Import from code, a UseRequestPage = true port included: they never open the request page
+            // (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:RequestFilterFields_Export, _Import, needs the corpus bump).
+            // Xmlport.Run of such a port is refused (no request page with content).
+            "requestfilterfields",
+            "requestfilterheading",
             "autosave",
             "autoupdate",
             "autoreplace",
@@ -366,28 +371,25 @@ pub fn layout(obj: &ast::Object) -> Layout {
             out.text_encoding = None;
         }
     }
-    // A DefaultNamespace that UseDefaultNamespace does not use changes nothing on import: a root in a namespace is not found,
-    // one without is imported (xmlport/lt-xmlport-query-datatransfer/XpTNamespaces.al:Import_DefaultNs*, xmlport 73418;
-    // pages/lt-report-page-properties/06-xmlport-dnsfalse.al:45-49). What an export writes is not pinned (both read only that
-    // the UTF-16 output is no UTF-8); UseDefaultNamespace = true is not supported yet. Without DefaultNamespace it is inert.
-    // An Xml export with Encoding = UTF8 writes the same as without PreserveWhiteSpace, white space of a text element and a
-    // field element, a line end inside one included, with and without DefaultNamespace + UseDefaultNamespace
-    // (misc/lt-np4-probes/Np4XmlPort.al:280 NP4_XmlPort_PreserveWhiteSpace_WithNamespace, :300 _DefaultWhiteSpace_WithNamespace,
-    // :320 _PreserveWhiteSpace_NoNamespace, corpus master). Another encoding is not pinned for an export.
+    // A DefaultNamespace that UseDefaultNamespace does not use changes nothing: an export writes no `xmlns` for it and an import
+    // does not find a root in a namespace, one without is imported, with Namespaces, UseLax, PreserveWhiteSpace, InlineSchema and
+    // XmlVersionNo = V11 alike (xmlport/lt-xmlport-query-datatransfer/XpTNamespaces.al:Import_DefaultNs*, xmlport 73418;
+    // pages/lt-report-page-properties/06-xmlport-dnsfalse.al:45-49; xmlport/lt-y83-xmlport-shapes/Y83XpNsTests.al:Ns_DnOnly,
+    // Ns_DnFalseUtf8, Ns_DnNsprefix, Ns_DnLax, Ns_DnPws, Ns_DnInline, Ns_DnV11, needs the corpus bump). Without DefaultNamespace it
+    // is inert.
+    // An Xml export with PreserveWhiteSpace writes the same as without it, with Encoding = UTF8 or the default UTF16, white space
+    // of a text element and a field element, a line end inside one included, with and without DefaultNamespace +
+    // UseDefaultNamespace (misc/lt-np4-probes/Np4XmlPort.al:280 NP4_XmlPort_PreserveWhiteSpace_WithNamespace, :300
+    // _DefaultWhiteSpace_WithNamespace, :320 _PreserveWhiteSpace_NoNamespace, corpus master; Y83XpNsTests.al:Ns_Pws, Ns_PwsPrefix,
+    // Ns_PwsUdnDn for UTF16, needs the corpus bump).
     let utf8 = out.encoding.as_deref().is_some_and(|e| e.eq_ignore_ascii_case("utf8"));
-    if out.preserve_whitespace {
-        if out.format == ir::XmlFormat::Xml {
-            if !utf8 {
-                out.export_reasons.push(
-                    "xmlport property preservewhitespace = true without Encoding = UTF8 (what an export writes is not pinned)"
-                        .into(),
-                );
-            }
-        } else {
-            out.preserve_whitespace = false;
-            out.run_reasons
-                .push("xmlport property preservewhitespace = true of a text format is not pinned".into());
-        }
+    // On a VariableText port it changes nothing for an export and for a quoted value of an import (Y83XpNsTests.al:Ns_PwsVt, needs
+    // the corpus bump); an unquoted value with white space around it is refused when the import runs (al-vm xmlports/text.rs).
+    // On a FixedText port it is not pinned.
+    if out.preserve_whitespace && out.format == ir::XmlFormat::FixedText {
+        out.preserve_whitespace = false;
+        out.run_reasons
+            .push("xmlport property preservewhitespace = true of a FixedText port is not pinned".into());
     }
     // With UseDefaultNamespace = true every element is in DefaultNamespace: the export writes `xmlns="<namespace>"` on the root
     // and an import finds a root in that namespace only (xmlport/lt-bd-xmlport/BdXmlPort.al:353-370
@@ -396,10 +398,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
     let mut own_namespace = None;
     if let Some(ns) = default_namespace {
         match use_default_namespace {
-            Some(false) => out.export_reasons.push(
-                "xmlport property defaultnamespace without UseDefaultNamespace (what an export writes is not pinned)"
-                    .into(),
-            ),
+            Some(false) => {}
             Some(true) if !ns.is_empty() && !ns.contains(['\'', '"']) => {
                 own_namespace = Some(ns);
                 bc_namespace = true;
@@ -459,17 +458,29 @@ pub fn layout(obj: &ast::Object) -> Layout {
         // uri of `""`, and prefixed elements are written with their prefixes (xmlport/lt-y17-xmlport-ns/
         // Y17XmlPortNamespacesTests.al:82, an UTF8 export).
         let empty_prefix_replaced = own_namespace.is_some() && utf8 && out.namespaces.iter().any(|(p, _)| p.is_empty());
+        // Namespaces with named prefixes only, used by field elements only: the export declares them before the default
+        // namespace; an import finds no root outside the port's namespace (Y83XpNsTests.al:Ns_UdnPrefix, Ns_UdnDnPrefixUtf8,
+        // needs the corpus bump).
+        let named_prefixes_on_fields = !out.namespaces.is_empty()
+            && out.namespaces.iter().all(|(p, _)| !p.is_empty())
+            && (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some())
+            && (0..out.nodes.len())
+                .all(|i| out.property(i, "NamespacePrefix").is_none() || out.nodes[i].kind == ir::XmlNodeKind::Field);
         let unpinned = if out.format != ir::XmlFormat::Xml {
             Some("a text format")
+        } else if named_prefixes_on_fields {
+            None
         } else if !out.namespaces.is_empty() && !empty_prefix_replaced {
             Some("Namespaces")
-        } else if out.use_lax {
+        } else if own_namespace.is_some() && out.use_lax {
+            // UseLax, InlineSchema and V11 are pinned with BC's own namespace of the port (no DefaultNamespace): Y83XpNsTests.al:
+            // Ns_UdnLax, Ns_UdnInline, Ns_UdnV11, needs the corpus bump.
             Some("UseLax")
-        } else if out.inline_schema {
+        } else if own_namespace.is_some() && out.inline_schema {
             Some("InlineSchema")
-        } else if out.xml_v11 {
+        } else if own_namespace.is_some() && out.xml_v11 {
             Some("XmlVersionNo = V11")
-        } else if out.preserve_whitespace && (own_namespace.is_none() || !utf8) {
+        } else if out.preserve_whitespace && own_namespace.is_none() {
             // With DefaultNamespace on an UTF8 port it is pinned (above: export; corpus PR 896 Np4XmlPort.al Y9_XmlPort_Import_*: import).
             Some("PreserveWhiteSpace")
         } else if !empty_prefix_replaced && (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some()) {
@@ -1199,15 +1210,15 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
 /// Pinned: one declared namespace that a field element of the port uses (YXmlPortProps.al:
 /// NodeProperties_Export_NamesPrefixesAutoCalc); beside a used one or the empty prefix `""`, also a namespace no element uses:
 /// the root still declares it (xmlport/lt-bd-xmlport/BdXmlPort.al:407 `q`; xmlport/lt-y17-xmlport-ns/
-/// Y17XmlPortNamespacesTests.al:60 `u`). A prefix that is not declared, every namespace unused, and a prefix on an
-/// attribute alone are not pinned.
+/// Y17XmlPortNamespacesTests.al:60 `u`). A prefix that is not declared and every namespace unused are not pinned. A prefix on a
+/// field attribute alone is pinned (xmlport/lt-y83-xmlport-shapes/Y83XpNsTests.al:Ns_PrefixAttrOnly, needs the corpus bump).
 fn namespace_reasons(layout: &Layout, nodes: &[ir::XmlNode], run_reasons: &mut Vec<String>) {
     let used: Vec<&str> = nodes.iter().filter_map(|n| n.ns_prefix.as_deref()).collect();
     let element_uses = |prefix: &str| {
         nodes.iter().any(|n| {
             matches!(
                 n.kind,
-                ir::XmlNodeKind::Field | ir::XmlNodeKind::Text | ir::XmlNodeKind::Table
+                ir::XmlNodeKind::Field | ir::XmlNodeKind::FieldAttr | ir::XmlNodeKind::Text | ir::XmlNodeKind::Table
             ) && n.ns_prefix.as_deref() == Some(prefix)
         })
     };
