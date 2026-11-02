@@ -2152,14 +2152,17 @@ impl Session {
             let Some(declared) = declared.filter(|v| !v.eq_ignore_ascii_case("Varchar")) else {
                 continue;
             };
-            if f.code_storage == al_data::CodeStorage::Text {
-                return unsupported(format!("Code field {} with SQLDataType = {declared}", f.name));
-            }
-            if t.keys[0].contains(&i) {
-                return unsupported(format!(
-                    "Code field {} with SQLDataType = {declared} in the primary key: its order is not pinned",
-                    f.name
-                ));
+            // The order of the primary key and the comparison rules of another SQLDataType are not pinned, but only a read that
+            // observes them is refused (al_data::MemStore::code_storage_read), not every touch of the table.
+            if f.code_storage == al_data::CodeStorage::Other {
+                let empty = al_builtins::native::text_of(&row[i]).is_none_or(|v| v.is_empty());
+                if !empty {
+                    return unsupported(format!(
+                        "a value in the Code field {} with SQLDataType = {declared}: how the database stores and compares it is not pinned",
+                        f.name
+                    ));
+                }
+                continue;
             }
             let value = al_builtins::native::text_of(&row[i])
                 .map(|v| v.to_string())
