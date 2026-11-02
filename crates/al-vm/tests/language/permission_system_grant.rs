@@ -93,7 +93,8 @@ codeunit 50100 "PS Probe"
 fn insert_under(set: &str) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
     let mut b = Built::new(compile(SRC));
     let (oi, ri) = b.routine_in("PS Probe", "InsertUnder");
-    b.call(oi, ri, vec![al_builtins::value::Value::Code(set.into())]).map(|(v, _)| v)
+    b.call(oi, ri, vec![al_builtins::value::Value::Code(set.into())])
+        .map(|(v, _)| v)
 }
 
 /// The set's tabledata grant composes: the Insert it does not grant raises BC's error (TestMockBasics.al:72-73).
