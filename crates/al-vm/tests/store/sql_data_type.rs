@@ -167,8 +167,8 @@ fn an_integer_code_field_filters_and_sorts_by_number() {
         e,
         "The SDT Row table contains a value that is not valid in an integer Code field:\\\\Id='7'\\Error code: 22928072"
     );
-    // The table holds a row with the empty value there, whose place in a range is not pinned (Y82PkTests.al PkInt_Blank has equality only).
-    assert!(matches!(run("RangeFilter"), Err(Signal::Unsupported(_))));
+    // The row with the empty value (the number 0) is outside the range 9..10.
+    assert_eq!(al_testkit::int(run("RangeFilter")), 2);
     assert_eq!(al_testkit::int(run("EqualFilter")), 1);
     assert_eq!(al_testkit::int(run("BigIntegerOrder")), 3);
 }

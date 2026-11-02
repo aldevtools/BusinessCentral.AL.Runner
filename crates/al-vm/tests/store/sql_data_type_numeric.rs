@@ -153,6 +153,23 @@ codeunit 69965 C
         exit('ERR[' + GetLastErrorCode() + ']: ' + GetLastErrorText());
     end;
 
+    procedure TypedDesc(): Text
+    var R: Record "NV Int"; Result: Text; Sep: Text;
+    begin
+        R.Init(); R.K := '10'; R.Insert();
+        R.Init(); R.K := '9'; R.Insert();
+        R.Init(); R.K := '100'; R.Insert();
+        R.Reset();
+        R.SetCurrentKey(K);
+        R.SetAscending(K, false);
+        if R.FindSet() then
+            repeat
+                Result += Sep + R.K;
+                Sep := ',';
+            until R.Next() = 0;
+        exit(Result);
+    end;
+
     procedure FindKey(TableNo: Integer; Value: Text): Text
     var RR: RecordRef;
     begin
@@ -382,7 +399,7 @@ fn a_rename_of_a_number_stored_key_checks_the_new_value() {
     }
 }
 
-// Y82PkTests.al PkVnt_Mixed (:780-794): a text in a Variant key is found by equality; a range of texts holds no number.
+// Y82PkTests.al Y82SecTests.al SecFVnt_Mixed: a text in a Variant key is found by equality, a range of texts holds the texts of the range.
 #[test]
 fn a_variant_key_finds_a_text_by_equality() {
     let mut b = session();
@@ -390,8 +407,17 @@ fn a_variant_key_finds_a_text_by_equality() {
     assert_eq!(on(&mut b, "DumpFilter", vec![i(VNT), i(1), t("A")]), "A");
     assert_eq!(on(&mut b, "DumpFilter", vec![i(VNT), i(1), t("9")]), "9");
     assert_eq!(on(&mut b, "DumpFilter", vec![i(VNT), i(1), t("A|9")]), "A,9");
-    // Where a text stands to a number in a range is pinned only for a range of two texts, over numbers alone.
+    assert_eq!(on(&mut b, "DumpFilter", vec![i(VNT), i(1), t(">5")]), "9");
+    assert_eq!(on(&mut b, "DumpFilter", vec![i(VNT), i(1), t("A..B")]), "A,B");
+    // A comparison that reaches below the numbers would keep the texts: not pinned.
     let (oi, ri) = b.routine_in("C", "DumpFilter");
-    let r = b.call(oi, ri, vec![i(VNT), i(1), t(">5")]);
+    let r = b.call(oi, ri, vec![i(VNT), i(1), t("<5")]);
     assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
+}
+
+// Y82PkTests.al PkInt_Typed (:449-473): SetAscending(K, false) on a typed record runs the key backwards by number.
+#[test]
+fn a_typed_record_in_descending_order_sorts_by_number() {
+    let mut b = session();
+    assert_eq!(on(&mut b, "TypedDesc", vec![]), "100,10,9");
 }

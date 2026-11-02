@@ -75,7 +75,8 @@ fn map_expr(e: &E, field: &str, variant: bool) -> Result<E, StoreError> {
     };
     let bound = |v: &Value, eq: bool| -> Result<Option<Value>, StoreError> {
         match v {
-            Value::Code(s) | Value::Text(s) if s.trim().is_empty() => Err(refuse("a filter with an empty value")),
+            // The empty value is the number 0 (Y82SecTests.al `SecFInt_NumericOrder`: `<10` and `..9` keep it, `<>''` drops it).
+            Value::Code(s) | Value::Text(s) if s.trim().is_empty() => Ok(Some(Value::BigInteger(0))),
             Value::Code(_) | Value::Text(_) => match code_number(v) {
                 Some(n) => Ok(Some(Value::BigInteger(n))),
                 None if variant && eq => Ok(Some(v.clone())),
@@ -105,15 +106,13 @@ fn map_expr(e: &E, field: &str, variant: bool) -> Result<E, StoreError> {
         E::Gt(v) => one(v, E::Gt, false)?,
         E::Ge(v) => one(v, E::Ge, false)?,
         E::Range(lo, hi) => {
-            // Y82PkTests.al `PkVnt_FilterLetters_Range`/`_Text`: a range of two texts holds no number (the cells are all numbers here).
-            let text_only = |v: &Option<Value>| {
-                matches!(v, Some(Value::Code(_) | Value::Text(_))) && v.as_ref().and_then(code_number).is_none()
-            };
-            if variant && text_only(lo) && text_only(hi) {
-                return Ok(never());
-            }
             let same =
                 matches!((lo, hi), (Some(a), Some(b)) if al_builtins::ops::compare(a, b).ok() == Some(Ordering::Equal));
+            // A Variant range of two texts keeps the texts of the range (Y82SecTests.al `SecFVnt_Mixed` `range A..B`).
+            let texts = |v: &Option<Value>| {
+                matches!(v, Some(Value::Code(_) | Value::Text(_))) && v.as_ref().and_then(code_number).is_none()
+            };
+            let same = same || (variant && texts(lo) && texts(hi));
             let lo = lo.as_ref().map(|v| bound(v, same)).transpose()?;
             let hi = hi.as_ref().map(|v| bound(v, same)).transpose()?;
             match (lo, hi) {
@@ -145,14 +144,11 @@ fn compares_numbers(e: &E) -> bool {
     }
 }
 
-/// Whether `e` can be answered without knowing how an empty value (or, for a Variant, a text) stands to a number: it holds
-/// equalities only, and no row that is not that number equals it.
-fn only_equalities(e: &E) -> bool {
+/// Whether `e` can match a value below every number (`<10`, `<>5`, `..9`).
+fn reaches_texts(e: &E) -> bool {
     match e {
-        E::Eq(_) | E::RangeSame(_) => true,
-        E::Range(Some(a), Some(b)) => al_builtins::ops::compare(a, b).ok() == Some(Ordering::Equal),
-        E::Or(xs) | E::And(xs) => xs.iter().all(only_equalities),
-        E::Like(..) | E::NotLike(..) | E::AtSignAlone(_) | E::EmptyViewValue => true,
+        E::Lt(_) | E::Le(_) | E::Ne(_) | E::Range(None, _) => true,
+        E::Or(xs) | E::And(xs) => xs.iter().any(reaches_texts),
         _ => false,
     }
 }
@@ -187,31 +183,24 @@ pub fn number_filters<'a>(
             mapped.push(f.clone());
         }
     }
+    // A Variant orders its texts below its numbers: a filter that reaches down (`<10`, `<>5`, `..9`) would keep the texts. Whether it
+    // does is not pinned, so it is answered only while no row holds a text there.
     let fields: Vec<usize> = filters
         .iter()
-        .filter(|f| numeric(f) && compares_numbers(&f.expr) && !only_equalities(&f.expr))
+        .filter(|f| stored(f) == CodeStorage::Variant && reaches_texts(&f.expr))
         .map(|f| f.field)
         .collect();
-    for row in rows {
-        for &i in &fields {
-            let Value::Code(c) = &row[i] else { continue };
-            let odd = c.is_empty() || (stored_of(t, i) == CodeStorage::Variant && !is_number(c));
-            if odd {
-                return Err(StoreError::Refused(format!(
-                    "a comparison of numbers on the Code field {}, which the database stores as a number, while a row holds {} there: not pinned",
-                    t.fields[i].name,
-                    if c.is_empty() {
-                        "the empty value"
-                    } else {
-                        "a text that is no number"
-                    }
-                )));
+    if !fields.is_empty() {
+        for row in rows {
+            for &i in &fields {
+                if matches!(&row[i], Value::Code(c) if !c.is_empty() && !is_number(c)) {
+                    return Err(StoreError::Refused(format!(
+                        "a comparison that reaches below the numbers on the Variant Code field {}, while a row holds a text that is no number there: not pinned",
+                        t.fields[i].name
+                    )));
+                }
             }
         }
     }
     Ok(Cow::Owned(mapped))
-}
-
-fn stored_of(t: &TableDef, i: usize) -> CodeStorage {
-    t.fields[i].code_storage
 }

@@ -14,6 +14,31 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
 }
 
 impl Session {
+    /// The fields a position of key `key` is made of: the key's, then the primary key's.
+    pub(crate) fn position_fields(t: &TableDef, key: usize) -> Vec<usize> {
+        if key == 0 {
+            t.keys[0].clone()
+        } else {
+            t.keys[key].iter().chain(&t.keys[0]).copied().collect()
+        }
+    }
+
+    /// The order of the values `x` and `y` at place `i` of a position made of `fields`. A Code field stored as a number compares by
+    /// number (Y82PkTests.al `PkInt_Typed`, `SecFInt_Typed`: `SetAscending(K, false)` on a typed record).
+    pub(crate) fn compare_in_position(
+        t: &TableDef,
+        fields: &[usize],
+        i: usize,
+        x: &Value,
+        y: &Value,
+    ) -> std::cmp::Ordering {
+        use al_data::CodeStorage::{BigInteger, Integer, Variant};
+        match fields.get(i).map(|&f| t.fields[f].code_storage) {
+            Some(Integer | BigInteger | Variant) => t.cmp_key_field(fields[i], x, y),
+            _ => al_builtins::ops::compare(x, y).unwrap_or(std::cmp::Ordering::Equal),
+        }
+    }
+
     /// A Rename to a value a number-stored Code key cannot hold fails like an Insert and changes nothing (Y82PkTests.al
     /// `PkInt_Rename_ToAbc`, `PkBig_Rename_ToAbc`); a value it takes is stored as the number. Then the checks of the new key's
     /// AutoIncrement fields.

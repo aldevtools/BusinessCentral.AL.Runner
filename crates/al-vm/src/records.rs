@@ -2190,9 +2190,10 @@ impl Session {
             rows.push((pos, row));
         }
         let mask = rec.borrow().field_descending;
+        let fields = Session::position_fields(t, key);
         let order = |a: &[Value], b: &[Value]| -> Ordering {
             for (i, (x, y)) in a.iter().zip(b).enumerate() {
-                let o = ops::compare(x, y).unwrap_or(Ordering::Equal);
+                let o = Session::compare_in_position(t, &fields, i, x, y);
                 let o = if i < 32 && mask & (1 << i) != 0 { o.reverse() } else { o };
                 if o != Ordering::Equal {
                     return o;
