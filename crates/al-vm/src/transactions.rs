@@ -263,14 +263,8 @@ impl Session {
             Some(what) => Err(Signal::Unsupported(format!(
                 "whether {what} starts a write transaction (not pinned)"
             ))),
-            None => {
-                if self.tx.read_uncommitted_read {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::ReadUncommittedReadOpensNoWriteTransaction,
-                    );
-                }
-                Ok(false)
-            }
+            // A ReadUncommitted read opens none either (misc/lt-y70-assumptions/Y70Probes.al:839-866).
+            None => Ok(false),
         }
     }
 

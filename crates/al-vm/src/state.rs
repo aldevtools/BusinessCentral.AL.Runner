@@ -91,9 +91,6 @@ pub(crate) struct TxState {
     /// The tables (object index, company) a locking ReadIsolation locked since the last Commit: UpdLock set on a database
     /// table, or a read under RepeatableRead or UpdLock.
     pub(crate) isolation_lock_tables: Vec<(u32, Option<String>)>,
-    /// A read under ReadIsolation ReadUncommitted ran since the last Commit: it opens no write transaction under the
-    /// assumption `readuncommitted-read-opens-no-write-transaction`.
-    pub(crate) read_uncommitted_read: bool,
     /// A read under UpdLock or RepeatableRead whose effect on the write transaction is not pinned ran since the last Commit
     /// (a FindFirst, FindSet, FindLast or another Find under an isolation set in an earlier transaction): `lock_unpinned`
     /// then refuses IsInWriteTransaction. Without it, the pinned reads that set `lock_unpinned` open no write transaction.
@@ -173,7 +170,6 @@ impl TxState {
             lock_unpinned: None,
             recref_lock_tx: false,
             isolation_lock_tables: Vec::new(),
-            read_uncommitted_read: false,
             locking_read_tx_unpinned: false,
         }
     }

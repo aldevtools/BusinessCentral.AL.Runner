@@ -15,7 +15,6 @@
 //! refused.
 
 use super::*;
-use al_builtins::assumptions::{Assumption, assume};
 
 impl Session {
     /// The hint a TestValidation error of control `idx` ends with: a table-field control with a row on a page that is not a
@@ -30,7 +29,6 @@ impl Session {
                 .control_field(st, idx)
                 .is_some_and(|f| prop_of(&f, "ValuesAllowed").is_some());
         if navigate && rec_bound {
-            assume(Assumption::TableFieldValuesAllowedSetValue);
             return "";
         }
         if rec_bound && !self.shows_no_row(st, idx) && !self.is_list(st) {
@@ -69,7 +67,6 @@ impl Session {
                 "SetValue on a control over a table field with ValuesAllowed, not a table field of a Card, NavigatePage or list with a row (not pinned)",
             );
         }
-        assume(Assumption::TableFieldValuesAllowedSetValue);
         Ok(())
     }
 
@@ -325,9 +322,6 @@ impl Session {
             let Some(allowed) = super::controls::allowed_ordinals(&list, &values) else {
                 return Ok(None);
             };
-            if !allowed.contains(ordinal) {
-                assume(Assumption::TableFieldValuesAllowedSetValue);
-            }
             allowed
         };
         if allowed.contains(ordinal) {

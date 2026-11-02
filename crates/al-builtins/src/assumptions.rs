@@ -288,19 +288,19 @@ mod tests {
     #[test]
     fn marks_are_collected_per_thread_and_cleared() {
         clear_hits();
-        assume(Assumption::ReadUncommittedReadOpensNoWriteTransaction);
-        assume(Assumption::ReadUncommittedReadOpensNoWriteTransaction);
+        assume(Assumption::FeatureKeyEnabledModify);
+        assume(Assumption::FeatureKeyEnabledModify);
         assume(Assumption::CodeCoverageSnapshotWhileLogging);
         // In registry order, the order of the ids.
         assert_eq!(
             take_hits(),
             vec![
                 Assumption::CodeCoverageSnapshotWhileLogging,
-                Assumption::ReadUncommittedReadOpensNoWriteTransaction
+                Assumption::FeatureKeyEnabledModify
             ]
         );
         assert!(take_hits().is_empty());
-        assume(Assumption::ReadUncommittedReadOpensNoWriteTransaction);
+        assume(Assumption::FeatureKeyEnabledModify);
         std::thread::spawn(|| assert!(take_hits().is_empty())).join().unwrap();
         clear_hits();
     }

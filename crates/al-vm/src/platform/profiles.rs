@@ -57,12 +57,18 @@ impl Session {
             r[pos(t, 1)] = super::option(t, 1, 1);
             r[pos(t, 2)] = Value::Guid(owner);
             r[pos(t, 3)] = Value::Code(o.name.to_uppercase().chars().take(30).collect());
-            r[pos(t, 4)] = Value::Text(
-                prop("ProfileDescription")
-                    .and_then(text_of_literal)
-                    .unwrap_or_default()
-                    .into(),
-            );
+            // A ProfileDescriptionML gives the Description per session language (codeunit/lt-x-object-props/XObjectProps.al:
+            // 365-400), which one stored row cannot hold: refused when read.
+            r[pos(t, 4)] = if prop("ProfileDescription").is_none() && prop("ProfileDescriptionML").is_some() {
+                Value::Unknown("All Profile: the Description of a profile that declares ProfileDescriptionML depends on the session language (not modelled)".into())
+            } else {
+                Value::Text(
+                    prop("ProfileDescription")
+                        .and_then(text_of_literal)
+                        .unwrap_or_default()
+                        .into(),
+                )
+            };
             r[pos(t, 5)] = Value::Integer(role_center_id);
             r[pos(t, 6)] = Value::Boolean(prop("DefaultRoleCenter").is_some_and(super::objects::truthy));
             r[pos(t, 14)] = Value::Text(app.map(|a| a.name.clone()).unwrap_or_default().into());
@@ -76,6 +82,11 @@ impl Session {
                     .collect(),
             );
             r[pos(t, 17)] = Value::Boolean(prop("Promoted").is_some_and(super::objects::truthy));
+            // A seed Tenant Profile Setting of the profile sets these two (profile_settings.rs).
+            if let Some((default, disable)) = self.seeded_profile_setting(&r[pos(t, 2)], &o.name) {
+                r[pos(t, 6)] = Value::Boolean(default);
+                r[pos(t, 13)] = Value::Boolean(disable);
+            }
             if let Some(p) = t.fields.iter().position(|f| f.id == 2_000_000_000) {
                 r[p] = Value::Guid(self.new_guid());
             }

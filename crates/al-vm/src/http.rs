@@ -71,6 +71,12 @@ impl Session {
         // corpus master, also a relative uri joined to a base address).
         let blocked_after_off =
             !self.has_http_handler() && policy == Some("BlockOutboundRequests") && request.url.contains("://");
+        // After Windows authentication only a request a handler answers is pinned (HttpClientAuthConfig.al:127-136).
+        if request.windows_auth_set && (!self.has_http_handler() || !request.url.contains("://")) {
+            return unsupported(
+                "a request of an HttpClient after Windows authentication that no [HttpClientHandler] answers (not pinned)",
+            );
+        }
         if request.cert_validation_set
             && !blocked_after_off
             && (!self.has_http_handler() || !request.url.contains("://"))
@@ -147,9 +153,9 @@ impl Session {
             // Under BlockOutboundRequests the request may not go out: PZHttpBlock.al:131-155
             // (RS_PassOnHandler_ReturnsTrue_UnderBlockOutboundRequests, BC 29; the handler ran once). BC 27 and 28 are not measured
             // (the corpus discards those legs); refusing there would lose that baseline case, so they raise the same error.
-            Value::Boolean(true) if request.cert_validation_set => {
+            Value::Boolean(true) if request.cert_validation_set || request.windows_auth_set => {
                 return unsupported(
-                    "an [HttpClientHandler] that lets the request of an HttpClient after UseServerCertificateValidation go out (not pinned)",
+                    "an [HttpClientHandler] that lets the request of an HttpClient after UseServerCertificateValidation or Windows authentication go out (not pinned)",
                 );
             }
             Value::Boolean(true) if policy == Some("BlockOutboundRequests") => {

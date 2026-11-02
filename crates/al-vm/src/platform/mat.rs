@@ -682,7 +682,7 @@ mod tests {
     #[test]
     fn a_read_that_returns_or_counts_an_assumed_row_marks_its_assumption() {
         use al_builtins::assumptions::{Assumption, take_hits};
-        let a = Assumption::FieldObsoleteStatePendingMove;
+        let a = Assumption::FeatureKeyEnabledModify;
         let m = Mat::new(
             &table(),
             vec![Entry::ok(row(1, "a")), Entry::ok(row(2, "b")).assuming(a)],

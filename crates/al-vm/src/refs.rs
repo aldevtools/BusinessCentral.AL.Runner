@@ -801,7 +801,7 @@ impl Session {
 
     /// `The supplied field number '<supplied>' cannot be found in the '<table caption>' table.`, code FieldNotFound
     /// (recordref/lt-refs/RfTMeta.al:114-123 names the table by its caption; P107RecRefNames.al:52-60 by a name given as text).
-    fn field_not_found(&self, t: &TableDef, supplied: &str) -> Signal {
+    pub(crate) fn field_not_found(&self, t: &TableDef, supplied: &str) -> Signal {
         crate::transactions::al_error_code(
             &format!(
                 "The supplied field number '{supplied}' cannot be found in the '{}' table.",
@@ -1048,32 +1048,8 @@ impl Session {
                 let view = al_builtins::native::text_of(args.first().unwrap_or(&Value::Null)).unwrap_or_default();
                 self.set_view(&rec, &t, &view).map(|()| Value::Null)
             }
-            // The load set of a RecordRef is given by field numbers (record/TestRecordPartialLoad.al
-            // PartialLoad_SetLoadFields_UnknownFieldNo_Throws: a number no field has is an error that
-            // names it; its text is not pinned). The rest is the Record rule (partial.rs).
-            "SetLoadFields" | "AddLoadFields" | "AreFieldsLoaded" => {
-                let mut positions = Vec::with_capacity(args.len());
-                for a in args.iter() {
-                    let Value::Integer(n) = a else {
-                        return unsupported(format!("RecordRef.{method} with {}", a.describe()));
-                    };
-                    match t.fields.iter().position(|f| i64::from(f.id) == i64::from(*n)) {
-                        Some(p) => positions.push(Value::Integer(p as i32)),
-                        // One unknown number raises FieldNotFound naming it (misc/lt-open-overloads-collections-isolated/
-                        // P107RecRefNames.al:159-171, records/W4PlatformAndMeta.al:517-518). Which number a call with
-                        // several arguments names is not pinned.
-                        None if args.len() == 1 && method != "AreFieldsLoaded" => {
-                            return Err(self.field_not_found(&t, &n.to_string()));
-                        }
-                        None => return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error()))),
-                    }
-                }
-                let op = if method == "AreFieldsLoaded" {
-                    RecordOp::AreFieldsLoaded
-                } else {
-                    record_method(method)
-                };
-                self.load_fields_op(op, &rec, &t, &positions)
+            "SetLoadFields" | "AddLoadFields" | "AreFieldsLoaded" | "LoadFields" => {
+                self.recordref_load_fields(method, &rec, &t, args)
             }
             // The fields are given by number; a read then calculates them as for a Record (record/TestSetAutoCalcFieldsOnGet.Codeunit.al:112-124
             // RecordRef_SetAutoCalcFields_ThenGet_Calculates pins Get with one FlowField; the other reads share the Record rule).
@@ -1147,7 +1123,7 @@ impl Session {
             }
             // As Record.GetBySystemId, and a miss with the result unused raises "The <table> does not
             // exist" naming the Guid (PXEnumRecordRef.al:199-301).
-            "GetBySystemId" => self.get_by_system_id(&rec, &t, args, true),
+            "GetBySystemId" => self.get_by_system_id(&rec, &t, args),
             "AddLink" | "DeleteLink" | "DeleteLinks" | "HasLinks" | "CopyLinks" => {
                 self.record_links(record_method(method), &rec, &t, args)
             }
@@ -1527,10 +1503,6 @@ impl Session {
                     if let Value::Unknown(why) = &v {
                         return unsupported(why.to_string());
                     }
-                    if let Value::Guid(_) = &v {
-                        let table = rec.borrow().table as usize;
-                        self.note_field_row_system_id(table, pos, &rec.borrow().fields, &v);
-                    }
                     // A coverage Test ID read by number: no pinned shape (platform::coverage_test_id_refusal).
                     if !rec.borrow().temporary && self.is_coverage_test_id(&t, field.id) {
                         return unsupported(al_builtins::platform::coverage_test_id_refusal(
@@ -1609,84 +1581,7 @@ impl Session {
                     {
                         crate::recmeta::tdd_fits(f, v)?;
                     }
-                    // A text that is no number into an Integer, BigInteger, Decimal or Boolean field raises the Evaluate error from BC 28 and
-                    // `The type Nav<Type> is unknown.` before; the field keeps its value (fieldref/TestFieldRefValue.al:202
-                    // FieldRef_Value_TextIntoInteger_ErrorText, :229 FieldRef_Value_TextIntoNumberTypes): `abc` into each type, an
-                    // empty text into an Integer.
-                    if let Value::Text(s) | Value::Code(s) = v {
-                        let s = s.as_str();
-                        let letters = s.len() > 1 && s.bytes().all(|b| b.is_ascii_alphabetic());
-                        let (ty, nav, empty_pinned) = match field.ty {
-                            RtType::Integer => ("Integer", "NavInteger", true),
-                            RtType::BigInteger => ("BigInteger", "NavBigInteger", false),
-                            RtType::Decimal => ("Decimal", "NavDecimal", false),
-                            // `abc` and `true` into a Boolean field (TestFieldRefValue.al:282
-                            // FieldRef_Value_TextIntoBooleanDateGuidOption).
-                            RtType::Boolean => ("Boolean", "NavBoolean", false),
-                            // `abc` into an Option field that has no such member (same test; the split by version is
-                            // record/lt-u-table-field-props/UTableCdsOrdinals.al:170,175).
-                            RtType::Option(ref m) if !m.iter().any(|x| x.eq_ignore_ascii_case(s)) => {
-                                ("Option", "NavOption", false)
-                            }
-                            _ => ("", "", false),
-                        };
-                        // A text of letters into a Date field: the date format error with code Evaluate:Conversion from BC 28,
-                        // a conversion error before (TestFieldRefValue.al:282 FieldRef_Value_TextIntoBooleanDateGuidOption,
-                        // `Date Field := abc`); the field keeps its value.
-                        if letters && matches!(field.ty, RtType::Date) {
-                            let (message, code) = if self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28) {
-                                (
-                                    format!(
-                                        "The format of the Date '{s}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
-                                    ),
-                                    "Evaluate:Conversion",
-                                )
-                            } else {
-                                (
-                                    "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavText to System.DateTime."
-                                        .to_string(),
-                                    "Conversion",
-                                )
-                            };
-                            return Err(al_builtins::native::Signal::Error(Box::new(
-                                al_builtins::native::AlError {
-                                    message,
-                                    code: code.into(),
-                                    ..Default::default()
-                                },
-                            )));
-                        }
-                        if !ty.is_empty() && (letters || s.is_empty()) {
-                            if s.is_empty() && !empty_pinned {
-                                return unsupported(format!("FieldRef.Value := '' on a {ty} field (not pinned)"));
-                            }
-                            let gate = if ty == "Option" {
-                                al_version::Gate::OptionFieldRefSetEvaluateErrorFrom28
-                            } else {
-                                al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28
-                            };
-                            let (message, code) = if self.has(gate) {
-                                (
-                                    format!("The value \"{s}\" can't be evaluated into type {ty}."),
-                                    "Evaluate:Format",
-                                )
-                            } else {
-                                (format!("The type {nav} is unknown."), "NotSupportedType")
-                            };
-                            return Err(al_builtins::native::Signal::Error(Box::new(
-                                al_builtins::native::AlError {
-                                    message,
-                                    code: code.into(),
-                                    ..Default::default()
-                                },
-                            )));
-                        }
-                    }
-                    let converted = al_builtins::fieldref_value_text::variant_into_text_field(v, &field.ty, &*self);
-                    let v = match converted {
-                        Some(r) => r?,
-                        None => ops::convert(v.clone(), &field.ty)?,
-                    };
+                    let v = self.fieldref_value_into(&t, pos, &field.ty, v)?;
                     let mut r = rec.borrow_mut();
                     r.fields[pos] = v;
                     if r.load.partial {

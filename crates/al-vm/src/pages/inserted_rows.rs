@@ -76,7 +76,6 @@ impl Session {
         if !keeps_every_row || rows.len() <= held.len() {
             return Ok(());
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionInsertedRowsHeld);
         let window = rows
             .into_iter()
             .map(|r| {
@@ -120,7 +119,6 @@ impl Session {
         if st.borrow().window.iter().any(|w| Self::same_key(&w.key, &first)) {
             return Ok(());
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionInsertedRowsHeld);
         st.borrow_mut().window_from_start = false;
         Ok(())
     }

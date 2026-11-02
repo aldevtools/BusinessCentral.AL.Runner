@@ -16,7 +16,6 @@ use std::sync::Arc;
 
 mod autoinc;
 mod bgsession;
-mod init_assumes;
 mod state;
 pub(crate) use state::*;
 mod baseline;
@@ -36,6 +35,7 @@ pub(crate) use interp::constant;
 pub use platform::{FieldGetByKey, field_get_by_key_pairs};
 pub use profile::flush as profile_flush;
 mod callstack;
+mod column_formatter;
 mod companies;
 mod control_add_in;
 mod crm;
@@ -52,6 +52,7 @@ mod ext_validate_order;
 mod faultsite;
 mod fieldref_length;
 mod fieldref_validate;
+mod fieldref_value_into;
 mod filterevents;
 mod filterpage;
 mod flowfields;
@@ -62,6 +63,8 @@ mod http;
 pub mod impact;
 mod interfaces;
 mod isdirty;
+mod load_fields_request;
+mod media_orphans;
 mod pages;
 mod partial;
 mod permissions;
@@ -74,10 +77,12 @@ mod recmeta;
 mod recordid_bookmark;
 mod recordid_code_text;
 mod recordref_copy;
+mod recordref_load_fields;
 mod records;
 mod refs;
 mod relations;
 mod rename;
+mod report_layout_export;
 mod report_no_layout_file;
 mod reports;
 mod run_page_link_open;
@@ -329,7 +334,6 @@ impl Engine {
         let table_facts: Vec<TableFacts> = heads
             .iter()
             .map(|o| TableFacts {
-                init_assumes: o.table.as_ref().map_or_else(Vec::new, init_assumes::of_table),
                 unresolved_init: o
                     .table
                     .as_ref()
@@ -713,9 +717,6 @@ pub struct Session {
     /// Each sequence this session restarted or deleted, as it was just before the first of those (`numbers_taken.rs` in
     /// al-testrun: what a codeunit under runner 130450 leaves of it).
     pub(crate) sequences_changed: std::collections::HashMap<(String, String), sessionops::SequenceChange>,
-    /// The sequences whose state relies on a Restart or Delete an earlier codeunit's test made being rolled back
-    /// (`Baseline`).
-    pub(crate) sequences_rolled_back: std::collections::BTreeSet<(String, String)>,
     /// The one instance of each `SingleInstance = true` codeunit in this session.
     singletons: std::collections::HashMap<usize, Rc<RefCell<Instance>>>,
     pub(crate) store: al_data::memory::MemStore,
@@ -1150,7 +1151,6 @@ impl Session {
             setup_caption_read_early: false,
             sequences,
             sequences_changed: Default::default(),
-            sequences_rolled_back: Default::default(),
             table_connections: Default::default(),
             default_table_connection: Default::default(),
             crm_stores: Default::default(),
@@ -1271,7 +1271,6 @@ impl Session {
         self.tx.lock_unpinned = None;
         self.tx.recref_lock_tx = false;
         self.tx.isolation_lock_tables.clear();
-        self.tx.read_uncommitted_read = false;
         self.tx.locking_read_tx_unpinned = false;
     }
 
@@ -1368,7 +1367,6 @@ impl Session {
         self.tx.lock_unpinned = None;
         self.tx.recref_lock_tx = false;
         self.tx.isolation_lock_tables.clear();
-        self.tx.read_uncommitted_read = false;
         self.tx.locking_read_tx_unpinned = false;
         if self.tx.tx_phase == crate::transactions::TX_WRITE {
             self.tx.tx_phase = crate::transactions::TX_FRESH;
@@ -1899,14 +1897,12 @@ impl Session {
         }))
     }
 
-    /// A record type whose default value has no state of its own (no temporary table): a record of a stored table. The
-    /// assumption a fresh buffer of the table relies on is still marked, as [`Session::initial_fields`] marks it.
+    /// A record type whose default value has no state of its own (no temporary table): a record of a stored table.
     fn record_without_state(&self, t: &RtType) -> bool {
         let RtType::Record(table, false) = t else { return false };
         if self.engine.object_facts[*table as usize].temporary() {
             return false;
         }
-        init_assumes::mark(self.engine.table_facts.get(*table as usize));
         true
     }
 
@@ -2522,8 +2518,6 @@ pub(crate) type AdhocTables = std::collections::HashMap<(u32, Vec<usize>), Arc<a
 pub(crate) struct TableFacts {
     /// Some field has an `InitValue` text that did not evaluate at compile time.
     pub(crate) unresolved_init: bool,
-    /// The assumptions the fields' `InitValue`s rest on (`init_assumes::of_table`): a fresh record marks them.
-    pub(crate) init_assumes: Vec<al_builtins::assumptions::Assumption>,
     /// The positions of the BigInteger fields with `SQLTimestamp = true`: they read the row version.
     pub(crate) sql_timestamp: Vec<usize>,
     /// Some Code field declares an `SQLDataType` other than `Varchar`: a write checks its value.

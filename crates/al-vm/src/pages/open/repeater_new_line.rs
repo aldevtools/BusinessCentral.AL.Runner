@@ -42,7 +42,6 @@ impl Session {
         if !literal && self.prop_global_slots(st, idx, "editable").is_none() {
             return Ok(RepeaterLine::Unknown);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RepeaterEditableDecidesNewRowLine);
         Ok(if self.prop_bool_now(st, idx, "editable", true)? {
             RepeaterLine::Free
         } else {

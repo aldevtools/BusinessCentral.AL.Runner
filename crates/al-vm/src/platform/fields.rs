@@ -260,13 +260,6 @@ fn table_entries(
             r[col] = Value::Boolean(in_key);
         }
         match field_row(c, o, f, t, blank, &packages, &mut r) {
-            Ok(())
-                if f.properties
-                    .iter()
-                    .any(|(k, v)| k.eq_ignore_ascii_case("ObsoleteState") && is_pending_move(v)) =>
-            {
-                out.push(Entry::ok(r).assuming(al_builtins::assumptions::Assumption::FieldObsoleteStatePendingMove))
-            }
             Ok(()) => out.push(Entry::ok(r)),
             Err(why) => {
                 let mut k = blank.row();
@@ -401,34 +394,11 @@ pub(crate) fn user_name_system_field(no: u32) -> Option<(&'static str, i32)> {
 /// four little-endian bytes of the Guid's binary form (so the first two read as Data1 and Data2/Data3 in the text), then four zero
 /// bytes (platform/lt-wc/WcFieldRowCopy.al, al-runner issue 6313: field 2 of table 90646
 /// is {77359429-6216-0001-0200-000000000000}, 2000000041 = 0x77359429; SystemCreatedByUserName 2000000005 is
-/// {77359429-6216-0001-0594-357700000000}). Derived from the five values of one table (docs/probes-needed.md).
+/// {77359429-6216-0001-0594-357700000000}; the rows of 2000000003-4 too, misc/lt-y70-assumptions/Y70Probes.al:780-837).
 /// Set in column SystemId (2000000000) when the Field table has it.
 fn set_field_row_system_id(t: &TableDef, r: &mut al_data::Row, table_no: u32, field_no: u32) {
     if let Some(col) = t.fields.iter().position(|x| x.id == 2_000_000_000) {
         r[col] = field_row_system_id(table_no, field_no);
-    }
-}
-
-/// Marks assumption field-row-system-id when a read of column SystemId of a Field row (`row`, in the columns of the Field
-/// table `schema`) gives the value of [`field_row_system_id`] for a row outside the measured shapes. Measured on BC 28 and 29
-/// (platform/lt-field-row-systemid/FieldRowSystemId.al:49-170): tables below 65536, a Base Application table, fields of
-/// tableextensions on an own and a Base Application table, the system fields 2000000000-2 and the system tables Company and
-/// Field; on BC 29 also a table numbered above 65535 and the user-name system fields 2000000005-8 (platform/lt-wc/
-/// WcFieldRowCopy.al:48, :60-63). Not measured: the rows of SystemModifiedAt and SystemModifiedBy (2000000003-4). `v` is the
-/// value read; a value code wrote is not marked.
-pub(crate) fn note_field_row_system_id(schema: &al_ir::Table, row: &[Value], v: &Value) {
-    let col = |id: u32| schema.fields.iter().position(|f| f.id == id).and_then(|i| row.get(i));
-    let (Some(Value::Integer(tid)), Some(Value::Integer(no))) = (col(1), col(2)) else {
-        return;
-    };
-    let (Ok(tid), Ok(no)) = (u32::try_from(*tid), u32::try_from(*no)) else {
-        return;
-    };
-    if !matches!((v, field_row_system_id(tid, no)), (Value::Guid(a), Value::Guid(b)) if *a == b) {
-        return;
-    }
-    if (2_000_000_003..=2_000_000_004).contains(&no) {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FieldRowSystemId);
     }
 }
 
