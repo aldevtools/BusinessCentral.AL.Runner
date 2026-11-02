@@ -1,6 +1,7 @@
 //! `TextType = BigText` on a text attribute of a table element: its variable is a BigText, an import fills it and an export
 //! writes it (corpus report/lt-u-report-props/UReportObjects.al:150, UPropertyTests.al:311-330 `bigLength=8 big=bigvalue`,
-//! :399-400 `BigAttr="big"`). TextType on a text attribute of a root text element, or the value Text there, is not pinned.
+//! :399-400 `BigAttr="big"`). Text and BigText on a text attribute of the root text element and of a table element, and Text on a
+//! container text element, run too (xmlport/lt-y72-xmlport-probes/Y72XpTextTypeBlankEnum.al); BigText on a container does not.
 
 use al_builtins::native::Signal;
 use al_testkit::run;
@@ -74,14 +75,23 @@ fn a_bigtext_attribute_of_a_table_element_imports_and_exports() {
 }
 
 #[test]
-fn texttype_on_an_attribute_of_the_root_or_the_value_text_is_refused() {
+fn texttype_text_and_bigtext_on_attributes_of_the_root_and_a_table_element_run() {
+    // Y72XpTextTypeBlankEnum.al TextTypeText_OnTextAttribute_ExportImport, TextTypeBigText_RootAttribute.
     for schema in [
         "textelement(Root) { textattribute(V) { TextType = BigText; } }",
-        r#"textelement(Root) { tableelement(Row; "XBA Row") { textattribute(V) { TextType = Text; } } }"#,
+        "textelement(Root) { textattribute(V) { TextType = Text; } }",
+        r#"textelement(Root) { tableelement(Row; "XBA Row") { MinOccurs = Zero; textattribute(V) { TextType = Text; } } }"#,
     ] {
-        match run(&src(schema), "Import") {
-            Err(Signal::Unsupported(r)) => assert!(r.contains("texttype"), "{r}"),
-            other => panic!("{schema}: {other:?}"),
-        }
+        let r = run(&src(schema), "Export");
+        assert!(r.is_ok(), "{schema}: {r:?}");
+    }
+}
+
+#[test]
+fn texttype_bigtext_on_a_container_text_element_is_refused() {
+    let schema = "textelement(Root) { textelement(Box) { TextType = BigText; textelement(Leaf) { } } }";
+    match run(&src(schema), "Import") {
+        Err(Signal::Unsupported(r)) => assert!(r.contains("texttype"), "{r}"),
+        other => panic!("{other:?}"),
     }
 }

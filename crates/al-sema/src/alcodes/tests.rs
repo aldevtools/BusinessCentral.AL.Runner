@@ -2461,3 +2461,43 @@ fn al0132_method_a_test_page_does_not_have() {
         assert!(codes(&[objs, &call(ok)]).is_empty(), "{ok}");
     }
 }
+
+// must-not-compile 2642, 2643 (al-runner issue 6657): Break, BreakUnbound, Quit and Skip exist only inside the XmlPort (AL0161 on a
+// variable); `UseRequestPage` is a property, no method of an XmlPort variable (AL0132). The methods an XmlPort variable has, and
+// `currXMLport` inside the XmlPort, are no errors.
+#[test]
+fn xmlport_variable_members() {
+    let xp = "xmlport 50700 \"Probe Port\" { schema { textelement(Root) { } }
+        procedure Own() begin end;
+        trigger OnPreXmlport() begin currXMLport.Skip(); currXMLport.Break(); end; }";
+    let call = |stmt: &str| {
+        format!(
+            "codeunit 50701 \"Probe Caller\" {{ procedure T() var Port: XmlPort \"Probe Port\"; begin {stmt}; end; }}"
+        )
+    };
+    assert_eq!(
+        messages(&format!(
+            "{xp} {}",
+            call("Port.Break(); Port.BreakUnbound(); Port.Quit(); Port.Skip()")
+        )),
+        vec![
+            "AL0161 'Break()' is inaccessible due to its protection level",
+            "AL0161 'BreakUnbound()' is inaccessible due to its protection level",
+            "AL0161 'Quit()' is inaccessible due to its protection level",
+            "AL0161 'Skip()' is inaccessible due to its protection level",
+        ]
+    );
+    assert_eq!(
+        messages(&format!("{xp} {}", call("Port.UseRequestPage(false)"))),
+        vec!["AL0132 'XmlPort \"Probe Port\"' does not contain a definition for 'UseRequestPage'"]
+    );
+    for ok in [
+        "Port.Export()",
+        "Port.Import()",
+        "Port.Run()",
+        "Port.Filename()",
+        "Port.Own()",
+    ] {
+        assert!(codes(&[xp, &call(ok)]).is_empty(), "{ok}");
+    }
+}

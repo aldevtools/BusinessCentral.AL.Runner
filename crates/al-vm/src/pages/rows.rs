@@ -2262,7 +2262,7 @@ impl Session {
             return Ok(());
         }
         self.reread_held_row(st, target)?;
-        self.populate_current(st)?;
+        self.populate_current_pair_first(st)?;
         if self.declares(st, "onfindrecord") {
             self.nav_find(st, "=")?;
         }

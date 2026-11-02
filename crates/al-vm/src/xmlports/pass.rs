@@ -44,7 +44,11 @@ impl Session {
             .find(|(a, i, _)| *a == addr && *i == node)
         {
             None => {
-                if !now.filters.is_empty() {
+                // The filters of the element's own SourceTableView are no filters of the code's own
+                // (xmlport/lt-y72-xmlport-probes/Y72XpEInvoiceShapes.al TableContainer_ItemAndPrice, _BreakAndSkipInInnerTable: the
+                // InvoiceLine element over Integer with `where(Number = filter(1 ..))` below the root table element, one pass).
+                // A second pass with a SourceTableView is still refused below.
+                if rec.borrow().filters.iter().any(|f| f.group != XP_VIEW_GROUP) {
                     return refuse("filters");
                 }
                 self.xp_unlinked_passes.push((addr, node, now));
@@ -106,8 +110,22 @@ impl Session {
         }
         // MaxOccurs = Once keeps the first row and below tells two, three and more rows apart: four are enough to read, which
         // also ends the read of an Integer root over `Number = filter(1 ..)` (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespaces.al).
-        let cap = if n.max_unbounded == Some(false) { 4 } else { usize::MAX };
+        // The Integer table holds two billion rows, and its element ends at a Break of OnAfterGetRecord (Y72XpEInvoiceShapes.al
+        // `subloop`, `Number = filter(1 ..)`): its rows are read one at a time, as the loop below needs them.
+        let lazy = n.max_unbounded != Some(false) && self.xp_integer_table(inst, n)?;
+        let cap = if n.max_unbounded == Some(false) {
+            4
+        } else if lazy {
+            1
+        } else {
+            usize::MAX
+        };
         self.xp_rows_upto(inst, schema, node, &mut rows, cap)?;
+        let mut more = if lazy {
+            rows.first().map(|r| self.xp_row_position(inst, n, r)).transpose()?
+        } else {
+            None
+        };
         // MaxOccurs = Once writes the first row only (xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:259 SG_OnceTemp_Export_TwoRowsEach,
         // :390 SG_OnceReal_Export `two`). Pinned without export triggers; whether a trigger sees the rows after the first is not.
         // With export triggers and two rows (QrXpContainerOccurs.al TR_Booking_TwoReplyRows on branch al-runtime-rs-staging-tr):
@@ -203,7 +221,21 @@ impl Session {
                 );
             }
         }
-        for row in rows {
+        let mut rows = rows.into_iter();
+        loop {
+            let row = match rows.next() {
+                Some(row) => row,
+                None => match more.take() {
+                    Some(after) => match self.xp_next_row(inst, n, after)? {
+                        Some(row) => {
+                            more = Some(self.xp_row_position(inst, n, &row)?);
+                            row
+                        }
+                        None => break,
+                    },
+                    None => break,
+                },
+            };
             self.load(&rec, row)?;
             if matches!(
                 rec.borrow().unpinned_buffer,
@@ -386,6 +418,29 @@ impl Session {
         rows: &mut Vec<Vec<Value>>,
     ) -> Result<(), Signal> {
         self.xp_rows_upto(inst, schema, node, rows, usize::MAX)
+    }
+
+    /// Whether the record of table element `n` is the Integer table (2000000026).
+    fn xp_integer_table(&mut self, inst: &Inst, n: &ir::XmlNode) -> Result<bool, Signal> {
+        let rec = self.xp_record(inst, n)?;
+        let table = rec.borrow().table as usize;
+        Ok(self.engine.program.objects[table].id == Some(2_000_000_026))
+    }
+
+    /// The position (key values) of `row` in the record of table element `n`, where the next row is read from.
+    fn xp_row_position(&mut self, inst: &Inst, n: &ir::XmlNode, row: &[Value]) -> Result<Vec<Value>, Signal> {
+        let rec = self.xp_record(inst, n)?;
+        let t = self.table(&rec)?;
+        let key = rec.borrow().key;
+        Ok(position(&t, key, row))
+    }
+
+    /// The row after position `after` of the record of table element `n` (the Integer table reads on from the last row).
+    fn xp_next_row(&mut self, inst: &Inst, n: &ir::XmlNode, after: Vec<Value>) -> Result<Option<Vec<Value>>, Signal> {
+        let rec = self.xp_record(inst, n)?;
+        let t = self.table(&rec)?;
+        let asc = rec.borrow().ascending;
+        self.scan(&rec, &t, asc, Some(after))
     }
 
     /// As `xp_rows`, reading at most `cap` rows.

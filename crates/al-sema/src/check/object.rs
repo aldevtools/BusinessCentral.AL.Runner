@@ -844,7 +844,10 @@ impl<'a> Checker<'a> {
             let exprs: Vec<SyntaxNode> = node.children().filter(|c| is_expr(c.kind())).collect();
             for child in node.children() {
                 if is_expr(child.kind()) {
-                    if exprs.len() == 2 && child == exprs[0] && child.kind() == SyntaxKind::MemberExpr {
+                    if exprs.len() == 2
+                        && child == exprs[0]
+                        && matches!(child.kind(), SyntaxKind::MemberExpr | SyntaxKind::NameRef)
+                    {
                         let t = self.assign_target_ty(sc, &child, &exprs[1], plain_assign);
                         tys.push((t, child));
                         continue;

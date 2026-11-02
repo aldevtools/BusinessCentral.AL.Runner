@@ -1208,6 +1208,14 @@ pub struct Table {
     pub unsupported: Vec<String>,
 }
 
+/// The field number AL code sees for the schema id `id` of a user-name system FlowField (SystemCreatedByUserName and the
+/// three others, BC 29), or `None` when `id` is not one. The schema keeps them at 2000001005 to 2000001008 because
+/// 2000000005 is SystemRowVersion's id there; AL code sees 2000000005 to 2000000008
+/// (platform/lt-y35-username-field-rows/Y35UserNameFieldRows.al:88-90).
+pub fn user_name_field_no(id: u32) -> Option<u32> {
+    (2_000_001_005..=2_000_001_008).contains(&id).then(|| id - 1_000)
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Field {
     pub id: u32,

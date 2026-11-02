@@ -184,6 +184,7 @@ mod controls;
 mod dev_endpoint;
 mod dirty_step;
 mod draft;
+mod fn_controls;
 mod format;
 mod format_type11;
 mod gone_read_only_list;
@@ -434,6 +435,10 @@ impl Session {
                     None
                 },
             )?;
+        }
+        if result.is_ok() && declared && (name == "onaftergetrecord" || (name == "onaftergetcurrrecord" && stored_row))
+        {
+            self.run_fn_controls(st, name == "onaftergetrecord")?;
         }
         // What the Editable and Enabled expressions of the repeater's controls read for the row: the variables as its
         // OnAfterGetRecord left them (`row_prop_vars`).

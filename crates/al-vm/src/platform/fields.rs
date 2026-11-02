@@ -238,6 +238,11 @@ fn table_entries(
         if f.id == 2_000_000_005 {
             continue;
         }
+        // The user-name system FlowFields of the schema (al-ir `user_name_field_no`) have their rows below, with the
+        // columns the corpus pins (`user_name_system_field_rows`).
+        if al_ir::user_name_field_no(f.id).is_some() {
+            continue;
+        }
         // A field with ObsoleteState = Moved has no row (Pending and Removed have one): the lookup finds nothing
         // (types/PWMisc.al:FieldTable_MovedAndPendingField, BC 27.5 and 29.0).
         if f.properties

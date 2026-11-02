@@ -93,7 +93,7 @@ codeunit 50103 T
 
     [Test]
     [HandlerFunctions('RefillHandler')]
-    procedure RefillAfterTheBlankRecIsRefused()
+    procedure RefillAfterTheBlankRec()
     begin
         Page.RunModal(Page::"My List");
     end;
@@ -108,14 +108,12 @@ codeunit 50103 T
 "#;
 
 #[test]
-fn the_reporters_shape_and_open_edit_run_and_a_refill_is_refused() {
+fn the_reporters_shape_and_open_edit_run_and_a_refill_runs() {
     let out = al_testkit::outcomes_in(SRC, "T");
     let of = |n: &str| out.iter().find(|(t, _)| t == n).map(|(_, o)| o.clone()).unwrap();
     assert!(matches!(of("RunModalActionEmptiesTheList"), Outcome::Pass), "{out:?}");
     assert!(matches!(of("OpenEditActionEmptiesTheList"), Outcome::Pass), "{out:?}");
     assert!(matches!(of("OpenViewActionEmptiesTheList"), Outcome::Pass), "{out:?}");
-    assert!(
-        matches!(of("RefillAfterTheBlankRecIsRefused"), Outcome::NotRun(ref why) if why.contains("second action")),
-        "{out:?}"
-    );
+    // A second action on the list is built (Y66TempListGoneRow.al:235-460), so the refill after the blank Rec runs.
+    assert!(matches!(of("RefillAfterTheBlankRec"), Outcome::Pass), "{out:?}");
 }

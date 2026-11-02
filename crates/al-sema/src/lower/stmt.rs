@@ -1308,8 +1308,8 @@ impl Lowerer<'_> {
         {
             return self.call(&kids[0], &kids[0], &kids[1..2]).map(ir::Stmt::Expr);
         }
-        // `B.Append := 'abc'` is the call statement `B.Append('abc')` (`is_assign_call`).
-        if kids[0].kind() == SyntaxKind::MemberExpr
+        // `B.Append := 'abc'` is the call statement `B.Append('abc')` (`is_assign_call`); `Sleep := 1` too.
+        if matches!(kids[0].kind(), SyntaxKind::MemberExpr | SyntaxKind::NameRef)
             && sig_tokens(n).iter().any(|t| t.kind() == SyntaxKind::Assign)
             && matches!(self.res(&kids[0]), Some(Res::Builtin(id))
                 if self.catalog.by_id(id).is_some_and(|s| super::is_assign_call(&s.receiver, &s.name)))
@@ -1825,7 +1825,6 @@ impl Lowerer<'_> {
         if a.kind() == SyntaxKind::NameRef
             && crate::check::is_this_keyword(a)
             && self.ws.objects[self.oi].kind == ObjKind::Report
-            && !self.globals.contains_key("this")
         {
             return Ok(ir::Arg::Value(self.expr(a)?));
         }
