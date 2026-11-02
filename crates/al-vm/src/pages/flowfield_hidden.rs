@@ -15,8 +15,10 @@ impl Session {
         st: &St,
         rec: &Rec,
         table: usize,
-        positions: Vec<usize>,
+        mut positions: Vec<usize>,
     ) -> Result<Vec<usize>, Signal> {
+        positions.sort_unstable();
+        positions.dedup();
         st.borrow_mut().hidden_flowfields.clear();
         if self.permissions.is_none() {
             return Ok(positions);
