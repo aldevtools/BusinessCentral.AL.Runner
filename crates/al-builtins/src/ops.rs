@@ -2277,7 +2277,7 @@ mod tests {
         ));
         assert!(matches!(
             arith(Arith::Mod, &d1, &Value::Integer(7)),
-            Ok(Value::Decimal(x)) if x == Decimal::from(1)
+            Ok(Value::BigInteger(1))
         ));
         assert!(matches!(
             arith(Arith::Div, &d1, &Value::Duration(30_000)),
