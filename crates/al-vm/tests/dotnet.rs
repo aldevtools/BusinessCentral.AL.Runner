@@ -1674,6 +1674,14 @@ fn the_declared_result_types_match_the_registry() {
             "Add" | "ContainsKey" | "Key" | "Value" | "Remove" | "TryGetValue" | "Values" => continue,
             // Need a BusinessChartData object; tests/host/business_chart_data.rs runs them.
             "ClearMeasures" | "AddMeasure" | "XDimension" => continue,
+            // Need a Key Vault helper or test provider object; tests/host/key_vault.rs runs them.
+            "AddSecretMapping"
+            | "AddCertificateMapping"
+            | "SetAzureKeyVaultProvider"
+            | "GetAzureKeyVaultSecret"
+            | "GetAzureKeyVaultCertificate" => continue,
+            // Needs a length and a minimum; tests/host/server_helpers.rs runs it.
+            "GeneratePassword" => continue,
             _ => vec![],
         };
         let mut s = Session::new(Engine::new(al_ir::Program::default(), vec![]));

@@ -7,6 +7,7 @@ use crate::types::Ty;
 use crate::workspace::{Diagnostic, ObjKind, Resolution, Workspace};
 use al_builtins::catalog::Catalog;
 use al_builtins::signature::Signature;
+use al_syntax::ast::NodeText;
 use al_syntax::{SyntaxKind, SyntaxNode, ast};
 use posmap::{FxMap as HashMap, FxSet as HashSet};
 
@@ -1136,15 +1137,14 @@ fn sc_has_var(sc: &Scope, name: &str) -> bool {
 }
 
 fn name_of(node: &SyntaxNode) -> String {
-    node.children_with_tokens()
-        .filter_map(|e| e.into_token())
+    ast::significant_green_tokens(node)
         .find(|t| {
             matches!(
-                t.kind(),
+                t.kind,
                 SyntaxKind::Ident | SyntaxKind::QuotedIdent | SyntaxKind::Integer
             )
         })
-        .map(|t| ast::ident_text(&t))
+        .map(|t| ast::unquote_ident(t.text))
         .unwrap_or_default()
 }
 
@@ -1172,8 +1172,7 @@ fn split_qualified(name: &str) -> Vec<String> {
 }
 
 fn first_token(node: &SyntaxNode) -> String {
-    node.children_with_tokens()
-        .filter_map(|e| e.into_token())
+    al_syntax::ast::significant_green_tokens(node)
         .find(|t| !t.kind().is_trivia())
         .map(|t| t.text().to_string())
         .unwrap_or_default()
@@ -1186,11 +1185,7 @@ pub(crate) fn one_char_literal(node: &SyntaxNode) -> bool {
     if node.kind() != SyntaxKind::Literal {
         return false;
     }
-    let Some(tok) = node
-        .children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .find(|t| t.kind() == SyntaxKind::StringLit)
-    else {
+    let Some(tok) = al_syntax::ast::significant_green_tokens(node).find(|t| t.kind() == SyntaxKind::StringLit) else {
         return false;
     };
     let text = tok.text();
@@ -1250,8 +1245,7 @@ pub(crate) fn integer_and_one_char_literal(op: &str, kids: &[SyntaxNode], l: &Ty
 }
 
 fn op_token(node: &SyntaxNode) -> String {
-    node.children_with_tokens()
-        .filter_map(|e| e.into_token())
+    al_syntax::ast::significant_green_tokens(node)
         .find(|t| !t.kind().is_trivia())
         .map(|t| t.text().to_ascii_lowercase())
         .unwrap_or_default()
@@ -1279,11 +1273,7 @@ fn member_name(node: &SyntaxNode) -> String {
 }
 
 fn literal_ty(node: &SyntaxNode) -> Ty {
-    let Some(t) = node
-        .children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .find(|t| !t.kind().is_trivia())
-    else {
+    let Some(t) = al_syntax::ast::significant_green_tokens(node).find(|t| !t.kind().is_trivia()) else {
         return Ty::Unknown;
     };
     match t.kind() {
@@ -1415,7 +1405,7 @@ fn receiver_of(t: &Ty) -> Option<String> {
 /// For `Rec.ReadIsolation` and `Rec.SecurityFiltering` written before `::`: the system option the
 /// property takes and the position of member `member` in it.
 fn system_option_of_property(base: &SyntaxNode, member: &str) -> Option<(&'static str, usize)> {
-    let text = base.text().to_string();
+    let text = base.text_string();
     let last = text.rsplit('.').next()?.trim().trim_matches('"').to_ascii_lowercase();
     let enum_name = match last.as_str() {
         "readisolation" => "IsolationLevel",

@@ -1207,7 +1207,7 @@ impl Session {
                 method.method()
             ));
         }
-        self.refuse_unpinned_state(&c.page)?;
+        self.refuse_unpinned_control_state(c, method)?;
         let st = &c.page;
         let m = method.method();
         let field_read = m == PageMethod::Value && args.is_empty();

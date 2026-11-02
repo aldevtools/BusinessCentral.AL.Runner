@@ -478,11 +478,16 @@ pub(super) fn grants_mat(
     which: GrantTable,
     filters: &[FieldFilter],
 ) -> Result<Rc<Mat>, StoreError> {
-    if which != GrantTable::Metadata && p.tenant_sets_present(store, cx)? {
-        return Err(super::refused(
-            "permissions of tenant sets: the platform keeps the last composed set per setup version (TestMetadataExpandedPermission.al:196-207), which is not modelled",
-        ));
-    }
+    // The Expanded Permission rows of tenant sets are composed from the stored rows on every read (`tenant_compose.rs`); the
+    // legacy Permission table of tenant sets is not pinned.
+    let tenant = match which {
+        GrantTable::Metadata => None,
+        _ if !p.tenant_sets_present(store, cx)? => None,
+        GrantTable::Legacy => return Err(super::refused("the Permission rows of tenant sets (not pinned)")),
+        GrantTable::Expanded => Some(super::tenant_compose::tenant_expanded_entries(
+            p, store, cx, t, filters,
+        )?),
+    };
     let g = &p.grants;
     let b = g.built(p);
     // The sets whose (App ID, Role ID) can pass the key filters. The legacy table keys on the role alone.
@@ -512,7 +517,9 @@ pub(super) fn grants_mat(
         })
         .collect();
     let key = (which.code(), candidates.clone());
-    if let Some(m) = g.mats.borrow().get(&key) {
+    if tenant.is_none()
+        && let Some(m) = g.mats.borrow().get(&key)
+    {
         return Ok(m.clone());
     }
     let mut entries = Vec::new();
@@ -565,6 +572,10 @@ pub(super) fn grants_mat(
                 }
             }
         }
+    }
+    if let Some(rows) = tenant {
+        entries.extend(rows);
+        return Ok(Rc::new(Mat::new(t, entries)));
     }
     let m = Rc::new(Mat::new(t, entries));
     g.mats.borrow_mut().insert(key, m.clone());

@@ -35,7 +35,13 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
     let mut manifest = Manifest {
         publisher: m.publisher.clone(),
         version: m.version.to_string(),
-        resources: Vec::new(),
+        // A package file's own resources, for NavApp.GetResource of the test app (session/TestNavAppGetResource.al:26-69);
+        // a folder's are read with its app.json below.
+        resources: if path.is_file() {
+            al_deps::load::package_resources_at(path, build)?
+        } else {
+            Vec::new()
+        },
         include_source: false,
         // Not read here: a RecordRef.Open that depends on the target refuses.
         target: String::new(),

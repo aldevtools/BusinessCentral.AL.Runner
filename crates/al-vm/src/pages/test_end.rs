@@ -29,6 +29,8 @@ impl Session {
             if let Value::TestPage(st) = v
                 && st.borrow().open
                 && st.borrow().mode != al_builtins::value::PageMode::New
+                // A page whose save failed at Close() is left alone (pages/close_save_failed.rs).
+                && !st.borrow().close_save_failed
                 && !pages.iter().any(|p| Rc::ptr_eq(p, st))
                 && ["onqueryclosepage", "onclosepage"].iter().any(|t| self.declares(st, t))
             {

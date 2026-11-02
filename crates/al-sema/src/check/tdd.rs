@@ -4,6 +4,7 @@
 //!
 //! This is tooling, not AL semantics: no corpus case pins it, and without `--tdd` nothing here runs.
 use super::*;
+use al_syntax::ast::NodeText;
 
 /// A stub site: the call `receiver.name(args)` on `object`, which declares no procedure `name`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -275,7 +276,7 @@ impl<'a> Checker<'a> {
         let site = TddSite {
             object,
             name: name.to_string(),
-            receiver: receiver.text().to_string().trim().to_string(),
+            receiver: receiver.text_string().trim().to_string(),
             args: Vec::new(),
             ret: TddRet::Pending,
             kind: TddKind::Proc,
@@ -308,7 +309,7 @@ impl<'a> Checker<'a> {
         let mut site = TddSite {
             object,
             name: name.to_string(),
-            receiver: receiver.text().to_string().trim().to_string(),
+            receiver: receiver.text_string().trim().to_string(),
             args: Vec::new(),
             ret: TddRet::Pending,
             kind: TddKind::Field,
@@ -379,7 +380,7 @@ impl<'a> Checker<'a> {
         let receiver = callee
             .children()
             .next()
-            .map(|r| r.text().to_string().trim().to_string())
+            .map(|r| r.text_string().trim().to_string())
             .unwrap_or_default();
         let mut site = TddSite {
             object: ti,
@@ -582,10 +583,7 @@ impl<'a> Checker<'a> {
         }
         let Some(object) = object else { return false };
         let receiver = match callee.kind() {
-            SyntaxKind::MemberExpr => callee
-                .children()
-                .next()
-                .map(|r| r.text().to_string().trim().to_string()),
+            SyntaxKind::MemberExpr => callee.children().next().map(|r| r.text_string().trim().to_string()),
             _ => None,
         };
         let site = TddSite {

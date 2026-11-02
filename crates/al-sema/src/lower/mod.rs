@@ -560,11 +560,8 @@ pub(crate) fn is_assign_call(receiver: &str, name: &str) -> bool {
     )
 }
 
-fn sig_tokens(n: &SyntaxNode) -> Vec<al_syntax::SyntaxToken> {
-    n.children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(|t| !t.kind().is_trivia())
-        .collect()
+fn sig_tokens(n: &SyntaxNode) -> Vec<ast::GreenTok<'_>> {
+    ast::significant_green_tokens(n).collect()
 }
 
 mod assemble;

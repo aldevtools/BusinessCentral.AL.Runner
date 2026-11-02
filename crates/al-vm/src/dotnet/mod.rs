@@ -17,9 +17,11 @@ pub mod policy;
 mod pure;
 use pure::CONSTRUCT;
 mod business_chart_data;
+mod key_vault;
 mod query_metadata;
 pub mod registry;
 pub mod server_classes;
+mod server_helpers;
 mod staged_dir;
 mod xml_errors;
 mod zip_entry_streams;
@@ -106,6 +108,9 @@ pub struct DotNetState {
     /// cleared at the start of every `DotNet` member, so a settle step that runs right after
     /// the member reads the declared type of the null it got.
     null_string: bool,
+    /// The generator behind `PasswordGenerator.GeneratePassword` (`server_helpers`), with the clock key of the test method
+    /// it was seeded for: each test method starts its own sequence, apart from AL's `Random`.
+    pub(crate) password_rng: Option<(u64, al_host::random::NetRandom)>,
 }
 
 impl DotNetState {

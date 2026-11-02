@@ -1,5 +1,6 @@
 //! Lowering of expressions, places and constants.
 use super::*;
+use al_syntax::ast::NodeText;
 
 impl Lowerer<'_> {
     /// The page or report that the page or report extension being lowered extends, with the noun
@@ -385,14 +386,12 @@ impl Lowerer<'_> {
     pub(crate) fn usercontrol_name(&self, n: &SyntaxNode) -> Option<String> {
         // Only a node whose text starts with `CurrPage.` can name one: look at its first token before the text of the whole
         // node is built (this runs for every argument of every call).
-        let first = n
-            .descendants_with_tokens()
-            .filter_map(|e| e.into_token())
-            .find(|t| !matches!(t.kind(), SyntaxKind::Whitespace | SyntaxKind::Newline))?;
-        if first.text() != "CurrPage" {
+        // Comments are trivia too, but a comment before `CurrPage` would also make the text check below fail.
+        let first = al_syntax::ast::first_significant_green_token(n)?;
+        if first.text != "CurrPage" {
             return None;
         }
-        let text = n.text().to_string();
+        let text = n.text_string();
         let name = text
             .trim()
             .strip_prefix("CurrPage.")?
@@ -402,7 +401,7 @@ impl Lowerer<'_> {
         if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == ' ') {
             return None;
         }
-        let object = self.ws.object_ast(self.oi).syntax().text().to_string();
+        let object = self.ws.object_ast(self.oi).syntax().text_string();
         let lower_object = object.to_ascii_lowercase();
         let lower = name.to_ascii_lowercase();
         let (at, quoted) = match lower_object.find(&format!("usercontrol({lower};")) {
@@ -440,7 +439,7 @@ impl Lowerer<'_> {
         }
         if args
             .iter()
-            .any(|a| a.descendants().any(|d| d.kind() == SyntaxKind::CallExpr))
+            .any(|a| al_syntax::ast::contains_kind(a, SyntaxKind::CallExpr))
         {
             return refused(
                 "a control add-in call with an argument that calls a procedure (whether BC evaluates it before the error is not pinned)",
@@ -978,7 +977,7 @@ impl Lowerer<'_> {
                 Some(Res::ObjectId(id)) => Ok(ir::Expr::Const(ir::Const::Integer(id))),
                 _ => {
                     // `Enum::Member` of a system enum whose member list has no such member.
-                    let text = n.text().to_string();
+                    let text = n.text_string();
                     match text.split_once("::") {
                         Some((e, m)) if al_builtins::sysenum::members(e.trim()).is_some() => Err(format!(
                             "`{}::{}` is not a member of the system enum {} in the member list this runtime holds, which only holds the members a corpus probe lists: its ordinal is not pinned (docs/probes-needed.md)",
@@ -1007,7 +1006,7 @@ impl Lowerer<'_> {
                     if n.kind() == MemberExpr
                         && query == self.oi
                         && kids[0].kind() == NameRef
-                        && kids[0].text().to_string().trim().eq_ignore_ascii_case("this") =>
+                        && kids[0].text_string().trim().eq_ignore_ascii_case("this") =>
                 {
                     // `this.Id` (corpus query/PRQueryOpenColumn.al `PeekThis`).
                     let layout = self.checked.queries[query].as_ref().ok_or("query layout")?;
@@ -1165,11 +1164,11 @@ impl Lowerer<'_> {
             .children()
             .last()
             .and_then(|m| {
-                m.children_with_tokens()
-                    .filter_map(|e| e.into_token())
+                al_syntax::ast::significant_green_tokens(&m)
                     .find(|t| matches!(t.kind(), SyntaxKind::Ident | SyntaxKind::QuotedIdent))
+                    .map(|t| ast::unquote_ident(t.text()))
             })
-            .is_some_and(|t| ast::ident_text(&t).eq_ignore_ascii_case("Page"));
+            .is_some_and(|t| t.eq_ignore_ascii_case("Page"));
         last_is_page
             && matches!(self.ty_ref(&part), Ty::TestPart(_))
             && part.kind() == SyntaxKind::MemberExpr
@@ -1185,11 +1184,10 @@ impl Lowerer<'_> {
             .children()
             .last()
             .and_then(|m| {
-                m.children_with_tokens()
-                    .filter_map(|e| e.into_token())
+                al_syntax::ast::significant_green_tokens(&m)
                     .find(|t| matches!(t.kind(), SyntaxKind::Ident | SyntaxKind::QuotedIdent))
+                    .map(|t| ast::unquote_ident(t.text()))
             })
-            .map(|t| ast::ident_text(&t))
             .ok_or("control name")?;
         self.control_named(&recv, &name)
     }
@@ -1279,7 +1277,7 @@ impl Lowerer<'_> {
         if subject.kind() != SyntaxKind::NameRef {
             return Err(format!(
                 "`{}` is a DotNet value used as an operand of `in`: only a variable is lowered (a member would run once per element)",
-                subject.text().to_string().trim()
+                subject.text_string().trim()
             ));
         }
         if set.kind() != SyntaxKind::SetExpr {
@@ -1345,10 +1343,7 @@ impl Lowerer<'_> {
 /// A string literal (`'K'`, `'abc'`).
 pub(crate) fn is_string_literal(node: &SyntaxNode) -> bool {
     node.kind() == SyntaxKind::Literal
-        && node
-            .children_with_tokens()
-            .filter_map(|e| e.into_token())
-            .any(|t| t.kind() == SyntaxKind::StringLit)
+        && al_syntax::ast::significant_green_tokens(node).any(|t| t.kind() == SyntaxKind::StringLit)
 }
 
 /// A read of a TextConst whose text depends on the language in force: `System.TextConstText#1` with its language codes and

@@ -702,17 +702,16 @@ fn find_sidecar(cfg: &SidecarConfig, dotnet: &Path) -> Result<PathBuf, String> {
     let built_from_embedded = src
         .file_name()
         .is_some_and(|n| n.to_string_lossy().starts_with(".src-"));
-    let out = Command::new(dotnet)
-        .arg("publish")
-        .arg(&src)
-        .args(["-c", "Release", "-o"])
-        .arg(&tmp)
-        // No build servers: a VBCSCompiler left running for minutes inherits our open file
-        // descriptors (pipes, locks) and keeps whoever waits on them waiting.
-        .args(["--disable-build-servers", "-p:UseSharedCompilation=false"])
-        .env("DOTNET_NOLOGO", "1")
-        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
-        .output()
+    // ReadyToRun first (the csproj's `AlReadyToRun`): its packs come from NuGet, so where they cannot be had (offline)
+    // the plain publish builds the same helper, only JIT-compiled.
+    let out = publish(dotnet, &src, &tmp, true)
+        .and_then(|o| {
+            if o.status.success() && tmp.join("AlDotNetSidecar.dll").is_file() {
+                return Ok(o);
+            }
+            let _ = std::fs::remove_dir_all(&tmp);
+            publish(dotnet, &src, &tmp, false)
+        })
         .map_err(|e| format!("{NOT_BUILT} (dotnet publish failed to start: {e})"));
     if built_from_embedded {
         let _ = std::fs::remove_dir_all(&src);
@@ -737,6 +736,22 @@ fn find_sidecar(cfg: &SidecarConfig, dotnet: &Path) -> Result<PathBuf, String> {
     } else {
         Err(format!("{NOT_BUILT} (could not move the build into {})", dir.display()))
     }
+}
+
+/// `dotnet publish` of the sidecar's sources `src` into `out`, ReadyToRun when `ready_to_run`.
+fn publish(dotnet: &Path, src: &Path, out: &Path, ready_to_run: bool) -> std::io::Result<std::process::Output> {
+    Command::new(dotnet)
+        .arg("publish")
+        .arg(src)
+        .args(["-c", "Release", "-o"])
+        .arg(out)
+        // No build servers: a VBCSCompiler left running for minutes inherits our open file
+        // descriptors (pipes, locks) and keeps whoever waits on them waiting.
+        .args(["--disable-build-servers", "-p:UseSharedCompilation=false"])
+        .arg(format!("-p:AlReadyToRun={ready_to_run}"))
+        .env("DOTNET_NOLOGO", "1")
+        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
+        .output()
 }
 
 // ---- one sidecar process per VM session ---------------------------------------------------

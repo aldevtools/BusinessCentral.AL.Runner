@@ -24,6 +24,7 @@
 
 use crate::Session;
 use crate::platform::{blank, pos};
+use crate::user_email::{EmailProblem, normalise_email};
 use al_builtins::native::{AlError, Ctx, Signal};
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::Value;
@@ -70,60 +71,6 @@ fn refuse_code<T>(message: &str, code: &str) -> Result<T, Signal> {
         call_stack: String::new(),
         ..Default::default()
     })))
-}
-
-/// Why an authentication email was not normalised.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum EmailProblem {
-    /// The text is not an address (no `@`): the server refuses it (pinned).
-    Invalid,
-    /// A form the corpus does not show: refused as unsupported.
-    Unpinned(String),
-}
-
-/// The platform's normaliser for "Authentication Email": surrounding whitespace goes, `Name <a@b.c>`
-/// becomes `a@b.c`, a comma separated list becomes its last address, white space alone becomes
-/// empty. An address without `@` is invalid. Anything else a mail parser might accept or refuse
-/// is `Unpinned`.
-pub(crate) fn normalise_email(text: &str) -> Result<String, EmailProblem> {
-    let unpinned = |what: &str| Err(EmailProblem::Unpinned(format!("{what} in the address '{text}'")));
-    let all = text.trim();
-    if all.is_empty() {
-        return Ok(String::new());
-    }
-    if let Some(c) = all.chars().find(|c| "\"()[];\\".contains(*c) || c.is_control()) {
-        return unpinned(&format!("the character '{}'", c.escape_default()));
-    }
-    let last = all.rsplit(',').next().unwrap_or(all).trim();
-    if last.is_empty() {
-        return unpinned("an empty entry");
-    }
-    let address = match (last.find('<'), last.find('>')) {
-        (None, None) => last,
-        (Some(open), Some(close)) if close == last.len() - 1 && open < close => {
-            if last[open + 1..close].contains('<') {
-                return unpinned("a nested angle bracket");
-            }
-            last[open + 1..close].trim()
-        }
-        _ => return unpinned("an unbalanced angle bracket"),
-    };
-    match address.matches('@').count() {
-        0 => return Err(EmailProblem::Invalid),
-        1 => {}
-        _ => return unpinned("more than one '@'"),
-    }
-    let (local, domain) = address.split_once('@').unwrap_or_default();
-    let word = |s: &str, extra: &str| {
-        !s.is_empty()
-            && !s.starts_with('.')
-            && !s.ends_with('.')
-            && s.chars().all(|c| c.is_ascii_alphanumeric() || extra.contains(c))
-    };
-    if !word(local, "._+-") || !word(domain, ".-") {
-        return unpinned("a local part or domain outside letters, digits and ._+-");
-    }
-    Ok(address.to_string())
 }
 
 fn text_of(v: &Value) -> &str {
@@ -249,7 +196,7 @@ impl Session {
 
         // Authentication email.
         let raw = text_of(&row[pos(t, F_EMAIL)]).to_string();
-        let email = match normalise_email(&raw) {
+        let email = match normalise_email(&raw, self.has(al_version::Gate::ProbedValuesDifferFrom29)) {
             Ok(e) => e,
             // Full text and code of an Insert (AvUserInsertErrors.al:45-57). A Modify's are not pinned.
             Err(EmailProblem::Invalid) if insert => {
@@ -439,47 +386,4 @@ pub(crate) fn property_seed(up: &TableDef, sid: [u8; 16], telemetry: [u8; 16]) -
     r[pos(up, P_SID)] = Value::Guid(sid);
     r[pos(up, P_TELEMETRY_ID)] = Value::Guid(telemetry);
     r
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn ok(s: &str) -> String {
-        normalise_email(s).unwrap()
-    }
-
-    /// access-control/TestUserAuthEmailTrigger.al:44-125.
-    #[test]
-    fn the_pinned_forms_are_normalised() {
-        assert_eq!(ok("   a@t.example.com    "), "a@t.example.com");
-        assert_eq!(ok("Test Person <a@t.example.com>"), "a@t.example.com");
-        assert_eq!(ok("  Test Person <a@t.example.com>  "), "a@t.example.com");
-        assert_eq!(ok("a@t.example.com, d@t.example.com"), "d@t.example.com");
-        assert_eq!(ok("a@t.example.com"), "a@t.example.com");
-        assert_eq!(ok("    "), "");
-        assert_eq!(ok(""), "");
-    }
-
-    /// access-control/TestUserAuthEmailTrigger.al:143-159.
-    #[test]
-    fn an_address_without_an_at_sign_is_invalid() {
-        assert_eq!(normalise_email("Abc.example.com"), Err(EmailProblem::Invalid));
-    }
-
-    #[test]
-    fn forms_the_corpus_does_not_show_are_not_decided() {
-        for s in [
-            "a@b@c.d",
-            "\"Name\" <a@b.c>",
-            "a@b.c;d@e.f",
-            "a b@c.d",
-            "<a@b.c",
-            "a@b.c,",
-            "@b.c",
-            "a@",
-        ] {
-            assert!(matches!(normalise_email(s), Err(EmailProblem::Unpinned(_))), "{s}");
-        }
-    }
 }

@@ -1,5 +1,6 @@
 //! Lowering of routines and statements.
 use super::*;
+use al_syntax::ast::NodeText;
 
 impl Lowerer<'_> {
     pub(crate) fn routine(&mut self, r: &ast::Routine) -> ir::Routine {
@@ -146,7 +147,7 @@ impl Lowerer<'_> {
         // DcInStreamScope.al:107-126, :128-166). The pinned shapes read as empty; the others are refused when the call runs
         // (`stream_of_a_local_handed_back`). A procedure of another codeunit named CreateInStream is no such call.
         let is_instream = |t: Option<al_syntax::ast::TypeRef>| {
-            t.is_some_and(|t| t.syntax().text().to_string().trim().eq_ignore_ascii_case("instream"))
+            t.is_some_and(|t| t.syntax().text_string().trim().eq_ignore_ascii_case("instream"))
         };
         let mut handed: Vec<String> = r
             .params()
@@ -651,7 +652,7 @@ impl Lowerer<'_> {
     pub(crate) fn attributes_of(&self, r: &ast::Routine) -> Vec<ir::Attribute> {
         r.attributes()
             .map(|a| ir::Attribute {
-                text: a.syntax().text().to_string(),
+                text: a.syntax().text_string(),
                 name: a.name(),
                 args: a
                     .args()
@@ -1322,7 +1323,7 @@ impl Lowerer<'_> {
             && self.res(&kids[0]).is_none()
             && sig_tokens(n).iter().any(|t| t.kind() == SyntaxKind::Assign)
         {
-            let name = kids[0].text().to_string();
+            let name = kids[0].text_string();
             let name = name.trim().trim_matches('"');
             let found = self.members[self.oi]
                 .procedures
@@ -1424,7 +1425,7 @@ impl Lowerer<'_> {
                             self.ws.objects[self.oi].kind,
                             ObjKind::Report | ObjKind::ReportExtension
                         )
-                        && recv.text().to_string().trim().eq_ignore_ascii_case("CurrReport");
+                        && recv.text_string().trim().eq_ignore_ascii_case("CurrReport");
                     // `RequestOptionsPage` is the request page of the running report: no variable to take.
                     let request_page = sig.receiver == "RequestPage"
                         && matches!(
@@ -1855,10 +1856,7 @@ impl Lowerer<'_> {
         }
         match self.place(a) {
             Ok(p) => Ok(ir::Arg::Ref(p)),
-            Err(_)
-                if a.kind() == SyntaxKind::NameRef
-                    && a.text().to_string().trim().eq_ignore_ascii_case("CurrFieldNo") =>
-            {
+            Err(_) if a.kind() == SyntaxKind::NameRef && a.text_string().trim().eq_ignore_ascii_case("CurrFieldNo") => {
                 let rec = self
                     .rec_slot
                     .ok_or("CurrFieldNo outside code that has an implicit Rec")?;
@@ -2018,7 +2016,7 @@ impl Lowerer<'_> {
                 // probe real BC failed to open the page (al-runner issue 6219; not pinned, a check on Windows is queued).
                 Some(Res::BaseGlobal(_)) if n.kind() == SyntaxKind::MemberExpr => Err(format!(
                     "`{}` written in a page extension (an assignment or a var argument through CurrPage): real BC's behavior is not pinned; assign the variable by its plain name",
-                    n.text().to_string().trim()
+                    n.text_string().trim()
                 )),
                 Some(Res::BaseGlobal(name)) => {
                     let name = name.clone();
@@ -2056,7 +2054,7 @@ impl Lowerer<'_> {
                     };
                     Ok(ir::Place::Field(Box::new(base), field))
                 }
-                _ if n.kind() == SyntaxKind::NameRef && n.text().to_string().trim().eq_ignore_ascii_case("this") => Err(
+                _ if n.kind() == SyntaxKind::NameRef && n.text_string().trim().eq_ignore_ascii_case("this") => Err(
                     "`this` passed by reference (`BindSubscription(this)`) is not lowered: no corpus test passes the running instance as an argument"
                         .into(),
                 ),
@@ -2097,7 +2095,7 @@ fn unused_result(e: ir::Expr) -> ir::Stmt {
 
 /// The name after the last dot of a member expression.
 fn member_ident(n: &SyntaxNode) -> Option<String> {
-    let text = n.text().to_string();
+    let text = n.text_string();
     let last = text.rsplit('.').next()?.trim().trim_matches('"');
     (!last.is_empty()).then(|| last.to_string())
 }
@@ -2156,7 +2154,7 @@ fn security_filtering_attr_member(v: &ast::VarDecl) -> Result<i32, String> {
         .into_iter()
         .find(|a| a.name().eq_ignore_ascii_case("SecurityFiltering"))
         .ok_or("no SecurityFiltering attribute")?;
-    let text = attr.args().map(|a| a.text().to_string()).unwrap_or_default();
+    let text = attr.args().map(|a| a.text_string()).unwrap_or_default();
     let inner = text.trim().trim_start_matches('(').trim_end_matches(')').trim();
     let member = inner.rsplit("::").next().unwrap_or("").trim().trim_matches('"');
     let members = al_builtins::sysenum::option_members("SecurityFilter").expect("known");
@@ -2234,7 +2232,7 @@ impl Lowerer<'_> {
             .and_then(|c| c.children().next())
             .map(|c| c.text_range());
         let mut out = Vec::new();
-        for call in body.descendants().filter(|n| n.kind() == SyntaxKind::CallExpr) {
+        for call in al_syntax::ast::descendants_of_kind(body, SyntaxKind::CallExpr) {
             let mut kids = call.children();
             let (Some(callee), Some(args)) = (kids.next(), kids.find(|k| k.kind() == SyntaxKind::ArgList)) else {
                 continue;
@@ -2246,7 +2244,7 @@ impl Lowerer<'_> {
             let (Some(recv), Some(member)) = (parts.next(), parts.next()) else {
                 continue;
             };
-            if !member.text().to_string().trim().eq_ignore_ascii_case("CreateInStream") {
+            if !member.text_string().trim().eq_ignore_ascii_case("CreateInStream") {
                 continue;
             }
             let Some(first) = args.children().next() else {
@@ -2296,7 +2294,7 @@ impl Lowerer<'_> {
                 format!(
                     "an InStream handed back to the caller is created on the local variable `{}`: BC reads it as empty once \
                      the local is out of scope, the runtime keeps the bytes",
-                    root.text().to_string().trim()
+                    root.text_string().trim()
                 )
             };
             let scope = if pinned_receiver && only_member_root && last_call == Some(call.text_range()) {

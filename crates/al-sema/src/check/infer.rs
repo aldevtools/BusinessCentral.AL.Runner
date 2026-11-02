@@ -1,5 +1,6 @@
 //! Type inference for expressions and the diagnostics that hang off it.
 use super::*;
+use al_syntax::ast::NodeText;
 
 impl<'a> Checker<'a> {
     /// AL0122 for an enum assigned to an enum of another type whose TARGET does not state
@@ -93,10 +94,8 @@ impl<'a> Checker<'a> {
                 "Cannot implicitly convert type 'Text' to 'Decimal'".to_string()
             }
             (Ty::Integer | Ty::Decimal, Ty::Text(None)) if rhs.kind() == SyntaxKind::Literal => {
-                let Some(tok) = rhs
-                    .children_with_tokens()
-                    .filter_map(|e| e.into_token())
-                    .find(|t| t.kind() == SyntaxKind::StringLit)
+                let Some(tok) =
+                    al_syntax::ast::significant_green_tokens(rhs).find(|t| t.kind() == SyntaxKind::StringLit)
                 else {
                     return;
                 };
@@ -171,10 +170,7 @@ impl<'a> Checker<'a> {
         if !matches!(left_ty, Ty::Char) {
             return None;
         }
-        let tok = right
-            .children_with_tokens()
-            .filter_map(|e| e.into_token())
-            .find(|t| t.kind() == SyntaxKind::StringLit)?;
+        let tok = al_syntax::ast::significant_green_tokens(right).find(|t| t.kind() == SyntaxKind::StringLit)?;
         let text = tok.text();
         let chars = text
             .get(1..text.len().saturating_sub(1))?
@@ -234,8 +230,7 @@ impl<'a> Checker<'a> {
             if n.kind() != SyntaxKind::Literal {
                 return None;
             }
-            n.children_with_tokens()
-                .filter_map(|e| e.into_token())
+            al_syntax::ast::significant_green_tokens(n)
                 .find(|t| !t.kind().is_trivia())
                 .filter(|t| t.kind() == SyntaxKind::Decimal)
                 .map(|t| t.text().to_string())
@@ -299,10 +294,7 @@ impl<'a> Checker<'a> {
             SyntaxKind::Literal => {
                 // An integer literal to a Boolean (corpus must-not-compile 0432).
                 if matches!(target, Ty::Boolean)
-                    && rhs
-                        .children_with_tokens()
-                        .filter_map(|e| e.into_token())
-                        .any(|t| t.kind() == SyntaxKind::Integer)
+                    && al_syntax::ast::significant_green_tokens(rhs).any(|t| t.kind() == SyntaxKind::Integer)
                 {
                     let from = "Integer".to_string();
                     self.diag(
@@ -313,9 +305,7 @@ impl<'a> Checker<'a> {
                     );
                     return;
                 }
-                let chars = rhs
-                    .children_with_tokens()
-                    .filter_map(|e| e.into_token())
+                let chars = al_syntax::ast::significant_green_tokens(rhs)
                     .find(|t| t.kind() == SyntaxKind::StringLit)
                     .map(|tok| {
                         let text = tok.text();
@@ -486,7 +476,7 @@ impl<'a> Checker<'a> {
         if matches!(base, Ty::Object(ObjKind::Report, _))
             && name.eq_ignore_ascii_case("RequestOptionsPage")
             && recv.kind() == SyntaxKind::NameRef
-            && recv.text().to_string().trim().eq_ignore_ascii_case("CurrReport")
+            && recv.text_string().trim().eq_ignore_ascii_case("CurrReport")
             && self.ws.objects[sc.oi].kind == ObjKind::Report
             && !in_request_page(node)
         {
@@ -1775,7 +1765,7 @@ impl<'a> Checker<'a> {
         let (Some(base), Some(_)) = (kids.next(), kids.next()) else {
             return;
         };
-        let kind = match base.text().to_string().trim().to_ascii_lowercase().as_str() {
+        let kind = match base.text_string().trim().to_ascii_lowercase().as_str() {
             "page" => ObjKind::Page,
             "report" => ObjKind::Report,
             "xmlport" => ObjKind::XmlPort,
@@ -1793,7 +1783,7 @@ impl<'a> Checker<'a> {
             .text()
             .to_string()
             .trim()
-            .eq_ignore_ascii_case(base.text().to_string().trim())
+            .eq_ignore_ascii_case(base.text_string().trim())
         {
             return;
         }

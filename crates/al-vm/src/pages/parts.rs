@@ -940,6 +940,12 @@ impl Session {
 
     /// Refuses a call on a page, or on a part of a page, that reached a state whose behavior is not pinned.
     pub(super) fn refuse_unpinned_state(&self, st: &St) -> Result<(), Signal> {
+        self.refuse_after_failed_close_save(st)?;
+        self.refuse_unpinned_state_only(st)
+    }
+
+    /// `refuse_unpinned_state` without the check of a failed save at Close.
+    pub(super) fn refuse_unpinned_state_only(&self, st: &St) -> Result<(), Signal> {
         let host = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
         let why = st
             .borrow()

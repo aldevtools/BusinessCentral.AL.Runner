@@ -17,7 +17,7 @@ fn system_app_files() -> Vec<(String, String)> {
 }
 
 /// The outcome of each test of codeunit `T` in `main`, an app on the System app, run as BC 27.5.
-fn outcomes(main: &str) -> Vec<(String, Outcome)> {
+pub(crate) fn outcomes(main: &str) -> Vec<(String, Outcome)> {
     outcomes_app("main", main)
 }
 

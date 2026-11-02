@@ -177,7 +177,10 @@ pub enum Gate {
     /// field into an Option field formats as the Option member (or the number the Option lacks), BC 27 and 28 as the Enum member
     /// (record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al:190 Y20_Max_EnumIntoOption_Result; consumed by al-vm
     /// flowfields.rs). The System Application enum "Agent Metadata Provider" has the value "Personal Agent" from BC 29
-    /// (platform/lt-y35-agent-api/Y35AgentApi.al:39, a dependency app's source).
+    /// (platform/lt-y35-agent-api/Y35AgentApi.al:39, a dependency app's source). From BC 29 the "not set up" error of the Key
+    /// Vault client has the code `DotNetInvoke:InvalidOperation`, `DotNetInvoke:` before (al-language-onprem-dotnet/
+    /// lt-y58-key-vault/Y58AzureKeyVault.al:71, corpus master 7330f181, not pinned yet; consumed by al-vm dotnet/key_vault.rs;
+    /// its evidence row is added when the corpus pin holds the file).
     ProbedValuesDifferFrom29,
     /// `Base64Convert.ToBase64` of a Text with `TextEncoding::Windows` or `MSDos` and no code page gives the code page 1252
     /// bytes from BC 28 (`äöü` is `5Pb8`); before, the UTF-8 bytes (`w6TDtsO8`) (types/PVBase64.al, corpus bump 13).

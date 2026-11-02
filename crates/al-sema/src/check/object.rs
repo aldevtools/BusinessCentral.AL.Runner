@@ -840,7 +840,7 @@ impl<'a> Checker<'a> {
         }
         if node.kind() == SyntaxKind::AssignStmt {
             let mut tys = Vec::new();
-            let plain_assign = node.children_with_tokens().any(|t| t.kind() == SyntaxKind::Assign);
+            let plain_assign = al_syntax::ast::significant_green_tokens(node).any(|t| t.kind == SyntaxKind::Assign);
             let exprs: Vec<SyntaxNode> = node.children().filter(|c| is_expr(c.kind())).collect();
             for child in node.children() {
                 if is_expr(child.kind()) {
@@ -855,7 +855,7 @@ impl<'a> Checker<'a> {
                 }
             }
             if let [(target, lhs), (source, rhs)] = tys.as_slice() {
-                let plain = node.children_with_tokens().any(|t| t.kind() == SyntaxKind::Assign);
+                let plain = al_syntax::ast::significant_green_tokens(node).any(|t| t.kind == SyntaxKind::Assign);
                 // The conversion rules of the compile matrix judge the operand shapes they cover (`conv.rs`); the
                 // pinned checks judge the others.
                 if plain && self.conv_assign(sc, lhs, target, rhs, source).is_none() {
@@ -867,7 +867,7 @@ impl<'a> Checker<'a> {
                     self.al_no_result_builtin_assignment(sc, rhs, target);
                     self.al_interface_assignment(sc, rhs, target, source);
                 }
-                if node.children_with_tokens().any(|t| t.kind() == SyntaxKind::PlusAssign) {
+                if al_syntax::ast::significant_green_tokens(node).any(|t| t.kind == SyntaxKind::PlusAssign) {
                     self.conv_compound_add(sc, lhs, target, rhs, source);
                 }
                 // `X := Target.Missing()` and `X += Target.Missing()`: the type of the target (ADR-051 decision 3).

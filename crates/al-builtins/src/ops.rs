@@ -59,6 +59,15 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
             _ => Err(crate::sqlcount::refusal("a conversion to another type")),
         };
     }
+    // A Text or Code into a Text or Code, the most common conversion (an assignment or a parameter of text), straight to
+    // the arm the general match below would reach: no earlier arm takes a text source into a text target, and a text
+    // that carries the call stack marker moves unread into a Text (`native::text_of`).
+    match (&v, t) {
+        (Value::Text(s), T::Text(_)) if s.has_marker() => return Ok(v),
+        (Value::Text(s) | Value::Code(s), T::Text(max)) if !s.has_marker() => return into_text(s.clone(), *max),
+        (Value::Text(s) | Value::Code(s), T::Code(max)) if !s.has_marker() => return into_code(s, *max),
+        _ => {}
+    }
     // The conversions between the plain numbers that cannot fail, without the Decimal detour.
     match (&v, t) {
         // A Decimal keeps 18 significant digits when it is stored: `Dec := 123456789012345.12345` holds `123456789012345.123`, so
@@ -251,33 +260,10 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         }
         // Text-like.
         (v, T::Text(max)) if crate::native::text_of(&v).is_some() => {
-            // The flag hides the value of a text too long for a Text field or variable (errors/lt-last-error-and-events/
-            // P70_02LastErrFlag.al:Flag_EvaluateAndOverflow `overflow_field|true`, `overflow_var|true`).
-            Value::Text(
-                fit_txt(crate::native::text_of(&v).expect("text"), *max).map_err(|s| match s {
-                    Signal::Error(mut e) if e.code == "StringLengthExceeded" => {
-                        let redacted = e
-                            .message
-                            .split_once(" Value: ")
-                            .map(|(head, _)| format!("{head} Value: <redacted>"));
-                        if let Some(r) = redacted {
-                            e.origin = crate::native::ErrorOrigin::Redacted(r);
-                        }
-                        Signal::Error(e)
-                    }
-                    other => other,
-                })?,
-            )
+            into_text(crate::native::text_of(&v).expect("text"), *max)?
         }
         (v, T::Code(max)) if crate::native::text_of(&v).is_some() => {
-            // Doc (Code data type): upper case, leading and trailing spaces removed.
-            let text = crate::native::text_of(&v).expect("text");
-            let s = upper_code_assigned(text.trim());
-            // The error shows the text as it was given (text/lt-label-textbuilder/TxCLabel.al:Label_MaxLength `toCode2`).
-            if max.is_some_and(|m| Value::text_len(&s) > m as usize) {
-                fit(text.trim().to_string(), *max)?;
-            }
-            Value::Code(fit(s, *max)?.into())
+            into_code(&crate::native::text_of(&v).expect("text"), *max)?
         }
         (Value::Text(s) | Value::Code(s), T::Char) => {
             let u: Vec<u16> = s.encode_utf16().collect();
@@ -351,6 +337,34 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         // assumption date-to-datetime-is-midnight).
         (v, t) => return convert_rare(v, t),
     })
+}
+
+/// A text into a Text of length `max`. The flag hides the value of a text too long for a Text field or variable
+/// (errors/lt-last-error-and-events/P70_02LastErrFlag.al:Flag_EvaluateAndOverflow `overflow_field|true`, `overflow_var|true`).
+fn into_text(text: crate::text::Txt, max: Option<u32>) -> Result<Value, Signal> {
+    Ok(Value::Text(fit_txt(text, max).map_err(|s| match s {
+        Signal::Error(mut e) if e.code == "StringLengthExceeded" => {
+            let redacted = e
+                .message
+                .split_once(" Value: ")
+                .map(|(head, _)| format!("{head} Value: <redacted>"));
+            if let Some(r) = redacted {
+                e.origin = crate::native::ErrorOrigin::Redacted(r);
+            }
+            Signal::Error(e)
+        }
+        other => other,
+    })?))
+}
+
+/// A text into a Code of length `max`. Doc (Code data type): upper case, leading and trailing spaces removed.
+fn into_code(text: &crate::text::Txt, max: Option<u32>) -> Result<Value, Signal> {
+    let s = upper_code_assigned(text.trim());
+    // The error shows the text as it was given (text/lt-label-textbuilder/TxCLabel.al:Label_MaxLength `toCode2`).
+    if max.is_some_and(|m| Value::text_len(&s) > m as usize) {
+        fit(text.trim().to_string(), max)?;
+    }
+    Ok(Value::Code(fit(s, max)?.into()))
 }
 
 /// `8-4-4-4-12` hexadecimal digits, with or without surrounding braces.
