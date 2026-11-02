@@ -272,3 +272,20 @@ fn a_field_given_by_its_number() {
     );
     assert!(matches!(function_form("89500: 9=1"), Err(Signal::Unsupported(_))));
 }
+
+#[test]
+fn y67_text_or_values_quoted_numbers_and_a_second_condition_after_an_or() {
+    // xmlport/lt-y67-xmlport-tablefilter/Y67XpTableFilter.al:52 (Seed, `Note=a|b`) and :189-213 TableFilterField_Evaluate_Forms.
+    assert_eq!(
+        statement_form("SR TF Pair: Descr=a|b").unwrap(),
+        "ok:[SR TF Pair: SR Descr Cap=a|b]"
+    );
+    assert_eq!(
+        statement_form("SR TF Pair: Qty='1'").unwrap(),
+        "ok:[SR TF Pair: SR Qty Cap=1]"
+    );
+    assert_eq!(
+        statement_form("SR TF Pair: Qty=1..5|Descr=a").unwrap(),
+        "error:The value \"SR TF Pair: Qty=1..5|Descr=a\" can't be evaluated into type TableFilter. The value \"Descr\" can't be evaluated into type Integer.|Evaluate:InvalidFilterExpression"
+    );
+}

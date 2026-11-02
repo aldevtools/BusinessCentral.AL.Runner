@@ -21,6 +21,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+mod assigned;
 mod container_tree;
 mod export_xml;
 mod import_record;
@@ -548,6 +549,7 @@ impl Session {
             }
         }
         Self::xp_clear_flow(inst);
+        assigned::mark_run_start(inst);
         // OnInitXmlPort runs once, when the variable is first used: a second Export or Import of the same variable does not
         // run it again, a static call makes a new instance (corpus P112XpXml.al:P112_Export_RoundTrip_SameInstance,
         // P112_Static_Export_Import). A Quit in it ends the run with nothing written (P112_Export_Init_Quit); Skip and Break

@@ -475,7 +475,13 @@ impl Session {
                 // The nested shape (`TextInTable::Nested`, TP_Nested_Export on branch al-runtime-rs-staging-pub-tp): the outer
                 // element's OnBeforePassVariable, its attributes, then the inner element as the text-only shape above
                 // (`pass entry;pass status;pass admission;pass admcode;`, `<admission option_value="2" />` for an empty text).
-                ir::XmlNodeKind::Text if text_in_table(schema, child).is_some() || nested_inner(schema, child) => {
+                ir::XmlNodeKind::Text
+                    if text_in_table(schema, child).is_some()
+                        || nested_inner(schema, child)
+                        || attributed_outside_table(schema, child)
+                        || (attrs_only(schema, child)
+                            && schema.node(node).parent.is_some_and(|t| field_wrap(schema, node, t))) =>
+                {
                     let text = got!(self.xp_pass_variable(inst, schema, child));
                     // Skip there leaves out the element with its attributes, whose triggers do not run (Y60XpContainerSkip.al
                     // Container_TwoLevelsBelowTable_RowSkip_Export 'blob empty': `blob=;ext;`).
@@ -533,8 +539,9 @@ impl Session {
                             && (schema.node(node).kind == ir::XmlNodeKind::Table
                                 || schema.node(node).parent.is_some_and(|t| field_wrap(schema, node, t)))) =>
                 {
-                    let e = got!(self.xp_export_wrap(inst, schema, child));
-                    out.children.push(Node::Elem(e));
+                    if let Some(e) = got!(self.xp_export_wrap(inst, schema, child)) {
+                        out.children.push(Node::Elem(e));
+                    }
                     if Self::xp_quit(inst) {
                         return Ok(());
                     }
@@ -690,6 +697,12 @@ impl Session {
                     });
                 }
             }
+        }
+        // A TableFilter field writes its table-qualified text, the empty one as an empty element (xmlport/lt-y67-xmlport-tablefilter/
+        // Y67XpTableFilter.al:120-138 TableFilterField_Export).
+        if matches!(&v, Value::Library(k, _) if k.as_str() == "TableFilter") {
+            return al_builtins::format::try_format(&v, 0, 0, self)
+                .or_else(|why| unsupported(format!("XmlPort export of a TableFilter: {why}")));
         }
         match &v {
             Value::Integer(i) => Ok(i.to_string()),
