@@ -1498,7 +1498,11 @@ mod tests {
     fn dmy2date_year_zero_is_pinned_only_as_the_first_defined_date() {
         let d = |args: Vec<i32>| call("System.DMY2Date#1", args.into_iter().map(Value::Integer).collect());
         // (1, 1, 0) is the first defined date, 0001-01-02 (types/lt-datetime/DateFuncs.al:477 UN_DMY2Date_YearZero_Value).
-        assert!(matches!(d(vec![1, 1, 0]), Ok(Value::Date(2, false))), "{:?}", d(vec![1, 1, 0]));
+        assert!(
+            matches!(d(vec![1, 1, 0]), Ok(Value::Date(2, false))),
+            "{:?}",
+            d(vec![1, 1, 0])
+        );
     }
 
     #[test]
