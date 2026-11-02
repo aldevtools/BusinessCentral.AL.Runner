@@ -12,6 +12,8 @@
 //! Each holds when no row is written too (:304-321, SaveAsXml_TimeColumn_NoRow).
 
 use crate::dataset::DataFileText;
+use al_builtins::builtin_id::ids;
+use al_builtins::library_kind::LibraryKind;
 use al_builtins::value::{RtType, Value};
 
 const GUID_NET8: &str =
@@ -20,7 +22,7 @@ const GUID_NET10: &str =
     "xs:string;System.Guid, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e";
 
 /// The type tag of a Guid column for BC `major`; another major is not pinned.
-fn guid_type(major: u16) -> Option<&'static str> {
+pub(crate) fn guid_type(major: u16) -> Option<&'static str> {
     match major {
         27 | 28 => Some(GUID_NET8),
         29 => Some(GUID_NET10),
@@ -41,6 +43,9 @@ pub(crate) fn declared(ty: &RtType, major: u16) -> Option<&'static str> {
         RtType::Guid => guid_type(major),
         // An Option or Enum field: the member name (Y60SaveAsXmlNoRow.al Columns_TableFields_NoRow `KindC`, `CatC`).
         RtType::Option(_) | RtType::Enum(_) => Some("xs:string"),
+        // A Media or MediaSet field: the Guid type (al-language-onprem/report/lt-y67-saveasxml-columns/Y67SaveAsXmlColumns.al:388
+        // Columns_MediaAndMediaSet `PicC`, `PicsC`, with no row and with a row).
+        RtType::Library(LibraryKind::Media | LibraryKind::MediaSet) => guid_type(major),
         _ => None,
     }
 }
@@ -103,7 +108,54 @@ pub(crate) fn column(
     }
     let routine = vm.engine.program.objects[object].routines.get(c.routine?)?;
     match routine.body.stmts().as_slice() {
-        [al_ir::Stmt::Exit(Some(al_ir::Expr::Load(place)))] => expression(&place_type(vm, object, place)?),
+        [al_ir::Stmt::Exit(Some(e))] => expr_tag(vm, object, e),
+        _ => None,
+    }
+}
+
+/// The type tag of the source expression `e` of a column of `object` when no row is written. Pinned shapes:
+/// - a place (`expression` of its static type, Y60SaveAsXmlNoRow.al Columns_Expressions_NoRow);
+/// - a Label global, plain, Locked or with a Comment, a Label plus a text, `Format(..)` in its one- and three-argument forms,
+///   `Rec.FieldCaption(..)` and `Rec.TableCaption()`, a text literal and a procedure that answers a Text: `xs:string`; a number
+///   literal: `xs:int` (Y67SaveAsXmlColumns.al:326 Columns_LabelsAndFormat_NoRow, :352 Columns_FieldCaptionFormat_RowItem `HdrCap`,
+///   `TblCap`, `LabelRow`, `FmtAmt`);
+/// - a Decimal field times an Integer literal: `xs:decimal` (:370 Columns_DecimalFormatters `ExprDp`, `ExprAf`);
+/// - `Media.HasValue()`: `xs:boolean`, `MediaSet.Count()`: `xs:int` (:388 Columns_MediaAndMediaSet `PicHas`, `PicsCount`).
+///
+/// Other shapes give `None` (refused by the caller).
+fn expr_tag(vm: &crate::Session, object: usize, e: &al_ir::Expr) -> Option<&'static str> {
+    use al_ir::{BinOp, Const, Expr};
+    match e {
+        Expr::Load(place) => expression(&place_type(vm, object, place)?),
+        Expr::Const(Const::Text(_)) => Some("xs:string"),
+        Expr::Const(Const::Integer(_)) => Some("xs:int"),
+        Expr::Builtin { id, .. } => match *id {
+            ids::SYSTEM_TRANSLATEDTEXT_1
+            | ids::SYSTEM_FORMAT_1
+            | ids::SYSTEM_FORMAT_2
+            | ids::SYSTEM_FORMATDECIMALFIELD_1
+            | ids::SYSTEM_FORMATAUTOFORMATFIELD_1
+            | ids::RECORD_FIELDCAPTION_1
+            | ids::RECORD_TABLECAPTION_1 => Some("xs:string"),
+            ids::MEDIA_HASVALUE_1 => Some("xs:boolean"),
+            ids::MEDIASET_COUNT_1 => Some("xs:int"),
+            _ => None,
+        },
+        Expr::Binary(BinOp::Add, a, b) => {
+            (expr_tag(vm, object, a)? == "xs:string" && expr_tag(vm, object, b)? == "xs:string").then_some("xs:string")
+        }
+        Expr::Binary(BinOp::Mul, a, b) => (expr_tag(vm, object, a)? == "xs:decimal"
+            && matches!(**b, Expr::Const(Const::Integer(_))))
+        .then_some("xs:decimal"),
+        Expr::Call {
+            object: callee,
+            routine,
+            instance: None,
+            ..
+        } if *callee == object => match vm.engine.program.objects[object].routines.get(*routine)?.ret.as_ref()? {
+            RtType::Text(_) => Some("xs:string"),
+            _ => None,
+        },
         _ => None,
     }
 }

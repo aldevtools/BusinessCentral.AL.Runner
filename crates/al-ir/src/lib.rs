@@ -525,6 +525,12 @@ pub struct ReportColumn {
     /// language (record/lt-x-table-props/XTablePropsTests.al:741-785).
     #[serde(default)]
     pub option_caption_ml: Option<String>,
+    /// The `AutoFormatType` and `AutoFormatExpression` properties of the column as written; with `decimal_places` they decide
+    /// the `decimalformatter`.
+    #[serde(default)]
+    pub auto_format_type: Option<String>,
+    #[serde(default)]
+    pub auto_format_expression: Option<String>,
 }
 
 /// What a reportextension adds to a run of the report it extends.
