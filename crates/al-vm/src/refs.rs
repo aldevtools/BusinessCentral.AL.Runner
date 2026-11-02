@@ -39,7 +39,12 @@ const SYSTEM_FIELD_BASE: u32 = 2_000_000_000;
 /// No corpus test names the number itself: docs/probes-needed.md, batch 7. The other system fields
 /// keep 2000000000 to 2000000004.
 pub(crate) fn al_field_no(id: u32) -> i32 {
-    if id == SYSTEM_ROW_VERSION_ID { 0 } else { id as i32 }
+    if id == SYSTEM_ROW_VERSION_ID {
+        0
+    } else {
+        // The user-name system FlowFields (BC 29) are 2000000005 to 2000000008 for AL code (al-ir `user_name_field_no`).
+        al_ir::user_name_field_no(id).unwrap_or(id) as i32
+    }
 }
 
 /// The internal id of SystemRowVersion, which AL code sees as field 0.
@@ -1166,19 +1171,8 @@ impl Session {
             }
             "Field" => {
                 let no = int_arg(args, 0)?;
-                // BC 29 has the user-name FlowFields at 2000000005-8 (platform/fields.rs `USER_NAME_SYSTEM_FIELDS`); the
-                // record buffer does not hold them, so the FieldRef names the field by number (see `user_name_fieldref_op`).
-                if (2_000_000_005..=2_000_000_008).contains(&no)
-                    && self.has(al_version::Gate::PlatformMetadataColumnsFrom29)
-                {
-                    return Ok(handle(
-                        "FieldRef",
-                        LibraryValue::UserNameFieldRef {
-                            rec,
-                            no: no as u32,
-                            value: None,
-                        },
-                    ));
+                if let Some(r) = self.user_name_fieldref_by_number(&t, &rec, no) {
+                    return Ok(r);
                 }
                 match t.fields.iter().position(|f| i64::from(al_field_no(f.id)) == no) {
                     // A removed field raises the obsolete error with its reason (recordref/PWRecordMisc.al:128-167).
@@ -1748,8 +1742,9 @@ impl Session {
                 Ok(Value::Option(ord, members.into()))
             }
             "Length" => Ok(Value::Integer(len)),
-            // fieldref/lt-y66-fieldref-length-types/Y66FieldRefLengthTypes.al:99-108 (BC 29): SystemCreatedByUserName.
-            "Name" if args.is_empty() && no == 2_000_000_005 => Ok(Value::Text(name.into())),
+            // fieldref/lt-y66-fieldref-length-types/Y66FieldRefLengthTypes.al:99-108 (BC 29): SystemCreatedByUserName; all four in
+            // system-fields/lt-y64-username-filters/Y64UserNameFilters.al:Y64_UserNameFields_FieldRefGetFilter_NoFilter.
+            "Name" if args.is_empty() => Ok(Value::Text(name.into())),
             "CalcField" if args.is_empty() => {
                 let v = self.user_name_field_value(&rec, no, name)?;
                 if let LibraryValue::UserNameFieldRef { value, .. } = &mut *lib.borrow_mut() {
@@ -1769,13 +1764,33 @@ impl Session {
                 )),
             },
             other => unsupported(format!(
-                "FieldRef.{other} of the user-name system FlowField {name}: only Number, Class, Type, Length, CalcField, Value and the Name of 2000000005 are pinned (docs/probes-needed.md)"
+                "FieldRef.{other} of the user-name system FlowField {name}: only Number, Class, Type, Length, Name, GetFilter, CalcField and Value are pinned (docs/probes-needed.md)"
             )),
         }
     }
 
+    /// BC 29 has the user-name FlowFields at 2000000005-8 (platform/fields.rs `USER_NAME_SYSTEM_FIELDS`). A table whose schema
+    /// holds them (`al_sema` `USER_NAME_FIELDS`) answers `RecordRef.Field` like any field; otherwise the FieldRef names the field
+    /// by number (see `user_name_fieldref_op`).
+    fn user_name_fieldref_by_number(&self, t: &TableDef, rec: &Rec, no: i64) -> Option<Value> {
+        if !(2_000_000_005..=2_000_000_008).contains(&no)
+            || t.fields.iter().any(|f| i64::from(al_field_no(f.id)) == no)
+            || !self.has(al_version::Gate::PlatformMetadataColumnsFrom29)
+        {
+            return None;
+        }
+        Some(handle(
+            "FieldRef",
+            LibraryValue::UserNameFieldRef {
+                rec: rec.clone(),
+                no: no as u32,
+                value: None,
+            },
+        ))
+    }
+
     /// What `CalcField` puts into a user-name system FlowField of `rec` (see `user_name_fieldref_op`).
-    fn user_name_field_value(&mut self, rec: &Rec, no: u32, name: &str) -> Result<String, Signal> {
+    pub(crate) fn user_name_field_value(&mut self, rec: &Rec, no: u32, name: &str) -> Result<String, Signal> {
         // Temporary record: blank (W6SystemFieldStamps.al:243-246).
         if rec.borrow().temporary {
             return Ok(String::new());

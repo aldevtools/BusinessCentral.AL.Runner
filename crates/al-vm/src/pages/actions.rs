@@ -1464,7 +1464,7 @@ impl Session {
             if empty_view && self.update_on_empty_list_view(st)? {
                 return Ok(Value::Null);
             }
-            if self.update_on_untouched_draft_row(st)? {
+            if self.update_on_untouched_draft_row(st)? || self.read_refilled_temp_list(st)? {
                 return Ok(Value::Null);
             }
             if let Some(shape) = empty {
@@ -3366,9 +3366,7 @@ impl Session {
             return Ok(());
         }
         if st.borrow().gone_view_list && st.borrow().open && st.borrow().cursor == Cursor::None {
-            return unsupported(
-                "a second action on a list without the new-row line that lost its only row to an action (not pinned)",
-            );
+            return self.settle_gone_view_list_again(st);
         }
         self.show_row_page_code_positioned(st)?;
         let again = {

@@ -618,7 +618,7 @@ impl Session {
             }
             RecordOp::ReadConsistency => Ok(Value::Boolean(false)),
             RecordOp::RecordLevelLocking => Ok(Value::Boolean(true)),
-            RecordOp::ReadPermission | RecordOp::WritePermission => Ok(Value::Boolean(true)),
+            RecordOp::ReadPermission | RecordOp::WritePermission => self.permission_answer(rec, method),
             RecordOp::CountApprox => self.record_op(RecordOp::Count, rec, &mut []),
             RecordOp::CurrentCompany => Ok(Value::Text(self.current_company_of(rec).into())),
             RecordOp::ReadIsolation | RecordOp::SecurityFiltering => {
@@ -1870,6 +1870,7 @@ impl Session {
                     marked_only: false,
                     position: None,
                     last_modify: None,
+                    failed_insert: None,
                     row_origin: None,
                     globals: shared.share(),
                     // The scanned row is whole: a partial load of the variable is not the copy's (al-runner issue 6654).

@@ -2424,7 +2424,7 @@ impl Session {
         if let Some(r) = self.move_in_client_rows(st, how)? {
             return Ok(r);
         }
-        if how == PageMethod::First && self.tree_first_on_first_row(st)? {
+        if how == PageMethod::First && self.first_on_first_row(st)? {
             return Ok(true);
         }
         let cursor = st.borrow().cursor;

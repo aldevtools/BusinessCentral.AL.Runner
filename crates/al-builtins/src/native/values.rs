@@ -304,6 +304,11 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
             std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::XmlList(Vec::new()))),
         ),
         Value::Library(name, _) if name.as_str() == "Dialog" => dialog::cleared(name),
+        // A cleared Version reads 0.0.0.0 (types/lt-y64-clear-types/Y64ClearTypes.al:112,137 Y64_Clear_Scalars).
+        Value::Library(name, _) if name.as_str() == "Version" => Value::Library(
+            name.clone(),
+            std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Version([0; 4]))),
+        ),
         other => return unsupported(&format!("Clear of a {} value", value_kind(other))),
     };
     Ok(Value::Null)

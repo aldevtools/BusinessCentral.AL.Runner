@@ -699,6 +699,9 @@ pub struct PageState {
     /// A List with Editable = false opened for view lost its only row to an action and shows no row: a later action is not
     /// pinned and is refused (pages/lt-outside-worksheet/RmWorksheetGoneRow.al SH_ListViewNotEditable_, awaiting).
     pub gone_view_list: bool,
+    /// The same for a List with Editable = false over a temporary source (`gone_read_only_temp_list`): a later action is built
+    /// (al-runner issue 6664).
+    pub gone_temp_list: bool,
     /// The part's link value failed its validation as the host opened: Last() answers No and reads nothing, a write raises
     /// TestRowNotFound (pages/lt-qj-part-propagation/QjPartPropagation.al:3766); anything else on the part is refused.
     pub link_validate_failed: bool,
@@ -1050,6 +1053,7 @@ impl PageState {
             gone_blank_no_new_line: false,
             gone_blank_shows_line: false,
             gone_view_list: false,
+            gone_temp_list: false,
             link_validate_failed: false,
             settled_first_row: false,
             caption_assigned_closed: false,
@@ -1241,6 +1245,9 @@ pub struct RecordState {
     /// The row this variable's last Modify wrote. A later Modify of the unchanged buffer, after a rollback undid that write,
     /// writes nothing (record/lt-record-conversion-assumptions/StaleBuffer.al:76-86).
     pub last_modify: Option<Vec<Value>>,
+    /// The row version the buffer held when its Insert answered false (the key existed): a Modify through the buffer then raises
+    /// DB:RecordChanged when the stored row's version is newer (record/lt-y71-failed-insert-modify/Y71FailedInsertModify.al).
+    pub failed_insert: Option<i64>,
     /// Where the buffer's row version came from: the variable's own Insert or a Get (with that version and the number of
     /// commits of the session then). A stale buffer from the Insert of the transaction the last Commit closed may still be
     /// written (record/TestRecordStaleBufferWrite.al:395-690, `Session::stale_verdict`).

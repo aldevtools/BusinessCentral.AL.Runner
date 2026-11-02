@@ -353,9 +353,10 @@
 29 2627-pageext-modify-implicit-promoted-caption
 29 2652-xmlport-separator-read-into-char
 # corpus bump to master 34ca226f (writer Y66): break/quit/skip and UseRequestPage on an XmlPort variable
-27 2642-xmlport-variable-break-quit-skip
-27 2643-xmlport-variable-userequestpage
-28 2642-xmlport-variable-break-quit-skip
-28 2643-xmlport-variable-userequestpage
-29 2642-xmlport-variable-break-quit-skip
-29 2643-xmlport-variable-userequestpage
+# corpus bump to master 48433dfe (writer Y24, permissions lane): the Permissions property of an object takes only tabledata entries (AL0104)
+27 2360-permissions-property-codeunit-execute
+27 2361-permissions-property-object-execute
+28 2360-permissions-property-codeunit-execute
+28 2361-permissions-property-object-execute
+29 2360-permissions-property-codeunit-execute
+29 2361-permissions-property-object-execute
