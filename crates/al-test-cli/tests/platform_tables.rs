@@ -4367,3 +4367,27 @@ fn the_webhook_mcp_tool_and_privacy_approval_tables_are_stored() {
         "{o:?}"
     );
 }
+
+/// al-runner issue 6716: a page whose source table BC 29 ships twice under one id (Base Application's `ObsoleteState =
+/// Moved` copy and its Business Foundation target) reads its view against the target. The moved copy is not in the
+/// runtime app (platform/lt-aw-fresh-tenant/AwTests.al:426-442), so its fields never stand in for the target's.
+#[test]
+fn page_metadata_reads_the_source_table_view_against_the_table_a_moved_copy_points_to() {
+    let o = outcomes_over(
+        "main",
+        r#"table 231 "Reason Code" { ObsoleteState = Moved; MovedTo = 'f3552374-a1f2-4356-848e-196002525837';
+  fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }
+page 50002 "Reasons" { PageType = List; SourceTable = "Reason Code"; SourceTableView = where(Description = const('X'));
+  layout { area(Content) { repeater(R) { field(C; Rec.Code) { } } } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure View() var M: Record "Page Metadata"; begin
+    M.Get(50002); if M.SourceTableView = '' then Error('no view'); if M.SourceTable <> 231 then Error('table %1', M.SourceTable); end; }"#,
+        Some(
+            r#"table 231 "Reason Code" { fields { field(1; Code; Code[10]) { } field(2; Description; Text[100]) { } }
+  keys { key(PK; Code) { Clustered = true; } } }"#,
+        ),
+        al_sema::check::Roots::default(),
+        "29.0.0.0",
+    );
+    passes(&o, "View");
+}
