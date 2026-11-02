@@ -37,9 +37,16 @@ impl Session {
         } else {
             "Cancel"
         };
+        if let Some(r) = self.close_after_failed_save(st) {
+            return r;
+        }
         st.borrow_mut().close_error = false;
+        self.pages.close_save_error = false;
         self.pages.test_close = true;
         let (r, origin) = self.traced(st, |s| s.close_with(st, action, false, false));
+        if let Some(r) = self.after_failed_close_save(st, &r) {
+            return r;
+        }
         // A refused TestPage.Close() leaves the variable not open all the same (corpus
         // handlers/TestPageCloseVeto_Tests.al: PlainVeto_SecondCloseRaisesNotOpen), and so does an error of OnQueryClosePage
         // shown as an unhandled message (pages/lt-cc-page-leads/CcPageLeads.al:611-621 TriggerError_OnQueryClosePage).
@@ -271,7 +278,7 @@ impl Session {
         }
         self.rename_changed_key_at_close(st, action)?;
         let host_saves = st.borrow().dirty || st.borrow().draft;
-        let save = self.close_denied_modify(st).and_then(|()| self.save_row(st));
+        let save = self.close_denied_modify(st).and_then(|()| self.close_save_row(st));
         match save {
             Err(Signal::Error(e)) if swallow_save_errors => {
                 al_builtins::native::refuse_unpinned_text(&e, "The error list of a page row")?;

@@ -1212,6 +1212,7 @@ impl Session {
                 test_open: false,
                 run_page_link_open_moved: false,
                 test_close: false,
+                close_save_error: false,
             },
             events: EventState {
                 bindings: Vec::new(),
