@@ -117,27 +117,30 @@ fn a_case_on_the_table_id_that_sets_no_flag_for_the_table_does_not_stop_the_inst
     assert_eq!(outcome(body), Outcome::Pass);
 }
 
-/// Owner decision 2026-11-02 (assumption `install-unrelated-database-trigger-subscribers`): no setup or database event
-/// subscriber of an app of unknown install order is consulted during an install, whatever it does. Pinned for the
-/// per-database part: install/lt-y69-install-trigger-setup/Y69InstallTriggerSetup.al:73-105.
-#[test]
-fn a_subscriber_that_sets_a_flag_for_the_table_does_not_stop_the_install() {
-    assert_eq!(outcome("OnDatabaseInsert := true;"), Outcome::Pass);
+fn refused(body: &str) -> String {
+    match outcome(body) {
+        Outcome::NotRun(why) => why,
+        other => panic!("expected not run, got {other:?}"),
+    }
 }
 
-/// Al-runner issue 6755: the table id tested with `in [...]`.
+/// A subscriber that sets a flag for A's table changes what A's install raises if B installed first.
 #[test]
-fn a_set_test_on_the_table_id_does_not_stop_the_install() {
-    let body = r#"if TableId in [Database::"OB Log Source", 50999] then begin
-            OnDatabaseInsert := true;
-            OnDatabaseModify := true;
-        end;"#;
-    assert_eq!(outcome(body), Outcome::Pass);
+fn a_subscriber_that_sets_a_flag_for_the_table_still_stops_the_install() {
+    let why = refused("OnDatabaseInsert := true;");
+    assert!(why.contains("install order"), "{why}");
 }
 
-/// A flag copied into another one, and a call, do not stop it either.
+/// Writing the value a flag already has for every input changes nothing, but a flag written from another one does.
 #[test]
-fn a_subscriber_that_copies_a_flag_or_calls_code_does_not_stop_the_install() {
-    assert_eq!(outcome("OnDatabaseModify := OnDatabaseInsert;"), Outcome::Pass);
-    assert_eq!(outcome(&format!("Note();\n{ONLY_OWN_TABLE}")), Outcome::Pass);
+fn a_subscriber_that_copies_one_flag_into_another_still_stops_the_install() {
+    let why = refused("OnDatabaseModify := OnDatabaseInsert;");
+    assert!(why.contains("install order"), "{why}");
+}
+
+/// A subscriber that does more than set its flags (here a call) is not known to change nothing.
+#[test]
+fn a_subscriber_that_calls_code_still_stops_the_install() {
+    let why = refused(&format!("Note();\n{ONLY_OWN_TABLE}"));
+    assert!(why.contains("install order"), "{why}");
 }

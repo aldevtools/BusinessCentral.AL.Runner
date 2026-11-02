@@ -839,17 +839,6 @@ to one block of 65536 ids; that limit is gone.
 - A partner suite with install codeunits in several blocks of 65536 ids, owner form `al-runner test <app> <tests>`:
   1,604 pass, 13 fail, 3,759 not run before; 3,407 pass, 13 fail, 1,956 not run after (1,803 not run to pass, no
   other change). With the app as a dependency only: no change (5,226 pass, 8 fail, 142 not run).
-7. **The database trigger setup and database events of an unrelated app are not consulted (owner, 2026-11-02; al-runner
-   issues 6718, 6755).** Corpus install/lt-y69-install-trigger-setup/Y69InstallTriggerSetup.al:73-105 measured on BC 29
-   that during an install no `GetDatabaseTableTriggerSetup` subscriber and no `OnDatabaseInsert` subscriber of any
-   installed app runs, in either install order, and that unrelated apps install in the order of the install requests.
-   So item 2 no longer refuses these events (`GetDatabaseTableTriggerSetup`, `OnDatabaseInsert`, `OnDatabaseModify`,
-   `OnDatabaseDelete`, `OnDatabaseRename`): the subscribers of an app of unknown order are left out of the raise
-   (`al-vm/src/dispatch.rs`). The measurement covers the per-database part, where the setup is not asked at all
-   (install/lt-ug-install-trigger-setup/UgInstallTests.al); the per-company part is the owner's decision, registered as
-   assumption `install-unrelated-database-trigger-subscribers`. A subscriber that provably changes nothing (item 6) is
-   still left out without the mark. `GetGlobalTableTriggerMask` stays refused (not measured). Other events of such an app
-   stay refused as in item 2.
 
 ### Still not pinned (probes wanted)
 

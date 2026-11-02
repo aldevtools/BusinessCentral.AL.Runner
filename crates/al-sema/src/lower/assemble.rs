@@ -928,7 +928,9 @@ pub(crate) fn lower_core(
                 target: None,
                 logo: None,
                 description: None,
-                ..Default::default()
+                layout_files: Vec::new(),
+                translations: false,
+                translation_files: Vec::new(),
             })
             .collect(),
         dotnet_types: ws

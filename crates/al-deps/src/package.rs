@@ -439,16 +439,6 @@ pub fn ships_translations(app: &[u8], vars: &Vars) -> Result<bool, PackageError>
     })
 }
 
-/// Whether a package (`.app` or source archive) holds package data: a `*.navxdata` entry (`NavApp.LoadPackageData`).
-pub fn ships_package_data(app: &[u8], vars: &Vars) -> Result<bool, PackageError> {
-    with_archive(app, 0, vars, &mut |zip, _, _| {
-        Ok(zip
-            .entries
-            .iter()
-            .any(|e| percent_decode_once(&e.name).to_ascii_lowercase().ends_with(".navxdata")))
-    })
-}
-
 /// `%20` to a space, once. Entry names in packages are encoded twice by the packer.
 pub(crate) fn percent_decode_once(name: &str) -> String {
     let b = name.as_bytes();

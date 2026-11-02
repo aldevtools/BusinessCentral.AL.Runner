@@ -830,7 +830,7 @@ impl CorpusRuntime {
             app.logo = m.logo.clone();
             app.description = m.description.clone();
             app.layout_files = m.layout_files.clone();
-            (app.translations, app.package_data) = (m.translations, m.package_data);
+            app.translations = m.translations;
             app.translation_files = m.translation_files.clone();
         }
         // The source lines of an app that includes its source in the symbols (the Code Coverage `Line`).

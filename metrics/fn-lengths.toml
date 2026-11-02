@@ -14,7 +14,7 @@
 "crates/al-sema/src/check/mod.rs::check_inner" = 273
 "crates/al-sema/src/check/object.rs::object_ctx" = 271
 "crates/al-sema/src/lower/assemble.rs::build_shared" = 594
-"crates/al-sema/src/lower/assemble.rs::lower_core" = 532
+"crates/al-sema/src/lower/assemble.rs::lower_core" = 534
 "crates/al-sema/src/lower/call.rs::call" = 682
 "crates/al-sema/src/lower/expr.rs::expr_raw" = 421
 "crates/al-sema/src/lower/pages.rs::page" = 488
