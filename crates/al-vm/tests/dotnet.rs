@@ -1460,9 +1460,10 @@ fn copilot_platform_authorization_is_not_configured_for_a_partner_caller() {
 }
 
 /// A SUPER session on table data: the four data rights, no Execute (corpus
-/// `session/TestSessionCompanyInfoExperienceClose.al`). Anything else is refused.
+/// `session/TestSessionCompanyInfoExperienceClose.al`); a codeunit gives Execute only (corpus
+/// `session/TestSessionEffectivePermission.al` EffectivePermission_Codeunit_Page_Report). Another user is refused.
 #[test]
-fn the_effective_permission_of_the_session_user_on_table_data_is_the_four_data_rights() {
+fn the_effective_permission_of_the_session_user_is_the_four_data_rights_on_table_data_and_execute_on_a_codeunit() {
     let vars = "U: DotNet NavUserAccountHelper;";
     let host = no_host();
     let r = run(
@@ -1478,7 +1479,7 @@ fn the_effective_permission_of_the_session_user_on_table_data_is_the_four_data_r
         "exit(U.GetEffectivePermissionForObject(UserSecurityId(), CompanyName(), 5, 79));",
         ": Text",
     );
-    assert!(unsupported(&r).contains("other than table data"), "{:?}", r.result);
+    assert_eq!(text(r), "0,0,0,0,1");
     let r = run(
         &host,
         vars,
