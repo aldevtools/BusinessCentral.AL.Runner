@@ -163,9 +163,10 @@ pub(super) struct Catalog<'a> {
 
 #[derive(Default)]
 struct Maps<'a> {
-    /// (base kind, lower-case name) to the ids of the objects of that name.
-    names: HashMap<(al_ir::ObjKind, String), Vec<u32>>,
-    /// Table id to the first table object of that id.
+    /// (base kind, lower-case name) to the ids of the objects of that name, each with whether the object is a stub that
+    /// gives way ([`gives_way`]).
+    names: HashMap<(al_ir::ObjKind, String), Vec<(u32, bool)>>,
+    /// Table id to the first table object of that id that is not declared `ObsoleteState = Moved`, else the first.
     tables: HashMap<u32, usize>,
     /// Page id to the page extensions that extend it, in program order.
     page_extensions: HashMap<u32, Vec<usize>>,
@@ -192,9 +193,17 @@ impl<'a> Catalog<'a> {
                     m.page_extensions.entry(base).or_default().push(i);
                 }
                 if let Some(id) = o.id {
-                    m.names.entry((o.kind, o.name.to_lowercase())).or_default().push(id);
+                    m.names
+                        .entry((o.kind, o.name.to_lowercase()))
+                        .or_default()
+                        .push((id, gives_way(o)));
                     if o.kind == al_ir::ObjKind::Table {
-                        m.tables.entry(id).or_insert(i);
+                        // A moved table is not in the runtime app (platform/lt-aw-fresh-tenant/AwTests.al:426-442): the
+                        // table it moved to holds the id (al-runner issue 6716).
+                        let first = m.tables.entry(id).or_insert(i);
+                        if moved(&self.objects[*first]) && !moved(o) {
+                            *first = i;
+                        }
                     }
                 }
             }
@@ -233,12 +242,33 @@ impl<'a> Catalog<'a> {
             return Ok(n);
         }
         let name = ident(v);
-        match self.maps().names.get(&(kind, name.to_lowercase())).map(Vec::as_slice) {
-            Some([id]) => Ok(*id),
-            Some([]) | None => Err(format!("no {kind} named `{name}`")),
-            Some(_) => Err(format!("more than one {kind} is named `{name}`")),
+        let found = self.maps().names.get(&(kind, name.to_lowercase()));
+        match one_id(found.map_or(&[][..], Vec::as_slice)) {
+            Some(Ok(id)) => Ok(id),
+            None => Err(format!("no {kind} named `{name}`")),
+            Some(Err(())) => Err(format!("more than one {kind} is named `{name}`")),
         }
     }
+}
+
+/// An object marked `ObsoleteState = Moved` or `Removed`: a stub that gives way to a live object of the same name, as
+/// the compiler resolves a name (`al_sema::workspace::Workspace::pick_real`; must-not-compile
+/// 0970-obsolete-removed-table.al for a removed table).
+fn gives_way(o: &ObjectHead) -> bool {
+    o.properties.iter().any(|(k, v)| {
+        k.eq_ignore_ascii_case("ObsoleteState")
+            && (v.trim().eq_ignore_ascii_case("Moved") || v.trim().eq_ignore_ascii_case("Removed"))
+    })
+}
+
+/// The one id the objects of a name stand for: the stubs give way to the live objects, and objects of one id are one
+/// object to a grant, which is keyed on (object type, id) (al-runner issue 6716: Base Application 29's moved table 231
+/// "Reason Code" and Business Foundation's). `None` for no object, `Err` for two ids.
+fn one_id(found: &[(u32, bool)]) -> Option<Result<u32, ()>> {
+    let live = found.iter().any(|&(_, stub)| !stub);
+    let mut ids = found.iter().filter(|&&(_, stub)| !live || !stub).map(|&(id, _)| id);
+    let first = ids.next()?;
+    Some(if ids.all(|id| id == first) { Ok(first) } else { Err(()) })
 }
 
 pub(crate) fn al_sema_platform_app_id() -> &'static str {
