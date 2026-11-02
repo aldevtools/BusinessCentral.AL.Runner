@@ -43,7 +43,7 @@ impl Routine {
 /// Every routine under `node`, in source order. A routine's body holds only
 /// statements, so unlike `descendants()` this does not walk into routines.
 pub fn routines_in(node: &SyntaxNode) -> Vec<Routine> {
-    find_nodes(node, is_routine_kind, |k| !is_routine_kind(k))
+    find_nodes(node, is_routine_kind, member_walk(node))
         .into_iter()
         .map(Routine)
         .collect()
@@ -53,10 +53,32 @@ fn is_routine_kind(k: SyntaxKind) -> bool {
     matches!(k, SyntaxKind::Procedure | SyntaxKind::Trigger)
 }
 
+/// The nodes `routines_in` and `sections_in` look inside of. The grammar makes a routine or a section only as a member
+/// of an `ObjectBody` (`grammar/objects.rs` `member`, `routine`), and an `ObjectBody` only under an `Object`, a
+/// `DotNetBlock` or a `Section`; so walking into anything else (property values, variable sections, section arguments,
+/// error nodes) finds nothing. From a node of another kind the search looks everywhere outside routines, as before.
+fn member_walk(node: &SyntaxNode) -> fn(SyntaxKind) -> bool {
+    fn holds_members(k: SyntaxKind) -> bool {
+        matches!(
+            k,
+            SyntaxKind::SourceFile
+                | SyntaxKind::Object
+                | SyntaxKind::ObjectBody
+                | SyntaxKind::Section
+                | SyntaxKind::DotNetBlock
+        )
+    }
+    if holds_members(node.kind()) {
+        holds_members
+    } else {
+        |k| !is_routine_kind(k)
+    }
+}
+
 /// Every `Section` under `node`, in source order, not looking inside routines
 /// (sections are object structure; a routine body never contains one).
 pub fn sections_in(node: &SyntaxNode) -> Vec<Section> {
-    find_nodes(node, |k| k == SyntaxKind::Section, |k| !is_routine_kind(k))
+    find_nodes(node, |k| k == SyntaxKind::Section, member_walk(node))
         .into_iter()
         .map(Section)
         .collect()
@@ -1564,6 +1586,38 @@ tableextension 50100 Ext extends "Sales Header" { fields { field(50100; F; Integ
             routines_in(o.syntax()).iter().map(|r| r.name()).collect::<Vec<_>>(),
             vec!["OnValidate", "OnAction", "OnOpenPage", "Q"]
         );
+    }
+
+    /// `routines_in` and `sections_in` look only inside nodes that can hold members, and find what a walk of every node
+    /// outside routines finds, from every node of files with properties, variables, nested sections, a `dotnet` block, an
+    /// attributed control add-in event and parse errors.
+    #[test]
+    fn routines_and_sections_are_found_as_a_walk_of_every_node_outside_routines_finds_them() {
+        for src in [
+            WITH_SECTIONS,
+            "table 50100 T { fields { field(1; \"No.\"; Code[20]) { Caption = 'No.'; trigger OnValidate() begin end; } field(2; X; Integer) { CalcFormula = count(T where(\"No.\" = field(\"No.\"))); } } keys { key(PK; \"No.\") { } } var G: Integer; procedure P() var L: Integer; begin end; }",
+            "dotnet { assembly(\"A\") { type(\"A.B\"; B) { } } } controladdin C { [Obsolete('x')] event E(a: Text); event F(); procedure G(); }",
+            "page 1 P { layout { area(Content) { field(X; Rec.X) { trigger OnValidate( begin end; } } } actions { area(Processing) { action(A) { } } } procedure Q() begin if then; end; } } codeunit 2 C { = ; procedure R() begin end; }",
+        ] {
+            let parse = crate::parser::parse(src, &Default::default());
+            let root = SyntaxNode::new_root(parse.green.clone());
+            for n in root.descendants() {
+                let mut outside = (Vec::new(), Vec::new());
+                let mut it = n.preorder();
+                while let Some(ev) = it.next() {
+                    if let rowan::WalkEvent::Enter(d) = ev {
+                        if let Some(r) = Routine::cast(d.clone()) {
+                            outside.0.push(r);
+                            it.skip_subtree();
+                        } else if let Some(s) = Section::cast(d) {
+                            outside.1.push(s);
+                        }
+                    }
+                }
+                assert_eq!(routines_in(&n), outside.0, "routines under {:?} of {src}", n.kind());
+                assert_eq!(sections_in(&n), outside.1, "sections under {:?} of {src}", n.kind());
+            }
+        }
     }
 
     #[test]
