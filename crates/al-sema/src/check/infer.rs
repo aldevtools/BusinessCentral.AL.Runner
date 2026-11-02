@@ -489,7 +489,71 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// AL0161 for `Break`, `BreakUnbound`, `Quit` and `Skip` on an XmlPort variable: they exist only inside the XmlPort, through
+    /// `currXMLport` (corpus must-not-compile 2642-xmlport-variable-break-quit-skip.al; the members a variable has:
+    /// xmlport/lt-y66-xmlport-var-members/Y66XmlPortVarMembers.al). Judged for a variable of another XmlPort than the code's own.
+    pub(crate) fn al_xmlport_access(&mut self, sc: &Scope, node: &SyntaxNode, base: &Ty, name: &str) {
+        let Some(recv) = node.children().next() else { return };
+        let Ty::Object(ObjKind::XmlPort, xname) = base else {
+            return;
+        };
+        let shown = match name.to_ascii_lowercase().as_str() {
+            "break" => "Break()",
+            "breakunbound" => "BreakUnbound()",
+            "quit" => "Quit()",
+            "skip" => "Skip()",
+            _ => return,
+        };
+        if self.ws.is_dependency(sc.oi) || recv.kind() != SyntaxKind::NameRef {
+            return;
+        }
+        let Some(xi) = self.resolve(sc, ObjKind::XmlPort, xname) else {
+            return;
+        };
+        if xi == sc.oi || xi == sc.self_obj || !self.members[xi].procedures_named(name).is_empty() {
+            return;
+        }
+        self.diag(
+            sc,
+            node,
+            "AL0161",
+            format!("'{shown}' is inaccessible due to its protection level"),
+        );
+    }
+
+    /// AL0132 for a method an XmlPort variable does not have (corpus must-not-compile 2643-xmlport-variable-userequestpage.al:
+    /// `UseRequestPage` is a property of the XmlPort). The catalog lists the methods of the XmlPort data type; a name it has in no
+    /// version, no procedure of the XmlPort and no element or variable of it is judged.
+    pub(crate) fn al_unknown_xmlport_member(&mut self, sc: &Scope, node: &SyntaxNode, base: &Ty, name: &str) {
+        let Ty::Object(ObjKind::XmlPort, xname) = base else {
+            return;
+        };
+        if self.ws.is_dependency(sc.oi) {
+            return;
+        }
+        let Some(xi) = self.resolve(sc, ObjKind::XmlPort, xname) else {
+            return;
+        };
+        if self.ws.is_dependency(xi)
+            || !self.members[xi].procedures_named(name).is_empty()
+            || crate::base_access::declares_var(&self.ws.object_ast(xi), name)
+            || self.has_named_section(xi, name)
+            || !self.catalog.overloads(kind_receiver(ObjKind::XmlPort), name).is_empty()
+            || !self.catalog.hidden(kind_receiver(ObjKind::XmlPort), name).is_empty()
+        {
+            return;
+        }
+        let shown = crate::alcodes::quoted_if_needed(&self.ws.objects[xi].name);
+        self.diag(
+            sc,
+            node,
+            "AL0132",
+            format!("'XmlPort {shown}' does not contain a definition for '{name}'"),
+        );
+    }
+
     pub(crate) fn al_codeunit_access(&mut self, sc: &Scope, node: &SyntaxNode, base: &Ty, name: &str) {
+        self.al_xmlport_access(sc, node, base, name);
         // A local procedure of a table, called through a record of it (corpus must-not-compile 0359). Judged on the
         // table's own source, so a procedure of a table extension is never taken for it.
         if let Ty::Record { table, .. } = base {
@@ -904,6 +968,7 @@ impl<'a> Checker<'a> {
     fn al_unknown_member(&mut self, sc: &Scope, node: &SyntaxNode, recv: &SyntaxNode, base: &Ty, name: &str) {
         self.al_unknown_record_member(sc, node, base, name);
         self.al_unknown_builtin_member(sc, node, base, name);
+        self.al_unknown_xmlport_member(sc, node, base, name);
         self.al_unknown_test_page_member(sc, node, recv, base, name);
     }
 

@@ -156,7 +156,7 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "fieldvalidate",
         ],
         // `occurrence` is checked in `visit`: Required or Optional on a text attribute of a text or table element.
-        // `texttype` is checked in `visit`: BigText on a text attribute of a table element.
+        // `texttype` is checked in `visit`: Text or BigText on a text attribute of the root text element or of a table element.
         ir::XmlNodeKind::TextAttr => &[
             "xmlname",
             "namespaceprefix",
@@ -164,6 +164,9 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "unbound",
             "occurrence",
             "texttype",
+            // Documentation only: xmlport/lt-y72-xmlport-probes/Y72XpTextTypeBlankEnum.al TextTypeText_OnTextAttribute_ExportImport
+            // (`textattribute(Version) { TextType = Text; Description = 'Version'; }`, export and import as without it).
+            "description",
         ],
         // `texttype` is checked in `visit`: BigText or Text on a text element without children. `unbound` too, on one without
         // children (xmlport/lt-y60-xmlport-unbound-text/Y60XpUnboundText.al; the VM reads its columns and refuses its export).
@@ -596,13 +599,19 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
                 // xmlport/lt-xmlport-bigtext/XmlPortBigText.al:178-266: BigText on a text element without children, on export
                 // and import. Text is the default. A BigText element with children, or another value, is not pinned.
                 // On a text attribute: BigText, of a table element (report/lt-u-report-props/UReportObjects.al:150,
-                // UPropertyTests.al:311-330 import, :399-400 export). The value Text there, or an attribute of a text element,
-                // is not pinned.
+                // UPropertyTests.al:311-330 import, :399-400 export); Text and BigText on a text attribute of the root text element
+                // and of a table element, export and import, and Text on a container text element
+                // (xmlport/lt-y72-xmlport-probes/Y72XpTextTypeBlankEnum.al header, TextTypeText_OnTextAttribute_ExportImport,
+                // TextTypeBigText_RootAttribute, TextType_OnContainerTextElement). BigText on a container is not pinned.
                 let value = p.value_text().trim().to_ascii_lowercase();
                 let refused = if kind == K::TextAttr {
-                    value != "bigtext" || !parent.is_some_and(|i| out.nodes[i].kind == K::Table)
+                    !matches!(value.as_str(), "bigtext" | "text")
+                        || !parent.is_some_and(|i| {
+                            out.nodes[i].kind == K::Table
+                                || (out.nodes[i].kind == K::Text && out.nodes[i].parent.is_none())
+                        })
                 } else {
-                    s.sections().next().is_some() || !matches!(value.as_str(), "bigtext" | "text")
+                    !matches!(value.as_str(), "bigtext" | "text") || (s.sections().next().is_some() && value != "text")
                 };
                 if refused {
                     out.run_reasons.push(format!(
@@ -1014,6 +1023,8 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                     && !raw.parent.is_some_and(|p| nested_text_shape(layout, p) == Some(i))
                     && !containers::container_tree_shape(layout, i)
                     && !containers::wrap_shape(layout, i)
+                    && !containers::attributed_leaf_shape(layout, i)
+                    && !containers::table_container_shape(layout, i)
                 {
                     run_reasons.push(format!(
                         "triggers of the container text element {} are not supported (not pinned)",

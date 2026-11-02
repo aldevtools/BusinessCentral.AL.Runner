@@ -53,4 +53,58 @@ impl Session {
         }
         self.record_changed(t, rec)
     }
+
+    /// Notes that a guarded Insert of `rec` answered false (the key existed): the buffer keeps the version it had, and a Modify
+    /// through it is refused when the row is newer (record/lt-y71-failed-insert-modify/Y71FailedInsertModify.al).
+    pub(crate) fn note_failed_insert(&self, t: &TableDef, rec: &Rec, outcome: &Result<Value, Signal>) {
+        if !(self.ret_used && matches!(outcome, Ok(Value::Boolean(false))) && !rec.borrow().temporary) {
+            return;
+        }
+        if let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_005) {
+            let mut b = rec.borrow_mut();
+            b.failed_insert = Some(if let Value::BigInteger(n) = &b.fields[i] { *n } else { 0 });
+        }
+    }
+
+    /// A buffer whose Insert failed on the existing key and whose row another writer changed since it was read cannot be saved,
+    /// with no Commit in between (Y71FailedInsertModify.al:FailedInsert_ThenModify_*). A buffer never read (version 0) writes.
+    pub(crate) fn check_failed_insert_stale(
+        &self,
+        t: &TableDef,
+        rec: &Rec,
+        stored: Option<&[Value]>,
+    ) -> Result<(), Signal> {
+        let (Some(row), Some(i)) = (stored, t.fields.iter().position(|f| f.id == 2_000_000_005)) else {
+            return Ok(());
+        };
+        let failed = rec.borrow_mut().failed_insert.take();
+        let version = |v: &Value| if let Value::BigInteger(n) = v { *n } else { 0 };
+        let mine = version(&rec.borrow().fields[i]);
+        // Only while the buffer still holds the version it had at the failed Insert (a Get since gives it a new one).
+        if failed.is_some_and(|v| v != 0 && v == mine && v < version(&row[i])) {
+            return Err(self.record_changed(t, rec)?);
+        }
+        Ok(())
+    }
+
+    /// Refuses a Modify through a stale buffer before its events run (`stale_verdict` Refused). After a failed Insert the events
+    /// and triggers run first and the write raises (`check_failed_insert_stale`; Y71FailedInsertModify.al:
+    /// FailedInsert_ThenModify_CommitBetween `BeforeModify:No,BeforeModify:No`). `versions`: the buffer's, the stored row's.
+    pub(crate) fn refuse_stale_modify(
+        &mut self,
+        t: &TableDef,
+        rec: &Rec,
+        cx: &al_data::AccessContext,
+        pk: &[Value],
+        run: bool,
+        versions: (i64, i64),
+    ) -> Result<(), Signal> {
+        let after_failed_insert = rec.borrow().failed_insert.is_some_and(|v| v != 0 && v == versions.0);
+        if self.stale_verdict(t, rec, cx, pk, versions.1, false)? == crate::records::StaleVerdict::Refused
+            && !after_failed_insert
+        {
+            return Err(self.stale_own_insert_modify_refused(t, rec, run)?);
+        }
+        Ok(())
+    }
 }
