@@ -205,10 +205,15 @@ fn what_the_corpus_does_not_pin_is_refused() {
         "U.Init(); U.\"User Security ID\" := CreateGuid(); U.\"User Name\" := 'N'; U.\"Windows Security ID\" := 'S-1'; U.Insert(); exit('x');",
     );
     assert!(unsupported(r).contains("Windows Security ID"));
+}
+
+/// Two '@' is an invalid form, pinned by Y66AuthEmailLocalPart.al:25-125 (BC 27.5, 28.5, 29.0).
+#[test]
+fn two_at_signs_in_the_authentication_email_are_an_error() {
     let r = run(
         "U.Init(); U.\"User Security ID\" := CreateGuid(); U.\"User Name\" := 'N'; U.\"Authentication Email\" := 'a@b@c.d'; U.Insert(); exit('x');",
     );
-    assert!(unsupported(r).contains("authentication email"));
+    assert_eq!(error(r), "You must specify a valid email address.");
 }
 
 /// Deleting a User deletes its Access Control rows, and no one else's (staging

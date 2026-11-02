@@ -38,6 +38,7 @@ pub(crate) mod profiles;
 pub(crate) mod ranges;
 mod reports;
 mod seed;
+mod tenant_compose;
 mod tenant_media_row;
 mod windows_language_rows;
 pub(crate) use permissions::{RawSet, inherent_attribute, object_grants, raw_sets, table_inherent};
@@ -236,6 +237,8 @@ pub(crate) struct Providers {
     /// stored Tenant Permission Set table they were composed at.
     aggregate: permissions::Cache,
     grants: permissions::Grants,
+    /// The tenant permission sets composed so far (`tenant_compose.rs`).
+    tenant_composed: tenant_compose::Composed,
     events: Rc<EventStats>,
     /// The session's media: the rows of `Tenant Media`.
     media: al_builtins::media::MediaStore,
@@ -288,6 +291,7 @@ impl Providers {
             listed: RefCell::default(),
             aggregate: RefCell::default(),
             grants: Default::default(),
+            tenant_composed: Default::default(),
             events,
             media,
             event_index: RefCell::new(None),

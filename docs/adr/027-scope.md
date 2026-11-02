@@ -239,9 +239,15 @@ it needs no session, network or service and a corpus test pins what AL sees. Per
   the constructor, `ClearMeasures`, `AddMeasure`, `XDimension` (corpus `misc/lt-au-language-edges/AuEdgeTests.al:608`).
   `ShowChartCondensed`, `DataTable` and the JSON `Update` sends to the add-in stay refused (not pinned).
 - **`AzureMLHelper`** (Base Application "Azure ML Connector"): stays refused. It calls Azure ML over the network (row 17).
-- **`AzureKeyVaultClientHelper`** (System Application "Azure Key Vault"): stays refused (row 9, decision 1 of 2026-10-29).
-  Microsoft's tests pass a `MockAzureKeyVaultSecretProvider`; what the helper does with it (the `AllowedApplicationSecrets`
-  list, a missing name) needs a probe first.
-- **`MockGraphQuery`**, **`ALSearch`**, **`NavPageSummaryALFunctions`** / **`NavPageActionALFunctions`**,
-  **`PasswordGenerator`**, **`VSCodeRequestHelper`**: stay refused until a corpus probe pins what AL sees. None needs the
-  network by itself, so each can be served once its probe lands.
+- **`AzureKeyVaultClientHelper`** (System Application "Azure Key Vault") and Microsoft's test provider
+  **`MockAzureKeyVaultSecretProvider`**: served (`al-vm/src/dotnet/key_vault.rs`, 2026-11-02) as corpus writer Y58 pinned
+  them (`onprem-dotnet/lt-y58-key-vault/Y58AzureKeyVault.al`): with no provider both getters raise "Azure key vault has not
+  been set up", with the test provider the mapped value or ''; `AllowedApplicationSecrets` is not checked. No real vault is
+  ever reached (row 9). Certificates read through "Azure Key Vault" stay refused where the X509 code meets a .NET
+  `FormatException` (not pinned; Y58 holds that value as a Linux suspect).
+- **`PasswordGenerator`**, **`VSCodeRequestHelper`**, **`ALSearch.IsItemSearchReady`**: served
+  (`al-vm/src/dotnet/server_helpers.rs`, 2026-11-02; `onprem-dotnet/lt-y58-server-helpers/Y58ServerHelpers.al`). The other
+  ALSearch members (`FindItems`, `EnableItemSearch`) stay refused: FindItems is a Linux suspect, EnableItemSearch is not probed.
+- **`MockGraphQuery`**, **`NavPageSummaryALFunctions`** / **`NavPageActionALFunctions`**: pinned by Y58 but not served yet.
+  Page summary needs the table's field groups in the IR and page control tooltips; GetActions lists platform actions whose
+  members are not pinned (only their count). None needs the network by itself.

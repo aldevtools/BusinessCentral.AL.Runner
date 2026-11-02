@@ -4391,3 +4391,29 @@ codeunit 50000 "T" { Subtype = Test;
     );
     passes(&o, "View");
 }
+
+/// al-runner issue 6662: a User whose "Authentication Email" is a formatted Guid ('{...}@EXAMPLE.COM') was refused as not
+/// pinned. Corpus writer Y66 measured it on real BC 27.5, 28.5 and 29.0: the insert succeeds and the address is kept as given
+/// (al-language-onprem/access-control/lt-y66-auth-email-local-part/Y66AuthEmailLocalPart.al:25-42, corpus branch
+/// al-runtime-rs-staging-y66; assumption `user-auth-email-rfc-forms` until the pin holds it). The reporter's snippet, plus a read
+/// back, on BC 29 and 27.
+#[test]
+fn a_user_whose_authentication_email_has_a_formatted_guid_local_part_is_inserted_and_kept() {
+    let main = r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure ReporterShape()
+  var User: Record User; Reader: Record User;
+  begin
+    User.Init();
+    User."User Name" := CopyStr(Format(CreateGuid()), 1, MaxStrLen(User."User Name"));
+    User."Authentication Email" := User."User Name" + '@' + 'EXAMPLE.COM';
+    User."User Security ID" := CreateGuid();
+    User.Insert();
+    Reader.Get(User."User Security ID");
+    if Reader."Authentication Email" <> User."User Name" + '@EXAMPLE.COM' then
+      Error('stored %1', Reader."Authentication Email");
+  end; }"#;
+    for bc in ["29.0.0.0", "27.5.0.0"] {
+        let o = outcomes_bc("main", main, al_sema::check::Roots::default(), bc);
+        assert_eq!(o, vec![("ReporterShape".to_string(), Outcome::Pass)], "{bc}");
+    }
+}
