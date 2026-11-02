@@ -1137,15 +1137,16 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                             Some(p) => {
                                 let t = nodes[tn].table.expect("a position implies a table");
                                 // A FlowField exports its calculated value (assumption xmlport-exports-flowfield-calculated). An
-                                // Xml import skips a FlowFilter element (al-vm xmlports.rs); what an export writes for one is not
-                                // pinned (xmlport/lt-xmlport-flowfield-sum-count/XmlPortFlowFieldSumCount.al:243 reads only
-                                // that the UTF-16 output is no UTF-8).
+                                // Xml import skips a FlowFilter element (al-vm xmlports.rs). An Xml export writes the field's own
+                                // value, its type's default, whatever filter the view holds (xmlport/lt-xmlport-flowfield-sum-count/
+                                // XmlPortFlowFieldSumCount.al:390-442 `<SeqFilter>0</SeqFilter>`); a text format is not pinned.
                                 if !matches!(
                                     cx.members[t].fields[p].class,
                                     FieldClass::Normal | FieldClass::FlowField
-                                ) {
+                                ) && layout.format != ir::XmlFormat::Xml
+                                {
                                     export_reasons.push(format!(
-                                        "{} is bound to a FlowFilter (what an export writes is not pinned)",
+                                        "{} is bound to a FlowFilter (what a text export writes is not pinned)",
                                         raw.name
                                     ));
                                 }
