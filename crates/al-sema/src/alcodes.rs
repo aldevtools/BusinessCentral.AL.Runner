@@ -1868,7 +1868,7 @@ fn ambiguous_bare_calls(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut 
         return;
     }
     let app = &ws.apps[ws.objects[oi].app].name;
-    for call in obj.syntax().descendants().filter(|n| n.kind() == SyntaxKind::CallExpr) {
+    for call in ast::descendants_of_kind(obj.syntax(), SyntaxKind::CallExpr) {
         let Some(callee) = call.children().next() else { continue };
         if callee.kind() != SyntaxKind::NameRef || call.children().skip(1).any(|a| a.children().next().is_some()) {
             continue;
@@ -2122,7 +2122,7 @@ pub fn check_context(ws: &Workspace, app: usize, ctx: &AppContext) -> Vec<Diagno
                 continue;
             }
             let root = SyntaxNode::new_root(ws.green(fi));
-            for n in root.descendants().filter(|n| n.kind() == SyntaxKind::TypeRef) {
+            for n in ast::descendants_of_kind(&root, SyntaxKind::TypeRef) {
                 let Some(t) = ast::TypeRef::cast(n.clone()) else {
                     continue;
                 };
@@ -2443,7 +2443,7 @@ fn onprem_method_calls(ws: &Workspace, file: usize, obj: &ast::Object, out: &mut
             }
         }
         vars.extend(r.local_var_decls().flat_map(|d| typed_names(&d)));
-        for call in body.descendants().filter(|n| n.kind() == SyntaxKind::CallExpr) {
+        for call in ast::descendants_of_kind(&body, SyntaxKind::CallExpr) {
             let Some(callee) = call.children().next() else { continue };
             let method = match callee.kind() {
                 SyntaxKind::NameRef => {

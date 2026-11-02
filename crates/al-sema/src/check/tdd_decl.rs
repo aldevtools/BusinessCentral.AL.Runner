@@ -132,7 +132,10 @@ pub fn needs(ws: &Workspace, checked: &CheckResult) -> Vec<TddNeed> {
         let app = ws.apps[o.app].id.clone();
         let node = ws.object_ast(oi).syntax().clone();
         let mut named: Vec<(ObjKind, String)> = Vec::new();
-        for t in node.descendants().filter_map(ast::TypeRef::cast) {
+        for t in ast::descendants_of_kind(&node, SyntaxKind::TypeRef)
+            .into_iter()
+            .filter_map(ast::TypeRef::cast)
+        {
             if let Some(kind) = ObjKind::from_type_name(&t.type_name()) {
                 if let [name] = t.object_name_parts().as_slice() {
                     named.push((kind, name.clone()));
@@ -140,7 +143,7 @@ pub fn needs(ws: &Workspace, checked: &CheckResult) -> Vec<TddNeed> {
             }
         }
         // `Codeunit::"X"`, `Database::"X"`, `Enum::"X"`.
-        for s in node.descendants().filter(|n| n.kind() == SyntaxKind::ScopeExpr) {
+        for s in ast::descendants_of_kind(&node, SyntaxKind::ScopeExpr) {
             let kids: Vec<SyntaxNode> = s.children().collect();
             let [first, second, ..] = kids.as_slice() else { continue };
             if first.kind() != SyntaxKind::NameRef || second.kind() != SyntaxKind::NameRef {

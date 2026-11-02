@@ -2234,7 +2234,7 @@ impl Lowerer<'_> {
             .and_then(|c| c.children().next())
             .map(|c| c.text_range());
         let mut out = Vec::new();
-        for call in body.descendants().filter(|n| n.kind() == SyntaxKind::CallExpr) {
+        for call in al_syntax::ast::descendants_of_kind(body, SyntaxKind::CallExpr) {
             let mut kids = call.children();
             let (Some(callee), Some(args)) = (kids.next(), kids.find(|k| k.kind() == SyntaxKind::ArgList)) else {
                 continue;

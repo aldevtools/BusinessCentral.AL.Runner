@@ -438,7 +438,7 @@ impl Lowerer<'_> {
         }
         if args
             .iter()
-            .any(|a| a.descendants().any(|d| d.kind() == SyntaxKind::CallExpr))
+            .any(|a| al_syntax::ast::contains_kind(a, SyntaxKind::CallExpr))
         {
             return refused(
                 "a control add-in call with an argument that calls a procedure (whether BC evaluates it before the error is not pinned)",
