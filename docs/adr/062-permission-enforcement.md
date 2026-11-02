@@ -481,6 +481,17 @@ Execute is on for the shapes Y24PermExecute.al pins (BC 27.5, 28.5, 29.0 agree):
   exact set that grants it no Execute). `Set` adds All Objects, so Execute is denied only under `SetExactPermissionSet`.
 - **Pages:** opening a page (`Page.Run`, `TestPage.OpenView`, `OpenEdit`, `OpenNew`) without Execute ends with `Page <name> has to close.`,
   code `FormAbort:Permission`.
-- **Still refused:** a denial on a trigger of a table or page, or on an event subscriber (not pinned); a page that has a control with
-  AccessByPermission, opened in a restricted session (P21: BC leaves the control off the page); `GetEffectivePermission` for objects
-  other than table data (P22).
+- **AccessByPermission** (Y24PermExecute.al Y24_P21_AccessByPermissionPage and ...RequestPage): a field or action of the page's own
+  layout (also of a request page) with `AccessByPermission = tabledata T = R`, `= I` or `codeunit C = X` is left off the page when the
+  session's level of that permission is blank: `Value`, `Visible` and `Enabled` of it raise `The field|action with ID = n is not
+  found on the page.` It is there when the level is Yes (`Set` adds All Objects, so the codeunit guard holds after any `Set` and fails
+  only under `SetExactPermissionSet` without Execute). The decision is made when the control is used, against the sets the session
+  held when the page opened. Refused: any other guard (other letters, other object types), an Indirect level, sets that are not
+  fully composed, a change of the assigned sets while the page is open, other methods of a hidden control, a group or part with the
+  property, a page-level mention, an action reference to a guarded action. Not modelled: the control still appears in the Page
+  Control Field table.
+- **GetEffectivePermission** (Y24_P22_EffectivePermission): `NavUserAccountHelper.GetEffectivePermissionForObject` answers from the
+  assigned sets for TableData, Table, Report, Codeunit and Page (the session's five levels on that object). With no set assigned the
+  user is SUPER: Yes on the four data rights for table data and Execute only for the four object types. Other object types, an
+  Indirect level and sets that are not fully composed are refused.
+- **Still refused:** a denial on a trigger of a table or page, or on an event subscriber (not pinned).

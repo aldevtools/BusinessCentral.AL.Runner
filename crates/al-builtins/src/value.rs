@@ -853,6 +853,8 @@ pub struct PageState {
     /// The session's application areas when the page opened: controls whose area they do not
     /// enable are not on the page.
     pub areas: String,
+    /// The permission sets the session held when the page opened (AccessByPermission is decided against them, ADR-062 stage 3).
+    pub permission_roles: Vec<String>,
     /// The positions of the FlowFields whose page controls the session's permission sets leave off the page (ADR-062 stage 2).
     pub hidden_flowfields: Vec<usize>,
     /// OnInit has run on the current instance. BC constructs a page, and so runs OnInit, when a
@@ -1121,6 +1123,7 @@ impl PageState {
             parameters_wanted: false,
             request_seed: None,
             areas: String::new(),
+            permission_roles: Vec::new(),
             hidden_flowfields: Vec::new(),
             inited: false,
             stale: false,

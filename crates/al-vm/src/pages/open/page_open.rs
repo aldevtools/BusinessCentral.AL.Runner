@@ -204,6 +204,7 @@ impl Session {
     /// Y24_P20_ExecutePageRun tdonly_page_run); a page with AccessByPermission is refused (probe P21).
     fn page_instance_gated(&mut self, st: &St, as_part: bool, page: &al_ir::Page) -> Result<(), Signal> {
         self.page_instance(st)?;
+        st.borrow_mut().permission_roles = self.permission_roles.clone();
         if self.permissions.is_none() {
             return Ok(());
         }
