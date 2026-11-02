@@ -946,6 +946,47 @@ impl Session {
         }
     }
 
+    /// `User Permissions.GetEffectivePermission` (through `NavUserAccountHelper.GetEffectivePermissionForObject`): the five levels
+    /// (Read, Insert, Modify, Delete, Execute; 0 blank, 1 Yes) of the session on object `(kind, id)`, `kind` the "Object Type"
+    /// ordinal. Pinned (Y24PermExecute.al Y24_P22_EffectivePermission, BC 27.5, 28.5, 29.0) for TableData, Table, Codeunit, Page and
+    /// Report: the assigned sets give what they declare, and `Set` adds All Objects (Execute on every object kind), so a narrow
+    /// set gives Execute on objects and `SetExactPermissionSet` gives none. `None` when no restricted session answers it (the
+    /// caller answers for the unrestricted user). Indirect levels, sets that are not fully composed and the other object types
+    /// are not pinned and refuse.
+    pub(crate) fn effective_permission_levels(&self, kind: i32, id: u32) -> Result<Option<Levels>, Signal> {
+        let Some(eff) = self.permissions.clone() else {
+            return Ok(None);
+        };
+        if self.ignore_permission_mock {
+            assume(Assumption::PermissionsNotEnforced);
+            return Ok(None);
+        }
+        if self.permissions_off {
+            return Err(Signal::Unsupported(LOWERED.into()));
+        }
+        if !matches!(kind, 0 | 1 | 3 | 5 | 8) {
+            return Err(Signal::Unsupported(format!(
+                "GetEffectivePermission of an object of type {kind} under assigned permission sets (only TableData, Table, Report, Codeunit and Page are pinned, ADR-062 probe P22)"
+            )));
+        }
+        let mut out = [0u8; 5];
+        for (slot, op) in [Op::Read, Op::Insert, Op::Modify, Op::Delete, Op::Execute].into_iter().enumerate() {
+            out[slot] = eff.level(Access { kind, id, op });
+        }
+        if out.contains(&2) {
+            return Err(Signal::Unsupported(
+                "GetEffectivePermission where the session holds a permission only as Indirect (not pinned, ADR-062 probe P22)".into(),
+            ));
+        }
+        if !eff.complete && out.contains(&0) {
+            return Err(Signal::Unsupported(format!(
+                "GetEffectivePermission under assigned permission sets that are not fully composed, so BC may grant more: {}",
+                eff.why_incomplete.join("; ")
+            )));
+        }
+        Ok(Some(out))
+    }
+
     /// Whether the control `guard` (the value of its AccessByPermission property) is left off a page that opened under the
     /// permission sets `opened_under`. Pinned (Y24PermExecute.al Y24_P21_AccessByPermissionPage and ...RequestPage, BC 27.5, 28.5,
     /// 29.0): `tabledata T = R` and `= I` and `codeunit C = X`; the control is off when the session's level of that permission
