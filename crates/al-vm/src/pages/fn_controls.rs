@@ -92,6 +92,11 @@ impl Session {
     /// runs no function control (Y15LookupThreeFieldLink.al:736 Y54_ThreeLinkCurr_PartNextAfterLookup `next log`
     /// `h-agr R2;h-agr R2;h-fn R2;h-agcr R2;h-fn R2`).
     pub(super) fn populate_current_pair_first(&mut self, st: &St) -> Result<(), Signal> {
+        // A host that already read the row for its unlinked ListPart (`host_follows_part`) reads it once (Y63_TwoPart_LinkedPartNextFirst
+        // `next log`).
+        if st.borrow().host_followed_part {
+            return Ok(());
+        }
         if !self.fn_log_controls(st).is_empty() {
             st.borrow_mut().fn_skip_agr = true;
         }
@@ -128,7 +133,7 @@ impl Session {
 
     /// The host's current row once more, as the client reads it after the parts opened: OnAfterGetRecord, then
     /// OnAfterGetCurrRecord when the page declares it (each runs the page's function controls).
-    fn fn_current_stage(&mut self, st: &St) -> Result<(), Signal> {
+    pub(super) fn fn_current_stage(&mut self, st: &St) -> Result<(), Signal> {
         if st.borrow().draft || st.borrow().cursor != Cursor::Row {
             return Ok(());
         }
@@ -184,7 +189,23 @@ impl Session {
                     Some(ir::PageType::Other(o)) if o == "listpart")
             })
             .count();
+        if list_parts == 2 && st.borrow().host_followed_part {
+            // The host, then the unlinked ListPart read the row the host moved to (Y63_TwoPart_LinkedPartNextFirst `next log`).
+            self.fn_current_stage(st)?;
+            let unlinked: Vec<St> = st.borrow().parts.iter().map(|(_, q)| q.clone()).collect();
+            for q in unlinked {
+                if self.unlinked_part_of_two(&q, st) {
+                    self.fn_current_stage(&q)?;
+                }
+            }
+            return Ok(());
+        }
         if list_parts == 1 {
+            // After the refresh a Lookup left, a host without OnAfterGetCurrRecord reads its row as the client does a row it
+            // holds (`lookup_next_refresh`).
+            if st.borrow().lookup_next_plain {
+                self.page_trigger_skipping_fn(st)?;
+            }
             self.fn_current_stage(st)?;
         }
         Ok(())
@@ -230,10 +251,12 @@ impl Session {
     /// `sync_parts_after_move` after the host's Next or Previous, then the host's reads after the parts for Next
     /// (`fn_next_tail`).
     pub(super) fn sync_parts_after_move_fn(&mut self, st: &St, name: PageMethod) -> Result<(), Signal> {
+        self.lookup_next_refresh(st)?;
         self.sync_parts_after_move(st, name == PageMethod::Previous)?;
         if name == PageMethod::Next {
             self.fn_next_tail(st)?;
         }
+        st.borrow_mut().lookup_next_plain = false;
         Ok(())
     }
 

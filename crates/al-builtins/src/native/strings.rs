@@ -139,7 +139,12 @@ pub fn copystr_of(whole: &crate::text::Txt, pos: i64, len: Option<i64>) -> Resul
     if ascii {
         return Ok(Value::Text(whole[start..end].to_string().into()));
     }
-    Ok(Value::Text(String::from_utf16_lossy(&s[start..end]).into()))
+    // Half of a surrogate pair cannot be held by a Rust string, and BC keeps it (text/lt-text-instance/Index1.Codeunit.al
+    // LT_BU_Index_SurrogatePairs: `CopyStr('😀a', 1, 1)[1]` is 55357): refused instead of read as U+FFFD.
+    match String::from_utf16(&s[start..end]) {
+        Ok(part) => Ok(Value::Text(part.into())),
+        Err(_) => unsupported("CopyStr that ends up with half of a surrogate pair (not pinned)"),
+    }
 }
 
 pub(super) fn group_thousands(n: i64) -> String {

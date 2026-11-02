@@ -717,7 +717,13 @@ impl Session {
         // A FlowField is calculated for the export (assumption xmlport-exports-flowfield-calculated).
         // AutoCalcField decides it when declared (xmlport/lt-y-xmlport-props/YXmlPortProps.al:
         // NodeProperties_Export_NamesPrefixesAutoCalc: true calculates, false writes the field as it is).
-        if !self.table(&rec)?.fields[pos].stored && n.auto_calc != Some(false) {
+        // A FlowFilter is not calculated: it writes the field's own value (xmlport/lt-xmlport-flowfield-sum-count/
+        // XmlPortFlowFieldSumCount.al:390-442 `<SeqFilter>0</SeqFilter>`).
+        let flow_filter = {
+            let table = rec.borrow().table as usize;
+            self.engine.field_facts[table][pos].class == ir::FieldClass::FlowFilter
+        };
+        if !self.table(&rec)?.fields[pos].stored && !flow_filter && n.auto_calc != Some(false) {
             if n.auto_calc.is_none() {
                 al_builtins::assumptions::assume(
                     al_builtins::assumptions::Assumption::XmlportExportsFlowfieldCalculated,

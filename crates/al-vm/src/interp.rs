@@ -325,8 +325,9 @@ impl Session {
     /// `Text[i]`: the UTF-16 code unit at position `i`.
     #[inline]
     pub(crate) fn char_at(t: &al_builtins::text::Txt, i: i64) -> Result<Value, Signal> {
-        // types/TestProbeScalarContracts.al:TextChar_AssignByIndex: position 0 and below raise, the position after
-        // the last character reads as the character 0; further positions are not pinned.
+        // types/TestProbeScalarContracts.al:TextChar_AssignByIndex: position 0 and below raise, a position after
+        // the last character reads as the character 0, however far past it is (text/lt-text-instance/Index1.Codeunit.al
+        // Index_Read_Variable: `T[7]`, `T[100]`, `E[1]`).
         if i < 1 {
             return al_builtins::native::raise(
                 format!(
@@ -339,19 +340,13 @@ impl Session {
             // No copy of a long text for each character read.
             return match t.as_bytes().get(i as usize - 1) {
                 Some(u) => Ok(Value::Char(u16::from(*u))),
-                None if i as usize == t.len() + 1 => Ok(Value::Char(0)),
-                None => Err(Signal::Unsupported(
-                    "a text read more than one position past its length (not pinned)".into(),
-                )),
+                None => Ok(Value::Char(0)),
             };
         }
         let units: Vec<u16> = t.encode_utf16().collect();
         match units.get(i as usize - 1) {
             Some(u) => Ok(Value::Char(*u)),
-            None if i as usize == units.len() + 1 => Ok(Value::Char(0)),
-            None => Err(Signal::Unsupported(
-                "a text read more than one position past its length (not pinned)".into(),
-            )),
+            None => Ok(Value::Char(0)),
         }
     }
 
@@ -1580,7 +1575,10 @@ impl Session {
         let text = String::from_utf16(&units)
             .map_err(|_| Signal::Unsupported("a text that ends up with a lone surrogate".into()))?;
         if is_code {
-            return self.write(base, Value::Code(ops::upper_code_checked(&text)?.into()), f);
+            // A blank written at the last position is cut off like any trailing blank of a Code value: `C[3] := ' '` on 'abc'
+            // gives `AB` of length 2 (text/lt-text-instance/Index1.Codeunit.al LT_BU_Index_Write_Code `code blank last`).
+            let text = text.trim_end_matches(' ');
+            return self.write(base, Value::Code(ops::upper_code_checked(text)?.into()), f);
         }
         self.write(base, Value::Text(text.into()), f)
     }
