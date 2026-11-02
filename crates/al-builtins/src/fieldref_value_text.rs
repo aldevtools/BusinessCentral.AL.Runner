@@ -60,7 +60,7 @@ pub fn fieldref_value_into_blob(
     v: &Value,
     t: &RtType,
     ctx: &dyn crate::format::FormatCtx,
-    major: u16,
+    evaluate_error: bool,
 ) -> Option<Result<Value, Signal>> {
     if !matches!(t, RtType::Library(n) if n.eq_ignore_ascii_case("Blob")) || matches!(v, Value::Blob(_)) {
         return None;
@@ -77,7 +77,8 @@ pub fn fieldref_value_into_blob(
             ))));
         }
     };
-    if major < 28 {
+    // `evaluate_error`: the gate FieldRefTextNumberEvaluateErrorFrom28.
+    if !evaluate_error {
         return Some(crate::native::raise(
             format!("Invalid Conversion. Source: {nav}, Destination: NavBLOB."),
             "Argument",

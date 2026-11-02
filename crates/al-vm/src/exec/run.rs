@@ -929,9 +929,9 @@ impl Session {
     /// variable's or parameter's length (misc/lt-y13-triage/Y13FieldRefValueToText.al:96-153;
     /// text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:207-353).
     fn convert_field_value(&self, v: Value, ty: &al_builtins::value::RtType) -> Result<Value, Signal> {
-        let major = self.engine.target.as_ref().map_or(29, |t| t.bc.major);
+        let from28 = self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28);
         match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, self)
-            .or_else(|| al_builtins::fieldref_value_text::fieldref_value_into_blob(&v, ty, self, major))
+            .or_else(|| al_builtins::fieldref_value_text::fieldref_value_into_blob(&v, ty, self, from28))
         {
             Some(r) => r,
             None => ops::convert_plain(v, ty),

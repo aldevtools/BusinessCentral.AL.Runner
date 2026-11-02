@@ -106,6 +106,9 @@ pub enum Gate {
     ModuleInfoAndNavAppResourceMethodsFrom29,
     /// DataSourceContext and TestHandlerContext exist from BC 29 (lt-ac/ACContexts.al, corpus bump 26). Not consumed yet.
     DataSourceAndTestHandlerContextFrom29,
+    /// The System Application's MCP configuration (MCP Utilities, the MCP Config Card) exists from BC 29; the probe codeunit is
+    /// compiled only from BC 29 (platform/lt-y71-mcp-config-card/Y71McpConfigCard.al:10-12). Not consumed yet.
+    McpConfigurationFrom29,
     /// The IsolatedStorage.Get overloads with an IsolationLevel exist from BC 29 (lt-ac/ACIsolatedStorageIsolation.al, corpus bump 26). Not consumed yet.
     IsolatedStorageIsolationLevelOverloadsFrom29,
     /// `Record.IsDirty()` exists from BC 29 (lt-ac/ACRecordIsDirty.al, corpus bump 26). Not consumed yet.
@@ -334,6 +337,7 @@ impl Gate {
         Gate::ObsoleteRequiredPendingAttributeFrom29,
         Gate::ModuleInfoAndNavAppResourceMethodsFrom29,
         Gate::DataSourceAndTestHandlerContextFrom29,
+        Gate::McpConfigurationFrom29,
         Gate::IsolatedStorageIsolationLevelOverloadsFrom29,
         Gate::RecordIsDirtyFrom29,
         Gate::BigIntegerToEnumVariableFrom29,
@@ -388,6 +392,7 @@ impl Gate {
             | Gate::ObsoleteRequiredPendingAttributeFrom29
             | Gate::ModuleInfoAndNavAppResourceMethodsFrom29
             | Gate::DataSourceAndTestHandlerContextFrom29
+            | Gate::McpConfigurationFrom29
             | Gate::IsolatedStorageIsolationLevelOverloadsFrom29
             | Gate::RecordIsDirtyFrom29
             | Gate::CaseTimeZeroLabelFrom29
@@ -709,6 +714,10 @@ impl Gate {
                 file: "lt-ac/ACContexts.al",
                 lines: "10",
             }],
+            Gate::McpConfigurationFrom29 => &[Evidence {
+                file: "platform/lt-y71-mcp-config-card/Y71McpConfigCard.al",
+                lines: "12",
+            }],
             Gate::IsolatedStorageIsolationLevelOverloadsFrom29 => &[Evidence {
                 file: "lt-ac/ACIsolatedStorageIsolation.al",
                 lines: "7",
@@ -999,6 +1008,12 @@ impl Gate {
                 Evidence {
                     file: "fieldref/TestFieldRefValue.al",
                     lines: "215,242,294",
+                },
+                // FieldRef.Value of an Integer, Text, Date or Guid field into a Blob: the Evaluate error from BC 28, the
+                // conversion error before (al-builtins `fieldref_value_text.rs` fieldref_value_into_blob).
+                Evidence {
+                    file: "types/lt-y71-value-conversions/Y71ValueConversions.al",
+                    lines: "501,511,521,531",
                 },
                 // FieldRef.Validate and FieldRef.Value of an Integer field from a FieldRef holding a text.
                 Evidence {

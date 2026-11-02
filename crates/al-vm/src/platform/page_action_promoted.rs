@@ -42,8 +42,8 @@ pub(super) fn promoted_rows(
             K::Action | K::ActionGroup => names.push(ctl.name.clone()),
             _ => {
                 return Err(format!(
-                    "page '{}': the action '{}' of the Promoted area is a {:?}, whose row is not pinned",
-                    o.name, ctl.name, ctl.kind
+                    "page '{}': the control '{}' in the Promoted area is no action or action group, whose row is not pinned",
+                    o.name, ctl.name
                 ));
             }
         }
