@@ -150,6 +150,14 @@ pub const QUERY_FIELDS_LIST: &str = "<fields of a query metadata reader>";
 pub const QUERY_FIELDS: &str = "Microsoft.Dynamics.Nav.Client.BusinessChart.QueryFields";
 /// The chart model behind System Application's "Business Chart Impl." (al-vm `dotnet/business_chart_data.rs`).
 pub const BUSINESS_CHART_DATA: &str = "Microsoft.Dynamics.Nav.Client.BusinessChart.BusinessChartData";
+/// The Key Vault client behind System Application's "Azure Key Vault Impl." and Microsoft's test provider for it (al-vm
+/// `dotnet/key_vault.rs`).
+pub const KEY_VAULT_HELPER: &str = "Microsoft.Dynamics.Nav.AzureKeyVaultClient.AzureKeyVaultClientHelper";
+pub const KEY_VAULT_MOCK_PROVIDER: &str = "MockTest.MockAzureKeyVaultSecret.MockAzureKeyVaultSecretProvider";
+/// Server classes with no state of their own (al-vm `dotnet/server_helpers.rs`).
+pub const PASSWORD_GENERATOR: &str = "Microsoft.Dynamics.Nav.PasswordGenerator.PasswordGenerator";
+pub const VSCODE_REQUEST_HELPER: &str = "Microsoft.Dynamics.Nav.Runtime.VSCodeRequestHelper";
+pub const AL_SEARCH: &str = "Microsoft.Dynamics.Nav.DataSearch.AL.ALSearch";
 
 pub const SIGS: &[(&str, &str, Ret)] = &[
     (GRAPH_QUERY, "GraphQuery", Ret::Object),
@@ -320,6 +328,16 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (BUSINESS_CHART_DATA, "ClearMeasures", Ret::Void),
     (BUSINESS_CHART_DATA, "AddMeasure", Ret::Void),
     (BUSINESS_CHART_DATA, "XDimension", Ret::Text),
+    (KEY_VAULT_MOCK_PROVIDER, "MockAzureKeyVaultSecretProvider", Ret::Object),
+    (KEY_VAULT_MOCK_PROVIDER, "AddSecretMapping", Ret::Void),
+    (KEY_VAULT_MOCK_PROVIDER, "AddCertificateMapping", Ret::Void),
+    (KEY_VAULT_HELPER, "AzureKeyVaultClientHelper", Ret::Object),
+    (KEY_VAULT_HELPER, "SetAzureKeyVaultProvider", Ret::Void),
+    (KEY_VAULT_HELPER, "GetAzureKeyVaultSecret", Ret::Text),
+    (KEY_VAULT_HELPER, "GetAzureKeyVaultCertificate", Ret::Text),
+    (PASSWORD_GENERATOR, "GeneratePassword", Ret::Text),
+    (VSCODE_REQUEST_HELPER, "GetLaunchInformationQueryPart", Ret::Text),
+    (AL_SEARCH, "IsItemSearchReady", Ret::Boolean),
 ];
 
 /// The declared result of `member` on `clr_type`, if the runtime provides that member.

@@ -92,10 +92,83 @@ pub fn unquote_ident(t: &str) -> String {
     }
 }
 
-fn significant_tokens(node: &SyntaxNode) -> impl Iterator<Item = SyntaxToken> {
-    node.children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(|t| !t.kind().is_trivia())
+/// A token read from the green tree: its kind, its text and where it starts in the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GreenTok<'a> {
+    pub kind: SyntaxKind,
+    pub text: &'a str,
+    pub start: usize,
+}
+
+impl<'a> GreenTok<'a> {
+    pub fn kind(&self) -> SyntaxKind {
+        self.kind
+    }
+    pub fn text(&self) -> &'a str {
+        self.text
+    }
+    pub fn text_range(&self) -> rowan::TextRange {
+        let start = rowan::TextSize::try_from(self.start).expect("a file under 4 GiB");
+        rowan::TextRange::at(start, rowan::TextSize::of(self.text))
+    }
+}
+
+/// The green node of `node`, borrowed. The trees of this workspace are never made mutable (no `clone_for_update`), and
+/// only a mutable tree hands out an owned copy.
+fn green_of(node: &SyntaxNode) -> &rowan::GreenNodeData {
+    match node.green() {
+        std::borrow::Cow::Borrowed(g) => g,
+        std::borrow::Cow::Owned(_) => unreachable!("syntax trees are never mutable"),
+    }
+}
+
+/// The tokens directly under `node` that are not trivia, in order, read from the green tree. `children_with_tokens`
+/// builds a cursor node (an allocation) for every child, the nodes and the whitespace included; a scan for a name token
+/// only needs the kinds and texts. On the cold compile of the corpus this took 7 % of the instructions off (757 275 to
+/// 701 311 per KiB).
+pub fn significant_green_tokens(node: &SyntaxNode) -> impl Iterator<Item = GreenTok<'_>> {
+    let mut at = usize::from(node.text_range().start());
+    green_of(node).children().filter_map(move |c| {
+        let start = at;
+        at += usize::from(c.text_len());
+        let t = c.into_token()?;
+        let kind = <crate::AlLanguage as rowan::Language>::kind_from_raw(t.kind());
+        (!kind.is_trivia()).then_some(GreenTok {
+            kind,
+            text: t.text(),
+            start,
+        })
+    })
+}
+
+/// The first token under `node` (at any depth) that is not trivia, read from the green tree without building a
+/// cursor node per level.
+pub fn first_significant_green_token(node: &SyntaxNode) -> Option<GreenTok<'_>> {
+    fn first(g: &rowan::GreenNodeData, at: usize) -> Option<GreenTok<'_>> {
+        let mut at = at;
+        for c in g.children() {
+            match c {
+                rowan::NodeOrToken::Node(n) => {
+                    if let Some(t) = first(n, at) {
+                        return Some(t);
+                    }
+                }
+                rowan::NodeOrToken::Token(t) => {
+                    let kind = <crate::AlLanguage as rowan::Language>::kind_from_raw(t.kind());
+                    if !kind.is_trivia() {
+                        return Some(GreenTok {
+                            kind,
+                            text: t.text(),
+                            start: at,
+                        });
+                    }
+                }
+            }
+            at += usize::from(c.text_len());
+        }
+        None
+    }
+    first(green_of(node), usize::from(node.text_range().start()))
 }
 
 fn children<T>(node: &SyntaxNode, cast: fn(SyntaxNode) -> Option<T>) -> impl Iterator<Item = T> {
@@ -126,20 +199,20 @@ fn trimmed_code(node: &SyntaxNode) -> String {
 }
 
 /// Joins `A . B . "C"` style token runs into `A.B.C`.
-fn qualified(tokens: &[SyntaxToken]) -> String {
+fn qualified(tokens: &[GreenTok]) -> String {
     tokens
         .iter()
         .map(|t| {
             if t.kind() == SyntaxKind::Dot {
                 ".".to_string()
             } else {
-                ident_text(t)
+                unquote_ident(t.text)
             }
         })
         .collect()
 }
 
-fn is_name(t: &SyntaxToken) -> bool {
+fn is_name(t: &GreenTok) -> bool {
     matches!(t.kind(), SyntaxKind::Ident | SyntaxKind::QuotedIdent | SyntaxKind::Dot)
 }
 
@@ -339,21 +412,21 @@ impl SourceFile {
     }
     pub fn namespace(&self) -> Option<String> {
         let ns = self.0.children().find(|n| n.kind() == SyntaxKind::NamespaceDecl)?;
-        let toks: Vec<_> = significant_tokens(&ns).skip(1).filter(is_name).collect();
+        let toks: Vec<_> = significant_green_tokens(&ns).skip(1).filter(is_name).collect();
         Some(qualified(&toks))
     }
     pub fn usings(&self) -> Vec<String> {
         self.0
             .children()
             .filter(|n| n.kind() == SyntaxKind::UsingDecl)
-            .map(|u| qualified(&significant_tokens(&u).skip(1).filter(is_name).collect::<Vec<_>>()))
+            .map(|u| qualified(&significant_green_tokens(&u).skip(1).filter(is_name).collect::<Vec<_>>()))
             .collect()
     }
 }
 
 impl Object {
-    fn header(&self) -> Vec<SyntaxToken> {
-        significant_tokens(&self.0).collect()
+    fn header(&self) -> Vec<GreenTok<'_>> {
+        significant_green_tokens(&self.0).collect()
     }
     fn body(&self) -> Option<SyntaxNode> {
         self.0.children().find(|n| n.kind() == SyntaxKind::ObjectBody)
@@ -378,7 +451,7 @@ impl Object {
     fn clause_parts(&self) -> Vec<(String, Vec<Vec<String>>)> {
         let toks = self.header();
         let mut out = Vec::new();
-        let is_clause = |t: &SyntaxToken| {
+        let is_clause = |t: &GreenTok| {
             ["extends", "implements", "customizes"]
                 .iter()
                 .any(|k| t.text().eq_ignore_ascii_case(k))
@@ -396,7 +469,7 @@ impl Object {
                     && !is_clause(&toks[i])
                 {
                     if toks[i].kind() != SyntaxKind::Dot {
-                        parts.push(ident_text(&toks[i]));
+                        parts.push(unquote_ident(toks[i].text));
                     }
                     i += 1;
                 }
@@ -437,7 +510,7 @@ impl Object {
         if toks.get(i).is_some_and(|t| t.kind() == SyntaxKind::Integer) {
             i += 1;
         }
-        let is_clause = |t: &SyntaxToken| {
+        let is_clause = |t: &GreenTok| {
             ["extends", "implements", "customizes"]
                 .iter()
                 .any(|k| t.text().eq_ignore_ascii_case(k))
@@ -534,9 +607,9 @@ impl Object {
 
 impl Property {
     pub fn name(&self) -> String {
-        significant_tokens(&self.0)
+        significant_green_tokens(&self.0)
             .next()
-            .map(|t| ident_text(&t))
+            .map(|t| unquote_ident(t.text))
             .unwrap_or_default()
     }
     pub fn value_text(&self) -> String {
@@ -552,9 +625,9 @@ impl Property {
 
 impl Section {
     pub fn name(&self) -> String {
-        significant_tokens(&self.0)
+        significant_green_tokens(&self.0)
             .next()
-            .map(|t| t.text().to_string())
+            .map(|t| t.text.to_string())
             .unwrap_or_default()
     }
     /// The `;`-separated arguments in parentheses, each as trimmed source text
@@ -691,18 +764,18 @@ impl VarSection {
         children(&self.0, VarDecl::cast)
     }
     pub fn is_protected(&self) -> bool {
-        significant_tokens(&self.0)
+        significant_green_tokens(&self.0)
             .next()
-            .is_some_and(|t| t.text().eq_ignore_ascii_case("protected"))
+            .is_some_and(|t| t.text.eq_ignore_ascii_case("protected"))
     }
 }
 
 impl VarDecl {
     pub fn names(&self) -> Vec<String> {
-        significant_tokens(&self.0)
-            .take_while(|t| t.kind() != SyntaxKind::Colon)
-            .filter(|t| matches!(t.kind(), SyntaxKind::Ident | SyntaxKind::QuotedIdent))
-            .map(|t| ident_text(&t))
+        significant_green_tokens(&self.0)
+            .take_while(|t| t.kind != SyntaxKind::Colon)
+            .filter(|t| matches!(t.kind, SyntaxKind::Ident | SyntaxKind::QuotedIdent))
+            .map(|t| unquote_ident(t.text))
             .collect()
     }
     pub fn type_ref(&self) -> Option<TypeRef> {
@@ -731,15 +804,15 @@ impl TypeRef {
     }
     /// `Record`, `Text`, `List`, `array`, ...
     pub fn type_name(&self) -> String {
-        significant_tokens(&self.0)
+        significant_green_tokens(&self.0)
             .next()
-            .map(|t| t.text().to_string())
+            .map(|t| t.text.to_string())
             .unwrap_or_default()
     }
     /// For object types, the referenced object (`"ALT Universal"` → `ALT Universal`,
     /// `18` → `18`, `System.Utilities."Temp Blob"` → `System.Utilities.Temp Blob`).
     pub fn object_name(&self) -> Option<String> {
-        let toks: Vec<_> = significant_tokens(&self.0).skip(1).collect();
+        let toks: Vec<_> = significant_green_tokens(&self.0).skip(1).collect();
         let first = toks.first()?;
         if first.kind() == SyntaxKind::Integer {
             return Some(first.text().to_string());
@@ -756,7 +829,7 @@ impl TypeRef {
     /// The object reference split into namespace segments and the name
     /// (`System.Utilities."Temp Blob"` → `["System", "Utilities", "Temp Blob"]`).
     pub fn object_name_parts(&self) -> Vec<String> {
-        let toks: Vec<_> = significant_tokens(&self.0).skip(1).collect();
+        let toks: Vec<_> = significant_green_tokens(&self.0).skip(1).collect();
         match toks.first() {
             Some(t) if t.kind() == SyntaxKind::Integer => vec![t.text().to_string()],
             Some(t) if t.kind() == SyntaxKind::StringLit => Vec::new(),
@@ -766,12 +839,12 @@ impl TypeRef {
                     is_name(t) && !t.text().eq_ignore_ascii_case("temporary") && !t.text().eq_ignore_ascii_case("of")
                 })
                 .filter(|t| t.kind() != SyntaxKind::Dot)
-                .map(ident_text)
+                .map(|t| unquote_ident(t.text))
                 .collect(),
         }
     }
     pub fn is_temporary(&self) -> bool {
-        significant_tokens(&self.0).any(|t| t.text().eq_ignore_ascii_case("temporary"))
+        significant_green_tokens(&self.0).any(|t| t.text.eq_ignore_ascii_case("temporary"))
     }
     /// Integer arguments in brackets: `Text[30]` → `[30]`, `array[2, 3] of T` → `[2, 3]`.
     pub fn size_args(&self) -> Vec<u32> {
@@ -788,7 +861,7 @@ impl TypeRef {
     }
     /// `Option ,A,"B C"` → `["", "A", "B C"]`.
     pub fn option_members(&self) -> Vec<String> {
-        let toks: Vec<_> = significant_tokens(&self.0).skip(1).collect();
+        let toks: Vec<_> = significant_green_tokens(&self.0).skip(1).collect();
         let mut out = vec![String::new()];
         for t in toks {
             match t.kind() {
@@ -797,7 +870,7 @@ impl TypeRef {
                     // A quoted empty name (`""`) shows as one space; an unquoted empty member shows its number
                     // (types/lt-scalars/ScT70053.al:Option_Format `blank_len` against misc/lt-inferred-behaviors/P69OptionInText.al:
                     // Option_StrSubstNo `subst_2`). The two are told apart by keeping the quoted one as a space.
-                    let name = ident_text(&t);
+                    let name = unquote_ident(t.text);
                     *out.last_mut().expect("non-empty") = if name.is_empty() && t.kind() == SyntaxKind::QuotedIdent {
                         " ".into()
                     } else {
@@ -823,28 +896,28 @@ impl Routine {
     pub fn is_trigger(&self) -> bool {
         self.0.kind() == SyntaxKind::Trigger
     }
-    fn is_routine_keyword(t: &SyntaxToken) -> bool {
-        t.text().eq_ignore_ascii_case("procedure") || t.text().eq_ignore_ascii_case("trigger")
+    fn is_routine_keyword(t: &GreenTok) -> bool {
+        t.text.eq_ignore_ascii_case("procedure") || t.text.eq_ignore_ascii_case("trigger")
     }
     pub fn name(&self) -> String {
-        let mut toks = significant_tokens(&self.0).skip_while(|t| !Self::is_routine_keyword(t));
+        let mut toks = significant_green_tokens(&self.0).skip_while(|t| !Self::is_routine_keyword(t));
         let Some(first) = toks.nth(1) else {
             return String::new();
         };
-        let mut name = ident_text(&first);
+        let mut name = unquote_ident(first.text);
         // `trigger Variable::Event(...)`: the handler's name has both parts.
         if let (Some(sep), Some(event)) = (toks.next(), toks.next()) {
-            if sep.kind() == SyntaxKind::ColonColon {
-                name = format!("{name}::{}", ident_text(&event));
+            if sep.kind == SyntaxKind::ColonColon {
+                name = format!("{name}::{}", unquote_ident(event.text));
             }
         }
         name
     }
     /// Offset of the `procedure` or `trigger` keyword (after any attributes and modifiers).
     pub fn keyword_offset(&self) -> Option<usize> {
-        significant_tokens(&self.0)
+        significant_green_tokens(&self.0)
             .find(Self::is_routine_keyword)
-            .map(|t| usize::from(t.text_range().start()))
+            .map(|t| t.start)
     }
     /// Offset of the `begin` that opens the body (a routine without a body has none).
     pub fn begin_offset(&self) -> Option<usize> {
@@ -869,9 +942,9 @@ impl Routine {
         None
     }
     fn has_modifier(&self, m: &str) -> bool {
-        significant_tokens(&self.0)
+        significant_green_tokens(&self.0)
             .take_while(|t| !Self::is_routine_keyword(t))
-            .any(|t| t.text().eq_ignore_ascii_case(m))
+            .any(|t| t.text.eq_ignore_ascii_case(m))
     }
     pub fn is_local(&self) -> bool {
         self.has_modifier("local")
@@ -895,8 +968,9 @@ impl Routine {
         self.0.children().find(|n| n.kind() == SyntaxKind::ReturnSpec)
     }
     pub fn return_name(&self) -> Option<String> {
-        let first = significant_tokens(&self.return_spec()?).next()?;
-        (first.kind() != SyntaxKind::Colon).then(|| ident_text(&first))
+        let spec = self.return_spec()?;
+        let first = significant_green_tokens(&spec).next()?;
+        (first.kind != SyntaxKind::Colon).then(|| unquote_ident(first.text))
     }
     pub fn return_type(&self) -> Option<TypeRef> {
         children(&self.return_spec()?, TypeRef::cast).next()
@@ -911,16 +985,16 @@ impl Routine {
 
 impl Param {
     pub fn is_var(&self) -> bool {
-        significant_tokens(&self.0)
+        significant_green_tokens(&self.0)
             .next()
-            .is_some_and(|t| t.text().eq_ignore_ascii_case("var"))
+            .is_some_and(|t| t.text.eq_ignore_ascii_case("var"))
     }
     pub fn name(&self) -> String {
-        significant_tokens(&self.0)
+        significant_green_tokens(&self.0)
             .find(|t| {
-                matches!(t.kind(), SyntaxKind::Ident | SyntaxKind::QuotedIdent) && !t.text().eq_ignore_ascii_case("var")
+                matches!(t.kind, SyntaxKind::Ident | SyntaxKind::QuotedIdent) && !t.text.eq_ignore_ascii_case("var")
             })
-            .map(|t| ident_text(&t))
+            .map(|t| unquote_ident(t.text))
             .unwrap_or_default()
     }
     pub fn type_ref(&self) -> Option<TypeRef> {
@@ -930,9 +1004,9 @@ impl Param {
 
 impl Attribute {
     pub fn name(&self) -> String {
-        significant_tokens(&self.0)
+        significant_green_tokens(&self.0)
             .nth(1)
-            .map(|t| ident_text(&t))
+            .map(|t| unquote_ident(t.text))
             .unwrap_or_default()
     }
     pub fn args(&self) -> Option<SyntaxNode> {
@@ -943,6 +1017,37 @@ impl Attribute {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The green-tree token scan gives what the cursor scan gives: the same kinds, texts and ranges, trivia skipped.
+    #[test]
+    fn green_tokens_match_the_cursor_tokens_of_every_node() {
+        let f = file(
+            "codeunit 50100 \"My CU\" { // c\n  local procedure \"Do It\"(var X: Integer) R: Text[30]\n  var Y: Record \"Sales Header\" temporary;\n  begin /* b */ X := 1; end; }",
+        );
+        let mut nodes = 0;
+        for n in f.syntax().descendants() {
+            let cursor: Vec<(SyntaxKind, String, rowan::TextRange)> = n
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .filter(|t| !t.kind().is_trivia())
+                .map(|t| (t.kind(), t.text().to_string(), t.text_range()))
+                .collect();
+            let green: Vec<_> = significant_green_tokens(&n)
+                .map(|t| (t.kind(), t.text().to_string(), t.text_range()))
+                .collect();
+            assert_eq!(green, cursor, "{:?}", n.kind());
+            let first = n
+                .descendants_with_tokens()
+                .filter_map(|e| e.into_token())
+                .find(|t| !t.kind().is_trivia())
+                .map(|t| (t.kind(), t.text().to_string(), t.text_range()));
+            let first_green =
+                first_significant_green_token(&n).map(|t| (t.kind(), t.text().to_string(), t.text_range()));
+            assert_eq!(first_green, first, "{:?}", n.kind());
+            nodes += 1;
+        }
+        assert!(nodes > 10);
+    }
 
     #[test]
     fn unquoting_an_identifier_unescapes_a_doubled_quote() {
