@@ -946,11 +946,6 @@ pub struct Page {
     /// (al_version::Gate::BigIntegerLiteralInControlExpressionFrom28); empty = no such expression.
     #[serde(default)]
     pub big_integer_expressions: Vec<String>,
-    /// Why a restricted session (permission sets a test lowered) refuses to open the page: a control guarded by
-    /// AccessByPermission is left off the page by BC when the set does not grant it (ADR-062 stage 3, Y24PermExecute.al
-    /// Y24_P21_*), which is not built. Empty = nothing guarded.
-    #[serde(default)]
-    pub restricted_refusals: Vec<String>,
 }
 
 /// An `area(Name)` of a page's `actions` section.

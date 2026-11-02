@@ -1876,30 +1876,6 @@ pub struct Instance {
     /// For the instance of an xmlport variable: the separators a program set (`FieldDelimiter(..)`, ...), as given, by
     /// kind (see `al-vm/src/xmlports.rs` `SEPARATORS`). Empty until one is set.
     pub xp_text: Vec<(u8, String)>,
-    /// Whether the instance was made while the session's permissions were lowered (ADR-062 stage 3): BC checks Execute on an
-    /// object when an instance made under restricted permissions is used, and an instance made before the restriction (a global
-    /// of the test codeunit, the Permissions Mock) is not checked (Y24PermExecute.al: `Mock.ClearAssignments()` and `Observer`
-    /// run under an exact set that grants them no Execute).
-    pub born: Born,
-}
-
-thread_local! {
-    static BORN_RESTRICTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-/// Set by the session whenever its permissions are lowered or restored; read when an [`Instance`] is made.
-pub fn set_born_restricted(restricted: bool) {
-    BORN_RESTRICTED.with(|c| c.set(restricted));
-}
-
-/// See [`Instance::born`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Born(pub bool);
-
-impl Default for Born {
-    fn default() -> Born {
-        Born(BORN_RESTRICTED.with(std::cell::Cell::get))
-    }
 }
 
 /// State behind a library-type handle; grows with the builtins that need it.

@@ -182,7 +182,6 @@ impl Session {
         };
         let engine = self.engine.clone();
         let object = qs.borrow().object as usize;
-        self.query_object = object;
         let def = engine.program.objects[object].query.as_ref().expect("a query object");
         for a in &def.assumes {
             al_builtins::assumptions::assume(*a);
@@ -900,10 +899,6 @@ impl Session {
         def: &ir::Query,
         runtime: &[(usize, FilterExpr)],
     ) -> Result<(Vec<QueryRow>, Stamps), Signal> {
-        if self.permissions.is_some() {
-            let tables: Vec<usize> = def.items.iter().map(|i| i.table).collect();
-            self.permission_gate_object_read(self.query_object, &tables)?;
-        }
         let stamps = self.query_stamps(def);
         COLLATION_FAILED.with(|f| f.set(false));
         let plan = self.query_plan(def, runtime)?;

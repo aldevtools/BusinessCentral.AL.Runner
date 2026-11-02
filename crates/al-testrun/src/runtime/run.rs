@@ -642,7 +642,8 @@ fn run_codeunit_inner(
         };
         let routine = &obj.routines[r];
         let handlers = resolve_handlers(lowered, object, r);
-        let (mut failure, mut refused_in): (Option<AlError>, Option<(usize, usize)>) = (None, None);
+        let mut failure: Option<AlError> = None;
+        let mut refused_in = None;
         // Why a step of the test runner around this test was refused or failed (runner_reset.rs): what it left is not
         // known, so a later failure of the codeunit is not trusted.
         let mut runner_refused: Option<String> = None;
@@ -650,7 +651,6 @@ fn run_codeunit_inner(
         // the test wrote before the refusal (al-runner issue 5961), for the trust of later failures.
         let mut refused_rest: Option<Rest> = None;
         session.clear_fault_site();
-        session.report_refusal_after_denial = refusal_after_denial(engine, lowered, &mut reach_index, object, r);
         al_builtins::assumptions::clear_hits();
         session.take_tdd_reached();
         let mut began = false;

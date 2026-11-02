@@ -619,7 +619,7 @@ impl Session {
             RecordOp::ReadConsistency => Ok(Value::Boolean(false)),
             RecordOp::RecordLevelLocking => Ok(Value::Boolean(true)),
             RecordOp::ReadPermission | RecordOp::WritePermission => self.permission_answer(rec, method),
-            RecordOp::CountApprox => self.count_approx(rec),
+            RecordOp::CountApprox => self.record_op(RecordOp::Count, rec, &mut []),
             RecordOp::CurrentCompany => Ok(Value::Text(self.current_company_of(rec).into())),
             RecordOp::ReadIsolation | RecordOp::SecurityFiltering => {
                 let (enum_name, is_iso) = if method == RecordOp::ReadIsolation {
