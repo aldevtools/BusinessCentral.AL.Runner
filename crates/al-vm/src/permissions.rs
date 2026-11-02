@@ -195,7 +195,7 @@ impl Content {
 }
 
 /// What the assigned sets of a session give.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct EffectivePermissions {
     /// The union of the sets that composed. A lower bound of what BC grants when [`EffectivePermissions::complete`] is
     /// false: a set that is not composed adds nothing here, and an extension's grants are not merged.

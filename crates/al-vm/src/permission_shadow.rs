@@ -33,7 +33,19 @@ impl Session {
         {
             return;
         }
-        let eff = crate::permissions::SetModel::of(&self.engine).compose(&self.shadow_roles);
+        let mut eff = crate::permissions::SetModel::of(&self.engine).compose(&self.shadow_roles);
+        // A set that is not composed in full (a name two tables share, a grant not read) leaves a lower bound of the sets. The shadow
+        // run evaluates it as it is, so that denials show at all, and marks every line (`lower bound`): a "would deny" may be a grant
+        // the missing part gives.
+        self.shadow_lower_bound = eff.as_ref().is_some_and(|e| !e.complete);
+        if let Some(e) = &eff {
+            if !e.complete {
+                eff = Some(std::sync::Arc::new(crate::permissions::EffectivePermissions {
+                    complete: true,
+                    ..(**e).clone()
+                }));
+            }
+        }
         self.shadow_active = eff.is_some();
         al_builtins::value::set_born_restricted(eff.is_some());
         self.permissions = eff;
@@ -43,12 +55,14 @@ impl Session {
     pub(crate) fn shadow_clear(&mut self) {
         self.shadow_roles.clear();
         self.shadow_active = false;
+        self.shadow_lower_bound = false;
     }
 
     /// Notes one line for the test that is running: `kind` is `would deny` or `unknown`.
     pub(crate) fn shadow_note(&self, kind: &str, site: &str, detail: &str) {
+        let bound = if self.shadow_lower_bound { "\tlower bound" } else { "" };
         al_builtins::permission_shadow::record(format!(
-            "{kind}\t{site}\t{detail}\tsets={}",
+            "{kind}\t{site}\t{detail}\tsets={}{bound}",
             self.shadow_roles.join("+")
         ));
     }

@@ -847,6 +847,7 @@ pub struct Session {
     /// The shadow run (`permission_shadow.rs`): the roles of the runner's step, and whether the session evaluates them.
     pub(crate) shadow_roles: Vec<String>,
     pub(crate) shadow_active: bool,
+    pub(crate) shadow_lower_bound: bool,
     /// Set by AL code's record method call right before `record_op` of a restricted session, taken there (ADR-062).
     pub(crate) permission_from_al: bool,
     /// True while the fields of `SetAutoCalcFields` are calculated after a read: that read is allowed (Y24PermReads.al
@@ -1189,6 +1190,7 @@ impl Session {
             runner_permission_sets: false,
             shadow_roles: Vec::new(),
             shadow_active: false,
+            shadow_lower_bound: false,
             permission_from_al: false,
             permission_autocalc: false,
             permission_page_calc: false,
