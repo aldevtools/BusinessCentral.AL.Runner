@@ -94,6 +94,46 @@ impl super::Lowerer<'_> {
 }
 
 impl super::Lowerer<'_> {
+    /// The shapes refused for an argument handed to a Variant parameter.
+    pub(super) fn refuse_variant_argument(&self, target: &Ty, node: &al_syntax::SyntaxNode) -> super::L<()> {
+        self.refuse_session_ending_ternary(target, node)?;
+        self.refuse_textconst_into_variant(target, node)
+    }
+
+    /// `Cond ? Label : 'literal'` (a Label before the colon, a text literal after it) as the exit value of a Variant function
+    /// or as the argument of a Variant parameter: BC 29 ends the whole session when the codeunit holding it is loaded, even if
+    /// the routine is never called (writer Y81, types/lt-y81-values/Y81LabelVariant.al codeunit 94259 "LT Y81 Label Variant
+    /// Held", Suspect_ReturnLabelOrLiteral and Suspect_ArgumentLabelOrLiteral; needs corpus bump). The literal-first order,
+    /// two Labels, an assignment and a named return value do not crash and are not refused here.
+    pub(super) fn refuse_session_ending_ternary(&self, target: &Ty, node: &al_syntax::SyntaxNode) -> super::L<()> {
+        let mut node = node.clone();
+        while node.kind() == al_syntax::SyntaxKind::ParenExpr {
+            match node.children().next() {
+                Some(inner) => node = inner,
+                None => break,
+            }
+        }
+        if !matches!(target, Ty::Variant) || node.kind() != al_syntax::SyntaxKind::TernaryExpr {
+            return Ok(());
+        }
+        let kids: Vec<al_syntax::SyntaxNode> = node.children().collect();
+        let (Some(yes), Some(no)) = (kids.get(1), kids.get(2)) else {
+            return Ok(());
+        };
+        let literal = no.kind() == al_syntax::SyntaxKind::Literal
+            && al_syntax::ast::significant_green_tokens(no).any(|t| t.kind() == al_syntax::SyntaxKind::StringLit);
+        if matches!(self.ty_of(yes), Ty::Label) && literal {
+            return Err(
+                "a conditional expression `Cond ? Label : 'literal'` as a Variant argument or the exit value of a \
+                 Variant function: Business Central 29 ends the whole session when the codeunit is loaded (refused statically)"
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+}
+
+impl super::Lowerer<'_> {
     /// `G += T` with a Guid `G` and a Text, Code or Label `T`: the Guid stays as it was, whatever the text, a text that is no
     /// GUID included (types/lt-y31-conversion-matrix/Y31ConvAr.al, LT Y31 Ar Text `Text_Guid`, Text10, Code10, Label:
     /// `compound_add`). The right side is still evaluated.

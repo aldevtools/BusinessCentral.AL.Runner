@@ -1109,6 +1109,7 @@ impl Lowerer<'_> {
                 None => Ok(ir::Stmt::Exit(None)),
                 Some(e) => self.expr(e).and_then(|v| {
                     if let Some(decl) = self.ret_decl.clone() {
+                        self.refuse_session_ending_ternary(&decl, e)?;
                         self.refuse_textconst_into_variant(&decl, e)?;
                     }
                     // A DotNet result must fit the return type exactly (ADR-014). An interface

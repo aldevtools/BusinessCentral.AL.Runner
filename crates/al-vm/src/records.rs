@@ -4863,7 +4863,10 @@ impl Session {
                                 .count(&cx, &t, &[])
                                 .map_err(|e| Signal::Unsupported(format!("{e}")))?
                                 == 0;
-                        if filters.is_empty()
+                        // A set filtered down to nothing says the same (record/lt-y81-values/Y81EmptySetFinds.al:224-:520
+                        // Y81_RecRef_FilteredOut_Unused: `=`, `>` and `<` on a RecordRef and a temporary Record; needs corpus bump).
+                        let filtered_miss = !filters.is_empty() && matches!(which.as_str(), "=" | ">" | "<");
+                        if (filters.is_empty() || filtered_miss)
                             && method == RecordOp::Find
                             && matches!(which.as_str(), "=" | ">" | "<" | "=><" | "=>" | "=<")
                         {
@@ -4922,8 +4925,10 @@ impl Session {
                                 ..Default::default()
                             })));
                         }
+                        // Find('-') and Find('+') of a filtered set too (Y81EmptySetFinds.al Y81_RecRef_FilteredOut_Unused).
                         if filters.is_empty()
-                            || !matches!(method, RecordOp::FindFirst | RecordOp::FindLast | RecordOp::FindSet)
+                            || !(matches!(method, RecordOp::FindFirst | RecordOp::FindLast | RecordOp::FindSet)
+                                || (method == RecordOp::Find && matches!(which.as_str(), "-" | "+")))
                         {
                             return unsupported(format!(
                                 "{method} on an empty set of table '{}' without using the result and without a filter: BC's error text is not pinned (docs/probes-needed.md)",
@@ -5068,11 +5073,7 @@ impl Session {
                 }
                 let engine = self.engine.clone();
                 let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize]);
-                let date_ctx = al_builtins::filter::DateFilterContext {
-                    today: self.today_day_number(),
-                    work_date: self.work_date_day().unwrap_or_else(|| self.today_day_number()),
-                    language: self.global_language,
-                };
+                let date_ctx = self.date_filter_context_for(&text);
                 let parse = |text: &str| {
                     al_builtins::filter::with_date_context(date_ctx, || {
                         al_builtins::filter::parse_filter_with(text, &args[2..], &ty, &enums)
