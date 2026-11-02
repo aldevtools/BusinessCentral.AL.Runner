@@ -475,10 +475,12 @@ impl Session {
                 // The nested shape (`TextInTable::Nested`, TP_Nested_Export on branch al-runtime-rs-staging-pub-tp): the outer
                 // element's OnBeforePassVariable, its attributes, then the inner element as the text-only shape above
                 // (`pass entry;pass status;pass admission;pass admcode;`, `<admission option_value="2" />` for an empty text).
+                // The same for an attributed leaf deeper below a table element (`attributed_leaf`, einvoice_shapes.rs).
                 ir::XmlNodeKind::Text
                     if text_in_table(schema, child).is_some()
                         || nested_inner(schema, child)
                         || attributed_outside_table(schema, child)
+                        || attributed_leaf(schema, child)
                         || (attrs_only(schema, child)
                             && schema.node(node).parent.is_some_and(|t| field_wrap(schema, node, t))) =>
                 {
@@ -523,8 +525,13 @@ impl Session {
                         return Ok(());
                     }
                 }
-                // `triggered_container`: its OnBeforePassVariable decides whether it and all below it are written.
-                ir::XmlNodeKind::Text if triggered_container(schema, child) => {
+                // `triggered_container`: its OnBeforePassVariable decides whether it and all below it are written; a
+                // `table_container` (einvoice_shapes.rs) the same, with its inner table elements.
+                ir::XmlNodeKind::Text
+                    if triggered_container(schema, child)
+                        || table_container(schema, child)
+                        || tree_with_triggered_leaf(schema, child) =>
+                {
                     if let Some(e) = got!(self.xp_export_triggered_container(inst, schema, child)) {
                         out.children.push(Node::Elem(e));
                     }
