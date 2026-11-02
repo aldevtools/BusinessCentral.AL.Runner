@@ -713,12 +713,8 @@ fn under_runner_130450_a_delete_a_test_made_is_rolled_back_for_the_later_codeuni
     let o = run(TEST_DELETE_130450, false);
     assert_eq!(outcome(&o, "DL1"), &Outcome::Pass, "{o:?}");
     assert_eq!(outcome(&o, "RD1"), &Outcome::Pass, "{o:?}");
-    // Not on the pinned corpus yet (fast flow, al-runner issue 6638): the later test is a flagged pass.
-    let flagged = assumptions_of(TEST_DELETE_130450, "RD1");
-    assert_eq!(
-        flagged,
-        vec![al_builtins::assumptions::Assumption::SequenceChangeRolledBackWithCodeunit]
-    );
+    // Pinned by codeunit/lt-seq-carry/SeqCarry.al D1_Act/D2_Act (corpus pin 9cf26907): a clean pass, no assumption.
+    assert_eq!(assumptions_of(TEST_DELETE_130450, "RD1"), vec![]);
     let took_first = TEST_DELETE_130450.replace(
         "NumberSequence.Delete('D', false);",
         "if NumberSequence.Next('D', false) <> 1 then Error('next');\n        NumberSequence.Delete('D', false);",
@@ -784,6 +780,14 @@ fn issue_6638_a_restart_in_an_earlier_codeunit_leaves_the_later_codeunits_runnab
         &Outcome::Pass,
         "{o:?}"
     );
+    // The reporter's repro passes clean: SeqCarry.al R1_Act/R2_Act pin the rollback (corpus pin 9cf26907).
+    for t in [
+        "RestartOfTheSequenceTheInstallCreatedKeepsIt",
+        "ALaterCodeunitInsertsAndReadsItsOwnRow",
+        "ALaterCodeunitTakesANumberFromTheSequence",
+    ] {
+        assert_eq!(assumptions_of(ISSUE_6638, t), vec![], "{t}");
+    }
     // The Restart is rolled back: the later codeunit takes the install's first number, 1, not the 0 of a seedless Restart.
     let exact = ISSUE_6638.replace(
         "NumberSequence.Next('REPROSEQ') < 1",

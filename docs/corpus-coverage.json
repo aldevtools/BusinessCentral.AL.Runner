@@ -1,5 +1,5 @@
 {
-  "corpus_commit": "2c42c8aa2ec85fc79ddcef3e7b448a252d4b9840",
+  "corpus_commit": "9cf2690789ec723dd01ab996f9ca55c13d9a9ae4",
   "language": {
     "bc": "27-29",
     "implemented": 1622,
@@ -4874,7 +4874,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "network/lt-db-http-leads/DbHttpContentLeads.al:88",
+        "site": "must-not-compile/cases/2615-httpcontent-clear-result-used.al:11",
         "state": "implemented",
         "type": "HttpContent"
       },
@@ -5562,7 +5562,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "lt-y51-blob-stream-position/Y51BlobStreamPosition.al:107",
+        "site": "lt-y51-blob-stream-position/Y51BlobStreamPosition.al:110",
         "state": "implemented",
         "type": "InStream"
       },
@@ -10351,7 +10351,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:231",
+        "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:300",
         "state": "refused",
         "type": "Media"
       },
@@ -10479,7 +10479,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:236",
+        "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:305",
         "state": "refused",
         "type": "MediaSet"
       },
@@ -11293,7 +11293,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, [Boolean])",
-        "site": "error-handling/TestNumberSequenceTrappableErrors.al:125",
+        "site": "codeunit/lt-seq-carry/SeqCarry.al:56",
         "state": "implemented",
         "type": "NumberSequence"
       },
@@ -11309,7 +11309,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, [Boolean])",
-        "site": "error-handling/TestNumberSequenceTrappableErrors.al:155",
+        "site": "codeunit/lt-seq-carry/SeqCarry.al:74",
         "state": "implemented",
         "type": "NumberSequence"
       },
@@ -11325,7 +11325,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, [Boolean])",
-        "site": "error-handling/TestNumberSequenceTrappableErrors.al:118",
+        "site": "codeunit/lt-seq-carry/SeqCarry.al:55",
         "state": "implemented",
         "type": "NumberSequence"
       },
@@ -11341,7 +11341,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, [BigInteger], [BigInteger], [Boolean])",
-        "site": "error-handling/TestNumberSequenceTrappableErrors.al:48",
+        "site": "codeunit/lt-seq-carry/SeqCarry.al:75",
         "state": "implemented",
         "type": "NumberSequence"
       },
@@ -11357,7 +11357,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, [Boolean])",
-        "site": "error-handling/TestNumberSequenceTrappableErrors.al:131",
+        "site": "codeunit/lt-seq-carry/SeqCarry.al:65",
         "state": "implemented",
         "type": "NumberSequence"
       },
@@ -11405,7 +11405,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, [BigInteger], [Boolean])",
-        "site": "error-handling/TestNumberSequenceTrappableErrors.al:143",
+        "site": "codeunit/lt-seq-carry/SeqCarry.al:391",
         "state": "implemented",
         "type": "NumberSequence"
       },
@@ -29997,7 +29997,7 @@
           "id": "HttpContent.Clear#1",
           "pinned": true,
           "signature": "HttpContent.Clear inst ()",
-          "site": "network/lt-db-http-leads/DbHttpContentLeads.al:88"
+          "site": "must-not-compile/cases/2615-httpcontent-clear-result-used.al:11"
         },
         {
           "id": "HttpContent.GetHeaders#1",
@@ -30289,7 +30289,7 @@
           "id": "InStream.Length#1",
           "pinned": true,
           "signature": "InStream.Length inst () -> BigInteger",
-          "site": "lt-y51-blob-stream-position/Y51BlobStreamPosition.al:107"
+          "site": "lt-y51-blob-stream-position/Y51BlobStreamPosition.al:110"
         },
         {
           "id": "InStream.Position#1",
@@ -32015,7 +32015,7 @@
           "id": "Media.FindOrphans#1",
           "pinned": true,
           "signature": "Media.FindOrphans static () -> List of [Guid]",
-          "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:231"
+          "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:300"
         },
         {
           "id": "Media.HasValue#1",
@@ -32070,7 +32070,7 @@
           "id": "MediaSet.FindOrphans#1",
           "pinned": true,
           "signature": "MediaSet.FindOrphans static () -> List of [Guid]",
-          "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:236"
+          "site": "media/lt-y48-find-orphans/Y48FindOrphans.al:305"
         },
         {
           "id": "MediaSet.ImportFile#1",
@@ -32369,31 +32369,31 @@
           "id": "NumberSequence.Current#1",
           "pinned": true,
           "signature": "NumberSequence.Current static (Name: Text, ?CompanySpecific: Boolean) -> BigInteger",
-          "site": "error-handling/TestNumberSequenceTrappableErrors.al:125"
+          "site": "codeunit/lt-seq-carry/SeqCarry.al:56"
         },
         {
           "id": "NumberSequence.Delete#1",
           "pinned": true,
           "signature": "NumberSequence.Delete static (Name: Text, ?CompanySpecific: Boolean)",
-          "site": "error-handling/TestNumberSequenceTrappableErrors.al:155"
+          "site": "codeunit/lt-seq-carry/SeqCarry.al:74"
         },
         {
           "id": "NumberSequence.Exists#1",
           "pinned": true,
           "signature": "NumberSequence.Exists static (Name: Text, ?CompanySpecific: Boolean) -> Boolean",
-          "site": "error-handling/TestNumberSequenceTrappableErrors.al:118"
+          "site": "codeunit/lt-seq-carry/SeqCarry.al:55"
         },
         {
           "id": "NumberSequence.Insert#1",
           "pinned": true,
           "signature": "NumberSequence.Insert static (Name: Text, ?Seed: BigInteger, ?Increment: BigInteger, ?CompanySpecific: Boolean)",
-          "site": "error-handling/TestNumberSequenceTrappableErrors.al:48"
+          "site": "codeunit/lt-seq-carry/SeqCarry.al:75"
         },
         {
           "id": "NumberSequence.Next#1",
           "pinned": true,
           "signature": "NumberSequence.Next static (Name: Text, ?CompanySpecific: Boolean) -> BigInteger",
-          "site": "error-handling/TestNumberSequenceTrappableErrors.al:131"
+          "site": "codeunit/lt-seq-carry/SeqCarry.al:65"
         },
         {
           "id": "NumberSequence.Range#1",
@@ -32411,7 +32411,7 @@
           "id": "NumberSequence.Restart#1",
           "pinned": true,
           "signature": "NumberSequence.Restart static (Name: Text, ?Seed: BigInteger, ?CompanySpecific: Boolean)",
-          "site": "error-handling/TestNumberSequenceTrappableErrors.al:143"
+          "site": "codeunit/lt-seq-carry/SeqCarry.al:391"
         }
       ],
       "overloads": 8,
