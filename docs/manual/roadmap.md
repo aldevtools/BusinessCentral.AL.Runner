@@ -25,18 +25,14 @@ reported as not run, with the reason.
 - **`Image.Resize` of the System Application**
   ([issue 5590](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/5590)).
   Tests that resize an image are refused.
-- **Business Central's development-endpoint test mode**
-  ([issue 3697](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/3697)).
-  This is the mode that suppresses unhandled UI. AL Runner does not offer it.
 
 - **Test handlers (BC 29)**
   (ADR-059). Codeunits with `TestHandlers` are not run. Planned: a "skipped" result
   for tests that a handler skips.
-- **License-backed permissions** (ADR-060, planned). Today `License Permission` answers from a
-  few rows measured on real Business Central and one assumption for the rest. Planned: read the
-  rows from a Business Central license file, by default the one in the artifact, and
-  a `--license FILE` flag for a developer, partner or customer license. The flag does
-  not exist yet. Permissions stay unenforced; enforcement is a later step.
+- **Permission checks against a license** (ADR-060 and ADR-062, planned). `License Permission`
+  already answers from the license file (see [BC license](license.md)). Table data writes in
+  a session that a test lowered are checked. Planned: reads, `Execute` permission, the
+  permission sets of the runner, and the license as a limit on what a permission set grants.
 
 ## Waiting on a change in the Linux test setup
 

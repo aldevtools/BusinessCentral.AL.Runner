@@ -95,7 +95,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `media.rs` (197): `Media` and `MediaSet` fields (corpus media/). Entry: `Id` 14, `MediaObject` 18, `MediaStore` 26.
 - `media_export.rs` (~35): Which media `Media.ExportStream` gives back byte for byte (non-picture content). Entry: `exports_unchanged`.
 - `moduleinfo.rs` (287): `NavApp.GetCurrentModuleInfo` and friends, and the `ModuleInfo` type. Entry: `native_for` 169.
-- `native.rs` (1274): Native builtin implementations, registered by catalog overload id (ADR-008). Entry: `Signal` 26, `AlError` 9, `Ctx` 48, `lookup` 435, `raise` 16.
+- `native/mod.rs` (42): Native builtin implementations, registered by catalog overload id (ADR-008); re-exports every public item, so callers use `native::name`. Submodules: `error` (`AlError`, `Signal`, `raise`), `ctx` (the `Ctx` trait), `registry` (id tables, `lookup`, `by_id`), `unpinned` (marks of unpinned error texts), `args` (`text_of`, `int_arg`), `error_fns` (GetLastError*, Error), `messages` (Message, Confirm, `substitute`), `format_fns` (Format), `strings` (StrLen, CopyStr, StrSubstNo, case), `session_fns` (StartSession, LogMessage, ExecutionContext), `enum_fns`, `values` (Abs, Clear, ToText), `dialog`, `tests`.
 - `ops.rs` (650): Value operations: conversion, arithmetic, comparison, truthiness. Entry: `convert` 16, `arith` 180, `compare_order` 301, `truthy` 384.
 - `conv/` (~630 + generated `rows.rs`): Implicit conversions at run time from the run matrix of corpus writer Y31
   (`types/lt-y31-conversion-matrix/`). `rows.rs` is the table of its cells (family, source kind, target kind, what BC gave),
