@@ -86,3 +86,33 @@ fn set_auto_calc_fields_zero_is_the_timestamp() {
         "The Name field in the LF Zero Row table must be a FlowField."
     );
 }
+
+/// AddLoadFields(0) after SetLoadFields(2) adds nothing: the request stays the key and Name
+/// (recordref/lt-y71-loadfields/Y71RecRefLoadFields.al:180-184, :380-382 `add_zero|loaded`).
+const ADD_ZERO: &str = r#"
+table 60032 "LF Add Zero Row"
+{
+    fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } field(3; Qty; Decimal) { } }
+    keys { key(PK; Id) { } }
+}
+codeunit 50142 C
+{
+    procedure AddZero(): Text
+    var
+        Row: Record "LF Add Zero Row";
+        RR: RecordRef;
+    begin
+        Row.Id := 1; Row.Name := 'one'; Row.Insert();
+        RR.Open(60032);
+        RR.SetLoadFields(2);
+        RR.AddLoadFields(0);
+        RR.FindFirst();
+        exit(Format(RR.AreFieldsLoaded(1)) + Format(RR.AreFieldsLoaded(2)) + Format(RR.AreFieldsLoaded(3)));
+    end;
+}
+"#;
+
+#[test]
+fn add_load_fields_of_only_zero_adds_nothing() {
+    assert_eq!(text(run(ADD_ZERO, "AddZero")), "YesYesNo");
+}

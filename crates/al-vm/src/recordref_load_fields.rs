@@ -106,6 +106,11 @@ impl Session {
                     rec.borrow_mut().load.request = Some(Vec::new());
                     return Ok(Value::Null);
                 }
+                // AddLoadFields(0) adds nothing; it is not the call without fields, which goes back to the full load
+                // (recordref/lt-y71-loadfields/Y71RecRefLoadFields.al:180-184, :380-382 `add_zero|loaded`).
+                if zero && positions.is_empty() {
+                    return Ok(Value::Null);
+                }
                 self.load_fields_op(
                     RecordOp::from_name(method).expect("a RecordRef load method"),
                     rec,
