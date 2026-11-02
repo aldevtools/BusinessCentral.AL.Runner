@@ -1082,6 +1082,13 @@ impl Gate {
                     file: "recordref/lt-y47-validate-fieldref/Y47ValidateFieldRef.al",
                     lines: "308,339",
                 },
+                // FieldRef.Validate and FieldRef.Value := of a Variant of each kind into each field type that cannot convert it:
+                // the Variant's Format text evaluated into the field's type from BC 28, a conversion error before (al-builtins
+                // `fieldref_variant_cells.rs`).
+                Evidence {
+                    file: "fieldref/lt-y67-fieldref-validate-variant/Y67FieldRefValidateVariant.al",
+                    lines: "368,383,388",
+                },
             ],
             Gate::JsonSelectTokensListFrom28 => &[
                 Evidence {

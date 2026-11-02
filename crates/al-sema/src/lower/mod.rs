@@ -519,6 +519,12 @@ pub(crate) fn is_property_setter(receiver: &str, name: &str) -> bool {
             | ("HttpClient", "Timeout" | "UseServerCertificateValidation" | "UseResponseCookies")
             | ("File", "TextMode" | "WriteMode")
             | ("DataTransfer", "UpdateAuditFields")
+            // `currXMLport.FieldSeparator := ';'` (xmlport/lt-y67-xmlport-separators/Y67XpSeparators.al:85-145; an Integer
+            // value is AL0133, must-not-compile 2650 and 2651).
+            | (
+                "Xmlport",
+                "FieldSeparator" | "FieldDelimiter" | "RecordSeparator" | "TableSeparator" | "TextEncoding"
+            )
             | ("XmlReadOptions" | "XmlWriteOptions", "PreserveWhitespace")
             // `NsMgr.NameTable := Doc.NameTable` (al-runner issue 6526; assumption `nametable-assign-is-call` until corpus
             // writer Y29's pin lands, xml/XmlXPathNamespaces.al Y29_NameTable_AssignForm_SelectsLikeCallForm).

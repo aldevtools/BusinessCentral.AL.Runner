@@ -72,14 +72,19 @@ pub fn variant_into(v: Value, t: &RtType) -> Result<Value, Signal> {
     if super::engine::kind_of_value(&v).is_none() {
         return Ok(v);
     }
+    if let Some(r) = super::variant_scalars::before_convert(&v, t) {
+        return r;
+    }
     match crate::ops::convert(v.clone(), t) {
-        Err(Signal::Unsupported(why)) => match super::variant_convert(&v, t) {
-            Some(r) => r,
-            None => match super::variant_error(&v, t) {
-                Some(e) => Err(e),
-                None => Err(Signal::Unsupported(why)),
-            },
-        },
+        Err(Signal::Unsupported(why)) => {
+            match super::variant_convert(&v, t).or_else(|| super::variant_scalars::convert(&v, t)) {
+                Some(r) => r,
+                None => match super::variant_error(&v, t) {
+                    Some(e) => Err(e),
+                    None => Err(Signal::Unsupported(why)),
+                },
+            }
+        }
         _ => Ok(v),
     }
 }

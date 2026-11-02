@@ -1547,29 +1547,7 @@ impl Lowerer<'_> {
             let ir::Expr::Load(src_place) = value.clone() else {
                 unreachable!()
             };
-            let is = |id: &str| -> L<ir::Expr> {
-                Ok(ir::Expr::Builtin {
-                    id: super::call::builtin_id(id)?,
-                    receiver: Some(Box::new(ir::Arg::Ref(src_place.clone()))),
-                    args: Vec::new(),
-                    ret_used: true,
-                })
-            };
-            // A Date, Time or DateTime in a Variant raises into a Text and a Code variable alike
-            // (report/lt-requestpage-savevalues-date-text-setvalue/P147DateToText.al:297-399, QO_*Variant_EachConversion; the
-            // NavCode text: types/lt-variant-to-text-fields/VariantNumberToField.al). Into a Code variable nothing else is settled.
-            let or = |a: ir::Expr, b: ir::Expr| ir::Expr::Binary(ir::BinOp::Or, Box::new(a), Box::new(b));
-            let dates = or(
-                or(is("Variant.IsDate#1")?, is("Variant.IsTime#1")?),
-                is("Variant.IsDateTime#1")?,
-            );
-            let (cond, kind) = if matches!(target_ty, Ty::Code(_)) {
-                (dates, "NavCode")
-            } else {
-                // An Enum or Option in a Variant raises too (VariantEnumOptionToText.al: `text variable`).
-                let cond = or(or(is("Variant.IsInteger#1")?, dates), is("Variant.IsOption#1")?);
-                (cond, "NavText")
-            };
+            let (cond, kind) = variant_into_text_guard(&src_place, &target_ty)?;
             let converted = self.convert_to(&target_ty, self.ty_ref(&kids[1]), value)?;
             let guarded = ir::Expr::Ternary(
                 Box::new(cond),
@@ -2332,5 +2310,37 @@ fn xml_property_setter(ty: &str, member: &str) -> Option<&'static str> {
         ("XmlDeclaration", "encoding") => "XmlDeclaration.Encoding#1",
         ("XmlDeclaration", "standalone") => "XmlDeclaration.Standalone#1",
         _ => return None,
+    })
+}
+
+/// The condition under which a Variant read from `src_place` raises when it is assigned to a Text or Code variable of type
+/// `target_ty`, and the `Nav<Type>` its error names (see the caller in `assign`).
+fn variant_into_text_guard(src_place: &ir::Place, target_ty: &Ty) -> L<(ir::Expr, &'static str)> {
+    let is = |id: &str| -> L<ir::Expr> {
+        Ok(ir::Expr::Builtin {
+            id: super::call::builtin_id(id)?,
+            receiver: Some(Box::new(ir::Arg::Ref(src_place.clone()))),
+            args: Vec::new(),
+            ret_used: true,
+        })
+    };
+    // A Date, Time or DateTime in a Variant raises into a Text and a Code variable alike
+    // (report/lt-requestpage-savevalues-date-text-setvalue/P147DateToText.al:297-399, QO_*Variant_EachConversion; the
+    // NavCode text: types/lt-variant-to-text-fields/VariantNumberToField.al). Into a Code variable nothing else is settled.
+    let or = |a: ir::Expr, b: ir::Expr| ir::Expr::Binary(ir::BinOp::Or, Box::new(a), Box::new(b));
+    let dates = or(
+        or(is("Variant.IsDate#1")?, is("Variant.IsTime#1")?),
+        is("Variant.IsDateTime#1")?,
+    );
+    Ok(if matches!(target_ty, Ty::Code(_)) {
+        (dates, "NavCode")
+    } else {
+        // An Enum or Option in a Variant raises too (VariantEnumOptionToText.al: `text variable`), a Boolean as well
+        // (types/lt-y67-variant-numeric/Y67VariantNumeric.al:288-317 Variant_Numbers_B `boolean true`).
+        let cond = or(
+            or(or(is("Variant.IsInteger#1")?, is("Variant.IsBoolean#1")?), dates),
+            is("Variant.IsOption#1")?,
+        );
+        (cond, "NavText")
     })
 }

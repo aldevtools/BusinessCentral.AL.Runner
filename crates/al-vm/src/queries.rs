@@ -1041,9 +1041,12 @@ impl Session {
                 // A filter() element over a FlowField is calculated on the rows of its own data item, before the join and the
                 // grouping (query/lt-cg-query-leads/CgQueryLeads.al:759,792 for one data item; query/lt-y62-flowfield-filter-join/
                 // Y62QueryFlowFieldJoin.al for the top data item of an inner or a left outer join, with and without a Method
-                // column, writer Y62): `plan.post` filters the joined rows by it before `group_rows` groups them. On a joined data
-                // item, and with a right or full outer join, it is not pinned.
-                if c.filter_element && (item.parent.is_some() || has_right) {
+                // column, writer Y62; query/lt-y67-query-flowfield-filter/Y67QueryFlowFieldFilter.al:350-401 for the data item an
+                // inner join joins, static and at run time, writer Y67): `plan.post` filters the joined rows by it before
+                // `group_rows` groups them. Below an outer join, and with a right or full outer join, it is not pinned.
+                let below_outer = std::iter::successors(Some(c.item), |&i| def.items[i].parent)
+                    .any(|i| def.items[i].left_outer && def.items[i].parent.is_some());
+                if c.filter_element && (below_outer || has_right) {
                     return unsupported(
                         "a filter() element over a FlowField of a joined data item, or in a query with a right or full outer join (not pinned)",
                     );
