@@ -69,6 +69,7 @@ fn run(check_baseline_rule: bool, required_isolation: bool) -> CorpusRuntime {
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         translations: false,
+        package_data: false,
         translation_files: Vec::new(),
         runtime: None,
         app_json_keys: Vec::new(),

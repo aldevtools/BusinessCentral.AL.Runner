@@ -948,6 +948,22 @@ fn only_rename_raises_a_global_event() {
     assert!(log.contains("ONDATABASEINSERT") && log.contains("ONDATABASEMODIFY") && log.contains("ONDATABASEDELETE"));
 }
 
+// A mask bit other than the four of the corpus (a subscriber adds 16 or 32): only bit 8 raises OnGlobalRename, bits 1, 2, 4
+// and 16..128 raise no global event (corpus branch al-runtime-rs-staging-y79 install/lt-y79-install-unrelated/
+// Y79InstallUnrelated.al Y79_TestSession_Table61370..61379; needs corpus bump; assumption global-trigger-mask-bits).
+#[test]
+fn only_bit_8_of_the_trigger_mask_raises_the_global_rename_event() {
+    let all = r#"procedure All(): Text var R: Record Watched; L: Codeunit Logger; begin R."No." := 1; R.Insert(true); R.V := 7; R.Modify(true); R.Rename(2); R.Delete(true); exit(L.Get()); end;"#;
+    for (mask, rename) in [(16, false), (23, false), (8, true), (24, true)] {
+        let log = text(run(&global_triggers_src(mask, true, all), "All"));
+        assert!(
+            !log.contains("ONGLOBALINSERT") && !log.contains("ONGLOBALDELETE"),
+            "{mask}: {log}"
+        );
+        assert_eq!(log.contains("ONGLOBALRENAME"), rename, "{mask}: {log}");
+    }
+}
+
 // record/TestTriggerDispatchOrder.al:TriggerOrder_GlobalTriggerDispatch_...: "OnDatabaseInsert when
 // database triggers are enabled" -- by GetDatabaseTableTriggerSetup, per table. Without it no
 // database event is raised, and a table the setup does not name is not affected.

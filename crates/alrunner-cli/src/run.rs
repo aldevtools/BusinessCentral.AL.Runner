@@ -696,6 +696,7 @@ fn warm_key(
             &m.target,
             &m.symbols,
             &m.layout_files,
+            m.package_data,
         )
             .hash(&mut h);
         i.symbols.hash(&mut h);

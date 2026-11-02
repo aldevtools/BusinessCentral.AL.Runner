@@ -80,7 +80,14 @@ impl Session {
         // A subscriber that writes the table it is asked about sees the table as not enabled.
         self.events.global_setups.insert(table, GlobalSetup::default());
         let mut setup = GlobalSetup::default();
-        if self.engine.events.is_subscribed(key, "getglobaltabletriggermask") {
+        // With no company open (the per-database part of an install) BC asks for neither the trigger mask nor the database
+        // trigger setup, and raises no database event (corpus branch al-runtime-rs-staging-y79,
+        // install/lt-y79-install-unrelated/Y79InstallUnrelated.al Y79_PerDatabase_NoTriggerSubscriberAsked; needs corpus bump).
+        let no_company = self.cx.company.is_empty();
+        if no_company && self.engine.events.is_subscribed(key, "getglobaltabletriggermask") {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::InstallTriggerSetupPerCompanyOnly);
+        }
+        if !no_company && self.engine.events.is_subscribed(key, "getglobaltabletriggermask") {
             let mut args = [Value::Integer(id), Value::Integer(0)];
             let n = names(&["TableID", "TableTriggerMask"]);
             let call = EventCall {
@@ -102,20 +109,17 @@ impl Session {
                     return unsupported(format!("Global Triggers: mask {}", other.describe()));
                 }
             };
+            // Only bit 8 raises OnGlobalRename; bits 1, 2, 4 and 16..128 raise no global event (corpus branch
+            // al-runtime-rs-staging-y79, install/lt-y79-install-unrelated/Y79InstallUnrelated.al Y79_TestSession_Table61370..61379;
+            // the corpus itself sets 0 or 15 only). A mask other than those two is that branch's, until the pin has it.
             if mask != 0 && mask != MASK_ALL {
-                self.events.global_setups.remove(&table);
-                return unsupported(format!(
-                    "Global Triggers: table trigger mask {mask} for {} (only 0 and 15 are pinned; which bit is Rename is not)",
-                    t.name
-                ));
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GlobalTriggerMaskBits);
             }
             setup.global_rename = mask & MASK_RENAME != 0;
         }
-        // With no company open (the per-database part of an install), BC does not ask for the database trigger setup: a
-        // write there raises no database event (corpus branch al-runtime-rs-staging-ug eff7eb2a,
+        // The same for the database trigger setup (corpus branch al-runtime-rs-staging-ug eff7eb2a,
         // install/lt-ug-install-trigger-setup/UgInstallTests.al TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart;
         // assumption install-trigger-setup-per-company-only until the bump).
-        let no_company = self.cx.company.is_empty();
         if no_company && self.engine.events.is_subscribed(key, "getdatabasetabletriggersetup") {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::InstallTriggerSetupPerCompanyOnly);
         }
