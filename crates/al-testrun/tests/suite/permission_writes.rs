@@ -647,14 +647,35 @@ codeunit 50993 "PX Perm Tests"
             Error('value');
     end;
 
-    // A denied read is stage 2 (probes P14-P19): not run.
+    // A read that finds no row on a table that has rows is not pinned (Y24PermReads.al pins reads that find one): not run.
     [Test]
     procedure DeniedReadIsRefused()
     var
         Row: Record "PX Row";
     begin
         Lower('PX None');
+        Row.SetRange(Id, 100);
         Row.FindFirst();
+    end;
+
+    // Y24PermReads.al Y24_P14_ReadShapesWithRows: Get, FindFirst, Count and CalcSums of a table with rows.
+    [Test]
+    procedure DeniedReadsRaiseTheReadError()
+    var
+        Row: Record "PX Row";
+    begin
+        Lower('PX None');
+        asserterror Row.FindFirst();
+        Denied('TableData 50990 PX Row', 'Read', 'DB:ClientReadDenied');
+        asserterror Row.Get(1);
+        Denied('TableData 50990 PX Row', 'Read', 'DB:ClientReadDenied');
+        asserterror Row.Count();
+        Denied('TableData 50990 PX Row', 'Read', 'DB:ClientReadDenied');
+        asserterror Row.CalcSums(Value);
+        Denied('TableData 50990 PX Row', 'IndirectRead', 'DB:ClientReadDenied');
+        if Row.Get(99) then
+            Error('found');
+        Mock.Stop();
     end;
 
     // An unknown set: the session is not fully composed, so a denial is refused, not raised.
@@ -860,6 +881,11 @@ fn object_and_indirect_inherent_permissions_grant_under_their_assumption() {
 #[test]
 fn allowed_reads_run_and_a_test_may_end_lowered() {
     passes("AllowedReadsRun");
+}
+
+#[test]
+fn denied_reads_raise_the_read_error() {
+    passes("DeniedReadsRaiseTheReadError");
 }
 
 #[test]

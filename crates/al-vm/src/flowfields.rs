@@ -521,7 +521,7 @@ impl Session {
         let filters = self.calc_filters(rec, calc, &mut Vec::new())?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
         if self.permissions.is_some() {
-            self.permission_gate_flowfield(calc.table)?;
+            self.permission_gate_flowfield(rec, calc.table)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
         let n = self
@@ -565,7 +565,7 @@ impl Session {
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
         if self.permissions.is_some() {
-            self.permission_gate_flowfield(calc.table)?;
+            self.permission_gate_flowfield(rec, calc.table)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
         let store_err = |e: al_data::StoreError| Signal::Unsupported(format!("store error {e}"));
@@ -1152,7 +1152,10 @@ impl Session {
         }
         // A temporary record loads an auto-calculated Blob like a stored row (record/lt-temporary-blob/TemporaryBlobAutoCalc.al:
         // Temporary_SetAutoCalcFields_ThenFind).
-        self.calc_fields(rec, &auto)
+        self.permission_autocalc = true;
+        let r = self.calc_fields(rec, &auto);
+        self.permission_autocalc = false;
+        r
     }
 }
 

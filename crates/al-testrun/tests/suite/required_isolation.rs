@@ -544,7 +544,7 @@ codeunit 50682 "OnRun Refused"
     trigger OnRun()
     var V: Variant; T: Text; L: Label 'abc', Locked = true; B: Boolean;
     begin
-        V := B ? L : T;
+        V := B ? L : 5;
     end;
     [Test] procedure OR1() var Rows: Codeunit "Rows"; begin Rows.Put('own'); end;
 }
