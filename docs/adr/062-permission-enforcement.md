@@ -495,3 +495,13 @@ Execute is on for the shapes Y24PermExecute.al pins (BC 27.5, 28.5, 29.0 agree):
   user is SUPER: Yes on the four data rights for table data and Execute only for the four object types. Other object types, an
   Indirect level and sets that are not fully composed are refused.
 - **Still refused:** a denial on a trigger of a table or page, or on an event subscriber (not pinned).
+
+## Stage 4 shadow run (2026-11-02)
+
+The shadow run is a diagnostic; stage 4 stays off. `al-test-cli --permission-shadow FILE` (or `AL_PERMISSION_SHADOW=FILE` for
+`al-runner`) composes the sets the test runner assigns (`runner_permission_step`: All Objects, D365 Full Access, Test Tables, D365 Basic,
+LOCAL) as a restricted session for every test that does not disable TestPermissions, evaluates every check, and turns each denial into
+a grant. Each line of FILE is `codeunit id`, `test`, `would deny` or `unknown`, the check (`record`, `flowfield`, `object read`,
+`execute`, `call`, `page open`, `permission query`, `accessbypermission`), the BC error text and code (or the reason it is unknown), the
+sets, and `lower bound` when a set was not composed in full. A test that assigns a set of its own ends the evaluation (probe P25).
+`permission_shadow.rs` in `al-vm` wraps the gates of `permissions.rs`; test outcomes are the same with the switch on.
