@@ -272,6 +272,20 @@ impl Session {
         v
     }
 
+    /// The end of `CopyFilter(FromField, Target.ToField)`: `copied` (already moved to the target's group) replace the target field's
+    /// filters, and the target forgets the row it holds (record/lt-r6807-view-find/R6807ViewFind.al, Rec_copyFilterFieldStored,
+    /// Rec_copyFilterFieldFlowZero).
+    pub(crate) fn put_copied_filters(dst: &Rec, to: usize, to_group: i32, copied: Vec<FieldFilter>) {
+        let mut d = dst.borrow_mut();
+        d.position = None;
+        d.filters.retain(|f| !(f.field == to && f.group == to_group));
+        for mut f in copied {
+            f.field = to;
+            f.group = to_group;
+            d.filters.push(f);
+        }
+    }
+
     /// `Target.CopyFilters(Source)`: the source's filters replace the target's; the target forgets the row it holds, so the next
     /// Find tests it against them like after SetRange (record/lt-r6807-view-find/R6807ViewFind.al, Rec_copyStored, Rec_copyFlowZero).
     pub(crate) fn copy_filters(rec: &Rec, args: &[Value]) -> Result<Value, Signal> {

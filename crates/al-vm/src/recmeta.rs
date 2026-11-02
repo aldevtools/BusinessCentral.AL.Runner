@@ -923,13 +923,7 @@ impl Session {
                             .collect(),
                     )
                 };
-                let mut d = dst.borrow_mut();
-                d.filters.retain(|f| !(f.field == to && f.group == to_group));
-                for mut f in copied {
-                    f.field = to;
-                    f.group = to_group;
-                    d.filters.push(f);
-                }
+                Self::put_copied_filters(dst, to, to_group, copied);
                 Ok(Value::Null)
             }
             RecordOp::CopyFilters => Self::copy_filters(rec, args),

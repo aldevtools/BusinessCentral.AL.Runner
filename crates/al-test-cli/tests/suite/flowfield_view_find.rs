@@ -59,6 +59,10 @@ fn a_view_set_after_get_narrows_find_on_record_and_recordref() {
              Seed(); P.Get('A'); Q.SetRange(Cnt, 0); P.CopyFilters(Q);
              if P.Find() then Error('Find true after CopyFilters of Cnt = 0');
          end;
+         [Test] procedure CopyFilterFieldForm() var P: Record \"FV Parent\"; Q: Record \"FV Parent\"; begin
+             Seed(); P.Get('A'); Q.SetRange(Cnt, 0); Q.CopyFilter(Cnt, P.Cnt);
+             if P.Find() then Error('Find true after CopyFilter of Cnt = 0');
+         end;
          [Test] procedure GetTableThenView() var P: Record \"FV Parent\"; R: RecordRef; begin
              Seed(); P.Get('A'); P.SetView(ViewZero()); R.GetTable(P);
              if R.Find() then Error('Find true after GetTable');
@@ -73,5 +77,5 @@ fn a_view_set_after_get_narrows_find_on_record_and_recordref() {
     for (name, outcome) in &o {
         assert_eq!(*outcome, Outcome::Pass, "{name}");
     }
-    assert_eq!(o.len(), 5);
+    assert_eq!(o.len(), 6);
 }
