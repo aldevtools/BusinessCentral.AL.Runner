@@ -14,6 +14,19 @@ pub struct Evidence {
     pub lines: &'static str,
 }
 
+/// Evidence of [`Gate::ReportSaveAsInherentPermissionsFrom29`]; a constant so `Gate::evidence` stays under its length cap.
+const REPORT_SAVE_AS_INHERENT_PERMISSIONS_EVIDENCE: &[Evidence] = &[
+    Evidence {
+        file: "report/lt-u-report-props/UPropertyTests.al",
+        lines: "185,190,195",
+    },
+    // The permission error of Report.SaveAs names TableData 79 Company Information on BC 29, the report's own table below.
+    Evidence {
+        file: "permissions/lt-y19-perm-probes/Y24PermObjectReads.al",
+        lines: "82,88,98,104,114,120",
+    },
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Gate {
     /// A FlowField Sum or Average over an `Integer` source into a `BigInteger` FlowField is
@@ -699,10 +712,7 @@ impl Gate {
                 file: "report/lt-ah-dataset-header/AhDatasetHeader.al",
                 lines: "9",
             }],
-            Gate::ReportSaveAsInherentPermissionsFrom29 => &[Evidence {
-                file: "report/lt-u-report-props/UPropertyTests.al",
-                lines: "185,190,195",
-            }],
+            Gate::ReportSaveAsInherentPermissionsFrom29 => REPORT_SAVE_AS_INHERENT_PERMISSIONS_EVIDENCE,
             Gate::ObsoleteRequiredPendingAttributeFrom29 => &[Evidence {
                 file: "lt-ac/ACAttributes.al",
                 lines: "146",
