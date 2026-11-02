@@ -281,7 +281,10 @@ impl Session {
                     let ty = &chunk.types[t as usize];
                     // A number is its Format text and an Enum its caption, checked against the variable's or parameter's length
                     // (misc/lt-y13-triage/Y13FieldRefValueToText.al:96-153; text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:207-353).
-                    let v = match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, &*self) {
+                    let major = self.engine.target.as_ref().map_or(29, |t| t.bc.major);
+                    let v = match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, &*self)
+                        .or_else(|| al_builtins::fieldref_value_text::fieldref_value_into_blob(&v, ty, &*self, major))
+                    {
                         Some(r) => r?,
                         None => ops::convert_plain(v, ty)?,
                     };

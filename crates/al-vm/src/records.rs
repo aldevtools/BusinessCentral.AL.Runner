@@ -4612,41 +4612,7 @@ impl Session {
                 for (n, &field) in t.keys[0].iter().enumerate() {
                     let ty = t.fields[field].ty.clone();
                     pk.push(match args.get(n) {
-                        // A text for an Integer key reads as Evaluate reads it; a text that is no number raises
-                        // (GetWithTextArgument.al:Get_TextForIntegerKey, Get_TextVariableDirect; BC 27 names the type
-                        // unknown).
-                        Some(Value::Text(s) | Value::Code(s)) if matches!(ty, RtType::Integer) => {
-                            match s.trim_matches(' ').parse::<i32>().ok() {
-                                Some(n) => Value::Integer(n),
-                                None if self.engine.target.as_ref().map_or(29, |t| t.bc.major) >= 28 => {
-                                    return Err(crate::transactions::al_error_code(
-                                        &format!("The value \"{s}\" can't be evaluated into type Integer."),
-                                        "Evaluate:Format",
-                                    ));
-                                }
-                                None => {
-                                    return Err(crate::transactions::al_error_code(
-                                        "The type NavInteger is unknown.",
-                                        "NotSupportedType",
-                                    ));
-                                }
-                            }
-                        }
-                        // An Integer (literal or variable) for a Code key reads as its digits: found, not found and the
-                        // not-found error (record/lt-at-partner-gaps/AtGetIntegerOnCodeKey.al:86-140, Integer 123 on a
-                        // Code[20] key). A negative number, one longer than the field and a Text key are not pinned.
-                        Some(Value::Integer(i)) if matches!(ty, RtType::Code(_)) => {
-                            let digits = i.to_string();
-                            let fits =
-                                matches!(ty, RtType::Code(len) if len.is_none_or(|l| digits.len() <= l as usize));
-                            if *i < 0 || !fits {
-                                return unsupported(
-                                    "Get with a negative or too long Integer on a Code key (not pinned)",
-                                );
-                            }
-                            Value::Code(digits.into())
-                        }
-                        Some(v) => ops::convert(v.clone(), &ty)?,
+                        Some(v) => self.get_key_value(v, &ty)?,
                         None => self.default_value(&ty),
                     });
                 }

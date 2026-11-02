@@ -668,6 +668,16 @@ impl<'a> Checker<'a> {
     }
 
     /// Name lookup without reporting: None if the name does not resolve.
+    /// A field (not a method) of the current record named like `node`, recorded as the resolution.
+    fn rec_field_first(&mut self, sc: &mut Scope, node: &SyntaxNode) -> Option<E> {
+        let rec = sc.rec.clone().filter(|r| *r != Ty::Unknown)?;
+        let n = name_of(node);
+        let r = self.field_res(sc, &rec, &n)?;
+        let e = self.member(sc, &rec, &n)?;
+        self.record(sc, node, r);
+        Some(e)
+    }
+
     pub(crate) fn lookup_name(&mut self, sc: &mut Scope, node: &SyntaxNode) -> Option<E> {
         // One copy of the name for the common case (a variable); the spelling as written only when it is not one.
         if !sc.withs.is_empty() {
@@ -693,6 +703,18 @@ impl<'a> Checker<'a> {
             let t = t.clone();
             self.record(sc, node, Res::Local(key));
             return Some(E::Val(t));
+        }
+        // In a report data item's code and in a page, a field of the current record wins over a global variable of the same
+        // name; in a table the global wins (types/lt-y71-value-conversions/Y71ValueConversions.al:574-618).
+        if sc.globals.contains_key(&key)
+            && (sc.report_item || matches!(self.ws.objects[sc.oi].kind, ObjKind::Page | ObjKind::PageExtension))
+            && !matches!(
+                key.as_str(),
+                "rec" | "xrec" | "currpage" | "currreport" | "requestoptionspage"
+            )
+            && let Some(e) = self.rec_field_first(sc, node)
+        {
+            return Some(e);
         }
         if let Some(t) = sc.globals.get(&key) {
             let t = t.clone();

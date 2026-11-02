@@ -63,9 +63,17 @@ pub(crate) fn days_in_month(y: i32, m: u32) -> u32 {
     }
 }
 
+/// A whole number of any kind DMY2Date takes: an Integer, and a Byte, BigInteger, Decimal, Option or Char that holds the same
+/// number (types/lt-y71-evaluate-dmy2date/Y71EvaluateDashedDates.al:150-228, all give 2026-03-01 for 3). A Decimal with a
+/// fraction is not pinned.
 fn int_of(v: Option<&Value>) -> Option<i32> {
+    use rust_decimal::prelude::ToPrimitive;
     match v? {
-        Value::Integer(n) => Some(*n),
+        Value::Integer(n) | Value::Option(n, _) => Some(*n),
+        Value::BigInteger(n) => i32::try_from(*n).ok(),
+        Value::Decimal(d) if d.fract().is_zero() => d.to_i32(),
+        Value::Char(c) => Some(*c as i32),
+        Value::Byte(b) => Some(i32::from(*b)),
         _ => None,
     }
 }

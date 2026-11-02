@@ -896,6 +896,24 @@ fn date_month_first(text: &str, today: Option<i32>) -> Option<Result<Parsed, Sig
     None
 }
 
+/// The text without its blanks when it has blanks around three groups of digits split by one `-`, `.` or `/`.
+fn blank_padded_numeric_date(text: &str) -> Option<&str> {
+    let t = text.trim_matches(' ');
+    if t.len() == text.len() || t.is_empty() {
+        return None;
+    }
+    ['-', '.', '/']
+        .into_iter()
+        .any(|sep| {
+            let parts: Vec<&str> = t.split(sep).collect();
+            parts.len() == 3
+                && parts
+                    .iter()
+                    .all(|p| (1..=4).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit()))
+        })
+        .then_some(t)
+}
+
 /// `month_first` turns on the month-first forms (`date_month_first`) and the stricter closing date, as `Evaluate` reads a Date; a
 /// reader of filter text keeps the forms it had (the filter forms are pinned apart from Evaluate, docs/probes-needed.md).
 fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_first: bool) -> Result<Parsed, Signal> {
@@ -990,6 +1008,12 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
         };
     }
     if month_first {
+        // Blanks before and after a date of three numbers split by `-`, `.` or `/`, or an ISO date, are dropped
+        // (types/lt-y71-evaluate-dmy2date/Y71EvaluateDashedDates.al:73-145: `01-01-2012 `, ` 01-01-2012 `, `11-11-12 `,
+        // `2012-01-31 `, `05.03.2024 `, ` 3/5/24 `, and the statement form with one or two trailing blanks).
+        if let Some(trimmed) = blank_padded_numeric_date(text) {
+            return date(trimmed, number, today, work, month_first);
+        }
         if let Some(r) = date_month_first(text, today) {
             return r;
         }

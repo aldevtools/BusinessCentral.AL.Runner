@@ -702,8 +702,15 @@ impl Session {
                 let Some(arg) = args.get(1) else {
                     return unsupported("IsolatedStorage.Set without a value");
                 };
-                let secret = al_builtins::native::text_of(arg).is_none();
-                let value = al_builtins::textfns::secret_or_text(arg)?;
+                // A Guid value is stored as its text `{XXXXXXXX-...}`, upper case with braces, and reads back into a Text
+                // or a SecretText (types/lt-y71-value-conversions/Y71ValueConversions.al:333-436).
+                let (secret, value) = match arg {
+                    Value::Guid(g) => (false, al_builtins::format::format_guid(g)),
+                    _ => (
+                        al_builtins::native::text_of(arg).is_none(),
+                        al_builtins::textfns::secret_or_text(arg)?,
+                    ),
+                };
                 if self.pages.bg_worker.is_some() {
                     // A worker runs read-only: a Set of a new key is refused as an Insert into table 2000000107
                     // (session/lt-cn-session-leads/CnIsolatedStorageLeads.al:104-117). A Set over an existing key and a

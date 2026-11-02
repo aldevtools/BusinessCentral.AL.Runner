@@ -1051,25 +1051,7 @@ impl Session {
             "SetLoadFields" | "AddLoadFields" | "AreFieldsLoaded" | "LoadFields" => {
                 self.recordref_load_fields(method, &rec, &t, args)
             }
-            // The fields are given by number; a read then calculates them as for a Record (record/TestSetAutoCalcFieldsOnGet.Codeunit.al:112-124
-            // RecordRef_SetAutoCalcFields_ThenGet_Calculates pins Get with one FlowField; the other reads share the Record rule).
-            "SetAutoCalcFields" => {
-                let mut positions = Vec::with_capacity(args.len());
-                for a in args.iter() {
-                    let Value::Integer(n) = a else {
-                        return unsupported(format!("RecordRef.SetAutoCalcFields with {}", a.describe()));
-                    };
-                    match t.fields.iter().position(|f| i64::from(f.id) == i64::from(*n)) {
-                        Some(p) => positions.push(p),
-                        None => return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error()))),
-                    }
-                }
-                self.flow_op(
-                    RecordOp::SetAutoCalcFields,
-                    &rec,
-                    &positions.iter().map(|&p| Value::Integer(p as i32)).collect::<Vec<_>>(),
-                )
-            }
+            "SetAutoCalcFields" => self.recordref_set_auto_calc_fields(&rec, &t, args),
             // Doc (RecordRef.Duplicate): a new ref with the same table, buffer and filters, independent of the original.
             "RecordId" => Ok(self.record_id(&rec, &t)),
             "LockTable" => {

@@ -5913,6 +5913,7 @@
 68960 PrecisionThatDoesNotDivideADay_AndOtherTypes
 68962 GetRecord_ExistingRow_HasOnlyThePrimaryKey
 68962 GetRecord_MissingRow_AndNullRecordId
+68962 GetRecord_SystemIdField_BeforeAndAfterLoading
 68970 Decrypt_OfPlainText_RaisesAnEncryptionError
 68970 Encryption_WithAKey_RoundTrips
 68970 VersionCreate_BadText_RaisesAnArgumentError
@@ -6705,6 +6706,9 @@
 69780 MovedFromMovedTo_TableExtensionFields_AreUsable
 69780 MovedFromMovedTo_Tables_AreUsable
 69789 Query_InherentPermissions_UnderTheMock
+69789 XmlPort_Export_OptionalAttributes
+69789 XmlPort_Import_MissingAndInvalid
+69789 XmlPort_Import_Occurrence_Validation_TextType
 69799 Pending_CodeunitInterfaceEnum_StillRun
 69799 Pending_PageAndControls_StillOpen
 69799 Pending_QueryReportXmlPort_StillRun
@@ -9687,6 +9691,7 @@
 71504 SetFilter_Integer_Whitespace_And_Case
 71504 SetFilter_Long_Filter_Strings
 71504 SetFilter_Replaces_Existing_And_Is_ANDed_Across_Fields
+71504 SetRange_DateTime_Millisecond_Bounds_BQ
 71505 CopyFilters_Marks_Not_Copied
 71505 CopyFilters_Whole_Record
 71505 FilterGroup_Filters_Combine_With_AND_Across_Groups
@@ -9863,6 +9868,8 @@
 71622 P102_ReadTextAfterInt
 71623 P102_MediaImportStreamPng
 71623 P102_MediaSetImportStream
+71624 P102_MediaFindOrphans
+71624 P102_MediaSetFindOrphans
 71626 P119_BlankZeroNumbers
 71626 P119_ClosingDates
 71626 P119_DecimalPlaces
@@ -9977,6 +9984,7 @@
 71727 Clear_SecretText
 71727 Clear_SingleArrayElementAndWhole
 71727 Clear_WholeArrays
+71729 LoadFields_OneAndSeveral
 71730 RemoveAttribute_ByObject
 71731 AddField_FieldRef_SameNameTwice
 71731 AddField_FieldRef_WithAndWithoutFilter
@@ -10624,7 +10632,9 @@
 72035 RecordRef_Miss_ResultUnused_OpenedRecordRef
 72035 Record_Hit_IgnoresFilters
 72035 Record_Hit_ResultUnused
+72035 Record_Miss_ResultUnused
 72035 Record_Miss_ResultUsed
+72035 Record_NullGuid
 72037 Assigned_FromEmptyTable_ForComparison
 72037 Unassigned_ReadMembersForReference
 72038 SetRequestUri_Relative
@@ -13253,8 +13263,12 @@
 74046 NP3_FormatRecordRef_StandardFormats_0And9
 74046 NP3_FormatRecord_StandardFormats_0And9
 74046 NP3_FormatRecord_Temporary_AndFlowField_0And9
+74046 P133_DMY2Date_DayOnly_And_DayMonth_RelativeToToday
+74046 P133_DMY2Date_DayOnly_FollowsWorkDateOrToday
+74046 P133_DMY2Date_ShortForms_Errors
 74046 P133_Evaluate_DecimalText_IntoBigIntegerAndDecimal
 74046 P133_Evaluate_DecimalText_IntoInteger
+74046 P133_FormatRecord_Defaults_EachFieldType
 74046 P133_FormatRecord_FilledFields
 74046 P133_FormatRecord_Temporary_AndCopies
 74062 P133_Query_CountColumnFilterZero_OverTheOuterItem
@@ -14212,6 +14226,17 @@
 74812 WriteFrom_Text_And_Headers
 74812 WriteFrom_Text_Repeated
 74812 WriteFrom_Text_Special
+74813 Cookie_And_HeaderInteraction
+74813 GetCookie_Missing_And_Case
+74813 RemoveCookie_Results
+74813 SetCookie_InvalidNamesAndValues
+74813 SetCookie_NoUri
+74813 SetCookie_WithUri
+74814 GetCookie_Cookie_IsCopy
+74814 SetCookie_Object
+74814 SetCookie_Object_NoUri
+74814 SetCookie_Object_Overwrites_NameValue
+74814 SetCookie_Object_Uninitialised
 74815 PlainUri_ThenSecretGetter
 74815 SecretUri_InvalidValues
 74815 SecretUri_Method_Unchanged
@@ -19080,6 +19105,8 @@
 92920 FK_Zz_InsertedRowsInALaterTest
 92928 TM_DeleteRowOfHeldMedia
 92928 TM_RowOfFourArgImport
+92931 FO_HeldNotOrphans_FieldVariants
+92931 FO_TemporaryHolder
 92940 BlobCmp_FieldRef_BothEmpty
 92940 BlobCmp_FieldRef_CopyInVariable
 92940 BlobCmp_FieldRef_DifferentRows
