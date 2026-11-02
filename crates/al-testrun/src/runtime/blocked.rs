@@ -1,5 +1,5 @@
 //! What a test cannot run for: install codeunits, tables a test touches, blocked routines.
-use super::written::{ReachIndex, unfinished_reach_facts};
+use super::written::{ReachIndex, report_that_cannot_run};
 use super::*;
 
 /// Runs the install code of the apps under test (`install.rs`, ADR-046 step A): per app, in dependency order, its
@@ -202,12 +202,10 @@ pub(crate) fn refusal_after_denial(
         return None;
     }
     let index = reach_index.get_or_insert_with(|| engine.derived(|| ReachIndex::new(&engine.events, lowered)));
-    // Only a report the runtime refuses counts. Any other part the walk cannot follow (a routine the demand-driven compile
-    // skipped, such as Forward Link Mgt..OnLoadHelpArticleCodes in Y24_P14_ReadShapesWithRows) is not a reason to refuse a
-    // read that real BC denies: that test ran and passed before stage 2.
-    unfinished_reach_facts(&engine.events, lowered, index, object, r)
-        .unknown
-        .filter(|why| why.contains("which cannot run"))
+    // Only a report the runtime refuses counts. Any other unknown part of the reach (a routine of a dependency app that no code
+    // reached while compiling) does not say that a report is coming: refusing the first denied read for it left the shared state
+    // of Y24PermReads.al half written and made its later tests untrusted.
+    report_that_cannot_run(&engine.events, lowered, index, object, r)
 }
 
 /// Whether routine `r` of object `o` is the OnAction trigger of an action of a page or page extension.
