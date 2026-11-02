@@ -10811,12 +10811,14 @@
 72131 P121_RequestPage
 72134 P121_RequestPage
 72138 P121_Export
+72144 P121_ExportImport
 72146 P121_ExportImport
 72148 BP_Import_xRecInOnValidate
 72148 P121_Import
 72150 P121_Import
 72152 P121_Export
 72152 P121_Import
+72162 P121_Export
 72168 P121_Export
 72170 P121_Export
 72170 P121_Import
@@ -12281,6 +12283,7 @@
 73500 Export_TextAndAttributeElements
 73500 Export_ThreeRows
 73500 Export_Twice
+73501 Export_InstanceNoDestination
 73501 Import_AfterExportRoundTrip
 73501 Import_AttributeOnItem
 73501 Import_AttributeOnRootIgnored
@@ -12332,6 +12335,8 @@
 73501 Import_WithProlog
 73501 Import_WrongRootName
 73502 Export_OnlyDirectionExportImportFails
+73502 Export_PreserveWhitespace
+73502 Export_PreserveWhitespace_Utf16
 73502 Import_AttributeEscaped
 73502 Import_AttributeOrderSwapped
 73502 Import_AttributeSingleQuotes
@@ -12360,6 +12365,8 @@
 73502 Import_TextElementEmpty
 73502 Import_TextElementsAndAttributes
 73502 Import_TextElementsMissingAttribute
+73503 Export_DefaultNamespace
+73503 Export_DefaultNamespace_Utf16
 73503 Export_PrefixedNamespace
 73503 Export_PrefixedNamespace_Utf16
 73503 Import_DefaultNsMatching
@@ -15609,6 +15616,9 @@
 81086 BdInlineSchema_FieldTypesEmptyValues
 81086 BdInlineSchema_NoRows
 81086 BdInlineSchema_NoRowsAttributes
+81086 BdUseLax_OtherNamespaceMidSequence
+81086 BdUseLax_UnknownElementMidSequence
+81086 BdXmlVersionNo_V11_ImportOtherDeclarations
 81086 SqUseDefaultNamespace_NoDefaultNamespace
 81160 SetValue_FCompat_IntLiterals_FromBeta
 81160 SetValue_FCompat_IntLiterals_FromBlank
