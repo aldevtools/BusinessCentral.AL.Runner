@@ -721,10 +721,10 @@ separate findings.
 - Still copy-in and copy-out: no callback protocol, so item 4 stands. Additive: a new `DotNetValue` variant and an optional field
   on an existing wire tag; the protocol version is 4 (host and sidecar change together).
 
-## Amendment 2026-11-02 (Proposed): reuse a sidecar across test codeunits after a reset or recycle
+## Amendment 2026-11-02 (Accepted): reuse a sidecar across test codeunits after a reset or recycle
 
 Replaces the rule "a new Session means a new process" (section 6) for sessions that only touched the .NET shared
-framework. Nothing else in sections 1 to 13 changes. Status: Proposed; the owner decides.
+framework. Nothing else in sections 1 to 13 changes. Status: Accepted (by the project owner, 2026-11-02). Reuse stays off until a differential run shows zero outcome differences.
 
 ### Why
 
@@ -815,9 +815,6 @@ proposed: a collectible `AssemblyLoadContext` per session. It would unload test 
 shared framework, and it changes how types resolve (section 3), so it is a larger seam change for the same
 remaining risk.
 
-### Owner decision needed
+### Owner decision
 
-Accept layers 1 to 3 as written, with reuse off by default until the differential and the count of reusable sessions
-are shown. If the count shows that most sessions load Microsoft add-ins, the amendment is withdrawn and the
-instructions of the 53 starts are handled by ReadyToRun publishing of the sidecar (a build change; perf-1101) or by
-changing what the perf meter counts.
+Accepted as written (project owner, 2026-11-02). Reuse stays off until a differential run shows zero outcome differences. If the count of reusable sessions shows that most sessions load Microsoft add-ins, the amendment is withdrawn and the 53 starts are handled by ReadyToRun publishing of the sidecar (a build change; perf-1101) or by changing what the perf meter counts.
