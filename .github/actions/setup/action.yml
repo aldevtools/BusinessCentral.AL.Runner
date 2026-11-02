@@ -50,5 +50,6 @@ runs:
         dotnet-version: 8.0.x
     - name: Build the .NET sidecar
       shell: bash
-      # No build servers: a VBCSCompiler left running keeps the job's file descriptors open.
-      run: dotnet publish tools/dotnet-sidecar -c Release -o target/dotnet-sidecar --disable-build-servers -p:UseSharedCompilation=false
+      # No build servers: a VBCSCompiler left running keeps the job's file descriptors open. ReadyToRun: each of the
+      # run's sidecar processes starts without JIT-compiling the helper's own code (the csproj's AlReadyToRun).
+      run: dotnet publish tools/dotnet-sidecar -c Release -o target/dotnet-sidecar --disable-build-servers -p:UseSharedCompilation=false -p:AlReadyToRun=true

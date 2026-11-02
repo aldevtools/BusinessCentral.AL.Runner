@@ -1,5 +1,6 @@
 //! Type inference for expressions and the diagnostics that hang off it.
 use super::*;
+use al_syntax::ast::NodeText;
 
 impl<'a> Checker<'a> {
     /// AL0122 for an enum assigned to an enum of another type whose TARGET does not state
@@ -475,7 +476,7 @@ impl<'a> Checker<'a> {
         if matches!(base, Ty::Object(ObjKind::Report, _))
             && name.eq_ignore_ascii_case("RequestOptionsPage")
             && recv.kind() == SyntaxKind::NameRef
-            && recv.text().to_string().trim().eq_ignore_ascii_case("CurrReport")
+            && recv.text_string().trim().eq_ignore_ascii_case("CurrReport")
             && self.ws.objects[sc.oi].kind == ObjKind::Report
             && !in_request_page(node)
         {
@@ -1764,7 +1765,7 @@ impl<'a> Checker<'a> {
         let (Some(base), Some(_)) = (kids.next(), kids.next()) else {
             return;
         };
-        let kind = match base.text().to_string().trim().to_ascii_lowercase().as_str() {
+        let kind = match base.text_string().trim().to_ascii_lowercase().as_str() {
             "page" => ObjKind::Page,
             "report" => ObjKind::Report,
             "xmlport" => ObjKind::XmlPort,
@@ -1782,7 +1783,7 @@ impl<'a> Checker<'a> {
             .text()
             .to_string()
             .trim()
-            .eq_ignore_ascii_case(base.text().to_string().trim())
+            .eq_ignore_ascii_case(base.text_string().trim())
         {
             return;
         }

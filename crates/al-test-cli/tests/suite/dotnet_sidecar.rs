@@ -1220,3 +1220,19 @@ fn an_open_generic_type_is_constructed_closed_over_object() {
     let n = sess.get_property(DotNetTarget::Instance(d), "Count").unwrap();
     assert_eq!(n.value, DotNetValue::Int32(2));
 }
+
+/// The helper built from `tools/dotnet-sidecar` is ReadyToRun (the csproj's `AlReadyToRun`): every DotNet session starts
+/// a sidecar process, which would otherwise JIT-compile the dispatch code each time (about 1 % of a full BC 29 run's
+/// instructions). A ReadyToRun image carries the `RTR` signature of its ReadyToRun header; a JIT-only build does not.
+/// The ReadyToRun packs come from NuGet: a machine without access to them gets the plain build, and this test fails there.
+#[test]
+fn the_sidecar_built_from_source_is_ready_to_run() {
+    let Some(h) = host() else { return };
+    let dll = h.sidecar_path().expect("the host resolved its sidecar");
+    let bytes = std::fs::read(&dll).unwrap();
+    assert!(
+        bytes.windows(4).any(|w| w == b"RTR\0"),
+        "{} is not a ReadyToRun image",
+        dll.display()
+    );
+}
