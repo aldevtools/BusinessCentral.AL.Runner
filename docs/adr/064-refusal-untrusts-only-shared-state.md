@@ -14,14 +14,14 @@ What the runner does today (ADR-043, "untrusted-failure-2" and "untrusted-failur
 
 - It keeps a list of unfinished tests per codeunit (`al-testrun/src/runtime/run.rs:571-577`: refused before it started,
   refused while it ran, failed).
-- It checks only a later **failure** (and a later time-out), at `run.rs:1009-1056`. If an unfinished test's static
+- It checks only a later **failure** (and a later time-out), at `run.rs:982-1056`. If an unfinished test's static
   reach can change what the failing test reads, the failure becomes "not run" with the reason "this failure is not
   trusted". The check is `ReachFacts::changes_read_by` (`al-testrun/src/runtime/written.rs:149-211`). It compares
   writes of the unfinished test with reads of the later test: session-state bits, globals of codeunits, and tables
   (not under Function isolation).
 - A later **pass** is never checked. It stays a clean pass.
 - If any part of the unfinished test's reach is unknown (a refused routine, a run by an id known only at run time),
-  the check answers "may change anything" without looking at the later test (`written.rs:155-159`).
+  the check answers "may change anything" without looking at the later test (`written.rs:158-162`).
 
 So the rule the owner wants ("a refusal untrusts only later tests whose reads meet the refused test's writes") is
 already built for failures. This ADR records it as the rule, names what is still open, and proposes two changes.
@@ -127,7 +127,7 @@ fails. How the rule prevents it:
 ### 6. Cost
 
 The reach of a passing test is walked only when the codeunit has an unfinished test. A walk is about 150 ms with
-Microsoft's apps (comment at `run.rs:1005`); the summaries are cached per routine (`ReachIndex`). 10 824 passing
+Microsoft's apps (comment at `run.rs:993`); the summaries are cached per routine (`ReachIndex`). 10 824 passing
 tests follow a not-run test, so the worst case adds the walks of up to 10 824 tests, bounded by the number of distinct
 test routines and by the cache. Perf budgets are over their limit today (perf handoffs of 2026-11-01 and 2026-11-02):
 this cost must be measured on the full run before the pass flag is on by default. The failure side adds nothing.
