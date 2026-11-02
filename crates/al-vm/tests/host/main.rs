@@ -12,6 +12,7 @@ mod http_cert_validation;
 mod http_content_get_headers;
 mod http_headers;
 mod http_request_cookies;
+mod instream_read_char;
 mod key_vault;
 mod last_error_object;
 mod media;

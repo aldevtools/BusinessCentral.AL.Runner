@@ -521,6 +521,33 @@ impl<'a> Checker<'a> {
         );
     }
 
+    /// AL0122 for `C := currXMLport.FieldSeparator` into a Char: the separator and delimiter methods return a Text when read back
+    /// (catalog `Xmlport.FieldSeparator ... -> Text`; corpus must-not-compile 2652-xmlport-separator-read-into-char.al).
+    pub(crate) fn al_xmlport_separator_into_char(&mut self, sc: &Scope, rhs: &SyntaxNode, target: &Ty) {
+        if self.ws.is_dependency(sc.oi) || !matches!(target, Ty::Char) || rhs.kind() != SyntaxKind::MemberExpr {
+            return;
+        }
+        let Some(recv) = rhs.children().next().filter(|c| c.kind() == SyntaxKind::NameRef) else {
+            return;
+        };
+        if !name_of(&recv).eq_ignore_ascii_case("currXMLport") {
+            return;
+        }
+        let member = rhs.children().nth(1).map(|m| name_of(&m).to_ascii_lowercase());
+        if !matches!(
+            member.as_deref(),
+            Some("fieldseparator" | "fielddelimiter" | "recordseparator" | "tableseparator")
+        ) {
+            return;
+        }
+        self.diag(
+            sc,
+            rhs,
+            "AL0122",
+            "Cannot implicitly convert type 'Text' to 'Char'".to_string(),
+        );
+    }
+
     /// AL0132 for a method an XmlPort variable does not have (corpus must-not-compile 2643-xmlport-variable-userequestpage.al:
     /// `UseRequestPage` is a property of the XmlPort). The catalog lists the methods of the XmlPort data type; a name it has in no
     /// version, no procedure of the XmlPort and no element or variable of it is judged.

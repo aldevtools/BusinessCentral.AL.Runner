@@ -1521,6 +1521,40 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         });
         return Ok(Value::Integer(0));
     }
+    // A Char: the default and MS-DOS encodings read one byte through the Byte to Char table, Windows reads it as it is, and UTF-8 and
+    // UTF-16 read two bytes as one little-endian code unit, one byte left being read as 1 with the Char 0 (xmlport/lt-ay-xmlport/
+    // AyXmlPortAttributeWidth.al:295-420 ReadChar_*).
+    if let Value::Char(_) = a[0] {
+        let (ch, count) = with_in(r, |s| {
+            let pos = s.pos;
+            let unit = matches!(s.enc, Encoding::Utf8 | Encoding::Utf16);
+            let got = s.with_data(|d| {
+                d.get(pos..d.len().min(pos + if unit { 2 } else { 1 }))
+                    .map(<[u8]>::to_vec)
+            });
+            let got = got.unwrap_or_default();
+            // Nothing left after an earlier read hit the end: the stream data error of every other type (StTStreams.al:235 ReadPastEnd).
+            if got.is_empty() {
+                return Err(Signal::Error(Box::new(crate::native::AlError {
+                    message: "Invalid data encountered in stream, unable to read text.".into(),
+                    code: "InvalidStreamData".into(),
+                    call_stack: String::new(),
+                    ..Default::default()
+                })));
+            }
+            s.pos += got.len();
+            let ch = match (s.enc, got.as_slice()) {
+                (Encoding::Utf8 | Encoding::Utf16, [lo, hi]) => u16::from_le_bytes([*lo, *hi]),
+                (Encoding::Utf8 | Encoding::Utf16, _) => 0,
+                (Encoding::Windows, [b]) => u16::from(*b),
+                (_, [b]) => crate::conv::byte_char::byte_to_char(*b),
+                _ => 0,
+            };
+            Ok((ch, got.len()))
+        })?;
+        a[0] = Value::Char(ch);
+        return Ok(Value::Integer(count as i32));
+    }
     let bytes = with_in(r, |s| {
         let pos = s.pos;
         // Fewer bytes than the type needs, also none at all: the stream data error (streams/TestProbeStreamContracts.al:

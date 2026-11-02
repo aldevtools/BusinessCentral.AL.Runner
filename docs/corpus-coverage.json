@@ -27716,7 +27716,7 @@
         "pinned": true,
         "scope": "",
         "sig": "([Text])",
-        "site": "platform/lt-xmlport-session-navapp-cookie/P94Fixtures.al:353",
+        "site": "must-not-compile/cases/2652-xmlport-separator-read-into-char.al:30",
         "state": "implemented",
         "type": "Xmlport"
       },
@@ -38999,7 +38999,7 @@
           "id": "Xmlport.FieldSeparator#1",
           "pinned": true,
           "signature": "Xmlport.FieldSeparator inst (?Separator: Text) -> Text?",
-          "site": "platform/lt-xmlport-session-navapp-cookie/P94Fixtures.al:353"
+          "site": "must-not-compile/cases/2652-xmlport-separator-read-into-char.al:30"
         },
         {
           "id": "Xmlport.Filename#1",

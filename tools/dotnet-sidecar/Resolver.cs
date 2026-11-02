@@ -17,6 +17,16 @@ public sealed class Resolver
 
     readonly List<Dir> dirs = new();
     readonly Dictionary<string, Type> types = new();
+    // The types the session named, for the check at its end (`SessionGuard`).
+    readonly HashSet<Type> used = new();
+
+    /// The types named since the last call.
+    public List<Type> TakeUsed()
+    {
+        var l = used.ToList();
+        used.Clear();
+        return l;
+    }
     [ThreadStatic] static bool readingVersion;
 
     public Resolver()
@@ -67,7 +77,7 @@ public sealed class Resolver
     public Type ResolveType(string assembly, string? version, string? culture, string? token, string name)
     {
         string key = assembly + "|" + name;
-        if (types.TryGetValue(key, out var cached)) return cached;
+        if (types.TryGetValue(key, out var cached)) { used.Add(cached); return cached; }
         Type? t = null;
         Exception? loadError = null;
         try
@@ -100,6 +110,7 @@ public sealed class Resolver
                 ? $"assembly '{assembly}' could not be loaded: {loadError.Message}"
                 : $"type '{name}' not found in assembly '{assembly}'");
         types[key] = t;
+        used.Add(t);
         return t;
     }
 
@@ -107,11 +118,11 @@ public sealed class Resolver
     public Type ResolveLoaded(string name)
     {
         var t = Type.GetType(name, false);
-        if (t != null) return t;
+        if (t != null) { used.Add(t); return t; }
         foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
         {
             t = a.GetType(name, false);
-            if (t != null) return t;
+            if (t != null) { used.Add(t); return t; }
         }
         throw new Refusal($"type '{name}' is not loaded");
     }

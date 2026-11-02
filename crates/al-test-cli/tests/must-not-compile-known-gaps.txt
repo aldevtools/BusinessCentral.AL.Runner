@@ -341,17 +341,14 @@
 27 2620-obsolete-on-xmlport-schema-elements
 27 2621-obsolete-on-query-dataitem
 27 2627-pageext-modify-implicit-promoted-caption
-27 2652-xmlport-separator-read-into-char
 28 2610-cloud-azure-key-vault-onprem-scope
 28 2620-obsolete-on-xmlport-schema-elements
 28 2621-obsolete-on-query-dataitem
 28 2627-pageext-modify-implicit-promoted-caption
-28 2652-xmlport-separator-read-into-char
 29 2610-cloud-azure-key-vault-onprem-scope
 29 2620-obsolete-on-xmlport-schema-elements
 29 2621-obsolete-on-query-dataitem
 29 2627-pageext-modify-implicit-promoted-caption
-29 2652-xmlport-separator-read-into-char
 # corpus bump to master 34ca226f (writer Y66): break/quit/skip and UseRequestPage on an XmlPort variable
 # corpus bump to master 48433dfe (writer Y24, permissions lane): the Permissions property of an object takes only tabledata entries (AL0104)
 27 2360-permissions-property-codeunit-execute
