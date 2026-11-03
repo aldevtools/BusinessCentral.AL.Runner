@@ -861,6 +861,7 @@ impl<T: Send + 'static> Drop for Retiring<T> {
     }
 }
 
+mod apply_manifests;
 mod blocked;
 mod cache;
 mod compiled;
