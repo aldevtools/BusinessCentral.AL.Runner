@@ -16,7 +16,7 @@
 //!   even when `GetGlobalTableTriggerMask` answers 15; `OnGlobalRename` is (:125-165).
 //!
 //! What it does not pin, and so is an assumption (docs/probes-needed.md): that a mask bit of 8
-//! is the one for Rename (the corpus answers 15, every bit); that the setup is asked once per table
+//! is the one for Rename (the corpus answers 15, every bit; the bits 16 to 128 alone raise nothing); that the setup is asked once per table
 //! and session (AL Runner reads that in BC's `GetTriggersOnTable`); that `Insert(false)` and the
 //! other `RunTrigger = false` writes raise the database events too.
 
@@ -102,14 +102,18 @@ impl Session {
                     return unsupported(format!("Global Triggers: mask {}", other.describe()));
                 }
             };
-            if mask != 0 && mask != MASK_ALL {
+            // The bits 16, 32, 64 and 128 raise nothing (install/lt-y79-install-unrelated/Y79InstallUnrelated.al:345-347,
+            // :420-431: tables whose subscriber adds one of them); of the low four only 0 and 15 are pinned.
+            let low = mask & MASK_ALL;
+            let high = mask & !MASK_ALL;
+            if (low != 0 && low != MASK_ALL) || !matches!(high, 0 | 16 | 32 | 64 | 128) {
                 self.events.global_setups.remove(&table);
                 return unsupported(format!(
-                    "Global Triggers: table trigger mask {mask} for {} (only 0 and 15 are pinned; which bit is Rename is not)",
+                    "Global Triggers: table trigger mask {mask} for {} (the bits 16 to 128 alone and the low four together, 0 or 15, are pinned; which of the low bits is Rename is not)",
                     t.name
                 ));
             }
-            setup.global_rename = mask & MASK_RENAME != 0;
+            setup.global_rename = low & MASK_RENAME != 0;
         }
         // With no company open (the per-database part of an install), BC does not ask for the database trigger setup: a
         // write there raises no database event (corpus branch al-runtime-rs-staging-ug eff7eb2a,

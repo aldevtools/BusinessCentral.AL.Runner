@@ -817,22 +817,7 @@ impl CorpusRuntime {
             }
         }
         // Nothing else holds the program yet, so this does not copy it.
-        for (app, m) in std::sync::Arc::make_mut(&mut lowered.program)
-            .apps
-            .iter_mut()
-            .zip(manifests)
-        {
-            app.publisher = m.publisher.clone();
-            app.version = m.version.clone();
-            app.resources = m.resources.clone();
-            app.include_source = m.include_source;
-            app.target = (!m.target.is_empty()).then(|| m.target.clone());
-            app.logo = m.logo.clone();
-            app.description = m.description.clone();
-            app.layout_files = m.layout_files.clone();
-            app.translations = m.translations;
-            app.translation_files = m.translation_files.clone();
-        }
+        super::apply_manifests::apply(&mut lowered.program, manifests, &opts.layout_sources);
         // The source lines of an app that includes its source in the symbols (the Code Coverage `Line`).
         {
             let program = std::sync::Arc::make_mut(&mut lowered.program);

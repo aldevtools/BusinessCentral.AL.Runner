@@ -1121,12 +1121,21 @@ impl Session {
                 let mut shown: Option<String> = None;
                 let mut never_equal = false;
                 let mut byte_unpinned = false;
+                let mut text_number_equal = false;
                 match (&current, want) {
                     (Value::Integer(_), Value::Enum(id, o)) => {
                         if let Some(why) = self.enum_caption_refusal(*id, Some(*o)) {
                             return unsupported(why);
                         }
                         shown = Some(al_builtins::format::FormatCtx::enum_name(self, *id, *o))
+                    }
+                    // An Enum against a Text field is never equal and is written as its member (:229-231, Knd_result No, 'Two').
+                    (Value::Text(_) | Value::Code(_), Value::Enum(id, o)) => {
+                        if let Some(why) = self.enum_caption_refusal(*id, Some(*o)) {
+                            return unsupported(why);
+                        }
+                        shown = Some(al_builtins::format::FormatCtx::enum_name(self, *id, *o));
+                        never_equal = true;
                     }
                     (Value::Text(_) | Value::Code(_), Value::Guid(g)) => {
                         let braced = al_builtins::format::format_guid(g);
@@ -1153,19 +1162,48 @@ impl Session {
                         200 => shown = Some("\u{02DC}".to_string()),
                         _ => byte_unpinned = true,
                     },
+                    // A number against a Text or Code field is equal when the field's text reads as that number
+                    // (record/lt-testfield-typed-values/FieldRefTestFieldMismatchedType.al:206-211 and :223,
+                    // P189_FldRefMismatch_OnTextField: Big, Dec and Int 5 against '5' are Yes). The number is not converted to the
+                    // field's type (a number into a Text is a type-conversion error). A number that is not equal has no pinned
+                    // message, so it is refused below.
+                    (Value::Text(_) | Value::Code(_), Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_)) => {
+                        text_number_equal = ops::convert(current.clone(), &RtType::Decimal)
+                            .ok()
+                            .and_then(|d| ops::compare(&d, want).ok())
+                            == Some(Ordering::Equal);
+                        if !text_number_equal {
+                            return unsupported(
+                                "TestField of a number against a Text field that holds another value (message not pinned)",
+                            );
+                        }
+                    }
+                    // A Boolean true against a Text field holding '5' is equal (:219, P189_FldRefMismatch_OnTextField Bool_result Yes).
+                    // Why is not known (BC does not convert '5' to a Boolean), so only that value is implemented; any other text is
+                    // refused.
+                    (Value::Text(t) | Value::Code(t), Value::Boolean(b)) => {
+                        if !(*b && t.as_ref() == "5") {
+                            return unsupported(
+                                "TestField of a Boolean against a Text field (only true against '5' is pinned)",
+                            );
+                        }
+                        text_number_equal = true;
+                    }
                     (Value::Guid(_), Value::Guid(_)) => {}
                     (_, Value::Guid(_)) => {
                         return unsupported("TestField against a Guid on a field that is not Text (not pinned)");
                     }
                     _ => {}
                 }
-                let want = if text_pair || number_pair || never_equal {
+                let want = if text_pair || number_pair || never_equal || text_number_equal {
                     want.clone()
                 } else {
                     ops::convert(want.clone(), &t.fields[pos].ty)?
                 };
                 let equal = if never_equal {
                     false
+                } else if text_number_equal {
+                    true
                 } else if text_pair {
                     // Exact, case and trailing blanks included; a Code field reads the value as Code does upper-cased
                     // (P96Text.al: `cd_lower` is equal, `cd_trailing_blank` and `txt_case` are not).
