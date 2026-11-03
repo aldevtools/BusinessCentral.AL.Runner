@@ -196,7 +196,10 @@ pub enum Gate {
     /// (platform/lt-y35-agent-api/Y35AgentApi.al:39, a dependency app's source). From BC 29 the "not set up" error of the Key
     /// Vault client has the code `DotNetInvoke:InvalidOperation`, `DotNetInvoke:` before (al-language-onprem-dotnet/
     /// lt-y58-key-vault/Y58AzureKeyVault.al:71, corpus master 7330f181, not pinned yet; consumed by al-vm dotnet/key_vault.rs;
-    /// its evidence row is added when the corpus pin holds the file).
+    /// its evidence row is added when the corpus pin holds the file). The texts of the format regions en-GB, da-DK, nl-NL, es-ES,
+    /// sv-SE and nb-NO (a one-digit day, a Time, an hour below 10, a negative amount, the long date) are asserted from BC 29 only;
+    /// BC 27 and 28 hold `Observer.Discard()` (report/lt-bd-format-region/BdRegionTests.al:143-398; consumed by al-builtins
+    /// format/region.rs).
     ProbedValuesDifferFrom29,
     /// `Base64Convert.ToBase64` of a Text with `TextEncoding::Windows` or `MSDos` and no code page gives the code page 1252
     /// bytes from BC 28 (`äöü` is `5Pb8`); before, the UTF-8 bytes (`w6TDtsO8`) (types/PVBase64.al, corpus bump 13).
@@ -1142,6 +1145,10 @@ pub fn platform_table_scopes_known(bc_major: Option<u32>) -> bool {
 
 /// The evidence of [`Gate::ProbedValuesDifferFrom28`], out of `Gate::evidence` to keep that function short.
 const PROBED_VALUES_DIFFER_FROM_29: &[Evidence] = &[
+    Evidence {
+        file: "report/lt-bd-format-region/BdRegionTests.al",
+        lines: "143,235,279,340,367,394",
+    },
     Evidence {
         file: "pages/lt-y65-cue-visible/Y65CueVisible.al",
         lines: "314",

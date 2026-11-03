@@ -543,6 +543,11 @@ impl Dataset {
     }
 
     /// Where the rows of a data item about to run will start (`item_done`).
+    /// Whether no data item has been opened yet, so that a region set now is the region of every item and column.
+    pub(crate) fn nothing_written(&self) -> bool {
+        self.body.is_empty() && self.rows == 0 && self.open.is_empty()
+    }
+
     pub(crate) fn mark(&self) -> usize {
         self.flat.len()
     }
@@ -782,7 +787,7 @@ impl Dataset {
         }
         let mut out = String::new();
         // The header names the run's language and region as the data items do (report/lt-bd-format-region/BdRegionTests.al:809,
-        // :928 for a trigger's setter; the property's region never gets here, `dataset_header`).
+        // :928 for a trigger's setter, :120-415 for the property).
         header.write(
             &mut out,
             self.language.as_deref().unwrap_or(LANGUAGE),
