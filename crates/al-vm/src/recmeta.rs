@@ -971,10 +971,9 @@ impl Session {
                         "Argument",
                     ));
                 }
-                d.fields = s.fields;
-                // The row version the buffer got comes over with it, and where it came from (record/lt-sb-stale-own-modify/
+                // The row version the buffer got comes over with the fields, and where it came from (record/lt-sb-stale-own-modify/
                 // Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, `copy/*`).
-                d.row_origin = s.row_origin;
+                (d.fields, d.row_origin) = (s.fields, s.row_origin);
                 d.filters = s.filters;
                 d.filter_group = s.filter_group;
                 d.key = s.key;

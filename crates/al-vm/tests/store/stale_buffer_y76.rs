@@ -255,17 +255,12 @@ fn a_stale_own_insert_buffer_is_written_beside_a_delete_a_rename_or_another_tabl
     }
 }
 
-// Not pinned: a Rename at three Commits and an Insert into another table at one Commit for a buffer without an own Modify.
+// Not pinned: a Rename at three Commits for a buffer without an own Modify.
 #[test]
 fn the_unmeasured_own_insert_shapes_are_refused() {
-    for (commits, beside) in [(3, "rename")] {
-        let src = format!(
-            "{SRC}\ncodeunit 69962 Caller {{ procedure Go(): Text var C: Codeunit C; begin exit(C.Part2(false, {commits}, '{beside}')); end; }}"
-        );
-        let r = al_testkit::run_in(&src, "Caller", "Go");
-        assert!(
-            matches!(r, Err(al_builtins::native::Signal::Unsupported(_))),
-            "{commits}/{beside}: {r:?}"
-        );
-    }
+    let src = format!(
+        "{SRC}\ncodeunit 69962 Caller {{ procedure Go(): Text var C: Codeunit C; begin exit(C.Part2(false, 3, 'rename')); end; }}"
+    );
+    let r = al_testkit::run_in(&src, "Caller", "Go");
+    assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
 }
