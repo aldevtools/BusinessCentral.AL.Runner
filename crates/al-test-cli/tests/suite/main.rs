@@ -122,6 +122,7 @@ mod report_run_system_printer_true;
 mod reportext_request_page_procs;
 mod reportext_request_page_run;
 mod reportext_xapp_order;
+mod request_caption_on_init;
 mod request_view_stale_address;
 mod requestpage;
 mod requestpage_close_and_parameters;

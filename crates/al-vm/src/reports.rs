@@ -1601,7 +1601,7 @@ impl Session {
         inst.borrow_mut().exts.clear();
         self.report
             .request_captions
-            .retain(|(w, _)| w.upgrade().is_some_and(|i| !Rc::ptr_eq(&i, inst)));
+            .retain(|(w, ..)| w.upgrade().is_some_and(|i| !Rc::ptr_eq(&i, inst)));
     }
 
     // ------------------------------------------------------------------ table views
@@ -3979,6 +3979,22 @@ impl Session {
             .zip(&self.call_stack)
             .any(|(&o, f)| o == object && !f.event && f.routine == on_open)
             .then_some(st)
+    }
+
+    /// Whether the request page's own OnInit of the report `inst` is on the call stack.
+    fn request_page_in_on_init(&self, inst: &Inst) -> bool {
+        let object = inst.borrow().object as usize;
+        let engine = self.engine.clone();
+        let Some(page) = engine.program.objects[object].page.as_ref() else {
+            return false;
+        };
+        let Some(on_init) = page.triggers.iter().find(|(n, _)| n == "oninit").map(|(_, r)| *r) else {
+            return false;
+        };
+        self.frames
+            .iter()
+            .zip(&self.call_stack)
+            .any(|(&o, f)| o == object && !f.event && f.routine == on_init)
     }
 
     pub(crate) fn request_page_update(&mut self, args: &[Value]) -> Result<Value, Signal> {

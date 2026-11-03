@@ -323,6 +323,7 @@ impl Session {
         else {
             return unsupported("a request page without a handler");
         };
+        self.request_page_takes_init_caption(inst, &st);
         self.ui_state.page_handler_depth += 1;
         // The handler of a `RunRequestPage` finds no transaction, while the page's own triggers write as ever
         // (report/TestProbeReportContracts.al:RequestPage_TableWriteInsideHandler; handlers/TestReportInstanceRunReqPage.al
