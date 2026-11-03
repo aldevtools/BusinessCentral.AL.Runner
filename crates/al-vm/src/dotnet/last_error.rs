@@ -204,7 +204,8 @@ pub(crate) fn exception_text(session: &Session, this: &Rc<DotNetObject>) -> Resu
         && name != "OnRun"
         && !is_try_function(session, id, name)
     {
-        out.push_str("\n   at Microsoft.Dynamics.Nav.Runtime.NavMethodScope.AssertErrorAsync");
+        // Only the name is pinned (a substring check); the namespace before it is not, so none is written.
+        out.push_str("\n   at NavMethodScope.AssertErrorAsync");
     }
     for f in frames {
         out.push_str("\n   at ");
