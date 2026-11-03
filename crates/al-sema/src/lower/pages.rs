@@ -46,7 +46,7 @@ impl Lowerer<'_> {
                     };
                     std::rc::Rc::new(Owner {
                         object,
-                        names: crate::pages::global_names(&obj),
+                        names: owner_names(&obj, o.is_some()),
                         base: usize::from(obj.syntax().text_range().start()),
                         obj,
                         routines: std::cell::OnceCell::new(),
@@ -806,4 +806,18 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         bare_quoted_ext_source: false,
         factbox: false,
     }
+}
+
+/// The variable names a control's source of this owner can name: its globals, and for an extension the variables of its request
+/// page too (corpus report/lt-y80-reportext-request-page/Y80ReportExtRequestPage.al, `ExtNum`).
+fn owner_names(obj: &ast::Object, is_extension: bool) -> std::collections::BTreeSet<String> {
+    let mut names = crate::pages::global_names(obj);
+    if is_extension {
+        names.extend(
+            obj.request_page_var_decls()
+                .flat_map(|v| v.names())
+                .map(|n| n.to_lowercase()),
+        );
+    }
+    names
 }

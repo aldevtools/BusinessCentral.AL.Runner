@@ -306,7 +306,7 @@ impl Session {
             s.row_prop_vars = Vec::new();
             s.agcr_after_new = false;
             s.part_accessed = false;
-            (s.new_host_part_rows, s.host_stored_blank_key, s.blank_key_edit_reread) = (false, false, false);
+            reset_host_row_flags(&mut s);
             s.expanded = Vec::new();
             s.tree_shown = Vec::new();
             // A caption assigned to the variable before its first run stays.
@@ -1464,4 +1464,12 @@ impl Session {
         st.borrow_mut().opened_on_moved_rec = list;
         Ok(())
     }
+}
+
+/// The flags a new host row, a first part access and New() on a request page set; a page that runs again starts without them.
+fn reset_host_row_flags(s: &mut al_builtins::value::PageState) {
+    s.new_host_part_rows = false;
+    s.host_stored_blank_key = false;
+    s.blank_key_edit_reread = false;
+    s.request_new_blank = false;
 }
