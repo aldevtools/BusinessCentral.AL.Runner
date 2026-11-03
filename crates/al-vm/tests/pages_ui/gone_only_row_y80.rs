@@ -163,7 +163,11 @@ fn first_on_the_blank_line_of_a_list_that_lost_its_only_row_raises_nothing() {
 #[test]
 fn next_and_previous_on_that_blank_line_answer_no_and_raise_nothing() {
     for routine in ["AllEditNext", "AllEditPrevious"] {
-        assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", routine)), "No||0", "{routine}");
+        assert_eq!(
+            al_testkit::text(al_testkit::run_in(SRC, "C", routine)),
+            "No||0",
+            "{routine}"
+        );
     }
 }
 
