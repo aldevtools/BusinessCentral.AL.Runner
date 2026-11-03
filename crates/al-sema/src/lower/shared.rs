@@ -1286,13 +1286,13 @@ fn object_properties(obj: &ast::Object, request_section: Option<&ast::Section>) 
 /// object's text, so a mention in a comment refuses too: only a restricted session is affected.
 pub(crate) fn access_by_permission_refusals(
     ws: &crate::workspace::Workspace,
-    file: usize,
+    oi: usize,
     obj: &ast::Object,
     controls: &[ir::Control],
 ) -> Vec<String> {
     // The object's text is a part of its file's text (the preprocessor only removes), so a file without the word has no
     // mention: the whole-object text, lowercased, is made only for the files that name it.
-    if !ws.names_access_by_permission(file) {
+    if !ws.names_access_by_permission(ws.objects[oi].file) {
         return Vec::new();
     }
     let mentions = obj
