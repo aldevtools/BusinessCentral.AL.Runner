@@ -1366,7 +1366,11 @@ pub(crate) fn with_field_guard(
     else {
         return props;
     };
-    if props.iter().any(|(n, _)| n == "accessbypermission") {
+    let own = props.iter().find(|(n, _)| n == "accessbypermission");
+    // The same guard on the control and on its field says what either says alone (Microsoft's pages state both).
+    if own.is_some_and(|(_, v)| matches!(v, ir::PropVal::Lit(t) if t.trim().eq_ignore_ascii_case(guard.trim()))) {
+        // nothing to add
+    } else if own.is_some() {
         props.push((FIELD_GUARD_CONFLICT.into(), ir::PropVal::Lit(String::new())));
     } else {
         props.push(("accessbypermission".into(), ir::PropVal::Lit(guard.clone())));
