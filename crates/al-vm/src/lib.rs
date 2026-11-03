@@ -185,7 +185,7 @@ pub struct Engine {
     /// The tables a non-manual subscriber listens to the delete events of (see
     /// `autoinc::tables_with_delete_subscribers`), found when `Truncate` first asks.
     /// The profiles that get an All Profile row (see `platform::profiles::profile_seeds`).
-    pub(crate) profile_seeds: std::sync::OnceLock<Vec<(usize, i32)>>,
+    pub(crate) profile_seeds: std::sync::OnceLock<Vec<(usize, i32, bool)>>,
     /// The tables `seed_platform_rows` visits (`platform::seed::seed_tables`), found on the first session; shared with
     /// sibling engines, which have the same program.
     pub(crate) seed_tables: Arc<std::sync::OnceLock<Box<[usize]>>>,
