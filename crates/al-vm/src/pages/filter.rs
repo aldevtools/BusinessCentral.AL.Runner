@@ -48,6 +48,11 @@ impl Session {
                 }
                 use al_builtins::filter::FilterExpr;
                 use al_builtins::value::RtType;
+                if let (RtType::Enum(id), Some(f)) = (&table.fields[pos].ty, first.as_ref()) {
+                    if let Some(t) = self.enum_filter_text(*id, &f.expr, f.group)? {
+                        return Ok(Value::Text(t.into()));
+                    }
+                }
                 match (&table.fields[pos].ty, first.as_ref().map(|f| &f.expr)) {
                     // A typed single value on an Enum field (SetRange on the record handed to the page, a RunPageLink `field()`, a
                     // SourceTableView `const`) reads as the ordinal; a filter given as text keeps the names (pages/lt-ce-page-run/
@@ -60,14 +65,9 @@ impl Session {
                         };
                         // A range of two values reads as the two ordinals, from SetRange and from a SetFilter text range alike
                         // (pages/lt-cd-testpage-leads/CdTestPageLeads.al:923 SH_TestPageFilter_GetFilter_EnumRangeAndList
-                        // `SetRange First..Second = 0..1`, `Second..Third = 1..2`, `SetFilter text First..Second = 0..1`). A range
-                        // over more than two ordinals is the registered assumption `test-filter-enum-range-ordinals`.
+                        // `SetRange First..Second = 0..1`, `Second..Third = 1..2`, `SetFilter text First..Second = 0..1`), and over
+                        // more than two ordinals (pages/lt-y76-view-filters/Y76TestFilterEnum.al:122 `0..2`, `0..7`).
                         if x != y {
-                            if *y != *x + 1 {
-                                al_builtins::assumptions::assume(
-                                    al_builtins::assumptions::Assumption::TestFilterEnumRangeOrdinals,
-                                );
-                            }
                             return Ok(Value::Text(format!("{x}..{y}").into()));
                         }
                         return Ok(Value::Text(x.to_string().into()));
