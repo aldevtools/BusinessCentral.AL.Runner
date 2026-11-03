@@ -32,16 +32,14 @@ impl Session {
         if self.area_removed(st, idx) || self.access_by_permission_off(st, idx)? {
             return Ok(true);
         }
-        // A guarded part whose page the session may not execute is left off too (Y84PermAbp.al Y84_Abp_ObjectKinds `GOP`, Y84PermAbp.al:132 (set X Some: GOP=N with the guard held) against :160 (Set: GOP=Y): guard
-        // `codeunit C = X` is held under the exact sets that name C, yet the part is off unless the session executes the part's page,
-        // as `Set` does through All Objects). Read from guarded parts only: an unguarded part under a narrow set keeps showing, which
-        // no probe pins either way.
+        // A part whose page the session may not execute is left off too. Guarded part: Y84PermAbp.al Y84_Abp_ObjectKinds `GOP`,
+        // Y84PermAbp.al:132 (set X Some: GOP=N with the guard held) against :160 (Set: GOP=Y): guard `codeunit C = X` is held under
+        // the exact sets that name C, yet the part is off unless the session executes the part's page, as `Set` does through All
+        // Objects. Unguarded part: it needs Execute on the part page and on the part page's source table
+        // (Y90PermParts.al Y90_Part_ExactA..C, Y90_Part_Set, BC 28 and up).
         let engine = self.engine();
         let ctl = &page_of(&engine, st).controls[idx];
-        if ctl.prop("accessbypermission").is_none() {
-            return Ok(false);
-        }
-        self.permission_part_page_off(ctl.part_page)
+        self.permission_part_page_off(ctl.part_page, ctl.prop("accessbypermission").is_none())
     }
 
     /// Whether the application areas or AccessByPermission take control `idx` off the page (after

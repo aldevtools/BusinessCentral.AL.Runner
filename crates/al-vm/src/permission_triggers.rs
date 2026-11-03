@@ -51,7 +51,7 @@ impl Session {
             .any(|a| a.name.eq_ignore_ascii_case("EventSubscriber"))
     }
 
-    /// The page whose OnOpenPage makes the call about to start, when the session grants Execute on codeunits by no wildcard
+    /// The page whose OnOpenPage, OnInit or OnAfterGetRecord (Y90PermOpenPage.al:72-88 `on_init`, `after_get_record`) makes the call about to start, when the session grants Execute on codeunits by no wildcard
     /// (an exact set). A codeunit call from OnOpenPage then ends the open with `Page <name> has to close.`, code
     /// `FormAbort:Permission`, whether the codeunit is granted or not (Y84PermExecute.al Y84_Exec_PageOpen `page_page`,
     /// `page_both`). A session that grants Execute by wildcard (`Permissions Mock.Set` adds All Objects) is not pinned and refuses.
@@ -64,7 +64,9 @@ impl Session {
         let routine = &self.engine.program.objects[object].routines[frame.routine];
         if heads[object].kind != al_ir::ObjKind::Page
             || !routine.is_trigger
-            || !routine.name.eq_ignore_ascii_case("OnOpenPage")
+            || !["OnOpenPage", "OnInit", "OnAfterGetRecord"]
+                .iter()
+                .any(|n| routine.name.eq_ignore_ascii_case(n))
             || heads[callee].kind != al_ir::ObjKind::Codeunit
         {
             return None;
@@ -75,11 +77,33 @@ impl Session {
             id: u32::MAX,
             op: Op::Execute,
         };
+        // The callee is granted by name (a set the test assigned lists `codeunit "X" = X`): Y90PermOpenPage.al:91-118 (Y90_Open_D365BasicPlusAppSet,
+        // `Set('D365 BASIC')` + `Assign` of a set that grants the callee by name) opens the page, and so does an exact set with `system * = X`
+        // and the callee by name (Y90PermOpenPage.al:59,65, `exact_sys_star`, set LT Y90 P PagesSys). Y84PermExecute.al Y84_Exec_PageOpen
+        // `page_both` (the callee by name and no wildcard) aborts.
+        let callee_id = heads[callee].id.unwrap_or(0);
+        let named = eff.content.named_level(5, callee_id, Op::Execute as usize) == 1;
+        let system_wildcard = Access {
+            kind: 10,
+            id: u32::MAX,
+            op: Op::Execute,
+        };
+        let on_open_page = routine.name.eq_ignore_ascii_case("OnOpenPage");
+        if named && (eff.level(wildcard) != 0 || eff.level(system_wildcard) == 1) {
+            if on_open_page {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageCalleeAndPartShapes);
+            }
+            return None;
+        }
         if eff.level(wildcard) != 0 {
-            // A session with wildcard Execute on codeunits (`Set` adds All Objects) is not pinned: Y84 shows the abort under exact
-            // sets only, and Microsoft's tests call codeunits from OnOpenPage under `Set`. Refuse instead of guessing either way.
+            if !on_open_page {
+                // OnInit and OnAfterGetRecord under a wildcard: the call is checked like any other (the abort is pinned for exact sets only).
+                return None;
+            }
+            // A wildcard alone grants the callee: Y90PermOpenPage.al:60,67 (`set_not_exact`) and :32,43 (`pages_cu_star`) pin own-app
+            // callees, but whether a wildcard reaches another app's objects is still being probed (corpus Y93), so this refuses.
             return Some(Signal::Unsupported(
-                "a codeunit call from OnOpenPage under a session with wildcard Execute on codeunits (only exact sets are pinned: Y84PermExecute.al Y84_Exec_PageOpen; needs probe)".into(),
+                "a codeunit call from OnOpenPage under a session with wildcard Execute on codeunits, the callee granted by the wildcard only (an explicit grant of the callee opens, Y90PermOpenPage.al:91; wildcard scope for other apps' objects is being probed)".into(),
             ));
         }
         Some(Signal::Error(Box::new(al_builtins::native::AlError {
