@@ -685,6 +685,10 @@ impl Gate {
                     file: "report/lt-t-fqn-run/LtTFqnRun.al",
                     lines: "7",
                 },
+                Evidence {
+                    file: "pages/lt-y74-fqn-run/Y74FqnRunForms.al",
+                    lines: "7",
+                },
             ],
             Gate::ControlAddInNotInstantiatedErrorFrom28 => &[Evidence {
                 file: "lt-ac/ACControlAddIn.al",
