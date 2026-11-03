@@ -1235,6 +1235,10 @@ fn args_json(args: &[DotNetArg]) -> Value {
 fn reply_of(v: Value) -> Result<DotNetReply, DotNetFailure> {
     let bad = |e: String| DotNetFailure::Refused(format!("unreadable reply from the sidecar: {e}"));
     let value = decode(&v["value"]).map_err(bad)?;
+    // The sidecar bound a member written in another letter case than its .NET name (assumption `dotnet-member-name-case`).
+    if v["folded"].as_bool() == Some(true) {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotNetMemberNameCase);
+    }
     let mut by_ref = Vec::new();
     if let Some(a) = v["byref"].as_array() {
         for e in a {
