@@ -2416,3 +2416,95 @@ fn the_compile_counts_the_objects_and_routines_it_lowered_from_source() {
         }
     );
 }
+
+/// `Database::X` in a CalcFormula names an object in the scope of the app that declares the FlowField, not
+/// of the target table's app: a workspace FlowField over a dependency table with
+/// `const(Database::"<workspace table>")` calculates like one with the literal id (corpus
+/// record/TestCalcFormulaDatabaseConst.Codeunit.al:7-30; al-runner issue 6882).
+#[test]
+fn a_database_const_over_a_dependency_table_names_the_workspace_table() {
+    use crate::workspace::AppKind;
+    let src = |id: &str, deps: &[&str], files: &[(&str, &str)]| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps.iter().map(|d| d.to_string()).collect(),
+        files: files.iter().map(|(p, s)| (p.to_string(), s.to_string())).collect(),
+    };
+    let dep = src(
+        "dep",
+        &[],
+        &[(
+            "att.al",
+            "table 1306 \"Doc Att\" { fields { field(1; \"Table ID\"; Integer) { } field(2; \"No.\"; Code[20]) { } } \
+             keys { key(PK; \"Table ID\", \"No.\") { } } }",
+        )],
+    );
+    let main = src(
+        "main",
+        &["dep"],
+        &[(
+            "m.al",
+            "table 50712 \"FF Doc\" { fields { field(1; \"No.\"; Code[20]) { } \
+             field(2; Std; Integer) { FieldClass = FlowField; CalcFormula = count(\"Doc Att\" where(\"Table ID\" = const(Database::\"FF Doc\"), \"No.\" = field(\"No.\"))); } \
+             field(3; Lit; Integer) { FieldClass = FlowField; CalcFormula = count(\"Doc Att\" where(\"Table ID\" = const(50712), \"No.\" = field(\"No.\"))); } } \
+             keys { key(PK; \"No.\") { } } } \
+             codeunit 50000 C { var A: Record \"Doc Att\"; }",
+        )],
+    );
+    let ws = Workspace::load_apps(
+        vec![main, dep],
+        vec![AppKind::Workspace, AppKind::Dependency],
+        &Default::default(),
+    );
+    let members = crate::members::build(&ws);
+    let checked = crate::check::check(&ws, &members, &al_builtins::catalog::Catalog::load());
+    let l = lower_with_positions(&ws, &members, &checked, false);
+    let field = |n: &str| {
+        let o = l.program.objects.iter().find(|o| o.name == "FF Doc").expect("FF Doc");
+        o.table
+            .as_ref()
+            .unwrap()
+            .fields
+            .iter()
+            .find(|f| f.name == n)
+            .unwrap()
+            .clone()
+    };
+    let (std, lit) = (field("Std"), field("Lit"));
+    assert_eq!(std.calc_refusal, None);
+    assert_eq!(std.calc, lit.calc, "the Database:: constant is the literal table id");
+}
+
+/// A page's `SourceTable` (and a codeunit's `TableNo`) may be namespace-qualified; it names the same table as the
+/// plain form (al-runner issue 6790; the AL compiler compiles both to the same metadata).
+#[test]
+fn a_namespace_qualified_source_table_lowers_like_the_plain_name() {
+    let (_, l) = lower_files(
+        &[(
+            "f.al",
+            "namespace Demo.Sales;
+table 50100 \"Demo Mapping\" { fields { field(1; \"Entry No.\"; Integer) { } } keys { key(PK; \"Entry No.\") { } } }
+page 50100 FB { PageType = ListPart; SourceTable = Demo.Sales.\"Demo Mapping\"; layout { area(Content) { repeater(Lines) { field(\"Entry No.\"; Rec.\"Entry No.\") { } } } } }
+page 50101 Card { SourceTable = \"Demo Mapping\"; layout { area(Content) { part(M; FB) { } } } }",
+        )],
+        true,
+    );
+    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    assert!(reasons.is_empty(), "{reasons:?}");
+    let pages: Vec<_> = l
+        .program
+        .objects
+        .iter()
+        .filter(|o| o.name == "FB" || o.name == "Card")
+        .collect();
+    assert!(
+        pages
+            .iter()
+            .all(|o| o.page.as_ref().is_some_and(|p| p.unsupported.is_empty())),
+        "{:?}",
+        pages
+            .iter()
+            .map(|o| o.page.as_ref().map(|p| p.unsupported.clone()))
+            .collect::<Vec<_>>()
+    );
+}
