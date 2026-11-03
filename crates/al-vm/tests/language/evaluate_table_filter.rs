@@ -160,7 +160,7 @@ fn rejected_forms_answer_false_with_the_pinned_error() {
         ),
         (
             "No Such Table: Kind=1",
-            cant("No Such Table: Kind=1", ""),
+            cant("No Such Table: Kind=1", "\\The metadata object Table -1 was not found."),
             "Evaluate:MetadataNotFound",
         ),
         ("SI TF Target", cant("SI TF Target", ""), "Evaluate"),
