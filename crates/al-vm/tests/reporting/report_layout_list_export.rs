@@ -73,6 +73,19 @@ fn run(format: i32) -> Result<Value, Signal> {
 }
 
 fn run_routine(routine: &str, args: Vec<Value>) -> Result<Value, Signal> {
+    run_routine_with(routine, args, false)
+}
+
+/// Serves `x/missing.docx` on demand, as a Microsoft app's package does.
+struct Package;
+
+impl al_ir::LayoutSource for Package {
+    fn file(&self, path: &str) -> Option<Vec<u8>> {
+        (path == "x/missing.docx").then(|| b"PACKAGE-DOC-BYTES".to_vec())
+    }
+}
+
+fn run_routine_with(routine: &str, args: Vec<Value>, from_package: bool) -> Result<Value, Signal> {
     let apps = vec![AppSource {
         id: "a".into(),
         name: "a".into(),
@@ -85,6 +98,10 @@ fn run_routine(routine: &str, args: Vec<Value>) -> Result<Value, Signal> {
         ("x/a.rdl".into(), b"RDL-BYTES".to_vec()),
         ("x/legacy.rdl".into(), b"LEGACY-BYTES".to_vec()),
     ];
+    if from_package {
+        std::sync::Arc::make_mut(&mut l.program).apps[0].layout_source =
+            Some(al_ir::LayoutSourceRef(std::sync::Arc::new(Package)));
+    }
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
@@ -126,6 +143,19 @@ fn a_layout_whose_file_the_app_does_not_hold_is_refused() {
 fn a_layout_of_the_legacy_property_is_a_row_that_exports_its_file() {
     match run_routine("Legacy", vec![]) {
         Ok(Value::Text(t)) => assert_eq!(t.to_string(), "1|./x/../x/legacy.rdl|Yes|LEGACY-BYTES|No"),
+        other => panic!("{other:?}"),
+    }
+}
+
+// A layout file the app does not hold in the program but its package serves on demand (a Microsoft app: Custom Report
+// Layout.InitBuiltInLayout of Base Application reaches this export, al-runner issue 5712; Microsoft's own tests call it, for
+// example MailServiceTest.Codeunit.al `CustomReportLayout.InitBuiltInLayout(ReportID, Type::Word)`). The bytes are the
+// package's file: the registered assumption `package-layout-file-is-the-compiled-layout` marks that BC may export the
+// compiler's rewrite of the source file.
+#[test]
+fn a_layout_file_the_package_serves_on_demand_is_exported() {
+    match run_routine_with("Export", vec![Value::Integer(1)], true) {
+        Ok(Value::Text(t)) => assert_eq!(t.to_string(), "Yes|PACKAGE-DOC-BYTES|No;Yes|PACKAGE-DOC-BYTES|No;"),
         other => panic!("{other:?}"),
     }
 }

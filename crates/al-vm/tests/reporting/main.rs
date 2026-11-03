@@ -93,6 +93,7 @@ mod xmlport_unlinked_reply;
 mod xmlport_unlinked_temp_in_text;
 mod xmlport_view_after_export;
 mod xmlport_vt_line_break_value;
+mod xmlport_vt_nested;
 mod xmlport_vt_two_tables;
 mod xmlport_xml_width;
 mod xmlports;
