@@ -178,9 +178,13 @@ impl Session {
         if rec.borrow().temporary || self.global_enabled(&table, crate::globaltriggers::GlobalOp::Modify)? {
             return Ok(false);
         }
-        // The table's own code at that write is not observed by the pinning cases.
+        // The table's own code at that write (OnModify, its extensions', the table events) is not observed by the pinning
+        // cases, and no Microsoft test needs it, so it is refused (needs probe: docs/probes-needed.md
+        // "request page close writes a changed row: table code").
         if self.has_write_hooks(&table)? {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestCloseModifyTableCode);
+            return unsupported(format!(
+                "{action} on a request page with a changed row of a table that runs code when it is written (only a table without OnModify, extension triggers and table events is pinned)"
+            ));
         }
         Ok(true)
     }
