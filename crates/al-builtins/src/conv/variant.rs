@@ -40,7 +40,7 @@ fn target_of(code: i32) -> Option<RtType> {
         Kind::Decimal => RtType::Decimal,
         Kind::Char => RtType::Char,
         Kind::Byte => RtType::Byte,
-        Kind::Option => RtType::Option(Vec::new()),
+        Kind::Option => RtType::Option(std::sync::Arc::from(Vec::<String>::new())),
         Kind::Text => RtType::Text(None),
         Kind::Code => RtType::Code(None),
         Kind::Guid => RtType::Guid,

@@ -2,8 +2,8 @@
 //! it: OnQueryClosePage with the action OK, then OnClosePage; an unsaved SetValue is saved first; a Confirm in the trigger
 //! goes to the test's ConfirmHandler; a veto (the trigger answers false) leaves the test passing. OpenEdit and OpenView are
 //! measured for a page with OnQueryClosePage; a global TestPage is not closed (testpageclose/Y47CloseAtTestEnd.al:127-321;
-//! al-runner issue 6587). The file leaves one page open per test: two or more close in the order of their declaration,
-//! assumption test-end-close-order.
+//! al-runner issue 6587). Two or more close in reverse order of their declaration, whatever order they were opened in
+//! (testpageclose/lt-y86-close-order/Y86CloseOrderAtTestEnd.al).
 
 use super::*;
 
@@ -37,9 +37,7 @@ impl Session {
                 pages.push(st.clone());
             }
         }
-        if pages.len() > 1 {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TestEndCloseOrder);
-        }
+        pages.reverse();
         for st in pages {
             match self.page_close(&st) {
                 Ok(_) => {}

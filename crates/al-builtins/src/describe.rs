@@ -415,6 +415,6 @@ mod tests {
         assert_eq!(RtType::List(Box::new(RtType::Integer)).describe(), "List of [Integer]");
         assert_eq!(RtType::Record(4, true).describe(), "temporary Record");
         assert_eq!(RtType::Library("JsonArray".into()).describe(), "JsonArray");
-        assert_eq!(RtType::Option(vec!["A".into()]).describe(), "Option");
+        assert_eq!(RtType::Option(vec!["A".into()].into()).describe(), "Option");
     }
 }

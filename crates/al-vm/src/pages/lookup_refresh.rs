@@ -29,7 +29,7 @@ impl Session {
                 && s.open
                 && !s.draft
                 && s.cursor == Cursor::Row
-                && matches!(s.parts.len(), 1 | 2)
+                && matches!(s.parts.len(), 1..=4)
                 && s.refresh
                 && s.refresh_by_update
                 && s.refresh_update_false
@@ -78,13 +78,23 @@ impl Session {
             // linked one, with it declared after (Y63_PartThenOther_LookupReadEachControl: the first read of a part that no call
             // reached before runs the refresh, `lookup_refresh_deferred_call`), and with a CardPart in the FactBoxes area linked
             // by one field.
-            [(i, q), (j, r)] => {
-                !factbox(*i)
-                    && ((part(*i, q, "listpart", 0) && part(*j, r, "listpart", 3) && !factbox(*j))
-                        || (part(*i, q, "listpart", 3) && part(*j, r, "listpart", 0) && !factbox(*j))
-                        || (part(*i, q, "listpart", 3) && part(*j, r, "cardpart", 1) && factbox(*j)))
+            // Three and four parts (corpus writer R6806, al-runner issue 6806, R6806LookupParts.al R6806_*_LookupReadEachControl):
+            // the same, with the layouts in `many_parts_pinned`.
+            _ => {
+                let kinds: Option<String> = parts
+                    .iter()
+                    .map(|(i, q)| {
+                        if factbox(*i) {
+                            part(*i, q, "cardpart", 1).then_some('K')
+                        } else if part(*i, q, "listpart", 3) {
+                            Some('L')
+                        } else {
+                            part(*i, q, "listpart", 0).then_some('O')
+                        }
+                    })
+                    .collect();
+                kinds.is_some_and(|k| Self::many_parts_pinned(&k))
             }
-            _ => false,
         };
         drop(engine);
         if calls_nothing && parts_ok {
@@ -98,6 +108,14 @@ impl Session {
             // (`part fn` `R1/`).
             let _ = self.run_fn_controls(st, false);
         }
+    }
+
+    /// The layouts of a host's parts (in layout order: `L` the ListPart linked by three fields, `O` an unlinked ListPart, `K` a
+    /// CardPart in the FactBoxes area linked by one field) on which the Lookup is measured to leave the refresh for later:
+    /// two parts (Y63: `OL`, `LO`, `LK`), three (R6806, R6806LookupParts.al: `OOL`, `LOO`, `OLO`, with a card `OOLK`) and four with the
+    /// linked part last (`OOOL`). Every other layout (five parts, four with the linked part not last, a second card) is not pinned.
+    fn many_parts_pinned(kinds: &str) -> bool {
+        matches!(kinds, "OL" | "LO" | "LK" | "OOL" | "LOO" | "OLO" | "OOLK" | "OOOL")
     }
 
     /// TestPage call `method` on page `st` (of control `target`) while a Lookup of its tree left its refresh for later
@@ -131,6 +149,20 @@ impl Session {
         }
         if !root.borrow().lookup_refresh_deferred {
             return Ok(());
+        }
+        if root.borrow().parts.len() >= 3
+            && matches!(
+                method,
+                PageOp::TestPartNext | PageOp::TestPartFirst | PageOp::TestPartPrevious | PageOp::TestPartLast
+            )
+            && !Rc::ptr_eq(st, &root)
+            && target.is_none()
+        {
+            // R6806_ABL_OtherBNextFirst `OtherB next log`, R6806_ABL_ResourcesNextFirst: after the refresh the move adds reads of the host
+            // and the parts that follow, which are not built for three or more parts.
+            return unsupported(format!(
+                "{method} on a part of a host with three or more parts after TestField.Lookup (the reads of the host and parts that follow the move are not built)"
+            ));
         }
         if method == PageOp::TestPageClose && Rc::ptr_eq(st, &root) {
             root.borrow_mut().lookup_refresh_deferred = false;
@@ -218,11 +250,27 @@ impl Session {
             root.borrow_mut().lookup_next_refresh = true;
             return Ok(());
         }
-        if shape && method == PageOp::TestPageNext && Rc::ptr_eq(st, &root) {
-            // The host's own Next as the first call after the Lookup: the refresh runs first, then the host moves. Pinned for the
-            // values only (Y15_ThreeLink_RegionsSetPartFollowsRow `next`); the refresh's log is not observed there.
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupPendingRefreshAtHostNext);
-            return self.run_lookup_refresh_left(&root, true);
+        if shape
+            && matches!(
+                method,
+                PageOp::TestPageNext
+                    | PageOp::TestPagePrevious
+                    | PageOp::TestPageFirst
+                    | PageOp::TestPageLast
+                    | PageOp::TestPageGoToKey
+            )
+            && Rc::ptr_eq(st, &root)
+        {
+            // The host's own move as the first call after the Lookup (pages/lt-y15/Y15LookupThreeFieldLink.al:1585-1740
+            // Y80_Y15_Host_*_NoRegions; the _Regions variants log the same). Next, Previous, First and Last move as usual, then the
+            // refresh reads the row they moved to (`agcr R2;agcr R2`, `agcr R1;agcr R1`, `agcr R1;agcr R1`, `agcr ;agcr R3;agcr R3`);
+            // the part follows. GoToKey runs the refresh on the row it stood on first, then scans (`agcr R1;agcr R2;agcr R3`).
+            root.borrow_mut().lookup_refresh_deferred = false;
+            if method == PageOp::TestPageGoToKey {
+                return self.run_lookup_refresh_left(&root, true);
+            }
+            root.borrow_mut().lookup_move_refresh = true;
+            return Ok(());
         }
         unsupported(format!(
             "{method} after TestField.Lookup on a page with OnAfterGetRecord or OnAfterGetCurrRecord whose ListPart links two or \
@@ -269,6 +317,18 @@ impl Session {
             && s.window.len() == 1
     }
 
+    /// After a host move that carried the refresh a Lookup left (`lookup_move_refresh`): the refresh runs on the row the host moved
+    /// to. A move that found no row is not pinned.
+    pub(super) fn lookup_move_refresh_after(&mut self, st: &St, moved: &Value) -> Result<(), Signal> {
+        if !std::mem::take(&mut st.borrow_mut().lookup_move_refresh) {
+            return Ok(());
+        }
+        if matches!(moved, Value::Boolean(false)) {
+            return unsupported("a host move that finds no row, as the first call after TestField.Lookup (not pinned)");
+        }
+        self.run_lookup_refresh_left(st, true)
+    }
+
     /// Runs the refresh of `CurrPage.Update(false)` that a TestField.Lookup on `root` left for later (`defer_lookup_refresh`),
     /// as the Lookup would have run it (`run_refresh`); `with_parts`: the parts read their rows again after it.
     fn run_lookup_refresh_left(&mut self, root: &St, with_parts: bool) -> Result<(), Signal> {
@@ -298,6 +358,11 @@ impl Session {
         root: &St,
         clean: bool,
     ) -> Option<Effect> {
+        // The host's move that carries the refresh a Lookup left (`lookup_move_refresh`): every control shows the values as they are
+        // now (Y15LookupThreeFieldLink.al:1585-1740 Y80_Y15_Host_*_NoRegions `after move`).
+        if clean && root.borrow().lookup_move_refresh && Rc::ptr_eq(st, root) && target.is_none() {
+            return Some(Effect::Refresh);
+        }
         if !root.borrow().lookup_refresh_used {
             return None;
         }

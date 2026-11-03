@@ -212,6 +212,10 @@ pub(crate) struct ReachIndex {
     summaries: Vec<Box<[OnceLock<Box<Summary>>]>>,
     /// Per object, the number of routines of the objects before it, and the total at the end: a walk's routine bits.
     first_routine: Vec<usize>,
+    /// The routines (bits as in a walk's `seen`) whose whole reach is known to hold no report the runtime refuses: a
+    /// walk that ended without finding one visited a set closed under what its routines reach, so each routine in it
+    /// is clean, and a later question about a report skips them ([`report_that_cannot_run`]).
+    report_clean: std::sync::Mutex<Vec<u64>>,
 }
 
 impl ReachIndex {
@@ -273,8 +277,16 @@ impl ReachIndex {
             subscribers,
             global_triggers,
             summaries,
+            report_clean: std::sync::Mutex::new(vec![0; total.div_ceil(64)]),
             first_routine,
         }
+    }
+
+    /// How many routines are known to reach no report the runtime refuses.
+    #[cfg(test)]
+    fn report_clean_routines(&self) -> usize {
+        let bits = self.report_clean.lock().unwrap_or_else(|e| e.into_inner());
+        bits.iter().map(|w| w.count_ones() as usize).sum()
     }
 
     /// The [`Summary`] of routine `r` of `o`, recorded on first use; `None` for a routine the index does not know of
@@ -329,10 +341,21 @@ pub(crate) fn report_that_cannot_run(
     routine: usize,
 ) -> Option<String> {
     // Only the report is asked for: the walk follows the same routines but keeps none of the facts (tables, globals, state).
-    walk_reach_with(events, lowered, index, &[(object, routine)], false, &|f| {
-        f.report_cannot_run.is_some()
-    })
-    .report_cannot_run
+    // It starts with the routines an earlier walk found clean marked as visited. A walk that finds no report visits the
+    // whole reach, so what it visited is clean for the next question; a walk that stops at a report proves nothing.
+    let mut walk = Walk::new(events, lowered, index);
+    walk.facts = false;
+    walk.seen
+        .copy_from_slice(&index.report_clean.lock().unwrap_or_else(|e| e.into_inner()));
+    walk.stack.push((object, routine));
+    walk.run(&|f| f.report_cannot_run.is_some());
+    if walk.out.report_cannot_run.is_none() {
+        let mut clean = index.report_clean.lock().unwrap_or_else(|e| e.into_inner());
+        for (c, s) in clean.iter_mut().zip(&walk.seen) {
+            *c |= *s;
+        }
+    }
+    walk.out.report_cannot_run
 }
 
 pub(crate) fn unfinished_reach_facts(
@@ -591,14 +614,7 @@ fn walk_reach_with(
     walk.facts = facts;
     // Popped first root first, as a walk of each root alone starts.
     walk.stack.extend(roots.iter().rev().copied());
-    while let Some((o, r)) = walk.stack.pop() {
-        if stop(&walk.out) {
-            break;
-        }
-        if walk.first_visit(o, r) {
-            walk.routine(o, r);
-        }
-    }
+    walk.run(stop);
     walk.out
 }
 
@@ -636,6 +652,18 @@ impl<'a> Walk<'a> {
             stack: Vec::new(),
             global_triggers: false,
             facts: true,
+        }
+    }
+
+    /// Follows the stack until it is empty or `stop` holds of what the walk found.
+    fn run(&mut self, stop: &dyn Fn(&ReachFacts) -> bool) {
+        while let Some((o, r)) = self.stack.pop() {
+            if stop(&self.out) {
+                break;
+            }
+            if self.first_visit(o, r) {
+                self.routine(o, r);
+            }
         }
     }
 
@@ -1488,6 +1516,54 @@ mod tests {
             format!("{:?}", reach_facts(&events, &l, &warm, o, b))
         );
     }
+    // The question "does the reach hold a report the runtime refuses" skips the routines an earlier question found clean,
+    // and answers as a walk on a fresh index does; a walk that stops at a report marks nothing.
+    #[test]
+    fn the_report_question_skips_what_an_earlier_walk_found_clean() {
+        let src = "
+            report 50110 Refused { ProcessingOnly = true; }
+            codeunit 50102 Helper { procedure H() begin end; procedure Rep() begin Report.Run(50110); end; }
+            codeunit 50103 Tests { Subtype = Test;
+                [Test] procedure A() var Hp: Codeunit Helper; begin Hp.H(); end;
+                [Test] procedure B() var Hp: Codeunit Helper; begin Hp.H(); end;
+                [Test] procedure C() var Hp: Codeunit Helper; begin Hp.Rep(); end; }";
+        let mut l = lowered(src);
+        let rep = l
+            .program
+            .objects
+            .heads()
+            .iter()
+            .position(|o| o.name == "Refused")
+            .unwrap();
+        std::sync::Arc::get_mut(&mut l.program).unwrap().objects[rep]
+            .report
+            .as_mut()
+            .unwrap()
+            .unsupported
+            .push("probe".into());
+        let events = al_vm::events::Registry::build(&l.program);
+        let (o, a) = routine(&l, "Tests", "A");
+        let (_, b) = routine(&l, "Tests", "B");
+        let (_, c) = routine(&l, "Tests", "C");
+        let ask = |index: &ReachIndex, r| report_that_cannot_run(&events, &l, index, o, r);
+        let fresh = |r| ask(&ReachIndex::new(&events, &l), r);
+        let warm = ReachIndex::new(&events, &l);
+        assert_eq!(ask(&warm, c), fresh(c));
+        assert!(fresh(c).is_some());
+        assert_eq!(
+            warm.report_clean_routines(),
+            0,
+            "a walk that found a report marked routines clean"
+        );
+        assert_eq!(ask(&warm, a), None);
+        let clean = warm.report_clean_routines();
+        assert!(clean >= 2, "the walk of A marked {clean}");
+        assert_eq!(ask(&warm, b), fresh(b));
+        // The clean routines do not hide the report C reaches through the helper's other procedure.
+        assert_eq!(ask(&warm, c), fresh(c));
+        assert!(ask(&warm, c).is_some());
+    }
+
     // One walk of several roots gives what a walk of each root gives, joined: the questions asked of the tests of a
     // codeunit together (`corpus.rs` `tests_take_numbers`, `reaches_session_storage`) get the answer of asking each.
     #[test]

@@ -17,6 +17,7 @@ use std::sync::Arc;
 mod autoinc;
 mod bgsession;
 mod get_key_value;
+mod package_data;
 mod state;
 pub(crate) use state::*;
 mod baseline;
@@ -44,6 +45,7 @@ mod crm;
 mod data_file_types;
 mod dataset;
 mod datatransfer;
+mod db_event_no_op;
 mod dev_endpoint_ui;
 mod dispatch;
 pub mod dotnet;
@@ -55,6 +57,7 @@ mod faultsite;
 mod fieldref_length;
 mod fieldref_validate;
 mod fieldref_value_into;
+mod filter_text_arg;
 mod filterevents;
 mod filterpage;
 mod flowfields;
@@ -70,6 +73,7 @@ mod media_orphans;
 mod pages;
 mod partial;
 mod permission_shadow;
+mod permission_triggers;
 mod permissions;
 mod platform;
 mod profile;
@@ -93,6 +97,7 @@ mod sessionops;
 mod setup_no_op;
 mod sqlcount;
 mod sqltime;
+mod stale_buffer_origin;
 mod stale_own_modify;
 mod tasks;
 mod tenant_layout_cfg;
@@ -174,6 +179,9 @@ pub struct Engine {
     /// Names this engine among all those the process built: state shared between sessions of one
     /// engine is keyed by it.
     pub uid: u64,
+    /// The lookups of `platform::objects::Catalog` by object name and id, built on the first ask. The program is shared
+    /// with the siblings and does not change under them, so they share the lookups too.
+    pub(crate) catalog_maps: Arc<std::sync::OnceLock<platform::objects::Maps>>,
     /// The tables a non-manual subscriber listens to the delete events of (see
     /// `autoinc::tables_with_delete_subscribers`), found when `Truncate` first asks.
     /// The profiles that get an All Profile row (see `platform::profiles::profile_seeds`).
@@ -432,6 +440,7 @@ impl Engine {
             field_facts: field_facts.into(),
             enumerable_fields,
             uid: NEXT_ENGINE_UID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            catalog_maps: Default::default(),
             delete_subscribed: Default::default(),
             lasting_effects: Default::default(),
             profile_seeds: Default::default(),
@@ -475,6 +484,7 @@ impl Engine {
             field_facts: self.field_facts.clone(),
             enumerable_fields: self.enumerable_fields.clone(),
             uid: NEXT_ENGINE_UID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            catalog_maps: self.catalog_maps.clone(),
             delete_subscribed: Default::default(),
             lasting_effects: Default::default(),
             profile_seeds: Default::default(),
@@ -553,6 +563,7 @@ impl Engine {
             served_tables: _,
             derived: _,
             install_facts: _,
+            catalog_maps: _,
             // Kept: state shared between the sessions of this engine is keyed by it.
             uid: _,
         } = self;
@@ -986,6 +997,11 @@ pub struct Session {
     /// The row `load` is about to read came from `GetBySystemId` (al-runner issue 5913: a read in the transaction that wrote
     /// the row's version, assumption stale-get-buffer-in-write-transaction).
     pub(crate) sysid_load: bool,
+    /// The row `load` is about to read came from `Find`, `FindFirst`, `FindLast` or `FindSet`: its buffer gets the origin a Get
+    /// buffer gets (record/lt-sb-stale-own-modify/Y76StaleBuffers.al Y76_Part1_FindFirst_FindLast, Y76_Part1_FindSet_Assign).
+    pub(crate) find_load: bool,
+    /// The Find being loaded is one no test pins for stale buffers (not FindFirst, FindLast or FindSet).
+    pub(crate) unpinned_find_load: bool,
     /// Transactions: the depth of transaction-beginning constructs, and where the open transaction stands.
     pub(crate) tx: TxState,
     /// Handler functions and notifications of the running test method.
@@ -1097,6 +1113,8 @@ impl Session {
             caption_translations: Vec::new(),
             get_load: false,
             sysid_load: false,
+            find_load: false,
+            unpinned_find_load: false,
             host,
             waited_ms: 0,
             companies,

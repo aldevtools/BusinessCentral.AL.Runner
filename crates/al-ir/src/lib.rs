@@ -230,6 +230,15 @@ pub struct AppInfo {
     /// 1033 BC translates its labels and captions, which the runtime refuses to read (ADR-053 step 1). Set by the runner.
     #[serde(default)]
     pub translations: bool,
+    /// The app ships package data (a `*.navxdata` file, such as `Tab<id>.navxdata`) that `NavApp.LoadPackageData` loads into
+    /// its tables. The runtime refuses a load while this is set: the file format is not pinned. Set by the runner.
+    #[serde(default)]
+    pub package_data: bool,
+    /// The package data files of an app folder (`*.navxdata`, not those of a nested app): path relative to the app, content.
+    /// Empty for a package, whose files are not read: a load stays refused when `package_data` is set (the place of the
+    /// files in a package is not measured).
+    #[serde(default)]
+    pub package_data_files: Vec<(String, Vec<u8>)>,
     /// The app's translation files as read from an app folder (ADR-053 step 2), applied in a language other than 1033. Empty
     /// for a package, whose files are not read: its translated reads stay refused when `translations` is set.
     #[serde(default)]
@@ -358,6 +367,10 @@ pub const CAPTION_REFUSED: &str = "$CaptionRefused";
 /// The name of an object property the lowering adds beside [`CAPTION_REFUSED`] when one tableextension sets a `Caption` over
 /// the table's own: its value is that extension's caption, the caption the runtime's texts and caption reads give (al-runner issues 5955 and 6378).
 pub const EXT_CAPTION_OVER_OWN: &str = "$ExtCaptionOverOwn";
+
+/// The name of an object property the lowering adds to a `profileextension` (an object of kind `Other`): the name of the
+/// profile it extends. The All Profile rows read the extension's `Enabled` through it.
+pub const EXTENDS_PROFILE: &str = "$ExtendsProfile";
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Object {

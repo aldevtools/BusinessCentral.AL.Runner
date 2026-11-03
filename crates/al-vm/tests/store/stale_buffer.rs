@@ -241,15 +241,13 @@ codeunit 69996 RU
         InsertRow(Row); ChangeAndCommit(); Two.Id := 6; Two.Insert(); exit(Write(Row));
     end;
 
-    // Not pinned (assumption stale-buffer-other-origin-written): a buffer read by FindFirst, stale after a Commit, whose row
-    // the new transaction wrote.
+    // Pinned (Y76StaleBuffers.al Y76_Part1_FindFirst_FindLast `find/committed_modify_changed`): a buffer read by FindFirst in the
+    // transaction before the Commit behaves as a Get buffer and is refused.
     procedure FindBufferWritten(): Text
-    var Row: Record "RU Row"; Later: Record "RU Row"; Stored: Record "RU Row";
+    var Row: Record "RU Row"; Later: Record "RU Row";
     begin
         InsertRow(Row); Commit(); Row.FindFirst(); ChangeAndCommit(); Later.Get(5); Later.Note := 'later'; Later.Modify(false);
-        Row.Qty := 5; Row.Modify(false);
-        Stored.Get(5);
-        exit(Stored.Note + '|' + Format(Stored.Qty));
+        exit(Refused(Row));
     end;
 
     // Not pinned: a second Commit between the Insert and the transaction that modified the row.
@@ -292,10 +290,14 @@ fn a_stale_delete_follows_the_same_rule() {
     assert_eq!(run("DeleteAfterUnchanged"), "ok|No");
 }
 
-// Microsoft's No. Series batch writes such a buffer (Tests-ERM, 110 tests): the last writer wins under the assumption.
+// A buffer read by FindFirst is stale like one read by Get (Y76StaleBuffers.al, find/*): the assumption
+// stale-buffer-other-origin-written now covers only the origins no test pins (Next).
 #[test]
-fn a_stale_buffer_of_another_origin_whose_row_the_transaction_wrote_is_written() {
-    assert_eq!(text(al_testkit::run_in(RU, "RU", "FindBufferWritten")), "start|5");
+fn a_stale_find_buffer_is_refused_like_a_get_buffer() {
+    assert_eq!(
+        text(al_testkit::run_in(RU, "RU", "FindBufferWritten")),
+        "DB:RecordChanged|other|0"
+    );
 }
 
 // An Insert of another row of the table after the Commit writes the stale buffer (corpus branch al-runtime-rs-staging-sh,

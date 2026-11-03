@@ -4,8 +4,9 @@
 //! - First, Next, Last and Previous in a row answer No each and log `N:0;C:0;N:0;C:0` in all (Y80_Gone_All_OpenEdit_DeleteAllUpdate,
 //!   _DeleteAll, _DeleteCurrent `moves log`). First raises nothing (pages/lt-f3-pages/F3ListTests.al:189 DeleteOnlyRow_WithoutUpdate
 //!   `log_after_first`, misc/lt-probes-needed-7/PnGRefresh.al ListLosesOnlyRowDeleteNoUpdate, lt-outside-worksheet/
-//!   RmWorksheetGoneRow.al:452 `close log`). Which two of Next, Last and Previous raise is not pinned (the corpus pins only
-//!   the total of the four calls in a row): Next, Last and Previous on that list are refused.
+//!   RmWorksheetGoneRow.al:452 `close log`). As a single move (pages/lt-y89-gone-single-move/Y89GoneSingleMove.al
+//!   Y89_All_OpenEdit_delall{,upd}_{first,next,previous,last,goto}) Last raises the pair twice and First, Next, Previous and GoToKey
+//!   raise nothing; every one answers No.
 //! - A second action that leaves the table empty again raises the pair twice (`second action log`).
 
 use super::*;
@@ -44,12 +45,12 @@ impl Session {
         if !self.on_gone_blank_line(st)? {
             return Ok(None);
         }
-        if !matches!(how, PageMethod::First) {
-            // Needs probe: the log of each single Next, Last and Previous on the blank line of a list that lost its only row
-            // (Y80GoneRows.al Y80_Gone_All_OpenEdit_DeleteAllUpdate pins only the total of First, Next, Last, Previous).
-            return unsupported(
-                "a Next, Last or Previous on a list standing on its blank line after it lost its only row (the triggers each raises are not pinned)",
-            );
+        if matches!(how, PageMethod::Last) {
+            // Last raises the pair twice, Next and Previous raise nothing (Y89GoneSingleMove.al Y89_All_OpenEdit_delall{,upd}_last
+            // `move log N:0;C:0;N:0;C:0`, _next and _previous `move log` empty); all answer No.
+            st.borrow_mut().window.clear();
+            self.land_on_new_line(st)?;
+            self.land_on_new_line(st)?;
         }
         Ok(Some(false))
     }

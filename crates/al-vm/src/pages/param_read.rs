@@ -36,3 +36,22 @@ pub(super) fn reads_first_param(body: &[ir::Stmt]) -> bool {
     });
     read
 }
+
+impl super::Session {
+    /// The text an OnLookup of control `idx` starts with: the control's current text (assumed, docs/probes-needed.md). A value
+    /// that cannot be told is refused only when the trigger (`routine` of `object`) reads its Text.
+    pub(super) fn lookup_start_text(
+        &mut self,
+        st: &super::St,
+        idx: usize,
+        object: usize,
+        routine: usize,
+    ) -> Result<String, super::Signal> {
+        let reads_text = reads_first_param(&self.engine().program.objects[object].routines[routine].body);
+        match self.control_value(st, idx).and_then(|v| self.control_text(st, idx, &v)) {
+            Ok(t) => Ok(t),
+            Err(super::Signal::Unsupported(_)) if !reads_text => Ok(String::new()),
+            Err(e) => Err(e),
+        }
+    }
+}

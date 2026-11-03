@@ -147,22 +147,32 @@ pub struct ObjectSym {
     pub manual_subscribers: bool,
 }
 
-/// Whether the bytes hold `maxlength` in any case. Looks at a window only where its first byte is an `m`: the text of
-/// every file of every app is searched once, so the cost per byte counts.
-fn names_max_length_in(b: &[u8]) -> bool {
-    let Some(last) = b.len().checked_sub(9) else {
-        return false;
-    };
-    (0..=last).any(|i| b[i] | 0x20 == b'm' && b[i..i + 9].eq_ignore_ascii_case(b"maxlength"))
+/// Whether the bytes hold `word` (lower case ASCII) in any case. The text of every file of every app is searched once, so
+/// the cost per byte counts: the search runs a vector scan for the case pairs of one letter of the word that is rare in
+/// source (`pivot`, an index into `word`) and compares the whole word only around those.
+fn names_word_in(b: &[u8], word: &[u8], pivot: usize) -> bool {
+    let (lower, upper) = (word[pivot], word[pivot].to_ascii_uppercase());
+    let mut from = pivot;
+    while let Some(at) = memchr::memchr2(lower, upper, b.get(from..).unwrap_or_default()) {
+        let start = from + at - pivot;
+        if b.get(start..start + word.len())
+            .is_some_and(|w| w.eq_ignore_ascii_case(word))
+        {
+            return true;
+        }
+        from += at + 1;
+    }
+    false
 }
 
-/// Whether the bytes hold `accessbypermission` in any case. Looks at a window only where its first byte is an `a`.
+/// Whether the bytes hold `maxlength` in any case. Scans for `x`.
+fn names_max_length_in(b: &[u8]) -> bool {
+    names_word_in(b, b"maxlength", 2)
+}
+
+/// Whether the bytes hold `accessbypermission` in any case. Scans for `b`.
 fn names_access_by_permission_in(b: &[u8]) -> bool {
-    const WORD: &[u8] = b"accessbypermission";
-    let Some(last) = b.len().checked_sub(WORD.len()) else {
-        return false;
-    };
-    (0..=last).any(|i| b[i] | 0x20 == b'a' && b[i..i + WORD.len()].eq_ignore_ascii_case(WORD))
+    names_word_in(b, b"accessbypermission", 6)
 }
 
 /// A byte range of a parsed text.
@@ -1652,6 +1662,30 @@ fn visible_from(apps: &[&AppSource], start: usize) -> BTreeSet<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The search finds a word that starts, ends or sits alone in the text, and does not run past either end when the
+    /// letter it scans for is near an end.
+    #[test]
+    fn the_word_search_handles_the_ends_of_the_text() {
+        for text in [
+            "",
+            "x",
+            "xx",
+            "maxlength",
+            "MAXLENGTH",
+            "axlength",
+            "maxlengt",
+            "xmaxlength",
+            "maxlengthx",
+            "xxmaxlengthxx",
+        ] {
+            let naive = text.as_bytes().windows(9).any(|w| w.eq_ignore_ascii_case(b"maxlength"));
+            assert_eq!(names_max_length_in(text.as_bytes()), naive, "{text:?}");
+        }
+        assert!(names_access_by_permission_in(b"AccessByPermission"));
+        assert!(!names_access_by_permission_in(b"ccessByPermission"));
+        assert!(!names_access_by_permission_in(b"b"));
+    }
 
     /// The search for `maxlength` finds it in any case and anywhere, as the plain window search did.
     #[test]

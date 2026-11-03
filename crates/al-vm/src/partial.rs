@@ -413,11 +413,26 @@ impl Session {
         let wanted = positions(args)?;
         let engine = self.engine.clone();
         let schema = engine.program.objects[t.object as usize].table.as_ref();
+        // A FlowField or a FlowFilter field in the list (record/lt-r6795-loadfields-flow/R6795LoadFieldsFlow.al, BC 28.5, every state
+        // and list of Statement_* and Function_*): on a record that holds no fetched row the call is the same as with stored fields (the
+        // statement raises nothing, the function form answers No, the FlowField is not calculated); on a fetched row the function
+        // form answers No and changes nothing, the statement raises DB:Ok for the first such field of the list.
         if let Some(p) = wanted
             .iter()
-            .find(|&&p| !schema.is_some_and(|s| s.fields.get(p).is_some_and(|f| f.stored)))
+            .copied()
+            .find(|&p| !schema.is_some_and(|s| s.fields.get(p).is_some_and(|f| f.stored)))
         {
-            return unsupported(format!("LoadFields of field position {p}, which is not a stored field"));
+            if rec.borrow().position.is_none() || self.ret_used {
+                return Ok(Value::Boolean(false));
+            }
+            let name = schema.and_then(|s| s.fields.get(p)).map_or("", |f| f.name.as_str());
+            return al_builtins::native::raise(
+                format!(
+                    "The field '{name}' in the '{}' table is not valid for auto loading and cannot be passed to calls to AddLoadFields, SetLoadFields, or LoadFields.",
+                    t.name
+                ),
+                "DB:Ok",
+            );
         }
         // A buffer that survives a Clear is for a later fetch of the same row, not a row the record holds.
         let partial = {

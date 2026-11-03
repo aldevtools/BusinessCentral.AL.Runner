@@ -540,6 +540,38 @@ pub fn parse_filter_with(
             return e;
         }
     }
+    // `@` (case-insensitive) makes no sense for a Guid: `@{1A2B...}` raises the Guid format error (record/lt-y77-guid-filter/
+    // Y77GuidFilter.al Record_Shapes5To6 `shape5`; pinned for a braced Guid after the `@`).
+    if matches!(ty, crate::value::RtType::Guid)
+        && text.trim().strip_prefix('@').is_some_and(|rest| {
+            rest.starts_with('{') && crate::evaluate::read_text(&crate::value::RtType::Guid, rest.trim()).is_some()
+        })
+    {
+        return Err(format!("{INVALID_GUID}{text}"));
+    }
+    // A DateFormula field takes no formula in angle brackets (`<1M>`, `<-CM+2D>`: the lexer does not expect the closing `>`), a text
+    // of letters with one that is no unit needs a time unit, and `*M` needs a number (errors/lt-ms-refusals-136/P136Filter.al:241-258
+    // `oneMAngles`, `oneDAngles`, `garbage`, `wildcardM`; record/lt-y77-guid-filter/Y77GuidFilter.al DateFormula_TextFilter_*). The
+    // formulas that are valid are refused below.
+    if matches!(ty, crate::value::RtType::DateFormula) {
+        let t = text.trim();
+        let formula_chars = |s: &str| s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'-');
+        if t.len() > 2 && t.starts_with('<') && t.ends_with('>') && formula_chars(&t[1..t.len() - 1]) {
+            return Err(did_not_expect(">"));
+        }
+        if !t.is_empty()
+            && t.bytes().all(|b| b.is_ascii_alphabetic())
+            && t.bytes().any(|b| !b"CDWMQYcdwmqy".contains(&b))
+        {
+            return Err(format!(
+                "{FILTER_SYNTAX}The date formula '{}' should include a time unit.\\\\Time units can be: D,WD,W,M,Q, or Y.\\C, meaning current time unit based on date, can be specified as a prefix to the time unit.",
+                t.to_uppercase()
+            ));
+        }
+        if t == "*M" {
+            return Err(format!("{FILTER_SYNTAX}The date formula '*M' should include a number."));
+        }
+    }
     // Three dots in a Date filter read as two (P81DateFilters.al:SetFilter_Date_InvalidTexts, `010126...020126`).
     let dots;
     let text = if matches!(ty, crate::value::RtType::Date)
@@ -977,10 +1009,10 @@ impl Parser<'_> {
                 .iter()
                 .position(|x| !x.is_empty() && x.trim().eq_ignore_ascii_case(text.trim()))
             {
-                Some(i) => Value::Option(i as i32, m.clone().into()),
+                Some(i) => Value::Option(i as i32, m.clone()),
                 None => Value::Option(
                     text.parse().map_err(|_| format!("`{text}` is not an option member"))?,
-                    m.clone().into(),
+                    m.clone(),
                 ),
             },
             T::Enum(id) => {
@@ -1737,6 +1769,15 @@ mod tests {
         ));
     }
 
+    /// `@` before a braced Guid is the Guid format error (record/lt-y77-guid-filter/Y77GuidFilter.al Record_Shapes5To6 `shape5`).
+    #[test]
+    fn a_guid_filter_with_an_at_sign_before_the_guid_is_invalid() {
+        use crate::value::RtType as T;
+        let e = parse_filter("@{1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D}", &[], &T::Guid).unwrap_err();
+        assert!(e.starts_with(INVALID_GUID), "{e}");
+        assert!(parse_filter("{1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D}", &[], &T::Guid).is_ok());
+    }
+
     /// Microsoft's Library - ERM `GetDiscountPaymentTerm` filters a DateFormula field with `<>` and the empty text: there the
     /// empty text is the empty formula (misc/lt-y70-assumptions/Y70Probes.al:218-262, FilterDateFormula_EmptyText).
     #[test]
@@ -1748,6 +1789,27 @@ mod tests {
         assert!(
             parse_filter("1M", &[], &T::DateFormula).is_err(),
             "a formula stays refused"
+        );
+    }
+
+    /// An angle-bracketed formula is no DateFormula filter: the closing `>` is not expected (errors/lt-ms-refusals-136/
+    /// P136Filter.al:P136_SetFilter_DateFormula `oneMAngles`, `oneDAngles`; misc/lt-y70-assumptions/Y70Probes.al:249-258).
+    #[test]
+    fn a_date_formula_filter_in_angle_brackets_does_not_expect_the_closing_bracket() {
+        use crate::value::RtType as T;
+        for text in ["<1M>", "<1D>", "<-CM+2D>"] {
+            let e = parse_filter(text, &[], &T::DateFormula).expect_err(text);
+            assert_eq!(e, did_not_expect(">"), "{text}");
+        }
+        // An open bracket is a less-than filter on a formula, refused.
+        assert!(parse_filter("<1M", &[], &T::DateFormula).is_err());
+        // A text of letters that is no unit needs a time unit (Y77GuidFilter.al DateFormula_TextFilter_SetFilterOther `sf_plain`).
+        let e = parse_filter("abc", &[], &T::DateFormula).unwrap_err();
+        assert!(
+            e.contains(
+                "The date formula 'ABC' should include a time unit.\\\\Time units can be: D,WD,W,M,Q, or Y.\\C, meaning"
+            ),
+            "{e}"
         );
     }
 
@@ -1844,7 +1906,7 @@ mod tests {
 
     fn opt(text: &str, members: &[&str]) -> Result<FilterExpr, String> {
         let m: Vec<String> = members.iter().map(|x| x.to_string()).collect();
-        parse_filter(text, &[], &RtType::Option(m))
+        parse_filter(text, &[], &RtType::Option(m.into()))
     }
 
     // types/TestEnumBlankOptionFilterTests.Codeunit.al: option member names match with both
@@ -1964,7 +2026,7 @@ mod tests {
         let hits = |ty: &RtType, text: &str| -> Result<Vec<i32>, String> {
             let f = parse_filter(text, &[], ty)?;
             let names: Vec<String> = match ty {
-                RtType::Option(m) => m.clone(),
+                RtType::Option(m) => m.to_vec(),
                 _ => unreachable!(),
             };
             Ok((0..names.len() as i32)
@@ -1987,7 +2049,7 @@ mod tests {
     fn option_filter_matches_member_names_trimmed_case_blind_and_skips_zero_length_members() {
         // corpus types/TestEnumBlankOptionFilterTests.Codeunit.al:1-12, :187-205
         let members: Vec<String> = vec!["".into(), "Draft".into(), " ".into()];
-        let ty = RtType::Option(members);
+        let ty = RtType::Option(members.into());
         let ord = |f: &FilterExpr| {
             (0..3)
                 .map(|i| f.matches(&Value::Option(i, Default::default())))
@@ -1997,7 +2059,7 @@ mod tests {
         assert_eq!(ord(&pf("'DRAFT'", &[], ty.clone())), [false, true, false]);
         // The empty string names the blank member " " (trimmed), never the zero-length one.
         assert_eq!(ord(&pf("''", &[], ty.clone())), [false, false, true]);
-        let zero_length_only = RtType::Option(vec!["".into(), "Draft".into()]);
+        let zero_length_only = RtType::Option(vec!["".into(), "Draft".into()].into());
         assert!(
             parse_filter("''", &[], &zero_length_only).is_err(),
             "'' names no member here"

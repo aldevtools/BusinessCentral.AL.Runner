@@ -923,25 +923,10 @@ impl Session {
                             .collect(),
                     )
                 };
-                let mut d = dst.borrow_mut();
-                d.filters.retain(|f| !(f.field == to && f.group == to_group));
-                for mut f in copied {
-                    f.field = to;
-                    f.group = to_group;
-                    d.filters.push(f);
-                }
+                Self::put_copied_filters(dst, to, to_group, copied);
                 Ok(Value::Null)
             }
-            RecordOp::CopyFilters => {
-                let Some(Value::Record(src)) = args.first() else {
-                    return unsupported(format!("CopyFilters from {}", args.first().describe()));
-                };
-                if !Rc::ptr_eq(src, rec) {
-                    let filters = src.borrow().filters.clone();
-                    rec.borrow_mut().filters = filters;
-                }
-                Ok(Value::Null)
-            }
+            RecordOp::CopyFilters => Self::copy_filters(rec, args),
             // Doc (Record.Copy) and corpus record/TestCopyOntoTemporaryRecord.al:66-110: the buffer, filters,
             // key and direction come over; a temporary target keeps its own rows and stays temporary.
             RecordOp::Copy => {
@@ -971,7 +956,9 @@ impl Session {
                         "Argument",
                     ));
                 }
-                d.fields = s.fields;
+                // The row version the buffer got comes over with the fields, and where it came from (record/lt-sb-stale-own-modify/
+                // Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, `copy/*`).
+                (d.fields, d.row_origin) = (s.fields, s.row_origin);
                 d.filters = s.filters;
                 d.filter_group = s.filter_group;
                 d.key = s.key;
@@ -1450,7 +1437,7 @@ impl Session {
                     }
                 };
                 let moved = match &df.ty {
-                    al_builtins::value::RtType::Option(m) => Value::Option(ordinal, std::sync::Arc::from(m.as_slice())),
+                    al_builtins::value::RtType::Option(m) => Value::Option(ordinal, m.clone()),
                     // An ordinal the Enum lacks moves too, with no error (corpus record/lt-record-conversion-assumptions/
                     // TransferEnumOption.al: P98_OptionToEnum_MissingOrdinal, P98_EnumToOption_MissingOrdinal).
                     al_builtins::value::RtType::Enum(id) => Value::Enum(*id, ordinal),
@@ -1577,6 +1564,37 @@ impl Session {
         let mut r = rec.borrow_mut();
         for (dp, v) in updates {
             r.fields[dp] = v;
+        }
+        // The row version came over from the source (above), which a Commit may have left behind. Where it came from decides the
+        // stale write (record/lt-sb-stale-own-modify/Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, _GetThenTransferFields,
+        // _TransferFromTemp): from a temporary copy never written; from a record read by Get or Find, written only after a LockTable
+        // and Get of the row (a buffer that read the row by Get itself keeps its Get rule).
+        if init_pk
+            && src_table == t.object as usize
+            && !r.temporary
+            && let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_005)
+            && let Value::BigInteger(v) = src_fields[i]
+            && v != 0
+        {
+            let (src_temporary, src_origin) = {
+                let s = src.borrow();
+                (s.temporary, s.row_origin)
+            };
+            let from_insert = src_origin.is_some_and(|o| o.own_write && !o.read_in_write_tx);
+            let unpinned_read = src_origin.is_some_and(|o| o.unpinned_read);
+            let origin = |own_write, lock_only| al_builtins::value::RowOrigin {
+                lock_only,
+                unpinned_read,
+                ..al_builtins::value::RowOrigin::new(own_write, v, self.commits)
+            };
+            if src_temporary {
+                r.row_origin = Some(origin(false, false));
+            } else if src_origin.is_some_and(|o| o.version == v)
+                && !from_insert
+                && r.row_origin.is_none_or(|o| o.version != v)
+            {
+                r.row_origin = Some(origin(v > self.tx.committed_row_version, true));
+            }
         }
         Ok(Value::Null)
     }

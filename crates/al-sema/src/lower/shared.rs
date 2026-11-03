@@ -288,7 +288,7 @@ pub(crate) fn lower_object<'a>(
                 routines: Vec::new(),
                 // What the declaration scan read of the object body, so the metadata tables can
                 // answer for an object nothing compiled.
-                properties: o.scanned_properties.clone(),
+                properties: with_profile_target(ws, oi, o.scanned_properties.clone()),
                 enum_values: Vec::new(),
                 enum_captions: Vec::new(),
                 table: None,
@@ -706,7 +706,7 @@ pub(crate) fn lower_object<'a>(
     // A report's request page properties (`SaveValues`, `Caption`) read like a page's: the
     // report's own `Caption` wins over the request page's
     // (corpus handlers/TestReportRequestPageCaption.al).
-    let mut properties = object_properties(&obj, request_section.as_ref());
+    let mut properties = with_profile_target(ws, oi, object_properties(&obj, request_section.as_ref()));
     // A tableextension's Caption is the caption of a table that declares none (tableextension/TestTableExtFieldModify.al:
     // 168-178: TableCaption, RecordRef.Caption and AllObjWithCaption of the table). With a Caption on the table too, or on
     // two extensions, which one wins is not pinned: the reads of the caption refuse (`CAPTION_REFUSED`). One extension's Caption
@@ -1022,7 +1022,7 @@ pub(crate) fn scalar_rt(ws: &Workspace, file: usize, t: &Ty) -> Option<L<RtType>
         Ty::DateFormula => RtType::DateFormula,
         Ty::Guid => RtType::Guid,
         Ty::Variant => RtType::Variant,
-        Ty::Option(m) => RtType::Option(m.clone()),
+        Ty::Option(m) => RtType::Option(m.as_slice().into()),
         Ty::Enum(n) => match ws.resolve_ref(file, ObjKind::Enum, &crate::types::qualified_parts(n)) {
             Resolution::Found(i) => RtType::Enum(i as u32),
             _ => {
@@ -1261,6 +1261,17 @@ pub(crate) fn over_max_length(obj: &ast::Object) -> Vec<String> {
 }
 
 /// An object's properties, and for a report its request page's ones (see `lower_object`).
+/// A `profileextension` is an object of kind `Other`; the property [`ir::EXTENDS_PROFILE`] names the profile it extends.
+fn with_profile_target(ws: &Workspace, oi: usize, mut properties: Vec<(String, String)>) -> Vec<(String, String)> {
+    let o = &ws.objects[oi];
+    if let (ObjKind::Other, Some(name)) = (o.kind, o.extends.as_ref().and_then(|e| e.last())) {
+        if ws.object_ast(oi).kind() == "profileextension" {
+            properties.push((ir::EXTENDS_PROFILE.to_string(), name.clone()));
+        }
+    }
+    properties
+}
+
 fn object_properties(obj: &ast::Object, request_section: Option<&ast::Section>) -> Vec<(String, String)> {
     let mut properties: Vec<(String, String)> = obj.properties().map(|p| (p.name(), p.value_text())).collect();
     if let Some(sec) = request_section {
@@ -1279,11 +1290,14 @@ fn object_properties(obj: &ast::Object, request_section: Option<&ast::Section>) 
     properties
 }
 
-/// Why a restricted session (permission sets a test lowered) refuses to open the page of `obj`. A field or action of the page's own
-/// layout with an AccessByPermission property is decided when it is used (Y24PermExecute.al Y24_P21_*: BC leaves it off the page
-/// when the sets do not grant the permission; `Session::access_by_permission_hidden` reads the shapes that are pinned). Any other
-/// mention is not pinned and refuses: a group, part or page-level property, an action reference to a guarded action. Read from the
-/// object's text, so a mention in a comment refuses too: only a restricted session is affected.
+/// Why a restricted session (permission sets a test lowered) refuses to open the page of `obj`. A field, action or part of the page's
+/// own layout with an AccessByPermission property is decided when it is used (Y24PermExecute.al Y24_P21_*, Y84PermAbp.al: BC leaves
+/// it off the page when the sets do not grant the permission; `Session::access_by_permission_hidden_decided` reads the guards). So
+/// is a control over a table field that carries the property (the control takes the field's guard, see `inherited`), and the
+/// property on the page or report object itself, which has no effect on a run (Y84_Abp_PageAndReportLevel). Any other mention is not
+/// pinned and refuses: a group (it does not compile), an action reference to a guarded action, a control with a guard of its own over a
+/// guarded field. Read from the object's text, so a mention in a comment refuses too: only a restricted session is affected.
+/// The controls that took the guard of their table field carry the marker property [`FIELD_GUARD`].
 pub(crate) fn access_by_permission_refusals(
     ws: &crate::workspace::Workspace,
     oi: usize,
@@ -1295,6 +1309,8 @@ pub(crate) fn access_by_permission_refusals(
     if !ws.names_access_by_permission(ws.objects[oi].file) {
         return Vec::new();
     }
+    let marked = |c: &ir::Control, m: &str| c.props.iter().any(|(n, _)| n == m);
+    let inherited = controls.iter().filter(|c| marked(c, FIELD_GUARD)).count();
     let mentions = obj
         .syntax()
         .text()
@@ -1302,16 +1318,30 @@ pub(crate) fn access_by_permission_refusals(
         .to_ascii_lowercase()
         .matches("accessbypermission")
         .count();
-    if mentions == 0 {
+    if mentions == 0 && inherited == 0 {
         return Vec::new();
     }
     let guarded = |c: &ir::Control| c.prop("accessbypermission").is_some();
-    let pinned = controls
-        .iter()
-        .filter(|c| {
-            c.owner.is_none() && guarded(c) && matches!(c.kind, ir::ControlKind::Field | ir::ControlKind::Action)
-        })
+    let object_level = obj
+        .properties()
+        .filter(|p| p.name().eq_ignore_ascii_case("accessbypermission"))
         .count();
+    let pinned = object_level
+        + controls
+            .iter()
+            .filter(|c| {
+                c.owner.is_none()
+                    && guarded(c)
+                    && matches!(
+                        c.kind,
+                        ir::ControlKind::Field | ir::ControlKind::Action | ir::ControlKind::Part
+                    )
+            })
+            .count()
+        - inherited;
+    if controls.iter().any(|c| marked(c, FIELD_GUARD_CONFLICT)) {
+        return vec!["a control states AccessByPermission over a table field that states one too (which one BC applies is not pinned, ADR-062 probe P21)".into()];
+    }
     let via_reference = controls
         .iter()
         .any(|c| matches!(&c.action_ref, Some(ir::ActionRef::Target(t)) if guarded(&controls[*t])));
@@ -1320,4 +1350,42 @@ pub(crate) fn access_by_permission_refusals(
     } else {
         vec!["the page has AccessByPermission on something other than a field or action of its own layout, which BC applies to the permissions of a restricted session (ADR-062 probe P21)".into()]
     }
+}
+
+/// Marker property of a page control that took the AccessByPermission guard of its table field (`with_field_guard`).
+const FIELD_GUARD: &str = "__abp_from_field";
+/// Marker property of a page control that states a guard over a table field that states one too.
+const FIELD_GUARD_CONFLICT: &str = "__abp_conflict";
+
+/// The properties of a page control bound to a field of the source table: a field with an AccessByPermission property gives its guard
+/// to the control (Y84PermAbp.al Y84_Abp_LettersA `TF`: every control over the field is left off the page when the sets do not
+/// grant it). A control that states a guard of its own over such a field is marked for refusal: which one BC applies is not pinned.
+pub(crate) fn with_field_guard(
+    members: &crate::members::MemberTable<'_>,
+    table: Option<usize>,
+    binding: &ir::Binding,
+    owner: Option<usize>,
+    mut props: Vec<(String, ir::PropVal)>,
+) -> Vec<(String, ir::PropVal)> {
+    let (Some(table), ir::Binding::Field(pos), None) = (table, binding, owner) else {
+        return props;
+    };
+    let Some((_, guard)) = members[table].fields[*pos]
+        .properties
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("AccessByPermission"))
+    else {
+        return props;
+    };
+    let own = props.iter().find(|(n, _)| n == "accessbypermission");
+    // The same guard on the control and on its field says what either says alone (Microsoft's pages state both).
+    if own.is_some_and(|(_, v)| matches!(v, ir::PropVal::Lit(t) if t.trim().eq_ignore_ascii_case(guard.trim()))) {
+        // nothing to add
+    } else if own.is_some() {
+        props.push((FIELD_GUARD_CONFLICT.into(), ir::PropVal::Lit(String::new())));
+    } else {
+        props.push(("accessbypermission".into(), ir::PropVal::Lit(guard.clone())));
+        props.push((FIELD_GUARD.into(), ir::PropVal::Lit(String::new())));
+    }
+    props
 }

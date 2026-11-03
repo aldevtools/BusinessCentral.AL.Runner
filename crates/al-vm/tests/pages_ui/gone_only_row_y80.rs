@@ -92,28 +92,31 @@ codeunit 51605 C
         exit(s);
     end;
     procedure AllEditNext(): Text
-    var R: Record "Y8 Row"; L: Codeunit "Y8 Log"; P: TestPage "Y8 All";
+    var R: Record "Y8 Row"; L: Codeunit "Y8 Log"; P: TestPage "Y8 All"; s: Text;
     begin
-        R.Id := 10; R.Insert();
+        R.Id := 10; R.Insert(); L.Take();
         P.OpenEdit();
-        P.DelAllUpd.Invoke();
-        exit(Format(P.Next()));
+        P.DelAllUpd.Invoke(); L.Take();
+        s := Format(P.Next()) + '|' + L.Take() + '|' + P.IdCtl.Value();
+        exit(s);
     end;
     procedure AllEditLast(): Text
-    var R: Record "Y8 Row"; L: Codeunit "Y8 Log"; P: TestPage "Y8 All";
+    var R: Record "Y8 Row"; L: Codeunit "Y8 Log"; P: TestPage "Y8 All"; s: Text;
     begin
-        R.Id := 10; R.Insert();
+        R.Id := 10; R.Insert(); L.Take();
         P.OpenEdit();
-        P.DelAllUpd.Invoke();
-        exit(Format(P.Last()));
+        P.DelAllUpd.Invoke(); L.Take();
+        s := Format(P.Last()) + '|' + L.Take() + '|' + P.IdCtl.Value();
+        exit(s);
     end;
     procedure AllEditPrevious(): Text
-    var R: Record "Y8 Row"; L: Codeunit "Y8 Log"; P: TestPage "Y8 All";
+    var R: Record "Y8 Row"; L: Codeunit "Y8 Log"; P: TestPage "Y8 All"; s: Text;
     begin
-        R.Id := 10; R.Insert();
+        R.Id := 10; R.Insert(); L.Take();
         P.OpenEdit();
-        P.DelAllUpd.Invoke();
-        exit(Format(P.Previous()));
+        P.DelAllUpd.Invoke(); L.Take();
+        s := Format(P.Previous()) + '|' + L.Take() + '|' + P.IdCtl.Value();
+        exit(s);
     end;
     procedure AllEdit(): Text
     var R: Record "Y8 Row"; L: Codeunit "Y8 Log"; P: TestPage "Y8 All"; s: Text;
@@ -149,22 +152,39 @@ fn a_read_only_list_opened_for_edit_raises_nothing_after_it_lost_its_only_row() 
 }
 
 // Y80_Gone_All_OpenEdit_DeleteAllUpdate: `action log R:10;D:10;N:0;C:0;N:0;C:0;N:0;C:0`; First raises nothing and answers No
-// (pages/lt-f3-pages/F3ListTests.al:189). The corpus pins only the total of First, Next, Last, Previous (`moves log
-// N:0;C:0;N:0;C:0`), so a single Next, Last or Previous there is refused (needs probe).
+// (pages/lt-f3-pages/F3ListTests.al:189). A single move after the action (pages/lt-y89-gone-single-move/Y89GoneSingleMove.al,
+// Y89_All_OpenEdit_delallupd_{first,next,previous,last}): all answer No and the Id control reads 0; Next and Previous log nothing,
+// Last raises the pair twice (`move log N:0;C:0;N:0;C:0`). Together they log what Y80_Gone_All_OpenEdit_DeleteAllUpdate pins.
 #[test]
 fn first_on_the_blank_line_of_a_list_that_lost_its_only_row_raises_nothing() {
     assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "AllEditFirst")), "No|");
 }
 
 #[test]
-fn next_last_and_previous_on_that_blank_line_are_refused() {
-    for routine in ["AllEditNext", "AllEditLast", "AllEditPrevious", "AllEdit"] {
-        let r = al_testkit::run_in(SRC, "C", routine);
-        assert!(
-            matches!(&r, Err(al_builtins::native::Signal::Unsupported(w)) if w.contains("standing on its blank line")),
-            "{routine}: {r:?}"
+fn next_and_previous_on_that_blank_line_answer_no_and_raise_nothing() {
+    for routine in ["AllEditNext", "AllEditPrevious"] {
+        assert_eq!(
+            al_testkit::text(al_testkit::run_in(SRC, "C", routine)),
+            "No||0",
+            "{routine}"
         );
     }
+}
+
+#[test]
+fn last_on_that_blank_line_answers_no_and_raises_the_pair_twice() {
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(SRC, "C", "AllEditLast")),
+        "No|N:0;C:0;N:0;C:0|0"
+    );
+}
+
+#[test]
+fn the_four_moves_in_a_row_on_that_blank_line_raise_the_pair_twice_in_all() {
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(SRC, "C", "AllEdit")),
+        "R:10;R:10;C:10|R:10;N:0;C:0;N:0;C:0;N:0;C:0|0|NoNoNoNo|N:0;C:0;N:0;C:0|N:0;C:0;N:0;C:0"
+    );
 }
 
 // Y80_Gone_Card_OpenEdit_DeleteAllUpdate: `open log R:10`, `action log R:10;D:10;Q;X` (OnQueryClosePage, then OnClosePage).

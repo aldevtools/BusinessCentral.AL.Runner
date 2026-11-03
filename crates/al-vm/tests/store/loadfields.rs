@@ -337,7 +337,8 @@ fn load_fields_as_a_statement_without_a_row_raises_nothing() {
 fn load_fields_with_its_result_used_on_a_fetched_record_answers_true() {
     // Pinned for a record never fetched (false) and for a whole fetched row (true, nothing changes):
     // record/lt-load-fields-fetched/LoadFieldsFetched.al:56-63 (`load_name` Yes, `load_all` Yes). The statement
-    // form on a fetched record changes nothing. A FlowField is not a stored field: that shape is not pinned, refused.
+    // form on a fetched record changes nothing. A FlowField in the list: the function form answers No and changes nothing
+    // (record/lt-r6795-loadfields-flow/R6795LoadFieldsFlow.al Function_AfterGet_Cnt, loadfields_load_flow.rs).
     let missing = text("", "b := Rec.LoadFields(Rec.Name); exit(Format(b));");
     assert_eq!(missing.unwrap(), "No");
     let fetched = text(
@@ -349,7 +350,7 @@ fn load_fields_with_its_result_used_on_a_fetched_record_answers_true() {
         "",
         &format!("{SEED} Rec.Get(1); b := Rec.LoadFields(Rec.Cnt); exit('ran');"),
     );
-    assert!(matches!(flow, Err(Signal::Unsupported(_))), "{flow:?}");
+    assert_eq!(flow.unwrap(), "ran");
     let statement = text(
         "",
         &format!("{SEED} Rec.Get(1); Rec.LoadFields(Rec.Name); exit(Rec.Name);"),

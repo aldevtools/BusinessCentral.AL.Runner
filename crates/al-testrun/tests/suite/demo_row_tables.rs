@@ -68,6 +68,8 @@ fn a_count_of_an_empty_corpus_demo_table_is_refused() {
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         translations: false,
+        package_data: false,
+        package_data_files: Vec::new(),
         translation_files: Vec::new(),
         runtime: None,
         app_json_keys: Vec::new(),

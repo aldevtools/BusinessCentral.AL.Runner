@@ -3233,8 +3233,9 @@ impl Session {
     }
 
     /// What `Page.RunModal(Id, Rec, Field)` does with the field when a Page-typed handler answered. Only an answer other than
-    /// LookupOK is accepted, and then the field keeps its value (the corpus pins the field argument with TestPage handlers only,
-    /// P106RunStatic.al). Microsoft's tests need it: Segment Line.RunCreateInteraction
+    /// LookupOK is accepted, and then the field keeps its value (pages/lt-f3-pages/F3TrappedAndModal.al:248-262 Card_PageTypedHandler,
+    /// :300 Dialog_PageTypedHandler, :355 List_PageTypedHandler: the handler leaves Response, the action is None and the field and
+    /// the row keep their values; the TestPage handlers are pinned by P106RunStatic.al). Microsoft's Segment Line.RunCreateInteraction
     /// runs `PAGE.RunModal(PAGE::"Create Interaction", Rec, "Interaction Template Code")` and Tests-Marketing answer it with a
     /// Page-typed handler that leaves Response alone (33 tests). A LookupOK answer stays refused.
     fn field_argument_answer(&self, field: bool, answer: Value) -> Result<Value, Signal> {
@@ -3245,7 +3246,6 @@ impl Session {
         if lookup_ok {
             return unsupported(FIELD_ARGUMENT_WITH_HANDLER);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RunModalFieldKeptUnlessLookupOk);
         Ok(answer)
     }
 

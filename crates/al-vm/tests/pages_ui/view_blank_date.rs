@@ -1,8 +1,6 @@
 //! A list page whose SourceTableView is `where(<Date field> = filter(''))` shows only the rows with a blank date
 //! (pages/lt-cd-testpage-leads/CdTestPageLeads.al:842 SH_SourceTableView_DateFilterBlank_Rows). The same condition in an
-//! action's RunPageView stays the registered assumption `view-blank-date-filter`.
-
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+//! action's RunPageView does too (pages/lt-y76-view-filters/Y76ViewBlankDate.al:252 Y76_Action_RunPageView_Blank).
 
 const SRC: &str = r#"
 table 50700 "Repro Entry" { fields { field(1; "Entry No."; Integer) { } field(2; "Starting Date"; Date) { } } keys { key(PK; "Entry No.") { } } }
@@ -30,9 +28,7 @@ codeunit 50701 C
 
 #[test]
 fn a_blank_date_view_lists_only_the_blank_row() {
-    clear_hits();
     assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "F")), "1|No");
-    assert!(!take_hits().contains(&Assumption::ViewBlankDateFilter));
 }
 
 const RUN_VIEW: &str = r#"
@@ -66,8 +62,13 @@ codeunit 50701 C
 "#;
 
 #[test]
-fn a_blank_date_run_page_view_is_the_assumption() {
-    clear_hits();
+fn a_blank_date_run_page_view_lists_only_the_blank_row() {
     assert_eq!(al_testkit::text(al_testkit::run_in(RUN_VIEW, "C", "F")), "1|No");
-    assert!(take_hits().contains(&Assumption::ViewBlankDateFilter));
+}
+
+// Y76_Action_RunPageView_Const0D: `const(0D)` in an action's RunPageView is the blank date too.
+#[test]
+fn a_const_blank_date_run_page_view_lists_only_the_blank_row() {
+    let src = RUN_VIEW.replace("filter('')", "const(0D)");
+    assert_eq!(al_testkit::text(al_testkit::run_in(&src, "C", "F")), "1|No");
 }

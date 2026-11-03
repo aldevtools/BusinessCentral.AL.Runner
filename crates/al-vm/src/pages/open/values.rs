@@ -95,43 +95,6 @@ impl Session {
         self.pages.saved_values.insert(object, saved);
     }
 
-    /// A SaveValues request page closed by Cancel: whether a data item's filters the page changed are kept. The stored record
-    /// is a copy (`detached`), so they are not; that a Cancel does not store the page's variables is pinned
-    /// (handlers/TestReportRequestPageSaveValues.al, misc/lt-probes-needed-6/PnF02SaveValuesExt.al), for a data item's
-    /// filters it is assumed (request-page-cancel-keeps-saved-filters, al-runner issue 6065).
-    pub(in crate::pages) fn note_cancelled_saved_filters(&mut self, st: &St) {
-        if !self.is_request_page(st) || !self.save_values(st) {
-            return;
-        }
-        let object = st.borrow().object;
-        let Some(saved) = self.pages.saved_values.get(&object) else {
-            return;
-        };
-        let Some(inst) = st.borrow().instance.clone() else {
-            return;
-        };
-        let filters = |r: &Rc<RefCell<RecordState>>| -> Vec<(usize, i32, Option<String>)> {
-            r.borrow()
-                .filters
-                .iter()
-                .map(|f| (f.field, f.group, self.filter_text(&f.expr).ok()))
-                .collect()
-        };
-        let changed = saved
-            .iter()
-            .filter(|(owner, _, _)| owner.is_none())
-            .any(|(_, slot, v)| {
-                let cur = inst.borrow().globals[*slot].clone();
-                match (v, &cur) {
-                    (Value::Record(s), Value::Record(c)) => filters(s) != filters(c),
-                    _ => false,
-                }
-            });
-        if changed {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCancelKeepsSavedFilters);
-        }
-    }
-
     pub(in crate::pages) fn restore_page_values(&mut self, st: &St) {
         let object = st.borrow().object;
         let Some(saved) = self.pages.saved_values.get(&object).cloned() else {
@@ -159,16 +122,12 @@ impl Session {
                 continue;
             }
             // A data item the caller gave a view (`SetTableView`, or the record of `Report.Run`/`RunModal`) keeps that view over the
-            // filters stored from an earlier run. Which of the two a request page shows is not pinned: the corpus pins that an OK
-            // stores the view's filters (report/lt-requestpage-savevalues-date-text-setvalue/P147SaveValuesFilter.al:
-            // P147_Filter_SetTableViewVsStored `plain after OK on the SetTableView run`), not what a later view does against them.
+            // filters stored from an earlier run. The view wins on the page and an OK stores it (report/lt-y86-request-page/Y86RequestFilters.al Y86_StoredFilter_*;
+            // report/lt-requestpage-savevalues-date-text-setvalue/P147SaveValuesFilter.al:P147_Filter_SetTableViewVsStored).
             // Microsoft's "Suggest Fin. Charge Memo Lines" (SaveValues) is run once per memo with that memo as the record.
             if self.is_request_page(st) && matches!(&v, Value::Record(_)) {
                 if let Value::Record(cur) = &inst.borrow().globals[slot] {
                     if !cur.borrow().filters.is_empty() && self.report.view_filters_of(cur).is_some() {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::ReportViewOverStoredRequestFilters,
-                        );
                         continue;
                     }
                 }

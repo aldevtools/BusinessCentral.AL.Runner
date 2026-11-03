@@ -1367,10 +1367,10 @@ fn added_data_items_run_and_are_written_in_position_order() {
 }
 
 // A report with the FormatRegion property: report/lt-y-report-props/YReportPropsTests.al:34-148 pins the DataItems block of its
-// SaveAs Xml dataset (the helper cuts the text at `<DataItems>`), not the header before it (`ReportDataSet formatRegion=` and the
-// `FormatRegion` element). What BC writes there is not pinned, so the SaveAs is refused (docs/probes-needed.md, corpus #657).
+// SaveAs Xml dataset, and report/lt-bd-format-region/BdRegionTests.al:173-182 (fr-FR), :195-200 (ja-JP) and :282-292 (nl-NL) pin the
+// `formatRegion` of the header and the data items and the culture of the columns (`AmtCol` 1234567,891 and `D1Col` 31/01/2025 for fr-FR).
 #[test]
-fn the_save_as_of_a_report_with_the_format_region_property_is_refused_for_its_header() {
+fn the_save_as_of_a_report_with_the_format_region_property_writes_its_region() {
     let body = |id: u32| {
         format!(
             "var H: Codeunit Helpers; All: Text; begin H.Seed(); All := H.Dataset({id}, ''); exit(CopyStr(All, StrPos(All, '<DataItems>'))); end;"
@@ -1379,31 +1379,46 @@ fn the_save_as_of_a_report_with_the_format_region_property_is_refused_for_its_he
     for (id, region) in [(68391, "fr-FR"), (68392, "ja-JP")] {
         for bc in ["27.5", "29.0"] {
             match run_on(Some(bc), &body(id)) {
-                Err(Signal::Unsupported(r)) => {
-                    assert!(r.contains("header") && r.contains(region), "{id} {bc}: {r}")
+                Ok(Value::Text(t)) => {
+                    assert!(t.contains(&format!("formatRegion=\"{region}\"")), "{id} {bc}: {t}");
+                    if region == "fr-FR" {
+                        assert!(
+                            t.contains("<Column name=\"AmtCol\" decimalformatter=\"#,##0.00\">1234567,891</Column>"),
+                            "{id} {bc}: {t}"
+                        );
+                        assert!(
+                            t.contains("<Column name=\"DayCol\">31/01/2025</Column>"),
+                            "{id} {bc}: {t}"
+                        );
+                    }
                 }
                 other => panic!("{id} {bc}: {other:?}"),
             }
         }
     }
-    // A region no test measured is refused before the run.
-    match run_on(Some("27.5"), &body(68393)) {
-        Err(Signal::Unsupported(r)) => assert!(r.contains("nl-NL"), "{r}"),
+}
+
+// nl-NL as the property: the columns of this report use a Format shape (standard format 0 of a value) that BdRegionTests.al does not
+// pin for nl-NL, so the SaveAs stays refused with the reason (docs/probes-needed.md).
+#[test]
+fn the_save_as_of_a_report_with_the_nl_nl_property_still_refuses_an_unpinned_format() {
+    match run_on(
+        Some("27.5"),
+        "var H: Codeunit Helpers; All: Text; begin H.Seed(); All := H.Dataset(68393, ''); exit(All); end;",
+    ) {
+        Err(Signal::Unsupported(r)) => assert!(r.contains("nl-NL") && r.contains("not pinned"), "{r}"),
         other => panic!("{other:?}"),
     }
 }
 
 // `Format` in OnInitReport of a report with the FormatRegion property writes en-US: the region is not applied yet
 // (report/lt-bd-format-region/BdRegionTests.al:120 BdProperty_De_DatasetAndFormat `init=1,234,567.891#... region=[]` for de-DE;
-// the same text, `region=[]`, in the 13 property values that file measures). The SaveAs of this report still stops, at the
-// header of the dataset (its elements outside Language and FormatRegion are not pinned in a region), not at the Format call.
+// the same text, `region=[]`, in the 13 property values that file measures). The dataset itself carries the region.
 #[test]
-fn format_in_oninitreport_of_a_report_with_the_format_region_property_is_not_refused() {
-    let r = refusal("var H: Codeunit Helpers; All: Text; begin H.Seed(); All := H.Dataset(68394, ''); exit(All); end;");
-    assert!(
-        !r.contains("OnInitReport") && r.contains("the header of the SaveAs Xml dataset"),
-        "{r}"
-    );
+fn format_in_oninitreport_of_a_report_with_the_format_region_property_writes_en_us() {
+    let t = f("var H: Codeunit Helpers; All: Text; begin H.Seed(); All := H.Dataset(68394, ''); exit(All); end;");
+    assert!(t.contains("formatRegion=\"de-DE\""), "{t}");
+    assert!(t.contains("<Column name=\"InitText\">1,234.5</Column>"), "{t}");
 }
 
 // P138ColCaptionQualified.al:QS_Labels_WhenNoRows: the label of a field written with the name of the own, the parent, a child or an
