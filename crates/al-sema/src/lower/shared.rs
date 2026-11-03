@@ -1284,7 +1284,17 @@ fn object_properties(obj: &ast::Object, request_section: Option<&ast::Section>) 
 /// when the sets do not grant the permission; `Session::access_by_permission_hidden` reads the shapes that are pinned). Any other
 /// mention is not pinned and refuses: a group, part or page-level property, an action reference to a guarded action. Read from the
 /// object's text, so a mention in a comment refuses too: only a restricted session is affected.
-pub(crate) fn access_by_permission_refusals(obj: &ast::Object, controls: &[ir::Control]) -> Vec<String> {
+pub(crate) fn access_by_permission_refusals(
+    ws: &crate::workspace::Workspace,
+    oi: usize,
+    obj: &ast::Object,
+    controls: &[ir::Control],
+) -> Vec<String> {
+    // The object's text is a part of its file's text (the preprocessor only removes), so a file without the word has no
+    // mention: the whole-object text, lowercased, is made only for the files that name it.
+    if !ws.names_access_by_permission(ws.objects[oi].file) {
+        return Vec::new();
+    }
     let mentions = obj
         .syntax()
         .text()
