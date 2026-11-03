@@ -48,6 +48,7 @@ mod modify_all_partial;
 mod modify_all_unchanged;
 mod np_blockers;
 mod option_init_ordinal;
+mod query_aggregate_caption;
 mod query_flowfield_filter_join;
 mod query_flowfield_filter_joined_item;
 mod query_read_state;

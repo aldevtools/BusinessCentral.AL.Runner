@@ -74,6 +74,14 @@ fn expr_flags_only(e: &ir::Expr, scalar: &dyn Fn(usize) -> bool) -> bool {
         ir::Expr::Load(ir::Place::Local(l)) => scalar(*l),
         ir::Expr::Unary(_, a) => ok(a),
         ir::Expr::Binary(_, a, b) => ok(a) && ok(b),
+        // `TableId in [Database::A, Database::B]` (al-runner issue 6755): a set test of constants and those variables.
+        ir::Expr::In(a, set) => {
+            ok(a)
+                && set.iter().all(|e| match e {
+                    ir::SetElem::One(x) => ok(x),
+                    ir::SetElem::Range(a, b) => [a, b].into_iter().flatten().all(&ok),
+                })
+        }
         _ => false,
     }
 }

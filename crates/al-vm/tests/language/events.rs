@@ -1533,8 +1533,8 @@ fn a_temporary_record_raises_no_database_event() {
 // al-runner issue 6148: a setup subscriber reads a per-company table with IsEmpty and no CompanyName() guard. With no
 // company open (the per-database part of an install) a write asks for no setup and raises no database event, so the
 // subscriber does not run and the write succeeds; in each company the setup is asked again (corpus branch
-// al-runtime-rs-staging-ug eff7eb2a, install/lt-ug-install-trigger-setup/UgInstallTests.al
-// TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart; assumption install-trigger-setup-per-company-only).
+// install/lt-ug-install-trigger-setup/UgInstallTests.al
+// TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart).
 #[test]
 fn the_database_trigger_setup_is_asked_per_company_and_not_without_a_company() {
     let mut src = global_triggers_src(

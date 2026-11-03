@@ -805,7 +805,9 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // 2000000005 is refused before BC 29), and 70303 Y64_ModifyAll_PartialRecord_UnloadedField on BC 27 only (on 28 and 29 an
     // earlier test of the codeunit is refused: CalcFields on a Media field).
     // Corpus bump to master 34ca226f keeps it at 19 once FieldRef.Name of SystemCreatedByUserName is served (Y66).
-    assert!(out.contains("runtime: 19 case(s) differ between versions"), "{out}");
+    // Train 1102q makes it 18: 93335 Y64_UserNameFields_Exist (RecordRef.FieldExist of 2000000005 to 2000000008) now
+    // passes on BC 27 and 28 too, so it no longer differs between versions.
+    assert!(out.contains("runtime: 18 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 
