@@ -36,15 +36,25 @@ impl al_builtins::format::FormatCtx for Session {
         let t = self.engine.tables.get(table as usize)?.clone()?;
         Some(t.keys.first()?.iter().map(|&p| t.fields[p].ty.clone()).collect())
     }
-    /// `OnInitReport` of a report with the `FormatRegion` property: the corpus reports format their values only in
-    /// `OnAfterGetRecord` (report/lt-y-report-props/YReports.al:32-48), so whether `Format` there already follows the
-    /// region is not pinned (docs/probes-needed.md).
+    /// `OnInitReport` of a report with the `FormatRegion` property: `Format` there writes en-US, the region is not applied yet
+    /// (report/lt-bd-format-region/BdRegionTests.al:120 BdProperty_De_DatasetAndFormat and the other property tests: every
+    /// `init=` is the en-US text with `region=[]`). Pinned for the 13 property values of BdRegionReports.al; another region
+    /// is refused.
     ///
     /// Outside a report started by Run, `CurrReport.Language :=` another language changes what `Format` writes
     /// (report/W3ReportObjectIdPreviewLanguage.al:546-557 Language_Set1031_FormatAndColumns, a SaveAs: `Format changed=Ja`),
     /// which is not built.
     fn region_unpinned(&self) -> Option<String> {
-        if let Some(r) = &self.report.region_in_init {
+        const INIT_PINNED: [&str; 13] = [
+            "de-DE", "en-GB", "fr-FR", "ja-JP", "zz-ZZ", "da-DK", "en-US", "nl-NL", "de-CH", "it-IT", "es-ES", "sv-SE",
+            "nb-NO",
+        ];
+        if let Some(r) = self
+            .report
+            .region_in_init
+            .as_ref()
+            .filter(|r| !INIT_PINNED.contains(&r.as_str()))
+        {
             return Some(format!(
                 "in OnInitReport of a report with FormatRegion = '{r}' (whether it follows the region is not pinned)"
             ));
@@ -407,6 +417,19 @@ impl al_builtins::native::Ctx for Session {
             .heads()
             .iter()
             .any(|o| o.is_kind(al_ir::ObjKind::Table) && o.id.is_some_and(|id| i64::from(id) == i64::from(number)))
+    }
+    fn table_without_package_data(&self, number: i32) -> bool {
+        self.engine
+            .program
+            .objects
+            .heads()
+            .iter()
+            .find(|o| o.is_kind(al_ir::ObjKind::Table) && o.id.is_some_and(|id| i64::from(id) == i64::from(number)))
+            .and_then(|o| self.engine.program.apps.get(o.app as usize))
+            .is_some_and(|a| !a.dependency && !a.package_data)
+    }
+    fn load_package_data(&mut self, table: i32) -> Result<Value, Signal> {
+        Session::load_package_data(self, table)
     }
     fn install_scope(&self) -> bool {
         self.install_scope

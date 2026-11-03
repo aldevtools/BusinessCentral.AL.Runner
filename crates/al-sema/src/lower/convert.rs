@@ -203,7 +203,7 @@ impl<'a> Lowerer<'a> {
             Ty::Dictionary(k, v) => RtType::Dictionary(Box::new(self.rt(k)?), Box::new(self.rt(v)?)),
             Ty::Array(d, t) => RtType::Array(d.clone(), Box::new(self.rt(t)?)),
             Ty::Builtin(n) if al_builtins::sysenum::members(n).is_some() => {
-                RtType::Option(al_builtins::sysenum::option_members(n).expect("checked"))
+                RtType::Option(al_builtins::sysenum::option_members(n).expect("checked").into())
             }
             Ty::Builtin(n) => RtType::Library((&**n).into()),
             Ty::DotNet(alias) if alias.is_empty() => {

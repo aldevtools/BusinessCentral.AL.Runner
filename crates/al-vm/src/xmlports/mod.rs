@@ -35,6 +35,7 @@ mod shape;
 mod tests;
 mod text;
 mod text_columns;
+mod text_nested;
 mod value;
 mod wraps;
 
@@ -195,8 +196,8 @@ impl Session {
                         let (declared, default) = match kind {
                             0 => (&xp.field_delimiter, "\""),
                             1 => (&xp.field_separator, ","),
-                            2 => (&xp.record_separator, "\\r\\n"),
-                            _ => (&xp.table_separator, "\\r\\n\\r\\n"),
+                            2 => (&xp.record_separator, "\r\n"),
+                            _ => (&xp.table_separator, "\r\n\r\n"),
                         };
                         Ok(Value::Text(
                             match declared {

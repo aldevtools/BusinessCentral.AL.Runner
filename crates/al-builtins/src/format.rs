@@ -6,6 +6,10 @@ use crate::native::Signal;
 use crate::value::Value;
 
 mod recordid_number;
+mod region;
+pub use region::{Region, region_column};
+#[cfg(test)]
+mod region_tests;
 
 /// What formatting needs from the running program.
 pub trait FormatCtx {
@@ -97,92 +101,6 @@ impl FormatCtx for WithoutRegion<'_> {
     }
 }
 
-/// The format regions whose texts the corpus pins (exact spelling; any other region is refused).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Region {
-    DeDE,
-    EnGB,
-    FrFR,
-    JaJP,
-    DaDK,
-    /// `zz-ZZ`, a region no culture has: en-US texts, but `MM/dd/yyyy` dates and a 24-hour clock in a dataset column
-    /// (report/lt-y-report-props/YReportPropsTests.al:FormatRegion_UnknownRegion_XmlOrError).
-    ZzZZ,
-}
-
-impl Region {
-    /// The region a `FormatRegion` text names, `None` when it is not pinned.
-    pub fn parse(name: &str) -> Option<Region> {
-        Some(match name {
-            "de-DE" => Region::DeDE,
-            "en-GB" => Region::EnGB,
-            "fr-FR" => Region::FrFR,
-            "ja-JP" => Region::JaJP,
-            "da-DK" => Region::DaDK,
-            "zz-ZZ" => Region::ZzZZ,
-            _ => return None,
-        })
-    }
-
-    /// The group separator and the decimal separator of an amount. fr-FR groups with U+00A0 on BC 27, 28 and 29
-    /// (misc/lt-probes-needed-8/PnH4CurrReport.al:247,311, report/lt-y-report-props/YReportPropsTests.al:74; corpus bump 62, where
-    /// the corpus CI's newer Linux image stopped giving U+202F on BC 27 and 28).
-    fn separators(self) -> (char, char) {
-        match self {
-            Region::DeDE | Region::DaDK => ('.', ','),
-            Region::FrFR => ('\u{A0}', ','),
-            Region::EnGB | Region::JaJP | Region::ZzZZ => (',', '.'),
-        }
-    }
-
-    /// A date as `Format` (two-digit year) or a dataset column (four-digit year) writes it, `None` when the
-    /// shape is not pinned. Day and month are padded where a test measured it: month 01 in every region
-    /// (YReportPropsTests.al:34-148), day 05 in de-DE, fr-FR and da-DK `Format` (PnH4CurrReport.al:241-249).
-    fn date(self, y: i32, m: u32, d: u32, column: bool) -> Option<String> {
-        // Day 05 in a zz-ZZ dataset column: BdRegionTests.al:213,220 `03/05/2024`.
-        // Day 05 in a de-DE dataset column: report/W3ReportObjectIdPreviewLanguage.al:912 `05.03.2024` (writer RB),
-        // BdRegionTests.al:131 `05.03.2024`.
-        let day_padding_pinned = (!column && matches!(self, Region::DeDE | Region::FrFR | Region::DaDK))
-            || (column && matches!(self, Region::ZzZZ | Region::DeDE));
-        if d < 10 && !day_padding_pinned {
-            return None;
-        }
-        let year = if column {
-            format!("{y:04}")
-        } else {
-            format!("{:02}", y.rem_euclid(100))
-        };
-        if !(1000..=9999).contains(&y) {
-            return None;
-        }
-        Some(match self {
-            Region::DeDE => format!("{d:02}.{m:02}.{year}"),
-            Region::EnGB | Region::FrFR => format!("{d:02}/{m:02}/{year}"),
-            Region::JaJP => format!("{year}/{m:02}/{d:02}"),
-            // da-DK is measured through `Format` only (PnH4CurrReport.al:248 `05-03-24`).
-            Region::DaDK if !column => format!("{d:02}-{m:02}-{year}"),
-            // A dataset column of zz-ZZ is `MM/dd/yyyy` on BC 27, 28 and 29 (YReportPropsTests.al:128 `01/31/2025`,
-            // BdRegionTests.al:213,220 `03/05/2024`; corpus bump 43, the older Linux image gave `1/31/2025`).
-            Region::ZzZZ if column => format!("{m:02}/{d:02}/{year}"),
-            Region::DaDK | Region::ZzZZ => return None,
-        })
-    }
-
-    /// `Format(Date, 0, 4)`: the month name in the session's language (en-US), the order of the region
-    /// (YReportPropsTests.al:40-96: `31. January 2025`, `31 January 2025`, `2025年1月31日`). A one-digit day is not measured.
-    fn long_date(self, y: i32, m: u32, d: u32, month: &str) -> Option<String> {
-        if d < 10 {
-            return None;
-        }
-        Some(match self {
-            Region::DeDE => format!("{d}. {month} {y}"),
-            Region::EnGB | Region::FrFR => format!("{d} {month} {y}"),
-            Region::JaJP => format!("{y}\u{5E74}{m}\u{6708}{d}\u{65E5}"),
-            Region::DaDK | Region::ZzZZ => return None,
-        })
-    }
-}
-
 /// `Format` while a report's `FormatRegion` is set (by `CurrReport.FormatRegion` or the report property). Pinned: de-DE through
 /// the setter (misc/lt-probes-needed-3/PnC06ReportLanguage.al:Language_SetAndRead), de-DE, fr-FR and da-DK through the setter
 /// (misc/lt-probes-needed-8/PnH4CurrReport.al:Culture_FormatRegion_ChangesFormat: Decimal, Date, Boolean) and de-DE, en-GB,
@@ -209,7 +127,9 @@ fn format_in_region(
         Value::Integer(_) | Value::BigInteger(_) if standard == 0 => return format_value(v, length, standard, &plain),
         _ => {}
     }
-    let r = Region::parse(region).ok_or_else(refuse)?;
+    let r = Region::parse_setter(region).ok_or_else(refuse)?;
+    // BC 29 and later: BdRegionTests.al asserts every region there, en-GB, da-DK, nl-NL, es-ES, sv-SE and nb-NO only there.
+    let g29 = ctx.format_gate(al_version::Gate::ProbedValuesDifferFrom29);
     let text = match v {
         // `bool=Yes` under de-DE, fr-FR and da-DK (PnH4CurrReport.al:241-249).
         Value::Boolean(_) if standard == 0 && matches!(r, Region::DeDE | Region::FrFR | Region::DaDK) => {
@@ -218,44 +138,36 @@ fn format_in_region(
         Value::Date(day, false) if *day != 0 && standard == 0 => {
             let (y, m, d) = civil_from_day(*day);
             match r {
-                Region::ZzZZ => format_value(v, 0, standard, &plain)?,
-                _ => r.date(y, m, d, false).ok_or_else(refuse)?,
+                Region::ZzZZ | Region::EnUS => format_value(v, 0, standard, &plain)?,
+                _ => r.date(y, m, d, false, g29).ok_or_else(refuse)?,
             }
         }
         Value::Date(day, false) if *day != 0 && standard == 4 && plain.language() == 1033 => {
             let (y, m, d) = civil_from_day(*day);
             match r {
-                Region::ZzZZ => format_value(v, 0, standard, &plain)?,
-                _ => r.long_date(y, m, d, MONTHS[m as usize - 1]).ok_or_else(refuse)?,
+                Region::ZzZZ | Region::EnUS => format_value(v, 0, standard, &plain)?,
+                _ => r.long_date(y, m, d, MONTHS[m as usize - 1], g29).ok_or_else(refuse)?,
             }
         }
         // `31.01.25 14:30`: the short date, a space and the 24-hour time without seconds; zz-ZZ keeps en-US's `01/31/25 02:30 PM`
-        // (YReportPropsTests.al:34-148). An hour below 10 is not measured.
-        Value::DateTime(t) if *t != 0 && standard == 0 && r != Region::DaDK => match r {
-            Region::ZzZZ => format_value(v, 0, standard, &plain)?,
-            _ => {
-                let ms = t - 1;
-                let (h, mi) = (ms.rem_euclid(86_400_000) / 3_600_000, ms.rem_euclid(3_600_000) / 60_000);
-                if h < 10 {
-                    return Err(refuse());
-                }
-                let (y, m, d) = civil_from_day(ms.div_euclid(86_400_000) as i32 + 1);
-                format!("{} {h:02}:{mi:02}", r.date(y, m, d, false).ok_or_else(refuse)?)
-            }
+        // (YReportPropsTests.al:34-148, BdRegionTests.al:131-398 with the hour 09).
+        Value::DateTime(t) if *t != 0 && standard == 0 => match r {
+            Region::ZzZZ | Region::EnUS => format_value(v, 0, standard, &plain)?,
+            _ => r.date_time_text(t - 1, g29).ok_or_else(refuse)?,
         },
-        // A Time in de-DE: 24 hours, two digits each (report/W3ReportObjectIdPreviewLanguage.al:912 `09:30:05`, BdRegionTests.al:131
-        // `14:30:15#09:05:07`). Milliseconds are not measured.
-        Value::Time(t) if *t != 0 && standard == 0 && r == Region::DeDE && (t - 1) % 1000 == 0 => {
-            let ms = t - 1;
-            format!("{:02}:{:02}:{:02}", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60)
-        }
-        // de-DE and da-DK swap the separators (`1.234,5`), fr-FR groups with U+00A0; a negative amount is measured nowhere
-        // (the de-DE rule predates this guard and keeps its sign).
-        Value::Decimal(_) if standard == 0 => {
-            let en = format_value(v, 0, standard, &plain)?;
-            if en.starts_with('-') && r != Region::DeDE {
+        // A Time: 24 hours, two digits each (report/W3ReportObjectIdPreviewLanguage.al:912 `09:30:05`, BdRegionTests.al:131
+        // `14:30:15#09:05:07`), ja-JP and es-ES ` 9:05:07` (:199, :344); zz-ZZ keeps en-US's `2:30:15 PM`. Milliseconds are not measured.
+        Value::Time(t) if *t != 0 && standard == 0 => match r {
+            Region::ZzZZ | Region::EnUS => format_value(v, 0, standard, &plain)?,
+            _ => r.clock(t - 1, false, true, g29).ok_or_else(refuse)?,
+        },
+        // The separators of the region (`1.234,5`, fr-FR groups with U+00A0); a negative amount is measured in every region of
+        // BdRegionTests.al (`-1.234,5`).
+        Value::Decimal(d) if standard == 0 => {
+            if !r.amount_pinned(d.is_sign_negative(), g29) {
                 return Err(refuse());
             }
+            let en = format_value(v, 0, standard, &plain)?;
             let (group, decimal) = r.separators();
             en.chars()
                 .map(|c| match c {
@@ -314,46 +226,6 @@ pub fn ml_text_in_language(ml: &str, language: i32) -> Result<String, String> {
     find(code)
         .or_else(|| find("ENU"))
         .ok_or_else(|| format!("`{ml}` has neither a {code} nor an ENU entry (not pinned)"))
-}
-
-/// The text of a dataset column under the report's `FormatRegion` (report/lt-y-report-props/YReportPropsTests.al:34-148), `None`
-/// when the shape is not pinned: a Date `31.01.2025`, a DateTime `31.01.2025 14:30:15` (24-hour time with seconds; an hour below
-/// 10 is not measured), a Decimal with the region's decimal separator and no grouping (`1234567,891`).
-pub fn region_column(r: Region, v: &Value) -> Option<String> {
-    match v {
-        Value::Date(day, false) if *day != 0 => {
-            let (y, m, d) = civil_from_day(*day);
-            r.date(y, m, d, true)
-        }
-        Value::DateTime(t) if *t != 0 => {
-            let ms = t - 1;
-            let of_day = ms.rem_euclid(86_400_000);
-            let (h, mi, s) = (of_day / 3_600_000, of_day / 60_000 % 60, of_day / 1000 % 60);
-            // An hour before 10 in de-DE: `05.03.2024 09:30:05` (W3ReportObjectIdPreviewLanguage.al:912, BdRegionTests.al:131).
-            if (h < 10 && r != Region::DeDE) || of_day % 1000 != 0 {
-                return None;
-            }
-            let (y, m, d) = civil_from_day(ms.div_euclid(86_400_000) as i32 + 1);
-            Some(format!("{} {h:02}:{mi:02}:{s:02}", r.date(y, m, d, true)?))
-        }
-        // A Time column in de-DE: `09:30:05` (W3ReportObjectIdPreviewLanguage.al:912), `14:30:15` (BdRegionTests.al:131).
-        Value::Time(t) if r == Region::DeDE && *t != 0 && (t - 1) % 1000 == 0 => {
-            let ms = t - 1;
-            Some(format!(
-                "{:02}:{:02}:{:02}",
-                ms / 3_600_000,
-                ms / 60_000 % 60,
-                ms / 1000 % 60
-            ))
-        }
-        // A negative decimal in de-DE: `-1234567,891` (W3ReportObjectIdPreviewLanguage.al:912), `-1234,5` (BdRegionTests.al:131).
-        Value::Decimal(d) if !d.is_sign_negative() || r == Region::DeDE => {
-            // The decimal separator does not depend on the version.
-            let (_, decimal) = r.separators();
-            Some(d.to_string().replace('.', &decimal.to_string()))
-        }
-        _ => None,
-    }
 }
 
 /// Why a format did not produce a text.
@@ -1576,7 +1448,8 @@ mod tests {
             format_value(&Value::Time(5), 0, 0, &R),
             Err(FormatFail::Unsupported(_))
         ));
-        assert!(matches!(format_value(&d, 0, 4, &R), Err(FormatFail::Unsupported(_))));
+        // A long date with a one-digit day is pinned (BdRegionTests.al:131 `5. March 2024`).
+        assert_eq!(format_value(&d, 0, 4, &R).unwrap(), "5. March 2024");
     }
 
     #[test]
@@ -1637,20 +1510,20 @@ mod tests {
                 .join("|");
             assert_eq!(got, want, "{r}");
         }
-        // Neighbours no test pins stay refused: another region, a day or an hour below 10 where the region's padding is not
-        // measured, a long date with a one-digit day, a Time, a negative amount outside de-DE.
+        // Neighbours no test pins stay refused: a region that is not in the table, the texts of en-GB, da-DK, nl-NL below BC 29, a
+        // Time with milliseconds.
         let refused = |v: &Value, n: i32, r: &'static str| {
             matches!(format_value(v, 0, n, &R(r)), Err(FormatFail::Unsupported(_)))
         };
-        assert!(refused(&amt, 0, "nl-NL"));
+        assert!(refused(&amt, 0, "pt-PT"));
         assert!(refused(&amt, 0, "en-gb"));
+        assert!(refused(&amt, 0, "nl-NL"));
         assert!(refused(&march, 0, "en-GB"));
-        assert!(refused(&march, 0, "ja-JP"));
-        assert!(refused(&march, 4, "fr-FR"));
+        assert!(refused(&march, 4, "da-DK"));
         let early = Value::DateTime((i64::from(day_from_civil(2025, 1, 31)) - 1) * 86_400_000 + 9 * 3_600_000 + 1);
         assert!(refused(&early, 0, "en-GB"));
         assert!(refused(&Value::Time(5), 0, "fr-FR"));
-        assert!(refused(&dec("-1.5"), 0, "fr-FR"));
+        assert!(refused(&dec("-1.5"), 0, "da-DK"));
         assert!(refused(&stamp, 0, "da-DK"));
     }
 
@@ -1661,12 +1534,15 @@ mod tests {
         let day = Value::Date(day_from_civil(2025, 1, 31), false);
         let stamp = Value::DateTime((i64::from(day_from_civil(2025, 1, 31)) - 1) * 86_400_000 + 52_215_000 + 1);
         let march = Value::Date(day_from_civil(2024, 3, 5), false);
-        assert_eq!(region_column(Region::ZzZZ, &day).as_deref(), Some("01/31/2025"));
+        assert_eq!(region_column(Region::ZzZZ, &day, false).as_deref(), Some("01/31/2025"));
         assert_eq!(
-            region_column(Region::ZzZZ, &stamp).as_deref(),
+            region_column(Region::ZzZZ, &stamp, false).as_deref(),
             Some("01/31/2025 14:30:15")
         );
-        assert_eq!(region_column(Region::ZzZZ, &march).as_deref(), Some("03/05/2024"));
+        assert_eq!(
+            region_column(Region::ZzZZ, &march, false).as_deref(),
+            Some("03/05/2024")
+        );
     }
 
     #[test]

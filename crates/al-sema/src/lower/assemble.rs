@@ -839,7 +839,7 @@ pub(crate) fn build_shared<'a>(
                         }
                     }
                 }
-                ext_slot_table[e] = slots;
+                ext_slot_table[e] = with_request_page_slots(&lw, ws, e, items_before, slots);
             }
         }
     }
@@ -928,9 +928,7 @@ pub(crate) fn lower_core(
                 target: None,
                 logo: None,
                 description: None,
-                layout_files: Vec::new(),
-                translations: false,
-                translation_files: Vec::new(),
+                ..Default::default()
             })
             .collect(),
         dotnet_types: ws
@@ -2548,4 +2546,24 @@ fn extension_order_reasons(ws: &Workspace, exts: &[usize]) -> Vec<String> {
     } else {
         Vec::new()
     }
+}
+
+/// The variables of a report extension's request page come after its own variables in its globals (`shared.rs`).
+fn with_request_page_slots(
+    lw: &Lowerer,
+    ws: &Workspace,
+    e: usize,
+    items_before: usize,
+    mut slots: HashMap<String, usize>,
+) -> HashMap<String, usize> {
+    for v in ws.object_ast(e).request_page_var_decls() {
+        let ty = v.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
+        for n in v.names() {
+            if lw.rt(&ty).is_ok() {
+                let next = items_before + slots.len();
+                slots.insert(n.to_lowercase(), next);
+            }
+        }
+    }
+    slots
 }

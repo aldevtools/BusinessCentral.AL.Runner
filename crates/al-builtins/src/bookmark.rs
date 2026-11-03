@@ -176,7 +176,7 @@ pub fn decode_key(shape: &[&RtType], rest: &[u8]) -> Option<Vec<Value>> {
                 let n = i32::from_le_bytes([byte(at + 2), byte(at + 3), byte(at + 4), byte(at + 5)]);
                 at += 6;
                 key.push(match ty {
-                    RtType::Option(names) => Value::Option(n, std::sync::Arc::from(names.as_slice())),
+                    RtType::Option(names) => Value::Option(n, names.clone()),
                     RtType::Enum(id) => Value::Enum(*id, n),
                     _ => Value::Integer(n),
                 });

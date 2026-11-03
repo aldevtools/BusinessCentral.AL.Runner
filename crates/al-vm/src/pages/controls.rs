@@ -8,6 +8,9 @@ impl Session {
     /// and records a refusal in the control's ledger (corpus handlers/TestPageValidationError_Tests.al,
     /// TestPageReadOnlySetValue.al:1-30, TestPageBooleanSpelling_Tests.al).
     pub(super) fn control_set_value(&mut self, st: &St, idx: usize, args: &mut [Value]) -> Result<Value, Signal> {
+        if st.borrow().request_new_blank {
+            return unsupported("SetValue on a request page after New() (only Close, OK and Cancel are pinned)");
+        }
         if st.borrow().lookup_setting_value {
             st.borrow_mut().lookup_value_set = true;
         }
@@ -924,10 +927,11 @@ impl Session {
                     inst.borrow_mut().globals[slot] = parsed.clone();
                 }
                 // A control bound to an expression that is a place (`Totals[1]."Inv. Discount Amount"`) is written through the
-                // routine `pages::expand` made (`mark_expression_write`).
+                // routine `pages::expand` made; the value is converted to the type the path holds, then the control's OnValidate runs
+                // (pages/lt-page-array-path/PageArrayPathSetValue.al ArrayElementField_SetValueNumber_RunsOnValidate,
+                // _SetValueText_ConvertsToDecimal, _SetValueUnconvertible_IsRefused).
                 ir::Binding::Expr(_) if ctl.trigger("__sourceset").is_some() => {
                     let w = ctl.trigger("__sourceset").expect("checked");
-                    mark_expression_write(st, ctl);
                     let owner = ctl.owner;
                     self.owner_routine_with(st, owner, w, vec![parsed.clone()])?;
                 }
@@ -1647,7 +1651,7 @@ impl Session {
                     return unsupported(format!("GetOption({i}) outside the options (error text not pinned)"));
                 };
                 let v = match self.control_type(st, idx, &current) {
-                    Some(RtType::Option(names)) => Value::Option(*ordinal, names.into()),
+                    Some(RtType::Option(names)) => Value::Option(*ordinal, names.clone()),
                     Some(RtType::Enum(id)) => Value::Enum(id, *ordinal),
                     _ => unreachable!(),
                 };
@@ -1867,17 +1871,6 @@ pub(super) fn note_refusal(st: &St, idx: usize, text: String) -> Result<(), Sign
         }
     }
     Ok(())
-}
-
-/// Marks assumption page-expression-control-setvalue for a write through a control's expression source, but where it is
-/// pinned: a TestField.Lookup on the page's own control bound to a field of a page global record writes that field, then
-/// runs the control's OnValidate (pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al: Value() shows R2 and the saved
-/// setting row holds it; al-runner issue 6519).
-fn mark_expression_write(st: &St, ctl: &ir::Control) {
-    let pinned = ctl.owner.is_none() && ctl.var_field.is_some() && st.borrow().lookup_setting_value;
-    if !pinned {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageExpressionControlSetValue);
-    }
 }
 
 /// Whether the `modify` triggers `before` (OnBeforeValidate) and `after` (OnAfterValidate) of a control bound to a variable are a

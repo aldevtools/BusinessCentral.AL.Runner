@@ -38,7 +38,7 @@ pub enum RtType {
     Duration,
     Guid,
     DateFormula,
-    Option(Vec<String>),
+    Option(std::sync::Arc<[String]>),
     Enum(u32),
     Variant,
     List(Box<RtType>),
@@ -614,6 +614,9 @@ pub struct PageState {
     /// The host's Next is the first call after a Lookup that left its refresh for later: the move runs that refresh too
     /// (`Session::lookup_next_refresh`).
     pub lookup_next_refresh: bool,
+    /// The host's move is the first call after a Lookup that left its refresh for later: the refresh runs after the move
+    /// (`Session::lookup_move_refresh_after`).
+    pub lookup_move_refresh: bool,
     /// That refresh runs on a host without OnAfterGetCurrRecord: its reads differ (`Session::lookup_next_refresh`).
     pub lookup_next_plain: bool,
     /// The host read the row of its unlinked ListPart after that part moved, and has not moved since (`Session::host_follows_part`).
@@ -805,6 +808,13 @@ pub struct PageState {
     /// and a read of a host field are pinned for it, and a part field read or First that inserts it (pages/
     /// lt-part-line-before-host-key/PartLineBeforeHostKey.al QH_BlankRows_*).
     pub new_host_part_rows: bool,
+    /// New() on the request page of a report landed on a blank row that nothing stores (Y80_RX_New_*).
+    pub request_new_blank: bool,
+    /// A new host card or document that a first part access stored with its blank key (pages/lt-y80-new-host-key/Y80NewHostKey.al
+    /// Y80_NH_*): a key typed afterwards runs its OnValidate, then the page shows and stores the old key again.
+    pub host_stored_blank_key: bool,
+    /// A field outside the key was typed on that host row: its parts read their rows again (once is pinned).
+    pub blank_key_edit_reread: bool,
     /// `P.Editable(false)` or `P.Editable := false` on a Page variable before it runs: the page
     /// opens non-editable (handlers/TestPageVariableEditableContracts.al).
     pub editable_preset: Option<bool>,
@@ -1042,6 +1052,7 @@ impl PageState {
             lookup_value_set: false,
             lookup_refresh_used: false,
             lookup_next_refresh: false,
+            lookup_move_refresh: false,
             lookup_next_plain: false,
             host_followed_part: false,
             marked_only_by_action: false,
@@ -1113,6 +1124,9 @@ impl PageState {
             shows_sibling_save: None,
             part_accessed: false,
             new_host_part_rows: false,
+            request_new_blank: false,
+            host_stored_blank_key: false,
+            blank_key_edit_reread: false,
             editable_preset: None,
             caption: None,
             parts: Vec::new(),
@@ -1301,6 +1315,31 @@ pub struct RowOrigin {
     /// `own_write` holds because the buffer read, by Get or GetBySystemId, a version written in the transaction that was open
     /// then, not because the variable wrote it (assumption stale-get-buffer-in-write-transaction, al-runner issue 5913).
     pub read_in_write_tx: bool,
+    /// The buffer got its row version from a TransferFields out of a record, not from a read: only a LockTable and Get of the row
+    /// in the new transaction lets its stale write through, a Modify of the row does not
+    /// (record/lt-sb-stale-own-modify/Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord).
+    pub lock_only: bool,
+    /// The variable's own Modify followed its Insert or Get in the same transaction (a buffer with a Modify and one without are
+    /// told apart by record/lt-sb-stale-own-modify/Y76StaleBuffers.al Y76_Part2_*).
+    pub own_modified: bool,
+    /// The buffer was read by a form of Find no test pins (anything but FindFirst, FindLast and FindSet), or got TransferFields out
+    /// of such a record: a stale write of it is refused (Y76StaleBuffers.al Y76_Part1_* pins FindFirst, FindLast and FindSet only).
+    pub unpinned_read: bool,
+}
+
+impl RowOrigin {
+    /// An origin at `version` with the session's `commits`, no Get in a write transaction, no lock rule and no own Modify.
+    pub fn new(own_write: bool, version: i64, commits: u64) -> RowOrigin {
+        RowOrigin {
+            own_write,
+            version,
+            commits,
+            read_in_write_tx: false,
+            lock_only: false,
+            own_modified: false,
+            unpinned_read: false,
+        }
+    }
 }
 
 /// What an action's `RunPageLink` fills into Rec before OnOpenPage (field position, value) and the link's filters
@@ -2158,7 +2197,7 @@ impl Value {
             RtType::Duration => Value::Duration(0),
             RtType::Guid => Value::Guid([0; 16]),
             RtType::DateFormula => Value::DateFormula(String::new()),
-            RtType::Option(m) => Value::Option(0, std::sync::Arc::from(m.as_slice())),
+            RtType::Option(m) => Value::Option(0, m.clone()),
             RtType::Enum(id) => Value::Enum(*id, 0),
             RtType::Variant => Value::Null,
             RtType::List(_) => Value::List(Rc::default()),
@@ -2261,10 +2300,23 @@ mod tests {
         assert!(matches!(Value::default_for(&RtType::Decimal), Value::Decimal(d) if d.is_zero()));
         assert!(matches!(Value::default_for(&RtType::Variant), Value::Null));
         assert!(matches!(
-            Value::default_for(&RtType::Option(vec!["A".into()])),
+            Value::default_for(&RtType::Option(vec!["A".into()].into())),
             Value::Option(0, _)
         ));
         assert!(matches!(Value::default_for(&RtType::Guid), Value::Guid(g) if g == [0; 16]));
+    }
+
+    #[test]
+    fn an_option_default_shares_the_members_of_its_type() {
+        let members: std::sync::Arc<[String]> = vec!["A".to_string(), "B".to_string()].into();
+        let ty = RtType::Option(members.clone());
+        let Value::Option(0, held) = Value::default_for(&ty) else {
+            panic!()
+        };
+        assert!(
+            std::sync::Arc::ptr_eq(&held, &members),
+            "the default copied the member names"
+        );
     }
 
     #[test]

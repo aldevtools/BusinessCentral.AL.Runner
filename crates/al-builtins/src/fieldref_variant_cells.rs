@@ -72,7 +72,7 @@ fn number_into(n: i64, t: &RtType) -> Option<Result<Value, Signal>> {
             None => return overflow(),
         }),
         RtType::Option(m) => match small() {
-            Some(i) => Value::Option(i, m.clone().into()),
+            Some(i) => Value::Option(i, m.clone()),
             None => return overflow(),
         },
         RtType::Enum(id) => match small() {

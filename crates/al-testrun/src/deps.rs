@@ -36,6 +36,19 @@ pub struct Dependencies {
 }
 
 impl Dependencies {
+    /// Per dependency app (by app id), the reader of the layout files of its package or folder (read when a run asks for
+    /// one: `al_vm` `report_layout_export`).
+    pub fn layout_sources(&self) -> Vec<(String, al_ir::LayoutSourceRef)> {
+        self.apps
+            .iter()
+            .zip(&self.paths)
+            .map(|(app, path)| {
+                let source = al_deps::lazy::PackageFiles::new(path.clone());
+                (app.id.clone(), al_ir::LayoutSourceRef(std::sync::Arc::new(source)))
+            })
+            .collect()
+    }
+
     /// What an app with a `platform` and/or `application` floor depends on without declaring it
     /// (only with `implied` on in [`load_project`]): `System`, `Application` and the apps
     /// `Application` propagates. The caller adds these to its own apps' dependencies.
@@ -385,6 +398,9 @@ pub fn load_project_with(
             id_ranges: Vec::new(),
             symbols: d.preprocessor_symbols.clone(),
             translations: d.translations,
+            // A dependency app: NavApp.LoadPackageData of its tables is refused whatever it ships.
+            package_data: false,
+            package_data_files: Vec::new(),
             translation_files: Vec::new(),
             runtime: None,
             app_json_keys: Vec::new(),

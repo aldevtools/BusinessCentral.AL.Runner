@@ -1105,6 +1105,15 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
     ))
 }
 
+/// `31. Dezember 2024`: a day, the German month word and a year is no date in either language, and gets the date error
+/// (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:DateDecimal_VT_German, needs the corpus bump).
+fn dezember_date_text(text: &str) -> bool {
+    let all =
+        |t: &str, n: std::ops::RangeInclusive<usize>| n.contains(&t.len()) && t.bytes().all(|b| b.is_ascii_digit());
+    text.split_once(". Dezember ")
+        .is_some_and(|(d, y)| all(d, 1..=2) && all(y, 4..=4))
+}
+
 /// A time of day, as a `Value::Time` holds it (milliseconds since midnight, plus one).
 ///
 /// Pinned by types/lt-evaluate-format-lasterror-setview/P86Eval.al, codeunit "LT P86 Eval Time". Number 0 reads
@@ -1466,11 +1475,12 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
 /// commit d3bcc580: `not-a-date` with 9, 0 and the default, former assumption `evaluate-date-letters-statement` (pinned on corpus master since bump 1030)). Other texts and
 /// numbers are not pinned.
 fn letters_date_text(text: &str, number: i64) -> bool {
-    matches!(number, 0 | 9)
-        && text.bytes().any(|b| b.is_ascii_alphabetic())
-        && text
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'/'))
+    dezember_date_text(text)
+        || (matches!(number, 0 | 9)
+            && text.bytes().any(|b| b.is_ascii_alphabetic())
+            && text
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'/')))
 }
 
 pub fn evaluate(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
@@ -1639,6 +1649,10 @@ pub fn evaluate_typed(
     })
 }
 
+/// The tail of the error for an unknown table name: a space, then each part after a real backslash and six spaces, the last one after
+/// four spaces (xmlport/lt-y88-xmlport/Y88XmlPortProbes.al:223 and :241; W4PlatformAndMeta.al:706 pins the head up to the backslash).
+const METADATA_NOT_FOUND_TAIL: &str = " \\      The metadata object Table -1 was not found.\\      The application might be incompatible with the current compiler. Please unpublish the application that contains the application object Table -1 and republish it. \\      Or, run a technical upgrade of the application database with the 'Force' flag set.\\    ";
+
 /// `Evaluate(TableFilterField, Text)` (al-runner issues 5998 and 6006), pinned by records/W4PlatformAndMeta.al (writer SI:
 /// TableFilterEvaluate_AcceptedForms, _RejectedForms, _ErrorsAsStatement, _StoredValue; writer SR: TableFilterEvaluate_SeveralCodeFields,
 /// _SrMultiFieldForms, _SrSecondFieldTypes, _SrExpressionForms, _SrRejectedForms, _SrStoredSpaceValue). The text is
@@ -1684,15 +1698,10 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
         .unwrap_or(table);
     let def = match c.table_filter_table(table) {
         Some(Ok(Some(def))) => def,
-        // An unknown table name: the text goes on, after a backslash, with "The metadata object Table -1 was not found."
-        // (W4PlatformAndMeta.al:706 pins the text before the backslash; xmlport/lt-y67-xmlport-tablefilter/Y67XpTableFilter.al:153
-        // pins the sentence by Contains on 27/28/29; the rest of the tail is not pinned and left out).
+        // An unknown table name: the whole text is pinned by xmlport/lt-y88-xmlport/Y88XmlPortProbes.al:223 (Y88_EvaluateTableFilter_
+        // UnknownTableErrorText, 27-29), see METADATA_NOT_FOUND_TAIL.
         Some(Ok(None)) if table.parse::<i64>().is_err() => {
-            return reject(
-                c,
-                "\\The metadata object Table -1 was not found.",
-                "Evaluate:MetadataNotFound",
-            );
+            return reject(c, METADATA_NOT_FOUND_TAIL, "Evaluate:MetadataNotFound");
         }
         Some(Ok(None)) => return reject(c, "", "Evaluate:MetadataNotFound"),
         Some(Err(e)) => return Err(e),

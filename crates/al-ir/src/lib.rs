@@ -162,6 +162,30 @@ pub enum AppLogo {
     File(Vec<u8>),
 }
 
+/// Reads a file of an app's package or folder when the run asks for it: the layout files of a Microsoft app are too many
+/// and too large to hold in the program (Base Application: 460 files, 80 MB). The front end that loaded the app supplies it
+/// (core crates do no OS access, ADR-006).
+pub trait LayoutSource: Send + Sync {
+    /// The bytes of `path` (relative to the app, `/` separators); `None` when the app holds no such file.
+    fn file(&self, path: &str) -> Option<Vec<u8>>;
+}
+
+/// A [`LayoutSource`] as an app carries it: never serialized, never compared.
+#[derive(Clone)]
+pub struct LayoutSourceRef(pub std::sync::Arc<dyn LayoutSource>);
+
+impl std::fmt::Debug for LayoutSourceRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LayoutSourceRef")
+    }
+}
+
+impl PartialEq for LayoutSourceRef {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
 /// What `NavApp.GetCurrentModuleInfo` reports about an app.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct AppInfo {
@@ -198,10 +222,23 @@ pub struct AppInfo {
     /// The files the app's reports name with `LayoutFile`: path relative to the app (`/` separators), content.
     #[serde(default)]
     pub layout_files: Vec<(String, Vec<u8>)>,
+    /// Reads a layout file of the app's package on demand, for an app whose layout files are not held in `layout_files`
+    /// (a dependency app read from a package). Set by the front end after the program is built; not part of the cache.
+    #[serde(skip)]
+    pub layout_source: Option<LayoutSourceRef>,
     /// The app ships a translation file (`Translations/*.xlf`, not the generated `*.g.xlf`): in a language other than
     /// 1033 BC translates its labels and captions, which the runtime refuses to read (ADR-053 step 1). Set by the runner.
     #[serde(default)]
     pub translations: bool,
+    /// The app ships package data (a `*.navxdata` file, such as `Tab<id>.navxdata`) that `NavApp.LoadPackageData` loads into
+    /// its tables. The runtime refuses a load while this is set: the file format is not pinned. Set by the runner.
+    #[serde(default)]
+    pub package_data: bool,
+    /// The package data files of an app folder (`*.navxdata`, not those of a nested app): path relative to the app, content.
+    /// Empty for a package, whose files are not read: a load stays refused when `package_data` is set (the place of the
+    /// files in a package is not measured).
+    #[serde(default)]
+    pub package_data_files: Vec<(String, Vec<u8>)>,
     /// The app's translation files as read from an app folder (ADR-053 step 2), applied in a language other than 1033. Empty
     /// for a package, whose files are not read: its translated reads stay refused when `translations` is set.
     #[serde(default)]

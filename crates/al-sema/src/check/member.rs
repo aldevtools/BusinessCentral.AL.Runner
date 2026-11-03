@@ -84,6 +84,11 @@ impl<'a> Checker<'a> {
     /// Members of a value of type `t`: fields, procedures, library methods.
     pub(crate) fn member(&mut self, sc: &Scope, t: &Ty, name: &str) -> Option<E> {
         match t {
+            // `CurrReport.RequestOptionsPage` is the request page, as the bare name is (the checker reports AL0161 outside the
+            // request page's code: `currreport_request_options_page`; report/lt-y86-request-page/Y86RequestCaption.al).
+            Ty::Object(ObjKind::Report, _) if name.eq_ignore_ascii_case("RequestOptionsPage") => {
+                return Some(E::Val(Ty::Builtin("RequestPage".into())));
+            }
             // Members of a .NET type come from reflection at run time: any name, any arity,
             // a result whose type is known only then (ADR-014).
             Ty::DotNet(alias) => {

@@ -19,7 +19,7 @@ fn dec(s: &str) -> Value {
 }
 
 fn opt() -> RtType {
-    RtType::Option(vec!["A".into(), "B".into(), "C".into()])
+    RtType::Option(vec!["A".to_string(), "B".to_string(), "C".to_string()].into())
 }
 
 #[test]

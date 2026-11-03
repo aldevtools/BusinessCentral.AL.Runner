@@ -95,6 +95,16 @@ impl Session {
                             format!("Der Wert „{text}“ kann nicht in Typ {name} ausgewertet werden."),
                             "Evaluate",
                         )),
+                        // A Date: the text Evaluate gives in German (misc/lt-system-functions/EvalLastError.al:463-481;
+                        // xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:DateDecimal_VT_German, needs the corpus bump).
+                        "Date" => {
+                            let mut again = [self.default_value(ty), Value::Text(text.to_string().into())];
+                            self.ret_used = false;
+                            match al_builtins::evaluate::evaluate(self, None, &mut again) {
+                                Err(e) => Err(e),
+                                Ok(_) => unsupported("a Date that Evaluate takes after it refused it (not pinned)"),
+                            }
+                        }
                         _ => unsupported(format!("the Evaluate error of {name} in German (not pinned)")),
                     }
                 } else {
@@ -121,8 +131,8 @@ impl Session {
                 let t = text.trim();
                 let found = members.iter().position(|m| m.eq_ignore_ascii_case(t));
                 match found {
-                    Some(i) => Ok(Value::Option(i as i32, members.clone().into())),
-                    None if t.is_empty() => Ok(Value::Option(0, members.clone().into())),
+                    Some(i) => Ok(Value::Option(i as i32, members.clone())),
+                    None if t.is_empty() => Ok(Value::Option(0, members.clone())),
                     None => Err(evaluate_error(text, "Option")),
                 }
             }
@@ -185,7 +195,7 @@ impl Session {
             RtType::Option(names) => {
                 let t = text.trim();
                 if t.is_empty() {
-                    return Ok(Value::Option(0, names.clone().into()));
+                    return Ok(Value::Option(0, names.clone()));
                 }
                 let by_name = names.iter().position(|m| m.eq_ignore_ascii_case(t));
                 let by_caption = members
@@ -193,7 +203,7 @@ impl Session {
                     .and_then(|m| m.iter().position(|(_, _, c)| c.eq_ignore_ascii_case(t)));
                 let by_ordinal = t.parse::<usize>().ok().filter(|i| *i < names.len());
                 match by_name.or(by_ordinal).or(by_caption) {
-                    Some(i) => Ok(Value::Option(i as i32, names.clone().into())),
+                    Some(i) => Ok(Value::Option(i as i32, names.clone())),
                     None => Err(evaluate_error(text, "Option")),
                 }
             }

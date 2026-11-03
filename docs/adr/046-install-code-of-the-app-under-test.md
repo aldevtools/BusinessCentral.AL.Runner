@@ -839,6 +839,15 @@ to one block of 65536 ids; that limit is gone.
 - A partner suite with install codeunits in several blocks of 65536 ids, owner form `al-runner test <app> <tests>`:
   1,604 pass, 13 fail, 3,759 not run before; 3,407 pass, 13 fail, 1,956 not run after (1,803 not run to pass, no
   other change). With the app as a dependency only: no change (5,226 pass, 8 fail, 142 not run).
+7. **Trigger events during an install, measured (al-runner issues 6644, 6755; corpus branch al-runtime-rs-staging-y79,
+   install/lt-y79-install-unrelated/Y79InstallUnrelated.al, needs corpus bump).** A subscriber or table extension of another
+   app runs during an install exactly when its app is the installing app or was installed earlier, which is item 2 with the
+   install order known (`host::publish_order_known`, the corpus run); with the order unknown the refusal of item 2 stays.
+   `OnInstallAppPerCompany` asks `GetGlobalTableTriggerMask`, then `GetDatabaseTableTriggerSetup`, then raises
+   `OnDatabaseInsert` for each table the install code writes. `OnInstallAppPerDatabase` asks none of the three. Of the
+   global events only `OnGlobalRename` is raised (mask bit 8); the other mask bits raise nothing (pinned for 16 to 128; other low bits refused). A `GetDatabaseTableTriggerSetup` subscriber whose body is a test of
+   the table id against constants (`=`, `in [...]`) and sets flags only inside it is still shown to change nothing for the
+   table asked about (`setup_no_op.rs`), so it does not stop an install of unknown order.
 
 ### Still not pinned (probes wanted)
 
@@ -992,6 +1001,16 @@ B's install A's and B's ran, the main app's did not; at test time all ran.
    constants and those variables, and run for that table on all 16 flag combinations it gives each back unchanged. Such a
    subscriber is left out of the raise; any other is refused as in item 2. `GetGlobalTableTriggerMask` stays refused.
    This follows from the facts measured above; it assumes nothing new. Test: `al-testrun/tests/suite/install_trigger_setup_order.rs`.
+7. **A database trigger event subscriber that does nothing for the table raised (al-runner issue 6852, 2026-11-03).** The same
+   argument for `OnDatabaseInsert`, `OnDatabaseModify`, `OnDatabaseDelete`, `OnDatabaseRename` and `OnGlobalRename`: when the
+   code of an unrelated app's subscriber that runs for the raised table's id has no effect, the result is the same whether it
+   runs or not, so it is left out instead of refused. Shown statically (`al-vm/src/db_event_no_op.rs`): the statements that run
+   for the table only assign Boolean or Integer locals, exit, and branch (`if`, `case`) on constants, locals and
+   `RecRef.Number()`; a branch the table id decides is followed, one it does not decide must be inert in every arm. A call,
+   a record or `RecordRef` operation, a loop or a global is not inert, so such a subscriber stays refused (item 2). Decision 6
+   (shared tables written by a routine that stops in another company) is not touched. This assumes nothing new. Test:
+   `al-testrun/tests/suite/install_db_event_order.rs`. Not covered (still refused): table extension triggers of an unrelated
+   app, and a subscriber whose effects only matter to no test (needs the write set of the reached code, not just a guard).
 
 ### Still not pinned (probes wanted)
 

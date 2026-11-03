@@ -215,10 +215,10 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         // types/PXEnumRecordRef.al:7-10, :74-135, probed on BC 27.5). Whether
         // the assignment compiles (the target must state AssignmentCompatibility, AL0122) is the checker's.
         (Value::Enum(_, o), T::Enum(to)) => Value::Enum(*to, o),
-        (Value::Option(o, _), T::Option(m)) => Value::Option(o, m.clone().into()),
+        (Value::Option(o, _), T::Option(m)) => Value::Option(o, m.clone()),
         // An Enum value into an Option, an Integer or a Decimal is its ordinal; one beyond the members is kept
         // (types/lt-filter-enum-relation-duration-guid/B_EnumOptionVariant.al:EnumVariant_DirectAssign_Option_Integer, EnumVariant_To_Integer).
-        (Value::Enum(_, o), T::Option(m)) => Value::Option(o, m.clone().into()),
+        (Value::Enum(_, o), T::Option(m)) => Value::Option(o, m.clone()),
         (Value::Enum(_, o), T::Integer) => Value::Integer(o),
         (Value::Enum(_, o), T::Decimal) => Value::Decimal(Decimal::from(o)),
         // The conversions between numbers (Integer, BigInteger, Decimal, Char, Byte, an Option's and a Duration's number) into
@@ -302,7 +302,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         (Value::Guid(g), T::Text(max)) => Value::Text(fit(crate::format::format_guid(&g), *max)?.into()),
         (Value::Guid(g), T::Code(max)) => Value::Code(fit(crate::format::format_guid(&g), *max)?.into()),
         // A Text into a Decimal (a Variant meets a number): pinned, see `convert_rare`.
-        // Not pinned by the corpus: Microsoft's Incoming Document `Get(Format(Value))`, registry entry text-digits-to-integer.
+        // Not pinned by the corpus: Microsoft's Incoming Document `Get(Format(Value))`, registry entry text-digits-to-integer (the key of Get is pinned and handled in get_key_value.rs).
         (Value::Text(s) | Value::Code(s), T::Integer | T::BigInteger)
             if {
                 let d = s.trim();
@@ -326,11 +326,8 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         // A Boolean for a Code (a Boolean handed to `Get` of a Code key): as `Format` writes it, upper-cased: Get(true)
         // finds the row YES and not 1 or TRUE (types/lt-ax-text-format-dates/AxEvaluateText.al:348 GetTrue_CodeKey_Yes).
         // An assignment of a Boolean to a Text or Code does not compile (must-not-compile cases 1190, 1191). For a Text
-        // (`Get` of a Text key) the text is not pinned (assumption `boolean-to-text-as-format`).
-        (Value::Boolean(b), T::Text(max)) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::BooleanToTextAsFormat);
-            Value::Text(fit(if b { "Yes" } else { "No" }.to_string(), *max)?.into())
-        }
+        // (`Get` of a Text key) it is Yes or No (misc/lt-y70-assumptions/Y70Probes.al RecordGet_BooleanOnTextKey `text_true`, `text_false`).
+        (Value::Boolean(b), T::Text(max)) => Value::Text(fit(if b { "Yes" } else { "No" }.to_string(), *max)?.into()),
         (Value::Boolean(b), T::Code(max)) => Value::Code(fit(if b { "YES" } else { "NO" }.to_string(), *max)?.into()),
         // A Date into a DateTime is that day at midnight, the blank Date the blank DateTime (as CreateDateTime(D, 0T)). Not
         // pinned; Microsoft's production order code assigns a Date to a DateTime (Tests-SCM-Manufacturing, 20 tests;
@@ -2126,7 +2123,7 @@ mod tests {
     // `for FromSalesLineDisc."Sales Type" := ...::Customer to ...::Campaign` in Sales Price Calc. Mgt.
     #[test]
     fn an_enum_converts_to_an_option_and_an_integer_by_ordinal_and_a_biginteger_to_an_option() {
-        let members = || RtType::Option(vec!["A".into(), "B".into(), "C".into()]);
+        let members = || RtType::Option(vec!["A".into(), "B".into(), "C".into()].into());
         assert!(matches!(convert(Value::Enum(37, 2), &members()), Ok(Value::Option(2, m)) if m.len() == 3));
         assert!(matches!(
             convert(Value::Enum(37, 9), &members()),

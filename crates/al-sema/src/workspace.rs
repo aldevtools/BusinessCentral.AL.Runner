@@ -107,6 +107,8 @@ pub struct SourceFileData {
     synthetic: OnceLock<Vec<ByteRange>>,
     /// Whether the file's text names `MaxLength` anywhere (`Workspace::names_max_length`), found once per file.
     max_length: OnceLock<bool>,
+    /// Whether the file's text names `AccessByPermission` anywhere (`Workspace::names_access_by_permission`), found once per file.
+    access_by_permission: OnceLock<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,13 +147,32 @@ pub struct ObjectSym {
     pub manual_subscribers: bool,
 }
 
-/// Whether the bytes hold `maxlength` in any case. Looks at a window only where its first byte is an `m`: the text of
-/// every file of every app is searched once, so the cost per byte counts.
+/// Whether the bytes hold `word` (lower case ASCII) in any case. The text of every file of every app is searched once, so
+/// the cost per byte counts: the search runs a vector scan for the case pairs of one letter of the word that is rare in
+/// source (`pivot`, an index into `word`) and compares the whole word only around those.
+fn names_word_in(b: &[u8], word: &[u8], pivot: usize) -> bool {
+    let (lower, upper) = (word[pivot], word[pivot].to_ascii_uppercase());
+    let mut from = pivot;
+    while let Some(at) = memchr::memchr2(lower, upper, b.get(from..).unwrap_or_default()) {
+        let start = from + at - pivot;
+        if b.get(start..start + word.len())
+            .is_some_and(|w| w.eq_ignore_ascii_case(word))
+        {
+            return true;
+        }
+        from += at + 1;
+    }
+    false
+}
+
+/// Whether the bytes hold `maxlength` in any case. Scans for `x`.
 fn names_max_length_in(b: &[u8]) -> bool {
-    let Some(last) = b.len().checked_sub(9) else {
-        return false;
-    };
-    (0..=last).any(|i| b[i] | 0x20 == b'm' && b[i..i + 9].eq_ignore_ascii_case(b"maxlength"))
+    names_word_in(b, b"maxlength", 2)
+}
+
+/// Whether the bytes hold `accessbypermission` in any case. Scans for `b`.
+fn names_access_by_permission_in(b: &[u8]) -> bool {
+    names_word_in(b, b"accessbypermission", 6)
 }
 
 /// A byte range of a parsed text.
@@ -529,6 +550,7 @@ impl Workspace {
                 usings: file.usings,
                 synthetic: if lazy { OnceLock::new() } else { OnceLock::from(added) },
                 max_length: OnceLock::new(),
+                access_by_permission: OnceLock::new(),
             });
             for decl in file.dotnet {
                 ws.dotnet.push(DotNetSym {
@@ -821,6 +843,14 @@ impl Workspace {
         *self.files[fi]
             .max_length
             .get_or_init(|| names_max_length_in(self.text(fi).as_bytes()))
+    }
+
+    /// Whether the text of file `fi` names `AccessByPermission` anywhere, in any case. Searched once per file: a page of a file
+    /// that does not has no mention for `lower::shared::access_by_permission_refusals` to count in its syntax text.
+    pub fn names_access_by_permission(&self, fi: usize) -> bool {
+        *self.files[fi]
+            .access_by_permission
+            .get_or_init(|| names_access_by_permission_in(self.text(fi).as_bytes()))
     }
 
     /// The text of file `fi` as it was given: for a file of a lazy dependency app, read now (once).
@@ -1633,6 +1663,30 @@ fn visible_from(apps: &[&AppSource], start: usize) -> BTreeSet<usize> {
 mod tests {
     use super::*;
 
+    /// The search finds a word that starts, ends or sits alone in the text, and does not run past either end when the
+    /// letter it scans for is near an end.
+    #[test]
+    fn the_word_search_handles_the_ends_of_the_text() {
+        for text in [
+            "",
+            "x",
+            "xx",
+            "maxlength",
+            "MAXLENGTH",
+            "axlength",
+            "maxlengt",
+            "xmaxlength",
+            "maxlengthx",
+            "xxmaxlengthxx",
+        ] {
+            let naive = text.as_bytes().windows(9).any(|w| w.eq_ignore_ascii_case(b"maxlength"));
+            assert_eq!(names_max_length_in(text.as_bytes()), naive, "{text:?}");
+        }
+        assert!(names_access_by_permission_in(b"AccessByPermission"));
+        assert!(!names_access_by_permission_in(b"ccessByPermission"));
+        assert!(!names_access_by_permission_in(b"b"));
+    }
+
     /// The search for `maxlength` finds it in any case and anywhere, as the plain window search did.
     #[test]
     fn max_length_is_found_in_any_case_anywhere() {
@@ -1656,6 +1710,30 @@ mod tests {
             assert_eq!(names_max_length_in(text.as_bytes()), naive(text.as_bytes()), "{text:?}");
         }
         assert!(names_max_length_in(b"aaaaaaaaaaaaaaaaaaaaaaMaXlEnGtH"));
+    }
+
+    /// The search for `accessbypermission` finds it in any case and anywhere, as the plain window search does.
+    #[test]
+    fn access_by_permission_is_found_in_any_case_anywhere() {
+        let naive = |b: &[u8]| b.windows(18).any(|w| w.eq_ignore_ascii_case(b"accessbypermission"));
+        for text in [
+            "",
+            "accessbypermission",
+            "AccessByPermission = tabledata X = R;",
+            "ACCESSBYPERMISSION",
+            "xaccessbypermissionx",
+            "accessbypermissio",
+            "aaccessbypermission",
+            "access by permission",
+            "a",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ] {
+            assert_eq!(
+                names_access_by_permission_in(text.as_bytes()),
+                naive(text.as_bytes()),
+                "{text:?}"
+            );
+        }
     }
 
     /// A parse is a function of the text. When a dependency file fails to parse, it is parsed once more

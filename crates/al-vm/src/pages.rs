@@ -171,7 +171,10 @@ mod background;
 mod flowfield_hidden;
 pub(crate) use background::BgWorker;
 mod filter;
+mod filter_enum;
+mod param_read;
 mod parts;
+mod qualified_name;
 mod read_backwards;
 mod text_control_value;
 use text_control_value::TextConv;
@@ -324,7 +327,12 @@ impl Session {
         let page = page_of(&engine, st);
         // The request page of a report never runs OnAfterGetRecord, whatever the report's data items do
         // (report/lt-request-page-record-triggers/RequestPageOnAfterGetRecord.al: no `rp OnAfterGetRecord` in any of the three runs).
-        if name == "onaftergetrecord" && engine.program.objects[object].is_kind(al_ir::ObjKind::Report) {
+        // With a source table it runs, before OnAfterGetCurrRecord (pages/lt-ab-tests/ABTests.al:1195 ReqPageBaseReportOk,
+        // report/lt-y80-reportext-request-page/Y80ReportExtRequestPage.al Y80_RX_ReadOnly_OK `handler start`).
+        if name == "onaftergetrecord"
+            && engine.program.objects[object].is_kind(al_ir::ObjKind::Report)
+            && !self.has_source(st)
+        {
             return Ok(None);
         }
         let mut answer = None;

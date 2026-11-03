@@ -543,7 +543,7 @@ impl Lowerer<'_> {
                                 self.ws.objects[self.oi].kind,
                                 ObjKind::Report | ObjKind::ReportExtension
                             )
-                            && r.text_string().trim().eq_ignore_ascii_case("RequestOptionsPage") =>
+                            && is_request_options_page(&r.text_string()) =>
                     {
                         None
                     }
@@ -1082,4 +1082,12 @@ pub(super) fn element_param_name(t: &Ty) -> String {
         _ => "",
     }
     .to_string()
+}
+
+/// `RequestOptionsPage` or `CurrReport.RequestOptionsPage`: the request page of the report whose code is running.
+fn is_request_options_page(text: &str) -> bool {
+    text.trim()
+        .rsplit('.')
+        .next()
+        .is_some_and(|last| last.eq_ignore_ascii_case("RequestOptionsPage"))
 }

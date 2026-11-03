@@ -160,7 +160,10 @@ fn rejected_forms_answer_false_with_the_pinned_error() {
         ),
         (
             "No Such Table: Kind=1",
-            cant("No Such Table: Kind=1", "\\The metadata object Table -1 was not found."),
+            cant(
+                "No Such Table: Kind=1",
+                " \\      The metadata object Table -1 was not found.\\      The application might be incompatible with the current compiler. Please unpublish the application that contains the application object Table -1 and republish it. \\      Or, run a technical upgrade of the application database with the 'Force' flag set.\\    ",
+            ),
             "Evaluate:MetadataNotFound",
         ),
         ("SI TF Target", cant("SI TF Target", ""), "Evaluate"),

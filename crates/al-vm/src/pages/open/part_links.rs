@@ -222,7 +222,8 @@ impl Session {
         // where() names the other): both are on the record before either validates, and they validate in field order,
         // which is the key order there, whatever order the SubPageLink names them in (NewLineStampsFilters.al:
         // QP_TwoKeyLink_TypeFirst_NewLine, _TypeFirst_BlankLine, _NoFirst_NewLine, _WithRelation_NewLine, tables 87149 and
-        // 87150). More values, PopulateAllFields, a value from SourceTableView, a key order that differs from the field
+        // 87150). A key field from SourceTableView next to one from the link is pinned too (NewLineStampsFilters.al SF_TwoKeyValues_HeaderTypeB_BlankLine,
+        // SF_TwoKeyValues_Relation_HeaderTypeB_NewLine). More values, PopulateAllFields, a key order that differs from the field
         // order, a table extension's validate trigger or a validate event subscriber keep the mark.
         if validate && stamped.len() > 1 {
             let mut seen = false;
@@ -242,14 +243,7 @@ impl Session {
                     || !f.ext_after_validate.is_empty()
                     || self.listened(&table, "onbeforevalidateevent", Some(&f.name))?
                     || self.listened(&table, "onaftervalidateevent", Some(&f.name))?;
-                // Pinned for values the SubPageLink gives (the link filter group), not for a SourceTableView value.
-                let linked = rec
-                    .borrow()
-                    .filters
-                    .iter()
-                    .filter(|x| x.field == *pos)
-                    .all(|x| x.group == super::parts::LINK_GROUP);
-                beyond_pin |= extra || !linked;
+                beyond_pin |= extra;
                 seen |= f.on_validate.is_some() || f.relation || extra;
             }
             if seen && beyond_pin {

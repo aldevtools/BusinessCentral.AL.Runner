@@ -923,25 +923,10 @@ impl Session {
                             .collect(),
                     )
                 };
-                let mut d = dst.borrow_mut();
-                d.filters.retain(|f| !(f.field == to && f.group == to_group));
-                for mut f in copied {
-                    f.field = to;
-                    f.group = to_group;
-                    d.filters.push(f);
-                }
+                Self::put_copied_filters(dst, to, to_group, copied);
                 Ok(Value::Null)
             }
-            RecordOp::CopyFilters => {
-                let Some(Value::Record(src)) = args.first() else {
-                    return unsupported(format!("CopyFilters from {}", args.first().describe()));
-                };
-                if !Rc::ptr_eq(src, rec) {
-                    let filters = src.borrow().filters.clone();
-                    rec.borrow_mut().filters = filters;
-                }
-                Ok(Value::Null)
-            }
+            RecordOp::CopyFilters => Self::copy_filters(rec, args),
             // Doc (Record.Copy) and corpus record/TestCopyOntoTemporaryRecord.al:66-110: the buffer, filters,
             // key and direction come over; a temporary target keeps its own rows and stays temporary.
             RecordOp::Copy => {
@@ -971,7 +956,9 @@ impl Session {
                         "Argument",
                     ));
                 }
-                d.fields = s.fields;
+                // The row version the buffer got comes over with the fields, and where it came from (record/lt-sb-stale-own-modify/
+                // Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, `copy/*`).
+                (d.fields, d.row_origin) = (s.fields, s.row_origin);
                 d.filters = s.filters;
                 d.filter_group = s.filter_group;
                 d.key = s.key;
@@ -1119,12 +1106,21 @@ impl Session {
                 let mut shown: Option<String> = None;
                 let mut never_equal = false;
                 let mut byte_unpinned = false;
+                let mut text_number_equal = false;
                 match (&current, want) {
                     (Value::Integer(_), Value::Enum(id, o)) => {
                         if let Some(why) = self.enum_caption_refusal(*id, Some(*o)) {
                             return unsupported(why);
                         }
                         shown = Some(al_builtins::format::FormatCtx::enum_name(self, *id, *o))
+                    }
+                    // An Enum against a Text field is never equal and is written as its member (:229-231, Knd_result No, 'Two').
+                    (Value::Text(_) | Value::Code(_), Value::Enum(id, o)) => {
+                        if let Some(why) = self.enum_caption_refusal(*id, Some(*o)) {
+                            return unsupported(why);
+                        }
+                        shown = Some(al_builtins::format::FormatCtx::enum_name(self, *id, *o));
+                        never_equal = true;
                     }
                     (Value::Text(_) | Value::Code(_), Value::Guid(g)) => {
                         let braced = al_builtins::format::format_guid(g);
@@ -1151,19 +1147,48 @@ impl Session {
                         200 => shown = Some("\u{02DC}".to_string()),
                         _ => byte_unpinned = true,
                     },
+                    // A number against a Text or Code field is equal when the field's text reads as that number
+                    // (record/lt-testfield-typed-values/FieldRefTestFieldMismatchedType.al:206-211 and :223,
+                    // P189_FldRefMismatch_OnTextField: Big, Dec and Int 5 against '5' are Yes). The number is not converted to the
+                    // field's type (a number into a Text is a type-conversion error). A number that is not equal has no pinned
+                    // message, so it is refused below.
+                    (Value::Text(_) | Value::Code(_), Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_)) => {
+                        text_number_equal = ops::convert(current.clone(), &RtType::Decimal)
+                            .ok()
+                            .and_then(|d| ops::compare(&d, want).ok())
+                            == Some(Ordering::Equal);
+                        if !text_number_equal {
+                            return unsupported(
+                                "TestField of a number against a Text field that holds another value (message not pinned)",
+                            );
+                        }
+                    }
+                    // A Boolean true against a Text field holding '5' is equal (:219, P189_FldRefMismatch_OnTextField Bool_result Yes).
+                    // Why is not known (BC does not convert '5' to a Boolean), so only that value is implemented; any other text is
+                    // refused.
+                    (Value::Text(t) | Value::Code(t), Value::Boolean(b)) => {
+                        if !(*b && t.as_ref() == "5") {
+                            return unsupported(
+                                "TestField of a Boolean against a Text field (only true against '5' is pinned)",
+                            );
+                        }
+                        text_number_equal = true;
+                    }
                     (Value::Guid(_), Value::Guid(_)) => {}
                     (_, Value::Guid(_)) => {
                         return unsupported("TestField against a Guid on a field that is not Text (not pinned)");
                     }
                     _ => {}
                 }
-                let want = if text_pair || number_pair || never_equal {
+                let want = if text_pair || number_pair || never_equal || text_number_equal {
                     want.clone()
                 } else {
                     ops::convert(want.clone(), &t.fields[pos].ty)?
                 };
                 let equal = if never_equal {
                     false
+                } else if text_number_equal {
+                    true
                 } else if text_pair {
                     // Exact, case and trailing blanks included; a Code field reads the value as Code does upper-cased
                     // (P96Text.al: `cd_lower` is equal, `cd_trailing_blank` and `txt_case` are not).
@@ -1412,7 +1437,7 @@ impl Session {
                     }
                 };
                 let moved = match &df.ty {
-                    al_builtins::value::RtType::Option(m) => Value::Option(ordinal, std::sync::Arc::from(m.as_slice())),
+                    al_builtins::value::RtType::Option(m) => Value::Option(ordinal, m.clone()),
                     // An ordinal the Enum lacks moves too, with no error (corpus record/lt-record-conversion-assumptions/
                     // TransferEnumOption.al: P98_OptionToEnum_MissingOrdinal, P98_EnumToOption_MissingOrdinal).
                     al_builtins::value::RtType::Enum(id) => Value::Enum(*id, ordinal),
@@ -1539,6 +1564,37 @@ impl Session {
         let mut r = rec.borrow_mut();
         for (dp, v) in updates {
             r.fields[dp] = v;
+        }
+        // The row version came over from the source (above), which a Commit may have left behind. Where it came from decides the
+        // stale write (record/lt-sb-stale-own-modify/Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, _GetThenTransferFields,
+        // _TransferFromTemp): from a temporary copy never written; from a record read by Get or Find, written only after a LockTable
+        // and Get of the row (a buffer that read the row by Get itself keeps its Get rule).
+        if init_pk
+            && src_table == t.object as usize
+            && !r.temporary
+            && let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_005)
+            && let Value::BigInteger(v) = src_fields[i]
+            && v != 0
+        {
+            let (src_temporary, src_origin) = {
+                let s = src.borrow();
+                (s.temporary, s.row_origin)
+            };
+            let from_insert = src_origin.is_some_and(|o| o.own_write && !o.read_in_write_tx);
+            let unpinned_read = src_origin.is_some_and(|o| o.unpinned_read);
+            let origin = |own_write, lock_only| al_builtins::value::RowOrigin {
+                lock_only,
+                unpinned_read,
+                ..al_builtins::value::RowOrigin::new(own_write, v, self.commits)
+            };
+            if src_temporary {
+                r.row_origin = Some(origin(false, false));
+            } else if src_origin.is_some_and(|o| o.version == v)
+                && !from_insert
+                && r.row_origin.is_none_or(|o| o.version != v)
+            {
+                r.row_origin = Some(origin(v > self.tx.committed_row_version, true));
+            }
         }
         Ok(Value::Null)
     }

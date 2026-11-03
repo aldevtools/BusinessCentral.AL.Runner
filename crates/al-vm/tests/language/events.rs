@@ -963,6 +963,24 @@ fn database_events_follow_the_setup_event_per_table() {
     assert_eq!(int(run(&src, "Other")), 1);
 }
 
+// al-language/install/lt-y79-install-unrelated/Y79InstallUnrelated.al (test session, Y79_TestSession_Table61370/61371/61377/61378
+// via Verdicts, :345-347 and :420-431): a mask of 16, 32, 64 or 128 raises no global event, and the database events follow the setup.
+#[test]
+fn mask_bits_above_the_four_low_ones_raise_no_global_event() {
+    for mask in [16, 32, 64, 128] {
+        let src = global_triggers_src(
+            mask,
+            true,
+            r#"procedure Rename(): Text var R: Record Watched; L: Codeunit Logger; begin R."No." := 105; R.Insert(false); L.Clear(); R.Rename(205); exit(L.Get()); end;"#,
+        );
+        assert_eq!(
+            text(run(&src, "Rename")),
+            "BEFORERENAME,ONRENAME,ONDATABASERENAME:105>205,AFTERRENAME",
+            "mask {mask}"
+        );
+    }
+}
+
 // A write that touches no row (DeleteAll on an empty table) raises nothing, as before.
 #[test]
 fn deleteall_with_nothing_to_delete_raises_no_global_trigger_event() {
@@ -1515,8 +1533,8 @@ fn a_temporary_record_raises_no_database_event() {
 // al-runner issue 6148: a setup subscriber reads a per-company table with IsEmpty and no CompanyName() guard. With no
 // company open (the per-database part of an install) a write asks for no setup and raises no database event, so the
 // subscriber does not run and the write succeeds; in each company the setup is asked again (corpus branch
-// al-runtime-rs-staging-ug eff7eb2a, install/lt-ug-install-trigger-setup/UgInstallTests.al
-// TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart; assumption install-trigger-setup-per-company-only).
+// install/lt-ug-install-trigger-setup/UgInstallTests.al
+// TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart).
 #[test]
 fn the_database_trigger_setup_is_asked_per_company_and_not_without_a_company() {
     let mut src = global_triggers_src(

@@ -155,6 +155,7 @@ impl Session {
             ));
         }
         let table_root = root_table_element(schema, top);
+        Self::xp_root_triggers_pinned(schema, top)?;
         if !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty()) {
             return unsupported("XmlPort import whose root is not a text element with content (not pinned)");
         }
@@ -313,7 +314,19 @@ impl Session {
         if table_root {
             return self.xp_import_record(inst, schema, top, &root, true, false);
         }
-        self.xp_import_container(inst, schema, top, &root)
+        let root_triggers = Self::xp_root_triggers_pinned(schema, top)?;
+        self.xp_import_container(inst, schema, top, &root)?;
+        // The root's OnAfterAssignVariable runs after everything (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al
+        // ContainerTriggers_Nested 'import full': `...hdr-aav;root-aav;`). After a Break or Quit it is not pinned.
+        if root_triggers {
+            if Self::xp_import_stopped(inst) || Self::xp_flow(inst).is_some() {
+                return unsupported(
+                    "Break or Quit in an import with an OnAfterAssignVariable on the root text element (not pinned)",
+                );
+            }
+            self.xp_container_assigned(inst, schema, top, &root)?;
+        }
+        Ok(())
     }
 
     /// The root element of an import into a port with `UseDefaultNamespace = true` and no `DefaultNamespace`, whose elements
@@ -683,6 +696,11 @@ impl Session {
         // (`TextInTable::Nested`; TP_Nested_Import_Shapes `status missing`, on branch al-runtime-rs-staging-pub-tp).
         let root_text = schema.node(node).parent.is_none() && schema.node(node).kind == ir::XmlNodeKind::Text;
         let in_table = text_in_table(schema, node).is_some();
+        // Also a text attribute without `Occurrence` of a text element that holds only text attributes and stands below text elements
+        // alone (an e-document `Endpoint` below the root): xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:1088
+        // ContainerTriggers_AttributeOnly `import no scheme`. How many attributes, how deep, and with a table element elsewhere in the
+        // port are not pinned beyond that shape.
+        let outside_table = attributed_outside_table(schema, node);
         let lacks = |n: &ir::XmlNode| !elem.attrs.iter().any(|(name, _)| *name == n.xml_name);
         let below_table = schema.node(node).kind == ir::XmlNodeKind::Text
             && schema
@@ -704,7 +722,8 @@ impl Session {
             let n = schema.node(a);
             ((n.kind == ir::XmlNodeKind::FieldAttr && n.required != Some(false))
                 || (n.kind == ir::XmlNodeKind::TextAttr
-                    && (n.required == Some(true) || (n.required.is_none() && (root_text || in_table)))))
+                    && (n.required == Some(true)
+                        || (n.required.is_none() && (root_text || in_table || outside_table)))))
                 && lacks(n)
         });
         // A declaration of a namespace of the port is no attribute (YXmlPortProps.al:NodeProperties_Import_NamesPrefixes).
@@ -827,17 +846,24 @@ impl Session {
         } else {
             text
         };
-        self.xp_assign_variable(inst, schema, node, text)?;
-        if ce.self_closed && schema.node(node).trigger("onafterassignvariable").is_some() {
+        // `<x />` does not assign the variable: it keeps the value it had, and the trigger sees that value both times
+        // (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:1070 ContainerTriggers_Nested 'import empty leaf':
+        // `hcode-aav(hc);hcode-aav(hc);` after OnPreXmlPort set `hc`; with an empty variable this reads `top=[];top=[];` as before).
+        // `<x></x>` and `<x> </x>` with a non-empty old value are not pinned and assign the empty text as they did.
+        if ce.self_closed {
+            if schema.node(node).trigger("onafterassignvariable").is_none() {
+                return Ok(());
+            }
+            self.xp_run_trigger(inst, schema, node, "onafterassignvariable")?;
             if Self::xp_import_stopped(inst) {
                 return unsupported(
                     "XmlPort import of `<x />` whose OnAfterAssignVariable ended the import on its first run (whether it runs again is not pinned)",
                 );
             }
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportSelfClosedLeafAssignTwice);
-            self.xp_assign_variable(inst, schema, node, String::new())?;
+            return self.xp_run_trigger(inst, schema, node, "onafterassignvariable");
         }
-        Ok(())
+        self.xp_assign_variable(inst, schema, node, text)
     }
 
     /// `<x />` for a text element with an OnAfterAssignVariable below a field element, a place TR_EmptyLeaf_Import does not
@@ -999,10 +1025,19 @@ impl Session {
                     // A Date that neither reads gives the long text with the code Evaluate (XpTImportBasic.al: Import_BadDate,
                     // Import_DateWrongFormat).
                     Err(Signal::Error(_)) if matches!(ty, RtType::Date) => {
-                        return Err(Signal::Error(Box::new(al_builtins::native::AlError {
-                            message: format!(
+                        // In German the same text in German (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:DateDecimal_XML_German,
+                        // needs the corpus bump; the text as Evaluate gives it, misc/lt-system-functions/EvalLastError.al:463-481).
+                        let message = if self.global_language == 1031 {
+                            format!(
+                                "Das Format Date \u{201e}{text}\u{201c} stimmt nicht mit den Datumseinstellungen Ihres Ger\u{e4}ts \u{fc}berein.\\\\Stellen Sie sicher, dass Tag, Monat und Jahr die richtige Reihenfolge aufweisen und das richtige Trennzeichen verwendet wird (z. b. - oder /). Alternativ k\u{f6}nnen Sie das Format \u{201e}jjjj-mm-tt\u{201c} verwenden."
+                            )
+                        } else {
+                            format!(
                                 "The format of the Date '{text}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
-                            ),
+                            )
+                        };
+                        return Err(Signal::Error(Box::new(al_builtins::native::AlError {
+                            message,
                             code: "Evaluate".into(),
                             call_stack: String::new(),
                             ..Default::default()

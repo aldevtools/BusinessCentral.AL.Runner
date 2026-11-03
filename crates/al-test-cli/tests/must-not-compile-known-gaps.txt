@@ -357,3 +357,26 @@
 28 2361-permissions-property-object-execute
 29 2360-permissions-property-codeunit-execute
 29 2361-permissions-property-object-execute
+# corpus bump to 941cd813 (and 9cce33bd, whose gates were not run): new cases the front end does not reject yet; 2791 and 2793 are Y85 LoadPackageData
+27 2713-global-variable-through-this-variable
+28 2713-global-variable-through-this-variable
+29 2713-global-variable-through-this-variable
+27 2755-page-field-onbeforevalidate-trigger
+28 2755-page-field-onbeforevalidate-trigger
+29 2755-page-field-onbeforevalidate-trigger
+27 2756-page-varfield-onbeforevalidate-trigger
+28 2756-page-varfield-onbeforevalidate-trigger
+29 2756-page-varfield-onbeforevalidate-trigger
+27 2776-code-sqldatatype-decimal
+28 2776-code-sqldatatype-decimal
+29 2776-code-sqldatatype-decimal
+27 2791-loadpackagedata-no-argument
+28 2791-loadpackagedata-no-argument
+29 2791-loadpackagedata-no-argument
+27 2793-loadpackagedata-used-as-value
+28 2793-loadpackagedata-used-as-value
+29 2793-loadpackagedata-used-as-value
+# corpus bump 1102f: new case the front end does not decide yet (AccessByPermission on a group)
+27 2785-accessbypermission-group
+28 2785-accessbypermission-group
+29 2785-accessbypermission-group

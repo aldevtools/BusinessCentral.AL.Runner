@@ -27,6 +27,26 @@ const REPORT_SAVE_AS_INHERENT_PERMISSIONS_EVIDENCE: &[Evidence] = &[
     },
 ];
 
+/// Evidence of [`Gate::FullyQualifiedNameRunAndOpenFrom28`]; a constant so `Gate::evidence` stays under its length cap.
+const FULLY_QUALIFIED_NAME_RUN_EVIDENCE: &[Evidence] = &[
+    Evidence {
+        file: "misc/lt-cu-odd-leads/CuWriteTxTests.al",
+        lines: "235",
+    },
+    Evidence {
+        file: "report/lt-bj-fqn-page-run/BjFqnPageRun.al",
+        lines: "8",
+    },
+    Evidence {
+        file: "report/lt-t-fqn-run/LtTFqnRun.al",
+        lines: "7",
+    },
+    Evidence {
+        file: "pages/lt-y74-fqn-run/Y74FqnRunForms.al",
+        lines: "7",
+    },
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Gate {
     /// A FlowField Sum or Average over an `Integer` source into a `BigInteger` FlowField is
@@ -196,7 +216,10 @@ pub enum Gate {
     /// (platform/lt-y35-agent-api/Y35AgentApi.al:39, a dependency app's source). From BC 29 the "not set up" error of the Key
     /// Vault client has the code `DotNetInvoke:InvalidOperation`, `DotNetInvoke:` before (al-language-onprem-dotnet/
     /// lt-y58-key-vault/Y58AzureKeyVault.al:71, corpus master 7330f181, not pinned yet; consumed by al-vm dotnet/key_vault.rs;
-    /// its evidence row is added when the corpus pin holds the file).
+    /// its evidence row is added when the corpus pin holds the file). The texts of the format regions en-GB, da-DK, nl-NL, es-ES,
+    /// sv-SE and nb-NO (a one-digit day, a Time, an hour below 10, a negative amount, the long date) are asserted from BC 29 only;
+    /// BC 27 and 28 hold `Observer.Discard()` (report/lt-bd-format-region/BdRegionTests.al:143-398; consumed by al-builtins
+    /// format/region.rs).
     ProbedValuesDifferFrom29,
     /// `Base64Convert.ToBase64` of a Text with `TextEncoding::Windows` or `MSDos` and no code page gives the code page 1252
     /// bytes from BC 28 (`äöü` is `5Pb8`); before, the UTF-8 bytes (`w6TDtsO8`) (types/PVBase64.al, corpus bump 13).
@@ -672,20 +695,7 @@ impl Gate {
                     lines: "170,187,204,221",
                 },
             ],
-            Gate::FullyQualifiedNameRunAndOpenFrom28 => &[
-                Evidence {
-                    file: "misc/lt-cu-odd-leads/CuWriteTxTests.al",
-                    lines: "235",
-                },
-                Evidence {
-                    file: "report/lt-bj-fqn-page-run/BjFqnPageRun.al",
-                    lines: "8",
-                },
-                Evidence {
-                    file: "report/lt-t-fqn-run/LtTFqnRun.al",
-                    lines: "7",
-                },
-            ],
+            Gate::FullyQualifiedNameRunAndOpenFrom28 => FULLY_QUALIFIED_NAME_RUN_EVIDENCE,
             Gate::ControlAddInNotInstantiatedErrorFrom28 => &[Evidence {
                 file: "lt-ac/ACControlAddIn.al",
                 lines: "99",
@@ -1143,6 +1153,22 @@ pub fn platform_table_scopes_known(bc_major: Option<u32>) -> bool {
 /// The evidence of [`Gate::ProbedValuesDifferFrom28`], out of `Gate::evidence` to keep that function short.
 const PROBED_VALUES_DIFFER_FROM_29: &[Evidence] = &[
     Evidence {
+        file: "fieldref/lt-y80-user-name-fields/Y80UserNameFieldExist.al",
+        lines: "54,73,98,130,199",
+    },
+    Evidence {
+        file: "pages/lt-y80-gone-rows/Y80GoneRows.al",
+        lines: "1699,1738,1745,1752,1759",
+    },
+    Evidence {
+        file: "report/lt-cj-report-leads/CjWordSections.al",
+        lines: "149,166",
+    },
+    Evidence {
+        file: "report/lt-bd-format-region/BdRegionTests.al",
+        lines: "143,235,279,340,367,394",
+    },
+    Evidence {
         file: "pages/lt-y65-cue-visible/Y65CueVisible.al",
         lines: "314",
     },
@@ -1229,6 +1255,18 @@ const PROBED_VALUES_DIFFER_FROM_29: &[Evidence] = &[
 ];
 
 const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
+    Evidence {
+        file: "pages/lt-y74-fqn-run/Y74FqnRunForms.al",
+        lines: "7",
+    },
+    Evidence {
+        file: "pages/lt-y80-new-host-key/Y80NewHostKey.al",
+        lines: "243,287,331,375,429,483,527,571,678,722,766,810,864,960,1004",
+    },
+    Evidence {
+        file: "record/lt-testfield-typed-values/FieldRefTestFieldMismatchedType.al",
+        lines: "213,302,354",
+    },
     Evidence {
         file: "misc/lt-y70-assumptions/Y70Probes.al",
         lines: "461,466,471,497,502,809",

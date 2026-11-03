@@ -69,6 +69,10 @@ pub struct Manifest {
     /// The app ships a translation file (`Translations/*.xlf` that is not the generated `*.g.xlf`): BC translates its
     /// labels and captions under another language, which the runtime refuses (ADR-053 step 1, al-runner issue 5772).
     pub translations: bool,
+    /// The app ships package data (`*.navxdata`), which `NavApp.LoadPackageData` would load.
+    pub package_data: bool,
+    /// The package data files of an app folder: path relative to the app, content (empty for a package).
+    pub package_data_files: Vec<(String, Vec<u8>)>,
     /// The translation files of an app folder (ADR-053 step 2); empty for a package.
     pub translation_files: Vec<al_ir::TranslationFile>,
     /// `runtime` of the app's own app.json as (major, minor); `None` when it names none or is not known (a package).
@@ -142,6 +146,13 @@ fn load_layout_files(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
     out
 }
 
+impl Manifest {
+    /// Whether the app ships translations and package data, and the package data files.
+    pub(crate) fn shipped_files(&self) -> (bool, bool, Vec<(String, Vec<u8>)>) {
+        (self.translations, self.package_data, self.package_data_files.clone())
+    }
+}
+
 /// The manifest fields `NavApp.GetCurrentModuleInfo` reports, from `dir/app.json`.
 pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
     let manifest: serde_json::Value = serde_json::from_str(&al_deps::load::read_text(&dir.join("app.json"))?)
@@ -179,6 +190,8 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .unwrap_or(false),
         layout_files: load_layout_files(dir),
         translations: al_deps::load::ships_translations(dir),
+        package_data: al_deps::load::ships_package_data(dir),
+        package_data_files: al_deps::load::package_data_files(dir)?,
         translation_files: translation_files(dir),
         id_ranges: manifest["idRanges"]
             .as_array()
@@ -861,6 +874,7 @@ impl<T: Send + 'static> Drop for Retiring<T> {
     }
 }
 
+mod apply_manifests;
 mod blocked;
 mod cache;
 mod compiled;

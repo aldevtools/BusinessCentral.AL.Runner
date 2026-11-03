@@ -395,7 +395,7 @@ impl Lowerer<'_> {
         let mut captions = captions;
         captions.truncate(names.len());
         captions.extend(names[captions.len()..].iter().cloned());
-        Ok(ir::Expr::Convert(RtType::Option(captions), Box::new(value)))
+        Ok(ir::Expr::Convert(RtType::Option(captions.into()), Box::new(value)))
     }
 
     /// Evaluate into an Option field whose OptionCaption is longer than its MaxLength is not pinned, so it is refused.
@@ -1433,11 +1433,9 @@ impl Lowerer<'_> {
                             self.ws.objects[self.oi].kind,
                             ObjKind::Report | ObjKind::ReportExtension
                         )
-                        && recv
-                            .text()
-                            .to_string()
-                            .trim()
-                            .eq_ignore_ascii_case("RequestOptionsPage");
+                        && ["RequestOptionsPage", "CurrReport.RequestOptionsPage"]
+                            .iter()
+                            .any(|n| recv.text().to_string().trim().eq_ignore_ascii_case(n));
                     if !sig.instance || current_report || request_page {
                         None
                     } else {
