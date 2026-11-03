@@ -27,6 +27,26 @@ const REPORT_SAVE_AS_INHERENT_PERMISSIONS_EVIDENCE: &[Evidence] = &[
     },
 ];
 
+/// Evidence of [`Gate::FullyQualifiedNameRunAndOpenFrom28`]; a constant so `Gate::evidence` stays under its length cap.
+const FULLY_QUALIFIED_NAME_RUN_EVIDENCE: &[Evidence] = &[
+    Evidence {
+        file: "misc/lt-cu-odd-leads/CuWriteTxTests.al",
+        lines: "235",
+    },
+    Evidence {
+        file: "report/lt-bj-fqn-page-run/BjFqnPageRun.al",
+        lines: "8",
+    },
+    Evidence {
+        file: "report/lt-t-fqn-run/LtTFqnRun.al",
+        lines: "7",
+    },
+    Evidence {
+        file: "pages/lt-y74-fqn-run/Y74FqnRunForms.al",
+        lines: "7",
+    },
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Gate {
     /// A FlowField Sum or Average over an `Integer` source into a `BigInteger` FlowField is
@@ -675,20 +695,7 @@ impl Gate {
                     lines: "170,187,204,221",
                 },
             ],
-            Gate::FullyQualifiedNameRunAndOpenFrom28 => &[
-                Evidence {
-                    file: "misc/lt-cu-odd-leads/CuWriteTxTests.al",
-                    lines: "235",
-                },
-                Evidence {
-                    file: "report/lt-bj-fqn-page-run/BjFqnPageRun.al",
-                    lines: "8",
-                },
-                Evidence {
-                    file: "report/lt-t-fqn-run/LtTFqnRun.al",
-                    lines: "7",
-                },
-            ],
+            Gate::FullyQualifiedNameRunAndOpenFrom28 => FULLY_QUALIFIED_NAME_RUN_EVIDENCE,
             Gate::ControlAddInNotInstantiatedErrorFrom28 => &[Evidence {
                 file: "lt-ac/ACControlAddIn.al",
                 lines: "99",
