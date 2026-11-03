@@ -253,7 +253,11 @@ impl Session {
                 names: &n,
                 sender: None,
             };
-            self.raise_global(&call, &mut args)?;
+            let table_id = self.engine.program.objects[t.object as usize].id.unwrap_or(0) as i32;
+            self.events.setup_no_ops = self.db_event_subscribers_changing_nothing(event, table_id);
+            let raised = self.raise_global(&call, &mut args);
+            self.events.setup_no_ops.clear();
+            raised?;
         }
         Ok(())
     }

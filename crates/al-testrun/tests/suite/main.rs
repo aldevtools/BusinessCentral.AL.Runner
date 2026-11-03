@@ -27,6 +27,7 @@ mod filter_page_caption_assign;
 mod impact_static;
 mod impact_trace;
 mod incremental;
+mod install_db_event_order;
 mod install_hold_back;
 mod install_load_package_data;
 mod install_trigger_setup_order;
