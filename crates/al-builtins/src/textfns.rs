@@ -169,6 +169,23 @@ fn permitted(name: &str, n: usize, cur: i64, lo: &str, hi: &str) -> Signal {
 
 const INT_MAX: &str = "2,147,483,647";
 
+/// The first place `needle` (not empty) lies in `hay`. Skips to each occurrence of the first byte and compares from there: the
+/// texts a program searches are short, and the set-up of the general text search cost more than the search (the needle is
+/// ASCII, so a byte match is a character match).
+fn find_ascii(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    let (first, rest) = needle.split_first()?;
+    let last = hay.len().checked_sub(needle.len())?;
+    let mut i = 0;
+    while i <= last {
+        i += hay[i..=last].iter().position(|b| b == first)?;
+        if hay[i + 1..i + needle.len()] == *rest {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
 /// 1-based, 0 when absent (TestTextExtended.al TextIndexOf_*).
 fn index_of(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let (st, sb) = (recv_text(&r)?, text_or_guid(a, 0)?);
@@ -189,7 +206,7 @@ fn index_of(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult 
             return Ok(Value::Integer(from as i32 + 1));
         }
         return Ok(Value::Integer(
-            st[from..].find(sb.as_str()).map_or(0, |p| (p + from) as i32 + 1),
+            find_ascii(&st.as_bytes()[from..], sb.as_bytes()).map_or(0, |p| (p + from) as i32 + 1),
         ));
     }
     let (s, sub) = (u16s(&st), u16s(&sb));
@@ -1298,4 +1315,36 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         _ => return None,
     };
     Some(f)
+}
+
+#[cfg(test)]
+mod find_ascii_tests {
+    use super::find_ascii;
+
+    /// The search finds what `str::find` finds, the first place, for every shape of hay and needle.
+    #[test]
+    fn it_finds_what_str_find_finds() {
+        let hays = [
+            "",
+            "a",
+            "ab",
+            "abc",
+            "aab",
+            "aaab",
+            "abab",
+            "xxabcxxabc",
+            "mississippi",
+            "a b c",
+            "aaaaa",
+        ];
+        let needles = [
+            "a", "b", "ab", "abc", "aab", "ss", "issi", "pi", "abcd", "zz", "aaaaaa", " ",
+        ];
+        for h in hays {
+            for n in needles {
+                assert_eq!(find_ascii(h.as_bytes(), n.as_bytes()), h.find(n), "{h:?} {n:?}");
+            }
+        }
+        assert_eq!(find_ascii(b"abc", b""), None);
+    }
 }

@@ -43,3 +43,34 @@ fn a_carriage_return_inside_a_variable_text_value_is_refused() {
         other => panic!("expected a refusal, got {other:?}"),
     }
 }
+
+#[test]
+fn a_line_feed_inside_a_decimal_value_reads_as_a_space_in_its_error() {
+    // Y83XpMiscTests.al:VariableText_ImportValueCount_2 `vt lf only`: `7.25<LF>8` fails as `7.25 8`.
+    let src = SRC
+        .replace("field(3; Note; Text[30])", "field(3; Note; Decimal)")
+        .replace("'1,a,b' + Lf + '2,c,d'", "'1,a,7.25' + Lf + '8,c,d'");
+    match run(&src, "F") {
+        Err(Signal::Error(e)) => assert_eq!(e.message, "The value \"7.25 8\" can't be evaluated into type Decimal."),
+        other => panic!("expected the evaluate error, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_field_separator_that_holds_the_record_separator_is_read_separator_by_separator() {
+    // Y83XpMiscTests.al:VariableText_NewLineSeparator `newline doc crlf`: with FieldSeparator <NewLine> and RecordSeparator <LF>,
+    // `7<CR/LF>seven<CR/LF>x<CR/LF>` is one record.
+    let src = SRC
+        .replace(
+            "FieldDelimiter = '\"';",
+            "FieldDelimiter = '\"'; FieldSeparator = '<NewLine>'; RecordSeparator = '<LF>';",
+        )
+        .replace("RecordSeparator = '<CR/LF>'; ", "")
+        .replace(
+            "'1,a,b' + Lf + '2,c,d'",
+            "'7' + Cr + Lf + 'seven' + Cr + Lf + 'x' + Cr + Lf",
+        )
+        .replace("Ch := 10; Lf += Ch;", "Ch := 10; Lf += Ch; Ch := 13; Cr += Ch;")
+        .replace("Lf: Text;", "Lf: Text; Cr: Text;");
+    assert_eq!(al_testkit::text(run(&src, "F")), "x");
+}
