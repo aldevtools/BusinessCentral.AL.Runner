@@ -2,7 +2,7 @@
   "corpus_commit": "941cd81328d0f342c5b0903800bd4042e7bc4ecb",
   "language": {
     "bc": "27-29",
-    "implemented": 1633,
+    "implemented": 1638,
     "methods": [
       {
         "bc": [
@@ -11997,7 +11997,7 @@
         "scope": "",
         "sig": "(Text, Table, Integer)",
         "site": "must-not-compile/cases/0665-fqn-overloads-runtime16.al:43",
-        "state": "refused",
+        "state": "implemented",
         "type": "Page"
       },
       {
@@ -12012,7 +12012,7 @@
         "scope": "",
         "sig": "(Text, [Table], [Joker])",
         "site": null,
-        "state": "refused",
+        "state": "implemented",
         "type": "Page"
       },
       {
@@ -12091,7 +12091,7 @@
         "scope": "",
         "sig": "(Text, Table, FieldRef)",
         "site": null,
-        "state": "refused",
+        "state": "implemented",
         "type": "Page"
       },
       {
@@ -12106,7 +12106,7 @@
         "scope": "",
         "sig": "(Text, Table, Integer)",
         "site": "must-not-compile/cases/0665-fqn-overloads-runtime16.al:44",
-        "state": "refused",
+        "state": "implemented",
         "type": "Page"
       },
       {
@@ -12121,7 +12121,7 @@
         "scope": "",
         "sig": "(Text, [Table], [Joker])",
         "site": null,
-        "state": "refused",
+        "state": "implemented",
         "type": "Page"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1707,
-    "refused": 97,
+    "refused": 92,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",
