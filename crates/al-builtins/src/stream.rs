@@ -963,8 +963,11 @@ fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NR
             return Ok(Value::Integer(3072));
         }
         if !pinned && sign_only {
-            // Assumed, until the probe record/lt-blob-calcfields-length/BlobStoredSizeSign.al is in the pinned corpus: the stored
-            // size of non-empty content is positive whenever HasValue is Yes. Any positive number answers the comparison.
+            // The stored size of non-empty content is positive whenever HasValue is Yes, for every content measured (1 byte to 5 MB;
+            // text, XML, random, zero and repeated bytes; Compressed true and false; Get, FindSet and Modify): the `g=`, `fs=` and `mg=`
+            // values of record/lt-blob-calcfields-length/BlobStoredSizeSign.al:213-345 StoredSize_*_Result (Windows 27.5 and 28.5). An
+            // empty or cleared blob is 0 with HasValue No (:345). Assumed until that file is in the pinned corpus
+            // (`blob-stored-size-positive`). Any positive number answers the comparison.
             crate::assumptions::assume(crate::assumptions::Assumption::BlobStoredSizePositive);
             return Ok(Value::Integer(n as i32 + 6));
         }
