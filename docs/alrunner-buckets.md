@@ -58,6 +58,16 @@ outcome). The run does these things for you:
 Before: plain Tests-ERM gave 185 passed, 60 failed, 9088 not run (no `System.app`, no test data, the newest feed
 build next to tests of an older one).
 
+### Run the buckets with `--environment onprem`
+
+Microsoft's own suites run on an on-prem server, and some tests rely on it. The default environment is `saas`
+(as probed, ADR-014 amendment 2026-10-15), where System Application refuses to delete the only enabled SUPER user
+("There should be at least one enabled 'SUPER' user."). Tests-SINGLESERVER codeunit 134614, Tests-Misc codeunit
+132926 and 101 tests of System Application Test (BC 29.0, build 54011.55816) delete every user before they switch
+to SaaS through `SetTestabilitySoftwareAsAService(true)`, and fail on `saas` at that first delete. Pass
+`--environment onprem` for a Microsoft bucket run. Nothing in the runtime is missing: the user table keeps the
+SUPER user and the SaaS check, as the corpus pins (`tests/al-language-onprem/session/PZUserDelete.al`).
+
 Times (12 cores, no thread option; the machine was shared, load average 20 to 30, so read them as upper bounds):
 
 | Run | First (downloads) | Second (cached) |
