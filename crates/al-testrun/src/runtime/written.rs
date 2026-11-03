@@ -328,7 +328,8 @@ pub(crate) fn report_that_cannot_run(
     object: usize,
     routine: usize,
 ) -> Option<String> {
-    walk_reach(events, lowered, index, &[(object, routine)], &|f| {
+    // Only the report is asked for: the walk follows the same routines but keeps none of the facts (tables, globals, state).
+    walk_reach_with(events, lowered, index, &[(object, routine)], false, &|f| {
         f.report_cannot_run.is_some()
     })
     .report_cannot_run
@@ -574,7 +575,20 @@ fn walk_reach(
     roots: &[(usize, usize)],
     stop: &dyn Fn(&ReachFacts) -> bool,
 ) -> ReachFacts {
+    walk_reach_with(events, lowered, index, roots, true, stop)
+}
+
+/// [`walk_reach`]; with `facts` off the walk keeps only `unknown` and `report_cannot_run` (the routines it follows are the same).
+fn walk_reach_with(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    roots: &[(usize, usize)],
+    facts: bool,
+    stop: &dyn Fn(&ReachFacts) -> bool,
+) -> ReachFacts {
     let mut walk = Walk::new(events, lowered, index);
+    walk.facts = facts;
     // Popped first root first, as a walk of each root alone starts.
     walk.stack.extend(roots.iter().rev().copied());
     while let Some((o, r)) = walk.stack.pop() {
@@ -603,6 +617,8 @@ struct Walk<'a> {
     entered_beyond: BTreeSet<(usize, u8)>,
     stack: Vec<(usize, usize)>,
     global_triggers: bool,
+    /// Whether the walk keeps the tables, globals and state it reaches ([`ReachFacts`]) besides the reasons.
+    facts: bool,
 }
 
 impl<'a> Walk<'a> {
@@ -619,6 +635,7 @@ impl<'a> Walk<'a> {
             entered_beyond: BTreeSet::new(),
             stack: Vec::new(),
             global_triggers: false,
+            facts: true,
         }
     }
 
@@ -639,7 +656,7 @@ impl<'a> Walk<'a> {
 
     /// Table `t` is in the reach.
     fn touch(&mut self, t: u32) {
-        if self.enter(t as usize, TOUCHED) {
+        if self.facts && self.enter(t as usize, TOUCHED) {
             self.out.touched.insert(t);
         }
     }
@@ -767,6 +784,7 @@ impl<'a> Walk<'a> {
 
     fn note_table_write(&mut self, table: Option<u32>) {
         match table {
+            _ if !self.facts => {}
             Some(t) => {
                 self.out.writes.insert(t);
             }
@@ -797,13 +815,15 @@ impl<'a> Walk<'a> {
 
     /// The facts and steps of a [`Summary`].
     fn apply(&mut self, s: &Summary) {
-        for &t in &s.touched {
-            self.touch(t);
+        if self.facts {
+            for &t in &s.touched {
+                self.touch(t);
+            }
+            self.out.globals_read.extend(s.globals_read.iter().copied());
+            self.out.globals_written.extend(s.globals_written.iter().copied());
+            self.out.state_reads |= s.state_reads;
+            self.out.state_writes |= s.state_writes;
         }
-        self.out.globals_read.extend(s.globals_read.iter().copied());
-        self.out.globals_written.extend(s.globals_written.iter().copied());
-        self.out.state_reads |= s.state_reads;
-        self.out.state_writes |= s.state_writes;
         for step in &s.steps {
             match step {
                 Step::Push(a, b) => self.stack.extend_from_slice(&s.pushes[*a as usize..*b as usize]),

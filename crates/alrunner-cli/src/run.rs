@@ -1479,7 +1479,7 @@ fn test_inner(
     };
     companies.check_session_first(&session_company)?;
     al_testrun::host::set_companies(companies);
-    let opts = RunOptions {
+    let mut opts = RunOptions {
         run_seed,
         license: license.license.clone(),
         only: opts_only,
@@ -1517,6 +1517,7 @@ fn test_inner(
         stop_on_compile_errors: true,
         entries: Vec::new(),
         skipped_dependencies: dependencies.skipped.clone(),
+        layout_sources: dependencies.layout_sources(),
         process_ends_after,
         // `--ignore-permission-mock` (issue 5996): a test that lowers its permissions runs, flagged.
         ignore_permission_mock: a.ignore_permission_mock,
@@ -1548,7 +1549,6 @@ fn test_inner(
             country: country.clone(),
         }),
     };
-    let mut opts = opts;
     if let Some(w) = warm.as_deref() {
         let cfg = a.capture;
         let paths: Vec<PathBuf> = inputs.iter().map(|i| i.path.clone()).collect();

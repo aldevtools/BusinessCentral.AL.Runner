@@ -107,6 +107,8 @@ pub struct SourceFileData {
     synthetic: OnceLock<Vec<ByteRange>>,
     /// Whether the file's text names `MaxLength` anywhere (`Workspace::names_max_length`), found once per file.
     max_length: OnceLock<bool>,
+    /// Whether the file's text names `AccessByPermission` anywhere (`Workspace::names_access_by_permission`), found once per file.
+    access_by_permission: OnceLock<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,6 +154,15 @@ fn names_max_length_in(b: &[u8]) -> bool {
         return false;
     };
     (0..=last).any(|i| b[i] | 0x20 == b'm' && b[i..i + 9].eq_ignore_ascii_case(b"maxlength"))
+}
+
+/// Whether the bytes hold `accessbypermission` in any case. Looks at a window only where its first byte is an `a`.
+fn names_access_by_permission_in(b: &[u8]) -> bool {
+    const WORD: &[u8] = b"accessbypermission";
+    let Some(last) = b.len().checked_sub(WORD.len()) else {
+        return false;
+    };
+    (0..=last).any(|i| b[i] | 0x20 == b'a' && b[i..i + WORD.len()].eq_ignore_ascii_case(WORD))
 }
 
 /// A byte range of a parsed text.
@@ -529,6 +540,7 @@ impl Workspace {
                 usings: file.usings,
                 synthetic: if lazy { OnceLock::new() } else { OnceLock::from(added) },
                 max_length: OnceLock::new(),
+                access_by_permission: OnceLock::new(),
             });
             for decl in file.dotnet {
                 ws.dotnet.push(DotNetSym {
@@ -821,6 +833,14 @@ impl Workspace {
         *self.files[fi]
             .max_length
             .get_or_init(|| names_max_length_in(self.text(fi).as_bytes()))
+    }
+
+    /// Whether the text of file `fi` names `AccessByPermission` anywhere, in any case. Searched once per file: a page of a file
+    /// that does not has no mention for `lower::shared::access_by_permission_refusals` to count in its syntax text.
+    pub fn names_access_by_permission(&self, fi: usize) -> bool {
+        *self.files[fi]
+            .access_by_permission
+            .get_or_init(|| names_access_by_permission_in(self.text(fi).as_bytes()))
     }
 
     /// The text of file `fi` as it was given: for a file of a lazy dependency app, read now (once).
@@ -1656,6 +1676,30 @@ mod tests {
             assert_eq!(names_max_length_in(text.as_bytes()), naive(text.as_bytes()), "{text:?}");
         }
         assert!(names_max_length_in(b"aaaaaaaaaaaaaaaaaaaaaaMaXlEnGtH"));
+    }
+
+    /// The search for `accessbypermission` finds it in any case and anywhere, as the plain window search does.
+    #[test]
+    fn access_by_permission_is_found_in_any_case_anywhere() {
+        let naive = |b: &[u8]| b.windows(18).any(|w| w.eq_ignore_ascii_case(b"accessbypermission"));
+        for text in [
+            "",
+            "accessbypermission",
+            "AccessByPermission = tabledata X = R;",
+            "ACCESSBYPERMISSION",
+            "xaccessbypermissionx",
+            "accessbypermissio",
+            "aaccessbypermission",
+            "access by permission",
+            "a",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ] {
+            assert_eq!(
+                names_access_by_permission_in(text.as_bytes()),
+                naive(text.as_bytes()),
+                "{text:?}"
+            );
+        }
     }
 
     /// A parse is a function of the text. When a dependency file fails to parse, it is parsed once more
