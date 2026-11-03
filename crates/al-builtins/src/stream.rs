@@ -927,6 +927,16 @@ fn blob_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
 }
 
 fn blob_length(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    blob_length_of(c, r, false)
+}
+
+/// `Blob.Length` written as an operand of a comparison with the literal 0 (al-sema `blob_length_sign.rs`): only its sign is
+/// observed, so the stored size of non-empty content that is not pinned is answered with a positive number.
+pub fn blob_length_sign(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    blob_length_of(c, r, true)
+}
+
+fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NResult {
     let b = blob_of(r)?;
     let buf = b.borrow();
     buf.observe()?;
@@ -951,6 +961,12 @@ fn blob_length(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
             || matches!(&buf.bytes[..], b"stored" | b"a long stored value");
         if is_y57_three_mb(&buf.bytes) {
             return Ok(Value::Integer(3072));
+        }
+        if !pinned && sign_only {
+            // Assumed, until the probe record/lt-blob-calcfields-length/BlobStoredSizeSign.al is in the pinned corpus: the stored
+            // size of non-empty content is positive whenever HasValue is Yes. Any positive number answers the comparison.
+            crate::assumptions::assume(crate::assumptions::Assumption::BlobStoredSizePositive);
+            return Ok(Value::Integer(n as i32 + 6));
         }
         if !pinned {
             return unsupported(format!(

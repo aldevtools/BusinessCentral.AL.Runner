@@ -3,6 +3,7 @@
 mod autoinc_non_key;
 mod blob_calcfields_after_run;
 mod blob_length_large;
+mod blob_length_sign;
 mod blob_write_unloaded;
 mod bump_36_transferfields_system_fields;
 mod calcsums_duration;

@@ -507,7 +507,8 @@ impl Lowerer<'_> {
                 } else if id == "System.Format#1" && auto_format_field.is_some() {
                     "System.FormatAutoFormatField#1".to_string()
                 } else {
-                    id.clone()
+                    // `Blob.Length` compared with 0: only the sign of the stored size is observed (issue 6896; blob_length_sign.rs).
+                    Self::blob_length_emit_id(&id, node)
                 };
                 // `IsNull` of a `[RunOnClient]` DotNet variable: the variable can never be assigned (its constructor and
                 // `Create` raise), so it is null (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:171-176, :211-223
