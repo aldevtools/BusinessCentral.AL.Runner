@@ -1,5 +1,6 @@
 //! The tests of one area in one binary (ADR-037 item 5): fewer binaries to link. Each module is a file of pages_ui/.
 
+mod action_deleted_current_row;
 mod action_moved_rec;
 mod assistedit_refresh;
 mod bare_page_method;
@@ -61,6 +62,7 @@ mod masked_short_text;
 mod modify_denied_code_modify;
 mod modify_event_veto_resave;
 mod moved_onto_deleted_y80;
+mod new_card_descr_then_key;
 mod new_record_key_xrec;
 mod no_source_card;
 mod open_moved_find_which;

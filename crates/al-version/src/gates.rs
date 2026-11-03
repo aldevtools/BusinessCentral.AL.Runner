@@ -45,6 +45,10 @@ const FULLY_QUALIFIED_NAME_RUN_EVIDENCE: &[Evidence] = &[
         file: "pages/lt-y74-fqn-run/Y74FqnRunForms.al",
         lines: "7",
     },
+    Evidence {
+        file: "pages/lt-y89-fqn-missing/Y89FqnMissing.al",
+        lines: "9",
+    },
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

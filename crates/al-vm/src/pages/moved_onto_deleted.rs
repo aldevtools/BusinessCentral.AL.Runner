@@ -19,7 +19,7 @@ use al_builtins::record_op::RecordOp;
 
 impl Session {
     /// Whether the row held at `idx` is still in the table (the page's Rec is left as it was).
-    fn held_row_alive(&mut self, st: &St, idx: usize) -> Result<bool, Signal> {
+    pub(super) fn held_row_alive(&mut self, st: &St, idx: usize) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
         let saved = rec.borrow().fields.clone();
         let mut key = st.borrow().window[idx].key.clone();

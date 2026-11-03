@@ -91,10 +91,10 @@ impl AllVersions {
 fn every_oracle_case_is_reported_and_attributed_to_an_area() {
     // BC 29: the version a run without `--bc-version` picks.
     let r = all_versions().json("29");
-    assert_eq!(r["overall"]["total"], 23210);
+    assert_eq!(r["overall"]["total"], 23362);
     assert_eq!(r["unmapped"].as_array().unwrap().len(), 0, "{}", r["unmapped"]);
     assert_eq!(r["areas"]["json"]["total"], 495);
-    assert_eq!(r["areas"]["record"]["total"], 3212);
+    assert_eq!(r["areas"]["record"]["total"], 3250);
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn oracle_pinned_to_a_different_corpus_commit_is_refused() {
     std::fs::write(
         &bad,
         t.replace(
-            "33aab2049b0d8ff4647f660b770309b4cb60fe7b",
+            "b2a88adc5f9eec256996125a2c0d3a53f896060d",
             "0000000000000000000000000000000000000000",
         ),
     )
@@ -633,7 +633,7 @@ fn markdown_summary_is_written() {
     let shared = all_versions();
     assert_eq!(shared.code, 0, "{}", shared.err);
     let md = std::fs::read_to_string(shared.file("pass-rate", "29", "md")).unwrap();
-    assert!(md.starts_with("- BC 29.0: ") && md.contains(" of 23210 ("), "{md}");
+    assert!(md.starts_with("- BC 29.0: ") && md.contains(" of 23362 ("), "{md}");
     assert_eq!(md.lines().count(), 1, "one line per version: {md}");
     // ... and `--markdown` of a single-version run writes the file it is given.
     let dir = tempfile::tempdir().unwrap();
@@ -698,7 +698,7 @@ fn every_bc_major_has_an_oracle_with_the_same_cases() {
     // 28 and 29 come from the hybrid runner: its OnRun pseudo-cases must be skipped, or the
     // run stops with exit 2 (ADR-015 1.6).
     // All three are recorded for the pinned corpus commit.
-    for (v, total) in [("27", 22943), ("28", 23069), ("29", 23210)] {
+    for (v, total) in [("27", 23085), ("28", 23221), ("29", 23362)] {
         let r = all_versions().json(v);
         assert_eq!(r["overall"]["total"], total, "BC {v}");
         assert_eq!(r["unmapped"].as_array().unwrap().len(), 0, "BC {v}");
@@ -743,14 +743,14 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bumps 33 and 34 make it 195. Six leave: the BC 27 only tests of 85660 and 85661 in
     // network/lt-http-send-failure/LtDaSendFailure.al are now compiled under `#if BC28PLUS and LT_HELD_BCLINUX_165`, which the
     // Linux CI does not define, so no major has them. Three come: PW_RaisedEvents_OtherFormats and PW_RaisedEvents_RunRunModal
-    // of 23210 (events/lt-platform-events-v/PeVTests.al:750, the RDLC holds lifted to `#if BC28PLUS`) and 85312
+    // of 23362 (events/lt-platform-events-v/PeVTests.al:750, the RDLC holds lifted to `#if BC28PLUS`) and 85312
     // CodeunitRun_ByQualifiedName (misc/lt-cu-odd-leads/CuWriteTxTests.al, hold LT_HELD_BCLINUX_159 lifted inside its BC28PLUS
-    // guard). Corpus bump 42 makes it 196: PW_RaisedEvents_Execute of 23210 (PeVTests.al:725, hold LT_HELD_BCLINUX_158 lifted
+    // guard). Corpus bump 42 makes it 196: PW_RaisedEvents_Execute of 23362 (PeVTests.al:725, hold LT_HELD_BCLINUX_158 lifted
     // inside the BC28PLUS guard) now runs on BC 28 and 29. Corpus bump 43 makes it 202: the six tests of 85660 and 85661 in
     // LtDaSendFailure.al come back under `#if BC28PLUS` (hold LT_HELD_BCLINUX_165 lifted), on BC 28 and 29 only.
     // The multi-app corpus bump (corpus PR 710) makes it 203: 78603 QV_Header_CompanyLogo_PictureVariants
     // (report/lt-ah-dataset-header/AhDatasetHeader.al:220, inside the file's `#if BC29PLUS`) runs on BC 29 only.
-    // Corpus bump 55 makes it 209: the six RB_Header_AddressFormat_* tests of 23210 (AhDatasetHeader.al:309-430), BC 29 only.
+    // Corpus bump 55 makes it 209: the six RB_Header_AddressFormat_* tests of 23362 (AhDatasetHeader.al:309-430), BC 29 only.
     // Corpus bump to master 2db2dbd5 makes it 211: the two tests of 99830 in lt-ss1030/SsCallerModulesTestRunner.al run on
     // BC 27 only (`#if not BC28PLUS`, the Test Runner app path of the CI; gate TestRunnerHubRequiredIsolationFrom28).
     // Corpus bump to master 28de3f39 makes it 214: the three tests of 90645 in platform/lt-wc/WcFieldRowCopy.al run on BC 29
@@ -758,7 +758,7 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bump to master 09855762 makes it 224: the nine Y8_IsDirty_* tests of 91415 in lt-ac/Y8RecordIsDirtyShapes.al run
     // on BC 29 only (`#if BC29PLUS`; gate RecordIsDirtyFrom29), and 90775 WD_BareNameExt_ValueReadError in
     // pages/lt-wd/WdBareQuotedField.al on BC 28 and 29 only (`#if BC28PLUS`; gate ExtControlBareQuotedSourceNotFoundFrom28).
-    // Corpus bump to master 92031e20 makes it 238: five tests of 23210 (Y17_TenantReportLayoutCfg_InsertModifyDelete, _Shapes,
+    // Corpus bump to master 92031e20 makes it 238: five tests of 23362 (Y17_TenantReportLayoutCfg_InsertModifyDelete, _Shapes,
     // Y40_TenantReportLayoutOverride_InsertModifyDelete, _SeenByReportLayoutList, _TypedRecord) and nine BigInteger and Enum
     // conversions of the Y31 conversion matrix (types/lt-y31-conversion-matrix/, `#if BC29PLUS`; gate
     // BigIntegerToEnumVariableFrom29) run on BC 29 only. Corpus bump to master 7f7cdc2a makes it 239:
@@ -769,7 +769,7 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // PlatformMetadataColumnsFrom29).
     // Corpus bump to master 941cd813 makes it 283: the bump to 9cce33bd (writers Y76 to Y81, which did not update this count)
     // and the Y79 fix and Y85 pins after it add BC28PLUS and BC29PLUS guards that the probed-values gates cite.
-    assert!(out.contains("oracle: 283 case(s) differ between versions"), "{out}");
+    assert!(out.contains("oracle: 293 case(s) differ between versions"), "{out}");
     // The known BC 29 differences are gated (ADR-015 3.4), so the runtime passes the same cases on every version, among the
     // cases every oracle has. One difference is known and open (corpus bump 10, backlog): the runtime passes
     // 71500 Get_Uses_Primary_Key_Not_Current_Key on BC 27 only. A new difference would be listed here.
@@ -797,7 +797,7 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // ControlAddInNotInstantiatedErrorFrom28) and refuses on BC 27, so 77540 AC_ControlAddIn_ProcedureCallFromFieldTrigger,
     // 79590 AddinProcedureFromAction, 67122 Addin_PageOpened_OnOpenPageCallsProcedure and Addin_PageVariableNeverOpened_Calls
     // pass on BC 28 and 29 only.
-    // Corpus bump to 21a41286 makes it 27: eight new TZ_* cases of 23210 (control add-in calls from page triggers and
+    // Corpus bump to 21a41286 makes it 27: eight new TZ_* cases of 23362 (control add-in calls from page triggers and
     // actions) pass on BC 28 and 29 only, behind the same gate ControlAddInNotInstantiatedErrorFrom28.
     // Branch fix-left makes it 17: the numbers a Required-isolation codeunit takes are carried over, so the ten
     // remaining RqIsolationModes.al cases (88512-88515 and the ones after them) now run and pass on BC 28 and 29 too.
@@ -807,7 +807,10 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bump to master 34ca226f keeps it at 19 once FieldRef.Name of SystemCreatedByUserName is served (Y66).
     // Train 1102q makes it 18: 93335 Y64_UserNameFields_Exist (RecordRef.FieldExist of 2000000005 to 2000000008) now
     // passes on BC 27 and 28 too, so it no longer differs between versions.
-    assert!(out.contains("runtime: 18 case(s) differ between versions"), "{out}");
+    // Corpus bump to master b2a88adc makes it 32: the 14 Y89_Old_Property_* and Y89_Old_Setter_* cases of 81070
+    // (report/lt-bd-format-region/BdRegionTests.al:1521) pass on BC 29 only; on 27 and 28 the format with a FormatRegion
+    // other than the default is not pinned and refused (the same refusal as BdProperty_*_DatasetAndFormat).
+    assert!(out.contains("runtime: 32 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 
@@ -845,7 +848,7 @@ fn require_dotnet_turns_an_unusable_dotnet_into_a_setup_error() {
 #[test]
 fn the_other_test_apps_are_reported_apart_from_the_main_one() {
     let r = all_versions().json("28");
-    assert_eq!(r["overall"]["total"], 23069);
+    assert_eq!(r["overall"]["total"], 23221);
     let suites = r["suites"].as_array().unwrap();
     let get = |n: &str| {
         suites

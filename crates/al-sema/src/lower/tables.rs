@@ -864,7 +864,13 @@ impl Lowerer<'_> {
             let pos = src_pos(&c.field)?;
             let decl = src_fields[pos].declared_in.map_or(file, |d| self.ws.objects[d].file);
             let value = match &c.value {
-                CondValue::Const(raw) => ir::CalcValue::Const(self.calc_const(decl, raw, &src_fields[pos].ty)?),
+                CondValue::Const(raw) => {
+                    // `Database::"X"` names an object where the formula was written, not where the target
+                    // field is declared (corpus record/TestCalcFormulaDatabaseConst.Codeunit.al:7-30; al-runner
+                    // issue 6882). The members of an enum field are the target field's enum's.
+                    let scope = if raw.contains("::") { file } else { decl };
+                    ir::CalcValue::Const(self.calc_const(scope, raw, &src_fields[pos].ty)?)
+                }
                 CondValue::Filter(raw) => {
                     // One quoted literal is read as the filter its content spells (calcfields/W4CalcFields.al:396
                     // QZ_CalcFormula_QuotedLiteralFilters, fixtures QzCalcFormulaQuotedFilter.al): `'<>'''''` is `<>''`,
@@ -1030,11 +1036,13 @@ fn quoted_relation_text_pinned(text: &str, ty: &Ty) -> bool {
 pub(crate) fn option_init_ordinal(text: &str, members: &[String]) -> Option<Option<ir::Const>> {
     let t = text.trim().trim_matches('"').trim();
     let n: usize = t.parse().ok()?;
+    // A member named by these digits wins over the ordinal, quoted or bare (al-runner issue 6859; corpus
+    // record/lt-y47-initvalue-quoted/R6859NumericOptionInit.al, Windows BC 27.5).
     let named = members.iter().position(|m| m.trim().eq_ignore_ascii_case(t));
     Some(match named {
-        Some(p) if p != n => None,
-        _ if n < members.len() => Some(ir::Const::Option(n as i32, members.to_vec())),
-        _ => None,
+        Some(p) => Some(ir::Const::Option(p as i32, members.to_vec())),
+        None if n < members.len() => Some(ir::Const::Option(n as i32, members.to_vec())),
+        None => None,
     })
 }
 

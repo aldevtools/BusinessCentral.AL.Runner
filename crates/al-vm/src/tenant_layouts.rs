@@ -127,7 +127,10 @@ impl Session {
         let Some(object) = self.own_report(report_id) else {
             return refuse();
         };
-        let Some(file) = self.default_rdlc_layout_file(object) else {
+        let Some(file) = self
+            .default_rdlc_layout_file(object)
+            .and_then(|f| self.rdlc_layout_stream(object, f).ok())
+        else {
             return refuse();
         };
         let Value::Guid(id) = media else {

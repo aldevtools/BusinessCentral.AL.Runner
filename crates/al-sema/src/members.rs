@@ -609,7 +609,7 @@ fn split_outside_quotes(text: &str, sep: char) -> Vec<String> {
 }
 
 /// `Ns."Some Name"` as the parts of an object reference.
-fn name_parts(text: &str) -> Vec<String> {
+pub(crate) fn name_parts(text: &str) -> Vec<String> {
     split_outside_quotes(text.trim(), '.')
         .into_iter()
         .map(|p| p.trim().trim_matches('"').to_string())

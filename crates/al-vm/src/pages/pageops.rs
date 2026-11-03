@@ -73,6 +73,16 @@ impl Session {
             None if method == PageOp::PageRunStatic || method == PageOp::PageRunModalStatic => {
                 let used = self.ret_used;
                 if let Some(Value::Text(name)) = args.first() {
+                    // An empty name: with a record AL:MetadataNotFound like page 0, without one an uncatchable
+                    // NullReferenceException on BC, refused (pages/lt-y89-fqn-missing/Y89FqnMissing.al:125, :153; :113 is no [Test]).
+                    if name.trim().is_empty() {
+                        return match args.len() > 1 {
+                            true => Err(self.missing_object("Page", 0)),
+                            false => {
+                                unsupported("Page.Run with an empty page name and no record (ends the session on BC)")
+                            }
+                        };
+                    }
                     let id = self.page_id_by_qualified_name(name)?;
                     args[0] = Value::Integer(id);
                 }
