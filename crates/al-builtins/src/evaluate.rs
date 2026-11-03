@@ -1105,6 +1105,15 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
     ))
 }
 
+/// `31. Dezember 2024`: a day, the German month word and a year is no date in either language, and gets the date error
+/// (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:DateDecimal_VT_German, needs the corpus bump).
+fn dezember_date_text(text: &str) -> bool {
+    let all =
+        |t: &str, n: std::ops::RangeInclusive<usize>| n.contains(&t.len()) && t.bytes().all(|b| b.is_ascii_digit());
+    text.split_once(". Dezember ")
+        .is_some_and(|(d, y)| all(d, 1..=2) && all(y, 4..=4))
+}
+
 /// A time of day, as a `Value::Time` holds it (milliseconds since midnight, plus one).
 ///
 /// Pinned by types/lt-evaluate-format-lasterror-setview/P86Eval.al, codeunit "LT P86 Eval Time". Number 0 reads
@@ -1466,11 +1475,12 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
 /// commit d3bcc580: `not-a-date` with 9, 0 and the default, former assumption `evaluate-date-letters-statement` (pinned on corpus master since bump 1030)). Other texts and
 /// numbers are not pinned.
 fn letters_date_text(text: &str, number: i64) -> bool {
-    matches!(number, 0 | 9)
-        && text.bytes().any(|b| b.is_ascii_alphabetic())
-        && text
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'/'))
+    dezember_date_text(text)
+        || (matches!(number, 0 | 9)
+            && text.bytes().any(|b| b.is_ascii_alphabetic())
+            && text
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'/')))
 }
 
 pub fn evaluate(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {

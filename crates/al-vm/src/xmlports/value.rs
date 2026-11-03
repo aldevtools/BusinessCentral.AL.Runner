@@ -95,6 +95,16 @@ impl Session {
                             format!("Der Wert „{text}“ kann nicht in Typ {name} ausgewertet werden."),
                             "Evaluate",
                         )),
+                        // A Date: the text Evaluate gives in German (misc/lt-system-functions/EvalLastError.al:463-481;
+                        // xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:DateDecimal_VT_German, needs the corpus bump).
+                        "Date" => {
+                            let mut again = [self.default_value(ty), Value::Text(text.to_string().into())];
+                            self.ret_used = false;
+                            match al_builtins::evaluate::evaluate(self, None, &mut again) {
+                                Err(e) => Err(e),
+                                Ok(_) => unsupported("a Date that Evaluate takes after it refused it (not pinned)"),
+                            }
+                        }
                         _ => unsupported(format!("the Evaluate error of {name} in German (not pinned)")),
                     }
                 } else {
