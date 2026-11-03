@@ -11817,6 +11817,9 @@
 73073 Export_SetFieldSeparator
 73073 Export_SetRecordSeparatorText
 73073 Export_SetRecordSeparators
+73073 Export_TwoTablesDeclared
+73073 Export_TwoTablesDefault
+73073 Export_TwoTablesSetTableSeparator
 73073 Export_ValueContainsSeparators
 73073 FieldDelimiter_Variants
 73073 FieldSeparator_Variants
@@ -16339,7 +16342,10 @@
 85908 XmlnsSetAttribute_OnElementWithoutNamespace
 85969 Export_Last_Bytes
 85969 TextElement_Named_Like_Field
+86030 Item106_TwoTablesDefaultSeparator
+86030 Item106_TwoTablesNewLineSeparator
 86030 Item107_BoolExportByLanguage
+86030 Item107_BoolImportByLanguage
 86030 Item110_LongTextField
 86030 Item111_ImportFromStoredBlob
 86086 PendingNoReason_Query_OpensAndReads
@@ -19772,6 +19778,7 @@
 93545 Compose_OwnAndIncluded
 93549 TableFilterField_Evaluate_Forms
 93549 TableFilterField_Export
+93549 TableFilterField_Import
 93603 D1_Act
 93603 D1_Report
 93604 D2_Act
@@ -19785,6 +19792,7 @@
 93608 R3_Act
 93608 R3_Report
 93610 Overloads_InsertExists
+93614 Assign_Import
 93614 Assign_InOnAfterGetRecord_Export
 93614 FieldDelimiter_AssignForms_Export
 93614 FieldSeparator_AssignForms_Export
