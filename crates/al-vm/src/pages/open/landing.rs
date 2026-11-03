@@ -368,6 +368,22 @@ impl Session {
                     "OnNewRecord of a list part whose host was opened for view on no row (whether BC runs it is not pinned)",
                 );
             }
+            // The part then runs OnAfterGetCurrRecord once on the blank row (QH_OpenView_NoRow_TraceHost `CP.OnAfterGetCurrRecord:/0`,
+            // _CurrRecordOnlyPart `OP.OnAfterGetCurrRecord:/0`, _BlankKeyLinesExist, QH_OpenView_RowFilteredAway). Not run yet: refused,
+            // so a log that misses the entry is never reported as a result.
+            if host_shows_no_row
+                && self.has_source(st)
+                && st.borrow().mode == PageMode::View
+                && (self.declares(st, "onaftergetcurrrecord")
+                    || self
+                        .engine()
+                        .events
+                        .is_subscribed(st.borrow().object as usize, "onaftergetcurrrecordevent"))
+            {
+                return unsupported(
+                    "OnAfterGetCurrRecord of a list part whose host was opened for view on no row (pinned, not implemented)",
+                );
+            }
             if view_part || (host_shows_no_row && self.has_source(st) && st.borrow().mode == PageMode::View) {
                 let rec = self.page_rec(st);
                 let table = rec.borrow().table as usize;

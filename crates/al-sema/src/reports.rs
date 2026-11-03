@@ -457,6 +457,8 @@ const REQUEST_PAGE_TRIGGERS: &[&str] = &[
     "onclosepage",
     "onaftergetcurrrecord",
     "onaftergetrecord",
+    "onnewrecord",
+    "onmodifyrecord",
 ];
 
 /// What a reportextension can add to a request page that the client runs: the void page triggers
@@ -470,7 +472,17 @@ fn request_extension_reasons(exts: &[(usize, ast::Object)]) -> Vec<String> {
             // A procedure of the request page runs when its code calls it (al-runner issue 6651, `Lowerer::request_proc_refusal`).
             for t in sec.triggers().filter(|t| t.syntax().kind() != SyntaxKind::Procedure) {
                 let n = t.name().to_ascii_lowercase();
-                if !["onopenpage", "onclosepage"].contains(&n.as_str()) {
+                if ![
+                    "onopenpage",
+                    "onclosepage",
+                    "onaftergetrecord",
+                    "onaftergetcurrrecord",
+                    "onnewrecord",
+                    "onmodifyrecord",
+                    "onqueryclosepage",
+                ]
+                .contains(&n.as_str())
+                {
                     out.push(format!(
                         "reportextension `{ename}`: request page trigger {} is not supported yet",
                         t.name()
