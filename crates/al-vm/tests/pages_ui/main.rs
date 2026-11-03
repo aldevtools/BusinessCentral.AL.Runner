@@ -47,6 +47,7 @@ mod secondary_key_marked_refill;
 mod selection_new_line;
 
 mod dirty_save;
+mod editable_false_blob_release;
 mod empty_worksheet_filled_by_action;
 mod expr_refresh_points;
 mod find_field_expression_controls;
