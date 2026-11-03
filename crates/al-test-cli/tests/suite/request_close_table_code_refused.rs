@@ -6,7 +6,11 @@
 use al_test_cli::report::Outcome;
 
 fn outcome(table_code: bool) -> Outcome {
-    let code = if table_code { "trigger OnModify() begin Seen += 1; end;" } else { "" };
+    let code = if table_code {
+        "trigger OnModify() begin Seen += 1; end;"
+    } else {
+        ""
+    };
     let src = format!(
         r#"
 table 62800 "RC Row"
@@ -46,5 +50,8 @@ fn a_table_without_write_code_stores_the_changed_row_at_ok() {
 #[test]
 fn a_table_with_write_code_is_refused() {
     let o = outcome(true);
-    assert!(matches!(&o, Outcome::NotRun(why) if why.contains("runs code when it is written")), "{o:?}");
+    assert!(
+        matches!(&o, Outcome::NotRun(why) if why.contains("runs code when it is written")),
+        "{o:?}"
+    );
 }

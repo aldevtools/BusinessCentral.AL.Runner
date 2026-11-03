@@ -306,7 +306,12 @@ impl Session {
             s.row_prop_vars = Vec::new();
             s.agcr_after_new = false;
             s.part_accessed = false;
-            (s.new_host_part_rows, s.host_stored_blank_key, s.blank_key_edit_reread, s.request_new_blank) = (false, false, false, false);
+            (
+                s.new_host_part_rows,
+                s.host_stored_blank_key,
+                s.blank_key_edit_reread,
+                s.request_new_blank,
+            ) = (false, false, false, false);
             s.expanded = Vec::new();
             s.tree_shown = Vec::new();
             // A caption assigned to the variable before its first run stays.
