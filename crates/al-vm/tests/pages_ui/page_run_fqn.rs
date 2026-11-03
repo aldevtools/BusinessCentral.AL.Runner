@@ -68,9 +68,17 @@ fn a_name_that_resolves_to_no_page_is_refused() {
 #[test]
 fn an_empty_name_with_a_record_raises_metadata_not_found() {
     for modal in ["true", "false"] {
-        let src = SRC.replace("procedure EmptyWithRecord(Modal: Boolean)", "procedure EmptyWithRecord()").replace(
-            "if Modal then", &format!("if {modal} then"));
-        assert_eq!(al_testkit::text(al_testkit::run_in(&src, "C", "EmptyWithRecord")), "AL:MetadataNotFound", "modal {modal}");
+        let src = SRC
+            .replace(
+                "procedure EmptyWithRecord(Modal: Boolean)",
+                "procedure EmptyWithRecord()",
+            )
+            .replace("if Modal then", &format!("if {modal} then"));
+        assert_eq!(
+            al_testkit::text(al_testkit::run_in(&src, "C", "EmptyWithRecord")),
+            "AL:MetadataNotFound",
+            "modal {modal}"
+        );
     }
 }
 

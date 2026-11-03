@@ -78,7 +78,9 @@ impl Session {
                     if name.trim().is_empty() {
                         return match args.len() > 1 {
                             true => Err(self.missing_object("Page", 0)),
-                            false => unsupported("Page.Run with an empty page name and no record (ends the session on BC)"),
+                            false => {
+                                unsupported("Page.Run with an empty page name and no record (ends the session on BC)")
+                            }
                         };
                     }
                     let id = self.page_id_by_qualified_name(name)?;
