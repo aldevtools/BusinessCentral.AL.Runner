@@ -100,10 +100,55 @@ pub fn compare_total(a: &str, b: &str) -> Ordering {
     compare_with(a, b, true).unwrap_or_else(|_| a.cmp(b))
 }
 
+/// The weights of the 128 ASCII characters (index 0: `total` off, 1: on), made by [`weight`]: `None` for a character without
+/// one. An ASCII character has no accent, so a weight is the primary value and the case flag. Looked up in place of the
+/// work `weight` does for every character (a lower-casing, a scan of the accent sets and of the symbols).
+static ASCII_WEIGHTS: std::sync::LazyLock<[[Option<(u32, bool)>; 128]; 2]> = std::sync::LazyLock::new(|| {
+    let mut t = [[None; 128]; 2];
+    for (k, row) in t.iter_mut().enumerate() {
+        for (c, slot) in row.iter_mut().enumerate() {
+            *slot = weight(c as u8 as char, k == 1).ok().map(|w| (w.primary, w.upper));
+        }
+    }
+    t
+});
+
 fn compare_with(a: &str, b: &str, total: bool) -> Result<Ordering, String> {
     if a == b {
         return Ok(Ordering::Equal);
     }
+    if a.is_ascii() && b.is_ascii() {
+        return compare_ascii(a, b, total);
+    }
+    compare_general(a, b, total)
+}
+
+/// [`compare_general`] for two ASCII texts, with no allocation: the same three levels (no accent exists in ASCII).
+fn compare_ascii(a: &str, b: &str, total: bool) -> Result<Ordering, String> {
+    let table = &ASCII_WEIGHTS[usize::from(total)];
+    // The first character without a weight is refused, the ones of `a` before the ones of `b`.
+    for c in a.bytes().chain(b.bytes()) {
+        if table[usize::from(c)].is_none() {
+            return Err(weight(c as char, total)
+                .err()
+                .expect("a character without a weight is refused"));
+        }
+    }
+    let w = |c: u8| table[usize::from(c)].unwrap_or_default();
+    let primary = a.bytes().map(|c| w(c).0).cmp(b.bytes().map(|c| w(c).0));
+    if primary != Ordering::Equal {
+        return Ok(primary);
+    }
+    for (x, y) in a.bytes().zip(b.bytes()) {
+        let (x, y) = (w(x).1, w(y).1);
+        if x != y {
+            return Ok(if x { Ordering::Greater } else { Ordering::Less });
+        }
+    }
+    Ok(a.cmp(b))
+}
+
+fn compare_general(a: &str, b: &str, total: bool) -> Result<Ordering, String> {
     let wa: Vec<Weight> = a.chars().map(|c| weight(c, total)).collect::<Result<_, _>>()?;
     let wb: Vec<Weight> = b.chars().map(|c| weight(c, total)).collect::<Result<_, _>>()?;
     let primary = wa.iter().map(|w| w.primary).cmp(wb.iter().map(|w| w.primary));
@@ -154,6 +199,36 @@ mod tests {
         ] {
             assert_eq!(compare(a, b), Ok(Less), "{a} < {b}");
             assert_eq!(compare(b, a), Ok(Greater), "{b} > {a}");
+        }
+    }
+
+    /// The table-driven order of ASCII texts is the general order, for every pair of texts over characters that cover each
+    /// kind of weight (letters of both cases, digits, symbols, the quote, a control character, a space), both ways of
+    /// `total`, and the refusals with their texts.
+    #[test]
+    fn the_ascii_order_is_the_general_order() {
+        let alphabet: Vec<char> = "aAbB09 _-,\"@~\u{1}\u{7f}Zz!".chars().collect();
+        let mut texts = vec![String::new()];
+        for &c in &alphabet {
+            texts.push(c.to_string());
+            for &d in &alphabet {
+                texts.push(format!("{c}{d}"));
+                texts.push(format!("a{c}{d}"));
+            }
+        }
+        for a in &texts {
+            for b in &texts {
+                for total in [false, true] {
+                    if a == b {
+                        continue;
+                    }
+                    assert_eq!(
+                        super::compare_ascii(a, b, total),
+                        super::compare_general(a, b, total),
+                        "{a:?} {b:?} total={total}"
+                    );
+                }
+            }
         }
     }
 
