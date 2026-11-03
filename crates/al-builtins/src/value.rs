@@ -2275,8 +2275,13 @@ mod tests {
     fn an_option_default_shares_the_members_of_its_type() {
         let members: std::sync::Arc<[String]> = vec!["A".to_string(), "B".to_string()].into();
         let ty = RtType::Option(members.clone());
-        let Value::Option(0, held) = Value::default_for(&ty) else { panic!() };
-        assert!(std::sync::Arc::ptr_eq(&held, &members), "the default copied the member names");
+        let Value::Option(0, held) = Value::default_for(&ty) else {
+            panic!()
+        };
+        assert!(
+            std::sync::Arc::ptr_eq(&held, &members),
+            "the default copied the member names"
+        );
     }
 
     #[test]

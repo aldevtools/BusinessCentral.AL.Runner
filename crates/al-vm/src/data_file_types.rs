@@ -279,7 +279,10 @@ mod tests {
     // Columns_Expressions_NoRow: Option and Enum fields are xs:string; an expression column has the type of its AL type.
     #[test]
     fn option_enum_fields_and_expression_columns_have_their_type_without_a_row() {
-        assert_eq!(declared(&RtType::Option(vec!["A".into()].into()), 29), Some("xs:string"));
+        assert_eq!(
+            declared(&RtType::Option(vec!["A".into()].into()), 29),
+            Some("xs:string")
+        );
         assert_eq!(declared(&RtType::Enum(5), 27), Some("xs:string"));
         let want = [
             (RtType::Code(Some(10)), Some("xs:string")),

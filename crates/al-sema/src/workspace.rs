@@ -155,7 +155,9 @@ fn names_word_in(b: &[u8], word: &[u8], pivot: usize) -> bool {
     let mut from = pivot;
     while let Some(at) = memchr::memchr2(lower, upper, b.get(from..).unwrap_or_default()) {
         let start = from + at - pivot;
-        if b.get(start..start + word.len()).is_some_and(|w| w.eq_ignore_ascii_case(word)) {
+        if b.get(start..start + word.len())
+            .is_some_and(|w| w.eq_ignore_ascii_case(word))
+        {
             return true;
         }
         from += at + 1;
@@ -1665,7 +1667,18 @@ mod tests {
     /// letter it scans for is near an end.
     #[test]
     fn the_word_search_handles_the_ends_of_the_text() {
-        for text in ["", "x", "xx", "maxlength", "MAXLENGTH", "axlength", "maxlengt", "xmaxlength", "maxlengthx", "xxmaxlengthxx"] {
+        for text in [
+            "",
+            "x",
+            "xx",
+            "maxlength",
+            "MAXLENGTH",
+            "axlength",
+            "maxlengt",
+            "xmaxlength",
+            "maxlengthx",
+            "xxmaxlengthxx",
+        ] {
             let naive = text.as_bytes().windows(9).any(|w| w.eq_ignore_ascii_case(b"maxlength"));
             assert_eq!(names_max_length_in(text.as_bytes()), naive, "{text:?}");
         }

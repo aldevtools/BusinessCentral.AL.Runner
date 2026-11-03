@@ -345,7 +345,8 @@ pub(crate) fn report_that_cannot_run(
     // whole reach, so what it visited is clean for the next question; a walk that stops at a report proves nothing.
     let mut walk = Walk::new(events, lowered, index);
     walk.facts = false;
-    walk.seen.copy_from_slice(&index.report_clean.lock().unwrap_or_else(|e| e.into_inner()));
+    walk.seen
+        .copy_from_slice(&index.report_clean.lock().unwrap_or_else(|e| e.into_inner()));
     walk.stack.push((object, routine));
     walk.run(&|f| f.report_cannot_run.is_some());
     if walk.out.report_cannot_run.is_none() {
@@ -1527,7 +1528,13 @@ mod tests {
                 [Test] procedure B() var Hp: Codeunit Helper; begin Hp.H(); end;
                 [Test] procedure C() var Hp: Codeunit Helper; begin Hp.Rep(); end; }";
         let mut l = lowered(src);
-        let rep = l.program.objects.heads().iter().position(|o| o.name == "Refused").unwrap();
+        let rep = l
+            .program
+            .objects
+            .heads()
+            .iter()
+            .position(|o| o.name == "Refused")
+            .unwrap();
         std::sync::Arc::get_mut(&mut l.program).unwrap().objects[rep]
             .report
             .as_mut()
@@ -1543,7 +1550,11 @@ mod tests {
         let warm = ReachIndex::new(&events, &l);
         assert_eq!(ask(&warm, c), fresh(c));
         assert!(fresh(c).is_some());
-        assert_eq!(warm.report_clean_routines(), 0, "a walk that found a report marked routines clean");
+        assert_eq!(
+            warm.report_clean_routines(),
+            0,
+            "a walk that found a report marked routines clean"
+        );
         assert_eq!(ask(&warm, a), None);
         let clean = warm.report_clean_routines();
         assert!(clean >= 2, "the walk of A marked {clean}");
