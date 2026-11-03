@@ -380,3 +380,10 @@
 27 2785-accessbypermission-group
 28 2785-accessbypermission-group
 29 2785-accessbypermission-group
+# corpus bump 1104a: new cases the front end does not decide yet (Permissions property on an object)
+27 2830-permissions-property-wildcard-tabledata
+28 2830-permissions-property-wildcard-tabledata
+29 2830-permissions-property-wildcard-tabledata
+27 2831-permissions-property-codeunit
+28 2831-permissions-property-codeunit
+29 2831-permissions-property-codeunit
