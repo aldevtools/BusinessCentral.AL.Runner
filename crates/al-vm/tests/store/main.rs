@@ -76,6 +76,7 @@ mod relation_where_flowfilter;
 mod relations;
 mod rename;
 mod rename_filter_arm;
+mod rename_trigger_before_autoincrement;
 mod row_version_shapes;
 mod scm_round2;
 mod scm_service_41;

@@ -41,19 +41,26 @@ impl Session {
 
     /// A Rename to a value a number-stored Code key cannot hold fails like an Insert and changes nothing (Y82PkTests.al
     /// `PkInt_Rename_ToAbc`, `PkBig_Rename_ToAbc`); a value it takes is stored as the number. Then the checks of the new key's
-    /// AutoIncrement fields.
+    /// AutoIncrement fields. The AutoIncrement error is returned, not raised: it comes after the OnRename trigger, and only for a
+    /// row that exists (record/lt-r6863-rename-trigger/R6863RenameTrigger.al).
     pub(crate) fn check_rename_values(
         &self,
         rec: &Rec,
         t: &TableDef,
         old: &[Value],
         new: &mut Vec<Value>,
-    ) -> Result<(), Signal> {
-        self.check_rename_auto_increment(t, old, new)?;
+    ) -> Result<Option<Signal>, Signal> {
+        let deferred = match self.check_rename_auto_increment(t, old, new) {
+            Err(e @ Signal::Error(_)) => Some(e),
+            other => {
+                other?;
+                None
+            }
+        };
         let held = std::mem::replace(&mut rec.borrow_mut().fields, new.clone());
         let checked = self.check_code_storage(t, rec, false);
         *new = std::mem::replace(&mut rec.borrow_mut().fields, held);
-        checked
+        checked.map(|()| deferred)
     }
 
     /// A Code field the database stores as a number takes plain numbers and the empty value; the check runs where a record is

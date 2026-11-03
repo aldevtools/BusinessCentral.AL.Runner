@@ -5523,7 +5523,7 @@ impl Session {
                         new[field] = ops::convert(v.clone(), &ty)?;
                     }
                 }
-                self.check_rename_values(rec, &t, &old, &mut new)?;
+                let auto_increment_refusal = self.check_rename_values(rec, &t, &old, &mut new)?;
                 if self.is_profile_row(&t, rec.borrow().temporary) {
                     self.profile_before_rename(&t, &old, &new)?;
                 }
@@ -5549,6 +5549,19 @@ impl Session {
                 }
                 self.run_ext_trigger(&t, "OnRename", rec, Some(&xrec))?;
                 self.global_trigger(&t, GlobalOp::Rename, rec, Some(&xrec))?;
+                // record/lt-r6863-rename-trigger/R6863RenameTrigger.al: the OnRename trigger runs first (its error wins), then a
+                // row that does not exist raises RecordNotFound, then the AutoIncrement error, before a key that exists.
+                if let Some(refusal) = auto_increment_refusal {
+                    let exists = self
+                        .store_for(rec)
+                        .get(&cx, &t, &old_pk)
+                        .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                        .is_some();
+                    if exists {
+                        rec.borrow_mut().fields = old;
+                        return Err(refusal);
+                    }
+                }
                 let _ = self.bump_row_version(&t, rec);
                 let _ = self.stamp_rename(&t, rec);
                 let row = rec.borrow().fields.clone();
