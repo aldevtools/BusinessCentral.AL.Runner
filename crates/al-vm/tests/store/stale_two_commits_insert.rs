@@ -65,12 +65,12 @@ fn the_stale_buffer_is_written_after_an_insert_of_another_row() {
     assert!(!take_hits().contains(&Assumption::StaleOwnInsertTwoCommitsOtherInsert));
 }
 
-/// A Delete of another row beside the Insert is not pinned: the same verdict, on the assumption.
+/// A Delete of another row beside the Insert is pinned (Y76StaleBuffers.al Y76_Part2_*): the same verdict, no assumption.
 #[test]
-fn a_delete_beside_the_insert_is_assumed() {
+fn a_delete_beside_the_insert_is_pinned() {
     clear_hits();
     assert_eq!(text(al_testkit::run_in(SRC, "C", "WrittenBesideDelete")), "start|5");
-    assert!(take_hits().contains(&Assumption::StaleOwnInsertTwoCommitsOtherInsert));
+    assert!(!take_hits().contains(&Assumption::StaleOwnInsertTwoCommitsOtherInsert));
 }
 
 #[test]
