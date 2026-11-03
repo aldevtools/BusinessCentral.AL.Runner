@@ -16,6 +16,8 @@
 //!   a rename onto the row's own key succeeds (:150-166);
 //! - a tenant-owned row (empty App ID) can be inserted, read back and deleted (:200-232).
 //!
+//! A profile extension that declares `Enabled` decides the column (Y88PageProbes.al:239-247, UPageProps.al:340-365).
+//!
 //! Not pinned, so documented defaults or refused columns: `Enabled` of a profile that does not declare
 //! it (true, the AL default), `Caption` of a profile that declares none (its name), "Use Comments"
 //! and the other obsolete columns (not read).
@@ -72,7 +74,7 @@ impl Session {
             r[pos(t, 5)] = Value::Integer(role_center_id);
             r[pos(t, 6)] = Value::Boolean(prop("DefaultRoleCenter").is_some_and(super::objects::truthy));
             r[pos(t, 14)] = Value::Text(app.map(|a| a.name.clone()).unwrap_or_default().into());
-            r[pos(t, 15)] = Value::Boolean(prop("Enabled").is_none_or(super::objects::truthy));
+            r[pos(t, 15)] = self.profile_enabled(&o.name, prop("Enabled"));
             r[pos(t, 16)] = Value::Text(
                 prop("Caption")
                     .and_then(text_of_literal)
@@ -94,6 +96,24 @@ impl Session {
             wrote = true;
         }
         wrote
+    }
+
+    /// The Enabled column: the profile's own `Enabled` (true when undeclared), over which a profile extension that declares
+    /// `Enabled` wins; an extension that declares only a Caption changes nothing (pages/lt-y88-page-probes/Y88PageProbes.al:
+    /// 239-247, Y88_Profile_EnabledForms; pageext/lt-u-page-props/UPageProps.al:340-365, an extension false over a true profile).
+    fn profile_enabled(&self, name: &str, own: Option<&str>) -> Value {
+        let own = own.is_none_or(super::objects::truthy);
+        let mut enabled = own;
+        for e in self.engine.program.objects.heads() {
+            let extends = super::objects::prop(e, al_ir::EXTENDS_PROFILE);
+            if !extends.is_some_and(|n| n.eq_ignore_ascii_case(name)) {
+                continue;
+            }
+            if let Some(v) = super::objects::prop(e, "Enabled") {
+                enabled = super::objects::truthy(v);
+            }
+        }
+        Value::Boolean(enabled)
     }
 
     pub(crate) fn is_profile_row(&self, t: &TableDef, temporary: bool) -> bool {
