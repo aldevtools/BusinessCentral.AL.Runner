@@ -1516,7 +1516,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             Value::BigInteger(_) => crate::value::RtType::BigInteger,
             Value::Guid(_) => crate::value::RtType::Guid,
             // The first member (StreamLengthOthers.al:Option_WriteReadLength_1 `nb_rd2` is A).
-            Value::Option(_, names) => crate::value::RtType::Option(names.to_vec()),
+            Value::Option(_, names) => crate::value::RtType::Option(names.clone()),
             _ => crate::value::RtType::Decimal,
         });
         return Ok(Value::Integer(0));

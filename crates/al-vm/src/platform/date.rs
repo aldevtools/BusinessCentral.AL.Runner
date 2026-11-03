@@ -346,7 +346,7 @@ mod tests {
                         "Month".into(),
                         "Quarter".into(),
                         "Year".into(),
-                    ]),
+                    ].into()),
                 ),
                 f(2, RtType::Date),
                 f(3, RtType::Date),

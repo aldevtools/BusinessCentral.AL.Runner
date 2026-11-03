@@ -704,7 +704,7 @@ mod tests {
             option_captions: Some(vec!["Eins".into(), "Zwei".into()]),
             ..Default::default()
         };
-        let o = T::Option(vec!["Alpha".into(), "Beta".into()]);
+        let o = T::Option(vec!["Alpha".into(), "Beta".into()].into());
         assert!(matches!(
             parse_control_text("Zwei", &o, &cap, &none),
             Ok(Value::Option(1, _))

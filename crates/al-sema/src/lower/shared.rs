@@ -1022,7 +1022,7 @@ pub(crate) fn scalar_rt(ws: &Workspace, file: usize, t: &Ty) -> Option<L<RtType>
         Ty::DateFormula => RtType::DateFormula,
         Ty::Guid => RtType::Guid,
         Ty::Variant => RtType::Variant,
-        Ty::Option(m) => RtType::Option(m.clone()),
+        Ty::Option(m) => RtType::Option(m.as_slice().into()),
         Ty::Enum(n) => match ws.resolve_ref(file, ObjKind::Enum, &crate::types::qualified_parts(n)) {
             Resolution::Found(i) => RtType::Enum(i as u32),
             _ => {

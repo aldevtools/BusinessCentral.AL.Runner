@@ -1435,7 +1435,7 @@ impl Session {
                     }
                 };
                 let moved = match &df.ty {
-                    al_builtins::value::RtType::Option(m) => Value::Option(ordinal, std::sync::Arc::from(m.as_slice())),
+                    al_builtins::value::RtType::Option(m) => Value::Option(ordinal, m.clone()),
                     // An ordinal the Enum lacks moves too, with no error (corpus record/lt-record-conversion-assumptions/
                     // TransferEnumOption.al: P98_OptionToEnum_MissingOrdinal, P98_EnumToOption_MissingOrdinal).
                     al_builtins::value::RtType::Enum(id) => Value::Enum(*id, ordinal),
