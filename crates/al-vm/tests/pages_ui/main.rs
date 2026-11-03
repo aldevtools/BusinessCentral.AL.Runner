@@ -1,5 +1,6 @@
 //! The tests of one area in one binary (ADR-037 item 5): fewer binaries to link. Each module is a file of pages_ui/.
 
+mod action_deleted_current_row;
 mod action_moved_rec;
 mod assistedit_refresh;
 mod bare_page_method;
