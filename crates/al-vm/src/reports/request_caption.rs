@@ -3,6 +3,22 @@
 use super::*;
 
 impl Session {
+    /// Whether the request page's own OnInit of the report `inst` is on the call stack.
+    fn request_page_in_on_init(&self, inst: &Inst) -> bool {
+        let object = inst.borrow().object as usize;
+        let engine = self.engine.clone();
+        let Some(page) = engine.program.objects[object].page.as_ref() else {
+            return false;
+        };
+        let Some(on_init) = page.triggers.iter().find(|(n, _)| n == "oninit").map(|(_, r)| *r) else {
+            return false;
+        };
+        self.frames
+            .iter()
+            .zip(&self.call_stack)
+            .any(|(&o, f)| o == object && !f.event && f.routine == on_init)
+    }
+
     /// `RequestOptionsPage.Update(SaveRecord)` in a request page trigger. With `false` the controls show
     /// the variables as they are now, which they do on every read here, so nothing is left to do
     /// (handlers/TestReportRequestPageUpdateObjectIdContracts.al:RequestPageUpdate_RefreshesTheOtherControls:

@@ -3910,8 +3910,7 @@ fn simple_relation(text: &str) -> Option<(String, Option<String>)> {
 fn action_error_code(code: &str, message: &str) -> String {
     match code {
         "Dialog" | "MissingUIHandler" | "TestField" => format!("TestWrapped:{code}"),
-        // A call of a control add-in procedure (lt-ac/ACControlAddIn.al TZ_TwoProceduresFromActions_PageStaysUsable,
-        // pages/lt-ao-testpage/AoTests.al:794 AddinProcedureFromAction).
+        // A control add-in procedure call (lt-ac/ACControlAddIn.al TZ_TwoProceduresFromActions_PageStaysUsable, AoTests.al:794).
         crate::control_add_in::NOT_CREATED => format!("TestWrapped:{code}"),
         c if crate::permission_triggers::wraps_as_permission(c, message) => "TestWrapped:Permission".into(),
         "DB:RecordNotFound" => "TestWrapped:CSideRecordNotFound".into(),

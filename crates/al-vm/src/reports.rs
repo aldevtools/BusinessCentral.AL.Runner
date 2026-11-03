@@ -3933,22 +3933,6 @@ impl Session {
             .then_some(st)
     }
 
-    /// Whether the request page's own OnInit of the report `inst` is on the call stack.
-    fn request_page_in_on_init(&self, inst: &Inst) -> bool {
-        let object = inst.borrow().object as usize;
-        let engine = self.engine.clone();
-        let Some(page) = engine.program.objects[object].page.as_ref() else {
-            return false;
-        };
-        let Some(on_init) = page.triggers.iter().find(|(n, _)| n == "oninit").map(|(_, r)| *r) else {
-            return false;
-        };
-        self.frames
-            .iter()
-            .zip(&self.call_stack)
-            .any(|(&o, f)| o == object && !f.event && f.routine == on_init)
-    }
-
     pub(crate) fn request_page_update(&mut self, args: &[Value]) -> Result<Value, Signal> {
         match args.first() {
             // `true` shows the same: the handler reads the variables the trigger set, and the run sees them
