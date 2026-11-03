@@ -20,6 +20,7 @@ public sealed class Server
     public JsonObject Handle(JsonObject req)
     {
         marshal.BeginRequest();
+        foldedCase = false;
         switch (req["op"]!.GetValue<string>())
         {
             case "hello":
@@ -120,9 +121,9 @@ public sealed class Server
             case "invoke":
             {
                 var (target, type) = Target(req["target"]!);
-                string name = req["member"]!.GetValue<string>();
                 var args = DecodeArgs(req);
                 var flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy | (target != null ? BindingFlags.Instance : 0);
+                string name = BindName(type, flags, req["member"]!.GetValue<string>());
                 var cands = type.GetMethods(flags).Where(m => m.Name == name && !m.IsGenericMethodDefinition).ToArray();
                 if (cands.Length == 0)
                 {
@@ -224,8 +225,8 @@ public sealed class Server
             case "get":
             {
                 var (target, type) = Target(req["target"]!);
-                string name = req["member"]!.GetValue<string>();
                 var flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy | (target != null ? BindingFlags.Instance : 0);
+                string name = BindName(type, flags, req["member"]!.GetValue<string>());
                 var prop = type.GetProperty(name, flags, null, null, Type.EmptyTypes, null);
                 if (prop != null && prop.GetMethod != null)
                     return Done(prop.GetValue(prop.GetMethod.IsStatic ? null : target), null, null, null, prop.PropertyType);
@@ -244,9 +245,9 @@ public sealed class Server
             case "set":
             {
                 var (target, type) = Target(req["target"]!);
-                string name = req["member"]!.GetValue<string>();
                 var value = marshal.Decode(req["value"], 0);
                 var flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy | (target != null ? BindingFlags.Instance : 0);
+                string name = BindName(type, flags, req["member"]!.GetValue<string>());
                 var prop = type.GetProperty(name, flags, null, null, Type.EmptyTypes, null);
                 if (prop != null && prop.SetMethod != null)
                 {
@@ -268,6 +269,31 @@ public sealed class Server
         }
     }
 
+    // AL does not tell identifiers apart by letter case, so a DotNet member written in another case than its .NET name
+    // binds to it: Base Application codeunit 1203 "Import XML File to Data Exch.", ParseParentChildLine
+    // (ImportXMLFiletoDataExch.Codeunit.al:106) writes `XmlElement.OuterXML` for the .NET `OuterXml`; it compiles and the
+    // line runs on BC (al-runner issue 6897, compile acceptance as 6488). A Microsoft test that passes through it:
+    // see assumption `dotnet-member-name-case`. A name some public method, property or field carries exactly is kept;
+    // otherwise the one public name equal to it ignoring case is taken (and the reply says so, so the host marks the
+    // assumption); two or more such names are refused, because which one BC binds is not pinned.
+    bool foldedCase;
+
+    string BindName(Type type, BindingFlags flags, string name)
+    {
+        foldedCase = false;
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var m in type.GetMethods(flags)) names.Add(m.Name);
+        foreach (var p in type.GetProperties(flags)) names.Add(p.Name);
+        foreach (var f in type.GetFields(flags)) names.Add(f.Name);
+        if (names.Contains(name)) return name;
+        var like = names.Where(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase)).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+        if (like.Length == 0) return name;
+        if (like.Length > 1)
+            throw new Refusal($"member '{name}' of '{type.FullName}' matches {string.Join(", ", like.Select(n => $"'{n}'"))} ignoring letter case: which one BC binds is not pinned");
+        foldedCase = true;
+        return like[0];
+    }
+
     Stream StreamOf(long handle) =>
         marshal.Handle(handle) as Stream
         ?? throw new Refusal($"'{marshal.Handle(handle).GetType().FullName}' is not a System.IO.Stream");
@@ -280,6 +306,7 @@ public sealed class Server
     {
         // A null whose declared type is string is tagged "ns" (ADR-024): AL reads it as an empty text.
         var reply = Ok(result == null && declared == typeof(string) ? new JsonObject { ["t"] = "ns" } : marshal.Encode(result));
+        if (foldedCase) reply["folded"] = true;
         // New values of by-reference parameters, by argument position.
         if (method != null && coerced != null)
         {
@@ -452,4 +479,15 @@ public sealed class Server
         try { return new Boxed(Convert.ChangeType(a, pt, CultureInfo.InvariantCulture)); }
         catch (Exception ex) when (ex is InvalidCastException or OverflowException or FormatException) { return null; }
     }
+}
+
+/// Test fixture for the case-binding rule (`BindName`): public members that differ only in letter case, which no
+/// .NET framework type has. Reached by tests as assembly `AlDotNetSidecar`, type `AlDotNetSidecar.CaseFixture`.
+public class CaseFixture
+{
+    public string value = "lower";
+    public string Value = "upper";
+    public string Single = "single";
+    public static string StaticMember = "static";
+    public string Echo(string s) => s;
 }
