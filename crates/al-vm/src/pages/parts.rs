@@ -1378,6 +1378,9 @@ impl Session {
         let ir::Binding::Field(pos) = page.controls[control].binding else {
             return Ok(());
         };
+        if self.stored_blank_key_retyped(st, pos)? {
+            return Ok(());
+        }
         // A key field typed on a host row that is stored (a new row the host inserted when a field outside the key was
         // typed first): BC keeps the parts' blank lines on the old link value (pages/lt-new-line-stamps-filters/
         // NewLineStampsFilters.al:264 PartB_OpenNewHeader_TypeThenNo, the line is stored with a blank "Document No.");
@@ -1448,6 +1451,60 @@ impl Session {
             }
         }
         Ok(())
+    }
+
+    /// `First()` on a part that shows no row but holds a line typed into its blank line, whose host row a part access stored with
+    /// its blank key: it answers No, and the line stays unsaved until something else leaves it (pages/lt-y80-new-host-key/
+    /// Y80NewHostKey.al Y80_NH_Card_NameNoThenLine `shown after line` = `|N1| part `, `close log` = `LI:/10000|d1`; _NameThenLineOnly,
+    /// _LineOnlyThenNo).
+    fn typed_line_of_blank_key_host(&self, st: &St) -> bool {
+        let (shape, host) = {
+            let s = st.borrow();
+            (
+                s.cursor == Cursor::NewLine && s.draft && s.dirty && s.window.is_empty(),
+                s.host.as_ref().and_then(|(h, _)| h.upgrade()),
+            )
+        };
+        shape && host.is_some_and(|h| h.borrow().host_stored_blank_key)
+    }
+
+    /// A key typed on a host row that a part access stored with its blank key: the key's OnValidate has run (it logged the
+    /// value), and then the page shows the old key again and stores nothing; an edit still waiting is dropped from the save
+    /// though the page keeps showing it, and the parts do not follow (pages/lt-y80-new-host-key/Y80NewHostKey.al Y80_NH_Card_NameThenNo
+    /// `no log` = `HV:A1`, `shown after no` = `|N1|`, `close db` = `[||]`; _NoThenName, _LineOnlyThenNo). Answers whether it applied.
+    fn stored_blank_key_retyped(&mut self, st: &St, pos: usize) -> Result<bool, Signal> {
+        let applies = {
+            let s = st.borrow();
+            s.host_stored_blank_key && s.host.is_none() && !s.draft && s.cursor == Cursor::Row
+        } && self.has_source(st);
+        if !applies {
+            return Ok(false);
+        }
+        if !self.table(&self.page_rec(st))?.keys[0].contains(&pos) {
+            // A field outside the key typed on that row: the parts read their rows again, three times as at the insert
+            // (Y80_NH_Card_NameThenNo `name log` = `LN:;LN:;LN:`). A second edit is not pinned.
+            if std::mem::replace(&mut st.borrow_mut().blank_key_edit_reread, true) {
+                return unsupported(
+                    "a second field typed on a new host row that a part access stored with a blank key (what the parts read is not pinned)",
+                );
+            }
+            let parts: Vec<St> = st.borrow().parts.iter().map(|(_, c)| c.clone()).collect();
+            for c in &parts {
+                c.borrow_mut().field_captions_link_refill = true;
+            }
+            let r = self.sync_parts(st);
+            for c in &parts {
+                c.borrow_mut().field_captions_link_refill = false;
+            }
+            r?;
+            return Ok(true);
+        }
+        let old = self.page_xrec_fields(st);
+        if let Some(v) = old.get(pos) {
+            self.page_rec(st).borrow_mut().fields[pos] = v.clone();
+        }
+        st.borrow_mut().dirty = false;
+        Ok(true)
     }
 
     /// A part list that shows rows of the host's own table, edited through SetValue on the host's current row: the host card reads that
@@ -1841,6 +1898,11 @@ impl Session {
         // after saving t=1): the saved row counts as the host's last read.
         let saved = hrec.borrow().fields.clone();
         host.borrow_mut().agr_xrec = Some(saved);
+        // The host row a part access stored with its blank key: after the save the parts read their rows again, three times as at
+        // the insert (pages/lt-y80-new-host-key/Y80NewHostKey.al Y80_NH_Card_NameThenLineOnly `line log` = `HM:|N1;LN:;LN:;LN:`).
+        if host.borrow().host_stored_blank_key {
+            self.sync_parts(&host)?;
+        }
         Ok(())
     }
 
@@ -1856,9 +1918,13 @@ impl Session {
             if pending {
                 let o = st.borrow().object as usize;
                 if self.engine.object_facts[o].page_type != Some(al_ir::PageType::Document) {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::PartRowSavedBeforeHostSetValue,
-                    );
+                    // Pinned for a card host stored with its blank key (pages/lt-y80-new-host-key/Y80NewHostKey.al
+                    // Y80_NH_Card_LineOnlyThenNo `no log` = `LI:/10000|d1;HV:A1`).
+                    if !st.borrow().host_stored_blank_key {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::PartRowSavedBeforeHostSetValue,
+                        );
+                    }
                     self.save_row(&child)?;
                     continue;
                 }
@@ -2007,7 +2073,8 @@ impl Session {
                 .is_some_and(|l| l.entries.iter().any(|e| matches!(e, ir::LinkEntry::Field(..))))
         });
         let pinned_call = field_read || m == PageMethod::First;
-        if self.engine.object_facts[o].page_type != Some(al_ir::PageType::Document) || !field_linked {
+        let host_type = self.engine.object_facts[o].page_type.clone();
+        if !matches!(host_type, Some(al_ir::PageType::Document | al_ir::PageType::Card)) || !field_linked {
             if shows_rows {
                 return unsupported(format!(
                     "{m} on a part while its new host shows rows of the blank key in another part (not pinned)"
@@ -2031,6 +2098,9 @@ impl Session {
         self.ret_used = used;
         r?;
         host.borrow_mut().new_host_part_rows = false;
+        // Pages/lt-y80-new-host-key/Y80NewHostKey.al Y80_NH_{Card,Doc}_*: `read log at open` = `HI:|;LN:;LN:;LN:`.
+        let stored = !host.borrow().draft;
+        host.borrow_mut().host_stored_blank_key = stored;
         Ok(true)
     }
 
@@ -2284,6 +2354,9 @@ impl Session {
         }
         if how == PageMethod::First && self.view_part_on_first_row(st)? {
             return Ok(Some(true));
+        }
+        if how == PageMethod::First && self.typed_line_of_blank_key_host(st) {
+            return Ok(Some(false));
         }
         if !matches!(how, PageMethod::Last | PageMethod::First) || !self.part_view_held(st) {
             return Ok(None);
