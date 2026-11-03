@@ -74,6 +74,7 @@ impl Session {
                 let used = self.ret_used;
                 let n = match args.first() {
                     Some(Value::Integer(n)) => *n,
+                    Some(Value::Text(name)) => self.page_by_qualified_name(name.as_str())?,
                     other => return unsupported(format!("Page.Run with {} as the page", other.describe())),
                 };
                 let engine = self.engine();
@@ -1360,4 +1361,40 @@ impl Session {
     }
 
     // ---- opening and closing ------------------------------------------------------------
+}
+
+impl Session {
+    /// The id of the page a fully qualified name text names (`Page.Run('LT.Y74.Fqn.LT Y74 Fqn Card')`; the name part may be
+    /// quoted and the case is ignored: pages/lt-y74-fqn-run/Y74FqnRunForms.al Run_Name_Only, Run_Name_Variants). A name without a
+    /// namespace raises InvalidOperation when a page of that name exists (Err_NotFullyQualified); a name that no page has, or
+    /// one that names a page without a namespace, is not pinned (the corpus cases that probe it are held as Linux suspects).
+    fn page_by_qualified_name(&self, text: &str) -> Result<i32, Signal> {
+        let engine = self.engine();
+        let wanted = text.replace('"', "").to_lowercase();
+        let heads = engine.program.objects.heads();
+        let pages = || heads.iter().filter(|o| o.is_kind(al_ir::ObjKind::Page));
+        let full = |o: &&al_ir::ObjectHead| match &o.namespace {
+            Some(ns) if !ns.is_empty() => Some(format!("{ns}.{}", o.name).to_lowercase()),
+            _ => None,
+        };
+        if let Some(id) = pages()
+            .find(|o| full(o).as_deref() == Some(wanted.as_str()))
+            .and_then(|o| o.id)
+        {
+            return Ok(id as i32);
+        }
+        // The id of a page as text is no name either (Err_PageIdAsText).
+        let by_name = |o: &&al_ir::ObjectHead| {
+            (full(o).is_some() && o.name.to_lowercase() == wanted) || o.id.is_some_and(|i| i.to_string() == wanted)
+        };
+        if !wanted.contains('.') && pages().any(|o| by_name(&o)) {
+            return Err(error_code(
+                "The provided object name is not fully qualified.",
+                "InvalidOperation",
+            ));
+        }
+        unsupported(format!(
+            "Page.Run with the name '{text}' (only the fully qualified name of a page of the workspace, and a name that lacks its namespace, are pinned)"
+        ))
+    }
 }

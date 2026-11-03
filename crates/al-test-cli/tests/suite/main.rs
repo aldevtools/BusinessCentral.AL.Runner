@@ -103,6 +103,7 @@ mod page_bare_run_modal;
 mod page_object_id;
 mod page_open_record;
 mod page_run_field_arg;
+mod page_run_qualified_name;
 mod page_trigger_errors;
 mod page_views;
 mod pageext_implicit_promoted;
