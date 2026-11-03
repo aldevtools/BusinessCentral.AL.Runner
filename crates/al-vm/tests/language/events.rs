@@ -948,22 +948,6 @@ fn only_rename_raises_a_global_event() {
     assert!(log.contains("ONDATABASEINSERT") && log.contains("ONDATABASEMODIFY") && log.contains("ONDATABASEDELETE"));
 }
 
-// A mask bit other than the four of the corpus (a subscriber adds 16 or 32): only bit 8 raises OnGlobalRename, bits 1, 2, 4
-// and 16..128 raise no global event (corpus branch al-runtime-rs-staging-y79 install/lt-y79-install-unrelated/
-// Y79InstallUnrelated.al Y79_TestSession_Table61370..61379; needs corpus bump; assumption global-trigger-mask-bits).
-#[test]
-fn only_bit_8_of_the_trigger_mask_raises_the_global_rename_event() {
-    let all = r#"procedure All(): Text var R: Record Watched; L: Codeunit Logger; begin R."No." := 1; R.Insert(true); R.V := 7; R.Modify(true); R.Rename(2); R.Delete(true); exit(L.Get()); end;"#;
-    for (mask, rename) in [(16, false), (23, false), (8, true), (24, true)] {
-        let log = text(run(&global_triggers_src(mask, true, all), "All"));
-        assert!(
-            !log.contains("ONGLOBALINSERT") && !log.contains("ONGLOBALDELETE"),
-            "{mask}: {log}"
-        );
-        assert_eq!(log.contains("ONGLOBALRENAME"), rename, "{mask}: {log}");
-    }
-}
-
 // record/TestTriggerDispatchOrder.al:TriggerOrder_GlobalTriggerDispatch_...: "OnDatabaseInsert when
 // database triggers are enabled" -- by GetDatabaseTableTriggerSetup, per table. Without it no
 // database event is raised, and a table the setup does not name is not affected.
@@ -977,6 +961,24 @@ fn database_events_follow_the_setup_event_per_table() {
     );
     assert_eq!(text(run(&src, "Off")), "BEFOREINSERT,ONINSERT,AFTERINSERT");
     assert_eq!(int(run(&src, "Other")), 1);
+}
+
+// al-language/install/lt-y79-install-unrelated/Y79InstallUnrelated.al (test session, Y79_TestSession_Table61370/61371/61377/61378
+// via Verdicts, :345-347 and :420-431): a mask of 16, 32, 64 or 128 raises no global event, and the database events follow the setup.
+#[test]
+fn mask_bits_above_the_four_low_ones_raise_no_global_event() {
+    for mask in [16, 32, 64, 128] {
+        let src = global_triggers_src(
+            mask,
+            true,
+            r#"procedure Rename(): Text var R: Record Watched; L: Codeunit Logger; begin R."No." := 105; R.Insert(false); L.Clear(); R.Rename(205); exit(L.Get()); end;"#,
+        );
+        assert_eq!(
+            text(run(&src, "Rename")),
+            "BEFORERENAME,ONRENAME,ONDATABASERENAME:105>205,AFTERRENAME",
+            "mask {mask}"
+        );
+    }
 }
 
 // A write that touches no row (DeleteAll on an empty table) raises nothing, as before.
@@ -1531,8 +1533,8 @@ fn a_temporary_record_raises_no_database_event() {
 // al-runner issue 6148: a setup subscriber reads a per-company table with IsEmpty and no CompanyName() guard. With no
 // company open (the per-database part of an install) a write asks for no setup and raises no database event, so the
 // subscriber does not run and the write succeeds; in each company the setup is asked again (corpus branch
-// al-runtime-rs-staging-ug eff7eb2a, install/lt-ug-install-trigger-setup/UgInstallTests.al
-// TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart; assumption install-trigger-setup-per-company-only).
+// install/lt-ug-install-trigger-setup/UgInstallTests.al
+// TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart).
 #[test]
 fn the_database_trigger_setup_is_asked_per_company_and_not_without_a_company() {
     let mut src = global_triggers_src(

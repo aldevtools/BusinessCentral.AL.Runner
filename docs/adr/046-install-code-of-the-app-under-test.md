@@ -845,8 +845,7 @@ to one block of 65536 ids; that limit is gone.
    install order known (`host::publish_order_known`, the corpus run); with the order unknown the refusal of item 2 stays.
    `OnInstallAppPerCompany` asks `GetGlobalTableTriggerMask`, then `GetDatabaseTableTriggerSetup`, then raises
    `OnDatabaseInsert` for each table the install code writes. `OnInstallAppPerDatabase` asks none of the three. Of the
-   global events only `OnGlobalRename` is raised (mask bit 8); the other mask bits raise nothing (assumption
-   `global-trigger-mask-bits` until the pin has the file). A `GetDatabaseTableTriggerSetup` subscriber whose body is a test of
+   global events only `OnGlobalRename` is raised (mask bit 8); the other mask bits raise nothing (pinned for 16 to 128; other low bits refused). A `GetDatabaseTableTriggerSetup` subscriber whose body is a test of
    the table id against constants (`=`, `in [...]`) and sets flags only inside it is still shown to change nothing for the
    table asked about (`setup_no_op.rs`), so it does not stop an install of unknown order.
 
