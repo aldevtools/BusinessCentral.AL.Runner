@@ -418,6 +418,16 @@ impl al_builtins::native::Ctx for Session {
             .iter()
             .any(|o| o.is_kind(al_ir::ObjKind::Table) && o.id.is_some_and(|id| i64::from(id) == i64::from(number)))
     }
+    fn table_without_package_data(&self, number: i32) -> bool {
+        self.engine
+            .program
+            .objects
+            .heads()
+            .iter()
+            .find(|o| o.is_kind(al_ir::ObjKind::Table) && o.id.is_some_and(|id| i64::from(id) == i64::from(number)))
+            .and_then(|o| self.engine.program.apps.get(o.app as usize))
+            .is_some_and(|a| !a.dependency && !a.package_data)
+    }
     fn install_scope(&self) -> bool {
         self.install_scope
     }

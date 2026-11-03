@@ -79,6 +79,16 @@ fn get_archive_record_ref(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value
 /// that it returns), and install code is not pinned: both are refused.
 fn archive_data(c: &mut dyn Ctx, a: &mut [Value], what: &str) -> Out {
     if c.install_scope() {
+        // `LoadPackageData` of a table of an app that ships no package data loads nothing, per company and per database
+        // (install/lt-cm-install-leads/Y64InstallLeads.al:81-96, CmInstallObjects.al:270, :296). What it loads when the app
+        // ships data (`Tab<id>.navxdata`), and Delete and RestoreArchiveData in install code, are not pinned.
+        if what == "LoadPackageData"
+            && let [Value::Integer(table), rest @ ..] = &*a
+            && rest.iter().all(|v| matches!(v, Value::Boolean(_)))
+            && c.table_without_package_data(*table)
+        {
+            return Ok(Value::Null);
+        }
         return unsupported(format!("NavApp.{what} in install code (not pinned)"));
     }
     let Some(Value::Integer(table)) = a.first() else {
