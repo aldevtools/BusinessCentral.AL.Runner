@@ -811,7 +811,7 @@ fn run_version_inner(
         .collect::<Result<Vec<_>, _>>()?;
     let mut kinds = vec![al_sema::AppKind::Workspace; apps.len()];
     let mut dependency_summary = Vec::new();
-    let mut skipped_dependencies = Vec::new();
+    let (mut skipped_dependencies, mut layout_sources) = (Vec::new(), Vec::new());
     let mut bc_build = None;
     // ADR-060: the license of the BC artifacts the run uses; none without them (`--no-deps`, or every dependency on disk).
     let mut license = al_testrun::license::LicenseUse::none("no BC artifact is used by this run");
@@ -833,9 +833,7 @@ fn run_version_inner(
             Some(&provision),
             &pass.extra_apps,
         )?;
-        for line in &deps.log {
-            eprintln!("{line}");
-        }
+        deps.log.iter().for_each(|line| eprintln!("{line}"));
         match &deps.build {
             Some(u) => {
                 println!("bc build: {} ({})", u.build, origin_word(u.origin));
@@ -857,6 +855,7 @@ fn run_version_inner(
             None => println!("bc build: none needed (every dependency came from .alpackages or --deps)"),
         }
         kinds.extend(deps.apps.iter().map(|_| al_sema::AppKind::Dependency));
+        layout_sources = deps.layout_sources();
         manifests.extend(deps.manifests);
         dependency_summary = deps.summary;
         skipped_dependencies = deps.skipped;
@@ -1018,6 +1017,7 @@ fn run_version_inner(
         run_only: None,
         entries: Vec::new(),
         skipped_dependencies,
+        layout_sources,
         process_ends_after,
         // The corpus checks permissions where it pins them: a test that lowers its own is never run without them.
         ignore_permission_mock: false,
