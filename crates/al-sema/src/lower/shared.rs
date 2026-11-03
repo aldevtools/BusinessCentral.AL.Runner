@@ -1287,7 +1287,17 @@ fn object_properties(obj: &ast::Object, request_section: Option<&ast::Section>) 
 /// pinned and refuses: a group (it does not compile), an action reference to a guarded action, a control with a guard of its own over a
 /// guarded field. Read from the object's text, so a mention in a comment refuses too: only a restricted session is affected.
 /// The controls that took the guard of their table field carry the marker property [`FIELD_GUARD`].
-pub(crate) fn access_by_permission_refusals(obj: &ast::Object, controls: &[ir::Control]) -> Vec<String> {
+pub(crate) fn access_by_permission_refusals(
+    ws: &crate::workspace::Workspace,
+    oi: usize,
+    obj: &ast::Object,
+    controls: &[ir::Control],
+) -> Vec<String> {
+    // The object's text is a part of its file's text (the preprocessor only removes), so a file without the word has no
+    // mention: the whole-object text, lowercased, is made only for the files that name it.
+    if !ws.names_access_by_permission(ws.objects[oi].file) {
+        return Vec::new();
+    }
     let marked = |c: &ir::Control, m: &str| c.props.iter().any(|(n, _)| n == m);
     let inherited = controls.iter().filter(|c| marked(c, FIELD_GUARD)).count();
     let mentions = obj

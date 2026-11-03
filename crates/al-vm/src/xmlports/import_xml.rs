@@ -999,10 +999,19 @@ impl Session {
                     // A Date that neither reads gives the long text with the code Evaluate (XpTImportBasic.al: Import_BadDate,
                     // Import_DateWrongFormat).
                     Err(Signal::Error(_)) if matches!(ty, RtType::Date) => {
-                        return Err(Signal::Error(Box::new(al_builtins::native::AlError {
-                            message: format!(
+                        // In German the same text in German (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:DateDecimal_XML_German,
+                        // needs the corpus bump; the text as Evaluate gives it, misc/lt-system-functions/EvalLastError.al:463-481).
+                        let message = if self.global_language == 1031 {
+                            format!(
+                                "Das Format Date \u{201e}{text}\u{201c} stimmt nicht mit den Datumseinstellungen Ihres Ger\u{e4}ts \u{fc}berein.\\\\Stellen Sie sicher, dass Tag, Monat und Jahr die richtige Reihenfolge aufweisen und das richtige Trennzeichen verwendet wird (z. b. - oder /). Alternativ k\u{f6}nnen Sie das Format \u{201e}jjjj-mm-tt\u{201c} verwenden."
+                            )
+                        } else {
+                            format!(
                                 "The format of the Date '{text}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
-                            ),
+                            )
+                        };
+                        return Err(Signal::Error(Box::new(al_builtins::native::AlError {
+                            message,
                             code: "Evaluate".into(),
                             call_stack: String::new(),
                             ..Default::default()

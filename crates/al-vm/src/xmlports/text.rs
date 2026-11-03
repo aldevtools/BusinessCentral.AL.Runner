@@ -1,20 +1,12 @@
 //! VariableText and FixedText ports: import and export of delimited and fixed-width text.
 
+use super::text_nested;
 use super::*;
 
 impl Session {
     /// The root and table element of a text-format port: `Root > tableelement > fieldelements`.
     /// `text_columns`: a leaf text element may be a column too (the import of a VariableText port, xmlport/lt-aj-xmlport/
     /// AjRunAndXmlPort.al:QS_VariableText_TempInteger_AutoSaveFalse: its value goes into the variable).
-    pub(super) fn xp_text_layout(
-        &self,
-        schema: &Schema,
-        top: usize,
-        text_columns: bool,
-    ) -> Result<(usize, Vec<usize>), Signal> {
-        Ok(self.xp_text_tables(schema, top, text_columns, false)?.remove(0))
-    }
-
     /// The table elements of a text-format port with the columns of each. `many`: an export of a VariableText port may have two
     /// table elements below the root (xmlport/lt-dg-xmlport-leads/DgXmlPortLeads.al:Item106_TwoTablesDefaultSeparator); an import
     /// and other counts are not pinned.
@@ -35,16 +27,28 @@ impl Session {
                 "a VariableText or FixedText port whose root has other than one table element (not pinned)",
             );
         }
+        if two && kids.iter().any(|&k| text_nested::child_table(schema, k).is_some()) {
+            return unsupported("a VariableText export of two table elements with a nested one (not pinned)");
+        }
         kids.into_iter()
             .map(|table| Ok((table, self.xp_text_columns(schema, table, text_columns)?)))
             .collect()
     }
 
-    fn xp_text_columns(&self, schema: &Schema, table: usize, text_columns: bool) -> Result<Vec<usize>, Signal> {
+    pub(super) fn xp_text_columns(
+        &self,
+        schema: &Schema,
+        table: usize,
+        text_columns: bool,
+    ) -> Result<Vec<usize>, Signal> {
         if schema.node(table).kind != ir::XmlNodeKind::Table {
             return unsupported("a VariableText or FixedText port whose root has no table element (not pinned)");
         }
-        let fields = schema.children(table);
+        let mut fields = schema.children(table);
+        // The nested table element of a VariableText port is the caller's (`text_nested`).
+        if schema.xp().format == ir::XmlFormat::VariableText && text_nested::child_table(schema, table).is_some() {
+            fields.pop();
+        }
         // A field attribute of a FixedText port is a column in schema order like a field element, cut and padded to its Width
         // (xmlport/lt-ay-xmlport/AyXmlPortAttributeWidth.al:163 export, :181 attributes only, :244 import).
         let fixed = schema.xp().format == ir::XmlFormat::FixedText;
@@ -73,27 +77,83 @@ impl Session {
         text: &str,
     ) -> Result<(), Signal> {
         let xp = schema.xp();
-        let (table, fields) = self.xp_text_layout(schema, top, xp.format == ir::XmlFormat::VariableText)?;
+        let tables = self.xp_text_tables(schema, top, xp.format == ir::XmlFormat::VariableText, true)?;
+        let [first, second] = &tables[..] else {
+            return self.xp_import_text_table(inst, schema, (tables[0].0, &tables[0].1), text);
+        };
+        // Two table elements: the table separator ends the records of the first (Y83XpMiscTests.al:VariableText_TwoTables
+        // `roundtrip two tables`, `two tables doc one` to `three`, needs the corpus bump). Without it the second table element
+        // is expected where the document ends; with the separator twice the document is not pinned.
+        let tsep = non_empty(assigned::separator(inst, 3, xp.table_separator.as_deref(), "\r\n\r\n")?)?;
+        let mut parts = text.splitn(3, tsep.as_str());
+        let (one, two) = (parts.next().unwrap_or(""), parts.next());
+        if parts.next().is_some() {
+            return unsupported(
+                "a VariableText import of two table elements with the table separator twice (not pinned)",
+            );
+        }
+        self.xp_import_text_table(inst, schema, (first.0, &first.1), one)?;
+        match two {
+            Some(t) => self.xp_import_text_table(inst, schema, (second.0, &second.1), t),
+            None if schema.node(second.0).min_zero => Ok(()),
+            None => Err(xerr(
+                format!(
+                    "The Element <{}> is expected by Min Occurs value: Once. Element received: <{}>.",
+                    schema.node(second.0).xml_name,
+                    schema.node(top).xml_name
+                ),
+                "XmlPortMetadata",
+            )),
+        }
+    }
+
+    /// The records of one table element of a text-format import.
+    fn xp_import_text_table(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        (table, fields): (usize, &[usize]),
+        text: &str,
+    ) -> Result<(), Signal> {
+        let xp = schema.xp();
         // An encoding the triggers set on an import is not pinned (Y67XpSeparators.al pins it on an export only).
         if assigned::set_in_run(inst).is_some() {
             return unsupported("a VariableText import whose TextEncoding the program set (not pinned)");
         }
         let record_sep = non_empty(assigned::separator(inst, 2, xp.record_separator.as_deref(), "\r\n")?)?;
         let variable = xp.format == ir::XmlFormat::VariableText;
-        let unbound = unbound_column(schema, &fields, variable)?;
+        let nested = text_nested::child_table(schema, table).filter(|_| variable);
+        let unbound = unbound_column(schema, fields, variable)?;
         let (fsep, fdelim) = (
             non_empty(assigned::separator(inst, 1, xp.field_separator.as_deref(), ",")?)?,
             assigned::separator(inst, 0, xp.field_delimiter.as_deref(), "\"")?,
         );
-        let mut lines: Vec<&str> = text.split(record_sep.as_str()).collect();
+        // A field separator that holds the record separator (CR/LF and LF) or the other way round: the document is read
+        // separator by separator, not cut into records first.
+        let presplit = (variable && (fsep.contains(record_sep.as_str()) || record_sep.contains(fsep.as_str())))
+            .then(|| split_overlapping(text, &fsep, &record_sep, &fdelim));
+        let mut lines: Vec<std::borrow::Cow<str>> = match &presplit {
+            Some(p) => p.iter().map(|v| std::borrow::Cow::Owned(v.join(&fsep))).collect(),
+            None => text
+                .split(record_sep.as_str())
+                .map(std::borrow::Cow::Borrowed)
+                .collect(),
+        };
         // The text after the last record separator is no record. A FixedText import skips every empty line as before.
-        if lines.last() == Some(&"") {
+        if presplit.is_none() && lines.last().is_some_and(|l| l.is_empty()) {
             lines.pop();
         }
-        for (line_no, line) in lines.into_iter().enumerate() {
+        for (line_no, line) in lines.iter().enumerate() {
+            let line: &str = line;
             if line.is_empty() {
                 if !variable {
                     continue;
+                }
+                if let Some(e) = nested
+                    .filter(|_| line_no > 0)
+                    .and_then(|c| Self::xp_nested_import_error(schema, table, c, true))
+                {
+                    return Err(e);
                 }
                 // An empty first line of a VariableText document is a record of one empty value
                 // (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:VariableText_ImportValueCount_1 `vt empty first line`, needs the
@@ -106,7 +166,9 @@ impl Session {
                     return unsupported("an empty line in a VariableText import (not pinned)");
                 }
             }
-            let values: Vec<String> = if variable {
+            let values: Vec<String> = if let Some(p) = &presplit {
+                p[line_no].clone()
+            } else if variable {
                 split_variable(line, &fsep, &fdelim)
             } else {
                 let chars: Vec<char> = line.chars().collect();
@@ -138,7 +200,7 @@ impl Session {
             rec.borrow_mut().fields = fresh;
             self.xp_run_trigger(inst, schema, table, "onafterinitrecord")?;
             // Fields are read as the values come; which line lengths are pinned: `line_length_pinned`.
-            let length_pinned = line_length_pinned(schema, &fields, values.len(), variable);
+            let length_pinned = line_length_pinned(schema, fields, values.len(), variable);
             let mut assigned = Vec::new();
             let mut broke = false;
             for (&f, v) in fields.iter().zip(&values) {
@@ -153,12 +215,13 @@ impl Session {
                         Some(RtType::Text(_) | RtType::Code(_))
                     )
                 };
-                // A line feed inside a text field value, not at its end (a trailing one is dropped, AgXmlPortImport.al:678), reads as
+                // A line feed inside a field value, not at its end (a trailing one is dropped, AgXmlPortImport.al:678), reads as
                 // a space: `b<LF>2` under a CR/LF record separator gives `b 2`
                 // (xmlport/lt-y67-xmlport-separators/Y67XpSeparators.al:Assign_Import `record sep crlf token`). A carriage return
-                // inside the value is not pinned and refused.
+                // inside the value is not pinned and refused. Also for a Decimal: `7.25<LF>8` fails as `7.25 8`
+                // (Y83XpMiscTests.al:VariableText_ImportValueCount_2 `vt lf only`, needs the corpus bump).
                 let spaced;
-                let v = if variable && is_text && v.trim_end_matches(['\n', '\r']).contains(['\n', '\r']) {
+                let v = if variable && v.trim_end_matches(['\n', '\r']).contains(['\n', '\r']) {
                     let body = v.trim_end_matches(['\n', '\r']);
                     if body.contains('\r') {
                         return unsupported(
@@ -219,6 +282,9 @@ impl Session {
                 ));
             }
             self.xp_save_record(inst, schema, table, &assigned, false)?;
+            if let Some(e) = nested.and_then(|c| Self::xp_nested_import_error(schema, table, c, false)) {
+                return Err(e);
+            }
             if Self::xp_import_stopped(inst) {
                 break;
             }
@@ -232,33 +298,44 @@ impl Session {
         let variable = xp.format == ir::XmlFormat::VariableText;
         // The separators are read for each row after its OnAfterGetRecord: one set there applies from that row on
         // (Y67XpSeparators.al:420-439 Assign_InOnAfterGetRecord_Export, m101, m111, m114).
-        let mut record_sep: Option<String> = None;
-        let mut parts = Vec::new();
-        for &(table, ref fields) in &tables {
-            let mut lines = Vec::new();
-            let rows = self.xp_text_rows(inst, schema, (table, fields), &mut lines, &mut record_sep);
-            let sep = match &record_sep {
-                Some(r) => r.clone(),
-                None => assigned::separator(inst, 2, xp.record_separator.as_deref(), "\r\n")?,
-            };
-            parts.push((lines.join(&sep), lines.is_empty()));
-            // A Quit ends the export with what was written so far; the request stays set for `xp_run`.
-            match rows {
-                Err(Signal::Exit(None)) if Self::xp_flow(inst) == Some(Flow::Quit) => break,
-                other => other?,
-            }
-        }
-        let text = if let [(only, _)] = &parts[..] {
-            only.clone()
+        let nested = match &tables[..] {
+            [(table, _)] if variable => text_nested::child_table(schema, *table),
+            _ => None,
+        };
+        let text = if let Some(child) = nested {
+            let (table, fields) = &tables[0];
+            self.xp_nested_text(inst, schema, *table, fields, child)?
         } else {
-            // The table separator takes the place of the record separator between two tables (DgXmlPortLeads.al:
-            // Item106_TwoTablesDefaultSeparator `export`: `"2","Beta"\r\n\r\n"7"`, _TwoTablesNewLineSeparator); the last record has
-            // none. A table without a record is not pinned.
-            if parts.iter().any(|(_, empty)| *empty) {
-                return unsupported("a VariableText export of two table elements where one has no record (not pinned)");
+            let mut record_sep: Option<String> = None;
+            let mut parts = Vec::new();
+            for &(table, ref fields) in &tables {
+                let mut lines = Vec::new();
+                let rows = self.xp_text_rows(inst, schema, (table, fields), &mut lines, &mut record_sep);
+                let sep = match &record_sep {
+                    Some(r) => r.clone(),
+                    None => assigned::separator(inst, 2, xp.record_separator.as_deref(), "\r\n")?,
+                };
+                parts.push((lines.join(&sep), lines.is_empty()));
+                // A Quit ends the export with what was written so far; the request stays set for `xp_run`.
+                match rows {
+                    Err(Signal::Exit(None)) if Self::xp_flow(inst) == Some(Flow::Quit) => break,
+                    other => other?,
+                }
             }
-            let tsep = assigned::separator(inst, 3, xp.table_separator.as_deref(), "\r\n\r\n")?;
-            parts.into_iter().map(|(t, _)| t).collect::<Vec<_>>().join(&tsep)
+            if let [(only, _)] = &parts[..] {
+                only.clone()
+            } else {
+                // The table separator takes the place of the record separator between two tables (DgXmlPortLeads.al:
+                // Item106_TwoTablesDefaultSeparator `export`: `"2","Beta"\r\n\r\n"7"`, _TwoTablesNewLineSeparator); the last record has
+                // none. A table without a record is not pinned.
+                if parts.iter().any(|(_, empty)| *empty) {
+                    return unsupported(
+                        "a VariableText export of two table elements where one has no record (not pinned)",
+                    );
+                }
+                let tsep = assigned::separator(inst, 3, xp.table_separator.as_deref(), "\r\n\r\n")?;
+                parts.into_iter().map(|(t, _)| t).collect::<Vec<_>>().join(&tsep)
+            }
         };
         // An encoding the program set wins over the declared one (Y67XpSeparators.al:393-418 TextEncoding_AssignForms_Export:
         // UTF16 72 bytes, MSDos and Windows 35 without a byte order mark, UTF8 38 with one; :420 m121 set in OnAfterGetRecord).
@@ -462,4 +539,47 @@ pub(super) fn split_variable(line: &str, sep: &str, delim: &str) -> Vec<String> 
             }
         }
     }
+}
+
+/// Reads a VariableText document separator by separator when the field separator and the record separator overlap (the field
+/// separator `<NewLine>` with the record separator `<LF>`): at each place the field separator is tried before the record separator
+/// (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:VariableText_NewLineSeparator `roundtrip newline`, `newline doc crlf`, needs
+/// the corpus bump: `7<CR/LF>seven<CR/LF>7.25<CR/LF>` is one record). A value that starts with the delimiter runs to the next one.
+pub(super) fn split_overlapping(text: &str, fsep: &str, rsep: &str, delim: &str) -> Vec<Vec<String>> {
+    let mut records: Vec<Vec<String>> = Vec::new();
+    let (mut record, mut value) = (Vec::<String>::new(), String::new());
+    let mut rest = text;
+    while !rest.is_empty() {
+        if value.is_empty() && !delim.is_empty() && rest.starts_with(delim) {
+            let after = &rest[delim.len()..];
+            match after.find(delim) {
+                Some(end) => {
+                    value.push_str(&after[..end]);
+                    rest = &after[end + delim.len()..];
+                    continue;
+                }
+                None => {
+                    value.push_str(after);
+                    break;
+                }
+            }
+        }
+        if let Some(r) = rest.strip_prefix(fsep) {
+            record.push(std::mem::take(&mut value));
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix(rsep) {
+            record.push(std::mem::take(&mut value));
+            records.push(std::mem::take(&mut record));
+            rest = r;
+        } else {
+            let c = rest.chars().next().expect("not empty");
+            value.push(c);
+            rest = &rest[c.len_utf8()..];
+        }
+    }
+    if !value.is_empty() || !record.is_empty() {
+        record.push(value);
+        records.push(record);
+    }
+    records
 }
