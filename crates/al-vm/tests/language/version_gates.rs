@@ -217,7 +217,10 @@ fn field_exist_of_the_rowversion_number_is_true_on_bc_29_and_false_before() {
         Value::Boolean(true)
     ));
     for bc in ["27.5", "28.5"] {
-        assert!(matches!(ok(run(Some(bc), "RowVersionExists")), Value::Boolean(false)), "BC {bc}");
+        assert!(
+            matches!(ok(run(Some(bc), "RowVersionExists")), Value::Boolean(false)),
+            "BC {bc}"
+        );
     }
 }
 
