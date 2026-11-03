@@ -259,8 +259,18 @@ impl Session {
         }
     }
 
+    /// Only Close, OK and Cancel are pinned on a request page after New() (`request_new_blank_row`).
+    fn refuse_after_request_new(&self, st: &St, name: PageMethod) -> Result<PageMethod, Signal> {
+        if st.borrow().request_new_blank && !matches!(name, PageMethod::Close | PageMethod::OK | PageMethod::Cancel) {
+            return unsupported(format!(
+                "TestPage.{name} on a request page after New() (only Close, OK and Cancel are pinned)"
+            ));
+        }
+        Ok(name)
+    }
+
     pub(super) fn test_page_op(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
-        let name = method.method();
+        let name = self.refuse_after_request_new(st, method.method())?;
         if method.recv() == PageRecv::TestPart && st.borrow().link_validate_failed {
             // QjPartPropagation.al:3766 QT_ValPartSplit_Empty_Last_KeyValidateErrors `last = ok No`, `log-last` empty.
             if name == PageMethod::Last {

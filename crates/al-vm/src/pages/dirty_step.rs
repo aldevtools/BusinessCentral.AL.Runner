@@ -156,6 +156,11 @@ impl Session {
         ) {
             return Ok(());
         }
+        // The request page of a report saves nothing first: the row typed before stays an edit until the close
+        // (report/lt-y80-reportext-request-page/Y80ReportExtRequestPage.al Y80_RX_SetBoth_OK `setnum log` empty).
+        if self.is_request_page(st) {
+            return Ok(());
+        }
         // A page variable outside the repeater of a page that has one (a journal's batch field in a header group) saves
         // nothing first: its OnValidate runs, then its CurrPage.SaveRecord saves (pages/lt-y17-journal-batch/
         // Y17JournalBatchSwitch.al:522 UpdWs_BatchSwitch_AfterEdit `validate log` `V:start 20000;M:B1/20000;...`).
