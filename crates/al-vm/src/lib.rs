@@ -79,6 +79,7 @@ mod platform;
 mod profile;
 mod queries;
 mod query_date_filter;
+mod rdlc_fields;
 mod read_only_tables;
 mod recmeta;
 mod recordid_bookmark;

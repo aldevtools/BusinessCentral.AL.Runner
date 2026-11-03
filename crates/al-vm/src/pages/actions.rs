@@ -1662,7 +1662,7 @@ impl Session {
                 // `...;saved;OnAfterGetRecord(A)`). With an Update in the same action it is not pinned and stays as it was.
                 let saved = std::mem::take(&mut st.borrow_mut().save_record_called) && !refresh_asked;
                 if reads_rows && !saved {
-                    self.read_page_again(st)?;
+                    self.read_page_again_after_gone(st)?;
                 }
                 // On a Document card that read is OnAfterGetRecord alone, no OnAfterGetCurrRecord, then the parts read their rows
                 // (pages/lt-qj-part-propagation/QjPartPropagation.al:511 QJ_Both_PartModifiesHost_ThenHostSave
@@ -2682,7 +2682,7 @@ impl Session {
     /// and misc/lt-probes-needed-7/PnGListUpdate.al:ListModifyWithAndWithoutUpdate (`U2;U2;U3;U2;U1;U2;U2;C`). Only a page that declares both row triggers and serves its rows from the table is
     /// pinned; the identities of the rows beyond the window held are the table order.
     fn read_list_again_from_row(&mut self, st: &St, rec: &Rec, key: &[Value]) -> Result<(), Signal> {
-        self.read_list_again_from_row_as(st, rec, key, true)
+        self.read_list_again_from_row_as(st, rec, key, self.reads_row_first(st))
     }
 
     pub(super) fn read_list_again_from_row_in_view(
@@ -3436,7 +3436,7 @@ impl Session {
             Value::Integer(-1)
         );
         if moved {
-            let r = self.arrive(st);
+            let r = self.arrive_after_gone_row(st);
             self.torn_down_on_error(st, r)?;
         } else {
             // No stored row is left, whether or not the action called CurrPage.Update. A list opened for editing shows

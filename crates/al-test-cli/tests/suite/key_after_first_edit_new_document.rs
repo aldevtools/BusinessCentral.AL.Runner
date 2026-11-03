@@ -1,7 +1,7 @@
 //! A new Document host (OpenNew) with one part linked on its key: a field outside the key typed first stores the host with a
 //! blank key; the key typed next runs its OnValidate and then the card shows the blank key again and nothing is renamed (corpus
-//! pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:1294 PYB_OpenNew_NameTypedFirst_ThenKey_ThenLine). A Card is not
-//! pinned in that shape and stays refused.
+//! pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:1294 PYB_OpenNew_NameTypedFirst_ThenKey_ThenLine). A Card with a
+//! part linked on its key does the same (pages/lt-new-line-stamps-filters/NewLineStampsFilters.al:372 PYB_OpenNew_TypeThenNo_Steps).
 
 use al_test_cli::report::Outcome;
 
@@ -41,10 +41,6 @@ fn a_document_shows_its_blank_key_again_after_the_key_is_typed() {
 }
 
 #[test]
-fn a_card_in_that_shape_stays_refused() {
-    let o = outcome("Card");
-    assert!(
-        matches!(&o, Outcome::NotRun(why) if why.contains("stored after a field outside its key")),
-        "{o:?}"
-    );
+fn a_card_with_a_part_linked_on_its_key_does_the_same() {
+    assert_eq!(outcome("Card"), Outcome::Pass);
 }
