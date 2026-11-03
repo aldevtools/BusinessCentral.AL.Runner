@@ -1,5 +1,5 @@
 //! The Enabled column of "All Profile" when a profile extension declares `Enabled`: a profile that is
-//! disabled and has an extension with `Enabled = true` shows as enabled; an extension that declares
+//! disabled and has an extension with `Enabled = true` shows as enabled, and the reverse (pageext/lt-u-page-props/UPageProps.al:340-365); an extension that declares
 //! only a Caption leaves the profile's own Enabled (corpus pages/lt-y88-page-probes/Y88PageProbes.al:
 //! 239-247, Y88_Profile_EnabledForms, objects in Y88PageObjects.al:323-358).
 
@@ -19,6 +19,8 @@ table 2000000178 "All Profile" {
 profile "P Off" { Caption = 'P Off'; Enabled = false; }
 profile "P Base Off" { Caption = 'P Base Off'; Enabled = false; }
 profileextension "P Base Off Ext" extends "P Base Off" { Enabled = true; }
+profile "P Base On Off" { Caption = 'P Base On Off'; Enabled = true; }
+profileextension "P Base On Off Ext" extends "P Base On Off" { Enabled = false; }
 profile "P Base On" { Caption = 'P Base On'; Enabled = true; }
 profileextension "P Base On Ext" extends "P Base On" { Caption = 'Ext caption'; }
 codeunit 50100 C {
@@ -27,7 +29,7 @@ codeunit 50100 C {
     begin
         P.SetRange("Profile ID", 'P OFF');
         P.FindFirst();
-        exit(Format(P.Enabled) + ';' + One('P BASE OFF') + ';' + One('P BASE ON') + ';');
+        exit(Format(P.Enabled) + ';' + One('P BASE OFF') + ';' + One('P BASE ON') + ';' + One('P BASE ON OFF') + ';');
     end;
     local procedure One(Id: Code[30]): Text
     var P: Record "All Profile";
@@ -69,5 +71,5 @@ fn run() -> Result<Value, Signal> {
 #[test]
 fn an_extension_enabled_true_overrides_a_disabled_profile() {
     let r = run();
-    assert!(matches!(&r, Ok(Value::Text(t)) if t == "No;Yes;Yes;"), "{r:?}");
+    assert!(matches!(&r, Ok(Value::Text(t)) if t == "No;Yes;Yes;No;"), "{r:?}");
 }
