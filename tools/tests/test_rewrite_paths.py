@@ -13,6 +13,7 @@ tests/al-language-onprem/handlers/TestModal.al\ttests/al-language-onprem/reports
 tests/al-language-onprem-dotnet/lt-qx-dotnet/QxShapes.al\ttests/al-language-onprem-dotnet/dotnet/qx/QxShapes.al\tmap
 tests/al-language/record/TestRecordInsert.al\ttests/al-language/record/TestRecordInsert.al\tmap
 tests/al-language/bc-full-results.json\t(delete: build output)\trule
+tests/al-language/codeunit/Cu.al\ttests/al-language/codeunits/Cu.al\tmap
 """
 
 
@@ -78,6 +79,13 @@ class T(unittest.TestCase):
         r = self.run_tool(self.d, "docs")
         self.assertIn("unresolved", r.stdout)
         self.assertIn("tests/al-language/record/Gone.al", r.stdout)
+
+    def test_plain_words_are_not_folders(self):
+        # the top folder codeunit/ moved as a whole to codeunits/: the English word must stay
+        text = "a call in a codeunit; see codeunit/Cu.al\n"
+        self.write("docs/h.md", text)
+        self.run_tool(self.d, "docs")
+        self.assertEqual(self.read("docs/h.md"), "a call in a codeunit; see codeunits/Cu.al\n")
 
     def test_check_mode_writes_nothing_and_fails(self):
         self.write("docs/f.md", "tests/al-language/handlers/TestPagePart.al\n")

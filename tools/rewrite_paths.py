@@ -78,6 +78,8 @@ def rewrite_text(text, tables, known, report):
             if key.endswith('.al') and key not in known:
                 report['unresolved'].add(key)
             return t
+        if '/' not in core:
+            return t  # a single word is never a citation (`codeunit` the word, not the folder)
         if core in by_app:
             return by_app[core] + tail
         if core in rel_unique:
