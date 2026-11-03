@@ -785,7 +785,12 @@ impl Session {
                         self.tx.tx_phase = crate::transactions::TX_WRITE;
                         Ok(Value::Boolean(true))
                     }
-                    None if found => Ok(Value::Boolean(false)),
+                    // A Delete of a missing key answers false and still opens the write transaction (misc/lt-y76-assumptions/
+                    // Y76IsolatedStorage.al Y76_PlainStorage_Transactions `delete_missing`: ret=No tx=Yes).
+                    None if found => {
+                        self.tx.tx_phase = crate::transactions::TX_WRITE;
+                        Ok(Value::Boolean(false))
+                    }
                     None => {
                         unsupported("IsolatedStorage.Delete of a missing key as a statement (error text not pinned)")
                     }

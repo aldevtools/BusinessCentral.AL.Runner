@@ -422,10 +422,9 @@ impl Session {
         // SaveValues: what the page's variable-bound controls hold is stored unless the Cancel
         // action closed it (corpus handlers/TestPageSaveValues.al, testpageclose/TestPageClosingActions.al:937-977;
         // Close() and a platform close store too, docs/probes-needed.md).
+        // A Cancel keeps what the earlier OK stored, filters included (report/lt-y86-request-page/Y86RequestFilters.al Y86_CancelKeeps_*).
         if !(via_action && matches!(action, "Cancel" | "LookupCancel" | "No")) {
             self.store_page_values(st);
-        } else {
-            self.note_cancelled_saved_filters(st);
         }
         // Not on the blank new-line row of a page: corpus misc/lt-page-run-overloads RunModal_NonTempRecord_ShowsDbRows keeps
         // `Row.Code` = D1 after a handler that read the page down to its new line and pressed OK.

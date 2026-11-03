@@ -300,7 +300,7 @@ impl Session {
                     // (query/TestQueryRuntimeContracts.al:Query_GetFilters_TextForSingleAndCombinedFilters).
                     None
                 } else {
-                    let text = text_of(args.get(1).unwrap_or(&Value::Null)).unwrap_or_default();
+                    let text = crate::filter_text_arg::filter_text(args.get(1));
                     // Only a record's SetFilter is pinned to keep such a placeholder as written (filters/W4Filters.al:661-695).
                     if args.len() > 2 && al_builtins::filter::placeholder_next_to_wildcard(&text) {
                         return Err(Signal::Unsupported(
@@ -714,6 +714,11 @@ impl Session {
         let c = &def.columns[col];
         if let Some(caption) = &c.caption {
             return Ok(caption.clone());
+        }
+        // A totals column (Sum, Count, Average, Min, Max) without a Caption is captioned by its name
+        // (query/lt-cf-query-leads/CfQueryLeads.al:174-182, :276; query/lt-y78-outer-aggregate-filter/Y78QueryOuterAggFilter.al:1057).
+        if c.method.is_some() {
+            return Ok(c.name.clone());
         }
         let Some(field) = c.field else {
             return unsupported("the caption of a Count column without a Caption property (not pinned)");

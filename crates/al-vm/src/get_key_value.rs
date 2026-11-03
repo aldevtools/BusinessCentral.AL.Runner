@@ -9,25 +9,53 @@ impl Session {
     /// The key value `v` for a key field of type `ty`.
     pub(crate) fn get_key_value(&self, v: &Value, ty: &RtType) -> Result<Value, Signal> {
         Ok(match v {
-            // A text for an Integer key reads as Evaluate reads it; a text that is no number raises
-            // (GetWithTextArgument.al:Get_TextForIntegerKey, Get_TextVariableDirect; BC 27 names the type
-            // unknown).
-            Value::Text(s) | Value::Code(s) if matches!(ty, RtType::Integer) => {
-                match s.trim_matches(' ').parse::<i32>().ok() {
-                    Some(n) => Value::Integer(n),
+            // A text for an Integer or BigInteger key reads as Evaluate reads it: surrounding spaces and a sign are fine, anything
+            // else raises (GetWithTextArgument.al:Get_TextForIntegerKey, Get_TextVariableDirect; misc/lt-y70-assumptions/Y70Probes.al
+            // RecordGet_TextOnIntegerKey `int_text5`, `int_padded`, `int_plus`, `int_x`, `int_empty`, `int_decimal_text`, and
+            // RecordGet_TextOnBigIntegerKey; BC 27 names the type unknown, BC 28 and later say the value can't be evaluated). A one-character
+            // literal is a Char in a Variant and reads as the text of that character (`int_text5` passes '5', `int_x` passes 'x').
+            Value::Text(_) | Value::Code(_) | Value::Char(_) if matches!(ty, RtType::Integer | RtType::BigInteger) => {
+                let s = match v {
+                    Value::Char(c) => String::from_utf16_lossy(&[*c]),
+                    other => al_builtins::native::text_of(other)
+                        .map(|t| t.to_string())
+                        .unwrap_or_default(),
+                };
+                let (name, parsed) = match ty {
+                    RtType::Integer => ("Integer", s.trim_matches(' ').parse::<i32>().ok().map(Value::Integer)),
+                    _ => (
+                        "BigInteger",
+                        s.trim_matches(' ').parse::<i64>().ok().map(Value::BigInteger),
+                    ),
+                };
+                match parsed {
+                    Some(n) => n,
                     None if self.engine.target.as_ref().map_or(29, |t| t.bc.major) >= 28 => {
                         return Err(crate::transactions::al_error_code(
-                            &format!("The value \"{s}\" can't be evaluated into type Integer."),
+                            &format!("The value \"{s}\" can't be evaluated into type {name}."),
                             "Evaluate:Format",
                         ));
                     }
                     None => {
                         return Err(crate::transactions::al_error_code(
-                            "The type NavInteger is unknown.",
+                            &format!("The type Nav{name} is unknown."),
                             "NotSupportedType",
                         ));
                     }
                 }
+            }
+            // A non-negative Integer for a Text key is its digits: Get(1) finds the row '1', Get(0) the row '0'
+            // (misc/lt-y70-assumptions/Y70Probes.al RecordGet_BooleanOnTextKey `text_int1`, `text_int0`). A negative one and one longer
+            // than the field are not pinned.
+            Value::Integer(i) if matches!(ty, RtType::Text(_)) => {
+                let digits = i.to_string();
+                let fits = matches!(ty, RtType::Text(len) if len.is_none_or(|l| digits.len() <= l as usize));
+                if *i < 0 || !fits {
+                    return Err(Signal::Unsupported(
+                        "Get with a negative or too long Integer on a Text key (not pinned)".into(),
+                    ));
+                }
+                Value::Text(digits.into())
             }
             // An Integer (literal or variable) for a Code key reads as its digits: found, not found and the
             // not-found error (record/lt-at-partner-gaps/AtGetIntegerOnCodeKey.al:86-140, Integer 123 on a

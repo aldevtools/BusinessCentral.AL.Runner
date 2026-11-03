@@ -93,8 +93,59 @@ impl Session {
             }
             up = schema.node(p).parent;
         }
+        // An empty element (`<Endpoint SchemeId="X" />`) leaves the variable as it was and the trigger runs once
+        // (Y83XpMiscTests.al:1088 ContainerTriggers_AttributeOnly 'import empty endpoint': `ep-aav(0088);` after OnPreXmlPort set it).
+        if elem.self_closed {
+            return self.xp_run_trigger(inst, schema, node, "onafterassignvariable");
+        }
         let text = elem.text();
         let text = if text.trim().is_empty() { String::new() } else { text };
         self.xp_assign_variable(inst, schema, node, text)
+    }
+}
+
+/// The root text element with triggers beside table elements (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al ContainerTriggers_Nested;
+/// the same test as al-sema xmlports `root_table_shape`): table elements without LinkTable (at least one) and text elements that are
+/// leaves, hold only text attributes or are container trees.
+pub(super) fn root_with_table(schema: &Schema, top: usize) -> bool {
+    let kids = schema.children(top);
+    let table = |c: usize| schema.node(c).kind == ir::XmlNodeKind::Table && schema.node(c).link_node.is_none();
+    schema.node(top).kind == ir::XmlNodeKind::Text
+        && kids.iter().any(|&c| table(c))
+        && kids.iter().all(|&c| {
+            table(c)
+                || (schema.node(c).kind == ir::XmlNodeKind::Text
+                    && (schema.children(c).is_empty() || attrs_only(schema, c) || container_tree(schema, c)))
+        })
+}
+
+impl Session {
+    /// A root with triggers runs them only in the shape above, on an Xml port without InlineSchema and with a text element root
+    /// (the rest of the formats is not pinned).
+    pub(super) fn xp_root_triggers_pinned(schema: &Schema, top: usize) -> Result<bool, Signal> {
+        let n = schema.node(top);
+        if n.kind != ir::XmlNodeKind::Text || n.triggers.is_empty() {
+            return Ok(false);
+        }
+        let xp = schema.xp();
+        if xp.format == ir::XmlFormat::Xml && !xp.inline_schema && root_with_table(schema, top) {
+            return Ok(true);
+        }
+        unsupported(
+            "XmlPort run of a root text element with triggers outside an Xml port with table elements (not pinned)",
+        )
+    }
+
+    /// The root's OnBeforePassVariable, before its attributes and children (ContainerTriggers_Nested 'export': `root-bpv;rw-agr(1);`).
+    /// Skip or Break in it, and its own text, are not pinned.
+    pub(super) fn xp_export_root_trigger(&mut self, inst: &Inst, schema: &Schema, top: usize) -> Result<(), Signal> {
+        let own = self.xp_pass_variable(inst, schema, top)?;
+        if Self::xp_flow(inst).is_some() {
+            return unsupported("Skip, Break or Quit in OnBeforePassVariable of the root text element (not pinned)");
+        }
+        if !own.is_empty() {
+            return unsupported("XmlPort export of a root text element with its own text (not pinned)");
+        }
+        Ok(())
     }
 }

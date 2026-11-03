@@ -72,6 +72,10 @@ impl Session {
             }
             None if method == PageOp::PageRunStatic || method == PageOp::PageRunModalStatic => {
                 let used = self.ret_used;
+                if let Some(Value::Text(name)) = args.first() {
+                    let id = self.page_id_by_qualified_name(name)?;
+                    args[0] = Value::Integer(id);
+                }
                 let n = match args.first() {
                     Some(Value::Integer(n)) => *n,
                     other => return unsupported(format!("Page.Run with {} as the page", other.describe())),
@@ -240,9 +244,11 @@ impl Session {
                 self.pending_add_in_reread(&st, method.method())?;
                 let arg_false = matches!(args.first(), Some(Value::Boolean(false)));
                 self.lookup_refresh_deferred_call(method, &st, None)?;
-                self.marked_only_unshown_call(method, &st, |s| {
+                let moved = self.marked_only_unshown_call(method, &st, |s| {
                     s.shown_client_call(method, &st, None, arg_false, |s| s.test_page_op_held(method, &st, args))
-                })
+                })?;
+                self.lookup_move_refresh_after(&st, &moved)?;
+                Ok(moved)
             }
             Some(Value::TestControl(c)) => {
                 let c = c.clone();

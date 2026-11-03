@@ -97,10 +97,10 @@ fn an_empty_table_among_two_is_refused() {
 
 #[test]
 fn the_table_separator_reads_back() {
-    // Item106_TwoTablesNewLineSeparator `getter`.
+    // Item106_TwoTablesNewLineSeparator `getter`; real characters: lt-y88-xmlport/Y88XmlPortProbes.al:Y88_VariableText_DeclaredSeparatorGetters.
     assert_eq!(
         al_testkit::text(run(&src("TableSeparator = '<NewLine>';", SEED), "Getter")),
-        "[\\r\\n]"
+        "[\r\n]"
     );
 }
 

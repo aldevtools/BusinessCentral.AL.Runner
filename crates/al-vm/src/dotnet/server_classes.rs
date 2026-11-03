@@ -387,7 +387,8 @@ fn effective_permission(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Arg
         0 => Ok(Value::Text("1,1,1,1,0".into())),
         // No set assigned: the test user is SUPER, Execute on every object and no data right on the object itself
         // (Y24PermExecute.al Y24_P22_EffectivePermission `noset table|codeunit|page|report`, BC 27.5, 28.5, 29.0).
-        1 | 3 | 5 | 8 if !s.runner_permission_sets => Ok(Value::Text("0,0,0,0,1".into())),
+        // Query and XmlPort too (Y84PermEffective.al Y84_Eff_ObjectKinds `noset`).
+        1 | 3 | 5 | 6 | 8 | 9 if !s.runner_permission_sets => Ok(Value::Text("0,0,0,0,1".into())),
         _ => Err(Signal::Unsupported(
             "DotNet NavUserAccountHelper.GetEffectivePermissionForObject on an object kind other than table \
              data: the rights of a SUPER session are not pinned (docs/probes-needed.md)"

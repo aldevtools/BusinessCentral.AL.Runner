@@ -54,7 +54,15 @@ impl Session {
         if !matches!(ty, RtType::Text(_) | RtType::Code(_)) || matches!(arg, Value::Text(_) | Value::Code(_)) {
             return Ok(TextConv::Other);
         }
-        if matches!(arg, Value::Decimal(_) | Value::Integer(_) | Value::BigInteger(_)) && !rec_bound {
+        // Pinned on a control bound to a variable, Text and Code: an Integer (14, 1234, -3) and the Decimal 14.0 enter their digits
+        // (pages/lt-ao-testpage/AoTests.al:363-404 NumberIntoTextVariable, NumberIntoCodeVariable). A BigInteger and any other
+        // Decimal (a fraction, a thousand or more: Format puts a separator in) are not.
+        let pinned_number = match arg {
+            Value::Integer(_) => true,
+            Value::Decimal(d) => d.fract().is_zero() && d.abs() < rust_decimal::Decimal::from(1000),
+            _ => false,
+        };
+        if matches!(arg, Value::Decimal(_) | Value::BigInteger(_)) && !rec_bound && !pinned_number {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SetValueWholeNumberIntoTextControl);
         }
         let text = match arg {
