@@ -759,6 +759,51 @@ impl Session {
         Ok(())
     }
 
+    /// Close inserts a new Document or Card host whose key was typed, over a part that shows no row, declares OnNewRecord or
+    /// OnAfterGetCurrRecord and that the test never called: BC runs neither trigger then (pages/lt-part-line-before-host-key/
+    /// PartLineBeforeHostKey.al:1468 QH_EmptyPart_OpenNew_KeyTyped, `close` = `[H.OnInsert:Q1]`), the relink after the insert does.
+    /// Refused until the relink is told apart. A key given by the table's OnInsert, a part the test called or a typed line relinks
+    /// as before.
+    pub(super) fn refuse_part_triggers_at_new_host_close(&mut self, st: &St) -> Result<(), Signal> {
+        {
+            let s = st.borrow();
+            if !(s.draft && s.dirty && s.host.is_none() && !s.parts.is_empty()) {
+                return Ok(());
+            }
+        }
+        let rec = self.page_rec(st);
+        let key_typed = {
+            let initial = self.initial_fields(rec.borrow().table as usize);
+            let table = self.table(&rec)?;
+            let r = rec.borrow();
+            table.keys[0]
+                .iter()
+                .any(|&p| al_builtins::ops::compare(&r.fields[p], &initial[p]).ok() != Some(std::cmp::Ordering::Equal))
+        };
+        if !key_typed {
+            return Ok(());
+        }
+        let parts: Vec<St> = st.borrow().parts.iter().map(|(_, c)| c.clone()).collect();
+        for c in &parts {
+            if c.borrow().part_accessed || (c.borrow().draft && c.borrow().dirty) {
+                continue;
+            }
+            let object = c.borrow().object as usize;
+            let observes = ["onnewrecord", "onaftergetcurrrecord"]
+                .iter()
+                .any(|t| self.declares(c, t))
+                || ["onnewrecordevent", "onaftergetcurrrecordevent"]
+                    .iter()
+                    .any(|t| self.engine().events.is_subscribed(object, t));
+            if observes && c.borrow().cursor != Cursor::Row && self.has_source(c) {
+                return unsupported(
+                    "closing a new host row while a part that shows no row declares OnNewRecord or OnAfterGetCurrRecord (BC runs neither, the relink does; not implemented)",
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// OnInsertRecord decides whether the typed record is inserted at all (corpus
     /// handlers/TestPageRecordTriggers.al:76 OnInsertRecord_ReturningFalse_SuppressesTheInsert).
     pub(super) fn insert_draft(&mut self, st: &St) -> Result<(), Signal> {
@@ -918,25 +963,6 @@ impl Session {
         // 1068-1100 QO_Doc_OpenNew `close = empty>0=No ... rest=`).
         if !st.borrow().parts.is_empty() {
             let parts: Vec<St> = st.borrow().parts.iter().map(|(_, c)| c.clone()).collect();
-            // A part that shows no row and declares OnNewRecord or OnAfterGetCurrRecord: BC runs neither when it inserts the host at
-            // Close (pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:1468 QH_EmptyPart_OpenNew_KeyTyped `close` =
-            // `[H.OnInsert:Q1]`); the relink below would run them. Refused until the relink is told apart.
-            if st.borrow().host.is_none() {
-                for c in &parts {
-                    let object = c.borrow().object as usize;
-                    let observes = ["onnewrecord", "onaftergetcurrrecord"]
-                        .iter()
-                        .any(|t| self.declares(c, t))
-                        || ["onnewrecordevent", "onaftergetcurrrecordevent"]
-                            .iter()
-                            .any(|t| self.engine().events.is_subscribed(object, t));
-                    if observes && c.borrow().cursor != Cursor::Row && self.has_source(c) {
-                        return unsupported(
-                            "closing a new host row while a part that shows no row declares OnNewRecord or OnAfterGetCurrRecord (BC runs neither, the relink does; not implemented)",
-                        );
-                    }
-                }
-            }
             for c in &parts {
                 c.borrow_mut().field_captions_link_refill = true;
             }
