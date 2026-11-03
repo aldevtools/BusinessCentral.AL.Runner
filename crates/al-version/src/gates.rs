@@ -280,6 +280,16 @@ pub enum Gate {
     /// only: [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`] ends it. Consumed by `al-vm` pages/actions.rs (the `rec_moved_other`
     /// settle of a list action).
     ThreeLineLeavesKeyOnceFrom28,
+    /// A move (Next, Previous, First, Last, GoToKey) of a plain list onto a row that a deletion by code took from the table
+    /// since the list read it: BC 27 re-reads the rows around the row the cursor stands on and stays there; BC 28 answers the
+    /// failed move with a read of the cursor row, then (Previous, First, Last) goes on to the next live row in the direction
+    /// (pages/lt-y80-gone-rows/Y80GoneRows.al:1677-2240, the `#elif BC28PLUS` branches of the Y80_Moved_All_* and
+    /// Y80_Moved_NoNew_* tests). BC 28 only: [`Gate::MovedOntoDeletedRefreshesAgainFrom29`] ends it. Consumed by `al-vm`
+    /// pages/moved_onto_deleted.rs.
+    MovedOntoDeletedStaysFrom28,
+    /// The end of [`Gate::MovedOntoDeletedStaysFrom28`]: from BC 29 the rows are re-read as on BC 27
+    /// (pages/lt-y80-gone-rows/Y80GoneRows.al:1677). Consumed with it.
+    MovedOntoDeletedRefreshesAgainFrom29,
     /// From BC 28 a TestPage read of `Value()` on a page-extension control whose source is a bare quoted name of a
     /// table-extension field (`field("LT WD Profile"; "LT WD Profile Code")`, no `Rec.`) raises TestFieldNotFound; on BC 27
     /// it raises no error (pages/lt-wd/WdBareQuotedField.al:185 WD_BareNameExt_ValueReadError, guarded `#if BC28PLUS`,
@@ -327,6 +337,8 @@ impl Gate {
         Gate::EmptyTableFindExcludeFlagFrom28,
         Gate::FieldRowSystemIdFrom28,
         Gate::ThreeLineLeavesKeyOnceFrom28,
+        Gate::MovedOntoDeletedStaysFrom28,
+        Gate::MovedOntoDeletedRefreshesAgainFrom29,
         Gate::ExtControlBareQuotedSourceNotFoundFrom28,
         Gate::ReportLayoutListColumnsFrom28,
         Gate::MarkedSecondaryKeyMovesFrom28,
@@ -415,6 +427,7 @@ impl Gate {
             | Gate::OtherRecordOptionCaptionFrom29
             | Gate::JpegMediaSetKeptFrom29
             | Gate::ThreeLineLeavesKeyTwiceAgainFrom29
+            | Gate::MovedOntoDeletedRefreshesAgainFrom29
             | Gate::MarkedSecondaryKeyMovesAgainFrom29
             | Gate::ExceptionTraceValueTaskFrameFrom29
             | Gate::DotNetRuntime10From29 => 29,
@@ -431,6 +444,7 @@ impl Gate {
             | Gate::GetTextArgumentEvaluateErrorFrom28
             | Gate::RecordRefIsDirtyFrom28
             | Gate::ThreeLineLeavesKeyOnceFrom28
+            | Gate::MovedOntoDeletedStaysFrom28
             | Gate::ExtControlBareQuotedSourceNotFoundFrom28
             | Gate::EmptyTableFindExcludeFlagFrom28
             | Gate::FieldRowSystemIdFrom28
@@ -464,6 +478,8 @@ impl Gate {
             | Gate::FieldRefTextNumberEvaluateErrorFrom28
             | Gate::JsonSelectTokensListFrom28
             | Gate::DocxMediaRezippedFrom29
+            | Gate::MovedOntoDeletedStaysFrom28
+            | Gate::MovedOntoDeletedRefreshesAgainFrom29
             | Gate::PlatformMetadataColumnsFrom29 => self.evidence_of_first_gates(),
             Gate::OtherRecordOptionCaptionFrom29 => &[Evidence {
                 file: "pages/lt-sa-other-record-control/SaOtherRecordControl.al",
@@ -932,6 +948,10 @@ impl Gate {
     /// The evidence of the first gates of `evidence` (split out to keep that function short).
     fn evidence_of_first_gates(self) -> &'static [Evidence] {
         match self {
+            Gate::MovedOntoDeletedStaysFrom28 | Gate::MovedOntoDeletedRefreshesAgainFrom29 => &[Evidence {
+                file: "pages/lt-y80-gone-rows/Y80GoneRows.al",
+                lines: "1677,1715,1785,1854,1922,1960,1998,2068,2137,2205",
+            }],
             Gate::PlatformMetadataColumnsFrom29 => &[
                 Evidence {
                     file: "platform/lt-y35-username-field-rows/Y35UserNameFieldRows.al",
