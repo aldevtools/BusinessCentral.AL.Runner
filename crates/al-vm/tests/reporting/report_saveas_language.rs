@@ -332,16 +332,21 @@ fn assert_refused(routine: &str, needle: &str) {
     }
 }
 
-/// W3ReportObjectIdPreviewLanguage.al:546-570: a SaveAs in another language or region changes its formats and dataset, which is
-/// not built. The language itself is kept (handlers/TestReportCurrReportLanguage.al:44-69 reads 1031 back).
+/// W3ReportObjectIdPreviewLanguage.al:546-570: a SaveAs in another language changes its formats and dataset, which is not built
+/// and stays refused. The region setter in a SaveAs is built (report/lt-bd-format-region/BdRegionTests.al:582-925 BdSetter_*): the
+/// run goes on and the log reads `before=1033`. The language itself is kept (handlers/TestReportCurrReportLanguage.al:44-69 reads
+/// 1031 back).
 #[test]
-fn another_language_or_region_in_a_saveas_is_refused() {
+fn another_language_in_a_saveas_is_refused_and_a_region_is_accepted() {
     assert_eq!(
         text(al_testkit::run_in(FIXTURE, "SL Tests", "OtherLanguage")),
         "before=1033;"
     );
     assert_refused("OtherLanguageFormat", "CurrReport.Language := 1031");
-    assert_refused("OtherRegion", "CurrReport.FormatRegion := 'de-DE'");
+    assert_eq!(
+        text(al_testkit::run_in(FIXTURE, "SL Tests", "OtherRegion")),
+        "before=1033;"
+    );
     assert_eq!(
         text(al_testkit::run_in(FIXTURE, "SL Tests", "SessionRegion")),
         "before=1033;"
