@@ -215,7 +215,6 @@ impl<'a> Checker<'a> {
                 .find(|p| p.name().eq_ignore_ascii_case(name))
                 .map(|p| p.value_text())
         };
-        let unquote = |s: String| s.trim().trim_matches('"').to_string();
         let mut rec = None;
         let mut rec_unqualified = false;
         let mut self_obj = oi;
@@ -243,7 +242,7 @@ impl<'a> Checker<'a> {
             }
             ObjKind::Page => {
                 rec = prop("SourceTable").map(|t| Ty::Record {
-                    table: unquote(t).into(),
+                    table: crate::types::property_object_name(&t).into(),
                     temporary: false,
                 });
                 rec_unqualified = true;
@@ -257,7 +256,7 @@ impl<'a> Checker<'a> {
                             .properties()
                             .find(|x| x.name().eq_ignore_ascii_case("SourceTable"))
                             .map(|x| Ty::Record {
-                                table: unquote(x.value_text()).into(),
+                                table: crate::types::property_object_name(&x.value_text()).into(),
                                 temporary: false,
                             });
                         globals.insert(
@@ -273,7 +272,7 @@ impl<'a> Checker<'a> {
             }
             ObjKind::Codeunit => {
                 rec = prop("TableNo").map(|t| Ty::Record {
-                    table: unquote(t).into(),
+                    table: crate::types::property_object_name(&t).into(),
                     temporary: false,
                 });
                 // The fields and methods of the implicit Rec can be used unqualified in a codeunit with TableNo
@@ -1011,6 +1010,6 @@ fn request_page_source_table(obj: &ast::Object) -> Option<String> {
         .find_map(|sec| {
             sec.properties()
                 .find(|p| p.name().eq_ignore_ascii_case("SourceTable"))
-                .map(|p| p.value_text().trim().trim_matches('"').to_string())
+                .map(|p| crate::types::property_object_name(&p.value_text()))
         })
 }
