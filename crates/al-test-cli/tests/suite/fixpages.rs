@@ -303,7 +303,7 @@ fn editable_false_part_still_takes_writes() {
 }
 
 // Page.RunModal(Id, Rec, Field) with a handler that does not answer LookupOK (Segment Line.RunCreateInteraction, Tests-Marketing, 33 tests):
-// the field is kept (assumption `runmodal-field-kept-unless-lookupok`); the unhandled case is pinned by errors/lt-last-error-and-events/P70_06RunModalField.al.
+// the field is kept (pages/lt-f3-pages/F3TrappedAndModal.al:248 Card_PageTypedHandler); the unhandled case is pinned by errors/lt-last-error-and-events/P70_06RunModalField.al.
 #[test]
 fn run_modal_with_a_field_argument_and_a_handler_that_does_not_answer_lookup_ok() {
     passes(&format!(
