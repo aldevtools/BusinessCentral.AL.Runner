@@ -47,7 +47,7 @@ impl Session {
         // Which profiles get a row, and the role center page each names, depend on the program
         // only: found once per engine, not by every session scanning every object for each profile.
         let seeds = engine.profile_seeds.get_or_init(|| profile_seeds(&engine.program));
-        for &(oi, role_center_id) in seeds {
+        for &(oi, role_center_id, enabled) in seeds {
             let o = &engine.program.objects[oi];
             let prop = |n: &str| super::objects::prop(o, n);
             let app = engine.program.apps.get(o.app as usize);
@@ -74,7 +74,7 @@ impl Session {
             r[pos(t, 5)] = Value::Integer(role_center_id);
             r[pos(t, 6)] = Value::Boolean(prop("DefaultRoleCenter").is_some_and(super::objects::truthy));
             r[pos(t, 14)] = Value::Text(app.map(|a| a.name.clone()).unwrap_or_default().into());
-            r[pos(t, 15)] = self.profile_enabled(&o.name, prop("Enabled"));
+            r[pos(t, 15)] = Value::Boolean(enabled);
             r[pos(t, 16)] = Value::Text(
                 prop("Caption")
                     .and_then(text_of_literal)
@@ -96,24 +96,6 @@ impl Session {
             wrote = true;
         }
         wrote
-    }
-
-    /// The Enabled column: the profile's own `Enabled` (true when undeclared), over which a profile extension that declares
-    /// `Enabled` wins; an extension that declares only a Caption changes nothing (pages/lt-y88-page-probes/Y88PageProbes.al:
-    /// 239-247, Y88_Profile_EnabledForms; pageext/lt-u-page-props/UPageProps.al:340-365, an extension false over a true profile).
-    fn profile_enabled(&self, name: &str, own: Option<&str>) -> Value {
-        let own = own.is_none_or(super::objects::truthy);
-        let mut enabled = own;
-        for e in self.engine.program.objects.heads() {
-            let extends = super::objects::prop(e, al_ir::EXTENDS_PROFILE);
-            if !extends.is_some_and(|n| n.eq_ignore_ascii_case(name)) {
-                continue;
-            }
-            if let Some(v) = super::objects::prop(e, "Enabled") {
-                enabled = super::objects::truthy(v);
-            }
-        }
-        Value::Boolean(enabled)
     }
 
     pub(crate) fn is_profile_row(&self, t: &TableDef, temporary: bool) -> bool {
@@ -278,9 +260,24 @@ fn error(message: String) -> Signal {
 }
 
 /// The profile objects that get an All Profile row, as (object index, id of the page named as the
-/// role center; 0 for none). A profile whose role center name is not exactly one page gets no row:
+/// role center; 0 for none, and the Enabled column). A profile whose role center name is not exactly one page gets no row:
 /// the row would be wrong.
-pub(crate) fn profile_seeds(program: &al_ir::Program) -> Vec<(usize, i32)> {
+///
+/// The Enabled column is the profile's own `Enabled` (true when undeclared), over which a profile extension that declares
+/// `Enabled` wins, the last one in object order; an extension that declares only a Caption changes nothing
+/// (pages/lt-y88-page-probes/Y88PageProbes.al:239-247, Y88_Profile_EnabledForms; pageext/lt-u-page-props/UPageProps.al:340-365,
+/// an extension false over a true profile). It depends on the program only, so it is worked out here once, not by each
+/// session scanning every object for each profile.
+pub(crate) fn profile_seeds(program: &al_ir::Program) -> Vec<(usize, i32, bool)> {
+    let mut extension_enabled: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    for e in program.objects.heads() {
+        let Some(target) = super::objects::prop(e, al_ir::EXTENDS_PROFILE) else {
+            continue;
+        };
+        if let Some(v) = super::objects::prop(e, "Enabled") {
+            extension_enabled.insert(target.to_ascii_lowercase(), super::objects::truthy(v));
+        }
+    }
     let mut pages: std::collections::HashMap<String, Vec<u32>> = std::collections::HashMap::new();
     for p in program.objects.heads() {
         if let (true, Some(id)) = (p.kind == al_ir::ObjKind::Page, p.id) {
@@ -305,11 +302,62 @@ pub(crate) fn profile_seeds(program: &al_ir::Program) -> Vec<(usize, i32)> {
                     pages.get(&want).cloned().unwrap_or_default()
                 }
             });
+        let enabled = extension_enabled
+            .get(&o.name.to_ascii_lowercase())
+            .copied()
+            .unwrap_or_else(|| super::objects::prop(o, "Enabled").is_none_or(super::objects::truthy));
         match role_center.as_deref() {
-            None => out.push((oi, 0)),
-            Some([id]) => out.push((oi, *id as i32)),
+            None => out.push((oi, 0, enabled)),
+            Some([id]) => out.push((oi, *id as i32, enabled)),
             Some(_) => {}
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use al_sema::workspace::AppSource;
+
+    /// The Enabled value of each seed is worked out with the seeds, once per program: a profile's own `Enabled` (true when
+    /// undeclared), over which the last extension that declares `Enabled` wins (profile_extension_enabled.rs pins it
+    /// through the table; this pins that the seeds carry it, so a session does not rescan every object per profile).
+    #[test]
+    fn seeds_carry_the_enabled_value() {
+        let src = r#"
+profile "P Off" { RoleCenter = 9006; Enabled = false; }
+profile "P Off Ext On" { RoleCenter = 9006; Enabled = false; }
+profileextension "X On" extends "P Off Ext On" { Enabled = true; }
+profile "P On Ext Off" { RoleCenter = 9006; }
+profileextension "X Off" extends "p on ext off" { Enabled = false; }
+profile "P On Caption Ext" { RoleCenter = 9006; Enabled = true; }
+profileextension "X Cap" extends "P On Caption Ext" { Caption = 'c'; }
+profile "P Two Ext" { RoleCenter = 9006; }
+profileextension "X Two A" extends "P Two Ext" { Enabled = false; }
+profileextension "X Two B" extends "P Two Ext" { Enabled = true; }
+"#;
+        let (ws, l) = al_sema::lower::compile(
+            vec![AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), src.into())],
+            }],
+            &Default::default(),
+        );
+        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+        let got: Vec<(String, bool)> = profile_seeds(&l.program)
+            .into_iter()
+            .map(|(oi, _, enabled)| (l.program.objects[oi].name.clone(), enabled))
+            .collect();
+        let want = [
+            ("P Off", false),
+            ("P Off Ext On", true),
+            ("P On Ext Off", false),
+            ("P On Caption Ext", true),
+            ("P Two Ext", true),
+        ];
+        assert_eq!(got, want.map(|(n, e)| (n.to_string(), e)));
+    }
 }
