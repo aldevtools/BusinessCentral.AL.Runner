@@ -1,0 +1,6 @@
+TestfieldErrorinfoEmptyMessageCollected => {
+    id: "testfield-errorinfo-empty-message-collected",
+    assumed: "Record.TestField(Field [, Value], ErrorInfo) with a collectible ErrorInfo that has no Message, under ErrorBehavior::Collect, collects an ErrorInfo whose Message is the text the same call raises without an ErrorInfo (for example \"Name must have a value in T: Id=A. It cannot be zero or empty.\"). A given Message is pinned (types/PUTestFieldErrorInfo.al:143-166); an empty one is not.",
+    tests: "Microsoft Tests-General_Journal, codeunit 134932 \"ERM Gen. Jnl. Error Handling\": JournalLineErrorsFactBoxTestFieldNotEmpty, JournalLineErrorsFactBoxTestFieldValue, LogTestFieldOptionWithErrorBehaviorCollectError and the seven *JournalSunshine tests. Gen. Jnl.-Check Line calls TestField(Field, ErrorInfo.Create()); the tests read the collected Message.",
+    probe: "Under ErrorBehavior::Collect: TestField(Field, ErrorInfo.Create()) on a blank Text field, on a blank Code field, TestField(Field, Value, ErrorInfo.Create()) on a wrong Integer, Option and Enum value, each with the Message of GetCollectedErrors().Get(1). Also FieldError(Field, ErrorInfo.Create()), which the runtime already fills with the full text.",
+}

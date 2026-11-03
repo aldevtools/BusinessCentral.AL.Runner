@@ -1027,7 +1027,22 @@ impl Session {
                             self.engine.program.objects[t.object as usize].id.unwrap_or(0) as i32,
                             t.fields[pos].id as i32,
                         );
-                        if collectible && self.collect_error(&copy) {
+                        // No Message on the ErrorInfo: the collected one says what the uncollected call raises. The
+                        // given Message is pinned (types/PUTestFieldErrorInfo.al:143-166), the empty one is not.
+                        if collectible && self.collect_error_if_collecting() {
+                            if al_builtins::errorinfo::message_of(&copy).is_some_and(|m| m.is_empty()) {
+                                al_builtins::assumptions::assume(
+                                    al_builtins::assumptions::Assumption::TestfieldErrorinfoEmptyMessageCollected,
+                                );
+                                al_builtins::errorinfo::set_message_of(&copy, &e.message);
+                            }
+                            // The collected error names the record it was raised on: Gen. Jnl.-Check Line's callers match it
+                            // with the line (ErrInfo.RecordId in Error Message Management.CollectErrors).
+                            al_builtins::assumptions::assume(
+                                al_builtins::assumptions::Assumption::TestfieldErrorinfoCollectedRecordId,
+                            );
+                            al_builtins::errorinfo::set_record_id_of(&copy, self.record_id(rec, t));
+                            self.collect_error(&copy);
                             return Ok(Value::Null);
                         }
                     }
