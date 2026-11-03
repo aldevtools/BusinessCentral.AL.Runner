@@ -1279,12 +1279,17 @@ fn object_properties(obj: &ast::Object, request_section: Option<&ast::Section>) 
     properties
 }
 
-/// Why a restricted session (permission sets a test lowered) refuses to open the page of `obj`. A field or action of the page's own
-/// layout with an AccessByPermission property is decided when it is used (Y24PermExecute.al Y24_P21_*: BC leaves it off the page
-/// when the sets do not grant the permission; `Session::access_by_permission_hidden` reads the shapes that are pinned). Any other
-/// mention is not pinned and refuses: a group, part or page-level property, an action reference to a guarded action. Read from the
-/// object's text, so a mention in a comment refuses too: only a restricted session is affected.
+/// Why a restricted session (permission sets a test lowered) refuses to open the page of `obj`. A field, action or part of the page's
+/// own layout with an AccessByPermission property is decided when it is used (Y24PermExecute.al Y24_P21_*, Y84PermAbp.al: BC leaves
+/// it off the page when the sets do not grant the permission; `Session::access_by_permission_hidden_decided` reads the guards). So
+/// is a control over a table field that carries the property (the control takes the field's guard, see `inherited`), and the
+/// property on the page or report object itself, which has no effect on a run (Y84_Abp_PageAndReportLevel). Any other mention is not
+/// pinned and refuses: a group (it does not compile), an action reference to a guarded action, a control with a guard of its own over a
+/// guarded field. Read from the object's text, so a mention in a comment refuses too: only a restricted session is affected.
+/// The controls that took the guard of their table field carry the marker property [`FIELD_GUARD`].
 pub(crate) fn access_by_permission_refusals(obj: &ast::Object, controls: &[ir::Control]) -> Vec<String> {
+    let marked = |c: &ir::Control, m: &str| c.props.iter().any(|(n, _)| n == m);
+    let inherited = controls.iter().filter(|c| marked(c, FIELD_GUARD)).count();
     let mentions = obj
         .syntax()
         .text()
@@ -1292,16 +1297,30 @@ pub(crate) fn access_by_permission_refusals(obj: &ast::Object, controls: &[ir::C
         .to_ascii_lowercase()
         .matches("accessbypermission")
         .count();
-    if mentions == 0 {
+    if mentions == 0 && inherited == 0 {
         return Vec::new();
     }
     let guarded = |c: &ir::Control| c.prop("accessbypermission").is_some();
-    let pinned = controls
-        .iter()
-        .filter(|c| {
-            c.owner.is_none() && guarded(c) && matches!(c.kind, ir::ControlKind::Field | ir::ControlKind::Action)
-        })
+    let object_level = obj
+        .properties()
+        .filter(|p| p.name().eq_ignore_ascii_case("accessbypermission"))
         .count();
+    let pinned = object_level
+        + controls
+            .iter()
+            .filter(|c| {
+                c.owner.is_none()
+                    && guarded(c)
+                    && matches!(
+                        c.kind,
+                        ir::ControlKind::Field | ir::ControlKind::Action | ir::ControlKind::Part
+                    )
+            })
+            .count()
+        - inherited;
+    if controls.iter().any(|c| marked(c, FIELD_GUARD_CONFLICT)) {
+        return vec!["a control states AccessByPermission over a table field that states one too (which one BC applies is not pinned, ADR-062 probe P21)".into()];
+    }
     let via_reference = controls
         .iter()
         .any(|c| matches!(&c.action_ref, Some(ir::ActionRef::Target(t)) if guarded(&controls[*t])));
@@ -1310,4 +1329,38 @@ pub(crate) fn access_by_permission_refusals(obj: &ast::Object, controls: &[ir::C
     } else {
         vec!["the page has AccessByPermission on something other than a field or action of its own layout, which BC applies to the permissions of a restricted session (ADR-062 probe P21)".into()]
     }
+}
+
+/// Marker property of a page control that took the AccessByPermission guard of its table field (`with_field_guard`).
+const FIELD_GUARD: &str = "__abp_from_field";
+/// Marker property of a page control that states a guard over a table field that states one too.
+const FIELD_GUARD_CONFLICT: &str = "__abp_conflict";
+
+/// The properties of a page control bound to a field of the source table: a field with an AccessByPermission property gives its guard
+/// to the control (Y84PermAbp.al Y84_Abp_LettersA `TF`: every control over the field is left off the page when the sets do not
+/// grant it). A control that states a guard of its own over such a field is marked for refusal: which one BC applies is not pinned.
+pub(crate) fn with_field_guard(
+    members: &crate::members::MemberTable<'_>,
+    table: Option<usize>,
+    binding: &ir::Binding,
+    owner: Option<usize>,
+    mut props: Vec<(String, ir::PropVal)>,
+) -> Vec<(String, ir::PropVal)> {
+    let (Some(table), ir::Binding::Field(pos), None) = (table, binding, owner) else {
+        return props;
+    };
+    let Some((_, guard)) = members[table].fields[*pos]
+        .properties
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("AccessByPermission"))
+    else {
+        return props;
+    };
+    if props.iter().any(|(n, _)| n == "accessbypermission") {
+        props.push((FIELD_GUARD_CONFLICT.into(), ir::PropVal::Lit(String::new())));
+    } else {
+        props.push(("accessbypermission".into(), ir::PropVal::Lit(guard.clone())));
+        props.push((FIELD_GUARD.into(), ir::PropVal::Lit(String::new())));
+    }
+    props
 }

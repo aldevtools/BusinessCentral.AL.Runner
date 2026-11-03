@@ -86,3 +86,11 @@ impl Session {
         })))
     }
 }
+
+/// Whether an error of an action's OnAction comes out of the test page's Invoke with the code `TestWrapped:Permission`: an Execute
+/// denial (Y84PermExecute.al Y84_Exec_PageAction) and an Insert denial (permissions/lt-permissions-mock-indirect/
+/// RiskyPagePermissions.al:129).
+pub(crate) fn wraps_as_permission(code: &str, message: &str) -> bool {
+    matches!(code, "DB:ExecuteObjDenied" | "DB:ClientInsertDenied")
+        && message.starts_with("Sorry, the current permissions prevented the action.")
+}

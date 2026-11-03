@@ -37,6 +37,7 @@ mod page_insert_by_code;
 mod page_run_view;
 mod page_variable_control_no_insert;
 mod permission_abp;
+mod permission_abp_shapes;
 mod permission_execute;
 mod permission_execute_triggers;
 mod permission_read_write;

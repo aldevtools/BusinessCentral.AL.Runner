@@ -582,8 +582,9 @@ impl EffectivePermissions {
 /// The "Object Type" ordinal of a System object in the Permission tables.
 const SYSTEM: i32 = 10;
 
-/// AllObj and Field: a narrow set reads them (Y19PermSystemTables.al, P13).
-const ALWAYS_READABLE: [u32; 2] = [2_000_000_038, 2_000_000_041];
+/// AllObj, Field and Page Control Field: a narrow set reads them (Y19PermSystemTables.al, P13; Page Control Field: Y84PermAbp.al
+/// Y84_Abp_PageControlFieldRows, which lists the page's 19 field controls under a set with no table data grant).
+const ALWAYS_READABLE: [u32; 3] = [2_000_000_038, 2_000_000_041, 2_000_000_192];
 /// Tenant Media: the one system table whose write denial is pinned (Y19PermSystemTables.al, P13: Insert error).
 const TENANT_MEDIA: u32 = 2_000_000_184;
 
@@ -961,11 +962,11 @@ impl Session {
 
     /// `User Permissions.GetEffectivePermission` (through `NavUserAccountHelper.GetEffectivePermissionForObject`): the five levels
     /// (Read, Insert, Modify, Delete, Execute; 0 blank, 1 Yes) of the session on object `(kind, id)`, `kind` the "Object Type"
-    /// ordinal. Pinned (Y24PermExecute.al Y24_P22_EffectivePermission, BC 27.5, 28.5, 29.0) for TableData, Table, Codeunit, Page and
+    /// ordinal. Pinned (Y24PermExecute.al Y24_P22_EffectivePermission, BC 27.5, 28.5, 29.0; Y84PermEffective.al for Query, XmlPort and the Indirect level, which comes back as 2: the lower-case letters of the set) for TableData, Table, Codeunit, Page, XmlPort, Query and
     /// Report: the assigned sets give what they declare, and `Set` adds All Objects (Execute on every object kind), so a narrow
     /// set gives Execute on objects and `SetExactPermissionSet` gives none. `None` when no restricted session answers it (the
-    /// caller answers for the unrestricted user). Indirect levels, sets that are not fully composed and the other object types
-    /// are not pinned and refuse.
+    /// caller answers for the unrestricted user). Sets that are not fully composed and the other object types are not pinned and
+    /// refuse.
     pub(crate) fn effective_permission_levels_decided(&self, kind: i32, id: u32) -> Result<Option<Levels>, Signal> {
         let Some(eff) = self.permissions.clone() else {
             return Ok(None);
@@ -977,9 +978,9 @@ impl Session {
         if self.permissions_off {
             return Err(Signal::Unsupported(LOWERED.into()));
         }
-        if !matches!(kind, 0 | 1 | 3 | 5 | 8) {
+        if !matches!(kind, 0 | 1 | 3 | 5 | 6 | 8 | 9) {
             return Err(Signal::Unsupported(format!(
-                "GetEffectivePermission of an object of type {kind} under assigned permission sets (only TableData, Table, Report, Codeunit and Page are pinned, ADR-062 probe P22)"
+                "GetEffectivePermission of an object of type {kind} under assigned permission sets (only TableData, Table, Report, Codeunit, XmlPort, Page and Query are pinned, ADR-062 probe P22)"
             )));
         }
         let mut out = [0u8; 5];
@@ -988,11 +989,6 @@ impl Session {
             .enumerate()
         {
             out[slot] = eff.level(Access { kind, id, op });
-        }
-        if out.contains(&2) {
-            return Err(Signal::Unsupported(
-                "GetEffectivePermission where the session holds a permission only as Indirect (not pinned, ADR-062 probe P22)".into(),
-            ));
         }
         if !eff.complete && out.contains(&0) {
             return Err(Signal::Unsupported(format!(
@@ -1028,18 +1024,42 @@ impl Session {
                 "the permission sets changed while a page with AccessByPermission was open (not pinned, ADR-062 probe P21)".into(),
             ));
         }
-        let (kind, id, slot) = crate::platform::parse_guard(&self.engine, guard).map_err(Signal::Unsupported)?;
-        let op = [Op::Read, Op::Insert, Op::Modify, Op::Delete, Op::Execute][slot];
-        match eff.level(Access { kind, id, op }) {
-            1 => Ok(false),
-            0 if eff.complete => Ok(true),
-            0 => Err(Signal::Unsupported(format!(
+        let g = crate::platform::parse_guard(&self.engine, guard).map_err(Signal::Unsupported)?;
+        let ops = [Op::Read, Op::Insert, Op::Modify, Op::Delete, Op::Execute];
+        // The control is there when the session holds at least one letter of the mask at level Yes; a level of Indirect does
+        // not count (Y84PermAbp.al Y84_Abp_LettersA/B: guard RIMD under a set with only R is there, an indirect-only session
+        // leaves every guarded control off).
+        let held = g.slots.iter().any(|&slot| match g.id {
+            Some(id) => {
+                eff.level(Access {
+                    kind: g.kind,
+                    id,
+                    op: ops[slot],
+                }) == 1
+            }
+            None => {
+                eff.level(Access {
+                    kind: g.kind,
+                    id: u32::MAX,
+                    op: ops[slot],
+                }) == 1
+                    || eff
+                        .content
+                        .unread_system
+                        .iter()
+                        .any(|e| crate::platform::system_entry_level(e, &g.name, slot) == 1)
+            }
+        });
+        if held {
+            return Ok(false);
+        }
+        if eff.complete {
+            Ok(true)
+        } else {
+            Err(Signal::Unsupported(format!(
                 "AccessByPermission under assigned permission sets that are not fully composed, so BC may grant it: {}",
                 eff.why_incomplete.join("; ")
-            ))),
-            _ => Err(Signal::Unsupported(
-                "AccessByPermission where the session holds the permission only as Indirect (not pinned, ADR-062 probe P21)".into(),
-            )),
+            )))
         }
     }
 
@@ -1089,6 +1109,61 @@ impl Session {
                 }
                 Err(self.denial_error(access, "IndirectRead", "Read", by))
             }
+        }
+    }
+
+    /// Whether the session, restricted by the permission sets a test assigned, may not execute the page `part_page` (the page of a
+    /// part). False without a restricted session.
+    pub(crate) fn permission_part_page_off(&self, part_page: Option<usize>) -> Result<bool, Signal> {
+        let (Some(eff), Some(page)) = (self.permissions.as_ref(), part_page) else {
+            return Ok(false);
+        };
+        if self.ignore_permission_mock {
+            return Ok(false);
+        }
+        let access = self.execute_access(page);
+        if access.kind < 0 || eff.level(access) == 1 {
+            return Ok(false);
+        }
+        if eff.complete {
+            Ok(true)
+        } else {
+            Err(Signal::Unsupported(format!(
+                "a part page under assigned permission sets that are not fully composed, so BC may execute it: {}",
+                eff.why_incomplete.join("; ")
+            )))
+        }
+    }
+
+    /// Whether a page control over a FlowField whose source table is object `table` is left off the page: the session may not
+    /// calculate it (the same decision as `CalcFields`, an indirect read the session level allows runs). BC leaves it off whether
+    /// the source table has rows or not (Y84PermAbp.al Y84_Abp_FlowFieldControl `empty, no read`, `rows, no read`: "The field with
+    /// ID = n is not found on the page."), where `CalcFields` of the same FlowField on an empty table raises nothing.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn permission_flowfield_off_page(&mut self, table: usize) -> Result<bool, Signal> {
+        let id = self.engine.program.objects.heads()[table].id.unwrap_or(0);
+        let access = Access {
+            kind: 0,
+            id,
+            op: Op::Read,
+        };
+        match self.permission_verdict(access, Some(table), true) {
+            Verdict::Allow => Ok(false),
+            Verdict::Refuse(why) if self.shadow_active => {
+                self.shadow_note("unknown", "flowfield page control", &why);
+                Ok(false)
+            }
+            Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
+            Verdict::Deny { .. } if id >= 2_000_000_000 => Err(Signal::Unsupported(unpinned_denial(
+                access,
+                "a page control over a FlowField of a system table",
+            ))),
+            Verdict::Deny { .. } if self.shadow_active => {
+                self.shadow_note("would deny", "flowfield page control", &access.describe());
+                Ok(false)
+            }
+            Verdict::Deny { .. } => Ok(true),
         }
     }
 

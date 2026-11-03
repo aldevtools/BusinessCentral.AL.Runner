@@ -3914,13 +3914,7 @@ fn action_error_code(code: &str, message: &str) -> String {
         // A call of a control add-in procedure (lt-ac/ACControlAddIn.al TZ_TwoProceduresFromActions_PageStaysUsable,
         // pages/lt-ao-testpage/AoTests.al:794 AddinProcedureFromAction).
         crate::control_add_in::NOT_CREATED => format!("TestWrapped:{code}"),
-        // A permission denial: an Execute denial (corpus permissions/lt-y84-perm-shapes/Y84PermExecute.al Y84_Exec_PageAction) and an
-        // Insert denial (permissions/lt-permissions-mock-indirect/RiskyPagePermissions.al:129).
-        "DB:ExecuteObjDenied" | "DB:ClientInsertDenied"
-            if message.starts_with("Sorry, the current permissions prevented the action.") =>
-        {
-            "TestWrapped:Permission".into()
-        }
+        c if crate::permission_triggers::wraps_as_permission(c, message) => "TestWrapped:Permission".into(),
         "DB:RecordNotFound" => "TestWrapped:CSideRecordNotFound".into(),
         "DB:RecordExists" if message.starts_with("The record in table ") => "TestWrapped:CSideDuplicateKey".into(),
         c if c.starts_with("TestWrapped") || c == al_builtins::native::UNPINNED_ERROR => c.into(),
