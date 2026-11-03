@@ -1030,11 +1030,13 @@ fn quoted_relation_text_pinned(text: &str, ty: &Ty) -> bool {
 pub(crate) fn option_init_ordinal(text: &str, members: &[String]) -> Option<Option<ir::Const>> {
     let t = text.trim().trim_matches('"').trim();
     let n: usize = t.parse().ok()?;
+    // A member named by these digits wins over the ordinal, quoted or bare (al-runner issue 6859; corpus
+    // record/lt-y47-initvalue-quoted/R6859NumericOptionInit.al, Windows BC 27.5).
     let named = members.iter().position(|m| m.trim().eq_ignore_ascii_case(t));
     Some(match named {
-        Some(p) if p != n => None,
-        _ if n < members.len() => Some(ir::Const::Option(n as i32, members.to_vec())),
-        _ => None,
+        Some(p) => Some(ir::Const::Option(p as i32, members.to_vec())),
+        None if n < members.len() => Some(ir::Const::Option(n as i32, members.to_vec())),
+        None => None,
     })
 }
 
