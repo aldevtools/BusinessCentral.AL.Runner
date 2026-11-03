@@ -394,46 +394,49 @@ type MatKey = (u8, Vec<usize>);
 
 #[derive(Default)]
 pub(super) struct Grants {
-    built: OnceCell<Rc<Built>>,
+    built: OnceCell<std::sync::Arc<Built>>,
     expanded: RefCell<HashMap<usize, Expanded>>,
     mats: RefCell<HashMap<MatKey, Rc<Mat>>>,
 }
 
 impl Grants {
-    fn built(&self, p: &Providers) -> Rc<Built> {
+    fn built(&self, p: &Providers) -> std::sync::Arc<Built> {
         self.built
             .get_or_init(|| {
                 let engine = p.engine();
-                let c = Catalog::new(&engine);
-                let ids = |ty: al_ir::ObjKind, name: &str| c.id_of(ty, name);
-                let mut sets = Vec::new();
-                let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
-                for o in c
-                    .objects
-                    .iter()
-                    .filter(|o| o.kind == al_ir::ObjKind::PermissionSet && o.id.is_some())
-                {
-                    let role = o.name.to_uppercase();
-                    let app = if role == "SUPER" || role == "SECURITY" {
-                        [0; 16]
-                    } else {
-                        c.owner(o)
-                    };
-                    let includes = prop(o, "IncludedPermissionSets")
-                        .map(|t| split_entries(t).iter().map(|n| last_name(n).to_lowercase()).collect())
-                        .unwrap_or_default();
-                    by_name.entry(o.name.to_lowercase()).or_default().push(sets.len());
-                    sets.push(GSet {
-                        app,
-                        name: prop(o, "Caption").and_then(string_lit).unwrap_or_else(|| role.clone()),
-                        role,
-                        assignable: prop(o, "Assignable").is_some_and(truthy),
-                        includes,
-                        excluded: prop(o, "ExcludedPermissionSets").is_some(),
-                        declared: parse_grants(o, &ids),
-                    });
-                }
-                Rc::new(Built { sets, by_name })
+                // The sets depend on the program only: built once per engine, not once per session.
+                engine.derived(|| {
+                    let c = Catalog::new(&engine);
+                    let ids = |ty: al_ir::ObjKind, name: &str| c.id_of(ty, name);
+                    let mut sets = Vec::new();
+                    let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
+                    for o in c
+                        .objects
+                        .iter()
+                        .filter(|o| o.kind == al_ir::ObjKind::PermissionSet && o.id.is_some())
+                    {
+                        let role = o.name.to_uppercase();
+                        let app = if role == "SUPER" || role == "SECURITY" {
+                            [0; 16]
+                        } else {
+                            c.owner(o)
+                        };
+                        let includes = prop(o, "IncludedPermissionSets")
+                            .map(|t| split_entries(t).iter().map(|n| last_name(n).to_lowercase()).collect())
+                            .unwrap_or_default();
+                        by_name.entry(o.name.to_lowercase()).or_default().push(sets.len());
+                        sets.push(GSet {
+                            app,
+                            name: prop(o, "Caption").and_then(string_lit).unwrap_or_else(|| role.clone()),
+                            role,
+                            assignable: prop(o, "Assignable").is_some_and(truthy),
+                            includes,
+                            excluded: prop(o, "ExcludedPermissionSets").is_some(),
+                            declared: parse_grants(o, &ids),
+                        });
+                    }
+                    Built { sets, by_name }
+                })
             })
             .clone()
     }
