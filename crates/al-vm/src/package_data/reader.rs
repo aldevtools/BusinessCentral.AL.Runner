@@ -13,6 +13,7 @@
 //! Everything else is refused with the reason (hard rule 4): the file is only read as far as the corpus pins it. A value the
 //! platform rejects at load (an install error, whose text depends on the company and the app) is refused here too.
 
+use al_builtins::describe::Describe;
 use al_builtins::value::{RtType, Value};
 
 /// A stored column of the table, in file order.
@@ -171,7 +172,7 @@ fn value(c: &mut Cursor, col: &Column) -> R<Value> {
         RtType::DateTime => date_time(c),
         RtType::DateFormula => date_formula(c),
         RtType::Library(al_builtins::library_kind::LibraryKind::Blob) if col.uncompressed_blob => blob(c),
-        other => Err(format!("a field of type {other:?} (not pinned)")),
+        other => Err(format!("a field of type {} (not pinned)", other.describe())),
     }
 }
 
