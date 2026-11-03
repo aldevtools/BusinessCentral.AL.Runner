@@ -179,6 +179,9 @@ pub struct Engine {
     /// Names this engine among all those the process built: state shared between sessions of one
     /// engine is keyed by it.
     pub uid: u64,
+    /// The lookups of `platform::objects::Catalog` by object name and id, built on the first ask. The program is shared
+    /// with the siblings and does not change under them, so they share the lookups too.
+    pub(crate) catalog_maps: Arc<std::sync::OnceLock<platform::objects::Maps>>,
     /// The tables a non-manual subscriber listens to the delete events of (see
     /// `autoinc::tables_with_delete_subscribers`), found when `Truncate` first asks.
     /// The profiles that get an All Profile row (see `platform::profiles::profile_seeds`).
@@ -437,6 +440,7 @@ impl Engine {
             field_facts: field_facts.into(),
             enumerable_fields,
             uid: NEXT_ENGINE_UID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            catalog_maps: Default::default(),
             delete_subscribed: Default::default(),
             lasting_effects: Default::default(),
             profile_seeds: Default::default(),
@@ -480,6 +484,7 @@ impl Engine {
             field_facts: self.field_facts.clone(),
             enumerable_fields: self.enumerable_fields.clone(),
             uid: NEXT_ENGINE_UID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            catalog_maps: self.catalog_maps.clone(),
             delete_subscribed: Default::default(),
             lasting_effects: Default::default(),
             profile_seeds: Default::default(),
@@ -558,6 +563,7 @@ impl Engine {
             served_tables: _,
             derived: _,
             install_facts: _,
+            catalog_maps: _,
             // Kept: state shared between the sessions of this engine is keyed by it.
             uid: _,
         } = self;

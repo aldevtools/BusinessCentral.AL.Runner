@@ -156,13 +156,14 @@ pub(super) struct Catalog<'a> {
     /// The objects themselves, for what a head does not hold (made on first touch).
     pub full: &'a al_ir::Objects,
     pub apps: &'a [al_ir::AppInfo],
-    /// The lookups by name and id, built on first use: a provider that reads only `objects` and `apps` (a Field row by
+    /// The lookups by name and id, built on first use and kept on the engine (the program does not change under it, and
+    /// a permission guard asks once per control of a page): a provider that reads only `objects` and `apps` (a Field row by
     /// its key) does not pay for them.
-    maps: std::cell::OnceCell<Maps<'a>>,
+    maps: &'a std::sync::OnceLock<Maps>,
 }
 
 #[derive(Default)]
-struct Maps<'a> {
+pub(crate) struct Maps {
     /// (base kind, lower-case name) to the ids of the objects of that name, each with whether the object is a stub that
     /// gives way ([`gives_way`]).
     names: HashMap<(al_ir::ObjKind, String), Vec<(u32, bool)>>,
@@ -170,8 +171,6 @@ struct Maps<'a> {
     tables: HashMap<u32, usize>,
     /// Page id to the page extensions that extend it, in program order.
     page_extensions: HashMap<u32, Vec<usize>>,
-    #[allow(dead_code)]
-    _objects: std::marker::PhantomData<&'a Object>,
 }
 
 impl<'a> Catalog<'a> {
@@ -181,11 +180,11 @@ impl<'a> Catalog<'a> {
             objects: program.objects.heads(),
             full: &program.objects,
             apps: &program.apps,
-            maps: std::cell::OnceCell::new(),
+            maps: &engine.catalog_maps,
         }
     }
 
-    fn maps(&self) -> &Maps<'a> {
+    fn maps(&self) -> &Maps {
         self.maps.get_or_init(|| {
             let mut m = Maps::default();
             for (i, o) in self.objects.iter().enumerate() {
@@ -828,4 +827,20 @@ pub(super) fn table_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             Ok(())
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two catalogs of one engine share one set of lookups: a page with guarded controls asks for a guard's object
+    /// id once per control, and building the lookups walks every object of the program.
+    #[test]
+    fn catalogs_of_one_engine_share_their_lookups() {
+        let engine = crate::Engine::new(al_ir::Program::default(), Vec::new());
+        let (a, b) = (Catalog::new(&engine), Catalog::new(&engine));
+        assert!(std::ptr::eq(a.maps(), b.maps()));
+        let sibling = engine.sibling();
+        assert!(std::ptr::eq(a.maps(), Catalog::new(&sibling).maps()));
+    }
 }
