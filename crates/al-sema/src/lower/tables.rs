@@ -864,7 +864,13 @@ impl Lowerer<'_> {
             let pos = src_pos(&c.field)?;
             let decl = src_fields[pos].declared_in.map_or(file, |d| self.ws.objects[d].file);
             let value = match &c.value {
-                CondValue::Const(raw) => ir::CalcValue::Const(self.calc_const(decl, raw, &src_fields[pos].ty)?),
+                CondValue::Const(raw) => {
+                    // `Database::"X"` names an object where the formula was written, not where the target
+                    // field is declared (corpus record/TestCalcFormulaDatabaseConst.Codeunit.al:7-30; al-runner
+                    // issue 6882). The members of an enum field are the target field's enum's.
+                    let scope = if raw.contains("::") { file } else { decl };
+                    ir::CalcValue::Const(self.calc_const(scope, raw, &src_fields[pos].ty)?)
+                }
                 CondValue::Filter(raw) => {
                     // One quoted literal is read as the filter its content spells (calcfields/W4CalcFields.al:396
                     // QZ_CalcFormula_QuotedLiteralFilters, fixtures QzCalcFormulaQuotedFilter.al): `'<>'''''` is `<>''`,

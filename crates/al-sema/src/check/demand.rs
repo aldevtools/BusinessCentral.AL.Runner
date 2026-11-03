@@ -1128,7 +1128,7 @@ impl Checker<'_> {
         let source = obj
             .properties()
             .find(|p| p.name().eq_ignore_ascii_case("SourceTable"))
-            .map(|p| p.value_text().trim().trim_matches('"').to_string());
+            .map(|p| crate::types::property_object_name(&p.value_text()));
         if let Some(t) = source.and_then(|name| self.resolve_quiet(file, ObjKind::Table, &name)) {
             self.touch_schema(t);
         }
@@ -1152,7 +1152,7 @@ impl Checker<'_> {
         let source = obj
             .properties()
             .find(|p| p.name().eq_ignore_ascii_case("SourceTable"))
-            .map(|p| p.value_text().trim().trim_matches('"').to_string());
+            .map(|p| crate::types::property_object_name(&p.value_text()));
         if let Some(name) = source {
             if let Some(t) = self.resolve_at(file, ObjKind::Table, &name) {
                 if matches!(self.ws.objects[i].kind, ObjKind::Page | ObjKind::PageExtension) {

@@ -65,6 +65,19 @@ pub fn qualified_parts(name: &str) -> Vec<String> {
     name.split(QUAL_SEP).map(str::to_string).collect()
 }
 
+/// The object named by a property value (`SourceTable`, `TableNo`): `Ns.Sub."Name"` or `"Name"` or `Name`, as the
+/// parts of an object reference, so a namespace-qualified name resolves as a type's does. A quoted name that holds
+/// dots stays one part. Joined by `QUAL_SEP` it is the form types carry. The AL compiler accepts the qualified and
+/// the plain form and both compile to the same metadata (al-runner issue 6790).
+pub fn property_object_parts(text: &str) -> Vec<String> {
+    crate::members::name_parts(text)
+}
+
+/// `property_object_parts` joined by `QUAL_SEP`.
+pub fn property_object_name(text: &str) -> String {
+    property_object_parts(text).join(QUAL_SEP)
+}
+
 /// Argument `i` of a section as the name of an object, in the form types carry: the parts of
 /// `Ns.Sub."Name"` joined by `QUAL_SEP`. `dataitem(Integer; System.Utilities.Integer)` names a
 /// namespace-qualified table; the text of the argument alone cannot tell that from a quoted name

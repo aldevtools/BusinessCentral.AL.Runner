@@ -413,7 +413,7 @@ impl<'a> Checker<'a> {
             .properties()
             .find(|p| p.name().eq_ignore_ascii_case("SourceTable"))?
             .value_text();
-        Some(v.trim().trim_matches('"').to_string())
+        Some(crate::types::property_object_name(&v))
     }
 
     pub(crate) fn has_named_section(&self, oi: usize, name: &str) -> bool {
