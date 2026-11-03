@@ -87,6 +87,16 @@ impl Session {
                 let ok = al_builtins::evaluate::evaluate(self, None, &mut args)?;
                 if matches!(ok, Value::Boolean(true)) {
                     Ok(args[0].clone())
+                } else if self.global_language == 1031 {
+                    // Under language 1031 the text is German; pinned for Boolean and Decimal only (dg-xmlport-leads/DgXmlPortLeads.al:
+                    // Item107_BoolImportByLanguage `legacy_1031_yes`; the text as Evaluate gives it: types/lt-evaluate-decimal-text/EvalDecimalDe.al).
+                    match name {
+                        "Boolean" | "Decimal" => Err(xerr(
+                            format!("Der Wert „{text}“ kann nicht in Typ {name} ausgewertet werden."),
+                            "Evaluate",
+                        )),
+                        _ => unsupported(format!("the Evaluate error of {name} in German (not pinned)")),
+                    }
                 } else {
                     Err(evaluate_error(text, name))
                 }
