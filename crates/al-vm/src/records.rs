@@ -5523,7 +5523,7 @@ impl Session {
                         new[field] = ops::convert(v.clone(), &ty)?;
                     }
                 }
-                self.check_rename_values(rec, &t, &old, &mut new)?;
+                let auto_increment_refusal = self.check_rename_values(rec, &t, &old, &mut new)?;
                 if self.is_profile_row(&t, rec.borrow().temporary) {
                     self.profile_before_rename(&t, &old, &new)?;
                 }
@@ -5548,7 +5548,7 @@ impl Session {
                     self.run_trigger(t.object as usize, tr, rec, Some(&xrec))?;
                 }
                 self.run_ext_trigger(&t, "OnRename", rec, Some(&xrec))?;
-                self.global_trigger(&t, GlobalOp::Rename, rec, Some(&xrec))?;
+                self.raise_deferred_auto_increment(&cx, &t, rec, &xrec, (&old_pk, &old), auto_increment_refusal)?;
                 let _ = self.bump_row_version(&t, rec);
                 let _ = self.stamp_rename(&t, rec);
                 let row = rec.borrow().fields.clone();
