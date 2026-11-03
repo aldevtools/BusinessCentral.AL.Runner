@@ -256,11 +256,27 @@ impl Session {
             root.borrow_mut().lookup_next_refresh = true;
             return Ok(());
         }
-        if shape && method == PageOp::TestPageNext && Rc::ptr_eq(st, &root) {
-            // The host's own Next as the first call after the Lookup: the refresh runs first, then the host moves. Pinned for the
-            // values only (Y15_ThreeLink_RegionsSetPartFollowsRow `next`); the refresh's log is not observed there.
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupPendingRefreshAtHostNext);
-            return self.run_lookup_refresh_left(&root, true);
+        if shape
+            && matches!(
+                method,
+                PageOp::TestPageNext
+                    | PageOp::TestPagePrevious
+                    | PageOp::TestPageFirst
+                    | PageOp::TestPageLast
+                    | PageOp::TestPageGoToKey
+            )
+            && Rc::ptr_eq(st, &root)
+        {
+            // The host's own move as the first call after the Lookup (pages/lt-y15/Y15LookupThreeFieldLink.al:1585-1740
+            // Y80_Y15_Host_*_NoRegions; the _Regions variants log the same). Next, Previous, First and Last move as usual, then the
+            // refresh reads the row they moved to (`agcr R2;agcr R2`, `agcr R1;agcr R1`, `agcr R1;agcr R1`, `agcr ;agcr R3;agcr R3`);
+            // the part follows. GoToKey runs the refresh on the row it stood on first, then scans (`agcr R1;agcr R2;agcr R3`).
+            root.borrow_mut().lookup_refresh_deferred = false;
+            if method == PageOp::TestPageGoToKey {
+                return self.run_lookup_refresh_left(&root, true);
+            }
+            root.borrow_mut().lookup_move_refresh = true;
+            return Ok(());
         }
         unsupported(format!(
             "{method} after TestField.Lookup on a page with OnAfterGetRecord or OnAfterGetCurrRecord whose ListPart links two or \
@@ -307,6 +323,18 @@ impl Session {
             && s.window.len() == 1
     }
 
+    /// After a host move that carried the refresh a Lookup left (`lookup_move_refresh`): the refresh runs on the row the host moved
+    /// to. A move that found no row is not pinned.
+    pub(super) fn lookup_move_refresh_after(&mut self, st: &St, moved: &Value) -> Result<(), Signal> {
+        if !std::mem::take(&mut st.borrow_mut().lookup_move_refresh) {
+            return Ok(());
+        }
+        if matches!(moved, Value::Boolean(false)) {
+            return unsupported("a host move that finds no row, as the first call after TestField.Lookup (not pinned)");
+        }
+        self.run_lookup_refresh_left(st, true)
+    }
+
     /// Runs the refresh of `CurrPage.Update(false)` that a TestField.Lookup on `root` left for later (`defer_lookup_refresh`),
     /// as the Lookup would have run it (`run_refresh`); `with_parts`: the parts read their rows again after it.
     fn run_lookup_refresh_left(&mut self, root: &St, with_parts: bool) -> Result<(), Signal> {
@@ -336,6 +364,11 @@ impl Session {
         root: &St,
         clean: bool,
     ) -> Option<Effect> {
+        // The host's move that carries the refresh a Lookup left (`lookup_move_refresh`): every control shows the values as they are
+        // now (Y15LookupThreeFieldLink.al:1585-1740 Y80_Y15_Host_*_NoRegions `after move`).
+        if clean && root.borrow().lookup_move_refresh && Rc::ptr_eq(st, root) && target.is_none() {
+            return Some(Effect::Refresh);
+        }
         if !root.borrow().lookup_refresh_used {
             return None;
         }

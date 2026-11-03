@@ -614,6 +614,9 @@ pub struct PageState {
     /// The host's Next is the first call after a Lookup that left its refresh for later: the move runs that refresh too
     /// (`Session::lookup_next_refresh`).
     pub lookup_next_refresh: bool,
+    /// The host's move is the first call after a Lookup that left its refresh for later: the refresh runs after the move
+    /// (`Session::lookup_move_refresh_after`).
+    pub lookup_move_refresh: bool,
     /// That refresh runs on a host without OnAfterGetCurrRecord: its reads differ (`Session::lookup_next_refresh`).
     pub lookup_next_plain: bool,
     /// The host read the row of its unlinked ListPart after that part moved, and has not moved since (`Session::host_follows_part`).
@@ -1042,6 +1045,7 @@ impl PageState {
             lookup_value_set: false,
             lookup_refresh_used: false,
             lookup_next_refresh: false,
+            lookup_move_refresh: false,
             lookup_next_plain: false,
             host_followed_part: false,
             marked_only_by_action: false,

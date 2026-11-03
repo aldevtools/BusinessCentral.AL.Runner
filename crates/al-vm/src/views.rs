@@ -489,7 +489,6 @@ impl Session {
         let mut order_dirs: Option<Vec<bool>> = None;
         let mut sorting_len = 0usize;
         let mut filters: Vec<FieldFilter> = Vec::new();
-        let group_arg = group;
         let group = group.unwrap_or(rec.borrow().filter_group);
         let mut rest = view.trim();
         while !rest.is_empty() {
@@ -574,22 +573,28 @@ impl Session {
                             // member with parentheses keeps its quotes (record/TestCalcFormulaQuotedFilterTests.Codeunit.al:60308).
                             .filter(|v| !v.contains('\'') && !v.contains('"') && v.starts_with(['<', '>']))
                             .unwrap_or(value);
+                        // `const(0D)` on a Date field is the blank date, in every view (Y76ViewBlankDate.al:280
+                        // Y76_Action_RunPageView_Const0D, :293 Y76_Part_SubPageView `const part`).
+                        let const_blank_date = !runtime
+                            && kind == "CONST"
+                            && matches!(ty, al_builtins::value::RtType::Date)
+                            && value.eq_ignore_ascii_case("0d");
+                        let (kind, value) = if const_blank_date {
+                            ("FILTER".to_string(), "")
+                        } else {
+                            (kind, value)
+                        };
                         let empty = self.empty_view_value(&kind, &ty, value, runtime)?;
                         // `filter('')` on a Date field reaches here as an empty value: it selects the blank date, as `filter(0D)`
-                        // (`''` here) does. Pinned for a top-level page's SourceTableView (filter group 2, no SubPageView), by
-                        // OpenView and by Page.Run on a record (pages/lt-cd-testpage-leads/CdTestPageLeads.al:842-870
-                        // SH_SourceTableView_DateFilterBlank_Rows; Item58_SourceTableView_Filter0D at :521 for filter(0D)). An
-                        // action's RunPageView, a part's view or another object's view is the assumption `view-blank-date-filter`.
+                        // (`''` here) does, in a top-level page's SourceTableView (pages/lt-cd-testpage-leads/CdTestPageLeads.al:842
+                        // SH_SourceTableView_DateFilterBlank_Rows; Item58_SourceTableView_Filter0D at :521 for filter(0D)) and in an
+                        // action's RunPageView, a part's SubPageView, a report's, XMLport's and query's view (pages/lt-y76-view-filters/
+                        // Y76ViewBlankDate.al:252 Y76_Action_RunPageView_Blank, :293 Y76_Part_SubPageView, :325, :346, :368).
                         let value = if empty.is_none()
                             && kind == "FILTER"
                             && matches!(ty, al_builtins::value::RtType::Date)
                             && value.trim().is_empty()
                         {
-                            if !(group_arg == Some(2) && !keep_unnamed) {
-                                al_builtins::assumptions::assume(
-                                    al_builtins::assumptions::Assumption::ViewBlankDateFilter,
-                                );
-                            }
                             "''"
                         } else {
                             value

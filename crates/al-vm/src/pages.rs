@@ -171,6 +171,8 @@ mod background;
 mod flowfield_hidden;
 pub(crate) use background::BgWorker;
 mod filter;
+mod filter_enum;
+mod param_read;
 mod parts;
 mod read_backwards;
 mod text_control_value;

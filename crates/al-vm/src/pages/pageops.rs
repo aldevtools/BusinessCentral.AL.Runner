@@ -240,9 +240,11 @@ impl Session {
                 self.pending_add_in_reread(&st, method.method())?;
                 let arg_false = matches!(args.first(), Some(Value::Boolean(false)));
                 self.lookup_refresh_deferred_call(method, &st, None)?;
-                self.marked_only_unshown_call(method, &st, |s| {
+                let moved = self.marked_only_unshown_call(method, &st, |s| {
                     s.shown_client_call(method, &st, None, arg_false, |s| s.test_page_op_held(method, &st, args))
-                })
+                })?;
+                self.lookup_move_refresh_after(&st, &moved)?;
+                Ok(moved)
             }
             Some(Value::TestControl(c)) => {
                 let c = c.clone();
