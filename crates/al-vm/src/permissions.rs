@@ -103,6 +103,13 @@ impl Content {
         merge(wild, own)
     }
 
+    /// The level a grant that names object `(kind, id)` gives permission `p`, without the kind's wildcard.
+    pub(crate) fn named_level(&self, kind: i32, id: u32, p: usize) -> u8 {
+        self.explicit
+            .binary_search_by_key(&(kind, id), |&(k, id, _)| (k, id))
+            .map_or(0, |i| self.explicit[i].2[p])
+    }
+
     /// Takes away what the excluded sets grant (`ExcludedPermissionSets`, ADR-062 section 3, probe P11), per permission.
     /// Where the result is not pinned or cannot be held (a wildcard minus one object), it keeps less than BC may: the
     /// content stays a lower bound, and the error names why.
@@ -1114,15 +1121,34 @@ impl Session {
 
     /// Whether the session, restricted by the permission sets a test assigned, may not execute the page `part_page` (the page of a
     /// part). False without a restricted session.
-    pub(crate) fn permission_part_page_off(&self, part_page: Option<usize>) -> Result<bool, Signal> {
+    ///
+    /// `unguarded`: the part has no AccessByPermission. It also needs Execute on the source table of the part page (Y90PermParts.al:20-62,
+    /// 64-78: an exact set granting the card, the part page and even every page and codeunit leaves the part off; `table "LT Y90 Row" = X`
+    /// or all wildcards puts it on; Y90_Part_ExactB `b_table_x`).
+    pub(crate) fn permission_part_page_off(&self, part_page: Option<usize>, unguarded: bool) -> Result<bool, Signal> {
         let (Some(eff), Some(page)) = (self.permissions.as_ref(), part_page) else {
             return Ok(false);
         };
         if self.ignore_permission_mock {
             return Ok(false);
         }
-        let access = self.execute_access(page);
-        if access.kind < 0 || eff.level(access) == 1 {
+        let mut accesses = vec![self.execute_access(page)];
+        if unguarded {
+            let o = &self.engine.program.objects[page];
+            let table = o.rec_slot.and_then(|s| match o.globals.get(s).map(|g| &g.ty) {
+                Some(al_builtins::value::RtType::Record(t, _)) => Some(*t as usize),
+                _ => None,
+            });
+            if let Some(t) = table {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageCalleeAndPartShapes);
+                accesses.push(Access {
+                    kind: 1,
+                    id: self.engine.program.objects.heads()[t].id.unwrap_or(0),
+                    op: Op::Execute,
+                });
+            }
+        }
+        if accesses.iter().all(|a| a.kind < 0 || eff.level(*a) == 1) {
             return Ok(false);
         }
         if eff.complete {
