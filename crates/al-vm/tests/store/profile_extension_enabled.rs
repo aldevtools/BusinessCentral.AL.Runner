@@ -41,14 +41,26 @@ codeunit 50100 C {
 
 fn run() -> Result<Value, Signal> {
     let (ws, l) = al_sema::lower::compile(
-        vec![AppSource { id: "a".into(), name: "a".into(), dependencies: vec![], files: vec![("f.al".into(), SRC.into())] }],
+        vec![AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![("f.al".into(), SRC.into())],
+        }],
         &Default::default(),
     );
     assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-    let blocked: Vec<Vec<Option<String>>> =
-        l.unsupported.iter().map(|o| o.iter().map(|r| r.first().cloned()).collect()).collect();
+    let blocked: Vec<Vec<Option<String>>> = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
-    let ri = l.program.objects[oi].routines.iter().position(|r| r.name == "F").unwrap();
+    let ri = l.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == "F")
+        .unwrap();
     let mut s = Session::new(Engine::new(l.program, blocked));
     let inst = s.instance(oi);
     s.call(oi, ri, inst, vec![]).map(|(v, _)| v)
