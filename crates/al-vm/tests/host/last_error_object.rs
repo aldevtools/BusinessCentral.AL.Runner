@@ -262,3 +262,23 @@ fn to_string_of_an_asserterror_error_names_the_assert_frame_without_a_guessed_na
     assert!(r.contains("\n   at NavMethodScope.AssertErrorAsync\n"), "{r}");
     assert!(!r.contains("Nav.Runtime.NavMethodScope"), "{r}");
 }
+
+/// GetLastErrorObject.al:Observer.Expect('toStringFirstLine', 'NavALException: Attempted to divide by zero.') ends the first line
+/// there; Y76DotNet.al Y76_*_Division reads the text before the first frame, line breaks removed, as
+/// `NavALException: Attempted to divide by zero. ---> System.DivideByZeroException: Attempted to divide by zero.` So the inner
+/// exception starts on the second line.
+#[test]
+fn to_string_of_a_division_error_puts_the_inner_exception_on_the_second_line() {
+    let r = text(run(
+        "procedure F(): Text var T: Codeunit \"LEO Thrower\"; Exc: DotNet LeoExc; begin T.SetMode(3); if T.Run() then exit('ran'); Exc := GetLastErrorObject(); exit(Exc.ToString()); end;",
+    ));
+    let mut lines = r.split('\n');
+    assert_eq!(
+        lines.next(),
+        Some("Microsoft.Dynamics.Nav.Types.Exceptions.NavALException: Attempted to divide by zero.")
+    );
+    assert_eq!(
+        lines.next(),
+        Some(" ---> System.DivideByZeroException: Attempted to divide by zero.")
+    );
+}

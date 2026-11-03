@@ -198,7 +198,7 @@ pub(crate) fn exception_text(session: &Session, this: &Rc<DotNetObject>) -> Resu
     // frame by name). The rest of each line and the frames between are not pinned: the assumption stays.
     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ExceptionToStringStackFrames);
     if type_name == AL_EXCEPTION {
-        out.push_str(&format!(" ---> {DIVIDE_BY_ZERO_EXCEPTION}: {msg}"));
+        out.push_str(&format!("\n ---> {DIVIDE_BY_ZERO_EXCEPTION}: {msg}"));
     }
     if let Some((id, name)) = frames.first().and_then(|f| codeunit_frame(f))
         && name != "OnRun"
