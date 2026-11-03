@@ -161,19 +161,30 @@ impl Session {
     /// ModifyAllowed is not false; whether such code runs, and any other shape, are not pinned and stay refused.
     pub(super) fn request_ok_writes_changed_row(&mut self, st: &St, action: &str) -> Result<bool, Signal> {
         let object = st.borrow().object as usize;
-        if action != "OK" || st.borrow().draft || flag_denied(&self.engine(), object, "ModifyAllowed")? {
+        // Cancel writes it too, when ModifyAllowed is not false, before the row is read again (report/lt-y80-reportext-request-page/
+        // Y80ReportExtRequestPage.al Y80_RX_SetTxt_Cancel `rows` = `[10|typed|1]...`); OnModifyRecord of the page and of its
+        // extension run first (`base modify typed | ext modify -`, Y80_RX_SetTxt_OK).
+        if !matches!(action, "OK" | "Cancel")
+            || st.borrow().draft
+            || flag_denied(&self.engine(), object, "ModifyAllowed")?
+        {
             return Ok(false);
         }
-        if self.declares(st, "onmodifyrecord") || self.engine().events.is_subscribed(object, "onmodifyrecordevent") {
+        if self.engine().events.is_subscribed(object, "onmodifyrecordevent") {
             return Ok(false);
         }
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
-        if rec.borrow().temporary
-            || self.has_write_hooks(&table)?
-            || self.global_enabled(&table, crate::globaltriggers::GlobalOp::Modify)?
-        {
+        if rec.borrow().temporary || self.global_enabled(&table, crate::globaltriggers::GlobalOp::Modify)? {
             return Ok(false);
+        }
+        // The table's own code at that write (OnModify, its extensions', the table events) is not observed by the pinning
+        // cases, and no Microsoft test needs it, so it is refused (needs probe: docs/probes-needed.md
+        // "request page close writes a changed row: table code").
+        if self.has_write_hooks(&table)? {
+            return unsupported(format!(
+                "{action} on a request page with a changed row of a table that runs code when it is written (only a table without OnModify, extension triggers and table events is pinned)"
+            ));
         }
         Ok(true)
     }
@@ -281,6 +292,7 @@ impl Session {
         }
         self.rename_changed_key_at_close(st, action)?;
         let host_saves = st.borrow().dirty || st.borrow().draft;
+        self.refuse_part_triggers_at_new_host_close(st)?;
         let save = self.close_denied_modify(st).and_then(|()| self.close_save_row(st));
         match save {
             Err(Signal::Error(e)) if swallow_save_errors => {
@@ -361,8 +373,14 @@ impl Session {
         // (report/lt-request-page-record-triggers/RequestPageOnAfterGetCurrRecord.al:P195_RequestPage_Cancel_Order `e4`, _OpenThenOk_Order).
         if via_action
             && action == "Cancel"
+            && !st.borrow().request_new_blank
             && self.engine.program.objects[st.borrow().object as usize].is_kind(al_ir::ObjKind::Report)
         {
+            // With a source table the row is read again first (OnAfterGetRecord; report/lt-y80-reportext-request-page/
+            // Y80ReportExtRequestPage.al Y80_RX_ReadOnly_Cancel `after run log`).
+            if self.has_source(st) {
+                self.page_trigger(st, "onaftergetrecord", vec![])?;
+            }
             self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
         }
         // An AL error raised in OnQueryClosePage is shown as a message and refuses the close

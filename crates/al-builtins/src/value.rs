@@ -808,6 +808,13 @@ pub struct PageState {
     /// and a read of a host field are pinned for it, and a part field read or First that inserts it (pages/
     /// lt-part-line-before-host-key/PartLineBeforeHostKey.al QH_BlankRows_*).
     pub new_host_part_rows: bool,
+    /// New() on the request page of a report landed on a blank row that nothing stores (Y80_RX_New_*).
+    pub request_new_blank: bool,
+    /// A new host card or document that a first part access stored with its blank key (pages/lt-y80-new-host-key/Y80NewHostKey.al
+    /// Y80_NH_*): a key typed afterwards runs its OnValidate, then the page shows and stores the old key again.
+    pub host_stored_blank_key: bool,
+    /// A field outside the key was typed on that host row: its parts read their rows again (once is pinned).
+    pub blank_key_edit_reread: bool,
     /// `P.Editable(false)` or `P.Editable := false` on a Page variable before it runs: the page
     /// opens non-editable (handlers/TestPageVariableEditableContracts.al).
     pub editable_preset: Option<bool>,
@@ -1117,6 +1124,9 @@ impl PageState {
             shows_sibling_save: None,
             part_accessed: false,
             new_host_part_rows: false,
+            request_new_blank: false,
+            host_stored_blank_key: false,
+            blank_key_edit_reread: false,
             editable_preset: None,
             caption: None,
             parts: Vec::new(),

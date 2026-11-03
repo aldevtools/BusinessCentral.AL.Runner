@@ -22,6 +22,31 @@ impl Session {
         mode
     }
 
+    /// New() on the request page of a report with a source table, standing on an unchanged stored row: the page shows a blank
+    /// row, runs OnAfterGetCurrRecord (base, then extensions) for it and no OnNewRecord, and stores nothing; closing with OK or
+    /// Cancel then runs only the close triggers (report/lt-y80-reportext-request-page/Y80ReportExtRequestPage.al Y80_RX_New_OK
+    /// `new log` = `base agcr 0 | ext agcr 0`, Y80_RX_New_Cancel `after run log`). Any call after it is refused.
+    fn request_new_blank_row(&mut self, st: &St) -> Result<bool, Signal> {
+        let shape = {
+            let s = st.borrow();
+            s.open && !s.draft && !s.dirty && s.cursor == Cursor::Row && s.host.is_none() && s.parts.is_empty()
+        } && self.has_source(st)
+            && !self.page_rec(st).borrow().temporary;
+        if !shape {
+            return Ok(false);
+        }
+        let rec = self.page_rec(st);
+        let table = rec.borrow().table as usize;
+        let fresh = self.initial_fields(table);
+        rec.borrow_mut().fields = fresh;
+        {
+            let mut s = st.borrow_mut();
+            s.request_new_blank = true;
+        }
+        self.current_record_trigger(st, None)?;
+        Ok(true)
+    }
+
     /// `TestPage.New()` (corpus handlers/TestPageInsertAllowed_Tests.al:70 New_OnInsertAllowedFalsePage_IsDenied,
     /// handlers/TestPageOpenNewAfterGetCurrRecord.al New_OnAnOpenCard_RunsOnAfterGetCurrRecordForTheNewRecord).
     pub(super) fn new_record(&mut self, st: &St) -> Result<Value, Signal> {
@@ -40,6 +65,9 @@ impl Session {
                 let s = st.borrow();
                 s.dirty && !s.draft && s.cursor == Cursor::Row
             };
+            if !changed && self.request_new_blank_row(st)? {
+                return Ok(Value::Null);
+            }
             return unsupported(if changed {
                 "New() on a request page after a changed row (whether the request page writes the row it leaves is not pinned)"
             } else {
@@ -728,6 +756,51 @@ impl Session {
         modified?;
         st.borrow_mut().dirty = false;
         self.set_xrec(st);
+        Ok(())
+    }
+
+    /// Close inserts a new Document or Card host whose key was typed, over a part that shows no row, declares OnNewRecord or
+    /// OnAfterGetCurrRecord and that the test never called: BC runs neither trigger then (pages/lt-part-line-before-host-key/
+    /// PartLineBeforeHostKey.al:1468 QH_EmptyPart_OpenNew_KeyTyped, `close` = `[H.OnInsert:Q1]`), the relink after the insert does.
+    /// Refused until the relink is told apart. A key given by the table's OnInsert, a part the test called or a typed line relinks
+    /// as before.
+    pub(super) fn refuse_part_triggers_at_new_host_close(&mut self, st: &St) -> Result<(), Signal> {
+        {
+            let s = st.borrow();
+            if !(s.draft && s.dirty && s.host.is_none() && !s.parts.is_empty()) {
+                return Ok(());
+            }
+        }
+        let rec = self.page_rec(st);
+        let key_typed = {
+            let initial = self.initial_fields(rec.borrow().table as usize);
+            let table = self.table(&rec)?;
+            let r = rec.borrow();
+            table.keys[0]
+                .iter()
+                .any(|&p| al_builtins::ops::compare(&r.fields[p], &initial[p]).ok() != Some(std::cmp::Ordering::Equal))
+        };
+        if !key_typed {
+            return Ok(());
+        }
+        let parts: Vec<St> = st.borrow().parts.iter().map(|(_, c)| c.clone()).collect();
+        for c in &parts {
+            if c.borrow().part_accessed || (c.borrow().draft && c.borrow().dirty) {
+                continue;
+            }
+            let object = c.borrow().object as usize;
+            let observes = ["onnewrecord", "onaftergetcurrrecord"]
+                .iter()
+                .any(|t| self.declares(c, t))
+                || ["onnewrecordevent", "onaftergetcurrrecordevent"]
+                    .iter()
+                    .any(|t| self.engine().events.is_subscribed(object, t));
+            if observes && c.borrow().cursor != Cursor::Row && self.has_source(c) {
+                return unsupported(
+                    "closing a new host row while a part that shows no row declares OnNewRecord or OnAfterGetCurrRecord (BC runs neither, the relink does; not implemented)",
+                );
+            }
+        }
         Ok(())
     }
 
