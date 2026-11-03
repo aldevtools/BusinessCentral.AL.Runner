@@ -35,3 +35,16 @@ fn the_evaluate_error_of_a_legacy_boolean_is_german_under_1031() {
         "Der Wert „Yes“ kann nicht in Typ Boolean ausgewertet werden.|Evaluate"
     );
 }
+
+const GERMAN_DATE: &str = "Das Format Date „31.12.2024“ stimmt nicht mit den Datumseinstellungen Ihres Geräts überein.\\\\Stellen Sie sicher, dass Tag, Monat und Jahr die richtige Reihenfolge aufweisen und das richtige Trennzeichen verwendet wird (z. b. - oder /). Alternativ können Sie das Format „jjjj-mm-tt“ verwenden.|Evaluate";
+
+#[test]
+fn the_error_of_a_date_nobody_reads_is_german_under_1031() {
+    // Y83XpMiscTests.al:DateDecimal_XML_German `31.12.2024` (needs the corpus bump), a port without FormatEvaluate and a Legacy one.
+    for src in [SRC.replace("FormatEvaluate = Legacy; ", ""), SRC.to_string()] {
+        let src = src
+            .replace("field(2; Flag; Boolean)", "field(2; Flag; Date)")
+            .replace("<Flag>Yes</Flag>", "<Flag>31.12.2024</Flag>");
+        assert_eq!(al_testkit::text(al_testkit::run_in(&src, "C", "F")), GERMAN_DATE);
+    }
+}

@@ -1393,13 +1393,17 @@ fn the_save_as_of_a_report_with_the_format_region_property_is_refused_for_its_he
     }
 }
 
-// `Format` in OnInitReport of a report with the FormatRegion property: whether it already follows the report's region is not
-// pinned (the corpus reports format only in OnAfterGetRecord, report/lt-y-report-props/YReports.al:32-48), so it is refused
-// rather than written in the session's en-US.
+// `Format` in OnInitReport of a report with the FormatRegion property writes en-US: the region is not applied yet
+// (report/lt-bd-format-region/BdRegionTests.al:120 BdProperty_De_DatasetAndFormat `init=1,234,567.891#... region=[]` for de-DE;
+// the same text, `region=[]`, in the 13 property values that file measures). The SaveAs of this report still stops, at the
+// header of the dataset (its elements outside Language and FormatRegion are not pinned in a region), not at the Format call.
 #[test]
-fn format_in_oninitreport_of_a_report_with_the_format_region_property_is_refused() {
+fn format_in_oninitreport_of_a_report_with_the_format_region_property_is_not_refused() {
     let r = refusal("var H: Codeunit Helpers; All: Text; begin H.Seed(); All := H.Dataset(68394, ''); exit(All); end;");
-    assert!(r.contains("OnInitReport") && r.contains("de-DE"), "{r}");
+    assert!(
+        !r.contains("OnInitReport") && r.contains("the header of the SaveAs Xml dataset"),
+        "{r}"
+    );
 }
 
 // P138ColCaptionQualified.al:QS_Labels_WhenNoRows: the label of a field written with the name of the own, the parent, a child or an

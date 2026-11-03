@@ -1143,6 +1143,18 @@ pub fn platform_table_scopes_known(bc_major: Option<u32>) -> bool {
 /// The evidence of [`Gate::ProbedValuesDifferFrom28`], out of `Gate::evidence` to keep that function short.
 const PROBED_VALUES_DIFFER_FROM_29: &[Evidence] = &[
     Evidence {
+        file: "fieldref/lt-y80-user-name-fields/Y80UserNameFieldExist.al",
+        lines: "54,73,98,130,199",
+    },
+    Evidence {
+        file: "pages/lt-y80-gone-rows/Y80GoneRows.al",
+        lines: "1699,1738,1745,1752,1759",
+    },
+    Evidence {
+        file: "report/lt-cj-report-leads/CjWordSections.al",
+        lines: "149,166",
+    },
+    Evidence {
         file: "pages/lt-y65-cue-visible/Y65CueVisible.al",
         lines: "314",
     },
@@ -1229,6 +1241,18 @@ const PROBED_VALUES_DIFFER_FROM_29: &[Evidence] = &[
 ];
 
 const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
+    Evidence {
+        file: "pages/lt-y74-fqn-run/Y74FqnRunForms.al",
+        lines: "7",
+    },
+    Evidence {
+        file: "pages/lt-y80-new-host-key/Y80NewHostKey.al",
+        lines: "243,287,331,375,429,483,527,571,678,722,766,810,864,960,1004",
+    },
+    Evidence {
+        file: "record/lt-testfield-typed-values/FieldRefTestFieldMismatchedType.al",
+        lines: "213,302,354",
+    },
     Evidence {
         file: "misc/lt-y70-assumptions/Y70Probes.al",
         lines: "461,466,471,497,502,809",
