@@ -40,7 +40,7 @@ pub(crate) mod profile_settings;
 pub(crate) mod profiles;
 pub(crate) mod ranges;
 mod reports;
-mod seed;
+pub(crate) mod seed;
 mod tenant_compose;
 mod tenant_media_row;
 mod windows_language_rows;
