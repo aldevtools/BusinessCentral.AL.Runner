@@ -1664,6 +1664,9 @@ impl Session {
             p.refresh = false;
             p.dirty = false;
         }
+        if both {
+            self.refuse_both_on_later_row(st)?;
+        }
         self.set_xrec(st);
         if !both {
             self.sync_part(&host, c, st)?;
@@ -1753,6 +1756,9 @@ impl Session {
             p.refresh = false;
             p.dirty = false;
         }
+        if both {
+            self.refuse_both_on_later_row(st)?;
+        }
         self.set_xrec(st);
         if !both {
             if !self.part_keeps_later_row(st)? {
@@ -1771,6 +1777,25 @@ impl Session {
         r?;
         self.set_xrec(host);
         Ok(true)
+    }
+
+    /// A part with UpdatePropagation Both on a stored row other than the first of its view, after its code ran `CurrPage.Update`:
+    /// the host reads its row and the parts read their rows again, and which row the part shows afterwards (and where the next
+    /// SetValue is stored) is not pinned: ThPartUpdateCursor.al:373 and :437 pin a later row only without Both, QjPartPropagation.al:1224,
+    /// :2156 and :2212 pin Both only on a one-row part (al-runner issue 6877, probe wanted). Refused before the part or the host is
+    /// touched.
+    fn refuse_both_on_later_row(&mut self, st: &St) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        let rows = self.view_rows(&rec, Self::WINDOW + 1)?;
+        let table = self.table(&rec)?;
+        let held = self.row_key(&rec)?;
+        let at = rows.iter().position(|r| Self::same_key(&table.primary_key(r), &held));
+        if at.is_some_and(|n| n > 0) {
+            return unsupported(
+                "a part with UpdatePropagation Both that runs CurrPage.Update on a row other than its first (which row it shows then is not pinned)",
+            );
+        }
+        Ok(())
     }
 
     /// A ListPart on a stored row other than the first of its view, after its control's OnValidate ran `CurrPage.Update` on a
