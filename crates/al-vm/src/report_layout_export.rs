@@ -63,18 +63,28 @@ impl Session {
                 name.unwrap_or_default()
             ));
         };
-        let Some(bytes) = engine
-            .program
-            .apps
-            .get(found.app)
+        let app = engine.program.apps.get(found.app);
+        let held = app
             .and_then(|a| a.layout_files.iter().find(|(p, _)| *p == found.path))
-            .map(|(_, b)| b)
-        else {
+            .map(|(_, b)| std::borrow::Cow::Borrowed(b.as_slice()));
+        // A Microsoft app read from its package keeps its layout files in the package and serves one when it is asked for.
+        // Microsoft's own tests need it (MailServiceTest.Codeunit.al: `CustomReportLayout.InitBuiltInLayout(ReportID,
+        // Type::Word)`, and many more in Tests-Report/ReportLayoutTest): nothing pins that BC exports the source file's bytes
+        // unchanged, since the compiler may rewrite the file at build (Y17LayoutExportTests.al:5-9), so the path is flagged.
+        let served = held.is_none().then(|| {
+            let bytes = app?.layout_source.as_ref()?.0.file(&found.path)?;
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::PackageLayoutFileIsTheCompiledLayout,
+            );
+            Some(std::borrow::Cow::Owned(bytes))
+        });
+        let Some(bytes) = held.or(served.flatten()) else {
             return unsupported(format!(
-                "Media.ExportStream of the Layout of a Report Layout List row: the layout file {} of layout '{}' is not held by its app (a Microsoft app read from its package keeps no layout files)",
+                "Media.ExportStream of the Layout of a Report Layout List row: the layout file {} of layout '{}' is not held by its app (a Microsoft app read from a compiled package keeps no layout files)",
                 found.path, found.name
             ));
         };
+        let bytes: &[u8] = &bytes;
         if found.kind == "word"
             && let Some(other) = word_part_report(bytes).filter(|id| Some(*id) != report_id)
         {
