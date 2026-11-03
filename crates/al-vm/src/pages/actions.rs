@@ -1035,11 +1035,9 @@ impl Session {
         Ok(Value::Null)
     }
 
-    /// `TestAction.Invoke`: runs the action's OnAction when it is enabled; a disabled action
-    /// does nothing and raises nothing (corpus handlers/TestPageActionEnabledSourceField_Tests.al,
-    /// TPAE_ActionEnabledBoolField_FalseRow_IsDisabledAndItsTriggerIsSkipped).
+    /// `TestAction.Invoke`: runs the action's OnAction when it is enabled; a disabled action does nothing and raises nothing
+    /// (corpus handlers/TestPageActionEnabledSourceField_Tests.al, TPAE_ActionEnabledBoolField_FalseRow_IsDisabledAndItsTriggerIsSkipped).
     pub(super) fn action_invoke(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
-        st.borrow_mut().action_ran = true;
         if st.borrow().expr_set_no_source {
             return unsupported(
                 "an action after a SetValue on a control bound to an expression of a page with no source table (the refresh after the action is not modelled)",
@@ -1061,6 +1059,7 @@ impl Session {
             s.marking_action = !marked_only_before || again_with_part;
             s.unmarking_action = marked_only_before && again_with_part;
             s.marked_rows_held = false;
+            s.action_ran = true;
         }
         let view_before = self.has_source(st).then(|| ListView::of(&self.page_rec(st).borrow()));
         let outer_view = std::mem::replace(
