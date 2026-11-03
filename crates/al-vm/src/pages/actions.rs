@@ -204,8 +204,7 @@ impl Session {
             // control's current text (assumed, docs/probes-needed.md).
             let object = owner.unwrap_or(st.borrow().object as usize);
             let inst = self.owner_instance(st, owner);
-            let current = self.control_value(st, idx)?;
-            let shown = self.control_text(st, idx, &current)?;
+            let shown = self.lookup_start_text(st, idx, object, routine)?;
             self.lookup_trigger_call(st, object, routine, inst, vec![Value::Text(shown.into())])
                 .and_then(|(v, finals)| match (v, finals.first()) {
                     (Value::Boolean(true), Some(Value::Text(t))) => {
@@ -3911,9 +3910,9 @@ fn simple_relation(text: &str) -> Option<(String, Option<String>)> {
 fn action_error_code(code: &str, message: &str) -> String {
     match code {
         "Dialog" | "MissingUIHandler" | "TestField" => format!("TestWrapped:{code}"),
-        // A call of a control add-in procedure (lt-ac/ACControlAddIn.al TZ_TwoProceduresFromActions_PageStaysUsable,
-        // pages/lt-ao-testpage/AoTests.al:794 AddinProcedureFromAction).
+        // A control add-in procedure call (lt-ac/ACControlAddIn.al TZ_TwoProceduresFromActions_PageStaysUsable, AoTests.al:794).
         crate::control_add_in::NOT_CREATED => format!("TestWrapped:{code}"),
+        c if crate::permission_triggers::wraps_as_permission(c, message) => "TestWrapped:Permission".into(),
         "DB:RecordNotFound" => "TestWrapped:CSideRecordNotFound".into(),
         "DB:RecordExists" if message.starts_with("The record in table ") => "TestWrapped:CSideDuplicateKey".into(),
         c if c.starts_with("TestWrapped") || c == al_builtins::native::UNPINNED_ERROR => c.into(),

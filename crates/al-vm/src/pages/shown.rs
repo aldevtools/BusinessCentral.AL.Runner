@@ -445,7 +445,11 @@ impl Session {
             .map(|(_, v)| v.clone());
         let Some(kept) = kept else {
             let doubts = st.borrow().shown_doubts;
-            if doubts & !(DOUBT_KEPT | DOUBT_ASSUMED | DOUBT_LOOKUP) != 0 {
+            // The write-back of a Lookup's picked text reads the old value only to compare (`lookup_setting_value`): nothing of the
+            // test sees it, so a doubt about a refresh does not matter there (Y15LookupThreeFieldLink.al:1678
+            // Y80_Y15_Host_First_NoRegions: First after Last, a Lookup, a move, then the reads).
+            let internal = st.borrow().lookup_setting_value;
+            if !internal && doubts & !(DOUBT_KEPT | DOUBT_ASSUMED | DOUBT_LOOKUP) != 0 {
                 return unsupported(format!(
                     "control {} shows an expression computed when it is read, after {}, whose refresh of the page is not pinned",
                     page_of(&self.engine(), st).controls[idx].name,

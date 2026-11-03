@@ -759,6 +759,8 @@ pub(super) fn run_main(main: &str, opts: &RunOptions) -> CorpusRuntime {
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         translations: false,
+        package_data: false,
+        package_data_files: Vec::new(),
         translation_files: Vec::new(),
         runtime: None,
         app_json_keys: Vec::new(),

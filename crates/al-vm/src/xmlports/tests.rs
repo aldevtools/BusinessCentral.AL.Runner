@@ -17,11 +17,11 @@ fn a_variable_text_record_splits_into_its_values() {
     );
 }
 
-// platform/lt-xmlport-session-navapp-cookie/P94XpDelim.al:Getters_Declared, Getters_DeclaredTwoTables
+// platform/lt-xmlport-session-navapp-cookie/P94XpDelim.al:Getters_* (escaped alike); xmlport/lt-y88-xmlport/Y88XmlPortProbes.al:Y88_VariableText_DeclaredSeparatorGetters (real characters)
 #[test]
-fn a_declared_separator_reads_back_as_backslash_text() {
-    assert_eq!(declared_separator("<CR/LF>").unwrap(), "\\r\\n");
-    assert_eq!(declared_separator("<LF>").unwrap(), "\\n");
+fn a_declared_separator_reads_back_as_its_characters() {
+    assert_eq!(declared_separator("<CR/LF>").unwrap(), "\r\n");
+    assert_eq!(declared_separator("<LF>").unwrap(), "\n");
     assert_eq!(declared_separator("<None>").unwrap(), "");
     assert_eq!(declared_separator(";").unwrap(), ";");
     assert!(declared_separator("<Space>").is_err());

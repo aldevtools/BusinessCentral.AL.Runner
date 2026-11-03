@@ -2,8 +2,8 @@
 //! report/lt-requestpage-savevalues-date-text-setvalue/P147SaveValuesFilter.al:P147_Filter_SetTableViewVsStored: the
 //! data item filter confirmed by OK is the filter the next instance's request page shows). The stored record is a copy:
 //! filters the report body sets after the page closed are not request page values and must not reach a later
-//! instance (al-runner issue 6065, the reporter's cases). A filter edit closed by Cancel is not kept, on the
-//! assumption request-page-cancel-keeps-saved-filters.
+//! instance (al-runner issue 6065, the reporter's cases). A filter edit closed by Cancel is not kept: pinned by
+//! report/lt-y86-request-page/Y86RequestFilters.al:435 (Y86_CancelKeeps_FilterChangedThenCancel), so the pass is clean.
 
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
@@ -186,22 +186,22 @@ fn results() -> Vec<(String, Outcome, Vec<&'static str>)> {
 fn body_filters_do_not_reach_a_later_instance() {
     let r = results();
     for name in ["TwoVariables", "ClearOneVariable", "OneRunA", "OneRunB"] {
-        let (_, o, a) = r
+        let (_, o, _) = r
             .iter()
             .find(|(t, _, _)| t == name)
             .unwrap_or_else(|| panic!("no {name} in {r:?}"));
         assert_eq!(*o, Outcome::Pass, "{name}: {r:?}");
-        assert!(!a.contains(&"request-page-cancel-keeps-saved-filters"), "{name}: {a:?}");
     }
 }
 
 #[test]
-fn a_cancelled_filter_edit_is_not_kept() {
+fn a_cancelled_filter_edit_is_not_kept_and_the_pass_is_clean() {
     let r = results();
     let (_, o, a) = r
         .iter()
         .find(|(t, _, _)| t == "ZCancelledEditNotKept")
         .unwrap_or_else(|| panic!("{r:?}"));
     assert_eq!(*o, Outcome::Pass, "{r:?}");
-    assert!(a.contains(&"request-page-cancel-keeps-saved-filters"), "{a:?}");
+    // Pinned (Y86RequestFilters.al:435), so the old assumption request-page-cancel-keeps-saved-filters is gone: a clean pass.
+    assert!(a.is_empty(), "{a:?}");
 }

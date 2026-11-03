@@ -47,7 +47,7 @@ impl Session {
         let engine = self.engine();
         let page = page_of(&engine, st);
         for (i, c) in page.controls.iter().enumerate() {
-            if c.kind != ir::ControlKind::Part || self.control_eliminated(st, i) || self.area_removed(st, i) {
+            if c.kind != ir::ControlKind::Part || self.control_eliminated(st, i) || self.part_removed(st, i)? {
                 continue;
             }
             let Some(part_page) = c.part_page else {
@@ -381,7 +381,7 @@ impl Session {
                         .iter()
                         .find(|(i, _)| *i == control)
                         .map(|(_, c)| c.clone())
-                        .filter(|_| !(self.control_eliminated(st, control) || self.area_removed(st, control)));
+                        .filter(|_| !(self.control_eliminated(st, control) || self.off_page(st, control)));
                     if let Some(c) = hidden {
                         return Ok(c);
                     }
@@ -419,7 +419,7 @@ impl Session {
                 .map(|(_, c)| c.clone())
                 // A part the session's application areas removed is not on the test page either (types/lt-conversions-hidden-parts-doctype/
                 // P142HiddenPartArea.al:P142_ServiceAreaPartRemoved: `The part with ID = n was not found on the page.`).
-                .filter(|_| runtime || !(self.control_eliminated(st, control) || self.area_removed(st, control)))
+                .filter(|_| runtime || !(self.control_eliminated(st, control) || self.off_page(st, control)))
         });
         // A part the control tree dropped (Visible = false, or an ApplicationArea the session does not enable) is
         // still there for the page's own code: Base Application's Sales Credit Memo calls

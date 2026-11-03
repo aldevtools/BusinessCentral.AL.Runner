@@ -247,37 +247,3 @@ fn issue_6806_a_part_move_after_the_lookup_on_three_parts_is_refused() {
         "{g}"
     );
 }
-
-/// The rule for three or more parts is an awaiting assumption until the corpus pin holds R6806LookupParts.al.
-#[test]
-fn issue_6806_the_many_part_lookups_flag_the_assumption() {
-    let l = al_testkit::compile(SRC);
-    let engine = al_vm::Engine::new(l.program.clone(), al_testkit::blocked(&l));
-    let oi = l
-        .program
-        .objects
-        .iter()
-        .position(|o| o.name == "Repro Lookup Link Tests")
-        .unwrap();
-    let mut hits = Vec::new();
-    al_testrun::runtime::run_codeunit_full(
-        &engine,
-        &l,
-        oi,
-        None,
-        al_testrun::isolation::TestIsolation::Codeunit,
-        None,
-        &mut Vec::new(),
-        &mut Vec::new(),
-        &mut hits,
-        None,
-    );
-    for n in ["PartsABL", "PartsLAB", "PartsALB", "PartsABLK", "PartsABCL"] {
-        let h = hits
-            .iter()
-            .find(|(t, _)| t == n)
-            .map(|(_, h)| format!("{h:?}"))
-            .unwrap_or_default();
-        assert!(h.contains("LookupLinkDefersRefreshWithManyParts"), "{n} marks {h}");
-    }
-}

@@ -1,4 +1,5 @@
 //! Lowering of page control trees, `RunObject` and part links.
+use super::shared::with_field_guard;
 use super::*;
 
 impl Lowerer<'_> {
@@ -482,8 +483,8 @@ impl Lowerer<'_> {
                 name: raw.name.clone(),
                 kind: raw.kind.clone(),
                 parent: raw.parent,
+                props: with_field_guard(self.members, table, &binding, raw.owner, props),
                 binding,
-                props,
                 triggers,
                 part_page,
                 part_link,

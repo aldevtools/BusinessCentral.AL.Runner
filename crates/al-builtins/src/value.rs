@@ -614,6 +614,9 @@ pub struct PageState {
     /// The host's Next is the first call after a Lookup that left its refresh for later: the move runs that refresh too
     /// (`Session::lookup_next_refresh`).
     pub lookup_next_refresh: bool,
+    /// The host's move is the first call after a Lookup that left its refresh for later: the refresh runs after the move
+    /// (`Session::lookup_move_refresh_after`).
+    pub lookup_move_refresh: bool,
     /// That refresh runs on a host without OnAfterGetCurrRecord: its reads differ (`Session::lookup_next_refresh`).
     pub lookup_next_plain: bool,
     /// The host read the row of its unlinked ListPart after that part moved, and has not moved since (`Session::host_follows_part`).
@@ -1049,6 +1052,7 @@ impl PageState {
             lookup_value_set: false,
             lookup_refresh_used: false,
             lookup_next_refresh: false,
+            lookup_move_refresh: false,
             lookup_next_plain: false,
             host_followed_part: false,
             marked_only_by_action: false,
@@ -1311,6 +1315,31 @@ pub struct RowOrigin {
     /// `own_write` holds because the buffer read, by Get or GetBySystemId, a version written in the transaction that was open
     /// then, not because the variable wrote it (assumption stale-get-buffer-in-write-transaction, al-runner issue 5913).
     pub read_in_write_tx: bool,
+    /// The buffer got its row version from a TransferFields out of a record, not from a read: only a LockTable and Get of the row
+    /// in the new transaction lets its stale write through, a Modify of the row does not
+    /// (record/lt-sb-stale-own-modify/Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord).
+    pub lock_only: bool,
+    /// The variable's own Modify followed its Insert or Get in the same transaction (a buffer with a Modify and one without are
+    /// told apart by record/lt-sb-stale-own-modify/Y76StaleBuffers.al Y76_Part2_*).
+    pub own_modified: bool,
+    /// The buffer was read by a form of Find no test pins (anything but FindFirst, FindLast and FindSet), or got TransferFields out
+    /// of such a record: a stale write of it is refused (Y76StaleBuffers.al Y76_Part1_* pins FindFirst, FindLast and FindSet only).
+    pub unpinned_read: bool,
+}
+
+impl RowOrigin {
+    /// An origin at `version` with the session's `commits`, no Get in a write transaction, no lock rule and no own Modify.
+    pub fn new(own_write: bool, version: i64, commits: u64) -> RowOrigin {
+        RowOrigin {
+            own_write,
+            version,
+            commits,
+            read_in_write_tx: false,
+            lock_only: false,
+            own_modified: false,
+            unpinned_read: false,
+        }
+    }
 }
 
 /// What an action's `RunPageLink` fills into Rec before OnOpenPage (field position, value) and the link's filters
