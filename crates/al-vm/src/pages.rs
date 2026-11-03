@@ -209,7 +209,6 @@ mod open;
 mod page_get_record;
 mod page_var_view;
 mod pageops;
-mod param_read;
 mod refill;
 mod refresh_new_line;
 mod rows;
