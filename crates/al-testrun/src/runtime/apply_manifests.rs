@@ -20,7 +20,7 @@ pub(super) fn apply(
         app.logo = m.logo.clone();
         app.description = m.description.clone();
         app.layout_files = m.layout_files.clone();
-        (app.translations, app.package_data) = (m.translations, m.package_data);
+        (app.translations, app.package_data, app.package_data_files) = m.shipped_files();
         app.translation_files = m.translation_files.clone();
     }
     for (id, source) in layout_sources {

@@ -1,6 +1,5 @@
 //! Members of platform types that the corpus platform area pins (platform/lt-platform-members, P94NavApp.al).
 
-use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
 // platform/lt-platform-members/PlTSessionSettings.al:103-131 (Properties_EdgeValues): the properties take assignment syntax.
@@ -29,11 +28,10 @@ codeunit 50101 C {
 }";
     let r = al_testkit::text(al_testkit::run(src, "F"));
     assert_eq!(r, "[]NoNoNoNo");
+    // Outside install code LoadPackageData does nothing, for a table of the workspace too
+    // (install/lt-y85-package-data/Y85PackageData.al Y85_Outside_*).
     let r = al_testkit::run(src, "Load");
-    assert!(
-        matches!(&r, Err(Signal::Unsupported(w)) if w.contains("LoadPackageData")),
-        "{r:?}"
-    );
+    assert!(r.is_ok(), "{r:?}");
 }
 
 // platform/lt-platform-members/PlTFilterPageBuilder.al:242-260 (AddFieldNo_Variants) and :97-114 (AddTable_Errors).

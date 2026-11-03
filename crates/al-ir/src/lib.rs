@@ -234,6 +234,11 @@ pub struct AppInfo {
     /// its tables. The runtime refuses a load while this is set: the file format is not pinned. Set by the runner.
     #[serde(default)]
     pub package_data: bool,
+    /// The package data files of an app folder (`*.navxdata`, not those of a nested app): path relative to the app, content.
+    /// Empty for a package, whose files are not read: a load stays refused when `package_data` is set (the place of the
+    /// files in a package is not measured).
+    #[serde(default)]
+    pub package_data_files: Vec<(String, Vec<u8>)>,
     /// The app's translation files as read from an app folder (ADR-053 step 2), applied in a language other than 1033. Empty
     /// for a package, whose files are not read: its translated reads stay refused when `translations` is set.
     #[serde(default)]

@@ -428,6 +428,9 @@ impl al_builtins::native::Ctx for Session {
             .and_then(|o| self.engine.program.apps.get(o.app as usize))
             .is_some_and(|a| !a.dependency && !a.package_data)
     }
+    fn load_package_data(&mut self, table: i32) -> Result<Value, Signal> {
+        Session::load_package_data(self, table)
+    }
     fn install_scope(&self) -> bool {
         self.install_scope
     }
