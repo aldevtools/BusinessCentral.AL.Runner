@@ -111,7 +111,7 @@ fn is_short_filler(name: &str) -> bool {
 /// the code invalid (`< Sign >`, `<Sign ><Integer >`, `<Sign , 1>`), which is left for the code to reject
 /// (types/lt-format-codes-textbuilder-pagerun-labels/P144FormatCodes.al:P144_Int_SignInteger, P144_Int_Precision, P144_Dec_*).
 /// A leading part of `Filler Character` stands for it (`is_short_filler`); `None` when the template needs no change.
-fn canonical_template(template: &str) -> Option<String> {
+fn canonical_template(template: &str, decimal: bool) -> Option<String> {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
     let mut changed = false;
@@ -128,9 +128,15 @@ fn canonical_template(template: &str) -> Option<String> {
             None => (code, None),
         };
         // `<Decimal,3>` is read as `<Decimals,3>` (types/lt-format-currency-prefix/FormatCurrencyPrefix.al:P157_NotAtStart `beforeSign`,
-        // `integerDecimal`: `1234.5` shows `1,234.50` and `1234.50`). The bare `<Decimal>` is not pinned and stays invalid.
+        // `integerDecimal`: `1234.5` shows `1,234.50` and `1234.50`). The bare `<Decimal>` is `<Decimals>` on a Decimal
+        // (types/lt-at-partner-gaps/R6901DecimalFieldFormat.al, `R6901_Decimal_*`: the plain field and the variable); on other
+        // types it is not pinned and stays invalid.
         // `<Int,4>` is `<Integer,4>` (misc/lt-y70-assumptions/Y70Probes.al:65 `int_int` is `0005`).
-        let name = if name.eq_ignore_ascii_case("Decimal") && arg.is_some() {
+        let bare_decimal = decimal && name.eq_ignore_ascii_case("Decimal") && arg.is_none();
+        if bare_decimal {
+            crate::assumptions::assume(crate::assumptions::Assumption::DecimalFieldDigitCodes);
+        }
+        let name = if name.eq_ignore_ascii_case("Decimal") && (arg.is_some() || bare_decimal) {
             "Decimals"
         } else if name.eq_ignore_ascii_case("Int") && arg.is_some() {
             "Integer"
@@ -176,17 +182,20 @@ fn canonical_template(template: &str) -> Option<String> {
 
 /// `Err` names the part of the format string that is not understood.
 pub fn format_with_string(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -> Result<String, String> {
-    format_with_field_places(v, length, template, 0, ctx)
+    format_with_field_places(v, length, template, (0, false), ctx)
 }
 
 /// `format_with_string` of a Decimal field's value already rounded to the field's most places, where `<Decimals>` shows at
 /// least the field's fewest places (DecimalPlaces 2:2 writes `.00` for 5, 0:5 nothing; types/lt-at-partner-gaps/
 /// AtPrecisionStandardFormat2.al:969-1047, RO_FieldFormatStrings_DecimalPlacesFields_*). A `<Decimals,N>` keeps its own width.
+/// `negative_zero`: the field's value was negative and rounded to zero, which `<Sign>` still shows as `-`
+/// (types/lt-at-partner-gaps/R6901DecimalFieldFormat.al, `R6901_SignIntegerDecimal_C` v8).
 pub fn format_with_field_places(
     v: &Value,
     length: i32,
     template: &str,
-    min_decimals: u32,
+    (min_decimals, negative_zero): (u32, bool),
+
     ctx: &dyn FormatCtx,
 ) -> Result<String, String> {
     // A Guid takes no format string without codes: the platform asks for the standard format number -1
@@ -199,7 +208,7 @@ pub fn format_with_field_places(
     if template.contains("<Comma") {
         return comma_template(v, length, template, ctx);
     }
-    let canon = canonical_template(template);
+    let canon = canonical_template(template, matches!(v, Value::Decimal(_)));
     let template = canon.as_deref().unwrap_or(template);
     let mut pieces: Vec<(bool, &str)> = Vec::new();
     let mut rest = template;
@@ -279,7 +288,7 @@ pub fn format_with_field_places(
     {
         return Ok(crate::format::pad(String::new(), length));
     }
-    let numeric = numeric_of(v, &pieces, min_decimals).map_err(|e| {
+    let numeric = numeric_of(v, &pieces, min_decimals, negative_zero).map_err(|e| {
         if e == INVALID_FORMAT_MARK {
             format!("{INVALID_FORMAT_MARK}{template}")
         } else {
@@ -530,7 +539,12 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
     }
 }
 
-fn numeric_of(v: &Value, pieces: &[(bool, &str)], min_decimals: u32) -> Result<Option<Numeric>, String> {
+fn numeric_of(
+    v: &Value,
+    pieces: &[(bool, &str)],
+    min_decimals: u32,
+    negative_zero: bool,
+) -> Result<Option<Numeric>, String> {
     let value = match v {
         Value::Integer(i) => Decimal::from(*i),
         Value::BigInteger(i) => Decimal::from(*i),
@@ -544,7 +558,7 @@ fn numeric_of(v: &Value, pieces: &[(bool, &str)], min_decimals: u32) -> Result<O
         precision: None,
         precision_single: false,
         precision_after_std: false,
-        negative_zero: false,
+        negative_zero,
     };
     let mut seen_integer = false;
     let mut seen_std = false;

@@ -1,3 +1,4 @@
+use super::format_field_codes::covered_field_template;
 use super::*;
 
 /// `Format(V, Length, Number)` with `V` declared as a Variant: the standard format numbers 3 to 8 do not exist for a Variant
@@ -79,8 +80,16 @@ pub(super) fn format_decimal_field(
                 return plain(ctx, r, args);
             }
             if t != "<Standard Format,2>" {
-                return match (FIELD_FORMAT_STRINGS.contains(&t), &args[0], places) {
-                    (true, Value::Decimal(d), Some(places)) => format_field_string(ctx, *d, len, t, places),
+                // The strings of `FIELD_FORMAT_STRINGS` on `FIELD_FORMAT_PLACES` are pinned (AtPrecisionStandardFormat2.al); any other
+                // string of the covered digit codes, and any other places, are measured by R6901DecimalFieldFormat.al, not yet in the
+                // pinned corpus (assumption `decimal-field-digit-codes`).
+                return match (&args[0], places) {
+                    (Value::Decimal(d), Some(places)) if covered_field_template(t) => {
+                        if !(FIELD_FORMAT_STRINGS.contains(&t) && FIELD_FORMAT_PLACES.contains(&places)) {
+                            crate::assumptions::assume(crate::assumptions::Assumption::DecimalFieldDigitCodes);
+                        }
+                        format_field_string(ctx, *d, len, t, places)
+                    }
                     _ => Err(Signal::Unsupported(format!(
                         "Format of a Decimal field with DecimalPlaces or an AutoFormat with the format string `{t}` (not pinned)"
                     ))),
@@ -150,13 +159,10 @@ pub(super) fn format_field_string(
     template: &str,
     (min, max): (u32, u32),
 ) -> Result<Value, Signal> {
-    if !FIELD_FORMAT_PLACES.contains(&(min, max)) {
-        return Err(Signal::Unsupported(format!(
-            "Format of a Decimal field with places {min}:{max} with `{template}` (only the measured places are pinned)"
-        )));
-    }
     let rounded = d.round_dp_with_strategy(max, rust_decimal::RoundingStrategy::MidpointAwayFromZero);
-    if rounded.is_zero() && d.is_sign_negative() && !d.is_zero() {
+    // Only `<Sign>` shows the minus of a negative value that rounds to zero (`-0`, `-0.00`), no other code does
+    // (R6901DecimalFieldFormat.al, v8 of the `<Sign><Integer><Decimal>` and `<Integer><Decimal>` strings); the standard formats are not measured.
+    if rounded.is_zero() && d.is_sign_negative() && !d.is_zero() && template.starts_with("<Standard Format,") {
         return Err(Signal::Unsupported(format!(
             "Format of a Decimal field with places {min}:{max} of {d}, a negative value that rounds to zero, with `{template}` (not pinned)"
         )));
@@ -175,7 +181,7 @@ pub(super) fn format_field_string(
         &Value::Decimal(rounded),
         len,
         template,
-        min,
+        (min, rounded.is_zero() && d.is_sign_negative() && !d.is_zero()),
         ctx,
     ))
 }
