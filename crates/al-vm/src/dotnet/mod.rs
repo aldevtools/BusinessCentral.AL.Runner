@@ -6,6 +6,7 @@ mod blob_stream;
 mod blob_stream_position;
 pub mod compression;
 mod drawing;
+mod exception_frames;
 mod generic_dictionary;
 mod generic_dictionary_more;
 mod gettype;
