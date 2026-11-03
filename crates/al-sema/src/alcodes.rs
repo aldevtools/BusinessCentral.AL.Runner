@@ -548,6 +548,7 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
         test_request_pages_of_no_report(ws, oi, &obj, &mut out);
         ambiguous_dotnet_aliases(ws, oi, &decls, &mut out);
         object_properties(ws, oi, &obj, &mut out);
+        permissions_property::check(ws, oi, &obj, &mut out);
         object_triggers(ws, oi, &obj, &mut out);
         label_trailing_commas(ws, o.file, &types, &mut out);
         if !unparsed.contains(&(ws.files[o.file].app, ws.files[o.file].path.as_str())) && !whole.contains(&o.file) {
@@ -2508,5 +2509,6 @@ fn typed_names(d: &ast::VarDecl) -> Vec<(String, String)> {
 }
 
 mod control_visible;
+mod permissions_property;
 #[cfg(test)]
 mod tests;

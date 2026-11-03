@@ -50,6 +50,11 @@ pub(crate) fn kind_slot(code: i32) -> Option<usize> {
 /// `Assign(RoleId)`), and each `Assign` reads the `Permission Set` table first.
 const PERMISSIONS_MOCK: u32 = 131_006;
 
+/// The system objects whose `GetEffectivePermission` answer the corpus measured (Y90PermSystem.al:217-241, Y93WildEffective.al):
+/// Execute follows `system * = X`, and with no set assigned every one has it. An id outside the list is not measured (id 0 has
+/// nothing, session/W6EnvironmentHelpers.al:116-117), so it refuses.
+pub(crate) const SYSTEM_OBJECTS_MEASURED: [u32; 6] = [5310, 5810, 5820, 6110, 9026, 9100];
+
 /// The refusal of a test that lowers its permissions while no access kind is enforced.
 pub(crate) const LOWERED: &str = "DotNet PermissionTestHelper.AddEffectivePermissionSet lowers the permissions of the test session; \
      permissions are not enforced here (every access is granted, ADR-027), so the test is not run \
@@ -64,6 +69,10 @@ pub(crate) struct Content {
     /// The grants on one named system object (`system "Tools, Security, Roles" = X`), which the program holds no id
     /// for: what they give a System access is not known; they give nothing else (al-runner issue 6717).
     pub unread_system: Vec<String>,
+    /// (object type ordinal, object id, levels): the levels the kind's wildcard gives one object after an excluded set took
+    /// permissions of that object out of it (Y93WildScope.al:142-162, `LT Y93 W Excl`), sorted by type and id. An object not
+    /// listed gets the kind's wildcard.
+    pub cut: Vec<(i32, u32, Levels)>,
 }
 
 fn merge(a: u8, b: u8) -> u8 {
@@ -95,12 +104,22 @@ impl Content {
     /// The level the content gives permission `p` on object `(kind, id)`: the better of the kind's wildcard and the
     /// object's own grant.
     pub(crate) fn level_of(&self, kind: i32, id: u32, p: usize) -> u8 {
-        let wild = kind_slot(kind).map_or(0, |slot| self.wild[slot][p]);
+        let wild = self.wild_level(kind, id, p);
         let own = self
             .explicit
             .binary_search_by_key(&(kind, id), |&(k, id, _)| (k, id))
             .map_or(0, |i| self.explicit[i].2[p]);
         merge(wild, own)
+    }
+
+    /// The level the kind's wildcard gives permission `p` on object `(kind, id)`, after the exclusions of [`Content::cut`].
+    fn wild_level(&self, kind: i32, id: u32, p: usize) -> u8 {
+        if !self.cut.is_empty()
+            && let Ok(i) = self.cut.binary_search_by_key(&(kind, id), |&(k, id, _)| (k, id))
+        {
+            return self.cut[i].2[p];
+        }
+        kind_slot(kind).map_or(0, |slot| self.wild[slot][p])
     }
 
     /// The level a grant that names object `(kind, id)` gives permission `p`, without the kind's wildcard.
@@ -128,36 +147,66 @@ impl Content {
             .explicit
             .iter()
             .chain(&ex.explicit)
+            .chain(&self.cut)
+            .chain(&ex.cut)
             .map(|&(k, id, _)| (k, id))
             .collect();
         ids.sort_unstable();
         ids.dedup();
         let mut explicit = Vec::new();
+        let mut cut = Vec::new();
         for (k, id) in ids {
             let mut lv = [0u8; 5];
+            let mut wild_here = kind_slot(k).map_or([0; 5], |slot| wild[slot]);
             for (p, l) in lv.iter_mut().enumerate() {
-                *l = subtract_level(self.level_of(k, id, p), ex.level_of(k, id, p)).unwrap_or_else(|| {
+                let (have, taken) = (self.level_of(k, id, p), ex.level_of(k, id, p));
+                *l = subtract_level(have, taken).unwrap_or_else(|| {
                     why = Some("an excluded set takes an indirect permission from an indirect one (not pinned)");
                     0
                 });
-                // A wildcard that grants more than this object keeps: the wildcard cannot leave one object out.
-                if let Some(slot) = kind_slot(k)
-                    && rank(wild[slot][p]) > rank(*l)
-                {
+                let Some(slot) = kind_slot(k) else { continue };
+                // What the wildcard still gives this object (after an earlier cut of it).
+                let w_obj = self.wild_level(k, id, p);
+                let left = subtract_level(w_obj, taken).unwrap_or(0);
+                if rank(left) >= rank(wild[slot][p]) {
+                    continue;
+                }
+                if left == 0 && (w_obj == 0 || (w_obj, taken) == (1, 1)) {
+                    // A Yes taken from a Yes wildcard: the wildcard no longer grants that permission on this object, the other
+                    // objects keep it (Y93WildScope.al:153-160: Execute on CodeUnit LT Y93 Cu M4 and Insert on LT Y93 Row are
+                    // denied, CodeUnit M6 runs and Row reads; Y93WildEffective.al: R-MD on Row).
+                    wild_here[p] = 0;
+                } else {
+                    // Another level taken from a wildcard for one object is not pinned: the wildcard is not kept.
                     wild[slot][p] = 0;
-                    why = Some("an excluded set takes one object out of a wildcard grant (not held here)");
+                    why = Some("an excluded set takes one object out of a wildcard grant below Yes (not pinned)");
                 }
             }
             if lv != [0; 5] {
                 explicit.push((k, id, lv));
             }
+            if kind_slot(k).is_some_and(|slot| wild_here != wild[slot]) {
+                cut.push((k, id, wild_here));
+            }
         }
+        // A wildcard dropped above for a later object leaves no cut that grants more than it.
+        cut.retain_mut(|(k, _, lv)| {
+            let slot = kind_slot(*k).unwrap_or(0);
+            for (l, w) in lv.iter_mut().zip(wild[slot]) {
+                if rank(*l) > rank(w) {
+                    *l = w;
+                }
+            }
+            *lv != wild[slot]
+        });
         self.wild = wild;
         self.explicit = explicit;
+        self.cut = cut;
         // What an excluded named system grant takes is not known: no System grant is kept.
         if !ex.unread_system.is_empty() {
             self.wild[7] = [0; 5];
             self.explicit.retain(|e| e.0 != 10);
+            self.cut.retain(|e| e.0 != 10);
             why = Some("an excluded set has a grant on a named system object (not read)");
         }
         why.map_or(Ok(()), |w| Err(w.to_string()))
@@ -166,11 +215,33 @@ impl Content {
     /// The content without entries that grant nothing, to compare two contents.
     fn normalized(mut self) -> Content {
         self.explicit.retain(|e| e.2 != [0; 5]);
+        let wild = self.wild;
+        self.cut
+            .retain(|e| kind_slot(e.0).is_some_and(|slot| e.2 != wild[slot]));
         self
     }
 
     /// Adds what `other` grants: per permission, Yes beats Indirect beats blank (ADR-062 section 3).
     pub(crate) fn union(&mut self, other: &Content) {
+        // Per object cut out of a wildcard: the union's wildcard for it is the better of the two (each after its own cuts).
+        let mut cut = Vec::new();
+        if !self.cut.is_empty() || !other.cut.is_empty() {
+            let mut ids: Vec<(i32, u32)> = self.cut.iter().chain(&other.cut).map(|&(k, id, _)| (k, id)).collect();
+            ids.sort_unstable();
+            ids.dedup();
+            for (k, id) in ids {
+                let Some(slot) = kind_slot(k) else { continue };
+                let mut lv = [0u8; 5];
+                for (p, l) in lv.iter_mut().enumerate() {
+                    *l = merge(self.wild_level(k, id, p), other.wild_level(k, id, p));
+                }
+                let whole: Levels = std::array::from_fn(|p| merge(self.wild[slot][p], other.wild[slot][p]));
+                if lv != whole {
+                    cut.push((k, id, lv));
+                }
+            }
+        }
+        self.cut = cut;
         for (have, add) in self.wild.iter_mut().zip(&other.wild) {
             for (h, a) in have.iter_mut().zip(add) {
                 *h = merge(*h, *a);
@@ -197,7 +268,7 @@ impl Content {
     /// Execute on every table, report, codeunit, xmlport, page, query and system object. SUPER grants this.
     pub(crate) fn grants_everything(&self) -> bool {
         let [data, rest @ ..] = &self.wild;
-        data[..4].iter().all(|&l| l == 1) && rest.iter().all(|l| l[4] == 1)
+        self.cut.is_empty() && data[..4].iter().all(|&l| l == 1) && rest.iter().all(|l| l[4] == 1)
     }
 }
 
@@ -697,7 +768,11 @@ impl Session {
         let mut assumed = 0;
         if let Some(t) = target {
             match crate::platform::table_inherent(&engine, t) {
-                Some(Ok(l)) if access.kind == 0 && l[p] == 1 => u = merge(u, 1),
+                // Upper-case letters on a table (RiskyInherentPerms.al:53-122) and `InherentPermissions = X` on a codeunit
+                // (Y90PermMore1.al:100-103: callable without Execute, the codeunit without it is denied).
+                Some(Ok(l)) if (access.kind == 0 || (access.kind == 5 && access.op == Op::Execute)) && l[p] == 1 => {
+                    u = merge(u, 1)
+                }
                 Some(Ok(l)) => assumed = l[p],
                 Some(Err(why)) => unpinned = Some(why),
                 None => {}
@@ -985,7 +1060,12 @@ impl Session {
         if self.permissions_off {
             return Err(Signal::Unsupported(LOWERED.into()));
         }
-        if !matches!(kind, 0 | 1 | 3 | 5 | 6 | 8 | 9) {
+        // System objects (kind 10): the wildcard `system * = X` gives Execute on each, a set without it none (Y93WildEffective.al:97-100,
+        // 118-121, ids 6110, 5810, 9026; Y90PermSystem.al:234-237 `wild exact`). A grant that names one system object is read by name
+        // only (`unread_system`), so what it gives an id is not known and refuses.
+        let system_by_wildcard =
+            kind == 10 && SYSTEM_OBJECTS_MEASURED.contains(&id) && eff.content.unread_system.is_empty();
+        if !matches!(kind, 0 | 1 | 3 | 5 | 6 | 8 | 9) && !system_by_wildcard {
             return Err(Signal::Unsupported(format!(
                 "GetEffectivePermission of an object of type {kind} under assigned permission sets (only TableData, Table, Report, Codeunit, XmlPort, Page and Query are pinned, ADR-062 probe P22)"
             )));
@@ -996,6 +1076,21 @@ impl Session {
             .enumerate()
         {
             out[slot] = eff.level(Access { kind, id, op });
+        }
+        // A codeunit's own `InherentPermissions = X` gives its Execute whatever the sets say: `cuS` (System Application Base64
+        // Convert, InherentPermissions = X) reads `----X` under every exact set (Y93WildEffective.al:35, :56, :77, :98, :140), and the
+        // codeunit runs without a grant (Y90PermMore1.al:100-101, Y93WildScope.al:259-262).
+        if kind == 5 && out[4] != 1 {
+            let engine = self.engine.clone();
+            let heads = engine.program.objects.heads();
+            if let Some(t) = heads
+                .iter()
+                .position(|h| h.kind == al_ir::ObjKind::Codeunit && h.id == Some(id))
+                && let Some(Ok(l)) = crate::platform::table_inherent(&engine, t)
+                && l[4] == 1
+            {
+                out[4] = 1;
+            }
         }
         if !eff.complete && out.contains(&0) {
             return Err(Signal::Unsupported(format!(
@@ -1140,7 +1235,6 @@ impl Session {
                 _ => None,
             });
             if let Some(t) = table {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageCalleeAndPartShapes);
                 accesses.push(Access {
                     kind: 1,
                     id: self.engine.program.objects.heads()[t].id.unwrap_or(0),
@@ -1628,6 +1722,7 @@ mod tests {
             wild: all_kinds([2, 2, 2, 2, 2]),
             explicit: vec![],
             unread_system: vec![],
+            cut: vec![],
         };
         assert!(!c.grants_everything());
     }
@@ -1653,6 +1748,7 @@ mod tests {
             wild: Wildcards::default(),
             explicit: vec![(0, 50100, [1, 2, 0, 0, 0])],
             unread_system: vec![],
+            cut: vec![],
         };
         content.wild[0] = [2, 0, 0, 0, 0];
         let e = EffectivePermissions {
@@ -1717,13 +1813,78 @@ mod tests {
             wild: Wildcards::default(),
             explicit: vec![(0, 5, [2, 0, 0, 0, 0])],
             unread_system: vec![],
+            cut: vec![],
         };
         let b = Content {
             wild: Wildcards::default(),
             explicit: vec![(0, 3, [0, 1, 0, 0, 0]), (0, 5, [1, 2, 0, 0, 0])],
             unread_system: vec![],
+            cut: vec![],
         };
         a.union(&b);
         assert_eq!(a.explicit, vec![(0, 3, [0, 1, 0, 0, 0]), (0, 5, [1, 2, 0, 0, 0])]);
+    }
+
+    /// `LT Y93 W Excl` (Y93WildObjects.al:533-538): every wildcard at Yes, minus `codeunit "LT Y93 Cu M4" = X` and
+    /// `tabledata "LT Y93 Row" = I`. Y93WildScope.al:153-160: M4 denied, M6 runs, Row insert denied, Row read allowed.
+    #[test]
+    fn an_excluded_yes_takes_one_object_out_of_a_yes_wildcard() {
+        let mut all = Content {
+            wild: all_kinds([1, 1, 1, 1, 1]),
+            ..Default::default()
+        };
+        let ex = Content {
+            explicit: vec![(0, 94980, [0, 1, 0, 0, 0]), (5, 94983, [0, 0, 0, 0, 1])],
+            ..Default::default()
+        };
+        assert_eq!(all.subtract(&ex), Ok(()));
+        assert_eq!(all.level_of(5, 94983, 4), 0, "M4 Execute excluded");
+        assert_eq!(all.level_of(5, 94985, 4), 1, "M6 keeps the wildcard");
+        let row: Vec<u8> = (0..4).map(|p| all.level_of(0, 94980, p)).collect();
+        assert_eq!(row, vec![1, 0, 1, 1], "R-MD (Y93WildEffective.al)");
+        assert_eq!(all.level_of(0, 94981, 1), 1, "another table keeps Insert");
+        assert!(!all.grants_everything());
+        // A union with a set that names the object explicitly at Yes gives it back; one without leaves the cut.
+        let mut again = all.clone();
+        again.union(&Content {
+            explicit: vec![(5, 94983, [0, 0, 0, 0, 1])],
+            ..Default::default()
+        });
+        assert_eq!(again.level_of(5, 94983, 4), 1);
+        let mut other = all.clone();
+        other.union(&Content {
+            wild: all_kinds([0, 0, 0, 0, 0]),
+            ..Default::default()
+        });
+        assert_eq!(other.level_of(5, 94983, 4), 0);
+        assert_eq!(other.level_of(0, 94980, 1), 0);
+    }
+
+    /// An excluded Indirect from a Yes wildcard is not measured: the wildcard is not kept and the reason is named.
+    #[test]
+    fn an_excluded_indirect_from_a_yes_wildcard_stays_unpinned() {
+        let mut all = Content {
+            wild: all_kinds([1, 1, 1, 1, 1]),
+            ..Default::default()
+        };
+        let ex = Content {
+            explicit: vec![(0, 94980, [0, 2, 0, 0, 0])],
+            ..Default::default()
+        };
+        assert!(all.subtract(&ex).is_err());
+        assert_eq!(all.level_of(0, 94981, 1), 0, "a lower bound");
+    }
+
+    /// Y93WildScope.al:127-138 (`LT Y93 W Mix Data`, `LT Y93 W Mix Cu`): an explicit lower grant does not narrow a wildcard.
+    #[test]
+    fn an_explicit_lower_grant_keeps_the_wildcard_level() {
+        let mut c = Content::default();
+        c.union(&Content {
+            wild: all_kinds([1, 1, 1, 1, 1]),
+            explicit: vec![(0, 94981, [1, 0, 0, 0, 0]), (5, 94982, [0, 0, 0, 0, 2])],
+            ..Default::default()
+        });
+        assert_eq!(c.level_of(0, 94981, 1), 1);
+        assert_eq!(c.level_of(5, 94982, 4), 1);
     }
 }

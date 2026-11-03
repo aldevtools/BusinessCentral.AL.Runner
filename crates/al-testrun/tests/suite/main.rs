@@ -46,6 +46,7 @@ mod permission_open_page_named_grant;
 mod permission_read_write;
 mod permission_report_after_denial;
 mod permission_unguarded_part;
+mod permission_wildcard_scope;
 mod permission_writes;
 mod query_after_last_row;
 mod query_close_fall_through;
