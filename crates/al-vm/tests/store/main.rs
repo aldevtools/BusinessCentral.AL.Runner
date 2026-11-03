@@ -116,4 +116,5 @@ mod usertable;
 mod validate_event_error;
 mod validate_xrec_table_procedure;
 mod variant_record_reassign_view;
+mod work_date_expression;
 mod xrec;
