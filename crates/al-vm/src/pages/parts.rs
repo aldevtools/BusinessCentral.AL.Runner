@@ -1664,24 +1664,13 @@ impl Session {
             p.refresh = false;
             p.dirty = false;
         }
-        if both {
-            self.refuse_both_on_later_row(st)?;
-        }
+        let later = if both { self.both_later_row(st)? } else { None };
         self.set_xrec(st);
         if !both {
             self.sync_part(&host, c, st)?;
         }
         // The host's triggers still see the row it read before as xRec (`H.AGR(t=5 ... x.t=1)`); the next read sees the new one.
-        let mut h = host.borrow_mut();
-        h.refresh = true;
-        h.refresh_by_update = false;
-        h.refresh_without_parts = !both;
-        h.read_keeps_xrec = true;
-        drop(h);
-        let r = self.run_refresh(&host);
-        host.borrow_mut().read_keeps_xrec = false;
-        r?;
-        self.set_xrec(&host);
+        self.refresh_host_after_part(st, &host, !both, later)?;
         Ok(true)
     }
 
@@ -1756,9 +1745,7 @@ impl Session {
             p.refresh = false;
             p.dirty = false;
         }
-        if both {
-            self.refuse_both_on_later_row(st)?;
-        }
+        let later = if both { self.both_later_row(st)? } else { None };
         self.set_xrec(st);
         if !both {
             if !self.part_keeps_later_row(st)? {
@@ -1766,35 +1753,69 @@ impl Session {
             }
             return Ok(true);
         }
-        let mut h = host.borrow_mut();
-        h.refresh = true;
-        h.refresh_by_update = false;
-        h.refresh_without_parts = false;
-        h.read_keeps_xrec = true;
-        drop(h);
-        let r = self.run_refresh(host);
-        host.borrow_mut().read_keeps_xrec = false;
-        r?;
-        self.set_xrec(host);
+        self.refresh_host_after_part(st, host, false, later)?;
         Ok(true)
     }
 
-    /// A part with UpdatePropagation Both on a stored row other than the first of its view, after its code ran `CurrPage.Update`:
-    /// the host reads its row and the parts read their rows again, and which row the part shows afterwards (and where the next
-    /// SetValue is stored) is not pinned: ThPartUpdateCursor.al:373 and :437 pin a later row only without Both, QjPartPropagation.al:1224,
-    /// :2156 and :2212 pin Both only on a one-row part (al-runner issue 6877, probe wanted). Refused before the part or the host is
-    /// touched.
-    fn refuse_both_on_later_row(&mut self, st: &St) -> Result<(), Signal> {
+    /// A part with UpdatePropagation Both on a stored row other than the first of its view, after its code ran `CurrPage.Update`: it
+    /// stays on that row on a Document, Card and ListPlus host, with or without a change of the host's stored row before. The host
+    /// reads its row first (its triggers, no part read), then the part reads from its row, the row again, the rows before it back to
+    /// the first, the row twice and OnAfterGetCurrRecord, as without Both (pages/lt-th-part-update-cursor/R6877PartBothLaterRow.al
+    /// R_Doc_, R_Card_, R_Plus_Nav1..3_Ctl1..2, BC 28.5: `Q.V Q.V.end HR HC R2 R3 R2 R1 R2 R2 C2`; the next SetValue lands on the same
+    /// row; assumption part-both-keeps-row-after-update until the probe is in the pinned corpus; al-runner issue 6877). A part that
+    /// serves its rows from OnFindRecord or OnNextRecord, one that is not a list, a row its view no longer holds and a view longer than
+    /// a window are refused. Returns the view and the part's place in it when the part stands on a later row (the caller reads the
+    /// host, then calls `read_part_rows_around`), `None` on the first row.
+    fn both_later_row(&mut self, st: &St) -> Result<Option<(Vec<Vec<Value>>, usize)>, Signal> {
         let rec = self.page_rec(st);
         let rows = self.view_rows(&rec, Self::WINDOW + 1)?;
         let table = self.table(&rec)?;
         let held = self.row_key(&rec)?;
         let at = rows.iter().position(|r| Self::same_key(&table.primary_key(r), &held));
-        if at.is_some_and(|n| n > 0) {
+        if at == Some(0) {
+            return Ok(None);
+        }
+        if !self.is_list(st) || self.declares(st, "onfindrecord") || self.declares(st, "onnextrecord") {
             return unsupported(
-                "a part with UpdatePropagation Both that runs CurrPage.Update on a row other than its first (which row it shows then is not pinned)",
+                "a part with UpdatePropagation Both that runs CurrPage.Update on a row other than its first, other than a list part without OnFindRecord (which row it shows then is not pinned)",
             );
         }
+        let Some(at) = at else {
+            return unsupported(
+                "a part with UpdatePropagation Both that runs CurrPage.Update after the part's view left its row (which row it shows then is not pinned)",
+            );
+        };
+        if rows.len() > Self::WINDOW {
+            return unsupported(
+                "a part with UpdatePropagation Both that runs CurrPage.Update on a row other than its first of a view longer than a window (not pinned)",
+            );
+        }
+        Ok(Some((rows, at)))
+    }
+
+    /// The host reads its row again after a part's `CurrPage.Update`, its triggers seeing the row read before as xRec. `without_parts`:
+    /// its parts are not read with it. `later`: the part stood on a later row (`both_later_row`); it reads around that row after the host.
+    fn refresh_host_after_part(
+        &mut self,
+        st: &St,
+        host: &St,
+        without_parts: bool,
+        later: Option<(Vec<Vec<Value>>, usize)>,
+    ) -> Result<(), Signal> {
+        let mut h = host.borrow_mut();
+        h.refresh = true;
+        h.refresh_by_update = false;
+        h.refresh_without_parts = without_parts || later.is_some();
+        h.read_keeps_xrec = true;
+        drop(h);
+        let r = self.run_refresh(host);
+        host.borrow_mut().read_keeps_xrec = false;
+        r?;
+        if let Some((rows, at)) = later {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartBothKeepsRowAfterUpdate);
+            self.read_part_rows_around(st, &rows, at)?;
+        }
+        self.set_xrec(host);
         Ok(())
     }
 
