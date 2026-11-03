@@ -398,6 +398,9 @@ pub fn load_project_with(
             id_ranges: Vec::new(),
             symbols: d.preprocessor_symbols.clone(),
             translations: d.translations,
+            // A dependency app: NavApp.LoadPackageData of its tables is refused whatever it ships.
+            package_data: false,
+            package_data_files: Vec::new(),
             translation_files: Vec::new(),
             runtime: None,
             app_json_keys: Vec::new(),
