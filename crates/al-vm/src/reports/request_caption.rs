@@ -9,21 +9,22 @@ impl Session {
     /// a handler sets Source to 21 and reads Derived 42 that the trigger set before it called Update(false)).
     /// `RequestOptionsPage.Caption := x` in the code of a report. Set while the request page's own OnOpenPage runs (in it
     /// or in a procedure it calls), it is the caption a request page handler reads
-    /// (report/lt-aq/AqTests.al:313-330, Caption_SetInOnOpenPage_TestRequestPageCaption). Set anywhere else (Base
-    /// Application's Financial Report also sets it from OnValidate) it is dropped: whether a handler reads it back is
-    /// not pinned (assumption request-page-caption-set).
+    /// (report/lt-aq/AqTests.al:313-330, Caption_SetInOnOpenPage_TestRequestPageCaption). Set in its OnInit it is the handler's
+    /// caption too, and OnOpenPage wins over it (report/lt-y86-request-page/Y86RequestCaption.al). Set anywhere else (Base
+    /// Application's Financial Report also sets it from OnValidate) the code reads it back and the handler does not (pinned
+    /// for OnValidate by the same file; a report trigger or report extension is the assumption request-page-caption-set).
     ///
     /// From the code of a report (a procedure, also called on a variable never run, and a report trigger) the getter reads the
     /// request page's `Caption`, and after a set the caption set, also inside a later run (report/lt-y40-bare-report-run/
     /// Y40BareReportRun.al:344, Y40_BareRequestOptionsPage_Caption, corpus master ac3499d6). The caption of a report that also
     /// declares its own Caption, or of a request page without one, is not pinned.
     pub(crate) fn request_page_caption(&mut self, args: &[Value], inst: &Inst) -> Result<Value, Signal> {
-        self.report.request_captions.retain(|(w, _)| w.strong_count() > 0);
+        self.report.request_captions.retain(|(w, ..)| w.strong_count() > 0);
         let own = self
             .report
             .request_captions
             .iter()
-            .position(|(w, _)| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)));
+            .position(|(w, ..)| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)));
         let [arg @ (Value::Text(_) | Value::Code(_))] = args else {
             if !args.is_empty() {
                 return unsupported("RequestPage.Caption set with something that is not text");
@@ -50,6 +51,9 @@ impl Session {
                 {
                     Ok(Value::Text(crate::pages::unquote(rp).into()))
                 }
+                // A report with neither Caption: the request page's caption is the report's name (report/lt-y86-request-page/
+                // Y86RequestCaption.al Y86_Caption_OnInitAndOnOpenPage `init_readback`).
+                (None, None) if o.kind == ir::ObjKind::Report => Ok(Value::Text(o.name.clone().into())),
                 _ => unsupported(
                     "RequestPage.Caption read in a report without a request page Caption, or that declares its own Caption (not pinned)",
                 ),
@@ -62,25 +66,26 @@ impl Session {
             st.borrow_mut().caption = Some(text);
             return Ok(Value::Null);
         }
+        // Set in the request page's OnInit it is the caption a request page handler reads (report/lt-y86-request-page/
+        // Y86RequestCaption.al); the page takes it when it opens (`request_page_takes_init_caption`).
+        let in_init = self.request_page_in_on_init(inst);
         match own {
-            Some(i) => self.report.request_captions[i].1 = text,
-            None => self.report.request_captions.push((Rc::downgrade(inst), text)),
+            Some(i) => {
+                self.report.request_captions[i].1 = text.clone();
+                if in_init {
+                    self.report.request_captions[i].2 = Some(text);
+                }
+            }
+            None => {
+                let init = in_init.then(|| text.clone());
+                self.report.request_captions.push((Rc::downgrade(inst), text, init));
+            }
         }
-        // What a request page handler then reads is the assumption: marked here once the page was made, else when it opens.
-        if self.request_page_open(inst) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCaptionSet);
-        }
+        // A set while the request page is open is the page's own code (a control's OnValidate, an action, a procedure of the page):
+        // the code reads it back and the handler does not (Y86RequestCaption.al Y86_Caption_OnValidateSets,
+        // _ProcedureFromOnValidateSets). A set before the page opens by other code (a report trigger or procedure) is the assumption
+        // request-page-caption-set, marked when the page opens (`request_page_opens_after_caption_set`).
         Ok(Value::Null)
-    }
-
-    /// Whether the request page of the report `inst` is an instance of was made (it opens, is open or was open): a caption
-    /// set then may be what its handler reads.
-    pub(super) fn request_page_open(&self, inst: &Inst) -> bool {
-        let object = inst.borrow().object as usize;
-        let Some(page) = self.engine.program.objects[object].page.as_ref() else {
-            return false;
-        };
-        matches!(inst.borrow().globals.get(page.curr_page_slot), Some(Value::TestPage(_)))
     }
 
     /// A request page opens on `inst`: a caption its code set before is the assumption `request-page-caption-set`.
@@ -89,9 +94,24 @@ impl Session {
             .report
             .request_captions
             .iter()
-            .any(|(w, _)| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+            .any(|(w, code, init)| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)) && init.as_ref() != Some(code))
         {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCaptionSet);
         }
+    }
+
+    /// The caption the request page's OnInit set, for a page that opened without OnOpenPage setting one: what a handler reads
+    /// (Y86RequestCaption.al; OnOpenPage wins over OnInit).
+    pub(crate) fn request_page_takes_init_caption(&self, inst: &Inst, st: &Rc<RefCell<al_builtins::value::PageState>>) {
+        if st.borrow().caption.is_some() {
+            return;
+        }
+        let init = self
+            .report
+            .request_captions
+            .iter()
+            .find(|(w, ..)| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+            .and_then(|(_, _, init)| init.clone());
+        st.borrow_mut().caption = init;
     }
 }
