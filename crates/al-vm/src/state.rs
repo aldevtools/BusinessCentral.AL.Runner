@@ -68,6 +68,8 @@ pub(crate) struct TxState {
     /// The TryFunction calls on the call stack whose result is used, innermost last: a write inside one fails with
     /// TryFunctionWrite (`transactions::try_write_error`).
     pub(crate) used_tries: Vec<transactions::UsedTry>,
+    /// For each guarded `Codeunit.Run` running: the call stack depth of its OnRun frame.
+    pub(crate) guarded_runs: Vec<usize>,
     /// What `Database.LastUsedRowVersion` reports inside the open transaction (`Session::last_used_row_version`): the
     /// database tables an Insert wrote rows of that nothing has sent to the database yet (table, company, highest row
     /// version), the highest row version a sent write holds, how many database row versions were handed out and how
@@ -163,6 +165,7 @@ impl TxState {
             immediate_errors: false,
             try_depth: 0,
             used_tries: Vec::new(),
+            guarded_runs: Vec::new(),
             row_versions: RowVersionTx::default(),
             xp_export_try_world: None,
             inconsistent: Vec::new(),
