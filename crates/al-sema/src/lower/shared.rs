@@ -288,7 +288,11 @@ pub(crate) fn lower_object<'a>(
                 routines: Vec::new(),
                 // What the declaration scan read of the object body, so the metadata tables can
                 // answer for an object nothing compiled.
-                properties: o.scanned_properties.clone(),
+                properties: {
+                    let mut p = o.scanned_properties.clone();
+                    p.extend(profile_extension_target(ws, oi));
+                    p
+                },
                 enum_values: Vec::new(),
                 enum_captions: Vec::new(),
                 table: None,
@@ -707,6 +711,7 @@ pub(crate) fn lower_object<'a>(
     // report's own `Caption` wins over the request page's
     // (corpus handlers/TestReportRequestPageCaption.al).
     let mut properties = object_properties(&obj, request_section.as_ref());
+    properties.extend(profile_extension_target(ws, oi));
     // A tableextension's Caption is the caption of a table that declares none (tableextension/TestTableExtFieldModify.al:
     // 168-178: TableCaption, RecordRef.Caption and AllObjWithCaption of the table). With a Caption on the table too, or on
     // two extensions, which one wins is not pinned: the reads of the caption refuse (`CAPTION_REFUSED`). One extension's Caption
@@ -1261,6 +1266,14 @@ pub(crate) fn over_max_length(obj: &ast::Object) -> Vec<String> {
 }
 
 /// An object's properties, and for a report its request page's ones (see `lower_object`).
+/// A `profileextension` is an object of kind `Other`; the property [`ir::EXTENDS_PROFILE`] names the profile it extends.
+fn profile_extension_target(ws: &Workspace, oi: usize) -> Option<(String, String)> {
+    let o = &ws.objects[oi];
+    let name = o.extends.as_ref()?.last()?.clone();
+    (o.kind == ObjKind::Other && ws.object_ast(oi).kind() == "profileextension")
+        .then(|| (ir::EXTENDS_PROFILE.to_string(), name))
+}
+
 fn object_properties(obj: &ast::Object, request_section: Option<&ast::Section>) -> Vec<(String, String)> {
     let mut properties: Vec<(String, String)> = obj.properties().map(|p| (p.name(), p.value_text())).collect();
     if let Some(sec) = request_section {
