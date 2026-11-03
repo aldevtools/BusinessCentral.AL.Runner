@@ -1278,3 +1278,36 @@ fn object_properties(obj: &ast::Object, request_section: Option<&ast::Section>) 
     }
     properties
 }
+
+/// Why a restricted session (permission sets a test lowered) refuses to open the page of `obj`. A field or action of the page's own
+/// layout with an AccessByPermission property is decided when it is used (Y24PermExecute.al Y24_P21_*: BC leaves it off the page
+/// when the sets do not grant the permission; `Session::access_by_permission_hidden` reads the shapes that are pinned). Any other
+/// mention is not pinned and refuses: a group, part or page-level property, an action reference to a guarded action. Read from the
+/// object's text, so a mention in a comment refuses too: only a restricted session is affected.
+pub(crate) fn access_by_permission_refusals(obj: &ast::Object, controls: &[ir::Control]) -> Vec<String> {
+    let mentions = obj
+        .syntax()
+        .text()
+        .to_string()
+        .to_ascii_lowercase()
+        .matches("accessbypermission")
+        .count();
+    if mentions == 0 {
+        return Vec::new();
+    }
+    let guarded = |c: &ir::Control| c.prop("accessbypermission").is_some();
+    let pinned = controls
+        .iter()
+        .filter(|c| {
+            c.owner.is_none() && guarded(c) && matches!(c.kind, ir::ControlKind::Field | ir::ControlKind::Action)
+        })
+        .count();
+    let via_reference = controls
+        .iter()
+        .any(|c| matches!(&c.action_ref, Some(ir::ActionRef::Target(t)) if guarded(&controls[*t])));
+    if pinned == mentions && !via_reference {
+        Vec::new()
+    } else {
+        vec!["the page has AccessByPermission on something other than a field or action of its own layout, which BC applies to the permissions of a restricted session (ADR-062 probe P21)".into()]
+    }
+}

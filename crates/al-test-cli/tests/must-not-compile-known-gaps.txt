@@ -341,17 +341,14 @@
 27 2620-obsolete-on-xmlport-schema-elements
 27 2621-obsolete-on-query-dataitem
 27 2627-pageext-modify-implicit-promoted-caption
-27 2652-xmlport-separator-read-into-char
 28 2610-cloud-azure-key-vault-onprem-scope
 28 2620-obsolete-on-xmlport-schema-elements
 28 2621-obsolete-on-query-dataitem
 28 2627-pageext-modify-implicit-promoted-caption
-28 2652-xmlport-separator-read-into-char
 29 2610-cloud-azure-key-vault-onprem-scope
 29 2620-obsolete-on-xmlport-schema-elements
 29 2621-obsolete-on-query-dataitem
 29 2627-pageext-modify-implicit-promoted-caption
-29 2652-xmlport-separator-read-into-char
 # corpus bump to master 34ca226f (writer Y66): break/quit/skip and UseRequestPage on an XmlPort variable
 # corpus bump to master 48433dfe (writer Y24, permissions lane): the Permissions property of an object takes only tabledata entries (AL0104)
 27 2360-permissions-property-codeunit-execute
@@ -360,3 +357,22 @@
 28 2361-permissions-property-object-execute
 29 2360-permissions-property-codeunit-execute
 29 2361-permissions-property-object-execute
+# corpus bump to 941cd813 (and 9cce33bd, whose gates were not run): new cases the front end does not reject yet; 2791 and 2793 are Y85 LoadPackageData
+27 2713-global-variable-through-this-variable
+28 2713-global-variable-through-this-variable
+29 2713-global-variable-through-this-variable
+27 2755-page-field-onbeforevalidate-trigger
+28 2755-page-field-onbeforevalidate-trigger
+29 2755-page-field-onbeforevalidate-trigger
+27 2756-page-varfield-onbeforevalidate-trigger
+28 2756-page-varfield-onbeforevalidate-trigger
+29 2756-page-varfield-onbeforevalidate-trigger
+27 2776-code-sqldatatype-decimal
+28 2776-code-sqldatatype-decimal
+29 2776-code-sqldatatype-decimal
+27 2791-loadpackagedata-no-argument
+28 2791-loadpackagedata-no-argument
+29 2791-loadpackagedata-no-argument
+27 2793-loadpackagedata-used-as-value
+28 2793-loadpackagedata-used-as-value
+29 2793-loadpackagedata-used-as-value

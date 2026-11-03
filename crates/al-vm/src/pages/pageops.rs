@@ -10,7 +10,34 @@ impl Session {
         recv: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
-        self.outside_used_tries(|s| s.page_op_outer(method, recv, args))
+        let r = self.outside_used_tries(|s| s.page_op_outer(method, recv, args));
+        self.save_abort_swallowed(method, r)
+    }
+
+    /// A save the page refused with SaveAbort (ModifyAllowed is false, see `save_row`) ends the step without raising: the error becomes
+    /// the last error and the move is not made. GoToKey raises TestRowNotFound instead (pages/lt-y80-modify-denied/Y80ModifyDenied.al
+    /// Y80_MD_List_Set_goto: ok No, `The row does not exist on the TestPage.`). The answer of a move that did not happen is not
+    /// pinned (the corpus discards it: `P.Next();` in Y80_MD_List_Set_Next_Next), so it is an unknown value: a discarded answer
+    /// runs, any use of it is refused (hard rule 3).
+    fn save_abort_swallowed(&mut self, method: PageOp, r: Result<Value, Signal>) -> Result<Value, Signal> {
+        let Err(Signal::Error(e)) = r else { return r };
+        if e.code != "SaveAbort" {
+            return Err(Signal::Error(e));
+        }
+        match method.method() {
+            PageMethod::GoToKey => Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound")),
+            m => {
+                self.last_error = *e;
+                Ok(match m {
+                    PageMethod::Next | PageMethod::Previous | PageMethod::First | PageMethod::Last => {
+                        Value::Unknown(std::sync::Arc::from(
+                            "the answer of a TestPage move that did not happen after a refused save (not pinned)",
+                        ))
+                    }
+                    _ => Value::Null,
+                })
+            }
+        }
     }
 
     fn page_op_outer(&mut self, method: PageOp, recv: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
@@ -521,7 +548,7 @@ impl Session {
         }
         if moved && st.borrow().open {
             if st.borrow().host.is_some() {
-                self.sync_dependents(st)?;
+                self.sync_dependents_then_host_follows(st, name)?;
             } else {
                 // First and Last that move the host, Next and Previous: only the linked parts follow
                 // (`sync_parts_after_move`, pages/lt-part-reads/PartReadsOpen.al:269-283, :336-379). What a First or
@@ -560,7 +587,7 @@ impl Session {
                         false
                     }
                 };
-                self.refresh_parts_asked_by_host(st, &waiting, name == PageMethod::Next, skipped_unlinked)?;
+                self.refresh_parts_unfollow(st, &waiting, name == PageMethod::Next, skipped_unlinked)?;
             }
         }
         Ok(r)

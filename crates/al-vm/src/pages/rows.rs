@@ -410,13 +410,12 @@ impl Session {
             }
             positions.push(p);
         }
-        positions.sort_unstable();
-        positions.dedup();
+        let positions = self.leave_off_denied_flowfields(st, &rec, table, positions)?;
         if positions.is_empty() {
             return Ok(());
         }
         if !rec.borrow().temporary {
-            return self.calc_fields(&rec, &positions);
+            return self.page_calc_fields(&rec, &positions);
         }
         let probe = {
             let mut p = rec.borrow().clone();
@@ -426,7 +425,7 @@ impl Session {
         };
         for p in positions {
             self.check_calc_field(table, p)?;
-            let v = self.calc_value(&probe, p, &mut Vec::new())?;
+            let v = self.page_calc_value(&probe, p)?;
             rec.borrow_mut().fields[p] = v;
         }
         Ok(())
@@ -469,59 +468,6 @@ impl Session {
     /// a failing row 20 of 120 fails the open, row 30 does not, and a move to row 120
     /// populates a new window). The window is 20 rows: the corpus pins it only between 20 and 24.
     pub(super) const WINDOW: usize = 20;
-
-    /// The window of a part that reads its rows last to first, once each, without reading the first row again. Pinned
-    /// for 2 and 3 rows (pages/lt-part-reads/PartReadsOpen.al:OpenView_SixParts_ReadsPerPartLogged `open-Same`;
-    /// misc/lt-probes-needed-7/PnGPartTriggers.al:OpenOrderOfHostWithSixParts); one row or more than 3 is refused.
-    fn populate_window_backwards(
-        &mut self,
-        st: &St,
-        start: Vec<Value>,
-        why: al_builtins::value::ReadBackwards,
-    ) -> Result<bool, Signal> {
-        let rec = self.page_rec(st);
-        let mut rows: Vec<al_builtins::value::WindowRow> = Vec::new();
-        loop {
-            let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
-            rows.push(al_builtins::value::WindowRow {
-                key,
-                stored: stored.clone(),
-                shown: stored,
-            });
-            if rows.len() > 3 || !self.nav_next(st, 1)? {
-                break;
-            }
-        }
-        // At open 2 and 3 rows are pinned (see `view_names_link_field`); after a move back 1, 2 and 3
-        // (pages/lt-part-reads/PartReadsOpen.al:358-379).
-        let after_move = why == al_builtins::value::ReadBackwards::AfterMove;
-        if after_move && rows.len() > 3 {
-            // Kept, not pinned: a part of more than 3 rows after its host moved back reads first to last, as every
-            // refill did before the backward order was pinned (keeps misc/lt-probes-needed-7/PnGPartRows.al:
-            // PendingPartRowSavedWhenHostMoves, which does not log those reads).
-            self.ret_used = true;
-            self.record_op(RecordOp::Get, &rec, &mut start.clone())?;
-            return Ok(false);
-        }
-        if (rows.len() == 1 && !after_move) || rows.len() > 3 {
-            return unsupported(
-                "a part viewing its linked field with a number of rows other than 2 or 3 (reads not pinned)",
-            );
-        }
-        for row in rows.iter_mut().rev() {
-            rec.borrow_mut().fields = row.stored.clone();
-            self.populate_current(st)?;
-            row.shown = rec.borrow().fields.clone();
-        }
-        self.ret_used = true;
-        self.record_op(RecordOp::Get, &rec, &mut start.clone())?;
-        rec.borrow_mut().fields = rows[0].shown.clone();
-        let first_stored = rows[0].stored.clone();
-        self.set_xrec_fields(st, first_stored);
-        st.borrow_mut().window = rows;
-        Ok(true)
-    }
 
     pub(super) fn populate_window(&mut self, st: &St) -> Result<(), Signal> {
         // A tree with TreeInitialState = ExpandAll and row triggers reads the rows it does not show too when it opens
@@ -876,6 +822,7 @@ impl Session {
         if (end_reached || (opening && self.declares(st, "onaftergetcurrrecord")))
             && !self.reads_as_part(st)
             && !one_row_read_once
+            && !st.borrow().lookup_next_plain
         {
             self.page_trigger(st, "onaftergetrecord", vec![])?;
         }
@@ -1055,64 +1002,6 @@ impl Session {
             self.torn_down_on_error(st, r)?;
         }
         Ok(Value::Boolean(true))
-    }
-
-    /// The open read of a plain list (no OnFindRecord or OnNextRecord) that opens on the row its OnOpenPage left Rec on, after the
-    /// rows from it on are read: the client steps back from that row and reads each row above it up to the first of the view,
-    /// then reads the row again; the rows it holds then start at the first row of the view (corpus
-    /// pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:292 QR_List_OpenView_Get `O:C;R:C;R:D;R:C;R:B;R:A;R:C;R:C;C:C;`, :305
-    /// _FindLast `O:D;R:D;R:C;R:B;R:A;R:D;R:D;C:D;`, :318 _FindFirstNext `O:B;R:B;R:C;R:D;R:B;R:A;R:B;R:B;C:B;`, :331
-    /// _SetRangeFindLast `O:D;R:D;R:C;R:B;R:D;R:D;C:D;`, :370 _GetThenFilterExcludes `O:C;R:B;R:A;R:B;R:B;C:B;`): the row is read
-    /// again before the step back only when rows followed it. Pinned for a view that ends inside the window, with rows above
-    /// the row, on a page of its own; more rows than a window holds are refused.
-    ///
-    /// With more rows the client reads at most a window of 20 rows from the row on, and steps back over at most 20 rows above
-    /// it (pages/lt-y37-long-list-open/Y37LongListTests.al:101 Get(25) of 30 `R:25..R:30;R:25;R:24..R:5;R:25;R:25;C:25`, :141
-    /// FindLast, :180 a temporary list, :241 Get(5) `R:5..R:24;R:5;R:4..R:1;...`, :281 and :304 21 rows); `First` and `Last`
-    /// then read on from the edge of the rows it holds (`PageState::moved_rec_open_partial`).
-    fn read_rows_above_the_moved_rec(&mut self, st: &St, start: Vec<Value>, end_reached: bool) -> Result<(), Signal> {
-        if st.borrow().host.is_some() && !st.borrow().part_on_host_row {
-            return unsupported("the open read of a part on the row its OnOpenPage left Rec on (not pinned)");
-        }
-        let rec = self.page_rec(st);
-        let mut above = Vec::new();
-        let mut top_unread = false;
-        while self.nav_next(st, -1)? {
-            if above.len() == Self::WINDOW {
-                top_unread = true;
-                break;
-            }
-            let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
-            self.populate_current(st)?;
-            above.push(al_builtins::value::WindowRow {
-                key,
-                stored,
-                shown: rec.borrow().fields.clone(),
-            });
-        }
-        if above.is_empty() {
-            return unsupported(
-                "the open read of a list on the row its OnOpenPage left Rec on, which is the first of the view (not pinned)",
-            );
-        }
-        self.ret_used = true;
-        self.record_op(RecordOp::Get, &rec, &mut start.clone())?;
-        let stored = rec.borrow().fields.clone();
-        self.populate_current(st)?;
-        let shown = rec.borrow().fields.clone();
-        above.reverse();
-        let mut s = st.borrow_mut();
-        if let Some(row) = s.window.first_mut() {
-            row.stored = stored;
-            row.shown = shown;
-        }
-        let forward = std::mem::take(&mut s.window);
-        above.extend(forward);
-        s.window = above;
-        s.moved_rec_open_partial = (s.window.len() > Self::WINDOW).then_some((top_unread, !end_reached));
-        drop(s);
-        Ok(())
     }
 
     /// The open read of a descending find list with OnAfterGetCurrRecord whose first row read is the last of the view: the client
@@ -1476,6 +1365,9 @@ impl Session {
 
     /// Moves the cursor; the Boolean the move methods return.
     pub(super) fn page_move(&mut self, st: &St, how: PageMethod) -> Result<Value, Signal> {
+        if let Some(answer) = self.move_after_refused_save(st, how)? {
+            return Ok(answer);
+        }
         if !self.has_source(st) {
             return unsupported(format!("{how}() on a page without a source table"));
         }

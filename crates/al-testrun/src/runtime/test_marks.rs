@@ -6,6 +6,8 @@ use al_vm::Session;
 impl Scratch {
     /// Takes what the test `name` left in `session`; returns the `--tdd` stubs it reached and the UI calls answered.
     pub(super) fn take_marks(&mut self, name: &str, session: &mut Session) -> (Vec<String>, Vec<String>) {
+        // The shadow run's notes of the test that just ended (ADR-062 stage 4).
+        al_builtins::permission_shadow::drain(name);
         let reached = session.take_tdd_reached();
         if !reached.is_empty() {
             self.stubbed.push((name.to_string(), reached.clone()));

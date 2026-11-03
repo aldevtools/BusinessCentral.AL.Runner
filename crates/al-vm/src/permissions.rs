@@ -195,7 +195,7 @@ impl Content {
 }
 
 /// What the assigned sets of a session give.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct EffectivePermissions {
     /// The union of the sets that composed. A lower bound of what BC grants when [`EffectivePermissions::complete`] is
     /// false: a set that is not composed adds nothing here, and an extension's grants are not merged.
@@ -492,12 +492,12 @@ impl Stage {
     }
 
     /// Whether the stage raises the pinned denials of its access kind unless `--permissions off` says otherwise.
-    /// Writes is on: its probes P1-P13 are merged in the corpus (master, PR 914). An access the sets allow runs in every
+    /// Writes is on: its probes P1-P13 are merged in the corpus (master, PR 914). Reads is on for the record methods and
+    /// FlowFields its probes pin (P14, P15: Y24PermReads.al); the other read shapes refuse. An access the sets allow runs in every
     /// stage (an allowed access needs no probe, ADR-062 section 2); a denial of a stage that is off refuses the test.
     pub(crate) const fn on_by_default(self) -> bool {
         match self {
-            Stage::Writes => true,
-            Stage::Reads | Stage::Execute => false,
+            Stage::Writes | Stage::Reads | Stage::Execute => true,
         }
     }
 }
@@ -602,11 +602,14 @@ enum Verdict {
 impl Session {
     /// `PermissionTestHelper.AddEffectivePermissionSet(RoleId)`: adds the set to the session's assigned sets.
     pub(crate) fn assign_permission_set(&mut self, role: &str) {
+        // A set the test assigns ends the shadow run's evaluation of the runner's sets (ADR-062 probe P25 stays refused).
+        self.shadow_active = false;
         let role: String = role.to_uppercase().chars().take(20).collect();
         if !self.permission_roles.contains(&role) {
             self.permission_roles.push(role);
         }
         self.permissions = SetModel::of(&self.engine).compose(&self.permission_roles);
+        al_builtins::value::set_born_restricted(self.permissions.is_some());
         if self.permissions.is_none() {
             assume(Assumption::PermissionSetsGrantingEverythingUnrestricted);
         } else if self.runner_permission_sets {
@@ -632,6 +635,8 @@ impl Session {
         self.permission_roles.clear();
         self.permissions = None;
         self.runner_permission_sets = false;
+        self.shadow_clear();
+        al_builtins::value::set_born_restricted(false);
     }
 
     /// The decision function of ADR-062 section 1 for an access of a restricted session (the caller checked
@@ -644,7 +649,7 @@ impl Session {
     /// (TestMockBasics.al:20-79, 143-163). Nor is a call the runner makes from outside AL code (its steps around the
     /// test method, al-testrun `runner_reset.rs`).
     fn permission_verdict(&mut self, access: Access, target: Option<usize>, flowfield: bool) -> Verdict {
-        let Some(&caller) = self.frames.last() else {
+        let Some(caller) = self.permission_caller.or_else(|| self.frames.last().copied()) else {
             return Verdict::Allow;
         };
         let engine = self.engine.clone();
@@ -757,7 +762,7 @@ impl Session {
     /// Pinned: Y24PermReads.al Y24_P19_ReadWritePermission (indirect `r`, `i`, `im`, `imd`, `rimd`, and inside an object
     /// whose Permissions names the table), and the Y75 probe for R, RI, RIM, RIMD and RecordRef (Y75PermReadWrite.al).
     /// Not pinned, so refused when the answer would be false: a temporary record and a system table.
-    pub(crate) fn permission_answer(
+    pub(crate) fn permission_answer_decided(
         &mut self,
         rec: &crate::records::Rec,
         method: al_builtins::record_op::RecordOp,
@@ -820,36 +825,228 @@ impl Session {
         }
     }
 
-    /// The gate for a call of a routine of `object` (an Execute access, stage 3): an allowed call runs; a denial is not
-    /// pinned yet (probe P20), so it refuses the test.
+    /// The gate for a call of routine `routine` of `object` on `instance` (an Execute access, stage 3, probe P20).
+    /// BC checks Execute when an object made under restricted permissions is used (Y24PermExecute.al, BC 27.5, 28.5, 29.0):
+    /// - a call from the object's own code is free (the test codeunit's local procedures, a codeunit's own procedures);
+    /// - an instance made before the permissions were lowered is not checked (a global of the test codeunit, the Permissions
+    ///   Mock: `Mock.ClearAssignments()` runs under an exact set that grants it no Execute);
+    /// - Execute on the calling codeunit does not cover the objects it runs.
+    ///
+    /// The triggers of a table, page or extension run for record operations and page opens, which are not a call of the
+    /// object; the code of a subscriber is not pinned. A denial there refuses the test.
     #[cold]
     #[inline(never)]
-    pub(crate) fn permission_gate_call(&mut self, object: usize) -> Result<(), Signal> {
-        let o = &self.engine.program.objects.heads()[object];
-        let (kind, id) = execute_target(o.kind, o.id, o.extends_id);
-        if kind < 0 {
+    pub(crate) fn permission_gate_call_decided(
+        &mut self,
+        object: usize,
+        routine: usize,
+        instance: &std::rc::Rc<std::cell::RefCell<al_builtins::value::Instance>>,
+    ) -> Result<(), Signal> {
+        if !instance.borrow().born.0 {
             return Ok(());
         }
-        let access = Access {
-            kind,
-            id,
-            op: Op::Execute,
-        };
-        match self.permission_verdict(access, Some(object), false) {
-            Verdict::Allow => Ok(()),
+        if self.permission_caller.or_else(|| self.frames.last().copied()) == Some(object) {
+            return Ok(());
+        }
+        let rt = &self.engine.program.objects[object].routines[routine];
+        let kind = self.engine.program.objects.heads()[object].kind;
+        let unpinned_site = rt
+            .attributes
+            .iter()
+            .any(|a| a.name.eq_ignore_ascii_case("EventSubscriber"))
+            || (rt.is_trigger
+                && !matches!(
+                    kind,
+                    al_ir::ObjKind::Codeunit | al_ir::ObjKind::Report | al_ir::ObjKind::XmlPort | al_ir::ObjKind::Query
+                ));
+        if unpinned_site {
+            return match self.execute_verdict(object) {
+                Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
+                Verdict::Deny { .. } => Err(Signal::Unsupported(unpinned_denial(
+                    self.execute_access(object),
+                    "an Execute denial on a trigger or an event subscriber",
+                ))),
+                Verdict::Allow => Ok(()),
+            };
+        }
+        self.permission_gate_execute(object)
+    }
+
+    /// Whether opening page `object` is denied (no Execute on it for the code that opens it).
+    pub(crate) fn permission_page_open_denied_decided(&mut self, object: usize) -> Result<bool, Signal> {
+        if self.permission_caller.or_else(|| self.frames.last().copied()) == Some(object) {
+            return Ok(false);
+        }
+        match self.execute_verdict(object) {
+            Verdict::Allow => Ok(false),
             Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
-            Verdict::Deny { .. } => Err(Signal::Unsupported(unpinned_denial(
-                access,
-                "ADR-062 stage 3, probe P20",
-            ))),
+            Verdict::Deny { .. } => Ok(true),
         }
     }
 
-    /// The gate for the calculation of a FlowField over table `table` (object index): an indirect read the session level
-    /// allows runs (pin 6); a denial is stage 2 (probe P15), so it refuses the test.
+    fn execute_access(&self, object: usize) -> Access {
+        let o = &self.engine.program.objects.heads()[object];
+        let (kind, id) = execute_target(o.kind, o.id, o.extends_id);
+        Access {
+            kind,
+            id,
+            op: Op::Execute,
+        }
+    }
+
+    fn execute_verdict(&mut self, object: usize) -> Verdict {
+        let access = self.execute_access(object);
+        if access.kind < 0 {
+            return Verdict::Allow;
+        }
+        self.permission_verdict(access, Some(object), false)
+    }
+
+    /// Execute on `object`, used by code of another object (Codeunit.Run, a report run, XmlPort.Export, Query.Open, a call on a
+    /// variable). The error is Y24PermExecute.al's: `(<Kind> <id> <name> Execute: <app of the calling code>)`, code
+    /// `DB:ExecuteObjDenied`. Pages end with FormAbort:Permission when opened (not built yet: refused).
     #[cold]
     #[inline(never)]
-    pub(crate) fn permission_gate_flowfield(&mut self, table: usize) -> Result<(), Signal> {
+    pub(crate) fn permission_gate_execute_decided(&mut self, object: usize) -> Result<(), Signal> {
+        if self.permission_caller.or_else(|| self.frames.last().copied()) == Some(object) {
+            return Ok(());
+        }
+        let access = self.execute_access(object);
+        match self.execute_verdict(object) {
+            Verdict::Allow => Ok(()),
+            Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
+            Verdict::Deny { by, .. } => {
+                let heads = self.engine.program.objects.heads();
+                let o = &heads[object];
+                let word = match access.kind {
+                    1 => "Table",
+                    3 => "Report",
+                    5 => "CodeUnit",
+                    6 => "XmlPort",
+                    9 => "Query",
+                    _ => {
+                        return Err(Signal::Unsupported(unpinned_denial(
+                            access,
+                            "an Execute denial on a page: BC ends with FormAbort:Permission when it opens (probe P20)",
+                        )));
+                    }
+                };
+                let app = self
+                    .engine
+                    .program
+                    .apps
+                    .get(heads[by].app as usize)
+                    .map(|a| a.name.as_str())
+                    .unwrap_or_default();
+                Err(crate::transactions::al_error_code(
+                    &format!(
+                        "Sorry, the current permissions prevented the action. ({word} {} {} Execute: {app})",
+                        access.id, o.name
+                    ),
+                    "DB:ExecuteObjDenied",
+                ))
+            }
+        }
+    }
+
+    /// `User Permissions.GetEffectivePermission` (through `NavUserAccountHelper.GetEffectivePermissionForObject`): the five levels
+    /// (Read, Insert, Modify, Delete, Execute; 0 blank, 1 Yes) of the session on object `(kind, id)`, `kind` the "Object Type"
+    /// ordinal. Pinned (Y24PermExecute.al Y24_P22_EffectivePermission, BC 27.5, 28.5, 29.0) for TableData, Table, Codeunit, Page and
+    /// Report: the assigned sets give what they declare, and `Set` adds All Objects (Execute on every object kind), so a narrow
+    /// set gives Execute on objects and `SetExactPermissionSet` gives none. `None` when no restricted session answers it (the
+    /// caller answers for the unrestricted user). Indirect levels, sets that are not fully composed and the other object types
+    /// are not pinned and refuse.
+    pub(crate) fn effective_permission_levels_decided(&self, kind: i32, id: u32) -> Result<Option<Levels>, Signal> {
+        let Some(eff) = self.permissions.clone() else {
+            return Ok(None);
+        };
+        if self.ignore_permission_mock {
+            assume(Assumption::PermissionsNotEnforced);
+            return Ok(None);
+        }
+        if self.permissions_off {
+            return Err(Signal::Unsupported(LOWERED.into()));
+        }
+        if !matches!(kind, 0 | 1 | 3 | 5 | 8) {
+            return Err(Signal::Unsupported(format!(
+                "GetEffectivePermission of an object of type {kind} under assigned permission sets (only TableData, Table, Report, Codeunit and Page are pinned, ADR-062 probe P22)"
+            )));
+        }
+        let mut out = [0u8; 5];
+        for (slot, op) in [Op::Read, Op::Insert, Op::Modify, Op::Delete, Op::Execute]
+            .into_iter()
+            .enumerate()
+        {
+            out[slot] = eff.level(Access { kind, id, op });
+        }
+        if out.contains(&2) {
+            return Err(Signal::Unsupported(
+                "GetEffectivePermission where the session holds a permission only as Indirect (not pinned, ADR-062 probe P22)".into(),
+            ));
+        }
+        if !eff.complete && out.contains(&0) {
+            return Err(Signal::Unsupported(format!(
+                "GetEffectivePermission under assigned permission sets that are not fully composed, so BC may grant more: {}",
+                eff.why_incomplete.join("; ")
+            )));
+        }
+        Ok(Some(out))
+    }
+
+    /// Whether the control `guard` (the value of its AccessByPermission property) is left off a page that opened under the
+    /// permission sets `opened_under`. Pinned (Y24PermExecute.al Y24_P21_AccessByPermissionPage and ...RequestPage, BC 27.5, 28.5,
+    /// 29.0): `tabledata T = R` and `= I` and `codeunit C = X`; the control is off when the session's level of that permission
+    /// is blank and there when it is Yes. An Indirect level, a session whose sets are not fully composed, a change of the
+    /// assigned sets since the page opened and every other guard are not pinned: they refuse.
+    pub(crate) fn access_by_permission_hidden_decided(
+        &self,
+        guard: &str,
+        opened_under: &[String],
+    ) -> Result<bool, Signal> {
+        let Some(eff) = self.permissions.clone() else {
+            return Ok(false);
+        };
+        if self.ignore_permission_mock {
+            assume(Assumption::PermissionsNotEnforced);
+            return Ok(false);
+        }
+        if self.permissions_off {
+            return Err(Signal::Unsupported(LOWERED.into()));
+        }
+        if opened_under != self.permission_roles.as_slice() {
+            return Err(Signal::Unsupported(
+                "the permission sets changed while a page with AccessByPermission was open (not pinned, ADR-062 probe P21)".into(),
+            ));
+        }
+        let (kind, id, slot) = crate::platform::parse_guard(&self.engine, guard).map_err(Signal::Unsupported)?;
+        let op = [Op::Read, Op::Insert, Op::Modify, Op::Delete, Op::Execute][slot];
+        match eff.level(Access { kind, id, op }) {
+            1 => Ok(false),
+            0 if eff.complete => Ok(true),
+            0 => Err(Signal::Unsupported(format!(
+                "AccessByPermission under assigned permission sets that are not fully composed, so BC may grant it: {}",
+                eff.why_incomplete.join("; ")
+            ))),
+            _ => Err(Signal::Unsupported(
+                "AccessByPermission where the session holds the permission only as Indirect (not pinned, ADR-062 probe P21)".into(),
+            )),
+        }
+    }
+
+    /// The gate for the calculation of a FlowField of `rec` over table `table` (object index): an indirect read the session
+    /// level allows runs (pin 6). A denial with rows in the source table is `IndirectRead` (Y24PermReads.al
+    /// Y24_P15_FlowFieldsNothingOnSource: CalcFields of Lookup, Exist, Sum and Count). On an empty source table the shape is
+    /// not pinned, so it refuses.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn permission_gate_flowfield_decided(
+        &mut self,
+        rec: &crate::records::Rec,
+        table: usize,
+    ) -> Result<(), Signal> {
+        if self.permission_autocalc {
+            return Ok(());
+        }
         let id = self.engine.program.objects.heads()[table].id.unwrap_or(0);
         let access = Access {
             kind: 0,
@@ -859,11 +1056,83 @@ impl Session {
         match self.permission_verdict(access, Some(table), true) {
             Verdict::Allow => Ok(()),
             Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
-            Verdict::Deny { .. } => Err(Signal::Unsupported(unpinned_denial(
+            Verdict::Deny { .. } if self.permission_page_calc => Err(Signal::Unsupported(unpinned_denial(
                 access,
-                "ADR-062 stage 2, probe P15",
+                "a page control over a FlowField the session cannot read: BC leaves the control off the page",
             ))),
+            Verdict::Deny { by, .. } => {
+                if id >= 2_000_000_000 {
+                    return Err(Signal::Unsupported(unpinned_denial(
+                        access,
+                        "a FlowField over a system table",
+                    )));
+                }
+                let src_t = self.engine.tables[table].clone().expect("table");
+                let cx = self.cx_for(rec, &src_t)?;
+                let rows = al_data::Store::count(&*self.store_for(rec), &cx, &src_t, &[])
+                    .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+                if rows == 0 {
+                    return Err(Signal::Unsupported(unpinned_denial(
+                        access,
+                        "a FlowField over an empty source table; Y24PermReads.al pins it with rows",
+                    )));
+                }
+                Err(self.denial_error(access, "IndirectRead", "Read", by))
+            }
         }
+    }
+
+    /// The read check of an object that reads tables without an AL frame of its own making the access: a query, an
+    /// xmlport, a report. The object's `Permissions` property and app decide it, as for code (Y24PermObjectReads.al
+    /// Y24_P16_*: without a property the object needs Read and the error says `Read`; with `Permissions = r` it needs the
+    /// indirect grant and the error says `IndirectRead`). Like a record read, it raises only when the table has rows.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn permission_gate_object_read_decided(
+        &mut self,
+        object: usize,
+        tables: &[usize],
+    ) -> Result<(), Signal> {
+        // Execute on the query or xmlport itself, by the code that runs it (Y24PermExecute.al tdonly_query_open, tdonly_xmlport_export).
+        self.permission_gate_execute(object)?;
+        self.permission_caller = Some(object);
+        let r = self.object_read_inner(tables);
+        self.permission_caller = None;
+        r
+    }
+
+    fn object_read_inner(&mut self, tables: &[usize]) -> Result<(), Signal> {
+        for &table in tables {
+            let id = self.engine.program.objects.heads()[table].id.unwrap_or(0);
+            let access = Access {
+                kind: 0,
+                id,
+                op: Op::Read,
+            };
+            if ALWAYS_READABLE.contains(&id) {
+                continue;
+            }
+            match self.permission_verdict(access, Some(table), false) {
+                Verdict::Allow => {}
+                Verdict::Refuse(why) => return Err(Signal::Unsupported(why)),
+                Verdict::Deny { indirect, by } => {
+                    let t = self.engine.tables[table].clone().expect("table");
+                    let rows = al_data::Store::count(&self.store, &self.cx, &t, &[])
+                        .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+                    if id >= 2_000_000_000 {
+                        return Err(Signal::Unsupported(unpinned_denial(
+                            access,
+                            "an object reading a system table",
+                        )));
+                    }
+                    if rows > 0 {
+                        let word = if indirect { "IndirectRead" } else { "Read" };
+                        return Err(self.denial_error(access, word, "Read", by));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The gate for record method `method` on `rec`; a method that reads or writes no row (filters, keys, field
@@ -871,7 +1140,7 @@ impl Session {
     /// behalf of a page, report, xmlport or validation.
     #[cold]
     #[inline(never)]
-    pub(crate) fn permission_gate_record(
+    pub(crate) fn permission_gate_record_decided(
         &mut self,
         method: al_builtins::record_op::RecordOp,
         rec: &crate::records::Rec,
@@ -902,7 +1171,11 @@ impl Session {
             return Ok(());
         }
         let access = Access { kind: 0, id, op };
-        match self.permission_verdict(access, Some(object), false) {
+        // The reads the runtime makes for a running xmlport count as the xmlport's.
+        self.permission_caller = if from_al { None } else { self.permission_run_object };
+        let verdict = self.permission_verdict(access, Some(object), false);
+        self.permission_caller = None;
+        match verdict {
             Verdict::Allow => Ok(()),
             Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
             Verdict::Deny { indirect, by } => self.write_denied(method, rec, args, access, indirect, by, from_al),
@@ -934,16 +1207,19 @@ impl Session {
         use al_builtins::value::Value;
         let refuse = |why: &str| Err(Signal::Unsupported(unpinned_denial(access, why)));
         if !Stage::of(access.op).on_by_default() {
-            return refuse(match access.op {
-                Op::Read => "ADR-062 stage 2, probes P14-P19",
-                _ => "ADR-062 stage 3, probes P20-P22",
-            });
+            return refuse("ADR-062 stage 3, probes P20-P22");
         }
         if !from_al {
             return refuse("made by the runtime for a page, report, xmlport or validation; ADR-062 probes P16-P18");
         }
         if access.id >= 2_000_000_000 && access.id != TENANT_MEDIA {
             return refuse("on a system table; probe P13 pins Tenant Media only");
+        }
+        if access.op == Op::Read {
+            if access.id >= 2_000_000_000 {
+                return refuse("on a system table; probe P13 pins Tenant Media writes only");
+            }
+            return self.read_denied(method, rec, args, access, indirect, by);
         }
         let word = match access.op {
             Op::Insert => "Insert",
@@ -999,6 +1275,166 @@ impl Session {
             ),
             &format!("DB:Client{word}Denied"),
         ))
+    }
+
+    /// BC's permission error: `text_word` in the message (`Read`, `IndirectRead`, `Insert`, ...), `code_word` in the code
+    /// (`DB:Client<code_word>Denied`); `by` is the object whose code makes the access (its app names the error).
+    fn denial_error(&self, access: Access, text_word: &str, code_word: &str, by: usize) -> Signal {
+        // A test that reaches a report the runtime cannot run is refused at its first denied read: its report would
+        // refuse it later, after the code between had changed what a later test of the codeunit observes
+        // (report/lt-u-report-props/UPropertyTests.al Report_RequestPagePermissions_AndInherentPermissions and the test
+        // after it, Query_InherentPermissions_UnderTheMock). Report permissions are not pinned (P17).
+        if let Some(why) = &self.report_refusal_after_denial {
+            return Signal::Unsupported(unpinned_denial(
+                access,
+                &format!("the test goes on to a report that cannot run ({why})"),
+            ));
+        }
+        let heads = self.engine.program.objects.heads();
+        let name = heads
+            .iter()
+            .find(|o| o.kind == al_ir::ObjKind::Table && o.id == Some(access.id))
+            .map(|o| o.name.as_str())
+            .unwrap_or_default();
+        let app = self
+            .engine
+            .program
+            .apps
+            .get(heads[by].app as usize)
+            .map(|a| a.name.as_str())
+            .unwrap_or_default();
+        crate::transactions::al_error_code(
+            &format!(
+                "Sorry, the current permissions prevented the action. (TableData {} {name} {text_word}: {app})",
+                access.id
+            ),
+            &format!("DB:Client{code_word}Denied"),
+        )
+    }
+
+    /// A denied Read of a record method AL code calls (the checks of `write_denied` have passed). Pinned
+    /// (Y24PermReads.al Y24_P14_ReadShapesWithRows and Y24_P14_ReadShapesEmptyTable, BC 27.5, 28.5, 29.0):
+    /// - on a table with rows, Get of an existing key, Find, FindLast, FindSet, IsEmpty, CountApprox, FindFirst after
+    ///   SetLoadFields, and RecordRef.FindFirst raise `Read`; CalcSums raises `IndirectRead` (code `DB:ClientReadDenied`
+    ///   for both); Get of a missing key raises RecordNotFound, which the method does itself;
+    /// - on an empty table nothing raises a permission error and the method answers as usual.
+    ///
+    /// A method that finds no row on a table that has rows, a Next, and an indirect CalcSums are not pinned: they refuse.
+    fn read_denied(
+        &mut self,
+        method: al_builtins::record_op::RecordOp,
+        rec: &crate::records::Rec,
+        args: &[al_builtins::value::Value],
+        access: Access,
+        indirect: bool,
+        by: usize,
+    ) -> Result<(), Signal> {
+        use al_builtins::record_op::RecordOp as R;
+        let refuse = |why: &str| Err(Signal::Unsupported(unpinned_denial(access, why)));
+        let t = self.table(rec)?;
+        let cx = self.cx_for(rec, &t)?;
+        let total = al_data::Store::count(&*self.store_for(rec), &cx, &t, &[])
+            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+        if total == 0 {
+            // Pinned for a table of the app under test (Y24PermReads.al Y24_P14_ReadShapesEmptyTable). A table of a dependency
+            // app that is empty here may hold rows in BC's Cronus database (Y69SystemGrants.al Y69_SY_ReporterShapes reads
+            // Customer under a set without Read and BC denies): the answer is not known.
+            let heads = self.engine.program.objects.heads();
+            let app = heads[t.object as usize].app as usize;
+            if self.engine.program.apps.get(app).is_none_or(|a| a.dependency) {
+                return refuse(
+                    "a read of an empty table of a dependency app, which BC's database may fill with demo rows",
+                );
+            }
+            return Ok(());
+        }
+        if method == R::Get {
+            let mut pk = Vec::new();
+            for (n, &field) in t.keys[0].iter().enumerate() {
+                let ty = t.fields[field].ty.clone();
+                match args.get(n) {
+                    Some(v) if !matches!(v, al_builtins::value::Value::Library(..)) => {
+                        pk.push(self.get_key_value(v, &ty)?)
+                    }
+                    _ => return refuse("Get with a RecordId or fewer values than the primary key has fields"),
+                }
+            }
+            if args.len() != pk.len() || crate::sqltime::key_rounds(&pk) {
+                return refuse("Get with more values than the key, or a Time or DateTime key");
+            }
+            let cx = self.cx_for(rec, &t)?;
+            let found = al_data::Store::get(&*self.store_for(rec), &cx, &t, &pk)
+                .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+            return if found.is_some() {
+                Err(self.denial_error(access, "Read", "Read", by))
+            } else {
+                Ok(())
+            };
+        }
+        if method == R::GetBySystemId {
+            return refuse("GetBySystemId; Y24PermReads.al pins Get");
+        }
+        let exact = match args.first() {
+            None => true,
+            Some(al_builtins::value::Value::Text(s)) => s.as_str() == "=",
+            _ => false,
+        };
+        if method == R::Find && exact {
+            return if self.row_exists(rec)? {
+                Err(self.denial_error(access, "Read", "Read", by))
+            } else {
+                refuse("Find('=') of a key that does not exist on a table with rows")
+            };
+        }
+        let (filters, flow_field_filters) = self.split_filters(rec);
+        if !flow_field_filters.is_empty() || rec.borrow().marked_only {
+            return refuse("a read with a FlowField filter or marked records only");
+        }
+        let n = al_data::Store::count(&*self.store_for(rec), &cx, &t, &filters)
+            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+        if n == 0 {
+            return refuse("a read that finds no row on a table that has rows");
+        }
+        match method {
+            R::Find | R::FindFirst | R::FindLast | R::FindSet | R::Count | R::CountApprox | R::IsEmpty => {
+                Err(self.denial_error(access, "Read", "Read", by))
+            }
+            R::CalcSums if !indirect && self.session_read_level(access) == 0 => {
+                Err(self.denial_error(access, "IndirectRead", "Read", by))
+            }
+            _ => refuse("a read shape other than the ones Y24PermReads.al pins"),
+        }
+    }
+
+    /// `calc_fields` for the controls of a page: a denial refuses (BC leaves such a control off the page, Y24_P15).
+    pub(crate) fn page_calc_fields(&mut self, rec: &crate::records::Rec, positions: &[usize]) -> Result<(), Signal> {
+        let saved = std::mem::replace(&mut self.permission_page_calc, true);
+        let r = self.calc_fields(rec, positions);
+        self.permission_page_calc = saved;
+        r
+    }
+
+    /// `calc_value` for a control of a page, as [`Self::page_calc_fields`].
+    pub(crate) fn page_calc_value(
+        &mut self,
+        rec: &crate::records::Rec,
+        pos: usize,
+    ) -> Result<al_builtins::value::Value, Signal> {
+        let saved = std::mem::replace(&mut self.permission_page_calc, true);
+        let r = self.calc_value(rec, pos, &mut Vec::new());
+        self.permission_page_calc = saved;
+        r
+    }
+
+    /// `CountApprox` answers as `Count`. The gate ran for CountApprox, so `Count` passes it again with the same answer.
+    pub(crate) fn count_approx(&mut self, rec: &crate::records::Rec) -> Result<al_builtins::value::Value, Signal> {
+        self.permission_from_al = self.permissions.is_some();
+        self.record_op(al_builtins::record_op::RecordOp::Count, rec, &mut [])
+    }
+
+    /// The level the assigned sets give `access` before inherent permissions and object grants.
+    fn session_read_level(&self, access: Access) -> u8 {
+        self.permissions.as_ref().map_or(0, |e| e.level(access))
     }
 
     /// Whether the row with `rec`'s primary key is stored.
@@ -1134,14 +1570,11 @@ mod tests {
         );
     }
 
-    /// Writes is on once probes P1-P13 landed; reads and Execute wait for theirs (ADR-062 section 5).
+    /// Writes is on once probes P1-P13 landed, Reads once P14-P15 did, Execute once P20 did (ADR-062 section 5).
     #[test]
-    fn only_the_write_stage_is_on_by_default() {
-        for op in [Op::Insert, Op::Modify, Op::Delete] {
+    fn every_access_stage_is_on_by_default() {
+        for op in [Op::Insert, Op::Modify, Op::Delete, Op::Read, Op::Execute] {
             assert!(Stage::of(op).on_by_default(), "{op:?}");
-        }
-        for op in [Op::Read, Op::Execute] {
-            assert!(!Stage::of(op).on_by_default(), "{op:?}");
         }
     }
 

@@ -1,6 +1,7 @@
 //! `FilterGroup(-1)` is the "OR group" in BC: filters set in it on different fields are alternatives
 //! (pinned by corpus record/PWFilterGroupOr.al; issue 17: Base Application's
-//! `FilterBlankSalesDiscountAccounts`). Other negative groups are refused, not guessed.
+//! `FilterBlankSalesDiscountAccounts`). Other negative groups are stored when no filter is set in them
+//! (P68F_FilterGroup.al); a filter set in one is refused, not guessed.
 
 use al_test_cli::report::Outcome;
 
@@ -18,7 +19,7 @@ fn outcomes(tests: &str) -> Vec<(String, Outcome)> {
 }
 
 #[test]
-fn the_or_group_selects_alternatives_and_other_negative_groups_are_refused() {
+fn the_or_group_selects_alternatives_and_other_negative_groups_are_stored() {
     let o = outcomes(
         "[Test] procedure OrGroup() var R: Record \"FG Row\"; begin
              R.DeleteAll();
@@ -39,10 +40,7 @@ fn the_or_group_selects_alternatives_and_other_negative_groups_are_refused() {
     );
     // corpus record/PWFilterGroupOr.al pins the OR group in full.
     assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0]);
-    assert!(
-        matches!(&o[1].1, Outcome::NotRun(why) if why.contains("FilterGroup(-2)") && why.contains("only -1")),
-        "{:?}",
-        o[1]
-    );
+    // A bare FilterGroup(-2) is stored and read back (record/lt-filters-keys-finds/P68F_FilterGroup.al).
+    assert_eq!(o[1].1, Outcome::Pass, "{:?}", o[1]);
     assert_eq!(o[2].1, Outcome::Pass, "{:?}", o[2]);
 }

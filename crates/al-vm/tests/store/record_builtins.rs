@@ -1093,22 +1093,35 @@ fn setfilter_placeholder_case_insensitive_text_with_a_greater_than_is_quoted() {
 }
 
 #[test]
-fn setfilter_placeholder_text_with_an_unpinned_filter_character_is_refused() {
-    // Wildcards mixed with operators remain outside this implementation.
-    for filter_value in ["'a*&b'", "'a*>b'"] {
-        let r = run(
-            &format!(
-                "procedure F(): Integer var R: Record \"ALT T\"; begin
-                    R.SetFilter(Descr, '%1', {filter_value}); exit(R.Count());
-                end;"
-            ),
-            "F",
-        );
-        assert!(
-            matches!(&r, Err(Signal::Unsupported(m)) if m.contains("filter character")),
-            "{filter_value}: {r:?}"
-        );
-    }
+fn setfilter_placeholder_text_with_wildcard_and_operator_runs_and_a_leading_at_is_refused() {
+    // Wildcards mixed with operators are quoted and keep the wildcard (filters/W4Filters.al
+    // SetFilterPercent1_WildcardTogetherWithOperators: `a*&b` matches `a&b`).
+    let r = run(
+        "procedure F(): Integer var R: Record \"ALT T\"; begin
+            R.\"No.\" := 'A'; R.Descr := 'a&b'; R.Insert();
+            R.SetFilter(Descr, '%1', 'a*&b'); exit(R.Count());
+        end;",
+        "F",
+    );
+    assert_eq!(text_or_int(r), 1);
+    let r = run(
+        "procedure F(): Integer var R: Record \"ALT T\"; begin
+            R.SetFilter(Descr, '%1', 'a*>b'); exit(R.Count());
+        end;",
+        "F",
+    );
+    assert!(r.is_ok(), "a*>b: {r:?}");
+    // A text that starts with `@` is still not pinned.
+    let r = run(
+        "procedure F(): Integer var R: Record \"ALT T\"; begin
+            R.SetFilter(Descr, '%1', '@@a'); exit(R.Count());
+        end;",
+        "F",
+    );
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("filter character")),
+        "@@a: {r:?}"
+    );
     // A plain text is an exact match, as before.
     let r = run(
         "procedure F(): Integer var R: Record \"ALT T\"; begin

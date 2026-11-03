@@ -56,6 +56,7 @@ pub mod ops;
 pub mod page_op;
 pub mod pagebuiltins;
 pub mod pagefmt;
+pub mod permission_shadow;
 pub mod pinned_columns;
 pub mod platform;
 pub mod platform_native;

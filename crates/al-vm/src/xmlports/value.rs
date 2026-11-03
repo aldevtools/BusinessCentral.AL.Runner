@@ -87,6 +87,16 @@ impl Session {
                 let ok = al_builtins::evaluate::evaluate(self, None, &mut args)?;
                 if matches!(ok, Value::Boolean(true)) {
                     Ok(args[0].clone())
+                } else if self.global_language == 1031 {
+                    // Under language 1031 the text is German; pinned for Boolean and Decimal only (dg-xmlport-leads/DgXmlPortLeads.al:
+                    // Item107_BoolImportByLanguage `legacy_1031_yes`; the text as Evaluate gives it: types/lt-evaluate-decimal-text/EvalDecimalDe.al).
+                    match name {
+                        "Boolean" | "Decimal" => Err(xerr(
+                            format!("Der Wert „{text}“ kann nicht in Typ {name} ausgewertet werden."),
+                            "Evaluate",
+                        )),
+                        _ => unsupported(format!("the Evaluate error of {name} in German (not pinned)")),
+                    }
                 } else {
                     Err(evaluate_error(text, name))
                 }
@@ -131,9 +141,11 @@ impl Session {
             // is not pinned: BC's error for an unknown table (`Id: 1..9`) is pinned only in part.
             RtType::Library(k) if k.as_str() == "TableFilter" => {
                 let mut args = [self.default_value(ty), Value::Text(text.to_string().into())];
-                self.ret_used = true;
+                // A text Evaluate rejects raises its own error, the statement form's text and code
+                // (Y83XpMiscTests.al:TableFilter_Import `tf [abc]`, `tf [LT Y83 Item: Zz=1]`, needs the corpus bump).
+                self.ret_used = false;
                 match al_builtins::evaluate::evaluate(self, None, &mut args)? {
-                    Value::Boolean(true) => Ok(args[0].clone()),
+                    Value::Boolean(true) | Value::Null => Ok(args[0].clone()),
                     _ => unsupported(
                         "XmlPort import of a text Evaluate does not take into a TableFilter field (error not pinned)",
                     ),
@@ -253,8 +265,16 @@ impl Session {
                         && digits.split('.').all(|p| p.bytes().all(|b| b.is_ascii_digit()))
                         && !digits.starts_with('.')
                 };
+                // More than 15 whole or 18 fractional digits are no Decimal of the XML form: a port without FormatEvaluate reads the
+                // text as Evaluate does first and, when that fails, here; 20 whole digits fail with Evaluate's error
+                // (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Decimal_Import_Xml, needs the corpus bump).
+                let short = {
+                    let digits = text.strip_prefix('-').unwrap_or(text);
+                    let (int, frac) = digits.split_once('.').unwrap_or((digits, ""));
+                    int.len() <= 15 && frac.len() <= 18
+                };
                 match text.parse::<rust_decimal::Decimal>() {
-                    Ok(d) if plain => Ok(Value::Decimal(d)),
+                    Ok(d) if plain && short => Ok(Value::Decimal(d)),
                     _ => Err(evaluate_error(text, "Decimal")),
                 }
             }
@@ -278,6 +298,9 @@ impl Session {
                     )),
                 }
             }
+            // A TableFilter field reads and fails as with FormatEvaluate = Legacy (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:
+            // TableFilter_Import, the port keeps the default; needs the corpus bump).
+            RtType::Library(k) if k.as_str() == "TableFilter" => self.xp_value(text, ty, false),
             other => unsupported(format!(
                 "XmlPort import into a field of type {} with FormatEvaluate = Xml (the XML form is not pinned)",
                 other.describe()
@@ -366,8 +389,10 @@ pub(super) fn iso_duration(ms: i64) -> String {
     out
 }
 
-/// The white space characters of XML.
-pub(super) const XML_SPACE: [char; 4] = [' ', '\t', '\n', '\r'];
+/// The white space characters of a field element's text: XML's four, and a vertical tab, a form feed, NEL and the line separator,
+/// which an import reads as a space too (a character reference to one of them gives a space: xmlport/lt-y83-xmlport-shapes/
+/// Y83XpMiscTests.al:Xml_ControlChar_Import_1..3, needs the corpus bump).
+pub(super) const XML_SPACE: [char; 8] = [' ', '\t', '\n', '\r', '\u{b}', '\u{c}', '\u{85}', '\u{2028}'];
 
 /// `t` with each run of XML white space made one space and the ends trimmed.
 pub(super) fn collapse_white_space(t: &str) -> String {

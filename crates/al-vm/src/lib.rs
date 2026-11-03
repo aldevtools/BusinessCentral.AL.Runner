@@ -37,6 +37,7 @@ pub(crate) use interp::constant;
 pub use platform::{FieldGetByKey, field_get_by_key_pairs};
 pub use profile::flush as profile_flush;
 mod callstack;
+mod code_storage_check;
 mod column_formatter;
 mod companies;
 mod control_add_in;
@@ -69,6 +70,7 @@ mod load_fields_request;
 mod media_orphans;
 mod pages;
 mod partial;
+mod permission_shadow;
 mod permissions;
 mod platform;
 mod profile;
@@ -177,6 +179,9 @@ pub struct Engine {
     /// `autoinc::tables_with_delete_subscribers`), found when `Truncate` first asks.
     /// The profiles that get an All Profile row (see `platform::profiles::profile_seeds`).
     pub(crate) profile_seeds: std::sync::OnceLock<Vec<(usize, i32)>>,
+    /// The tables `seed_platform_rows` visits (`platform::seed::seed_tables`), found on the first session; shared with
+    /// sibling engines, which have the same program.
+    pub(crate) seed_tables: Arc<std::sync::OnceLock<Box<[usize]>>>,
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// What a run of a routine on a transient instance can leave behind (`effects.rs`), per (object, routine).
     pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<effects::Effect>>>,
@@ -431,6 +436,7 @@ impl Engine {
             delete_subscribed: Default::default(),
             lasting_effects: Default::default(),
             profile_seeds: Default::default(),
+            seed_tables: Default::default(),
             facts,
             exec: Arc::new(exec),
             positions_by_object: Default::default(),
@@ -473,6 +479,7 @@ impl Engine {
             delete_subscribed: Default::default(),
             lasting_effects: Default::default(),
             profile_seeds: Default::default(),
+            seed_tables: self.seed_tables.clone(),
             facts: self.facts.clone(),
             exec: self.exec.clone(),
             positions_by_object: Default::default(),
@@ -539,6 +546,7 @@ impl Engine {
             codeunits: _,
             // Caches that are worked out from the program on first use.
             profile_seeds: _,
+            seed_tables: _,
             delete_subscribed: _,
             lasting_effects: _,
             positions_by_object: _,
@@ -844,8 +852,29 @@ pub struct Session {
     /// `runner-permission-sets-grant-all`); a set the test assigns on top of them leaves a session that is not fully
     /// composed (ADR-062 probe P25).
     pub(crate) runner_permission_sets: bool,
+    /// The shadow run (`permission_shadow.rs`): the roles of the runner's step, and whether the session evaluates them.
+    pub(crate) shadow_roles: Vec<String>,
+    pub(crate) shadow_active: bool,
+    pub(crate) shadow_lower_bound: bool,
     /// Set by AL code's record method call right before `record_op` of a restricted session, taken there (ADR-062).
     pub(crate) permission_from_al: bool,
+    /// True while the fields of `SetAutoCalcFields` are calculated after a read: that read is allowed (Y24PermReads.al
+    /// Y24_P15_FlowFieldsNothingOnSource, `autocalc_findfirst`).
+    pub(crate) permission_autocalc: bool,
+    /// True while a page calculates the FlowFields of its controls: BC drops such a control when the session cannot read the
+    /// source table (Y24PermReads.al Y24_P15, `testpage_field`), which the runtime does not model, so a denial refuses.
+    pub(crate) permission_page_calc: bool,
+    /// Why a report the running test reaches cannot run (set by the test runner from the static reach, `None`: no such
+    /// report). A permission denial the test would catch is refused when it is set: the test goes on to the report, is
+    /// refused there, and by then has changed state a later test of the codeunit reads (ADR-062 stage 2).
+    pub report_refusal_after_denial: Option<String>,
+    /// The object whose `Permissions` property and app decide the accesses of the next checks, where no AL frame makes them
+    /// (a query, xmlport or report reading its tables, ADR-062 stage 2). `None`: the object of the current frame.
+    pub(crate) permission_caller: Option<usize>,
+    /// The xmlport whose export runs: the reads the runtime makes for it (not AL code) are decided as that object's.
+    pub(crate) permission_run_object: Option<usize>,
+    /// The query whose method runs (the object index), for the read check of `query_rows`.
+    pub(crate) query_object: usize,
     /// The object index of the test codeunit being run (set by the test runner).
     pub test_object: Option<usize>,
     /// The `TestHttpRequestPolicy` of the running test codeunit (`None`: the property is absent).
@@ -1167,7 +1196,16 @@ impl Session {
             permissions_off: false,
             permission_roles: Vec::new(),
             runner_permission_sets: false,
+            shadow_roles: Vec::new(),
+            shadow_active: false,
+            shadow_lower_bound: false,
             permission_from_al: false,
+            permission_autocalc: false,
+            permission_page_calc: false,
+            report_refusal_after_denial: None,
+            permission_caller: None,
+            permission_run_object: None,
+            query_object: 0,
             permissions: None,
             test_object: None,
             http_policy: None,
@@ -1260,8 +1298,11 @@ impl Session {
         // sets, which its set step assigned just before, stay (`runner_permission_sets`; the test runner calls this
         // again after its steps).
         let runner = self.runner_permission_sets;
+        let shadow_roles = std::mem::take(&mut self.shadow_roles);
         self.clear_permission_sets();
         self.runner_permission_sets = runner;
+        self.shadow_roles = shadow_roles;
+        self.shadow_begin();
         self.application_areas.clear();
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
@@ -1854,6 +1895,7 @@ impl Session {
             base: None,
             exts: Vec::new(),
             xp_text: Vec::new(),
+            born: Default::default(),
         }))
     }
 
@@ -1897,6 +1939,7 @@ impl Session {
             base: None,
             exts: Vec::new(),
             xp_text: Vec::new(),
+            born: Default::default(),
         }))
     }
 
@@ -2021,7 +2064,7 @@ impl Session {
     ) -> Result<(Value, Vec<Value>), Signal> {
         // ADR-062: a call is an Execute access; an unrestricted session pays one branch.
         if self.permissions.is_some() {
-            self.permission_gate_call(object)?;
+            self.permission_gate_call(object, routine, &instance)?;
         }
         if let Some(Some(reason)) = self.engine.blocked.get(object).and_then(|o| o.get(routine)) {
             return Err(Signal::Unsupported(reason.clone()));
@@ -2621,7 +2664,7 @@ impl std::hash::Hasher for PtrHash {
 }
 
 /// How the database stores field `f`: a Code field's `SQLDataType` (record/lt-x-table-props/XTableObjects.al:127-129).
-/// `Varchar` and no property store it as text.
+/// `Varchar` and no property store it as text; any other value that is no Integer or BigInteger is `Other`.
 fn code_storage(f: &al_ir::Field) -> al_data::CodeStorage {
     if !matches!(f.ty, RtType::Code(_)) {
         return al_data::CodeStorage::Text;
@@ -2634,6 +2677,9 @@ fn code_storage(f: &al_ir::Field) -> al_data::CodeStorage {
     {
         Some(v) if v.eq_ignore_ascii_case("Integer") => al_data::CodeStorage::Integer,
         Some(v) if v.eq_ignore_ascii_case("BigInteger") => al_data::CodeStorage::BigInteger,
-        _ => al_data::CodeStorage::Text,
+        Some(v) if v.eq_ignore_ascii_case("Variant") => al_data::CodeStorage::Variant,
+        Some(v) if v.eq_ignore_ascii_case("Varchar") => al_data::CodeStorage::Text,
+        Some(_) => al_data::CodeStorage::Other,
+        None => al_data::CodeStorage::Text,
     }
 }

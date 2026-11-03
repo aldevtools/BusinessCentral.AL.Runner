@@ -118,6 +118,9 @@ pub enum Value {
     Byte(u8),
     Char(u16),
     Text(crate::text::Txt),
+    /// A Label (or TextConst) held by a Variant: the text, answering IsTextConstant and no IsText (types/lt-y81-values/
+    /// Y81LabelVariant.al; needs corpus bump). Only a Variant ever holds it; anything that takes it out reads a Text.
+    TextConst(crate::text::Txt),
     Code(crate::text::Txt),
     /// Day number (0 = undefined `0D`), closing-date flag.
     Date(i32, bool),
@@ -380,6 +383,9 @@ pub struct PageState {
     pub draft: bool,
     /// Fields written by the client since the row was loaded.
     pub dirty: bool,
+    /// The save of a changed row failed on a page whose ModifyAllowed is false (`SaveAbort`): the change stays shown, nothing is
+    /// stored and a Next no longer moves (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_List_Set_Next_Next).
+    pub save_aborted: bool,
     /// `Visible` of each control as it was when the page opened (the property is frozen then,
     /// corpus handlers/TestPageControlPropertyLiveness_Tests.al:56).
     pub frozen_visible: Vec<bool>,
@@ -390,6 +396,9 @@ pub struct PageState {
     /// The caption each control's CaptionClass resolved to when the page filled: (control index, class text, caption).
     /// `Caption()` reads it without raising OnResolveCaptionClass again (corpus misc/W2CaptionClass.al:113-116).
     pub control_captions: Vec<(usize, String, String)>,
+    /// Why the caption in `control_captions` of a control is not known: (control index, refusal). `Caption()` refuses with it.
+    /// Only read together with a `control_captions` entry of the same control, which an open clears.
+    pub caption_refusals: Vec<(usize, String)>,
     /// The caption of each control over a table field whose CaptionClass is an expression, as the page filled it: (control
     /// index, caption). `Caption()` reads it and runs nothing (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:422-481).
     pub field_captions: Vec<(usize, String)>,
@@ -458,6 +467,9 @@ pub struct PageState {
     /// The page's source is temporary and its OnOpenPage left Rec as it stood before (key, order, filters and row): the row
     /// was set before the open, for example by a procedure of the page variable (see `rec_moved_by_onopenpage`).
     pub onopenpage_kept_rec: bool,
+    /// A lookup page handed the related row a field holds opens on it as a list opens on a row its OnOpenPage left Rec on
+    /// (`lookup_start.rs`).
+    pub lookup_held_row: bool,
     /// Set by the opener for the page's next open: while OnOpenPage runs, Rec's buffer is not pinned and a use that reads it
     /// refuses with this reason (`RecordState::unpinned_buffer`; a page an action opens through `RunPageLink`).
     pub open_rec_unpinned: Option<&'static str>,
@@ -492,6 +504,10 @@ pub struct PageState {
     pub focus_in_row: bool,
     /// Validation errors the client holds: (control index, stored text).
     pub errors: Vec<(usize, String)>,
+    /// A SetValue of a value that is not a Text, whose text is longer than the control's field: (control index, the text, the error
+    /// the save raises). The control shows the text; the next SetValue of the control drops it; the Close raises the error
+    /// (pages/lt-y80-setvalue-types/Y80SetValueTypes.al Y80_ST_Card_ShortCtl_*).
+    pub deferred_overlong: Option<(usize, String, String)>,
     /// The control and the list row (its key) where a control's ValuesAllowed refused an entry: a Value read of that control on
     /// another row is not pinned (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al:313-316).
     pub values_allowed_refused_row: Option<(usize, Vec<Value>)>,
@@ -595,6 +611,13 @@ pub struct PageState {
     /// The first TestPart move after the Lookup ran the refresh the Lookup left (`Session::run_lookup_refresh_left`); the
     /// part's later moves and the host's Next are pinned until another call.
     pub lookup_refresh_used: bool,
+    /// The host's Next is the first call after a Lookup that left its refresh for later: the move runs that refresh too
+    /// (`Session::lookup_next_refresh`).
+    pub lookup_next_refresh: bool,
+    /// That refresh runs on a host without OnAfterGetCurrRecord: its reads differ (`Session::lookup_next_refresh`).
+    pub lookup_next_plain: bool,
+    /// The host read the row of its unlinked ListPart after that part moved, and has not moved since (`Session::host_follows_part`).
+    pub host_followed_part: bool,
     /// An action turned MarkedOnly on for a list with row triggers: the later moves are refused (not built).
     pub marked_only_by_action: bool,
     /// An action runs on a list whose Rec had MarkedOnly off: a refresh after it that finds MarkedOnly on holds the marked rows it
@@ -840,6 +863,10 @@ pub struct PageState {
     /// The session's application areas when the page opened: controls whose area they do not
     /// enable are not on the page.
     pub areas: String,
+    /// The permission sets the session held when the page opened (AccessByPermission is decided against them, ADR-062 stage 3).
+    pub permission_roles: Vec<String>,
+    /// The positions of the FlowFields whose page controls the session's permission sets leave off the page (ADR-062 stage 2).
+    pub hidden_flowfields: Vec<usize>,
     /// OnInit has run on the current instance. BC constructs a page, and so runs OnInit, when a
     /// `Page` variable is first used, which may be a procedure call before it runs (corpus
     /// handlers/TestPageOnInit_Tests.al:188 POI_SetterBeforeRunModal_RunsAfterOnInitAndSurvives);
@@ -927,9 +954,11 @@ impl PageState {
             new_line: false,
             draft: false,
             dirty: false,
+            save_aborted: false,
             frozen_visible: Vec::new(),
             open_language: None,
             control_captions: Vec::new(),
+            caption_refusals: Vec::new(),
             field_captions: Vec::new(),
             field_captions_opened: false,
             field_captions_settled: false,
@@ -955,6 +984,7 @@ impl PageState {
             opened_on_moved_rec: false,
             part_on_host_row: false,
             onopenpage_kept_rec: false,
+            lookup_held_row: false,
             open_rec_unpinned: None,
             run_page_link_opened: false,
             run_page_link_open_moved: false,
@@ -967,6 +997,7 @@ impl PageState {
             selection_on_rec: false,
             focus: None,
             focus_in_row: false,
+            deferred_overlong: None,
             errors: Vec::new(),
             values_allowed_refused_row: None,
             trigger_errors: Vec::new(),
@@ -1010,6 +1041,9 @@ impl PageState {
             lookup_setting_value: false,
             lookup_value_set: false,
             lookup_refresh_used: false,
+            lookup_next_refresh: false,
+            lookup_next_plain: false,
+            host_followed_part: false,
             marked_only_by_action: false,
             marking_action: false,
             marked_rows_held: false,
@@ -1102,6 +1136,8 @@ impl PageState {
             parameters_wanted: false,
             request_seed: None,
             areas: String::new(),
+            permission_roles: Vec::new(),
+            hidden_flowfields: Vec::new(),
             inited: false,
             stale: false,
             lookup_set: false,
@@ -1866,6 +1902,30 @@ pub struct Instance {
     /// For the instance of an xmlport variable: the separators a program set (`FieldDelimiter(..)`, ...), as given, by
     /// kind (see `al-vm/src/xmlports.rs` `SEPARATORS`). Empty until one is set.
     pub xp_text: Vec<(u8, String)>,
+    /// Whether the instance was made while the session's permissions were lowered (ADR-062 stage 3): BC checks Execute on an
+    /// object when an instance made under restricted permissions is used, and an instance made before the restriction (a global
+    /// of the test codeunit, the Permissions Mock) is not checked (Y24PermExecute.al: `Mock.ClearAssignments()` and `Observer`
+    /// run under an exact set that grants them no Execute).
+    pub born: Born,
+}
+
+thread_local! {
+    static BORN_RESTRICTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Set by the session whenever its permissions are lowered or restored; read when an [`Instance`] is made.
+pub fn set_born_restricted(restricted: bool) {
+    BORN_RESTRICTED.with(|c| c.set(restricted));
+}
+
+/// See [`Instance::born`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Born(pub bool);
+
+impl Default for Born {
+    fn default() -> Born {
+        Born(BORN_RESTRICTED.with(std::cell::Cell::get))
+    }
 }
 
 /// State behind a library-type handle; grows with the builtins that need it.
@@ -2155,6 +2215,7 @@ impl Value {
             Value::Byte(_) => k == "byte",
             Value::Char(_) => k == "char",
             Value::Text(_) => k == "text",
+            Value::TextConst(_) => k == "textconstant",
             Value::Code(_) => k == "code",
             Value::Date(..) => k == "date",
             Value::Time(_) => k == "time",

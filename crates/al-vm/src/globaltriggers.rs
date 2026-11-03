@@ -16,7 +16,7 @@
 //!   even when `GetGlobalTableTriggerMask` answers 15; `OnGlobalRename` is (:125-165).
 //!
 //! What it does not pin, and so is an assumption (docs/probes-needed.md): that a mask bit of 8
-//! is the one for Rename (the corpus answers 15, every bit); that the setup is asked once per table
+//! is the one for Rename (the corpus answers 15, every bit; the bits 16 to 128 alone raise nothing); that the setup is asked once per table
 //! and session (AL Runner reads that in BC's `GetTriggersOnTable`); that `Insert(false)` and the
 //! other `RunTrigger = false` writes raise the database events too.
 
@@ -81,12 +81,9 @@ impl Session {
         self.events.global_setups.insert(table, GlobalSetup::default());
         let mut setup = GlobalSetup::default();
         // With no company open (the per-database part of an install) BC asks for neither the trigger mask nor the database
-        // trigger setup, and raises no database event (corpus branch al-runtime-rs-staging-y79,
-        // install/lt-y79-install-unrelated/Y79InstallUnrelated.al Y79_PerDatabase_NoTriggerSubscriberAsked; needs corpus bump).
+        // trigger setup, and raises no database event (install/lt-y79-install-unrelated/Y79InstallUnrelated.al:178
+        // Y79_PerDatabase_NoTriggerSubscriberAsked; install/lt-ug-install-trigger-setup/UgInstallTests.al:37).
         let no_company = self.cx.company.is_empty();
-        if no_company && self.engine.events.is_subscribed(key, "getglobaltabletriggermask") {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::InstallTriggerSetupPerCompanyOnly);
-        }
         if !no_company && self.engine.events.is_subscribed(key, "getglobaltabletriggermask") {
             let mut args = [Value::Integer(id), Value::Integer(0)];
             let n = names(&["TableID", "TableTriggerMask"]);
@@ -109,19 +106,18 @@ impl Session {
                     return unsupported(format!("Global Triggers: mask {}", other.describe()));
                 }
             };
-            // Only bit 8 raises OnGlobalRename; bits 1, 2, 4 and 16..128 raise no global event (corpus branch
-            // al-runtime-rs-staging-y79, install/lt-y79-install-unrelated/Y79InstallUnrelated.al Y79_TestSession_Table61370..61379;
-            // the corpus itself sets 0 or 15 only). A mask other than those two is that branch's, until the pin has it.
-            if mask != 0 && mask != MASK_ALL {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GlobalTriggerMaskBits);
+            // The bits 16, 32, 64 and 128 raise nothing (install/lt-y79-install-unrelated/Y79InstallUnrelated.al:345-347,
+            // :420-431: tables whose subscriber adds one of them); of the low four only 0 and 15 are pinned.
+            let low = mask & MASK_ALL;
+            let high = mask & !MASK_ALL;
+            if (low != 0 && low != MASK_ALL) || !matches!(high, 0 | 16 | 32 | 64 | 128) {
+                self.events.global_setups.remove(&table);
+                return unsupported(format!(
+                    "Global Triggers: table trigger mask {mask} for {} (the bits 16 to 128 alone and the low four together, 0 or 15, are pinned; which of the low bits is Rename is not)",
+                    t.name
+                ));
             }
-            setup.global_rename = mask & MASK_RENAME != 0;
-        }
-        // The same for the database trigger setup (corpus branch al-runtime-rs-staging-ug eff7eb2a,
-        // install/lt-ug-install-trigger-setup/UgInstallTests.al TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart;
-        // assumption install-trigger-setup-per-company-only until the bump).
-        if no_company && self.engine.events.is_subscribed(key, "getdatabasetabletriggersetup") {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::InstallTriggerSetupPerCompanyOnly);
+            setup.global_rename = low & MASK_RENAME != 0;
         }
         if !no_company && self.engine.events.is_subscribed(key, "getdatabasetabletriggersetup") {
             let mut args = [

@@ -858,20 +858,20 @@ impl Session {
             std::slice::from_ref(&current),
             std::slice::from_ref(&Value::default_for(&field.ty)),
         );
-        // A field that holds a value: the lookup page opens on the related row (pages/lt-page-runtime/P82Lookups.al:247
-        // Lookup_TableRelation_Ok `handler-first = G1`; pages/lt-an-testpage-640/AnTestPageTests.al:480). Not built yet: making it
-        // run lets pageext/lt-u-page-props/UPageProps.al:PageExt_LookupOnAndOff pass, after which four later tests of that
-        // codeunit run and fail on behaviors that are not modelled (a page extension's DataCaptionExpression, an API page's
-        // caption, UpdatePropagation on a card over the part's table, a profileextension's Enabled).
-        if holds_value {
-            return unsupported(
-                "Lookup over a TableRelation from a field that already holds a value (the page's position is not pinned)",
-            );
-        }
         let related = Rc::new(RefCell::new(PageState::closed(page_object as u32)));
         related.borrow_mut().lookup = true;
         self.page_instance(&related)?;
+        // A field that holds a value: the lookup page opens on the related row that holds it, a value that is no row opens on the
+        // first row like a blank field (pages/lt-y80-lookup-holds-value/Y80LookupHoldsValue.al Y80_LK_Card_HoldsMiddle, _HoldsNoRow,
+        // _HoldsBlank, _HoldsLowerCase, _AltHoldsMiddle; P82Lookups.al:247 Lookup_TableRelation_Ok for the first row). Pinned for a
+        // related table of up to four rows; a larger table is refused (how much of it the page reads around the row is not pinned).
+        let start = if holds_value {
+            self.lookup_start_row(&related, &current, pos)?
+        } else {
+            None
+        };
         let blank = Rc::new(RefCell::new(self.page_rec(&related).borrow().clone()));
+        self.lookup_pre_open(&related, &blank, start)?;
         let outcome = self.run_page_ui(&related, Some(blank), true)?;
         let confirmed = matches!(&outcome, Value::Option(n, members)
             if members.get(*n as usize).is_some_and(|m| m == "LookupOK"));

@@ -319,6 +319,37 @@ fn parse_grants_with<O: al_ir::ObjectInfo + ?Sized>(
     Ok(out)
 }
 
+/// The guard of an `AccessByPermission` property (`tabledata "T" = R`): the object type ordinal, the object id and the
+/// permission slot. Only the shapes Y24PermExecute.al Y24_P21 pins are read: `tabledata` with `R` or `I`, and `codeunit` with
+/// `X`; any other guard is an error naming it.
+pub(crate) fn parse_guard(engine: &crate::Engine, text: &str) -> Result<(i32, u32, usize), String> {
+    let bad = |why: &str| {
+        format!(
+            "AccessByPermission `{}` {why} (not pinned, ADR-062 probe P21)",
+            text.trim()
+        )
+    };
+    let (head, mask) = text.rsplit_once('=').ok_or_else(|| bad("has no permission mask"))?;
+    let (kind_word, name) = head
+        .trim()
+        .split_once(char::is_whitespace)
+        .ok_or_else(|| bad("names no object"))?;
+    let (kind, ty) = match kind_word.to_ascii_lowercase().as_str() {
+        "tabledata" => (0, al_ir::ObjKind::Table),
+        "codeunit" => (5, al_ir::ObjKind::Codeunit),
+        _ => return Err(bad("guards an object type other than tabledata and codeunit")),
+    };
+    let slot = match (kind, mask.trim()) {
+        (0, "R") => 0,
+        (0, "I") => 1,
+        (5, "X") => 4,
+        _ => return Err(bad("has a permission other than tabledata R or I, codeunit X")),
+    };
+    let c = Catalog::new(engine);
+    let id = c.id_of(ty, &last_name(name.trim())).map_err(|why| bad(&why))?;
+    Ok((kind, id, slot))
+}
+
 /// The five levels a mask such as `RIMD` or `rX` gives (0 blank, 1 Yes, 2 Indirect); `None` for a letter that is not
 /// R, I, M, D or X.
 fn parse_mask(mask: &str) -> Option<[u8; 5]> {

@@ -68,6 +68,11 @@ fn into(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value
 /// a Variant is converted here (`variant_convert`) or raises its error (`variant_error`); anything else is handed back for the
 /// conversion that follows.
 pub fn variant_into(v: Value, t: &RtType) -> Result<Value, Signal> {
+    // A TextConst taken out of a Variant is a Text (types/lt-y81-values/Y81LabelVariant.al, codeunits 94256 to 94258).
+    let v = match v {
+        Value::TextConst(s) => Value::Text(s),
+        other => other,
+    };
     // A value of a kind the matrix does not try (a SQL counter, a record, a list) goes on as it is.
     if super::engine::kind_of_value(&v).is_none() {
         return Ok(v);

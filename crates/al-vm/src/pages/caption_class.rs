@@ -2,6 +2,8 @@
 
 use super::*;
 
+const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
+
 impl Session {
     /// The caption a CaptionClass text stands for. Area 3 is the literal text. Other numeric areas
     /// go to the platform's translation (`caption_class_translate`). An area that is not a number, or no
@@ -12,7 +14,64 @@ impl Session {
     /// autoformat/TestCaptionClassResolverFailure.al: an error the subscriber raises reaches the
     /// open, and a subscriber that claims nothing changes nothing). The language handed to the
     /// event is the session language (types/PSCaptionClass.al).
+    /// The caption a control's CaptionClass text stands for. `3,` with nothing after the comma shows the caption of the last other
+    /// control on the same field (its Caption, else the field's caption), or the control's own caption when it is the only one on
+    /// its field (pages/lt-y80-captionclass-empty/Y80CaptionClassEmpty.al, Y80_CC_Card_OpenView, _OpenEdit, _OpenNew,
+    /// Y80_CC_List_*, Y80_CC_Worksheet_*, Y80_CC_Doc_AfterNext: the same on BC 27, 28 and 29, on every page type and open mode,
+    /// after a move and after a SetValue; `CtlLit`, `CtlExpr`, `CtlAlone`, `CtlAloneExpr`, `CtlVar`). The literal and the
+    /// expression forms behave the same. Needs a corpus bump for the Y80 file.
+    pub(super) fn caption_class_text_for(&mut self, st: &St, idx: usize, text: &str) -> Result<String, Signal> {
+        if text != "3," {
+            return self.caption_class_text(st, text);
+        }
+        self.refuse_caption_class_translate()?;
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let me = &page.controls[idx];
+        let others: Vec<usize> = (0..page.controls.len())
+            .filter(|&i| {
+                i != idx && page.controls[i].binding == me.binding && page.controls[i].var_field == me.var_field
+            })
+            .collect();
+        let me_bound = matches!(me.binding, al_ir::Binding::Field(_)) || me.var_field.is_some();
+        let Some(&last) = others.last().filter(|_| me_bound) else {
+            return self.control_caption_plain(st, idx);
+        };
+        if page.controls[last].prop("captionclass").is_some() {
+            return unsupported(
+                "CaptionClass '3,' over a control whose last other control on the field has a CaptionClass of its own (which caption BC reads is not pinned)",
+            );
+        }
+        self.control_caption_plain(st, last)
+    }
+
+    /// `caption_class_text_deferring` for the caption class of control `idx` (`3,` is the control's own shared-field rule).
+    pub(super) fn caption_class_text_deferring_for(
+        &mut self,
+        st: &St,
+        idx: usize,
+        text: &str,
+    ) -> Result<(String, Option<String>), Signal> {
+        if text == "3," {
+            return Ok((self.caption_class_text_for(st, idx, text)?, None));
+        }
+        self.caption_class_text_deferring(st, text)
+    }
+
     pub(super) fn caption_class_text(&mut self, st: &St, text: &str) -> Result<String, Signal> {
+        match self.caption_class_text_deferring(st, text)? {
+            (caption, None) => Ok(caption),
+            (_, Some(why)) => unsupported(why),
+        }
+    }
+
+    /// `caption_class_text`, but a caption whose text the runtime cannot know (`setup_caption_refusal`) comes back with its
+    /// reason instead of failing: the caller refuses where the text is read (runner issue 6794).
+    pub(super) fn caption_class_text_deferring(
+        &mut self,
+        st: &St,
+        text: &str,
+    ) -> Result<(String, Option<String>), Signal> {
         self.refuse_caption_class_translate()?;
         if let Some(rest) = text.strip_prefix("3,") {
             if rest.is_empty() {
@@ -22,7 +81,7 @@ impl Session {
                     "CaptionClass '3,' with nothing after the comma on a page control: which caption BC reads is not pinned",
                 );
             }
-            return Ok(rest.to_string());
+            return Ok((rest.to_string(), None));
         }
         let (area, expr) = text.split_once(',').unwrap_or(("", text));
         // An empty area before the comma is not resolved either (P84Captions.al: c14 ',x', no event call).
@@ -32,10 +91,10 @@ impl Session {
             // QdCaptionClassAreas.al:422-481 Page_ControlCaptions `lit20`, `lit53`, `pageExpr`), a text no subscriber resolves stays
             // as written, and a text the session translated before raises no event (pages/lt-page-report-events/P84Captions.al:
             // Page_NoSubscriber c01..c13, Page_Log_*, Page_Resolve_A/B after the table reads of the same texts).
-            return self.caption_class_translate(text);
+            return self.caption_class_translate_deferring(text);
         }
         let _ = st;
-        self.raise_resolve_caption_class(area, expr, text)
+        Ok((self.raise_resolve_caption_class(area, expr, text)?, None))
     }
 
     /// `CaptionClassTranslate(Text)`: area 3 gives the text after the first comma without an event ('3,One,Two' is
@@ -47,12 +106,20 @@ impl Session {
     /// not, until `SelectLatestVersion` (types/PSCaptionClass.al:94-115). Whether the kept caption holds after GlobalLanguage
     /// changed is not pinned: refused.
     pub(crate) fn caption_class_translate(&mut self, text: &str) -> Result<String, Signal> {
+        match self.caption_class_translate_deferring(text)? {
+            (caption, None) => Ok(caption),
+            (_, Some(why)) => unsupported(why),
+        }
+    }
+
+    /// `caption_class_translate` with the refusal of `setup_caption_refusal` returned beside the caption.
+    pub(crate) fn caption_class_translate_deferring(&mut self, text: &str) -> Result<(String, Option<String>), Signal> {
         self.refuse_caption_class_translate()?;
         let Some((area, expr)) = text.split_once(',') else {
-            return Ok(text.to_string());
+            return Ok((text.to_string(), None));
         };
         if area == "3" {
-            return Ok(expr.to_string());
+            return Ok((expr.to_string(), None));
         }
         if let Some((_, language, caption)) = self.caption_translations.iter().find(|(t, _, _)| t == text) {
             if *language != self.global_language {
@@ -61,7 +128,8 @@ impl Session {
                 );
             }
             let caption = caption.clone();
-            return self.refuse_setup_caption(area, text, caption);
+            let why = self.setup_caption_refusal(area, text, &caption);
+            return Ok((caption, why));
         }
         if matches!(area.trim(), "1" | "101") && !self.gl_setup_written {
             self.setup_caption_read_early = true;
@@ -69,7 +137,8 @@ impl Session {
         let caption = self.raise_resolve_caption_class(area, expr, text)?;
         self.caption_translations
             .push((text.to_string(), self.global_language, caption.clone()));
-        self.refuse_setup_caption(area, text, caption)
+        let why = self.setup_caption_refusal(area, text, &caption);
+        Ok((caption, why))
     }
 
     /// Base Application resolves areas 1 (dimensions) and 101 (currencies) from General Ledger Setup. The corpus database
@@ -81,7 +150,7 @@ impl Session {
     /// it wrote: area 101 type 0 (the LCY Code) and area 1 type 1 reference 1 (Global Dimension 1 Code and its Dimension row)
     /// (QdCaptionClassAreas.al:267 `lit101` 'Amount (GBP)', :269 `lit11` 'Department Code', :311 `expr101`, after
     /// misc/lt-qk-setup-rows/QkSetupRows.al WriteGLSetupCaptions). The other types read fields that test does not write.
-    fn refuse_setup_caption(&self, area: &str, text: &str, caption: String) -> Result<String, Signal> {
+    fn setup_caption_refusal(&self, area: &str, text: &str, caption: &str) -> Option<String> {
         let written = self.gl_setup_written && !self.setup_caption_read_early && {
             let expr = text.split_once(',').map_or("", |(_, e)| e);
             match area.trim() {
@@ -98,11 +167,30 @@ impl Session {
             && caption != text
             && !written
         {
-            return unsupported(format!(
+            return Some(format!(
                 "CaptionClass `{text}`: Base Application resolves area {area} from General Ledger Setup, whose corpus database row the runtime's database does not hold"
             ));
         }
-        Ok(caption)
+        None
+    }
+
+    /// Whether a compiled OnResolveCaptionClass subscriber belongs to an app other than the Base Application. Base Application's
+    /// resolvers (codeunits 342 Currency and 343 Dimension Caption Class Mgmt) only assign Caption and Resolved, so an unknown
+    /// caption text is all a test can observe of them; another app's subscriber could write state, and then the open is refused
+    /// whenever its text is unknown (runner issue 6794; earlier measurements in 4920 and 5376).
+    pub(super) fn foreign_caption_class_subscriber(&self) -> bool {
+        let program = &self.engine.program;
+        let base = |object: usize| {
+            program
+                .apps
+                .get(program.objects[object].app as usize)
+                .is_some_and(|a| a.id.eq_ignore_ascii_case(BASE_APPLICATION_APP_ID))
+        };
+        self.engine
+            .events
+            .subscribers_of(crate::events::CAPTION_CLASS)
+            .iter()
+            .any(|&(object, _)| !base(object))
     }
 
     /// Every caption class the client translates raises `CaptionClassTranslate` of the platform codeunit `UI Helper Triggers`,

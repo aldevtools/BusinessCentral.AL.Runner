@@ -27,9 +27,6 @@ fn needs_quotes(s: &str) -> bool {
     s.contains(['|', '&', '<', '>', '=', '(', ')']) || s.contains("..")
 }
 
-/// Characters in a value `GetFilter` cannot show yet: nothing pins them.
-const FILTER_UNPINNED: &[char] = &['*', '?', '"'];
-
 impl Session {
     /// A filter expression over a field of type `ty`, enum members by name included.
     pub(crate) fn parse_filter_text(&self, text: &str, ty: &al_builtins::value::RtType) -> Result<FilterExpr, String> {
@@ -92,7 +89,9 @@ impl Session {
                 return Ok("''".into());
             }
             if needs_quotes(s) {
-                if s.contains(FILTER_UNPINNED) || s.starts_with('@') {
+                // `*` and `?` stay in a quoted value (W4Filters.al SetFilterPercent1_WildcardTogetherWithOperators); a double quote
+                // next to an operator is not pinned.
+                if s.contains('"') || s.starts_with('@') {
                     return unsupported("a filter value that needs quoting and holds more filter characters");
                 }
                 // record/TestFilterQuotedLiterals.al:95-105: an apostrophe in a quoted value is doubled.
@@ -103,7 +102,9 @@ impl Session {
             if &**s == "@" {
                 return Ok("'@'".into());
             }
-            if s.contains(FILTER_UNPINNED) || s.starts_with('@') {
+            // A double quote is shown as it is (W4Filters.al SetFilterPercent1_GreaterThanAndDoubleQuote `x"y`, `"y`, `"`,
+            // SetFilterPercent1_WildcardTogetherWithOperators `*"*`); a lone `*` is not pinned here (see the `Eq` case of `filter_text_with`).
+            if (s.contains(['*', '?']) && !s.contains('"')) || s.starts_with('@') {
                 return unsupported("a filter value that needs quoting");
             }
         }
@@ -171,6 +172,9 @@ impl Session {
             FilterExpr::Range(Some(a), None) => format!("{}..", self.filter_value_with(a, iso)?),
             FilterExpr::Range(None, Some(b)) => format!("..{}", self.filter_value_with(b, iso)?),
             FilterExpr::Range(None, None) => return unsupported("an unbounded range filter"),
+            // The text `*` from `SetFilter(F, '%1', '*')` is the literal text, shown `='*'` (filters/W4Filters.al
+            // SetFilterPercent1_WildcardTogetherWithOperators `star_alone`).
+            FilterExpr::Eq(Value::Text(s) | Value::Code(s)) if &**s == "*" => "='*'".to_string(),
             FilterExpr::Eq(v) => self.filter_value_with(v, iso)?,
             FilterExpr::RangeSame(v) => {
                 let t = self.filter_value_with(v, iso)?;
@@ -184,7 +188,7 @@ impl Session {
             FilterExpr::Gt(v) => format!(">{}", self.filter_value_with(v, iso)?),
             FilterExpr::Ge(v) => format!(">={}", self.filter_value_with(v, iso)?),
             // With `>` too: `'@a>b@x.com'` (misc/lt-y14-triage/Y14Small.al:309, corpus master).
-            FilterExpr::Like(p, ci) if needs_quotes(p) && !p.contains(['*', '?', '\'']) => {
+            FilterExpr::Like(p, ci) if needs_quotes(p) && !p.contains('\'') => {
                 format!("'{}{p}'", if *ci { "@" } else { "" })
             }
             FilterExpr::Like(p, ci) => format!("{}{p}", if *ci { "@" } else { "" }),
@@ -193,6 +197,7 @@ impl Session {
             // filters/lt-wc/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
             FilterExpr::EmptyViewValue => "==".to_string(),
+            FilterExpr::NumCode(inner) => self.filter_text_with(inner, iso)?,
             // The blank DateTime next to another alternative reads back as the range `''..''` (record/lt-y71-setview-datetime/
             // Y71SetViewDateTime.al:125-127 dt_empty_or, :207-209 sca_empty_or); a Date stays `''` (:289-291). Alone it is not pinned
             // here and stays `''`.
@@ -274,11 +279,9 @@ impl Session {
         let mut r = rec.borrow_mut();
         if let Some(v) = args.first() {
             r.filter_group = match v {
-                // The OR group: filters on different fields are alternatives (corpus
-                // record/PWFilterGroupOr.al). Other negative groups are not pinned.
-                Value::Integer(n) if *n < 0 && *n != al_builtins::filter::OR_GROUP => {
-                    return unsupported(format!("FilterGroup({n}) (only -1, the OR group, is pinned)"));
-                }
+                // The OR group: filters on different fields are alternatives (corpus record/PWFilterGroupOr.al). Another negative
+                // group is set and read back like any other (record/lt-filters-keys-finds/P68F_FilterGroup.al
+                // RecordRef_Setter_Negative_And_Large: -100 and -2147483647); a filter set in it is refused in `record_op_inner`.
                 Value::Integer(n) => *n,
                 other => return unsupported(format!("FilterGroup({})", other.describe())),
             };
@@ -564,11 +567,7 @@ impl Session {
                         };
                         // A Date text reads as SetFilter reads it in the session's language: `010120..` is 01/01/20..
                         // (events/lt-platform-triggers/PtObserve.al:Filter_View).
-                        let date_ctx = al_builtins::filter::DateFilterContext {
-                            today: self.today_day_number(),
-                            work_date: self.work_date_day().unwrap_or_else(|| self.today_day_number()),
-                            language: self.global_language,
-                        };
+                        let date_ctx = self.date_filter_context_for(value);
                         let expr = match empty {
                             Some(e) => e,
                             None => {
@@ -681,6 +680,7 @@ fn ordinals(e: &FilterExpr) -> FilterExpr {
         FilterExpr::NotLike(p, ci) => FilterExpr::NotLike(p.clone(), *ci),
         FilterExpr::AtSignAlone(n) => FilterExpr::AtSignAlone(*n),
         FilterExpr::EmptyViewValue => FilterExpr::EmptyViewValue,
+        FilterExpr::NumCode(e) => FilterExpr::NumCode(e.clone()),
     }
 }
 

@@ -555,17 +555,27 @@ fn field_row(
         r[pos(t, 10)] = super::unknown(t, 10, &format!("{}, which declares ExternalName = {v}", what()));
     }
     if t.fields.iter().any(|x| x.id == 23) {
-        r[pos(t, 23)] = match (&f.ty, fprop("SQLDataType")) {
-            (RtType::Text(Some(_)), None) => match &blank.row[pos(t, 23)] {
-                Value::Option(_, m) => match m.iter().position(|x| x.eq_ignore_ascii_case("Varchar")) {
+        // A Code field reads Varchar when it declares none, and the member it declares among Varchar, Integer, BigInteger and
+        // Variant (the writer's probe tests/al-language/record/lt-y82-sqldatatype-code/ Y82PkTests.al `Pk*_Meta`, needs corpus bump).
+        let member = match (&f.ty, fprop("SQLDataType")) {
+            (RtType::Text(Some(_)), None) | (RtType::Code(_), None) => Some("Varchar"),
+            (RtType::Code(_), Some(v)) => ["Varchar", "Integer", "BigInteger", "Variant"]
+                .into_iter()
+                .find(|m| m.eq_ignore_ascii_case(v.trim())),
+            _ => None,
+        };
+        r[pos(t, 23)] = match member {
+            Some(member) => match &blank.row[pos(t, 23)] {
+                Value::Option(_, m) => match m.iter().position(|x| x.eq_ignore_ascii_case(member)) {
                     Some(n) => Value::Option(n as i32, m.clone()),
-                    None => super::unknown(t, 23, &format!("{}: SQLDataType has no member Varchar", what())),
+                    None => super::unknown(t, 23, &format!("{}: SQLDataType has no member {member}", what())),
                 },
                 _ => super::unknown(t, 23, &format!("{}: SQLDataType is not an option", what())),
             },
-            _ => {
+            None => {
                 static WHY: std::sync::OnceLock<std::sync::Arc<str>> = std::sync::OnceLock::new();
-                let why = WHY.get_or_init(|| super::unknown_why(t, 23, "a field that is not a Text field"));
+                let why =
+                    WHY.get_or_init(|| super::unknown_why(t, 23, "a field that is neither a Text nor a Code field"));
                 Value::Unknown(why.clone())
             }
         };

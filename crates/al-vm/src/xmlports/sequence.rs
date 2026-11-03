@@ -9,10 +9,14 @@ use super::*;
 pub(super) struct Sequence {
     /// `UseLax = true` on the port.
     lax: bool,
+    /// The port's default namespace when it also declares prefixes: its elements are named `'X' in namespace 'uri'` in an error.
+    qualify: Option<String>,
     decl: Vec<usize>,
     parent: String,
     pos: usize,
     seen: usize,
+    /// An element of another namespace was skipped (UseLax) since the last element read: the current element does not repeat.
+    after_any: bool,
     optional: Vec<bool>,
     repeat: Vec<bool>,
     /// The name an element has in the document: `prefix:Name` for a prefixed field element.
@@ -33,11 +37,23 @@ impl Sequence {
                 )
             })
             .collect();
+        let qualify = schema
+            .xp()
+            .default_ns
+            .clone()
+            .filter(|_| !schema.xp().namespaces.is_empty());
+        let qualify_for_shown = qualify.clone();
         Sequence {
             lax: schema.xp().use_lax,
-            parent: schema.node(node).xml_name.clone(),
+            parent: match &qualify {
+                // read as `'{parent}'`: `'Item' in namespace 'uri'`
+                Some(ns) => format!("{}' in namespace '{ns}", schema.node(node).xml_name),
+                None => schema.node(node).xml_name.clone(),
+            },
+            qualify,
             pos: 0,
             seen: 0,
+            after_any: false,
             optional: decl.iter().map(|&c| schema.node(c).min_zero).collect(),
             repeat: decl.iter().map(|&c| repeats(schema, c)).collect(),
             names: decl.iter().map(|&c| doc_name(schema, c)).collect(),
@@ -51,7 +67,10 @@ impl Sequence {
                         .and_then(|p| schema.xp().namespaces.iter().find(|(q, _)| q == p))
                     {
                         Some((_, uri)) => format!("'{}' in namespace '{uri}'", n.xml_name),
-                        None => format!("'{}'", n.xml_name),
+                        None => match &qualify_for_shown {
+                            Some(ns) => format!("'{}' in namespace '{ns}'", n.xml_name),
+                            None => format!("'{}'", n.xml_name),
+                        },
                     }
                 })
                 .collect(),
@@ -66,7 +85,7 @@ impl Sequence {
             return out;
         }
         let done = self.seen >= 1 || self.optional[self.pos];
-        if self.seen == 0 || self.repeat[self.pos] {
+        if self.seen == 0 || (self.repeat[self.pos] && !self.after_any) {
             out.push(self.shown[self.pos].clone());
         }
         if done {
@@ -84,6 +103,23 @@ impl Sequence {
     /// namespace among them the form is not pinned.
     pub(super) fn list(&self, head: String) -> Result<String, Signal> {
         let expected = self.expected();
+        // A UseLax port's schema allows an element of another namespace between its elements (xmlport/lt-y83-xmlport-shapes/
+        // Y83XpMiscTests.al:Lax_Nested_1..4, needs the corpus bump): the list ends `as well as any element in namespace
+        // '##other'`. Several names with it are not pinned.
+        if self.lax {
+            return match expected.len() {
+                0 => Ok(format!(
+                    "{head} List of possible elements expected: any element in namespace '##other'."
+                )),
+                1 => Ok(format!(
+                    "{head} List of possible elements expected: {} as well as any element in namespace '##other'.",
+                    expected[0]
+                )),
+                _ => unsupported(
+                    "a UseLax schema error that lists several possible elements (the list form is not pinned)",
+                ),
+            };
+        }
         match expected.len() {
             0 => Ok(head),
             1 => Ok(format!("{head} List of possible elements expected: {}.", expected[0])),
@@ -108,35 +144,29 @@ impl Sequence {
     pub(super) fn accept(&mut self, schema: &Schema, ce: &Elem) -> Result<Option<usize>, Signal> {
         let name = ce.name.as_str();
         if let Some(ns) = ce.attr("xmlns").filter(|ns| !ns.is_empty()) {
-            if !self.expected().is_empty() {
-                return unsupported(
-                    "XmlPort import of an element of another namespace where the sequence still expects elements (not pinned)",
-                );
-            }
+            // A UseLax port skips an element of another namespace wherever it stands (Lax_Nested_2 `lax other ns between
+            // children`, `lax other ns in child before field`; YXmlPortProps.al:UseLax_Import_AcceptsUnknownElements); the
+            // element after it can no longer repeat the one before it.
             if self.lax {
+                if self.seen >= 1 {
+                    self.after_any = true;
+                }
                 return Ok(None);
             }
-            return Err(schema_error(format!(
+            return Err(schema_error(self.list(format!(
                 "The element '{}' has invalid child element '{name}' in namespace '{ns}'.",
                 self.parent
-            )));
+            ))?));
         }
         if let Some(found) = self.accept_name(schema, name)? {
             return Ok(Some(found));
         }
-        if self.lax {
-            if !self.expected().is_empty() {
-                return unsupported(
-                    "XmlPort import into a UseLax port of an unknown element where the sequence still expects elements (not pinned)",
-                );
-            }
-            return Err(schema_error(format!(
-                "The element '{}' has invalid child element '{name}'. List of possible elements expected: any element in namespace '##other'.",
-                self.parent
-            )));
-        }
+        let shown_name = match &self.qualify {
+            Some(ns) => format!("{name}' in namespace '{ns}"),
+            None => name.to_string(),
+        };
         Err(schema_error(self.list(format!(
-            "The element '{}' has invalid child element '{name}'.",
+            "The element '{}' has invalid child element '{shown_name}'.",
             self.parent
         ))?))
     }
@@ -145,8 +175,9 @@ impl Sequence {
     pub(super) fn accept_name(&mut self, _schema: &Schema, name: &str) -> Result<Option<usize>, Signal> {
         if self.pos < self.decl.len() {
             let cur = self.pos;
-            if self.names[cur] == name && (self.seen == 0 || self.repeat[cur]) {
+            if self.names[cur] == name && (self.seen == 0 || (self.repeat[cur] && !self.after_any)) {
                 self.seen += 1;
+                self.after_any = false;
                 return Ok(Some(self.decl[cur]));
             }
             if self.seen >= 1 || self.optional[cur] {
@@ -154,6 +185,7 @@ impl Sequence {
                     if self.names[j] == name {
                         self.pos = j;
                         self.seen = 1;
+                        self.after_any = false;
                         return Ok(Some(self.decl[j]));
                     }
                     if !self.optional[j] {

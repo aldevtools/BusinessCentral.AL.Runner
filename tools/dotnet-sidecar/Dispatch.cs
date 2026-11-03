@@ -10,6 +10,7 @@ public sealed class Server
 {
     readonly Resolver resolver = new();
     readonly Marshaller marshal;
+    SessionGuard? guard;
 
     public Server()
     {
@@ -23,6 +24,7 @@ public sealed class Server
         {
             case "hello":
             {
+                guard ??= SessionGuard.Capture();
                 int theirs = req["protocol"]?.GetValue<int>() ?? 0;
                 return Ok(new JsonObject
                 {
@@ -39,6 +41,16 @@ public sealed class Server
                 resolver.AddDirs(req["dirs"]!.AsArray().Select(d =>
                     new Resolver.Dir(d!["path"]!.GetValue<string>(), d["recursive"]?.GetValue<bool>() ?? false)));
                 return Ok(null);
+            case "reset":
+            {
+                // The end of a session (ADR-014 amendment 2026-11-02): drop what it made, report whether the process is
+                // still equal to a fresh one.
+                marshal.ReleaseAll();
+                var used = resolver.TakeUsed();
+                if (guard == null)
+                    return Ok(new JsonObject { ["reusable"] = false, ["dirty"] = new JsonArray("no baseline") });
+                return Ok(guard.Reset(used));
+            }
             case "release":
                 marshal.Release(req["handles"]!.AsArray());
                 return Ok(null);

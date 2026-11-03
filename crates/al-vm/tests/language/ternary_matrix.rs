@@ -75,10 +75,10 @@ fn text_and_label_branches_give_the_value_taken() {
     assert_eq!(text(run_in(LABELS, "TL", "LabelText")), "a text longer than the label");
 }
 
-// LT Y31 Cd Label `Label_Code10`: into a Variant the branch taken keeps its own kind, a Label answering no Is... test. That
-// kind is not built: refused.
+// LT Y31 Cd Label `Label_Code10`: into a Variant the Label branch gives a TextConstant (types/lt-y81-values/Y81LabelVariant.al);
+// the branch taken here is the Code, whose text it holds.
 #[test]
-fn a_label_branch_into_a_variant_is_refused() {
+fn a_label_branch_into_a_variant_gives_a_text_constant() {
     let src = r#"
 codeunit 69963 TV
 {
@@ -93,8 +93,5 @@ codeunit 69963 TV
     end;
 }
 "#;
-    match run_in(src, "TV", "P") {
-        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("into a Variant"), "{why}"),
-        other => panic!("{other:?}"),
-    }
+    assert_eq!(text(run_in(src, "TV", "P")), "A");
 }

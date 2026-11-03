@@ -59,6 +59,61 @@ impl super::Lowerer<'_> {
 }
 
 impl super::Lowerer<'_> {
+    /// Whether `yes ? ... : no` hands the Variant a TextConstant when the Label branch is taken: a Label before the colon against
+    /// another Label or against a Text or Code that is no literal (types/lt-y81-values/Y81LabelVariant.al routes 1, 4, 6, 8, 10 and 13
+    /// give IsTextConstant for the Label branch; routes 2, 3, 5, 7, 9, 11 and 12, with a literal or the Label second, give Text or
+    /// Code; needs corpus bump).
+    fn label_branch_is_text_constant(&self, yes: &al_syntax::SyntaxNode, no: &al_syntax::SyntaxNode) -> bool {
+        let literal = no.kind() == al_syntax::SyntaxKind::Literal
+            && al_syntax::ast::significant_green_tokens(no).any(|t| t.kind() == al_syntax::SyntaxKind::StringLit);
+        matches!(self.ty_of(yes), Ty::Label)
+            && match self.ty_of(no) {
+                Ty::Label => true,
+                Ty::Text(_) | Ty::Code(_) => !literal,
+                _ => false,
+            }
+    }
+
+    /// `node` lowered for a slot of type `target`: a conditional with a Label branch that gives a Variant a TextConstant is built
+    /// branch by branch (the Label branch is a TextConstant, the other branch a Variant of its own kind), anything else as `expr`.
+    pub(super) fn expr_into(&mut self, target: &Ty, node: &al_syntax::SyntaxNode) -> super::L<al_ir::Expr> {
+        let mut inner = node.clone();
+        while inner.kind() == al_syntax::SyntaxKind::ParenExpr {
+            match inner.children().next() {
+                Some(next) => inner = next,
+                None => break,
+            }
+        }
+        let kids: Vec<al_syntax::SyntaxNode> = inner.children().collect();
+        if !matches!(target, Ty::Variant) || inner.kind() != al_syntax::SyntaxKind::TernaryExpr || kids.len() != 3 {
+            return self.expr(node);
+        }
+        if !self.label_branch_is_text_constant(&kids[1], &kids[2]) {
+            return self.expr(node);
+        }
+        let cond = self.expr(&kids[0])?;
+        let yes = self.expr(&kids[1])?;
+        let yes = al_ir::Expr::Builtin {
+            id: super::call::builtin_id("Variant.FromTextConstant#1")?,
+            receiver: None,
+            args: vec![al_ir::Arg::Value(yes)],
+            ret_used: true,
+        };
+        let no_ty = self.ty_of(&kids[2]);
+        let no = self.expr(&kids[2])?;
+        let no = if matches!(no_ty, Ty::Label) {
+            al_ir::Expr::Builtin {
+                id: super::call::builtin_id("Variant.FromTextConstant#1")?,
+                receiver: None,
+                args: vec![al_ir::Arg::Value(no)],
+                ret_used: true,
+            }
+        } else {
+            self.convert_to(&Ty::Variant, &no_ty, no)?
+        };
+        Ok(al_ir::Expr::Ternary(Box::new(cond), Box::new(yes), Box::new(no)))
+    }
+
     /// `V := B ? x : y` into a Variant with a Label branch and one of another type: in BC the Variant holds the branch taken
     /// with its own type, a Label answering no Is... test and a Code staying a Code (types/lt-y31-conversion-matrix/
     /// Y31ConvCd.al, LT Y31 Cd Label `Label_Text`, `Label_Code10`: `|abc` and `Code|A`). A Label is a Text in a Variant here
@@ -77,17 +132,59 @@ impl super::Lowerer<'_> {
         };
         let (t, f) = (self.ty_of(yes), self.ty_of(no));
         // A Guid against a Label is pinned into a Variant (types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al:24-104).
-        let guid = matches!(t, Ty::Guid) || matches!(f, Ty::Guid);
+        let guid = matches!(t, Ty::Guid) || matches!(f, Ty::Guid) || self.label_branch_is_text_constant(yes, no)
+            // A Label against a text literal is a Text whichever branch is taken (Y81LabelVariant.al routes 2 and 12).
+            || (matches!(t, Ty::Label) && matches!(f, Ty::Text(_) | Ty::Code(_)));
         // A Label false branch after a Text or Code true branch takes the true branch's type: `Text|abc` and `Code|ABC`
         // (Y31ConvCd.al Text10_Label :3187-3212, Code10_Label :3660-3700).
         let label_takes_text = matches!(f, Ty::Label) && matches!(t, Ty::Text(_) | Ty::Code(_));
         // Two Labels hold a TextConstant in BC (types/lt-y66-ternary-label/Y66TernaryLabel.al:1029-1180, `LblMax : Lbl` and
         // `Lbl : LblMax`, real BC values not on corpus master yet), which is not built either.
-        let two_labels = matches!(t, Ty::Label) && matches!(f, Ty::Label);
+        let two_labels = false;
         if (t != f || two_labels) && !guid && !label_takes_text && (matches!(t, Ty::Label) || matches!(f, Ty::Label)) {
             return Err(format!(
                 "a conditional expression with a Label branch ({t} and {f}) into a Variant: the Variant holds a Label kind that is not built"
             ));
+        }
+        Ok(())
+    }
+}
+
+impl super::Lowerer<'_> {
+    /// The shapes refused for an argument handed to a Variant parameter.
+    pub(super) fn refuse_variant_argument(&self, target: &Ty, node: &al_syntax::SyntaxNode) -> super::L<()> {
+        self.refuse_session_ending_ternary(target, node)?;
+        self.refuse_textconst_into_variant(target, node)
+    }
+
+    /// `Cond ? Label : 'literal'` (a Label before the colon, a text literal after it) as the exit value of a Variant function
+    /// or as the argument of a Variant parameter: BC 29 ends the whole session when the codeunit holding it is loaded, even if
+    /// the routine is never called (writer Y81, types/lt-y81-values/Y81LabelVariant.al codeunit 94259 "LT Y81 Label Variant
+    /// Held", Suspect_ReturnLabelOrLiteral and Suspect_ArgumentLabelOrLiteral; needs corpus bump). The literal-first order,
+    /// two Labels, an assignment and a named return value do not crash and are not refused here.
+    pub(super) fn refuse_session_ending_ternary(&self, target: &Ty, node: &al_syntax::SyntaxNode) -> super::L<()> {
+        let mut node = node.clone();
+        while node.kind() == al_syntax::SyntaxKind::ParenExpr {
+            match node.children().next() {
+                Some(inner) => node = inner,
+                None => break,
+            }
+        }
+        if !matches!(target, Ty::Variant) || node.kind() != al_syntax::SyntaxKind::TernaryExpr {
+            return Ok(());
+        }
+        let kids: Vec<al_syntax::SyntaxNode> = node.children().collect();
+        let (Some(yes), Some(no)) = (kids.get(1), kids.get(2)) else {
+            return Ok(());
+        };
+        let literal = no.kind() == al_syntax::SyntaxKind::Literal
+            && al_syntax::ast::significant_green_tokens(no).any(|t| t.kind() == al_syntax::SyntaxKind::StringLit);
+        if matches!(self.ty_of(yes), Ty::Label) && literal {
+            return Err(
+                "a conditional expression `Cond ? Label : 'literal'` as a Variant argument or the exit value of a \
+                 Variant function: Business Central 29 ends the whole session when the codeunit is loaded (refused statically)"
+                    .into(),
+            );
         }
         Ok(())
     }

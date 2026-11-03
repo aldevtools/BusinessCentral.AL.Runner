@@ -46,6 +46,14 @@ public sealed class Marshaller
         foreach (var h in hs) handles.Remove(h!.GetValue<long>());
     }
 
+    /// The end of a session: every handle and stream bridge goes. The counters are not restarted, so a stale handle is
+    /// an error, never a hit on another session's object.
+    public void ReleaseAll()
+    {
+        handles.Clear();
+        bridges.Clear();
+    }
+
     public void BeginRequest()
     {
         Ins.Clear();

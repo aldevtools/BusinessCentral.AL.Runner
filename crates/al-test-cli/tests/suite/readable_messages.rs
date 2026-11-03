@@ -10,6 +10,21 @@ use std::path::{Path, PathBuf};
 /// `(file suffix, the trimmed source line, why the debug format is fine here)`.
 const KEPT: &[(&str, &str, &str)] = &[
     (
+        "al-vm/src/permission_shadow.rs",
+        r#"other => self.shadow_note("unknown", site, &format!("{other:?}")),"#,
+        "a line of the shadow report (a developer diagnostic of the permission switch, off by default), not a message of a test",
+    ),
+    (
+        "al-vm/src/permission_shadow.rs",
+        r#"&format!("{method:?} of {table} would answer false"),"#,
+        "a line of the shadow report (a developer diagnostic of the permission switch, off by default), not a message of a test",
+    ),
+    (
+        "al-vm/src/permission_shadow.rs",
+        r#"&format!("kind {kind} id {id} would answer {l:?}"),"#,
+        "a line of the shadow report (a developer diagnostic of the permission switch, off by default), not a message of a test",
+    ),
+    (
         "al-test-cli/src/windows_language.rs",
         r#"s.push_str(&format!("    ({a}, {b}, {text:?}),\n"));"#,
         "a row text written as a Rust string literal into the generated windows_language_rows.rs, never shown",
