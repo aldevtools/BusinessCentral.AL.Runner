@@ -27,6 +27,22 @@ const REPORT_SAVE_AS_INHERENT_PERMISSIONS_EVIDENCE: &[Evidence] = &[
     },
 ];
 
+/// Evidence of [`Gate::PermissionShapeProbesFrom28`]; a constant so `Gate::evidence` stays under its length cap.
+const PERMISSION_SHAPE_PROBES_EVIDENCE: &[Evidence] = &[
+    Evidence {
+        file: "permissions/lt-y90-perm-shapes/Y90PermMore1.al",
+        lines: "86",
+    },
+    Evidence {
+        file: "permissions/lt-y90-perm-shapes/Y90PermOpenPage.al",
+        lines: "20,47",
+    },
+    Evidence {
+        file: "permissions/lt-y90-perm-shapes/Y90PermParts.al",
+        lines: "19,40",
+    },
+];
+
 /// Evidence of [`Gate::FullyQualifiedNameRunAndOpenFrom28`]; a constant so `Gate::evidence` stays under its length cap.
 const FULLY_QUALIFIED_NAME_RUN_EVIDENCE: &[Evidence] = &[
     Evidence {
@@ -236,6 +252,11 @@ pub enum Gate {
     /// compiles on 28 and later and has no BC 27 counterpart (al-language-onprem/lt-file-type/FileQProbes.al:92, corpus bump 24).
     /// Not consumed yet; the test is refused by the runtime today.
     FileDownloadWithoutClientFrom28,
+    /// The permission shape probes of writer Y90 (a page trigger or an Execute call that reaches an object granted by name,
+    /// the exact Part lookups) are tests on BC 28 and later only: on BC 27 the Linux container disagrees with Windows 27.5, a
+    /// Linux suspect, so the corpus keeps them as comments there (`#if BC28PLUS`, permissions/lt-y90-perm-shapes/). Not
+    /// consumed: the runtime has no BC 27 value to give them.
+    PermissionShapeProbesFrom28,
     /// `HttpHeaders.Add` with a name of blanks raises `InvalidHeader:Format` from BC 29 and `InvalidHeader:Argument` on BC 28
     /// (network/lt-http/HttpHeaders.al:304-308).
     HttpBlankHeaderNameIsFormatFrom29,
@@ -406,6 +427,7 @@ impl Gate {
         Gate::Base64TextIsWindows1252From28,
         Gate::TestFieldTypedValueTexts,
         Gate::FileDownloadWithoutClientFrom28,
+        Gate::PermissionShapeProbesFrom28,
         Gate::HttpBlankHeaderNameIsFormatFrom29,
         Gate::HttpHeaderNameRulesProbedFrom28,
         Gate::QueryReadCommittedFrom29,
@@ -468,6 +490,7 @@ impl Gate {
             | Gate::Base64TextIsWindows1252From28
             | Gate::TestFieldTypedValueTexts
             | Gate::FileDownloadWithoutClientFrom28
+            | Gate::PermissionShapeProbesFrom28
             | Gate::GetTextArgumentEvaluateErrorFrom28
             | Gate::RecordRefIsDirtyFrom28
             | Gate::ThreeLineLeavesKeyOnceFrom28
@@ -926,6 +949,7 @@ impl Gate {
                 file: "network/lt-http/HttpHeaders.al",
                 lines: "282",
             }],
+            Gate::PermissionShapeProbesFrom28 => PERMISSION_SHAPE_PROBES_EVIDENCE,
             Gate::FileDownloadWithoutClientFrom28 => &[Evidence {
                 file: "../al-language-onprem/lt-file-type/FileQProbes.al",
                 lines: "92",
