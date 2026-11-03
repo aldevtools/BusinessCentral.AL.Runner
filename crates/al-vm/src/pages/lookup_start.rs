@@ -3,14 +3,13 @@
 
 use super::*;
 
-/// The most rows of the related table the held-value lookup is pinned for (the probe table has four).
-const PINNED_RELATED_ROWS: usize = 4;
-
 impl Session {
     /// The related row a lookup over a held value opens on: the first row whose related field (`pos`, `None`: the first primary
     /// key field) equals the held value, text compared without case (Y80_LK_Card_HoldsLowerCase, _AltHoldsMiddle). A value that is
     /// no row, or a blank one, opens on the first row like a blank field (Y80_LK_Card_HoldsNoRow); that is `None`. A related table
-    /// of more than four rows is refused: how much of it the page reads around the row is not pinned.
+    /// of more rows reads a window of 20 rows from the held row on and steps back over at most 20 rows above it, as any list does that
+    /// opens on a row (pages/lt-y87-probes/Y87BigLookup.al Y87_BL_{7,30,120,300}_{First,Middle,Last,NoRow}: 7 rows held at the
+    /// middle `R[11]`, 30 and more rows held at the first row `R[23]`, at the last `R[24]`, in the middle `R[44]`).
     pub(super) fn lookup_start_row(
         &mut self,
         related: &St,
@@ -27,12 +26,7 @@ impl Session {
             Some(p) => p,
             None => self.table(&rec)?.keys[0][0],
         };
-        let rows = self.view_rows(&rec, PINNED_RELATED_ROWS + 1)?;
-        if rows.len() > PINNED_RELATED_ROWS {
-            return unsupported(
-                "Lookup over a TableRelation from a field that already holds a value, onto a table of more than four rows (how much of the table the page reads around the row is not pinned)",
-            );
-        }
+        let rows = self.view_rows(&rec, usize::MAX)?;
         let held_text = match held {
             Value::Text(t) | Value::Code(t) => Some(t.to_string().to_lowercase()),
             _ => None,

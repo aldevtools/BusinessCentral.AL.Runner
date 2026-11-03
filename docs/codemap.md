@@ -363,6 +363,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `pages/caption_runs.rs` (~60): How many times a page open runs the CaptionClass expressions with an empty record, where the corpus pins it. Entry: `caption_empty_runs_pinned`.
 - `pages/read_backwards.rs` (~90): A part that reads its rows last to first (SubPageView on the linked field). Entry: `populate_window_backwards`.
 - `pages/text_control_value.rs` (~90): What a Text or Code control makes of a SetValue of a value that is not a Text. Entry: `text_control_value`.
+- `pages/gone_new_line.rs`: A List with the new-row line that lost its only row to an action: First and Last on its blank line, a second action, and the OnQueryClosePage of a card its deleted row closes (corpus pages/lt-y80-gone-rows). Entry: `gone_blank_line_move`, `gone_blank_line_second_action`, `card_query_close_before_forced_close`.
 - `pages/modify_denied.rs` (~55): A drill-down whose code changed the row on a list whose ModifyAllowed is false. Entry: `navigate_settled`.
 - `pages/format.rs` (435): Reading a control: value, text, type, caption, editable, enabled, visible.
 - `pages/format_type11.rs` (30): the format string of an AutoFormatType 11 field, evaluated once per `Format`. Entry: `auto_format_type11_string`.

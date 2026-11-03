@@ -106,10 +106,9 @@ fn a_list_without_the_new_row_line_does_the_same() {
     assert_eq!(text(run_in(SRC, "C", "ListEdit")), "R:10000;N:0;C:0;||No");
 }
 
+// Pinned by corpus master pages/lt-y80-gone-rows/Y80GoneRows.al Y80_Gone_NoNew_OpenView_DeleteAllUpdate: nothing is raised and no
+// row is shown (tests/pages_ui/gone_only_row_y80.rs).
 #[test]
-fn a_list_without_the_new_row_line_opened_for_view_is_refused() {
-    assert!(matches!(
-        run_in(SRC, "C", "ListView"),
-        Err(al_builtins::native::Signal::Unsupported(_))
-    ));
+fn a_list_without_the_new_row_line_opened_for_view_raises_nothing() {
+    assert!(run_in(SRC, "C", "ListView").is_ok());
 }
