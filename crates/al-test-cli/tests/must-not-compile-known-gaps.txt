@@ -376,3 +376,7 @@
 27 2793-loadpackagedata-used-as-value
 28 2793-loadpackagedata-used-as-value
 29 2793-loadpackagedata-used-as-value
+# corpus bump 1102f: new case the front end does not decide yet (AccessByPermission on a group)
+27 2785-accessbypermission-group
+28 2785-accessbypermission-group
+29 2785-accessbypermission-group

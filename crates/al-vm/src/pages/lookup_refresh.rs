@@ -96,14 +96,8 @@ impl Session {
                 kinds.is_some_and(|k| Self::many_parts_pinned(&k))
             }
         };
-        let many = parts.len() >= 3;
         drop(engine);
         if calls_nothing && parts_ok {
-            if many {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::LookupLinkDefersRefreshWithManyParts,
-                );
-            }
             {
                 let mut s = st.borrow_mut();
                 s.refresh = false;
