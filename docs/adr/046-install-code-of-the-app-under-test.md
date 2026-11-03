@@ -1001,6 +1001,16 @@ B's install A's and B's ran, the main app's did not; at test time all ran.
    constants and those variables, and run for that table on all 16 flag combinations it gives each back unchanged. Such a
    subscriber is left out of the raise; any other is refused as in item 2. `GetGlobalTableTriggerMask` stays refused.
    This follows from the facts measured above; it assumes nothing new. Test: `al-testrun/tests/suite/install_trigger_setup_order.rs`.
+7. **A database trigger event subscriber that does nothing for the table raised (al-runner issue 6852, 2026-11-03).** The same
+   argument for `OnDatabaseInsert`, `OnDatabaseModify`, `OnDatabaseDelete`, `OnDatabaseRename` and `OnGlobalRename`: when the
+   code of an unrelated app's subscriber that runs for the raised table's id has no effect, the result is the same whether it
+   runs or not, so it is left out instead of refused. Shown statically (`al-vm/src/db_event_no_op.rs`): the statements that run
+   for the table only assign Boolean or Integer locals, exit, and branch (`if`, `case`) on constants, locals and
+   `RecRef.Number()`; a branch the table id decides is followed, one it does not decide must be inert in every arm. A call,
+   a record or `RecordRef` operation, a loop or a global is not inert, so such a subscriber stays refused (item 2). Decision 6
+   (shared tables written by a routine that stops in another company) is not touched. This assumes nothing new. Test:
+   `al-testrun/tests/suite/install_db_event_order.rs`. Not covered (still refused): table extension triggers of an unrelated
+   app, and a subscriber whose effects only matter to no test (needs the write set of the reached code, not just a guard).
 
 ### Still not pinned (probes wanted)
 
