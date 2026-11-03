@@ -67,6 +67,11 @@ codeunit 69961 C
             'find': Row.FindFirst();
             'findlast': Row.FindLast();
             'findset': Row.FindSet();
+            'find_equal': begin Row."Entry No." := 5; Row.Find('='); end;
+            'find_minus': Row.Find('-');
+            'find_plus': Row.Find('+');
+            'find_next': begin Row."Entry No." := 4; Row.Find('>'); end;
+            'transfer_from_find_equal': begin Src."Entry No." := 5; Src.Find('='); Row.TransferFields(Src); end;
             'assign': begin Src.Get(5); Row := Src; end;
             'copy': begin Src.Get(5); Row.Copy(Src); end;
             'transfer_from_record': begin Src.Get(5); Row.TransferFields(Src); end;
@@ -263,4 +268,28 @@ fn the_unmeasured_own_insert_shapes_are_refused() {
     );
     let r = al_testkit::run_in(&src, "Caller", "Go");
     assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
+}
+
+// Only FindFirst, FindLast and FindSet are pinned (Y76StaleBuffers.al Y76_Part1_*): the other forms of Find, and a TransferFields out
+// of a record they read, are refused where the stale write would be decided (needs probe: Find('='), Find('-'), Find('+'), Find('>')).
+#[test]
+fn a_buffer_read_by_another_form_of_find_is_refused_when_its_write_is_stale() {
+    for origin in [
+        "find_equal",
+        "find_minus",
+        "find_plus",
+        "find_next",
+        "transfer_from_find_equal",
+    ] {
+        for same_tx in [true, false] {
+            let src = format!(
+                "{SRC}\ncodeunit 69962 Caller {{ procedure Go(): Text var C: Codeunit C; begin exit(C.Case('{origin}', 'nothing', false, {same_tx})); end; }}"
+            );
+            let r = al_testkit::run_in(&src, "Caller", "Go");
+            assert!(
+                matches!(r, Err(al_builtins::native::Signal::Unsupported(_))),
+                "{origin}/{same_tx}: {r:?}"
+            );
+        }
+    }
 }

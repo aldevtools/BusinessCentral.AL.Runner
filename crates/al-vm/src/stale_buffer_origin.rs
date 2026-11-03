@@ -18,6 +18,38 @@ fn same_key(a: &Pk, b: &Pk) -> bool {
 }
 
 impl Session {
+    /// The origin of a row version a load just read. `how` is [Get, GetBySystemId, a pinned Find, an unpinned Find].
+    /// A version written in the open transaction (above the last Commit's) read by Get or GetBySystemId follows the rule of
+    /// the buffer that wrote it: not pinned, the reporter's real-BC repro of al-runner issue 5913 (assumption
+    /// stale-get-buffer-in-write-transaction, marked in `stale_verdict` when it decides). A Get after the Commit that
+    /// followed the write keeps a Get origin (record/TestRecordStaleBufferWrite.al:604-660).
+    pub(crate) fn load_origin(&self, version: Option<&Value>, how: [bool; 4]) -> Option<RowOrigin> {
+        let [via_get, via_sysid, via_find, unpinned_read] = how;
+        match version {
+            Some(Value::BigInteger(v)) if (via_get || via_sysid || via_find) && *v > self.tx.committed_row_version => {
+                Some(RowOrigin {
+                    read_in_write_tx: true,
+                    unpinned_read,
+                    ..RowOrigin::new(true, *v, self.commits)
+                })
+            }
+            Some(Value::BigInteger(v)) if via_get || via_find => Some(RowOrigin {
+                unpinned_read,
+                ..RowOrigin::new(false, *v, self.commits)
+            }),
+            _ => None,
+        }
+    }
+
+    /// The refusal of a stale write of a buffer another form of Find read (Find('='), '-', '+', '<', '>'), or that got TransferFields
+    /// out of such a record: only FindFirst, FindLast and FindSet are pinned (needs probe).
+    pub(crate) fn stale_unpinned_find(t: &TableDef) -> Signal {
+        Signal::Unsupported(format!(
+            "a stale {} buffer read by Find('=', '-', '+', '<', '>') or TransferFields out of such a record (only FindFirst, FindLast and FindSet are pinned)",
+            t.name
+        ))
+    }
+
     /// A buffer that only got TransferFields from a record read by Get or Find (Y76StaleBuffers.al
     /// Y76_Part1_Copy_TransferFromRecord, `transfer_from_record/*`): written after a LockTable and Get of the row and nothing else the
     /// new transaction did to it; every write to the row (changed or not, a Delete after it) is refused. Writes beside, other Commit

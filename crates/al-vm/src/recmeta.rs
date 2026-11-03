@@ -1596,8 +1596,10 @@ impl Session {
                 (s.temporary, s.row_origin)
             };
             let from_insert = src_origin.is_some_and(|o| o.own_write && !o.read_in_write_tx);
+            let unpinned_read = src_origin.is_some_and(|o| o.unpinned_read);
             let origin = |own_write, lock_only| al_builtins::value::RowOrigin {
                 lock_only,
+                unpinned_read,
                 ..al_builtins::value::RowOrigin::new(own_write, v, self.commits)
             };
             if src_temporary {
