@@ -23,7 +23,7 @@
 //! and the other obsolete columns (not read).
 
 use crate::Session;
-use crate::platform::{Ident, pos};
+use crate::platform::pos;
 use al_builtins::native::{AlError, Ctx, Signal};
 use al_builtins::value::Value;
 use al_data::{Store, TableDef};
@@ -40,13 +40,28 @@ fn text_of_literal(v: &str) -> Option<String> {
 }
 
 impl Session {
-    /// One All Profile row per profile object of the program.
-    pub(super) fn seed_profiles(&mut self, t: &TableDef, _i: &Ident) -> bool {
+    /// One All Profile row per profile object of the program: the rows worked out once per engine
+    /// ([`Self::profile_seed_rows`]), each with a SystemId of this session.
+    pub(super) fn seed_profiles(&mut self, t: &TableDef, rows: &[al_data::Row]) -> bool {
+        let system_id = t.fields.iter().position(|f| f.id == 2_000_000_000);
+        for row in rows {
+            let mut r = row.clone();
+            if let Some(p) = system_id {
+                r[p] = Value::Guid(self.new_guid());
+            }
+            let _ = self.store.insert(&self.cx, t, r);
+        }
+        !rows.is_empty()
+    }
+
+    /// The All Profile rows of the program without their SystemId. They depend on the program only, so a session clones them
+    /// (`Engine::seed_rows`) instead of working them out again.
+    pub(super) fn profile_seed_rows(&self, t: &TableDef) -> Vec<al_data::Row> {
         let engine = self.engine.clone();
-        let mut wrote = false;
         // Which profiles get a row, and the role center page each names, depend on the program
         // only: found once per engine, not by every session scanning every object for each profile.
         let seeds = engine.profile_seeds.get_or_init(|| profile_seeds(&engine.program));
+        let mut out = Vec::with_capacity(seeds.len());
         for &(oi, role_center_id, enabled) in seeds {
             let o = &engine.program.objects[oi];
             let prop = |n: &str| super::objects::prop(o, n);
@@ -89,13 +104,9 @@ impl Session {
                 r[pos(t, 6)] = Value::Boolean(default);
                 r[pos(t, 13)] = Value::Boolean(disable);
             }
-            if let Some(p) = t.fields.iter().position(|f| f.id == 2_000_000_000) {
-                r[p] = Value::Guid(self.new_guid());
-            }
-            let _ = self.store.insert(&self.cx, t, r);
-            wrote = true;
+            out.push(r);
         }
-        wrote
+        out
     }
 
     pub(crate) fn is_profile_row(&self, t: &TableDef, temporary: bool) -> bool {
