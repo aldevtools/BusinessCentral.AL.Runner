@@ -456,6 +456,120 @@ Reads is on by default for the shapes the corpus pins (Y24PermReads.al, Y24PermO
   method (a TableRelation check, a page's lookup) are not checked in a restricted session; BC may deny some of them, which
   would show as a failure of a test BC passes, never as a false pass of a test that expects the denial to be raised in AL.
 
+## Amendment 1: the measured permission model (2026-11-03)
+
+- Status: Proposed (the owner accepts or rejects it; until then section 1 stays the rule where the two differ)
+- Evidence: corpus writers Y90 (`permissions/lt-y90-perm-shapes/`, merged in the corpus, PR 1088) and Y93
+  (`permissions/lt-y93-wildcard-scope/`, branch `al-runtime-rs-staging-y93`, corpus PR 1095). Windows BC 27.5 and 28.5 agree on
+  every asserted case; Linux 28.5 and 29.0 match. Citations are `tests/al-language/permissions/` unless the path says otherwise.
+- Owner input of 2026-11-03 (points 1-5 of the permission model, and the license ceiling).
+
+### The model, point by point
+
+1. **No permissions means no permissions.** A user holds only what its permission sets grant. SUPER is an ordinary set that
+   reaches the user through an Access Control row; it is not a property of the test user. The corpus container's session user
+   has exactly one Access Control row, SUPER with scope System (`lt-y90-perm-shapes/Y90PermMore2.al:51-60`, `own_rows`). Pin 1
+   of this ADR ("the test user is SUPER") is true only because of that row. The runtime should derive the session's sets from
+   the Access Control rows of the user, not assume SUPER. Not measurable in the corpus today: removing the SUPER row in a test
+   ends the session ("An error occurred and the transaction is stopped", then a WebSocket time-out; hand-off of writer Y90,
+   not asserted). It needs a second user, which the containers do not have.
+2. **Execute applies to every object kind on first touch, tables included.** Under an exact set that grants table data only:
+   a table procedure gives `(Table <id> <name> Execute: <app>)`, a codeunit variable call and `Codeunit.Run` give `CodeUnit`, a
+   query open `Query`, an xmlport export `XmlPort`, all with `DB:ExecuteObjDenied`; a TestPage open gives `Page <caption> has to
+   close.` with `FormAbort:Permission` (`lt-y90-perm-shapes/Y90PermMore1.al:20-69`). `Report.Run` is denied first on the
+   platform codeunit 44 ReportManagement, with an empty app name (`Y90PermMore1.al:47-48`); a report therefore also needs
+   `codeunit *` or Execute on codeunit 44 (`lt-y93-wildcard-scope/Y93WildScope.al:72-84`, `report|W Report+Cu`).
+   **Checked once per session:** the check runs when the session first loads the object. Once loaded, it is not checked
+   again, whatever the sets say later. Y93 shows this through codeunit 44: after a report ran once in the session, a report
+   under a set without it names the report itself, not codeunit 44 (`Y93WildScope.al:211-212`, :407-408). Which object a
+   first denial names therefore depends on what ran earlier in the session (`Y93WildScope.al:79-82`, not asserted). The
+   runtime models "loaded" only for an instance made before the sets were lowered. It does not model loads across test
+   codeunits. A first touch whose outcome depends on that (codeunit 44 on a report run, the global trigger subscriber of
+   another app on an insert) stays refused.
+3. **Tenant permission sets and changes made on the client or tenant are not modelled.** A set that exists only as Tenant
+   Permission Set and Tenant Permission rows cannot be assigned through the mock: `The Permission Set does not exist.`
+   (`Y90PermMore2.al:63-85`). Adding, revoking or reducing permissions through tenant sets is out of scope (section 7).
+4. **An object's `Permissions` property only lifts indirect grants.** It never adds a grant the user does not hold at least
+   indirectly. Under `tabledata * = rimd` a direct insert is denied for the main app's, another app's and Base Application's
+   tables; a codeunit whose `Permissions` names the table inserts (`Y93WildScope.al:528-573`). Without the indirect grant the
+   codeunit's insert fails with `IndirectInsert` (:570-571). The indirect level can come from the user's sets or from the
+   license.
+5. **The license is a ceiling (owner, 2026-11-03).** The effective level is the lower of the license level and the user's
+   level, before the object grant step: `L` caps `U`, then `G` may turn an Indirect into an allowed access. A set that grants
+   direct Modify on a table the license grants only indirectly has no effect. Measured so far: SUPER and a set with direct M
+   modify G/L Entry directly on the Cronus container license, and an indirect-only set needs the codeunit's `Permissions`
+   (`Y90PermMore2.al:20-48`). No license entry with an indirect-only level was found yet, so the ceiling itself is not
+   measured. Open: the customer-license probe (sections C2 and C3 of that request).
+6. **`[InherentPermissions]` on a procedure covers only objects of its own extension.** Naming a table of another app does
+   not compile: AL0720 (`tests/must-not-compile/cases/2820-inherentpermissions-base-table.al`). On an own table it grants for
+   the call (`Y90PermMore1.al:72-90`; a Linux 27.5 suspect, so a test on BC 28 and up only).
+7. **Object-level `InherentPermissions`.** A codeunit with `InherentPermissions = X` runs without an Execute grant, one without
+   it is denied (`Y90PermMore1.al:92-104`). System Application's Base64 Convert runs under any set for the same reason
+   (`Y93WildScope.al:259-262`), and `GetEffectivePermission` reports its Execute under every exact set
+   (`Y93WildEffective.al:35`). The other object kinds with the property are not measured.
+8. **A wildcard applies to the whole installation.** A wildcard grant in a set applies to every object of every app,
+   whatever app declares the set: codeunit, page, table, table data, report, query, xmlport, and `system *` on system objects
+   (`Y93WildScope.al:164-477`). Base Application objects included (Calendar Management, Format Address, Units of Measure,
+   Payment Terms). One kind alone works for each kind except reports (point 2).
+9. **Grants add up.** An explicit lower grant next to a wildcard does not narrow it: `tabledata * = RIMD` plus `R` on one
+   table still inserts; `codeunit * = X` plus `x` on one codeunit still calls it (`Y93WildScope.al:113-140`).
+10. **`ExcludedPermissionSets` removes one grant from a wildcard.** A set that includes all wildcards at Yes and excludes Execute
+    on one codeunit and Insert on one table: that codeunit is denied, that table cannot insert but reads, every other object
+    keeps the wildcard (`Y93WildScope.al:142-162`); `GetEffectivePermission` gives `R-MD` on that table (`Y93WildEffective.al:162-163`).
+    Measured: a Yes taken from a Yes wildcard. Not measured: an Indirect taken from a wildcard.
+11. **A wildcard in an object's `Permissions` property does not compile** (`tests/must-not-compile/cases/2830-*`, `2831-*`).
+12. **`Set`, `Assign` and `SetExactPermissionSet`.** `Set` adds Execute on all objects (All Objects), not table data; `Assign`
+    adds only the named set; `SetExactPermissionSet` gives only the named set (`Y93WildScope.al:479-525`).
+13. **D365 BASIC holds wildcard Execute on every object kind**, and table data only for Base Application tables
+    (`Y93WildEffective.al:169-188`). So a page whose OnOpenPage calls a codeunit of the test app opens under `Set('D365
+    BASIC')`, under `SetExactPermissionSet('D365 BASIC')` alone, and with a wildcard set added (`Y93WildScope.al:576-599`;
+    runner issue 6867).
+14. **A codeunit call from a page trigger under an exact set without a wildcard** ends the open (`Y84PermExecute.al`
+    Y84_Exec_PageOpen; `Y90PermOpenPage.al:56-68`, `cu_star_only`), even with the callee granted by name, unless the session
+    also holds `codeunit *` or `system *` (`Y90PermOpenPage.al:22-45`, :56-68). The text names the page's Caption
+    (`Y90PermOpenPage.al:36-37`).
+15. **Parts.** An unguarded part needs Execute on the part page and on the part page's source table (`Y90PermParts.al:21-90`,
+    BC 28 and up; Windows 27.5 agrees).
+16. **System tables.** Language Selection, Report Layout List and Table Relations Metadata read without a grant; NAV App
+    Installed App needs `R` (`Y90PermSystem.al:22-60`).
+
+### What changes in section 1
+
+- Step 2 (session level `U`), "no set assigned": the user's own sets, from Access Control, not "the test user is SUPER".
+  Until the runtime reads Access Control for the session user, it keeps the SUPER answer and names the reason
+  (container user's Access Control row, point 1).
+- New step between 1 and 2: `U` is capped by `L` (point 5). It matters only with `--license` (stage 5).
+- Inherent permissions: the object's own `InherentPermissions = X` grants Execute for codeunits (point 7).
+- Composition: exclusions may cut one object out of a Yes wildcard (point 10).
+- Execute: checked once per object per session (point 2). Within one test codeunit the runtime treats an object whose instance
+  was made before the sets were lowered as loaded. Everything else that depends on load order is refused.
+
+### What it means for stage 4 (runner sets enforced)
+
+The stage 4 shadow run (2026-11-03, 31 Microsoft buckets, hand-off of rt-perm-1103d) gave 2,142 lines and **zero** "would
+deny" verdicts that the runtime can prove. Every line was "unknown":
+
+| Unknown | Lines | What this amendment settles |
+|---|---|---|
+| Page open: AccessByPermission on something other than an own field or action | 1,339 | Y90 shows an actionref changes nothing (`Y90PermActionRef.al:20-75`); the runtime still refuses this shape. Next step for stage 4. |
+| Page open: control and table field both state a guard | 591 | Fixed when the guards are equal (runner PR 6832, merged). |
+| Record: system-table reads | 91 | Three system tables read without a grant, NAV App Installed App needs R (point 16). The rest stays unknown. |
+| Record: read of an empty dependency table | 32 | Not changed. |
+| Record: access the runtime makes itself, other | 23 | Not changed. |
+| FlowField over a system table | 33 | Partly (point 16, `Y90PermSystem.al:44-48`). |
+| Effective permission | 10 | System objects under wildcards and object-level InherentPermissions (points 7, 8). |
+| WritePermission on a system table | 8 | Not changed. |
+
+Stage 4 stays off. Two things in this amendment raise its risk, not lower it:
+
+- With point 1, the runner sets of a test with TestPermissions other than Disabled are the whole session (D365 Full Access,
+  TEST TABLES, D365 BASIC, LOCAL), not something on top of SUPER. That is what section 1 already says for stage 4.
+- With point 2, a first-touch denial depends on load order across tests in BC. The runtime cannot reproduce that order, so
+  stage 4 must refuse (not fail) any test whose outcome rests on a first touch that BC may have done earlier.
+
+Gate before stage 4 goes on, in this order: (1) the 1,339 page-open shape pinned and implemented; (2) a second shadow run with
+zero unexplained lines; (3) the runner reads the session user's Access Control rows (point 1).
+
 ## Conformance
 
 - Unit tests of the decision function against every pinned case in section "What the corpus pins" (table-driven, one
