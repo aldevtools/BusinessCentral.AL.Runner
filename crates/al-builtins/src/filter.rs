@@ -540,6 +540,21 @@ pub fn parse_filter_with(
             return e;
         }
     }
+    // `<1M>` on a DateFormula field: the lexer does not expect the closing `>` (errors/lt-ms-refusals-136/P136Filter.al:241-245
+    // `oneMAngles`, `oneDAngles`, pinned for a number and the unit M or D; any other formula is refused below).
+    if matches!(ty, crate::value::RtType::DateFormula) {
+        let t = text.trim();
+        if t.len() > 3
+            && t.starts_with('<')
+            && t.ends_with('>')
+            && t[1..t.len() - 1]
+                .bytes()
+                .all(|b| b.is_ascii_digit() || b == b'M' || b == b'D')
+            && t[1..t.len() - 1].bytes().any(|b| b == b'M' || b == b'D')
+        {
+            return Err(did_not_expect(">"));
+        }
+    }
     // Three dots in a Date filter read as two (P81DateFilters.al:SetFilter_Date_InvalidTexts, `010126...020126`).
     let dots;
     let text = if matches!(ty, crate::value::RtType::Date)
@@ -1748,6 +1763,23 @@ mod tests {
         assert!(
             parse_filter("1M", &[], &T::DateFormula).is_err(),
             "a formula stays refused"
+        );
+    }
+
+    /// An angle-bracketed formula is no DateFormula filter: the closing `>` is not expected (errors/lt-ms-refusals-136/
+    /// P136Filter.al:P136_SetFilter_DateFormula `oneMAngles`, `oneDAngles`; misc/lt-y70-assumptions/Y70Probes.al:249-258).
+    #[test]
+    fn a_date_formula_filter_in_angle_brackets_does_not_expect_the_closing_bracket() {
+        use crate::value::RtType as T;
+        for text in ["<1M>", "<1D>"] {
+            let e = parse_filter(text, &[], &T::DateFormula).expect_err(text);
+            assert_eq!(e, did_not_expect(">"), "{text}");
+        }
+        // Not pinned: a formula that is not a number and a unit, and an open bracket (`<1M` is a less-than filter).
+        assert!(parse_filter("<1M", &[], &T::DateFormula).is_err());
+        assert_ne!(
+            parse_filter("<-CM+2D>", &[], &T::DateFormula).unwrap_err(),
+            did_not_expect(">")
         );
     }
 

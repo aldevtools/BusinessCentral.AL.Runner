@@ -973,7 +973,7 @@ fn field_caption_of_a_field_with_a_caption_class_follows_the_pinned_forms() {
 }
 
 // Tests-ERM `PurchaseOrderStatisticsTestPage.InvDiscountAmount_General.SetValue(...)`: the control shows
-// `TotalPurchLine[1]."Inv. Discount Amount"`. Unprobed (page-expression-control-setvalue).
+// `TotalPurchLine[1]."Inv. Discount Amount"`. Pinned by pages/lt-page-array-path/PageArrayPathSetValue.al ArrayElementField_*.
 #[test]
 fn set_value_on_a_control_bound_to_an_assignable_expression_writes_it_and_validates() {
     let r = run(

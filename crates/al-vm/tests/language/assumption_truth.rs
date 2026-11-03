@@ -266,10 +266,10 @@ fn a_new_part_line_keeps_a_view_field_outside_the_key_unstamped() {
 }
 
 /// Two key fields with a single filter value (Type from the view, Document No. from the link), validated on the new
-/// line: whether the second is on the record when the first validates is not pinned (NewLineStampsFilters.al stamps
-/// one key field only). The run keeps stamping both first and marks the assumption.
+/// line: both are on the record when the first validates (pages/lt-new-line-stamps-filters/NewLineStampsFilters.al
+/// SF_TwoKeyValues_HeaderTypeB_BlankLine, SF_TwoKeyValues_Relation_HeaderTypeB_NewLine). No assumption.
 #[test]
-fn a_new_part_line_with_two_stamped_key_fields_runs_under_the_assumption() {
+fn a_new_part_line_with_two_stamped_key_fields_is_pinned() {
     let src = NL_OBJECTS.replace("KEYFIELDS", "Type, \"Document No.\", \"Line No.\"");
     al_builtins::assumptions::clear_hits();
     let _ = al_testkit::run_in(&src, "T", "F");
@@ -277,7 +277,7 @@ fn a_new_part_line_with_two_stamped_key_fields_runs_under_the_assumption() {
         .iter()
         .map(|a| a.info().id)
         .collect();
-    assert!(hits.contains(&"new-line-stamps-all-before-validating"), "{hits:?}");
+    assert!(!hits.contains(&"new-line-stamps-all-before-validating"), "{hits:?}");
 }
 
 const DATE_SRC: &str = r#"

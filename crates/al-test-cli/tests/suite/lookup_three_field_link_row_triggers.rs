@@ -234,7 +234,7 @@ fn a_lookup_on_a_host_with_row_triggers_whose_part_links_three_fields_shows_the_
 
 /// The reporter's tests run clean: the Lookup writes the field of the page's global record (`Setting."Resource No."`) and runs
 /// the control's OnValidate, which the corpus pins (pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al: the control shows
-/// R2 and the saved setting row holds it), so assumption `page-expression-control-setvalue` is not marked.
+/// R2 and the saved setting row holds it), so no assumption is marked.
 #[test]
 fn the_reporters_lookups_mark_no_assumption() {
     let l = al_testkit::compile(SRC);
