@@ -213,14 +213,17 @@ fn an_exact_set_with_system_wildcard_and_the_callee_by_name_opens_the_page() {
 fn the_session_without_a_mock_opens_the_page() {
     assert_eq!(outcome("OpensWithoutMock"), Outcome::Pass);
 }
-/// The callee is granted by the wildcard only: Y90_Open_* pins the own-app case, whether a wildcard reaches another app's objects is
-/// still being probed (corpus Y93), so this stays refused.
+/// The callee is granted by the wildcard only: a wildcard applies to every object of the installation (Y93WildScope.al:165-244) and
+/// the call runs (Y93WildScope.al:588-589, q1 `Set('D365 BASIC')`). The page's own `Rec.Insert()` is then checked: `OP Basic` grants
+/// only R on the table.
 #[test]
-fn a_wildcard_alone_granting_the_callee_stays_refused() {
-    match outcome("OpensUnderFullAccessAlone") {
-        Outcome::NotRun(why) => assert!(why.contains("wildcard Execute on codeunits"), "{why}"),
-        o => panic!("{o:?}"),
-    }
+fn a_wildcard_alone_granting_the_callee_runs_the_call() {
+    assert_eq!(
+        outcome("OpensUnderFullAccessAlone"),
+        Outcome::Fail(
+            "Sorry, the current permissions prevented the action. (TableData 51570 OP Setup Insert: main)".into()
+        )
+    );
 }
 #[test]
 fn a_codeunit_call_from_on_init_ends_the_open_under_an_exact_set() {
