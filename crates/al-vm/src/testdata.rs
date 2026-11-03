@@ -106,7 +106,7 @@ fn kind_of_field(ty: &RtType, compressed: bool) -> Kind {
         RtType::Integer => Kind::Int,
         RtType::BigInteger => Kind::BigInt,
         RtType::Byte => Kind::Byte,
-        RtType::Option(names) => Kind::Option(std::sync::Arc::from(names.as_slice())),
+        RtType::Option(names) => Kind::Option(names.clone()),
         RtType::Enum(id) => Kind::Enum(*id),
         RtType::Decimal => Kind::Decimal,
         RtType::Date => Kind::Date,

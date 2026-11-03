@@ -342,7 +342,7 @@ fn parse_typed(
                 },
                 None => return None,
             };
-            Value::Option(i as i32, members.clone().into())
+            Value::Option(i as i32, members.clone())
         }
         T::Enum(id) => Value::Enum(*id, enum_by_text(*id, t)?),
         T::Date => {
@@ -704,7 +704,7 @@ mod tests {
             option_captions: Some(vec!["Eins".into(), "Zwei".into()]),
             ..Default::default()
         };
-        let o = T::Option(vec!["Alpha".into(), "Beta".into()]);
+        let o = T::Option(vec!["Alpha".into(), "Beta".into()].into());
         assert!(matches!(
             parse_control_text("Zwei", &o, &cap, &none),
             Ok(Value::Option(1, _))

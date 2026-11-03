@@ -1009,10 +1009,10 @@ impl Parser<'_> {
                 .iter()
                 .position(|x| !x.is_empty() && x.trim().eq_ignore_ascii_case(text.trim()))
             {
-                Some(i) => Value::Option(i as i32, m.clone().into()),
+                Some(i) => Value::Option(i as i32, m.clone()),
                 None => Value::Option(
                     text.parse().map_err(|_| format!("`{text}` is not an option member"))?,
-                    m.clone().into(),
+                    m.clone(),
                 ),
             },
             T::Enum(id) => {
@@ -1906,7 +1906,7 @@ mod tests {
 
     fn opt(text: &str, members: &[&str]) -> Result<FilterExpr, String> {
         let m: Vec<String> = members.iter().map(|x| x.to_string()).collect();
-        parse_filter(text, &[], &RtType::Option(m))
+        parse_filter(text, &[], &RtType::Option(m.into()))
     }
 
     // types/TestEnumBlankOptionFilterTests.Codeunit.al: option member names match with both
@@ -2026,7 +2026,7 @@ mod tests {
         let hits = |ty: &RtType, text: &str| -> Result<Vec<i32>, String> {
             let f = parse_filter(text, &[], ty)?;
             let names: Vec<String> = match ty {
-                RtType::Option(m) => m.clone(),
+                RtType::Option(m) => m.to_vec(),
                 _ => unreachable!(),
             };
             Ok((0..names.len() as i32)
@@ -2049,7 +2049,7 @@ mod tests {
     fn option_filter_matches_member_names_trimmed_case_blind_and_skips_zero_length_members() {
         // corpus types/TestEnumBlankOptionFilterTests.Codeunit.al:1-12, :187-205
         let members: Vec<String> = vec!["".into(), "Draft".into(), " ".into()];
-        let ty = RtType::Option(members);
+        let ty = RtType::Option(members.into());
         let ord = |f: &FilterExpr| {
             (0..3)
                 .map(|i| f.matches(&Value::Option(i, Default::default())))
@@ -2059,7 +2059,7 @@ mod tests {
         assert_eq!(ord(&pf("'DRAFT'", &[], ty.clone())), [false, true, false]);
         // The empty string names the blank member " " (trimmed), never the zero-length one.
         assert_eq!(ord(&pf("''", &[], ty.clone())), [false, false, true]);
-        let zero_length_only = RtType::Option(vec!["".into(), "Draft".into()]);
+        let zero_length_only = RtType::Option(vec!["".into(), "Draft".into()].into());
         assert!(
             parse_filter("''", &[], &zero_length_only).is_err(),
             "'' names no member here"

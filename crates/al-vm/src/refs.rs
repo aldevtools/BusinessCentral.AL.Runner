@@ -1949,7 +1949,7 @@ impl Session {
                         Some(list) => list.split(',').map(str::to_string).collect(),
                         None => return unsupported(format!("OptionCaption `{v}`")),
                     },
-                    (None, None) => names.clone(),
+                    (None, None) => names.to_vec(),
                 };
                 if captions.len() != names.len() {
                     return unsupported(

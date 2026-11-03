@@ -340,13 +340,16 @@ mod tests {
             fields: vec![
                 f(
                     1,
-                    RtType::Option(vec![
-                        "Date".into(),
-                        "Week".into(),
-                        "Month".into(),
-                        "Quarter".into(),
-                        "Year".into(),
-                    ]),
+                    RtType::Option(
+                        vec![
+                            "Date".into(),
+                            "Week".into(),
+                            "Month".into(),
+                            "Quarter".into(),
+                            "Year".into(),
+                        ]
+                        .into(),
+                    ),
                 ),
                 f(2, RtType::Date),
                 f(3, RtType::Date),

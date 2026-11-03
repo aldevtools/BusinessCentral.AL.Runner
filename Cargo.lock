@@ -138,6 +138,7 @@ dependencies = [
  "al-link",
  "al-syntax",
  "al-version",
+ "memchr",
  "postcard",
  "rayon",
  "rowan",

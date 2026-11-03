@@ -3448,23 +3448,8 @@ impl Session {
                     RecordOp::Insert | RecordOp::Modify | RecordOp::Delete | RecordOp::Rename
                 )
             {
-            } else if method == RecordOp::Insert {
-                // Whether the check comes before the table's insert code is not pinned. Subscribers and table-extension
-                // triggers that would see the order are refused. The table's own OnInsert trigger is kept: the pinned
-                // table has one (misc/lt-cu-odd-leads/CuFixtures.al:20-24), and refusing it would lose 85310
-                // TryInsertThenError_ExpressionForm, TryInsertThenError_IfNotForm and TryInsertOnly_ExpressionForm.
-                if self.used_try_write_applies()
-                    && (self.listened(&t, "onbeforeinsertevent", None)?
-                        || self.listened(&t, "onafterinsertevent", None)?
-                        || ["OnBeforeInsert", "OnInsert", "OnAfterInsert"]
-                            .iter()
-                            .any(|n| !self.ext_triggers(&t, n).is_empty()))
-                {
-                    return unsupported(
-                        "Insert inside a TryFunction whose result is used, on a table with insert event subscribers or table-extension insert triggers (whether they run before the TryFunctionWrite error is not pinned)",
-                    );
-                }
-                self.gate_used_try_write("INSERT")?;
+            } else if matches!(method, RecordOp::Insert | RecordOp::Modify) {
+                self.gate_used_try_row_write(&t, method)?;
             } else {
                 self.refuse_used_try_write(method)?;
             }

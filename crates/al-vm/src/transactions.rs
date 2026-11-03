@@ -399,18 +399,20 @@ impl Session {
         let scope = match self.call_stack.len() {
             // The runner's name per major (al_version::test_runner_root_scope, corpus commit ff42e3d3).
             0 | 1 => al_version::test_runner_root_scope(self.engine.target.as_ref()).map(str::to_string),
+            // The OnRun of a guarded `Codeunit.Run` uses the result: what is named is the routine that called the run, when a
+            // helper of the test method did (misc/lt-y68-small-probes/Y68Small.al:191-201, 221-225 'RunMode'). The test method
+            // calling the run itself is not pinned.
+            n if self.tx.guarded_runs.last() == Some(&(n - 1)) => {
+                let (o, r) = (self.frames[0], self.call_stack[0].routine);
+                (n == 3 && self.is_test_method(o, r)).then(|| {
+                    let (o1, r1) = (self.frames[1], self.call_stack[1].routine);
+                    self.engine.program.objects[o1].routines[r1].name.clone()
+                })
+            }
             2 => {
                 let (o, r) = (self.frames[0], self.call_stack[0].routine);
-                let obj = &self.engine.program.objects[o];
-                let is_test_method = obj
-                    .properties
-                    .iter()
-                    .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Test"))
-                    && obj.routines[r]
-                        .attributes
-                        .iter()
-                        .any(|a| a.name.eq_ignore_ascii_case("Test"));
-                is_test_method.then(|| obj.routines[r].name.clone())
+                self.is_test_method(o, r)
+                    .then(|| self.engine.program.objects[o].routines[r].name.clone())
             }
             _ => None,
         };
@@ -419,6 +421,18 @@ impl Session {
             world: self.tx.tx_world,
             runs: 0,
         });
+    }
+
+    /// Whether routine `r` of object `o` is a `[Test]` method of a test codeunit.
+    fn is_test_method(&self, o: usize, r: usize) -> bool {
+        let obj = &self.engine.program.objects[o];
+        obj.properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Test"))
+            && obj.routines[r]
+                .attributes
+                .iter()
+                .any(|a| a.name.eq_ignore_ascii_case("Test"))
     }
 
     pub(crate) fn leave_used_try(&mut self) {
@@ -442,7 +456,7 @@ impl Session {
                 "{function} inside a TryFunction whose result is used, in install code (not pinned)"
             )));
         }
-        if self.tx.xp_export_try_world == Some(self.tx.tx_world) && function != "INSERT" {
+        if self.tx.xp_export_try_world == Some(self.tx.tx_world) && function != "INSERT" && function != "MODIFY" {
             return Err(Signal::Unsupported(format!(
                 "{function} in an XmlPort export started inside a TryFunction whose result is used (only Insert and Modify are pinned)"
             )));
@@ -470,6 +484,45 @@ impl Session {
         })
     }
 
+    /// An Insert or a Modify of a database table inside a TryFunction whose result is used. Whether the check comes before the
+    /// table's own code is not pinned: subscribers and table-extension triggers that would see the order are refused. The
+    /// table's own trigger is kept: the pinned table has one (misc/lt-cu-odd-leads/CuFixtures.al:20-24), and refusing it would
+    /// lose 85310 TryInsertThenError_ExpressionForm, TryInsertThenError_IfNotForm and TryInsertOnly_ExpressionForm. Insert is
+    /// named INSERT (CuTryTests.al:83-150), Modify MODIFY, also for a row that does not exist
+    /// (misc/lt-y68-small-probes/Y68Small.al:263-267, TryModifyOnly).
+    pub(crate) fn gate_used_try_row_write(
+        &mut self,
+        t: &al_data::TableDef,
+        method: al_builtins::record_op::RecordOp,
+    ) -> Result<(), Signal> {
+        let (function, what, events, triggers) = match method {
+            al_builtins::record_op::RecordOp::Modify => (
+                "MODIFY",
+                "Modify",
+                ["onbeforemodifyevent", "onaftermodifyevent"],
+                ["OnBeforeModify", "OnModify", "OnAfterModify"],
+            ),
+            _ => (
+                "INSERT",
+                "Insert",
+                ["onbeforeinsertevent", "onafterinsertevent"],
+                ["OnBeforeInsert", "OnInsert", "OnAfterInsert"],
+            ),
+        };
+        if self.used_try_write_applies()
+            && (self.listened(t, events[0], None)?
+                || self.listened(t, events[1], None)?
+                || triggers.iter().any(|n| !self.ext_triggers(t, n).is_empty()))
+        {
+            return Err(Signal::Unsupported(format!(
+                "{what} inside a TryFunction whose result is used, on a table with {} event subscribers or table-extension {} triggers (whether they run before the TryFunctionWrite error is not pinned)",
+                what.to_lowercase(),
+                what.to_lowercase()
+            )));
+        }
+        self.gate_used_try_write(function)
+    }
+
     /// Whether a write here is a write of a TryFunction whose result is used (`gate_used_try_write` would raise).
     pub(crate) fn used_try_write_applies(&self) -> bool {
         self.tx
@@ -494,7 +547,7 @@ impl Session {
             return r;
         }
         Err(Signal::Unsupported(format!(
-            "{} of a database table inside a TryFunction whose result is used (only Insert and Commit are pinned)",
+            "{} of a database table inside a TryFunction whose result is used (only Insert, Modify and Commit are pinned)",
             method.name()
         )))
     }
@@ -714,7 +767,13 @@ impl Session {
         if let Some(t) = self.tx.used_tries.last_mut() {
             t.runs += 1;
         }
+        if guarded {
+            self.tx.guarded_runs.push(self.call_stack.len());
+        }
         let result = self.call(object, on_run, inst, Vec::new());
+        if guarded {
+            self.tx.guarded_runs.pop();
+        }
         if let Some(t) = self.tx.used_tries.last_mut() {
             t.runs -= 1;
         }
@@ -757,12 +816,15 @@ impl Session {
                 }
                 Ok(Value::Null)
             }
-            // Whether a guarded run traps a TryFunctionWrite error is not pinned (only asserterror is,
-            // misc/lt-cu-odd-leads/CuTryTests.al:83-150).
-            Err(Signal::Error(e)) if guarded && e.code == TRY_FUNCTION_WRITE => Err(Signal::Unsupported(
-                "a guarded Codeunit.Run whose run fails with TryFunctionWrite (whether it traps it is not pinned)"
-                    .into(),
-            )),
+            // A guarded run traps a TryFunctionWrite error from its OnRun: false, the error text and code set, the run's rows
+            // undone (misc/lt-y68-small-probes/Y68Small.al:221-225, 249-267). Where the error text is not pinned (the scope
+            // name), it is not trapped here.
+            Err(Signal::Error(e)) if guarded && e.code == TRY_FUNCTION_WRITE && al_builtins::native::text_unpinned(&e) => {
+                Err(Signal::Unsupported(
+                    "a guarded Codeunit.Run whose run fails with TryFunctionWrite and an unpinned scope name (not pinned)"
+                        .into(),
+                ))
+            }
             // The license error of a Device Insert is not trapped (al-language-onprem/platform/PtOnPremTables.al:177-184).
             Err(Signal::Error(e)) if guarded && e.message == crate::records::DEVICE_LICENSE_ERROR => {
                 Err(Signal::Error(e))
