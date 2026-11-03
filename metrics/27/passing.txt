@@ -6381,6 +6381,7 @@
 69592 PageExt_DecimalPlacesAndAutoFormat
 69592 PageExt_DrillDownOnAndOff
 69592 PageExt_FieldAndGroupStates
+69592 PageExt_LookupOnAndOff
 69592 PageExt_PartStates
 69592 PageIntent_ApiPageOpenEditKeepsReadOnly
 69597 A_Insert
@@ -9431,6 +9432,7 @@
 71204 Tree_Rows_WhileCollapsed
 71205 AssistEdit_Trigger
 71205 Drilldown_Trigger
+71205 Lookup_TableRelation_Cancel
 71205 Lookup_Trigger_EditMode
 71205 Lookup_Trigger_ViewMode
 71206 Confirm_EmptyAndLongQuestion
@@ -11723,8 +11725,13 @@
 73034 UJ_Dialog_HideSubsequent_OpenedBefore
 73040 FieldRef_Captions
 73040 FieldRef_Resolved
+73040 Page_CaptionOnly_Sel
+73040 Page_Log_A
 73040 Page_Log_B
+73040 Page_NoSubscriber
+73040 Page_Resolve_A
 73040 Page_Resolve_B
+73040 Page_ResolvedOnly_Sel
 73040 Table_CaptionOnly_Sel
 73040 Table_Log_A
 73040 Table_Log_B
@@ -15004,6 +15011,10 @@
 79590 HeaderChangedByLine_ActionModifies
 79590 Invisible_DependencyAppPage
 79590 Invisible_SameAppPage
+79590 NumberIntoCodeField
+79590 NumberIntoCodeVariable
+79590 NumberIntoTextField
+79590 NumberIntoTextVariable
 79590 RequestPage_SetFilterEmpty
 79590 RunPageLink_ConstBlank
 79590 RunPageLink_FilterBlank
@@ -16272,6 +16283,9 @@
 86163 PxRunsBNoArgs
 86163 QhRunsEmptyCE1
 86163 QhRunsTargets
+86200 PX_Lookup_GrpCtl
+86200 PX_Lookup_LkPlainRel
+86200 PX_Lookup_LkPlainRelEmpty
 86264 DI_AssignThenInsert
 86264 DI_AssignThenModify
 86264 DI_AssignedValueLifetime
@@ -17360,6 +17374,9 @@
 89242 Shown_UpdateFalse_AfterDatabaseChange
 89242 Shown_UpdateNoArg_AfterDatabaseChange
 89244 StaticLayoutMembers_OnInitReport
+89259 Alone_OnlyControlOnItsField
+89259 Between_ControlsBeforeAndAfterOnTheSameField
+89259 NoCaption_OtherControlWithoutCaptionProperty
 89276 AssistEdit_Card_Refresh
 89276 AssistEdit_List_Refresh
 89276 AssistEdit_List_ViewMode_Refresh
@@ -19389,6 +19406,8 @@
 93246 G616_PartUpdateForm_FlowFilterLink
 93246 G616_PartUpdateForm_VarRec
 93248 G617a_Db_Editable_ActionModify
+93248 G617a_Db_Editable_SetValue_ThenNext
+93248 G617a_Db_SaveRecordAction
 93248 G617a_Temp_NotEditable_DrillDownModify_ThenFirst
 93249 G617b_NavigatePage_SetRecord_RunModal_Agree
 93249 G617b_PageRunIdRec_TrapTestPage_CountAndStep
