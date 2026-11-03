@@ -4,8 +4,8 @@
 //! - First, Next, Last and Previous in a row answer No each and log `N:0;C:0;N:0;C:0` in all (Y80_Gone_All_OpenEdit_DeleteAllUpdate,
 //!   _DeleteAll, _DeleteCurrent `moves log`). First raises nothing (pages/lt-f3-pages/F3ListTests.al:189 DeleteOnlyRow_WithoutUpdate
 //!   `log_after_first`, misc/lt-probes-needed-7/PnGRefresh.al ListLosesOnlyRowDeleteNoUpdate, lt-outside-worksheet/
-//!   RmWorksheetGoneRow.al:452 `close log`). Which two of Next, Last and Previous raise is not pinned: the assumption
-//!   `gone-blank-line-next-previous` has Next and Previous raise, as the symmetric pair.
+//!   RmWorksheetGoneRow.al:452 `close log`). Which two of Next, Last and Previous raise is not pinned (the corpus pins only
+//!   the total of the four calls in a row): Next, Last and Previous on that list are refused.
 //! - A second action that leaves the table empty again raises the pair twice (`second action log`).
 
 use super::*;
@@ -44,10 +44,12 @@ impl Session {
         if !self.on_gone_blank_line(st)? {
             return Ok(None);
         }
-        if matches!(how, PageMethod::Next | PageMethod::Previous) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GoneBlankLineNextPrevious);
-            st.borrow_mut().window.clear();
-            self.land_on_new_line(st)?;
+        if !matches!(how, PageMethod::First) {
+            // Needs probe: the log of each single Next, Last and Previous on the blank line of a list that lost its only row
+            // (Y80GoneRows.al Y80_Gone_All_OpenEdit_DeleteAllUpdate pins only the total of First, Next, Last, Previous).
+            return unsupported(
+                "a Next, Last or Previous on a list standing on its blank line after it lost its only row (the triggers each raises are not pinned)",
+            );
         }
         Ok(Some(false))
     }
@@ -68,8 +70,13 @@ impl Session {
     pub(super) fn card_query_close_before_forced_close(&mut self, st: &St) -> Result<(), Signal> {
         // The card asks OnQueryClosePage first, then runs OnClosePage (corpus master pages/lt-y80-gone-rows/Y80GoneRows.al
         // Y80_Gone_Card_OpenEdit_DeleteAllUpdate, _DeleteCurrent, _OpenView_* `action log R:10;D:10;Q;X`). The CloseAction it
-        // receives is not logged there; a veto is not pinned.
+        // receives is not pinned (those triggers never read it): a trigger that reads it is refused. A veto is not pinned.
         if self.declares(st, "onqueryclosepage") {
+            if self.query_close_reads_close_action(st) {
+                return unsupported(
+                    "a card whose OnQueryClosePage reads the CloseAction its deleted row forces (not pinned)",
+                );
+            }
             let members: std::sync::Arc<[String]> = al_builtins::value::ACTION_MEMBERS
                 .iter()
                 .map(|m| m.to_string())
@@ -85,5 +92,24 @@ impl Session {
             }
         }
         Ok(())
+    }
+
+    /// Whether an OnQueryClosePage of the page (its own or an extension's) reads its first parameter, the CloseAction.
+    fn query_close_reads_close_action(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let page = page_of(&engine, st);
+        let mut calls: Vec<(usize, usize)> = Vec::new();
+        if let Some((_, r)) = page.triggers.iter().find(|(n, _)| n == "onqueryclosepage") {
+            calls.push((object, *r));
+        }
+        for (n, e, r) in &page.ext_triggers {
+            if n == "onqueryclosepage" {
+                calls.push((*e, *r));
+            }
+        }
+        calls
+            .into_iter()
+            .any(|(obj, r)| super::param_read::reads_first_param(&engine.program.objects[obj].routines[r].body))
     }
 }

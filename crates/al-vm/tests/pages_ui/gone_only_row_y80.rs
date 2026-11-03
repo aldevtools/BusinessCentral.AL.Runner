@@ -39,8 +39,21 @@ page 51606 "Y8 Card" { PageType = Card; SourceTable = "Y8 Row";
     trigger OnQueryClosePage(CloseAction: Action): Boolean begin L.Add('Q'); exit(true); end;
     trigger OnClosePage() begin L.Add('X'); end;
     var L: Codeunit "Y8 Log"; }
+page 51607 "Y8 CardReads" { PageType = Card; SourceTable = "Y8 Row";
+    layout { area(Content) { field(IdCtl; Rec.Id) { } } }
+    actions { area(Processing) { action(DelAllUpd) { trigger OnAction() var R: Record "Y8 Row"; begin R.DeleteAll(true); CurrPage.Update(false); end; } } }
+    trigger OnQueryClosePage(CloseAction: Action): Boolean begin L.Add(Format(CloseAction)); exit(true); end;
+    var L: Codeunit "Y8 Log"; }
 codeunit 51605 C
 {
+    procedure CardReadsCloseAction(): Text
+    var R: Record "Y8 Row"; P: TestPage "Y8 CardReads";
+    begin
+        R.Id := 10; R.Insert();
+        P.OpenEdit();
+        P.DelAllUpd.Invoke();
+        exit('done');
+    end;
     procedure CardEdit(): Text
     var R: Record "Y8 Row"; L: Codeunit "Y8 Log"; P: TestPage "Y8 Card"; s: Text;
     begin
@@ -68,6 +81,39 @@ codeunit 51605 C
         P.DelAllUpd.Invoke(); s += '|' + L.Take();
         P.Close();
         exit(s);
+    end;
+    procedure AllEditFirst(): Text
+    var R: Record "Y8 Row"; L: Codeunit "Y8 Log"; P: TestPage "Y8 All"; s: Text;
+    begin
+        R.Id := 10; R.Insert(); L.Take();
+        P.OpenEdit();
+        P.DelAllUpd.Invoke(); L.Take();
+        s := Format(P.First()) + '|' + L.Take();
+        exit(s);
+    end;
+    procedure AllEditNext(): Text
+    var R: Record "Y8 Row"; L: Codeunit "Y8 Log"; P: TestPage "Y8 All";
+    begin
+        R.Id := 10; R.Insert();
+        P.OpenEdit();
+        P.DelAllUpd.Invoke();
+        exit(Format(P.Next()));
+    end;
+    procedure AllEditLast(): Text
+    var R: Record "Y8 Row"; L: Codeunit "Y8 Log"; P: TestPage "Y8 All";
+    begin
+        R.Id := 10; R.Insert();
+        P.OpenEdit();
+        P.DelAllUpd.Invoke();
+        exit(Format(P.Last()));
+    end;
+    procedure AllEditPrevious(): Text
+    var R: Record "Y8 Row"; L: Codeunit "Y8 Log"; P: TestPage "Y8 All";
+    begin
+        R.Id := 10; R.Insert();
+        P.OpenEdit();
+        P.DelAllUpd.Invoke();
+        exit(Format(P.Previous()));
     end;
     procedure AllEdit(): Text
     var R: Record "Y8 Row"; L: Codeunit "Y8 Log"; P: TestPage "Y8 All"; s: Text;
@@ -102,14 +148,23 @@ fn a_read_only_list_opened_for_edit_raises_nothing_after_it_lost_its_only_row() 
     );
 }
 
-// Y80_Gone_All_OpenEdit_DeleteAllUpdate: `action log R:10;D:10;N:0;C:0;N:0;C:0;N:0;C:0`, `moves log N:0;C:0;N:0;C:0` (assumed: from Next and Previous) for
-// First, Next, Last, Previous in a row, the second action `N:0;C:0;N:0;C:0`.
+// Y80_Gone_All_OpenEdit_DeleteAllUpdate: `action log R:10;D:10;N:0;C:0;N:0;C:0;N:0;C:0`; First raises nothing and answers No
+// (pages/lt-f3-pages/F3ListTests.al:189). The corpus pins only the total of First, Next, Last, Previous (`moves log
+// N:0;C:0;N:0;C:0`), so a single Next, Last or Previous there is refused (needs probe).
 #[test]
-fn an_editable_list_with_the_new_row_line_keeps_raising_on_its_blank_line() {
-    assert_eq!(
-        al_testkit::text(al_testkit::run_in(SRC, "C", "AllEdit")),
-        "R:10;R:10;C:10|R:10;N:0;C:0;N:0;C:0;N:0;C:0|0|NoNoNoNo|N:0;C:0;N:0;C:0|N:0;C:0;N:0;C:0"
-    );
+fn first_on_the_blank_line_of_a_list_that_lost_its_only_row_raises_nothing() {
+    assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "AllEditFirst")), "No|");
+}
+
+#[test]
+fn next_last_and_previous_on_that_blank_line_are_refused() {
+    for routine in ["AllEditNext", "AllEditLast", "AllEditPrevious", "AllEdit"] {
+        let r = al_testkit::run_in(SRC, "C", routine);
+        assert!(
+            matches!(&r, Err(al_builtins::native::Signal::Unsupported(w)) if w.contains("standing on its blank line")),
+            "{routine}: {r:?}"
+        );
+    }
 }
 
 // Y80_Gone_Card_OpenEdit_DeleteAllUpdate: `open log R:10`, `action log R:10;D:10;Q;X` (OnQueryClosePage, then OnClosePage).
@@ -118,5 +173,15 @@ fn a_card_whose_row_an_action_deleted_asks_on_query_close_page_before_it_closes(
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "CardEdit")),
         "R:10|R:10;Q;X|PageCloseRequest"
+    );
+}
+
+// The CloseAction a card's OnQueryClosePage receives when its deleted row closes it is not pinned: a trigger that reads it is refused.
+#[test]
+fn a_card_whose_on_query_close_page_reads_the_close_action_of_a_forced_close_is_refused() {
+    let r = al_testkit::run_in(SRC, "C", "CardReadsCloseAction");
+    assert!(
+        matches!(&r, Err(al_builtins::native::Signal::Unsupported(w)) if w.contains("CloseAction")),
+        "{r:?}"
     );
 }
