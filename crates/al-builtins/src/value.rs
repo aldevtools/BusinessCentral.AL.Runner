@@ -1308,6 +1308,9 @@ pub struct RowOrigin {
     /// The variable's own Modify followed its Insert or Get in the same transaction (a buffer with a Modify and one without are
     /// told apart by record/lt-sb-stale-own-modify/Y76StaleBuffers.al Y76_Part2_*).
     pub own_modified: bool,
+    /// The buffer was read by a form of Find no test pins (anything but FindFirst, FindLast and FindSet), or got TransferFields out
+    /// of such a record: a stale write of it is refused (Y76StaleBuffers.al Y76_Part1_* pins FindFirst, FindLast and FindSet only).
+    pub unpinned_read: bool,
 }
 
 impl RowOrigin {
@@ -1320,6 +1323,7 @@ impl RowOrigin {
             read_in_write_tx: false,
             lock_only: false,
             own_modified: false,
+            unpinned_read: false,
         }
     }
 }

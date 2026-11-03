@@ -1788,6 +1788,7 @@ impl Session {
             || (self.tx.lock_unpinned.is_some() && !read_of_others_only)
             || self.store_for(rec).written_since_commit(cx, t);
         match origin.filter(|o| o.version == mine) {
+            Some(o) if o.unpinned_read => Err(Self::stale_unpinned_find(t)),
             // A buffer that only got TransferFields from a record (Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord).
             Some(o) if o.own_write && o.lock_only => {
                 self.stale_lock_only_verdict(t, &company, pk, o.commits, touched, contact)
@@ -2355,6 +2356,7 @@ impl Session {
         let via_get = std::mem::take(&mut self.get_load);
         let via_sysid = std::mem::take(&mut self.sysid_load);
         let via_find = std::mem::take(&mut self.find_load);
+        let unpinned_find = std::mem::take(&mut self.unpinned_find_load);
         // A temporary record loads every field whatever SetLoadFields asked for (record/lt-are-fields-loaded-unfetched/
         // AreFieldsLoadedUnfetched.al:174-221, partial_name and partial_qty after FindFirst and Get).
         if rec.borrow().load.request.is_some() && !rec.borrow().temporary {
@@ -2378,22 +2380,8 @@ impl Session {
         // (record/TestFindSetSortKeyModify.al:OwnFilter_ModifiedOutOfIt_FindStillFindsTheRow against misc/lt-probes-needed-3/
         // PnC02Filters.al:FindEqual_OutsideFilter and record/lt-record-read/RcAMisc.al:MarkedOnly_With_Find_Get_And_Order).
         let passes = self.row_passes(rec, &t, &row)?;
-        let origin = match t.fields.iter().position(|f| f.id == 2_000_000_005).map(|i| &row[i]) {
-            // A version written in the open transaction (above the last Commit's) read by Get or GetBySystemId follows the rule of
-            // the buffer that wrote it: not pinned, the reporter's real-BC repro of al-runner issue 5913 (assumption
-            // stale-get-buffer-in-write-transaction, marked in `stale_verdict` when it decides). A Get after the Commit that
-            // followed the write keeps a Get origin (record/TestRecordStaleBufferWrite.al:604-660).
-            Some(Value::BigInteger(v)) if (via_get || via_sysid || via_find) && *v > self.tx.committed_row_version => {
-                Some(al_builtins::value::RowOrigin {
-                    read_in_write_tx: true,
-                    ..al_builtins::value::RowOrigin::new(true, *v, self.commits)
-                })
-            }
-            Some(Value::BigInteger(v)) if via_get || via_find => {
-                Some(al_builtins::value::RowOrigin::new(false, *v, self.commits))
-            }
-            _ => None,
-        };
+        let version = t.fields.iter().position(|f| f.id == 2_000_000_005).map(|i| &row[i]);
+        let origin = self.load_origin(version, [via_get, via_sysid, via_find, unpinned_find]);
         let temporary = rec.borrow().temporary;
         if via_get && !temporary && self.tx.locked_tables.contains(&t.object) {
             let company = rec.borrow().company.clone();
@@ -4293,6 +4281,7 @@ impl Session {
                                         version: now,
                                         read_in_write_tx: false,
                                         own_modified: true,
+                                        unpinned_read: false,
                                         ..o
                                     });
                                 }
@@ -4709,9 +4698,12 @@ impl Session {
                 };
                 match found {
                     Some(row) => {
+                        // Only FindFirst, FindLast and FindSet are pinned (Y76StaleBuffers.al Y76_Part1_*).
                         self.find_load = true;
+                        self.unpinned_find_load = method == RecordOp::Find;
                         let loaded = self.load(rec, row);
                         self.find_load = false;
+                        self.unpinned_find_load = false;
                         loaded?;
                         Ok(Value::Boolean(true))
                     }
