@@ -787,6 +787,11 @@ impl Session {
                 ));
             };
             match schema.node(a).kind {
+                // A text attribute is trimmed without PreserveWhiteSpace (`" "` is empty, `"  p  "` is `p`: xmlport/
+                // lt-y91-xmlport-probes/Y91XpTests.al:82-83 `att_space`, `att_padded`) and kept with it (:184-185).
+                ir::XmlNodeKind::TextAttr if !schema.xp().preserve_whitespace => {
+                    self.xp_assign_variable(inst, schema, a, value.trim_matches(XML_SPACE).to_string())?
+                }
                 ir::XmlNodeKind::TextAttr => self.xp_assign_variable(inst, schema, a, value.clone())?,
                 _ => {
                     let pos = self.xp_assign_field(inst, schema, a, value)?;
@@ -838,7 +843,13 @@ impl Session {
         // 896, misc/lt-np4-probes/Np4XmlPort.al Y9_XmlPort_Import_PreserveWhiteSpace_NoNamespace `note=[  lead  inner\n gap\t ]`,
         // Y9_XmlPort_Import_DefaultWhiteSpace_NoNamespace `note=[lead inner gap]`, with a default namespace the same).
         let text = ce.text();
-        let text = if !text.is_empty() && text.trim().is_empty() {
+        let text = if schema.xp().preserve_whitespace
+            && !text.is_empty()
+            && text.trim().is_empty()
+            && Self::xp_blank_cdata(ce)?
+        {
+            text
+        } else if !text.is_empty() && text.trim().is_empty() {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportSelfClosedLeafAssignTwice);
             String::new()
         } else if !schema.xp().preserve_whitespace && text.contains(XML_SPACE) {
@@ -889,6 +900,33 @@ impl Session {
         Ok(self.xp_assign_field_flow(inst, schema, node, text)?.0)
     }
 
+    /// `xp_assign_field` for the text of the element `ce`: with PreserveWhiteSpace a CDATA section of white space only is kept.
+    pub(super) fn xp_assign_field_elem(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        node: usize,
+        ce: &Elem,
+    ) -> Result<usize, Signal> {
+        let text = ce.text();
+        let keep_blank =
+            schema.xp().preserve_whitespace && !text.is_empty() && text.trim().is_empty() && Self::xp_blank_cdata(ce)?;
+        Ok(self.xp_assign_field_flow_in(inst, schema, node, &text, keep_blank)?.0)
+    }
+
+    /// Whether the white space only text of `ce` is a CDATA section, which an import with PreserveWhiteSpace keeps
+    /// (xmlport/lt-y91-xmlport-probes/Y91XpTests.al:149 `cdata_space`, :214 `n_cdata_space`). White space of plain text and of
+    /// both kinds together: plain is dropped (:145 `space`); the mix is not pinned.
+    pub(super) fn xp_blank_cdata(ce: &Elem) -> Result<bool, Signal> {
+        match ce.text_source {
+            al_builtins::xmlport::TextSource::CData => Ok(true),
+            al_builtins::xmlport::TextSource::Mixed => unsupported(
+                "XmlPort import with PreserveWhiteSpace of white space made of plain text and a CDATA section (not pinned)",
+            ),
+            _ => Ok(false),
+        }
+    }
+
     /// `xp_assign_field`, and what `OnAfterAssignField` asked for.
     pub(super) fn xp_assign_field_flow(
         &mut self,
@@ -896,6 +934,18 @@ impl Session {
         schema: &Schema,
         node: usize,
         text: &str,
+    ) -> Result<(usize, Option<Flow>), Signal> {
+        self.xp_assign_field_flow_in(inst, schema, node, text, false)
+    }
+
+    /// `xp_assign_field_flow`; `keep_blank` keeps a value of white space only (a CDATA section, with PreserveWhiteSpace).
+    fn xp_assign_field_flow_in(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        node: usize,
+        text: &str,
+        keep_blank: bool,
     ) -> Result<(usize, Option<Flow>), Signal> {
         // White space around a value is dropped, for text too (xmlport/lt-xmlport-query-datatransfer/XpTImportBasic.al:
         // Import_WhitespaceAroundValues).
@@ -926,7 +976,14 @@ impl Session {
         // Y9_XmlPort_Import_PreserveWhiteSpace_NoNamespace `[]`). Without it an Xml import makes each run of white space inside a
         // Text field element one space (Y9_XmlPort_Import_DefaultWhiteSpace_NoNamespace, _WithNamespace `[a b]`).
         let collapsed;
-        let text = if schema.xp().preserve_whitespace && text != raw && !text.is_empty() {
+        let text = if keep_blank {
+            if n.kind != ir::XmlNodeKind::Field || !matches!(ty, RtType::Text(_)) {
+                return unsupported(
+                    "XmlPort import with PreserveWhiteSpace of a CDATA section of white space that is no Text field element (not pinned)",
+                );
+            }
+            raw
+        } else if schema.xp().preserve_whitespace && text != raw && !text.is_empty() {
             if n.kind != ir::XmlNodeKind::Field || !matches!(ty, RtType::Text(_)) {
                 return unsupported(
                     "XmlPort import with PreserveWhiteSpace of white space around a value that is no Text field element (not pinned)",

@@ -18,6 +18,35 @@ pub struct Elem {
     /// text element's OnAfterAssignVariable twice for the first form only: QrXpContainerOccurs.al TR_EmptyLeaf_Import, writer
     /// TR's branch al-runtime-rs-staging-tr). An element made in code is false.
     pub self_closed: bool,
+    /// Whether the text directly inside the element came from CDATA sections, from plain text, or from both. Only an Xml
+    /// import with PreserveWhiteSpace tells them apart: a CDATA section of white space only is kept, plain white space is not
+    /// (xmlport/lt-y91-xmlport-probes/Y91XpTests.al:149 `cdata_space`, :214 `n_cdata_space`).
+    pub text_source: TextSource,
+}
+
+impl TextSource {
+    /// The source after one more text node, from CDATA or not.
+    pub fn with(self, cdata: bool) -> TextSource {
+        match (self, cdata) {
+            (TextSource::None, false) | (TextSource::Plain, false) => TextSource::Plain,
+            (TextSource::None, true) | (TextSource::CData, true) => TextSource::CData,
+            _ => TextSource::Mixed,
+        }
+    }
+}
+
+/// Where the text directly inside an element came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextSource {
+    /// No text.
+    #[default]
+    None,
+    /// Plain text only.
+    Plain,
+    /// CDATA sections only.
+    CData,
+    /// Plain text and CDATA sections.
+    Mixed,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +62,7 @@ impl Elem {
             attrs: Vec::new(),
             children: Vec::new(),
             self_closed: false,
+            text_source: TextSource::None,
         }
     }
 
