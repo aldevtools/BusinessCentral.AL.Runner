@@ -158,3 +158,21 @@ pub(super) fn table_container_shape(layout: &Layout, i: usize) -> bool {
 fn has_trigger(layout: &Layout, i: usize) -> bool {
     layout.nodes[i].section.triggers().next().is_some()
 }
+
+/// The root text element with triggers whose nodes are table elements without LinkTable (at least one) and text elements that are
+/// leaves, hold only text attributes or are container trees (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al ContainerTriggers_Nested:
+/// `Root` with a table element and `Hdr`; its OnBeforePassVariable runs before everything, its OnAfterAssignVariable after
+/// everything; the same test as al-vm xmlports `container_tree::root_with_table`). Only Format = Xml without InlineSchema is pinned;
+/// the runtime refuses the rest.
+pub(super) fn root_table_shape(layout: &Layout, i: usize) -> bool {
+    let k = kids(layout, i);
+    let table = |c: usize| layout.nodes[c].kind == K::Table && layout.property(c, "LinkTable").is_none();
+    layout.nodes[i].parent.is_none()
+        && layout.nodes[i].kind == K::Text
+        && k.iter().any(|&c| table(c))
+        && k.iter().all(|&c| {
+            table(c)
+                || (layout.nodes[c].kind == K::Text
+                    && (!layout.has_children(c) || attrs_only(layout, c) || tree(layout, c)))
+        })
+}
