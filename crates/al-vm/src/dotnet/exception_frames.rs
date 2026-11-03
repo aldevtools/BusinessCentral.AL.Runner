@@ -5,7 +5,6 @@
 
 use super::last_error::{codeunit_frame, is_try_function, plain_procedure};
 use crate::Session;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::dotnet_sigs::{AL_EXCEPTION, DIVIDE_BY_ZERO_EXCEPTION, NCL_DIALOG_EXCEPTION};
 
 const ASSERT: &str = "\n--- End of stack trace from previous location ---\n   at Microsoft.Dynamics.Nav.Runtime.NavMethodScope.AssertErrorAsync(Func`1 body)";
@@ -29,7 +28,8 @@ fn al_frame(id: u32, name: &str) -> String {
 /// - Y89_Asserterror_Divide, Y89_Try_Divide: a division by zero in one procedure of another codeunit: the inner exception line,
 ///   the frame, the end of the inner trace, the frame again, then as above.
 ///
-/// One line the corpus counts but does not show is added under `exception-tostring-generated-frame`.
+/// The corpus also counts one compiler-generated line (`b__`) and does not show it: it is not written (the five Y89 cases still
+/// fail on that count until a probe shows the line).
 pub(super) fn pinned_trace(session: &Session, type_name: &str, msg: &str, frames: &[&str]) -> Option<String> {
     if type_name != NCL_DIALOG_EXCEPTION && type_name != AL_EXCEPTION {
         return None;
@@ -37,15 +37,11 @@ pub(super) fn pinned_trace(session: &Session, type_name: &str, msg: &str, frames
     let parsed: Vec<(u32, &str)> = frames.iter().map(|f| codeunit_frame(f)).collect::<Option<_>>()?;
     let &(caller_id, caller) = parsed.last()?;
     let mut out = format!("{type_name}: {msg}");
-    // Error() in the procedure that holds the asserterror itself.
+    // Error() in the procedure that holds the asserterror itself (Y89_Asserterror_Plain) is not written here: Y76DotNet.al:151-152
+    // Y76_Asserterror_Error reads the head up to the first `   at `, so a frame line stands right after the head, and that
+    // generated line (`b__`) is not shown by the corpus. The generic trace keeps that baseline case passing.
     if parsed.len() == 1 {
-        if type_name != NCL_DIALOG_EXCEPTION || caller == "OnRun" || is_try_function(session, caller_id, caller) {
-            return None;
-        }
-        assume(Assumption::ExceptionToStringGeneratedFrame);
-        out.push_str(&generated_frame(caller_id, caller));
-        out.push_str(ASSERT);
-        return Some(out);
+        return None;
     }
     let (inner_id, first) = parsed[0];
     let run = parsed.iter().take_while(|(id, _)| *id == inner_id).count();
@@ -86,22 +82,14 @@ pub(super) fn pinned_trace(session: &Session, type_name: &str, msg: &str, frames
     if session.has(al_version::Gate::ExceptionTraceValueTaskFrameFrom29) {
         out.push_str(VALUE_TASK);
     }
-    assume(Assumption::ExceptionToStringGeneratedFrame);
     match try_frame {
         Some((id, name)) => {
             out.push_str(&al_frame(id, name));
-            out.push_str(&generated_frame(caller_id, caller));
             out.push_str(TRY_INVOKE);
         }
         None => {
-            out.push_str(&generated_frame(caller_id, caller));
             out.push_str(ASSERT);
         }
     }
     Some(out)
-}
-
-/// The frame of the compiler-generated method (assumption `exception-tostring-generated-frame`).
-fn generated_frame(id: u32, caller: &str) -> String {
-    format!("\n   at Microsoft.Dynamics.Nav.BusinessApplication.Codeunit{id}.<{caller}>b__0()")
 }
