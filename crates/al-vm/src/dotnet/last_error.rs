@@ -192,12 +192,46 @@ pub(crate) fn exception_text(session: &Session, this: &Rc<DotNetObject>) -> Resu
         out.push_str(UNTRACKED_CALL_STACK);
         return Ok(out);
     }
+    // The frames are .NET's: an AL frame of a codeunit is `Codeunit<id>.<procedure>()` (a trigger OnRun is `OnRunAsync`), and an error
+    // an asserterror caught shows `NavMethodScope.AssertErrorAsync` where a TryFunction shows its own frame (onprem-dotnet/
+    // lt-y76-dotnet/Y76DotNet.al Y76_TryFunction_*, Y76_Asserterror_*, Y76_CodeunitRun_ThreeDeep_GetMissing_Division, each pinning one
+    // frame by name). The rest of each line and the frames between are not pinned: the assumption stays.
     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ExceptionToStringStackFrames);
+    if type_name == AL_EXCEPTION {
+        out.push_str(&format!(" ---> {DIVIDE_BY_ZERO_EXCEPTION}: {msg}"));
+    }
+    if let Some((id, name)) = frames.first().and_then(|f| codeunit_frame(f))
+        && name != "OnRun"
+        && !is_try_function(session, id, name)
+    {
+        out.push_str("\n   at Microsoft.Dynamics.Nav.Runtime.NavMethodScope.AssertErrorAsync");
+    }
     for f in frames {
         out.push_str("\n   at ");
-        out.push_str(f);
+        match codeunit_frame(f) {
+            Some((id, "OnRun")) => out.push_str(&format!(
+                "Microsoft.Dynamics.Nav.BusinessApplication.Codeunit{id}.OnRunAsync(INavRecordHandle \u{3b5}rec)"
+            )),
+            Some((id, name)) => out.push_str(&format!(
+                "Microsoft.Dynamics.Nav.BusinessApplication.Codeunit{id}.{name}()"
+            )),
+            None => out.push_str(f),
+        }
     }
     Ok(out)
+}
+
+/// Whether codeunit `id` has a procedure `name` marked `[TryFunction]`.
+fn is_try_function(session: &Session, id: u32, name: &str) -> bool {
+    let objects = &session.engine.program.objects;
+    objects.heads().iter().enumerate().any(|(oi, h)| {
+        h.kind == al_ir::ObjKind::Codeunit
+            && h.id == Some(id)
+            && objects[oi]
+                .routines
+                .iter()
+                .any(|r| r.name == name && r.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("TryFunction")))
+    })
 }
 
 /// Whether codeunit `id` has a procedure `name` with no parameters and no return value, whose name is a plain identifier: the

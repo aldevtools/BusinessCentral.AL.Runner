@@ -300,7 +300,7 @@ impl Session {
                     // (query/TestQueryRuntimeContracts.al:Query_GetFilters_TextForSingleAndCombinedFilters).
                     None
                 } else {
-                    let text = text_of(args.get(1).unwrap_or(&Value::Null)).unwrap_or_default();
+                    let text = crate::filter_text_arg::filter_text(args.get(1));
                     // Only a record's SetFilter is pinned to keep such a placeholder as written (filters/W4Filters.al:661-695).
                     if args.len() > 2 && al_builtins::filter::placeholder_next_to_wildcard(&text) {
                         return Err(Signal::Unsupported(

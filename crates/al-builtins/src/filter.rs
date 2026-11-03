@@ -540,6 +540,15 @@ pub fn parse_filter_with(
             return e;
         }
     }
+    // `@` (case-insensitive) makes no sense for a Guid: `@{1A2B...}` raises the Guid format error (record/lt-y77-guid-filter/
+    // Y77GuidFilter.al Record_Shapes5To6 `shape5`; pinned for a braced Guid after the `@`).
+    if matches!(ty, crate::value::RtType::Guid)
+        && text.trim().strip_prefix('@').is_some_and(|rest| {
+            rest.starts_with('{') && crate::evaluate::read_text(&crate::value::RtType::Guid, rest.trim()).is_some()
+        })
+    {
+        return Err(format!("{INVALID_GUID}{text}"));
+    }
     // Three dots in a Date filter read as two (P81DateFilters.al:SetFilter_Date_InvalidTexts, `010126...020126`).
     let dots;
     let text = if matches!(ty, crate::value::RtType::Date)
@@ -1735,6 +1744,15 @@ mod tests {
             parse_filter("5..5", &[], &T::Integer),
             Ok(FilterExpr::RangeSame(Value::Integer(5)))
         ));
+    }
+
+    /// `@` before a braced Guid is the Guid format error (record/lt-y77-guid-filter/Y77GuidFilter.al Record_Shapes5To6 `shape5`).
+    #[test]
+    fn a_guid_filter_with_an_at_sign_before_the_guid_is_invalid() {
+        use crate::value::RtType as T;
+        let e = parse_filter("@{1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D}", &[], &T::Guid).unwrap_err();
+        assert!(e.starts_with(INVALID_GUID), "{e}");
+        assert!(parse_filter("{1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D}", &[], &T::Guid).is_ok());
     }
 
     /// Microsoft's Library - ERM `GetDiscountPaymentTerm` filters a DateFormula field with `<>` and the empty text: there the
