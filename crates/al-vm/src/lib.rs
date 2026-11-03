@@ -56,6 +56,7 @@ mod faultsite;
 mod fieldref_length;
 mod fieldref_validate;
 mod fieldref_value_into;
+mod filter_text_arg;
 mod filterevents;
 mod filterpage;
 mod flowfields;
@@ -71,6 +72,7 @@ mod media_orphans;
 mod pages;
 mod partial;
 mod permission_shadow;
+mod permission_triggers;
 mod permissions;
 mod platform;
 mod profile;
@@ -94,6 +96,7 @@ mod sessionops;
 mod setup_no_op;
 mod sqlcount;
 mod sqltime;
+mod stale_buffer_origin;
 mod stale_own_modify;
 mod tasks;
 mod tenant_layout_cfg;
@@ -987,6 +990,11 @@ pub struct Session {
     /// The row `load` is about to read came from `GetBySystemId` (al-runner issue 5913: a read in the transaction that wrote
     /// the row's version, assumption stale-get-buffer-in-write-transaction).
     pub(crate) sysid_load: bool,
+    /// The row `load` is about to read came from `Find`, `FindFirst`, `FindLast` or `FindSet`: its buffer gets the origin a Get
+    /// buffer gets (record/lt-sb-stale-own-modify/Y76StaleBuffers.al Y76_Part1_FindFirst_FindLast, Y76_Part1_FindSet_Assign).
+    pub(crate) find_load: bool,
+    /// The Find being loaded is one no test pins for stale buffers (not FindFirst, FindLast or FindSet).
+    pub(crate) unpinned_find_load: bool,
     /// Transactions: the depth of transaction-beginning constructs, and where the open transaction stands.
     pub(crate) tx: TxState,
     /// Handler functions and notifications of the running test method.
@@ -1098,6 +1106,8 @@ impl Session {
             caption_translations: Vec::new(),
             get_load: false,
             sysid_load: false,
+            find_load: false,
+            unpinned_find_load: false,
             host,
             waited_ms: 0,
             companies,

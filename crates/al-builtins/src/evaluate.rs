@@ -1649,6 +1649,10 @@ pub fn evaluate_typed(
     })
 }
 
+/// The tail of the error for an unknown table name: a space, then each part after a real backslash and six spaces, the last one after
+/// four spaces (xmlport/lt-y88-xmlport/Y88XmlPortProbes.al:223 and :241; W4PlatformAndMeta.al:706 pins the head up to the backslash).
+const METADATA_NOT_FOUND_TAIL: &str = " \\      The metadata object Table -1 was not found.\\      The application might be incompatible with the current compiler. Please unpublish the application that contains the application object Table -1 and republish it. \\      Or, run a technical upgrade of the application database with the 'Force' flag set.\\    ";
+
 /// `Evaluate(TableFilterField, Text)` (al-runner issues 5998 and 6006), pinned by records/W4PlatformAndMeta.al (writer SI:
 /// TableFilterEvaluate_AcceptedForms, _RejectedForms, _ErrorsAsStatement, _StoredValue; writer SR: TableFilterEvaluate_SeveralCodeFields,
 /// _SrMultiFieldForms, _SrSecondFieldTypes, _SrExpressionForms, _SrRejectedForms, _SrStoredSpaceValue). The text is
@@ -1694,15 +1698,10 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
         .unwrap_or(table);
     let def = match c.table_filter_table(table) {
         Some(Ok(Some(def))) => def,
-        // An unknown table name: the text goes on, after a backslash, with "The metadata object Table -1 was not found."
-        // (W4PlatformAndMeta.al:706 pins the text before the backslash; xmlport/lt-y67-xmlport-tablefilter/Y67XpTableFilter.al:153
-        // pins the sentence by Contains on 27/28/29; the rest of the tail is not pinned and left out).
+        // An unknown table name: the whole text is pinned by xmlport/lt-y88-xmlport/Y88XmlPortProbes.al:223 (Y88_EvaluateTableFilter_
+        // UnknownTableErrorText, 27-29), see METADATA_NOT_FOUND_TAIL.
         Some(Ok(None)) if table.parse::<i64>().is_err() => {
-            return reject(
-                c,
-                "\\The metadata object Table -1 was not found.",
-                "Evaluate:MetadataNotFound",
-            );
+            return reject(c, METADATA_NOT_FOUND_TAIL, "Evaluate:MetadataNotFound");
         }
         Some(Ok(None)) => return reject(c, "", "Evaluate:MetadataNotFound"),
         Some(Err(e)) => return Err(e),

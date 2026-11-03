@@ -1362,8 +1362,12 @@ impl Session {
                         let load = src.borrow().load.clone();
                         // `:=` copies what Record.IsDirty compares with (lt-ac/ACRecordIsDirty.al:63-64 `copy_dirty`).
                         let dirty_base = src.borrow().is_dirty_base.copy();
+                        // The row version comes over with the fields, and where it came from (record/lt-sb-stale-own-modify/
+                        // Y76StaleBuffers.al Y76_Part1_FindSet_Assign, `assign/*`).
+                        let row_origin = src.borrow().row_origin;
                         let mut d = dst.borrow_mut();
                         d.fields = fields;
+                        d.row_origin = row_origin;
                         d.is_dirty_base = dirty_base;
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;

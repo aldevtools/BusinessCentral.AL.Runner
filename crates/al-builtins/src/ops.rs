@@ -302,7 +302,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         (Value::Guid(g), T::Text(max)) => Value::Text(fit(crate::format::format_guid(&g), *max)?.into()),
         (Value::Guid(g), T::Code(max)) => Value::Code(fit(crate::format::format_guid(&g), *max)?.into()),
         // A Text into a Decimal (a Variant meets a number): pinned, see `convert_rare`.
-        // Not pinned by the corpus: Microsoft's Incoming Document `Get(Format(Value))`, registry entry text-digits-to-integer.
+        // Not pinned by the corpus: Microsoft's Incoming Document `Get(Format(Value))`, registry entry text-digits-to-integer (the key of Get is pinned and handled in get_key_value.rs).
         (Value::Text(s) | Value::Code(s), T::Integer | T::BigInteger)
             if {
                 let d = s.trim();
@@ -326,11 +326,8 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         // A Boolean for a Code (a Boolean handed to `Get` of a Code key): as `Format` writes it, upper-cased: Get(true)
         // finds the row YES and not 1 or TRUE (types/lt-ax-text-format-dates/AxEvaluateText.al:348 GetTrue_CodeKey_Yes).
         // An assignment of a Boolean to a Text or Code does not compile (must-not-compile cases 1190, 1191). For a Text
-        // (`Get` of a Text key) the text is not pinned (assumption `boolean-to-text-as-format`).
-        (Value::Boolean(b), T::Text(max)) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::BooleanToTextAsFormat);
-            Value::Text(fit(if b { "Yes" } else { "No" }.to_string(), *max)?.into())
-        }
+        // (`Get` of a Text key) it is Yes or No (misc/lt-y70-assumptions/Y70Probes.al RecordGet_BooleanOnTextKey `text_true`, `text_false`).
+        (Value::Boolean(b), T::Text(max)) => Value::Text(fit(if b { "Yes" } else { "No" }.to_string(), *max)?.into()),
         (Value::Boolean(b), T::Code(max)) => Value::Code(fit(if b { "YES" } else { "NO" }.to_string(), *max)?.into()),
         // A Date into a DateTime is that day at midnight, the blank Date the blank DateTime (as CreateDateTime(D, 0T)). Not
         // pinned; Microsoft's production order code assigns a Date to a DateTime (Tests-SCM-Manufacturing, 20 tests;

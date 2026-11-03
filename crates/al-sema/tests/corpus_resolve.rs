@@ -148,14 +148,6 @@ const KNOWN_GAP_FILES: &[(&str, &str)] = &[
         "the checker does not know a part of a report's request page (RequestOptionsPage.ChPart.Page) (corpus bump 29)",
     ),
     (
-        "report/lt-request-options-page-access/RequestOptionsPageAccess.al",
-        "the checker does not know the `RequestOptionsPage` member of a report (RequestOptionsPageAccess.al:39, corpus bump to 2c42c8aa)",
-    ),
-    (
-        "report/lt-y86-request-page/Y86RequestCaption.al",
-        "the checker does not know the `RequestOptionsPage` member of CurrReport (Y86RequestCaption.al:36; PR 6836 adds it: delete this row there) (corpus bump to 78f6c60b)",
-    ),
-    (
         "record/ProbePropertyAssignmentForms.al",
         "the checker does not resolve the assignment form of a call (`Sleep := 1`, `Target.SetCounter := 7`) (corpus bump to 92031e20)",
     ),
