@@ -4971,7 +4971,7 @@ impl Session {
                 let pos = arg_pos(args, 0)?;
                 rec.borrow_mut().position = None;
                 let ty = t.fields[pos].ty.clone();
-                let text = al_builtins::native::text_of(args.get(1).unwrap_or(&Value::Null)).unwrap_or_default();
+                let text = crate::filter_text_arg::filter_text(args.get(1));
                 // An empty filter text removes the field's filter: a Query column does so
                 // (query/TestQueryRuntimeContracts.al:208-209, "an empty SetFilter clears the filter"), and the
                 // documentation says the same of a Record, also in a filter group other than 0 (types/lt-filter-enum-relation-duration-guid/

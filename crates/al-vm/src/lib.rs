@@ -93,6 +93,7 @@ mod sessionops;
 mod setup_no_op;
 mod sqlcount;
 mod sqltime;
+mod filter_text_arg;
 mod stale_own_modify;
 mod tasks;
 mod tenant_layout_cfg;
