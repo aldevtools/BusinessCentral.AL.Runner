@@ -534,7 +534,12 @@ impl Lowerer<'_> {
             }
         }
         ir::Page {
-            restricted_refusals: super::shared::access_by_permission_refusals(obj, &controls),
+            restricted_refusals: super::shared::access_by_permission_refusals(
+                self.ws,
+                self.ws.objects[oi].file,
+                obj,
+                &controls,
+            ),
             controls,
             triggers,
             curr_page_slot: globals.iter().position(|g| g.name == "CurrPage").unwrap_or(0),
