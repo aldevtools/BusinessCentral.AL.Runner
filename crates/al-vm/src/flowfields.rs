@@ -521,7 +521,7 @@ impl Session {
         let filters = self.calc_filters(rec, calc, &mut Vec::new())?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
         if self.permissions.is_some() {
-            self.permission_gate_flowfield(calc.table)?;
+            self.permission_gate_flowfield(rec, calc.table)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
         let n = self
@@ -565,7 +565,7 @@ impl Session {
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
         if self.permissions.is_some() {
-            self.permission_gate_flowfield(calc.table)?;
+            self.permission_gate_flowfield(rec, calc.table)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
         let store_err = |e: al_data::StoreError| Signal::Unsupported(format!("store error {e}"));
@@ -987,9 +987,9 @@ impl Session {
     /// `CalcSums`: the sum of stored number fields over the record's own
     /// filters (corpus record/TestRecordFlowField.al:109-160).
     ///
-    /// `duration` allows a Duration field: only `FieldRef.CalcSum` pins it (FieldRefCalcSumTypes), `Record.CalcSums` of
-    /// a Duration is refused until the corpus pins it (issue 630 item 3).
-    pub(crate) fn calc_sums(&mut self, rec: &Rec, positions: &[usize], duration: bool) -> Result<(), Signal> {
+    /// A Duration field sums too, also one in no SumIndexFields (record/lt-calcsums-duration/CalcSumsDuration.al
+    /// CalcSums_Duration_All, _Filtered, _NotInSumIndexFields; `FieldRef.CalcSum`: FieldRefCalcSumTypes).
+    pub(crate) fn calc_sums(&mut self, rec: &Rec, positions: &[usize]) -> Result<(), Signal> {
         let engine = self.engine.clone();
         let table = rec.borrow().table as usize;
         let t = self.engine.tables[table].clone().expect("table");
@@ -997,8 +997,7 @@ impl Session {
         for &p in positions {
             let f = &fields[p];
             if !f.stored
-                || !matches!(f.ty, RtType::Decimal | RtType::Integer | RtType::BigInteger)
-                    && !(duration && f.ty == RtType::Duration)
+                || !matches!(f.ty, RtType::Decimal | RtType::Integer | RtType::BigInteger) && f.ty != RtType::Duration
             {
                 return unsupported(format!(
                     "CalcSums on {} (only stored number fields are implemented)",
@@ -1114,7 +1113,7 @@ impl Session {
                 self.calc_fields(rec, &positions)?;
             }
             RecordOp::CalcSums => {
-                self.calc_sums(rec, &positions, false)?;
+                self.calc_sums(rec, &positions)?;
             }
             RecordOp::SetAutoCalcFields => {
                 let table = rec.borrow().table as usize;
@@ -1153,7 +1152,10 @@ impl Session {
         }
         // A temporary record loads an auto-calculated Blob like a stored row (record/lt-temporary-blob/TemporaryBlobAutoCalc.al:
         // Temporary_SetAutoCalcFields_ThenFind).
-        self.calc_fields(rec, &auto)
+        self.permission_autocalc = true;
+        let r = self.calc_fields(rec, &auto);
+        self.permission_autocalc = false;
+        r
     }
 }
 

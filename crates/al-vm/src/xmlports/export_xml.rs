@@ -58,8 +58,13 @@ impl Session {
         let blob = match inst.borrow().globals[schema.xp().destination_slot].clone() {
             Value::Library(_, h) => match &*h.borrow() {
                 LibraryValue::OutStream(blob, _) => blob.clone(),
-                _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
+                // An OutStream variable that no stream was set into.
+                _ => al_builtins::stream::new_blob(),
             },
+            // An Export without SetDestination succeeds (BC offers the document as a download, which a test cannot observe):
+            // xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Instance_Export_Without_Destination, Instance_Export_After_SetSource
+            // (needs the corpus bump). The document goes to a buffer nobody reads.
+            Value::Null => al_builtins::stream::new_blob(),
             _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
         };
         al_builtins::stream::write_bytes(&blob, br#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>"#);
@@ -72,8 +77,13 @@ impl Session {
         let blob = match inst.borrow().globals[xp.destination_slot].clone() {
             Value::Library(_, h) => match &*h.borrow() {
                 LibraryValue::OutStream(blob, _) => blob.clone(),
-                _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
+                // An OutStream variable that no stream was set into.
+                _ => al_builtins::stream::new_blob(),
             },
+            // An Export without SetDestination succeeds (BC offers the document as a download, which a test cannot observe):
+            // xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Instance_Export_Without_Destination, Instance_Export_After_SetSource
+            // (needs the corpus bump). The document goes to a buffer nobody reads.
+            Value::Null => al_builtins::stream::new_blob(),
             _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
         };
         // BC's export of a port with an unbound field element does not end (YXmlPortProps.al:715-716), nor of one with an unbound
@@ -383,8 +393,20 @@ impl Session {
         }
         let (root_name, table_name) = (&schema.node(top).xml_name, &tn.xml_name);
         let table_min = if tn.min_zero { "0" } else { "1" };
+        // With UseDefaultNamespace and no DefaultNamespace the root declares BC's namespace of the port, the schema targets it and its
+        // types are `tns:` ones (xmlport/lt-y83-xmlport-shapes/Y83XpNsTests.al:Ns_UdnInline, needs the corpus bump). Another
+        // default namespace is not pinned.
+        let (root_decl, schema_decl, tns) = match xp.default_ns.as_deref() {
+            None => (String::new(), String::new(), ""),
+            Some(ns) if ns.starts_with("urn:microsoft-dynamics-nav/xmlports/x") => (
+                format!(" xmlns=\"{ns}\""),
+                format!("xmlns:tns=\"{ns}\" elementFormDefault=\"qualified\" targetNamespace=\"{ns}\" "),
+                "tns:",
+            ),
+            Some(_) => return unsupported(shape()),
+        };
         Ok(format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-16\" standalone=\"no\"?>\r\n<{root_name}>\r\n<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">\r\n  <xs:complexType name=\"{table_name}\">\r\n    <xs:sequence>\r\n{fields}    </xs:sequence>\r\n{attrs}  </xs:complexType>\r\n  <xs:complexType name=\"{root_name}\" mixed=\"true\">\r\n    <xs:sequence>\r\n      <xs:element minOccurs=\"{table_min}\" maxOccurs=\"unbounded\" name=\"{table_name}\" type=\"{table_name}\" />\r\n    </xs:sequence>\r\n  </xs:complexType>\r\n  <xs:element name=\"{root_name}\" type=\"{root_name}\" />\r\n</xs:schema>{rows}</{root_name}>"
+            "<?xml version=\"1.0\" encoding=\"UTF-16\" standalone=\"no\"?>\r\n<{root_name}{root_decl}>\r\n<xs:schema {schema_decl}xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">\r\n  <xs:complexType name=\"{table_name}\">\r\n    <xs:sequence>\r\n{fields}    </xs:sequence>\r\n{attrs}  </xs:complexType>\r\n  <xs:complexType name=\"{root_name}\" mixed=\"true\">\r\n    <xs:sequence>\r\n      <xs:element minOccurs=\"{table_min}\" maxOccurs=\"unbounded\" name=\"{table_name}\" type=\"{tns}{table_name}\" />\r\n    </xs:sequence>\r\n  </xs:complexType>\r\n  <xs:element name=\"{root_name}\" type=\"{tns}{root_name}\" />\r\n</xs:schema>{rows}</{root_name}>"
         ))
     }
 
@@ -456,16 +478,26 @@ impl Session {
                     let v = got!(self.xp_field_value_text(inst, schema, child));
                     let empty = v.is_empty();
                     let mut e = Elem::new(&doc_name(schema, child));
-                    e.children.push(Node::Text(v));
+                    // An empty value writes no text, so the elements below it are indented like any element content
+                    // (xmlport/lt-at-partner-gaps/AtXmlPortFieldElementEdges.al:162 AT_EmptyFieldElement_ChildText_Export `<Name>` then
+                    // `<Child>c1</Child>` on its own line; :178 `<Child />`).
+                    let text_below = schema
+                        .children(child)
+                        .iter()
+                        .any(|&g| schema.node(g).kind == ir::XmlNodeKind::Text);
+                    if !(empty && text_below) {
+                        e.children.push(Node::Text(v));
+                    }
                     // The attributes and elements below a field element follow its value (AfXmlPortAttrChildren.al:255, 285, 313:
                     // `<Name Lang="en" Kind="K1">Alpha</Name>`, `<Name>Alpha<Child>c1</Child></Name>`).
                     if !schema.children(child).is_empty() {
-                        // How an empty value is written before an element below it is not pinned.
+                        // How an empty value is written before an element is pinned for leaf text elements only.
                         if empty
-                            && schema
-                                .children(child)
-                                .iter()
-                                .any(|&g| matches!(schema.node(g).kind, ir::XmlNodeKind::Text | ir::XmlNodeKind::Field))
+                            && schema.children(child).iter().any(|&g| {
+                                let k = schema.node(g).kind;
+                                k == ir::XmlNodeKind::Field
+                                    || (k == ir::XmlNodeKind::Text && !schema.children(g).is_empty())
+                            })
                         {
                             return unsupported(format!(
                                 "XmlPort export of the field element {} with an empty value and an element below it (not pinned)",
@@ -717,7 +749,13 @@ impl Session {
         // A FlowField is calculated for the export (assumption xmlport-exports-flowfield-calculated).
         // AutoCalcField decides it when declared (xmlport/lt-y-xmlport-props/YXmlPortProps.al:
         // NodeProperties_Export_NamesPrefixesAutoCalc: true calculates, false writes the field as it is).
-        if !self.table(&rec)?.fields[pos].stored && n.auto_calc != Some(false) {
+        // A FlowFilter is not calculated: it writes the field's own value (xmlport/lt-xmlport-flowfield-sum-count/
+        // XmlPortFlowFieldSumCount.al:390-442 `<SeqFilter>0</SeqFilter>`).
+        let flow_filter = {
+            let table = rec.borrow().table as usize;
+            self.engine.field_facts[table][pos].class == ir::FieldClass::FlowFilter
+        };
+        if !self.table(&rec)?.fields[pos].stored && !flow_filter && n.auto_calc != Some(false) {
             if n.auto_calc.is_none() {
                 al_builtins::assumptions::assume(
                     al_builtins::assumptions::Assumption::XmlportExportsFlowfieldCalculated,

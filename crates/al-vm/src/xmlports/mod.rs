@@ -113,6 +113,29 @@ impl Schema {
 }
 
 impl Session {
+    /// The xmlport object of a static `Xmlport.Export` or `Xmlport.Import` with the id `n`: an id no xmlport declares is a
+    /// missing-object error, also one of another object kind, 0 and 2000000000 (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:
+    /// Static_Undeclared_Id, needs the corpus bump); one of a dependency app that was not compiled is refused.
+    fn xp_static_object(&self, id: al_ir::BuiltinId, n: i32) -> Result<usize, Signal> {
+        let heads = self.engine.program.objects.heads();
+        let want = u32::try_from(n).ok();
+        if let Some(object) = heads
+            .iter()
+            .position(|o| o.is_kind(al_ir::ObjKind::XmlPort) && o.id == want)
+        {
+            return Ok(object);
+        }
+        if heads
+            .iter()
+            .any(|o| o.is_shell_of(al_ir::ObjKind::XmlPort) && o.id == want)
+        {
+            return unsupported(format!(
+                "{id} of xmlport {n}, which belongs to a dependency app and was not compiled (no code the workspace reaches uses it)"
+            ));
+        }
+        Err(self.missing_object("XmlPort", i64::from(n)))
+    }
+
     pub(crate) fn xmlport_builtin(
         &mut self,
         id: al_ir::BuiltinId,
@@ -328,18 +351,7 @@ impl Session {
                 let Some(Value::Integer(n)) = args.first() else {
                     return unsupported(format!("{id} with an id that is not an integer"));
                 };
-                let Some(object) = self
-                    .engine
-                    .program
-                    .objects
-                    .heads()
-                    .iter()
-                    .position(|o| o.is_kind(al_ir::ObjKind::XmlPort) && o.id == u32::try_from(*n).ok())
-                else {
-                    return unsupported(format!(
-                        "{id} of id {n}, which no xmlport declares (error text not pinned)"
-                    ));
-                };
+                let object = self.xp_static_object(id, *n)?;
                 let inst = self.instance(object);
                 let schema = self.xp_schema(&inst)?;
                 let (slot, want) = match dir {
@@ -479,7 +491,12 @@ impl Session {
     }
 
     fn xp_run(&mut self, inst: &Inst, dir: Dir, ret_used: bool, static_form: bool) -> Result<Value, Signal> {
+        let saved = self.permission_run_object;
+        if self.permissions.is_some() {
+            self.permission_run_object = self.xp_schema(inst).ok().map(|s| s.object);
+        }
         let r = self.xp_run_tx(inst, dir, ret_used, static_form);
+        self.permission_run_object = saved;
         // The direction ImportFile() reads holds only while the port runs (see XMLPORT_IMPORTFILE_1).
         inst.borrow_mut().xp_text.retain(|(k, _)| *k != 13);
         r
@@ -534,6 +551,19 @@ impl Session {
         for a in &schema.xp().assumes {
             al_builtins::assumptions::assume(*a);
         }
+        // ADR-062: an export reads its table elements with the xmlport's own Permissions (Y24PermObjectReads.al Y24_P16_*).
+        if dir == Dir::Export && self.permissions.is_some() {
+            let mut tables = Vec::new();
+            for node in &schema.xp().nodes {
+                if let Ok(rec) = self.xp_record(inst, node) {
+                    let r = rec.borrow();
+                    if !r.temporary && !tables.contains(&(r.table as usize)) {
+                        tables.push(r.table as usize);
+                    }
+                }
+            }
+            self.permission_gate_object_read(schema.object, &tables)?;
+        }
         // OnPreXmlPort runs when the port starts, in both directions
         // (handlers/TestPageActionRunObjectKinds_Tests.al:ProbeControlEachTargetRecordsItsOwnExecution pins
         // it for an export); the other object triggers are not pinned and refused.
@@ -571,7 +601,14 @@ impl Session {
         // The source of a text-format import is read, and found empty, before OnPreXmlPort runs (P112XpCsv.al:
         // P112_Import_EmptySource, `init 1;init done;`); the text waits for the import.
         if dir == Dir::Import && schema.xp().format != ir::XmlFormat::Xml {
-            let text = self.xp_read_source(inst, schema.xp())?;
+            let text = match self.xp_read_source(inst, schema.xp()) {
+                // A table-rooted text port fails with the root error whatever the bytes are, also ones that are no UTF-8 or
+                // UTF-16 text (XpTEncoding.al:165 Encoding_ImportCsvWindows, :179 Encoding_ImportCsvUtf16; no trigger runs there).
+                Err(Signal::Unsupported(_)) if import_xml::text_port_with_table_root(schema.xp()) => {
+                    return Err(import_xml::root_type_error());
+                }
+                other => other?,
+            };
             if text.is_empty() {
                 return Err(xerr(
                     "Cannot import the specified XML document because the file is empty.",

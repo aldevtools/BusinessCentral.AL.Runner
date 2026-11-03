@@ -235,6 +235,13 @@ fn unknown_filtered<'a>(row: &'a Row, filters: &[FieldFilter]) -> Option<&'a str
     (!left_out).then_some(why)
 }
 
+/// [`unknown_filtered`] when `check` (no row leaves a column of the filters unknown, so the answer is `None` and the
+/// scan of the filters is skipped: it ran for every row of a big listing).
+#[inline]
+fn unknown_filtered_if<'a>(check: bool, row: &'a Row, filters: &[FieldFilter]) -> Option<&'a str> {
+    if check { unknown_filtered(row, filters) } else { None }
+}
+
 fn refusal(t: &TableDef, why: &str) -> StoreError {
     StoreError::Refused(format!("{}: {why}", t.name))
 }
@@ -366,7 +373,7 @@ impl Mat {
     /// The indexes of all rows that pass `filters`, once a big listing has been scanned twice with this set of
     /// filters; `None` for the first scan, for a small listing and for one with a poisoned row. The result is the
     /// same as testing each row: the listing never changes.
-    fn passing(&self, filters: &[FieldFilter]) -> Option<std::sync::Arc<Vec<u32>>> {
+    fn passing(&self, t: &TableDef, filters: &[FieldFilter]) -> Option<std::sync::Arc<Vec<u32>>> {
         if !self.clean || self.rows.len() < MEMO_MIN_ROWS || filters.is_empty() || self.filters_unknown(filters) {
             return None;
         }
@@ -394,7 +401,9 @@ impl Mat {
             }
         }
         let idx: std::sync::Arc<Vec<u32>> = std::sync::Arc::new(
-            (0..self.rows.len())
+            // Only the band the filters give is tested: a row outside it cannot pass (`band`), and the memo is
+            // keyed by the filters, so every scan with them has the same band.
+            self.band(t, filters)
                 .filter(|&i| self.name_only[i].is_none() && passes(&self.rows[i], filters))
                 .map(|i| i as u32)
                 .collect(),
@@ -415,7 +424,7 @@ impl Mat {
         ascending: bool,
         filters: &[FieldFilter],
     ) -> Result<Option<Row>, StoreError> {
-        if let Some(idx) = self.passing(filters) {
+        if let Some(idx) = self.passing(t, filters) {
             // The rows that pass are known: the first one inside the range, from the side the scan comes from.
             let pick = if ascending {
                 let k = idx.partition_point(|&i| (i as usize) < range.start);
@@ -444,7 +453,7 @@ impl Mat {
                 Some(why) if may_pass(t, r, self.known[i], &self.known_cols[i], filters) => Err(refusal(t, why)),
                 Some(_) => Ok(None),
                 None => {
-                    if let Some(why) = unknown_filtered(r, filters).filter(|_| check_unknown) {
+                    if let Some(why) = unknown_filtered_if(check_unknown, r, filters) {
                         return Err(StoreError::Refused(why.to_string()));
                     }
                     Ok(passes(r, filters).then(|| {
@@ -524,7 +533,7 @@ impl Mat {
             // A row that passes the filters but whose place is not known: whether it comes later is not known either.
             else if key_unknown
                 && self.poison[i].is_none()
-                && !unknown_filtered(r, scan.filters).is_some()
+                && unknown_filtered_if(check_unknown, r, scan.filters).is_none()
                 && passes(r, scan.filters)
             {
                 if let Some(why) = t.keys[scan.key].iter().find_map(|&c| r[c].unknown()) {
@@ -540,7 +549,7 @@ impl Mat {
                 }
                 continue;
             }
-            if let Some(why) = unknown_filtered(r, scan.filters).filter(|_| check_unknown) {
+            if let Some(why) = unknown_filtered_if(check_unknown, r, scan.filters) {
                 return Err(StoreError::Refused(why.to_string()));
             }
             if !passes(r, scan.filters) {
@@ -660,7 +669,7 @@ impl Mat {
                 }
                 Some(_) => {}
                 None => {
-                    if let Some(why) = unknown_filtered(r, filters).filter(|_| check_unknown) {
+                    if let Some(why) = unknown_filtered_if(check_unknown, r, filters) {
                         return Err(StoreError::Refused(why.to_string()));
                     }
                     let pass = passes(r, filters);
@@ -995,6 +1004,27 @@ mod tests {
             matches!(r, Ok(Some(r)) if matches!(r[0], Value::Integer(4994))) && n == 0,
             "{n}"
         );
+    }
+
+    #[test]
+    fn the_list_of_passing_rows_is_built_from_the_band_only() {
+        let (t, m) = (table(), big_of(5000));
+        let f = [
+            id_filter(1000, 1099),
+            FieldFilter {
+                field: 1,
+                expr: FilterExpr::Eq(Value::Text("n3".into())),
+                group: 0,
+            },
+        ];
+        let _ = m.next(&t, &scan(&f, None, true));
+        // The second scan builds the list: it tests the 100 rows of the band, not the 5000 of the listing.
+        let (r, n) = looked_at(|| m.next(&t, &scan(&f, None, true)));
+        assert!(matches!(r, Ok(Some(r)) if matches!(r[0], Value::Integer(1004))));
+        assert!(n <= 100, "{n} rows looked at");
+        let (r, n) = looked_at(|| m.next(&t, &scan(&f, None, false)));
+        assert!(matches!(r, Ok(Some(r)) if matches!(r[0], Value::Integer(1095))));
+        assert_eq!(n, 0, "answered from the list");
     }
 
     #[test]

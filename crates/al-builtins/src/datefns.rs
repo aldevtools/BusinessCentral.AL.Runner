@@ -65,7 +65,7 @@ pub(crate) fn days_in_month(y: i32, m: u32) -> u32 {
 
 /// A whole number of any kind DMY2Date takes: an Integer, and a Byte, BigInteger, Decimal, Option or Char that holds the same
 /// number (types/lt-y71-evaluate-dmy2date/Y71EvaluateDashedDates.al:150-228, all give 2026-03-01 for 3). A Decimal with a
-/// fraction is not pinned.
+/// fraction and a BigInteger beyond Integer are no number it takes ([`int_overflow`]).
 fn int_of(v: Option<&Value>) -> Option<i32> {
     use rust_decimal::prelude::ToPrimitive;
     match v? {
@@ -76,6 +76,21 @@ fn int_of(v: Option<&Value>) -> Option<i32> {
         Value::Byte(b) => Some(i32::from(*b)),
         _ => None,
     }
+}
+
+/// The ConversionCast a Decimal with a fraction or a BigInteger beyond Integer raises as a DMY2Date argument, before any range
+/// check (types/lt-y81-values/Y81DMY2Date.al:183-215 Y81_DMY2Date_DecimalArguments, _BigIntegerArguments; needs corpus bump).
+fn int_overflow(v: Option<&Value>) -> Option<String> {
+    let (shown, ty) = match v? {
+        Value::Decimal(d) if !d.fract().is_zero() => {
+            (d.normalize().to_string(), "Microsoft.Dynamics.Nav.Runtime.Decimal18")
+        }
+        Value::BigInteger(n) if i32::try_from(*n).is_err() => (n.to_string(), "System.Int64"),
+        _ => return None,
+    };
+    Some(format!(
+        "Overflow under conversion of {ty} value {shown} to System.Int32."
+    ))
 }
 
 /// A defined, non-closing date's day number.
@@ -94,9 +109,12 @@ fn plain_date(v: &Value, what: &str) -> Result<i32, Signal> {
 /// (errors/lt-ms-refusals-133/P133DateEvaluateFormat.al:104-218); without a host clock the short forms are refused.
 /// One part outside the calendar raises the range error that names it (types/lt-datetime/DateFuncs.al:243-302,
 /// DMY2Date_Invalid): the day against the length of its month (30 February 2024: 1 to 29), the month against 1 to 12, the year
-/// against 1 to 9999; a month out of range in year 0 raises the month's error. Year 0 itself is no error in BC, but the date it
-/// gives is not pinned, and neither is which part BC names when two are out of range: both refused.
+/// against 1 to 9999; a month out of range in year 0 raises the month's error. Year 0 is valid only as (1, 1, 0); which
+/// part BC names when two are out of range is not pinned: refused.
 fn dmy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
+    if let Some(message) = a.iter().take(3).find_map(|v| int_overflow(Some(v))) {
+        return raise(message, "ConversionCast");
+    }
     let today = || ctx.today_day().map(civil_from_day);
     let given = (int_of(a.first()), int_of(a.get(1)), int_of(a.get(2)));
     let (d, m, y) = match (a.len(), given, today()) {
@@ -129,10 +147,14 @@ fn dmy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         (true, false) if day_any_month => return range(2, m, 12),
         (false, false) if y == 0 && day_any_month => return range(2, m, 12),
         // The shortest length of the month: a day in range in every year.
+        // Year 0 is valid only as (1, 1, 0), which is (2, 1, 1); any other year 0 with a day and a month in range raises the
+        // year's error (types/lt-y81-values/Y81DMY2Date.al:41-64; needs corpus bump).
+        (false, true) if y == 0 && (d, m) == (1, 1) => return Ok(Value::Date(day_from_civil(1, 1, 2), false)),
+        (false, true) if y == 0 && (1..=31).contains(&d) => return range(3, y, 9999),
         (false, true) if y != 0 && d >= 1 && d as u32 <= days_in_month(2023, m as u32) => return range(3, y, 9999),
         _ => {
             return unsupported(format!(
-                "DMY2Date({d}, {m}, {y}): year 0, or more than one part out of range (not pinned)"
+                "DMY2Date({d}, {m}, {y}): year 0 with a day out of range, or more than one part out of range (not pinned)"
             ));
         }
     }
@@ -295,12 +317,19 @@ fn date2dmy(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let day = match &a[0] {
         // The undefined date raises for part 1 (misc/lt-probes-needed-2/PnBDateFormat.al:135-163, Date2DWY_PartsOutOfRange
         // `undefinedDmy`); the other parts are not pinned.
-        Value::Date(0, _) if int_of(a.get(1)) == Some(1) => return raise("The date is not valid.", "DateInvalid"),
-        Value::Date(0, _) => return unsupported("Date2DMY of an undefined date with a part other than 1 (not pinned)"),
+        // The parts 0 and 4 raise the same for it (types/lt-datetime/DateFuncs.al Date2DMY_Invalid `0D what 0`, `0D what 4`).
+        Value::Date(0, _) if matches!(int_of(a.get(1)), Some(0 | 1 | 4)) => {
+            return raise("The date is not valid.", "DateInvalid");
+        }
+        Value::Date(0, _) => {
+            return unsupported("Date2DMY of an undefined date with a part other than 0, 1 and 4 (not pinned)");
+        }
         Value::Date(n, _) if *n > 0 => *n,
         other => return plain_date(other, "Date2DMY").map(|_| unreachable!()),
     };
-    let (y, m, d) = civil_from_day(day);
+    // 0001-01-02, the first defined date, reads as 1 January of year 0 (types/lt-datetime/DateFuncs.al:477 UN_DMY2Date_YearZero_Value
+    // `1.1.0`: day=1, month=1, year=0; types/lt-y81-values/Y81DMY2Date.al:62 `2.1.1` reads the same; needs corpus bump for the second).
+    let (y, m, d) = if day == 2 { (0, 1, 1) } else { civil_from_day(day) };
     match int_of(a.get(1)) {
         Some(1) => Ok(Value::Integer(d as i32)),
         Some(2) => Ok(Value::Integer(m as i32)),
@@ -425,14 +454,21 @@ pub(crate) fn weekday(day: i32) -> i32 {
     (day - 1).rem_euclid(7) + 1
 }
 
+/// The day number of a defined date; a closing date counts as its day (types/lt-totext-bigtext-codeunit-run/P93Date.al
+/// BT_DayOfWeek_WeekNo_Year `closing 2024-12-30`: `1|1|2024`, as 2024-12-30).
 fn receiver_date(r: Option<&mut Value>, what: &str) -> Result<i32, Signal> {
     match r {
+        Some(Value::Date(n, true)) if *n > 0 => Ok(*n),
         Some(v) => plain_date(v, what),
         None => unsupported(format!("{what} without a receiver")),
     }
 }
 
+/// The undefined date raises DateInvalid (P93Date.al BT_DayOfWeek_WeekNo_Year `0D`).
 fn day_of_week(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
+    if let Some(Value::Date(0, _)) = r.as_deref() {
+        return raise("The date is not valid.", "DateInvalid");
+    }
     Ok(Value::Integer(weekday(receiver_date(r, "Date.DayOfWeek")?)))
 }
 
@@ -493,7 +529,7 @@ enum Term {
     WeekDay { n: i32, forward: bool },
     /// `Mn`: the first day of month `n` after the month of the date (`-Mn`: before it).
     MonthLetterFirst { n: i32, forward: bool },
-    /// `Dn`, the day letter before its number. Only `D1` on the last day of a month is pinned (see `apply`).
+    /// `Dn`, the day letter before its number: day n of the month, forward or backward (see `apply`).
     DayLetterFirst { n: i32, forward: bool },
     /// `Wn`: the Monday of ISO week `n` after the date (`W17`, `W21`, `W25` are pinned).
     WeekLetterFirst { n: i32 },
@@ -1038,15 +1074,13 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
                     day_from_civil(y, first, 1)
                 }
             }
-            // `D1` on 2024-01-31 is 2024-02-01 (types/TestDateFormulaEvaluateLeftoversContracts.al:45). That fits both "add n
-            // days" and "the next day n of a month"; nothing pins which one BC does, so any other number, sign or date is refused.
-            // `D15`, `D28`, `D29`, `D31` (corpus master, corpus PR 871: misc/lt-np4-probes/Np4DateFormulas.al NP4_CalcDate_D15,
-            // _D28, _D29, _D31): day n of the date's month, cut back to the month's
-            // length, when the date's day is below n; else day n of the next month, cut back the same way (`<D29>` on
-            // 2023-02-28 stays 2023-02-28, `<D31>` on 2023-01-31 is 2023-02-28).
-            // `D1` from any day goes the same way: day 1 of the next month (corpus master, corpus PR 886:
-            // types/lt-date-formula-edges/DateFormulaInsidePeriod.al:36-47, `<D1>` on 2024-01-01 is 2024-02-01).
-            Term::DayLetterFirst { n, forward: true } if matches!(n, 1 | 15 | 28 | 29 | 31) => {
+            // `Dn` forward: day n of the date's month, cut back to the month's length, when the date's day is below n; else day n
+            // of the next month, cut back the same way (`<D29>` on 2023-02-28 stays 2023-02-28, `<D31>` on 2023-01-31 is
+            // 2023-02-28). Pinned for D1 (types/lt-date-formula-edges/DateFormulaInsidePeriod.al:36-47, types/
+            // TestDateFormulaEvaluateLeftoversContracts.al:45), D15, D28, D29, D31 (misc/lt-np4-probes/Np4DateFormulas.al
+            // NP4_CalcDate_D15, _D28, _D29, _D31), D29, D30, D31 on seven dates each (DateFormulaEdges.al SG_DayOfMonth_D29_D30_D31)
+            // and D5 after CM (SG_DayOfMonth_Combined); every number of 1 to 31 follows the same rule.
+            Term::DayLetterFirst { n, forward: true } if (1..=31).contains(&n) => {
                 let n = n as u32;
                 if d < n {
                     day_from_civil(y, m, n.min(days_in_month(y, m)))
@@ -1054,22 +1088,19 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
                     add_months(y, m, n, 1)?
                 }
             }
-            // `-D1`: day 1 of the date's month when the date is after it, else of the month before (DateFormulaInsidePeriod.al:46-47:
-            // 2024-01-15 is 2024-01-01, 2024-01-01 is 2023-12-01). Another number is not pinned.
-            Term::DayLetterFirst { n: 1, forward: false } => {
-                if d > 1 {
-                    day_from_civil(y, m, 1)
+            // `-Dn`: day n of the date's month when the date is after it, else of the month before, cut back to the month's length
+            // (DateFormulaInsidePeriod.al:46-47; DateFormulaEdges.al SG_DayOfMonth_Backward `-D1`, `-D15`, `-D31` on seven dates each:
+            // `<-D31>` on 2024-12-31 is 2024-11-30).
+            Term::DayLetterFirst { n, forward: false } if (1..=31).contains(&n) => {
+                let n = n as u32;
+                if d > n {
+                    day_from_civil(y, m, n)
                 } else {
-                    add_months(y, m, 1, -1)?
+                    add_months(y, m, n, -1)?
                 }
             }
-            Term::DayLetterFirst { n, forward } => {
-                if !(n == 1 && forward && d == days_in_month(y, m)) {
-                    return unsupported(
-                        "date formula with the day letter before its number (`Dn`) other than `D1` on the last day of a month (not pinned)",
-                    );
-                }
-                day + 1
+            Term::DayLetterFirst { .. } => {
+                return unsupported("date formula with a day letter before a number out of 1 to 31 (not pinned)");
             }
             // The Monday of ISO week n of the date's year when it is after the date, else of the next year's week n
             // (NP4_CalcDate_W17: 2023-04-15 2023-04-24, 2023-06-30 2024-04-22). A date inside week n, its Monday included, goes to the
@@ -1269,20 +1300,110 @@ mod tests {
                 other => panic!("{f} on {y}-{m}-{d}: {other:?}"),
             }
         }
-        // Other week and quarter numbers and `-D` with a number other than 1 are not pinned.
+        // Other week and quarter numbers are not pinned.
         refused(calc("<W22>", date(2024, 1, 1)));
-        refused(calc("<-D2>", date(2024, 1, 15)));
     }
 
-    // `Dn` before its number: the only pin is `D1` on 2024-01-31 giving 2024-02-01
-    // (types/TestDateFormulaEvaluateLeftoversContracts.al:45). Whether `Dn` adds n days or goes to the next day n of a
-    // month is not pinned anywhere else, so every other date and number is refused.
+    /// types/lt-datetime/DateFuncs.al Date2DMY_Invalid `0D what 0`, `0D what 4`: the undefined date raises DateInvalid for the parts
+    /// 0 and 4 as for 1.
     #[test]
-    fn a_day_letter_before_its_number_is_pinned_only_for_d1_at_the_end_of_a_month() {
+    fn date2dmy_of_the_undefined_date_raises_for_parts_0_1_and_4() {
+        for part in [0, 1, 4] {
+            match call("System.Date2DMY#1", vec![Value::Date(0, false), Value::Integer(part)]) {
+                Err(Signal::Error(e)) => {
+                    assert_eq!(
+                        (e.code.as_str(), e.message.as_str()),
+                        ("DateInvalid", "The date is not valid."),
+                        "{part}"
+                    );
+                }
+                other => panic!("{part}: {other:?}"),
+            }
+        }
+    }
+
+    // `D1` on 2024-01-31 is 2024-02-01 (types/TestDateFormulaEvaluateLeftoversContracts.al:45).
+    #[test]
+    fn d1_at_the_end_of_a_month_and_d31_at_the_start() {
         is_date(calc("D1", date(2024, 1, 31)), 2024, 2, 1);
         // `<D31>` is pinned on corpus master now (Np4DateFormulas.al NP4_CalcDate_D31).
         is_date(calc("<D31>", date(2024, 1, 1)), 2024, 1, 31);
-        refused(calc("<D2>", date(2024, 1, 31)));
+    }
+
+    /// types/lt-date-formula-edges/DateFormulaEdges.al SG_DayOfMonth_D29_D30_D31 and SG_DayOfMonth_Backward (the dates
+    /// 2024-01-10, 01-15, 01-31, 02-29, 2023-02-28, 2024-04-30, 12-31), SG_DayOfMonth_Combined (`D5` after `CM`).
+    #[test]
+    fn a_day_letter_before_its_number_follows_the_corpus_tables() {
+        type Ymd = (i32, u32, u32);
+        let from: [Ymd; 7] = [
+            (2024, 1, 10),
+            (2024, 1, 15),
+            (2024, 1, 31),
+            (2024, 2, 29),
+            (2023, 2, 28),
+            (2024, 4, 30),
+            (2024, 12, 31),
+        ];
+        let tables: &[(&str, [Ymd; 7])] = &[
+            (
+                "<D30>",
+                [
+                    (2024, 1, 30),
+                    (2024, 1, 30),
+                    (2024, 2, 29),
+                    (2024, 2, 29),
+                    (2023, 2, 28),
+                    (2024, 5, 30),
+                    (2025, 1, 30),
+                ],
+            ),
+            (
+                "<-D15>",
+                [
+                    (2023, 12, 15),
+                    (2023, 12, 15),
+                    (2024, 1, 15),
+                    (2024, 2, 15),
+                    (2023, 2, 15),
+                    (2024, 4, 15),
+                    (2024, 12, 15),
+                ],
+            ),
+            (
+                "<-D31>",
+                [
+                    (2023, 12, 31),
+                    (2023, 12, 31),
+                    (2023, 12, 31),
+                    (2024, 1, 31),
+                    (2023, 1, 31),
+                    (2024, 3, 31),
+                    (2024, 11, 30),
+                ],
+            ),
+            (
+                "<-D1>",
+                [
+                    (2024, 1, 1),
+                    (2024, 1, 1),
+                    (2024, 1, 1),
+                    (2024, 2, 1),
+                    (2023, 2, 1),
+                    (2024, 4, 1),
+                    (2024, 12, 1),
+                ],
+            ),
+        ];
+        for (f, want) in tables {
+            for (&(y, m, d), &(ry, rm, rd)) in from.iter().zip(want) {
+                match calc(f, date(y, m, d)) {
+                    Ok(Value::Date(n, false)) => assert_eq!(n, day_from_civil(ry, rm, rd), "{f} on {y}-{m}-{d}"),
+                    other => panic!("{f} on {y}-{m}-{d}: {other:?}"),
+                }
+            }
+        }
+        // `<D5>` after `<CM>` of 2024-01-31 (CM+D5): the fifth of the next month.
+        is_date(calc("<CM+D5>", date(2024, 1, 31)), 2024, 2, 5);
     }
 
     // types/TestRoundDateTimeContracts.al:61-72: a precision of 700000 ms does not divide a day but a week.
@@ -1374,10 +1495,20 @@ mod tests {
     }
 
     #[test]
+    fn dmy2date_year_zero_is_pinned_only_as_the_first_defined_date() {
+        let d = |args: Vec<i32>| call("System.DMY2Date#1", args.into_iter().map(Value::Integer).collect());
+        // (1, 1, 0) is the first defined date, 0001-01-02 (types/lt-datetime/DateFuncs.al:477 UN_DMY2Date_YearZero_Value).
+        assert!(
+            matches!(d(vec![1, 1, 0]), Ok(Value::Date(2, false))),
+            "{:?}",
+            d(vec![1, 1, 0])
+        );
+    }
+
+    #[test]
     fn dmy2date_refuses_what_the_corpus_does_not_pin() {
         let d = |args: Vec<i32>| call("System.DMY2Date#1", args.into_iter().map(Value::Integer).collect());
-        // Year 0 is no error in BC (DateFuncs.al:270-271), but the date it gives is not pinned.
-        refused(d(vec![1, 1, 0]));
+        // Year 0 with a day and a month in range, other than (1, 1, 0), is a year error (types/lt-y81-values/Y81DMY2Date.al:41-64).
         // Two parts out of range, other than a month out of range in year 0, are not pinned.
         refused(d(vec![0, 0, 2024]));
         refused(d(vec![32, 1, 0]));
@@ -1575,7 +1706,15 @@ mod tests {
         assert_eq!(int(on("Date.DayOfWeek#1", date(2024, 1, 1))), 1);
         assert_eq!(int(on("Date.DayOfWeek#1", date(2024, 1, 7))), 7);
         assert_eq!(int(on("Date.DayOfWeek#1", date(2024, 1, 3))), 3);
-        refused(on("Date.DayOfWeek#1", Value::Date(0, false)));
+        assert!(matches!(
+            on("Date.DayOfWeek#1", Value::Date(0, false)),
+            Err(Signal::Error(_))
+        ));
+        assert_eq!(
+            int(on("Date.DayOfWeek#1", Value::Date(day_from_civil(2024, 12, 30), true))),
+            1
+        );
+        refused(on("Date.WeekNo#1", Value::Date(0, false)));
     }
 
     #[test]

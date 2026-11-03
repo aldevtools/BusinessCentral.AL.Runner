@@ -145,10 +145,7 @@ impl Session {
         // An import of a text port whose root is a table element is refused by BC, an export is not
         // (xmlport/lt-xmlport-query-datatransfer/XpTVariableText.al:Csv_ImportBasic and the other Csv_Import tests).
         if xp.format != ir::XmlFormat::Xml && xp.nodes[top].kind == ir::XmlNodeKind::Table {
-            return Err(xerr(
-                "If you choose XMLport format Fixed Text or Variable Text, then the root element must have source type Text.",
-                "XmlPortInvalidNodeType",
-            ));
+            return Err(root_type_error());
         }
         // The root error above is pinned for WINDOWS and UTF16 (XpTEncoding.al:165-205); an import that gets further is not.
         if let Some(enc) = &xp.text_encoding {
@@ -161,12 +158,9 @@ impl Session {
         if !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty()) {
             return unsupported("XmlPort import whose root is not a text element with content (not pinned)");
         }
-        // A table view filters the rows the xmlport reads; what it does to an import is not pinned.
-        for n in xp.nodes.iter().filter(|n| n.kind == ir::XmlNodeKind::Table) {
-            if !self.xp_record(inst, n)?.borrow().filters.is_empty() {
-                return unsupported("XmlPort import into a table element with a table view filter (not pinned)");
-            }
-        }
+        // A table view (Xmlport.SetTableView, a record with filters) does not stop an import: the rows are inserted as without it,
+        // also one the filter does not match (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:RequestFilterFields_Import `import
+        // with view`, a filter on the key of the first table element; needs the corpus bump).
         if xp.format != ir::XmlFormat::Xml {
             return self.xp_import_text(inst, schema, top, &text);
         }
@@ -190,8 +184,16 @@ impl Session {
             // 06-xmlport-dnsfalse.al:45). Pinned for a text element root of the document's local name.
             Err(ReadFailure::Unsupported(why)) => {
                 if let Some(local) = why.strip_prefix(al_builtins::xmlport::ROOT_IN_NAMESPACE) {
-                    if xp.namespaces.is_empty()
-                        && xp.nodes.iter().all(|n| n.ns_prefix.is_none())
+                    if prefixed_root_and_table(xp, top) {
+                        return Err(prefixed_import_error());
+                    }
+                    // Named prefixes on field elements do not change it (xmlport/lt-y83-xmlport-shapes/Y83XpNsTests.al:Ns_DnNsprefix,
+                    // Ns_PwsPrefix `import dn`, needs the corpus bump).
+                    if xp.namespaces.iter().all(|(p, _)| !p.is_empty())
+                        && xp.nodes.iter().all(|n| {
+                            n.ns_prefix.is_none()
+                                || matches!(n.kind, ir::XmlNodeKind::Field | ir::XmlNodeKind::FieldAttr)
+                        })
                         && xp.nodes[top].kind == ir::XmlNodeKind::Text
                         && local == xp.nodes[top].xml_name
                     {
@@ -207,17 +209,20 @@ impl Session {
                 return unsupported(format!("XmlPort import of {why}"));
             }
         };
-        if xp.inline_schema {
+        // InlineSchema changes nothing for an import of a document without a schema element (Y83XpNsTests.al:Ns_DnInline,
+        // Ns_UdnInline `import plain`, `import own ns`, needs the corpus bump). A document that carries a schema element is not
+        // pinned.
+        fn has_schema(e: &Elem) -> bool {
+            e.name.rsplit(':').next() == Some("schema") || e.elements().any(has_schema)
+        }
+        if xp.inline_schema && has_schema(&root) {
             return unsupported(
-                "XmlPort import into a port with InlineSchema = true of a document that parses (not pinned)",
+                "XmlPort import into a port with InlineSchema = true of a document that holds a schema element (not pinned)",
             );
         }
-        // A V11 port is measured only with a `1.1` declaration, which the reader refuses (YXmlPortProps.al:621).
-        if xp.xml_v11 {
-            return unsupported(
-                "XmlPort import into a port with XmlVersionNo = V11 of a document that parses (not pinned)",
-            );
-        }
+        // XmlVersionNo = V11 imports as V10 does: a `1.1` declaration is refused by the reader, a control character reference
+        // under `1.0` is imported (Y83XpMiscTests.al:Xml_ControlChar_Declarations, Ns_DnV11, Ns_UdnV11, needs the corpus bump;
+        // YXmlPortProps.al:621).
         // Only the prefixes the port declares are pinned (YXmlPortProps.al:NodeProperties_Import_NamesPrefixes).
         fn foreign_prefix(e: &Elem, declared: &[(String, String)]) -> bool {
             e.name
@@ -249,10 +254,17 @@ impl Session {
         // An import port with the empty prefix `""` among its Namespaces fails on BC with a schema error that names an element
         // (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:178, `The 'urn:lt-d:Name' element is not declared.`); which
         // element it names is not modelled.
-        if xp.namespaces.iter().any(|(p, _)| p.is_empty()) {
+        // With UseDefaultNamespace and DefaultNamespace the default namespace takes its place (Y83XpNsTests.al:Ns_UdnDnEprefixUtf8,
+        // needs the corpus bump).
+        if xp.default_ns.is_none() && xp.namespaces.iter().any(|(p, _)| p.is_empty()) {
             return unsupported("XmlPort import with the empty prefix \"\" among its Namespaces (not modelled)");
         }
-        // A prefix on a text or table element is pinned for the export only (Y17XmlPortNamespacesTests.al:60).
+        // A prefix on both the root text element and a table element fails every import with an empty prefix in the text
+        // (XpTNamespaces.al:44-97 Import_Prefixed*, :231 Import_PrefixedAsExported); other layouts are pinned for the export only
+        // (Y17XmlPortNamespacesTests.al:60).
+        if prefixed_root_and_table(xp, top) {
+            return Err(prefixed_import_error());
+        }
         if xp
             .nodes
             .iter()
@@ -282,7 +294,9 @@ impl Session {
         // An element that carries a prefix of the port needs the port's declaration on the root; other layouts are not pinned.
         for (prefix, uri) in &xp.namespaces {
             fn uses(e: &Elem, p: &str) -> bool {
-                e.name.starts_with(p) || e.elements().any(|c| uses(c, p))
+                e.name.starts_with(p)
+                    || e.attrs.iter().any(|(n, _)| n.starts_with(p))
+                    || e.elements().any(|c| uses(c, p))
             }
             let marker = format!("{prefix}:");
             if uses(&root, &marker) && root.attr(&format!("xmlns:{prefix}")) != Some(uri.as_str()) {
@@ -456,6 +470,9 @@ impl Session {
                 ))
             }
             Ok(t) => Ok(t.to_string()),
+            // A document that declares iso-8859-1 is read as Latin-1 (XpTEncoding.al:235 Encoding_ImportXmlDeclaredLatin1: a Windows
+            // stream with `Mü` imports as `Mü`). Other declarations are not pinned.
+            Err(_) if declares_latin1(rest) => Ok(rest.iter().map(|&b| char::from(b)).collect()),
             Err(_) => unsupported("XmlPort import of a source that is not UTF-8 or UTF-16 (not pinned)"),
         }
     }
@@ -703,9 +720,29 @@ impl Session {
             !declares_ns(name, value) && Self::xp_child_named(schema, node, name, true).is_none()
         });
         if let Some((name, _)) = unknown {
+            // An attribute written with the prefix of the port's namespace is not the port's attribute, which is in no namespace,
+            // when a field attribute of that prefix and name is declared (xmlport/lt-y83-xmlport-shapes/Y83XpNsTests.al:
+            // Ns_PrefixAttrOnly `import prefixed`, needs the corpus bump; it wins over the missing required attribute); the declaration on the
+            // root was checked above.
+            if let Some((prefix, local)) = name.split_once(':') {
+                let uri = schema
+                    .xp()
+                    .namespaces
+                    .iter()
+                    .find(|(q, _)| q == prefix)
+                    .map(|(_, u)| u.clone());
+                let declared = schema.children(node).into_iter().any(|a| {
+                    let n = schema.node(a);
+                    n.kind == ir::XmlNodeKind::FieldAttr
+                        && n.xml_name == local
+                        && n.ns_prefix.as_deref() == Some(prefix)
+                });
+                if let (Some(uri), true) = (uri, declared) {
+                    return Err(schema_error(format!("The '{uri}:{local}' attribute is not declared.")));
+                }
+            }
             let pinned = !name.contains(':')
                 && name != "xmlns"
-                && !schema.xp().use_lax
                 && missing.is_none()
                 && matches!(schema.node(node).kind, ir::XmlNodeKind::Text | ir::XmlNodeKind::Table);
             if !pinned {
@@ -1139,4 +1176,51 @@ pub(super) fn utf16_declared_utf8(text: String) -> Result<String, Signal> {
         format!("Name cannot begin with the '.' character, hexadecimal value 0x00. Line 1, position {position}."),
         "XmlPortImport:Xml",
     ))
+}
+
+/// Whether the root text element and a table element below it both carry a NamespacePrefix that the port declares.
+fn prefixed_root_and_table(xp: &ir::XmlPort, top: usize) -> bool {
+    let declared = |n: &ir::XmlNode| {
+        n.ns_prefix
+            .as_ref()
+            .is_some_and(|p| xp.namespaces.iter().any(|(q, _)| q == p))
+    };
+    xp.nodes[top].kind == ir::XmlNodeKind::Text
+        && declared(&xp.nodes[top])
+        && xp.nodes.iter().any(|n| n.kind == ir::XmlNodeKind::Table && declared(n))
+}
+
+/// XpTNamespaces.al:52: the prefix in the text is empty whatever the document holds.
+fn prefixed_import_error() -> Signal {
+    xerr(
+        "The prefix  is not defined in the Namespaces property of the XMLPort.".to_string(),
+        "XmlPortNodeProcess",
+    )
+}
+
+pub(super) fn root_type_error() -> Signal {
+    xerr(
+        "If you choose XMLport format Fixed Text or Variable Text, then the root element must have source type Text.",
+        "XmlPortInvalidNodeType",
+    )
+}
+
+/// A VariableText or FixedText port whose one top-level element is a table element.
+pub(super) fn text_port_with_table_root(xp: &ir::XmlPort) -> bool {
+    let mut tops = xp.nodes.iter().filter(|n| n.parent.is_none());
+    xp.format != ir::XmlFormat::Xml
+        && matches!((tops.next(), tops.next()), (Some(n), None) if n.kind == ir::XmlNodeKind::Table)
+}
+
+/// Whether the bytes open with an XML declaration that names the encoding iso-8859-1.
+fn declares_latin1(bytes: &[u8]) -> bool {
+    let head: String = bytes
+        .iter()
+        .take(200)
+        .map(|&b| char::from(b).to_ascii_lowercase())
+        .collect();
+    head.starts_with("<?xml")
+        && head
+            .split_once("?>")
+            .is_some_and(|(decl, _)| decl.contains("encoding=\"iso-8859-1\"") || decl.contains("encoding='iso-8859-1'"))
 }

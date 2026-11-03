@@ -651,9 +651,28 @@ impl Session {
             if self.row_stored_as_shown(st, &rec)? {
                 return Ok(());
             }
-            return unsupported(
-                "saving a changed row on a page whose ModifyAllowed is false, other than at Close (not pinned)",
-            );
+            // A row whose Blob an action wrote is not pinned (rp1_read_only_blob): refused as before.
+            if rec
+                .borrow()
+                .fields
+                .iter()
+                .any(|v| matches!(v, Value::Blob(b) if b.borrow().written))
+            {
+                return unsupported(
+                    "saving a changed row with a written Blob on a page whose ModifyAllowed is false, other than at Close (not pinned)",
+                );
+            }
+            // The save a move or an action asks for is refused with `Page cannot be saved.`, code SaveAbort; `page_op` records it as the
+            // last error and the step ends without moving. The change stays shown, nothing is stored, and Close raises nothing
+            // later (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_{List,Card,Worksheet}_Set_{previous,first,last,new,
+            // updatetrue,updatefalse,Set2_Next}, Y80_MD_Doc_HeaderSet_Next, Y80_MD_Doc_PartSet_PartNext and _PartLast; needs corpus
+            // bump). Y61ModifyDeniedSave.al pins the same for SetValue then Next, SaveRecord and Update(true) on a Card.
+            {
+                let mut s = st.borrow_mut();
+                s.dirty = false;
+                s.save_aborted = true;
+            }
+            return Err(error_code("Page cannot be saved.", "SaveAbort"));
         }
         // corpus handlers/TestPageTriggerEvents.al (ModifyRecordEvent_RunsAfterThePagesOwnOnModifyRecordTrigger)
         let keep = self.page_trigger_answer(st, "onmodifyrecord", vec![])?;

@@ -402,6 +402,12 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     // A Variant assigned to an Integer: a BigInteger or a Duration beyond the Integer range raises TypeConversion:Overflow
     // (types/lt-variant/VaTConvert.al:183-184; types/lt-filter-enum-relation-duration-guid/D_Duration.al:226). Everything
     // else converts as any value does.
+    // The text of a Label handed to a Variant by a conditional expression: the Variant holds a TextConstant, answering
+    // IsTextConstant and no IsText (types/lt-y81-values/Y81LabelVariant.al; needs corpus bump).
+    ("Variant.FromTextConstant#1", |_, _, a| match a.first() {
+        Some(Value::Text(t) | Value::Code(t) | Value::TextConst(t)) => Ok(Value::TextConst(t.clone())),
+        _ => unsupported("a TextConstant from a value that is no text"),
+    }),
     ("Variant.IntoInteger#1", |_, _, a| {
         let v = a.first().cloned().unwrap_or(Value::Null);
         if let Value::BigInteger(n) | Value::Duration(n) = v {
@@ -447,7 +453,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("Record.SetPermissionFilter#1", |_, _, _| Ok(Value::Null)),
     ("RecordRef.SetPermissionFilter#1", |_, _, _| Ok(Value::Null)),
     // Kinds the value model has no variant for yet are never true.
-    ("Variant.IsTextConstant#1", |_, _, _| Ok(Value::Boolean(false))),
+    ("Variant.IsTextConstant#1", |_, r, _| is(r, "TextConstant")),
     ("Variant.IsAutomation#1", |_, _, _| Ok(Value::Boolean(false))),
     ("Variant.IsFile#1", |_, _, _| Ok(Value::Boolean(false))),
 ];
@@ -545,6 +551,7 @@ pub const INVENTED_IDS: &[&str] = &[
     "Media.ToVariant#1",
     "TextBuilder.AppendFieldValue#1",
     "Interface.AssertAssigned#1",
+    "Variant.FromTextConstant#1",
     "Variant.IntoInteger#1",
     "Variant.IntoOption#1",
     "Variant.Into#1",

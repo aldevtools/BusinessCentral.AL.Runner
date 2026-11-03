@@ -7,11 +7,18 @@ use std::cmp::Ordering;
 
 /// A primary-key tuple ordered field by field.
 #[derive(Clone, Debug)]
-struct Key(Vec<Value>);
+struct Key(Vec<Value>, Option<std::sync::Arc<[CodeStorage]>>);
+
+impl Key {
+    /// The key of the primary key values `pk` of table `t`. Values of Code fields the database stores as a number order by number.
+    fn of(t: &TableDef, pk: Vec<Value>) -> Key {
+        Key(pk, crate::code_storage::pk_storage(t))
+    }
+}
 
 impl PartialEq for Key {
     fn eq(&self, o: &Self) -> bool {
-        key_cmp(&self.0, &o.0) == Ordering::Equal
+        self.cmp(o) == Ordering::Equal
     }
 }
 impl Eq for Key {}
@@ -22,7 +29,10 @@ impl PartialOrd for Key {
 }
 impl Ord for Key {
     fn cmp(&self, o: &Self) -> Ordering {
-        key_cmp(&self.0, &o.0)
+        match self.1.as_deref().or(o.1.as_deref()) {
+            Some(storage) => crate::code_storage::cmp_pk(storage, &self.0, &o.0),
+            None => key_cmp(&self.0, &o.0),
+        }
     }
 }
 
@@ -52,7 +62,7 @@ impl Rows {
     /// rows were lost to it: a table is never built from rows that overwrite each other.
     pub fn from_rows(t: &TableDef, rows: Vec<Row>) -> Result<Rows, usize> {
         let n = rows.len();
-        let map: Table = rows.into_iter().map(|r| (Key(t.primary_key(&r)), r)).collect();
+        let map: Table = rows.into_iter().map(|r| (Key::of(t, t.primary_key(&r)), r)).collect();
         if map.len() == n {
             Ok(Rows(map, 0))
         } else {
@@ -420,7 +430,7 @@ fn pk_band<'a>(
     let lower = if seek.lo.is_empty() {
         Unbounded
     } else {
-        Included(Key(seek.lo.clone()))
+        Included(Key::of(t, seek.lo.clone()))
     };
     Box::new(
         table
@@ -471,27 +481,22 @@ impl MemStore {
         Ok(())
     }
 
-    /// A read that filters a Code field stored as a number by anything but one value, or sorts by a Code field stored as a
-    /// BigInteger, is refused: neither is pinned (see [`CodeStorage`]).
+    /// A read that filters a Code field with another SQLDataType than Varchar, Integer, BigInteger or Variant at all, or sorts by one
+    /// whose first key field it is, is refused: the order and the comparison of such a field are not pinned (see [`CodeStorage`]).
+    /// The Writes, Get by exact key and the other keys run.
     fn code_storage_read(t: &TableDef, filters: &[FieldFilter], order: &[usize]) -> Result<(), StoreError> {
-        use al_builtins::filter::FilterExpr as E;
         let stored_as = |i: usize| t.fields.get(i).map_or(CodeStorage::Text, |f| f.code_storage);
-        if let Some(f) = filters.iter().find(|f| {
-            stored_as(f.field) != CodeStorage::Text
-                && !match &f.expr {
-                    E::Eq(_) | E::Ne(_) | E::RangeSame(_) => true,
-                    E::Range(Some(a), Some(b)) => al_builtins::ops::compare(a, b).ok() == Some(Ordering::Equal),
-                    _ => false,
-                }
-        }) {
+        if let Some(f) = filters.iter().find(|f| stored_as(f.field) == CodeStorage::Other) {
             return Err(StoreError::Refused(format!(
-                "a filter other than one value on the Code field {}, which the database stores as a number (SQLDataType): its order is not pinned",
+                "a filter on the Code field {}, whose SQLDataType is not Varchar, Integer, BigInteger or Variant: its comparison is not pinned",
                 t.fields[f.field].name
             )));
         }
-        if let Some(&i) = order.iter().find(|&&i| stored_as(i) == CodeStorage::BigInteger) {
+        // A value in an `Other` field is refused on write, so every row holds the empty value there: its place in a key
+        // after the first field changes no order, and the key's first field is the one whose order is observed.
+        if let Some(&i) = order.first().filter(|&&i| stored_as(i) == CodeStorage::Other) {
             return Err(StoreError::Refused(format!(
-                "sorting by the Code field {}, which the database stores as a BigInteger (SQLDataType): its order is not pinned",
+                "sorting by the Code field {}, whose SQLDataType is not Varchar, Integer, BigInteger or Variant: its order is not pinned",
                 t.fields[i].name
             )));
         }
@@ -659,8 +664,12 @@ impl MemStore {
         bump();
         let slot = slot(cx, t);
         match self.committed.get(&slot) {
-            Some(table) => table.get(&Key(pk.to_vec())).cloned(),
-            None => self.backing_rows(&slot.0, slot.1)?.0.get(&Key(pk.to_vec())).cloned(),
+            Some(table) => table.get(&Key::of(t, pk.to_vec())).cloned(),
+            None => self
+                .backing_rows(&slot.0, slot.1)?
+                .0
+                .get(&Key::of(t, pk.to_vec()))
+                .cloned(),
         }
     }
 
@@ -760,7 +769,7 @@ impl MemStore {
         let mut s = MemStore::default();
         for t in tables {
             let slot: Slot = (std::sync::Arc::from(t.company.as_str()), t.object);
-            let table: Table = t.rows.into_iter().map(|(k, r)| (Key(k), r)).collect();
+            let table: Table = t.rows.into_iter().map(|(k, r)| (Key(k, None), r)).collect();
             s.counter = next_stamp();
             s.versions.insert(slot.clone(), s.counter);
             s.shapes.insert(slot.clone(), s.counter);
@@ -929,7 +938,10 @@ impl MemStore {
         self.seen(t.object);
         let slot = slot(cx, t);
         match self.tables.get(&slot) {
-            Some(table) => Some(std::borrow::Cow::Borrowed(table)),
+            Some(table) => Some(match restored_order(t, table) {
+                Some(fixed) => std::borrow::Cow::Owned(fixed),
+                None => std::borrow::Cow::Borrowed(table),
+            }),
             None => self.backing_rows(&slot.0, slot.1).map(|r| std::borrow::Cow::Owned(r.0)),
         }
     }
@@ -1168,8 +1180,28 @@ impl MemStore {
             let start = self.backing_rows(&slot.0, slot.1).map_or_else(Table::new, |r| r.0);
             self.tables.insert(slot.clone(), start);
         }
-        self.tables.get_mut(&slot).expect("the slot was just inserted")
+        let table = self.tables.get_mut(&slot).expect("the slot was just inserted");
+        if let Some(fixed) = restored_order(t, table) {
+            *table = fixed;
+        }
+        table
     }
+}
+
+/// A table of an exported store ([`MemStore::from_exported`]) was keyed without the table's definition. When the table's primary
+/// key holds a Code field stored as a number, the table with its keys ordered by number; `None` when it needs nothing.
+fn restored_order(t: &TableDef, table: &Table) -> Option<Table> {
+    let storage = crate::code_storage::pk_storage(t)?;
+    let (first, _) = table.iter().next()?;
+    if first.1.is_some() {
+        return None;
+    }
+    Some(
+        table
+            .iter()
+            .map(|(k, r)| (Key(k.0.clone(), Some(storage.clone())), r.clone()))
+            .collect(),
+    )
 }
 
 thread_local! {
@@ -1207,7 +1239,7 @@ impl Store for MemStore {
             }
         }
         self.note_unknown(t, &row);
-        let k = Key(t.primary_key(&row));
+        let k = Key::of(t, t.primary_key(&row));
         let table = self.table_mut(cx, t);
         if table.contains_key(&k) {
             return Ok(InsertOutcome::AlreadyExists);
@@ -1222,13 +1254,13 @@ impl Store for MemStore {
         if let Some(v) = self.virtual_of(t) {
             return v.get(self, cx, t, pk);
         }
-        Ok(self.table(cx, t).and_then(|m| m.get(&Key(pk.to_vec())).cloned()))
+        Ok(self.table(cx, t).and_then(|m| m.get(&Key::of(t, pk.to_vec())).cloned()))
     }
 
     fn modify(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<WriteOutcome, StoreError> {
         bump();
         if let Some(v) = self.virtual_of(t) {
-            let k = Key(t.primary_key(&row));
+            let k = Key::of(t, t.primary_key(&row));
             if v.takes_inserts(t) && self.table(cx, t).is_some_and(|m| m.contains_key(&k)) {
                 self.table_mut(cx, t).insert(k, row);
                 self.touch(cx, t);
@@ -1247,7 +1279,7 @@ impl Store for MemStore {
                 };
                 if let Some(old) = old.filter(|old| !differs(old, false)) {
                     if differs(&old, true) {
-                        let k = Key(t.primary_key(&row));
+                        let k = Key::of(t, t.primary_key(&row));
                         self.table_mut(cx, t).insert(k, row);
                         self.touch(cx, t);
                         self.virtual_write_pending = true;
@@ -1260,7 +1292,7 @@ impl Store for MemStore {
             return Err(self.read_only(t, "Modify"));
         }
         self.note_unknown(t, &row);
-        let k = Key(t.primary_key(&row));
+        let k = Key::of(t, t.primary_key(&row));
         self.note_restored(cx, t, &k, "Modify", Some(&row));
         let table = self.table_mut(cx, t);
         if !table.contains_key(&k) {
@@ -1280,13 +1312,13 @@ impl Store for MemStore {
     fn delete(&mut self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<WriteOutcome, StoreError> {
         bump();
         if let Some(v) = self.virtual_of(t) {
-            let k = Key(pk.to_vec());
+            let k = Key::of(t, pk.to_vec());
             if !(v.takes_inserts(t) && self.table(cx, t).is_some_and(|m| m.contains_key(&k))) {
                 return Err(self.read_only(t, "Delete"));
             }
         }
-        self.note_restored(cx, t, &Key(pk.to_vec()), "Delete", None);
-        Ok(match self.table_mut(cx, t).remove(&Key(pk.to_vec())) {
+        self.note_restored(cx, t, &Key::of(t, pk.to_vec()), "Delete", None);
+        Ok(match self.table_mut(cx, t).remove(&Key::of(t, pk.to_vec())) {
             Some(_) => {
                 self.touch_shape(cx, t);
                 WriteOutcome::Done
@@ -1306,16 +1338,16 @@ impl Store for MemStore {
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "Rename"));
         }
-        let new_k = Key(t.primary_key(&row));
-        self.note_restored(cx, t, &Key(old.to_vec()), "Rename", None);
+        let new_k = Key::of(t, t.primary_key(&row));
+        self.note_restored(cx, t, &Key::of(t, old.to_vec()), "Rename", None);
         let table = self.table_mut(cx, t);
-        if !table.contains_key(&Key(old.to_vec())) {
+        if !table.contains_key(&Key::of(t, old.to_vec())) {
             return Ok(RenameOutcome::NotFound);
         }
         if table.contains_key(&new_k) {
             return Ok(RenameOutcome::AlreadyExists);
         }
-        table.remove(&Key(old.to_vec()));
+        table.remove(&Key::of(t, old.to_vec()));
         table.insert(new_k, row);
         self.touch_shape(cx, t);
         Ok(RenameOutcome::Renamed)
@@ -1331,6 +1363,11 @@ impl Store for MemStore {
         let Some(table) = self.table(cx, t) else {
             return Ok(None);
         };
+        let numbers = crate::code_storage::number_filters(t, scan.filters, &mut table.values())?;
+        let scan = &Scan {
+            filters: &numbers,
+            ..scan.clone()
+        };
         if table.len() >= INDEX_MIN_ROWS {
             if let Some(found) = self.alt_next(cx, t, scan, &table) {
                 return Ok(found);
@@ -1341,12 +1378,15 @@ impl Store for MemStore {
         if scan.key == 0 {
             use std::ops::Bound::{Excluded, Included, Unbounded};
             let k = t.keys[0].len();
-            let after = scan.after.map(|a| Key(a[..k.min(a.len())].to_vec()));
+            let after = scan.after.map(|a| Key::of(t, a[..k.min(a.len())].to_vec()));
             if scan.ascending {
                 let seek = Seek::of(t, 0, scan.filters, table.values().next());
-                let from = seek.as_ref().filter(|s| !s.lo.is_empty()).map(|s| Key(s.lo.clone()));
+                let from = seek
+                    .as_ref()
+                    .filter(|s| !s.lo.is_empty())
+                    .map(|s| Key::of(t, s.lo.clone()));
                 let lower = match (after, from) {
-                    (Some(a), Some(f)) if key_cmp(&a.0, &f.0) == Ordering::Less => Included(f),
+                    (Some(a), Some(f)) if a.cmp(&f) == Ordering::Less => Included(f),
                     (Some(a), _) => Excluded(a),
                     (None, Some(f)) => Included(f),
                     (None, None) => Unbounded,
@@ -1453,9 +1493,11 @@ impl Store for MemStore {
         }
         self.unknown_read(cx, t, f, &[])?;
         Self::code_storage_read(t, f, &[])?;
-        Ok(self
-            .table(cx, t)
-            .map_or(0, |m| pk_band(&m, t, f).filter(|(_, r)| passes(r, f)).count()))
+        let Some(table) = self.table(cx, t) else {
+            return Ok(0);
+        };
+        let f = &*crate::code_storage::number_filters(t, f, &mut table.values())?;
+        Ok(pk_band(&table, t, f).filter(|(_, r)| passes(r, f)).count())
     }
 
     fn delete_all(&mut self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
@@ -1465,15 +1507,16 @@ impl Store for MemStore {
         }
         self.unknown_read(cx, t, f, &[])?;
         Self::code_storage_read(t, f, &[])?;
-        let doomed: Vec<Key> = self
-            .table(cx, t)
-            .map(|table| {
+        let doomed: Vec<Key> = match self.table(cx, t) {
+            Some(table) => {
+                let f = &*crate::code_storage::number_filters(t, f, &mut table.values())?;
                 pk_band(&table, t, f)
                     .filter(|(_, r)| passes(r, f))
                     .map(|(k, _)| k.clone())
                     .collect()
-            })
-            .unwrap_or_default();
+            }
+            None => Vec::new(),
+        };
         for k in &doomed {
             self.note_restored(cx, t, k, "DeleteAll", None);
         }

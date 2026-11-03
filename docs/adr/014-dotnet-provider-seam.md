@@ -808,7 +808,7 @@ ending, and the next session gets a new process.
 ### Fallback
 
 The alternative of **one sidecar per test codeunit** is today's behavior (a session is a test codeunit). It stays as
-the fallback and as the switch: `ALRUNNER_DOTNET_FRESH=1` and a run option turn reuse off, and reuse starts off in the
+the fallback and as the switch: `ALRUNNER_DOTNET_FRESH=1` and a run option turn reuse off, and reuse started off in the
 first release of the change. It is turned on by default only when the differential (6) shows zero differences on the full
 corpus and the Microsoft run, and the count of reusable sessions makes the gain worth it. An alternative that is not
 proposed: a collectible `AssemblyLoadContext` per session. It would unload test and add-in assemblies but not the
@@ -818,3 +818,15 @@ remaining risk.
 ### Owner decision
 
 Accepted as written (project owner, 2026-11-02). Reuse stays off until a differential run shows zero outcome differences. If the count of reusable sessions shows that most sessions load Microsoft add-ins, the amendment is withdrawn and the 53 starts are handled by ReadyToRun publishing of the sidecar (a build change; perf-1101) or by changing what the perf meter counts.
+
+### Implementation status (2026-11-02)
+
+Built, and on by default since 2026-11-02 (owner 2026-11-02; differential 12 of 12 identical). A clean process goes to the next session unless `ALRUNNER_DOTNET_FRESH=1` (or `ALRUNNER_DOTNET_REUSE=0`) is set; `ALRUNNER_DOTNET_REUSE=count` asks every
+process to `reset` at the end of its session and reports the tally at the end of the run, but still kills the process;
+`ALRUNNER_DOTNET_FRESH=1` turns reuse off. The sidecar's `reset` (`tools/dotnet-sidecar/Reuse.cs`) releases all handles and
+stream bridges, puts back culture, current directory and environment, and reports the process dirty when a session loaded an
+assembly outside the .NET shared framework, named a type in a namespace that can reach state the check does not see
+(`System.Threading`, `System.Diagnostics`, `System.Net`, `System.Reflection`, `System.Runtime`, `System.Console`,
+`System.AppContext`, `System.AppDomain`, `System.Security`, `System.GC`, timers), or left a timer running. The first full runs: of 53
+sessions that called .NET, 52 ended clean and 1 dirty (BC 28, 29); 74 and 1 on BC 27. The outcomes of the corpus runs with Microsoft's
+apps (all four suites of BC 27, 28 and 29) are identical with reuse on and off.

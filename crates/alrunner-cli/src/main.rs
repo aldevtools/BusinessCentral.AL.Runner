@@ -36,7 +36,22 @@ use std::process::ExitCode;
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+/// `AL_PERMISSION_SHADOW=FILE` (ADR-062 stage 4, a diagnostic): check every access under the test runner's permission sets, grant it
+/// anyway, and write what would be denied to FILE when the run ends.
+fn write_permission_shadow(path: &std::ffi::OsStr) {
+    let mut lines = al_builtins::permission_shadow::take_all();
+    lines.sort();
+    lines.dedup();
+    if let Err(e) = std::fs::write(path, lines.join("\n") + "\n") {
+        eprintln!("error: {}: {e}", std::path::Path::new(path).display());
+    }
+}
+
 fn main() -> ExitCode {
+    let shadow = std::env::var_os("AL_PERMISSION_SHADOW");
+    if shadow.is_some() {
+        al_builtins::permission_shadow::enable();
+    }
     // A crash (SIGSEGV and the like) names the test it hit instead of ending the run without a word.
     al_testrun::crash::install();
     // An AL call nests native frames of the bytecode loop; give the runner thread room.
@@ -45,6 +60,9 @@ fn main() -> ExitCode {
         .spawn(real_main)
         .expect("spawn runner thread");
     let joined = worker.join();
+    if let Some(path) = &shadow {
+        write_permission_shadow(path);
+    }
     // `AL_PROFILE`: the samples of a run shorter than the profiler's periodic write reach the file too (issue 6133).
     al_vm::profile_flush();
     if std::env::var_os("AL_EXEC_REPORT").is_some() {

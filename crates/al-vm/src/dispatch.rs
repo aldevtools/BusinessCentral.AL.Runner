@@ -850,21 +850,26 @@ fn reaches(a: usize, b: usize, apps: &[usize], before: &dyn Fn(usize, usize) -> 
 }
 
 pub(crate) fn visit_orders(apps: &[al_ir::AppInfo]) -> Vec<(&'static str, Vec<usize>)> {
-    let key = |a: usize| apps[a].id.to_ascii_lowercase();
-    let deps_of = |a: usize| -> Vec<usize> {
-        let mut out: Vec<usize> = Vec::new();
-        for d in &apps[a].dependencies {
-            if let Some(j) = apps.iter().position(|b| b.id.eq_ignore_ascii_case(d)) {
-                if j != a && !out.contains(&j) {
-                    out.push(j);
+    // Worked out once: the lower-case id of each app, and its dependencies that are apps here, in ascending app id.
+    let keys: Vec<String> = apps.iter().map(|a| a.id.to_ascii_lowercase()).collect();
+    let key = |a: usize| keys[a].as_str();
+    let deps: Vec<Vec<usize>> = (0..apps.len())
+        .map(|a| {
+            let mut out: Vec<usize> = Vec::new();
+            for d in &apps[a].dependencies {
+                if let Some(j) = apps.iter().position(|b| b.id.eq_ignore_ascii_case(d)) {
+                    if j != a && !out.contains(&j) {
+                        out.push(j);
+                    }
                 }
             }
-        }
-        out.sort_by_key(|&x| key(x));
-        out
-    };
+            out.sort_by_key(|&x| key(x));
+            out
+        })
+        .collect();
+    let deps_of = |a: usize| -> Vec<usize> { deps[a].clone() };
     let depended_on: Vec<bool> = (0..apps.len())
-        .map(|a| (0..apps.len()).any(|o| o != a && deps_of(o).contains(&a)))
+        .map(|a| (0..apps.len()).any(|o| o != a && deps[o].contains(&a)))
         .collect();
     let visit = |roots: Vec<usize>| -> Vec<usize> {
         let mut placed = vec![false; apps.len()];
@@ -907,7 +912,7 @@ pub(crate) fn visit_orders(apps: &[al_ir::AppInfo]) -> Vec<(&'static str, Vec<us
     let mut tops: Vec<usize> = all.iter().copied().filter(|&a| !depended_on[a]).collect();
     let by_id = visit(all);
     let tops_by_id = visit(tops.clone());
-    tops.sort_by_key(|&a| (apps[a].publisher.to_lowercase(), key(a)));
+    tops.sort_by_cached_key(|&a| (apps[a].publisher.to_lowercase(), key(a).to_string()));
     let tops_by_publisher = visit(tops);
     vec![
         ("", by_id),

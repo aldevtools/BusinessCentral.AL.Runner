@@ -112,17 +112,21 @@ impl Session {
         target: Option<&ControlTarget>,
     ) -> Result<(), Signal> {
         let root = shown_root(st);
+        if method == PageOp::TestPageClose && Rc::ptr_eq(st, &root) {
+            self.close_after_host_followed_part(&root)?;
+        }
         if matches!(
             method,
             PageOp::TestPartNext | PageOp::TestPartFirst | PageOp::TestPartPrevious | PageOp::TestPartLast
         ) && target.is_none()
             && !Rc::ptr_eq(st, &root)
             && self.unlinked_part_of_two(st, &root)
+            && !(method == PageOp::TestPartNext && self.host_follows_part_pinned(&root))
         {
             // Y63_TwoPart_PartsNextAfterCancel `other next log`, Y63_TwoPart_LinkedPartNextFirst: Next on the part without a link
-            // reads the host's row and the linked part too; not built.
+            // reads the host's row and the linked part too (`host_follows_part`); pinned after a Lookup, and for Next only.
             return unsupported(format!(
-                "{method} on the ListPart without a SubPageLink of a host with a second ListPart and function controls (the reads of the host that follows are not built)"
+                "{method} on the ListPart without a SubPageLink of a host with a second ListPart and function controls (the reads of the host that follows are pinned after a TestField.Lookup, for Next)"
             ));
         }
         if !root.borrow().lookup_refresh_deferred {
@@ -204,6 +208,22 @@ impl Session {
             // `second lookup log`).
             return self.run_lookup_refresh_left(&root, false);
         }
+        if method == PageOp::TestFieldLookup && Rc::ptr_eq(st, &root) && self.lookup_next_refresh_shape(&root) {
+            // A second Lookup runs it first, on the host only (Y26_ThreeLinkCurr_LookupTwice `second lookup log`).
+            root.borrow_mut().lookup_refresh_deferred = false;
+            return self.replay_open_reads_host(&root);
+        }
+        if method == PageOp::TestPageNext && Rc::ptr_eq(st, &root) && self.lookup_next_refresh_shape(&root) {
+            root.borrow_mut().lookup_refresh_deferred = false;
+            root.borrow_mut().lookup_next_refresh = true;
+            return Ok(());
+        }
+        if shape && method == PageOp::TestPageNext && Rc::ptr_eq(st, &root) {
+            // The host's own Next as the first call after the Lookup: the refresh runs first, then the host moves. Pinned for the
+            // values only (Y15_ThreeLink_RegionsSetPartFollowsRow `next`); the refresh's log is not observed there.
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupPendingRefreshAtHostNext);
+            return self.run_lookup_refresh_left(&root, true);
+        }
         unsupported(format!(
             "{method} after TestField.Lookup on a page with OnAfterGetRecord or OnAfterGetCurrRecord whose ListPart links two or \
              three fields: BC runs the refresh of the OnValidate's CurrPage.Update(false) first (not built)"
@@ -211,7 +231,7 @@ impl Session {
     }
 
     /// `st` is a ListPart without a SubPageLink of a host `root` with function controls and two ListParts.
-    fn unlinked_part_of_two(&mut self, st: &St, root: &St) -> bool {
+    pub(super) fn unlinked_part_of_two(&mut self, st: &St, root: &St) -> bool {
         let Some((_, idx)) = st.borrow().host.as_ref().map(|(h, i)| (h.clone(), *i)) else {
             return false;
         };

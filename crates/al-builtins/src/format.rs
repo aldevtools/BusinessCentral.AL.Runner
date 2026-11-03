@@ -446,8 +446,8 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             f => f,
         })?,
         // A NUL character does not show (types/lt-variant-is-text-streams/LTP89StreamText.al:Text_BytesWritten `nul_between`).
-        Value::Text(t) | Value::Code(t) if t.contains('\0') => t.replace('\0', ""),
-        Value::Text(t) | Value::Code(t) => t.to_string(),
+        Value::Text(t) | Value::TextConst(t) | Value::Code(t) if t.contains('\0') => t.replace('\0', ""),
+        Value::Text(t) | Value::TextConst(t) | Value::Code(t) => t.to_string(),
         Value::Option(o, members) => match standard {
             2 | 9 if crate::sysenum::is_field_table_type(members) => FIELD_TABLE_TYPE_ORDINALS
                 .get(*o as usize)
@@ -1365,7 +1365,9 @@ fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<Stri
         0 | 1 => format!("{c}{m:02}/{d:02}/{y:04}"),
         2 => format!("{m:02}{d:02}{yy:02}{c}D"),
         3 => format!("{yy:02}/{m:02}/{d:02}"),
-        4 => format!("{month} {d}, {y}"),
+        // The year has four digits: `June 15, 0001` (types/lt-y81-values/Y81DMY2Date.al:94-114 Y81_DMY2Date_Year1_Arithmetic
+        // `format 4`; needs corpus bump).
+        4 => format!("{month} {d}, {y:04}"),
         5 => format!("{m:02}{d:02}{yy:02}"),
         6 => format!("{yy:02}{m:02}{d:02}"),
         7 => format!("{} {d}, {y}", short(month)),

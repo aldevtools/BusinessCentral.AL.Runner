@@ -292,9 +292,126 @@ fn static_state_does_not_leak_between_sessions() {
     b.close();
 }
 
+// ---- ADR-014 amendment 2026-11-02: a clean process is handed to the next session ------------
+
+fn reuse_host() -> Option<Arc<SidecarHost>> {
+    let mut cfg = config();
+    cfg.reuse = Some(al_test_cli::dotnet::Reuse::On);
+    host_with(cfg)
+}
+
+fn env_var(sess: &mut dyn DotNetSession, name: &str) -> DotNetValue {
+    sess.invoke(st("System.Environment"), "GetEnvironmentVariable", vec![s(name)])
+        .unwrap()
+        .value
+}
+
+#[test]
+fn a_process_whose_session_only_changed_repairable_state_is_reused_and_put_back() {
+    let Some(h) = reuse_host() else { return };
+    let mut a = h.open_session(&DotNetSessionConfig::default());
+    a.invoke(st("System.Environment"), "SetEnvironmentVariable", vec![s("K"), s("v")])
+        .unwrap();
+    assert_eq!(env_var(&mut *a, "K"), DotNetValue::Str("v".into()));
+    a.close();
+    let mut b = h.open_session(&DotNetSessionConfig::default());
+    assert_eq!(
+        env_var(&mut *b, "K"),
+        DotNetValue::NullString,
+        "the variable was put back"
+    );
+    b.close();
+    let st = h.stats();
+    assert_eq!(
+        (st.started, st.reused, st.reset_clean, st.reset_dirty),
+        (1, 1, 2, 0),
+        "{st:?}"
+    );
+}
+
+#[test]
+fn a_process_whose_session_touched_process_wide_state_is_recycled() {
+    let Some(h) = reuse_host() else { return };
+    let mut a = h.open_session(&DotNetSessionConfig::default());
+    a.invoke(st("System.AppContext"), "SetData", vec![s("k"), s("v")])
+        .unwrap();
+    a.close();
+    let mut b = h.open_session(&DotNetSessionConfig::default());
+    assert_eq!(
+        b.invoke(st("System.AppContext"), "GetData", vec![s("k")])
+            .unwrap()
+            .value,
+        DotNetValue::Null,
+        "AppContext is not allow-listed: the process was recycled"
+    );
+    b.close();
+    let st = h.stats();
+    assert_eq!((st.started, st.reused, st.reset_dirty), (2, 0, 2), "{st:?}");
+}
+
+#[test]
+fn a_handle_of_an_earlier_session_is_an_error_not_a_hit() {
+    let Some(h) = reuse_host() else { return };
+    let mut a = h.open_session(&DotNetSessionConfig::default());
+    let sb = a
+        .construct(&ty("System.Text.StringBuilder"), vec![])
+        .expect("a StringBuilder");
+    let stale = handle_of(&sb);
+    a.close();
+    let mut b = h.open_session(&DotNetSessionConfig::default());
+    // Make a handle of its own first, so that the stale number could be taken for it if handles were counted again.
+    let own = b.construct(&ty("System.Text.StringBuilder"), vec![]).unwrap();
+    assert_ne!(handle_of(&own), stale);
+    assert!(b.invoke(DotNetTarget::Instance(stale), "ToString", vec![]).is_err());
+    b.close();
+    assert_eq!(h.stats().reused, 1, "{:?}", h.stats());
+}
+
+#[test]
+fn a_session_killed_by_its_deadline_never_reaches_the_next_one() {
+    let mut cfg = config();
+    cfg.timeout = Duration::from_millis(1500);
+    cfg.reuse = Some(al_test_cli::dotnet::Reuse::On);
+    let Some(h) = host_with(cfg) else { return };
+    let mut a = h.open_session(&DotNetSessionConfig::default());
+    let why = refused(a.invoke(
+        st("System.Threading.Thread"),
+        "Sleep",
+        vec![arg(DotNetValue::Int32(30_000))],
+    ));
+    assert!(why.contains("timed out"), "{why}");
+    a.close();
+    let mut b = h.open_session(&DotNetSessionConfig::default());
+    assert!(b.invoke(st("System.Convert"), "ToInt32", vec![s("1")]).is_ok());
+    b.close();
+    let stats = h.stats();
+    assert_eq!((stats.started, stats.reused), (2, 0), "{stats:?}");
+}
+
+#[test]
+fn reuse_is_on_by_default_and_fresh_turns_it_off() {
+    let Some(h) = host() else { return };
+    for _ in 0..2 {
+        let mut sess = h.open_session(&DotNetSessionConfig::default());
+        sess.invoke(st("System.Convert"), "ToInt32", vec![s("1")]).unwrap();
+        sess.close();
+    }
+    let st = h.stats();
+    assert_eq!((st.started, st.reused, st.reset_clean), (1, 1, 2), "{st:?}");
+    use al_test_cli::dotnet::Reuse;
+    let env = |k: &'static str, v: &'static str| move |q: &str| (q == k).then(|| v.to_string());
+    assert_eq!(Reuse::from_env(&|_| None), Reuse::On);
+    assert_eq!(Reuse::from_env(&env("ALRUNNER_DOTNET_FRESH", "1")), Reuse::Off);
+    assert_eq!(Reuse::from_env(&env("ALRUNNER_DOTNET_REUSE", "count")), Reuse::Count);
+    assert_eq!(Reuse::from_env(&env("ALRUNNER_DOTNET_REUSE", "0")), Reuse::Off);
+}
+
 #[test]
 fn the_sidecar_runs_with_en_us_culture_utc_a_cleared_environment_and_an_empty_working_directory() {
-    let Some(h) = host() else { return };
+    // The folder is removed when the session closes only for a process that is not kept for the next session.
+    let mut cfg = config();
+    cfg.reuse = Some(al_test_cli::dotnet::Reuse::Off);
+    let Some(h) = host_with(cfg) else { return };
     let mut sess = h.open_session(&DotNetSessionConfig::default());
     let culture = sess
         .get_property(st("System.Globalization.CultureInfo"), "CurrentCulture")

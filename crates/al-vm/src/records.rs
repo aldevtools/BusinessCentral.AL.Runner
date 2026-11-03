@@ -2127,91 +2127,6 @@ impl Session {
         }
     }
 
-    /// A Code field the database stores as a number (`SQLDataType = Integer`) takes the empty value and plain numbers. A
-    /// Modify of `0` or a number with a leading zero fails with error code 22928070, one of letters with 22928072
-    /// (record/lt-x-table-props/XTablePropsTests.al:352-353, :368-369, :384-385); the values '10' and '9' are taken
-    /// (:322-325). Any other value, any such value an Insert writes, and every value of a `BigInteger` one other than those
-    /// taken are not pinned: refused.
-    fn check_code_storage(&self, t: &TableDef, row: &[Value], modify: bool) -> Result<(), Signal> {
-        if !self.engine.table_facts[t.object as usize].code_sql_type {
-            return Ok(());
-        }
-        let schema = self.engine.program.objects[t.object as usize]
-            .table
-            .as_ref()
-            .expect("table");
-        for (i, f) in t.fields.iter().enumerate() {
-            if !matches!(f.ty, RtType::Code(_)) {
-                continue;
-            }
-            let declared = schema.fields[i]
-                .properties
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case("SQLDataType"))
-                .map(|(_, v)| v.trim());
-            let Some(declared) = declared.filter(|v| !v.eq_ignore_ascii_case("Varchar")) else {
-                continue;
-            };
-            if f.code_storage == al_data::CodeStorage::Text {
-                return unsupported(format!("Code field {} with SQLDataType = {declared}", f.name));
-            }
-            if t.keys[0].contains(&i) {
-                return unsupported(format!(
-                    "Code field {} with SQLDataType = {declared} in the primary key: its order is not pinned",
-                    f.name
-                ));
-            }
-            let value = al_builtins::native::text_of(&row[i])
-                .map(|v| v.to_string())
-                .unwrap_or_default();
-            let digits = !value.is_empty() && value.bytes().all(|c| c.is_ascii_digit());
-            if value.is_empty() || (digits && !value.starts_with('0') && value.parse::<i32>().is_ok()) {
-                continue;
-            }
-            let number = if digits && value.starts_with('0') {
-                ("22928070", "NDBCS:BadCSideCodeData")
-            } else if value.bytes().all(|c| c.is_ascii_uppercase()) {
-                ("22928072", "NDBCS:BadSqlIntCodeData")
-            } else {
-                return unsupported(format!(
-                    "the value '{value}' in the Code field {}, which the database stores as a number: the outcome is not pinned",
-                    f.name
-                ));
-            };
-            if !modify || f.code_storage != al_data::CodeStorage::Integer {
-                return unsupported(format!(
-                    "{} of '{value}' into the Code field {} with SQLDataType = {declared}: the outcome is not pinned",
-                    if modify { "a Modify" } else { "an Insert" },
-                    f.name
-                ));
-            }
-            // Only a table named as its caption, with one Integer primary key field named as its caption, is pinned.
-            let pk = &t.keys[0];
-            if pk.len() != 1
-                || !matches!(t.fields[pk[0]].ty, RtType::Integer)
-                || self.caption(t) != t.name
-                || self.field_caption(t, pk[0]) != t.fields[pk[0]].name
-            {
-                return unsupported(format!(
-                    "the error of a value that is no integer in Code field {} of {}: the identification of this primary key is not pinned",
-                    f.name, t.name
-                ));
-            }
-            let key = match &row[pk[0]] {
-                Value::Integer(n) => n.to_string(),
-                _ => return unsupported("an Integer primary key field that holds no Integer"),
-            };
-            return Err(crate::transactions::al_error_code(
-                &format!(
-                    "The {} table contains a value that is not valid in an integer Code field:\\\\{}='{key}'\\Error code: {}",
-                    t.name, t.fields[pk[0]].name, number.0
-                ),
-                number.1,
-            ));
-        }
-        Ok(())
-    }
-
     fn restore_row_version(rec: &Rec, old: Option<(usize, Value)>) {
         if let Some((i, v)) = old {
             rec.borrow_mut().fields[i] = v;
@@ -2274,10 +2189,10 @@ impl Session {
             cursor = Some(pos.clone());
             rows.push((pos, row));
         }
-        let mask = rec.borrow().field_descending;
+        let (mask, fields) = (rec.borrow().field_descending, Session::position_fields(t, key));
         let order = |a: &[Value], b: &[Value]| -> Ordering {
             for (i, (x, y)) in a.iter().zip(b).enumerate() {
-                let o = ops::compare(x, y).unwrap_or(Ordering::Equal);
+                let o = Session::compare_in_position(t, &fields, i, x, y);
                 let o = if i < 32 && mask & (1 << i) != 0 { o.reverse() } else { o };
                 if o != Ordering::Equal {
                     return o;
@@ -3274,6 +3189,28 @@ impl Session {
         ))
     }
 
+    /// What a filter does in a negative filter group other than -1, the OR group, is not pinned (only reading the group back is:
+    /// P68F_FilterGroup.al RecordRef_Setter_Negative_And_Large).
+    fn refuse_filter_in_unpinned_group(method: RecordOp, rec: &Rec) -> Result<(), Signal> {
+        let sets_filter = matches!(
+            method,
+            RecordOp::SetRange
+                | RecordOp::SetFilter
+                | RecordOp::SetView
+                | RecordOp::SetRecFilter
+                | RecordOp::CopyFilter
+                | RecordOp::CopyFilters
+        );
+        let group = rec.borrow().filter_group;
+        if sets_filter && group < 0 && group != al_builtins::filter::OR_GROUP {
+            return unsupported(format!(
+                "{} in filter group {group}, a negative group other than -1 (not pinned)",
+                method.name()
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.connection_check(rec)?;
         if rec.borrow().unpinned_buffer.is_some() {
@@ -3287,6 +3224,7 @@ impl Session {
             }
         }
         let t = self.table(rec)?;
+        Self::refuse_filter_in_unpinned_group(method, rec)?;
         if !rec.borrow().temporary {
             self.install_assumed(t.object);
         }
@@ -3884,7 +3822,7 @@ impl Session {
                 if keep_id {
                     self.check_system_id_unique(rec, &t)?;
                 }
-                self.check_code_storage(&t, &rec.borrow().fields, false)?;
+                self.check_code_storage(&t, rec, false)?;
                 self.sql_timestamp_before(&t, rec, None)?;
                 let old_version = self.bump_row_version(&t, rec);
                 self.sql_timestamp_after(&t, rec);
@@ -4270,7 +4208,7 @@ impl Session {
                 // modified its row without a change (Create Prod. Order Lines.Copy) and pass, which a bumped version would make a
                 // stale write (record/lt-priority-assumptions/PriorityAssumptions.al:143-244, real BC: after a Modify that changes nothing and a Commit, the
                 // other variable's Modify of a changed field is accepted, while a Modify that changed a field makes it fail with DB:RecordChanged).
-                self.check_code_storage(&t, &rec.borrow().fields, true)?;
+                self.check_code_storage(&t, rec, true)?;
                 self.check_failed_insert_stale(&t, rec, stored_row.as_deref())?;
                 self.sql_timestamp_before(&t, rec, stored_row.as_deref())?;
                 // A bulk ModifyAll(.., false) without subscribers stamps SystemModifiedAt of a row that has the value already
@@ -4837,7 +4775,10 @@ impl Session {
                                 .count(&cx, &t, &[])
                                 .map_err(|e| Signal::Unsupported(format!("{e}")))?
                                 == 0;
-                        if filters.is_empty()
+                        // A set filtered down to nothing says the same (record/lt-y81-values/Y81EmptySetFinds.al:224-:520
+                        // Y81_RecRef_FilteredOut_Unused: `=`, `>` and `<` on a RecordRef and a temporary Record; needs corpus bump).
+                        let filtered_miss = !filters.is_empty() && matches!(which.as_str(), "=" | ">" | "<");
+                        if (filters.is_empty() || filtered_miss)
                             && method == RecordOp::Find
                             && matches!(which.as_str(), "=" | ">" | "<" | "=><" | "=>" | "=<")
                         {
@@ -4896,8 +4837,10 @@ impl Session {
                                 ..Default::default()
                             })));
                         }
+                        // Find('-') and Find('+') of a filtered set too (Y81EmptySetFinds.al Y81_RecRef_FilteredOut_Unused).
                         if filters.is_empty()
-                            || !matches!(method, RecordOp::FindFirst | RecordOp::FindLast | RecordOp::FindSet)
+                            || !(matches!(method, RecordOp::FindFirst | RecordOp::FindLast | RecordOp::FindSet)
+                                || (method == RecordOp::Find && matches!(which.as_str(), "-" | "+")))
                         {
                             return unsupported(format!(
                                 "{method} on an empty set of table '{}' without using the result and without a filter: BC's error text is not pinned (docs/probes-needed.md)",
@@ -5042,11 +4985,7 @@ impl Session {
                 }
                 let engine = self.engine.clone();
                 let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize]);
-                let date_ctx = al_builtins::filter::DateFilterContext {
-                    today: self.today_day_number(),
-                    work_date: self.work_date_day().unwrap_or_else(|| self.today_day_number()),
-                    language: self.global_language,
-                };
+                let date_ctx = self.date_filter_context_for(&text);
                 let parse = |text: &str| {
                     al_builtins::filter::with_date_context(date_ctx, || {
                         al_builtins::filter::parse_filter_with(text, &args[2..], &ty, &enums)
@@ -5619,7 +5558,7 @@ impl Session {
                         new[field] = ops::convert(v.clone(), &ty)?;
                     }
                 }
-                self.check_rename_auto_increment(&t, &old, &new)?;
+                self.check_rename_values(rec, &t, &old, &mut new)?;
                 if self.is_profile_row(&t, rec.borrow().temporary) {
                     self.profile_before_rename(&t, &old, &new)?;
                 }
@@ -5696,10 +5635,12 @@ impl Session {
                 };
                 match outcome {
                     RenameOutcome::Renamed => {
-                        // A Rename of another key with nothing written before it (no trigger write, no field that relates to the
-                        // table) is noted as one write of the row (`stale_neighbour_shape`).
+                        // A Rename of another key with nothing written before it (no trigger write) is noted as one write of the
+                        // row (`stale_neighbour_shape`). Fields of other tables that relate to the table do not matter while no row
+                        // follows the rename: the rows of ALT Universal, which fields of other tables relate to, are renamed this way
+                        // (record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_*_RenameOtherRow_*). A row that follows is a store
+                        // write nobody notes, which `writes_all_noted` sees.
                         if !same_key
-                            && refs.is_empty()
                             && before_store == rename_note.1
                             && self.tx.writes.len() == rename_note.0 + 1
                             && let Some(w) = self.tx.writes.last_mut()

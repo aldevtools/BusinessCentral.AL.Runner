@@ -195,7 +195,9 @@ fn a_variable_text_record_of_another_length() {
     assert_eq!(al_testkit::text(run(&short_src("A;1;02:02#"), "F")), "A:1:02:02,");
     assert_eq!(al_testkit::text(run(&short_src("A;1"), "F")), "A:1:,");
     assert_eq!(al_testkit::text(run(&short_src("A;1;x;extra#"), "F")), "A:1:x,");
-    assert!(matches!(run(&short_src("A;1;x;e1;e2"), "F"), Err(Signal::Unsupported(r)) if r.contains("not pinned")));
+    // Several values too many are left out (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:VariableText_ImportValueCount_1 `vt five
+    // values`, _2 `vt five values two rows`; needs the corpus bump).
+    assert_eq!(al_testkit::text(run(&short_src("A;1;x;e1;e2"), "F")), "A:1:x,");
 }
 
 /// A port whose fields arrive as attributes (corpus pages/lt-report-page-properties/06-xmlport-fvat.al:7-30, :107-152,

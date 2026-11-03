@@ -2397,7 +2397,7 @@ The overloads of the runtime's own catalog (`crates/al-builtins/catalog/signatur
 - `Xmlport.Export#1` `Xmlport.Export inst () -> Boolean?`: handlers/TestPageActionRunObjectKinds_Tests.al:182
 - `Xmlport.Export#2` `Xmlport.Export static (Number: Integer, var OutStream: OutStream, ?var Record: Record) -> Boolean?`: errors/lt-ms-refusals-129/P129CallstackXmlPort.al:140
 - `Xmlport.FieldDelimiter#1` `Xmlport.FieldDelimiter inst (?Delimiter: Text) -> Text?`: platform/lt-xmlport-session-navapp-cookie/P94Fixtures.al:353
-- `Xmlport.FieldSeparator#1` `Xmlport.FieldSeparator inst (?Separator: Text) -> Text?`: platform/lt-xmlport-session-navapp-cookie/P94Fixtures.al:353
+- `Xmlport.FieldSeparator#1` `Xmlport.FieldSeparator inst (?Separator: Text) -> Text?`: must-not-compile/cases/2652-xmlport-separator-read-into-char.al:30
 - `Xmlport.Filename#1` `Xmlport.Filename inst (?FileName: Text) -> Text?`: platform/lt-xmlport-session-navapp-cookie/P94Fixtures.al:314
 - `Xmlport.Import#1` `Xmlport.Import inst () -> Boolean?`: codeunit/TestWriteTxTestBoundary.al:310
 - `Xmlport.Import#2` `Xmlport.Import static (Number: Integer, var InStream: InStream, ?var Record: Record) -> Boolean?`: error-handling/TestAssertErrorRollbackNestedTransaction.al:117

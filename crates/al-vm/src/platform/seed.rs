@@ -179,6 +179,44 @@ fn text(t: &TableDef, id: u32, s: &str) -> Value {
     }
 }
 
+/// Whether `seed_platform_rows` has a seed for the table with this id. Keep it in step with the `match id` there: a
+/// table missing here is never seeded.
+fn has_seed(id: u32) -> bool {
+    matches!(
+        id,
+        super::profiles::ALL_PROFILE
+            | super::profile_settings::TENANT_PROFILE_SETTING
+            | TENANT_REPORT_LAYOUT_SELECTION
+            | ODATA_EDM_TYPE
+            | WEB_SERVICE
+            | TENANT_WEB_SERVICE
+            | COMPANY
+            | USER
+            | USER_PROPERTY
+            | USER_PERSONALIZATION
+            | ACCESS_CONTROL
+    )
+}
+
+/// The object indexes `seed_platform_rows` visits, in object order: compiled tables with a definition and a seed.
+/// They depend on the program only.
+pub(crate) fn seed_tables(engine: &crate::Engine) -> Box<[usize]> {
+    engine
+        .program
+        .objects
+        .heads()
+        .iter()
+        .enumerate()
+        .filter(|(oi, o)| {
+            !o.uncompiled
+                && o.kind == al_ir::ObjKind::Table
+                && o.id.is_some_and(has_seed)
+                && engine.tables[*oi].is_some()
+        })
+        .map(|(oi, _)| oi)
+        .collect()
+}
+
 impl Session {
     /// Inserts one seed row of a table that holds several, with a SystemId like any inserted row.
     fn insert_seed(&mut self, t: &TableDef, mut r: Row) {
@@ -192,7 +230,11 @@ impl Session {
     pub(crate) fn seed_platform_rows(&mut self, i: &Ident) {
         let engine = self.engine.clone();
         let mut wrote = false;
-        for (oi, o) in engine.program.objects.heads().iter().enumerate() {
+        let heads = engine.program.objects.heads();
+        // Only the tables that have a seed (worked out once per program, in object order), not every object head.
+        let seed_tables = engine.seed_tables.get_or_init(|| seed_tables(&engine));
+        for &oi in seed_tables.iter() {
+            let o = &heads[oi];
             let (Some(id), al_ir::ObjKind::Table) = (o.id, if o.uncompiled { al_ir::ObjKind::Other } else { o.kind })
             else {
                 continue;

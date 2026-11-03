@@ -517,7 +517,7 @@ xmlport 60041 "ALT Upd Init XmlPort"
                 XmlName = 'Universal';
                 fieldelement(EntryNo; Universal."Entry No.") { }
                 fieldelement(IntegerValue; Universal."Integer Field") { }
-                trigger OnAfterInitRecord() begin end;
+                trigger OnAfterInitRecord() begin Universal."Text Field" := 'init'; end;
             }
         }
     }
@@ -1410,7 +1410,8 @@ fn text_of(r: Result<Value, Signal>) -> String {
 }
 
 // AutoUpdate on an existing row with a trigger that assigns fields is refused, whichever trigger
-// it is: which value wins (the document's or the trigger's) is not pinned.
+// it is: which value wins (the document's or the trigger's) is not pinned. An OnAfterInitRecord is refused only when its value
+// differs from the stored one.
 #[test]
 fn auto_update_with_any_assigning_trigger_is_refused() {
     for id in [60041, 60042, 60043] {
@@ -1423,7 +1424,12 @@ fn auto_update_with_any_assigning_trigger_is_refused() {
                  XmlPort.Import({id}, InStr); exit('');"
             ),
         );
-        assert!(r.contains("AutoUpdate with triggers that assign fields"), "{id}: {r}");
+        let want = if id == 60041 {
+            "AutoUpdate with an OnAfterInitRecord that assigns fields"
+        } else {
+            "AutoUpdate with triggers that assign fields"
+        };
+        assert!(r.contains(want), "{id}: {r}");
     }
     // The control: the same document through the trigger-free fixture updates the row.
     let out = text(

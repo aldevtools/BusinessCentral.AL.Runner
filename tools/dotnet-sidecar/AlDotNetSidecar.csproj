@@ -30,5 +30,6 @@
     <Compile Include="Marshal.cs" />
     <Compile Include="Dispatch.cs" />
     <Compile Include="Resolver.cs" />
+    <Compile Include="Reuse.cs" />
   </ItemGroup>
 </Project>

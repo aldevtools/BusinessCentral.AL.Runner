@@ -211,7 +211,7 @@ impl Lowerer<'_> {
                                 continue;
                             }
                         }
-                        let value = self.expr(a)?;
+                        let value = self.expr_into(&p.ty, a)?;
                         // A Variant handed to a by-value Text or Code parameter goes in as it is: the callee's binding converts it, and
                         // raises TypeConversion for a number, Boolean, Date, Enum or Option (types/lt-variant-to-text-fields/
                         // VariantNumberToTextParam.al; the text follows the session language, P147DateToText.al).
@@ -236,7 +236,7 @@ impl Lowerer<'_> {
                             out.push(ir::Arg::Value(value));
                             continue;
                         }
-                        self.refuse_textconst_into_variant(&p.ty, a)?;
+                        self.refuse_variant_argument(&p.ty, a)?;
                         // A Text or Code handed to a by-value Text or Code parameter of a TryFunction is converted by the callee's
                         // binding, inside the try: a text too long for a Code[20] parameter makes the TryFunction answer false
                         // (text/lt-text-functions/TextAssign.Codeunit.al:240-281, LT_BU_TextAssign_LongTextToCode20Parameter). A Decimal or

@@ -63,7 +63,12 @@ pub(crate) fn read_tree(text: &str) -> Result<Result<crate::xmlport::Elem, Optio
                 out.attrs.push((l, v));
                 continue;
             }
-            if !p.is_empty() || !n.is_empty() {
+            // A prefixed attribute keeps its prefix in the name: the import refuses or reports it (al-vm xmlports/import_xml.rs).
+            if !p.is_empty() {
+                out.attrs.push((format!("{p}:{l}"), v));
+                continue;
+            }
+            if !n.is_empty() {
                 return Err("namespace declarations in an XmlPort document".into());
             }
             out.attrs.push((l, v));

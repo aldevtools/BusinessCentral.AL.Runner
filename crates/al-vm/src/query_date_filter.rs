@@ -71,6 +71,39 @@ impl crate::Session {
             today: self.today_day_number(),
             work_date: self.work_date_day().unwrap_or_else(|| self.today_day_number()),
             language: self.global_language,
+            fiscal_year: None,
         }
+    }
+
+    /// [`Self::query_date_context`] for a record's filter `text`: a `Y` in it asks for the fiscal year of the work date, which
+    /// is read from the Accounting Period rows (table 50, fields 1 Starting Date and 3 New Fiscal Year) the session holds.
+    pub(crate) fn date_filter_context_for(&self, text: &str) -> al_builtins::filter::DateFilterContext {
+        let mut ctx = self.query_date_context();
+        if text.trim().eq_ignore_ascii_case("y") {
+            ctx.fiscal_year = self
+                .new_fiscal_year_starts()
+                .and_then(|rows| al_builtins::filter::fiscal_year_of(&rows, ctx.work_date));
+        }
+        ctx
+    }
+
+    /// The starting dates of the Accounting Period rows with New Fiscal Year, when the table is the Base Application's.
+    fn new_fiscal_year_starts(&self) -> Option<Vec<i32>> {
+        let t = self.table_def(50)?;
+        if !t.name.eq_ignore_ascii_case("Accounting Period") {
+            return None;
+        }
+        let field = |id: u32| t.fields.iter().position(|f| f.id == id);
+        let (start, new_year) = (field(1)?, field(3)?);
+        let rows = self.all_rows(&self.cx.clone(), &t).ok()?;
+        Some(
+            rows.iter()
+                .filter(|r| matches!(r[new_year], al_builtins::value::Value::Boolean(true)))
+                .filter_map(|r| match r[start] {
+                    al_builtins::value::Value::Date(d, false) if d > 0 => Some(d),
+                    _ => None,
+                })
+                .collect(),
+        )
     }
 }

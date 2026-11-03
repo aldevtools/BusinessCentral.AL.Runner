@@ -693,6 +693,12 @@ fn german_boolean(text: &str) -> Result<Parsed, Signal> {
         "Ja" => Ok(Parsed::Value(Value::Boolean(true))),
         "Nein" => Ok(Parsed::Value(Value::Boolean(false))),
         "Yes" | "vielleicht" => Ok(Parsed::Rejected),
+        // xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Boolean_VT_German, Boolean_XML_German (needs the corpus bump): under
+        // language 1031 the texts `true`, `false`, `TRUE`, `1` and `0` read as in English, and `No`, `Wahr`, `Falsch` and `x`
+        // are rejected.
+        t if matches!(t.to_ascii_lowercase().as_str(), "true" | "1") => Ok(Parsed::Value(Value::Boolean(true))),
+        t if matches!(t.to_ascii_lowercase().as_str(), "false" | "0") => Ok(Parsed::Value(Value::Boolean(false))),
+        "No" | "Wahr" | "Falsch" | "x" => Ok(Parsed::Rejected),
         _ => unsupported(format!("Evaluate of the Boolean text `{text}` in German (not pinned)")),
     }
 }
@@ -1084,6 +1090,14 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
                 )));
             }
             _ => {}
+        }
+    }
+    // A day, a month written as the German word `Dezember` and a year is no date in either language
+    // (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:DateDecimal_VT_German, DateDecimal_VT_English `31. Dezember 2024`, needs the
+    // corpus bump). Another month word is not pinned.
+    if let Some((day, rest)) = text.split_once(". Dezember ") {
+        if digits(day, 1..=2) && digits(rest, 4..=4) {
+            return Ok(Parsed::Rejected);
         }
     }
     unsupported(format!(
@@ -1670,6 +1684,16 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
         .unwrap_or(table);
     let def = match c.table_filter_table(table) {
         Some(Ok(Some(def))) => def,
+        // An unknown table name: the text goes on, after a backslash, with "The metadata object Table -1 was not found."
+        // (W4PlatformAndMeta.al:706 pins the text before the backslash; xmlport/lt-y67-xmlport-tablefilter/Y67XpTableFilter.al:153
+        // pins the sentence by Contains on 27/28/29; the rest of the tail is not pinned and left out).
+        Some(Ok(None)) if table.parse::<i64>().is_err() => {
+            return reject(
+                c,
+                "\\The metadata object Table -1 was not found.",
+                "Evaluate:MetadataNotFound",
+            );
+        }
         Some(Ok(None)) => return reject(c, "", "Evaluate:MetadataNotFound"),
         Some(Err(e)) => return Err(e),
         None => return unsupported("Evaluate into TableFilter without a program"),
