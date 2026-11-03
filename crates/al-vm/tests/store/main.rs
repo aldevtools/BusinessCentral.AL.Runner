@@ -84,6 +84,7 @@ mod sql_data_type_numeric;
 mod sql_data_type_scope;
 mod stale_buffer;
 mod stale_buffer_6028;
+mod stale_buffer_y76;
 mod stale_delete_event;
 mod stale_rename_related;
 mod stale_two_commits_insert;

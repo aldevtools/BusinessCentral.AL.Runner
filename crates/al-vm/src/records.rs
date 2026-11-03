@@ -1788,6 +1788,10 @@ impl Session {
             || (self.tx.lock_unpinned.is_some() && !read_of_others_only)
             || self.store_for(rec).written_since_commit(cx, t);
         match origin.filter(|o| o.version == mine) {
+            // A buffer that only got TransferFields from a record (Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord).
+            Some(o) if o.own_write && o.lock_only => {
+                self.stale_lock_only_verdict(t, &company, pk, o.commits, touched, contact)
+            }
             // A buffer whose version came from its own Modify or Rename after its own Insert or Get in that transaction follows the
             // same rule (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:132-448, al-runner issue 5823).
             // One or two Commits after the buffer's own write, and the new transaction inserted another row of the table and did
@@ -1798,7 +1802,7 @@ impl Session {
             // `stale-own-insert-two-commits-other-insert`).
             Some(o)
                 if o.own_write
-                    && (o.commits + 1 == self.commits || o.commits + 2 == self.commits)
+                    && self.stale_other_insert_in_reach(t, &company, pk, o)
                     && !touched
                     && !self.tx.rolled_back
                     && !self.tx.lock_tx
@@ -1809,18 +1813,7 @@ impl Session {
                         .iter()
                         .any(|(ob, c)| *ob == t.object && *c == company) =>
             {
-                let pinned = self.writes_all_noted()
-                    && self.tx.writes.iter().all(|w| {
-                        matches!(
-                            w.kind,
-                            crate::state::TxWriteKind::Insert | crate::state::TxWriteKind::Modify
-                        ) && w.table == t.object
-                            && w.company == company
-                            && !(w.pk.len() == pk.len()
-                                && w.pk.iter().zip(pk).all(|(a, b)| {
-                                    al_builtins::ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal)
-                                }))
-                    });
+                let pinned = self.stale_other_insert_pinned(t, &company, pk, self.commits - o.commits, o.own_modified);
                 if !pinned {
                     al_builtins::assumptions::assume(
                         al_builtins::assumptions::Assumption::StaleOwnInsertTwoCommitsOtherInsert,
@@ -2361,6 +2354,7 @@ impl Session {
         // out in partial.rs.
         let via_get = std::mem::take(&mut self.get_load);
         let via_sysid = std::mem::take(&mut self.sysid_load);
+        let via_find = std::mem::take(&mut self.find_load);
         // A temporary record loads every field whatever SetLoadFields asked for (record/lt-are-fields-loaded-unfetched/
         // AreFieldsLoadedUnfetched.al:174-221, partial_name and partial_qty after FindFirst and Get).
         if rec.borrow().load.request.is_some() && !rec.borrow().temporary {
@@ -2389,20 +2383,15 @@ impl Session {
             // the buffer that wrote it: not pinned, the reporter's real-BC repro of al-runner issue 5913 (assumption
             // stale-get-buffer-in-write-transaction, marked in `stale_verdict` when it decides). A Get after the Commit that
             // followed the write keeps a Get origin (record/TestRecordStaleBufferWrite.al:604-660).
-            Some(Value::BigInteger(v)) if (via_get || via_sysid) && *v > self.tx.committed_row_version => {
+            Some(Value::BigInteger(v)) if (via_get || via_sysid || via_find) && *v > self.tx.committed_row_version => {
                 Some(al_builtins::value::RowOrigin {
-                    own_write: true,
-                    version: *v,
-                    commits: self.commits,
                     read_in_write_tx: true,
+                    ..al_builtins::value::RowOrigin::new(true, *v, self.commits)
                 })
             }
-            Some(Value::BigInteger(v)) if via_get => Some(al_builtins::value::RowOrigin {
-                own_write: false,
-                version: *v,
-                commits: self.commits,
-                read_in_write_tx: false,
-            }),
+            Some(Value::BigInteger(v)) if via_get || via_find => {
+                Some(al_builtins::value::RowOrigin::new(false, *v, self.commits))
+            }
             _ => None,
         };
         let temporary = rec.borrow().temporary;
@@ -3943,12 +3932,7 @@ impl Session {
                             .map(|i| rec.borrow().fields[i].clone());
                         if let Some(Value::BigInteger(v)) = version {
                             let commits = self.commits;
-                            rec.borrow_mut().row_origin = Some(al_builtins::value::RowOrigin {
-                                own_write: true,
-                                version: v,
-                                commits,
-                                read_in_write_tx: false,
-                            });
+                            rec.borrow_mut().row_origin = Some(al_builtins::value::RowOrigin::new(true, v, commits));
                         }
                         // The Blob content an Insert of a temporary record stored is persisted, as one a Modify stored (see Rename).
                         if rec.borrow().temp_id.is_some() {
@@ -4308,6 +4292,7 @@ impl Session {
                                         own_write: true,
                                         version: now,
                                         read_in_write_tx: false,
+                                        own_modified: true,
                                         ..o
                                     });
                                 }
@@ -4724,7 +4709,10 @@ impl Session {
                 };
                 match found {
                     Some(row) => {
-                        self.load(rec, row)?;
+                        self.find_load = true;
+                        let loaded = self.load(rec, row);
+                        self.find_load = false;
+                        loaded?;
                         Ok(Value::Boolean(true))
                     }
                     None if self.ret_used => Ok(Value::Boolean(false)),
