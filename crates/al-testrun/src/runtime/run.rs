@@ -158,6 +158,24 @@ pub fn run_codeunit_full(
 /// (al-language-testlibraries/lt-bi-test-framework/BiTestHandler.al:98, :125); the runner does not call them yet.
 /// An extension of the system enum DefaultTestHandler (2000000024) adds a handler to every test codeunit
 /// (System.app `DefaultTestHandler.Enum.al`); what it does is not probed.
+/// The reason of the first skipped install that wrote a table `routine` can reach. The tables the routine reaches are
+/// found once, and only when an install was skipped: the walk of its calls cost as much as the test for every skipped install.
+fn skipped_install_touching<'a>(
+    skipped_installs: &'a [(BTreeSet<u32>, String)],
+    lowered: &Lowered,
+    object: usize,
+    routine: usize,
+) -> Option<&'a String> {
+    if skipped_installs.is_empty() {
+        return None;
+    }
+    let touched = tables_touched(lowered, object, routine);
+    skipped_installs
+        .iter()
+        .find(|(tables, _)| !tables.is_disjoint(&touched))
+        .map(|(_, why)| why)
+}
+
 fn test_handlers_refusal(lowered: &Lowered, object: usize) -> Option<String> {
     let obj = &lowered.program.objects[object];
     if obj
@@ -522,11 +540,7 @@ fn run_codeunit_inner(
                     )));
                 }
                 // The error may come from install data this run does not have: it is not trusted.
-                if let Some(why) = skipped_installs
-                    .iter()
-                    .find(|(tables, _)| !tables.is_disjoint(&tables_touched(lowered, object, on_run)))
-                    .map(|(_, why)| why)
-                {
+                if let Some(why) = skipped_install_touching(&skipped_installs, lowered, object, on_run) {
                     return on_run_refused(format!("OnRun failed after install code that did not run: {why}"));
                 }
                 let marks = al_builtins::assumptions::take_hits();
@@ -669,11 +683,7 @@ fn run_codeunit_inner(
         } else if let Some(b) = blocked_site(lowered, object, r) {
             refused_in = Some((b.object, b.routine));
             Outcome::NotRun(b.text)
-        } else if let Some(reason) = skipped_installs
-            .iter()
-            .find(|(tables, _)| !tables.is_disjoint(&tables_touched(lowered, object, r)))
-            .map(|(_, why)| why)
-        {
+        } else if let Some(reason) = skipped_install_touching(&skipped_installs, lowered, object, r) {
             Outcome::NotRun(reason.clone())
         } else if let Some(reason) = company_open_refuses(r) {
             Outcome::NotRun(reason)
