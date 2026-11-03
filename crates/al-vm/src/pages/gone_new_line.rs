@@ -2,8 +2,10 @@
 //! raised OnNewRecord and OnAfterGetCurrRecord three times, `settle_after_action`). What the moves and a later action do there
 //! (corpus master pages/lt-y80-gone-rows/Y80GoneRows.al, codeunit 94230):
 //! - First, Next, Last and Previous in a row answer No each and log `N:0;C:0;N:0;C:0` in all (Y80_Gone_All_OpenEdit_DeleteAllUpdate,
-//!   _DeleteAll, _DeleteCurrent `moves log`). Which two moves raise is not pinned: the assumption `gone-blank-line-first-last` has
-//!   First and Last raise.
+//!   _DeleteAll, _DeleteCurrent `moves log`). First raises nothing (pages/lt-f3-pages/F3ListTests.al:189 DeleteOnlyRow_WithoutUpdate
+//!   `log_after_first`, misc/lt-probes-needed-7/PnGRefresh.al ListLosesOnlyRowDeleteNoUpdate, lt-outside-worksheet/
+//!   RmWorksheetGoneRow.al:452 `close log`). Which two of Next, Last and Previous raise is not pinned: the assumption
+//!   `gone-blank-line-next-previous` has Next and Previous raise, as the symmetric pair.
 //! - A second action that leaves the table empty again raises the pair twice (`second action log`).
 
 use super::*;
@@ -42,8 +44,8 @@ impl Session {
         if !self.on_gone_blank_line(st)? {
             return Ok(None);
         }
-        if matches!(how, PageMethod::First | PageMethod::Last) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GoneBlankLineFirstLast);
+        if matches!(how, PageMethod::Next | PageMethod::Previous) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GoneBlankLineNextPrevious);
             st.borrow_mut().window.clear();
             self.land_on_new_line(st)?;
         }

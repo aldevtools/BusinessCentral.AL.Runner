@@ -102,7 +102,7 @@ fn a_read_only_list_opened_for_edit_raises_nothing_after_it_lost_its_only_row() 
     );
 }
 
-// Y80_Gone_All_OpenEdit_DeleteAllUpdate: `action log R:10;D:10;N:0;C:0;N:0;C:0;N:0;C:0`, `moves log N:0;C:0;N:0;C:0` for
+// Y80_Gone_All_OpenEdit_DeleteAllUpdate: `action log R:10;D:10;N:0;C:0;N:0;C:0;N:0;C:0`, `moves log N:0;C:0;N:0;C:0` (assumed: from Next and Previous) for
 // First, Next, Last, Previous in a row, the second action `N:0;C:0;N:0;C:0`.
 #[test]
 fn an_editable_list_with_the_new_row_line_keeps_raising_on_its_blank_line() {
