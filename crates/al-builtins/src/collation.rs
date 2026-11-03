@@ -100,10 +100,13 @@ pub fn compare_total(a: &str, b: &str) -> Ordering {
     compare_with(a, b, true).unwrap_or_else(|_| a.cmp(b))
 }
 
-/// The weights of the 128 ASCII characters (index 0: `total` off, 1: on), made by [`weight`]: `None` for a character without
-/// one. An ASCII character has no accent, so a weight is the primary value and the case flag. Looked up in place of the
-/// work `weight` does for every character (a lower-casing, a scan of the accent sets and of the symbols).
-static ASCII_WEIGHTS: std::sync::LazyLock<[[Option<(u32, bool)>; 128]; 2]> = std::sync::LazyLock::new(|| {
+/// The primary weight and the upper-case flag of an ASCII character, `None` for one without a weight.
+type AsciiWeight = Option<(u32, bool)>;
+
+/// The weights of the 128 ASCII characters (index 0: `total` off, 1: on), made by [`weight`]. An ASCII character has no accent,
+/// so a weight is the primary value and the case flag. Looked up in place of the work `weight` does for every character (a
+/// lower-casing, a scan of the accent sets and of the symbols).
+static ASCII_WEIGHTS: std::sync::LazyLock<[[AsciiWeight; 128]; 2]> = std::sync::LazyLock::new(|| {
     let mut t = [[None; 128]; 2];
     for (k, row) in t.iter_mut().enumerate() {
         for (c, slot) in row.iter_mut().enumerate() {
