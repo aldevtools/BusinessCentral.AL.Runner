@@ -113,6 +113,12 @@ impl Session {
         {
             return unsupported("XmlPort export whose root is not a text element with content (not pinned)");
         }
+        // The root's own triggers: pinned only for `root_with_table` (container_tree.rs); a table element root and the other formats
+        // are refused.
+        let root_triggers = Self::xp_root_triggers_pinned(schema, top)?;
+        if root_triggers && table_root {
+            return unsupported("XmlPort run of a root with triggers that is a table element (not pinned)");
+        }
         let view_keys = self.xp_apply_source_views(inst, schema)?;
         self.xp_pass_key_snapshots(inst, schema, &view_keys)?;
         let bytes = if xp.format == ir::XmlFormat::Xml {
@@ -168,6 +174,9 @@ impl Session {
                 let text = self.xp_export_inline(inst, schema, top)?;
                 al_builtins::stream::write_bytes(&blob, &al_builtins::xmlport::utf16_bom_bytes(&text));
                 return Ok(if guarded { Value::Boolean(true) } else { Value::Null });
+            }
+            if root_triggers {
+                self.xp_export_root_trigger(inst, schema, top)?;
             }
             match self.xp_export_container(inst, schema, top).map(|mut root| {
                 declare_namespaces(&mut root, &xp.namespaces, xp.default_ns.as_deref());

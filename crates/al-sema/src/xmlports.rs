@@ -1032,6 +1032,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                     && !containers::wrap_shape(layout, i)
                     && !containers::attributed_leaf_shape(layout, i)
                     && !containers::table_container_shape(layout, i)
+                    && !containers::root_table_shape(layout, i)
                 {
                     run_reasons.push(format!(
                         "triggers of the container text element {} are not supported (not pinned)",
@@ -1748,13 +1749,25 @@ xmlport 50010 X
         // holds the port stays runnable.
         let why = reasons_of(SRC.replace(
             "XmlName = 'Docs';",
-            "XmlName = 'Docs'; trigger OnBeforePassVariable() begin end;",
+            "XmlName = 'Docs'; textelement(Leaf) { } trigger OnBeforePassVariable() begin end;",
         ));
         assert!(!why.contains("container text element"), "{why}");
-        let run = run_reasons_of(SRC.replace(
+        // A root beside a table element is a pinned shape (Y83XpMiscTests.al ContainerTriggers_Nested): no reason to refuse.
+        let pinned = run_reasons_of(SRC.replace(
             "XmlName = 'Docs';",
             "XmlName = 'Docs'; trigger OnBeforePassVariable() begin end;",
         ));
+        assert!(!pinned.contains("container text element"), "{pinned}");
+        // Without a table element it is not.
+        let src = SRC.replace(
+            "XmlName = 'Docs';",
+            "XmlName = 'Docs'; textelement(Leaf) { } trigger OnBeforePassVariable() begin end;",
+        );
+        let src = src
+            .replace("tableelement(P; Parent)", "textelement(P)")
+            .replace("fieldelement(Number; P.No) { }", "");
+        let src = src.replace("tableelement(C; Child)\n                {\n                    LinkTable = P;\n                    LinkFields = ParentNo = FIELD(No);\n                    fieldattribute(Id; C.No) { }\n                }", "");
+        let run = run_reasons_of(src);
         assert!(run.contains("triggers of the container text element Root"), "{run}");
     }
 
