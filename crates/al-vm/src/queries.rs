@@ -715,6 +715,11 @@ impl Session {
         if let Some(caption) = &c.caption {
             return Ok(caption.clone());
         }
+        // A totals column (Sum, Count, Average, Min, Max) without a Caption is captioned by its name
+        // (query/lt-cf-query-leads/CfQueryLeads.al:174-182, :276; query/lt-y78-outer-aggregate-filter/Y78QueryOuterAggFilter.al:1057).
+        if c.method.is_some() {
+            return Ok(c.name.clone());
+        }
         let Some(field) = c.field else {
             return unsupported("the caption of a Count column without a Caption property (not pinned)");
         };
