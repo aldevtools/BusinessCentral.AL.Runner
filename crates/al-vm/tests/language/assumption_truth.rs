@@ -266,8 +266,8 @@ fn a_new_part_line_keeps_a_view_field_outside_the_key_unstamped() {
 }
 
 /// Two key fields with a single filter value (Type from the view, Document No. from the link), validated on the new
-/// line: whether the second is on the record when the first validates is not pinned (NewLineStampsFilters.al stamps
-/// one key field only). The run keeps stamping both first and marks the assumption.
+/// line: whether the second is on the record when the first validates is pinned only for the key order of
+/// NewLineStampsFilters.al SF_TwoKeyValues_*; this key order differs from the field order. The run keeps stamping both first and marks the assumption.
 #[test]
 fn a_new_part_line_with_two_stamped_key_fields_runs_under_the_assumption() {
     let src = NL_OBJECTS.replace("KEYFIELDS", "Type, \"Document No.\", \"Line No.\"");
