@@ -407,7 +407,7 @@ pub(crate) fn build_shared<'a>(
                 .map(|p| p.value_text())
         };
         if let Some(t) = prop("SourceTable") {
-            match ws.resolve_ref(o.file, ObjKind::Table, &[t.trim().trim_matches('"').to_string()]) {
+            match ws.resolve_ref(o.file, ObjKind::Table, &crate::types::property_object_parts(&t)) {
                 Resolution::Found(t) => table_of[oi] = Some(t),
                 _ => page_reasons[oi].push(format!("source table: {}", ws.outside_workspace(ObjKind::Table, &t))),
             }
@@ -449,7 +449,7 @@ pub(crate) fn build_shared<'a>(
                     .map(|p| p.value_text());
                 if let Some(t) = table_no {
                     if let Resolution::Found(t) =
-                        ws.resolve_ref(o.file, ObjKind::Table, &[t.trim().trim_matches('"').to_string()])
+                        ws.resolve_ref(o.file, ObjKind::Table, &crate::types::property_object_parts(&t))
                     {
                         table_of[oi] = Some(t);
                     }
@@ -466,7 +466,7 @@ pub(crate) fn build_shared<'a>(
                         .map(|p| p.value_text());
                     if let Some(t) = source {
                         if let Resolution::Found(t) =
-                            ws.resolve_ref(o.file, ObjKind::Table, &[t.trim().trim_matches('"').to_string()])
+                            ws.resolve_ref(o.file, ObjKind::Table, &crate::types::property_object_parts(&t))
                         {
                             table_of[oi] = Some(t);
                             page_temporary[oi] = rp.properties().any(|p| {
@@ -600,7 +600,7 @@ pub(crate) fn build_shared<'a>(
             .and_then(|s| s.properties().find(|p| p.name().eq_ignore_ascii_case("SourceTable")))
             .map(|p| p.value_text())
         {
-            match ws.resolve_ref(o.file, ObjKind::Table, &[t.trim().trim_matches('"').to_string()]) {
+            match ws.resolve_ref(o.file, ObjKind::Table, &crate::types::property_object_parts(&t)) {
                 Resolution::Found(t) => table_of[oi] = Some(t),
                 _ => page_reasons[oi].push(format!("source table: {}", ws.outside_workspace(ObjKind::Table, &t))),
             }
