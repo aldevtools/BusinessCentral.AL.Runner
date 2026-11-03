@@ -54,8 +54,7 @@ impl Session {
     /// The page whose OnOpenPage makes the call about to start, when the session grants Execute on codeunits by no wildcard
     /// (an exact set). A codeunit call from OnOpenPage then ends the open with `Page <name> has to close.`, code
     /// `FormAbort:Permission`, whether the codeunit is granted or not (Y84PermExecute.al Y84_Exec_PageOpen `page_page`,
-    /// `page_both`). A session that grants Execute by wildcard (`Permissions Mock.Set` adds All Objects) is not pinned to
-    /// abort, and Microsoft's tests call codeunits from OnOpenPage under it, so it is checked as any call.
+    /// `page_both`). A session that grants Execute by wildcard (`Permissions Mock.Set` adds All Objects) is not pinned and refuses.
     pub(crate) fn permission_open_page_abort(&self, callee: usize) -> Option<Signal> {
         if self.permission_caller.is_some() {
             return None;
@@ -77,7 +76,11 @@ impl Session {
             op: Op::Execute,
         };
         if eff.level(wildcard) != 0 {
-            return None;
+            // A session with wildcard Execute on codeunits (`Set` adds All Objects) is not pinned: Y84 shows the abort under exact
+            // sets only, and Microsoft's tests call codeunits from OnOpenPage under `Set`. Refuse instead of guessing either way.
+            return Some(Signal::Unsupported(
+                "a codeunit call from OnOpenPage under a session with wildcard Execute on codeunits (only exact sets are pinned: Y84PermExecute.al Y84_Exec_PageOpen; needs probe)".into(),
+            ));
         }
         Some(Signal::Error(Box::new(al_builtins::native::AlError {
             message: format!("Page {} has to close.", heads[object].name),

@@ -32,7 +32,7 @@ impl Session {
         if self.area_removed(st, idx) || self.access_by_permission_off(st, idx)? {
             return Ok(true);
         }
-        // A guarded part whose page the session may not execute is left off too (Y84PermAbp.al Y84_Abp_ObjectKinds `GOP`: guard
+        // A guarded part whose page the session may not execute is left off too (Y84PermAbp.al Y84_Abp_ObjectKinds `GOP`, Y84PermAbp.al:132 (set X Some: GOP=N with the guard held) against :160 (Set: GOP=Y): guard
         // `codeunit C = X` is held under the exact sets that name C, yet the part is off unless the session executes the part's page,
         // as `Set` does through All Objects). Read from guarded parts only: an unguarded part under a narrow set keeps showing, which
         // no probe pins either way.
