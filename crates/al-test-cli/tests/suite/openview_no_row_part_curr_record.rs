@@ -67,7 +67,7 @@ codeunit 62924 T
         P.Close();
     end;
 }"#;
-    assert_eq!(al_testkit::outcomes_in(&src, "T")[0].1.clone(), Outcome::Pass);
+    assert_eq!(al_testkit::outcomes_in(src, "T")[0].1.clone(), Outcome::Pass);
 }
 
 #[test]
