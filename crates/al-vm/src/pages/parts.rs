@@ -1370,6 +1370,12 @@ impl Session {
         before: Option<&[Value]>,
     ) -> Result<(), Signal> {
         self.resync_dependents_linked_by(st, control, before)?;
+        if st.borrow().parts.is_empty() && st.borrow().open {
+            let engine = self.engine();
+            if let ir::Binding::Field(pos) = page_of(&engine, st).controls[control].binding {
+                self.drop_key_typed_on_stored_blank_row(st, pos)?;
+            }
+        }
         if st.borrow().parts.is_empty() || !st.borrow().open {
             return Ok(());
         }
@@ -1383,8 +1389,8 @@ impl Session {
         }
         // A key field typed on a host row that is stored (a new row the host inserted when a field outside the key was
         // typed first): BC keeps the parts' blank lines on the old link value (pages/lt-new-line-stamps-filters/
-        // NewLineStampsFilters.al:264 PartB_OpenNewHeader_TypeThenNo, the line is stored with a blank "Document No.");
-        // the rule is not found, so it is refused.
+        // NewLineStampsFilters.al:285 PartB_OpenNewHeader_TypeThenNo, the line is stored with a blank "Document No."): the card
+        // drops the key (`revert_key_typed_on_stored_row`).
         let key_of_stored_row = {
             let s = st.borrow();
             !s.draft && s.cursor == Cursor::Row
@@ -1435,9 +1441,7 @@ impl Session {
                     .as_ref()
                     .is_some_and(|l| l.entries.iter().any(|e| e.host_field() == Some(pos)))
             {
-                return unsupported(
-                    "a key field typed on a new host row stored after a field outside its key was typed, with parts linked on it (not pinned)",
-                );
+                return self.revert_key_typed_on_stored_row(st, pos);
             }
             let reads = page.controls[*i]
                 .part_link
