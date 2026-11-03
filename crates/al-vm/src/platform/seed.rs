@@ -72,6 +72,26 @@ const ODATA_EDM_TYPES: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// The seed rows that depend on the program only, per object index, for engines to share between threads. `Value` is not
+/// `Send` because some variants hold `Rc` handles; these rows are made of plain values only (checked when it is made), whose
+/// only shared parts are `Arc`s, and they are never changed: a session clones a row before it writes it (the same argument as
+/// `mat::SharedMat`).
+pub(crate) struct SeedRows(std::collections::HashMap<usize, Vec<Row>>);
+
+impl SeedRows {
+    /// The rows for sharing, or `None` when a value holds a handle: each session then builds its own.
+    fn try_new(rows: std::collections::HashMap<usize, Vec<Row>>) -> Option<SeedRows> {
+        rows.values()
+            .all(|rs| rs.iter().all(|r| r.iter().all(Value::is_plain)))
+            .then_some(SeedRows(rows))
+    }
+}
+
+// SAFETY: `SeedRows::try_new` checked that every value is plain (no `Rc`, no `RefCell`); the remaining reference-counted parts
+// are `Arc`s. The contents are read-only from then on.
+unsafe impl Send for SeedRows {}
+unsafe impl Sync for SeedRows {}
+
 /// The Web Service rows of a fresh tenant, every column (onprem platform/PtWebServiceRows.al:39-73, WebService_Content:
 /// 17 rows): (Object Type ordinal, Service Name, Object ID). Published is Yes and both Exclude columns No on every row.
 /// They are rows of the database the service tier starts with, not written by AL of an app.
@@ -217,7 +237,52 @@ pub(crate) fn seed_tables(engine: &crate::Engine) -> Box<[usize]> {
         .collect()
 }
 
+/// The Web Service rows of a fresh tenant (without their SystemId): the table `id` is `WEB_SERVICE` or `TENANT_WEB_SERVICE`.
+fn web_service_rows(t: &TableDef, id: u32) -> Vec<Row> {
+    let rows = if id == WEB_SERVICE {
+        WEB_SERVICES
+    } else {
+        TENANT_WEB_SERVICES
+    };
+    rows.iter()
+        .map(|&(object_type, name, object_id)| {
+            let mut r = super::blank(t);
+            r[pos(t, 3)] = super::option(t, 3, object_type);
+            r[pos(t, 9)] = text(t, 9, name);
+            r[pos(t, 6)] = Value::Integer(object_id);
+            r[pos(t, 12)] = Value::Boolean(true);
+            r
+        })
+        .collect()
+}
+
 impl Session {
+    /// The seed rows that depend on the program only (All Profile, Web Service, Tenant Web Service), without their
+    /// SystemId, per object index of `tables`. A session clones them instead of building them again.
+    fn program_seed_rows(
+        &self,
+        engine: &crate::Engine,
+        tables: &[usize],
+    ) -> std::collections::HashMap<usize, Vec<Row>> {
+        let heads = engine.program.objects.heads();
+        let mut out = std::collections::HashMap::new();
+        for &oi in tables {
+            let (Some(id), Some(t)) = (heads[oi].id, engine.tables[oi].as_ref()) else {
+                continue;
+            };
+            match id {
+                super::profiles::ALL_PROFILE => {
+                    out.insert(oi, self.profile_seed_rows(t));
+                }
+                WEB_SERVICE | TENANT_WEB_SERVICE => {
+                    out.insert(oi, web_service_rows(t, id));
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
     /// Inserts one seed row of a table that holds several, with a SystemId like any inserted row.
     fn insert_seed(&mut self, t: &TableDef, mut r: Row) {
         if let Some(p) = t.fields.iter().position(|f| f.id == 2_000_000_000) {
@@ -233,6 +298,18 @@ impl Session {
         let heads = engine.program.objects.heads();
         // Only the tables that have a seed (worked out once per program, in object order), not every object head.
         let seed_tables = engine.seed_tables.get_or_init(|| seed_tables(&engine));
+        // The rows that depend on the program only, worked out once per engine (the SystemId is the session's).
+        let own;
+        let cached = match engine
+            .seed_rows
+            .get_or_init(|| SeedRows::try_new(self.program_seed_rows(&engine, seed_tables)))
+        {
+            Some(shared) => &shared.0,
+            None => {
+                own = self.program_seed_rows(&engine, seed_tables);
+                &own
+            }
+        };
         for &oi in seed_tables.iter() {
             let o = &heads[oi];
             let (Some(id), al_ir::ObjKind::Table) = (o.id, if o.uncompiled { al_ir::ObjKind::Other } else { o.kind })
@@ -242,7 +319,7 @@ impl Session {
             let Some(t) = engine.tables[oi].as_ref() else { continue };
             let row: Row = match id {
                 super::profiles::ALL_PROFILE => {
-                    wrote |= self.seed_profiles(t, i);
+                    wrote |= self.seed_profiles(t, &cached[&oi]);
                     continue;
                 }
                 super::profile_settings::TENANT_PROFILE_SETTING => {
@@ -277,18 +354,8 @@ impl Session {
                     continue;
                 }
                 WEB_SERVICE | TENANT_WEB_SERVICE => {
-                    let rows = if id == WEB_SERVICE {
-                        WEB_SERVICES
-                    } else {
-                        TENANT_WEB_SERVICES
-                    };
-                    for &(object_type, name, object_id) in rows {
-                        let mut r = super::blank(t);
-                        r[pos(t, 3)] = super::option(t, 3, object_type);
-                        r[pos(t, 9)] = text(t, 9, name);
-                        r[pos(t, 6)] = Value::Integer(object_id);
-                        r[pos(t, 12)] = Value::Boolean(true);
-                        self.insert_seed(t, r);
+                    for r in &cached[&oi] {
+                        self.insert_seed(t, r.clone());
                     }
                     wrote = true;
                     continue;
@@ -416,5 +483,49 @@ impl Session {
             changed |= self.store.modify(&self.cx, &t, row).is_ok();
         }
         changed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SeedRows;
+    use al_sema::workspace::AppSource;
+
+    const SRC: &str = r#"
+table 2000000178 "All Profile" {
+    fields { field(1; Scope; Option) { OptionMembers = System,Tenant; } field(2; "App ID"; Guid) { } field(3; "Profile ID"; Code[30]) { }
+        field(4; Description; Text[250]) { } field(5; "Role Center ID"; Integer) { } field(6; "Default Role Center"; Boolean) { }
+        field(13; "Disable Personalization"; Boolean) { } field(14; "App Name"; Text[250]) { } field(15; Enabled; Boolean) { }
+        field(16; Caption; Text[100]) { } field(17; Promoted; Boolean) { } }
+    keys { key(PK; Scope, "App ID", "Profile ID") { } }
+}
+profile "P One" { RoleCenter = 9006; }
+profile "P Two" { RoleCenter = 9006; Enabled = false; }
+"#;
+
+    /// The seed rows that depend on the program only are worked out by the first session of an engine; the next session
+    /// takes them from the engine and holds the same rows, each with a SystemId of its own.
+    #[test]
+    fn program_seed_rows_are_built_once_per_engine() {
+        let (ws, l) = al_sema::lower::compile(
+            vec![AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), SRC.into())],
+            }],
+            &Default::default(),
+        );
+        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+        let engine = crate::Engine::new(l.program, Vec::new());
+        assert!(engine.seed_rows.get().is_none());
+        let first = crate::Session::new(engine.clone());
+        let built = engine.seed_rows.get().expect("the first session builds the rows");
+        let shared = built.as_ref().expect("plain values can be shared");
+        assert!(shared.0.values().any(|r| r.len() == 2), "two profile rows");
+        let at = shared as *const SeedRows;
+        let second = crate::Session::new(engine.clone());
+        assert!(std::ptr::eq(at, engine.seed_rows.get().unwrap().as_ref().unwrap()));
+        drop((first, second));
     }
 }
