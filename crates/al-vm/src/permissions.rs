@@ -848,8 +848,18 @@ impl Session {
         if self.permission_caller.or_else(|| self.frames.last().copied()) == Some(object) {
             return Ok(());
         }
+        if self.permission_caller_is_subscriber() {
+            return Ok(());
+        }
+        if let Some(abort) = self.permission_open_page_abort(object) {
+            return Err(abort);
+        }
         let rt = &self.engine.program.objects[object].routines[routine];
         let kind = self.engine.program.objects.heads()[object].kind;
+        // The triggers of a table run for the record write that starts them; Execute on the table is checked there first.
+        if rt.is_trigger && kind == al_ir::ObjKind::Table {
+            return Ok(());
+        }
         let unpinned_site = rt
             .attributes
             .iter()
@@ -1171,6 +1181,9 @@ impl Session {
             return Ok(());
         }
         let access = Access { kind: 0, id, op };
+        if from_al {
+            self.permission_table_trigger_execute(method, rec, args, object)?;
+        }
         // The reads the runtime makes for a running xmlport count as the xmlport's.
         self.permission_caller = if from_al { None } else { self.permission_run_object };
         let verdict = self.permission_verdict(access, Some(object), false);

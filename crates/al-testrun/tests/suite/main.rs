@@ -38,6 +38,7 @@ mod page_run_view;
 mod page_variable_control_no_insert;
 mod permission_abp;
 mod permission_execute;
+mod permission_execute_triggers;
 mod permission_read_write;
 mod permission_report_after_denial;
 mod permission_writes;
