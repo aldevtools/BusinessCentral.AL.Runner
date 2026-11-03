@@ -94,7 +94,7 @@ fn every_oracle_case_is_reported_and_attributed_to_an_area() {
     assert_eq!(r["overall"]["total"], 23362);
     assert_eq!(r["unmapped"].as_array().unwrap().len(), 0, "{}", r["unmapped"]);
     assert_eq!(r["areas"]["json"]["total"], 495);
-    assert_eq!(r["areas"]["record"]["total"], 3212);
+    assert_eq!(r["areas"]["record"]["total"], 3250);
 }
 
 #[test]
@@ -769,7 +769,7 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // PlatformMetadataColumnsFrom29).
     // Corpus bump to master 941cd813 makes it 283: the bump to 9cce33bd (writers Y76 to Y81, which did not update this count)
     // and the Y79 fix and Y85 pins after it add BC28PLUS and BC29PLUS guards that the probed-values gates cite.
-    assert!(out.contains("oracle: 283 case(s) differ between versions"), "{out}");
+    assert!(out.contains("oracle: 293 case(s) differ between versions"), "{out}");
     // The known BC 29 differences are gated (ADR-015 3.4), so the runtime passes the same cases on every version, among the
     // cases every oracle has. One difference is known and open (corpus bump 10, backlog): the runtime passes
     // 71500 Get_Uses_Primary_Key_Not_Current_Key on BC 27 only. A new difference would be listed here.
@@ -807,7 +807,10 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bump to master 34ca226f keeps it at 19 once FieldRef.Name of SystemCreatedByUserName is served (Y66).
     // Train 1102q makes it 18: 93335 Y64_UserNameFields_Exist (RecordRef.FieldExist of 2000000005 to 2000000008) now
     // passes on BC 27 and 28 too, so it no longer differs between versions.
-    assert!(out.contains("runtime: 18 case(s) differ between versions"), "{out}");
+    // Corpus bump to master b2a88adc makes it 32: the 14 Y89_Old_Property_* and Y89_Old_Setter_* cases of 81070
+    // (report/lt-bd-format-region/BdRegionTests.al:1521) pass on BC 29 only; on 27 and 28 the format with a FormatRegion
+    // other than the default is not pinned and refused (the same refusal as BdProperty_*_DatasetAndFormat).
+    assert!(out.contains("runtime: 32 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 
