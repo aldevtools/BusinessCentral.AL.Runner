@@ -28,6 +28,7 @@ impl Session {
             // (Y28CollapsedTreeTests.al:40 Y28_CollapsedOpenAndWalk `testpage-filter-indent` reads ``, `apply_tree_cut`).
             PageMethod::GetFilter => {
                 let pos = field_arg(args, 0)?;
+                self.refuse_link_filter_of_unsaved_host(st, pos)?;
                 let first = rec
                     .borrow()
                     .filters
