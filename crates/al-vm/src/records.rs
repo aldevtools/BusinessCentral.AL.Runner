@@ -5548,20 +5548,7 @@ impl Session {
                     self.run_trigger(t.object as usize, tr, rec, Some(&xrec))?;
                 }
                 self.run_ext_trigger(&t, "OnRename", rec, Some(&xrec))?;
-                self.global_trigger(&t, GlobalOp::Rename, rec, Some(&xrec))?;
-                // record/lt-r6863-rename-trigger/R6863RenameTrigger.al: the OnRename trigger runs first (its error wins), then a
-                // row that does not exist raises RecordNotFound, then the AutoIncrement error, before a key that exists.
-                if let Some(refusal) = auto_increment_refusal {
-                    let exists = self
-                        .store_for(rec)
-                        .get(&cx, &t, &old_pk)
-                        .map_err(|e| Signal::Unsupported(format!("{e}")))?
-                        .is_some();
-                    if exists {
-                        rec.borrow_mut().fields = old;
-                        return Err(refusal);
-                    }
-                }
+                self.raise_deferred_auto_increment(&cx, &t, rec, &xrec, (&old_pk, &old), auto_increment_refusal)?;
                 let _ = self.bump_row_version(&t, rec);
                 let _ = self.stamp_rename(&t, rec);
                 let row = rec.borrow().fields.clone();

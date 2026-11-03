@@ -64,6 +64,19 @@ codeunit 50342 T
         exit(StrSubstNo('hits=%1 %2|%3', Cfg.Count(), GetLastErrorText(), GetLastErrorCode()));
     end;
 
+    procedure OnTemporary(Raise: Boolean): Text
+    var
+        W: Record W temporary;
+        Cfg: Codeunit Cfg;
+    begin
+        Cfg.Reset(Raise);
+        W.Id := 7;
+        W.Payload := 'a';
+        W.Insert(false);
+        asserterror begin W.Rename(8); Error('no error'); end;
+        exit(StrSubstNo('hits=%1 %2|%3|%4', Cfg.Count(), GetLastErrorText(), GetLastErrorCode(), W.Id));
+    end;
+
     procedure ViaRecordRef(Raise: Boolean): Text
     var
         W: Record W;
@@ -143,4 +156,15 @@ fn through_a_recordref_the_same_order_holds() {
 
 fn run_in_with_bool(routine: &str, raise: bool) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
     al_testkit::run_with(SRC, "T", routine, vec![al_builtins::value::Value::Boolean(raise)]).map(|(v, _)| v)
+}
+
+// record/lt-r6863-rename-trigger/R6863RenameTrigger.al:202-219 (Rename_TemporaryRecord): a temporary record runs the trigger and
+// gets no AutoIncrement error; the new key is kept.
+#[test]
+fn a_temporary_record_gets_no_autoincrement_error() {
+    assert_eq!(text(run_in_with_bool("OnTemporary", false)), "hits=1 no error|Dialog|8");
+    assert_eq!(
+        text(run_in_with_bool("OnTemporary", true)),
+        "hits=1 trigger error|Dialog|8"
+    );
 }

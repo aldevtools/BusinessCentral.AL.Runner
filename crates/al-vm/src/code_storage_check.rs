@@ -3,7 +3,7 @@
 use crate::Session;
 use al_builtins::native::Signal;
 use al_builtins::value::{RtType, Value};
-use al_data::TableDef;
+use al_data::{Store, TableDef};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -61,6 +61,34 @@ impl Session {
         let checked = self.check_code_storage(t, rec, false);
         *new = std::mem::replace(&mut rec.borrow_mut().fields, held);
         checked.map(|()| deferred)
+    }
+
+    /// After the OnRename trigger (the global trigger runs here too): record/lt-r6863-rename-trigger/R6863RenameTrigger.al: the trigger runs first (its error wins), then
+    /// a row that does not exist raises RecordNotFound, then the AutoIncrement error, before a key that exists. A temporary record
+    /// has no AutoIncrement error (Rename_TemporaryRecord, same file, :202-219).
+    pub(crate) fn raise_deferred_auto_increment(
+        &mut self,
+        cx: &al_data::AccessContext,
+        t: &TableDef,
+        rec: &Rec,
+        xrec: &Rec,
+        (old_pk, old): (&[Value], &[Value]),
+        refusal: Option<Signal>,
+    ) -> Result<(), Signal> {
+        self.global_trigger(t, crate::globaltriggers::GlobalOp::Rename, rec, Some(xrec))?;
+        let Some(refusal) = refusal.filter(|_| !rec.borrow().temporary) else {
+            return Ok(());
+        };
+        let exists = self
+            .store_for(rec)
+            .get(cx, t, old_pk)
+            .map_err(|e| Signal::Unsupported(format!("{e}")))?
+            .is_some();
+        if exists {
+            rec.borrow_mut().fields = old.to_vec();
+            return Err(refusal);
+        }
+        Ok(())
     }
 
     /// A Code field the database stores as a number takes plain numbers and the empty value; the check runs where a record is
