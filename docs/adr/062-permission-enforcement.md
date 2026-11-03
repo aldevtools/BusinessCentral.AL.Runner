@@ -458,7 +458,7 @@ Reads is on by default for the shapes the corpus pins (Y24PermReads.al, Y24PermO
 
 ## Amendment 1: the measured permission model (2026-11-03)
 
-- Status: Proposed (the owner accepts or rejects it; until then section 1 stays the rule where the two differ)
+- Status: Accepted (owner, 2026-11-03). Where it differs from section 1, this amendment is the rule.
 - Evidence: corpus writers Y90 (`permissions/lt-y90-perm-shapes/`, merged in the corpus, PR 1088) and Y93
   (`permissions/lt-y93-wildcard-scope/`, branch `al-runtime-rs-staging-y93`, corpus PR 1095). Windows BC 27.5 and 28.5 agree on
   every asserted case; Linux 28.5 and 29.0 match. Citations are `tests/al-language/permissions/` unless the path says otherwise.
