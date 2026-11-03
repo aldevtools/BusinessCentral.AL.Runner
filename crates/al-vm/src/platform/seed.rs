@@ -358,7 +358,7 @@ impl Session {
                         ]),
                     );
                     if let Some(RtType::Option(m)) = t.fields.iter().find(|f| f.id == 11).map(|f| &f.ty) {
-                        set(11, Value::Option(1, m.clone().into()));
+                        set(11, Value::Option(1, m.clone()));
                     }
                     set(12, Value::Integer(1033));
                     set(27, Value::Integer(1033));

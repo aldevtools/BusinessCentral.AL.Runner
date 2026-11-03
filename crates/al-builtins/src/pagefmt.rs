@@ -342,7 +342,7 @@ fn parse_typed(
                 },
                 None => return None,
             };
-            Value::Option(i as i32, members.clone().into())
+            Value::Option(i as i32, members.clone())
         }
         T::Enum(id) => Value::Enum(*id, enum_by_text(*id, t)?),
         T::Date => {

@@ -131,8 +131,8 @@ impl Session {
                 let t = text.trim();
                 let found = members.iter().position(|m| m.eq_ignore_ascii_case(t));
                 match found {
-                    Some(i) => Ok(Value::Option(i as i32, members.clone().into())),
-                    None if t.is_empty() => Ok(Value::Option(0, members.clone().into())),
+                    Some(i) => Ok(Value::Option(i as i32, members.clone())),
+                    None if t.is_empty() => Ok(Value::Option(0, members.clone())),
                     None => Err(evaluate_error(text, "Option")),
                 }
             }
@@ -195,7 +195,7 @@ impl Session {
             RtType::Option(names) => {
                 let t = text.trim();
                 if t.is_empty() {
-                    return Ok(Value::Option(0, names.clone().into()));
+                    return Ok(Value::Option(0, names.clone()));
                 }
                 let by_name = names.iter().position(|m| m.eq_ignore_ascii_case(t));
                 let by_caption = members
@@ -203,7 +203,7 @@ impl Session {
                     .and_then(|m| m.iter().position(|(_, _, c)| c.eq_ignore_ascii_case(t)));
                 let by_ordinal = t.parse::<usize>().ok().filter(|i| *i < names.len());
                 match by_name.or(by_ordinal).or(by_caption) {
-                    Some(i) => Ok(Value::Option(i as i32, names.clone().into())),
+                    Some(i) => Ok(Value::Option(i as i32, names.clone())),
                     None => Err(evaluate_error(text, "Option")),
                 }
             }

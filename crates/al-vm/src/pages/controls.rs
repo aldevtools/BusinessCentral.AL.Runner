@@ -1647,7 +1647,7 @@ impl Session {
                     return unsupported(format!("GetOption({i}) outside the options (error text not pinned)"));
                 };
                 let v = match self.control_type(st, idx, &current) {
-                    Some(RtType::Option(names)) => Value::Option(*ordinal, names.into()),
+                    Some(RtType::Option(names)) => Value::Option(*ordinal, names.clone()),
                     Some(RtType::Enum(id)) => Value::Enum(id, *ordinal),
                     _ => unreachable!(),
                 };
