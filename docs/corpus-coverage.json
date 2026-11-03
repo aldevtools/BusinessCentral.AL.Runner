@@ -1,5 +1,5 @@
 {
-  "corpus_commit": "941cd81328d0f342c5b0903800bd4042e7bc4ecb",
+  "corpus_commit": "78f6c60b39b20524e8f2d7301a77727d2616b7a0",
   "language": {
     "bc": "27-29",
     "implemented": 1633,
@@ -16512,7 +16512,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Integer, Text, [var Table])",
-        "site": "must-not-compile/cases/0660-report-static-saveas-file.al:33",
+        "site": "lt-y86-dotnet/Y86DotNet.al:127",
         "state": "refused",
         "type": "Report"
       },
@@ -34405,7 +34405,7 @@
           "id": "Report.SaveAsXml#2",
           "pinned": true,
           "signature": "Report.SaveAsXml static (Number: Integer, FileName: Text, ?var Record: Record) -> Boolean?",
-          "site": "must-not-compile/cases/0660-report-static-saveas-file.al:33"
+          "site": "lt-y86-dotnet/Y86DotNet.al:127"
         },
         {
           "id": "Report.SetTableView#1",

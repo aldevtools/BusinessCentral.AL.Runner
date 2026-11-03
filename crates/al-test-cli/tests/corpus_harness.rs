@@ -94,7 +94,7 @@ fn every_oracle_case_is_reported_and_attributed_to_an_area() {
     assert_eq!(r["overall"]["total"], 22892);
     assert_eq!(r["unmapped"].as_array().unwrap().len(), 0, "{}", r["unmapped"]);
     assert_eq!(r["areas"]["json"]["total"], 495);
-    assert_eq!(r["areas"]["record"]["total"], 3012);
+    assert_eq!(r["areas"]["record"]["total"], 3119);
 }
 
 #[test]
