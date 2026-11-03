@@ -38,7 +38,7 @@ pub enum RtType {
     Duration,
     Guid,
     DateFormula,
-    Option(Vec<String>),
+    Option(std::sync::Arc<[String]>),
     Enum(u32),
     Variant,
     List(Box<RtType>),
@@ -2187,7 +2187,7 @@ impl Value {
             RtType::Duration => Value::Duration(0),
             RtType::Guid => Value::Guid([0; 16]),
             RtType::DateFormula => Value::DateFormula(String::new()),
-            RtType::Option(m) => Value::Option(0, std::sync::Arc::from(m.as_slice())),
+            RtType::Option(m) => Value::Option(0, m.clone()),
             RtType::Enum(id) => Value::Enum(*id, 0),
             RtType::Variant => Value::Null,
             RtType::List(_) => Value::List(Rc::default()),
@@ -2290,10 +2290,23 @@ mod tests {
         assert!(matches!(Value::default_for(&RtType::Decimal), Value::Decimal(d) if d.is_zero()));
         assert!(matches!(Value::default_for(&RtType::Variant), Value::Null));
         assert!(matches!(
-            Value::default_for(&RtType::Option(vec!["A".into()])),
+            Value::default_for(&RtType::Option(vec!["A".into()].into())),
             Value::Option(0, _)
         ));
         assert!(matches!(Value::default_for(&RtType::Guid), Value::Guid(g) if g == [0; 16]));
+    }
+
+    #[test]
+    fn an_option_default_shares_the_members_of_its_type() {
+        let members: std::sync::Arc<[String]> = vec!["A".to_string(), "B".to_string()].into();
+        let ty = RtType::Option(members.clone());
+        let Value::Option(0, held) = Value::default_for(&ty) else {
+            panic!()
+        };
+        assert!(
+            std::sync::Arc::ptr_eq(&held, &members),
+            "the default copied the member names"
+        );
     }
 
     #[test]

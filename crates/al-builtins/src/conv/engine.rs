@@ -123,7 +123,7 @@ fn cast(d: Decimal, from: &str, to: &str, min: i128, max: i128, t: &RtType) -> R
         RtType::Duration => Value::Duration(n as i64),
         RtType::Char => Value::Char(n as u16),
         RtType::Byte => Value::Byte(n as u8),
-        RtType::Option(m) => Value::Option(n as i32, m.clone().into()),
+        RtType::Option(m) => Value::Option(n as i32, m.clone()),
         _ => unreachable!("a number target"),
     })
 }

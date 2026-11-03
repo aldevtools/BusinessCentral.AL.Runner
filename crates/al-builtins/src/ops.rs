@@ -215,10 +215,10 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         // types/PXEnumRecordRef.al:7-10, :74-135, probed on BC 27.5). Whether
         // the assignment compiles (the target must state AssignmentCompatibility, AL0122) is the checker's.
         (Value::Enum(_, o), T::Enum(to)) => Value::Enum(*to, o),
-        (Value::Option(o, _), T::Option(m)) => Value::Option(o, m.clone().into()),
+        (Value::Option(o, _), T::Option(m)) => Value::Option(o, m.clone()),
         // An Enum value into an Option, an Integer or a Decimal is its ordinal; one beyond the members is kept
         // (types/lt-filter-enum-relation-duration-guid/B_EnumOptionVariant.al:EnumVariant_DirectAssign_Option_Integer, EnumVariant_To_Integer).
-        (Value::Enum(_, o), T::Option(m)) => Value::Option(o, m.clone().into()),
+        (Value::Enum(_, o), T::Option(m)) => Value::Option(o, m.clone()),
         (Value::Enum(_, o), T::Integer) => Value::Integer(o),
         (Value::Enum(_, o), T::Decimal) => Value::Decimal(Decimal::from(o)),
         // The conversions between numbers (Integer, BigInteger, Decimal, Char, Byte, an Option's and a Duration's number) into
@@ -2123,7 +2123,7 @@ mod tests {
     // `for FromSalesLineDisc."Sales Type" := ...::Customer to ...::Campaign` in Sales Price Calc. Mgt.
     #[test]
     fn an_enum_converts_to_an_option_and_an_integer_by_ordinal_and_a_biginteger_to_an_option() {
-        let members = || RtType::Option(vec!["A".into(), "B".into(), "C".into()]);
+        let members = || RtType::Option(vec!["A".into(), "B".into(), "C".into()].into());
         assert!(matches!(convert(Value::Enum(37, 2), &members()), Ok(Value::Option(2, m)) if m.len() == 3));
         assert!(matches!(
             convert(Value::Enum(37, 9), &members()),

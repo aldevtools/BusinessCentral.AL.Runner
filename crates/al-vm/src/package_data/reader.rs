@@ -151,7 +151,7 @@ fn value(c: &mut Cursor, col: &Column) -> R<Value> {
         RtType::Option(names) => {
             let n = c.i32()?;
             if usize::try_from(n).is_ok_and(|n| n < names.len()) {
-                Ok(Value::Option(n, names.to_vec().into()))
+                Ok(Value::Option(n, names.clone()))
             } else {
                 Err(format!(
                     "the Option ordinal {n}, which the field does not define (not pinned)"

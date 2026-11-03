@@ -1013,7 +1013,7 @@ fn format_of_an_option_field_with_captions_formats_the_caption() {
         let ir::Arg::Value(v) = &args[0] else { return None };
         Some(v.clone())
     };
-    let want = RtType::Option(vec!["Draft".into(), "Validation in Process".into()]);
+    let want = RtType::Option(vec!["Draft".into(), "Validation in Process".into()].into());
     assert!(
         matches!(arg0("P"), Some(ir::Expr::Convert(t, _)) if t == want),
         "{:?}",
@@ -1772,10 +1772,10 @@ fn option_fields_carry_their_option_members() {
     let t = table_ir(&l);
     assert_eq!(
         t.fields[1].ty,
-        RtType::Option(vec![" ".into(), "Draft".into(), "In Work".into()])
+        RtType::Option(vec![" ".into(), "Draft".into(), "In Work".into()].into())
     );
-    assert_eq!(t.fields[2].ty, RtType::Option(vec!["".into(), "Alpha".into()]));
-    assert_eq!(t.fields[3].ty, RtType::Option(vec!["".into()]));
+    assert_eq!(t.fields[2].ty, RtType::Option(vec!["".into(), "Alpha".into()].into()));
+    assert_eq!(t.fields[3].ty, RtType::Option(vec!["".into()].into()));
 }
 
 #[test]
