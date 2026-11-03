@@ -323,6 +323,7 @@ impl Session {
         else {
             return unsupported("a request page without a handler");
         };
+        self.request_page_takes_init_caption(inst, &st);
         self.ui_state.page_handler_depth += 1;
         // The handler of a `RunRequestPage` finds no transaction, while the page's own triggers write as ever
         // (report/TestProbeReportContracts.al:RequestPage_TableWriteInsideHandler; handlers/TestReportInstanceRunReqPage.al
@@ -770,18 +771,10 @@ impl Session {
             "The action with ID = {} is not found on the page.",
             action_id(id, &c.name)
         );
-        // The code is TestActionNotFound for an action declared `Enabled = false` or `Visible = false`
-        // (report/lt-aq/AqTests.al:334-358, Actions_DisabledAndHidden_Invoke); for any other action it is not pinned.
-        let off = |name: &str| {
-            c.props
-                .iter()
-                .any(|(k, v)| k == name && matches!(v, ir::PropVal::Lit(l) if l.eq_ignore_ascii_case("false")))
-        };
-        let code = if off("enabled") || off("visible") {
-            "TestActionNotFound".to_string()
-        } else {
-            al_builtins::native::UNPINNED_ERROR.to_string()
-        };
+        // The code is TestActionNotFound for an action declared `Enabled = false` or `Visible = false` (report/lt-aq/AqTests.al:334-358,
+        // Actions_DisabledAndHidden_Invoke) and for a visible, enabled one (report/lt-y86-request-page/Y86RequestCaption.al
+        // Y86_Caption_OnActionSets `invoke=TestActionNotFound`).
+        let code = "TestActionNotFound".to_string();
         Err(Signal::Error(Box::new(al_builtins::native::AlError {
             message,
             code,

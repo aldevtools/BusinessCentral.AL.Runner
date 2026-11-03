@@ -824,12 +824,16 @@ impl Session {
         }
         if go == Some(false) {
             // A trigger that inserted the row itself and answered false leaves the page on a stored row: its next edit is
-            // a modify (as for a template step in `start_draft`). Not pinned for this answer: Base Application's Item
-            // Tracking Lines inserts into its temporary source this way (assumption page-oninsertrecord-false-after-code-insert).
+            // a modify (as for a template step in `start_draft`). Pinned for a database table, in a card (OpenNew) and a list
+            // (pages/lt-oninsertrecord-false/OnInsertRecordFalse.al Card_OpenNew_KeyThenField_OK, _Close, _KeyOnly_Close,
+            // List_New_KeyThenField). Not pinned for a temporary source, as Base Application's Item Tracking Lines has
+            // (assumption page-oninsertrecord-false-after-code-insert).
             if !st.borrow().draft_stored && self.stored_row(&rec)?.is_some() {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::PageOnInsertRecordFalseAfterCodeInsert,
-                );
+                if rec.borrow().temporary {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::PageOnInsertRecordFalseAfterCodeInsert,
+                    );
+                }
                 {
                     let mut s = st.borrow_mut();
                     s.draft = false;

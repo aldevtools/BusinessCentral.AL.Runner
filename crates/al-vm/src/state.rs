@@ -365,7 +365,7 @@ pub(crate) struct ReportState {
     pub(crate) report_running: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// `RequestOptionsPage.Caption` set by the code of a report outside its request page's OnOpenPage, by report instance: the
     /// getter reads it back (see `reports.rs`, `request_page_caption`).
-    pub(crate) request_captions: Vec<(std::rc::Weak<RefCell<Instance>>, String)>,
+    pub(crate) request_captions: Vec<(std::rc::Weak<RefCell<Instance>>, String, Option<String>)>,
     /// `CurrReport.PrintOnlyIfDetail` of the running processing-only report: set by its setter, cleared when a run starts.
     pub(crate) print_only_if_detail: bool,
     /// The Blob buffer the last `Query.SaveAsCsv` wrote, and its length then (see `queries.rs`, `query_save_csv`).
