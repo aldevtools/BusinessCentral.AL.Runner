@@ -540,19 +540,36 @@ pub fn parse_filter_with(
             return e;
         }
     }
-    // `<1M>` on a DateFormula field: the lexer does not expect the closing `>` (errors/lt-ms-refusals-136/P136Filter.al:241-245
-    // `oneMAngles`, `oneDAngles`, pinned for a number and the unit M or D; any other formula is refused below).
+    // `@` (case-insensitive) makes no sense for a Guid: `@{1A2B...}` raises the Guid format error (record/lt-y77-guid-filter/
+    // Y77GuidFilter.al Record_Shapes5To6 `shape5`; pinned for a braced Guid after the `@`).
+    if matches!(ty, crate::value::RtType::Guid)
+        && text.trim().strip_prefix('@').is_some_and(|rest| {
+            rest.starts_with('{') && crate::evaluate::read_text(&crate::value::RtType::Guid, rest.trim()).is_some()
+        })
+    {
+        return Err(format!("{INVALID_GUID}{text}"));
+    }
+    // A DateFormula field takes no formula in angle brackets (`<1M>`, `<-CM+2D>`: the lexer does not expect the closing `>`), a text
+    // of letters with one that is no unit needs a time unit, and `*M` needs a number (errors/lt-ms-refusals-136/P136Filter.al:241-258
+    // `oneMAngles`, `oneDAngles`, `garbage`, `wildcardM`; record/lt-y77-guid-filter/Y77GuidFilter.al DateFormula_TextFilter_*). The
+    // formulas that are valid are refused below.
     if matches!(ty, crate::value::RtType::DateFormula) {
         let t = text.trim();
-        if t.len() > 3
-            && t.starts_with('<')
-            && t.ends_with('>')
-            && t[1..t.len() - 1]
-                .bytes()
-                .all(|b| b.is_ascii_digit() || b == b'M' || b == b'D')
-            && t[1..t.len() - 1].bytes().any(|b| b == b'M' || b == b'D')
-        {
+        let formula_chars = |s: &str| s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'-');
+        if t.len() > 2 && t.starts_with('<') && t.ends_with('>') && formula_chars(&t[1..t.len() - 1]) {
             return Err(did_not_expect(">"));
+        }
+        if !t.is_empty()
+            && t.bytes().all(|b| b.is_ascii_alphabetic())
+            && t.bytes().any(|b| !b"CDWMQYcdwmqy".contains(&b))
+        {
+            return Err(format!(
+                "{FILTER_SYNTAX}The date formula '{}' should include a time unit.\\\\Time units can be: D,WD,W,M,Q, or Y.\\C, meaning current time unit based on date, can be specified as a prefix to the time unit.",
+                t.to_uppercase()
+            ));
+        }
+        if t == "*M" {
+            return Err(format!("{FILTER_SYNTAX}The date formula '*M' should include a number."));
         }
     }
     // Three dots in a Date filter read as two (P81DateFilters.al:SetFilter_Date_InvalidTexts, `010126...020126`).
@@ -1752,6 +1769,15 @@ mod tests {
         ));
     }
 
+    /// `@` before a braced Guid is the Guid format error (record/lt-y77-guid-filter/Y77GuidFilter.al Record_Shapes5To6 `shape5`).
+    #[test]
+    fn a_guid_filter_with_an_at_sign_before_the_guid_is_invalid() {
+        use crate::value::RtType as T;
+        let e = parse_filter("@{1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D}", &[], &T::Guid).unwrap_err();
+        assert!(e.starts_with(INVALID_GUID), "{e}");
+        assert!(parse_filter("{1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D}", &[], &T::Guid).is_ok());
+    }
+
     /// Microsoft's Library - ERM `GetDiscountPaymentTerm` filters a DateFormula field with `<>` and the empty text: there the
     /// empty text is the empty formula (misc/lt-y70-assumptions/Y70Probes.al:218-262, FilterDateFormula_EmptyText).
     #[test]
@@ -1771,15 +1797,19 @@ mod tests {
     #[test]
     fn a_date_formula_filter_in_angle_brackets_does_not_expect_the_closing_bracket() {
         use crate::value::RtType as T;
-        for text in ["<1M>", "<1D>"] {
+        for text in ["<1M>", "<1D>", "<-CM+2D>"] {
             let e = parse_filter(text, &[], &T::DateFormula).expect_err(text);
             assert_eq!(e, did_not_expect(">"), "{text}");
         }
-        // Not pinned: a formula that is not a number and a unit, and an open bracket (`<1M` is a less-than filter).
+        // An open bracket is a less-than filter on a formula, refused.
         assert!(parse_filter("<1M", &[], &T::DateFormula).is_err());
-        assert_ne!(
-            parse_filter("<-CM+2D>", &[], &T::DateFormula).unwrap_err(),
-            did_not_expect(">")
+        // A text of letters that is no unit needs a time unit (Y77GuidFilter.al DateFormula_TextFilter_SetFilterOther `sf_plain`).
+        let e = parse_filter("abc", &[], &T::DateFormula).unwrap_err();
+        assert!(
+            e.contains(
+                "The date formula 'ABC' should include a time unit.\\\\Time units can be: D,WD,W,M,Q, or Y.\\C, meaning"
+            ),
+            "{e}"
         );
     }
 

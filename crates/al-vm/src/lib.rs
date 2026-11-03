@@ -56,6 +56,7 @@ mod faultsite;
 mod fieldref_length;
 mod fieldref_validate;
 mod fieldref_value_into;
+mod filter_text_arg;
 mod filterevents;
 mod filterpage;
 mod flowfields;
