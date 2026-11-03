@@ -466,6 +466,9 @@ pub struct PageState {
     /// from the new-row line right after reads the last row as a move between rows does (Y80_Moved_All_FirstOntoDeleted
     /// `previous log`). Cleared by the next First, Last or Previous.
     pub refreshed_after_gone_move: bool,
+    /// An action of the page ran since it opened: a row an action deleted is not the pinned `moved_onto_deleted` shape (that
+    /// one is pinned for a row the test code deleted; PnGRefresh.al ListLosesOneOfTwoRowsWithoutUpdate pins another log).
+    pub action_ran: bool,
     /// A list part opens on the row the host's code left its Rec on (`part_rec_row.rs`): its open read reads the rows above.
     pub part_on_host_row: bool,
     /// The page's source is temporary and its OnOpenPage left Rec as it stood before (key, order, filters and row): the row
@@ -997,6 +1000,7 @@ impl PageState {
             open_reads_above: false,
             opened_on_moved_rec: false,
             refreshed_after_gone_move: false,
+            action_ran: false,
             part_on_host_row: false,
             onopenpage_kept_rec: false,
             lookup_held_row: false,

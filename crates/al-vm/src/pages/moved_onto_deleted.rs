@@ -40,6 +40,7 @@ impl Session {
             && s.cursor == Cursor::Row
             && !s.draft
             && !s.stale
+            && !s.action_ran
             && s.open
             && s.window_from_start
             && !s.modal

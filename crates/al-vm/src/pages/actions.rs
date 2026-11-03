@@ -1039,6 +1039,7 @@ impl Session {
     /// does nothing and raises nothing (corpus handlers/TestPageActionEnabledSourceField_Tests.al,
     /// TPAE_ActionEnabledBoolField_FalseRow_IsDisabledAndItsTriggerIsSkipped).
     pub(super) fn action_invoke(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
+        st.borrow_mut().action_ran = true;
         if st.borrow().expr_set_no_source {
             return unsupported(
                 "an action after a SetValue on a control bound to an expression of a page with no source table (the refresh after the action is not modelled)",
