@@ -36,6 +36,19 @@ pub struct Dependencies {
 }
 
 impl Dependencies {
+    /// Per dependency app (by app id), the reader of the layout files of its package or folder (read when a run asks for
+    /// one: `al_vm` `report_layout_export`).
+    pub fn layout_sources(&self) -> Vec<(String, al_ir::LayoutSourceRef)> {
+        self.apps
+            .iter()
+            .zip(&self.paths)
+            .map(|(app, path)| {
+                let source = al_deps::lazy::PackageFiles::new(path.clone());
+                (app.id.clone(), al_ir::LayoutSourceRef(std::sync::Arc::new(source)))
+            })
+            .collect()
+    }
+
     /// What an app with a `platform` and/or `application` floor depends on without declaring it
     /// (only with `implied` on in [`load_project`]): `System`, `Application` and the apps
     /// `Application` propagates. The caller adds these to its own apps' dependencies.

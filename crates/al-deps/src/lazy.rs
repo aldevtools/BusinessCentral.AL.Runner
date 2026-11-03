@@ -79,10 +79,8 @@ impl SourceLoader for ZipLoader {
     }
 }
 
-/// Reads the manifest and the central directory of the package at `path`. `None`: the package
-/// cannot be read lazily (a wrapper around an inner `.app`, an unreadable or unusual file); the
-/// caller reads it as usual and gets the error, if there is one, from that.
-pub fn read_lazy(path: &Path, vars: &Vars) -> Option<LazyPackage> {
+/// The open file, where the archive starts in it and the central directory of the zip at `path`.
+fn open_directory(path: &Path) -> Option<(File, u64, Vec<Entry>)> {
     let file = File::open(path).ok()?;
     let total = file.metadata().ok()?.len();
     let tail_len = total.min(END_SEARCH as u64);
@@ -94,6 +92,49 @@ pub fn read_lazy(path: &Path, vars: &Vars) -> Option<LazyPackage> {
     read_exact_at(&file, cd_start, &mut cd).ok()?;
     let entries = parse_central_directory(&cd, end.count).ok()?;
     let base = cd_start.checked_sub(end.cd_offset as u64)?;
+    Some((file, base, entries))
+}
+
+/// An open zip: the file, where the archive starts in it and its entries by name.
+type OpenZip = (File, u64, std::collections::HashMap<String, Entry>);
+
+/// The files of a dependency app's package or folder, read when asked for (`al_ir::LayoutSource`). The package's central
+/// directory is read on the first ask, so a run that never exports a layout pays nothing.
+pub struct PackageFiles {
+    path: std::path::PathBuf,
+    zip: std::sync::OnceLock<Option<OpenZip>>,
+}
+
+impl PackageFiles {
+    pub fn new(path: std::path::PathBuf) -> PackageFiles {
+        PackageFiles {
+            path,
+            zip: std::sync::OnceLock::new(),
+        }
+    }
+}
+
+impl al_ir::LayoutSource for PackageFiles {
+    fn file(&self, path: &str) -> Option<Vec<u8>> {
+        if self.path.is_dir() {
+            return std::fs::read(self.path.join(path)).ok();
+        }
+        let (file, base, entries) = self
+            .zip
+            .get_or_init(|| {
+                let (file, base, entries) = open_directory(&self.path)?;
+                Some((file, base, entries.into_iter().map(|e| (e.name.clone(), e)).collect()))
+            })
+            .as_ref()?;
+        entry_bytes(file, *base, entries.get(path)?).ok()
+    }
+}
+
+/// Reads the manifest and the central directory of the package at `path`. `None`: the package
+/// cannot be read lazily (a wrapper around an inner `.app`, an unreadable or unusual file); the
+/// caller reads it as usual and gets the error, if there is one, from that.
+pub fn read_lazy(path: &Path, vars: &Vars) -> Option<LazyPackage> {
+    let (file, base, entries) = open_directory(path)?;
     let find = |name: &str| entries.iter().find(|e| e.name == name);
     let (manifest, source_zip) = if let Some(m) = find("NavxManifest.xml") {
         // A wrapper holds the real package inside.
@@ -209,5 +250,25 @@ mod tests {
         );
         std::fs::write(dir.path().join("w.app"), wrapper).unwrap();
         assert!(read_lazy(&dir.path().join("w.app"), &Vars::default()).is_none());
+    }
+
+    #[test]
+    fn package_files_serve_a_file_of_a_zip_or_a_folder_on_demand() {
+        use al_ir::LayoutSource;
+        let dir = tempfile::tempdir().unwrap();
+        let zip = dir.path().join("src.zip");
+        let b = Builder::new()
+            .add("app.json", b"{}", true)
+            .add("Sales/Invoice.rdlc", b"RDLC-BYTES\x00\xff", true);
+        std::fs::write(&zip, b.finish()).unwrap();
+        let files = PackageFiles::new(zip);
+        assert_eq!(files.file("Sales/Invoice.rdlc").unwrap(), b"RDLC-BYTES\x00\xff");
+        assert_eq!(files.file("Sales/Other.rdlc"), None);
+        let folder = dir.path().join("app");
+        std::fs::create_dir_all(folder.join("Sales")).unwrap();
+        std::fs::write(folder.join("Sales/Invoice.docx"), b"DOCX").unwrap();
+        let files = PackageFiles::new(folder);
+        assert_eq!(files.file("Sales/Invoice.docx").unwrap(), b"DOCX");
+        assert_eq!(files.file("Sales/Missing.docx"), None);
     }
 }
