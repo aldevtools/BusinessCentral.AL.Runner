@@ -51,6 +51,9 @@ impl Session {
                 {
                     Ok(Value::Text(crate::pages::unquote(rp).into()))
                 }
+                // A report with neither Caption: the request page's caption is the report's name (report/lt-y86-request-page/
+                // Y86RequestCaption.al Y86_Caption_OnInitAndOnOpenPage `init_readback`).
+                (None, None) if o.kind == ir::ObjKind::Report => Ok(Value::Text(o.name.clone().into())),
                 _ => unsupported(
                     "RequestPage.Caption read in a report without a request page Caption, or that declares its own Caption (not pinned)",
                 ),
@@ -78,22 +81,11 @@ impl Session {
                 self.report.request_captions.push((Rc::downgrade(inst), text, init));
             }
         }
-        // A set elsewhere (a control's OnValidate, a report trigger) leaves the handler with the caption the page had; whether the
-        // handler reads it is the assumption: marked here once the page was made, else when it opens.
-        if !in_init && self.request_page_open(inst) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCaptionSet);
-        }
+        // A set while the request page is open is the page's own code (a control's OnValidate, an action, a procedure of the page):
+        // the code reads it back and the handler does not (Y86RequestCaption.al Y86_Caption_OnValidateSets,
+        // _ProcedureFromOnValidateSets). A set before the page opens by other code (a report trigger or procedure) is the assumption
+        // request-page-caption-set, marked when the page opens (`request_page_opens_after_caption_set`).
         Ok(Value::Null)
-    }
-
-    /// Whether the request page of the report `inst` is an instance of was made (it opens, is open or was open): a caption
-    /// set then may be what its handler reads.
-    pub(super) fn request_page_open(&self, inst: &Inst) -> bool {
-        let object = inst.borrow().object as usize;
-        let Some(page) = self.engine.program.objects[object].page.as_ref() else {
-            return false;
-        };
-        matches!(inst.borrow().globals.get(page.curr_page_slot), Some(Value::TestPage(_)))
     }
 
     /// A request page opens on `inst`: a caption its code set before is the assumption `request-page-caption-set`.

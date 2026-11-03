@@ -2082,8 +2082,7 @@ impl Session {
     /// page shows the filters of a `SetTableView` and what was stored (report/lt-requestpage-savevalues-date-text-setvalue/
     /// P147SaveValuesFilter.al:P147_Filter_ProcedureFilterVsStored, `procedure filter B* code filter = []`; the view of
     /// P147_Filter_SetTableViewVsStored is shown). The page's own filters replace the item's user filters when it closes with OK, so what a
-    /// procedure set is gone for that run; with a cancelled page there is no run. Whether the run keeps it is not pinned (registry entry
-    /// report-procedure-filter-under-request-page).
+    /// procedure set is gone for that run (Y86RequestFilters.al Y86_ProcedureFilter_*); with a cancelled page there is no run.
     fn hide_procedure_filters(&mut self, run: &Run) -> Result<bool, Signal> {
         let mut any = false;
         for r in run.all_items() {
@@ -2155,6 +2154,12 @@ impl Session {
         run.dataset = save_as.is_some();
         if !shows_page {
             self.request_page_init_unshown(inst, schema)?;
+            // A plain run without the page ignores the filters a procedure set on a data item too (report/lt-y86-request-page/
+            // Y86RequestFilters.al Y86_ProcedureFilter_NoRequestPage: UseRequestPage(false), RunModal, all rows). Execute and SaveAs
+            // apply parameters of their own and are left as they were.
+            if save_as.is_none() && execute_parameters.is_none() {
+                self.hide_procedure_filters(&run)?;
+            }
         }
         if let Some(xml) = save_as.filter(|x| !x.is_empty()) {
             self.apply_run_parameters(inst, schema, &run, xml, false)?;
@@ -2175,7 +2180,7 @@ impl Session {
         // the run without an error (handlers/TestReportRunWithRequestPage.al:
         // Report_Run_CancelledRequestPageRunsNothingAndRaisesNoError).
         if shows_page {
-            let hidden = self.hide_procedure_filters(&run)?;
+            self.hide_procedure_filters(&run)?;
             let ext: Vec<(usize, Inst)> = run.exts.iter().map(|(i, e)| (*e, i.clone())).collect();
             match self.run_request_page(inst, schema.object, None, ext, false)?.0 {
                 RequestClosed::Cancel => return Ok(false),
@@ -2204,13 +2209,7 @@ impl Session {
                         }
                     }
                 }
-                RequestClosed::Ok => {
-                    if hidden {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::ReportProcedureFilterUnderRequestPage,
-                        );
-                    }
-                }
+                RequestClosed::Ok => {}
             }
         }
         self.report_after_page(&run, schema)
