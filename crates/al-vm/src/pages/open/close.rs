@@ -292,6 +292,7 @@ impl Session {
         }
         self.rename_changed_key_at_close(st, action)?;
         let host_saves = st.borrow().dirty || st.borrow().draft;
+        self.refuse_part_triggers_at_new_host_close(st)?;
         let save = self.close_denied_modify(st).and_then(|()| self.close_save_row(st));
         match save {
             Err(Signal::Error(e)) if swallow_save_errors => {

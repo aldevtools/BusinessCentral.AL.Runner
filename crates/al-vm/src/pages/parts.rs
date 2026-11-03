@@ -1473,14 +1473,30 @@ impl Session {
     /// though the page keeps showing it, and the parts do not follow (pages/lt-y80-new-host-key/Y80NewHostKey.al Y80_NH_Card_NameThenNo
     /// `no log` = `HV:A1`, `shown after no` = `|N1|`, `close db` = `[||]`; _NoThenName, _LineOnlyThenNo). Answers whether it applied.
     fn stored_blank_key_retyped(&mut self, st: &St, pos: usize) -> Result<bool, Signal> {
-        let applies = {
+        let (by_part, by_first_edit) = {
             let s = st.borrow();
-            s.host_stored_blank_key && s.host.is_none() && !s.draft && s.cursor == Cursor::Row
-        } && self.has_source(st);
-        if !applies {
+            let stored = s.host.is_none() && !s.draft && s.cursor == Cursor::Row;
+            (
+                s.host_stored_blank_key && stored,
+                s.typed_before_key && stored && s.parts.len() == 1,
+            )
+        };
+        if !(by_part || by_first_edit) || !self.has_source(st) {
             return Ok(false);
         }
-        if !self.table(&self.page_rec(st))?.keys[0].contains(&pos) {
+        let in_key = self.table(&self.page_rec(st))?.keys[0].contains(&pos);
+        // The row was stored with its blank key by a field outside the key typed first, nothing read the part before: the key typed
+        // next behaves as after a part access. Only the Document page with one part and no SourceTableView is pinned
+        // (pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:1294 PYB_OpenNew_NameTypedFirst_ThenKey_ThenLine:
+        // `type_key_log` = `[H.OnValidate(No.):D7]`, `after_key_card_no` = `[]`, `after_key_header_rows` = `[|]`).
+        if !by_part {
+            let o = st.borrow().object as usize;
+            let facts = &self.engine.object_facts[o];
+            if !in_key || facts.page_type != Some(al_ir::PageType::Document) || facts.has_source_table_view {
+                return Ok(false);
+            }
+        }
+        if !in_key {
             // A field outside the key typed on that row: the parts read their rows again, three times as at the insert
             // (Y80_NH_Card_NameThenNo `name log` = `LN:;LN:;LN:`). A second edit is not pinned.
             if std::mem::replace(&mut st.borrow_mut().blank_key_edit_reread, true) {
