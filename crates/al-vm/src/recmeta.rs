@@ -923,25 +923,10 @@ impl Session {
                             .collect(),
                     )
                 };
-                let mut d = dst.borrow_mut();
-                d.filters.retain(|f| !(f.field == to && f.group == to_group));
-                for mut f in copied {
-                    f.field = to;
-                    f.group = to_group;
-                    d.filters.push(f);
-                }
+                Self::put_copied_filters(dst, to, to_group, copied);
                 Ok(Value::Null)
             }
-            RecordOp::CopyFilters => {
-                let Some(Value::Record(src)) = args.first() else {
-                    return unsupported(format!("CopyFilters from {}", args.first().describe()));
-                };
-                if !Rc::ptr_eq(src, rec) {
-                    let filters = src.borrow().filters.clone();
-                    rec.borrow_mut().filters = filters;
-                }
-                Ok(Value::Null)
-            }
+            RecordOp::CopyFilters => Self::copy_filters(rec, args),
             // Doc (Record.Copy) and corpus record/TestCopyOntoTemporaryRecord.al:66-110: the buffer, filters,
             // key and direction come over; a temporary target keeps its own rows and stays temporary.
             RecordOp::Copy => {

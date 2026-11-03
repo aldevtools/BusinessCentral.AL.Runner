@@ -404,65 +404,9 @@ impl Session {
                     )),
                 }
             }
-            ids::REPORT_FORMATREGION_1 if self.report.region_property => {
-                unsupported("CurrReport.FormatRegion in a report whose FormatRegion property is set (not pinned)")
-            }
-            // `en-US`, the session's own region, reads back empty and leaves Format as it was while the report keeps the
-            // session's language (misc/lt-probes-needed-8/PnH4CurrReport.al:244 `region=[]`). After `CurrReport.Language :=` the
-            // pinned pairs are `de-DE` after 1031 (PnC06ReportLanguage.al:58-65), `en-US` after 1031, 1036 and 1033, and a region
-            // after its own language (BdRegionTests.al:1346-1440); any other region there is refused (docs/probes-needed.md).
-            ids::REPORT_FORMATREGION_1 => match args.first() {
-                Some(Value::Text(t) | Value::Code(t))
-                    if self.report.report_preview_pinned.last() == Some(&crate::state::ReportStart::Run) =>
-                {
-                    let t = t.to_string();
-                    match self.report.curr_report_language {
-                        None if t == "en-US" => self.report.format_region = None,
-                        None => self.report.format_region = Some(t),
-                        // `de-DE` after `CurrReport.Language := 1031` (PnC06ReportLanguage.al:58-65 `region1:de-DE`).
-                        Some(1031) if t == "de-DE" => self.report.format_region = Some(t),
-                        // `en-US` after 1031, 1036 or 1033: the run goes on, the region reads back empty and Format keeps
-                        // following the language (report/lt-bd-format-region/BdRegionTests.al:942, :1036, :1065
-                        // `after=... language=N region=[]`).
-                        Some(1031 | 1036 | 1033) if t == "en-US" => self.report.format_region = None,
-                        // A region after its own language is kept and reads back: `es-ES_tradnl` after 1034, `en-GB` after 2057,
-                        // `nl-NL` after 1043, `da-DK` after 1030 (report/lt-bd-format-region/BdRegionTests.al:1346-1440, corpus
-                        // master: `language=1034 region=[es-ES_tradnl]`). What Format writes then is decided in al-builtins format.rs
-                        // `format_in_region`, which refuses the regions and shapes it has no pin for.
-                        Some(1034) if t == "es-ES_tradnl" => self.report.format_region = Some(t),
-                        Some(2057) if t == "en-GB" => self.report.format_region = Some(t),
-                        Some(1043) if t == "nl-NL" => self.report.format_region = Some(t),
-                        Some(1030) if t == "da-DK" => self.report.format_region = Some(t),
-                        Some(l) => {
-                            return unsupported(format!(
-                                "CurrReport.FormatRegion := '{t}' after CurrReport.Language := {l} (only 'de-DE' after 1031, 'en-US' after 1031, 1036 and 1033, and a region after its own language for 1034, 2057, 1043 and 1030 are pinned)"
-                            ));
-                        }
-                    }
-                    Ok(Value::Null)
-                }
-                // A SaveAs that has the region of its variable: setting another one there is not pinned.
-                Some(_) if self.report.variable_region => unsupported(
-                    "CurrReport.FormatRegion := in a SaveAs whose report variable set FormatRegion (not pinned)",
-                ),
-                // Outside a report started by Run a region changes the formats and the dataset of a SaveAs
-                // (report/W3ReportObjectIdPreviewLanguage.al:559-570 FormatRegion_SetDeDE_FormatAndColumns), which is not built;
-                // the session's own region changes nothing.
-                Some(Value::Text(t) | Value::Code(t)) if t.as_str() != "en-US" => unsupported(format!(
-                    "CurrReport.FormatRegion := '{t}' in a report not started by Run (its formats and dataset in that region are not built)"
-                )),
-                Some(Value::Text(_) | Value::Code(_)) => Ok(Value::Null),
-                None if self.report.report_preview_pinned.last() == Some(&crate::state::ReportStart::Run) => Ok(
-                    Value::Text(self.report.format_region.clone().unwrap_or_default().into()),
-                ),
-                // The region a SaveAs got from its variable reads back in its triggers (W3ReportObjectIdPreviewLanguage.al:912
-                // `pre ... region=[de-DE]`).
-                None if self.report.variable_region => Ok(Value::Text(
-                    self.report.format_region.clone().unwrap_or_default().into(),
-                )),
-                None => Ok(Value::Text(String::new().into())),
-                Some(other) => unsupported(format!("CurrReport.FormatRegion with {}", other.describe())),
-            },
+            // Reading it in a report with the property is pinned: empty in OnInitReport, the property's region in OnPreReport and
+            // OnAfterGetRecord (report/lt-bd-format-region/BdRegionTests.al:120-415 `init=... region=[];pre=... region=[de-DE]`).
+            ids::REPORT_FORMATREGION_1 => self.report_format_region(args),
             // `ObjectId(UseNames)`: `Report 69730`, or with names (the default) `Report <Caption>`, the object name
             // when the report has no Caption (handlers/PWRefusedBuiltins.al:78-107, BC 27.5; also through a Report
             // variable).
@@ -1853,6 +1797,18 @@ impl Session {
         let outer_region = self.report.format_region.take();
         let outer_property = std::mem::take(&mut self.report.region_property);
         let outer_language = self.report.curr_report_language.take();
+        // A report without output (a processing-only one) with `FormatRegion = 'de-DE'` formats in that region in its triggers when
+        // Run, RunModal or Execute starts it, as a SaveAs does (report/lt-bd-format-region/BdRegionTests.al:432-459
+        // BdProperty_De_RunRunModalExecute); no other region is pinned for a run.
+        if let Some(r) = schema
+            .report()
+            .format_region
+            .as_deref()
+            .filter(|r| *r == "de-DE" && schema.report().output.is_empty())
+        {
+            self.report.format_region = Some(r.to_string());
+            self.report.region_property = true;
+        }
         // Only a Run or RunModal is pinned as running for a nested RunModal (Y40BareReportRun.al:362).
         let tracked = entry == Entry::Run;
         if tracked {
@@ -2327,11 +2283,7 @@ impl Session {
         // A report that renders output runs up to its request page and no further: there is no
         // renderer (docs/probes-needed.md). The dataset a `SaveAs` writes is not rendered output.
         // Only the SaveAs Xml dataset of a report with the FormatRegion property is measured (YReportPropsTests.al:34-148).
-        if let Some(r) = report
-            .format_region
-            .as_deref()
-            .filter(|_| !run.dataset || !self.report.region_property)
-        {
+        if let Some(r) = report.format_region.as_deref().filter(|_| !self.report.region_property) {
             return unsupported(format!(
                 "a run of report \"{}\" with FormatRegion = '{r}' that is not a SaveAs Xml (not pinned)",
                 schema.name()
@@ -3221,16 +3173,17 @@ impl Session {
             }
         }
         // The FormatRegion property sets the culture of the Xml dataset and of Format in the triggers that write it, for the
-        // five regions report/lt-y-report-props/YReportPropsTests.al:34-148 measures; any other region is refused.
+        // regions report/lt-y-report-props/YReportPropsTests.al:34-148 and report/lt-bd-format-region/BdRegionTests.al measure;
+        // any other region is refused. What a region writes on a version that did not measure it is refused where the text is
+        // made (`al_builtins::format::Region`).
         let region = match schema.report().format_region.as_deref() {
             None => None,
-            Some(r) if format == "Xml" && ["de-DE", "en-GB", "fr-FR", "ja-JP", "zz-ZZ"].contains(&r) => Some((
-                r.to_string(),
-                al_builtins::format::Region::parse(r).expect("a listed region"),
-            )),
+            Some(r) if format == "Xml" && al_builtins::format::Region::parse(r).is_some() => {
+                Some((r.to_string(), al_builtins::format::Region::parse(r).expect("checked")))
+            }
             Some(r) => {
                 return unsupported(format!(
-                    "Report.SaveAs of \"{}\" as {format} with FormatRegion = '{r}' (only the Xml dataset of de-DE, en-GB, fr-FR, ja-JP and zz-ZZ is pinned)",
+                    "Report.SaveAs of \"{}\" as {format} with FormatRegion = '{r}' (only the Xml dataset of de-DE, en-GB, fr-FR, ja-JP, zz-ZZ, da-DK, nl-NL, de-CH, it-IT, es-ES, es-ES_tradnl, sv-SE and nb-NO is pinned)",
                     schema.name()
                 ));
             }
@@ -4378,7 +4331,11 @@ impl Session {
                 if let Value::Decimal(_) = &value {
                     attribute = Some(("decimalformatter", self.decimal_column_formatter(&t, c)?));
                 }
-                match al_builtins::format::region_column(r, &value) {
+                match al_builtins::format::region_column(
+                    r,
+                    &value,
+                    self.has(al_version::Gate::ProbedValuesDifferFrom29),
+                ) {
                     Some(text) => text,
                     None => {
                         return unsupported(format!(
@@ -4816,15 +4773,6 @@ impl Session {
         let engine = &schema.engine;
         let object = &engine.program.objects[schema.object];
         let report = schema.report();
-        // A report with the FormatRegion property: report/lt-y-report-props/YReportPropsTests.al:34-148 pins its DataItems block
-        // only (the helper cuts the text at `<DataItems>`). Whether the header (`ReportDataSet formatRegion=` and the
-        // `FormatRegion` element) names the report's region or the session's is not pinned (docs/probes-needed.md).
-        if let Some(r) = &report.format_region {
-            return unsupported(format!(
-                "the header of the SaveAs Xml dataset of report \"{}\" with FormatRegion = '{r}' (only its DataItems block is pinned)",
-                schema.name()
-            ));
-        }
         let app = engine.program.apps.get(object.app as usize);
         let ms = self.now_millis();
         let day = ms.div_euclid(86_400_000) + i64::from(al_builtins::format::day_from_civil(1970, 1, 1));
@@ -4952,6 +4900,7 @@ fn header_extension_name(name: &str, publisher: &str) -> String {
     }
 }
 
+mod format_region;
 #[cfg(test)]
 mod header_tests;
 mod request_caption;

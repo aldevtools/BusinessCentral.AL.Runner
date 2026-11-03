@@ -91,6 +91,19 @@ impl Session {
                 if zero || unknown.is_some() {
                     return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
                 }
+                // Record.LoadFields with a FlowField or a FlowFilter field is pinned (record/lt-r6795-loadfields-flow); the RecordRef
+                // form is not (docs/probes-needed.md).
+                let engine = self.engine.clone();
+                let schema = engine.program.objects[t.object as usize].table.as_ref();
+                let flow = positions.iter().any(|v| match v {
+                    Value::Integer(p) => !schema.is_some_and(|s| s.fields.get(*p as usize).is_some_and(|f| f.stored)),
+                    _ => false,
+                });
+                if flow {
+                    return Err(Signal::Unsupported(
+                        "RecordRef.LoadFields of a FlowField or FlowFilter field (not pinned)".into(),
+                    ));
+                }
                 self.load_fields_row(rec, t, &positions)
             }
             _ => {

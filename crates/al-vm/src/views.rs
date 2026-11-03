@@ -273,6 +273,35 @@ impl Session {
         v
     }
 
+    /// The end of `CopyFilter(FromField, Target.ToField)`: `copied` (already moved to the target's group) replace the target field's
+    /// filters, and the target forgets the row it holds (record/lt-r6807-view-find/R6807ViewFind.al, Rec_copyFilterFieldStored,
+    /// Rec_copyFilterFieldFlowZero).
+    pub(crate) fn put_copied_filters(dst: &Rec, to: usize, to_group: i32, copied: Vec<FieldFilter>) {
+        let mut d = dst.borrow_mut();
+        d.position = None;
+        d.filters.retain(|f| !(f.field == to && f.group == to_group));
+        for mut f in copied {
+            f.field = to;
+            f.group = to_group;
+            d.filters.push(f);
+        }
+    }
+
+    /// `Target.CopyFilters(Source)`: the source's filters replace the target's; the target forgets the row it holds, so the next
+    /// Find tests it against them like after SetRange (record/lt-r6807-view-find/R6807ViewFind.al, Rec_copyStored, Rec_copyFlowZero).
+    pub(crate) fn copy_filters(rec: &Rec, args: &[Value]) -> Result<Value, Signal> {
+        let Some(Value::Record(src)) = args.first() else {
+            return unsupported(format!("CopyFilters from {}", args.first().describe()));
+        };
+        if !Rc::ptr_eq(src, rec) {
+            let filters = src.borrow().filters.clone();
+            let mut r = rec.borrow_mut();
+            r.filters = filters;
+            r.position = None;
+        }
+        Ok(Value::Null)
+    }
+
     /// `FilterGroup([Group])` of a record or a RecordRef: the group it sets, or the current one without an
     /// argument (corpus record/TestRecordRuntimeTextsAndViews.al:Record_FilterGroup_ReturnsTheGroupJustSet_...).
     pub(crate) fn filter_group(rec: &Rec, args: &[Value]) -> Result<Value, Signal> {
@@ -618,6 +647,11 @@ impl Session {
             }
         }
         let mut r = rec.borrow_mut();
+        // A view set after a Get or a Find makes the record forget that it holds its row, as SetRange and SetFilter do: Find()
+        // then tests the row against the new filters, on a stored field and on a FlowField, Record and RecordRef alike
+        // (record/lt-r6807-view-find/R6807ViewFind.al, Rec_svStored, Rec_svFlowZero, Ref_svStored, Ref_svFlowZero,
+        // Ref_viewRoundTripFlowZero).
+        r.position = None;
         if order_dirs.is_some() {
             r.field_descending = field_mask;
         }
