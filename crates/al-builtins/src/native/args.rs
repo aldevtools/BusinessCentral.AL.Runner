@@ -31,6 +31,21 @@ pub fn text_of(v: &Value) -> Option<crate::text::Txt> {
     }
 }
 
+/// Like [`text_of`], and a call stack text (it holds `CALL_STACK_MARK`) is carried: for a builtin that only stores or writes its
+/// text argument and never looks at its characters, so the mark travels on with the text and every later read of it is refused
+/// (al-runner issue 6853; the corpus pins that the call stack text of a collected error is not empty and round-trips through a
+/// stream, error-handling/lt-wd/WdCallStackToBlob.al:96-102). Text that carries unread bytes (`CARRIED_TEXT_MARK`) is still refused.
+pub fn text_of_carrying_call_stack(v: &Value) -> Option<crate::text::Txt> {
+    match v {
+        Value::Text(s) | Value::Code(s)
+            if s.as_str().contains(CALL_STACK_MARK) && !s.as_str().contains(CARRIED_TEXT_MARK) =>
+        {
+            Some(s.clone())
+        }
+        _ => text_of(v),
+    }
+}
+
 pub(super) fn text_arg(args: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
     // A Guid where a Text is expected is its text form, as in an assignment (types/lt-guid-as-text-argument/
     // GuidAsTextArgument.al: CopyStr, StrLen, UpperCase, StrPos, Notification.SetData and more; misc/lt-y70-assumptions/
