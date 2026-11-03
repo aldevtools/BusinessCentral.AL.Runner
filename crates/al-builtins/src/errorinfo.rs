@@ -97,6 +97,14 @@ fn text(a: &[Value], i: usize) -> Result<String, Signal> {
     }
 }
 
+/// A text that is only stored (a message, a title): a call stack text is carried (`text_of_carrying_call_stack`).
+fn text_stored(a: &[Value], i: usize) -> Result<String, Signal> {
+    match a.get(i).and_then(crate::native::text_of_carrying_call_stack) {
+        Some(t) => Ok(t.to_string()),
+        None => unsupported(format!("a text argument, got {}", a.get(i).describe())),
+    }
+}
+
 fn int(a: &[Value], i: usize) -> Result<i32, Signal> {
     match a.get(i) {
         Some(Value::Integer(n)) => Ok(*n),
@@ -146,7 +154,7 @@ fn create(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         Some(Value::Boolean(b)) => *b,
         Some(other) => return unsupported(format!("ErrorInfo.Create with Collectible {}", other.describe())),
     };
-    let mut s = fresh(text(a, 0)?, collectible);
+    let mut s = fresh(text_stored(a, 0)?, collectible);
     if let Some(rec @ Value::Record(_)) = a.get_mut(2) {
         let id = ctx.record(crate::record_op::RecordOp::RecordId, Some(rec), &mut [])?;
         if let Value::Library(_, l) = &id {
@@ -190,7 +198,7 @@ macro_rules! text_prop {
             if a.is_empty() {
                 return with_state(r, |s| Value::Text(s.$field.clone().into()));
             }
-            let t = text(a, 0)?;
+            let t = text_stored(a, 0)?;
             with_state(r, |s| s.$field = t).map(|()| Value::Null)
         }
     };

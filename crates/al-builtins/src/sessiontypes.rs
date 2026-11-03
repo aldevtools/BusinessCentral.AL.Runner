@@ -48,6 +48,14 @@ fn text(a: &[Value], i: usize) -> Result<String, Signal> {
     }
 }
 
+/// A text that is only stored (a message, a data value): a call stack text is carried (`text_of_carrying_call_stack`).
+fn text_stored(a: &[Value], i: usize) -> Result<String, Signal> {
+    match a.get(i).and_then(crate::native::text_of_carrying_call_stack) {
+        Some(t) => Ok(t.to_string()),
+        None => unsupported(format!("a text argument, got {}", a.get(i).describe())),
+    }
+}
+
 fn int(a: &[Value], i: usize) -> Result<i32, Signal> {
     match a.get(i) {
         Some(Value::Integer(n)) => Ok(*n),
@@ -199,7 +207,7 @@ fn n_message(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if a.is_empty() {
         return with_notification(r, |n| n.message.clone().unwrap_or_default()).map(|s| Value::Text(s.into()));
     }
-    let t = text(a, 0)?;
+    let t = text_stored(a, 0)?;
     with_notification(r, |n| n.message = Some(t)).map(|()| Value::Null)
 }
 
@@ -251,7 +259,7 @@ fn n_set_data(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     // Guid_AsTextArgument_NotificationData (SetData with a Guid, GetData reads `{XXXXXXXX-...}`).
     let v = match a.get(1) {
         Some(Value::Guid(g)) => crate::format::format_guid(g),
-        _ => text(a, 1)?,
+        _ => text_stored(a, 1)?,
     };
     let k = text(a, 0)?;
     with_notification(r, |n| match n.data.iter_mut().find(|(name, _)| *name == k) {
