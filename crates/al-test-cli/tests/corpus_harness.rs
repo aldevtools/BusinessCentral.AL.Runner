@@ -94,7 +94,7 @@ fn every_oracle_case_is_reported_and_attributed_to_an_area() {
     assert_eq!(r["overall"]["total"], 22714);
     assert_eq!(r["unmapped"].as_array().unwrap().len(), 0, "{}", r["unmapped"]);
     assert_eq!(r["areas"]["json"]["total"], 495);
-    assert_eq!(r["areas"]["record"]["total"], 2773);
+    assert_eq!(r["areas"]["record"]["total"], 3012);
 }
 
 #[test]
@@ -767,7 +767,9 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Y64, Y65, Y68 and Y70 that the probed-values gates cite. Corpus bump to master 34ca226f makes it 249: the BC28PLUS and
     // BC29PLUS guards of writers Y71 and Y66 (gates FieldRefTextNumberEvaluateErrorFrom28, McpConfigurationFrom29,
     // PlatformMetadataColumnsFrom29).
-    assert!(out.contains("oracle: 249 case(s) differ between versions"), "{out}");
+    // Corpus bump to master 941cd813 makes it 283: the bump to 9cce33bd (writers Y76 to Y81, which did not update this count)
+    // and the Y79 fix and Y85 pins after it add BC28PLUS and BC29PLUS guards that the probed-values gates cite.
+    assert!(out.contains("oracle: 283 case(s) differ between versions"), "{out}");
     // The known BC 29 differences are gated (ADR-015 3.4), so the runtime passes the same cases on every version, among the
     // cases every oracle has. One difference is known and open (corpus bump 10, backlog): the runtime passes
     // 71500 Get_Uses_Primary_Key_Not_Current_Key on BC 27 only. A new difference would be listed here.
