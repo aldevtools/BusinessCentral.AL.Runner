@@ -49,7 +49,10 @@ fn returns_the_new_date_and_sets_it() {
 
 #[test]
 fn works_in_every_position_of_an_expression() {
-    assert_eq!(text(run_in(SRC, "T", "Positions")), "2032-03-17 2032-03-18 2032-03-16 2032-03-22");
+    assert_eq!(
+        text(run_in(SRC, "T", "Positions")),
+        "2032-03-17 2032-03-18 2032-03-16 2032-03-22"
+    );
 }
 
 #[test]
