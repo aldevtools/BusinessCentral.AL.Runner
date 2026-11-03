@@ -72,6 +72,10 @@ impl Session {
             }
             None if method == PageOp::PageRunStatic || method == PageOp::PageRunModalStatic => {
                 let used = self.ret_used;
+                if let Some(Value::Text(name)) = args.first() {
+                    let id = self.page_id_by_qualified_name(name)?;
+                    args[0] = Value::Integer(id);
+                }
                 let n = match args.first() {
                     Some(Value::Integer(n)) => *n,
                     other => return unsupported(format!("Page.Run with {} as the page", other.describe())),

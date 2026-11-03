@@ -174,6 +174,7 @@ mod filter;
 mod filter_enum;
 mod param_read;
 mod parts;
+mod qualified_name;
 mod read_backwards;
 mod text_control_value;
 use text_control_value::TextConv;
