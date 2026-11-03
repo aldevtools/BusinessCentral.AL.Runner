@@ -68,6 +68,10 @@ impl Session {
     /// After a save the page refused with SaveAbort the page stays on its row: a Next answers No without a move or an error
     /// (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_List_Set_Next_Next); the other moves are not pinned from there.
     pub(super) fn move_after_refused_save(&mut self, st: &St, how: PageMethod) -> Result<Option<Value>, Signal> {
+        // The first stop of every page move also answers a move on a list standing on its blank line (`gone_blank_line_move`).
+        if let Some(answer) = self.gone_blank_line_move(st, how)? {
+            return Ok(Some(Value::Boolean(answer)));
+        }
         if !st.borrow().save_aborted {
             return Ok(None);
         }

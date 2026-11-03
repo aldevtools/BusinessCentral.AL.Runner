@@ -192,6 +192,7 @@ mod draft;
 mod fn_controls;
 mod format;
 mod format_type11;
+mod gone_new_line;
 mod gone_read_only_list;
 mod gotokey_find;
 mod host_follows;

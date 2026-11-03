@@ -60,9 +60,23 @@ impl Session {
     /// cursor on the last inserted one, as an action on a list with rows does.
     pub(super) fn settle_gone_view_list_again(&mut self, st: &St) -> Result<(), Signal> {
         if !st.borrow().gone_temp_list {
-            return unsupported(
-                "a second action on a list without the new-row line that lost its only row to an action (not pinned)",
+            // A list over a stored table: a second action that leaves the table empty again raises nothing and shows no row, for
+            // the lists of `read_only_view_list_shows_nothing` (corpus master pages/lt-y80-gone-rows/Y80GoneRows.al:
+            // Y80_Gone_ReadOnly_OpenEdit_DeleteAllUpdate `second action log` empty, also Y80_Gone_NoNew_OpenView_*). One that put
+            // rows back, or a modal page, is not pinned.
+            let rec = self.page_rec(st);
+            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+            self.ret_used = true;
+            let refilled = matches!(
+                self.record_op(RecordOp::FindFirst, &probe, &mut [])?,
+                Value::Boolean(true)
             );
+            if refilled || st.borrow().modal {
+                return unsupported(
+                    "a second action on a list without the new-row line that lost its only row to an action, that put rows back or ran modally (not pinned)",
+                );
+            }
+            return Ok(());
         }
         if st.borrow().modal {
             let rec = self.page_rec(st);
@@ -136,5 +150,50 @@ impl Session {
         st.borrow_mut().window_from_start = true;
         self.current_record_trigger(st, None)?;
         Ok(true)
+    }
+}
+
+impl Session {
+    /// A List with Editable = false opened for view, without the new-row line, that lost its only row to an action raises nothing
+    /// and shows no row, as a List with the line opened for view does (pages/W1Update.al:534;
+    /// pages/lt-outside-worksheet/RmWorksheetGoneRow.al:481 SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate `R:10000;`, shown
+    /// blank, First No). A List opened for view that is editable, and a non-editable one opened for edit, are not pinned.
+    pub(super) fn read_only_view_list_shows_nothing(&mut self, st: &St) -> bool {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let read_only = engine.program.objects[object]
+            .properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"));
+        let lookup = st.borrow().lookup_set && st.borrow().lookup;
+        let denied = |p: &str| {
+            engine.program.objects[object]
+                .properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case(p) && v.trim().eq_ignore_ascii_case("false"))
+        };
+        // An editable List with InsertAllowed, ModifyAllowed and DeleteAllowed false does the same (pages/lt-uj-outside-leads/
+        // UjTempList.al UJ_Temp_List_EmptyAll `view no update` and `view update`: `invoke;R:1;`, shown blank, First No; corpus
+        // branch al-runtime-rs-staging-uj 1dc037a8, former assumption `list-action-rebuilds-rows` (pinned on corpus master since bump 1030) until the bump).
+        let all_denied_editable = !read_only
+            && ["InsertAllowed", "ModifyAllowed", "DeleteAllowed"]
+                .iter()
+                .all(|p| denied(p));
+        // Pinned by corpus master pages/lt-y80-gone-rows/Y80GoneRows.al (codeunit 94230, the Y80_Gone_ReadOnly_*, _NoNew_OpenView_*
+        // and _NoInsMod_OpenView_* tests, a list whose Insert, Modify and Delete are allowed unless the page denies them): an
+        // Editable = false list opened for view or for edit, and an editable list without the new-row line (InsertAllowed = false)
+        // opened for view, raise nothing and show no row after an action deleted its only row, with or without
+        // CurrPage.Update(false) and whether the action deleted every row or only Rec.
+        let insert_denied = denied("InsertAllowed");
+        let pinned = (read_only
+            || (!read_only && (all_denied_editable || insert_denied) && st.borrow().mode == PageMode::View))
+            && !lookup
+            && matches!(st.borrow().mode, PageMode::View | PageMode::Edit)
+            && engine.object_facts[object].page_type == Some(al_ir::PageType::List)
+            && self.tree_indentation(st).is_none();
+        if pinned {
+            st.borrow_mut().gone_view_list = true;
+        }
+        pinned
     }
 }
