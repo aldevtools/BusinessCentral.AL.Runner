@@ -4448,3 +4448,41 @@ fn a_user_whose_authentication_email_has_a_formatted_guid_local_part_is_inserted
         assert_eq!(o, vec![("ReporterShape".to_string(), Outcome::Pass)], "{bc}");
     }
 }
+
+// report/lt-y86-request-page/Y86LayoutStreams.al:82 Y86_RdlcLayout_StreamIsTheFile and :230
+// Y86_RdlcLayout_FieldsSectionFollowsTheDataset: the Report.RdlcLayout stream is the layout file with its Fields list replaced by
+// the report's columns (`<Fields />` for none), in the file's indent and CRLF line ends.
+#[test]
+fn the_rdlc_layout_stream_carries_the_report_columns_in_its_fields_list() {
+    let main = r#"
+report 50001 "NoCols" { DefaultRenderingLayout = L; dataset { dataitem(I; Integer) { } } rendering { layout(L) { Type = RDLC; LayoutFile = './r.rdlc'; } } }
+report 50002 "Cols" { DefaultRenderingLayout = L; dataset { dataitem(I; Integer) { column(NumberCol; I.Number) { } column(TextCol; 'abc') { } } } rendering { layout(L) { Type = RDLC; LayoutFile = './r.rdlc'; } } }
+report 50003 "Dec" { DefaultRenderingLayout = L; dataset { dataitem(I; Integer) { column(Amt; 1.5) { } } } rendering { layout(L) { Type = RDLC; LayoutFile = './r.rdlc'; } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Lines(Id: Integer): Text var InS: InStream; Line: Text; All: Text; begin Report.RdlcLayout(Id, InS); while not InS.EOS() do begin InS.ReadText(Line); All += Line + '|'; end; exit(All); end;
+  [Test] procedure NoColumns() begin if Lines(50001) <> '<Report>|  <DataSets>|      <Fields />|    </DataSet>|</Report>|' then Error(Lines(50001)); end;
+  [Test] procedure Columns() begin
+    if Lines(50002) <> '<Report>|  <DataSets>|      <Fields>|        <Field Name="NumberCol">|          <DataField>NumberCol</DataField>|        </Field>|        <Field Name="TextCol">|          <DataField>TextCol</DataField>|        </Field>|      </Fields>|    </DataSet>|</Report>|' then Error(Lines(50002)); end;
+  [Test] procedure DecimalColumn() begin Lines(50003); end;
+}"#;
+    let rdlc = b"<Report>\r\n  <DataSets>\r\n      <Fields>\r\n        <Field Name=\"A\">\r\n          <DataField>A</DataField>\r\n        </Field>\r\n      </Fields>\r\n    </DataSet>\r\n</Report>".to_vec();
+    let (engine, l) = engine_with_layouts(
+        "main",
+        main,
+        None,
+        al_sema::check::Roots::default(),
+        "27.5.0.0",
+        vec![("r.rdlc".into(), rdlc)],
+        None,
+    );
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
+    let o = run_codeunit(&engine, &l, oi);
+    passes(&o, "NoColumns");
+    passes(&o, "Columns");
+    assert!(not_run(&o, "DecimalColumn").contains("column Amt"));
+}
