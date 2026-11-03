@@ -72,6 +72,7 @@ mod media_orphans;
 mod pages;
 mod partial;
 mod permission_shadow;
+mod permission_triggers;
 mod permissions;
 mod platform;
 mod profile;

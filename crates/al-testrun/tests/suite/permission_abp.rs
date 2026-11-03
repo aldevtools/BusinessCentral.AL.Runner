@@ -216,21 +216,24 @@ codeunit 51521 "AB Tests"
         Expect(Got, '1|10|Yes|Yes|Yes|Yes');
     end;
 
-    // Modify on a guard is not pinned: the page is refused in a restricted session, run freely without one.
+    // Every letter is pinned (Y84PermAbp.al Y84_Abp_LettersA): a guard on Modify leaves the field off under a set without it.
     [Test]
-    procedure AnUnpinnedGuardLetterRefuses()
+    procedure AModifyGuardLeavesTheFieldOff()
     var
         P: TestPage "AB Odd Card";
+        Got: Text;
     begin
         Mock.Start();
         Seed();
         Mock.Set('AB Row Only');
         P.OpenView();
         P.First();
-        if P.GuardMCtl.Value() = '' then;
+        asserterror Got := P.GuardMCtl.Value();
+        Got := GetLastErrorText();
         P.Close();
         Mock.ClearAssignments();
         Mock.Stop();
+        Expect(Norm(Got), 'The field with ID = n is not found on the page.');
     end;
 }
 "#;
@@ -271,10 +274,6 @@ fn without_a_set_everything_is_shown() {
     assert_eq!(outcome("NoSetShowsEverything"), Outcome::Pass);
 }
 #[test]
-fn an_unpinned_guard_letter_refuses_the_test() {
-    assert!(
-        matches!(outcome("AnUnpinnedGuardLetterRefuses"), Outcome::NotRun(_)),
-        "{:?}",
-        outcome("AnUnpinnedGuardLetterRefuses")
-    );
+fn a_modify_guard_leaves_the_field_off() {
+    assert_eq!(outcome("AModifyGuardLeavesTheFieldOff"), Outcome::Pass);
 }

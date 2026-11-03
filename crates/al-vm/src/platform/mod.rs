@@ -44,7 +44,9 @@ mod seed;
 mod tenant_compose;
 mod tenant_media_row;
 mod windows_language_rows;
-pub(crate) use permissions::{RawSet, inherent_attribute, object_grants, parse_guard, raw_sets, table_inherent};
+pub(crate) use permissions::{
+    RawSet, inherent_attribute, object_grants, parse_guard, raw_sets, system_entry_level, table_inherent,
+};
 pub(crate) use seed::SESSION_USER_FULL_NAME;
 
 use crate::Engine;
