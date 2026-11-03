@@ -914,6 +914,25 @@ impl Session {
         // 1068-1100 QO_Doc_OpenNew `close = empty>0=No ... rest=`).
         if !st.borrow().parts.is_empty() {
             let parts: Vec<St> = st.borrow().parts.iter().map(|(_, c)| c.clone()).collect();
+            // A part that shows no row and declares OnNewRecord or OnAfterGetCurrRecord: BC runs neither when it inserts the host at
+            // Close (pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:1468 QH_EmptyPart_OpenNew_KeyTyped `close` =
+            // `[H.OnInsert:Q1]`); the relink below would run them. Refused until the relink is told apart.
+            if st.borrow().host.is_none() {
+                for c in &parts {
+                    let object = c.borrow().object as usize;
+                    let observes = ["onnewrecord", "onaftergetcurrrecord"]
+                        .iter()
+                        .any(|t| self.declares(c, t))
+                        || ["onnewrecordevent", "onaftergetcurrrecordevent"]
+                            .iter()
+                            .any(|t| self.engine().events.is_subscribed(object, t));
+                    if observes && c.borrow().cursor != Cursor::Row && self.has_source(c) {
+                        return unsupported(
+                            "closing a new host row while a part that shows no row declares OnNewRecord or OnAfterGetCurrRecord (BC runs neither, the relink does; not implemented)",
+                        );
+                    }
+                }
+            }
             for c in &parts {
                 c.borrow_mut().field_captions_link_refill = true;
             }
