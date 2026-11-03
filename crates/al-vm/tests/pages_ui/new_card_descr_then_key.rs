@@ -30,6 +30,13 @@ codeunit 51902 C
         P.Close();
         exit(s + '|' + Rows());
     end;
+    procedure KeyThenPartFilter(): Text
+    var P: TestPage "NDK Card Part";
+    begin
+        P.OpenNew();
+        P.CodeCtl.SetValue('G1');
+        exit(P.LinesPart.Filter.GetFilter("Host Code"));
+    end;
     procedure DescrThenKey(): Text
     var P: TestPage "NDK Card"; s: Text;
     begin
@@ -60,4 +67,12 @@ fn the_key_typed_on_a_stored_row_of_a_card_with_a_part_is_dropped_too() {
         al_testkit::text(al_testkit::run_in(SRC, "C", "DescrThenKeyWithPart")),
         "1 [|]|1 [|]|[]|1 [|d1]"
     );
+}
+
+// PYB_OpenNew_NoThenType_Steps (:412) shows the typed key in the part's link filter of a host that is not stored; the runtime
+// filters the part on the blank link value, so the answer is refused, not guessed.
+#[test]
+fn the_link_filter_of_a_part_of_an_unsaved_host_with_a_typed_key_is_refused() {
+    let r = al_testkit::run_in(SRC, "C", "KeyThenPartFilter");
+    assert!(matches!(&r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
 }

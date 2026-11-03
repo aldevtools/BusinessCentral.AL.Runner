@@ -211,6 +211,7 @@ mod open;
 mod page_get_record;
 mod page_var_view;
 mod pageops;
+mod part_filter_unsaved_host;
 mod refill;
 mod refresh_new_line;
 mod rows;
