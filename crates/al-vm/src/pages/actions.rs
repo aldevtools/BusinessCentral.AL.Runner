@@ -1035,9 +1035,8 @@ impl Session {
         Ok(Value::Null)
     }
 
-    /// `TestAction.Invoke`: runs the action's OnAction when it is enabled; a disabled action
-    /// does nothing and raises nothing (corpus handlers/TestPageActionEnabledSourceField_Tests.al,
-    /// TPAE_ActionEnabledBoolField_FalseRow_IsDisabledAndItsTriggerIsSkipped).
+    /// `TestAction.Invoke`: runs the action's OnAction when it is enabled; a disabled action does nothing and raises nothing
+    /// (corpus handlers/TestPageActionEnabledSourceField_Tests.al, TPAE_ActionEnabledBoolField_FalseRow_IsDisabledAndItsTriggerIsSkipped).
     pub(super) fn action_invoke(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
         if st.borrow().expr_set_no_source {
             return unsupported(
@@ -1060,6 +1059,7 @@ impl Session {
             s.marking_action = !marked_only_before || again_with_part;
             s.unmarking_action = marked_only_before && again_with_part;
             s.marked_rows_held = false;
+            s.action_ran = true;
         }
         let view_before = self.has_source(st).then(|| ListView::of(&self.page_rec(st).borrow()));
         let outer_view = std::mem::replace(
@@ -1662,7 +1662,7 @@ impl Session {
                 // `...;saved;OnAfterGetRecord(A)`). With an Update in the same action it is not pinned and stays as it was.
                 let saved = std::mem::take(&mut st.borrow_mut().save_record_called) && !refresh_asked;
                 if reads_rows && !saved {
-                    self.read_page_again(st)?;
+                    self.read_page_again_after_gone(st)?;
                 }
                 // On a Document card that read is OnAfterGetRecord alone, no OnAfterGetCurrRecord, then the parts read their rows
                 // (pages/lt-qj-part-propagation/QjPartPropagation.al:511 QJ_Both_PartModifiesHost_ThenHostSave
@@ -2682,7 +2682,7 @@ impl Session {
     /// and misc/lt-probes-needed-7/PnGListUpdate.al:ListModifyWithAndWithoutUpdate (`U2;U2;U3;U2;U1;U2;U2;C`). Only a page that declares both row triggers and serves its rows from the table is
     /// pinned; the identities of the rows beyond the window held are the table order.
     fn read_list_again_from_row(&mut self, st: &St, rec: &Rec, key: &[Value]) -> Result<(), Signal> {
-        self.read_list_again_from_row_as(st, rec, key, true)
+        self.read_list_again_from_row_as(st, rec, key, self.reads_row_first(st))
     }
 
     pub(super) fn read_list_again_from_row_in_view(
@@ -3367,6 +3367,9 @@ impl Session {
         if st.borrow().gone_view_list && st.borrow().open && st.borrow().cursor == Cursor::None {
             return self.settle_gone_view_list_again(st);
         }
+        if self.gone_blank_line_second_action(st)? {
+            return Ok(());
+        }
         self.show_row_page_code_positioned(st)?;
         let again = {
             let s = st.borrow();
@@ -3409,6 +3412,7 @@ impl Session {
             {
                 return unsupported("a card closed by a deleted row whose parts declare close triggers (not pinned)");
             }
+            self.card_query_close_before_forced_close(st)?;
             self.page_trigger(st, "onclosepage", vec![])?;
             self.mark_closed(st);
             // The close is left as the last error, code PageCloseRequest with no text; Invoke itself returns (corpus master
@@ -3432,7 +3436,7 @@ impl Session {
             Value::Integer(-1)
         );
         if moved {
-            let r = self.arrive(st);
+            let r = self.arrive_after_gone_row(st);
             self.torn_down_on_error(st, r)?;
         } else {
             // No stored row is left, whether or not the action called CurrPage.Update. A list opened for editing shows
@@ -3550,56 +3554,6 @@ impl Session {
             PageMode::View => worksheet,
             _ => false,
         })
-    }
-
-    /// A List with Editable = false opened for view, without the new-row line, that lost its only row to an action raises nothing
-    /// and shows no row, as a List with the line opened for view does (pages/W1Update.al:534;
-    /// pages/lt-outside-worksheet/RmWorksheetGoneRow.al:481 SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate `R:10000;`, shown
-    /// blank, First No). A List opened for view that is editable, and a non-editable one opened for edit, are not pinned.
-    fn read_only_view_list_shows_nothing(&mut self, st: &St) -> bool {
-        let engine = self.engine();
-        let object = st.borrow().object as usize;
-        let read_only = engine.program.objects[object]
-            .properties
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"));
-        let lookup = st.borrow().lookup_set && st.borrow().lookup;
-        let denied = |p: &str| {
-            engine.program.objects[object]
-                .properties
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case(p) && v.trim().eq_ignore_ascii_case("false"))
-        };
-        // An editable List with InsertAllowed, ModifyAllowed and DeleteAllowed false does the same (pages/lt-uj-outside-leads/
-        // UjTempList.al UJ_Temp_List_EmptyAll `view no update` and `view update`: `invoke;R:1;`, shown blank, First No; corpus
-        // branch al-runtime-rs-staging-uj 1dc037a8, former assumption `list-action-rebuilds-rows` (pinned on corpus master since bump 1030) until the bump).
-        let all_denied_editable = !read_only
-            && ["InsertAllowed", "ModifyAllowed", "DeleteAllowed"]
-                .iter()
-                .all(|p| denied(p));
-        let pinned = (read_only || all_denied_editable)
-            && !lookup
-            && st.borrow().mode == PageMode::View
-            && engine.object_facts[object].page_type == Some(al_ir::PageType::List)
-            && self.tree_indentation(st).is_none();
-        if pinned && all_denied_editable {
-            // Pinned by pages/lt-uj-outside-leads/UjTempList.al (was assumption `list-action-rebuilds-rows`).
-            st.borrow_mut().gone_view_list = true;
-        } else if pinned {
-            // Pinned with InsertAllowed, DeleteAllowed and ModifyAllowed false (RmWorksheetGoneRow.al:707-716); another
-            // combination is the registered assumption `read-only-view-list-gone-only-row`.
-            let all_denied = ["DeleteAllowed", "ModifyAllowed"].iter().all(|p| {
-                engine.program.objects[object]
-                    .properties
-                    .iter()
-                    .any(|(k, v)| k.eq_ignore_ascii_case(p) && v.trim().eq_ignore_ascii_case("false"))
-            });
-            if !all_denied {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReadOnlyViewListGoneOnlyRow);
-            }
-            st.borrow_mut().gone_view_list = true;
-        }
-        pinned
     }
 
     /// The list stands on a blank Rec: OnNewRecord and OnAfterGetCurrRecord once, no row shown, First/Last/Next answer No

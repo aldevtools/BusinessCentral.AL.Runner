@@ -368,6 +368,10 @@ pub const CAPTION_REFUSED: &str = "$CaptionRefused";
 /// the table's own: its value is that extension's caption, the caption the runtime's texts and caption reads give (al-runner issues 5955 and 6378).
 pub const EXT_CAPTION_OVER_OWN: &str = "$ExtCaptionOverOwn";
 
+/// The name of an object property the lowering adds to a `profileextension` (an object of kind `Other`): the name of the
+/// profile it extends. The All Profile rows read the extension's `Enabled` through it.
+pub const EXTENDS_PROFILE: &str = "$ExtendsProfile";
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Object {
     pub kind: ObjKind,

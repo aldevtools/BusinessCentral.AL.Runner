@@ -462,6 +462,16 @@ pub struct PageState {
     pub open_reads_above: bool,
     /// The list opened on the row its OnOpenPage left Rec on (see `open_on_rec_moved_by_onopenpage`).
     pub opened_on_moved_rec: bool,
+    /// The client read the rows around the cursor row again after a move onto a deleted row (`moved_onto_deleted`): Previous
+    /// from the new-row line right after reads the last row as a move between rows does (Y80_Moved_All_FirstOntoDeleted
+    /// `previous log`). Cleared by the next First, Last or Previous.
+    pub refreshed_after_gone_move: bool,
+    /// An action of the page ran since it opened: a row an action deleted is not the pinned `moved_onto_deleted` shape (that
+    /// one is pinned for a row the test code deleted; PnGRefresh.al ListLosesOneOfTwoRowsWithoutUpdate pins another log).
+    pub action_ran: bool,
+    /// The page settled on the row after the one an action deleted (`arrive_after_gone_row`): the refresh that follows does not
+    /// read that row first.
+    pub gone_row_settled: bool,
     /// A list part opens on the row the host's code left its Rec on (`part_rec_row.rs`): its open read reads the rows above.
     pub part_on_host_row: bool,
     /// The page's source is temporary and its OnOpenPage left Rec as it stood before (key, order, filters and row): the row
@@ -992,6 +1002,9 @@ impl PageState {
             landing_first: false,
             open_reads_above: false,
             opened_on_moved_rec: false,
+            refreshed_after_gone_move: false,
+            action_ran: false,
+            gone_row_settled: false,
             part_on_host_row: false,
             onopenpage_kept_rec: false,
             lookup_held_row: false,

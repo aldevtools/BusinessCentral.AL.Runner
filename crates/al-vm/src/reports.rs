@@ -980,12 +980,11 @@ impl Session {
                 let Some(stream) = stream else {
                     return unsupported("Report.RdlcLayout without a stream");
                 };
-                if !al_builtins::stream::create_in_of(stream, bytes) {
+                if !al_builtins::stream::create_in_of(stream, self.rdlc_layout_stream(object, bytes)?) {
                     return unsupported(
                         "Report.RdlcLayout into a stream that was created (what it does to the stream is not pinned)",
                     );
                 }
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RdlcLayoutStreamIsTheLayoutFile);
                 return Ok(Value::Boolean(true));
             }
         }

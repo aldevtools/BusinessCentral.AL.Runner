@@ -79,6 +79,7 @@ mod platform;
 mod profile;
 mod queries;
 mod query_date_filter;
+mod rdlc_fields;
 mod read_only_tables;
 mod recmeta;
 mod recordid_bookmark;
@@ -185,10 +186,13 @@ pub struct Engine {
     /// The tables a non-manual subscriber listens to the delete events of (see
     /// `autoinc::tables_with_delete_subscribers`), found when `Truncate` first asks.
     /// The profiles that get an All Profile row (see `platform::profiles::profile_seeds`).
-    pub(crate) profile_seeds: std::sync::OnceLock<Vec<(usize, i32)>>,
+    pub(crate) profile_seeds: std::sync::OnceLock<Vec<(usize, i32, bool)>>,
     /// The tables `seed_platform_rows` visits (`platform::seed::seed_tables`), found on the first session; shared with
     /// sibling engines, which have the same program.
     pub(crate) seed_tables: Arc<std::sync::OnceLock<Box<[usize]>>>,
+    /// The seed rows that depend on the program only (`platform::seed::program_seed_rows`), per object index, found on the
+    /// first session.
+    pub(crate) seed_rows: std::sync::OnceLock<Option<platform::seed::SeedRows>>,
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// What a run of a routine on a transient instance can leave behind (`effects.rs`), per (object, routine).
     pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<effects::Effect>>>,
@@ -445,6 +449,7 @@ impl Engine {
             lasting_effects: Default::default(),
             profile_seeds: Default::default(),
             seed_tables: Default::default(),
+            seed_rows: Default::default(),
             facts,
             exec: Arc::new(exec),
             positions_by_object: Default::default(),
@@ -489,6 +494,7 @@ impl Engine {
             lasting_effects: Default::default(),
             profile_seeds: Default::default(),
             seed_tables: self.seed_tables.clone(),
+            seed_rows: Default::default(),
             facts: self.facts.clone(),
             exec: self.exec.clone(),
             positions_by_object: Default::default(),
@@ -556,6 +562,7 @@ impl Engine {
             // Caches that are worked out from the program on first use.
             profile_seeds: _,
             seed_tables: _,
+            seed_rows: _,
             delete_subscribed: _,
             lasting_effects: _,
             positions_by_object: _,
