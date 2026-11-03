@@ -18,15 +18,12 @@ impl Session {
         let table = copy.borrow().table as usize;
         // A record SetRecord handed the page earlier stays the position the page opens on: SetRecord gives the
         // position and SetTableView the filters (Microsoft's VendEntry-Apply Posted Entries calls both with the
-        // same record and its page reads Rec in OnOpenPage; not pinned, docs/probes-needed.md).
+        // same record and its page reads Rec in OnOpenPage). Pinned in either order, for a list and a card, with the record inside and
+        // outside the view: pages/lt-page-setrecord-settableview/PageVarSetRecordTableView.al P157_List_SetRecordThenSetTableView_*,
+        // P157_Card_SetRecordThenSetTableView, SF_List_SetRecordThenSetTableView_Run.
         let kept = st.borrow().set_record.as_ref().map(|p| p.borrow().fields.clone());
         let fields = match kept {
-            Some(f) if f.len() == copy.borrow().fields.len() => {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::SetTableViewKeepsSetRecordPosition,
-                );
-                f
-            }
+            Some(f) if f.len() == copy.borrow().fields.len() => f,
             _ => self.initial_fields(table),
         };
         copy.borrow_mut().fields = fields;

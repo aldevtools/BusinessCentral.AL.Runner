@@ -117,6 +117,16 @@ fn a_case_on_the_table_id_that_sets_no_flag_for_the_table_does_not_stop_the_inst
     assert_eq!(outcome(body), Outcome::Pass);
 }
 
+/// Al-runner issue 6755: the table id tested with `in [...]` (six tables in the reporter's subscriber); A's table is not in it.
+#[test]
+fn a_set_test_on_the_table_id_that_misses_the_table_does_not_stop_the_install() {
+    let body = r#"if TableId in [Database::"OB Log Source", 50999, 18 .. 20] then begin
+            OnDatabaseInsert := true;
+            OnDatabaseModify := true;
+        end;"#;
+    assert_eq!(outcome(body), Outcome::Pass);
+}
+
 fn refused(body: &str) -> String {
     match outcome(body) {
         Outcome::NotRun(why) => why,
@@ -142,5 +152,12 @@ fn a_subscriber_that_copies_one_flag_into_another_still_stops_the_install() {
 #[test]
 fn a_subscriber_that_calls_code_still_stops_the_install() {
     let why = refused(&format!("Note();\n{ONLY_OWN_TABLE}"));
+    assert!(why.contains("install order"), "{why}");
+}
+
+/// The same set test names A's table (50100): the flag is set for it, so the order matters.
+#[test]
+fn a_set_test_on_the_table_id_that_names_the_table_still_stops_the_install() {
+    let why = refused("if TableId in [50100, 50999] then OnDatabaseInsert := true;");
     assert!(why.contains("install order"), "{why}");
 }

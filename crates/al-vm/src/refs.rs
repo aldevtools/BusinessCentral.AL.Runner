@@ -1208,15 +1208,13 @@ impl Session {
             }
             "FieldExist" => {
                 let no = int_arg(args, 0)?;
-                // The rowversion's own number exists on BC 29 (recordref/lt-recordref-fieldref-members/P92Fields.al:72,
-                // `#if BC29PLUS`); before 29 nothing pins it.
-                if no == i64::from(SYSTEM_ROW_VERSION_ID) && t.fields.iter().any(|f| f.id == SYSTEM_ROW_VERSION_ID) {
-                    if self.has(al_version::Gate::PlatformMetadataColumnsFrom29) {
-                        return Ok(Value::Boolean(true));
-                    }
-                    return unsupported(
-                        "RecordRef.FieldExist(2000000005) on this BC version: no corpus test pins it (docs/probes-needed.md)",
-                    );
+                // 2000000005 (the rowversion) and the user-name fields 2000000006 to 2000000008 exist on BC 29 for every table
+                // kind and not before (fieldref/lt-y80-user-name-fields/Y80UserNameFieldExist.al:55-57, :74-78, :99-105, :131-141;
+                // recordref/lt-recordref-fieldref-members/P92Fields.al:72, `#if BC29PLUS`).
+                if (i64::from(SYSTEM_ROW_VERSION_ID)..=i64::from(SYSTEM_ROW_VERSION_ID) + 3).contains(&no) {
+                    return Ok(Value::Boolean(
+                        self.has(al_version::Gate::PlatformMetadataColumnsFrom29),
+                    ));
                 }
                 // Field 0 (SystemRowVersion) and a disabled field do not exist
                 // (record/TestRowVersionFieldNumberFieldActiveContracts.al:73-75, 120-121).

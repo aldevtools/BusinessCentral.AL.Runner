@@ -80,7 +80,11 @@ impl Session {
         // A subscriber that writes the table it is asked about sees the table as not enabled.
         self.events.global_setups.insert(table, GlobalSetup::default());
         let mut setup = GlobalSetup::default();
-        if self.engine.events.is_subscribed(key, "getglobaltabletriggermask") {
+        // With no company open (the per-database part of an install) BC asks for neither the trigger mask nor the database
+        // trigger setup, and raises no database event (install/lt-y79-install-unrelated/Y79InstallUnrelated.al:178
+        // Y79_PerDatabase_NoTriggerSubscriberAsked; install/lt-ug-install-trigger-setup/UgInstallTests.al:37).
+        let no_company = self.cx.company.is_empty();
+        if !no_company && self.engine.events.is_subscribed(key, "getglobaltabletriggermask") {
             let mut args = [Value::Integer(id), Value::Integer(0)];
             let n = names(&["TableID", "TableTriggerMask"]);
             let call = EventCall {
@@ -114,14 +118,6 @@ impl Session {
                 ));
             }
             setup.global_rename = low & MASK_RENAME != 0;
-        }
-        // With no company open (the per-database part of an install), BC does not ask for the database trigger setup: a
-        // write there raises no database event (corpus branch al-runtime-rs-staging-ug eff7eb2a,
-        // install/lt-ug-install-trigger-setup/UgInstallTests.al TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart;
-        // assumption install-trigger-setup-per-company-only until the bump).
-        let no_company = self.cx.company.is_empty();
-        if no_company && self.engine.events.is_subscribed(key, "getdatabasetabletriggersetup") {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::InstallTriggerSetupPerCompanyOnly);
         }
         if !no_company && self.engine.events.is_subscribed(key, "getdatabasetabletriggersetup") {
             let mut args = [

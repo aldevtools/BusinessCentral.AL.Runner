@@ -54,6 +54,13 @@ codeunit 50100 C
     procedure RowVersionExists(): Boolean
     var R: RecordRef;
     begin R.Open(60900); exit(R.FieldExist(2000000005)); end;
+    procedure UserNameFieldsExist(): Text
+    var R: RecordRef; No: Integer; T: Text;
+    begin
+        R.Open(60900);
+        for No := 2000000004 to 2000000009 do T += Format(No - 2000000000) + '=' + Format(R.FieldExist(No), 0, 9) + ';';
+        exit(T);
+    end;
 
     procedure CountBig(): Integer
     var H: Record "VG Head";
@@ -202,17 +209,34 @@ fn lookup_of_systemrowversion_calculates_on_every_version() {
 }
 
 // corpus recordref/lt-recordref-fieldref-members/P92Fields.al:72 (#if BC29PLUS): on BC 29 RecordRef.FieldExist(2000000005),
-// the rowversion's number, is true. Before 29 nothing pins it: refused.
+// the rowversion's number, is true. Before 29 it is false (fieldref/lt-y80-user-name-fields/Y80UserNameFieldExist.al:55-57).
 #[test]
-fn field_exist_of_the_rowversion_number_is_true_on_bc_29_and_refused_before() {
+fn field_exist_of_the_rowversion_number_is_true_on_bc_29_and_false_before() {
     assert!(matches!(
         ok(run(Some("29.0"), "RowVersionExists")),
         Value::Boolean(true)
     ));
     for bc in ["27.5", "28.5"] {
-        match run(Some(bc), "RowVersionExists") {
-            Err(Signal::Unsupported(why)) => assert!(why.contains("2000000005"), "BC {bc}: {why}"),
-            other => panic!("BC {bc}: expected a refusal, got {other:?}"),
-        }
+        assert!(
+            matches!(ok(run(Some(bc), "RowVersionExists")), Value::Boolean(false)),
+            "BC {bc}"
+        );
+    }
+}
+
+// fieldref/lt-y80-user-name-fields/Y80UserNameFieldExist.al:55-57 (own table): 2000000005 to 2000000008 exist on BC 29 only,
+// 2000000004 on every version, 2000000009 never.
+#[test]
+fn field_exist_of_the_user_name_system_fields_is_true_on_bc_29_and_false_before() {
+    assert_eq!(
+        al_testkit::text(run(Some("29.0"), "UserNameFieldsExist")),
+        "4=true;5=true;6=true;7=true;8=true;9=false;"
+    );
+    for bc in ["27.5", "28.5"] {
+        assert_eq!(
+            al_testkit::text(run(Some(bc), "UserNameFieldsExist")),
+            "4=true;5=false;6=false;7=false;8=false;9=false;",
+            "BC {bc}"
+        );
     }
 }

@@ -167,9 +167,6 @@ impl Session {
         // The host's current row n times, then each ListPart but the last of the layout once less than the one before
         // (Y63 with one and two ListParts; R6806LookupParts.al R6806_*_LookupReadEachControl `open log` with three and four, in
         // every position of the linked part measured there).
-        if n >= 3 {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenTailThreeOrMoreListParts);
-        }
         for _ in 0..n {
             self.fn_current_stage(st)?;
         }

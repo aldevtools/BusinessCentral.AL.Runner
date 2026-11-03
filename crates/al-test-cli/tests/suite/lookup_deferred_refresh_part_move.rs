@@ -126,6 +126,55 @@ codeunit 50110 "Repro Deferred Refresh Tests"
     begin
         Setup(); S.OpenEdit(); S.ResourceNo.Lookup(); S.Next();
     end;
+    // Y80_Y15_Host_*_NoRegions (Y15LookupThreeFieldLink.al:1585-1740): the host's move as the first call after the Lookup moves as
+    // usual, then the refresh reads the row it moved to; the part follows.
+    [Test] [HandlerFunctions('PickSecondResource')]
+    procedure HostNextLog()
+    var S: TestPage "Repro Three Link Schedule";
+    begin
+        Setup(); S.OpenEdit(); Log.Take(); S.ResourceNo.Lookup(); Log.Take();
+        Check('move', Format(S.Next()), 'Yes'); Check('move log', Log.Take(), 'agcr R2;agcr R2');
+        Check('after', S.ResourceNo.Value() + '|' + S."No.".Value() + '|' + S.Resources."No.".Value(), 'R2|R2|R2');
+        Check('read log', Log.Take(), '');
+        Check('second', Format(S.Next()) + '|' + S."No.".Value(), 'Yes|R3'); Check('second log', Log.Take(), 'agcr R3');
+        S.Close();
+    end;
+    [Test] [HandlerFunctions('PickSecondResource')]
+    procedure HostPreviousLog()
+    var S: TestPage "Repro Three Link Schedule";
+    begin
+        Setup(); S.OpenEdit(); S.Next(); Log.Take(); S.ResourceNo.Lookup(); Log.Take();
+        Check('move', Format(S.Previous()), 'Yes'); Check('move log', Log.Take(), 'agcr R1;agcr R1');
+        Check('after', S.ResourceNo.Value() + '|' + S."No.".Value() + '|' + S.Resources."No.".Value(), 'R2|R1|R1');
+        S.Close();
+    end;
+    [Test] [HandlerFunctions('PickSecondResource')]
+    procedure HostLastLog()
+    var S: TestPage "Repro Three Link Schedule";
+    begin
+        Setup(); S.OpenEdit(); Log.Take(); S.ResourceNo.Lookup(); Log.Take();
+        Check('move', Format(S.Last()), 'Yes'); Check('move log', Log.Take(), 'agcr ;agcr R3;agcr R3');
+        Check('after', S.ResourceNo.Value() + '|' + S."No.".Value() + '|' + S.Resources."No.".Value(), 'R2|R3|R3');
+        S.Close();
+    end;
+    [Test] [HandlerFunctions('PickSecondResource')]
+    procedure HostFirstLog()
+    var S: TestPage "Repro Three Link Schedule";
+    begin
+        Setup(); S.OpenEdit(); S.Last(); Log.Take(); S.ResourceNo.Lookup(); Log.Take();
+        Check('move', Format(S.First()), 'Yes'); Check('move log', Log.Take(), 'agcr R1;agcr R1');
+        Check('after', S.ResourceNo.Value() + '|' + S."No.".Value() + '|' + S.Resources."No.".Value(), 'R2|R1|R1');
+        S.Close();
+    end;
+    [Test] [HandlerFunctions('PickSecondResource')]
+    procedure HostGoToKeyLog()
+    var S: TestPage "Repro Three Link Schedule";
+    begin
+        Setup(); S.OpenEdit(); Log.Take(); S.ResourceNo.Lookup(); Log.Take();
+        Check('move', Format(S.GoToKey('R3')), 'Yes'); Check('move log', Log.Take(), 'agcr R1;agcr R2;agcr R3');
+        Check('after', S.ResourceNo.Value() + '|' + S."No.".Value() + '|' + S.Resources."No.".Value(), 'R2|R3|R3');
+        S.Close();
+    end;
     local procedure Check(What: Text; Actual: Text; Expected: Text)
     begin if Actual <> Expected then Error('%1: [%2], expected [%3]', What, Actual, Expected); end;
     [ModalPageHandler]
@@ -164,7 +213,15 @@ fn the_first_part_move_after_a_lookup_runs_the_refresh_it_left() {
     ] {
         assert_eq!(get(pass), "Some(Pass)", "{pass}");
     }
-    // The host's own Next as the first call after the Lookup runs the refresh, then moves (Y15_ThreeLink_RegionsSetPartFollowsRow
-    // `next`; assumption lookup-pending-refresh-at-host-next).
-    assert_eq!(get("HostNextWhilePending"), "Some(Pass)");
+    // The host's own move as the first call after the Lookup moves, then runs the refresh (Y80_Y15_Host_*_NoRegions, _Regions).
+    for pass in [
+        "HostNextWhilePending",
+        "HostNextLog",
+        "HostPreviousLog",
+        "HostLastLog",
+        "HostFirstLog",
+        "HostGoToKeyLog",
+    ] {
+        assert_eq!(get(pass), "Some(Pass)", "{pass}");
+    }
 }
