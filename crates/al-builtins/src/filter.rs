@@ -559,7 +559,10 @@ pub fn parse_filter_with(
         if t.len() > 2 && t.starts_with('<') && t.ends_with('>') && formula_chars(&t[1..t.len() - 1]) {
             return Err(did_not_expect(">"));
         }
-        if !t.is_empty() && t.bytes().all(|b| b.is_ascii_alphabetic()) && t.bytes().any(|b| !b"CDWMQYcdwmqy".contains(&b)) {
+        if !t.is_empty()
+            && t.bytes().all(|b| b.is_ascii_alphabetic())
+            && t.bytes().any(|b| !b"CDWMQYcdwmqy".contains(&b))
+        {
             return Err(format!(
                 "{FILTER_SYNTAX}The date formula '{}' should include a time unit.\\\\Time units can be: D,WD,W,M,Q, or Y.\\C, meaning current time unit based on date, can be specified as a prefix to the time unit.",
                 t.to_uppercase()
@@ -568,7 +571,6 @@ pub fn parse_filter_with(
         if t == "*M" {
             return Err(format!("{FILTER_SYNTAX}The date formula '*M' should include a number."));
         }
-    }
     }
     // Three dots in a Date filter read as two (P81DateFilters.al:SetFilter_Date_InvalidTexts, `010126...020126`).
     let dots;
@@ -1803,7 +1805,12 @@ mod tests {
         assert!(parse_filter("<1M", &[], &T::DateFormula).is_err());
         // A text of letters that is no unit needs a time unit (Y77GuidFilter.al DateFormula_TextFilter_SetFilterOther `sf_plain`).
         let e = parse_filter("abc", &[], &T::DateFormula).unwrap_err();
-        assert!(e.contains("The date formula 'ABC' should include a time unit.\\\\Time units can be: D,WD,W,M,Q, or Y.\\C, meaning"), "{e}");
+        assert!(
+            e.contains(
+                "The date formula 'ABC' should include a time unit.\\\\Time units can be: D,WD,W,M,Q, or Y.\\C, meaning"
+            ),
+            "{e}"
+        );
     }
 
     /// A quoted empty text in a Date filter is the blank date: `''` finds the blank rows, `<>''` the others
