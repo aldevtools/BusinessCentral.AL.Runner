@@ -186,7 +186,7 @@ fn results() -> Vec<(String, Outcome, Vec<&'static str>)> {
 fn body_filters_do_not_reach_a_later_instance() {
     let r = results();
     for name in ["TwoVariables", "ClearOneVariable", "OneRunA", "OneRunB"] {
-        let (_, o, a) = r
+        let (_, o, _) = r
             .iter()
             .find(|(t, _, _)| t == name)
             .unwrap_or_else(|| panic!("no {name} in {r:?}"));
