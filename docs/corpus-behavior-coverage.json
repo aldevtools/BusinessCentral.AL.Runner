@@ -16891,7 +16891,7 @@
         "code": "RecordNotOpened",
         "file": "crates/al-vm/src/geturl.rs",
         "generic": false,
-        "line": 87,
+        "line": 88,
         "pinned": true,
         "site": "collections/CsCollections.al:611",
         "template": "The record is not open."
@@ -16972,7 +16972,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 2152,
+        "line": 2154,
         "pinned": true,
         "site": "codeunits/call-depth/CallDepthDirectAndEvent.al:95",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."

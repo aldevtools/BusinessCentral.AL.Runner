@@ -493,6 +493,14 @@ fn the_sidecar_runs_with_en_us_culture_utc_a_cleared_environment_and_an_empty_wo
     let DotNetValue::Str(cwd) = cwd.value else { panic!() };
     assert!(cwd.contains("al-runtime-dotnet-") && cwd.ends_with("cwd"), "{cwd}");
     assert_eq!(std::fs::read_dir(&cwd).unwrap().count(), 0, "an empty temporary folder");
+    // Issue 6954: TMP and TEMP (what Windows' Path.GetTempPath reads) name the process's own temporary folder.
+    let own_tmp = Path::new(&cwd).parent().unwrap().join("tmp");
+    for name in ["TMP", "TEMP", "TMPDIR"] {
+        let v = sess
+            .invoke(st("System.Environment"), "GetEnvironmentVariable", vec![s(name)])
+            .unwrap();
+        assert_eq!(v.value, DotNetValue::Str(own_tmp.display().to_string()), "{name}");
+    }
     sess.close();
     assert!(!Path::new(&cwd).exists(), "removed when the session closes");
 }
