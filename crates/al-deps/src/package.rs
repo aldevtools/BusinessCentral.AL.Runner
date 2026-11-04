@@ -264,7 +264,8 @@ fn with_archive<T>(
     f(&zip, manifest, true)
 }
 
-/// Reads only the manifest and whether the package has AL source.
+/// Reads only the manifest and whether the package has AL source: `.al` files, or no objects at all
+/// ([`crate::empty`]), whose source is complete without a file.
 pub fn read_info(app: &[u8]) -> Result<(Manifest, bool), PackageError> {
     read_info_with(app, &Vars::default())
 }
@@ -272,7 +273,15 @@ pub fn read_info(app: &[u8]) -> Result<(Manifest, bool), PackageError> {
 /// [`read_info`] for a source archive that may hold build variables.
 pub fn read_info_with(app: &[u8], vars: &Vars) -> Result<(Manifest, bool), PackageError> {
     with_archive(app, 0, vars, &mut |zip, m, _| {
-        Ok((m, zip.entries.iter().any(|e| is_al(&e.name))))
+        if zip.entries.iter().any(|e| is_al(&e.name)) {
+            return Ok((m, true));
+        }
+        let empty = zip
+            .find("SymbolReference.json")
+            .filter(|e| e.size <= crate::empty::MAX_SYMBOLS_LEN)
+            .and_then(|e| zip.read(e).ok())
+            .is_some_and(|bytes| crate::empty::holds_no_objects(&bytes));
+        Ok((m, empty))
     })
 }
 

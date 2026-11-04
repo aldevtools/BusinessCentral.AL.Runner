@@ -42,7 +42,8 @@ pub struct Candidate {
     pub name: String,
     pub publisher: String,
     pub version: Version,
-    /// The package carries AL source with bodies. A package without it never
+    /// The package carries AL source with bodies, or holds no objects at all (`crate::empty`), so its
+    /// source is complete without a file. A package without it never
     /// shadows one that has it.
     pub has_source: bool,
     /// Search tier, lowest first: 0 is the project's `.alpackages`, then
