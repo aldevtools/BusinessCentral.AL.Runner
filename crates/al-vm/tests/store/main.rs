@@ -102,6 +102,7 @@ mod sum_where_flowfield;
 mod system_field_relation;
 mod systemid_cleared_on_insert;
 mod table_globals;
+mod tableext_protected_var_cross_app;
 mod tableext_relation_modify;
 mod tableext_sibling_globals;
 mod temp_blob_rewrite_after_insert;

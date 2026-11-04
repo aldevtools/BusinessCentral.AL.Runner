@@ -157,8 +157,10 @@ impl Lowerer<'_> {
         }
         let slot = crate::base_access::slot_of(&ast, None, name)
             .ok_or_else(|| format!("`{name}` has no slot in the page extension that declares it"))?;
-        // Pinned by testpage/UeProtectedVarTests.al (was assumption `pageext-sibling-protected-var`).
-        if self.ws.objects[ext].app != self.ws.objects[self.oi].app {
+        // Pinned by testpage/UeProtectedVarTests.al (was assumption `pageext-sibling-protected-var`). A table extension's
+        // sibling in another app is pinned by corpus PR 1126 (branch al-runtime-rs-staging-r6983,
+        // table-objects/extensions/ProtectedVarCrossApp.al ProtVar_OtherAppExtensionVar_ReadAndWrite; al-runner issue 6983).
+        if !table_ext && self.ws.objects[ext].app != self.ws.objects[self.oi].app {
             self.assume(al_builtins::assumptions::Assumption::PageExtSiblingProtectedVarCrossApp);
         }
         Ok(slot)

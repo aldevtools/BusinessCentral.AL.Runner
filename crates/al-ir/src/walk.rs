@@ -403,7 +403,9 @@ fn walk_set_elem<V: RefVisitor>(e: &mut SetElem, v: &mut V) {
 
 fn walk_place<V: RefVisitor>(p: &mut Place, v: &mut V) {
     match p {
-        Place::Local(_) | Place::Global(_) | Place::BaseGlobal(_) | Place::ExtGlobal(..) => {}
+        Place::Local(_) | Place::Global(_) | Place::BaseGlobal(_) => {}
+        // The extension's object index is an object reference like a call's (cross-app since al-runner issue 6983).
+        Place::ExtGlobal(e, _) => obj(v, e),
         Place::Index(base, idx) => {
             walk_place(base, v);
             for e in idx {
