@@ -1790,9 +1790,7 @@ impl Session {
                         "Next from the last row onto the new-row line of a page with OnNextRecord (whether the page is asked is not pinned)",
                     );
                 }
-                self.refuse_read_only_part(st, "Next() onto the new-row line")?;
-                self.land_on_new_line(st)?;
-                return Ok(Some(true));
+                return Ok(Some(self.walk_onto_new_line(st)?));
             }
             return Ok(Some(false));
         }
@@ -2302,9 +2300,7 @@ impl Session {
                     } else if st.borrow().new_line {
                         // corpus testpage/TestPageNewRowLine_Tests.al: Next() past the last data
                         // row lands on the blank line and answers true.
-                        self.refuse_read_only_part(st, "Next() onto the new-row line")?;
-                        self.land_on_new_line(st)?;
-                        return Ok(true);
+                        return self.walk_onto_new_line(st);
                     } else {
                         false
                     }
@@ -3144,7 +3140,7 @@ impl Session {
             return Ok(Value::Null);
         }
         // A second non-modal Run of a Page variable runs its OnInit again (pages/lifecycle/
-        // PageVariableLifecycle.al:131 PageVar_RunTwiceOnOneVariable `IOIO`); a second RunModal does not
+        // PageVariableLifecycle.al:119 PageVar_RunTwiceOnOneVariable `IOIO`); a second RunModal does not
         // (pages/controls/W2PageVariableInit.al:102-104 PageVariable_RunModalTwice). A run of the other kind than the one before, and a
         // second non-modal run of a page with variables of its own (whether they keep their values is not pinned), are refused.
         let last = st.borrow_mut().last_run_modal.replace(modal);
@@ -3306,7 +3302,7 @@ impl Session {
         {
             // The handler reads the lookup mode the run gave the page: Yes for the static Page.RunModal, which sets it, and the
             // variable's own for a Page variable, No unless LookupMode(true) was called (errors/lt-ms-refusals-128/
-            // P128ModalOnInit.al:191 `lookup=Yes`, :210 P128_TypedModalHandler_PageWithOnInit_PageVariable `lookup=No`).
+            // P128ModalOnInit.al:175 `lookup=Yes`, :210 P128_TypedModalHandler_PageWithOnInit_PageVariable `lookup=No`).
             let mut s = st.borrow_mut();
             s.typed_handler = true;
             s.handler_set_record = false;

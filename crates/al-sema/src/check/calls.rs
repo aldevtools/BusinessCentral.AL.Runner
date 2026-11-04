@@ -348,7 +348,7 @@ impl<'a> Checker<'a> {
         }
         // A bare call in a table that declares a procedure of a built-in Record method's name is the built-in on Rec when it does
         // not fit the procedure, as `Rec.` is (`member`): bare `Insert()` and `Get(1)` next to own Insert(Integer; Text; Boolean)
-        // and Get(Record; Record) (record/builtin-name-procedures/Y36BuiltinNameSameArity.al:46-56, :253-271), bare `Init()`
+        // and Get(Record; Record) (record/builtin-name-procedures/Y36BuiltinNameSameArity.al:46-56, :238-256), bare `Init()`
         // next to Init(A; B) (record/crud/RcBInit.al:445, :475, fixtures QzInitOverload.al). The procedures come
         // first, so they win a call both fit. Table extension code is not pinned.
         if !c.is_empty()
@@ -393,7 +393,7 @@ impl<'a> Checker<'a> {
             c = all;
         }
         // A bare `RunModal(Page::X[, Rec])` in a page's code is the static Page.RunModal (pages/run-modal/
-        // UfUnqualifiedRunModal.al:71-117, a field's OnDrillDown and two actions' OnAction; al-runner issue 6162). The other
+        // UfUnqualifiedRunModal.al:58-104, a field's OnDrillDown and two actions' OnAction; al-runner issue 6162). The other
         // static Page methods and a page extension are not pinned.
         // The bare `RunModal()` without arguments in a page procedure runs the page instance the procedure belongs to, as
         // `CurrPage.RunModal()` (ui-handlers/WbBareRunModal.al:35-43, PageProcedureRunsItselfModal, corpus branch

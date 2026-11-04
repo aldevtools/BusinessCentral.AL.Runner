@@ -683,7 +683,10 @@ OUTPUT
                          FILE the document is the only thing on stdout and the report goes to
                          stderr. `--output-json=FILE` also works.
                          See https://aldev.tools/al-runner/tool-protocol/.
-    --timings            Compile phases and the slowest test codeunits.
+    --timings            Compile phases and the slowest test codeunits. For the time per AL
+                         routine, set AL_PROFILE=FILE: the run samples the AL call stack every
+                         5 ms (AL_PROFILE_US sets the interval in microseconds) and writes the
+                         routines ranked by self and inclusive samples to FILE.
 
 TEST-FIRST
     --tdd                A test that calls a procedure that does not exist yet runs against a stub

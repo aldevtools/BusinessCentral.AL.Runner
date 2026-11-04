@@ -290,7 +290,7 @@ codeunit 69997 C
 }
 
 /// A list's repeater control over a page variable that OnAfterGetRecord computes: BC's client shows each row's own value
-/// (pages/row-page-variable/QiRowPageVar.al:223 QI_RV_List_Navigation; Tests-ERM 134760 Empl. Ledger Entries Preview AmountFCY
+/// (pages/row-page-variable/QiRowPageVar.al:208 QI_RV_List_Navigation; Tests-ERM 134760 Empl. Ledger Entries Preview AmountFCY
 /// after First()).
 #[test]
 fn a_page_variable_control_on_another_row_shows_that_rows_value() {

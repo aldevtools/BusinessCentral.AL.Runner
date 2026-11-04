@@ -283,7 +283,7 @@ fn subscription_row(
             ));
         }
         // A page action event's row has Event Type = Trigger and Active = Yes (events/platform-triggers/
-        // EventSubscriptionTriggerRows.al:222 for OnAfterActionEvent; record/WdActionEventRow.al:76-85 and :106-110 for
+        // EventSubscriptionTriggerRows.al:222 for OnAfterActionEvent; record/WdActionEventRow.al:61-70 and :106-110 for
         // OnBeforeActionEvent, also as filters; corpus branch al-runtime-rs-staging-1030c, al-runner issue 6293). Its Published
         // Function is `<event> - <number>`, the number the id of the action's control: FNV-1a of the declaring object's id and the
         // action name (`pages::control_id`), the page extension's id for an action an extension adds, under the base page

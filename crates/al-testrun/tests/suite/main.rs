@@ -3,7 +3,9 @@
 //! (tests/<name>.rs) when CI, a doc or a message runs it by name (`--test NAME`), when it re-runs its own
 //! executable, or when it declares modules of its own. `baseline_cache_files_dir` stays apart because it
 //! changes what the kept baseline of other tests in the same process reads (`baseline_cache`, `warm_kept`,
-//! `warm_baseline_edit` then fail).
+//! `warm_baseline_edit` then fail). `companies_opt_in` stays apart because it sets the company list of the process
+//! (`host::set_companies`), which is part of the kept baseline's key: a run of another test between its own two runs
+//! got another key (`baseline_cache` then failed now and then).
 mod action_trigger_lazy_refusal;
 mod affected_run;
 mod baseline_cache;
@@ -11,7 +13,6 @@ mod baseline_rule_carry;
 mod baseline_skip;
 mod capture;
 mod code_coverage_refresh;
-mod companies_opt_in;
 mod compile_cache;
 mod datatransfer_install;
 mod datatransfer_other_app_ext;
@@ -106,5 +107,33 @@ fn every_file_of_the_suite_is_a_module() {
     assert!(
         missing.is_empty(),
         "add `mod NAME;` to tests/suite/main.rs for: {missing:?}"
+    );
+}
+
+/// A module of this binary may not change a setting of the process (`al_testrun::host::set_*`): the tests of the
+/// binary run side by side, and a setting such as the company list is part of the kept baseline's key
+/// (`runtime::corpus::baseline_key`), so a test that ran between two runs of another one gave the second run another
+/// key and another baseline (`baseline_cache` then failed now and then). Such a test is a binary of its own.
+#[test]
+fn no_module_of_the_suite_changes_a_setting_of_the_process() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/suite");
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.file_name().is_some_and(|n| n == "main.rs") || path.extension().is_none_or(|x| x != "rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        for (i, line) in text.lines().enumerate() {
+            let code = line.split("//").next().unwrap_or("");
+            if code.contains("host::set_") {
+                found.push(format!("{}:{}", path.file_name().unwrap().to_string_lossy(), i + 1));
+            }
+        }
+    }
+    found.sort();
+    assert!(
+        found.is_empty(),
+        "move these tests to a binary of their own (tests/<name>.rs): {found:?}"
     );
 }

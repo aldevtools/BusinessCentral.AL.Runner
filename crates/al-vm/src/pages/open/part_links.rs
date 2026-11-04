@@ -42,7 +42,7 @@ impl Session {
         }
         // A link value the part's table relation refuses: the client stamps it without validating (no OnBeforeValidate, no
         // OnValidate), runs the part's OnNewRecord and OnAfterGetCurrRecord once, then the open fails with code TestWrapped and the
-        // relation's text (PartLineBeforeHostKey.al:1600-1680 QH_ConstLink_Missing_OpenNew_Trace `[CP.OnOpenPage |
+        // relation's text (PartLineBeforeHostKey.al:1819-1899 QH_ConstLink_Missing_OpenNew_Trace `[CP.OnOpenPage |
         // CP.OnNewRecord:D9 below=Yes | CP.OnAfterGetCurrRecord:D9/0]`, QH_ConstLink_Missing_OpenNew_Events `[LP.OnNewRecord:D9]`,
         // QH_ConstLink_Missing_OpenEdit; :776 PYB_OpenNew_ConstLinkedPart).
         if let Some(e) = self.part_link_relation_error(st)? {
@@ -65,10 +65,22 @@ impl Session {
         // A value typed on this blank line without New() is stored with the first AutoSplitKey number, 10000
         // (pages/triggers/NewLineStampsFilters.al QP_TwoKeyLink_TypeFirst_BlankLine `db.first =
         // Order|H1|10000|...`); a line New() starts from it burns one interval (20000: QP_TwoKeyLink_TypeFirst_NewLine,
-        // PartLineBeforeHostKey.al:900 PartLine_EnteredAfterHostKey_Baseline). `auto_split_key` reads it on the placeholder line only.
+        // PartLineBeforeHostKey.al:1119 PartLine_EnteredAfterHostKey_Baseline). `auto_split_key` reads it on the placeholder line only.
         st.borrow_mut().split_starts_low = true;
         let blank_held = self.blank_held_xrec(st, &held);
         let table_blank = self.initial_fields(table);
+        // A host opened for edit over an empty table shows no row and is not editable (`runs_on_blank_record`): its part stamps
+        // the link value without validating it (pages/parts/PartLineBeforeHostKey.al:2720 R6920_DocAfterGet_BlankRows_OpenEdit_VisibleFirst,
+        // :3868 R6920_CardIssue_NoRows_OpenEdit_VisibleFirst and the other R6920_*_OpenEdit_* tests
+        // `open=[] fired at least once: LP.OnNewRecord`, no `L.OnValidate(Document No.)`, with and
+        // without rows of the blank key). The corpus pins two runs or more; the three runs are kept from the editable host.
+        let host_blank_on_open = st
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, _)| h.upgrade())
+            .is_some_and(|h| h.borrow().blank_on_open && h.borrow().host.is_none())
+            && !rec.borrow().temporary;
         for (n, validate) in [true, false, true].into_iter().enumerate() {
             let first = n == 0;
             if validate {
@@ -87,6 +99,7 @@ impl Session {
                 let fresh = self.initial_fields(table);
                 rec.borrow_mut().fields = fresh;
                 let stamped = match blank_held.clone() {
+                    _ if host_blank_on_open => self.stamp_from_filters(st, false),
                     Some(before) => self.stamp_from_filters_seen_as(st, before),
                     None => self.stamp_from_filters(st, true),
                 };

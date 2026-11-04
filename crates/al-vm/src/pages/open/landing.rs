@@ -214,28 +214,50 @@ impl Session {
             None
         };
         // A part of a Document or Card host opened for view on no row shows no row, though rows of the blank key exist
-        // (pages/parts/PartLineBeforeHostKey.al:1578 QH_OpenView_NoRow_BlankKeyLinesExist
-        // `part_description=[]`). A ListPlus host behaves the same (corpus branch al-runtime-rs-staging-r6951
-        // pages/parts/PartListPlusHostNoRow.al ListPlusHost_OpenView_NoRow_PartTriggers, _PartInGroup, _PartFirst `No`;
-        // issue 6953; assumption `listplus-host-no-row-part` until the file is pinned).
-        let host_shows_no_row = st
-            .borrow()
-            .host
-            .as_ref()
-            .and_then(|(h, _)| h.upgrade())
-            .is_some_and(|h| {
-                let hb = h.borrow();
-                hb.host.is_none()
-                    && hb.mode == PageMode::View
-                    && hb.cursor == Cursor::None
-                    && matches!(
-                        self.engine.object_facts[hb.object as usize].page_type,
-                        Some(al_ir::PageType::Document | al_ir::PageType::Card | al_ir::PageType::ListPlus)
-                    )
-            });
+        // (pages/parts/PartLineBeforeHostKey.al:1797 QH_OpenView_NoRow_BlankKeyLinesExist
+        // `part_description=[]`). So does the part of such a host opened for edit over an empty table, which shows no row
+        // (`runs_on_blank_record`): :2720 R6920_DocAfterGet_BlankRows_OpenEdit_VisibleFirst, :3578
+        // R6920_CardOpenPage_BlankRows_OpenEdit_EditableFirst and the other R6920_*_BlankRows_OpenEdit_* tests `description=[]`,
+        // `open=[] fired at least once: LP.OnNewRecord` as without rows (:2727, :2733).
+        let engine = self.engine();
+        let part_temporary = self.page_rec(st).borrow().temporary;
+        let host_shows_no_row_as = |view: bool| {
+            st.borrow()
+                .host
+                .as_ref()
+                .and_then(|(h, c)| h.upgrade().map(|h| (h, *c)))
+                .is_some_and(|(h, c)| {
+                    let hb = h.borrow();
+                    let mode_ok = if view {
+                        hb.mode == PageMode::View
+                    } else {
+                        // Pinned for a part linked by a field to the host's table, over a table of its own (the R6920 pages);
+                        // an unlinked or temporary part of such a host keeps what it was handed, as before.
+                        hb.blank_on_open
+                            && !part_temporary
+                            && page_of(&engine, &h).controls[c]
+                                .part_link
+                                .as_ref()
+                                .is_some_and(|l| l.entries.iter().any(|e| matches!(e, ir::LinkEntry::Field(..))))
+                    };
+                    hb.host.is_none()
+                        && mode_ok
+                        && hb.cursor == Cursor::None
+                        && match self.engine.object_facts[hb.object as usize].page_type {
+                            Some(al_ir::PageType::Document | al_ir::PageType::Card) => true,
+                            // Opened for view, a ListPlus host behaves the same (corpus branch al-runtime-rs-staging-r6951
+                            // pages/parts/PartListPlusHostNoRow.al ListPlusHost_OpenView_NoRow_PartTriggers, _PartInGroup,
+                            // _PartFirst `No`; issue 6953; assumption `listplus-host-no-row-part` until the file is pinned).
+                            Some(al_ir::PageType::ListPlus) => view,
+                            _ => false,
+                        }
+                })
+        };
+        let edit_host_no_row = host_shows_no_row_as(false);
+        let host_shows_no_row = host_shows_no_row_as(true) || edit_host_no_row;
         if !host_shows_no_row && self.nav_find(st, which)? {
             // A part linked by a field that shows rows of a host that is a new, unsaved record: BC inserts the host at Close although
-            // nothing was typed (PartLineBeforeHostKey.al:838 PYB_OpenNew_LinkedPart_BlankKeyRowsExist `close =
+            // nothing was typed (PartLineBeforeHostKey.al:1057 PYB_OpenNew_LinkedPart_BlankKeyRowsExist `close =
             // [HP.OnInsertRecord: | H.OnInsert:]`). Not modelled: refused.
             let new_host_link = st
                 .borrow()
@@ -330,7 +352,7 @@ impl Session {
             self.populate_expressions(st)
         } else {
             // A list part that shows no row of a host opened for view runs its OnNewRecord once, the link value set without
-            // validation, and then shows no row (pages/parts/PartLineBeforeHostKey.al:883
+            // validation, and then shows no row (pages/parts/PartLineBeforeHostKey.al:1102
             // PYB_OpenView_ExistingHost `[LP.OnNewRecord:D6]`). What the part's fields read afterwards is kept as before (blank).
             // Only a host that shows a stored row is pinned.
             let host_on_row = st
@@ -347,7 +369,7 @@ impl Session {
                     .iter()
                     .any(|c| c.kind == ir::ControlKind::Repeater);
             // A host over no row: the part runs OnNewRecord once too, with the blank link value and no validation, and
-            // OnAfterGetCurrRecord once; the host runs neither (PartLineBeforeHostKey.al:1503 QH_OpenView_NoRow_Document
+            // OnAfterGetCurrRecord once; the host runs neither (PartLineBeforeHostKey.al:1722 QH_OpenView_NoRow_Document
             // `[LP.OnNewRecord:]`, :1530 _TraceHost `[TH.OnOpenPage | CP.OnOpenPage | CP.OnNewRecord: below=Yes |
             // CP.OnAfterGetCurrRecord:/0]`, :1562 _UnlinkedPart, :1602 QH_OpenView_RowFilteredAway after the host's filter
             // left no row). Pinned for a Document or Card host, and measured for a ListPlus host (`host_shows_no_row`); another
@@ -383,7 +405,7 @@ impl Session {
                 self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
                 self.page_event(st, "onnewrecordevent", None, Some(true))?;
                 // The part then runs OnAfterGetCurrRecord and its event subscribers once on the blank row, after OnNewRecord and
-                // with the link value in place (PartLineBeforeHostKey.al:1594 QH_OpenView_NoRow_TraceHost `CP.OnNewRecord: below=Yes |
+                // with the link value in place (PartLineBeforeHostKey.al:1813 QH_OpenView_NoRow_TraceHost `CP.OnNewRecord: below=Yes |
                 // CP.OnAfterGetCurrRecord:/0`, :1610 _CurrRecordOnlyPart `OP.OnAfterGetCurrRecord:/0`, :1642 _BlankKeyLinesExist,
                 // :1666 _RowFilteredAway `CP.OnNewRecord:D6 below=Yes | CP.OnAfterGetCurrRecord:D6/0` on a host that stands on a row).
                 self.populate_expressions(st)?;

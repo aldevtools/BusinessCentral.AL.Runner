@@ -1,5 +1,5 @@
 {
-  "corpus_commit": "833a01ce4920e8662219b650953bff7f415317ab",
+  "corpus_commit": "86a89e70e28388ba674bbd505208e69b563d7fc7",
   "dimensions": [
     {
       "catalog": 192,
@@ -42,7 +42,7 @@
           "site": "events/P137Callstack.al:147"
         },
         {
-          "corpus_uses": 497,
+          "corpus_uses": 499,
           "group": "page",
           "ms_uses": 1332,
           "name": "OnOpenPage",
@@ -78,7 +78,7 @@
           "site": "Y64XaObjects.al:54"
         },
         {
-          "corpus_uses": 401,
+          "corpus_uses": 403,
           "group": "page",
           "ms_uses": 923,
           "name": "OnAfterGetRecord",
@@ -114,7 +114,7 @@
           "site": "_fixtures/xmlports/ALTVariableXmlPort.al:48"
         },
         {
-          "corpus_uses": 401,
+          "corpus_uses": 402,
           "group": "page",
           "ms_uses": 480,
           "name": "OnAfterGetCurrRecord",
@@ -186,7 +186,7 @@
           "site": "Y64XaObjects.al:64"
         },
         {
-          "corpus_uses": 129,
+          "corpus_uses": 130,
           "group": "page",
           "ms_uses": 282,
           "name": "OnNewRecord",
@@ -642,7 +642,7 @@
           "name": "OnAction",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/BbObjects.al:94"
+          "site": "pages/BbObjects.al:82"
         },
         {
           "corpus_uses": 27,
@@ -1822,7 +1822,7 @@
           "site": "pages/properties/P119PageExt.al:26"
         },
         {
-          "corpus_uses": 2020,
+          "corpus_uses": 2031,
           "group": "page",
           "ms_uses": 2786,
           "name": "PageType",
@@ -1849,7 +1849,7 @@
           "site": "Y85XaPackageData.al:98"
         },
         {
-          "corpus_uses": 1869,
+          "corpus_uses": 1880,
           "group": "page",
           "ms_uses": 2619,
           "name": "SourceTable",
@@ -1930,7 +1930,7 @@
           "site": "format-evaluate/AtPrecisionStandardFormat2.al:20"
         },
         {
-          "corpus_uses": 2321,
+          "corpus_uses": 2270,
           "group": "table/key",
           "ms_uses": 1769,
           "name": "Clustered",
@@ -2056,7 +2056,7 @@
           "site": "format-evaluate/autoformat/AutoFormatCard.Page.al:76"
         },
         {
-          "corpus_uses": 198,
+          "corpus_uses": 199,
           "group": "page",
           "ms_uses": 1073,
           "name": "Editable",
@@ -2071,7 +2071,7 @@
           "name": "Visible",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/actions/QqBoundObjects.al:70"
+          "site": "pages/actions/QqBoundObjects.al:54"
         },
         {
           "corpus_uses": 37,
@@ -2101,7 +2101,7 @@
           "site": "pages/run-modal/P113AutoFormat.al:89"
         },
         {
-          "corpus_uses": 94,
+          "corpus_uses": 95,
           "group": "page",
           "ms_uses": 846,
           "name": "InsertAllowed",
@@ -2236,7 +2236,7 @@
           "site": "events/platform-triggers/PtObjects.al:20"
         },
         {
-          "corpus_uses": 277,
+          "corpus_uses": 288,
           "group": "page/part",
           "ms_uses": 716,
           "name": "SubPageLink",
@@ -2353,7 +2353,7 @@
           "site": "pages/controls/SaOtherRecordControl.al:36"
         },
         {
-          "corpus_uses": 34,
+          "corpus_uses": 41,
           "group": "page/part",
           "ms_uses": 469,
           "name": "Visible",
@@ -2551,7 +2551,7 @@
           "site": "errors/TestPageVariableMinMaxContracts.al:32"
         },
         {
-          "corpus_uses": 62,
+          "corpus_uses": 65,
           "group": "page",
           "ms_uses": 314,
           "name": "DelayedInsert",
@@ -3226,7 +3226,7 @@
           "site": "pages/controls/AaPartsLists.al:107"
         },
         {
-          "corpus_uses": 11,
+          "corpus_uses": 19,
           "group": "page/part",
           "ms_uses": 101,
           "name": "Editable",
@@ -3613,7 +3613,7 @@
           "site": "_fixtures/xmlports/ALTUniversalManualXmlPort.al:21"
         },
         {
-          "corpus_uses": 3475,
+          "corpus_uses": 3476,
           "group": "codeunit",
           "ms_uses": 59,
           "name": "Subtype",
@@ -5050,7 +5050,7 @@
           "name": "HelpLink",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/BbObjects.al:62"
+          "site": "pages/BbObjects.al:50"
         },
         {
           "corpus_uses": 1,
@@ -5644,7 +5644,7 @@
           "name": "AllowMultipleFiles",
           "pinned": true,
           "runtime_reads": false,
-          "site": "pages/BbObjects.al:92"
+          "site": "pages/BbObjects.al:80"
         },
         {
           "corpus_uses": 1,
@@ -11416,7 +11416,7 @@
           "site": "codeunits/procedures/XObjectProps.al:13"
         },
         {
-          "corpus_uses": 3309,
+          "corpus_uses": 3310,
           "group": "codeunit",
           "ms_uses": 0,
           "name": "TestPermissions",
@@ -11557,7 +11557,7 @@
           "name": "FileUploadAction",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/BbObjects.al:70"
+          "site": "pages/BbObjects.al:58"
         },
         {
           "corpus_uses": 1,
@@ -11863,7 +11863,7 @@
           "name": "EntityName",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/BbObjects.al:79"
+          "site": "pages/BbObjects.al:67"
         },
         {
           "corpus_uses": 2,
@@ -11872,7 +11872,7 @@
           "name": "EntitySetName",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/BbObjects.al:80"
+          "site": "pages/BbObjects.al:68"
         },
         {
           "corpus_uses": 1,
@@ -13843,7 +13843,7 @@
           "name": "InFooterBar",
           "pinned": true,
           "runtime_reads": false,
-          "site": "testpage/DhPageActionProps.al:102"
+          "site": "testpage/DhPageActionProps.al:86"
         },
         {
           "corpus_uses": 1,
@@ -15282,7 +15282,7 @@
       "dimension": "syntax",
       "items": [
         {
-          "corpus_uses": 1201272,
+          "corpus_uses": 1204084,
           "group": "expression",
           "ms_uses": 1810044,
           "name": "NameRef",
@@ -15291,7 +15291,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 431216,
+          "corpus_uses": 432410,
           "group": "expression",
           "ms_uses": 475571,
           "name": "MemberExpr",
@@ -15300,7 +15300,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 517288,
+          "corpus_uses": 518661,
           "group": "expression",
           "ms_uses": 389837,
           "name": "CallExpr",
@@ -15309,7 +15309,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 361047,
+          "corpus_uses": 362211,
           "group": "statement",
           "ms_uses": 248561,
           "name": "ExprStmt",
@@ -15318,7 +15318,7 @@
           "site": "ALTCallstackModuleInfos.al:26"
         },
         {
-          "corpus_uses": 56987,
+          "corpus_uses": 57102,
           "group": "statement",
           "ms_uses": 189192,
           "name": "Block",
@@ -15327,7 +15327,7 @@
           "site": "ALTCallstackModuleInfos.al:8"
         },
         {
-          "corpus_uses": 54315,
+          "corpus_uses": 54339,
           "group": "statement",
           "ms_uses": 136362,
           "name": "AssignStmt",
@@ -15336,7 +15336,7 @@
           "site": "ALTInternalCodeunit.al:19"
         },
         {
-          "corpus_uses": 14481,
+          "corpus_uses": 14505,
           "group": "statement",
           "ms_uses": 101593,
           "name": "IfStmt",
@@ -15345,7 +15345,7 @@
           "site": "ALTIsolatedStorageOwner.al:25"
         },
         {
-          "corpus_uses": 10452,
+          "corpus_uses": 10463,
           "group": "statement",
           "ms_uses": 81530,
           "name": "ExitStmt",
@@ -15354,7 +15354,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 81518,
+          "corpus_uses": 81555,
           "group": "expression",
           "ms_uses": 77747,
           "name": "Literal:Integer",
@@ -15372,7 +15372,7 @@
           "site": "ALTIsolatedStorageOwner.al:41"
         },
         {
-          "corpus_uses": 465118,
+          "corpus_uses": 466730,
           "group": "expression",
           "ms_uses": 54475,
           "name": "Literal:StringLit",
@@ -15381,7 +15381,7 @@
           "site": "BwXaObjects.al:21"
         },
         {
-          "corpus_uses": 3951,
+          "corpus_uses": 3952,
           "group": "expression",
           "ms_uses": 33696,
           "name": "BinExpr =",
@@ -15390,7 +15390,7 @@
           "site": "TestDotNetValueKindsContracts.al:170"
         },
         {
-          "corpus_uses": 1059,
+          "corpus_uses": 1063,
           "group": "expression",
           "ms_uses": 25509,
           "name": "ParenExpr",
@@ -15399,7 +15399,7 @@
           "site": "Y69XbTriggerSubs.al:59"
         },
         {
-          "corpus_uses": 6067,
+          "corpus_uses": 6154,
           "group": "expression",
           "ms_uses": 24498,
           "name": "Literal:false",
@@ -15417,7 +15417,7 @@
           "site": "QzXaUpgradeTagProbe.al:100"
         },
         {
-          "corpus_uses": 6794,
+          "corpus_uses": 6859,
           "group": "expression",
           "ms_uses": 23439,
           "name": "Literal:true",
@@ -15426,7 +15426,7 @@
           "site": "Y3XaInstallEvents.al:60"
         },
         {
-          "corpus_uses": 984,
+          "corpus_uses": 989,
           "group": "expression",
           "ms_uses": 23304,
           "name": "BinExpr <>",
@@ -15453,7 +15453,7 @@
           "site": "TestDotNetValueKindsContracts.al:428"
         },
         {
-          "corpus_uses": 53285,
+          "corpus_uses": 53336,
           "group": "expression",
           "ms_uses": 15901,
           "name": "BinExpr +",
@@ -15462,7 +15462,7 @@
           "site": "BwXaObjects.al:26"
         },
         {
-          "corpus_uses": 386,
+          "corpus_uses": 390,
           "group": "expression",
           "ms_uses": 11383,
           "name": "BinExpr and",
@@ -15471,7 +15471,7 @@
           "site": "Y79XbSubs.al:180"
         },
         {
-          "corpus_uses": 936,
+          "corpus_uses": 937,
           "group": "statement",
           "ms_uses": 6695,
           "name": "RepeatStmt",
@@ -15525,7 +15525,7 @@
           "site": "ALTInternalCodeunit.al:7"
         },
         {
-          "corpus_uses": 5492,
+          "corpus_uses": 5509,
           "group": "statement",
           "ms_uses": 3049,
           "name": "AssignStmt +=",
@@ -15561,7 +15561,7 @@
           "site": "collections/DictKeys.al:185"
         },
         {
-          "corpus_uses": 564,
+          "corpus_uses": 568,
           "group": "expression",
           "ms_uses": 2169,
           "name": "BinExpr <",
@@ -15624,7 +15624,7 @@
           "site": "TestDotNetValueKindsContracts.al:164"
         },
         {
-          "corpus_uses": 723,
+          "corpus_uses": 727,
           "group": "statement",
           "ms_uses": 561,
           "name": "WhileStmt",
@@ -15831,7 +15831,7 @@
           "site": null
         },
         {
-          "corpus_uses": 4847,
+          "corpus_uses": 4853,
           "group": "statement",
           "ms_uses": 0,
           "name": "AssertErrorStmt",
@@ -16126,7 +16126,7 @@
           "site": "errors/TestUnhandledUiAndDialogDefaults.al:164"
         },
         {
-          "corpus_uses": 23982,
+          "corpus_uses": 24050,
           "group": "procedure",
           "ms_uses": 0,
           "name": "Test",
@@ -16981,7 +16981,7 @@
         "code": "FormAbort:Dialog",
         "file": "crates/al-vm/src/pages.rs",
         "generic": false,
-        "line": 316,
+        "line": 317,
         "pinned": true,
         "site": "permissions/permission-sets/Y24PermExecute.al:58",
         "template": "Page % has to close."
@@ -17017,7 +17017,7 @@
         "code": "FormCloseNotAllowed",
         "file": "crates/al-vm/src/pages/rows.rs",
         "generic": false,
-        "line": 3508,
+        "line": 3504,
         "pinned": true,
         "site": "pages/triggers/PageModalQueryCloseVeto.al:153",
         "template": "The page cannot be closed at this time."
@@ -17743,7 +17743,7 @@
         "owner": "FileUploadAction",
         "pinned": true,
         "scope": "",
-        "site": "pages/BbObjects.al:94",
+        "site": "pages/BbObjects.al:82",
         "state": "implemented"
       },
       {
@@ -21536,7 +21536,7 @@
         "owner": "Page",
         "pinned": true,
         "scope": "",
-        "site": "pages/BbObjects.al:62",
+        "site": "pages/BbObjects.al:50",
         "state": "implemented"
       },
       {
@@ -22091,7 +22091,7 @@
         "owner": "PageAction",
         "pinned": true,
         "scope": "",
-        "site": "pages/actions/QqBoundObjects.al:70",
+        "site": "pages/actions/QqBoundObjects.al:54",
         "state": "implemented"
       },
       {
@@ -22256,7 +22256,7 @@
         "owner": "PageActionModify",
         "pinned": true,
         "scope": "",
-        "site": "testpage/DhPageActionProps.al:102",
+        "site": "testpage/DhPageActionProps.al:86",
         "state": "unknown"
       },
       {
@@ -23801,7 +23801,7 @@
         "owner": "PageField",
         "pinned": true,
         "scope": "",
-        "site": "pages/BbObjects.al:70",
+        "site": "pages/BbObjects.al:58",
         "state": "implemented"
       },
       {
@@ -24251,7 +24251,7 @@
         "owner": "PageFileUploadAction",
         "pinned": true,
         "scope": "",
-        "site": "pages/BbObjects.al:92",
+        "site": "pages/BbObjects.al:80",
         "state": "unknown"
       },
       {
@@ -25871,7 +25871,7 @@
         "owner": "PageSystemPart",
         "pinned": true,
         "scope": "",
-        "site": "pages/BbObjects.al:79",
+        "site": "pages/BbObjects.al:67",
         "state": "implemented"
       },
       {
@@ -25886,7 +25886,7 @@
         "owner": "PageSystemPart",
         "pinned": true,
         "scope": "",
-        "site": "pages/BbObjects.al:80",
+        "site": "pages/BbObjects.al:68",
         "state": "implemented"
       },
       {

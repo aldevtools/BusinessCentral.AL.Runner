@@ -8,7 +8,7 @@
 //! - `<>` parts joined by `&` read as ordinals (`<>0&<>1&<>2`, :179).
 
 use super::*;
-use al_builtins::filter::{FieldFilter, FilterExpr};
+use al_builtins::filter::FilterExpr;
 
 /// The group of a SourceTableView's filters.
 const VIEW_GROUP: i32 = 2;
@@ -78,40 +78,5 @@ impl Session {
             }
             _ => None,
         })
-    }
-
-    /// A part's link filter (filter group 4) on an Option or Enum field reads as the option numbers: a list of values
-    /// `0|1|2`, one value `2`, `<>1` (corpus pages/link-quoted-member/Y42LinkQuotedMember.al:335, :379, :401, :423). The same
-    /// when the part's OnOpenPage set the same values on the field first (:357 Lq_Option_PartAlsoSetsFilter, `0|1|2`); a
-    /// first filter of other values is not pinned and keeps the default text. `None`: the default text applies.
-    pub(super) fn part_link_ordinals(
-        filters: &[FieldFilter],
-        pos: usize,
-        first: Option<&FieldFilter>,
-    ) -> Option<String> {
-        let link = filters
-            .iter()
-            .find(|f| f.field == pos && f.group == super::parts::LINK_GROUP)?;
-        let text = Self::ordinals(&link.expr)?;
-        let first = first?;
-        (first.group == link.group || Self::ordinals(&first.expr).as_ref() == Some(&text)).then_some(text)
-    }
-
-    /// `expr` written with option numbers, for a list of single values, one value or `<>` one value.
-    fn ordinals(expr: &FilterExpr) -> Option<String> {
-        let ord = |v: &Value| match v {
-            Value::Enum(_, o) | Value::Option(o, _) => Some(o.to_string()),
-            _ => None,
-        };
-        let one = |e: &FilterExpr| match e {
-            FilterExpr::Eq(v) => ord(v),
-            FilterExpr::Range(Some(a), Some(b)) => ord(a).filter(|x| ord(b).as_ref() == Some(x)),
-            _ => None,
-        };
-        match expr {
-            FilterExpr::Ne(v) => ord(v).map(|o| format!("<>{o}")),
-            FilterExpr::Or(parts) => parts.iter().map(one).collect::<Option<Vec<_>>>().map(|v| v.join("|")),
-            e => one(e),
-        }
     }
 }

@@ -1,13 +1,9 @@
-//! A SubPageLink `filter()` or `const()` with quoted Option or Enum members (the Bank Acc. Reconciliation part link, issue
-//! 6953). Pinned by corpus pages/link-quoted-member/Y42LinkQuotedMember.al: the quotes are dropped and the members match
-//! (:7), and TestPage Filter.GetFilter of the part reads the link filter as option numbers (:335 `0|1|2`, :379 `0|1`,
-//! :401 `2`, :423 `<>1`).
+//! A part that sets its own filter on an Option field next to its SubPageLink filter (the Bank Acc. Reconciliation shape,
+//! page 379; issue 6953). The link alone is covered by `sub_page_link_quoted_option_member.rs`. Pinned by corpus
+//! pages/lt-y42-link-quoted-member/Y42LinkQuotedMember.al:342 Lq_Option_PartAlsoSetsFilter: with equal filters TestPage
+//! Filter.GetFilter reads the numbers `0|1|2`; other combinations are not pinned and stay refused.
 
 use al_test_cli::report::Outcome;
-
-fn part_filter(link: &str) -> Outcome {
-    part_filter_with(link, "")
-}
 
 fn part_filter_with(link: &str, part_trigger: &str) -> Outcome {
     let src = format!(
@@ -58,40 +54,16 @@ fn fail(text: &str) -> Outcome {
     Outcome::Fail(text.to_string())
 }
 
-#[test]
-fn an_option_filter_with_quoted_members_matches_and_reads_as_numbers() {
-    assert_eq!(
-        part_filter(r#"Status = filter(Open | "Bank Acc. Entry Applied" | "Check Entry Applied")"#),
-        fail("1,2,3, 0|1|2 ")
-    );
-}
+const LINK: &str = r#"Status = filter(Open | "Bank Acc. Entry Applied" | "Check Entry Applied")"#;
 
 #[test]
-fn an_option_const_and_a_not_equal_with_a_quoted_member_read_as_numbers() {
-    assert_eq!(part_filter(r#"Status = const("Check Entry Applied")"#), fail("3, 2 "));
-    assert_eq!(
-        part_filter(r#"Status = filter(<> "Bank Acc. Entry Applied")"#),
-        fail("1,3,4, <>1 ")
-    );
-}
-
-#[test]
-fn an_enum_filter_with_quoted_members_reads_as_numbers() {
-    assert_eq!(
-        part_filter(r#"Kind = filter("Inbound Transfer" | "Outbound Transfer")"#),
-        fail("1,2,4,  0|1")
-    );
-}
-
-#[test]
-fn the_part_setting_the_same_values_in_on_open_page_still_reads_as_numbers() {
-    // Y42LinkQuotedMember.al:357 Lq_Option_PartAlsoSetsFilter `0|1|2` (the part page sets the filter in OnOpenPage, page 379 shape).
+fn the_part_setting_the_same_values_in_on_open_page_reads_as_numbers() {
     let set = "trigger OnOpenPage() begin Rec.SetFilter(Status, '%1|%2|%3', Rec.Status::Open, Rec.Status::\"Bank Acc. Entry Applied\", Rec.Status::\"Check Entry Applied\"); end;";
-    assert_eq!(
-        part_filter_with(
-            r#"Status = filter(Open | "Bank Acc. Entry Applied" | "Check Entry Applied")"#,
-            set
-        ),
-        fail("1,2,3, 0|1|2 ")
-    );
+    assert_eq!(part_filter_with(LINK, set), fail("1,2,3, 0|1|2 "));
+}
+
+#[test]
+fn the_part_setting_other_values_stays_refused() {
+    let set = "trigger OnOpenPage() begin Rec.SetFilter(Status, '%1', Rec.Status::Open); end;";
+    assert!(matches!(part_filter_with(LINK, set), Outcome::NotRun(_)));
 }

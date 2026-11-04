@@ -1067,7 +1067,7 @@ impl Lowerer<'_> {
                     let base = self.base_object().map_or(self.oi, |(b, ..)| b);
                     self.label_read(text, true, base)
                 }
-                // `CurrPage.<protected var>` read in a page extension: the base page's variable (pages/extensions/UpPageExt.al:74
+                // `CurrPage.<protected var>` read in a page extension: the base page's variable (pages/extensions/UpPageExt.al:62
                 // with :143-152, corpus PR 808 at branch commit 910da83e; al-runner issue 6219). Runs on the assumption
                 // `pageext-currpage-protected-var` until PR 808 is in the pinned corpus.
                 Some(Res::BaseGlobal(name)) if n.kind() == MemberExpr => {

@@ -19,6 +19,8 @@ use std::sync::Arc;
 pub struct LazyPackage {
     pub manifest: Manifest,
     pub names: Vec<String>,
+    /// No `.al` file and symbols that list no object ([`crate::empty`]): the package's source is complete.
+    pub no_objects: bool,
     pub source: LazySource,
 }
 
@@ -175,11 +177,17 @@ pub fn read_lazy(path: &Path, vars: &Vars) -> Option<LazyPackage> {
         h.update(e.crc.to_le_bytes());
     }
     let identity: [u8; 32] = h.finalize().into();
+    let no_objects = al.is_empty()
+        && find("SymbolReference.json")
+            .filter(|e| e.size <= crate::empty::MAX_SYMBOLS_LEN)
+            .and_then(|e| entry_bytes(&file, base, e).ok())
+            .is_some_and(|bytes| crate::empty::holds_no_objects(&bytes));
     let names: Vec<String> = al.iter().map(|(n, _)| n.clone()).collect();
     let entries: Vec<Entry> = al.into_iter().map(|(_, e)| e.clone()).collect();
     Some(LazyPackage {
         manifest,
         names,
+        no_objects,
         source: LazySource {
             loader: Arc::new(ZipLoader { file, base, entries }),
             identity,

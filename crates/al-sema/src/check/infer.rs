@@ -1457,7 +1457,7 @@ impl<'a> Checker<'a> {
                     }
                 }
                 // `CurrPage.<protected var of the base page>` in a page extension: the base page's variable, as the plain name
-                // is (pages/extensions/UpPageExt.al:74 with :143-152, a read; corpus PR 808 at branch commit 910da83e;
+                // is (pages/extensions/UpPageExt.al:62 with :143-152, a read; corpus PR 808 at branch commit 910da83e;
                 // al-runner issue 6219). Lowering refuses it as an assignment target (not pinned).
                 if self.ws.objects[sc.oi].kind == ObjKind::PageExtension
                     && kids[0].kind() == NameRef

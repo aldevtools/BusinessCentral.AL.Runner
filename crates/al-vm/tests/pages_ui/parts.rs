@@ -1180,7 +1180,7 @@ fn an_empty_part_of_an_editable_host_runs_on_new_record_three_times_and_host_new
     assert_eq!(text(r), "3,3,0");
 }
 
-// pages/parts/PartLineBeforeHostKey.al:1349 QH_EmptyPart_OpenNew_CurrRecordOrder, :1381
+// pages/parts/PartLineBeforeHostKey.al:1568 QH_EmptyPart_OpenNew_CurrRecordOrder, :1381
 // QH_EmptyPart_OpenEdit_CurrRecordOrder, :1495 QH_EmptyPart_OpenEdit_HostNext, :1418 QH_EmptyPart_OpenNew_KeyTyped: the
 // empty part of an editable host runs OnAfterGetCurrRecord right after each of its three OnNewRecord runs; :1439
 // QH_EmptyPart_OpenNew_CurrRecordOnlyPart, :1455 QH_EmptyPart_OpenEdit_CurrRecordOnlyPart: a part declaring only
@@ -1213,7 +1213,7 @@ fn an_empty_part_runs_on_after_get_curr_record_after_each_of_its_three_new_recor
     );
 }
 
-// PartLineBeforeHostKey.al:879 PYB_OpenEdit_ThenHostNew: a host's New() runs none of the part's OnNewRecord; whether the
+// PartLineBeforeHostKey.al:1098 PYB_OpenEdit_ThenHostNew: a host's New() runs none of the part's OnNewRecord; whether the
 // part's OnAfterGetCurrRecord runs then is not pinned, so a part that declares it is refused.
 #[test]
 fn a_host_new_over_an_empty_part_with_on_after_get_curr_record_is_refused() {

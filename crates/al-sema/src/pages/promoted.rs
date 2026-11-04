@@ -2,7 +2,7 @@
 //! 6646 and 6647). alc compiles these forms (corpus writer Y64's compile facts, alc 30 with BC 29 symbols): every page has
 //! the groups `Category_Category4` to `Category_Category20` (1 to 3 and 21 on are AL0271), and an action promoted the legacy
 //! way (`Promoted = true`) has the actionref `<action>_Promoted` (an action that is not promoted has none, AL0271). The run is
-//! pinned by corpus branch al-runtime-rs-staging-y64 85d86e7b, pages/extensions/Y64PromotedImplicit.al:229-308: modify and
+//! pinned by corpus branch al-runtime-rs-staging-y64 85d86e7b, pages/extensions/Y64PromotedImplicit.al:217-296: modify and
 //! addlast of `Category_Category5` and 6 (also on a page without actions), addafter/addbefore of `<action>_Promoted`; the
 //! extension's actionrefs run their actions.
 

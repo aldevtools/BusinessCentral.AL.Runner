@@ -128,7 +128,7 @@ impl Session {
         if st.borrow().host.is_none() && !st.borrow().inited {
             st.borrow_mut().inited = true;
             // OnInit reads the page's own Editable, not what the variable was set to before (pages/PWPageVariableEditable.al:221-240;
-            // testpage/PnD13_PageEditableViewMode.al:197 ViewModePage_GivenEditableTrue `onInit = No` with SetRecord
+            // testpage/PnD13_PageEditableViewMode.al:181 ViewModePage_GivenEditableTrue `onInit = No` with SetRecord
             // after the Editable call).
             let preset = st.borrow_mut().editable_preset.take();
             let r = self.page_trigger(st, "oninit", vec![]);
@@ -490,7 +490,7 @@ impl Session {
                     // A RunObject action opens the page, runs OnInit and OnOpenPage, and only then
                     // looks for a handler; with none it goes no further, so the first row is never
                     // read (testpage/TestPageRunObjectContracts.al:330-346: "card.OnInit;card.OnOpenPage;").
-                    // A page opened in Create mode reads its new row first (:testpage/TestPageCreateModeNewRecordArgs.al:304-327).
+                    // A page opened in Create mode reads its new row first (:testpage/TestPageCreateModeNewRecordArgs.al:273-296).
                     let object = st.borrow().object;
                     handler = self.try_bind_page_handler(kind, object)?;
                     unattended = handler.is_none() && mode != PageMode::New;
@@ -609,7 +609,7 @@ impl Session {
             return Err(e);
         }
         // A Worksheet run modally: First right after the open, on the row it opened on, reads nothing (testpage/
-        // RmWorksheetGoneRow.al:397 RM_Ws_RunModal_DeleteAllUpdate `handler first = Yes`, `handler open log` only the open's reads).
+        // RmWorksheetGoneRow.al:381 RM_Ws_RunModal_DeleteAllUpdate `handler first = Yes`, `handler open log` only the open's reads).
         // Opened by OpenEdit, OpenView or Page.Run, or another page type, First keeps reading the row as before (not pinned).
         if st.borrow().modal
             && engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet)
@@ -867,7 +867,7 @@ impl Session {
             return Ok(());
         }
         if mode == PageMode::New {
-            // corpus testpage/TestPageCreateModeNewRecordArgs.al:243-270: OnOpenPage, then
+            // corpus testpage/TestPageCreateModeNewRecordArgs.al:212-239: OnOpenPage, then
             // OnNewRecord with BelowxRec true and xRec on the last row.
             // A page with an OnFindRecord trigger is opened the same way: the trigger is not asked, xRec is the last row
             // (pages/opennew-findrecord/OpenNewFindRecord.al:150-230, a card and a list, empty and with rows).

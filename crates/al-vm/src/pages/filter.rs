@@ -49,8 +49,28 @@ impl Session {
                 }
                 use al_builtins::filter::FilterExpr;
                 use al_builtins::value::RtType;
-                if let Some(t) = Self::part_link_ordinals(&rec.borrow().filters, pos, first.as_ref()) {
-                    return Ok(Value::Text(t.into()));
+                // A part's SubPageLink filter on an Option or Enum field reads as member numbers (filter_link_numbers).
+                if let (RtType::Option(_) | RtType::Enum(_), Some(f)) = (&table.fields[pos].ty, first.as_ref()) {
+                    if f.group == super::parts::LINK_GROUP {
+                        if let Some(t) = super::filter_link_numbers::link_filter_numbers(&f.expr) {
+                            return Ok(Value::Text(t.into()));
+                        }
+                    } else if let Some(link) = rec
+                        .borrow()
+                        .filters
+                        .iter()
+                        .find(|g| g.field == pos && g.group == super::parts::LINK_GROUP)
+                    {
+                        // The part sets its own filter on the field next to the link: BC reads numbers for equal filters
+                        // (Y42LinkQuotedMember.al:342 Lq_Option_PartAlsoSetsFilter `0|1|2`); other combinations are not pinned.
+                        let numbers = super::filter_link_numbers::link_filter_numbers;
+                        if let Some(t) = numbers(&link.expr).filter(|t| numbers(&f.expr).as_ref() == Some(t)) {
+                            return Ok(Value::Text(t.into()));
+                        }
+                        return unsupported(
+                            "TestFilter.GetFilter of an Option or Enum field with the part's own filter next to its SubPageLink (not pinned)",
+                        );
+                    }
                 }
                 if let (RtType::Enum(id), Some(f)) = (&table.fields[pos].ty, first.as_ref()) {
                     if let Some(t) = self.enum_filter_text(*id, &f.expr, f.group)? {

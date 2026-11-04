@@ -1,7 +1,7 @@
 //! CurrPage.Update(false) from an action on a list opened for view whose current record is the draft row New() started
-//! (pages/currpage/ScUpdateEmptyRow.al:215-241, codeunit 91255 OpenView_NewDraftRow_ActionUpdate), and
+//! (pages/currpage/ScUpdateEmptyRow.al:202-228, codeunit 91255 OpenView_NewDraftRow_ActionUpdate), and
 //! Update(true) or no Update on that row, a draft started on another row, and a list over an empty table
-//! (pages/currpage/Y6UpdateDraftRow.al:158-342, codeunit 91309, corpus master).
+//! (pages/currpage/Y6UpdateDraftRow.al:145-329, codeunit 91309, corpus master).
 
 use al_test_cli::report::Outcome;
 
@@ -56,7 +56,7 @@ fn update_false_on_the_untouched_draft_row_goes_back_to_the_first_row() {
     assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }
 
-// Y6UpdateDraftRow.al:158-198: Update(true), and an action without Update, behave as Update(false).
+// Y6UpdateDraftRow.al:145-185: Update(true), and an action without Update, behave as Update(false).
 #[test]
 fn update_true_and_no_update_on_the_draft_row_go_back_to_the_first_row() {
     for (action, body) in [("UpdateTrue", "before id=0 ; after id=0"), ("NoUpdate", "act id=0")] {
@@ -69,7 +69,7 @@ fn update_true_and_no_update_on_the_draft_row_go_back_to_the_first_row() {
     }
 }
 
-// Y6UpdateDraftRow.al:200-264: Update(false) goes back to the row New() started from, Update(true) from the last row to the
+// Y6UpdateDraftRow.al:187-251: Update(false) goes back to the row New() started from, Update(true) from the last row to the
 // first row.
 #[test]
 fn update_false_goes_back_to_the_row_new_started_from_and_update_true_from_the_last_row_to_the_first() {
@@ -89,7 +89,7 @@ fn update_false_goes_back_to_the_row_new_started_from_and_update_true_from_the_l
     }
 }
 
-// Y6UpdateDraftRow.al:266-342: over an empty table OpenView reads no row, and an action just runs its body.
+// Y6UpdateDraftRow.al:253-329: over an empty table OpenView reads no row, and an action just runs its body.
 #[test]
 fn an_action_on_a_list_over_an_empty_table_runs_only_its_body() {
     for (action, body) in [
