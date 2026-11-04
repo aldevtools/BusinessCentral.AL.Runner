@@ -122,13 +122,26 @@ AL_PROFILE=profile.txt al-runner test ./MyApp ./MyApp.Test --codeunit 50100
 ```
 
 The run samples the AL call stack every 5 ms. It writes the file every 5 seconds
-and once more when the run ends. The file has the sample count and two lists of the
-60 routines with the most samples:
+and once more when the run ends. The first line has the sample count and the interval,
+for example `samples 1200 of 5 ms`: 1,200 samples are about 6 seconds of AL code. Then
+come two lists of the 60 routines with the most samples:
 
 - `self`: samples where the routine was running its own statements.
 - `inclusive`: samples where the routine was anywhere on the call stack.
 
 Each line is the sample count, then the object type, the object name and the routine.
+A field trigger also names its field, as in `table Sales Line.Quantity.OnValidate`;
+a trigger of a page control, an action or a report data item names its owner.
+
+How to read the counts:
+
+- One process-wide timer samples one thread per tick. When tests run on several
+  threads, the samples add up to the time any AL statement ran, not to CPU time
+  times the number of threads. Routines that run many statements get a larger share.
+  Set `AL_TEST_THREADS=1` for a profile of one thread.
+- A sample is taken at the next AL statement. Time spent inside a built-in method
+  (for example `FindSet` or `Validate`) counts as `self` of the AL routine that
+  called it.
 Two more variables help with short runs:
 
 - `AL_PROFILE_US=N`: sample every N microseconds instead of 5,000.

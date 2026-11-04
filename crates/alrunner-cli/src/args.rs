@@ -686,7 +686,9 @@ OUTPUT
     --timings            Compile phases and the slowest test codeunits. For the time per AL
                          routine, set AL_PROFILE=FILE: the run samples the AL call stack every
                          5 ms (AL_PROFILE_US sets the interval in microseconds) and writes the
-                         routines ranked by self and inclusive samples to FILE.
+                         routines ranked by self and inclusive samples to FILE. One
+                         process-wide timer samples one thread per tick; the file's first
+                         line names the interval (samples N of 5 ms).
 
 TEST-FIRST
     --tdd                A test that calls a procedure that does not exist yet runs against a stub
