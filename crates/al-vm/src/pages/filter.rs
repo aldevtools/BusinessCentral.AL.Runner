@@ -55,18 +55,14 @@ impl Session {
                         if let Some(t) = super::filter_link_numbers::link_filter_numbers(&f.expr) {
                             return Ok(Value::Text(t.into()));
                         }
-                    } else if let Some(link) = rec
+                    } else if rec
                         .borrow()
                         .filters
                         .iter()
-                        .find(|g| g.field == pos && g.group == super::parts::LINK_GROUP)
+                        .any(|g| g.field == pos && g.group == super::parts::LINK_GROUP)
                     {
                         // The part sets its own filter on the field next to the link: BC reads numbers for equal filters
-                        // (Y42LinkQuotedMember.al:342 Lq_Option_PartAlsoSetsFilter `0|1|2`); other combinations are not pinned.
-                        let numbers = super::filter_link_numbers::link_filter_numbers;
-                        if let Some(t) = numbers(&link.expr).filter(|t| numbers(&f.expr).as_ref() == Some(t)) {
-                            return Ok(Value::Text(t.into()));
-                        }
+                        // (Y42LinkQuotedMember.al:342 Lq_Option_PartAlsoSetsFilter); other combinations are not pinned.
                         return unsupported(
                             "TestFilter.GetFilter of an Option or Enum field with the part's own filter next to its SubPageLink (not pinned)",
                         );
