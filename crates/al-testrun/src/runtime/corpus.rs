@@ -2119,22 +2119,33 @@ impl CorpusRuntime {
 
     /// The outcome of `case` in the run named `suite` (the first run has the empty name).
     pub fn outcome_in(&self, suite: &str, case: &CaseId) -> Outcome {
+        self.recorded_in(suite, case)
+            .unwrap_or_else(|| Outcome::NotRun("test procedure not found in the compiled corpus".into()))
+    }
+
+    /// The outcome the run named `suite` recorded for `case`, `None` when it recorded none: the case was not
+    /// run and nothing said why (ADR-065 section 2 point 4).
+    pub fn recorded_in(&self, suite: &str, case: &CaseId) -> Option<Outcome> {
         self.suites
             .iter()
             .position(|s| s == suite)
             .and_then(|si| self.outcomes.get(&(si, case.codeunit, case.name.to_lowercase())))
             .cloned()
-            .unwrap_or_else(|| Outcome::NotRun("test procedure not found in the compiled corpus".into()))
     }
 }
 
 impl CorpusRuntime {
     /// The outcome of `case` in the first run (the main corpus app, or the only run).
     pub fn first_outcome(&self, case: &CaseId) -> Outcome {
+        self.first_recorded(case)
+            .unwrap_or_else(|| Outcome::NotRun("test procedure not found in the compiled corpus".into()))
+    }
+
+    /// The outcome the first run recorded for `case`, `None` when it recorded none.
+    pub fn first_recorded(&self, case: &CaseId) -> Option<Outcome> {
         self.outcomes
             .get(&(0, case.codeunit, case.name.to_lowercase()))
             .cloned()
-            .unwrap_or_else(|| Outcome::NotRun("test procedure not found in the compiled corpus".into()))
     }
 }
 

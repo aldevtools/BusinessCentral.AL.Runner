@@ -11,7 +11,8 @@
 #   4. download each artifact by id and copy its XML unchanged to oracle/<major>/junit.xml,
 #      oracle/<major>/junit-onprem.xml, junit-dotnet.xml, junit-testlibraries.xml and junit-isolation-disabled.xml;
 #   5. write the new pin, run and artifact ids into oracle/oracle.toml and oracle/README.md;
-#   6. build release and regenerate the baselines (al-test-cli refuses when a baseline case regresses), then
+#   6. build release and update the not-passing lists (ADR-065): lines for the new oracle cases that do not pass
+#      (--list-new-cases HEAD), stale lines deleted (--prune-not-passing); al-test-cli exits 1 on a regression; then
 #      print the assumptions whose awaited corpus pin is now in the corpus (al-test-cli --awaiting-assumptions);
 #   7. write the new case counts into crates/al-test-cli/tests/corpus_harness.rs.
 # It never edits a JUnit file and never edits docs/probes-needed.md: it prints the corpus files added
@@ -22,7 +23,7 @@
 #
 # --dry-run checks the run and prints what it would do, changing nothing.
 # For tests: CORPUS_BUMP_GH (the gh to call), CORPUS_BUMP_CORPUS (the corpus repository),
-# CORPUS_BUMP_NO_FETCH=1 (do not fetch the corpus branch), CORPUS_BUMP_BASELINES=0 (do not write the baselines).
+# CORPUS_BUMP_NO_FETCH=1 (do not fetch the corpus branch), CORPUS_BUMP_LISTS=0 (do not update the not-passing lists).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(dirname "$here")"
@@ -151,7 +152,7 @@ echo "docs/probes-needed.md table rows before: $(probe_rows)"
 
 if [ "$dry" = 1 ]; then
   echo "would move corpus to $sha, copy the six artifacts above into oracle/27, 28, 29,"
-  echo "update oracle/oracle.toml and oracle/README.md, regenerate the baselines and the harness counts"
+  echo "update oracle/oracle.toml and oracle/README.md, the not-passing lists and the harness counts"
   echo "dry run: nothing changed"
   exit 0
 fi
@@ -225,14 +226,14 @@ DOTNET_IDS="27=${dotnet_id[27.5]} 28=${dotnet_id[28.5]} 29=${dotnet_id[29.0]}" \
   TESTLIB_IDS="27=${testlib_id[27.5]} 28=${testlib_id[28.5]} 29=${testlib_id[29.0]}" \
   ISOL_IDS="27=${isol_id[27.5]} 28=${isol_id[28.5]} 29=${isol_id[29.0]}" python3 "$here/corpus_bump_edit.py" "$root" "$sha" "$run" "${args[@]}"
 
-# 6. Baselines (al-test-cli refuses while a baseline case regresses).
+# 6. The not-passing lists (ADR-065). The base is HEAD, the commit before the bump: a line is added only for a case its
+# oracle did not have, and a case it had that does not pass is a regression (exit 1).
 cd "$root"
 cargo build --release -q
-# CORPUS_BUMP_BASELINES=0 leaves the baselines alone: the bump bot (tools/corpus_bump_bot.sh) writes none, the
-# regen bot adds the new passes after the merge.
-if [ "${CORPUS_BUMP_BASELINES:-1}" != 0 ]; then
+# CORPUS_BUMP_LISTS=0 leaves the lists alone: the bump bot (tools/corpus_bump_bot.sh) updates them in its own run.
+if [ "${CORPUS_BUMP_LISTS:-1}" != 0 ]; then
   for major in 27 28 29; do
-    ./target/release/al-test-cli --root . --update-baseline --bc-version "$major" | grep -E "^BC [0-9.]+: " || die "baseline for BC $major"
+    ./target/release/al-test-cli --root . --list-new-cases HEAD --prune-not-passing --bc-version "$major" | grep -E "^BC [0-9.]+[: ]" || die "not-passing lists for BC $major"
   done
 fi
 

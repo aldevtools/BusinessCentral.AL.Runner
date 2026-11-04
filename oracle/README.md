@@ -26,7 +26,7 @@ the OnPrem suite (`junit-al-language-onprem.xml`, 72 cases): it is the oracle of
 ## Other test apps
 
 `[[version.suite]]` tables in `oracle.toml` add a test app with its own oracle file, its own
-ratchet (`metrics/<major>/passing-<name>.txt`) and its own report line. They are not part of the
+not-passing list (`metrics/<major>/not-passing-<name>.txt`, ADR-065) and its own report line. They are not part of the
 overall count.
 
 | Name | App | Oracle file | From | Cases |
@@ -39,8 +39,8 @@ overall count.
 The `isolation-disabled` suite (`tests/al-language-isolation-disabled`, test runner 130451, `TestIsolation = Disabled`;
 oracle `<major>/junit-isolation-disabled.xml`, artifact `junit-al-language-isolation-disabled.xml`) is not in the table
 yet: `tools/corpus_bump.sh` adds it to `oracle.toml` with the first bump whose corpus pin holds the app (the app is not
-there before, and the runner reads every suite's app). `metrics/<major>/passing-isolation-disabled.txt` exist and are
-empty; the regen bot fills them. It runs in the main environment under its own runner, so it adds no compile pass.
+there before, and the runner reads every suite's app). `metrics/<major>/not-passing-isolation-disabled.txt` exist and are
+empty; the bump that adds the suite lists its cases that do not pass (`--list-new-cases`). It runs in the main environment under its own runner, so it adds no compile pass.
 
 The `testlibraries` suite names `extra_apps` in `oracle.toml`: Microsoft's Tests-TestLibraries and Data
 Archive, which the corpus job installs although no test app declares them (corpus `.github/workflows/ci.yml`,
@@ -48,8 +48,7 @@ job `test-testlibraries`). They change what AL code sees (the test runner runs c
 Tests-TestLibraries around every test, and Backup Management sets the database trigger flags), so a suite with
 `extra_apps` runs in an environment of its own: a second compile and run of that version, with those apps loaded
 from the artifact (compiled from their source, ADR-013) and without the main app's tests. The main app and the other
-suites keep the main job's environment. Its ratchet is `metrics/<major>/passing-testlibraries.txt`; the regen bot
-fills it from main.
+suites keep the main job's environment. Its list is `metrics/<major>/not-passing-testlibraries.txt`.
 
 The isolation probe never runs in the Linux CI legs: it needs two custom test runners
 (`-testRunnerCodeunitId`), which only the Windows nightly provides. Its files are BcContainerHelper
@@ -68,7 +67,7 @@ Layout:
 ```text
 oracle/oracle.toml        the pin and the [[version]] tables
 oracle/<major>/junit.xml  JUnit of the newest minor of that major (the oracle leg)
-metrics/<major>/passing.txt  the ratchet for that major
+metrics/<major>/not-passing.txt  the cases of that major the runtime does not pass yet (ADR-065)
 ```
 
 The oracle leg of a major is its newest minor: 27.5, 28.5, 29.0. Every JUnit
@@ -85,4 +84,4 @@ JUnit or XUnit file.
 
 The OnPrem DotNet app (`corpus/tests/al-language-onprem-dotnet`) is the suite `onprem-dotnet`. Its oracle is
 `oracle/<major>/junit-dotnet.xml` (the smallest of the three `junit-test-results-<leg>` artifacts of a run) and its
-ratchet is `metrics/<major>/passing-dotnet.txt`.
+not-passing list is `metrics/<major>/not-passing-dotnet.txt`.
