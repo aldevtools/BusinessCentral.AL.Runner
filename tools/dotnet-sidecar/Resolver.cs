@@ -107,11 +107,24 @@ public sealed class Resolver
         }
         if (t == null)
             throw new Refusal(loadError != null
-                ? $"assembly '{assembly}' could not be loaded: {loadError.Message}"
+                ? $"assembly '{assembly}' could not be loaded: {loadError.Message} {Searched(assembly)}"
                 : $"type '{name}' not found in assembly '{assembly}'");
         types[key] = t;
         used.Add(t);
         return t;
+    }
+
+    /// Where an assembly that did not load was looked for, and how to add a folder (al-runner issues 6924, 6927).
+    string Searched(string assembly)
+    {
+        string simple = assembly;
+        try { simple = new AssemblyName(assembly).Name ?? assembly; }
+        catch (Exception ex) when (ex is ArgumentException or FileLoadException) { }
+        string where = dirs.Count == 0
+            ? "Besides the .NET runtime's own assemblies, no folder was searched."
+            : "Searched the .NET runtime's own assemblies, then: "
+              + string.Join(", ", dirs.Select(d => d.Recursive ? d.Path + " (with subfolders)" : d.Path)) + ".";
+        return $"{where} To use it, pass a folder that holds {simple}.dll with --dotnet-assembly-dir.";
     }
 
     /// A type named only by its full name, as it arrives inside an enum value.

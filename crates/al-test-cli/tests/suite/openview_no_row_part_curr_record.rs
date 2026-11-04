@@ -1,5 +1,5 @@
 //! A Document host opened for view on no row, with a part: the part runs OnNewRecord once on the blank row. Whether and when
-//! it runs OnAfterGetCurrRecord is pinned by corpus pages/parts/PartLineBeforeHostKey.al:1594
+//! it runs OnAfterGetCurrRecord is pinned by corpus pages/parts/PartLineBeforeHostKey.al:1813
 //! QH_OpenView_NoRow_TraceHost (`CP.OnAfterGetCurrRecord:/0` after `CP.OnNewRecord`) and the runtime runs it.
 
 use al_test_cli::report::Outcome;
@@ -34,7 +34,7 @@ codeunit 62914 T
 
 #[test]
 fn a_part_with_on_after_get_curr_record_runs_it_once_on_the_blank_row_and_the_open_passes() {
-    // Pinned: PartLineBeforeHostKey.al:1594 QH_OpenView_NoRow_TraceHost `CP.OnAfterGetCurrRecord:/0`.
+    // Pinned: PartLineBeforeHostKey.al:1813 QH_OpenView_NoRow_TraceHost `CP.OnAfterGetCurrRecord:/0`.
     assert_eq!(outcome("trigger OnAfterGetCurrRecord() begin end;"), Outcome::Pass);
 }
 

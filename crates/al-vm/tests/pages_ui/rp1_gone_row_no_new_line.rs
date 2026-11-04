@@ -1,7 +1,7 @@
 //! A list without the new-row line (InsertAllowed = false) whose only row an action deleted: the page reads the gone row once
 //! more, then runs OnNewRecord and OnAfterGetCurrRecord once on a blank Rec and shows no row; a second action runs the two
 //! again. A Worksheet opened for edit, for view or run modally, a List opened for edit (corpus testpage/
-//! RmWorksheetGoneRow.al:291-:450, al-runner issue 5752). A List without the line opened for view is not pinned.
+//! RmWorksheetGoneRow.al:275-:450, al-runner issue 5752). A List without the line opened for view is not pinned.
 
 use al_testkit::{run_in, text};
 

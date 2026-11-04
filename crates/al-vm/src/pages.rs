@@ -172,6 +172,7 @@ mod flowfield_hidden;
 pub(crate) use background::BgWorker;
 mod filter;
 mod filter_enum;
+mod filter_link_numbers;
 mod param_read;
 mod parts;
 mod qualified_name;
@@ -446,7 +447,7 @@ impl Session {
             s.agr_row = Some(key);
         }
         // What the repeater's page-variable controls show for the row: what the variables hold after its OnAfterGetRecord, and for
-        // the current row after OnAfterGetCurrRecord (pages/row-page-variable/QiRowPageVar.al:223 QI_RV_List_Navigation, :312
+        // the current row after OnAfterGetCurrRecord (pages/row-page-variable/QiRowPageVar.al:208 QI_RV_List_Navigation, :312
         // QI_RV_Part_Navigation: every row shows its own `agr N | cur N` after every move).
         if declared && result.is_ok() && (name == "onaftergetrecord" || (name == "onaftergetcurrrecord" && stored_row))
         {
@@ -467,6 +468,13 @@ impl Session {
         // OnAfterGetRecord left them (`row_prop_vars`).
         if name == "onaftergetrecord" && declared && result.is_ok() {
             self.note_row_prop_vars(st)?;
+        }
+        // The platform's OnAfterGetRecordEvent follows the page's trigger and the extensions' (events/ClEventLeads.al:530,
+        // PageTriggers_ExtensionsAndSubscribers_Order: `page.OnAfterGetRecord;extA..;extB..;sub.OnAfterGetRecordEvent;`). Raised
+        // only where the page declares the trigger: when the client fetches a row of a page without it is not pinned
+        // (`check_page_events` refuses such a page).
+        if name == "onaftergetrecord" && result.is_ok() && self.declares(st, "onaftergetrecord") {
+            self.page_event(st, "onaftergetrecordevent", None, None)?;
         }
         result.map(|()| answer)
     }
@@ -764,7 +772,7 @@ impl Session {
         let mut names = vec!["Rec".to_string()];
         let mut args = vec![rec];
         match event {
-            "onopenpageevent" | "onclosepageevent" | "onaftergetcurrrecordevent" => {}
+            "onopenpageevent" | "onclosepageevent" | "onaftergetcurrrecordevent" | "onaftergetrecordevent" => {}
             "onqueryclosepageevent" => {
                 names.push("AllowClose".into());
                 args.push(Value::Boolean(true));
@@ -910,6 +918,13 @@ impl Session {
                         "page event {ev} of action `{e}`: the action has no behavior of ours on the page, and the test client does not raise it"
                     ));
                 }
+            }
+            if *o == object && ev == "onaftergetrecordevent" && !self.declares(st, "onaftergetrecord") {
+                return unsupported(
+                    "page event onaftergetrecordevent on a page that does not declare OnAfterGetRecord: when the test client \
+                     raises it is not pinned"
+                        .to_string(),
+                );
             }
             if *o == object
                 && ev.starts_with("on")

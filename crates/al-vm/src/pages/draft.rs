@@ -463,7 +463,7 @@ impl Session {
 
     /// A new record on the page: xRec stays on the row the cursor was on, Rec starts from the table's
     /// defaults, OnNewRecord runs with BelowxRec true (corpus
-    /// testpage/TestPageCreateModeNewRecordArgs.al:243-270), then the row is populated
+    /// testpage/TestPageCreateModeNewRecordArgs.al:212-239), then the row is populated
     /// (testpage/TestPageOpenNewAfterGetCurrRecord.al:1-12: OnAfterGetCurrRecord runs after OnNewRecord).
     pub(super) fn start_draft(&mut self, st: &St, keep_focus: bool) -> Result<(), Signal> {
         if !self.has_source(st) {
@@ -776,7 +776,7 @@ impl Session {
 
     /// Close inserts a new Document or Card host whose key was typed, over a part that shows no row, declares OnNewRecord or
     /// OnAfterGetCurrRecord and that the test never called: BC runs neither trigger then (pages/parts/
-    /// PartLineBeforeHostKey.al:1468 QH_EmptyPart_OpenNew_KeyTyped, `close` = `[H.OnInsert:Q1]`), the relink after the insert does.
+    /// PartLineBeforeHostKey.al:1687 QH_EmptyPart_OpenNew_KeyTyped, `close` = `[H.OnInsert:Q1]`), the relink after the insert does.
     /// Refused until the relink is told apart. A key given by the table's OnInsert, a part the test called or a typed line relinks
     /// as before.
     pub(super) fn refuse_part_triggers_at_new_host_close(&mut self, st: &St) -> Result<(), Signal> {

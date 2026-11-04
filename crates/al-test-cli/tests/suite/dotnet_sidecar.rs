@@ -519,6 +519,37 @@ fn assemblies_come_from_the_assembly_dir_by_simple_name() {
     sess.close();
 }
 
+/// An assembly that cannot be loaded (Newtonsoft.Json, Microsoft.Dynamics.Nav.OpenXml on a machine without BC) is
+/// refused with the folders that were searched and the flag that adds one (al-runner issues 6924, 6927).
+#[test]
+fn an_assembly_that_cannot_be_loaded_names_the_folders_searched_and_the_flag() {
+    let mut bad = ty("Newtonsoft.Json.Linq.JObject");
+    bad.assembly = "No.Such.Newtonsoft".into();
+    bad.culture = None;
+    bad.public_key_token = None;
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let why = refused(sess.invoke(DotNetTarget::Static(bad.clone()), "Parse", vec![s("{}")]));
+    assert!(
+        why.contains("assembly 'No.Such.Newtonsoft' could not be loaded"),
+        "{why}"
+    );
+    assert!(why.contains("no folder was searched"), "{why}");
+    assert!(why.contains("--dotnet-assembly-dir"), "{why}");
+    sess.close();
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config();
+    cfg.assembly_dirs = vec![dir.path().to_path_buf()];
+    let Some(h) = host_with(cfg) else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let why = refused(sess.invoke(DotNetTarget::Static(bad), "Parse", vec![s("{}")]));
+    let searched = std::path::absolute(dir.path()).unwrap();
+    assert!(why.contains(&*searched.to_string_lossy()), "{why}");
+    assert!(why.contains("--dotnet-assembly-dir"), "{why}");
+    assert!(why.contains("No.Such.Newtonsoft.dll"), "{why}");
+    sess.close();
+}
+
 // ---- ADR-024: values typed at run time ---------------------------------------------------
 
 #[test]

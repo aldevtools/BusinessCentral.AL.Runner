@@ -296,7 +296,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     // `ToText` of an Integer, a BigInteger, a Guid and a Byte: no thousands separator (`1000`, `2147483647`, `-9223372036854775808`),
     // a Guid with braces in upper case whatever the argument, a Byte as `Format` shows it (format-evaluate/
-    // P93ScalarToText.al:180-300, P93Guid.al:28-102; record/PZFindDirections.al:106).
+    // P93ScalarToText.al:180-300, P93Guid.al:28-102; record/PZFindDirections.al:91).
     ("Integer.ToText#1", |_, r, _| match r.as_deref() {
         Some(Value::Integer(n)) => Ok(Value::Text(n.to_string().into())),
         other => Err(Signal::Unsupported(format!("Integer.ToText on {}", other.describe()))),

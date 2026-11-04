@@ -832,7 +832,7 @@ fn a_text_that_does_not_parse_is_refused_with_the_acceptable_value_message() {
     );
 }
 
-// testpage/TestPageRecordTriggers.al:32-130, TestPageCreateModeNewRecordArgs.al:243-270: OpenNew runs OnNewRecord
+// testpage/TestPageRecordTriggers.al:32-130, TestPageCreateModeNewRecordArgs.al:212-239: OpenNew runs OnNewRecord
 // (BelowxRec true, xRec the last row) before anything is typed; the key alone does not insert a
 // Card row, a non-key control does (TestPageBlankKeyInsert.al:Card_TypedKey_ThenNonKeyWrite_InsertsBeforeClose).
 #[test]

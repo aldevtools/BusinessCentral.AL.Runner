@@ -4,7 +4,7 @@
 //! - First, Next, Last and Previous in a row answer No each and log `N:0;C:0;N:0;C:0` in all (Y80_Gone_All_OpenEdit_DeleteAllUpdate,
 //!   _DeleteAll, _DeleteCurrent `moves log`). First raises nothing (testpage/F3ListTests.al:189 DeleteOnlyRow_WithoutUpdate
 //!   `log_after_first`, testpage/PnGRefresh.al ListLosesOnlyRowDeleteNoUpdate, lt-outside-worksheet/
-//!   RmWorksheetGoneRow.al:452 `close log`). As a single move (pages/deleted-rows-navigation/Y89GoneSingleMove.al
+//!   RmWorksheetGoneRow.al:436 `close log`). As a single move (pages/deleted-rows-navigation/Y89GoneSingleMove.al
 //!   Y89_All_OpenEdit_delall{,upd}_{first,next,previous,last,goto}) Last raises the pair twice and First, Next, Previous and GoToKey
 //!   raise nothing; every one answers No.
 //! - A second action that leaves the table empty again raises the pair twice (`second action log`).

@@ -945,7 +945,7 @@ codeunit 50101 C2 { procedure F(): Boolean var R: Record T2; begin exit(R.FieldA
 #[test]
 fn special_filter_values_are_quoted_escaped_and_round_trip() {
     // TestFilterQuotedLiterals.al:95-105 pins doubled apostrophes in quoted literals;
-    // TestSetFilterSpecialTextContracts.al:94-103 and record/filters/W4Filters.al:174-191 pin operator quoting.
+    // TestSetFilterSpecialTextContracts.al:78-87 and record/filters/W4Filters.al:174-191 pin operator quoting.
     for (value, quoted) in [
         ("Diana's (Meals)", "'Diana''s (Meals)'"),
         ("'A|B'", "'''A|B'''"),

@@ -308,7 +308,7 @@ impl Session {
                 PageMethod::Close | PageMethod::New | PageMethod::OK | PageMethod::Next | PageMethod::Last
             )
         {
-            // A new host whose part shows rows of the blank key: Close and New() are pinned (PartLineBeforeHostKey.al:1725
+            // A new host whose part shows rows of the blank key: Close and New() are pinned (PartLineBeforeHostKey.al:1944
             // QH_BlankRows_OpenNew_CloseOnly, :1909 QH_BlankRows_HostNew_ThenClose), and Next and Last, which answer No, run no
             // trigger and store nothing (pages/activate-field-blank-host-rows/Y17ActivateNewHost.al:573 QH_BlankRows_HostNext, :602
             // QH_BlankRows_HostLast); nothing else.
@@ -941,7 +941,7 @@ impl Session {
                 Some(Value::Record(r)) => {
                     self.page_var_set_record_marked_only(st, r)?;
                     // A call on a Page variable that never ran constructs the page, and its OnInit runs then
-                    // (pages/lifecycle/PageVariableLifecycle.al:158 PageVar_MethodCallBeforeRun `afterSetRecord = I`).
+                    // (pages/lifecycle/PageVariableLifecycle.al:146 PageVar_MethodCallBeforeRun `afterSetRecord = I`).
                     if !st.borrow().typed_handler && !st.borrow().open {
                         self.construct_page(st)?;
                     }
@@ -1164,8 +1164,8 @@ impl Session {
                 self.run_page_ui(st, record, true)
             }
             // `CurrPage.Close()` in a procedure of a Page variable that never ran does nothing and the procedure goes on
-            // (pages/currpage/ClosedPageVariableCurrPageClose.al:98-114, Close_NeverRun), and so does
-            // `Close()` of a Page variable whose modal page closed: after its handler failed (ClosedPageVariableCurrPageClose.al:70
+            // (pages/currpage/ClosedPageVariableCurrPageClose.al:83-99, Close_NeverRun), and so does
+            // `Close()` of a Page variable whose modal page closed: after its handler failed (ClosedPageVariableCurrPageClose.al:55
             // Close_AfterModalClosed) and after it closed with OK (pages/run-modal/P82PageVar.al:138 AfterRunModal_Members).
             PageMethod::Close if method.recv() == PageRecv::Page && self.page_var_not_shown(st) => Ok(Value::Null),
             // In a Page-typed PageHandler of Page.Run the handler's Close does nothing: no trigger, and the handler goes on
@@ -1234,10 +1234,10 @@ impl Session {
             PageMethod::Update if st.borrow().host.is_some() && !st.borrow().open => Ok(Value::Null),
             // A Page variable the client does not show has no client either; called directly or from its own procedure:
             // - never ran: `Update(false)`, `Update(true)` and `SaveRecord()` do nothing and the code goes on
-            //   (pages/currpage/ClosedPageVariableCurrPageUpdate.al:98-114 Update_NeverRun;
+            //   (pages/currpage/ClosedPageVariableCurrPageUpdate.al:83-99 Update_NeverRun;
             //   pages/run-modal/P82PageVar.al:76-81 BeforeRun_Members; pages/currpage/UnopenedCurrPage.al:101-103,
             //   :150-152, :199-201, :227 and :246 after SetRecord and SetTableView);
-            // - its modal page closed: `Update(false)` and `SaveRecord()` do nothing (ClosedPageVariableCurrPageUpdate.al:70
+            // - its modal page closed: `Update(false)` and `SaveRecord()` do nothing (ClosedPageVariableCurrPageUpdate.al:55
             //   Update_AfterModalClosed; P82PageVar.al:136-142 AfterRunModal_Members).
             // - never ran, `Update()` without an argument: does nothing, also on a NavigatePage without a source table and
             //   before a RunModal of the same variable (pages/currpage/Y50UpdateNeverRun.al:241-255 T1, :259 T2,

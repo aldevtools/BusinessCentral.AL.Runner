@@ -1030,7 +1030,7 @@ fn current_page_update_inside_a_procedure_of_a_hidden_part_does_nothing() {
 
 // A procedure of a `Page` variable that uses `CurrPage` after the page closed with OK does nothing and raises no error
 // (Posted Sales Document Lines.CopyLineToDoc after RunModal: 35 Tests-ERM, SCM and SMB tests). `Update(false)` is pinned by
-// pages/currpage/ClosedPageVariableCurrPageUpdate.al:70, `Update(true)` by
+// pages/currpage/ClosedPageVariableCurrPageUpdate.al:55, `Update(true)` by
 // pages/parts/Y37PartAfterClose.al:416-441 (LT_C314_AfterRunModalOK_UpdateAndSave).
 #[test]
 fn a_page_variable_procedure_using_curr_page_after_the_page_closed_with_ok_does_nothing() {
