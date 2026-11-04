@@ -95,3 +95,8 @@ is marked `geturl-current-is-web` until the same file pins that it answers as We
 value is not). Default, Windows, Phone, Tablet and Desktop are marked `geturl-client-host-port`: the probe shows that
 Default has the Web host with another port than Web, 7047 and 7048, so Default now uses 7046 (BC's default client
 services port); the port value itself is not pinned.
+
+Note (2026-11-04, corpus pin e89f0e53): GetUrlShape.al is now in the pinned corpus. The service forms (`:374-405`) and
+Current alone and with a page (`:424`, `:429`) carry no mark any more; `geturl-service-host-port` is gone. Default and
+Windows use port 7085, not 7046 (`:465-468`), with no mark. `geturl-client-host-port` now covers only Phone, Tablet and
+Desktop, and `geturl-current-is-web` only Current with a company or a record.
