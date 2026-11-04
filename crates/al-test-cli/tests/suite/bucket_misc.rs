@@ -82,7 +82,8 @@ fn a_send_notification_handler_that_never_fires_fails_the_test() {
 
 // ui-handlers/TestNotificationSendRecallContracts.al:59-75, 123-131 (BC 27.5): a notification nobody set has an
 // empty message, LocalScope, no data and the null Guid for an id; Send without a handler shows nothing, raises
-// nothing, returns true and gives it an Id; Recall of a sent notification returns true, of one never sent false.
+// nothing, returns true and gives it an Id; Recall of a sent notification returns true, of one never sent false; of one
+// given an Id and never sent true (ui-handlers/NotificationRecallNeverSent.al Recall_IdSetNeverSent_NoHandler).
 #[test]
 fn a_fresh_notification_has_empty_defaults_and_send_gives_it_an_id() {
     passes(&format!(
@@ -95,7 +96,9 @@ fn a_fresh_notification_has_empty_defaults_and_send_gives_it_an_id() {
             Check('Yes', Format(N.Send())); Check('No', Format(N.Id() = Null));
             Check('Yes', Format(N.Recall())); end;
         [Test]
-        procedure NeverSent() var N: Notification; begin N.Message('never sent'); Check('No', Format(N.Recall())); end;"
+        procedure NeverSent() var N: Notification; begin N.Message('never sent'); Check('No', Format(N.Recall())); end;
+        [Test]
+        procedure NeverSentWithAnId() var N: Notification; begin N.Id := CreateGuid(); Check('Yes', Format(N.Recall())); end;"
     ));
 }
 
