@@ -1,6 +1,6 @@
 # ADR-065: A list of the corpus cases that do not pass replaces the passing baseline; no bot pushes to main
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-11-04)
 - Date: 2026-11-04
 - Amends: ADR-007 (the ratchet), ADR-015 (one ratchet per major)
 
@@ -239,3 +239,11 @@ Files the regen bot also writes today:
 - `crates/al-test-cli/tests/suite/corpus_bump_script.rs`: the bump adds lines only for cases the base
   oracle lacks.
 - No workflow in `.github/workflows/` pushes to main.
+
+## Owner decisions (2026-11-04)
+
+The owner accepted this ADR and the recommended answer to each open question:
+
+1. A listed case that now passes fails the pull request until `--prune-not-passing` deletes its line.
+2. A new not-passing line (a regression) is shown in the CI job summary and approved by the owner in review, as a removed baseline line is today. No required label.
+3. The coverage maps are no longer committed. Each CI run on main uploads them as an artifact.
