@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 mod autoinc;
 mod bgsession;
+mod blob_copy;
 mod get_key_value;
 mod package_data;
 mod state;
