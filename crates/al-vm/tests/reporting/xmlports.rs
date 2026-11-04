@@ -1279,11 +1279,21 @@ fn set_table_view_refuses_a_view_that_is_more_than_filters() {
 // give the view to; both refusals name the xmlport.
 #[test]
 fn set_table_view_refusals_name_what_is_wrong() {
-    let r = refusal(
+    // A record of a table no element uses raises XmlPortNodeNotFound (xmlports/set-table-view/XmlPortSetTableViewElement.al:226
+    // SetTableView_RecordOfTableNoElementUses).
+    match run(
         "V: Record \"ALT Universal\"; P: XmlPort \"ALT Keyed XmlPort\";",
         "P.SetTableView(V); exit('');",
-    );
-    assert!(r.contains("another table"), "{r}");
+    ) {
+        Err(Signal::Error(e)) => {
+            assert_eq!(e.code, "XmlPortNodeNotFound");
+            assert_eq!(
+                e.message,
+                "The ALT Keyed XmlPort XmlPort does not have a XmlItem that uses the table (Table 60000 ALT Universal) specified in the function SetTableView."
+            );
+        }
+        other => panic!("expected an error, got {other:?}"),
+    }
     let r = refusal(
         "V: Record \"ALT Universal\"; P: XmlPort \"ALT Empty Root XmlPort\";",
         "P.SetTableView(V); exit('');",

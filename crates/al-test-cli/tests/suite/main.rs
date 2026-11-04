@@ -124,6 +124,7 @@ mod quoted_ident;
 mod r1b_page_moves;
 mod readable_messages;
 mod reapply_marks_other_key;
+mod recall_never_sent;
 mod regen_bot;
 mod report_handler;
 mod report_run_after_write;
@@ -133,6 +134,7 @@ mod reportext_request_page_run;
 mod reportext_xapp_order;
 mod request_caption_on_init;
 mod request_close_table_code_refused;
+mod request_page_left_open;
 mod request_view_stale_address;
 mod requestpage;
 mod requestpage_close_and_parameters;
@@ -161,6 +163,7 @@ mod update_draft_row;
 mod user_name_filters;
 mod user_name_getfilter;
 mod user_reports;
+mod validate_in_validate_subscriber;
 mod values_allowed_setvalue;
 mod with_statement;
 mod worksheet_validate_temp_part;
@@ -193,4 +196,7 @@ fn every_file_of_the_suite_is_a_module() {
         "add `mod NAME;` to tests/suite/main.rs for: {missing:?}"
     );
 }
+mod issue_6918_no_source_global_record_set_value;
+mod issue_6919_xmlport_set_table_view_later_element;
+mod issue_6922_record_substitution_arg;
 mod read_only_temp_list_gone_row;

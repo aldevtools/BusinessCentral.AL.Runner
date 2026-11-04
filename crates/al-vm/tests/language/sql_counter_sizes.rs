@@ -286,7 +286,7 @@ codeunit 50113 C
         Mark();
         Gt.Id := 1; Gt.Insert();
         GtFirst := Stmt() - Stmts;
-        exit(Format(GtFirst));
+        exit(StrSubstNo('%1', GtFirst));
     end;
 
     procedure GtFirstAtMost(): Boolean

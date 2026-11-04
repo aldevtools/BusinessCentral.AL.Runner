@@ -96,6 +96,12 @@ impl Session {
     }
 
     pub(in crate::pages) fn restore_page_values(&mut self, st: &St) {
+        // The page `RunRequestPage` opens shows the defaults, not what an earlier OK stored
+        // (reports/request-page/Y42RequestLeftOpen.al:723 RqOpen_RunRequestPage_SetValue `rrp log` `rp open text=init` after a
+        // run that stored `prime`).
+        if st.borrow().parameters_wanted {
+            return;
+        }
         let object = st.borrow().object;
         let Some(saved) = self.pages.saved_values.get(&object).cloned() else {
             return;

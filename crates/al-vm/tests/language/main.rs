@@ -165,6 +165,7 @@ mod setter_call;
 mod setview_blank_datetime_or;
 mod sql_counter_copy;
 mod sql_counter_sizes;
+mod sql_counter_stored;
 mod sql_counters;
 mod stream_length_forms;
 mod strsubstno_decimal_field_places;

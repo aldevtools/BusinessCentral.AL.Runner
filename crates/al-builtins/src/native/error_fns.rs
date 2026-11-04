@@ -210,7 +210,8 @@ pub(super) fn field_error_computed(
 
 pub(super) fn error_text_with(ctx: &mut dyn Ctx, args: &mut [Value], form: ErrorTextForm) -> Result<Value, Signal> {
     let template = text_arg(args, 0)?;
-    let mut message = substitute(&template, &args[1..], ctx)?;
+    let values = super::messages::composite_args(ctx, &args[1..])?;
+    let mut message = substitute(&template, &values, ctx)?;
     // The error text of `Error(Text)` without arguments shows a CR LF as one backslash (errors/error-texts/ErrorMessage.al:
     // 606-618, LT_BU_Message_BackslashAndAppendLine: 17 characters), and so does a CR LF in an argument, alone, between other text
     // or after a backslash the text holds (ErrorMessage.al:684-718, PYC_Error_CrLfAndLoneCrLf: `a\b`, `xa\by`, `p\q a\b`). A

@@ -510,20 +510,25 @@ impl Session {
         Ok(finals.pop())
     }
 
-    /// `Notification.Recall()`: true for a notification that was sent, false for one never sent (the recall
-    /// handler does not run then). A bound `[RecallNotificationHandler]` runs with the sender's current
+    /// `Notification.Recall()`: true for a notification that was sent. A bound `[RecallNotificationHandler]` runs with the sender's current
     /// notification, at every Recall, and what it answers does not matter; with none bound nothing happens
     /// (ui-handlers/TestNotificationSendRecallContracts.al:95-131, ui-handlers/ProbeNotificationRecallEdges.al,
     /// BC 27.5).
+    ///
+    /// A notification never sent (al-runner issue 6924 item 3.3; ui-handlers/NotificationRecallNeverSent.al,
+    /// BC 27.5): one given an Id answers true and runs the bound handler at every Recall
+    /// (Recall_IdSetNeverSent_HandlerBound :41, _IdOnlyNeverSent_HandlerBound :62, _IdSetNeverSent_NoHandler :93); one with no Id
+    /// answers false and does not run it (Recall_NoIdNeverSent_HandlerBound). Microsoft's Tests-SCM "SCM Orders IV"
+    /// PurchaseLineBlankTypeDifferentPayToVendorNo relies on it (Purchase Header.RecallModifyAddressNotification).
     pub(crate) fn ui_recall_notification(&mut self, notification: Value, id: [u8; 16]) -> Result<bool, Signal> {
-        if !self.ui_state.sent_notifications.contains(&id) {
-            return Ok(false);
-        }
         let bound = self
             .ui_state
             .scope
             .as_ref()
             .is_some_and(|s| s.handlers.iter().any(|h| h.kind == UiKind::RecallNotification));
+        if id == [0; 16] && !self.ui_state.sent_notifications.contains(&id) {
+            return Ok(false);
+        }
         if bound {
             self.dispatch_ui_returning(UiKind::RecallNotification, "", vec![notification])?;
         }

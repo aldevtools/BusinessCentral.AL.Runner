@@ -16351,7 +16351,7 @@
         "code": "InvalidValue",
         "file": "crates/al-builtins/src/mathfns.rs",
         "generic": false,
-        "line": 94,
+        "line": 98,
         "pinned": true,
         "site": "errors/PnBDateFormat.al:404",
         "template": "The supplied value is not valid."
@@ -16360,7 +16360,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/mathfns.rs",
         "generic": false,
-        "line": 124,
+        "line": 128,
         "pinned": true,
         "site": "errors/PnBErrorsCollections.al:585",
         "template": "Value was either too large or too small for a Decimal."
@@ -16504,7 +16504,7 @@
         "code": "",
         "file": "crates/al-builtins/src/native/unpinned.rs",
         "generic": true,
-        "line": 35,
+        "line": 39,
         "pinned": false,
         "site": null,
         "template": "%%"
@@ -16513,7 +16513,7 @@
         "code": "",
         "file": "crates/al-builtins/src/native/unpinned.rs",
         "generic": true,
-        "line": 47,
+        "line": 51,
         "pinned": false,
         "site": null,
         "template": "%%%"
@@ -16531,7 +16531,7 @@
         "code": "AL:DivideByZero",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 518,
+        "line": 524,
         "pinned": true,
         "site": "dotnet/dotnet-interop/GetLastErrorObject.al:270",
         "template": "Attempted to divide by zero."
@@ -16540,7 +16540,7 @@
         "code": "NotSupportedOperation",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 657,
+        "line": 663,
         "pinned": true,
         "site": "collections/CsCollections.al:220",
         "template": "The requested operation is not supported."
@@ -16549,7 +16549,7 @@
         "code": "AL:DivideByZero",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 804,
+        "line": 810,
         "pinned": true,
         "site": "dotnet/dotnet-interop/GetLastErrorObject.al:270",
         "template": "Attempted to divide by zero."
@@ -16558,7 +16558,7 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 996,
+        "line": 1002,
         "pinned": true,
         "site": "errors/PnF31TimeArithmetic.al:81",
         "template": "Adding to an undefined (0T) time."
@@ -16567,7 +16567,7 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1060,
+        "line": 1066,
         "pinned": true,
         "site": "errors/PnF31TimeArithmetic.al:116",
         "template": "Subtracting from an undefined (0T) time."
@@ -16576,7 +16576,7 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1063,
+        "line": 1069,
         "pinned": true,
         "site": "errors/PnF31TimeArithmetic.al:115",
         "template": "Subtracting an undefined (0T) time."
@@ -16585,7 +16585,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1090,
+        "line": 1096,
         "pinned": true,
         "site": "dotnet/dotnet/AzLastErrorObject.al:148",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16594,7 +16594,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1098,
+        "line": 1104,
         "pinned": true,
         "site": "dotnet/dotnet/AzLastErrorObject.al:148",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16603,7 +16603,7 @@
         "code": "AL:DivideByZero",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1135,
+        "line": 1141,
         "pinned": true,
         "site": "dotnet/dotnet-interop/GetLastErrorObject.al:270",
         "template": "Attempted to divide by zero."
@@ -16612,7 +16612,7 @@
         "code": "AL:DivideByZero",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1160,
+        "line": 1166,
         "pinned": true,
         "site": "dotnet/dotnet-interop/GetLastErrorObject.al:270",
         "template": "Attempted to divide by zero."
@@ -16621,7 +16621,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1214,
+        "line": 1220,
         "pinned": true,
         "site": "dotnet/dotnet/AzLastErrorObject.al:148",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16630,7 +16630,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1219,
+        "line": 1225,
         "pinned": true,
         "site": "dotnet/dotnet/AzLastErrorObject.al:148",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16639,7 +16639,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1315,
+        "line": 1321,
         "pinned": true,
         "site": "dotnet/dotnet/AzLastErrorObject.al:148",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16648,7 +16648,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1326,
+        "line": 1332,
         "pinned": true,
         "site": "errors/PnBDateFormat.al:159",
         "template": "The date is not valid."
@@ -16855,7 +16855,7 @@
         "code": "",
         "file": "crates/al-vm/src/dotnet/server_classes.rs",
         "generic": false,
-        "line": 575,
+        "line": 576,
         "pinned": true,
         "site": "dotnet/dotnet/TyAkvProvider.al:91",
         "template": "Not initialized."
@@ -16927,7 +16927,7 @@
         "code": "ArgumentOutOfRange",
         "file": "crates/al-vm/src/interfaces.rs",
         "generic": false,
-        "line": 103,
+        "line": 117,
         "pinned": true,
         "site": "codeunits/CwInterfaceLeads.al:190",
         "template": "Enum does not contain value %."
@@ -16936,7 +16936,7 @@
         "code": "NotSupportedOperation",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1309,
+        "line": 1314,
         "pinned": true,
         "site": "collections/CsCollections.al:220",
         "template": "The requested operation is not supported."
@@ -16945,7 +16945,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1614,
+        "line": 1619,
         "pinned": true,
         "site": "collections/Arrays.al:203",
         "template": "Index out of bounds."
@@ -16954,7 +16954,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1691,
+        "line": 1696,
         "pinned": true,
         "site": "collections/Arrays.al:203",
         "template": "Index out of bounds."
@@ -16963,7 +16963,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1701,
+        "line": 1706,
         "pinned": true,
         "site": "collections/Arrays.al:203",
         "template": "Index out of bounds."
@@ -16972,7 +16972,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 2154,
+        "line": 2158,
         "pinned": true,
         "site": "codeunits/call-depth/CallDepthDirectAndEvent.al:95",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -17080,7 +17080,7 @@
         "code": "DB:NoFilter",
         "file": "crates/al-vm/src/recmeta.rs",
         "generic": false,
-        "line": 479,
+        "line": 486,
         "pinned": true,
         "site": "record/filters/GetRangeFilterGroups.al:106",
         "template": "Specify a filter for the % field in the % table."
@@ -17089,7 +17089,7 @@
         "code": "DB:Ok",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 195,
+        "line": 196,
         "pinned": true,
         "site": "record/TestPlatformTablesWritableContracts.al:107",
         "template": "It is not possible to % any record in the Tenant License State table."
@@ -17098,7 +17098,7 @@
         "code": "DB:Ok",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 211,
+        "line": 212,
         "pinned": true,
         "site": "metadata/PtOnPremTables.al:135",
         "template": "The % table is read-only."
@@ -17107,7 +17107,7 @@
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records/op_inner.rs",
         "generic": false,
-        "line": 2329,
+        "line": 2325,
         "pinned": true,
         "site": "recordref-fieldref/recordref/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
@@ -17233,7 +17233,7 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 569,
+        "line": 574,
         "pinned": true,
         "site": "errors/CtErrorLeads.al:226",
         "template": "Unhandled UI: % %"
@@ -17242,7 +17242,7 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 602,
+        "line": 607,
         "pinned": true,
         "site": "errors/CtErrorLeads.al:226",
         "template": "Unhandled UI: % %"
