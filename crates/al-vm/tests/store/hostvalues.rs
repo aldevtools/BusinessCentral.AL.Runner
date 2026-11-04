@@ -868,8 +868,8 @@ fn stop_session_is_false_for_an_unknown_id_and_refused_for_the_running_session()
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-// ADR-042 (assumption geturl-web-base-address): GetUrl(ClientType::Web) is the host's server base address as set; the forms
-// that add a company, an object or another client type are not pinned and are refused.
+// ADR-042: GetUrl(ClientType::Web) is the host's server base address as set. It is the user's own input, so it carries no
+// assumption mark (owner, 2026-11-04, al-runner issue 6924).
 fn get_url(body: &str, url: Option<&str>) -> Result<Value, Signal> {
     let (engine, oi) = compile(&format!("procedure F(): Text begin {body} end;"));
     let mut host = al_host::Host::deterministic();
@@ -881,16 +881,13 @@ fn get_url(body: &str, url: Option<&str>) -> Result<Value, Signal> {
 }
 
 #[test]
-fn geturl_web_is_the_host_server_address_and_marks_its_assumption() {
+fn geturl_web_is_the_host_server_address_without_an_assumption_mark() {
     let r = get_url("exit(GetUrl(ClientType::Web));", None);
     assert!(
         matches!(&r, Ok(Value::Text(t)) if &**t == "http://localhost:8080/BC"),
         "{r:?}"
     );
-    assert_eq!(
-        al_builtins::assumptions::take_hits(),
-        vec![al_builtins::assumptions::Assumption::GetUrlWebBaseAddress]
-    );
+    assert_eq!(al_builtins::assumptions::take_hits(), vec![]);
     let r = get_url("exit(GetUrl(ClientType::Web));", Some("https://bc.example:7048/BC1/"));
     assert!(
         matches!(&r, Ok(Value::Text(t)) if &**t == "https://bc.example:7048/BC1/"),
@@ -933,14 +930,16 @@ fn geturl_with_a_company_or_an_object_builds_the_pinned_query() {
 // form without arguments are pinned; the rest is refused.
 #[test]
 fn geturl_default_alone_is_the_dynamicsnav_form_of_the_address() {
+    // The port differs from the Web port, 7047 and 7048 (GetUrlShape.al GU6924_ServiceForms_ShareWebHost `default`, corpus
+    // branch al-runtime-rs-staging-p6924c); 7046 is assumption geturl-client-host-port.
     let r = get_url("exit(GetUrl(ClientType::Default));", None);
     assert!(
-        matches!(&r, Ok(Value::Text(t)) if &**t == "dynamicsnav://localhost:8080/BC//"),
+        matches!(&r, Ok(Value::Text(t)) if &**t == "dynamicsnav://localhost:7046/BC//"),
         "{r:?}"
     );
     assert_eq!(
         al_builtins::assumptions::take_hits(),
-        vec![al_builtins::assumptions::Assumption::GetUrlWebBaseAddress]
+        vec![al_builtins::assumptions::Assumption::GetUrlClientHostPort]
     );
     for (body, url) in [
         (
@@ -971,23 +970,76 @@ fn geturl_default_with_a_company_or_an_object_builds_the_pinned_path() {
     for (body, want) in [
         (
             "exit(GetUrl(ClientType::Default, 'My Company'));",
-            "dynamicsnav://localhost:8080/BC/My%20Company/",
+            "dynamicsnav://localhost:7046/BC/My%20Company/",
         ),
         (
             "exit(GetUrl(ClientType::Default, ''));",
-            "dynamicsnav://localhost:8080/BC//",
+            "dynamicsnav://localhost:7046/BC//",
         ),
         (
             "exit(GetUrl(ClientType::Default, '', ObjectType::Page, 21));",
-            "dynamicsnav://localhost:8080/BC//runpage?page=21",
+            "dynamicsnav://localhost:7046/BC//runpage?page=21",
         ),
         (
             "exit(GetUrl(ClientType::Default, 'My Company', ObjectType::Report, 69367));",
-            "dynamicsnav://localhost:8080/BC/My%20Company/runreport?report=69367",
+            "dynamicsnav://localhost:7046/BC/My%20Company/runreport?report=69367",
         ),
     ] {
         let r = get_url(body, None);
         assert!(matches!(&r, Ok(Value::Text(t)) if &**t == want), "{body}: {r:?}");
+    }
+}
+
+// GetUrlShape.al GU6924_ServiceForms_ShareWebHost and _WithObject_ShareWebHost (corpus branch al-runtime-rs-staging-p6924c,
+// BC 27.5, 28.5, 29.0): the service forms share the Web scheme, host and instance; SOAP has port 7047, OData, ODataV4 and
+// Api 7048; with an object the empty text. Marked with the awaiting assumption geturl-service-host-port.
+#[test]
+fn geturl_service_forms_share_the_web_host_with_their_own_port() {
+    for (body, want) in [
+        ("exit(GetUrl(ClientType::SOAP));", "http://bcserver:7047/BC/WS/Services"),
+        ("exit(GetUrl(ClientType::OData));", "http://bcserver:7048/BC/ODataV4"),
+        ("exit(GetUrl(ClientType::ODataV4));", "http://bcserver:7048/BC/ODataV4"),
+        ("exit(GetUrl(ClientType::Api));", "http://bcserver:7048/BC/api/"),
+        (
+            "exit(GetUrl(ClientType::SOAP, 'My Company'));",
+            "http://bcserver:7047/BC/WS/My%20Company/Services",
+        ),
+        (
+            "exit(GetUrl(ClientType::ODataV4, 'My Company'));",
+            "http://bcserver:7048/BC/ODataV4/Company('My%20Company')",
+        ),
+        ("exit(GetUrl(ClientType::SOAP, '', ObjectType::Page, 21));", ""),
+        ("exit(GetUrl(ClientType::Api, '', ObjectType::Page, 21));", ""),
+    ] {
+        let r = get_url(body, Some("http://bcserver:8080/BC"));
+        assert!(matches!(&r, Ok(Value::Text(t)) if &**t == want), "{body}: {r:?}");
+        assert_eq!(
+            al_builtins::assumptions::take_hits(),
+            vec![al_builtins::assumptions::Assumption::GetUrlServiceHostPort],
+            "{body}"
+        );
+    }
+}
+
+// GetUrlShape.al GU6924_Current_EqualsWhichForm (corpus branch al-runtime-rs-staging-p6924c): in a test
+// session GetUrl(ClientType::Current) is the Web answer, alone and with a page. Marked with the awaiting assumption
+// geturl-current-is-web.
+#[test]
+fn geturl_current_answers_as_web() {
+    for (body, want) in [
+        ("exit(GetUrl(ClientType::Current));", "http://localhost:8080/BC"),
+        (
+            "exit(GetUrl(ClientType::Current, '', ObjectType::Page, 21));",
+            "http://localhost:8080/BC/?page=21",
+        ),
+    ] {
+        let r = get_url(body, None);
+        assert!(matches!(&r, Ok(Value::Text(t)) if &**t == want), "{body}: {r:?}");
+        assert_eq!(
+            al_builtins::assumptions::take_hits(),
+            vec![al_builtins::assumptions::Assumption::GetUrlCurrentIsWeb],
+            "{body}"
+        );
     }
 }
 
@@ -1119,7 +1171,7 @@ fn geturl_of_the_other_client_types_builds_the_pinned_text() {
         ),
         (
             "exit(GetUrl(ClientType::Windows, 'My Company', ObjectType::Page, 21));",
-            "dynamicsnav://localhost:8080/BC/My%20Company/runpage?page=21",
+            "dynamicsnav://localhost:7046/BC/My%20Company/runpage?page=21",
         ),
         ("exit(GetUrl(ClientType::Background));", ""),
         ("exit(GetUrl(ClientType::Management, 'My Company'));", ""),
