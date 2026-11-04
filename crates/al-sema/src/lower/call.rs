@@ -252,7 +252,7 @@ impl Lowerer<'_> {
                             out.push(ir::Arg::Value(value));
                             continue;
                         }
-                        out.push(ir::Arg::Value(self.convert_to(&p.ty, self.ty_ref(a), value)?));
+                        out.push(ir::Arg::Value(self.convert_arg(&p.ty, self.ty_ref(a), value)?));
                     }
                 }
                 self.calls.push((object, routine));
