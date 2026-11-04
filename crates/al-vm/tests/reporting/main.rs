@@ -55,6 +55,7 @@ mod xmlport_default_container;
 mod xmlport_einvoice_shapes;
 mod xmlport_empty_field_element_child;
 mod xmlport_empty_leaf_import;
+mod xmlport_empty_separator_token;
 mod xmlport_export_again;
 mod xmlport_field_validation;
 mod xmlport_field_wrap_more;
