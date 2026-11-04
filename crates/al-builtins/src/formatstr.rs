@@ -987,10 +987,7 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
     }
     let part = match (code, date, clock) {
         ("Year4", Some((y, _, _)), _) => format!("{y:04}"),
-        // The measured years only (`year_natural`).
-        ("Year", Some((y, _, _)), _) if year_natural(v, y).is_some() => year_natural(v, y).unwrap_or_default(),
-        // A year that `year_natural` does not measure, as before the width probe (`date_number_width` takes the measured ones).
-        ("Year,2", Some((y, _, _)), _) => format!("{:02}", y.rem_euclid(100)),
+        ("Year", Some((y, _, _)), _) => year_natural(y),
         ("Month", Some((_, m, _)), _) => format!("{m}"),
         ("Month,2", Some((_, m, _)), _) => format!("{m:02}"),
         ("Month Text", Some(_), _) => code_name("Month Text", date, day_no, ctx.language())?,
@@ -1167,29 +1164,24 @@ fn text_template(t: &str, pieces: &[(bool, &str)]) -> Result<Option<String>, Str
 }
 
 /// Whether the name of `code` is one of the codes of the Format documentation (or this module), whatever the value type.
-/// What `<Year>` shows without a width, for the years that are measured: two digits for 1999 and for 2000 to 2030, four for
-/// 1905, 1929, 1930 and 2105 (text/TestProbeTextDateFormatContracts.al:Format_FormatStrings_Date). On a DateTime 1998 and 2031
-/// have two digits, 2099 four (types/date-time/Format.al:1026-1060 Y36_DateTime_Format_Hours_Year_NoWidth). On a Date the years
-/// 5, 999 and 9999 have four digits, `0005` (types/date-time/FormatDateCodeWidths.al Date_Format_YearWidth_SmallYears,
-/// _LargeYears, corpus branch al-runtime-rs-staging-r6963). Other years are not measured.
-fn year_natural(v: &Value, y: i32) -> Option<String> {
-    let date_time = matches!(v, Value::DateTime(_));
-    if y == 1999 || (2000..=2030).contains(&y) || (date_time && matches!(y, 1998 | 2031)) {
-        Some(format!("{:02}", y.rem_euclid(100)))
-    } else if matches!(y, 1905 | 1929 | 1930 | 2105) || (date_time && y == 2099) {
-        Some(format!("{y}"))
-    } else if matches!(v, Value::Date(..)) && matches!(y, 5 | 999 | 9999) {
-        Some(format!("{y:04}"))
+/// What `<Year>` shows without a width: two digits for the years 1950 to 2049, four for the others, on a Date and a DateTime
+/// (types/date-time/FormatDateCodeWidths.al Date_Format_YearWindow_*, corpus branch al-runtime-rs-staging-r6963: 1900, 1949,
+/// 2050, 2065, 2100 four, 1950, 1965, 1997, 2000, 2001, 2032, 2049 two; also the years 5, 999 and 9999 as `0005`: Date_Format_YearWidth_*).
+/// The years pinned before agree (text/TestProbeTextDateFormatContracts.al:Format_FormatStrings_Date, types/date-time/
+/// Format.al:1026-1060 Y36_DateTime_Format_Hours_Year_NoWidth).
+fn year_natural(y: i32) -> String {
+    if (1950..=2049).contains(&y) {
+        format!("{:02}", y.rem_euclid(100))
     } else {
-        None
+        format!("{y:04}")
     }
 }
 
 /// `<Day,N>`, `<Month,N>`, `<Year,N>` and `<Year4,N>` of a Date or DateTime (types/date-time/FormatDateCodeWidths.al, corpus
 /// branch al-runtime-rs-staging-r6963, every test; widths 0 to 6, years 5, 999, 2016 and 9999): the number the code shows
 /// without a width (`<Year4>` with four digits, `<Year>` as `year_natural`) padded with zeros on the left to N characters, or N
-/// stars when it has more characters than N; width 0 is the number as is. `None` for any other code, a width that is not a
-/// number from 0 to 6, or a `<Year>` of a year that is not measured.
+/// stars when it has more characters than N; width 0 is the number as is. `None` for any other code, or a width that is not a
+/// number from 0 to 6.
 fn date_number_width(v: &Value, code: &str, date: Option<(i32, u32, u32)>) -> Option<String> {
     let (base, w) = code.split_once(',')?;
     // Widths above 6 are not measured.
@@ -1202,7 +1194,7 @@ fn date_number_width(v: &Value, code: &str, date: Option<(i32, u32, u32)>) -> Op
         "Day" => d.to_string(),
         "Month" => m.to_string(),
         "Year4" => format!("{y:04}"),
-        "Year" => year_natural(v, y)?,
+        "Year" => year_natural(y),
         _ => return None,
     };
     Some(if w == 0 {
@@ -1491,13 +1483,12 @@ mod tests {
             (day.clone(), "<Day,7>"),
             (day.clone(), "<Year4"),
             // Widths no corpus test pins (AjScalars.al:225-327 and FormatDateCodeWidths.al pin 0 to 6 for the date numbers, 5 and 4
-            // for the hours; <Year,N> only for the measured years).
+            // for the hours).
             (day.clone(), "<Hours24,2>"),
             (day.clone(), "<Hours12,5>"),
             (day.clone(), "<Month,7>"),
-            (Value::Date(day_from_civil(1950, 3, 7), false), "<Year,3>"),
             (day.clone(), "<Filler Character,x><Day,4>"),
-            (Value::DateTime(1), "<Year,3>"),
+            (Value::DateTime(1), "<Year,7>"),
             (Value::DateTime(1), "<Hours24,4>"),
             (Value::DateTime(1), "<Minutes,4>"),
             (Value::Time(1), "<Hours24,3>"),
@@ -2038,6 +2029,42 @@ mod tests {
                 Ok(Value::Text(got)) => assert_eq!(got.as_str(), want, "{t}"),
                 other => panic!("{t}: {other:?}"),
             }
+        }
+    }
+
+    /// AL Runner issue 7019: the window of two-digit years of `<Year>` (FormatDateCodeWidths.al Date_Format_YearWindow_*,
+    /// _IssueString).
+    #[test]
+    fn year_two_digit_window() {
+        for (y, want, two, four) in [
+            (1900, "1900", "**", "1900"),
+            (1949, "1949", "**", "1949"),
+            (1950, "50", "50", "0050"),
+            (1965, "65", "65", "0065"),
+            (2000, "00", "00", "0000"),
+            (2049, "49", "49", "0049"),
+            (2050, "2050", "**", "2050"),
+            (2100, "2100", "**", "2100"),
+        ] {
+            let d = Value::Date(day_from_civil(y, 1, 1), false);
+            let dt = Value::DateTime((i64::from(day_from_civil(y, 7, 1)) - 1) * 86_400_000 + 12 * 3_600_000 + 1);
+            for (v, t, w) in [
+                (&d, "<Year>", want),
+                (&d, "<Year,2>", two),
+                (&d, "<Year,4>", four),
+                (&dt, "<Year>", want),
+                (&dt, "<Year,2>", two),
+            ] {
+                match fmt(v.clone(), t) {
+                    Ok(Value::Text(got)) => assert_eq!(got.as_str(), w, "{y} {t}"),
+                    other => panic!("{y} {t}: {other:?}"),
+                }
+            }
+        }
+        let d = Value::Date(day_from_civil(1965, 1, 1), false);
+        match fmt(d, "<Month,2>/<Day,2>/<Year>") {
+            Ok(Value::Text(got)) => assert_eq!(got.as_str(), "01/01/65"),
+            other => panic!("{other:?}"),
         }
     }
 
