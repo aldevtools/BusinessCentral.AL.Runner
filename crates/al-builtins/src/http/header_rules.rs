@@ -211,11 +211,7 @@ pub(super) fn cache_control_item(item: &str) -> Result<Option<(String, String)>,
         return Ok(None);
     }
     let lower = name.to_ascii_lowercase();
-    let unpinned = |what: &str| {
-        unsupported(format!(
-            "Cache-Control {item}: {what} is not pinned (http/headers)"
-        ))
-    };
+    let unpinned = |what: &str| unsupported(format!("Cache-Control {item}: {what} is not pinned (http/headers)"));
     match lower.as_str() {
         "max-age" | "s-maxage" | "min-fresh" | "max-stale" => match value {
             // `max-age=` with nothing, text, a sign or a number beyond Int32 are invalid; the value is read as seconds.

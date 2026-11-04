@@ -494,11 +494,7 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         "4",
         "al-language/permissions/TestPermissionSetGrants.al:68",
     ),
-    (
-        2_000_000_139,
-        "1",
-        "al-language/record/TestReportMetadataColumns.al:49",
-    ),
+    (2_000_000_139, "1", "al-language/record/TestReportMetadataColumns.al:49"),
     (
         2_000_000_280,
         "1",
@@ -598,26 +594,10 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
     ),
     // Table Relations Metadata names of the own and the related table and field, read through the helper's FieldIndex loop
     // (al-vm metadata.rs).
-    (
-        2_000_000_141,
-        "12",
-        "al-language/json/PnE09Platform.al:82-93, :122-125",
-    ),
-    (
-        2_000_000_141,
-        "13",
-        "al-language/json/PnE09Platform.al:82-93, :122-125",
-    ),
-    (
-        2_000_000_141,
-        "14",
-        "al-language/json/PnE09Platform.al:82-93, :122-125",
-    ),
-    (
-        2_000_000_141,
-        "15",
-        "al-language/json/PnE09Platform.al:82-93, :122-125",
-    ),
+    (2_000_000_141, "12", "al-language/json/PnE09Platform.al:82-93, :122-125"),
+    (2_000_000_141, "13", "al-language/json/PnE09Platform.al:82-93, :122-125"),
+    (2_000_000_141, "14", "al-language/json/PnE09Platform.al:82-93, :122-125"),
+    (2_000_000_141, "15", "al-language/json/PnE09Platform.al:82-93, :122-125"),
     // BC 29 only: DefaultHeaderFooterPartName (30), DefaultThemePartName (31). By id, because the symbols of
     // older majors lack them.
     (
@@ -706,21 +686,9 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
     ),
     // BC 29 only: "Layout Subtype" (19), HeaderFooterPart (20), ThemePart (21), read by field name, for layouts that declare
     // a Subtype, and through a RecordRef as Default and blank for one that declares none (UgReportLayoutList.al:119-121). By id.
-    (
-        2_000_000_234,
-        "19",
-        "al-language/reports/runtime/YReportParts.al:75-80",
-    ),
-    (
-        2_000_000_234,
-        "20",
-        "al-language/reports/runtime/YReportParts.al:75-80",
-    ),
-    (
-        2_000_000_234,
-        "21",
-        "al-language/reports/runtime/YReportParts.al:75-80",
-    ),
+    (2_000_000_234, "19", "al-language/reports/runtime/YReportParts.al:75-80"),
+    (2_000_000_234, "20", "al-language/reports/runtime/YReportParts.al:75-80"),
+    (2_000_000_234, "21", "al-language/reports/runtime/YReportParts.al:75-80"),
     // XmlPort Metadata InherentPermissions and InherentEntitlements: blank or X as declared; another value is refused.
     (
         2_000_000_280,
