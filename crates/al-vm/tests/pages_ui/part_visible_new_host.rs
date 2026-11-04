@@ -565,11 +565,11 @@ codeunit 50990 "R6920 Test"
             asserterror Host.Lines.Visible()
         else
             asserterror Host.Lines.Editable();
-        T := 'first=' + GetLastErrorText() + '#log=' + Take() + '#' + Stored();
+        T := 'first=' + GetLastErrorText() + '/' + GetLastErrorCode() + '#log=' + Take();
         asserterror Host.Lines.Description.Value();
-        T += '#read=' + GetLastErrorText() + '#log=' + Take() + '#' + Stored();
+        T += '#read=' + GetLastErrorText() + '/' + GetLastErrorCode() + '#log=' + Take();
         Host.Close();
-        T += '#close=' + Take() + '#' + Stored();
+        T += '#close=' + Take();
         exit(T);
     end;
 
@@ -644,11 +644,11 @@ codeunit 50990 "R6920 Test"
             asserterror Host.Lines.Visible()
         else
             asserterror Host.Lines.Editable();
-        T := 'first=' + GetLastErrorText() + '#log=' + Take() + '#' + Stored();
+        T := 'first=' + GetLastErrorText() + '/' + GetLastErrorCode() + '#log=' + Take();
         asserterror Host.Lines.Description.Value();
-        T += '#read=' + GetLastErrorText() + '#log=' + Take() + '#' + Stored();
+        T += '#read=' + GetLastErrorText() + '/' + GetLastErrorCode() + '#log=' + Take();
         Host.Close();
-        T += '#close=' + Take() + '#' + Stored();
+        T += '#close=' + Take();
         exit(T);
     end;
 
@@ -825,4 +825,34 @@ fn card_host_visible_set_in_on_open_page() {
 #[test]
 fn card_host_of_the_issue() {
     check_host("CardIssue", false);
+}
+
+/// PartLineBeforeHostKey.al R6920_{Doc,Card}Const_*: a part whose Visible is the constant false is not on the page; Visible(),
+/// Editable() and a field read fail with TestPartNotFound and run no trigger.
+#[test]
+fn a_part_hidden_by_a_constant_is_not_on_the_page() {
+    for host in ["DocConst", "CardConst"] {
+        for rows in [true, false] {
+            for new_host in [true, false] {
+                for visible_first in [true, false] {
+                    let got = probe(host, rows, new_host, visible_first);
+                    let parts: Vec<&str> = got.split('#').collect();
+                    assert_eq!(parts.len(), 5, "{got}");
+                    for (part, lead) in [(parts[0], "first="), (parts[2], "read=")] {
+                        let msg = part.strip_prefix(lead).unwrap_or_else(|| panic!("{got}"));
+                        assert!(
+                            msg.starts_with("The part with ID = ")
+                                && msg.ends_with(" was not found on the page./TestPartNotFound"),
+                            "{host} {got}"
+                        );
+                    }
+                    assert_eq!(
+                        [parts[1], parts[3], parts[4]],
+                        ["log=[]", "log=[]", "close=[]"],
+                        "{host} {got}"
+                    );
+                }
+            }
+        }
+    }
 }

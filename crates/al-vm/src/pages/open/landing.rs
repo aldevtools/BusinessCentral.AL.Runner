@@ -215,22 +215,45 @@ impl Session {
         };
         // A part of a Document or Card host opened for view on no row shows no row, though rows of the blank key exist
         // (pages/parts/PartLineBeforeHostKey.al:1578 QH_OpenView_NoRow_BlankKeyLinesExist
-        // `part_description=[]`).
-        let host_shows_no_row = st
-            .borrow()
-            .host
-            .as_ref()
-            .and_then(|(h, _)| h.upgrade())
-            .is_some_and(|h| {
-                let hb = h.borrow();
-                hb.host.is_none()
-                    && hb.mode == PageMode::View
-                    && hb.cursor == Cursor::None
-                    && matches!(
-                        self.engine.object_facts[hb.object as usize].page_type,
-                        Some(al_ir::PageType::Document | al_ir::PageType::Card)
-                    )
-            });
+        // `part_description=[]`). So does the part of such a host opened for edit over an empty table, which shows no row
+        // (`runs_on_blank_record`): :2720 R6920_DocAfterGet_BlankRows_OpenEdit_VisibleFirst, :3578
+        // R6920_CardOpenPage_BlankRows_OpenEdit_EditableFirst and the other R6920_*_BlankRows_OpenEdit_* tests `description=[]`,
+        // `open=[] fired at least once: LP.OnNewRecord` as without rows (corpus master 55fa9dff, not yet the pin).
+        let engine = self.engine();
+        let part_temporary = self.page_rec(st).borrow().temporary;
+        let host_shows_no_row_as = |view: bool| {
+            st.borrow()
+                .host
+                .as_ref()
+                .and_then(|(h, c)| h.upgrade().map(|h| (h, *c)))
+                .is_some_and(|(h, c)| {
+                    let hb = h.borrow();
+                    let mode_ok = if view {
+                        hb.mode == PageMode::View
+                    } else {
+                        // Pinned for a part linked by a field to the host's table, over a table of its own (the R6920 pages);
+                        // an unlinked or temporary part of such a host keeps what it was handed, as before.
+                        hb.blank_on_open
+                            && !part_temporary
+                            && page_of(&engine, &h).controls[c]
+                                .part_link
+                                .as_ref()
+                                .is_some_and(|l| l.entries.iter().any(|e| matches!(e, ir::LinkEntry::Field(..))))
+                    };
+                    hb.host.is_none()
+                        && mode_ok
+                        && hb.cursor == Cursor::None
+                        && matches!(
+                            self.engine.object_facts[hb.object as usize].page_type,
+                            Some(al_ir::PageType::Document | al_ir::PageType::Card)
+                        )
+                })
+        };
+        let edit_host_no_row = host_shows_no_row_as(false);
+        let host_shows_no_row = host_shows_no_row_as(true) || edit_host_no_row;
+        if edit_host_no_row {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartPropsNewHost);
+        }
         if !host_shows_no_row && self.nav_find(st, which)? {
             // A part linked by a field that shows rows of a host that is a new, unsaved record: BC inserts the host at Close although
             // nothing was typed (PartLineBeforeHostKey.al:838 PYB_OpenNew_LinkedPart_BlankKeyRowsExist `close =
