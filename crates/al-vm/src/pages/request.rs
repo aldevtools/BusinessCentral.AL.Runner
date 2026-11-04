@@ -58,6 +58,28 @@ impl Session {
         }
     }
 
+    /// `Visible` of a built-in action the page offers. OK and Cancel are visible (reports/TestProbeReportContracts.al:
+    /// RequestPage_InvokeActionNotFound). On the request page `Report.Run` opens for a report that renders, Preview is not
+    /// visible when the report has no layout and Print is (reports/W3ReportRequestPageRun.al:388
+    /// Run_NonProcessingOnly_ActionsOfThePage); Preview of a report with a layout is not pinned and refused.
+    pub(super) fn builtin_visible(&mut self, st: &St, name: &str) -> Result<Value, Signal> {
+        if name != "Preview" || !self.is_request_page(st) {
+            return Ok(Value::Boolean(true));
+        }
+        let object = st.borrow().object as usize;
+        let engine = self.engine();
+        let Some(report) = engine.program.objects[object].report.as_ref() else {
+            return Ok(Value::Boolean(true));
+        };
+        let no_layout = report.layout == ir::ReportLayout::None
+            && !report.layout_file_missing
+            && !report.output.iter().any(|r| r.contains("(a layout)"));
+        if no_layout {
+            return Ok(Value::Boolean(false));
+        }
+        unsupported("Visible of the Preview action on the request page of a report with a layout (not pinned)")
+    }
+
     /// The Preview and Print actions are pinned on the request page of a report that renders, started by `Report.Run`
     /// (reports/W3ReportObjectIdPreviewLanguage.al:717-752 QV_Preview_Run_PreviewAction, QV_Preview_Run_PrintAction; :484-511
     /// Preview_RequestPagePreviewAction). On a processing-only report, on the page `RunRequestPage` opens, in a `RunModal` and
@@ -343,8 +365,12 @@ impl Session {
             return Err(e);
         }
         if st.borrow().open {
-            self.mark_closed(&st);
-            return unsupported("a request page handler that returned without closing the page (not pinned)");
+            if let Err(e) = self.close_left_open_request_page(&st) {
+                if st.borrow().open {
+                    self.mark_closed(&st);
+                }
+                return Err(e);
+            }
         }
         let result = st.borrow().result.clone();
         match result.as_deref() {
@@ -363,6 +389,54 @@ impl Session {
             Some("SaveAsXml" | "SaveAsPdf" | "SaveAsExcel") => Ok((RequestClosed::SavedAsXml, None)),
             other => unsupported(format!("a request page closed with {} (not pinned)", other.describe())),
         }
+    }
+
+    /// A handler that returns without OK, Cancel or another close action: the page closes with Cancel, OnQueryClosePage(Cancel)
+    /// seeing what the handler set, then OnClosePage; the report does not run, `RunRequestPage` returns '' and a SaveValues page
+    /// stores nothing (reports/W3ReportRequestPageRun.al:322 Run_HandlerLeavesThePageOpen, :351
+    /// RunRequestPage_HandlerLeavesThePageOpen; reports/request-page/RptRequestPage.al:750 Handler_DoesNotClosePage;
+    /// reports/request-page/Y42RequestLeftOpen.al:671-830, al-runner issue 6996). Those pins hold no source table, parts, refused
+    /// entries, OnAfterGetCurrRecord, close triggers of an extension or close event subscribers: such a page is refused. An
+    /// OnQueryClosePage that answers false is pinned (Y42RequestLeftOpen.al:753, the report then runs) but not implemented: refused.
+    fn close_left_open_request_page(&mut self, st: &St) -> Result<(), Signal> {
+        let object = st.borrow().object as usize;
+        let refuse = |what: &str| {
+            unsupported(format!(
+                "a request page handler that left the page open, with {what} (not pinned)"
+            ))
+        };
+        self.refuse_ext_save_values_close(st, "a handler that left it open")?;
+        let ext_closes = page_of(&self.engine(), st)
+            .ext_triggers
+            .iter()
+            .any(|(n, _, _)| n == "onqueryclosepage" || n == "onclosepage");
+        if ext_closes {
+            return refuse("close triggers in a request page extension");
+        }
+        if self.has_source(st) {
+            return refuse("a request page with a source table");
+        }
+        if !st.borrow().parts.is_empty() || !st.borrow().hidden_parts.is_empty() {
+            return refuse("a request page with parts");
+        }
+        if !st.borrow().errors.is_empty() {
+            return refuse("a refused entry on the request page");
+        }
+        if self.declares(st, "onaftergetcurrrecord") {
+            return refuse("OnAfterGetCurrRecord on the request page");
+        }
+        let engine = self.engine();
+        if engine.events.is_subscribed(object, "onqueryclosepageevent")
+            || engine.events.is_subscribed(object, "onclosepageevent")
+        {
+            return refuse("subscribers to the request page's close events");
+        }
+        // Closed as the Cancel action closes it: no SaveValues store.
+        self.close_with(st, "Cancel", false, true)?;
+        if st.borrow().open {
+            return refuse("an OnQueryClosePage that answers false or raises");
+        }
+        Ok(())
     }
 
     /// An AL error the handler does not catch closes the still open request page with Cancel before it leaves the run:
