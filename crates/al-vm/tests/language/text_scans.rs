@@ -67,7 +67,7 @@ fn last_index_of_agrees_for_ascii_and_non_ascii_text() {
 
 #[test]
 fn last_index_of_start_index_may_be_one_past_the_end() {
-    // corpus text/lt-text-instance/Search1.Codeunit.al:LastIndexOf_StartIndex
+    // corpus text/text-methods/Search1.Codeunit.al:LastIndexOf_StartIndex
     assert_eq!(
         text(
             "T := 'abcabcabc'; exit(Format(T.LastIndexOf('a', 10)) + ',' + Format(T.LastIndexOf('', 5)) + ',' + Format(T.LastIndexOf('', 9)));"

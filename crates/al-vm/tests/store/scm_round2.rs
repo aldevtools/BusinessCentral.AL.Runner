@@ -197,7 +197,7 @@ codeunit 69332 C
 
 // Base Application's Bin Content.Bin Code relates with `if ("Zone Code" = filter('')) Bin.Code where(...) else
 // if ("Zone Code" = filter(<> '')) Bin.Code where(...)`. The arm whose filter the field's value passes applies
-// (an assumption for `filter`, the `const` form is pinned by fieldref/TestFieldRefRelation.al; docs/probes-needed.md).
+// (an assumption for `filter`, the `const` form is pinned by recordref-fieldref/fieldref/TestFieldRefRelation.al; docs/probes-needed.md).
 #[test]
 fn a_table_relation_with_filter_conditions_picks_the_arm_the_value_passes() {
     let src = r#"
@@ -257,7 +257,7 @@ codeunit 69342 C
 }
 
 // A failing TableRelation check with several where() conditions, none on a primary key field of the related table, answers
-// DB:NothingInsideFilter like one condition on a non-key field does (record/lt-relation-where-empty-term/RelationWhereEmptyTerm.al:173-177);
+// DB:NothingInsideFilter like one condition on a non-key field does (record/table-relation/RelationWhereEmptyTerm.al:173-177);
 // the several-condition form is an assumption (table-relation-several-where-non-key). A mix of key and non-key conditions stays refused.
 #[test]
 fn a_failing_relation_with_several_non_key_conditions_answers_nothing_inside_filter() {

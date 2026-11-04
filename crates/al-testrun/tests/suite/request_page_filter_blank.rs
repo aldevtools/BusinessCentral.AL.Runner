@@ -1,5 +1,5 @@
 //! TestRequestPage data item filters set to an empty text or a text of spaces after a filter
-//! (pages/lt-ao-testpage/AoTests.al:698-742, :888-928): an empty text clears the filter (GetFilter empty, the report runs
+//! (testpage/AoTests.al:698-742, :888-928): an empty text clears the filter (GetFilter empty, the report runs
 //! unfiltered); a text of spaces leaves GetFilter at the old filter while the report runs unfiltered, which this runtime
 //! does not model, so it is refused.
 

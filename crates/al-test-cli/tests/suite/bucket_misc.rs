@@ -25,7 +25,7 @@ const HELPERS: &str = "procedure Check(Expected: Text; Actual: Text) begin if Ex
 
 // ---------------------------------------------------------------- Notification
 
-// handlers/TestNotificationHandler.al:15-26: Send goes to the [SendNotificationHandler], which
+// ui-handlers/TestNotificationHandler.al:15-26: Send goes to the [SendNotificationHandler], which
 // gets the notification with its message; the handler answers true.
 #[test]
 fn send_goes_to_the_send_notification_handler() {
@@ -41,7 +41,7 @@ fn send_goes_to_the_send_notification_handler() {
     ));
 }
 
-// handlers/TestNotificationHandler.al:60-72: Recall after a handled Send does not throw, with
+// ui-handlers/TestNotificationHandler.al:60-72: Recall after a handled Send does not throw, with
 // only a send handler bound.
 #[test]
 fn recall_after_a_handled_send_does_not_throw() {
@@ -55,7 +55,7 @@ fn recall_after_a_handled_send_does_not_throw() {
     ));
 }
 
-// al-language/pages/lt-ca-odd-667/CaNotificationTests.al:14-38 (handlers at :61, :70): a [SendNotificationHandler(true)] or [RecallNotificationHandler(true)]
+// al-language/testpage/notifications-and-control-values/CaNotificationTests.al:14-38 (handlers at :61, :70): a [SendNotificationHandler(true)] or [RecallNotificationHandler(true)]
 // that never runs lets the test pass (HandlerIsOptional).
 #[test]
 fn an_optional_notification_handler_that_never_fires_passes() {
@@ -68,7 +68,7 @@ fn an_optional_notification_handler_that_never_fires_passes() {
     ));
 }
 
-// A declared handler that never fired fails the test (handlers/TestPageQueryCloseMessageHandler_Tests.al:51).
+// A declared handler that never fired fails the test (ui-handlers/TestPageQueryCloseMessageHandler_Tests.al:51).
 #[test]
 fn a_send_notification_handler_that_never_fires_fails_the_test() {
     let o = outcomes(&format!(
@@ -80,7 +80,7 @@ fn a_send_notification_handler_that_never_fires_fails_the_test() {
     assert!(matches!(&o[0].1, Outcome::Fail(_)), "{o:?}");
 }
 
-// handlers/TestNotificationSendRecallContracts.al:59-75, 123-131 (BC 27.5): a notification nobody set has an
+// ui-handlers/TestNotificationSendRecallContracts.al:59-75, 123-131 (BC 27.5): a notification nobody set has an
 // empty message, LocalScope, no data and the null Guid for an id; Send without a handler shows nothing, raises
 // nothing, returns true and gives it an Id; Recall of a sent notification returns true, of one never sent false.
 #[test]
@@ -138,7 +138,7 @@ fn recall_runs_the_recall_handler_with_the_current_notification() {
     ));
 }
 
-// handlers/ProbeNotificationRecallEdges.al (BC 27.5): every Recall of a sent notification runs the recall handler and
+// ui-handlers/ProbeNotificationRecallEdges.al (BC 27.5): every Recall of a sent notification runs the recall handler and
 // answers true, whatever the handler answers; a Send whose handler answered false is a Send all the same.
 #[test]
 fn recall_runs_the_handler_each_time_and_answers_true() {

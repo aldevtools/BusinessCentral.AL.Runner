@@ -1,5 +1,5 @@
 //! `HttpClient.UseDefaultNetworkWindowsAuthentication` and `UseWindowsAuthentication` (Text and SecretText): configuration
-//! calls that answer Yes, also when repeated or given blank texts (al-language-onprem/network/HttpClientAuthConfig.al:19-71).
+//! calls that answer Yes, also when repeated or given blank texts (al-language-onprem/http/HttpClientAuthConfig.al:19-71).
 //! A request after one that a `[HttpClientHandler]` answers is answered as before (:109-136); a request no handler answers is
 //! refused, as is the call on a client with other settings (whether it rebuilds the client is not pinned).
 

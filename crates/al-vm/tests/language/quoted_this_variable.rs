@@ -1,6 +1,6 @@
 //! A quoted `"this"` is a plain variable; the unquoted `this` is always the running object, even where a variable is
 //! named `this` (al-runner issue 6750; values measured on real BC in the corpus writer's Y73 case, files
-//! tests/al-language/types/lt-y73-quoted-this/Y73ThisCodeunit.al; needs corpus bump).
+//! tests/al-language/types/operators-expressions/Y73ThisCodeunit.al; needs corpus bump).
 //! S = the running object, V = the variable's instance.
 
 use al_testkit::{run_in, text};

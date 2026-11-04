@@ -1,6 +1,6 @@
 //! Report extensions of different apps that change the run, when a dependency path orders the apps (al-runner issue 6653): the
 //! base report's triggers, then the extensions' in dependency order (corpus writer Y64, branch al-runtime-rs-staging-y64 85d86e7b,
-//! reportext/lt-y64-xapp-run-order/Y64XappRunOrder.al with the fixtures in al-language-xapp-a, -b and -c: apps A <- B <- C <- the
+//! reports/extensions/Y64XappRunOrder.al with the fixtures in al-language-xapp-a, -b and -c: apps A <- B <- C <- the
 //! test app, extension ids rising along the chain). Pinned only where the dependency order and the object id order agree; apps
 //! with no dependency path between them, or ids against the dependency order, stay refused.
 

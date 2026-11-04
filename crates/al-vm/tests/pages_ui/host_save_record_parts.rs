@@ -1,7 +1,7 @@
 //! A host control's OnValidate that calls `CurrPage.SaveRecord()`: the host's linked parts read their rows again
 //! (assumption host-save-record-refreshes-linked-parts, needed by Microsoft's Tests-ERM ERM Purchase Subform 134394:
 //! Purchase Order "Currency Code" OnValidate calls CurrPage.SaveRecord() and the subform's totals must follow).
-//! pageupdate/TestPageUpdate.al:116-139 pins the arm without SaveRecord: nothing more runs.
+//! pages/currpage/TestPageUpdate.al:116-139 pins the arm without SaveRecord: nothing more runs.
 
 use al_testkit::text;
 

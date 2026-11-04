@@ -1,6 +1,6 @@
 //! A journal batch switch from the new-row line of an empty batch to a batch with rows (gap G5-20): the page leaves the line
 //! and refreshes as from a row; Update(true) modifies the row Find('-') moved Rec onto; a Worksheet with InsertAllowed = false
-//! opens on the empty batch with OnNewRecord and OnAfterGetCurrRecord once (pages/lt-y50-update-from-new-line/Y50UpdateFromNewLine.al).
+//! opens on the empty batch with OnNewRecord and OnAfterGetCurrRecord once (pages/triggers/Y50UpdateFromNewLine.al).
 
 const SRC: &str = r#"
 table 51540 "NL Line"

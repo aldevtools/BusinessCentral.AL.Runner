@@ -5,7 +5,7 @@ use super::*;
 // ------------------------------------------------------------------------------------------------ client
 
 /// `HttpClient.Timeout` is 100 seconds until set; a value over 5 minutes raises
-/// `HttpClientTimeoutTooLarge` naming the minutes of the value (network/lt-http/HttpClient.al:TimeoutValues).
+/// `HttpClientTimeoutTooLarge` naming the minutes of the value (http/HttpClient.al:TimeoutValues).
 pub(super) fn client_timeout(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let Some(v) = a.first() else {
         return with_client(r, |s| Value::Duration(s.timeout_ms));
@@ -45,7 +45,7 @@ pub(super) fn client_default_headers(_: &mut dyn Ctx, r: Option<&mut Value>, _: 
 }
 
 /// `Clear` brings the client back to a fresh one: timeout, base address and default headers
-/// (network/lt-http/HttpClient.al:ClientClear).
+/// (http/HttpClient.al:ClientClear).
 pub(super) fn client_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     with_client(r, |s| {
         // Whether Clear also resets the certificate setting is not pinned: the mark stays, so a request no handler answers
@@ -67,8 +67,8 @@ pub(super) fn client_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Valu
 /// or property-assign form) rebuilds the client: the default timeout (1 minute 40 seconds), no base address and new default
 /// request headers, so the headers added before are gone and an HttpHeaders taken earlier no longer reaches the client. A
 /// call that keeps a default (validation `true`, cookies `false`) on a client never rebuilt, and every call after the
-/// rebuild, change nothing (network/lt-httpclient-property-assign/Y6HttpSettingChanges.al:30-132, :165-207, corpus master;
-/// network/lt-cz-http-leads/CzHttpNoNetwork.al:98-143 for the headers reference, HttpClientPropertyAssign.al:73-77 for the
+/// rebuild, change nothing (http/client/Y6HttpSettingChanges.al:30-132, :165-207, corpus master;
+/// http/CzHttpNoNetwork.al:98-143 for the headers reference, HttpClientPropertyAssign.al:73-77 for the
 /// timeout). After a `Clear` of a rebuilt client whether a call rebuilds it again is not pinned: refused.
 pub(super) fn client_settings_change(s: &mut HttpClientState, leaves_default: bool, what: &str) -> Result<(), Signal> {
     if !leaves_default || s.rebuilt {
@@ -90,7 +90,7 @@ pub(super) fn client_settings_change(s: &mut HttpClientState, leaves_default: bo
 /// (Y6HttpSettingChanges.al:30-54: `true` on a fresh client Yes, `false` No, `false` again No, `true` after `false` Yes,
 /// corpus master). A request of the client that no handler answers is refused outside BlockOutboundRequests
 /// (`cert_validation_set`); with a handler it is answered as before
-/// (al-language-onprem/network/HttpClientAuthConfig.al:117-126 `after_certificate_validation_off`).
+/// (al-language-onprem/http/HttpClientAuthConfig.al:117-126 `after_certificate_validation_off`).
 pub(super) fn client_use_cert_validation(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let on = match a.first() {
         Some(Value::Boolean(b)) => *b,
@@ -129,7 +129,7 @@ pub(super) fn client_use_cookies(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut
 }
 
 /// `HttpClient.AddCertificate(Certificate[, Password])`, Text or SecretText, reads the certificate when it is called
-/// (network/lt-httpclient-config-certificates/P108Cert1.al:21-40, Text, and P108Cert2.al:21-37, SecretText): an empty one
+/// (http/client/P108Cert1.al:21-40, Text, and P108Cert2.al:21-37, SecretText): an empty one
 /// raises HttpRequest:Argument, text that is not Base64 HttpRequest:Format, and Base64 of a cut DER sequence (`MIIB`)
 /// HttpRequest:Cryptographic, each with the generic request error text. Any other certificate (a complete DER structure,
 /// which may be a real one, or bytes that do not start a DER sequence) is not pinned and is refused.
@@ -192,7 +192,7 @@ pub(super) fn send(
     };
     // A request that failed before any connection (`failure_without_connection`) leaves a response with status 0 and the
     // reason `NavHttpClient Request Failed`, not successful, not blocked, an empty body and no headers, also over a response
-    // a handler filled before (network/lt-http-send-failure/LtDaSendFailure.al:48, :69; al-language-onprem/network/
+    // a handler filled before (http/client/LtDaSendFailure.al:48, :69; al-language-onprem/http/
     // lt-ay-http-handler/AyHttpHandler.al:PY_FailedCall_IntoFilledResponse). With its result used the call answers false and
     // the error is the last error; as a statement it raises the error (LtDaSendFailure.al:81-86, :98-104).
     if state.request_failed {
@@ -214,7 +214,7 @@ pub(super) fn send(
         return Ok(Value::Boolean(false));
     }
     // A handler that set IsSuccessfulRequest to false makes the call answer false with the response it filled; as a statement
-    // the call raises nothing (al-language-onprem/network/LtDaHttpHandlerOdd.al:119-120, :145-146).
+    // the call raises nothing (al-language-onprem/http/LtDaHttpHandlerOdd.al:119-120, :145-146).
     let success = state.success;
     *cell.borrow_mut() = LibraryValue::HttpResponse(HttpResponseState {
         status: state.status,

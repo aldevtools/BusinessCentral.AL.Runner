@@ -1,5 +1,5 @@
 //! `HttpClient.AddCertificate` reads the certificate when it is called. Pinned by
-//! network/lt-httpclient-config-certificates/P108Cert1.al:21-40 (Text) and P108Cert2.al:21-37 (SecretText): an empty
+//! http/client/P108Cert1.al:21-40 (Text) and P108Cert2.al:21-37 (SecretText): an empty
 //! certificate raises HttpRequest:Argument, text that is not Base64 HttpRequest:Format, Base64 of a cut DER sequence
 //! (`MIIB`) HttpRequest:Cryptographic, each with the generic request error text. Every other certificate is not pinned and
 //! is refused (issue 6484).

@@ -1,5 +1,5 @@
 //! `Format(Record, Length)` with a length above 0 cuts the record's text to it
-//! (errors/lt-ms-refusals-133/P133DateEvaluateFormat.al:338-361 `length 5`, `length 20`).
+//! (types/P133DateEvaluateFormat.al:338-361 `length 5`, `length 20`).
 
 use al_testkit::{run, text};
 

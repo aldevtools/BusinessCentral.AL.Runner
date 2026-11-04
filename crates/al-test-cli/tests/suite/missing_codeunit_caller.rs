@@ -1,6 +1,6 @@
 //! The caller a missing-codeunit error names. A `Codeunit.Run` the test method issues itself names the test runner
-//! (corpus errors/lt-az-error-texts/AzErrorTexts.al:110-134 CodeunitRun_MissingId_RawText); one a helper codeunit issues
-//! names the test codeunit (misc/W5MissingObject.al:19-26 MissingCodeunit_FromHelperCodeunit).
+//! (corpus errors/error-texts/AzErrorTexts.al:110-134 CodeunitRun_MissingId_RawText); one a helper codeunit issues
+//! names the test codeunit (errors/W5MissingObject.al:19-26 MissingCodeunit_FromHelperCodeunit).
 
 use al_testrun::Outcome;
 

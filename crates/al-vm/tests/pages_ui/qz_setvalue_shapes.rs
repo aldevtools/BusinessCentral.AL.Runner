@@ -1,6 +1,6 @@
 //! SetValue shapes writer QZ pinned in corpus bump 54: a list control over an Enum field with NotBlank
-//! (pages/lt-be-enum-setvalue-blank/BeEnumSetValueBlank.al:4021), CharAllowed on a list (record/lt-x-table-props/XTablePropsTests.al:928)
-//! and expression controls of a card without a source table (misc/lt-protected-var-abs-query-views/P146PageExprSetValue.al:506).
+//! (pages/enum-setvalue-blank/BeEnumSetValueBlank.al:4021), CharAllowed on a list (record/table-properties/XTablePropsTests.al:928)
+//! and expression controls of a card without a source table (testpage/P146PageExprSetValue.al:506).
 
 fn text(r: Result<al_builtins::value::Value, al_builtins::native::Signal>) -> String {
     match r {

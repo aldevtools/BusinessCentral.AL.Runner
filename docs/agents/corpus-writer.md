@@ -100,7 +100,7 @@ You write tests that only **observe**, run them once on the container, and a scr
        Observer.Finish();                                               // ends the observation form
    end;
    ```
-   Good examples to copy the style from: `tests/al-language/types/PXEnumRecordRef.al`, `types/PRDecimalToInteger.al`, `types/PUTestFieldErrorInfo.al`, `pageext/PCCurrRecordReads.al` (pages, logs), `query/PRQueryOpenColumn.al`.
+   Good examples to copy the style from: `tests/al-language/types/PXEnumRecordRef.al`, `types/PRDecimalToInteger.al`, `types/PUTestFieldErrorInfo.al`, `pages/extensions/PCCurrRecordReads.al` (pages, logs), `queries/PRQueryOpenColumn.al`.
 2. **Run the pipeline** (observes, converts to assertions, verifies):
    ```bash
    export CORPUS=~/corpus BCLINUX=~/bc-linux SYMS=BC27PLUS,BC28PLUS,BC29PLUS

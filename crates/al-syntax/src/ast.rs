@@ -402,9 +402,9 @@ fn is_lone_quoted_ident(t: &str) -> bool {
 }
 
 /// `'text', Locked = true` / `, MaxLength = 40` / `, Comment = '..'`: a text property keeps its literal and drops the attributes that follow
-/// it (corpus pageext/lt-page-ext-properties/TableKeyProps.al:P123_TableCaptionsLocked, P123_MaxLengthCaptions). On a `Caption`,
-/// `MaxLength = n` cuts the literal to n characters, as it cuts a Label (record/lt-u-table-field-props/UTableTextSearch.al:41-44: a
-/// table caption and a field caption; text/lt-label-textbuilder/TxCLabel.al:282). On any other property a text longer than its
+/// it (corpus pages/extensions/TableKeyProps.al:P123_TableCaptionsLocked, P123_MaxLengthCaptions). On a `Caption`,
+/// `MaxLength = n` cuts the literal to n characters, as it cuts a Label (record/table-properties/UTableTextSearch.al:41-44: a
+/// table caption and a field caption; text/textbuilder-bigtext/TxCLabel.al:282). On any other property a text longer than its
 /// MaxLength is not pinned: the value keeps its attributes, [`text_over_max_length`] finds it and the readers refuse it.
 pub(crate) fn strip_text_attributes(property: &str, text: String) -> String {
     if !text.starts_with('\'') {
@@ -994,7 +994,7 @@ impl TypeRef {
                 SyntaxKind::Comma => out.push(String::new()),
                 SyntaxKind::Ident | SyntaxKind::QuotedIdent | SyntaxKind::Integer => {
                     // A quoted empty name (`""`) shows as one space; an unquoted empty member shows its number
-                    // (types/lt-scalars/ScT70053.al:Option_Format `blank_len` against misc/lt-inferred-behaviors/P69OptionInText.al:
+                    // (types/decimal-integer/ScT70053.al:Option_Format `blank_len` against text/P69OptionInText.al:
                     // Option_StrSubstNo `subst_2`). The two are told apart by keeping the quoted one as a space.
                     let name = unquote_ident(t.text);
                     *out.last_mut().expect("non-empty") = if name.is_empty() && t.kind() == SyntaxKind::QuotedIdent {

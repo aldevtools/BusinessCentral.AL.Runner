@@ -1,5 +1,5 @@
 //! `Dictionary.Set`, `List.Set` with a `var OldValue` and `List.GetRange` with a `var Result`
-//! (misc/lt-open-overloads-collections-isolated/P107Collections.al).
+//! (collections/P107Collections.al).
 
 use al_builtins::native::Signal;
 

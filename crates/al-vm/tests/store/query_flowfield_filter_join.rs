@@ -1,6 +1,6 @@
 //! A query `filter()` element over a FlowField of the header data item when the query joins a line data item or groups:
 //! the FlowField is calculated per header row, before the join and the grouping. Every literal is what real BC answered in the
-//! corpus: query/lt-y62-flowfield-filter-join/Y62QueryFlowFieldJoin.al (codeunit 93261, writer Y62).
+//! corpus: queries/joins-links/Y62QueryFlowFieldJoin.al (codeunit 93261, writer Y62).
 
 use al_testkit::text;
 

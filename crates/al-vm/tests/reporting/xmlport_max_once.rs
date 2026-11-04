@@ -1,5 +1,5 @@
 //! `MaxOccurs = Once` on a table element: the export writes the first row only, the import fails on a second element
-//! (corpus xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:229-445 SG_OnceTemp_*, SG_OnceReal_*).
+//! (corpus xmlports/shapes-properties/SgXmlPortOccurs.al:229-445 SG_OnceTemp_*, SG_OnceReal_*).
 
 use al_builtins::native::Signal;
 use al_testkit::run;

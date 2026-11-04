@@ -1,5 +1,5 @@
 //! RunPageLink `field()` of a host FlowFilter: the target takes the host's filter as it is (a Code FlowFilter with a value or an
-//! expression), and no filter when the host has none (corpus pages/lt-y72-page-probes/Y72RunPageLinkFlowFilter.al).
+//! expression), and no filter when the host has none (corpus testpage/Y72RunPageLinkFlowFilter.al).
 
 use al_testkit::text;
 

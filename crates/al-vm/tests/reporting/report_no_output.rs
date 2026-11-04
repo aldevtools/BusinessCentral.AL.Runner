@@ -325,7 +325,7 @@ fn report_no_output_a_same_named_report_of_another_app_is_not_listed() {
 
 #[test]
 fn report_no_output_a_report_with_a_layout_and_no_file_answers_false_as_before() {
-    // report/PRSaveAsFormats.al: DefaultLayout without a layout file answers false and sets this text; no trigger runs.
+    // reports/PRSaveAsFormats.al: DefaultLayout without a layout file answers false and sets this text; no trigger runs.
     let mut b = built("DefaultLayout = RDLC;");
     assert_eq!(
         al_testkit::text(b.run_in("RNO Tests", "LayoutError")),
@@ -345,7 +345,7 @@ fn report_no_output_html_of_a_report_with_an_rdlc_layout_answers_false_as_before
 
 #[test]
 fn report_no_output_pdf_of_a_processing_only_report_keeps_the_pinned_answer() {
-    // handlers/TestReportSaveAsColumnTypesContracts.al:372-388: false, this text, no trigger runs.
+    // reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:372-388: false, this text, no trigger runs.
     let mut b = built("ProcessingOnly = true;");
     assert_eq!(
         al_testkit::text(b.run_in("RNO Tests", "LayoutError")),

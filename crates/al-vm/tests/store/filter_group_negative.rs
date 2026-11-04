@@ -1,4 +1,4 @@
-//! `FilterGroup` set to a negative number other than -1 (record/lt-filters-keys-finds/P68F_FilterGroup.al
+//! `FilterGroup` set to a negative number other than -1 (record/filters/P68F_FilterGroup.al
 //! RecordRef_Setter_Negative_And_Large, and the Record twin): the group is stored and read back, as a large positive one
 //! is. What a filter set in such a group does is not pinned, so the setters of a filter refuse.
 

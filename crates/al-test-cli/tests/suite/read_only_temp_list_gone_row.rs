@@ -1,5 +1,5 @@
 //! A List with Editable = false over a temporary source that loses its only row to an action (al-runner issue 6664). Real BC
-//! values from corpus writer Y66 (pages/lt-y66-temp-list-gone-row/Y66TempListGoneRow.al:235, :400, not on corpus master yet).
+//! values from corpus writer Y66 (pages/temp-list-deleted-row/Y66TempListGoneRow.al:235, :400, not on corpus master yet).
 
 use al_testrun::Outcome;
 

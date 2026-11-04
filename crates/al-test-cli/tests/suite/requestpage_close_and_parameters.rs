@@ -87,7 +87,7 @@ const HELPERS: &str = "var L: Codeunit \"RC Log\";
 local procedure Check(Expected: Text; Actual: Text) begin if Expected <> Actual then Error('expected <%1> got <%2>', Expected, Actual); end;
 local procedure Between(T: Text; A: Text; B: Text): Text var S: Integer; begin S := T.IndexOf(A) + StrLen(A); exit(CopyStr(T, S, T.IndexOf(B) - S)); end;";
 
-// report/lt-report-requestpage/RptRequestPage.al:304, :413, :453: an error the handler does not catch closes the page with
+// reports/request-page/RptRequestPage.al:304, :413, :453: an error the handler does not catch closes the page with
 // Cancel (OnQueryClosePage, then OnClosePage) before it leaves the run; the report does not run.
 #[test]
 fn a_handler_error_closes_the_request_page_with_cancel_first() {
@@ -115,7 +115,7 @@ fn a_handler_error_on_a_request_page_whose_extension_has_close_triggers_is_refus
     assert!(why.contains("close triggers in a request page extension"), "{why}");
 }
 
-// report/W3ReportActions.al:186: Visible, Enabled and Invoke of every action of a request page raise the not-found error,
+// reports/W3ReportActions.al:186: Visible, Enabled and Invoke of every action of a request page raise the not-found error,
 // whatever the action's Visible and Enabled say, and OnAction does not run.
 #[test]
 fn visible_and_enabled_of_a_request_page_action_are_not_found() {
@@ -140,8 +140,8 @@ fn visible_and_enabled_of_a_request_page_action_are_not_found() {
     ));
 }
 
-// report/W3ReportParametersText.al:255 (empty values as an empty element, a descending view as ORDER(1)), :272 (a quote in a
-// text value is not escaped), :306 (a Boolean filter as 1); report/W3ReportSaveAsExecute.al:209 (the filters of the
+// reports/W3ReportParametersText.al:255 (empty values as an empty element, a descending view as ORDER(1)), :272 (a quote in a
+// text value is not escaped), :306 (a Boolean filter as 1); reports/W3ReportSaveAsExecute.al:209 (the filters of the
 // DataItemTableView are not in the text, only the ones the page set).
 #[test]
 fn the_parameters_text_spells_values_and_views_as_bc_does() {
@@ -163,7 +163,7 @@ fn the_parameters_text_spells_values_and_views_as_bc_does() {
     ));
 }
 
-// A Boolean filter on No: the corpus pins only Yes as 1 (report/W3ReportParametersText.al:306).
+// A Boolean filter on No: the corpus pins only Yes as 1 (reports/W3ReportParametersText.al:306).
 #[test]
 fn a_boolean_filter_on_no_in_the_parameters_text_is_refused() {
     let why = refused(&format!(
@@ -237,7 +237,7 @@ fn preview_outcomes(tests: &str) -> Vec<(String, Outcome)> {
     al_testkit::outcomes_in(&src, "T")
 }
 
-// report/W3ReportObjectIdPreviewLanguage.al:484-511 Preview_RequestPagePreviewAction: the Preview action closes the request page
+// reports/W3ReportObjectIdPreviewLanguage.al:484-511 Preview_RequestPagePreviewAction: the Preview action closes the request page
 // with the CloseAction Preview; a report without a valid layout then fails with ReportNoLayout, as after OK, and the page is no
 // longer open.
 #[test]
@@ -254,7 +254,7 @@ fn the_preview_action_closes_the_request_page_of_a_report_without_a_layout() {
     assert_eq!(o, vec![("P".to_string(), Outcome::Pass)]);
 }
 
-// report/W3ReportObjectIdPreviewLanguage.al:696-714 QV_Preview_RunRequestPage: a handler that names Preview and Print but presses
+// reports/W3ReportObjectIdPreviewLanguage.al:696-714 QV_Preview_RunRequestPage: a handler that names Preview and Print but presses
 // OK on the page RunRequestPage opens runs, and the page's triggers answer CurrReport.Preview() false.
 #[test]
 fn a_handler_that_names_preview_runs_when_it_presses_ok() {

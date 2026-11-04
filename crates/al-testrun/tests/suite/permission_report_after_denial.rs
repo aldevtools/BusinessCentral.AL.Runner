@@ -1,7 +1,7 @@
 //! ADR-062 stage 2: a test that makes a denied read and later runs a report the runtime cannot run is refused at the
 //! denied read, before it changes any state a later test of the codeunit reads (the report in this shape has
 //! `InherentPermissions`, which is not supported: Report_RequestPagePermissions_AndInherentPermissions in
-//! `report/lt-u-report-props/UPropertyTests.al`, whose later test Query_InherentPermissions_UnderTheMock passes on BC).
+//! `reports/runtime/UPropertyTests.al`, whose later test Query_InherentPermissions_UnderTheMock passes on BC).
 
 use super::permission_writes::run_main;
 use al_testrun::Outcome;

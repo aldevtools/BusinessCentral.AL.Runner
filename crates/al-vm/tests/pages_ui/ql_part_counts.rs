@@ -1,4 +1,4 @@
-//! Corpus bump 42 (writer QL) cases of tests/al-language/pages/lt-qj-part-propagation/QjPartPropagation.al: Last, First and New on a
+//! Corpus bump 42 (writer QL) cases of tests/al-language/pages/parts/QjPartPropagation.al: Last, First and New on a
 //! part, a new part row whose code changes the host row, and a part Update(false) that leaves the host row unchanged. The objects
 //! are copied from the probe; the test procedures return their observations, and each Rust test compares them with the values the
 //! probe asserts on real BC 27.5, 28.5 and 29.0.

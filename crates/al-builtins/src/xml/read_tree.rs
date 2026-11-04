@@ -119,7 +119,7 @@ pub(crate) fn read_tree(text: &str) -> Result<Result<crate::xmlport::Elem, Optio
 
 /// The element tree of a document for an import into a port whose elements are all in namespace `want`
 /// (`UseDefaultNamespace = true`, al-builtins xmlport.rs `parse_in_namespace`). Pinned shapes only
-/// (xmlport/lt-bd-xmlport/BdXmlPort.al:499): every element in `want`, by default or by a prefix; the root elsewhere; the
+/// (xmlports/shapes-properties/BdXmlPort.al:499): every element in `want`, by default or by a prefix; the root elsewhere; the
 /// root's first child in no namespace. Anything else in another namespace, and any other namespace declaration, is refused.
 pub(crate) fn read_tree_in(
     text: &str,

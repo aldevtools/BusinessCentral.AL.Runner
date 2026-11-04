@@ -7,7 +7,7 @@ impl Session {
     /// A ListPart over a temporary source, without SubPageLink, SubPageView, OnOpenPage, OnFindRecord and OnNextRecord, in a
     /// host without a source table whose OnOpenPage filled the part and left its Rec on a row other than the first of the
     /// view: true when the part opens on that row, as a list whose OnOpenPage left Rec there does
-    /// (`open_on_rec_moved_by_onopenpage`). Pinned by pages/lt-y15/Y15WorksheetPartRefresh.al:287
+    /// (`open_on_rec_moved_by_onopenpage`). Pinned by pages/Y15WorksheetPartRefresh.al:287
     /// Y15_PartRefresh_TwoRowsPartOnFirst (`open log` `AGR2;AGR1;AGR2;AGR2;AGCR2`, `at open` `2/B`: rows 1 and 2 inserted, the
     /// last insert leaves Rec on row 2). Another host or part keeps the first row, as before (not pinned).
     pub(super) fn part_rec_left_by_host(&mut self, st: &St) -> Result<bool, Signal> {

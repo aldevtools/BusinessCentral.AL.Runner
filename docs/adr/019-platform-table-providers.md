@@ -76,7 +76,7 @@ Each is also a line in `docs/owner-review.md`.
    answer for any other id between 1 and 65535 is refused; an id above that is no language (999999 is pinned).
 5. **A `Get` whose result is used, in a dependency app's code, on a table the install baseline could not seed is
    refused** like the raising form (`records.rs` `fail` checks `Engine::unseeded` before the quiet `false`).
-   With the platform tables loaded, `install/TestRetenPolAllowedTables_Tests.al` ran one step further and failed,
+   With the platform tables loaded, `install-upgrade/TestRetenPolAllowedTables_Tests.al` ran one step further and failed,
    because the retention policy list is filled by Base Application's install code.
 6. **Provider reads and snapshots.** A provider holds the engine weakly and a captured baseline holds no provider
    (`MemStore::detached`), so the engine stays unshared after the baseline and `Engine::unseeded` can be set.
@@ -91,7 +91,7 @@ Each is also a line in `docs/owner-review.md`.
 10. **All Profile is a stored table.** A session seeds one row per `profile` object of every loaded app (Scope
     Tenant, the app's id), and two native rules guard those rows (`platform/profiles.rs`): they cannot be deleted
     or renamed away, with the texts the corpus pins. Options: a virtual table over the profile objects (rejected:
-    AL inserts, renames and deletes tenant rows, `profile/TestAllProfileTable.al`).
+    AL inserts, renames and deletes tenant rows, `profiles/TestAllProfileTable.al`).
 11. **Report Layout List, Report Metadata and Report Data Items** come from the program. The scanner now keeps
     the layouts of a report's `rendering` section (also for shells), the IR keeps `RequestFilterFields`. "Data
     Item ID" is the item's position times ten: the corpus only needs the ids of two items to differ. An

@@ -12,7 +12,7 @@ impl Checker<'_> {
     }
 
     /// Whether `arg`, already checked, is a `FieldRef.Value()` call. Passed to procedures overloaded on Integer and Variant, or
-    /// on Decimal and Variant, it takes the Variant one whatever type the field has (types/lt-y62-undefined-date/
+    /// on Decimal and Variant, it takes the Variant one whatever type the field has (types/date-time/
     /// Y62UndefinedDate.al:FieldRefValue_OverloadPick_EmptyAndSet, writer Y62: Date, Time, DateTime, Duration and Decimal fields,
     /// empty and set).
     pub(crate) fn is_fieldref_value(&self, sc: &Scope, arg: &SyntaxNode) -> bool {

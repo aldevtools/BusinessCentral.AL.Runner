@@ -1,5 +1,5 @@
 //! A List with Editable = false over a temporary source, without the new-row line, that lost its only row to an action
-//! (al-runner issue 6664). Real BC values from corpus writer Y66 (pages/lt-y66-temp-list-gone-row/Y66TempListGoneRow.al, not on
+//! (al-runner issue 6664). Real BC values from corpus writer Y66 (pages/temp-list-deleted-row/Y66TempListGoneRow.al, not on
 //! corpus master yet): run modally (Page.RunModal, also in lookup mode) it stands on a blank Rec and raises OnNewRecord and
 //! OnAfterGetCurrRecord once (:235 `action log R:10;N:0;C:0;`, :263 with CurrPage.Update(false), :291 two rows, :319 LookupMode,
 //! :350 ascending); opened by a TestPage for view or edit it raises nothing (:371 OpenView, :400 OpenEdit `R:10;`). Either way no
@@ -61,7 +61,7 @@ impl Session {
     pub(super) fn settle_gone_view_list_again(&mut self, st: &St) -> Result<(), Signal> {
         if !st.borrow().gone_temp_list {
             // A list over a stored table: a second action that leaves the table empty again raises nothing and shows no row, for
-            // the lists of `read_only_view_list_shows_nothing` (corpus master pages/lt-y80-gone-rows/Y80GoneRows.al:
+            // the lists of `read_only_view_list_shows_nothing` (corpus master pages/deleted-rows/Y80GoneRows.al:
             // Y80_Gone_ReadOnly_OpenEdit_DeleteAllUpdate `second action log` empty, also Y80_Gone_NoNew_OpenView_*). One that put
             // rows back, or a modal page, is not pinned.
             let rec = self.page_rec(st);
@@ -156,7 +156,7 @@ impl Session {
 impl Session {
     /// A List with Editable = false opened for view, without the new-row line, that lost its only row to an action raises nothing
     /// and shows no row, as a List with the line opened for view does (pages/W1Update.al:534;
-    /// pages/lt-outside-worksheet/RmWorksheetGoneRow.al:481 SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate `R:10000;`, shown
+    /// testpage/RmWorksheetGoneRow.al:481 SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate `R:10000;`, shown
     /// blank, First No). A List opened for view that is editable, and a non-editable one opened for edit, are not pinned.
     pub(super) fn read_only_view_list_shows_nothing(&mut self, st: &St) -> bool {
         let engine = self.engine();
@@ -179,7 +179,7 @@ impl Session {
             && ["InsertAllowed", "ModifyAllowed", "DeleteAllowed"]
                 .iter()
                 .all(|p| denied(p));
-        // Pinned by corpus master pages/lt-y80-gone-rows/Y80GoneRows.al (codeunit 94230, the Y80_Gone_ReadOnly_*, _NoNew_OpenView_*
+        // Pinned by corpus master pages/deleted-rows/Y80GoneRows.al (codeunit 94230, the Y80_Gone_ReadOnly_*, _NoNew_OpenView_*
         // and _NoInsMod_OpenView_* tests, a list whose Insert, Modify and Delete are allowed unless the page denies them): an
         // Editable = false list opened for view or for edit, and an editable list without the new-row line (InsertAllowed = false)
         // opened for view, raise nothing and show no row after an action deleted its only row, with or without

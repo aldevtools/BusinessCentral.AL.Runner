@@ -1,10 +1,10 @@
 //! A List with the new-row line, opened for edit, that lost its only row to an action stands on its blank line (the action
 //! raised OnNewRecord and OnAfterGetCurrRecord three times, `settle_after_action`). What the moves and a later action do there
-//! (corpus master pages/lt-y80-gone-rows/Y80GoneRows.al, codeunit 94230):
+//! (corpus master pages/deleted-rows/Y80GoneRows.al, codeunit 94230):
 //! - First, Next, Last and Previous in a row answer No each and log `N:0;C:0;N:0;C:0` in all (Y80_Gone_All_OpenEdit_DeleteAllUpdate,
-//!   _DeleteAll, _DeleteCurrent `moves log`). First raises nothing (pages/lt-f3-pages/F3ListTests.al:189 DeleteOnlyRow_WithoutUpdate
-//!   `log_after_first`, misc/lt-probes-needed-7/PnGRefresh.al ListLosesOnlyRowDeleteNoUpdate, lt-outside-worksheet/
-//!   RmWorksheetGoneRow.al:452 `close log`). As a single move (pages/lt-y89-gone-single-move/Y89GoneSingleMove.al
+//!   _DeleteAll, _DeleteCurrent `moves log`). First raises nothing (testpage/F3ListTests.al:189 DeleteOnlyRow_WithoutUpdate
+//!   `log_after_first`, testpage/PnGRefresh.al ListLosesOnlyRowDeleteNoUpdate, lt-outside-worksheet/
+//!   RmWorksheetGoneRow.al:452 `close log`). As a single move (pages/deleted-rows-navigation/Y89GoneSingleMove.al
 //!   Y89_All_OpenEdit_delall{,upd}_{first,next,previous,last,goto}) Last raises the pair twice and First, Next, Previous and GoToKey
 //!   raise nothing; every one answers No.
 //! - A second action that leaves the table empty again raises the pair twice (`second action log`).
@@ -69,7 +69,7 @@ impl Session {
 
     /// A card whose row an action deleted asks OnQueryClosePage before it runs OnClosePage.
     pub(super) fn card_query_close_before_forced_close(&mut self, st: &St) -> Result<(), Signal> {
-        // The card asks OnQueryClosePage first, then runs OnClosePage (corpus master pages/lt-y80-gone-rows/Y80GoneRows.al
+        // The card asks OnQueryClosePage first, then runs OnClosePage (corpus master pages/deleted-rows/Y80GoneRows.al
         // Y80_Gone_Card_OpenEdit_DeleteAllUpdate, _DeleteCurrent, _OpenView_* `action log R:10;D:10;Q;X`). The CloseAction it
         // receives is not pinned (those triggers never read it): a trigger that reads it is refused. A veto is not pinned.
         if self.declares(st, "onqueryclosepage") {

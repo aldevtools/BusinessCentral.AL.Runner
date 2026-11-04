@@ -1,4 +1,4 @@
-//! FilterGroup(-1) on a page's Rec (gap G5-21, pages/lt-y50-or-group-page-rec/Y50OrGroupPageRec.al): OnOpenPage's OR filters
+//! FilterGroup(-1) on a page's Rec (gap G5-21, pages/or-filter-groups-on-page-rec/Y50OrGroupPageRec.al): OnOpenPage's OR filters
 //! are dropped after it, marks and MarkedOnly stay (the page shows the marked rows); a handed record loses them before
 //! OnOpenPage and the list opens on its row as a list opens on a row OnOpenPage left Rec on.
 //! AL source -> compile -> run as a test codeunit.

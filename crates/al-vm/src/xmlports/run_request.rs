@@ -1,5 +1,5 @@
 //! `Xmlport.Run` of an existing port: the static form after its id and direction checks, and the instance `Run()`
-//! (xmlport/lt-y40-xmlport-request-page/Y40XmlPortRequestPage.al, corpus master ac3499d6).
+//! (xmlports/shapes-properties/Y40XmlPortRequestPage.al, corpus master ac3499d6).
 
 use super::*;
 
@@ -12,7 +12,7 @@ impl Session {
         inst: &Inst,
         schema: &Schema,
     ) -> Result<Value, Signal> {
-        // Pinned for an export port with a request page with content (xmlport/lt-y40-xmlport-request-page/
+        // Pinned for an export port with a request page with content (xmlports/shapes-properties/
         // Y40XmlPortRequestPage.al:383-423, corpus master ac3499d6): with the request window the page opens after
         // OnInitXmlPort and no handler can take it; without it the port runs (`init;pre only=0;row 1;...;post;`), and
         // what it writes goes to a file on the service tier no test reads. The rest is not pinned.

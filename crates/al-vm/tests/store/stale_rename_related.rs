@@ -1,6 +1,6 @@
 //! A stale buffer from the variable's own Insert and Modify, when the new transaction renames another row of a table that
 //! other tables relate to (nothing references the renamed row): written whole at every Commit count
-//! (record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_1C_RenameOtherRow_StaleModify, TE_2C_, TE_3C_, Y2_4C_ to Y2_12C_;
+//! (record/crud/SbStaleOwnModify.al TE_1C_RenameOtherRow_StaleModify, TE_2C_, TE_3C_, Y2_4C_ to Y2_12C_;
 //! ALT Universal is the target of fields of other tables there). The rename rewrites no row of the relating table, so it is
 //! one write of the renamed row, as for a table nobody relates to.
 

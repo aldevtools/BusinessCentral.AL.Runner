@@ -1,9 +1,9 @@
 //! The Session and Active Session tables: one row, the session that is reading.
 //!
-//! Pinned by corpus session/TestSessionVirtualTable.al (one row, flagged `My Session`, keyed by
+//! Pinned by corpus session-system/TestSessionVirtualTable.al (one row, flagged `My Session`, keyed by
 //! `SessionId()`, user `UserId()`, a login date and time, a host name, `Application Name` the
 //! text of the Active Session `Client Type`, `Database Name` the Active Session one) and
-//! session/TestActiveSessionTable.al (one row keyed by `ServiceInstanceId()` and `SessionId()`
+//! session-system/TestActiveSessionTable.al (one row keyed by `ServiceInstanceId()` and `SessionId()`
 //! with the user id and security id, a login date time and a session unique id). A session id
 //! that belongs to no session finds nothing (TestSessionVirtualTable.al "GetOnAConnectionIdThat
 //! IsNoSession", TestActiveSessionTable.al "GetOnASessionIdThatIsNoSession").
@@ -18,8 +18,8 @@ use al_data::{Row, TableDef};
 const MS_PER_DAY: i64 = 86_400_000;
 
 /// The name of the database the session reads: not blank, and the same in the Session and the Active Session row
-/// (session/W6SessionTimeZone.al:ActiveSession_OwnRow_HostColumns and ActiveSession_DatabaseName_EqualsSessionDatabaseName,
-/// BC 27.5 and 29.0). The name is the one of the oracle's database, `CRONUS` (platform/lt-aw-fresh-tenant/AwTests.al:49
+/// (session-system/W6SessionTimeZone.al:ActiveSession_OwnRow_HostColumns and ActiveSession_DatabaseName_EqualsSessionDatabaseName,
+/// BC 27.5 and 29.0). The name is the one of the oracle's database, `CRONUS` (metadata/platform-tables/AwTests.al:49
 /// for Session, :71 for Active Session).
 const DATABASE_NAME: &str = "CRONUS";
 

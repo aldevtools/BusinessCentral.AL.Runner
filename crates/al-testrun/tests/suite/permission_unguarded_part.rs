@@ -1,5 +1,5 @@
 //! ADR-062 stage 3: a part with no AccessByPermission under an exact permission set. Values: corpus
-//! `tests/al-language/permissions/lt-y90-perm-shapes/Y90PermParts.al:20-78` (Y90_Part_ExactA..C, Y90_Part_Set; branch al-runtime-rs-staging-y90):
+//! `tests/al-language/permissions/permission-sets/Y90PermParts.al:20-78` (Y90_Part_ExactA..C, Y90_Part_Set; branch al-runtime-rs-staging-y90):
 //! the part shows only when the session executes the part page and its source table.
 
 use super::permission_writes::run_main;

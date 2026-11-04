@@ -56,8 +56,8 @@ The IR is compiled to register bytecode per routine on its first call (ADR-034);
   Filter text quotes literal comparison characters, including `>`, and doubles embedded
   apostrophes. `SetView` at run time reads those quoted Text/Code values as literals; in an object
   property (`SourceTableView`, `SubPageView`, ...) a quoted `'>B'` still compares (corpus
-  `filters/W4Filters.al`, `record/TestFilterQuotedLiterals.al` and
-  `filters/lt-uc-quoted-values/UcQuotedValues.al`).
+  `record/filters/W4Filters.al`, `record/TestFilterQuotedLiterals.al` and
+  `record/filters/UcQuotedValues.al`).
 - **Test runner semantics** (pinned by the corpus):
   - One session and one fresh store per test codeunit; install codeunits run first. A test
     codeunit is the **isolation unit** (`al-test-cli/src/isolation.rs`): its methods share the
@@ -179,7 +179,7 @@ that file's header and in `docs/probes-needed.md`.
 |---|---|
 | `tests/al-language` (Target = Cloud) | The main test app. |
 | `tests/al-language-internals-fixture` | A dependency of the test app (CI publishes it first). Loaded as a second app: some `codeunit/` tests call its objects across the app boundary (`ALT Internal Codeunit`, `ALT Cross Compute`). |
-| `tests/al-language-xapp-a`, `-b`, `-c` | Cross-app fixtures (no tests) the test app depends on: B depends on the internals fixture and A, C on A and B. Used by `events/lt-bw-subscriber-order` and `tableextension/lt-bw-cross-app`. |
+| `tests/al-language-xapp-a`, `-b`, `-c` | Cross-app fixtures (no tests) the test app depends on: B depends on the internals fixture and A, C on A and B. Used by `events/subscriber-order` and `table-objects/extensions`. |
 | `tests/al-language-onprem` (Target = OnPrem) | Not in the main oracle (a separate CI job and artifact). Run as the `onprem` suite against its own oracle (`oracle/README.md`). |
 | `tests/al-language-isolation-probe` | Only in the Windows nightly, under two custom test runners. Run as the `isolation-function` and `isolation-codeunit` suites (BC 28 only). |
 | `tests/must-not-compile` | AL files the real compiler rejects, each with the expected AL codes. |

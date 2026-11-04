@@ -1,5 +1,5 @@
 //! Rec.Find(), FindFirst(), FindLast() and Count() in the OnOpenPage of a page an action opens through RunPageLink (al-runner
-//! issue 5860). Pinned by pages/lt-rz-outside-page-moves/SjRunPageLinkOpenFind.al: Rec holds the link as a filter with only the
+//! issue 5860). Pinned by testpage/SjRunPageLinkOpenFind.al: Rec holds the link as a filter with only the
 //! linked field filled, Find() looks for that primary key, FindFirst/FindLast move Rec, and the page opens on that row.
 
 use al_testkit::{blocked, compile};

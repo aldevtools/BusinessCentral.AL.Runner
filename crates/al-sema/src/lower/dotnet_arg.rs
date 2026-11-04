@@ -45,7 +45,7 @@ impl Lowerer<'_> {
             // (tests/al-language-onprem-dotnet/TestDotNetValueKindsContracts.al:463).
             "SecretText" if id.starts_with("SecretText.SecretStrSubstNo#") => Some(RtType::Text(None)),
             // A .NET String into the `String` overload of ErrorInfo.Create is the message
-            // (tests/al-language-onprem-dotnet/lt-y51-dotnet-builtin-args/Y51DotNetBuiltinArgs.al:DotNetString_ErrorInfoCreate).
+            // (tests/al-language-onprem-dotnet/dotnet/dotnet-builtin-args/Y51DotNetBuiltinArgs.al:DotNetString_ErrorInfoCreate).
             "String" if id.starts_with("ErrorInfo.Create#") => Some(RtType::Text(None)),
             _ => None,
         };
@@ -75,7 +75,7 @@ impl Lowerer<'_> {
                     Box::new(ir::Expr::DotNetOperand(Box::new(self.expr(a)?), ir::OperandUse::Strict)),
                 ),
                 // A variable declared `DotNet String` into a Text or Code slot: it reads as a Text and
-                // nothing as '' (tests/al-language-onprem-dotnet/lt-dotnet-interop/DotNetOperandStringEq.al),
+                // nothing as '' (tests/al-language-onprem-dotnet/dotnet/dotnet-interop/DotNetOperandStringEq.al),
                 // then fits the slot like a DotNet result. System Application Uri.GetSegments adds one to a
                 // List of [Text] (al-runner issue 6298).
                 Some(rt @ RtType::Text(None))

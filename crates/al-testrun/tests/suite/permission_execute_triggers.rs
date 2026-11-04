@@ -1,5 +1,5 @@
 //! ADR-062 stage 3: Execute denials inside table triggers, page triggers, actions and event subscribers. Values: corpus
-//! `tests/al-language/permissions/lt-y84-perm-shapes/Y84PermExecute.al` (Y84_Exec_*, BC 29.0 Linux CI): a table that runs a trigger is
+//! `tests/al-language/permissions/permission-sets/Y84PermExecute.al` (Y84_Exec_*, BC 29.0 Linux CI): a table that runs a trigger is
 //! checked for Execute before the table data permission; code a trigger runs is checked; the code an event subscriber calls is not;
 //! a codeunit call from OnOpenPage under a lowered session ends the open with FormAbort:Permission; an Execute denial inside
 //! an action's OnAction comes out of Invoke with the code TestWrapped:Permission.

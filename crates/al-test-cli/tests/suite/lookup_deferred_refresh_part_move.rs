@@ -1,7 +1,7 @@
 //! The refresh a TestField.Lookup left for later (al-runner issue 6519) on a List host with OnAfterGetCurrRecord only, whose
 //! ListPart (no row triggers) links three fields: the first TestPart Next, First, Previous or Last runs it, a second Lookup runs
 //! it first (host only), and a cancelled Lookup leaves nothing pending (corpus writer Y54, corpus PR 990,
-//! pages/lt-y15/Y15LookupThreeFieldLink.al:991 Y54_Y15Host_PartWalkAfterLookup; :213, :272, :297 the Y15 cases).
+//! testpage/Y15LookupThreeFieldLink.al:991 Y54_Y15Host_PartWalkAfterLookup; :213, :272, :297 the Y15 cases).
 
 use al_testkit::outcomes_in;
 

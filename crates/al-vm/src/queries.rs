@@ -38,7 +38,7 @@ thread_local! {
 }
 
 /// `ColumnNo`: the FNV-1a 32 hash of the column's name in UTF-16LE, read as a signed 32-bit
-/// number, without its sign (misc/lt-probes-needed-1/PnAQueryFiltersColumnNo.al:143-150 for
+/// number, without its sign (record/PnAQueryFiltersColumnNo.al:143-150 for
 /// four columns and a filter element, :168-175 for seven aggregated columns). The one hash whose
 /// absolute value does not fit (`i32::MIN`) is not pinned and is refused.
 fn column_no(name: &str) -> Result<i32, Signal> {
@@ -66,7 +66,7 @@ fn arg_col(args: &[Value], i: usize) -> Result<usize, Signal> {
 fn key_cmp(a: &[Value], b: &[Value], dirs: &[bool]) -> Ordering {
     for (i, (x, y)) in a.iter().zip(b).enumerate() {
         // Text sorts and groups by the database collation (case sensitive), not by code point
-        // (query/TestQueryRuntimeContracts.al:Query_OrderByText_UsesTheDatabaseCollation_NotOrdinalOrder).
+        // (queries/TestQueryRuntimeContracts.al:Query_OrderByText_UsesTheDatabaseCollation_NotOrdinalOrder).
         let o = match (text_of(x), text_of(y)) {
             (Some(s), Some(t)) if matches!(x, Value::Text(_) | Value::Code(_)) => match collation::compare(&s, &t) {
                 Ok(o) => o,
@@ -111,7 +111,7 @@ struct Plan {
     having: Vec<(usize, FilterExpr)>,
     /// Filters on stored fields of a left-outer-joined dataitem: (dataitem, field, filter). They
     /// apply after the join, to the values of the joined row, which for an unmatched parent are the
-    /// defaults (query/TestQueryOuterJoinDescendingSaveAsContracts.al:
+    /// defaults (queries/TestQueryOuterJoinDescendingSaveAsContracts.al:
     /// a filter drops the unmatched parents unless it admits 0).
     outer: Vec<(usize, usize, FilterExpr)>,
 }
@@ -122,7 +122,7 @@ const NO_MATCH: Vec<Value> = Vec::new();
 impl Session {
     /// An instance of query `object` whose hidden `__query` slot holds `q`, so a procedure's
     /// unqualified `SetRange` and the like act on the query the caller holds
-    /// (query/TestQueryDataItemTableFilterDatabaseConst.al:96-136).
+    /// (queries/TestQueryDataItemTableFilterDatabaseConst.al:96-136).
     pub(crate) fn query_instance(
         &mut self,
         object: usize,
@@ -151,7 +151,7 @@ impl Session {
             return self.query_save_csv_static(args);
         }
         // `Query.SaveAsXml(Number, OutStream)` of an id no query has: No, and nothing raises
-        // (report/lt-report-requestpage-query-members/P105QryXml.al:163-177). The file it writes for a query is not pinned
+        // (reports/request-page/P105QryXml.al:163-177). The file it writes for a query is not pinned
         // (that test file only observes it): refused.
         if method == "SaveAsXmlStatic" {
             let known = match args.first() {
@@ -190,7 +190,7 @@ impl Session {
         if qs.borrow().in_before_open {
             match method {
                 // CurrQuery.Open and CurrQuery.Close inside OnBeforeOpen raise; the trigger does not run again
-                // (query/lt-ch-query-leads/ChQueryLeads.al:259-290, OnBeforeOpen_CallsOpen / _CallsClose).
+                // (streams/ChQueryLeads.al:259-290, OnBeforeOpen_CallsOpen / _CallsClose).
                 "Open" | "Close" => {
                     return Err(Signal::Error(Box::new(al_builtins::native::AlError {
                         message:
@@ -201,7 +201,7 @@ impl Session {
                     })));
                 }
                 // SaveAsXml there returns false after writing bytes the corpus only counts
-                // (query/lt-ch-query-leads/ChQueryLeads.al:271-278): their content is not pinned.
+                // (streams/ChQueryLeads.al:271-278): their content is not pinned.
                 "SaveAsXml" | "SaveAsJson" | "SaveAsCsv" => {
                     return unsupported(format!(
                         "CurrQuery.{method} inside OnBeforeOpen (the bytes it writes are not pinned)"
@@ -219,13 +219,13 @@ impl Session {
         }
         match method {
             "Open" => {
-                // Opening an open query is not an error (query/TestQueryRuntimeContracts.al:
+                // Opening an open query is not an error (queries/TestQueryRuntimeContracts.al:
                 // Query_StateMisuse_DoesNotThrow); once rows were read what it does is not pinned.
                 if qs.borrow().run.as_ref().is_some_and(|r| r.started) {
                     // After a filter changed mid-read it runs again with the new filters
-                    // (misc/lt-probes-needed-1/PnAQueryOpenRead.al:125-170, SetRangeAndOpenAfterRead: `next-entry` 4).
+                    // (queries/read-lifecycle/PnAQueryOpenRead.al:125-170, SetRangeAndOpenAfterRead: `next-entry` 4).
                     // After the last row (with or without a SetRange or SetFilter since) it runs again too,
-                    // with the new filters (query/lt-query-read-to-end/QueryReadToEnd.al:88,130,172:
+                    // with the new filters (queries/read-lifecycle/QueryReadToEnd.al:88,130,172:
                     // SetRange_AfterLastRow_ThenOpenAndRead, SetFilter_AfterLastRow_ThenOpenAndRead,
                     // Open_Twice_AfterLastRow).
                     let filters_changed = qs.borrow().run.as_ref().is_some_and(|r| r.filters_changed);
@@ -235,7 +235,7 @@ impl Session {
                     qs.borrow_mut().run = None;
                 }
                 // OnBeforeOpen runs inside Open, after the filters set so far, and a filter it sets
-                // applies to this read (query/TestQueryOnBeforeOpenVariablesContracts.al:104-140).
+                // applies to this read (queries/TestQueryOnBeforeOpenVariablesContracts.al:104-140).
                 if let Some(ri) = engine.program.objects[object]
                     .routines
                     .iter()
@@ -273,10 +273,10 @@ impl Session {
                 let col = arg_col(args, 0)?;
                 // A filter set after Open and before the first Read is in force when the query runs.
                 // After a Read that did not reach the end the filter is set, and the next Read raises until the query is
-                // opened again (query/lt-query-setrange-after-read/QuerySetRangeAfterRead.al:52-77, SetRange_AfterFirstRead;
-                // errors/lt-ms-refusals-131/P131QuerySetRangeAfterRead.al:118-145, SetFilter).
+                // opened again (queries/flowfields-filters/QuerySetRangeAfterRead.al:52-77, SetRange_AfterFirstRead;
+                // queries/P131QuerySetRangeAfterRead.al:118-145, SetFilter).
                 // The same after the last Read returned false: the filter is set and the next Read raises
-                // (errors/lt-ms-refusals-131/P131QuerySetRangeAfterRead.al:154-170, P131_Query_SetRangeAfterLastRead_AndAfterClose).
+                // (queries/P131QuerySetRangeAfterRead.al:154-170, P131_Query_SetRangeAfterLastRead_AndAfterClose).
                 if let Some(run) = qs.borrow_mut().run.as_mut().filter(|r| r.started) {
                     run.filters_changed = true;
                 }
@@ -297,11 +297,11 @@ impl Session {
                 } else if text_of(args.get(1).unwrap_or(&Value::Null)).is_some_and(|t| t.is_empty()) && args.len() <= 2
                 {
                     // An empty SetFilter clears the filter
-                    // (query/TestQueryRuntimeContracts.al:Query_GetFilters_TextForSingleAndCombinedFilters).
+                    // (queries/TestQueryRuntimeContracts.al:Query_GetFilters_TextForSingleAndCombinedFilters).
                     None
                 } else {
                     let text = crate::filter_text_arg::filter_text(args.get(1));
-                    // Only a record's SetFilter is pinned to keep such a placeholder as written (filters/W4Filters.al:661-695).
+                    // Only a record's SetFilter is pinned to keep such a placeholder as written (record/filters/W4Filters.al:661-695).
                     if args.len() > 2 && al_builtins::filter::placeholder_next_to_wildcard(&text) {
                         return Err(Signal::Unsupported(
                             "Query SetFilter with a placeholder next to a wildcard (not pinned)".into(),
@@ -344,7 +344,7 @@ impl Session {
             }
             "GetFilters" => {
                 // `Caption: filter` pairs joined by `, `
-                // (query/TestQueryRuntimeContracts.al:Query_GetFilters_TextForSingleAndCombinedFilters).
+                // (queries/TestQueryRuntimeContracts.al:Query_GetFilters_TextForSingleAndCombinedFilters).
                 let q = qs.borrow();
                 let mut parts = Vec::new();
                 for (c, e) in self.filters_in_text_order(def, &q.filters, q.filter_replaced)? {
@@ -367,7 +367,7 @@ impl Session {
                         other => return unsupported(format!("TopNumberOfRows({})", other.describe())),
                     };
                     if n < 0 {
-                        // Corpus query/TestQueryTopProperty.al:178.
+                        // Corpus queries/TestQueryTopProperty.al:178.
                         return Err(Signal::Error(Box::new(AlError {
                             message: "Top number of rows cannot be negative".into(),
                             code: String::new(),
@@ -376,7 +376,7 @@ impl Session {
                         })));
                     }
                     // On an open query the call raises nothing, the next Read raises the metadata-changed error, and Open
-                    // again reads with the new top (misc/lt-probes-needed-1/PnAQueryOpenRead.al:247-290,
+                    // again reads with the new top (queries/read-lifecycle/PnAQueryOpenRead.al:247-290,
                     // PX_TopNumberOfRows_AroundOpen: after Open, and after a Read that did not reach the end). After the
                     // last row the same (PnAQueryOpenRead.al TH_TopAfterEmptyOpen_ThenReopen, TH_TopAfterFullRead_ThenReopen,
                     // TH_TopTwiceWhileOpen_LastValueCounts).
@@ -392,10 +392,10 @@ impl Session {
             "SecurityFiltering" => {
                 let members = al_builtins::sysenum::option_members("SecurityFilter").expect("known");
                 match args.first() {
-                    // Corpus query/TestQueryObject.al:382-390.
+                    // Corpus queries/TestQueryObject.al:382-390.
                     Some(Value::Option(i, _)) => {
                         if members[*i as usize].eq_ignore_ascii_case("Validated") {
-                            // query/TestQueryRuntimeContracts.al:Query_SecurityFiltering_DefaultAndValidated
+                            // queries/TestQueryRuntimeContracts.al:Query_SecurityFiltering_DefaultAndValidated
                             return Err(Signal::Error(Box::new(AlError {
                                 message: "SECURITYFILTERING cannot be set to \"Validated\" on a Query.".into(),
                                 code: "Argument".into(),
@@ -432,7 +432,7 @@ impl Session {
 
     /// `SaveAsXml(OutStream)` writes the rows as a .NET DataSet, `SaveAsJson(OutStream)` as an array
     /// of objects keyed by column name. Both run the query with the filters set now, whether it is
-    /// open or not (query/TestQueryOuterJoinDescendingSaveAsContracts.al:Query_SaveAsXml_And_SaveAsJson_Output,
+    /// open or not (queries/TestQueryOuterJoinDescendingSaveAsContracts.al:Query_SaveAsXml_And_SaveAsJson_Output,
     /// corpus: . Pinned for Integer columns; the lines of the XML are
     /// not pinned (the probe trims and joins them), the bytes are UTF-8 without a byte order mark whatever the
     /// stream's text encoding (not pinned).
@@ -511,7 +511,7 @@ impl Session {
     }
 
     /// `Query.SaveAsCsv(Number, OutStream)`: the query of that id with no filters. An id no query has writes nothing and
-    /// raises nothing (xmlport/lt-xmlport-query-datatransfer/XpTQuerySave.al:SaveAsCsv_UnknownQueryId).
+    /// raises nothing (xmlports/import/XpTQuerySave.al:SaveAsCsv_UnknownQueryId).
     fn query_save_csv_static(&mut self, args: &[Value]) -> Result<Value, Signal> {
         let id = match args.first() {
             Some(Value::Integer(n)) => *n,
@@ -535,7 +535,7 @@ impl Session {
     }
 
     /// The rows of a query as CSV: the column names, then a row per line, each line ended by a line feed. A text with a comma or a
-    /// quote is quoted, a Boolean reads True or False, (xmlport/lt-xmlport-query-datatransfer/XpTQuerySave.al).
+    /// quote is quoted, a Boolean reads True or False, (xmlports/import/XpTQuerySave.al).
     /// Other column types are not pinned.
     fn query_save_csv(
         &mut self,
@@ -546,7 +546,7 @@ impl Session {
     ) -> Result<Value, Signal> {
         // Format 0 answers No and writes nothing; formats 1 and 2 with an empty FormatArgument write the default file, and
         // format 1 with a one-character FormatArgument separates the values with it
-        // (report/lt-report-requestpage-query-members/P105QryCsv.al:49-155, :250-268). Other formats and arguments, format 0
+        // (reports/request-page/P105QryCsv.al:49-155, :250-268). Other formats and arguments, format 0
         // with the answer dropped, and a separator that a value contains, are not pinned.
         let sep = match (args.get(1), args.get(2)) {
             (None, _) => ",".to_string(),
@@ -587,7 +587,7 @@ impl Session {
             }
         }
         let (rows, _) = self.query_rows(def, filters)?;
-        // The file of query/W7QueryLifecycle.al:SaveAsCsv_NonIntegerColumns (a Date column and a text with an accent) is 83 bytes
+        // The file of queries/W7QueryLifecycle.al:SaveAsCsv_NonIntegerColumns (a Date column and a text with an accent) is 83 bytes
         // where this writes 81; which of the two accounts for the difference is not pinned, so neither is written.
         if rows.iter().any(|r| {
             r.columns
@@ -641,7 +641,7 @@ impl Session {
             out.push_str("\r\n");
         }
         // A second SaveAsCsv into the stream a SaveAsCsv wrote, with nothing written between them: the file is the second one
-        // (report/lt-report-requestpage-query-members/P105QryCsv.al:290-316, a longer second file). Whether a shorter one
+        // (reports/request-page/P105QryCsv.al:290-316, a longer second file). Whether a shorter one
         // leaves the end of the first, and a SaveAsCsv after other writes, are not pinned.
         let (pos, len) = {
             let b = blob.borrow();
@@ -689,13 +689,13 @@ impl Session {
                     def.columns[column].name
                 ));
             }
-            // Pinned by errors/lt-ms-refusals-131/P131QueryOuterFilter.al UH_Query_ReadFilter_BeforeOpen, UH_Query_ReadFilter_OpenNoRead (was assumption `query-filter-element-read-without-row`).
+            // Pinned by queries/P131QueryOuterFilter.al UH_Query_ReadFilter_BeforeOpen, UH_Query_ReadFilter_OpenNoRead (was assumption `query-filter-element-read-without-row`).
         }
         match qs.run.as_ref().and_then(|r| r.current.as_ref()) {
             Some(row) => Ok(row[column].clone()),
             None => {
                 // Before Open, after Open and before the first Read, and after the last row alike
-                // (query/TestQueryRuntimeContracts.al:Query_ColumnRead_WithoutARow_ThrowsQueryNoDataSet).
+                // (queries/TestQueryRuntimeContracts.al:Query_ColumnRead_WithoutARow_ThrowsQueryNoDataSet).
                 Err(Signal::Error(Box::new(AlError {
                     message: format!(
                         "You have not yet retrieved a data row for this query. The value for column '{}' can only be accessed after a row is retrieved with a call to the READ function.",
@@ -716,7 +716,7 @@ impl Session {
             return Ok(caption.clone());
         }
         // A totals column (Sum, Count, Average, Min, Max) without a Caption is captioned by its name
-        // (query/lt-cf-query-leads/CfQueryLeads.al:174-182, :276; query/lt-y78-outer-aggregate-filter/Y78QueryOuterAggFilter.al:1057).
+        // (queries/CfQueryLeads.al:174-182, :276; queries/flowfields-filters/Y78QueryOuterAggFilter.al:1057).
         if c.method.is_some() {
             return Ok(c.name.clone());
         }
@@ -741,15 +741,15 @@ impl Session {
     /// The filters in the order `GetFilters` prints them.
     ///
     /// Filters on columns only come in column order, whatever the order they were set in
-    /// (query/W7QueryFilters.al: GetFilters_*, all 13 orders over seven columns, BC 27.5 and 29.0).
+    /// (queries/W7QueryFilters.al: GetFilters_*, all 13 orders over seven columns, BC 27.5 and 29.0).
     ///
     /// With a filter element among them the order depends on the order of setting. Each filter is
     /// placed when it is set: a column goes before the first column already filtered that comes
     /// after it in column order (filter elements do not count), else last; the filter element goes
     /// before the first filter already set whose field number is higher, else last. This rule
-    /// matches every case of misc/lt-probes-needed-1/PnAQueryFiltersColumnNo.al:59-118 (filter
+    /// matches every case of record/PnAQueryFiltersColumnNo.al:59-118 (filter
     /// element on field 2 between columns on fields 1 and 3) and
-    /// query/TestQueryRuntimeContracts.al:219-268 (same shape, other query). Outside that shape it
+    /// queries/TestQueryRuntimeContracts.al:219-268 (same shape, other query). Outside that shape it
     /// is not pinned and is refused: more than one filter element, filters on several dataitems or
     /// on aggregated columns, columns whose column order differs from their field order, a field
     /// filtered twice, or a filter set again or removed (`filter_replaced`).
@@ -820,8 +820,8 @@ impl Session {
 
     fn query_read(&mut self, def: &ir::Query, qs: &Qs) -> Result<Value, Signal> {
         // Read on a query that is not open returns false
-        // (query/TestQueryRuntimeContracts.al:Query_StateMisuse_DoesNotThrow).
-        // With the result unused the statement raises (xmlport/lt-xmlport-query-datatransfer/XpTQueryBasic.al:Read_BeforeOpen, Read_AfterClose).
+        // (queries/TestQueryRuntimeContracts.al:Query_StateMisuse_DoesNotThrow).
+        // With the result unused the statement raises (xmlports/import/XpTQueryBasic.al:Read_BeforeOpen, Read_AfterClose).
         if qs.borrow().run.is_none() {
             if self.ret_used {
                 return Ok(Value::Boolean(false));
@@ -852,7 +852,7 @@ impl Session {
         }
         // A write to a table the query reads, made between two Reads, invalidates the result set;
         // Read then reads again and resumes after the last row it returned, in the query's order
-        // (corpus query/TestQueryReadAfterWrite.al:102-179).
+        // (corpus queries/TestQueryReadAfterWrite.al:102-179).
         let now = self.query_stamps(def);
         if qs.borrow().run.as_ref().expect("open").stamps != now {
             if def.columns.iter().any(|c| c.method.is_some()) {
@@ -874,7 +874,7 @@ impl Session {
         let top = q.top.unwrap_or(def.top);
         let run = q.run.as_mut().expect("open");
         // The cap counts the rows returned since Open, so a re-read returns only the rows still owed
-        // (corpus query/TestQueryOrderAfterWrite.al:127-149, TestQueryTopProperty.al:94-108).
+        // (corpus queries/TestQueryOrderAfterWrite.al:127-149, TestQueryTopProperty.al:94-108).
         if (top > 0 && run.returned >= top as usize) || run.next >= run.rows.len() {
             run.current = None;
             return Ok(Value::Boolean(false));
@@ -955,9 +955,9 @@ impl Session {
             rows
         };
         // Groups with no OrderBy come back sorted by their grouping columns in the order the query
-        // declares them (corpus query/PWQueryContracts.al:165-178: grouping by Grp2 then Grp1 gives
+        // declares them (corpus queries/PWQueryContracts.al:165-178: grouping by Grp2 then Grp1 gives
         // `A 1`, `A 2`, `B 2`, `C 1`), which `group_rows` already does; grouping columns that start
-        // with the root key give that key's order (query/TestQueryCrossJoinContracts.al:202-213).
+        // with the root key give that key's order (queries/TestQueryCrossJoinContracts.al:202-213).
         rows.sort_by(|a, b| key_cmp(&a.key, &b.key, &dirs));
         if COLLATION_FAILED.with(|f| f.replace(false)) {
             return unsupported(
@@ -965,11 +965,11 @@ impl Session {
             );
         }
         // Rows that tie on every OrderBy column and still differ are ordered by the primary key
-        // ascending (corpus query/TestQueryOrderAfterWrite.al:92-104, ascending only); grouped rows
+        // ascending (corpus queries/TestQueryOrderAfterWrite.al:92-104, ascending only); grouped rows
         // as below. Ties under a descending OrderBy still ascend by primary key
-        // (query/TestQueryOuterJoinDescendingSaveAsContracts.al, corpus: .
+        // (queries/TestQueryOuterJoinDescendingSaveAsContracts.al, corpus: .
         // Groups of an aggregated query that tie on every OrderBy column stay in the order of their grouping columns, which
-        // `group_rows` produced and the stable sort kept (query/lt-az-query/AzQueryTests.al:526-572, SG_OrderByTies_*).
+        // `group_rows` produced and the stable sort kept (queries/AzQueryTests.al:526-572, SG_OrderByTies_*).
         Ok((rows, stamps))
     }
 
@@ -1013,8 +1013,8 @@ impl Session {
         }
         for (ci, c) in def.columns.iter().enumerate() {
             // A runtime filter on a column replaces the column's static ColumnFilter (corpus
-            // query/TestQueryColumnFilter.al:62-100); a table filter combines with either
-            // (query/TestQueryDataItemTableFilter.al:137-229).
+            // queries/TestQueryColumnFilter.al:62-100); a table filter combines with either
+            // (queries/TestQueryDataItemTableFilter.al:137-229).
             let expr = match runtime.iter().find(|(r, _)| *r == ci) {
                 Some((_, e)) => Some(e.clone()),
                 None => match &c.static_filter {
@@ -1038,20 +1038,20 @@ impl Session {
             let field = c.field.expect("a column over a field");
             let schema = &engine.program.objects[item.table].table.as_ref().expect("table").fields[field];
             if c.filter_element && schema.flow_filter {
-                // Corpus query/TestQueryFlowFieldColumn.al:150-200: it sets the flow filter of the
+                // Corpus queries/TestQueryFlowFieldColumn.al:150-200: it sets the flow filter of the
                 // FlowFields of the dataitem; it never constrains the rows.
                 plan.flow[c.item].push(FieldFilter { field, expr, group: 0 });
             } else if schema.stored && ((item.left_outer && item.parent.is_some()) || has_right) {
                 // With a right or full outer join in the query a filter acts on the joined rows: a root row filtered before the join
-                // would turn the child rows it linked into unlinked ones (query/lt-outer-joins/P71FilterRightFull.al).
+                // would turn the child rows it linked into unlinked ones (queries/joins-links/P71FilterRightFull.al).
                 plan.outer.push((c.item, field, expr));
             } else if schema.stored {
                 plan.scan[c.item].push(FieldFilter { field, expr, group: 0 });
             } else {
                 // A filter() element over a FlowField is calculated on the rows of its own data item, before the join and the
-                // grouping (query/lt-cg-query-leads/CgQueryLeads.al:759,792 for one data item; query/lt-y62-flowfield-filter-join/
+                // grouping (queries/CgQueryLeads.al:759,792 for one data item; queries/joins-links/
                 // Y62QueryFlowFieldJoin.al for the top data item of an inner or a left outer join, with and without a Method
-                // column, writer Y62; query/lt-y67-query-flowfield-filter/Y67QueryFlowFieldFilter.al:350-401 for the data item an
+                // column, writer Y62; queries/flowfields-filters/Y67QueryFlowFieldFilter.al:350-401 for the data item an
                 // inner join joins, static and at run time, writer Y67): `plan.post` filters the joined rows by it before
                 // `group_rows` groups them. Below an outer join, and with a right or full outer join, it is not pinned.
                 let below_outer = std::iter::successors(Some(c.item), |&i| def.items[i].parent)
@@ -1113,10 +1113,10 @@ impl Session {
             item.parent.is_some_and(|p| chosen[p].is_empty()) || item.link_items.iter().any(|&a| chosen[a].is_empty());
         if let Some(parent) = item.parent.filter(|_| !parent_missing) {
             // The link reads the parent's row, or an item further out (corpus branch al-runtime-rs-staging,
-            // query/PXQueryOuterLink.al:6-11). Corpus query/TestQueryDataItemLinkMultiField.al: every
+            // queries/PXQueryOuterLink.al:6-11). Corpus queries/TestQueryDataItemLinkMultiField.al: every
             // equality of the link holds.
             // Parts of one DataItemLink may name different enclosing data items: each part joins to its item
-            // (query/lt-query-links-relations-httpstream/MixedLinkInnerLeft.al:P100_Inner, P100_GrandOnly, P100_InnerColumnFilterOnA, P100_InnerColumnFilterOnC).
+            // (queries/joins-links/MixedLinkInnerLeft.al:P100_Inner, P100_GrandOnly, P100_InnerColumnFilterOnA, P100_InnerColumnFilterOnC).
             for (k, (own, theirs)) in item.link.iter().enumerate() {
                 let linked = item.link_items.get(k).copied().unwrap_or(parent);
                 let v = ops::convert(chosen[linked][*theirs].clone(), &t.fields[*own].ty)?;
@@ -1136,7 +1136,7 @@ impl Session {
             })?;
         }
         if rows.is_empty() && item.left_outer && item.parent.is_some() {
-            // Corpus query/TestQueryJoin.al:117-145: the unmatched parent is kept, the child's
+            // Corpus queries/TestQueryJoin.al:117-145: the unmatched parent is kept, the child's
             // columns hold their defaults (`NO_MATCH` stands for the row, see `row_of`).
             rows.push(NO_MATCH);
         }
@@ -1149,7 +1149,7 @@ impl Session {
     }
 
     /// The rows a right or full outer join adds: the rows of the dataitem that no row of the joined dataitems above links to, with
-    /// those at their defaults (query/lt-outer-joins/P71JoinNone.al:Join_Right_NoFilter, Join_Full_NoFilter; P71ShapeLocFromItem.al:
+    /// those at their defaults (queries/joins-links/P71JoinNone.al:Join_Right_NoFilter, Join_Full_NoFilter; P71ShapeLocFromItem.al:
     /// Shape_Full_ZoneN, with the dataitem below an inner join).
     fn expand_unlinked(&mut self, def: &ir::Query, plan: &Plan, out: &mut Vec<JoinedRow>) -> Result<(), Signal> {
         let rights: Vec<usize> = (0..def.items.len()).filter(|&i| def.items[i].right_outer).collect();
@@ -1213,7 +1213,7 @@ impl Session {
             let item = &def.items[c.item];
             let field = c.field.expect("a column over a field");
             // A column over a RecordId field returns the stored RecordId and groups and orders by it like the field
-            // (query/lt-az-query/AzQueryTests.al:212 RecordIdColumn_GroupAndOrderBy).
+            // (queries/AzQueryTests.al:212 RecordIdColumn_GroupAndOrderBy).
             let row = &self.filled(item.table, &joined[c.item]);
             let schema = &engine.program.objects[item.table].table.as_ref().expect("table").fields[field];
             let mut v = if schema.stored {
@@ -1224,18 +1224,18 @@ impl Session {
                 row[field].clone()
             } else if joined[c.item].is_empty() {
                 // A FlowField of a left-outer-joined dataitem with no matching row is the field's default (0 for the
-                // Sum and Count FlowFields the compile lets through: errors/lt-ms-refusals-130/P130QueryOuterFlow.al:179,225).
+                // Sum and Count FlowFields the compile lets through: queries/P130QueryOuterFlow.al:179,225).
                 let t = engine.tables[item.table].clone().expect("table");
                 self.default_value(&t.fields[field].ty)
             } else {
                 // A FlowField is calculated per joined row, with the flow filters of its dataitem
-                // (corpus query/TestQueryFlowFieldColumn.al:37-200, query/TestQueryJoinFlowFieldGroupBy.al).
+                // (corpus queries/TestQueryFlowFieldColumn.al:37-200, queries/TestQueryJoinFlowFieldGroupBy.al).
                 self.check_calc_field(item.table, field)?;
                 let probe = self.probe(item.table, row, &plan.flow[c.item]);
                 self.calc_value(&probe, field, &mut Vec::new())?
             };
             if c.reverse_sign {
-                // Corpus query/TestQueryReverseSign.al:36-77.
+                // Corpus queries/TestQueryReverseSign.al:36-77.
                 v = negate(v)?;
             }
             out.push(v);
@@ -1274,7 +1274,7 @@ impl Session {
 
     /// The values a column's aggregate reads, one per joined row that has the dataitem. A FlowField is calculated per row
     /// with the flow filters of its dataitem, as `project` does (Method over a FlowField: corpus
-    /// query/lt-query-flowfield-methods/QueryFlowFieldAvgMinMax.al).
+    /// queries/flowfields-filters/QueryFlowFieldAvgMinMax.al).
     fn aggregated_values(
         &mut self,
         def: &ir::Query,
@@ -1341,7 +1341,7 @@ impl Session {
                 _ => groups.push((key, vec![j])),
             }
         }
-        // Corpus query/TestQueryAggregation.al:102-160: without a grouping column the whole table
+        // Corpus queries/TestQueryAggregation.al:102-160: without a grouping column the whole table
         // is one group, even when it is empty.
         if groups.is_empty() && group_cols.is_empty() {
             groups.push((Vec::new(), Vec::new()));
@@ -1355,7 +1355,7 @@ impl Session {
             for (ci, c) in def.columns.iter().enumerate() {
                 let Some(method) = c.method else { continue };
                 // A dataitem that had no match under a left outer join adds no row to its aggregates
-                // (query/TestQueryOuterJoinDescendingSaveAsContracts.al: `2/sum0/cnt0`).
+                // (queries/TestQueryOuterJoinDescendingSaveAsContracts.al: `2/sum0/cnt0`).
                 let all: Vec<Value> = if method == M::Count {
                     Vec::new()
                 } else {
@@ -1376,7 +1376,7 @@ impl Session {
                                 other => return unsupported(format!("Sum over {}", other.describe())),
                             }
                         }
-                        // Over no rows both give 0 (query/TestQueryRuntimeContracts.al:
+                        // Over no rows both give 0 (queries/TestQueryRuntimeContracts.al:
                         // Query_ScalarAggregates_OverNoRows_ReturnOneRowOfZeros).
                         let total = if method == M::Sum || vs.is_empty() {
                             sum
@@ -1388,7 +1388,7 @@ impl Session {
                                 RtType::Decimal => {
                                     // A Decimal column keeps 18 places less the digits before the point:
                                     // 1.33333333333333333 (17 places), and -0.333333333333333333 (18) for the
-                                    // average of -2, 0 and 1 (xmlport/lt-xmlport-query-datatransfer/XpTQueryAggregates.al:
+                                    // average of -2, 0 and 1 (xmlports/import/XpTQueryAggregates.al:
                                     // Group_NegativeAndZero). Whether BC rounds or cuts the last place is not pinned: refuse where they differ.
                                     let int_digits = if avg.trunc().is_zero() {
                                         0
@@ -1461,13 +1461,13 @@ impl Session {
                     }
                 };
                 if c.reverse_sign {
-                    // Corpus query/TestQueryReverseSign.al:79-125: the group total is negated.
+                    // Corpus queries/TestQueryReverseSign.al:79-125: the group total is negated.
                     v = negate(v)?;
                 }
                 columns[ci] = v;
             }
             // HAVING: the filters on aggregated columns see the group's result (corpus
-            // query/TestQueryAggregation.al:182-221, TestQueryColumnFilter.al:36-100).
+            // queries/TestQueryAggregation.al:182-221, TestQueryColumnFilter.al:36-100).
             if !plan.having.iter().all(|(c, e)| e.matches(&columns[*c])) {
                 continue;
             }

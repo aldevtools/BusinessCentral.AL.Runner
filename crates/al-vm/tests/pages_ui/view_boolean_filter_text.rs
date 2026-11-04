@@ -1,5 +1,5 @@
 //! `TestPage.Filter.GetFilter` of a Boolean field that a page's SourceTableView or an action's RunPageView filters with
-//! `const(true)` reads `1` (pages/lt-rz-outside-page-moves/RzRunPageLinkView.al:62 RZ_Link_WhereView_I1, :112
+//! `const(true)` reads `1` (testpage/RzRunPageLinkView.al:62 RZ_Link_WhereView_I1, :112
 //! RZ_LinkAndRunPageViewWhere_DescendingView_I1). `const(false)` there is not pinned and refused.
 
 use al_builtins::native::Signal;

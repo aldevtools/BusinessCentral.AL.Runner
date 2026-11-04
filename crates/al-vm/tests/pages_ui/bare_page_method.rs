@@ -1,6 +1,6 @@
 //! al-runner issue 6021 (the reporter's shape): a bare `Update()` in a page's OnAfterGetRecord, and bare page methods in
 //! an action, run as their `CurrPage.` forms do. The resolution is alc's (a bare `Activate()` in a page compiles:
-//! pagefindrecord/PageFindRecordList.Page.al:65); what each call does is the `CurrPage.` behavior.
+//! pages/triggers/PageFindRecordList.Page.al:65); what each call does is the `CurrPage.` behavior.
 
 fn src(prefix: &str) -> String {
     format!(

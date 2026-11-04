@@ -1,4 +1,4 @@
-//! Format of a default or cleared JsonArray is `[]` (al-runner issue 5956; misc/lt-probes-needed-5/PnE09Platform.al:163,172,
+//! Format of a default or cleared JsonArray is `[]` (al-runner issue 5956; json/PnE09Platform.al:163,172,
 //! types/ProbeTypeFormsAndFilters.al:Clear_JsonTypes_GiveFreshUnassigned).
 
 #[test]

@@ -1,5 +1,5 @@
 //! Gap C3-17: a statement-form duplicate-key Insert into a table with an OnAfterInsertEvent subscriber or a table-extension
-//! OnAfterInsert trigger (record/lt-y38-dupkey-after-event/Y38DupKeyAfterEvent.al, corpus writer Y38, measured on BC 27.5, 28.5,
+//! OnAfterInsert trigger (record/keys-sorting/Y38DupKeyAfterEvent.al, corpus writer Y38, measured on BC 27.5, 28.5,
 //! 29.0): the After event or trigger runs with the duplicate's values, and the error is deferred to the next access as without
 //! them; a guarded Insert of the same key drops it.
 

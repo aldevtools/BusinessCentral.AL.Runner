@@ -1,6 +1,6 @@
 //! `FieldRef.Validate(OtherFieldRef)` and `FieldRef.Value := OtherFieldRef` (al-runner issue 6591): the source field's value
 //! goes in, converted as a value of its type would be; Validate runs the target's OnValidate, Value does not
-//! (recordref/lt-y47-validate-fieldref/Y47ValidateFieldRef.al:231-402).
+//! (recordref-fieldref/recordref/Y47ValidateFieldRef.al:231-402).
 
 const SRC: &str = r#"
 table 69995 "FRF Doc"

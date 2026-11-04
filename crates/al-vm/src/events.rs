@@ -60,8 +60,8 @@ pub struct Registry {
     pub unraised: HashMap<(String, String), Vec<Unraised>>,
     /// Subscribers (object, routine, lower-case event) to `OnInstallAppPerCompany` and `OnInstallAppPerDatabase` of the
     /// platform codeunit `Extension Triggers` (2000000010), in program order. BC raises them when the subscriber's own app
-    /// is installed (events/lt-platform-events-v/PeVFixtures.al:395-407, PeVTests.al:284;
-    /// install/lt-bf-install-probes/BfInstallTests.al:148-170), so the install run calls them with the app's install
+    /// is installed (events/platform-triggers/PeVFixtures.al:395-407, PeVTests.al:284;
+    /// record/BfInstallTests.al:148-170), so the install run calls them with the app's install
     /// codeunits (`al-testrun` `install.rs`, ADR-046 decision 1).
     pub install_subscribers: Vec<(usize, usize, String)>,
     /// Publisher object -> (object, routine) of every subscriber of any of its events: `subscribers` grouped by
@@ -79,8 +79,8 @@ pub struct Unraised {
     /// Where it is declared, for the refusal text.
     pub subscriber: String,
     /// The objects through which a test can see that it ran: its own codeunit and the SingleInstance codeunits its codeunit
-    /// or routine holds a variable of (the corpus fixtures log there, events/lt-platform-events-v/PeVFixtures.al:133,
-    /// events/lt-global-triggers-statements/P114GlobalTriggerEvents.al:31).
+    /// or routine holds a variable of (the corpus fixtures log there, events/platform-triggers/PeVFixtures.al:133,
+    /// events/platform-triggers/P114GlobalTriggerEvents.al:31).
     pub witnesses: Vec<usize>,
 }
 
@@ -143,12 +143,12 @@ pub const GLOBAL_TRIGGERS: usize = usize::MAX - 1;
 pub const REPORTING_TRIGGERS: usize = usize::MAX - 2;
 
 /// The object key under which subscribers to the platform codeunit `Filter Helper Triggers` are registered: the runtime
-/// raises its `MakeDateFilter` when a Date filter text has a piece it cannot read (events/lt-platform-triggers/PtObserve.al:157).
+/// raises its `MakeDateFilter` when a Date filter text has a piece it cannot read (events/platform-triggers/PtObserve.al:157).
 pub const FILTER_HELPER_TRIGGERS: usize = usize::MAX - 3;
 
 /// The object key under which subscribers to `OnCompanyOpen` and `OnCompanyOpenCompleted` of the platform codeunit
 /// `Company Triggers` (2000000003) are registered: the install session of an app runs the app's own ones in each company
-/// before the install routines run there (install/lt-bf-install-probes/BfInstallTests.al:125-140, `company open calls`;
+/// before the install routines run there (record/BfInstallTests.al:125-140, `company open calls`;
 /// ADR-046 amendment 1, A4 item 4; `al-testrun` `install.rs`).
 pub const COMPANY_TRIGGERS: usize = usize::MAX - 4;
 
@@ -189,7 +189,7 @@ impl Registry {
         // Heads only: building the registry makes no object of a program whose objects are made on first read (ADR-054).
         let heads = program.objects.heads();
         // Events declared in a table or page extension are subscribed to on the base object
-        // (corpus extensionevents/TestExtensionDeclaredEvents.al:92 PageExtEvent_SubscriberBoundToBasePage_...).
+        // (corpus events/extension-events/TestExtensionDeclaredEvents.al:92 PageExtEvent_SubscriberBoundToBasePage_...).
         let mut base_of: HashMap<usize, usize> = HashMap::new();
         for (oi, o) in heads.iter().enumerate() {
             if let Some(base) = o.report_ext_base {
@@ -414,7 +414,7 @@ impl Registry {
         }
         // The order subscribers receive an event in: the static ones first, then the manual ones;
         // by codeunit; within a codeunit by the name of the procedure, not by where it is declared
-        // (corpus handlers/ProbeEventSubscriberOrder.al:StaticSubscribers_OneCodeunit_OrderAndSharedInstance,
+        // (corpus events/ProbeEventSubscriberOrder.al:StaticSubscribers_OneCodeunit_OrderAndSharedInstance,
         // Zeta, Alpha and Mid run as Alpha, Mid, Zeta; ManualSubscribers_BoundHighThenLow_OrderOfCalls,
         // the manual codeunits run in the order of their ids whatever the order of the binds).
         for list in reg.subscribers.values_mut() {

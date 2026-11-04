@@ -22,7 +22,7 @@ pub(super) enum CookieDate {
     NotPinned,
 }
 
-/// The Expires forms network/lt-http-cookies/HttpCookieForms.al:91 Response_ExpiresForms pins (and P94Cookie.al: RFC 1123 `Wed, 21
+/// The Expires forms http/headers/HttpCookieForms.al:91 Response_ExpiresForms pins (and P94Cookie.al: RFC 1123 `Wed, 21
 /// Oct 2037 07:28:00 GMT`): after a weekday and a comma (the weekday is not checked, `Mon, 21 Oct 2037` reads), `DD Mon YYYY`,
 /// `DD-Mon-YYYY` or `DD-Mon-37` (`21-Oct-37` is 2037; other two-digit years are not pinned), the month in any case, the clock,
 /// then `GMT`, no zone (read as GMT) or `+HHMM` (`+0200` is two hours earlier in UTC); and ISO `YYYY-MM-DDTHH:MM:SSZ`. The zone
@@ -152,7 +152,7 @@ pub(super) fn split_set_cookie(header: &str) -> Result<Vec<String>, Signal> {
 }
 
 /// The cookies a response's Set-Cookie headers leave in a cookie container asked for `https://bccookie.microsoft.com/`, in the
-/// order they were set (platform/lt-xmlport-session-navapp-cookie/P94Cookie.al, network/lt-http-cookies/HttpCookieForms.al):
+/// order they were set (metadata/session-system/P94Cookie.al, http/headers/HttpCookieForms.al):
 /// - A Domain attribute, an empty name (`=abc`) and a name that starts with `$` raise the parse error; `a b` and `café` are
 ///   names (:168 Response_NamesThatAreNotTokens).
 /// - A cookie whose Path is not `/` or empty is not sent to that address; a repeated Path whose first is not `/` drops it; `Path=`
@@ -332,11 +332,11 @@ pub(super) fn with_cookie<R>(r: Option<&mut Value>, f: impl FnOnce(&mut CookieSt
 
 pub(super) fn cookie_name(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let new = if a.is_empty() { None } else { Some(text(a, 0)?) };
-    // A setter whose result is used answers the new text (network/lt-ay-http/AyCookieSetterExpression.al:28, `[n] get=n` and
+    // A setter whose result is used answers the new text (permissions/AyCookieSetterExpression.al:28, `[n] get=n` and
     // `[v] get=v`, on a fresh cookie and on one with other values).
-    // An empty name raises and keeps the old one (network/lt-ay-http/AyCookieSetterExpression.al:CookieSetter_EmptyName, BC 27-29).
+    // An empty name raises and keeps the old one (permissions/AyCookieSetterExpression.al:CookieSetter_EmptyName, BC 27-29).
     // A `;`, `,` or `=` in it, a `$` first, only blanks, or blanks on both sides raise the same error with the name
-    // (network/lt-http-cookies/HttpCookieForms.al:286 CookieSetter_InvalidCharacters); `a b` is a name. A blank on one side only
+    // (http/headers/HttpCookieForms.al:286 CookieSetter_InvalidCharacters); `a b` is a name. A blank on one side only
     // and the other control characters are not pinned.
     if let Some(n) = new.as_deref() {
         let blanks_around = n.len() > 1 && n.starts_with(' ') && n.ends_with(' ');
@@ -359,7 +359,7 @@ pub(super) fn cookie_name(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value
 
 pub(super) fn cookie_value(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let new = if a.is_empty() { None } else { Some(text(a, 0)?) };
-    // A setter whose result is used answers the new text (network/lt-ay-http/AyCookieSetterExpression.al:28, `[n] get=n` and
+    // A setter whose result is used answers the new text (permissions/AyCookieSetterExpression.al:28, `[n] get=n` and
     // `[v] get=v`, on a fresh cookie and on one with other values).
     with_cookie(r, |s| {
         if let Some(n) = new {

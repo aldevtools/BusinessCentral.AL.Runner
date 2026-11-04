@@ -1,5 +1,5 @@
-//! JSON reads the corpus pins across types: AsText of typed values (json/lt-json-typed-overloads/P101ValueSetValue.al),
-//! GetChar of numbers and texts (P101PathValues.al), a Char read as a number (json/lt-json-typed-readback/JsonTypedCharRead.al),
+//! JSON reads the corpus pins across types: AsText of typed values (json/json/P101ValueSetValue.al),
+//! GetChar of numbers and texts (P101PathValues.al), a Char read as a number (json/json/JsonTypedCharRead.al),
 //! IndexOf across number types (JsonTypedIndexOfCross.al), Values and RemoveAt (P101PathValues.al, json/JsonArrayBasics.al).
 
 fn run(decl: &str, body: &str) -> String {

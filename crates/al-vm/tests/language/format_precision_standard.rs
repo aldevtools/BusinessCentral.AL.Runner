@@ -1,5 +1,5 @@
-//! `Format` of a Decimal with `<Precision,..>` and `<Standard Format,N>` (corpus types/lt-format-precision-standard/
-//! FormatPrecStdEn.al, FormatPrecStdDe.al, codeunits 71576 and 71577; types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al
+//! `Format` of a Decimal with `<Precision,..>` and `<Standard Format,N>` (corpus format-evaluate/
+//! FormatPrecStdEn.al, FormatPrecStdDe.al, codeunits 71576 and 71577; format-evaluate/AtPrecisionStandardFormat2.al
 //! :63-660, tests QS_*), and of Decimal fields with an AutoFormatType (AtPrecisionStandardFormat2.al:663-790,
 //! QS_AutoFormatFields_EnUs/DeDe), whose amount field rounds from BC 28 only.
 
@@ -82,7 +82,7 @@ codeunit 87391 C
     var Row: Record "FP Row"; Setup: Record "General Ledger Setup";
     begin
         // Format of a unit amount without an expression takes the setup's places, run only under the measured 2:2 and 2:5
-        // (misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al).
+        // (text/text-methods/SaUnitAmountSubst.al).
         Setup."Amount Decimal Places" := '2:2';
         Setup."Unit-Amount Decimal Places" := '2:5';
         Setup.Insert();

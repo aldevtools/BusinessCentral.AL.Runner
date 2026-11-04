@@ -201,7 +201,7 @@ property	codeunit	TestPermissions	*	1.0..
 property	codeunit	TestType	*	16.0..	1.0..16.0 AL0666 'TestType' '16.0' or greater
 property	controladdin	HorizontalShrink	*	1.0..	
 property	controladdin	HorizontalStretch	*	1.0..	
-property	controladdin	Images	*	-	AL0327: Missing file 'addin/lt-p121.png'.
+property	controladdin	Images	*	-	AL0327: Missing file 'controladdins/lt-p121.png'.
 property	controladdin	MaximumHeight	*	1.0..	
 property	controladdin	MaximumWidth	*	1.0..	
 property	controladdin	MinimumHeight	*	1.0..	
@@ -213,7 +213,7 @@ property	controladdin	RecreateScript	*	-	AL0327: Missing file 'Resources\WebPage
 property	controladdin	RefreshScript	*	-	AL0327: Missing file 'Resources\WebPageViewer\js\Refresh.js'.
 property	controladdin	RequestedHeight	*	1.0..	
 property	controladdin	RequestedWidth	*	1.0..	
-property	controladdin	Scripts	*	-	AL0327: Missing file 'addin/lt-p121.js'.
+property	controladdin	Scripts	*	-	AL0327: Missing file 'controladdins/lt-p121.js'.
 property	controladdin	StartupScript	*	-	AL0327: Missing file 'startup.js'.
 property	controladdin	StyleSheets	*	1.0..	
 property	controladdin	VerticalShrink	*	1.0..	

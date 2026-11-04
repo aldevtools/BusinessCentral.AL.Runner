@@ -1,5 +1,5 @@
 //! XPath axes of `SelectNodes`: following, preceding and namespace. Each test names the corpus test that pins it
-//! (xml/lt-ay-xml/AyXPathAxesVariables.al).
+//! (xml/AyXPathAxesVariables.al).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;

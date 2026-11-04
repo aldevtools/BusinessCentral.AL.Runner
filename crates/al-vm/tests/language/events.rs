@@ -29,7 +29,7 @@ codeunit 50200 Pub
 }
 "#;
 
-// codeunit/TestEventContracts.al:12 (var parameters are modifiable and visible to the caller),
+// codeunits/TestEventContracts.al:12 (var parameters are modifiable and visible to the caller),
 // codeunit/TestCodeunitEventSubscriberMutation / TestTableEventByRefMutation.al:23.
 #[test]
 fn a_static_subscriber_runs_and_its_var_parameters_write_back() {
@@ -57,7 +57,7 @@ codeunit 50100 C
     assert_eq!(text(run(&src, "F")), "107|S;");
 }
 
-// codeunit/TestEventContracts.al:12 -- with no subscriber the publisher is a no-op.
+// codeunits/TestEventContracts.al:12 -- with no subscriber the publisher is a no-op.
 #[test]
 fn an_event_without_subscribers_does_nothing() {
     let src = format!(
@@ -75,7 +75,7 @@ codeunit 50100 C
     assert_eq!(text(run(&src, "F")), "100|");
 }
 
-// codeunit/TestIntegrationEventFanout.al:16 -- every subscriber receives each publish.
+// codeunits/TestIntegrationEventFanout.al:16 -- every subscriber receives each publish.
 // Order among subscribers is not pinned, so the effects below commute.
 #[test]
 fn every_subscriber_runs_once_per_publish() {
@@ -105,7 +105,7 @@ codeunit 50100 C
     assert_eq!(int(run(&src, "F")), 1101);
 }
 
-// codeunit/TestEventUnderscoreName.al:UnderscoredEvent_SubscriberError_Propagates
+// codeunits/TestEventUnderscoreName.al:UnderscoredEvent_SubscriberError_Propagates
 #[test]
 fn a_subscriber_error_reaches_the_publishers_caller() {
     let src = format!(
@@ -127,7 +127,7 @@ codeunit 50100 C
     assert_eq!(error_message(run(&src, "F")), "Strict subscriber rejected 5");
 }
 
-// codeunit/TestEventUnderscoreName.al:UnderscoredEvent_RaisedFromSubscriber_ReachesItsSubscriber
+// codeunits/TestEventUnderscoreName.al:UnderscoredEvent_RaisedFromSubscriber_ReachesItsSubscriber
 #[test]
 fn a_subscriber_may_raise_another_event() {
     let src = r#"
@@ -152,7 +152,7 @@ codeunit 50100 C
     assert_eq!(text(run(src, "F")), "Outer;Inner;");
 }
 
-// Quoted event names: codeunit/TestEventQuotedName.al.
+// Quoted event names: codeunits/TestEventQuotedName.al.
 #[test]
 fn quoted_event_and_procedure_names_match() {
     let src = r#"
@@ -215,7 +215,7 @@ codeunit 50100 C
     procedure F3(): Text begin exit(F(3)); end;
 }"#;
 
-// codeunit/TestCodeunitEventSenderPosition.al: the sender binds wherever it is declared,
+// codeunits/TestCodeunitEventSenderPosition.al: the sender binds wherever it is declared,
 // even when a trailing publisher parameter is omitted, and is the publishing instance.
 #[test]
 fn include_sender_binds_the_publisher_instance_at_any_position() {
@@ -269,7 +269,7 @@ codeunit 50100 C
     end;
 }"#;
 
-// codeunit/TestIsolatedEventSubscriberError.al: with nothing pending, an isolated subscriber's
+// codeunits/TestIsolatedEventSubscriberError.al: with nothing pending, an isolated subscriber's
 // error is swallowed and its writes are rolled back, the other subscribers still run and
 // keep theirs.
 #[test]
@@ -364,7 +364,7 @@ codeunit 50100 C
     local procedure BindShared() var A: Codeunit Manual; B: Codeunit Manual; begin B := A; BindSubscription(A); end;
 }"#;
 
-// codeunit/TestEventManualBinding.al Contract 1.
+// codeunits/TestEventManualBinding.al Contract 1.
 #[test]
 fn an_unbound_manual_subscriber_never_fires() {
     assert!(!boolean(run(MANUAL, "Unbound")));
@@ -963,7 +963,7 @@ fn database_events_follow_the_setup_event_per_table() {
     assert_eq!(int(run(&src, "Other")), 1);
 }
 
-// al-language/install/lt-y79-install-unrelated/Y79InstallUnrelated.al (test session, Y79_TestSession_Table61370/61371/61377/61378
+// al-language/install-upgrade/install-triggers/Y79InstallUnrelated.al (test session, Y79_TestSession_Table61370/61371/61377/61378
 // via Verdicts, :345-347 and :420-431): a mask of 16, 32, 64 or 128 raises no global event, and the database events follow the setup.
 #[test]
 fn mask_bits_above_the_four_low_ones_raise_no_global_event() {
@@ -992,7 +992,7 @@ fn deleteall_with_nothing_to_delete_raises_no_global_trigger_event() {
     assert_eq!(text(run(&src, "Empty")), "");
 }
 
-// session/TestEnvironmentUserTenantContracts.al:275-299 and :377-399 (probe batch 3): the first write
+// session-system/TestEnvironmentUserTenantContracts.al:275-299 and :377-399 (probe batch 3): the first write
 // to a table, a DeleteAll that finds no row included, asks for the mask and then the setup, once per
 // session; a subscriber that sets OnDatabaseInsert gets OnDatabaseInsert for Insert(true) and Insert(false).
 fn setup_log_src(extra: &str) -> String {
@@ -1214,7 +1214,7 @@ codeunit 50100 C
     run(&src, "F")
 }
 
-// tableextensiontrigger/TestTableExtensionTableTriggers_Tests.al and
+// table-objects/extensions/TestTableExtensionTableTriggers_Tests.al and
 // record/TestTriggerDispatchOrder.al: the extension's OnBefore/OnAfter triggers bracket the
 // base table's own trigger, inside the Before and After events; Insert(false) runs none.
 #[test]
@@ -1450,7 +1450,7 @@ codeunit 50100 C
 
 // A static subscriber on a SingleInstance codeunit runs on that one instance: its global
 // state survives from one event to the next and is what the codeunit's callers see.
-// (Corpus: codeunit/TestEventContracts.al uses SingleInstance trace codeunits the same way.)
+// (Corpus: codeunits/TestEventContracts.al uses SingleInstance trace codeunits the same way.)
 #[test]
 fn a_single_instance_static_subscriber_keeps_its_globals_between_events() {
     assert_eq!(int(run(STATEFUL_SUB, "F")), 2);
@@ -1468,7 +1468,7 @@ fn a_static_subscriber_with_globals_and_single_instance_false_gets_a_fresh_insta
 
 // Only a *Manual* EventSubscriberInstance is manual. Naming the default, StaticAutomatic,
 // still fires the subscriber without a binding, and BindSubscription on it is false.
-// (codeunit/TestEventManualBinding.al Contract 5 covers the property being absent.)
+// (codeunits/TestEventManualBinding.al Contract 5 covers the property being absent.)
 #[test]
 fn an_explicit_static_automatic_subscriber_fires_unbound_and_cannot_be_bound() {
     let src = r#"
@@ -1493,7 +1493,7 @@ codeunit 50100 C
 }
 
 // Unbinding a static subscriber raises nothing; as a value it is false (only "no error" is
-// pinned by codeunit/TestEventContracts.al Contract 6, the value is in docs/probes-needed.md).
+// pinned by codeunits/TestEventContracts.al Contract 6, the value is in docs/probes-needed.md).
 #[test]
 fn unbinding_a_static_subscriber_does_not_raise_and_is_false_as_a_value() {
     let src = r#"
@@ -1507,7 +1507,7 @@ codeunit 50100 C
     assert!(!boolean(run(src, "Value")));
 }
 
-// session/TestEnvironmentUserTenantContracts.al:414-444: a write to a temporary record asks for no
+// session-system/TestEnvironmentUserTenantContracts.al:414-444: a write to a temporary record asks for no
 // trigger setup and raises no database event, also when the table's database triggers are enabled;
 // the real table still does.
 #[test]
@@ -1533,7 +1533,7 @@ fn a_temporary_record_raises_no_database_event() {
 // al-runner issue 6148: a setup subscriber reads a per-company table with IsEmpty and no CompanyName() guard. With no
 // company open (the per-database part of an install) a write asks for no setup and raises no database event, so the
 // subscriber does not run and the write succeeds; in each company the setup is asked again (corpus branch
-// install/lt-ug-install-trigger-setup/UgInstallTests.al
+// install-upgrade/install-triggers/UgInstallTests.al
 // TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart).
 #[test]
 fn the_database_trigger_setup_is_asked_per_company_and_not_without_a_company() {
@@ -1625,7 +1625,7 @@ codeunit 50100 C
 // the sender (`Sender.SetFlag()`), without touching its own copy of the parameter, keeps the change: Base Application's
 // "Create Inventory Pick/Movement" passes its globals LineCreated and CurrWarehouseActivityHeader to
 // OnAutoCreatePickOrMoveFromWhseRequest, and the manufacturing subscriber fills them through `sender.CreatePickOrMoveLine`
-// (Tests-SCM "SCM Extend Warehouse".SC4TC41Silver and 34 more). Pinned by events/lt-event-var-through-sender/EventVarThroughSender.al.
+// (Tests-SCM "SCM Extend Warehouse".SC4TC41Silver and 34 more). Pinned by events/binding-senders/EventVarThroughSender.al.
 const ALIAS: &str = r#"
 codeunit 50200 Pub
 {
@@ -1655,7 +1655,7 @@ fn a_var_parameter_sees_the_publishers_variable_changed_through_the_sender() {
 }
 
 // The subscriber assigns its parameter before the sender call: the sender's assignment wins; after the call: the subscriber's wins
-// (events/lt-event-var-through-sender/EventVarThroughSender.al:SubscriberAssignsBeforeSenderCall, :SubscriberAssignsAfterSenderCall).
+// (events/binding-senders/EventVarThroughSender.al:SubscriberAssignsBeforeSenderCall, :SubscriberAssignsAfterSenderCall).
 const ALIAS_ORDER: &str = r#"
 codeunit 50210 Pub
 {
@@ -1734,15 +1734,15 @@ codeunit 50100 C
 }
 "#;
 
-// events/lt-platform-triggers/PtObserve.al:Bad_Int (:276-286): a filter text of one word of letters on an Integer field raises
+// events/platform-triggers/PtObserve.al:Bad_Int (:276-286): a filter text of one word of letters on an Integer field raises
 // `MakeIntFilter` with the text, and the text a subscriber writes is read instead (m3 `res=5`).
 #[test]
 fn make_int_filter_is_raised_for_a_word_of_letters() {
     assert_eq!(text(run(INT_FILTER, "Word")), "5|MakeIntFilter(abc)");
 }
 
-// The failing piece of a range (`1..x`) is asked about by MakeIntFilter (events/lt-bd-filter-events/BdFilterEvents.al:BdFilter_Int_1
-// to _4). This subscriber leaves `x` as it is, so the evaluate error follows (record/lt-record-read/RcAFilters.al:392-414).
+// The failing piece of a range (`1..x`) is asked about by MakeIntFilter (events/table-events/BdFilterEvents.al:BdFilter_Int_1
+// to _4). This subscriber leaves `x` as it is, so the evaluate error follows (record/crud/RcAFilters.al:392-414).
 #[test]
 fn with_a_make_int_filter_subscriber_an_unrepaired_range_piece_raises_the_evaluate_error() {
     match run(INT_FILTER, "Range") {
@@ -1862,7 +1862,7 @@ fn raise_order(apps: Vec<AppSource>) -> Result<Value, Signal> {
 
 /// Across apps, BC runs one event's subscribers app by app in dependency order (A, then B on A, then C on A and B, then
 /// M on all three), in ascending codeunit id inside each app; not in codeunit id across apps (corpus
-/// events/lt-bw-subscriber-order/BwSubscriberOrderTests.al:52-56, `A1;A2;B1;B2;C1;C2;P;Q;R;S;T;` on BC 27.5, 28.5, 29.0).
+/// events/subscriber-order/BwSubscriberOrderTests.al:52-56, `A1;A2;B1;B2;C1;C2;P;Q;R;S;T;` on BC 27.5, 28.5, 29.0).
 #[test]
 fn subscribers_of_one_event_run_app_by_app_in_dependency_order() {
     let a = format!("{ORDER_PUBLISHER}{}{}", order_sub(61105, "A1"), order_sub(61135, "A2"));
@@ -1880,7 +1880,7 @@ fn subscribers_of_one_event_run_app_by_app_in_dependency_order() {
 }
 
 /// Dependency order, not the apps' lowest subscriber codeunit ids: B depends on A but has the lower ids and still runs
-/// after A (corpus events/lt-bw-subscriber-order/BwSubscriberOrderTests.al:150, `A;B1;B2;C;M;` on BC 27.5, 28.5, 29.0).
+/// after A (corpus events/subscriber-order/BwSubscriberOrderTests.al:150, `A;B1;B2;C;M;` on BC 27.5, 28.5, 29.0).
 #[test]
 fn a_dependent_app_with_lower_subscriber_ids_runs_after_the_app_it_depends_on() {
     let a = format!("{ORDER_PUBLISHER}{}", order_sub(61138, "A"));
@@ -2149,7 +2149,7 @@ fn an_order_the_probe_does_not_decide_is_refused() {
 
 /// Measured pairs (an explicit list, not a rule): on Base Application's GlobalTriggerManagement
 /// .OnAfterGetDatabaseTableTriggerSetup, Tests-TestLibraries (5d86850b-...) runs before the main corpus app
-/// (a1b2c3d4-..., corpus PR 883, al-language-testlibraries/lt-y3-setup-order/Y3SetupOrderTests.al:38-46, BC 27.5, 28.5,
+/// (a1b2c3d4-..., corpus PR 883, al-language-testlibraries/test-framework/setup-order/Y3SetupOrderTests.al:38-46, BC 27.5, 28.5,
 /// 29.0) and before the corpus testlibraries app (a93b8636-..., BiTriggerSetup.al:22), and XApp D (e92be076-...) runs
 /// before Tests-TestLibraries (Y3SetupOrderTests.al:38-46). The same apps on another event stay refused.
 #[test]
@@ -2217,7 +2217,7 @@ codeunit 49 "GlobalTriggerManagement"
 }
 
 /// The XApps of the corpus TestLibraries job on Base Application's GlobalTriggerManagement.OnAfterGetDatabaseTableTriggerSetup:
-/// XApp C (0df0fadc-...) runs before Tests-TestLibraries (al-language-testlibraries/lt-y3-setup-order/Y3SetupOrderTests.al:22-25,
+/// XApp C (0df0fadc-...) runs before Tests-TestLibraries (al-language-testlibraries/test-framework/setup-order/Y3SetupOrderTests.al:22-25,
 /// `C: seq=2 in=NoNoNoNo | A: seq=1 in=NoNoNoNo`: neither saw 130011's flags). With the dependencies (D on A, C on A and D) and
 /// XApp D before Tests-TestLibraries, every pair of A, D, C, Tests-TestLibraries and the main corpus app is ordered.
 #[test]
@@ -2316,7 +2316,7 @@ fn dependency_apps_run_in_dependency_order_and_unrelated_ones_keep_ascending_cod
     assert_eq!(run(apps), "X2;Y;X1;T;");
 }
 
-// A placeholder kept as written next to a wildcard (`%1*`) raises BC's error without subscribers (filters/W4Filters.al:694); whether
+// A placeholder kept as written next to a wildcard (`%1*`) raises BC's error without subscribers (record/filters/W4Filters.al:694); whether
 // BC raises `MakeIntFilter` for it first is not pinned, so with a subscriber present it is refused.
 #[test]
 fn a_placeholder_next_to_a_wildcard_with_a_make_int_filter_subscriber_is_refused() {

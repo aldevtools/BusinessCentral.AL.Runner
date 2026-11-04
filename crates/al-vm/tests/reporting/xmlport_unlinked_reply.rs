@@ -2,7 +2,7 @@
 //! unlinked temporary table element (MinOccurs = Zero) with text attributes and a second optional text element over another
 //! unlinked temporary table element (MinOccurs = Once, MaxOccurs = Unbounded, SourceTableView) that the outer row's
 //! OnAfterGetRecord empties and refills (assumption `xmlport-unlinked-reply`; corpus branch al-runtime-rs-staging-tr,
-//! xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TR_Booking_*, xmlport 90064 in TrXpReplyObjects.al).
+//! xmlports/shapes-properties/QrXpContainerOccurs.al TR_Booking_*, xmlport 90064 in TrXpReplyObjects.al).
 
 use al_testkit::text;
 

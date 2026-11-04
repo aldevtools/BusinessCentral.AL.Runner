@@ -1,6 +1,6 @@
 //! A text element right below a table element: only text attributes below it, or attributes and leaf elements, with its
 //! triggers and text (assumption `xmlport-text-in-table`; corpus branch al-runtime-rs-staging-pub-to,
-//! xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TO_AttrItem_*, TO_TextContent_*).
+//! xmlports/shapes-properties/QrXpContainerOccurs.al TO_AttrItem_*, TO_TextContent_*).
 
 use al_testkit::text;
 

@@ -1,4 +1,4 @@
-//! Single pins of misc/lt-y14-triage/Y14Small.al (corpus master, writer Y14): RecordId of a one-field Text key (Format and
+//! Single pins of format-evaluate/Y14Small.al (corpus master, writer Y14): RecordId of a one-field Text key (Format and
 //! Evaluate), SetValue of a Decimal on a text control, and XmlPort import into a temporary table element whose table has
 //! insert and modify triggers.
 

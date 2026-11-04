@@ -1,7 +1,7 @@
 //! `Microsoft.Dynamics.Nav.Client.BusinessChart.BusinessChartData` as System Application's "Business Chart Impl." uses it
 //! behind Base Application's "Business Chart Buffer": Initialize constructs it and clears its measures, SetXAxis sets
 //! `XDimension`, GetXCaption reads it back, AddMeasure adds a measure (corpus
-//! tests/al-language/misc/lt-au-language-edges/AuEdgeTests.al:608 BusinessChartBuffer_Initialize_InTest, real BC 27-29:
+//! tests/al-language/streams/AuEdgeTests.al:608 BusinessChartBuffer_Initialize_InTest, real BC 27-29:
 //! GetXCaption answers 'Month' after SetXAxis('Month')). The AL below is my own minimal version of that sequence.
 
 use al_builtins::native::Signal;

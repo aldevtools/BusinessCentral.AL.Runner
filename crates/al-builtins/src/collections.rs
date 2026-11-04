@@ -167,7 +167,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
         })
     }),
     // `Set(Index, NewValue, var OldValue)`: the item is replaced and OldValue gets what it held; an index outside the list
-    // raises ArgumentOutOfRange and leaves OldValue (misc/lt-open-overloads-collections-isolated/P107Collections.al:138-176,
+    // raises ArgumentOutOfRange and leaves OldValue (collections/P107Collections.al:138-176,
     // P107_ListSetOld; :178-195, P107_ListSetOldInteger). The Boolean result is not pinned.
     ("List.Set#2", |c, r, a| {
         refuse_result(c.ret_used(), "List.Set(Index, NewValue, var OldValue)")?;
@@ -367,7 +367,7 @@ fn position_checked(l: &[Value], v: &Value) -> Result<Option<usize>, Signal> {
         }
         return Ok(None);
     }
-    // The same for a Dictionary: the same one is found, any other raises (collections/lt-cs-odd-leads/CsCollections.al:
+    // The same for a Dictionary: the same one is found, any other raises (collections/CsCollections.al:
     // DictionaryList_ContainsAndIndexOf, `contains second`, `contains equal contents`).
     if let Value::Dictionary(want) = v {
         for (i, x) in l.iter().enumerate() {
@@ -414,7 +414,7 @@ fn key_not_found<T>() -> Result<T, Signal> {
     error_code("The given key was not present in the dictionary.", "KeyNotFound")
 }
 
-/// An index outside the list (session/TestProbeSessionMiscContracts.al:Dictionary_List_ErrorTexts: Get, RemoveAt, Set,
+/// An index outside the list (session-system/TestProbeSessionMiscContracts.al:Dictionary_List_ErrorTexts: Get, RemoveAt, Set,
 /// Insert and a range starting at 0 or past the count; code ArgumentOutOfRange).
 fn out_of_range<T>() -> Result<T, Signal> {
     error_code(LIST_INVALID, "ArgumentOutOfRange")

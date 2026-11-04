@@ -1,6 +1,6 @@
 //! A query with `ReadState = ReadShared` or `ReadCommitted` reads the session's own uncommitted row and the committed
 //! one, as `ReadUncommitted` does (al-runner issue 6050). Pinned by
-//! query/TestQueryReadStateContracts.al ReadStateValues_SeeTheSessionsOwnUncommittedRow_AndTheCommittedOne.
+//! queries/TestQueryReadStateContracts.al ReadStateValues_SeeTheSessionsOwnUncommittedRow_AndTheCommittedOne.
 
 use al_builtins::assumptions::take_hits;
 
@@ -73,7 +73,7 @@ fn read_shared_and_read_committed_read_the_rows_as_pinned() {
 
 #[test]
 fn read_uncommitted_is_pinned_and_not_flagged() {
-    // query/TestQueryReadStateContracts.al (on master).
+    // queries/TestQueryReadStateContracts.al (on master).
     take_hits();
     assert_eq!(
         al_testkit::text(al_testkit::run_in(&src("ReadUncommitted"), "C", "F")),

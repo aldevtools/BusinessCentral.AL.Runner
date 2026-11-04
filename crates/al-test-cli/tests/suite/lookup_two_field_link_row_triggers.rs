@@ -1,7 +1,7 @@
 //! TestField.Lookup through OnLookup, whose OnValidate calls `CurrPage.Update(false)`, on a host with OnAfterGetRecord or
 //! OnAfterGetCurrRecord whose ListPart has a SubPageLink of two `field(..)` entries: BC leaves the refresh of the Update for
 //! later, as with three entries. The Lookup and the reads after it run no row trigger; the globals the triggers set and the
-//! part keep their values (corpus writer Y26, branch al-runtime-rs-staging-y26, pages/lt-y15/Y15LookupThreeFieldLink.al:379
+//! part keep their values (corpus writer Y26, branch al-runtime-rs-staging-y26, testpage/Y15LookupThreeFieldLink.al:379
 //! Y26_TwoLinkCurr_LookupRefresh, :509 Y26_TwoLinkPlain_LookupRefresh; al-runner issue 6519). The calls that run that
 //! refresh are refused, and so is a host with row triggers whose part links one field (not measured).
 

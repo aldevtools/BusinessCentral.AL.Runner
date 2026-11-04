@@ -4,7 +4,7 @@ use super::*;
 
 /// The two shapes of a text element right below a table element that the corpus pins with its triggers and text
 /// (
-/// xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TO_AttrItem_*, TO_TextContent_*, objects
+/// xmlports/shapes-properties/QrXpContainerOccurs.al TO_AttrItem_*, TO_TextContent_*, objects
 /// ToXpTextInTableObjects.al xmlports 90001-90003; the same test as al-sema xmlports.rs `text_in_table_shape`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum TextInTable {
@@ -23,7 +23,7 @@ pub(super) fn text_in_table(schema: &Schema, c: usize) -> Option<TextInTable> {
     let kids = schema.children(c);
     let below_table = n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table);
     // One text element further down, only text attributes below it: `<a:Party><b:EndpointID schemeID="0088">E1</b:EndpointID>`
-    // with an OnBeforePassVariable on both (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:60, the PEPPOL shape).
+    // with an OnBeforePassVariable on both (xmlports/shapes-properties/Y17XmlPortNamespacesTests.al:60, the PEPPOL shape).
     let below_text_in_table = n.parent.is_some_and(|p| {
         let p = schema.node(p);
         p.kind == ir::XmlNodeKind::Text && p.parent.is_some_and(|g| schema.node(g).kind == ir::XmlNodeKind::Table)
@@ -56,7 +56,7 @@ pub(super) fn text_in_table(schema: &Schema, c: usize) -> Option<TextInTable> {
 
 /// A text element right below a table element with no triggers and no attributes, whose elements are leaf text and field
 /// elements and text elements with only text attributes, at least one of those: written as any container
-/// (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:60, `<a:Party><b:EndpointID schemeID="0088">E1</b:EndpointID>
+/// (xmlports/shapes-properties/Y17XmlPortNamespacesTests.al:60, `<a:Party><b:EndpointID schemeID="0088">E1</b:EndpointID>
 /// <Plain>p</Plain></a:Party>`).
 pub(super) fn plain_container(schema: &Schema, c: usize) -> bool {
     let n = schema.node(c);
@@ -106,7 +106,7 @@ pub(super) fn attr_container(schema: &Schema, c: usize) -> bool {
 /// A text element right below a temporary table element, without triggers, with `MinOccurs = Zero` and `MaxOccurs = Once`,
 /// holding only one temporary table element without LinkTable and with `MinOccurs = Zero` whose nodes are only field
 /// attributes (
-/// xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TP_Unlinked_*, xmlport 90023 in TpXpNestedObjects.al).
+/// xmlports/shapes-properties/QrXpContainerOccurs.al TP_Unlinked_*, xmlport 90023 in TpXpNestedObjects.al).
 pub(super) fn unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
     let n = schema.node(c);
     let kids = schema.children(c);
@@ -293,7 +293,7 @@ pub(super) fn linked_container(schema: &Schema, c: usize, table: usize) -> bool 
 }
 
 /// Whether node `c` may come more than once in a row: its `MaxOccurs`, else a table element and a leaf text element may
-/// (a leaf text element without MaxOccurs is read twice: xmlport/W7XmlPortTests.al:141,149, `required twice`), a field element
+/// (a leaf text element without MaxOccurs is read twice: xmlports/W7XmlPortTests.al:141,149, `required twice`), a field element
 /// and a container text element may not (as before the MaxOccurs pins), except one right below a table element that holds only
 /// field elements and has no triggers: it is read again into the same record, the last one wins (misc/lt-y13-triage/
 /// Y13XmlPortContainer.al:120, :134, :156, corpus master: `twice` gives one row with the second container's values).

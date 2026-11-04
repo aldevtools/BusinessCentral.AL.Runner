@@ -1,6 +1,6 @@
 //! `FieldRef.Value <> FieldRef.Value` of two Blob fields compares what each record variable holds: without CalcFields only
 //! whether the stored row has content, with CalcFields (or after a write) the bytes, and a loaded value against one that is not
-//! differs (recordref/lt-y49-blob-compare/Y49BlobCompare.al:120-277, corpus master). An empty loaded Blob against a row without
+//! differs (recordref-fieldref/recordref/Y49BlobCompare.al:120-277, corpus master). An empty loaded Blob against a row without
 //! content that is not loaded is not pinned and refused.
 
 const SRC: &str = r#"

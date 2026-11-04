@@ -1,4 +1,4 @@
-//! A page whose changed row is no longer stored under the key it has (corpus master 97c29f86, pages/lt-y17-save-row-gone/
+//! A page whose changed row is no longer stored under the key it has (corpus master 97c29f86, pages/save-deleted-row/
 //! Y17SaveRowGone.al). A: a StandardDialog in lookup mode over a temporary source whose field OnValidate changes the primary key
 //! renames the row at LookupOK and LookupCancel: the table's OnRename runs, not OnModify (:459, :530). B: a card action hands Rec
 //! to a codeunit that modifies and deletes it: the edit is saved before the action, the card closes with the last error code

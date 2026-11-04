@@ -1,6 +1,6 @@
 //! An Enum field whose `InitValue` names the member in single quotes (`InitValue = 'G/L Account';`, al-runner issue 6585):
 //! the member of that name, on a fresh variable, after Init and after Insert, as the double-quoted form gives
-//! (record/lt-y47-initvalue-quoted/Y47EnumInitQuoted.al).
+//! (record/crud/Y47EnumInitQuoted.al).
 
 use al_testkit::text;
 
@@ -58,7 +58,7 @@ fn a_double_quoted_enum_init_value_is_the_member_of_that_name() {
     assert_eq!(text(al_testkit::run_in(SRC, "C", "Plain")), "G/L Account");
 }
 
-/// Another case and a trailing space name the member too (record/lt-y47-initvalue-quoted/Y47EnumInitQuoted.al
+/// Another case and a trailing space name the member too (record/crud/Y47EnumInitQuoted.al
 /// Y47_InitValue_Lower and Y47_InitValue_Space). A number (whether it is the
 /// ordinal or the position is not told apart by the probe) and an unknown name stay refused.
 #[test]

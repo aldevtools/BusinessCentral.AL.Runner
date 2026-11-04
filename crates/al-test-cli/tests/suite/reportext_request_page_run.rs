@@ -1,5 +1,5 @@
 //! A reportextension that changes the run (a modified data item trigger) and adds a field to the request page (al-runner issue
-//! 6302): the value a request page handler sets reaches the extension's trigger. Mirrors corpus report/lt-wd/
+//! 6302): the value a request page handler sets reaches the extension's trigger. Mirrors corpus reports/
 //! WdReportExtRequestPage.al. SaveValues, a field bound to a report variable and a trigger on the extension's request page are
 //! not pinned with such an extension and stay refused.
 

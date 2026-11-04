@@ -1,5 +1,5 @@
 //! FieldRef.Validate and FieldRef.Value := of a Variant into a field of another type. Every literal is what real BC 29 answered
-//! in the corpus: fieldref/lt-y67-fieldref-validate-variant/Y67FieldRefValidateVariant.al (codeunit 93631, writer Y67).
+//! in the corpus: recordref-fieldref/fieldref/Y67FieldRefValidateVariant.al (codeunit 93631, writer Y67).
 
 use al_testkit::text;
 

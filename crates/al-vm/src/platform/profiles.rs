@@ -4,7 +4,7 @@
 //! insert, change and delete tenant-owned rows like any stored row. The platform's own rules on the
 //! rows of installed apps are native triggers (below).
 //!
-//! Pinned by corpus profile/TestAllProfileTable.al and TestCopyProfile.al:
+//! Pinned by corpus profiles/TestAllProfileTable.al and TestCopyProfile.al:
 //! - an app's profile is a row of Scope `Tenant` under the app's id (Scope `System` is empty:
 //!   TestAllProfileTable.al:81-92), with the declared `Caption`, the declared `ProfileDescription`
 //!   as "Description" (a profile that declares only `Description` has an empty one: :52-66), the page
@@ -74,7 +74,7 @@ impl Session {
             r[pos(t, 1)] = super::option(t, 1, 1);
             r[pos(t, 2)] = Value::Guid(owner);
             r[pos(t, 3)] = Value::Code(o.name.to_uppercase().chars().take(30).collect());
-            // A ProfileDescriptionML gives the Description per session language (codeunit/lt-x-object-props/XObjectProps.al:
+            // A ProfileDescriptionML gives the Description per session language (codeunits/procedures/XObjectProps.al:
             // 365-400), which one stored row cannot hold: refused when read.
             r[pos(t, 4)] = if prop("ProfileDescription").is_none() && prop("ProfileDescriptionML").is_some() {
                 Value::Unknown("All Profile: the Description of a profile that declares ProfileDescriptionML depends on the session language (not modelled)".into())
@@ -161,7 +161,7 @@ impl Session {
     }
 
     /// After a rename of an All Profile row: the Tenant Profile Page Metadata rows of a tenant profile (empty App ID) follow
-    /// it to the new Profile ID, the rows of another profile stay (al-language-onprem/profile/TestTenantProfileRenameCascade.al:
+    /// it to the new Profile ID, the rows of another profile stay (al-language-onprem/profiles/TestTenantProfileRenameCascade.al:
     /// 83-118). Rows of a profile whose rename is not of that shape are not pinned: refused.
     pub(crate) fn profile_after_rename(&mut self, t: &TableDef, old: &[Value], new: &[Value]) -> Result<(), Signal> {
         let (scope, app, id) = (pos(t, 1), pos(t, 2), pos(t, 3));
@@ -202,7 +202,7 @@ impl Session {
     }
 
     /// An Insert of Tenant Profile Page Metadata with an empty Profile ID raises an uncatchable error on the tier
-    /// (al-language-onprem/session/PZPlatformSurvey.al:12): refused.
+    /// (al-language-onprem/session-system/PZPlatformSurvey.al:12): refused.
     pub(crate) fn page_metadata_before_insert(&self, t: &TableDef, row: &[Value]) -> Result<(), Signal> {
         if self.engine.program.objects[t.object as usize].id == Some(TENANT_PROFILE_PAGE_METADATA)
             && al_builtins::native::text_of(&row[pos(t, 2)]).is_some_and(|s| s.trim().is_empty())
@@ -276,7 +276,7 @@ fn error(message: String) -> Signal {
 ///
 /// The Enabled column is the profile's own `Enabled` (true when undeclared), over which a profile extension that declares
 /// `Enabled` wins, the last one in object order; an extension that declares only a Caption changes nothing
-/// (pages/lt-y88-page-probes/Y88PageProbes.al:239-247, Y88_Profile_EnabledForms; pageext/lt-u-page-props/UPageProps.al:340-365,
+/// (testpage/Y88PageProbes.al:239-247, Y88_Profile_EnabledForms; pages/extensions/UPageProps.al:340-365,
 /// an extension false over a true profile). It depends on the program only, so it is worked out here once, not by each
 /// session scanning every object for each profile.
 pub(crate) fn profile_seeds(program: &al_ir::Program) -> Vec<(usize, i32, bool)> {

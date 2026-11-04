@@ -1,5 +1,5 @@
 //! Format of a JsonValue that holds a value is its WriteTo text at standard formats 0, 1 and 2; standard format 9 raises
-//! InvalidStandardFormat (json/lt-y44-format-jsonvalue/Y44FormatJsonValue.al, corpus PR 962).
+//! InvalidStandardFormat (json/json/Y44FormatJsonValue.al, corpus PR 962).
 
 fn run(body: &str) -> String {
     let src = format!(

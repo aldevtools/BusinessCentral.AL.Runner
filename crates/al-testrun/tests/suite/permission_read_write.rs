@@ -1,6 +1,6 @@
 //! ADR-062 stage 2: `ReadPermission` and `WritePermission` of a session whose permissions a test lowered.
 //!
-//! Values: corpus `tests/al-language/permissions/lt-y19-perm-probes/Y24PermReads.al` Y24_P19_ReadWritePermission (indirect
+//! Values: corpus `tests/al-language/record/Y24PermReads.al` Y24_P19_ReadWritePermission (indirect
 //! `r`, `i`, `im`, `imd`, `rimd`, inside an object whose Permissions names the table), and for the cases that file does not
 //! pin (R alone, RI, RIM, RIMD direct, RecordRef; the `SetExactPermissionSet` variant needs Execute, stage 3) the hand-off of the Y75 probe
 //! (`lt-y75-license/Y75PermReadWrite.al`, corpus PR 1031; BC 27.5, 28.5 and 29.0 agree). Issue 6756.

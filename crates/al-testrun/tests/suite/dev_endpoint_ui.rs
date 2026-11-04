@@ -1,7 +1,7 @@
 //! `--dev-endpoint-ui` (al-runner issue 3697, `RunOptions::dev_endpoint_ui`): a UI call no handler takes gets the
 //! answer Business Central's dev-endpoint test runner gives it, for the shapes measured there, and the pass is flagged
 //! `dev-endpoint-ui` with the answered calls on the result. Off, and for a shape not measured, the call fails with
-//! "Unhandled UI" as under Microsoft's Test Runner app (handlers/TestUnhandledUiAndDialogDefaults.al:68-107).
+//! "Unhandled UI" as under Microsoft's Test Runner app (errors/TestUnhandledUiAndDialogDefaults.al:68-107).
 
 use al_builtins::assumptions::Assumption;
 use al_sema::workspace::AppSource;

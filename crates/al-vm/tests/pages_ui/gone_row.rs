@@ -1,6 +1,6 @@
 //! A list whose only row an action deleted, with or without CurrPage.Update. Opened for editing it shows its blank line:
-//! OnNewRecord and OnAfterGetCurrRecord three times (corpus pageupdate/TestPageUpdateGoneRow.al:List_DeletedByAction_OnlyRow_ShowsNoStoredRow,
-//! misc/lt-probes-needed-7/PnGRefresh.al:120, :142). Opened for viewing it raises nothing (pages/W1Update.al:534, :556).
+//! OnNewRecord and OnAfterGetCurrRecord three times (corpus pages/currpage/TestPageUpdateGoneRow.al:List_DeletedByAction_OnlyRow_ShowsNoStoredRow,
+//! testpage/PnGRefresh.al:120, :142). Opened for viewing it raises nothing (pages/W1Update.al:534, :556).
 
 use al_testkit::text;
 

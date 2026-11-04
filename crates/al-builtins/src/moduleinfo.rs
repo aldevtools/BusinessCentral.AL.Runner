@@ -1,5 +1,5 @@
 //! `NavApp.GetCurrentModuleInfo` and friends, and the `ModuleInfo` type: what an app's manifest
-//! says about it (corpus session/TestNavAppExtended.al, TestNavAppModuleInfoCallerIdentity.al,
+//! says about it (corpus session-system/TestNavAppExtended.al, TestNavAppModuleInfoCallerIdentity.al,
 //! TestNavAppCallerCallstackModuleInfos.al, TestBCPlatformContracts.al, TestMiscTypes.al).
 //!
 //! Resources, entitlements and archive data of an app are not here.
@@ -29,7 +29,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     ("NavApp.GetResourceAsText#1", get_resource_as_text),
     ("NavApp.GetResourceAsJson#1", get_resource_as_json),
     ("NavApp.ListResources#1", list_resources),
-    // True while an install codeunit runs (session/TestNavAppExtended.al, TestBCPlatformContracts.al: false in a test).
+    // True while an install codeunit runs (session-system/TestNavAppExtended.al, TestBCPlatformContracts.al: false in a test).
     ("NavApp.IsInstalling#1", |c, _, _| Ok(Value::Boolean(c.install_scope()))),
     ("NavApp.GetArchiveVersion#1", get_archive_version),
     ("NavApp.GetArchiveRecordRef#1", get_archive_record_ref),
@@ -46,7 +46,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
 ];
 
 /// Outside install and upgrade code there is no archive: `GetArchiveVersion` is the empty text
-/// (platform/lt-xmlport-session-navapp-cookie/P94NavApp.al:31-42). Install code is refused (not pinned).
+/// (metadata/session-system/P94NavApp.al:31-42). Install code is refused (not pinned).
 fn get_archive_version(c: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Out {
     if c.install_scope() {
         return unsupported("NavApp.GetArchiveVersion in install code (not pinned)");
@@ -76,12 +76,12 @@ fn get_archive_record_ref(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value
 /// and an unknown table (P94NavApp.al:93-109, 138-154, 165-181). For a table of the workspace Delete and Restore do nothing
 /// too: there is no archive (GetArchiveRecordRef of the same table answers false, P94NavApp.al:44-57; P94NavApp.al:83-91,
 /// 111-136). `LoadPackageData` outside install code does nothing either, with or without a data file in the app
-/// (P94NavApp.al:156-163; install/lt-y85-package-data/Y85PackageData.al Y85_Outside_*). In install code Delete and Restore are
+/// (P94NavApp.al:156-163; install-upgrade/install-triggers/Y85PackageData.al Y85_Outside_*). In install code Delete and Restore are
 /// not pinned and refused; `LoadPackageData` is the Session's (al-vm `package_data`).
 fn archive_data(c: &mut dyn Ctx, a: &mut [Value], what: &str) -> Out {
     if c.install_scope() {
         // `LoadPackageData` of a table of an app that ships no package data loads nothing, per company and per database
-        // (install/lt-cm-install-leads/Y64InstallLeads.al:81-96, CmInstallObjects.al:270, :296). What it loads when the app
+        // (metadata/Y64InstallLeads.al:81-96, CmInstallObjects.al:270, :296). What it loads when the app
         // ships data (`Tab<id>.navxdata`), and Delete and RestoreArchiveData in install code, are not pinned.
         if what == "LoadPackageData"
             && let [Value::Integer(table), rest @ ..] = &*a
@@ -148,7 +148,7 @@ fn get_current(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 }
 
 /// The immediate caller's app, even when it is the same app
-/// (session/TestNavAppModuleInfoCallerIdentity.al:15-20).
+/// (session-system/TestNavAppModuleInfoCallerIdentity.al:15-20).
 fn get_caller(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     match c.module_at_frame(1) {
         Some(m) => set_info(a, m),
@@ -176,7 +176,7 @@ fn plain_guid(g: &[u8; 16]) -> String {
 }
 
 /// `GetModuleInfo(AppId, var Info)`: an installed app, else false when the result is used, else an
-/// error that names the id (session/TestNavAppExtended.al:118-150: "No installed extension was
+/// error that names the id (session-system/TestNavAppExtended.al:118-150: "No installed extension was
 /// found with ID" and the id). The null id answers with a Microsoft module there: refused.
 fn get_module(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let Some(id) = a.first().and_then(guid_arg) else {
@@ -184,7 +184,7 @@ fn get_module(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     };
     if id == [0; 16] {
         // True, with a module whose data version is the installed application's (at least 27):
-        // session/TestEnvironmentUserTenantContracts.al:195-201. Its other properties are not pinned.
+        // session-system/TestEnvironmentUserTenantContracts.al:195-201. Its other properties are not pinned.
         if a.len() < 2 {
             return unsupported("GetModuleInfo without its var parameter");
         }
@@ -214,7 +214,7 @@ fn get_module(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 }
 
 /// The apps on the call stack, each once, innermost first
-/// (session/TestNavAppCallerCallstackModuleInfos.al).
+/// (session-system/TestNavAppCallerCallstackModuleInfos.al).
 fn callstack(c: &mut dyn Ctx, skip: usize) -> Out {
     let items = c.module_callstack(skip).into_iter().map(module_value).collect();
     Ok(Value::List(Rc::new(RefCell::new(items))))
@@ -231,7 +231,7 @@ fn state_of(r: Option<&mut Value>, _synthesized_ok: bool) -> Result<ModuleInfoSt
         Some(Value::Library(_, cell)) => match &*cell.borrow() {
             LibraryValue::ModuleInfo(m) => Ok(m.clone()),
             // A ModuleInfo nobody filled, or one cleared: the null id, empty texts, versions 0.0.0.0, the null package
-            // id and no dependencies (platform/lt-platform-members/PlTNavApp.al:86-115 ModuleInfo_Uninitialized,
+            // id and no dependencies (metadata/platform-tables/PlTNavApp.al:86-115 ModuleInfo_Uninitialized,
             // :57-83 CurrentModuleInfo_RepeatableAndIndependent after Clear).
             LibraryValue::Empty => Ok(ModuleInfoState {
                 id: [0; 16],
@@ -263,13 +263,13 @@ fn version_of(m: ModuleInfoState) -> Out {
 }
 
 /// A freshly installed app's data version is its app version (not pinned further: the corpus asks
-/// only that a version comes back, session/TestMiscTypes.al).
+/// only that a version comes back, session-system/TestMiscTypes.al).
 ///
 /// While its install code runs, an app's data version is 0.0.0.0, per company and per database: the app was not
-/// installed before (install/lt-cm-install-leads/CmInstallLeads.al:Item43_ModuleInfoVersions_DuringInstall; this runtime
+/// installed before (metadata/CmInstallLeads.al:Item43_ModuleInfoVersions_DuringInstall; this runtime
 /// always installs fresh). The data version belongs to the app asked about, not to the app whose code asks: a dependency
 /// app's code that reads the installing app's data version (GetModuleInfo of its id, GetCallerModuleInfo) gets 0.0.0.0
-/// too, and its own data version is its app version (install/lt-x3-first-install/X3FirstInstallVersions.al:76-85 per
+/// too, and its own data version is its app version (install-upgrade/install-order/X3FirstInstallVersions.al:76-85 per
 /// company, :95-104 per database, al-runner issue 6367; corpus PR 874, branch al-runtime-rs-staging-x3 at 83d0857d, not
 /// yet on master). The app being installed is the app of the outermost frame: the install routine (al-testrun
 /// `install::plan` groups each install root under its own app).
@@ -287,7 +287,7 @@ fn data_version(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out 
 
 /// The package id of the app with id `app` (16 bytes in text order): a service tier assigns it when it
 /// publishes the app, so the runtime makes one up that follows the app id. The corpus pins that it is not empty
-/// for a real app, differs from the app id in its first characters (session/W5ModuleInfo.al:
+/// for a real app, differs from the app id in its first characters (session-system/W5ModuleInfo.al:
 /// ModuleInfo_PackageId_ComparedToId), is one value for all objects of the app (AllObj, AllObjWithCaption) and
 /// differs between apps (record/TestAllObjOwningAppPerKind.al:109-132). The null id has the null package id
 /// (W5ModuleInfo.al:ModuleInfo_NullId_Properties).
@@ -346,7 +346,7 @@ fn dependency_id(r: Option<&mut Value>) -> Result<[u8; 16], Signal> {
     }
 }
 
-/// The app a dependency names, from the apps of the workspace (session/TestProbeSessionMiscContracts.al:ModuleInfo_CurrentModule:
+/// The app a dependency names, from the apps of the workspace (session-system/TestProbeSessionMiscContracts.al:ModuleInfo_CurrentModule:
 /// `Dep.Name`, `Dep.Id`, `Dep.Publisher`).
 fn dependency_app(c: &mut dyn Ctx, r: Option<&mut Value>) -> Result<ModuleInfoState, Signal> {
     let id = dependency_id(r)?;
@@ -367,7 +367,7 @@ fn dependency_app(c: &mut dyn Ctx, r: Option<&mut Value>) -> Result<ModuleInfoSt
 }
 
 /// Whether a `ModuleDependencyInfo` is one nobody filled: its id is the null id and its name and publisher are empty
-/// (platform/lt-platform-members/PlTNavApp.al:218-231 DependencyInfo_Uninitialized).
+/// (metadata/platform-tables/PlTNavApp.al:218-231 DependencyInfo_Uninitialized).
 fn untouched_dependency(r: &Option<&mut Value>) -> bool {
     matches!(r, Some(Value::Library(_, cell)) if matches!(&*cell.borrow(), LibraryValue::Empty))
 }
@@ -423,7 +423,7 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
 // ---- packaged resources ----------------------------------------------------------------------
 
 /// The resource `name` of the app that owns the running code, else the error BC raises
-/// (session/TestNavAppGetResource.al:62-85: "A resource matching '{0}' could not be found in app
+/// (session-system/TestNavAppGetResource.al:62-85: "A resource matching '{0}' could not be found in app
 /// '{1}'."; the corpus asserts the part up to the app name).
 fn resource(c: &dyn Ctx, name: &str) -> Result<Vec<u8>, Signal> {
     let Some((app, resources)) = c.app_resources() else {
@@ -462,8 +462,8 @@ fn encoding_arg(a: &[Value], at: usize) -> Result<crate::stream::Encoding, Signa
 fn get_resource(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     use crate::stream::Encoding;
     let name = name_arg(a)?;
-    // UTF8 is pinned (session/TestNavAppGetResource.al:33). The other encodings read the bytes as a stream created with
-    // them does, and no encoding reads as MSDos (session/Y18NavAppResourceEncodings.al:46-58, :68-80, :90-102, :112-124,
+    // UTF8 is pinned (session-system/TestNavAppGetResource.al:33). The other encodings read the bytes as a stream created with
+    // them does, and no encoding reads as MSDos (session-system/Y18NavAppResourceEncodings.al:46-58, :68-80, :90-102, :112-124,
     // :134-146: ReadText lines and CopyStream of UTF-16LE with and without a byte order mark, UTF-8 and Windows-1252 bytes).
     let enc = match a.get(2) {
         Some(Value::Option(1, _)) => Encoding::Utf8,
@@ -496,7 +496,7 @@ fn get_resource_as_text(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value])
     let name = name_arg(a)?;
     let enc = encoding_arg(a, 1)?;
     let bytes = resource(c, &name)?;
-    // Without an encoding BC reads one character per byte (corpus al-language-testlibraries/lt-bi-test-framework/
+    // Without an encoding BC reads one character per byte (corpus al-language-testlibraries/test-framework/data-driven-tests-and-handlers/
     // BiDataDriven.al:481-482: 47 characters for the 45 of UTF-8, corpus PR 861). Which character a byte from 128 up
     // becomes is not pinned.
     if a.get(1).is_none() {
@@ -523,7 +523,7 @@ fn get_resource_as_json(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value])
 }
 
 /// `*` and `?` wildcards; the filter language is the documented one, the corpus only calls it
-/// (session/TestMiscComplete.al:139-165).
+/// (session-system/TestMiscComplete.al:139-165).
 fn glob(pattern: &str, text: &str) -> bool {
     fn go(p: &[char], t: &[char]) -> bool {
         match p.split_first() {

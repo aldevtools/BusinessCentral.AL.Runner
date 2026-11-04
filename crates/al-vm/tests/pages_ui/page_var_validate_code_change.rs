@@ -1,5 +1,5 @@
 //! al-runner issue 6669: a page variable control's OnValidate writes Rec in code; the next page variable SetValue, an action,
-//! Next and Close save it (pages/lt-y65-code-change-next-field/Y65CodeChangeNextField.al, writer Y65; assumption
+//! Next and Close save it (pages/extensions/Y65CodeChangeNextField.al, writer Y65; assumption
 //! page-var-validate-code-change-saved). The fixture is the reporter's repro plus an action that reads the stored row, and a
 //! Card without row triggers whose action used to drop the edit.
 

@@ -1,5 +1,5 @@
 //! A table element nested in another, linked by LinkTable, with MinOccurs = Zero: the trigger order BC runs
-//! (corpus xmlport/lt-xmlport-trigger-flow/XmlPortTriggerFlow.al, tests :293-399).
+//! (corpus xmlports/shapes-properties/XmlPortTriggerFlow.al, tests :293-399).
 
 use al_testkit::run;
 

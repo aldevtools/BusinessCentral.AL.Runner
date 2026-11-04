@@ -14,7 +14,7 @@ pub(super) fn is_token_char(c: char) -> bool {
 }
 
 /// A name the collection of `kind` refuses: the content headers on request, response or client headers, and on the headers of a content
-/// every known name that is no content header (network/lt-http-header-names-cache-control/HeaderNameCaseContent.al: all 39 known names;
+/// every known name that is no content header (http/headers/HeaderNameCaseContent.al: all 39 known names;
 /// lt-http-header-rules/P87Matrix.al for the first eleven).
 pub(super) fn not_here(kind: HeaderKind, name: &str) -> bool {
     if kind != HeaderKind::Content {
@@ -59,7 +59,7 @@ pub(super) fn is_media_type(v: &str) -> bool {
         && parts.all(|p| matches!(p.split_once('='), Some((n, v)) if token(n.trim()) && param_value(v.trim())))
 }
 
-/// A parameter value: not empty, and a value that opens a quote closes it (network/lt-ay-http/AyHeaderAddResult.al:101 refuses
+/// A parameter value: not empty, and a value that opens a quote closes it (http/AyHeaderAddResult.al:101 refuses
 /// `a/b; q="`).
 pub(super) fn param_value(v: &str) -> bool {
     !v.is_empty() && (!v.starts_with('"') || (v.len() >= 2 && v.ends_with('"')))
@@ -76,7 +76,7 @@ pub(super) fn push_value(items: &mut Vec<(String, Vec<String>)>, name: &str, val
     }
 }
 
-/// `HttpHeaders.Add` (network/lt-http/HttpHeaders.al, HttpClient.al, HttpContent.al, HttpResponse.al).
+/// `HttpHeaders.Add` (http/HttpHeaders.al, HttpClient.al, HttpContent.al, HttpResponse.al).
 pub(super) fn add_header(bag: &mut HeaderBag, name: &str, value: &str, secret: bool) -> Result<(), Signal> {
     if name.is_empty() {
         return header_error("Argument");
@@ -159,7 +159,7 @@ pub(super) fn with_bag<R>(r: Option<&Value>, f: impl FnOnce(&mut HeaderBag) -> R
     let Some(Value::Library(_, cell)) = r else {
         return unsupported("HttpHeaders method without a receiver");
     };
-    // A variable no GetHeaders or Headers call filled is an empty collection (network/lt-http/HttpRequest.al:
+    // A variable no GetHeaders or Headers call filled is an empty collection (http/HttpRequest.al:
     // FreshRequestContent reads `Keys().Count()` 0 after a GetHeaders that raised).
     if matches!(&*cell.borrow(), LibraryValue::Empty) {
         *cell.borrow_mut() = LibraryValue::HttpHeaders(new_header_list(HeaderKind::Request));
@@ -174,7 +174,7 @@ pub(super) fn headers_add(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value
     let name = text(a, 0)?;
     let (value, secret) = text_or_secret(a, 1)?;
     let ret_used = c.ret_used();
-    // A name of blanks is a format error from BC 29 and an argument error on BC 28 (network/lt-http/HttpHeaders.al:304-308);
+    // A name of blanks is a format error from BC 29 and an argument error on BC 28 (http/HttpHeaders.al:304-308);
     // BC 27 is not probed.
     if !name.is_empty()
         && name.chars().all(char::is_whitespace)
@@ -189,7 +189,7 @@ pub(super) fn headers_add(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value
     match added {
         Ok(()) => Ok(Value::Boolean(true)),
         // A statement raises the invalid header; an Add whose result is used answers false instead, for a refused value
-        // (network/lt-ay-http/AyHeaderAddResult.al:88-89, :115-116, :129-130 and the typed headers below them), a name that is no
+        // (http/AyHeaderAddResult.al:88-89, :115-116, :129-130 and the typed headers below them), a name that is no
         // token (:157-158, :171-173, :185), an empty name (:159, InvalidHeader:Argument) and a name the collection refuses (:186-187,
         // :383, InvalidOperation). lt-http-header-rules/P87Twice.al raises it for the statement. The false sets the last error to the
         // header error, text and code (:499-543 PY_AddFalse_LastError_*, on request, content and response headers); an Add that
@@ -233,7 +233,7 @@ pub(super) fn headers_remove(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
 }
 
 /// Asking a request, response or client header collection for a content header raises
-/// `InvalidHeader:InvalidOperation` (network/lt-http/HttpHeaders.al:TryAddWithoutValidationBasics, HttpResponse.al).
+/// `InvalidHeader:InvalidOperation` (http/HttpHeaders.al:TryAddWithoutValidationBasics, HttpResponse.al).
 pub(super) fn restricted_lookup(b: &HeaderBag, name: &str) -> Result<(), Signal> {
     if not_here(b.kind, name) {
         return header_error("InvalidOperation");
@@ -294,8 +294,8 @@ pub(super) fn headers_keys(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Valu
 
 /// `GetValues(Name, var Values)` fills an array or a list with the values in order and answers true. For a name that is not
 /// there it answers false, leaves the target as it was and puts the error in GetLastErrorText when its result is used, and raises
-/// that error as a statement (network/lt-http/HttpContent.al:OldHeadersHandle_AfterWriteFrom, :226 with :281-283 and :270 with
-/// :290-291, on content headers; network/lt-http/HttpHeaders.al:GetValuesOnMissingLeavesArray for the result).
+/// that error as a statement (http/content/HttpContent.al:OldHeadersHandle_AfterWriteFrom, :226 with :281-283 and :270 with
+/// :290-291, on content headers; http/HttpHeaders.al:GetValuesOnMissingLeavesArray for the result).
 pub(super) fn headers_get_values(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let name = text(a, 0)?;
     // A content header name asked of request, response or client headers is no header there: GetValues answers false
@@ -315,12 +315,12 @@ pub(super) fn headers_get_values(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut
             ..Default::default()
         };
         // A statement on request and client headers for a token name that is not there raises the same text and code as on content
-        // headers: its first 80 characters and the code are pinned by network/lt-se-header-values/UserAgentProductForms.al:116-118,
+        // headers: its first 80 characters and the code are pinned by http/headers/UserAgentProductForms.al:116-118,
         // :138-140 (`get=E[Exception of type '...NavNclInvalidHeaderEx|InvalidHeader]` after an Add answered false).
         let pinned_missing = matches!(kind, HeaderKind::Request | HeaderKind::Default) && !restricted && !c.ret_used();
         if kind != HeaderKind::Content && !pinned_missing {
             // On request, response and client headers a statement raises too, for a name that is not there, no token or a content
-            // header (network/lt-ay-http/AyHeaderAddResult.al `get=E` after every refused Add, :88 to :383). The text and code are
+            // header (http/AyHeaderAddResult.al `get=E` after every refused Add, :88 to :383). The text and code are
             // measured on content headers only: the error carries none, and any read of them is refused (probe
             // http-get-values-missing-error in docs/probes-needed.md). With the result used nothing about the last error is
             // measured there; it is left as it was.
@@ -359,7 +359,7 @@ pub(super) fn headers_get_values(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut
     Ok(Value::Boolean(true))
 }
 
-/// `GetSecretValues(Name, var Values)` reads the secret values a name holds (xml/lt-xml-attr-doc-http-members/P97HdrSecretValues.al):
+/// `GetSecretValues(Name, var Values)` reads the secret values a name holds (xml/xml/P97HdrSecretValues.al):
 /// - the name is matched without regard to case (:106, :136); a name with only plain values, a missing name and an empty name
 ///   answer false (:103-105), and so does a collection no GetHeaders filled (:210-221 GetSecretValues_UninitialisedHeaders);
 /// - an array is filled from the first element; when the values do not fit, false and the array is left as it was
@@ -367,7 +367,7 @@ pub(super) fn headers_get_values(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut
 /// - a list gets the values appended; on false it is left as it was (:141-163 GetSecretValues_ListIsClearedOrAppended);
 /// - Remove and Clear drop the secret values (:165-186), TryAddWithoutValidation stores one (:188-208).
 ///
-/// The statement form (network/lt-y71-secret-values-statement/Y71HdrSecretValuesStatement.al:115-172) fills the target the
+/// The statement form (http/client/Y71HdrSecretValuesStatement.al:115-172) fills the target the
 /// same way for a name with secret values; where the used result answers false (a missing name, a name with only plain values,
 /// the empty name) it raises `NavNclInvalidHeaderException` with code InvalidHeader, and more values than an array holds raise
 /// the CopyArray length error (ArrayLengthMismatch). A name that is no token or a content header name is refused in both forms.
@@ -427,7 +427,7 @@ pub(super) fn headers_get_secret_values(c: &mut dyn Ctx, r: Option<&mut Value>, 
 
 /// `TryAddWithoutValidation` adds without checking the value or the known headers: false for a name that is no
 /// token, or for a content header on request, response or client headers; true otherwise
-/// (network/lt-http/HttpHeaders.al:TryAddWithoutValidationBasics, TryAddWithoutValidationRestricted).
+/// (http/HttpHeaders.al:TryAddWithoutValidationBasics, TryAddWithoutValidationRestricted).
 pub(super) fn headers_try_add(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let name = text(a, 0)?;
     let (value, secret) = text_or_secret(a, 1)?;

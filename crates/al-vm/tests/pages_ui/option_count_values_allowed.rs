@@ -1,5 +1,5 @@
 //! `OptionCount` and `GetOption` of an Enum control: all the enum's values; with ValuesAllowed on the control, or on the table
-//! field the control shows, only the allowed ones (misc/lt-y13-triage/Y13PageTriage.al:197-243, corpus master).
+//! field the control shows, only the allowed ones (testpage/Y13PageTriage.al:197-243, corpus master).
 
 const SRC: &str = r#"
 enum 69940 "OV Kind" { Extensible = false; value(0; Open) { } value(1; Released) { } value(2; Closed) { } value(3; Archived) { } }

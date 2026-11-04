@@ -413,7 +413,7 @@ fn an_unregistered_member_of_a_registered_type_is_refused_by_name_not_forwarded(
 }
 
 /// The test library's setter reaches `SetTestTenantEnvironmentType`; it changes nothing a test can see
-/// (corpus tests/al-language-onprem/session/PVEnvironmentTestability.al, staging 8217373).
+/// (corpus tests/al-language-onprem/session-system/PVEnvironmentTestability.al, staging 8217373).
 #[test]
 fn set_test_tenant_environment_type_is_accepted_and_changes_nothing() {
     let host = Fake::new(|r| panic!("the host must not be called: {r:?}"));
@@ -1079,7 +1079,7 @@ fn get_encoding_failure(clr_type: &'static str, message: &'static str) -> Fake {
 }
 
 // An out-of-range code page: BC raises the .NET message with code DotNetInvoke:ArgumentOutOfRange
-// (corpus tests/al-language-onprem-dotnet/lt-ra-dotnet/RaEncodingCodePages.al:168, :244).
+// (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/RaEncodingCodePages.al:168, :244).
 #[test]
 fn get_encoding_of_an_out_of_range_code_page_raises_argument_out_of_range() {
     let host = get_encoding_failure(
@@ -1251,7 +1251,7 @@ fn an_outstream_argument_is_bridged_and_the_bytes_dotnet_wrote_are_appended_to_t
 }
 
 // al-runner issue 6317: BC hands .NET the Blob's own stream, so a ZipArchive in Read mode over an OutStream sees the bytes AL
-// wrote through it (corpus tests/al-language-onprem-dotnet/lt-wd-dotnet/WdZipArchiveOverOutStream.al WD_Zip_ReadThroughAnOutStream).
+// wrote through it (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al WD_Zip_ReadThroughAnOutStream).
 #[test]
 fn an_outstream_argument_over_written_bytes_carries_them_to_the_bridge() {
     let host = Fake::new(|r| match r {
@@ -1299,7 +1299,7 @@ fn run_text(vars: &str, body: &str) -> String {
 
 /// Each value, with its source. The ALConfigSettings flags, the environment type, the topology and
 /// the application family are measured on real BC 27.5 and later (corpus
-/// `session/TestEnvironmentUserTenantContracts.al` and the OnPrem suite's `TestServerSettingContracts.al`). The probe
+/// `session-system/TestEnvironmentUserTenantContracts.al` and the OnPrem suite's `TestServerSettingContracts.al`). The probe
 /// wins over AL Runner v2 where they differ: the oracle tenant is a sandbox on Azure topology.
 #[test]
 fn the_server_class_members_answer_the_values_of_the_probe_and_al_runner_v2() {
@@ -1342,7 +1342,7 @@ fn the_server_class_members_answer_the_values_of_the_probe_and_al_runner_v2() {
 }
 
 /// Tests-ERM `Azure AD Identity Mgmt.IsUserDelegatedAdmin`: the session user is not delegated (corpus
-/// `session/TestEnvironmentUserTenantContracts.al:245`, `IsUserDelegated` false), and a delegated admin is a
+/// `session-system/TestEnvironmentUserTenantContracts.al:245`, `IsUserDelegated` false), and a delegated admin is a
 /// delegated user, so it is not a delegated admin either.
 #[test]
 fn the_session_user_is_not_a_delegated_admin() {
@@ -1359,7 +1359,7 @@ fn the_session_user_is_not_a_delegated_admin() {
 
 /// System Application `Azure AD Graph User Impl.IsUserDelegated` calls `NavUserAccountHelper.IsDelegatedUser()`; 165 Microsoft
 /// tests (for example Suggest Price Lines UT T202) need it. False in a test session (corpus
-/// `al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:61`).
+/// `al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:61`).
 #[test]
 fn the_session_user_is_not_a_delegated_user() {
     assert_eq!(
@@ -1375,7 +1375,7 @@ fn the_session_user_is_not_a_delegated_user() {
 
 /// System Application `Azure AD User Mgmt. Impl.` (run by System Initialization on company open) calls
 /// `NavUserAccountHelper.IsUserDelegatedHelpdesk()`: false in a test session on every supported major (corpus
-/// `al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:63`).
+/// `al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:63`).
 #[test]
 fn the_session_user_is_not_a_delegated_helpdesk() {
     for bc in [Some("27.5"), Some("28.5"), Some("29.0")] {
@@ -1394,7 +1394,7 @@ fn the_session_user_is_not_a_delegated_helpdesk() {
 
 /// `Environment Information.IsSaaSInfrastructure` is `NavUserAccountHelper.IsAzure()`: true on the
 /// BC 27.5 and 28.5 oracle runs, false on the 29.0 run (corpus
-/// `session/TestEnvironmentUserTenantContracts.al:164-174`, `#if BC29PLUS`). No target is the newest.
+/// `session-system/TestEnvironmentUserTenantContracts.al:164-174`, `#if BC29PLUS`). No target is the newest.
 #[test]
 fn is_azure_follows_the_bc_major() {
     let u = "U: DotNet NavUserAccountHelper;";
@@ -1429,7 +1429,7 @@ fn is_in_test_mode_follows_the_running_test_codeunit() {
 }
 
 /// `ALCopilotFunctions.IsPlatformAuthorizationConfigured(caller publisher, System Application publisher)`: false for a caller
-/// that is not Microsoft (corpus platform/lt-ri-aoai/RiAoaiAuthorization.al:44-94, publisher 'AL Language'). A Microsoft caller
+/// that is not Microsoft (corpus metadata/session-system/RiAoaiAuthorization.al:44-94, publisher 'AL Language'). A Microsoft caller
 /// is not pinned and is refused, and so is a call with other arguments; nothing reaches the host.
 #[test]
 fn copilot_platform_authorization_is_not_configured_for_a_partner_caller() {
@@ -1460,7 +1460,7 @@ fn copilot_platform_authorization_is_not_configured_for_a_partner_caller() {
 }
 
 /// A SUPER session on table data: the four data rights, no Execute (corpus
-/// `session/TestSessionCompanyInfoExperienceClose.al`); a codeunit gives Execute only (corpus
+/// `session-system/TestSessionCompanyInfoExperienceClose.al`); a codeunit gives Execute only (corpus
 /// `session/TestSessionEffectivePermission.al` EffectivePermission_Codeunit_Page_Report). Another user is refused.
 #[test]
 fn the_effective_permission_of_the_session_user_is_the_four_data_rights_on_table_data_and_execute_on_a_codeunit() {
@@ -1520,7 +1520,7 @@ fn registry_results_are_operands() {
     assert_eq!(host.log(), vec![]);
 }
 
-/// session/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers (:209-212) pins the three
+/// session-system/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers (:209-212) pins the three
 /// settings System Application reads through `TryGetStringTenantSetting(name, var value)`.
 #[test]
 fn try_get_string_tenant_setting_answers_the_pinned_names_and_refuses_the_others() {
@@ -1707,7 +1707,7 @@ fn the_declared_result_types_match_the_registry() {
 }
 
 // Azure AD Graph on a tier without Entra ID, as probed on BC 27.5 (corpus branch al-runtime-rs-staging,
-// tests/al-language-onprem/session/PXAzureAdGraph.al:1-12, 86-109): the GraphQuery object is created, the
+// tests/al-language-onprem/session-system/PXAzureAdGraph.al:1-12, 86-109): the GraphQuery object is created, the
 // collaboration flag is false and the environment group is empty; the calls that need the directory raise a
 // NullReference. The runtime answers all of it itself; nothing goes to .NET.
 #[test]
@@ -1745,7 +1745,7 @@ fn graph_query_without_a_directory_answers_as_probed() {
 }
 
 // GetCurrentUser on a tier without Entra ID returns without an error and leaves the UserInfo null (probe agent,
-// BC 29.0.54011.55816, OnPrem codeunit 61296, tests/al-language-onprem/session/PZAzureAdUser.al): Microsoft's path
+// BC 29.0.54011.55816, OnPrem codeunit 61296, tests/al-language-onprem/session-system/PZAzureAdUser.al): Microsoft's path
 // (`Azure AD Graph User`.InitializeGraphUser) then asks for the user's authentication object id. The runtime
 // answers it itself; nothing goes to .NET.
 #[test]
@@ -1763,7 +1763,7 @@ fn graph_get_current_user_returns_null_without_an_error() {
 
 // GetTenantDetail answers a TenantInfo, not null, whose InitialDomain, CountryLetterCode and PreferredLanguage are
 // empty: Microsoft's Azure AD Tenant Impl. raises "Failed to retrieve ..." for a null TenantInfo, and the corpus
-// test expects '' from all three (session/TestEnvironmentUserTenantContracts.al:213-232).
+// test expects '' from all three (session-system/TestEnvironmentUserTenantContracts.al:213-232).
 #[test]
 fn graph_get_tenant_detail_answers_an_empty_tenant_info() {
     let host = no_host();
@@ -3034,7 +3034,7 @@ codeunit 50100 C
 
 /// al-runner issue 6380: `Identity Management.IsWindowsAuthentication` (and its two siblings) asks
 /// `NavUserAccountHelper` for the service tier's credential type. The corpus CI containers answer user name and password
-/// (corpus writer Y5, branch al-runtime-rs-staging-y5, al-language-onprem/lt-y5/Y5AuthenticationTypeOnPrem.al:29-31), and
+/// (corpus writer Y5, branch al-runtime-rs-staging-y5, al-language-onprem/session-system/authentication-type/Y5AuthenticationTypeOnPrem.al:29-31), and
 /// both of the runner's environments are such a container.
 #[test]
 fn the_credential_type_is_user_name_and_password() {
@@ -3080,7 +3080,7 @@ fn xml_exception(message: &'static str) -> Fake {
 }
 
 // XmlDocument.Load and LoadXml raise the XmlException's message as `A call to System.Xml.XmlDocument.<member> failed with this
-// message: ...`, code DotNetInvoke:Xml (onprem-dotnet lt-ae-dotnet/AeXmlDocumentLoadErrors.al:112-128 LoadXml_NotXml, :149-166
+// message: ...`, code DotNetInvoke:Xml (onprem-dotnet dotnet/dotnet/AeXmlDocumentLoadErrors.al:112-128 LoadXml_NotXml, :149-166
 // Load_EmptyStream).
 #[test]
 fn xml_document_load_and_load_xml_raise_the_xml_exception() {
@@ -3107,7 +3107,7 @@ fn xml_document_load_and_load_xml_raise_the_xml_exception() {
     );
 }
 
-// ---- ZipArchive in Create mode (al-language-onprem-dotnet/lt-y44-zip-create/Y44ZipCreateMode.al, corpus PR 962) ----------
+// ---- ZipArchive in Create mode (al-language-onprem-dotnet/dotnet/zip-create/Y44ZipCreateMode.al, corpus PR 962) ----------
 
 /// A ZipArchive (1) over a MemoryStream (9); CreateEntry gives entry 2, 4, ...; Open on an entry gives stream entry + 1.
 fn zip_host(fail: Option<(&'static str, &'static str, &'static str)>) -> Fake {
@@ -3317,7 +3317,7 @@ fn an_error_in_a_dotnet_foreach_header_names_the_line_of_the_body() {
 
 // NavTenantSettingsHelper.GetPlatformVersion() is the platform file version: a System.Version whose ToString equals
 // "Application System Constants".PlatformFileVersion() (Base Application codeunit 9015) on 27.5, 28.5 and 29.0 (corpus
-// master tests/al-language-onprem-dotnet/lt-y35-platform-version/Y35PlatformVersion.al C304_GetPlatformVersion). The
+// master tests/al-language-onprem-dotnet/dotnet/platform-version/Y35PlatformVersion.al C304_GetPlatformVersion). The
 // runtime asks codeunit 9015 for the text and builds the System.Version with System.Version.Parse on the host.
 #[test]
 fn get_platform_version_is_the_parsed_platform_file_version_of_codeunit_9015() {
@@ -3395,7 +3395,7 @@ fn run_as_with(bc: &str, host: &Fake, vars: &str, body: &str, ret: &str) -> Ran 
 
 // A service-tier object assigned to a [RunOnClient] variable raises DotNetCreate, naming the object's assembly with the .NET
 // runtime of the BC major: 8.0.0.0 on BC 27 and 28, 10.0.0.0 on BC 29 (corpus master 92fdde19,
-// tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:393-452, Y16_RunOnClient_AssignBetweenClientAndServerVariables).
+// tests/al-language-onprem-dotnet/dotnet/runonclient/BgRunOnClient.al:393-452, Y16_RunOnClient_AssignBetweenClientAndServerVariables).
 #[test]
 fn a_service_tier_object_cannot_be_assigned_to_a_run_on_client_variable() {
     let host = Fake::new(|r| match r {
@@ -3440,7 +3440,7 @@ fn another_service_tier_object_assigned_to_a_run_on_client_variable_is_refused()
     assert!(unsupported(&r).contains("RunOnClient"), "{}", unsupported(&r));
 }
 
-// tests/al-language-onprem-dotnet/lt-y51-dotnet-builtin-args/Y51DotNetBuiltinArgs.al:DotNetString_ErrorInfoCreate: a variable
+// tests/al-language-onprem-dotnet/dotnet/dotnet-builtin-args/Y51DotNetBuiltinArgs.al:DotNetString_ErrorInfoCreate: a variable
 // declared `DotNet String` into ErrorInfo.Create is the message (the `String` overload; gap G5-22).
 #[test]
 fn a_dotnet_string_into_error_info_create_is_the_message() {

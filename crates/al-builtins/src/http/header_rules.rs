@@ -51,7 +51,7 @@ pub(super) fn canonical_name(name: &str) -> Option<&'static str> {
 }
 
 /// The name a header is stored under. A known header written in another case than .NET's canonical form is stored canonically, in
-/// all 39 known names and on request, content and response headers (network/lt-http-header-names-cache-control/HeaderNameCaseRequest.al,
+/// all 39 known names and on request, content and response headers (http/headers/HeaderNameCaseRequest.al,
 /// HeaderNameCaseContent.al, HeaderNameCaseResponse.al: `keys=1:Accept-Charset`); a custom name keeps its first case (CustomNameCase.al).
 pub(super) fn stored_name(items: &[(String, Vec<String>)], name: &str) -> Result<String, Signal> {
     if let Some((n, _)) = find(items, name) {
@@ -115,7 +115,7 @@ pub(super) const UA_BAD_PRODUCT_PROBE: &str = "http-user-agent-bad-product-error
 /// for an unbalanced comment (`((((`: P87Values.al:330-336). Valid products: SeHeaderValues.al:302-311.
 /// User-Agent: blanks around a `/` are dropped (`a / b`, `a /1`, `a/ 1` read `[a/b]`, `[a/1]`; `A B / C D 365 E` reads five values
 /// `[A][B/C][D][365][E]`), and a product that is still not `token` or `token/token` (`/`, `a/b/c`, `a@b`) makes Add answer false
-/// with nothing stored (network/lt-se-header-values/UserAgentProductForms.al:110-121, :132-143, :154-165): an error marked with
+/// with nothing stored (http/headers/UserAgentProductForms.al:110-121, :132-143, :154-165): an error marked with
 /// [`UA_BAD_PRODUCT_PROBE`], whose text and code are not pinned. Server: neither is measured, so such a product is refused.
 pub(super) fn user_agent_parts(v: &str, ua: bool) -> Result<Option<Vec<String>>, Signal> {
     let mut chars: Vec<char> = v.chars().collect();
@@ -183,7 +183,7 @@ pub(super) fn user_agent_parts(v: &str, ua: bool) -> Result<Option<Vec<String>>,
     Ok((!out.is_empty()).then_some(out))
 }
 
-/// The known Cache-Control directives in the order .NET writes them (network/lt-http-header-names-cache-control/CacheControlPairs.al,
+/// The known Cache-Control directives in the order .NET writes them (http/headers/CacheControlPairs.al,
 /// CacheControlTriples.al:P198_AllDirectivesInListOrderAndReverse); extensions follow, in the order added.
 pub(super) const CACHE_CONTROL_ORDER: &[&str] = &[
     "no-store",
@@ -213,7 +213,7 @@ pub(super) fn cache_control_item(item: &str) -> Result<Option<(String, String)>,
     let lower = name.to_ascii_lowercase();
     let unpinned = |what: &str| {
         unsupported(format!(
-            "Cache-Control {item}: {what} is not pinned (network/lt-http-header-names-cache-control)"
+            "Cache-Control {item}: {what} is not pinned (http/headers)"
         ))
     };
     match lower.as_str() {
@@ -266,7 +266,7 @@ pub(super) fn cache_control(existing: &[String], added: &str) -> Result<Option<S
                 Some((_, old)) if *old == text => {}
                 Some(_) => {
                     return unsupported(format!(
-                        "Cache-Control {entry}: a second value of a directive that is there is not pinned (network/lt-http-header-names-cache-control)"
+                        "Cache-Control {entry}: a second value of a directive that is there is not pinned (http/headers)"
                     ));
                 }
             }
@@ -450,7 +450,7 @@ pub(super) fn plain_number(v: &str) -> Result<bool, Signal> {
 }
 
 /// A uri header (Referer, Location, Content-Location): a relative uri is stored with its spaces as `%20`
-/// (network/lt-ay-http/AyHeaderAddResult.al:256, :311, :355 `a%20b`); an absolute one as written when it is already in its normal form
+/// (http/AyHeaderAddResult.al:256, :311, :355 `a%20b`); an absolute one as written when it is already in its normal form
 /// (:255, :354 `https://a.example/x`). Other characters of a relative uri, and an absolute uri .NET would rewrite, are not measured.
 pub(super) fn uri_header(v: &str) -> Result<String, Signal> {
     let has_scheme = v.split_once(':').is_some_and(|(s, _)| {
@@ -509,7 +509,7 @@ pub(super) fn content_range(v: &str) -> Result<bool, Signal> {
     Ok(ok)
 }
 
-/// The typed headers `typed_add` leaves alone, measured by network/lt-ay-http/AyHeaderAddResult.al (codeunit 80507) on the collection
+/// The typed headers `typed_add` leaves alone, measured by http/AyHeaderAddResult.al (codeunit 80507) on the collection
 /// it used: the request headers If-Range, Max-Forwards, Referer and Expect; the content headers Content-Range, Content-MD5,
 /// Content-Location and Allow; the response headers Age, ETag, Location, Retry-After, Vary, WWW-Authenticate and Accept-Ranges.
 /// `None` is a header with no value rule here.
@@ -758,7 +758,7 @@ pub(super) fn is_quality(p: &str) -> bool {
     })
 }
 
-/// The general and message headers that network/lt-se-header-values/SeHeaderValues.al (corpus bump PR 737) measured and the rules
+/// The general and message headers that http/headers/SeHeaderValues.al (corpus bump PR 737) measured and the rules
 /// above leave alone: Accept-Charset, Accept-Language and TE (request), Pragma, Trailer, Upgrade, Via and Warning (request and
 /// response), Server and Proxy-Authenticate (response). `From` is stored as written (`a@b.example`, `not an email`). Value shapes
 /// that file did not measure are refused.

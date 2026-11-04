@@ -1253,7 +1253,7 @@ fn an_indexer_is_called_by_its_indexer_name_with_its_arguments() {
 
 /// AL assigns through a .NET indexer by calling it with the index arguments and the value last: System Application
 /// "Business Chart Impl." writes `DataRow.Item(ColumnName, Value)` and reads `DataRow.Item(ColumnName)` back (corpus
-/// tests/al-language/misc/lt-au-language-edges/AuEdgeTests.al:608 BusinessChartBuffer_Initialize_InTest, real BC 27-29:
+/// tests/al-language/streams/AuEdgeTests.al:608 BusinessChartBuffer_Initialize_InTest, real BC 27-29:
 /// SetValueByIndex(0, 0, 7) then GetValue answers 7).
 #[test]
 fn an_indexer_called_with_one_argument_more_than_its_index_is_assigned() {
@@ -1316,7 +1316,7 @@ fn move_next_and_current_answer_through_ienumerator_on_an_explicit_implementatio
 
 // A generic type AL declares without type arguments (System Application's ABS/AFS Operation Payload declares
 // `GenericSortedDictionary2` and calls `SortedDictionary.SortedDictionary()`): BC closes it over System.Object, as the closed
-// type name in its messages shows (tests/al-language-onprem-dotnet/lt-y17-dotnet-dictionary/Y17DotNetDictionary.al:126, :147).
+// type name in its messages shows (tests/al-language-onprem-dotnet/dotnet/dotnet-dictionary/Y17DotNetDictionary.al:126, :147).
 #[test]
 fn an_open_generic_type_is_constructed_closed_over_object() {
     let Some(h) = host() else { return };

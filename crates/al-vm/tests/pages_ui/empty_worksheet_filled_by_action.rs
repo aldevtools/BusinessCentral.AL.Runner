@@ -1,6 +1,6 @@
 //! A Worksheet with the new-row line (AutoSplitKey, DelayedInsert) opened on an empty table: an action inserts two lines through
 //! another record variable without CurrPage.Update, then a second action deletes all lines and calls CurrPage.Update(false)
-//! (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:573 SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate), or the test walks the
+//! (testpage/RmWorksheetGoneRow.al:573 SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate), or the test walks the
 //! rows (:601 SH_WsWithNew_EmptyOpen_FillThenWalk). Pinned with two rows; three rows are the registered assumption
 //! `empty-worksheet-filled-by-action`.
 

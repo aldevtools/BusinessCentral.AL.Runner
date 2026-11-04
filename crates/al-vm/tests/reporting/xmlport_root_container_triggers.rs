@@ -1,4 +1,4 @@
-//! Triggers of the root text element beside a table element and a container (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al
+//! Triggers of the root text element beside a table element and a container (xmlports/shapes-properties/Y83XpMiscTests.al
 //! ContainerTriggers_Nested, ContainerTriggers_AttributeOnly): the root's OnBeforePassVariable runs first on export and its
 //! OnAfterAssignVariable last on import; an empty element (`<x />`) leaves the variable as it was, a leaf runs its
 //! OnAfterAssignVariable twice, a container or element with attributes once.

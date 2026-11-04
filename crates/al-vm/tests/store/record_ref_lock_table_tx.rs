@@ -1,4 +1,4 @@
-//! `RecordRef.LockTable` and the write transaction (recordref/lt-wc/WcRecordRefLockTable.al, al-runner issue 6312): on an open
+//! `RecordRef.LockTable` and the write transaction (recordref-fieldref/WcRecordRefLockTable.al, al-runner issue 6312): on an open
 //! database table it starts the write transaction, which a read keeps and a Commit ends; on a temporary table it does not; on a
 //! RecordRef that is not open (never opened, `Open(0)`, closed) it raises "The record is not open.".
 

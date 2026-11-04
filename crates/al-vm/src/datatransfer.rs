@@ -1,13 +1,13 @@
 //! `DataTransfer` inside install code (al-builtins `datatransfer` hands each call here through `Ctx::ref_op`). The staging
 //! calls keep a [`Plan`] in the variable; `CopyRows` and `CopyFields` write the destination rows straight into the store,
-//! without the table's triggers. Pinned by record/lt-as-records/AsDtInstaller.al and AsDtInstallRead.al:86-147:
+//! without the table's triggers. Pinned by install-upgrade/AsDtInstaller.al and AsDtInstallRead.al:86-147:
 //! - `CopyRows` inserts one destination row per source row the source filters keep, with the mapped fields and the constants;
 //!   the other fields hold their type's default (S1);
 //! - `CopyFields` with `AddJoin` changes each destination row the destination filters keep that one source row matches on the
 //!   join fields (and the source filters keep); the others stay as they were (S2, S4);
 //! - `CopyFields` without a join on one table copies the mapped fields within each row the source filters keep (S3).
 //!
-//! An unmapped field of a `CopyRows` row gets its InitValue and no table trigger runs (record/lt-as-records/Y47DtInstall.al
+//! An unmapped field of a `CopyRows` row gets its InitValue and no table trigger runs (record/Y47DtInstall.al
 //! S1-S3 and Y47DtInstallRead.al:54-72; al-runner issue 6586). A destination with a table extension is refused: the file
 //! has none. Everything else is refused.
 
@@ -158,7 +158,7 @@ impl Session {
 
     /// Refuses a copy into table `no` when it has a table extension of another app. A table extension of the table's own app
     /// is pinned: its fields are copied, filtered and joined like the table's, an unmapped one gets its InitValue on CopyRows,
-    /// and no trigger of the table or of an extension runs (record/lt-as-records/Y47DtInstall.al S4-S7 on Y57DtExtTables.al,
+    /// and no trigger of the table or of an extension runs (record/Y47DtInstall.al S4-S7 on Y57DtExtTables.al,
     /// Y47DtInstallRead.al Y57_DtExt_Outcomes, Y57_DtExt_Rows).
     fn dt_refuse_extensions(&self, no: i32) -> Result<(), Signal> {
         let Some(object) = self.compiled_table(no as u32) else {
@@ -201,7 +201,7 @@ impl Session {
 
     fn dt_copy_fields(&mut self, plan: &Plan) -> Result<(), Signal> {
         // CopyFields into a table with a table extension, of its own app or of another, copies, filters and joins the extension's
-        // fields like the table's and runs no trigger (record/lt-as-records/Y47DtInstallRead.al Y65_DtItemAttribute_Outcomes,
+        // fields like the table's and runs no trigger (record/Y47DtInstallRead.al Y65_DtItemAttribute_Outcomes,
         // writer Y65, a Base Application table with another app's extension; Y57_DtExt_* for the own app's). CopyRows stays refused.
         let (st, sources, _) = self.dt_rows(plan.source, &plan.source_filters)?;
         let changed: Vec<Vec<Value>> = if plan.joins.is_empty() {

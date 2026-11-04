@@ -1,5 +1,5 @@
 //! A row that page code changed and stored itself (Rec.Modify) on a page whose ModifyAllowed is false (pages/draft.rs). Each test
-//! names the corpus test of pages/lt-y61-page-probes/Y61ModifyDeniedSave.al that pins it.
+//! names the corpus test of testpage/Y61ModifyDeniedSave.al that pins it.
 
 const SRC: &str = r#"
 table 69940 "MD Row"

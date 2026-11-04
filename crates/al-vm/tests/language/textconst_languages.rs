@@ -1,5 +1,5 @@
 //! A TextConst reads the text of the language in force, else its ENU text, else (with no ENU text) the text of its only
-//! language, or of DEU then FRA in 1033 (misc/lt-probe-requests-140/P140TextConstNoEnu.al, P140TextConstLang.al). Other
+//! language, or of DEU then FRA in 1033 (text/P140TextConstNoEnu.al, P140TextConstLang.al). Other
 //! languages than 1033, 1031 and 1036 are refused.
 
 use al_builtins::native::Signal;

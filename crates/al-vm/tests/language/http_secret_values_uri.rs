@@ -1,4 +1,4 @@
-//! HttpHeaders.GetSecretValues (corpus xml/lt-xml-attr-doc-http-members/P97HdrSecretValues.al) and
+//! HttpHeaders.GetSecretValues (corpus xml/xml/P97HdrSecretValues.al) and
 //! HttpRequestMessage.SetSecretRequestUri / GetSecretRequestUri (P97ReqSecretUri.al).
 
 use al_testkit::text;

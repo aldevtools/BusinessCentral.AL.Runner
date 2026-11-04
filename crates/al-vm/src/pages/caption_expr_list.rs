@@ -4,7 +4,7 @@ use super::*;
 
 impl Session {
     /// The caption of a page with a repeater and `DataCaptionExpression`, pinned by
-    /// pages/lt-y50-list-caption-expr/Y50ListCaptionExpr.al:
+    /// pages/properties/Y50ListCaptionExpr.al:
     /// - a List or Worksheet shows `<caption> - <value>`, the expression evaluated at each read: a global set before the run
     ///   (:322-324 `- X1` after open, Next and GoToKey), a procedure reading Rec's filter (:367-369, also after
     ///   TestPage.Filter.SetFilter), the current row (:409-411), a Worksheet in a modal handler (:384-386);

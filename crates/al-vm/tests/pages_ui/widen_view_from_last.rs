@@ -1,5 +1,5 @@
 //! An action widens the view of a list that stands on its last row (pages/actions.rs `read_list_again_from_row_as`; al-runner
-//! issue 6469). pages/lt-y15/Y15ActionWidensView.al:322-423 pins how many rows the refresh reads: 25 for 21 rows or more.
+//! issue 6469). testpage/Y15ActionWidensView.al:322-423 pins how many rows the refresh reads: 25 for 21 rows or more.
 
 const SRC: &str = r#"
 codeunit 69960 "WV Log"

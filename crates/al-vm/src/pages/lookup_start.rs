@@ -1,5 +1,5 @@
 //! The row a lookup page opens on when the field already holds a value
-//! (pages/lt-y80-lookup-holds-value/Y80LookupHoldsValue.al).
+//! (pages/run-modal/Y80LookupHoldsValue.al).
 
 use super::*;
 
@@ -8,7 +8,7 @@ impl Session {
     /// key field) equals the held value, text compared without case (Y80_LK_Card_HoldsLowerCase, _AltHoldsMiddle). A value that is
     /// no row, or a blank one, opens on the first row like a blank field (Y80_LK_Card_HoldsNoRow); that is `None`. A related table
     /// of more rows reads a window of 20 rows from the held row on and steps back over at most 20 rows above it, as any list does that
-    /// opens on a row (pages/lt-y87-probes/Y87BigLookup.al Y87_BL_{7,30,120,300}_{First,Middle,Last,NoRow}: 7 rows held at the
+    /// opens on a row (testpage/Y87BigLookup.al Y87_BL_{7,30,120,300}_{First,Middle,Last,NoRow}: 7 rows held at the
     /// middle `R[11]`, 30 and more rows held at the first row `R[23]`, at the last `R[24]`, in the middle `R[44]`).
     pub(super) fn lookup_start_row(
         &mut self,

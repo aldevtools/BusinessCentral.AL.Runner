@@ -1,4 +1,4 @@
-//! Round of a Duration (AL Runner issue 5581), pinned by types/lt-bc-round-duration/BcRoundDuration.al.
+//! Round of a Duration (AL Runner issue 5581), pinned by types/duration/BcRoundDuration.al.
 
 const SRC: &str = r#"
 codeunit 50100 C

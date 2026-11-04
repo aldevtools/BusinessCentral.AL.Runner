@@ -1,5 +1,5 @@
 //! A text element with MinOccurs = Zero and MaxOccurs = Once right below a temporary table element, holding field elements and
-//! leaf text elements (corpus branch al-runtime-rs-staging-pub-tq, xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al
+//! leaf text elements (corpus branch al-runtime-rs-staging-pub-tq, xmlports/shapes-properties/QrXpContainerOccurs.al
 //! TQ_Response_*, objects in TqXpResponseObjects.al).
 
 use al_testkit::text;

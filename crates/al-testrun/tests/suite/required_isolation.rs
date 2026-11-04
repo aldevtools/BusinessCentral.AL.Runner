@@ -1,6 +1,6 @@
 //! `RunOptions::required_isolation`: each test codeunit runs under its own `RequiredTestIsolation`, as BC's TestRunnerHub
 //! runs a test codeunit without handlers (the corpus CI on BC 28 and later). Pinned by
-//! corpus tests/al-language/codeunit/lt-qu-commit-isolation/QuCommitIsolation.al (header lines 10-16 and 25-39).
+//! corpus tests/al-language/codeunits/run-onrun/QuCommitIsolation.al (header lines 10-16 and 25-39).
 
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
@@ -310,7 +310,7 @@ codeunit 50662 "Later Reader"
 }
 
 // StartSession in a test raises TestStartSessionNotAllowed under a runner's TestIsolation = Codeunit
-// (session/TestStartSessionRecord.al) and under RequiredTestIsolation = Function on the TestRunnerHub
+// (session-system/TestStartSessionRecord.al) and under RequiredTestIsolation = Function on the TestRunnerHub
 // (RqIsolationModes.al:454-462). Under Disabled BC starts the session and it runs to its end (:585-614 RQ_D03, RQ_D04, BC 28
 // and later): the session's codeunit runs inside the call.
 const START_SESSION: &str = r#"
@@ -491,7 +491,7 @@ codeunit 50672 "Reads Other"
 
 // Under runner 130450 what a test codeunit's OnRun leaves in isolated storage and in the number sequences, committed and
 // open, reaches the later codeunits as its rows do; the TestRunnerHub (BC 28+) drops it with the rows
-// (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al C301_B1_OnRunCommittedStorage, C301_B1_OnRunSequences,
+// (testlibraries test-framework/onrun-storage/Y35OnRunStorage.al C301_B1_OnRunCommittedStorage, C301_B1_OnRunSequences,
 // C301_B1_OnRunOpenWrites; C306_B6_OnRunStorage for the hub).
 const ONRUN_STORAGE_130450: &str = r#"
 codeunit 50680 "OnRun Storage"
@@ -569,7 +569,7 @@ fn under_runner_130450_a_refused_onrun_that_writes_nothing_known_does_not_hold_b
 
 // Under runner 130450 a test's writes to isolated storage and its new number sequences are rolled back with the codeunit,
 // but a number a test took from an older sequence (Next) is not given back: the later codeunits see it taken
-// (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage :447-457).
+// (testlibraries test-framework/onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage :447-457).
 const TEST_NEXT_130450: &str = r#"
 codeunit 50684 "Prepares Sequence"
 {
@@ -667,7 +667,7 @@ fn a_codeunit_in_the_chain_for_its_tests_numbers_does_not_run_the_install_again(
 
 // Under runner 130450 a test that deletes an older sequence, or deletes it and inserts it again, has that rolled back with
 // the codeunit: the later codeunits see the sequence as it was (corpus branch al-runtime-rs-staging-y56,
-// codeunit/lt-seq-carry/SeqCarry.al:100-104 D1_Act, read by D2_Act :164-165, SaaS BC 29). A test that took numbers from the
+// codeunits/run-onrun/SeqCarry.al:100-104 D1_Act, read by D2_Act :164-165, SaaS BC 29). A test that took numbers from the
 // sequence before it deleted it leaves what is not pinned: a later codeunit that can reach sequences is not run.
 const TEST_DELETE_130450: &str = r#"
 codeunit 50692 "Makes Sequences"
@@ -713,7 +713,7 @@ fn under_runner_130450_a_delete_a_test_made_is_rolled_back_for_the_later_codeuni
     let o = run(TEST_DELETE_130450, false);
     assert_eq!(outcome(&o, "DL1"), &Outcome::Pass, "{o:?}");
     assert_eq!(outcome(&o, "RD1"), &Outcome::Pass, "{o:?}");
-    // Pinned by codeunit/lt-seq-carry/SeqCarry.al D1_Act/D2_Act (corpus pin 9cf26907): a clean pass, no assumption.
+    // Pinned by codeunits/run-onrun/SeqCarry.al D1_Act/D2_Act (corpus pin 9cf26907): a clean pass, no assumption.
     assert_eq!(assumptions_of(TEST_DELETE_130450, "RD1"), vec![]);
     let took_first = TEST_DELETE_130450.replace(
         "NumberSequence.Delete('D', false);",
@@ -803,7 +803,7 @@ fn issue_6638_a_restart_in_an_earlier_codeunit_leaves_the_later_codeunits_runnab
 
 // Under runner 130450 a test's Restart of an older sequence is rolled back with the codeunit, and so are the numbers it
 // took after the Restart; those it took before stay taken. A Restart in the OnRun trigger carries. Corpus branch
-// al-runtime-rs-staging-y56, codeunit/lt-seq-carry/SeqCarry.al R1_Act :325-347, read by R2_Act :406-411 (SaaS BC 29:
+// al-runtime-rs-staging-y56, codeunits/run-onrun/SeqCarry.al R1_Act :325-347, read by R2_Act :406-411 (SaaS BC 29:
 // Y56-I-R Current 2, Y56-I-RS 1, Y56-O-R 1).
 const TEST_RESTART_130450: &str = r#"
 codeunit 50695 "Makes Restart Sequences"

@@ -1,5 +1,5 @@
 //! The platform table Tenant Report Layout Cfg (2000000249, BC 29 on), a stored table with these pinned limits
-//! (platform/lt-platform-tables/PtCloudTables.al Y17_TenantReportLayoutCfg_InsertModifyDelete and
+//! (metadata/platform-tables/PtCloudTables.al Y17_TenantReportLayoutCfg_InsertModifyDelete and
 //! Y17_TenantReportLayoutCfg_Shapes, corpus master 97c29f86):
 //!
 //! - A fresh tenant holds no row. Insert, a duplicate Insert (false), Modify, Delete, an Insert without triggers, DeleteAll,

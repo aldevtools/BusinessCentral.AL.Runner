@@ -1,8 +1,8 @@
 //! ADR-041: the routines of a dependency app carry source positions, so `SessionInformation.Callstack` names the line of
 //! each of their frames (Microsoft's Error Message Management reads the call stack and every frame needs its line;
 //! 197 Tests-Misc and 17 Tests-SCM-Service tests were refused with "a frame whose format is not pinned"). The text of a
-//! frame is pinned by session/TestSessionInformationCallstackContracts.al:130-143 and
-//! session/TestSessionCallstackSourcesContracts.al:Callstack_FromTablePageReportAndExtensionCode.
+//! frame is pinned by session-system/TestSessionInformationCallstackContracts.al:130-143 and
+//! session-system/TestSessionCallstackSourcesContracts.al:Callstack_FromTablePageReportAndExtensionCode.
 
 use al_sema::workspace::{AppKind, AppSource};
 use al_test_cli::report::Outcome;

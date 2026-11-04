@@ -1,6 +1,6 @@
 //! A FieldRef handed as a value to `FieldRef.Validate`, the `FieldRef.Value` setter, `SetRange` or `SetFilter` (al-runner
 //! issue 6591): the source field's value goes in, and the target converts it as it converts a value of that type
-//! (recordref/lt-y47-validate-fieldref/Y47ValidateFieldRef.al:231-402).
+//! (recordref-fieldref/recordref/Y47ValidateFieldRef.al:231-402).
 
 use super::Lib;
 use crate::Session;

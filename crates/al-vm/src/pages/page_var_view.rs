@@ -5,9 +5,9 @@ use super::*;
 
 impl Session {
     /// `P.SetTableView(Rec)` hands the page variable the view of Rec (filters and sorting) but not its position, so the page opens
-    /// on its first row (corpus handlers/TestPageModalNewRowLine_Tests.al: ReEditable_LookupModeTrue_HasNoNewRowLine,
+    /// on its first row (corpus ui-handlers/TestPageModalNewRowLine_Tests.al: ReEditable_LookupModeTrue_HasNoNewRowLine,
     /// Plain_LookupModeFalse_HasTheNewRowLine). The marks and MarkedOnly go with the view: the page shows only the marked rows, also
-    /// for a temporary record and with no mark at all (pages/lt-y41-page-probes/Y41PageVarMarkedOnly.al:140 _Shown, :186
+    /// for a temporary record and with no mark at all (ui-handlers/Y41PageVarMarkedOnly.al:140 _Shown, :186
     /// _FilterGroups, :222 _NoMarks, :258 _TempRec).
     pub(super) fn page_var_set_table_view(&mut self, st: &St, r: &Rec) -> Result<Value, Signal> {
         let copy = Rc::new(RefCell::new(r.borrow().clone()));
@@ -19,7 +19,7 @@ impl Session {
         // A record SetRecord handed the page earlier stays the position the page opens on: SetRecord gives the
         // position and SetTableView the filters (Microsoft's VendEntry-Apply Posted Entries calls both with the
         // same record and its page reads Rec in OnOpenPage). Pinned in either order, for a list and a card, with the record inside and
-        // outside the view: pages/lt-page-setrecord-settableview/PageVarSetRecordTableView.al P157_List_SetRecordThenSetTableView_*,
+        // outside the view: pages/currpage/PageVarSetRecordTableView.al P157_List_SetRecordThenSetTableView_*,
         // P157_Card_SetRecordThenSetTableView, SF_List_SetRecordThenSetTableView_Run.
         let kept = st.borrow().set_record.as_ref().map(|p| p.borrow().fields.clone());
         let fields = match kept {
@@ -36,7 +36,7 @@ impl Session {
     }
 
     /// `P.SetRecord(Rec)` with a record whose MarkedOnly is on hands the page neither the marks nor MarkedOnly: the page shows all
-    /// rows and stands on Rec's row (pages/lt-y41-page-probes/Y41PageVarMarkedOnly.al:240 PVM_SetRecord_MarkedOnly, a record
+    /// rows and stands on Rec's row (ui-handlers/Y41PageVarMarkedOnly.al:240 PVM_SetRecord_MarkedOnly, a record
     /// without filters, before any SetTableView). Inside a Page-typed handler, after a SetTableView and with filters on the record
     /// it is not pinned.
     pub(super) fn page_var_set_record_marked_only(&self, st: &St, r: &Rec) -> Result<(), Signal> {
@@ -61,7 +61,7 @@ impl Session {
 
     /// `P.SetSelectionFilter(Sel)` of a Page variable whose page SetTableView handed a record on MarkedOnly, after the page closed
     /// with LookupOK on one of the rows: Sel gets the marked set, not the row (the page's filters, marks and MarkedOnly; `Marked:
-    /// Yes, Group: 1`, count 2), pinned for a Sel without filters or marks by pages/lt-y41-page-probes/Y41PageVarMarkedOnly.al:158
+    /// Yes, Group: 1`, count 2), pinned for a Sel without filters or marks by ui-handlers/Y41PageVarMarkedOnly.al:158
     /// PVM_SetTableView_MarkedOnly_SelectionAfter and :186 _FilterGroups (`Marked: Yes`: the group-2 and OR filters of the view are
     /// not shown in group 0). Answers false when the page or Sel is not of that kind; another closing action is refused.
     pub(super) fn selection_of_a_closed_marked_only_page(&mut self, st: &St, dst: &Rec) -> Result<bool, Signal> {
@@ -95,7 +95,7 @@ impl Session {
 
     /// A Page variable whose Page-typed ModalPageHandler called SetRecord, after the run: SetSelectionFilter hands the key filter on
     /// that row as on a row the page stands on, after LookupOK and LookupCancel, and replaces the record's filters, group 2 too
-    /// (pages/lt-y41-page-probes/Y41SelectionAfterClose.al:198 G401_PageVar_HandlerSetRecord_LookupOK `Id: 3`, count 1, :221
+    /// (ui-handlers/Y41SelectionAfterClose.al:198 G401_PageVar_HandlerSetRecord_LookupOK `Id: 3`, count 1, :221
     /// _FilterGroup2View, :272 _Cancel).
     pub(super) fn closed_on_handler_set_record(&self, st: &St) -> bool {
         let s = st.borrow();
@@ -103,7 +103,7 @@ impl Session {
     }
 
     /// The blank new row of a list opened with OpenNew: SetSelectionFilter in OnAfterGetCurrRecord hands the filter on the blank
-    /// key, `Id: 0` and a count of 0 (pages/lt-y41-page-probes/Y41SelectionAfterClose.al:309 G401_OpenNew_List_NoView).
+    /// key, `Id: 0` and a count of 0 (ui-handlers/Y41SelectionAfterClose.al:309 G401_OpenNew_List_NoView).
     pub(super) fn on_open_new_row(&self, st: &St) -> bool {
         let s = st.borrow();
         s.open && s.draft && s.mode == PageMode::New && s.host.is_none() && self.is_list(st)
@@ -122,7 +122,7 @@ impl Session {
 
     /// The new line of an editable list of its own, with the blank key (OnNewRecord may have filled other fields): SetSelectionFilter
     /// hands the filter on the blank key, `Id: 0` and a count of 0, and marks nothing, whether the list opened on the new line because its
-    /// view has no row or Next moved past the last row onto it (pages/lt-y61-page-probes/Y61SelectionComposite.al:391
+    /// view has no row or Next moved past the last row onto it (testpage/Y61SelectionComposite.al:391
     /// G612_EditableList_NewLine_OnNewRecordFills_NoRow, :416 _Rows, :453 G612_EditableList_NewLine_NoOnNewRecord_NoRow, a List with
     /// DelayedInsert run from a Page variable whose Rec a procedure filtered).
     pub(super) fn on_list_new_line_blank_key(&mut self, st: &St, src: &Rec) -> Result<bool, Signal> {
@@ -161,7 +161,7 @@ impl Session {
     }
 
     /// A TestPage whose own filter shows no row of a table that has rows hands the record that filter
-    /// (pages/lt-selection-filter-no-row/SelectionFilterNoRow.al:TestPage_FilteredToNothing: the page filter
+    /// (pages/currpage/SelectionFilterNoRow.al:TestPage_FilteredToNothing: the page filter
     /// `Id: 99` on key field Id, `Count` 0, `Id: 99`). Only that shape (one range of one value on the first key
     /// field, a record without filters or marks) is pinned.
     pub(super) fn selection_of_a_test_page_filtered_to_nothing(

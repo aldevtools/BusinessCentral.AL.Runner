@@ -2,7 +2,7 @@
 //! `TestPage.RunPageBackgroundTask`, `Page.GetBackgroundParameters` and
 //! `Page.SetBackgroundTaskResult`. BC's test framework runs the worker synchronously, so the task
 //! has completed, and its trigger has run, when the TestPage call that caused it returns (corpus
-//! handlers/TestPageBgTask_Tests.al, header). Every rule cites the corpus test that pins it.
+//! testpage/TestPageBgTask_Tests.al, header). Every rule cites the corpus test that pins it.
 
 use super::*;
 use al_builtins::describe::Describe;
@@ -26,7 +26,7 @@ fn copy_dictionary(v: &V) -> V {
 impl Session {
     /// `CurrPage.EnqueueBackgroundTask(var TaskId; CodeunitId; [var Parameters]; [Timeout]; [ErrorLevel])`: the task
     /// waits in the queue until the client call that is running ends. A task that succeeds runs the same under every
-    /// ErrorLevel (bgtasks/lt-bj-no-gui/BjNoGuiDialogs.al:86 with Error, EnqueueBackgroundTask_WithHandlers); what the
+    /// ErrorLevel (pages/background-tasks/BjNoGuiDialogs.al:86 with Error, EnqueueBackgroundTask_WithHandlers); what the
     /// level changes for a failing worker is in `bg_drain`.
     pub(super) fn bg_enqueue(&mut self, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
         let level = match args.get(4) {
@@ -59,12 +59,12 @@ impl Session {
         };
         args[0] = Value::Integer(id);
         // Under a TestPage the task runs at once: its completion trigger has run when this call returns, so a
-        // cancel right after it cannot stop it (corpus handlers/TestPageCancelBackgroundTaskContracts.al:
+        // cancel right after it cannot stop it (corpus pages/TestPageCancelBackgroundTaskContracts.al:
         // Cancel_RightAfterEnqueue_ReturnsTrue_ButTheTaskHasCompleted: `completed` is logged before the
-        // cancel's answer; bgtasks/W2BackgroundTasks.al:CancelPreviousTask_OnRowMove: `done` before `enqueued`).
+        // cancel's answer; pages/background-tasks/W2BackgroundTasks.al:CancelPreviousTask_OnRowMove: `done` before `enqueued`).
         // The task runs after the call has stored the id in its `var TaskId` argument, so the completion trigger
         // sees the page variable already set: its TaskId equals the variable the enqueue filled
-        // (bgtasks/W2BackgroundTasks.al:QP_CompletedTaskId_AgainstPageVariable_OpenView, page 87144 at :283-332).
+        // (pages/background-tasks/W2BackgroundTasks.al:QP_CompletedTaskId_AgainstPageVariable_OpenView, page 87144 at :283-332).
         self.pages.bg_drain_after_call = Some(st.clone());
         Ok(Value::Null)
     }
@@ -79,7 +79,7 @@ impl Session {
 
     /// `CurrPage.CancelBackgroundTask(TaskId)`: true for the id of a task this page enqueued, also after it
     /// completed and again on a second call; false for an id nobody enqueued (9999, or 0 before any
-    /// enqueue); it raises nothing (corpus handlers/TestPageCancelBackgroundTaskContracts.al).
+    /// enqueue); it raises nothing (corpus pages/TestPageCancelBackgroundTaskContracts.al).
     pub(super) fn bg_cancel(&mut self, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
         let Some(Value::Integer(id)) = args.first().cloned() else {
             return unsupported("CancelBackgroundTask without a task id");
@@ -90,9 +90,9 @@ impl Session {
 
     /// Runs the worker codeunit `codeunit` with `params`: the dictionary it set as its result (empty when it
     /// set none), or the error it raised. Its session may not write to a table of the database (corpus
-    /// handlers/TestPageBgTask_Tests.al:EnqueueBackgroundTask_WorkerInsert_RefusedByReadOnlySession and
+    /// testpage/TestPageBgTask_Tests.al:EnqueueBackgroundTask_WorkerInsert_RefusedByReadOnlySession and
     /// the Modify and Rename arms). It reads the caller's rows, the uncommitted ones too, and is
-    /// outside the caller's write transaction (handlers/TestPageBgTaskTx_Tests.al): see
+    /// outside the caller's write transaction (testpage/TestPageBgTaskTx_Tests.al): see
     /// `in_write_transaction` and `codeunit_run`. A direct `Commit` and an unguarded `Codeunit.Run`
     /// are not pinned and end the run as unsupported.
     fn bg_run_worker(&mut self, codeunit: i32, params: V) -> Result<Result<V, AlError>, Signal> {
@@ -143,8 +143,8 @@ impl Session {
 
     /// `TestPage.RunPageBackgroundTask(CodeunitId; [var Parameters]; [RunCompletionTriggers])`: runs the
     /// worker now and returns its result dictionary; the worker's error reaches the caller as it is
-    /// (corpus handlers/TestPageBgTask_Tests.al:RunPageBackgroundTask_ReturnsWorkerResult;
-    /// handlers/TestPageBgTaskTx_Tests.al:RunPageBackgroundTask_FailingWorker_LeavesCallersWriteTransactionOpen).
+    /// (corpus testpage/TestPageBgTask_Tests.al:RunPageBackgroundTask_ReturnsWorkerResult;
+    /// testpage/TestPageBgTaskTx_Tests.al:RunPageBackgroundTask_FailingWorker_LeavesCallersWriteTransactionOpen).
     pub(super) fn bg_run_page_task(&mut self, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
         let Some(Value::Integer(codeunit)) = args.first().cloned() else {
             return unsupported("RunPageBackgroundTask without a codeunit id");
@@ -157,7 +157,7 @@ impl Session {
         let results = match self.bg_run_worker(codeunit, params)? {
             Ok(r) => r,
             // With the completion triggers, a failing worker runs OnPageBackgroundTaskError, and when that marks the error as
-            // handled the call returns without an error (bgtasks/W2BackgroundTasks.al:508-537
+            // handled the call returns without an error (pages/background-tasks/W2BackgroundTasks.al:508-537
             // RunPageBackgroundTask_FailingWorker_WithCompletionTriggers, `with_completion|ok` = Yes and the error trigger's log).
             // An error the trigger leaves unhandled, and what the call returns, are not pinned (docs/probes-needed.md): the result
             // is an empty dictionary.
@@ -208,10 +208,10 @@ impl Session {
     }
 
     /// Runs the page's `OnPageBackgroundTaskCompleted(TaskId, Results)`, if it has one, then the same trigger of each page
-    /// extension that declares it, for every task the page or an extension enqueued (pages/lt-uj-outside-leads/UjPageExtBgTask.al
+    /// extension that declares it, for every task the page or an extension enqueued (collections/UjPageExtBgTask.al
     /// UJ_PageExt_BgTask_Completed, corpus branch al-runtime-rs-staging-uj 1dc037a8).
     fn bg_completed(&mut self, st: &St, id: i32, results: &V) -> Result<(), Signal> {
-        // Pinned by pages/lt-uj-outside-leads/UjPageExtBgTask.al (was assumption `pageext-background-task-triggers`).
+        // Pinned by collections/UjPageExtBgTask.al (was assumption `pageext-background-task-triggers`).
         if self.declares(st, "onpagebackgroundtaskcompleted")
             || self.bg_ext_declares(st, "onpagebackgroundtaskcompleted")
         {
@@ -227,7 +227,7 @@ impl Session {
     /// Runs the tasks the page enqueued, oldest first, each to its end: the completion trigger gets the
     /// worker's result, the error trigger its error. An error nobody marks as handled in
     /// `OnPageBackgroundTaskError` tears the page down, and what the caller sees is the closed page,
-    /// not the worker's text (corpus handlers/TestPageBgTask_Tests.al:EnqueueBackgroundTask_HandledErrorDoesNotPropagate,
+    /// not the worker's text (corpus testpage/TestPageBgTask_Tests.al:EnqueueBackgroundTask_HandledErrorDoesNotPropagate,
     /// EnqueueBackgroundTask_UnhandledErrorPropagates). Whether a task still waiting is cancelled when
     /// the page moves to another row is not pinned (docs/probes-needed.md): all of them run.
     pub(super) fn bg_drain(&mut self, st: &St) -> Result<(), Signal> {
@@ -245,7 +245,7 @@ impl Session {
                     self.torn_down_on_error(st, r)?;
                 }
                 // A failing worker under ErrorLevel Ignore: the error trigger runs, and the page stays open even though the
-                // trigger did not mark the error as handled (bgtasks/W2BackgroundTasks.al:455 ErrorLevel_Ignore, `open|ok` = Yes,
+                // trigger did not mark the error as handled (pages/background-tasks/W2BackgroundTasks.al:455 ErrorLevel_Ignore, `open|ok` = Yes,
                 // `log` = `error(id=n,row=L1,handled_in=false);`).
                 Err(e) if level == Some(2) => {
                     self.bg_error(st, id, &e)?;
@@ -268,7 +268,7 @@ impl Session {
                         s.open_read && s.mode == PageMode::View
                     } && self.is_card(st);
                     if !handled && opening_view_card {
-                        // Pinned by pages/lt-uj-outside-leads/UjPageExtBgTask.al (was assumption `pageext-background-task-triggers`).
+                        // Pinned by collections/UjPageExtBgTask.al (was assumption `pageext-background-task-triggers`).
                         st.borrow_mut().bg_tasks.clear();
                         let mut e = e;
                         e.code = format!("{}:TargetInvocation", e.code);
@@ -312,7 +312,7 @@ impl Session {
         if routines.is_empty() {
             return Ok(false);
         }
-        // Pinned by pages/lt-uj-outside-leads/UjPageExtBgTask.al (was assumption `pageext-background-task-triggers`).
+        // Pinned by collections/UjPageExtBgTask.al (was assumption `pageext-background-task-triggers`).
         al_builtins::native::refuse_unpinned(e, "OnPageBackgroundTaskError")?;
         let mut handled = false;
         for (obj, routine, ext) in routines {
@@ -335,8 +335,8 @@ impl Session {
     }
 
     /// The error a write by a background task worker raises: the session is read-only. Only the
-    /// pinned writes have a text (corpus handlers/TestPageBgTask_Tests.al, the three
-    /// `..._RefusedByReadOnlySession` arms; bgtasks/W2BackgroundTasks.al:487-496 Worker_Delete).
+    /// pinned writes have a text (corpus testpage/TestPageBgTask_Tests.al, the three
+    /// `..._RefusedByReadOnlySession` arms; pages/background-tasks/W2BackgroundTasks.al:487-496 Worker_Delete).
     pub(crate) fn bg_refuse_write(&self, table: usize, method: &str) -> Result<(), Signal> {
         if self.pages.bg_worker.is_none() {
             return Ok(());
@@ -351,8 +351,8 @@ impl Session {
     }
 
     /// `Sorry, the current permissions prevented the action. (TableData <id> <name> <method>: <app>)`, code
-    /// `DB:ReadOnlySession` for Insert (session/lt-cn-session-leads/CnIsolatedStorageLeads.al:136-150), Modify
-    /// (pages/lt-ao-testpage/AoTests.al:118-123) and Delete (bgtasks/W2BackgroundTasks.al:487-496). The code of a
+    /// `DB:ReadOnlySession` for Insert (session-system/CnIsolatedStorageLeads.al:136-150), Modify
+    /// (testpage/AoTests.al:118-123) and Delete (pages/background-tasks/W2BackgroundTasks.al:487-496). The code of a
     /// refused Rename is not pinned: it carries the unpinned mark.
     pub(crate) fn bg_read_only_error(&self, id: u32, name: &str, app: u32, method: &str) -> Signal {
         let app = self
@@ -377,7 +377,7 @@ impl Session {
     pub(crate) fn bg_refuse_transaction_call(&self, what: &str) -> Result<(), Signal> {
         if self.pages.bg_worker.is_some() {
             return unsupported(format!(
-                "{what} in a page background task (not pinned: handlers/TestPageBgTaskTx_Tests.al pins only the guarded Codeunit.Run)"
+                "{what} in a page background task (not pinned: testpage/TestPageBgTaskTx_Tests.al pins only the guarded Codeunit.Run)"
             ));
         }
         Ok(())

@@ -1,6 +1,6 @@
 //! A second Import on the same XmlPort instance whose schema has no table element reads the new source again and keeps the
 //! instance's globals (al-runner issue 6657): real BC values from corpus writer Y66
-//! (xmlport/lt-y66-xmlport-var-members/Y66XmlPortVarMembers.al:235-277 `got = a;a;`, not on corpus master yet). With a table
+//! (xmlports/shapes-properties/Y66XmlPortVarMembers.al:235-277 `got = a;a;`, not on corpus master yet). With a table
 //! element the second Import reads nothing (xmlport_export_again.rs, QrXpContainerOccurs.al TT_ImportTwice_*).
 
 use al_testkit::text;

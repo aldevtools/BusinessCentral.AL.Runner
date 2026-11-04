@@ -360,8 +360,8 @@ pub(crate) fn lower_object<'a>(
     if let Some(l) = seq.xml(oi) {
         for n in &l.nodes {
             let (ty, table) = match n.kind {
-                // xmlport/lt-xmlport-bigtext/XmlPortBigText.al:54: `TextType = BigText` makes the variable a BigText; on a
-                // text attribute too (report/lt-u-report-props/UPropertyTests.al:311-330).
+                // xmlports/shapes-properties/XmlPortBigText.al:54: `TextType = BigText` makes the variable a BigText; on a
+                // text attribute too (reports/runtime/UPropertyTests.al:311-330).
                 ir::XmlNodeKind::Text | ir::XmlNodeKind::TextAttr
                     if n.section.properties().any(|p| {
                         p.name().eq_ignore_ascii_case("TextType")
@@ -519,7 +519,7 @@ pub(crate) fn lower_object<'a>(
         }
     }
     // The variables of the request page (`var` in a `requestpage` section) are slots of their own, seen by the
-    // triggers of that request page only (corpus report/lt-ab-request-page-triggers/ABRequestPageExt.al:63).
+    // triggers of that request page only (corpus reports/request-page/ABRequestPageExt.al:63).
     for v in obj.request_page_var_decls() {
         let ty = v.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
         for n in v.names() {
@@ -555,7 +555,7 @@ pub(crate) fn lower_object<'a>(
     if o.kind == ObjKind::Query {
         rec_slot = Some(globals.len());
         // `CurrQuery` in the query's triggers and procedures
-        // (query/TestQueryOnBeforeOpenVariablesContracts.al:75-77).
+        // (queries/TestQueryOnBeforeOpenVariablesContracts.al:75-77).
         lw.globals.insert("currquery".into(), globals.len());
         globals.push(ir::Slot {
             name: "__query".into(),
@@ -705,13 +705,13 @@ pub(crate) fn lower_object<'a>(
         .map(|l| lw.page(oi, (&obj, request_section.as_ref()), l, &globals, &page_reasons[oi]));
     // A report's request page properties (`SaveValues`, `Caption`) read like a page's: the
     // report's own `Caption` wins over the request page's
-    // (corpus handlers/TestReportRequestPageCaption.al).
+    // (corpus reports/TestReportRequestPageCaption.al).
     let mut properties = with_profile_target(ws, oi, object_properties(&obj, request_section.as_ref()));
-    // A tableextension's Caption is the caption of a table that declares none (tableextension/TestTableExtFieldModify.al:
+    // A tableextension's Caption is the caption of a table that declares none (table-objects/extensions/TestTableExtFieldModify.al:
     // 168-178: TableCaption, RecordRef.Caption and AllObjWithCaption of the table). With a Caption on the table too, or on
     // two extensions, which one wins is not pinned: the reads of the caption refuse (`CAPTION_REFUSED`). One extension's Caption
     // over the table's own is the caption the runtime reads (`EXT_CAPTION_OVER_OWN`; corpus writer Y5, branch
-    // al-runtime-rs-staging-y5, tableextension/lt-y5/Y5TestFieldExtCaption.al); AllObjWithCaption of it stays refused.
+    // al-runtime-rs-staging-y5, recordref-fieldref/Y5TestFieldExtCaption.al); AllObjWithCaption of it stays refused.
     if o.kind == ObjKind::Table {
         let ext_captions: Vec<(String, String)> = extensions
             .get(&oi)
@@ -832,11 +832,11 @@ pub(crate) const EXTENSION_PAGE_TRIGGERS: &[&str] = &[
     "onaftergetcurrrecord",
     "onnewrecord",
     // Both the page's and the extensions' answers count, and both must be true to close
-    // (handlers/TestPageCloseTriggersSelectionCardPageContracts.al:
+    // (testpage/TestPageCloseTriggersSelectionCardPageContracts.al:
     // OnQueryClosePage_PageAndExtension_BothRun_AndBothMustAgreeToClose).
     "onqueryclosepage",
     // The test client has no delete operation, and a page action's `Rec.Delete(true)` runs neither the page's nor the
-    // extension's trigger (pageext/lt-pageext-ondeleterecord/PageExtOnDeleteRecord.al:121-206, all four result
+    // extension's trigger (pages/extensions/PageExtOnDeleteRecord.al:121-206, all four result
     // combinations). A client delete is not available, so the trigger never runs here.
     "ondeleterecord",
     // All of them run, the page's first, and an extension's false answer vetoes the insert or the modify (pageext/
@@ -844,7 +844,7 @@ pub(crate) const EXTENSION_PAGE_TRIGGERS: &[&str] = &[
     "oninsertrecord",
     "onmodifyrecord",
     // The page's trigger runs first, then the extension's, for every task, whoever enqueued it; the error trigger hands its
-    // IsHandled on to the next one (pages/lt-uj-outside-leads/UjPageExtBgTask.al, corpus branch al-runtime-rs-staging-uj
+    // IsHandled on to the next one (collections/UjPageExtBgTask.al, corpus branch al-runtime-rs-staging-uj
     // 1dc037a8, al-runner issue 6182; assumption pageext-background-task-triggers until the pin lands).
     "onpagebackgroundtaskcompleted",
     "onpagebackgroundtaskerror",
@@ -880,8 +880,8 @@ pub(crate) fn extension_reasons(exts: &[(usize, ast::Object)]) -> Vec<String> {
                 continue;
             }
             for t in sec.triggers() {
-                // OnAfterAction of a modified action runs after its OnAction, OnBeforeAction before it (pages/lt-pageext-action-after/
-                // PageExtensionActionOnAfterAction.al; OnBeforeAction: pages/lt-ab-tests/ABTests.al:979-1018 and UQ_* on the corpus
+                // OnAfterAction of a modified action runs after its OnAction, OnBeforeAction before it (pages/extensions/
+                // PageExtensionActionOnAfterAction.al; OnBeforeAction: testpage/ABTests.al:979-1018 and UQ_* on the corpus
                 // branch al-runtime-rs-staging-uq at d651ec93; the VM refuses the shapes that file does not pin when the action is invoked).
                 let name = t.name().to_ascii_lowercase();
                 if !MODIFY_TRIGGERS.contains(&name.as_str()) && name != "onafteraction" && name != "onbeforeaction" {
@@ -1071,7 +1071,7 @@ pub(crate) fn time_literal(text: &str) -> Option<i64> {
 }
 
 /// The text of a `Label '...'` declaration, quotes undoubled; of a `TextConst ENU = '...', DEU = '...'` declaration, the
-/// text of the language `ENU` (types/lt-variant/VaTTextConst.al:TextConst_To_Text_Basics: `multi` with DEU, ENU and FRA reads
+/// text of the language `ENU` (types/variant/VaTTextConst.al:TextConst_To_Text_Basics: `multi` with DEU, ENU and FRA reads
 /// as the ENU text), else its first text.
 pub(crate) fn label_text(t: &ast::TypeRef) -> Option<String> {
     let unquote = |text: &str| text[1..text.len() - 1].replace("''", "'");
@@ -1083,7 +1083,7 @@ pub(crate) fn label_text(t: &ast::TypeRef) -> Option<String> {
             .filter_map(|e| e.into_token())
             .find(|k| k.kind() == SyntaxKind::StringLit)?;
         let text = unquote(tok.text());
-        // `MaxLength = n` cuts the text to n characters (text/lt-label-textbuilder/TxCLabel.al:Label_MaxLength).
+        // `MaxLength = n` cuts the text to n characters (text/textbuilder-bigtext/TxCLabel.al:Label_MaxLength).
         let toks: Vec<_> = t
             .syntax()
             .descendants_with_tokens()
@@ -1129,7 +1129,7 @@ fn textconst_entries(t: &ast::TypeRef) -> Vec<(String, String)> {
 
 /// The texts of a `TextConst` whose read depends on the language in force (several languages, or none of them ENU), by
 /// language code in declaration order; `None` for a Label or a TextConst with only an ENU text. A read lowers to
-/// `System.TextConstText#1`, which picks the text when it runs (misc/lt-probe-requests-140/P140TextConstLang.al,
+/// `System.TextConstText#1`, which picks the text when it runs (text/textconst-label/P140TextConstLang.al,
 /// P140TextConstNoEnu.al).
 pub(crate) fn textconst_languages(t: &ast::TypeRef) -> Option<Vec<(String, String)>> {
     if !t.type_name().eq_ignore_ascii_case("textconst") {
@@ -1242,8 +1242,8 @@ pub(crate) fn over_max_length_of(ws: &crate::workspace::Workspace, oi: usize) ->
 }
 
 /// The text properties of `obj` (its controls, fields, columns and actions included) whose text is longer than their
-/// `MaxLength`, as refusal reasons. Only a `Caption` and a Label are pinned (they are cut: record/lt-u-table-field-props/
-/// UTableTextSearch.al:41-44, text/lt-label-textbuilder/TxCLabel.al:282); on any other property whether BC cuts the text is
+/// `MaxLength`, as refusal reasons. Only a `Caption` and a Label are pinned (they are cut: record/table-properties/
+/// UTableTextSearch.al:41-44, text/textbuilder-bigtext/TxCLabel.al:282); on any other property whether BC cuts the text is
 /// not pinned, so the object that holds it is refused where it is used.
 pub(crate) fn over_max_length(obj: &ast::Object) -> Vec<String> {
     obj.syntax()

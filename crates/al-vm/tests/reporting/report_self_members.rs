@@ -1,6 +1,6 @@
 //! A report's own members called without a receiver inside the report (`UseRequestPage(false); RunModal();` in a
 //! procedure of the report). The receiver form `Rep.UseRequestPage(false)` is pinned by
-//! codeunit/TestWriteTxTestBoundary.al:272; AL resolves a bare member name inside an object to the object itself, so
+//! codeunits/TestWriteTxTestBoundary.al:272; AL resolves a bare member name inside an object to the object itself, so
 //! the call without the receiver is the same call. BC compiles it (never reject code BC accepts, ADR-009).
 
 use al_testkit::{boolean, error_message, run_in};
@@ -112,7 +112,7 @@ fn a_bare_run_modal_in_a_trigger_of_the_report_is_refused() {
 }
 
 /// The bare report methods are the `CurrReport.` form, also on a report variable never run and from a report extension
-/// (report/lt-y36-bare-report-member/Y36BareReportMember.al:206-357): UseRequestPage is No for `UseRequestPage = false`,
+/// (reports/bare-report-member/Y36BareReportMember.al:206-357): UseRequestPage is No for `UseRequestPage = false`,
 /// a variable setter is seen by the bare getter, the bare setter in an extension is seen by the variable, ObjectId names
 /// the report, and a bare SetTableView filters the next run.
 const BARE: &str = r#"

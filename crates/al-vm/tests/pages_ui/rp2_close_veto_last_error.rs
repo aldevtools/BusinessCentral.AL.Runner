@@ -1,6 +1,6 @@
 //! TestPage.Close() on a page whose own OnQueryClosePage answers false: Close returns, and the last error is
 //! 'The page cannot be closed at this time.' with the code FormCloseNotAllowed, also inside a TryFunction and over an
-//! earlier error. An allowed close leaves the last error as it was (corpus handlers/TestPageCloseVeto_Tests.al:244-373;
+//! earlier error. An allowed close leaves the last error as it was (corpus testpage/TestPageCloseVeto_Tests.al:244-373;
 //! al-runner issue 5769).
 
 use al_testkit::{run_in, text};

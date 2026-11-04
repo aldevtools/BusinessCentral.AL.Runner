@@ -8,7 +8,7 @@ impl al_builtins::format::FormatCtx for Session {
         self.company_build
     }
     /// The report's language while a report runs (set by a trigger, or by the variable a SaveAs ran: report/
-    /// W3ReportObjectIdPreviewLanguage.al:893 `Ja`; report/lt-bd-format-region/BdRegionTests.al:1036 `mars` in a Run), else the
+    /// W3ReportObjectIdPreviewLanguage.al:893 `Ja`; reports/runtime/BdRegionTests.al:1036 `mars` in a Run), else the
     /// session's.
     fn language(&self) -> i32 {
         self.report
@@ -37,12 +37,12 @@ impl al_builtins::format::FormatCtx for Session {
         Some(t.keys.first()?.iter().map(|&p| t.fields[p].ty.clone()).collect())
     }
     /// `OnInitReport` of a report with the `FormatRegion` property: `Format` there writes en-US, the region is not applied yet
-    /// (report/lt-bd-format-region/BdRegionTests.al:120 BdProperty_De_DatasetAndFormat and the other property tests: every
+    /// (reports/runtime/BdRegionTests.al:120 BdProperty_De_DatasetAndFormat and the other property tests: every
     /// `init=` is the en-US text with `region=[]`). Pinned for the 13 property values of BdRegionReports.al; another region
     /// is refused.
     ///
     /// Outside a report started by Run, `CurrReport.Language :=` another language changes what `Format` writes
-    /// (report/W3ReportObjectIdPreviewLanguage.al:546-557 Language_Set1031_FormatAndColumns, a SaveAs: `Format changed=Ja`),
+    /// (reports/W3ReportObjectIdPreviewLanguage.al:546-557 Language_Set1031_FormatAndColumns, a SaveAs: `Format changed=Ja`),
     /// which is not built.
     fn region_unpinned(&self) -> Option<String> {
         const INIT_PINNED: [&str; 13] = [
@@ -294,7 +294,7 @@ impl al_builtins::native::Ctx for Session {
             .ok()
             .and_then(|o| o.get(&index).map(|r| r.as_ref().clone()))
             .unwrap_or_else(|| app.resources.clone());
-        // BC names the app `<name> by <publisher> <version>` (session/W5NavAppResources.al:GetResourceAsText_NameMatching).
+        // BC names the app `<name> by <publisher> <version>` (session-system/W5NavAppResources.al:GetResourceAsText_NameMatching).
         Some((format!("{} by {} {}", app.name, app.publisher, app.version), resources))
     }
     fn runner_call_stack(&self) -> String {
@@ -326,8 +326,8 @@ impl al_builtins::native::Ctx for Session {
             }
         }
         // While a test method runs, Microsoft's Test Runner app called it: its frames are below the test's, as
-        // `SessionInformation.Callstack` shows them (session/TestSessionInformationCallstackContracts.al:89-97), so its
-        // module comes last (al-runner issue 6248). Pinned by lt-ss1030/SsCallerModulesTestRunner.al:25-52 (corpus PR 830) on
+        // `SessionInformation.Callstack` shows them (session-system/TestSessionInformationCallstackContracts.al:89-97), so its
+        // module comes last (al-runner issue 6248). Pinned by collections/SsCallerModulesTestRunner.al:25-52 (corpus PR 830) on
         // the CI leg that runs tests through the Test Runner app; runs through the server's test runner hub list nothing, a
         // difference of the test runner and not of BC (docs/owner-review.md, 2026-10-30). Its manifest when the run loaded it; else its id, name and publisher
         // and no version (a read of the version is refused).
@@ -352,7 +352,7 @@ impl al_builtins::native::Ctx for Session {
     fn application_module(&self) -> al_builtins::value::ModuleInfoState {
         let bc = self.engine.target.as_ref().map(|t| &t.bc);
         let (major, minor) = bc.map_or((29, 0), |b| (i32::from(b.major), i32::from(b.minor)));
-        // Build and revision of the base application are not zero (session/W5ModuleInfo.al:
+        // Build and revision of the base application are not zero (session-system/W5ModuleInfo.al:
         // ModuleInfo_NullId_Properties); the artifact's own numbers when the run knows them, else 1.
         let (build, revision) = bc
             .and_then(|b| b.build.as_deref())
@@ -378,7 +378,7 @@ impl al_builtins::native::Ctx for Session {
         let parse = |s: &str| ops::parse_guid(s);
         if let Some(i) = apps.iter().position(|a| parse(&a.id).as_ref() == Some(id)) {
             // While an app installs, an app installed after it is not found (corpus branch al-runtime-rs-staging-y3,
-            // install/lt-install-order-subscribers/InstallOrderSubscriberTests.al:90-91: getModuleInfo=No during XApp A's install).
+            // install-upgrade/install-order/InstallOrderSubscriberTests.al:90-91: getModuleInfo=No during XApp A's install).
             let events = &self.events;
             if events
                 .not_installed_apps

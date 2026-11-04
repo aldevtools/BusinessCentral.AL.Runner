@@ -1,5 +1,5 @@
 //! A Modify of a buffer that still holds what its own last Modify wrote, after a rollback undid that write
-//! (corpus record/lt-record-conversion-assumptions/StaleBuffer.al).
+//! (corpus record/StaleBuffer.al).
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -103,7 +103,7 @@ codeunit 69989 M
 }
 "#;
 
-// record/lt-ar-records/ArRecordProbes.al:141-143: the Modify that stores the field's new media removes the Tenant Media row of
+// streams/ArRecordProbes.al:141-143: the Modify that stores the field's new media removes the Tenant Media row of
 // the old one.
 #[test]
 fn modify_that_replaces_a_media_removes_the_old_media() {
@@ -301,7 +301,7 @@ fn a_stale_find_buffer_is_refused_like_a_get_buffer() {
 }
 
 // An Insert of another row of the table after the Commit writes the stale buffer (corpus branch al-runtime-rs-staging-sh,
-// record/lt-sb-stale-own-modify/SbStaleOwnModify.al:692 SH_OwnModify_OneCommit_AnotherRowInsert; al-runner issue 5954).
+// record/crud/SbStaleOwnModify.al:692 SH_OwnModify_OneCommit_AnotherRowInsert; al-runner issue 5954).
 #[test]
 fn a_stale_insert_buffer_after_an_insert_of_another_row_is_written() {
     assert_eq!(text(al_testkit::run_in(RU, "RU", "InsertOtherRowWritten")), "ok");
@@ -314,7 +314,7 @@ fn a_stale_insert_buffer_after_unpinned_steps_is_refused() {
 }
 
 // al-runner issue 5823: the variable's own writes after its own Insert or Get, in the transaction the last Commit closed
-// (record/lt-sb-stale-own-modify/SbStaleOwnModify.al).
+// (record/crud/SbStaleOwnModify.al).
 const OWN: &str = r#"
 table 50110 "Repro Stale Row"
 {
@@ -473,7 +473,7 @@ codeunit 50111 T
 
 #[test]
 fn a_stale_buffer_whose_version_came_from_its_own_write_follows_the_insert_rule() {
-    // record/lt-sb-stale-own-modify/SbStaleOwnModify.al (al-runner issue 5823): the variable's own write in the transaction the last
+    // record/crud/SbStaleOwnModify.al (al-runner issue 5823): the variable's own write in the transaction the last
     // Commit closed (Modify(false) :132-178, Modify(true) :181-213, two Modifies :216-248, Rename :268-298, after another
     // variable's change :301-319, and a Get buffer's own Modify :410-448) makes the stale buffer follow the Insert-buffer rule.
     let run = |p: &str| text(al_testkit::run_in(OWN, "T", p));
@@ -608,7 +608,7 @@ codeunit 50121 T
 
 #[test]
 fn a_stale_buffer_read_by_get_in_the_writing_transaction_follows_the_insert_rule() {
-    // Pinned by record/lt-sb-stale-own-modify/SbStaleOwnModify.al:467-640 (the SF_ tests).
+    // Pinned by record/crud/SbStaleOwnModify.al:467-640 (the SF_ tests).
     let run = |p: &str| text(al_testkit::run_in(GET_TX, "T", p));
     for p in [
         "GetOtherWrite",

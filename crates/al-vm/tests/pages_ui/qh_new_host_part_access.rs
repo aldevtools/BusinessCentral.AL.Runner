@@ -1,4 +1,4 @@
-//! corpus pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al (codeunit 67582, writer QH): a new, unsaved Document host
+//! corpus pages/parts/PartLineBeforeHostKey.al (codeunit 67582, writer QH): a new, unsaved Document host
 //! whose field-linked part shows the rows of the blank key. The first read of a part field or the part's First inserts the host
 //! (page OnInsertRecord, table OnInsert) and the part reads its rows again; Close, OK, the host's New() and a host field read
 //! insert nothing. The fixture objects are the corpus file's.

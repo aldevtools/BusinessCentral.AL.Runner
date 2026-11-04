@@ -1,5 +1,5 @@
 //! Sibling operations (`AddAfterSelf`, `AddBeforeSelf`, `ReplaceWith`) on an element, attribute or document without a
-//! parent (corpus xml/XmlElement.al, xml/lt-xml-attr-doc-http-members/P97AttrEdit.al, P97DocEdit.al, P97DocMisc.al).
+//! parent (corpus xml/XmlElement.al, xml/xml/P97AttrEdit.al, P97DocEdit.al, P97DocMisc.al).
 
 use al_testkit::text;
 
@@ -63,7 +63,7 @@ fn an_element_whose_document_is_no_longer_referenced_is_refused() {
 
 #[test]
 fn an_integer_argument_of_a_sibling_operation_becomes_its_text() {
-    // xml/lt-xml-remaining-node-methods/P104TreeACData.al:198 `c8` (AddAfterSelf(42)), :309 (AddBeforeSelf(42)),
+    // xml/xml/P104TreeACData.al:198 `c8` (AddAfterSelf(42)), :309 (AddBeforeSelf(42)),
     // P104TreeBText.al:321 (ReplaceWith(42)).
     let r = run(
         "Doc := XmlDocument.Create(); E := XmlElement.Create('r'); E.Add(XmlComment.Create('a')); Doc.Add(E);
@@ -93,7 +93,7 @@ fn an_integer_of_four_digits_as_sibling_content_is_refused() {
 
 #[test]
 fn an_unassigned_node_argument_of_a_text_like_node_raises_not_initialized() {
-    // xml/lt-xml-cdata-comment-pi-text/P90CDataEdit.al:404 AfterSelf_UninitialisedArgument (attached `j0`, detached `j1`).
+    // xml/xml/P90CDataEdit.al:404 AfterSelf_UninitialisedArgument (attached `j0`, detached `j1`).
     let src =
         "codeunit 50100 C { procedure F(): Text var E: XmlElement; C: XmlCData; N: XmlNode; S: Text; T: Text; begin
         asserterror XmlCData.Create('x').AddAfterSelf(N); S := GetLastErrorText() + '/' + GetLastErrorCode();

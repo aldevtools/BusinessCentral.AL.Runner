@@ -84,7 +84,7 @@ fn error_and_code(r: Result<Value, Signal>) -> (String, String) {
 }
 
 /// CurrQuery.Open and CurrQuery.Close inside OnBeforeOpen raise QueryIllegalCallInTrigger
-/// (query/lt-ch-query-leads/ChQueryLeads.al:259-290).
+/// (streams/ChQueryLeads.al:259-290).
 #[test]
 fn open_and_close_inside_on_before_open_raise() {
     for routine in ["ModeOpen", "ModeClose"] {
@@ -98,7 +98,7 @@ fn open_and_close_inside_on_before_open_raise() {
 }
 
 /// CurrQuery.Read inside OnBeforeOpen returns false and the outer Open reads every row
-/// (query/lt-ch-query-leads/ChQueryLeads.al:294-301).
+/// (streams/ChQueryLeads.al:294-301).
 #[test]
 fn read_inside_on_before_open_returns_false() {
     assert_eq!(
@@ -108,7 +108,7 @@ fn read_inside_on_before_open_returns_false() {
 }
 
 /// CurrQuery.SaveAsXml inside OnBeforeOpen returns false but writes bytes the corpus does not
-/// show (only their count, query/lt-ch-query-leads/ChQueryLeads.al:271-278): refused.
+/// show (only their count, streams/ChQueryLeads.al:271-278): refused.
 #[test]
 fn save_as_xml_inside_on_before_open_is_refused() {
     match al_testkit::run_in(QUERY_SELF, "C", "ModeSaveAsXml") {
@@ -175,7 +175,7 @@ codeunit 60965 C
 "#;
 
 /// A report data item whose DataItemTableView filters a Date field with const(0D) fails before OnPreReport with
-/// Evaluate of the date '' (report/lt-cj-report-leads/CjDataset.al:190-211; errors/lt-ms-refusals-136/P136Report.al:331-351).
+/// Evaluate of the date '' (streams/CjDataset.al:190-211; record/P136Report.al:331-351).
 #[test]
 fn report_view_const_zero_date_fails_before_on_pre_report() {
     let mut b = al_testkit::Built::from_source(ZERO_DATE_VIEW);
@@ -189,7 +189,7 @@ fn report_view_const_zero_date_fails_before_on_pre_report() {
 }
 
 /// With the answer used, SaveAs answers false and the last error is that Evaluate error
-/// (report/lt-cj-report-leads/CjDataset.al:190-211, ZeroDateView_ConstZeroDate_SaveAsXml).
+/// (streams/CjDataset.al:190-211, ZeroDateView_ConstZeroDate_SaveAsXml).
 #[test]
 fn report_view_const_zero_date_save_as_answers_false_with_the_error() {
     assert_eq!(
@@ -257,7 +257,7 @@ codeunit 60973 C
 
 /// An unqualified call in a data item's trigger and in its column's source runs the procedure of the data item's table,
 /// not the report's of the same name; in a report trigger it runs the report's
-/// (report/lt-cj-report-leads/CjDataset.al:215-241, SameNameProcedure_ExtensionField_SaveAsXml).
+/// (streams/CjDataset.al:215-241, SameNameProcedure_ExtensionField_SaveAsXml).
 #[test]
 fn same_name_procedure_in_a_data_item_runs_the_tables() {
     assert_eq!(

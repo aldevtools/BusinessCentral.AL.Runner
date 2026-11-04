@@ -1,7 +1,7 @@
 //! The `File` data type, on the host file system capability (ADR-006, `al-host::FileSystem`).
 //!
 //! The corpus pins none of this. Its only reach is Base Application report 91 "Export
-//! Consolidation" and the File Management codeunit behind it (handlers/TestPrecompiledOptionCaption.al
+//! Consolidation" and the File Management codeunit behind it (reports/TestPrecompiledOptionCaption.al
 //! and four more files run the report), which need the calls to lower. What runs is what Microsoft
 //! Learn's "File data type" page documents plainly, on a file system that is in memory unless the
 //! command line gives a directory; every assumption is a row in docs/probes-needed.md ("File").
@@ -100,7 +100,7 @@ fn open_file_needed(s: &FileState, what: &str) -> Result<(), Signal> {
 }
 
 /// `Create` and `Open` with no file name raise `MissingFileName`, and on a variable whose file is still open `FileAlreadyOpened`
-/// (al-language-onprem/lt-file-type/FileErrors.al:P110_InvalidPaths `create_empty_name`, `open_empty_name`, `open_in_missing_dir`;
+/// (al-language-onprem/streams/files/file-type/FileErrors.al:P110_InvalidPaths `create_empty_name`, `open_empty_name`, `open_in_missing_dir`;
 /// P110_CreateTwiceWithoutClose). Which of the two wins when both apply is not pinned: the open file is checked first.
 fn already_open_or_nameless(r: Option<&Value>, name: &str) -> Result<(), Signal> {
     if let Some(Value::Library(_, cell)) = r {
@@ -120,9 +120,9 @@ fn already_open_or_nameless(r: Option<&Value>, name: &str) -> Result<(), Signal>
 }
 
 /// A name in a subfolder of `TemporaryPath()` (`\\TEMP\\`) that does not exist: `Create` and `Open` fail with InvalidPath and
-/// "Could not find a part of the path '<path>'." and no folder is made (al-language-onprem/lt-file-type/FileErrors.al:216-241
+/// "Could not find a part of the path '<path>'." and no folder is made (al-language-onprem/streams/files/file-type/FileErrors.al:216-241
 /// P110_InvalidPaths `create_in_missing_dir`, `open_in_missing_dir`, `exists_in_missing_dir`; Windows BC 29.0). Windows names
-/// the path with `\\` for each `/` (FileErrors.al:236, lt-o-system-onprem/OBlobAndSession.al:154); the Linux image keeps the
+/// the path with `\\` for each `/` (FileErrors.al:236, session-system/database-and-blob-operations/OBlobAndSession.al:154); the Linux image keeps the
 /// `/`, a Linux artifact. The in-memory file system has no folders, so every such subfolder is missing there.
 fn missing_folder(c: &dyn Ctx, name: &str) -> Result<(), Signal> {
     let Some(rest) = name.strip_prefix("\\TEMP\\") else {
@@ -344,7 +344,7 @@ fn exists(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 
 fn erase(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let name = path(a, 0)?;
-    // The full text is pinned (al-language-onprem/lt-file-type/FileEraseAndTempPath.al:Erase_EmptyName_FullErrorText; the shorter
+    // The full text is pinned (al-language-onprem/streams/files/file-type/FileEraseAndTempPath.al:Erase_EmptyName_FullErrorText; the shorter
     // FileErrors.al:P110_InvalidPaths `erase_empty_name` cuts it at the quote).
     if name.is_empty() {
         return crate::native::raise("The value cannot be an empty string. (Parameter 'path')", "InvalidPath");
@@ -387,7 +387,7 @@ fn rename(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 
 /// Yes only where real BC on Windows and the Linux container agree (Windows runs 39125184978 BC 27.5 and 39125190236 BC 29.0 of
 /// the corpus repo): a name under `TemporaryPath()` (`\TEMP\`, without `..`), the empty and blank text, and a relative path with
-/// or without a subfolder (al-language-onprem/lt-file-type/FileTemp.al:140-146, FileEraseAndTempPath.al:IsPathTemporary_Paths).
+/// or without a subfolder (al-language-onprem/streams/files/file-type/FileTemp.al:140-146, FileEraseAndTempPath.al:IsPathTemporary_Paths).
 /// Windows answers No for drive-letter paths, UNC paths and `/`, while the Linux container answers Yes for them: that Yes is a
 /// Linux artifact, not BC behavior, so those forms (and every other absolute path) are refused.
 fn is_path_temporary(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {

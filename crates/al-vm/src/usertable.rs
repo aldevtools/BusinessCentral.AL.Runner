@@ -4,7 +4,7 @@
 //! Pinned by the OnPrem corpus app (the topology that asks for unique authentication emails):
 //! - Insert and Modify normalise "Authentication Email" after the table's OnBefore events and
 //!   triggers, so a subscriber reads the raw text and the text it assigns is the one normalised and
-//!   checked (access-control/TestUserAuthEmailTriggerOrder.al:38-143, :146-164).
+//!   checked (permissions/access-control/TestUserAuthEmailTriggerOrder.al:38-143, :146-164).
 //! - A normalised address another ENABLED user carries is refused; a disabled user neither holds
 //!   its address exclusively nor is refused (TestUserAuthEmailTrigger.al:162-204, :207-220,
 //!   :275-319).
@@ -19,7 +19,7 @@
 //! Everything else the server does on a User write is not pinned and is refused when it could matter
 //! (hard rule 4): a Windows Security ID or Application ID on the row, an address form the corpus
 //! does not show, rows in the tables a delete cascades to, and ModifyAll, Rename and Truncate.
-//! The full error texts and codes are pinned for the forms access-control/lt-av-user-insert/AvUserInsertErrors.al shows;
+//! The full error texts and codes are pinned for the forms permissions/access-control/AvUserInsertErrors.al shows;
 //! the other forms keep the fragments the older tests match (`user_checks`).
 
 use crate::Session;
@@ -189,7 +189,7 @@ impl Session {
         // User name: one user per name (TestUserAuthEmailTrigger.al:321-333). The Insert trigger is
         // said to do the same by the corpus header (TestUserAuthEmailTrigger.al:17-18).
         let name = text_of(&row[pos(t, F_NAME)]).to_string();
-        // Full text and code, Insert and Modify alike (access-control/lt-av-user-insert/AvUserInsertErrors.al:79-120).
+        // Full text and code, Insert and Modify alike (permissions/access-control/AvUserInsertErrors.al:79-120).
         if others.iter().any(|r| text_of(&r[pos(t, F_NAME)]) == name) {
             return refuse_code(&format!("{NAME_TAKEN}."), "UserTableUserNameMustBeUnique");
         }
@@ -308,7 +308,7 @@ impl Session {
     }
 
     /// Before a Delete stores. With IsSaaS true (the default environment) the only enabled user holding
-    /// the SUPER role cannot go (staging tests/al-language-onprem/session/PZUserDelete.al:
+    /// the SUPER role cannot go (staging tests/al-language-onprem/session-system/PZUserDelete.al:
     /// DeleteAllUsers_AsTheOnlySuperUser_IsRefused, BC 29.0: the text and the code Dialog). The IsSaaS false
     /// side is not reachable on that tier, so on-prem it stays allowed (unprobed, docs/probes-needed.md).
     pub(crate) fn user_before_delete(&mut self, t: &TableDef, rec: &crate::records::Rec) -> Result<(), Signal> {
@@ -352,7 +352,7 @@ impl Session {
     }
 
     /// After the User row is deleted: its User Property row goes (TestUserDeleteCascadeOrder.al:26-84),
-    /// and so do its Access Control rows (staging tests/al-language-onprem/session/PZUserDelete.al, BC 29.0, with and
+    /// and so do its Access Control rows (staging tests/al-language-onprem/session-system/PZUserDelete.al, BC 29.0, with and
     /// without RunTrigger).
     pub(crate) fn user_after_delete(&mut self, t: &TableDef, rec: &crate::records::Rec) -> Result<(), Signal> {
         let sid = rec.borrow().fields[pos(t, F_SID)].clone();

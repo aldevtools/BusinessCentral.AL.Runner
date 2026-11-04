@@ -668,7 +668,7 @@ fn run_auto(body: &str) -> Result<Value, Signal> {
 }
 
 // corpus record/TestAutoIncrementContracts.al:25 (a zero key is assigned on Insert), and
-// record/TestBCSystemFieldContracts.al:155 / session/TestTransactionContracts.al:104 (the
+// record/TestBCSystemFieldContracts.al:155 / session-system/TestTransactionContracts.al:104 (the
 // counter only moves forward, also after Delete and DeleteAll).
 #[test]
 fn a_zero_key_is_assigned_from_a_counter_that_only_moves_forward() {
@@ -1323,7 +1323,7 @@ fn min_max_and_lookup_accept_text_for_code_and_the_same_enum() {
 #[test]
 fn min_max_and_lookup_into_another_type_are_refused_and_a_lookup_into_another_enum_keeps_the_member() {
     assert!(unsupported(calc_one("MinWrong")).contains("another type"));
-    // corpus record/lt-flowfield-lookup-enum/FlowFieldLookupOtherEnum.al: the looked-up member stays as it is.
+    // corpus record/flowfields/FlowFieldLookupOtherEnum.al: the looked-up member stays as it is.
     assert_eq!(text(calc_one("EnumOther")), "B");
 }
 
@@ -1480,7 +1480,7 @@ fn upperlimit_of_a_flow_filter_with_one_value_is_that_value() {
     assert_eq!(text(r), "-10/30");
 }
 
-// calcfields/lt-upperlimit-error-code/UpperLimitErrorCode.al:107-111,131: upperlimit() of a filter that is more than one
+// record/flowfields/UpperLimitErrorCode.al:107-111,131: upperlimit() of a filter that is more than one
 // range fails with the code DB:NotIntervalFilter.
 #[test]
 fn upperlimit_of_more_than_one_range_fails_with_not_interval_filter() {
@@ -1504,7 +1504,7 @@ fn upperlimit_of_more_than_one_range_fails_with_not_interval_filter() {
     }
 }
 
-// Record.CalcSums of a Duration sums it (record/lt-calcsums-duration/CalcSumsDuration.al), as FieldRef.CalcSum does (FieldRefCalcSumTypes).
+// Record.CalcSums of a Duration sums it (record/flowfields/CalcSumsDuration.al), as FieldRef.CalcSum does (FieldRefCalcSumTypes).
 #[test]
 fn record_calcsums_of_a_duration_field_sums_it_and_so_does_fieldref_calcsum() {
     const T: &str = r#"
@@ -1541,7 +1541,7 @@ table 60010 "ALT Dur"
     assert_eq!(text(r), "5 milliseconds");
 }
 
-// record/lt-temporary-blob/TemporaryBlobAutoCalc.al:Temporary_SetAutoCalcFields_ThenFind: a temporary record with
+// record/temporary/TemporaryBlobAutoCalc.al:Temporary_SetAutoCalcFields_ThenFind: a temporary record with
 // SetAutoCalcFields(Blob) loads the Blob on Find, FindFirst, Get and FindSet.
 #[test]
 fn set_auto_calc_fields_of_a_blob_on_a_temporary_record_loads_it() {
@@ -1572,7 +1572,7 @@ table 60011 "ALT TB"
     assert_eq!(text(r), "Yes5|Yes5");
 }
 
-// record/lt-testfield-blob-decimal/TestFieldBlobDecimal.al:TestField_Blob_StoredContent: TestField of a Blob passes after Get
+// record/testfield/TestFieldBlobDecimal.al:TestField_Blob_StoredContent: TestField of a Blob passes after Get
 // without CalcFields when the row holds content, and fails once the saved content was cleared.
 #[test]
 fn test_field_of_a_blob_after_get_without_calcfields_passes_when_the_row_holds_content() {
@@ -1608,7 +1608,7 @@ table 60012 "ALT TFB"
 
 /// al-runner issues 5575 and 5745: a CalcFormula filter written as one quoted literal with ranges, unions, `&`, `<>` and `>=`
 /// in it is read as the filter its content spells, the same as the unquoted form; on a Code and a Text field the ranges compare
-/// as text (`'200'..'299'` holds `250`, `25` and `2000`), on an Integer field as numbers (corpus calcfields/W4CalcFields.al:455
+/// as text (`'200'..'299'` holds `250`, `25` and `2000`), on an Integer field as numbers (corpus record/flowfields/W4CalcFields.al:455
 /// RO_CalcFormula_QuotedRangesAndUnions, :508 RO_CalcFormula_QuotedUnion_Repro, fixtures RoCalcFormulaRanges.al).
 #[test]
 fn a_calc_formula_filter_quoted_whole_with_ranges_reads_as_the_filter() {
@@ -1704,7 +1704,7 @@ codeunit 50115 C
 }
 
 /// `filter(<> 0D)`, `filter(<>0D)` and `filter(0D)` on a Date field of the source table match the dated and the empty rows
-/// (record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al:45,93-103 and :119-128).
+/// (record/flowfields/CalcFormulaDateLiteral.al:45,93-103 and :119-128).
 #[test]
 fn a_calcformula_filter_on_the_empty_date_literal_counts_dated_and_empty_rows() {
     let src = r#"
@@ -1743,7 +1743,7 @@ codeunit 69952 C
 }
 
 /// `filter(= 0D)` and `filter(=0D)` on a Date field match the empty rows, in count and exist, and a FlowField over a
-/// FlowField that counts with that filter reads it (record/lt-calcformula-date-literal/
+/// FlowField that counts with that filter reads it (record/flowfields/
 /// CalcFormulaDateLiteral.al:47-61,76-95 and :205-240 EqualsEmptyDate_Rows_Result, _OnlyDatedRows_Result, :243-280
 /// EqualsEmptyDate_Chained_GroupOverFlowField).
 #[test]
@@ -1800,7 +1800,7 @@ codeunit 69956 C
 
 /// A CalcFormula filter written as one quoted literal is read as the filter its content spells: `'<>'''''` is `<>''`,
 /// `''''''` is `''`, `'''x|y'''` the literal x|y, `'x|y'` the union, and `*` stays a wildcard inside quotes
-/// (corpus calcfields/W4CalcFields.al:396 QZ_CalcFormula_QuotedLiteralFilters, fixtures QzCalcFormulaQuotedFilter.al).
+/// (corpus record/flowfields/W4CalcFields.al:396 QZ_CalcFormula_QuotedLiteralFilters, fixtures QzCalcFormulaQuotedFilter.al).
 #[test]
 fn a_calc_formula_filter_quoted_whole_reads_its_content_as_the_filter() {
     let src = r#"

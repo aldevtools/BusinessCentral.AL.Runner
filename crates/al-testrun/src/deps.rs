@@ -269,7 +269,7 @@ pub fn load_with_extra(
 }
 
 /// `project` with the apps BC's test environment has installed although no test app declares them: Microsoft's Test
-/// Runner app, whose codeunits run every test (corpus permissions/lt-ba-testpermissions/BaTpEnv.al:28: AllObj has
+/// Runner app, whose codeunits run every test (corpus permissions/testpermissions/BaTpEnv.al:28: AllObj has
 /// 130450-130455 on BC 27, 28 and 29; Microsoft's own recipe builds it with the test apps, BCApps
 /// `build/projects/Apps W1/.AL-Go/settings.json:120`). It is an optional root, looked up like a declared dependency (the
 /// project's packages, `--deps`, the artifact feed when a build is chosen anyway); a run that finds no package for it
@@ -507,7 +507,7 @@ mod tests {
     }
 
     /// BC's test environment has Microsoft's Test Runner app installed although no test app declares it
-    /// (corpus permissions/lt-ba-testpermissions/BaTpEnv.al:28: AllObj has codeunits 130450-130455). The run loads it
+    /// (corpus permissions/testpermissions/BaTpEnv.al:28: AllObj has codeunits 130450-130455). The run loads it
     /// from the same search list as the declared dependencies.
     #[test]
     fn the_test_runner_app_is_loaded_although_the_project_does_not_declare_it() {

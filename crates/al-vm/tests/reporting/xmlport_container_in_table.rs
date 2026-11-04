@@ -1,5 +1,5 @@
 //! XmlPort import of a text element that only holds field elements (a container) inside a table element, with the container's
-//! MinOccurs at its default (Once) and at Zero (misc/lt-y13-triage/Y13XmlPortContainer.al:115-163, corpus master): complete rows
+//! MinOccurs at its default (Once) and at Zero (xmlports/Y13XmlPortContainer.al:115-163, corpus master): complete rows
 //! import; a container that comes twice in one row gives one row with the values of the last; an empty row is a schema error
 //! with Once and one row of default values with Zero.
 

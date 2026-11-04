@@ -12,7 +12,7 @@ fn refused(r: Result<Value, Signal>, needle: &str) {
 }
 
 /// An `Error('')` out of a table field's OnValidate during `TestPage.SetValue` ends the SetValue quietly on a List and a Card,
-/// and the row keeps its value (pages/lt-qi-empty-error/QiEmptyErrorPages.al:342-414); on another page type it is not pinned.
+/// and the row keeps its value (pages/empty-error-text/QiEmptyErrorPages.al:342-414); on another page type it is not pinned.
 #[test]
 fn an_empty_error_out_of_a_table_on_validate_during_set_value_is_quiet_on_list_and_card_only() {
     let src = r#"
@@ -80,7 +80,7 @@ codeunit 69968 C
 }
 
 /// A list whose repeater (not the page) says `Editable = false` shows no blank new-row line: Next on the last row answers false
-/// (pinned since corpus branch al-runtime-rs-staging-y65, pages/lt-y65-readonly-repeater/Y65ReadOnlyRepeater.al:255; the cases
+/// (pinned since corpus branch al-runtime-rs-staging-y65, pages/readonly-repeater/Y65ReadOnlyRepeater.al:255; the cases
 /// are in `read_only_repeater_new_line.rs`; an Editable expression other than page variables stays refused there).
 #[test]
 fn a_list_whose_repeater_is_read_only_has_no_blank_line() {

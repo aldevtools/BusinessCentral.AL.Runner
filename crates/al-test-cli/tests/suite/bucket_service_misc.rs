@@ -18,7 +18,7 @@ table 62902 "BS Selection" { fields { field(1; Id; Integer) { } field(2; Usage; 
 "#;
 
 // Base Application's Report Selections.GetCustomReportSelectionByUsageFilter: SetFilter(Usage, <GetFilter(Usage)>), the caption.
-// Pinned by record/lt-enum-filter-caption/EnumFilterByCaption.al (a filter by caption, by name, and the round trip).
+// Pinned by record/filters/EnumFilterByCaption.al (a filter by caption, by name, and the round trip).
 #[test]
 fn an_enum_filter_written_by_get_filter_finds_the_same_rows_again() {
     passes(
@@ -45,7 +45,7 @@ table 62913 "BS Period" { fields { field(1; Id; Integer) { } field(2; "Header No
 "#;
 
 // Base Application's VAT Return Period: "VAT Return Status" (an Enum) looks up "VAT Report Header".Status (another Enum).
-// Pinned by record/lt-flowfield-lookup-enum/FlowFieldLookupOtherEnum.al (the looked-up member stays as it is).
+// Pinned by record/flowfields/FlowFieldLookupOtherEnum.al (the looked-up member stays as it is).
 #[test]
 fn a_flowfield_looks_up_a_field_of_another_enum() {
     passes(
@@ -74,7 +74,7 @@ fn a_notification_takes_its_id_from_a_text() {
 }
 
 // Library - Variable Storage.DequeueDecimal hands back what a test page handler enqueued as the control's text.
-// Pinned by types/lt-variant-time-enum/VariantTextTimeEnumFilter.al:Variant_Text_ToDecimal.
+// Pinned by types/date-time/VariantTextTimeEnumFilter.al:Variant_Text_ToDecimal.
 #[test]
 fn a_text_variant_converts_into_a_decimal() {
     passes(

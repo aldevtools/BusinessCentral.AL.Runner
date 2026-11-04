@@ -1,7 +1,7 @@
 //! `SourceTableView` on a table element. On import it changes nothing: a row the view's filter leaves out is imported
-//! as any other (corpus platform/lt-ag-contoso/AgXmlPortImport.al:62-80, :298-309); a filtered view on a linked element is
+//! as any other (corpus metadata/platform-tables/AgXmlPortImport.al:62-80, :298-309); a filtered view on a linked element is
 //! not pinned on import. On export the rows are read in the view's order and through its filter
-//! (xmlport/lt-ra-xmlport/RaXmlPortExport.al:622-805); a filter on an element that is not linked is not pinned there.
+//! (xmlports/shapes-properties/RaXmlPortExport.al:622-805); a filter on an element that is not linked is not pinned there.
 
 use al_builtins::native::Signal;
 use al_testkit::run;

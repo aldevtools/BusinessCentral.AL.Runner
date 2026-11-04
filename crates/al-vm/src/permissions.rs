@@ -52,7 +52,7 @@ const PERMISSIONS_MOCK: u32 = 131_006;
 
 /// The system objects whose `GetEffectivePermission` answer the corpus measured (Y90PermSystem.al:217-241, Y93WildEffective.al):
 /// Execute follows `system * = X`, and with no set assigned every one has it. An id outside the list is not measured (id 0 has
-/// nothing, session/W6EnvironmentHelpers.al:116-117), so it refuses.
+/// nothing, session-system/W6EnvironmentHelpers.al:116-117), so it refuses.
 pub(crate) const SYSTEM_OBJECTS_MEASURED: [u32; 6] = [5310, 5810, 5820, 6110, 9026, 9100];
 
 /// The refusal of a test that lowers its permissions while no access kind is enforced.
@@ -1490,7 +1490,7 @@ impl Session {
     fn denial_error(&self, access: Access, text_word: &str, code_word: &str, by: usize) -> Signal {
         // A test that reaches a report the runtime cannot run is refused at its first denied read: its report would
         // refuse it later, after the code between had changed what a later test of the codeunit observes
-        // (report/lt-u-report-props/UPropertyTests.al Report_RequestPagePermissions_AndInherentPermissions and the test
+        // (reports/runtime/UPropertyTests.al Report_RequestPagePermissions_AndInherentPermissions and the test
         // after it, Query_InherentPermissions_UnderTheMock). Report permissions are not pinned (P17).
         if let Some(why) = &self.report_refusal_after_denial {
             return Signal::Unsupported(unpinned_denial(

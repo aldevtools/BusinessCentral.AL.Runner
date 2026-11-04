@@ -1,6 +1,6 @@
 //! What a test codeunit under runner 130450 leaves for the later codeunits besides what its OnRun trigger wrote: the numbers
 //! its tests took from older number sequences. The codeunit's rollback does not give them back, while it drops the tests'
-//! new sequences and their isolated storage writes (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al:30-31,
+//! new sequences and their isolated storage writes (testlibraries test-framework/onrun-storage/Y35OnRunStorage.al:30-31,
 //! C302_B2_TestWritesStorage :447-457).
 
 use super::run::{CARRIED, Carried};

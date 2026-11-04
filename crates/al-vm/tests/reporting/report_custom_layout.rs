@@ -1,6 +1,6 @@
 //! `Report.SaveAs` of a report whose rendering layout is `Type = Custom`: the platform's `CustomDocumentMergerEx` is raised
 //! with the layout file, and a subscriber that reads the ObjectPayload is refused (corpus topic #176). The raise itself
-//! is the assumption custom-layout-merger; handlers/TestReportLayoutByNameMergerCapture.al pins the subscriber's shape.
+//! is the assumption custom-layout-merger; streams/TestReportLayoutByNameMergerCapture.al pins the subscriber's shape.
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -97,7 +97,7 @@ fn a_subscriber_that_does_not_read_the_payload_renders_the_layout_text() {
 }
 
 /// The ObjectPayload holds 19 keys in this order, with the report's caption, the format's mime type, the layout's name
-/// and mime type (report/lt-report-layout-merger/ReportMergerPayload.al:37-38, :119; ReportMergerLayoutChoice.al:94).
+/// and mime type (reports/layouts-saveas/ReportMergerPayload.al:37-38, :119; ReportMergerLayoutChoice.al:94).
 #[test]
 fn the_payload_holds_the_pinned_keys_and_values() {
     let body = "foreach K in ObjectPayload.Keys() do Keys += K + ',';
@@ -147,7 +147,7 @@ fn raw_key(key: &str, save: &str) -> String {
 }
 
 /// invokeddatetime is the clock as `yyyy-mm-ddThh:mm:ss.fff+hh:mm`, an offset and not `Z`
-/// (report/lt-report-layout-merger/ReportMergerUnmasked.al:229-245, Payload_Unmasked_InvokedDateTime).
+/// (reports/layouts-saveas/ReportMergerUnmasked.al:229-245, Payload_Unmasked_InvokedDateTime).
 #[test]
 fn invokeddatetime_has_an_offset() {
     let t = raw_key("invokeddatetime", STATIC_SAVE);

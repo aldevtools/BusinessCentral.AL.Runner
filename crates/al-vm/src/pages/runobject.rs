@@ -6,11 +6,11 @@ use super::*;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::record_op::RecordOp;
 
-/// Filter group `RunPageLink` filters land in (corpus handlers/TestActionRunPageLinkFilterGroup.al:
+/// Filter group `RunPageLink` filters land in (corpus testpage/TestActionRunPageLinkFilterGroup.al:
 /// `g0=AAA|g2=|g4=`, unlike a part's SubPageLink).
 const RUN_LINK_GROUP: i32 = 0;
 /// Filter group the `where(...)` of `RunPageView` lands in (corpus
-/// handlers/TestPageActionRunPageView.al:RunPageView_Where_FiltersTheOpenedPage, `g3=KEEP`).
+/// testpage/TestPageActionRunPageView.al:RunPageView_Where_FiltersTheOpenedPage, `g3=KEEP`).
 const RUN_VIEW_GROUP: i32 = 3;
 
 impl Session {
@@ -25,7 +25,7 @@ impl Session {
             return unsupported(format!("RunObject action: {why}"));
         }
         // The test surface refuses these three before it looks at the target (corpus
-        // handlers/TestPageActionRunObjectKinds_Tests.al: RunObjectNamingAReportIsRefusedByTheTestPageSurface,
+        // testpage/TestPageActionRunObjectKinds_Tests.al: RunObjectNamingAReportIsRefusedByTheTestPageSurface,
         // ...ReportWithNoRequestPageIsRefusedTheSameWay, ...AnXmlPortIsRefused..., ...AQueryIsRefusedBeforeItsMetadataIsResolved;
         // the same texts for objects of a precompiled app: ...KindsPrecompiled_Tests.al).
         match ro.kind {
@@ -44,8 +44,8 @@ impl Session {
 
     /// A codeunit target runs on the host's own record, filters and position included, whether or
     /// not `RunPageOnRec` is declared: what the codeunit moves or writes the host shows (corpus
-    /// handlers/TestPageActionRunObjectKinds_Tests.al:RunObjectNamingACodeunitRunsItOnTheHostsRow,
-    /// ...WithRunPageOnRecIsHandedTheHostsRow; handlers/TestPageActionRunObjectCodeunitRec_Tests.al).
+    /// testpage/TestPageActionRunObjectKinds_Tests.al:RunObjectNamingACodeunitRunsItOnTheHostsRow,
+    /// ...WithRunPageOnRecIsHandedTheHostsRow; testpage/TestPageActionRunObjectCodeunitRec_Tests.al).
     fn run_object_codeunit(&mut self, st: &St, ro: &ir::RunObject) -> Result<(), Signal> {
         let engine = self.engine();
         let cu = ro.object.expect("a codeunit target");
@@ -88,7 +88,7 @@ impl Session {
         // What the codeunit did to the host's row is shown like the effects of an OnAction.
         self.settle_after_action(st)?;
         // A list whose edit was saved before the codeunit reads its rows again first, then its row as below
-        // (pages/lt-y45-save-before-action/Y45SaveBeforeAction.al:431 List_SetName_RunObjectCodeunit `cu H1 ...;R H1;R H2;R H1;R H1;C H1`).
+        // (pages/actions/Y45SaveBeforeAction.al:431 List_SetName_RunObjectCodeunit `cu H1 ...;R H1;R H2;R H1;R H1;C H1`).
         // A Document host saved that way reads its parts after its row (:670 Doc_SetName_RunObjectCodeunit `...;R H1;C H1;lC 10000`).
         let saved = std::mem::take(&mut st.borrow_mut().saved_before_run_object);
         if saved && self.is_list(st) {
@@ -99,7 +99,7 @@ impl Session {
             }
         }
         // The host reads its row again after a codeunit, even one that wrote nothing
-        // (handlers/TestPageRunObjectContracts.al:248-270).
+        // (testpage/TestPageRunObjectContracts.al:248-270).
         self.reread_host_row(st, true)?;
         if saved && !self.is_list(st) && st.borrow().open && !st.borrow().parts.is_empty() {
             self.sync_parts(st)?;
@@ -110,8 +110,8 @@ impl Session {
     /// A page target opens like `Page.Run` does, except in two things: the page opens and runs
     /// its OnOpenPage (and OnNewRecord) before BC looks for a handler, and nothing bound is no
     /// error for an ordinary page, while a dialog is refused afterwards (corpus
-    /// handlers/TestPageActionRunObjectNoHandler_Tests.al: arms 1 and 7-9;
-    /// handlers/TestPageCreateModeNewRecordArgs.al:ActionCreate_NoHandler_*, DialogCreate_NoHandler_*).
+    /// testpage/TestPageActionRunObjectNoHandler_Tests.al: arms 1 and 7-9;
+    /// testpage/TestPageCreateModeNewRecordArgs.al:ActionCreate_NoHandler_*, DialogCreate_NoHandler_*).
     pub(super) fn run_object_page(&mut self, st: &St, ro: &ir::RunObject) -> Result<(), Signal> {
         let engine = self.engine();
         let target = ro.object.expect("a page target");
@@ -125,7 +125,7 @@ impl Session {
         // RunObjectActionToAStandardDialogTargetIsAnsweredByTheModalHandler). Other page types are
         // not pinned.
         // List, Document, Worksheet and ListPlus targets are answered by a PageHandler; a
-        // NavigatePage by a ModalPageHandler (handlers/TestPageRunObjectContracts.al:288-326).
+        // NavigatePage by a ModalPageHandler (testpage/TestPageRunObjectContracts.al:288-326).
         let modal = match page_type.as_str() {
             "standarddialog" | "navigatepage" => true,
             "card" | "list" | "document" | "worksheet" | "listplus" => false,
@@ -137,7 +137,7 @@ impl Session {
             ir::RunMode::Create => PageMode::New,
         };
         // A page caught by TestPage.Trap() is not answered by a handler (corpus
-        // handlers/TestPageActionRunPageMode.al:RunPageModeCreate_Trapped_Triggers).
+        // testpage/TestPageActionRunPageMode.al:RunPageModeCreate_Trapped_Triggers).
         let mut target_state = Rc::new(RefCell::new(PageState::closed(target as u32)));
         let mut trapped = false;
         if !modal {
@@ -162,9 +162,9 @@ impl Session {
         let record = self.run_object_record(st, &target_state, ro, mode)?;
         // What Rec holds in the target's OnOpenPage when only `RunPageLink` hands it the host's values: real BC fills the linked
         // fields and GetFilters() reads '' (corpus issue 712), the runtime holds the link as a filter. The corpus pins GetFilter
-        // per filter group there (handlers/TestActionRunPageLinkFilterGroup.al:119-131); the other reads refuse
+        // per filter group there (testpage/TestActionRunPageLinkFilterGroup.al:119-131); the other reads refuse
         // (records.rs run_page_link_open_op).
-        // A link of field(filter(...)) entries only is a filter in group 0 there, which GetFilters reads (pages/lt-y37-link-filter/
+        // A link of field(filter(...)) entries only is a filter in group 0 there, which GetFilters reads (pages/link-filter/
         // Y37LinkFilterTests.al:357-383 `LL.open f0=[No.: A1|A3]`).
         let field_filters_only = ro
             .link
@@ -197,7 +197,7 @@ impl Session {
                 // BC refuses a dialog nobody answers, after it opened (NoHandler_Tests.al arms 7 and 8).
                 self.mark_closed(&target_state);
                 let id = obj.id.unwrap_or(0);
-                // Code: handlers/TestPageRunObjectContracts.al:228-240.
+                // Code: testpage/TestPageRunObjectContracts.al:228-240.
                 Err(error_code(
                     format!("TestPages that are invoked from a RunObject action must have a handler. Page No. = {id}"),
                     "TestPageInvokedWithoutHandler",
@@ -206,7 +206,7 @@ impl Session {
             None => {
                 // An ordinary page opens with nobody to answer it and AL is told nothing: it ran
                 // OnInit and OnOpenPage and is dropped without its close triggers
-                // (handlers/TestPageRunObjectContracts.al:330-346, TestPageActionRunObjectNoHandler_Tests.al arm 1).
+                // (testpage/TestPageRunObjectContracts.al:330-346, TestPageActionRunObjectNoHandler_Tests.al arm 1).
                 self.mark_closed(&target_state);
                 Ok(())
             }
@@ -215,14 +215,14 @@ impl Session {
         answered?;
         self.settle_after_action(st)?;
         // A page target that wrote nothing leaves the host as it was; one that wrote makes the host
-        // read its row again (handlers/TestPageRunObjectContracts.al:228-246, :194-215).
+        // read its row again (testpage/TestPageRunObjectContracts.al:228-246, :194-215).
         self.reread_host_row(st, false)
     }
 
     /// What an action's `RunPageLink` fills into the target's Rec before its OnOpenPage, in the shape the corpus pins: a List
     /// or Card target, no `RunPageView`, every entry `field(...)` or `const(...)` of a Code, Text or Integer field. Real BC
     /// fills the linked fields there and leaves the others blank, with or without a matching row
-    /// (handlers/TestActionRunPageLinkFilterGroup.al:292 QZ_RunPageLink_RecInOnOpenPage_List_Handler, :313 _List_Trap,
+    /// (testpage/TestActionRunPageLinkFilterGroup.al:292 QZ_RunPageLink_RecInOnOpenPage_List_Handler, :313 _List_Trap,
     /// :333 _Card_Trap, :354 _Const, :369 _NoHandler; `open code=P1 number=7 line=0 note=`). With it come the link's filters,
     /// which a by-value copy of Rec does not carry (`filters=`). `None`: another shape, whose Rec stays not pinned.
     fn run_page_link_fill(
@@ -232,7 +232,7 @@ impl Session {
         page_type: &str,
     ) -> Result<Option<al_builtins::value::RunPageLinkFill>, Signal> {
         let Some(link) = &ro.link else { return Ok(None) };
-        // A ListPlus, Document and Worksheet target behave as a List or Card (pages/lt-y41-page-probes/Y41RunPageLinkOnOpen.al:440,
+        // A ListPlus, Document and Worksheet target behave as a List or Card (testpage/Y41RunPageLinkOnOpen.al:440,
         // :571, :589).
         if !matches!(page_type, "list" | "card" | "listplus" | "document" | "worksheet") {
             return Ok(None);
@@ -290,7 +290,7 @@ impl Session {
             // Filter: P1`), and so does a Date FlowFilter whose host filter is a range (pages/lt-y61-page-probes/
             // Y61RunPageLinkCopyFilter.al:407 G616_FlowFilterLink_CopyFilter `getfilter date=03/01/24..03/31/24`, `code=P1`). A
             // FlowFilter of Code, Integer or Date from a host FlowFilter keeps the host's filter, an expression too, and one the host
-            // has no filter on adds none (pages/lt-y72-page-probes/Y72RunPageLinkFlowFilter.al header, `HasFilter Yes`).
+            // has no filter on adds none (testpage/Y72RunPageLinkFlowFilter.al header, `HasFilter Yes`).
             let flow_filter = self.engine.field_facts[table.object as usize][pf].class == ir::FieldClass::FlowFilter;
             let ty = &table.fields[pf].ty;
             if flow_filter
@@ -328,7 +328,7 @@ impl Session {
     /// an expression, of a Code, Integer or Date FlowFilter; a host without a filter on F adds no filter (pages/lt-y72-page-probes/
     /// Y72RunPageLinkFlowFilter.al header: Link_CodeFlowFilter_HostUnfiltered `Code: P1`, _HostOneValue `Dim Filter: D1`,
     /// _HostExpression `D1|D2` `<>D1`, Link_IntegerFlowFilter, Link_DateFlowFilter_HostUnfiltered;
-    /// pages/lt-y61-page-probes/Y61RunPageLinkCopyFilter.al:407 G616_FlowFilterLink_CopyFilter `getfilter date=03/01/24..03/31/24`).
+    /// testpage/Y61RunPageLinkCopyFilter.al:407 G616_FlowFilterLink_CopyFilter `getfilter date=03/01/24..03/31/24`).
     /// `None` for a host field that is no FlowFilter, `Some(None)` for no filter. Two filters on the host field, and a target field
     /// of another type than the host's, are refused (not pinned).
     fn link_of_host_flow_filter(
@@ -381,12 +381,12 @@ impl Session {
         // shows `id=0 filters=Grp: 2`, RunPageOnRec the host's row 3 and no filters, RunPageView no filters). On a List, RunPageLink
         // and the target's view both apply, a sorting order(descending) view opens on its first row in that order, a where view on
         // its first row, and the action's RunPageView where filter is added while its sorting does not replace the target's
-        // (pages/lt-rz-outside-page-moves/RzRunPageLinkView.al, the RZ_Link_* tests). RunPageOnRec, and RunPageView without
+        // (testpage/RzRunPageLinkView.al, the RZ_Link_* tests). RunPageOnRec, and RunPageView without
         // RunPageLink, on such a List are not pinned: an assumption.
         let target_view = al_ir::ObjectFacts::of(obj).has_source_table_view;
         // RunPageMode = Create beside them: the target's OnOpenPage sees the handed record, then the new row starts blank,
         // a linked field stamped (pages/W1RunObject.al:388 Create_WithOnRec_Link_View, a Card: `id=3`, `filters=Grp: 2`,
-        // `filters=`; misc/lt-probes-needed-7/PnGRunObjectOptions.al:65 CreateModeCombinations, a Card with RunPageOnRec
+        // `filters=`; testpage/PnGRunObjectOptions.al:65 CreateModeCombinations, a Card with RunPageOnRec
         // `Card.OnNewRecord;Card.AGCR(,)`, :89 CreateModeWithLinkAndView, a List with RunPageLink `List.AGCR(RP2,RP2)` and with
         // RunPageView `List.AGCR(,)`). A List with RunPageOnRec, or a target with SourceTableView, is not pinned.
         if mode == PageMode::New && (target_view || (ro.on_rec && self.is_list(target))) {
@@ -410,8 +410,8 @@ impl Session {
         if ro.on_rec {
             // The target's Rec is the STORED row, not what the host's page code left in its buffer,
             // and it carries none of the host's filters (corpus
-            // handlers/TestPageActionRunObjectPageStoredRow_Tests.al:TargetOnOpenPageSeesHostRow,
-            // handlers/TestPageActionRunObjectPageRec_Tests.al:FilteredHostTargetRowSet).
+            // testpage/TestPageActionRunObjectPageStoredRow_Tests.al:TargetOnOpenPageSeesHostRow,
+            // testpage/TestPageActionRunObjectPageRec_Tests.al:FilteredHostTargetRowSet).
             let Some(host_rec) = &host_rec else {
                 return unsupported("RunPageOnRec from a page without a source table");
             };
@@ -427,7 +427,7 @@ impl Session {
         if let Some(link) = &ro.link {
             for entry in &link.entries {
                 // `field(filter(F))`: the host's value as a filter text in filter group 0, no filter when it is blank
-                // (pages/lt-y37-link-filter/Y37LinkFilterTests.al:357-383 `LL.open f0=[No.: A1|A3]`).
+                // (pages/link-filter/Y37LinkFilterTests.al:357-383 `LL.open f0=[No.: A1|A3]`).
                 if let ir::LinkEntry::FieldFilter(pf, hf) = entry {
                     let Some(host_rec) = &host_rec else {
                         return unsupported("RunPageLink from a page without a source table");
@@ -457,7 +457,7 @@ impl Session {
                             return unsupported("RunPageLink from a page without a source table");
                         };
                         // The host's current row; a host that shows no row links to the blank value
-                        // (as a part's link does, testpart/TestPartProviderMove.al).
+                        // (as a part's link does, testpage/parts/TestPartProviderMove.al).
                         if let Some(expr) = self.link_of_host_flow_filter(host_rec, *hf, &ty)? {
                             let Some(expr) = expr else {
                                 continue;
@@ -475,7 +475,7 @@ impl Session {
                         }
                     }
                     ir::LinkEntry::Filter(pf, text) => {
-                        // An empty term selects the rows whose field is blank (pages/lt-ao-testpage/AoTests.al:513-560 RunPageLink, :845-887
+                        // An empty term selects the rows whose field is blank (testpage/AoTests.al:513-560 RunPageLink, :845-887
                         // SubPageLink).
                         let ty = table.fields[*pf].ty.clone();
                         let expr = self
@@ -510,7 +510,7 @@ impl Session {
 
     /// After a page target closed: the host shows its current row as stored now, and its
     /// OnAfterGetRecord and OnAfterGetCurrRecord ran again for it. The row it holds in `xRec` stays
-    /// the one it loaded (corpus handlers/TestPageActionRunObjectPageRec_Tests.al:
+    /// the one it loaded (corpus testpage/TestPageActionRunObjectPageRec_Tests.al:
     /// HostSaveAfterTheTargetEditedTheRowCarriesXRec, HostOnAfterGetRecordAfterTheTargetWroteTheRow).
     /// Whether the triggers also run when the target wrote nothing is not pinned.
     fn reread_host_row(&mut self, st: &St, always: bool) -> Result<(), Signal> {

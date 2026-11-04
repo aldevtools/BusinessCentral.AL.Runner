@@ -1,5 +1,5 @@
 //! Nested table elements without LinkTable (corpus writer TU's branch al-runtime-rs-staging-tu,
-//! xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TU_NestedTemp_*, TU_NestedReal_*, xmlports 90128/90129): each
+//! xmlports/shapes-properties/QrXpContainerOccurs.al TU_NestedTemp_*, TU_NestedReal_*, xmlports 90128/90129): each
 //! pass starts without filters (a filter OnPreXmlItem set at one pass is gone at the next) and keeps the record's row;
 //! `MinOccurs = Once` without rows writes the record as it stands and runs the elements below; `MaxOccurs = Once` writes the
 //! first row and leaves the record on the second.

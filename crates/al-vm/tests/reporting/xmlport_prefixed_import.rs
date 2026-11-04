@@ -1,5 +1,5 @@
 //! An import into a port whose Root text element and table element both carry a NamespacePrefix fails with the empty-prefix
-//! error, whatever the document (corpus xmlport/lt-xmlport-query-datatransfer/XpTNamespaces.al:44-97 Import_Prefixed*, :186
+//! error, whatever the document (corpus xmlports/import/XpTNamespaces.al:44-97 Import_Prefixed*, :186
 //! Export_PrefixedNamespace_Utf16, :231 Import_PrefixedAsExported). Nothing is inserted.
 
 use al_builtins::native::Signal;

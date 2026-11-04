@@ -14,7 +14,7 @@ use rust_decimal::prelude::ToPrimitive;
 
 /// Whether `t` is a short list of numbers: two or three pieces of digits (one may hold a point) or nothing, with blanks around them,
 /// joined by one of `;`, `|`, `:`, `/` or `&` used throughout. Format number 0 rejects such a text for Decimal, Integer and BigInteger
-/// (types/lt-bl-evaluate-lists/EvaluateLists.al:13-29 Inputs, :48-142: `1;5;10`, `1;`, `;1`, `;`, `1|5|10`, `1:5`, `1/5`, `1&5`,
+/// (format-evaluate/EvaluateLists.al:13-29 Inputs, :48-142: `1;5;10`, `1;`, `;1`, `;`, `1|5|10`, `1:5`, `1/5`, `1&5`,
 /// `1;5.5`, ` 1 ; 5 `). Longer lists and mixed separators are not pinned.
 fn number_list(t: &str) -> bool {
     let Some(sep) = t.chars().find(|c| matches!(c, ';' | '|' | ':' | '/' | '&')) else {
@@ -32,12 +32,12 @@ fn number_list(t: &str) -> bool {
 }
 
 /// Blanks `Evaluate` drops around a number: spaces, tab, carriage return and line feed
-/// (types/lt-evaluate-decimal/EvaluateDecimal.al:QR_Evaluate_WhiteSpace_Number0, _Number9, QR_Evaluate_Integer_OddCharacters `int tab`).
+/// (format-evaluate/EvaluateDecimal.al:QR_Evaluate_WhiteSpace_Number0, _Number9, QR_Evaluate_Integer_OddCharacters `int tab`).
 const EDGE_BLANKS: [char; 4] = [' ', '\t', '\r', '\n'];
 
 /// Characters that make a text no number wherever they stand, with format number 0 and 9: the punctuation
 /// `/ : # & = ' " ; [ ] { } * @`, the currency signs `€` and `£`, letters outside ASCII (`ä`, `Ä1`), the no-break spaces
-/// U+00A0 and U+202F, and the full-width and Arabic-Indic digits (types/lt-evaluate-decimal/EvaluateDecimal.al:
+/// U+00A0 and U+202F, and the full-width and Arabic-Indic digits (format-evaluate/EvaluateDecimal.al:
 /// QR_Evaluate_Punctuation_NoNumber, _Number0, _Number9, QR_Evaluate_WhiteSpace_Number0, _Number9,
 /// QR_Evaluate_Statement_OddCharacters). Other characters outside ASCII are not pinned.
 fn rejected_characters(text: &str) -> bool {
@@ -67,8 +67,8 @@ enum Parsed {
     RejectedUsedRefused(String),
 }
 
-/// A Duration as `Evaluate` reads it (types/lt-datetime/Evaluate.al:380-447 Duration_Evaluate, :566-605 BT_Duration_UnitAbbreviations,
-/// :640-670 BT_Duration_BeyondTimeSpan; types/lt-filter-enum-relation-duration-guid/D_Duration.al:421-443). Only the pinned forms are
+/// A Duration as `Evaluate` reads it (types/date-time/Evaluate.al:380-447 Duration_Evaluate, :566-605 BT_Duration_UnitAbbreviations,
+/// :640-670 BT_Duration_BeyondTimeSpan; types/duration/D_Duration.al:421-443). Only the pinned forms are
 /// read; every other text is refused.
 /// - Format 0: the empty text is 0; a plain whole number counts hours (`1500` is 62 days 12 hours, `-1500`, numbers beyond an
 ///   Integer), and so does an unsigned decimal (`1.5` is 90 minutes). Otherwise terms of a number and a unit, in any order, with or
@@ -77,7 +77,7 @@ enum Parsed {
 ///   hours and of seconds (`1.5 hours`, `3.7 seconds`); a minus before a single hour or second term (`-1 hour`, `-1 second`). A plain
 ///   number may have blanks around it (`  7 `). Rejected: the same unit word twice (`1 hour 1 hour`), the words `mins`, `ms`, `week`
 ///   and `abc` (`12abc`), a fraction of milliseconds, a text of lower-case letters only (`abc`), a plus sign (`+5`), a comma or an
-///   exponent in a number (`1,5`, `1e3`) (errors/lt-ms-refusals-131/P131EvalScalars.al:144-226).
+///   exponent in a number (`1,5`, `1e3`) (types/P131EvalScalars.al:144-226).
 /// - Formats 1 to 3: a plain unsigned whole number, read as with format 0.
 /// - Format 9: the form Format 9 gives (`P0DT1H30M0.0S`), unsigned. Rejected: the empty text, a text that starts with a digit or
 ///   with `-` and a digit, and a text of lower-case letters only.
@@ -247,20 +247,20 @@ fn duration(text: &str, number: i64) -> Result<Parsed, Signal> {
 
 /// A whole number as `Evaluate` reads it into an Integer. Spaces around it are dropped, one sign is allowed and the
 /// digits are ASCII; number 0 also reads properly grouped thousands (`1,234`), number 9 does not. Everything else is
-/// rejected, an overflow too (types/lt-evaluate-format-lasterror-setview/P86Eval.al, codeunit "LT P86 Eval Integer":
+/// rejected, an overflow too (format-evaluate/P86Eval.al, codeunit "LT P86 Eval Integer":
 /// `+1`, `007`, `-0`, `1 234`, `1.5`, `1e3`, `0x1F`, Arabic digits, `1-`, `--1`, `2147483648`).
 fn integer(text: &str, number: i64) -> Result<Parsed, Signal> {
     // Number 0 reads the text as a Decimal and takes it when it is whole: `1,5` is 15, `1,000` is 1000, `1.0` is 1 and `1E3` is
-    // 1000, while `1.5` is rejected (types/lt-scalars/ScT70055.al:EvaluateInteger_Invalid `comma`, `thousand`, `exp`,
+    // 1000, while `1.5` is rejected (types/decimal-integer/ScT70055.al:EvaluateInteger_Invalid `comma`, `thousand`, `exp`,
     // `decimal0`, `decimal`, `hex`, `two_signs`, `bigval`; P86Eval.al "LT P86 Eval Integer").
-    // A tab around the number is dropped and a no-break space rejects, as for a Decimal (types/lt-evaluate-decimal/
+    // A tab around the number is dropped and a no-break space rejects, as for a Decimal (format-evaluate/
     // EvaluateDecimal.al:QR_Evaluate_Integer_OddCharacters `int tab`, `int nbsp`).
     if number == 0 && text.contains(['\u{A0}', '\u{202F}']) {
         return Ok(Parsed::Rejected);
     }
     let edged = text.trim_matches(EDGE_BLANKS);
     // A line feed or tab inside the number goes to the Decimal reading, which rejects it
-    // (types/lt-sc-eval-decimal-whitespace/ScEvalDecimalWhitespace.al:158,166). So do a carriage return, vertical tab and
+    // (types/decimal-integer/ScEvalDecimalWhitespace.al:158,166). So do a carriage return, vertical tab and
     // form feed: dropped before and after the number, rejected inside it and alone (Y6EvalWhitespaceMore.al:111-143, corpus
     // master).
     if number == 0
@@ -325,7 +325,7 @@ fn integer(text: &str, number: i64) -> Result<Parsed, Signal> {
 /// A BigInteger as `Evaluate` reads it: spaces around it, one sign (a `+` may be followed by blanks: `+ 7` is 7, while an Integer
 /// rejects it), digits with commas dropped (`1,000` is 1000, `1,00` is 100), and a fraction of zeros (`12.0`, `110.0`). A letter,
 /// `%`, `_`, an embedded blank, a fraction that is not zero, no digit and a value outside the 64 bit range are rejected
-/// (types/lt-scalars/ScT70055.al:EvaluateBigInteger; errors/lt-ms-refusals-129/P129Evaluate.al:
+/// (types/decimal-integer/ScT70055.al:EvaluateBigInteger; types/P129Evaluate.al:
 /// P129_Evaluate_IntegerAndBigInteger_BlanksAndOddForms; the BigInteger cases of types/TestProbeBigInteger: `%PDF-1.4`).
 /// An exponent, commas in format number 9, a `-` followed by blanks and a point with no fraction are not pinned.
 fn big_integer(text: &str, number: i64) -> Result<Parsed, Signal> {
@@ -354,7 +354,7 @@ fn big_integer(text: &str, number: i64) -> Result<Parsed, Signal> {
             "Evaluate of `{text}` into BigInteger (form not pinned by the corpus)"
         ));
     }
-    // `100-` reads as -100 with format number 0 (types/lt-evaluate-decimal/EvaluateDecimal.al:QR_Evaluate_Integer_OddCharacters
+    // `100-` reads as -100 with format number 0 (format-evaluate/EvaluateDecimal.al:QR_Evaluate_Integer_OddCharacters
     // `big trailing minus`); other trailing-sign forms are not pinned.
     if number == 0 {
         if let Some(digits) = t
@@ -413,20 +413,20 @@ fn big_integer(text: &str, number: i64) -> Result<Parsed, Signal> {
 /// A Decimal as `Evaluate` reads it. Number 0 takes `[sign] digits [. digits] [e [sign] digits]` with spaces around it;
 /// commas in the integer part are dropped wherever they stand (`12,5` is 125, `12,5.5` is 125.5), a comma after the point
 /// rejects, and `$` in front is a currency sign (`$5` is 5). Number 9 does not take commas.
-/// Pins: types/lt-evaluate-decimal-text/EvalDecimalEn.al:P175_En_ReturnValueAndLeftBehind and `...ret9[...]` (EvalDecimalDe.al
-/// the same in German), types/lt-scalars/ScT70055.al:EvaluateDecimal_Valid and EvaluateDecimal_Invalid
-/// (`+1.5`, `.5`, `5.`, `1E3`, `1.5e-2`, `1E`, `1E40`, `1.2.3`, `.`, `50%`, `$5`, `NaN`), types/lt-evaluate-text-decimal.
+/// Pins: format-evaluate/EvalDecimalEn.al:P175_En_ReturnValueAndLeftBehind and `...ret9[...]` (EvalDecimalDe.al
+/// the same in German), types/decimal-integer/ScT70055.al:EvaluateDecimal_Valid and EvaluateDecimal_Invalid
+/// (`+1.5`, `.5`, `5.`, `1E3`, `1.5e-2`, `1E`, `1E40`, `1.2.3`, `.`, `50%`, `$5`, `NaN`), format-evaluate.
 fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
     if rejected_characters(text) {
         return Ok(Parsed::Rejected);
     }
     // Tab, carriage return and line feed around the number are dropped like spaces, with format number 0 and 9
-    // (types/lt-evaluate-decimal/EvaluateDecimal.al:QR_Evaluate_WhiteSpace_Number0, _Number9). Inside it they are not pinned.
+    // (format-evaluate/EvaluateDecimal.al:QR_Evaluate_WhiteSpace_Number0, _Number9). Inside it they are not pinned.
     let mut t = text.trim_matches(EDGE_BLANKS);
     if number == 0 {
-        // A trailing vertical tab or form feed is dropped too (types/lt-sc-eval-decimal-whitespace/
+        // A trailing vertical tab or form feed is dropped too (types/decimal-integer/
         // ScEvalDecimalWhitespace.al:58-59,69-70), and leading ones too: `<VT>1.5`, `<FF>1.5`, `<VT><FF>1.5`, `<FF>-1.5`
-        // (types/lt-sc-eval-decimal-whitespace/Y6EvalWhitespaceMore.al:49-73, corpus master).
+        // (types/decimal-integer/Y6EvalWhitespaceMore.al:49-73, corpus master).
         t = t.trim_end_matches([' ', '\t', '\r', '\n', '\u{B}', '\u{C}']);
         t = t.trim_start_matches(['\u{B}', '\u{C}']);
         // A line feed or tab inside the number rejects it, like a space: `1<LF>5`, `1<TAB>5`, `-<LF>1.5`, `1<LF>.5`
@@ -474,14 +474,14 @@ fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
         }
     }
     if t.contains(' ') {
-        // `1 3` (types/lt-evaluate-decimal-text via the oracle, P129Evaluate.al).
+        // `1 3` (format-evaluate via the oracle, P129Evaluate.al).
         return Ok(Parsed::Rejected);
     }
     if number == 0 && number_list(t) {
         return Ok(Parsed::Rejected);
     }
     // A trailing minus sign and parentheses mark a negative number: `100-` and `(100)` read as -100
-    // (types/lt-evaluate-decimal/EvaluateDecimal.al:Evaluate_SignsBlanksAndGarbage `trailing_minus`, `parentheses`).
+    // (format-evaluate/EvaluateDecimal.al:Evaluate_SignsBlanksAndGarbage `trailing_minus`, `parentheses`).
     // Pinned for a plain number (digits, commas, a point); format number 9 rejects both (EvaluateDecimal.al:
     // QR_Evaluate_Signs_Number9 `100-`, `(100)`; QR_Evaluate_Statement_OddCharacters `parentheses 9`). `(-100)` is rejected
     // (QR_Evaluate_Signs_Number0); other forms are refused.
@@ -610,7 +610,7 @@ fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
         return Ok(Parsed::Rejected);
     }
     // 16 and 17 digits before the point do not evaluate either, with or without a fraction, a plus sign or format number 9;
-    // 15 do (types/lt-evaluate-wide-decimal/EvaluateWideDecimal.al:Evaluate_Decimal_IntegerDigits d15 against d16, _Fraction, _Negative).
+    // 15 do (format-evaluate/EvaluateWideDecimal.al:Evaluate_Decimal_IntegerDigits d15 against d16, _Fraction, _Negative).
     // The same size written with an exponent is not pinned.
     if int_digits >= 16 {
         if exp != 0 {
@@ -620,11 +620,11 @@ fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
         }
         return Ok(Parsed::Rejected);
     }
-    // With an integer part of zero, up to 29 fractional digits read (types/lt-decimal-digits/DecimalDigits.al:
+    // With an integer part of zero, up to 29 fractional digits read (types/decimal-integer/DecimalDigits.al:
     // P163_Decimal_Operands_RoundTrip `19_decimals`, `28_decimals`, `29_decimals`; Format shows 18 of them).
     // With a nonzero integer part, only 18 significant digits are pinned: more is refused.
     // With a nonzero integer part the digits past the 18th are dropped: `1.123456789012345678901` reads as 1.12345678901234567
-    // (misc/lt-system-functions/EvalLastError.al:Evaluate_Decimal `many decimals`). Pinned without an exponent only.
+    // (format-evaluate/EvalLastError.al:Evaluate_Decimal `many decimals`). Pinned without an exponent only.
     let mut frac = frac;
     if all.len() - lead > 18 && int_digits > 0 {
         if exp != 0 {
@@ -635,8 +635,8 @@ fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
         frac = &frac[..(18 - int_digits as usize).min(frac.len())];
     }
     // With an integer part of zero, the digits past the 18th fractional one are dropped, not rounded: `0.1234567890123456789`
-    // and the 28 and 29 digit forms read as 0.123456789012345678 (types/lt-evaluate-decimal/EvaluateDecimal.al:37 and :50,
-    // types/lt-decimal-digits/DecimalDigits.al:P163_Decimal_Operands_RoundTrip, AddSubtract_KeepsDigits). Pinned with a first
+    // and the 28 and 29 digit forms read as 0.123456789012345678 (format-evaluate/EvaluateDecimal.al:37 and :50,
+    // types/decimal-integer/DecimalDigits.al:P163_Decimal_Operands_RoundTrip, AddSubtract_KeepsDigits). Pinned with a first
     // fractional digit other than zero and no exponent only; other forms keep every digit as before.
     if int_digits <= 0 && frac.len() > 18 && exp == 0 && !frac.starts_with('0') {
         frac = &frac[..18];
@@ -685,7 +685,7 @@ fn boolean(text: &str, number: i64) -> Result<Parsed, Signal> {
     }
 }
 
-/// A Boolean text under language 1031 (types/lt-wc/WcUnpinnedSingles.al:79-113 WC_Evaluate_Boolean_German): `Ja` is true,
+/// A Boolean text under language 1031 (errors/WcUnpinnedSingles.al:79-113 WC_Evaluate_Boolean_German): `Ja` is true,
 /// `Nein` false, and `Yes` and `vielleicht` are rejected. Other texts are not pinned in German (a rule for "any word that is no
 /// Boolean" would decide words such as `J` or `Wahr` that may be Boolean words there).
 fn german_boolean(text: &str) -> Result<Parsed, Signal> {
@@ -693,7 +693,7 @@ fn german_boolean(text: &str) -> Result<Parsed, Signal> {
         "Ja" => Ok(Parsed::Value(Value::Boolean(true))),
         "Nein" => Ok(Parsed::Value(Value::Boolean(false))),
         "Yes" | "vielleicht" => Ok(Parsed::Rejected),
-        // xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Boolean_VT_German, Boolean_XML_German (needs the corpus bump): under
+        // xmlports/shapes-properties/Y83XpMiscTests.al:Boolean_VT_German, Boolean_XML_German (needs the corpus bump): under
         // language 1031 the texts `true`, `false`, `TRUE`, `1` and `0` read as in English, and `No`, `Wahr`, `Falsch` and `x`
         // are rejected.
         t if matches!(t.to_ascii_lowercase().as_str(), "true" | "1") => Ok(Parsed::Value(Value::Boolean(true))),
@@ -704,7 +704,7 @@ fn german_boolean(text: &str) -> Result<Parsed, Signal> {
 }
 
 fn guid(text: &str) -> Result<Parsed, Signal> {
-    // Blanks around the text do not count (types/lt-scalars/ScT70054.al:Guid_EvaluateInvalid `spaces`).
+    // Blanks around the text do not count (types/decimal-integer/ScT70054.al:Guid_EvaluateInvalid `spaces`).
     let text = text.trim_matches(' ');
     // The braced, the plain (36 characters) and the 32 digit forms; anything else, the empty text
     // included, is rejected (types/TestJsonTokenUnassignedEvaluateGuidContracts.al:EvaluateGuid_Forms_AndFailures).
@@ -735,7 +735,7 @@ fn guid(text: &str) -> Result<Parsed, Signal> {
     Ok(Parsed::Value(Value::Guid(out)))
 }
 
-/// `Evaluate` into a Byte or a Char (types/lt-scalars/ScT70055.al:205-249, EvaluateByte_Char; misc/lt-system-functions/
+/// `Evaluate` into a Byte or a Char (types/decimal-integer/ScT70055.al:205-249, EvaluateByte_Char; misc/lt-system-functions/
 /// EvalLastError.al:342-343): one character is its code (`0` is 48, `x`, `A`); a number of two or more characters (`255`,
 /// `256`, `-1`, `65`, `70000`) and, for a Char, the empty text are rejected. Every other text is not pinned and is refused.
 fn byte_or_char(target: &Value, text: &str) -> Result<Parsed, Signal> {
@@ -763,7 +763,7 @@ fn byte_or_char(target: &Value, text: &str) -> Result<Parsed, Signal> {
     if text.is_empty() && matches!(target, Value::Char(_)) {
         return Ok(Parsed::Rejected);
     }
-    // Letters into a Char: the statement raises the Evaluate error of a Char (types/lt-y49-evaluate-date-blanks/
+    // Letters into a Char: the statement raises the Evaluate error of a Char (format-evaluate/
     // Y49EvaluateDateBlanks.al:299-330 `ab`); with the result used it is not pinned.
     if matches!(target, Value::Char(_)) && text.bytes().all(|b| b.is_ascii_alphabetic()) {
         return Ok(Parsed::RejectedUsedRefused(format!(
@@ -780,7 +780,7 @@ fn byte_or_char(target: &Value, text: &str) -> Result<Parsed, Signal> {
 /// docs/probes-needed.md); a two-digit year below 50 is 20yy and from 50 on 19yy. Number 9: ISO `yyyy-MM-dd`.
 /// `today` is the host's current day, for the text `T`.
 ///
-/// Pinned by types/lt-evaluate-format-lasterror-setview/P86Eval.al, codeunit "LT P86 Eval Date": number 0 reads
+/// Pinned by format-evaluate/P86Eval.al, codeunit "LT P86 Eval Date": number 0 reads
 /// `yyyy-mm-dd`, `m/d/yyyy`, `m/d/yy` and `T`; it rejects `15.01.2024`, `150124`, `15012024`, `20240115`,
 /// `2024-01-15T00:00:00Z`, `0D` and `15-01-2024`. Number 9 reads `yyyy-mm-dd` with spaces around it and the empty text
 /// (which leaves the date empty) and rejects everything else, `T` and the slash forms included.
@@ -788,8 +788,8 @@ fn byte_or_char(target: &Value, text: &str) -> Result<Parsed, Signal> {
 /// (`1010` is that day of this year, `10101` is 2001-10-10, `101010` is 2010-10-10, `1010101` is 0101-10-10, `10162026`), and three numbers
 /// split by one `/`, `.` or `-` (`1/2/3`, `10.16.26`, `10-16-2026`), month first. A year of one or two digits is 20xx below 50 and 19xx
 /// from 50. A month or day that does not exist rejects (`161026`, `311299`, `16/10/26`, `16.10.2026`). `16 Oct 2026` reads, while
-/// `Oct 16, 2026`, `16 10 26` and `16/10` do not (errors/lt-ms-refusals-130/P130EvaluateDate.al: Default_SixAndEightDigits,
-/// Default_SlashAndDotForms; types/lt-datetime/Evaluate.al: Date_Other_Formats, Date_Default_Evaluate `formatted 4`). `None` for
+/// `Oct 16, 2026`, `16 10 26` and `16/10` do not (types/P130EvaluateDate.al: Default_SixAndEightDigits,
+/// Default_SlashAndDotForms; types/date-time/Evaluate.al: Date_Other_Formats, Date_Default_Evaluate `formatted 4`). `None` for
 /// every other shape, which the caller handles; a shape the corpus does not pin is refused.
 fn date_month_first(text: &str, today: Option<i32>) -> Option<Result<Parsed, Signal>> {
     let ymd = |y: i32, m: u32, d: u32| -> Result<Parsed, Signal> {
@@ -858,7 +858,7 @@ fn date_month_first(text: &str, today: Option<i32>) -> Option<Result<Parsed, Sig
             });
         }
     }
-    // A year of five digits after slashes is no date (types/lt-evaluate-date-3digit-year/EvaluateDate3DigitYear.al:
+    // A year of five digits after slashes is no date (format-evaluate/EvaluateDate3DigitYear.al:
     // Evaluate_Date_ThreeDigitYear_English `en_slash_5digit` `01/02/12026`, also German and British English).
     {
         let parts: Vec<&str> = text.split('/').collect();
@@ -925,7 +925,7 @@ fn blank_padded_numeric_date(text: &str) -> Option<&str> {
 fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_first: bool) -> Result<Parsed, Signal> {
     if number == 9 {
         // White space alone reads as the empty date, and around a date it is dropped (corpus master, corpus PR 886:
-        // types/lt-evaluate-format-lasterror-setview/EvaluateDateFormat9Space.al:49-81 TAB, blanks, CR, LF, CR LF, VT, FF,
+        // format-evaluate/EvaluateDateFormat9Space.al:49-81 TAB, blanks, CR, LF, CR LF, VT, FF,
         // no-break space alone; :90-113 TAB, blank, CR LF, LF and no-break space around 2026-10-16). A TAB inside the date rejects
         // it (:114-120). Other white space, VT or FF next to a date and other white space inside one are not pinned.
         const PINNED_WS: [char; 7] = [' ', '\t', '\r', '\n', '\u{B}', '\u{C}', '\u{A0}'];
@@ -953,7 +953,7 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
             ));
         }
         // The first day of the calendar reads as the empty date, and year 0 as the day after it
-        // (types/lt-datetime/Evaluate.al:Date_Format9 `iso min`, `iso 0D` and `iso year 0`).
+        // (types/date-time/Evaluate.al:Date_Format9 `iso min`, `iso 0D` and `iso year 0`).
         if t == "0001-01-01" {
             return Ok(Parsed::Value(Value::Date(0, false)));
         }
@@ -967,7 +967,7 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
             },
         );
     }
-    // The empty text leaves the date empty in format 0 as in format 9 (types/lt-datetime/Evaluate.al:Date_Default_Evaluate,
+    // The empty text leaves the date empty in format 0 as in format 9 (types/date-time/Evaluate.al:Date_Default_Evaluate,
     // oracle: Yes and an empty date).
     if text.is_empty() {
         return Ok(Parsed::Value(Value::Date(0, false)));
@@ -979,7 +979,7 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
         };
     }
     // `W` is the work date and `CD` the closing date of today; `C` and a date is that day's closing date
-    // (types/lt-in-precedence-date-guid-filters/P143Date_FieldRef.al:P143_EvaluateRelations `eval_w_equals_workdate`,
+    // (types/date-time/P143Date_FieldRef.al:P143_EvaluateRelations `eval_w_equals_workdate`,
     // `eval_cd_equals_today` No, `eval_closing_count_on`).
     if text.eq_ignore_ascii_case("w") {
         return match work {
@@ -997,7 +997,7 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
         .strip_prefix(['C', 'c'])
         .filter(|r| r.starts_with(|c: char| c.is_ascii_digit()))
     {
-        // The ISO form after the C is no closing date (types/lt-datetime/Evaluate.al:Date_Default_Evaluate `closing`: No).
+        // The ISO form after the C is no closing date (types/date-time/Evaluate.al:Date_Default_Evaluate `closing`: No).
         if month_first && rest.len() == 10 && rest.as_bytes()[4] == b'-' {
             return Ok(Parsed::Rejected);
         }
@@ -1015,7 +1015,7 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
     }
     if month_first {
         // Blanks before and after a date of three numbers split by `-`, `.` or `/`, or an ISO date, are dropped
-        // (types/lt-y71-evaluate-dmy2date/Y71EvaluateDashedDates.al:73-145: `01-01-2012 `, ` 01-01-2012 `, `11-11-12 `,
+        // (format-evaluate/Y71EvaluateDashedDates.al:73-145: `01-01-2012 `, ` 01-01-2012 `, `11-11-12 `,
         // `2012-01-31 `, `05.03.2024 `, ` 3/5/24 `, and the statement form with one or two trailing blanks).
         if let Some(trimmed) = blank_padded_numeric_date(text) {
             return date(trimmed, number, today, work, month_first);
@@ -1079,7 +1079,7 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
         return Ok(Parsed::Rejected);
     }
     // Digits in groups split by one blank are no date: `2024 03 05`, and `12 34`, which with the result used leaves a last
-    // error (types/lt-y49-evaluate-date-blanks/Y49EvaluateDateBlanks.al:79-107, :207-233 `err=Yes`).
+    // error (format-evaluate/Y49EvaluateDateBlanks.al:79-107, :207-233 `err=Yes`).
     let groups: Vec<usize> = text.split(' ').map(str::len).collect();
     if text.bytes().all(|b| b.is_ascii_digit() || b == b' ') {
         match groups.as_slice() {
@@ -1093,7 +1093,7 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
         }
     }
     // A day, a month written as the German word `Dezember` and a year is no date in either language
-    // (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:DateDecimal_VT_German, DateDecimal_VT_English `31. Dezember 2024`, needs the
+    // (xmlports/shapes-properties/Y83XpMiscTests.al:DateDecimal_VT_German, DateDecimal_VT_English `31. Dezember 2024`, needs the
     // corpus bump). Another month word is not pinned.
     if let Some((day, rest)) = text.split_once(". Dezember ") {
         if digits(day, 1..=2) && digits(rest, 4..=4) {
@@ -1106,7 +1106,7 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
 }
 
 /// `31. Dezember 2024`: a day, the German month word and a year is no date in either language, and gets the date error
-/// (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:DateDecimal_VT_German, needs the corpus bump).
+/// (xmlports/shapes-properties/Y83XpMiscTests.al:DateDecimal_VT_German, needs the corpus bump).
 fn dezember_date_text(text: &str) -> bool {
     let all =
         |t: &str, n: std::ops::RangeInclusive<usize>| n.contains(&t.len()) && t.bytes().all(|b| b.is_ascii_digit());
@@ -1116,7 +1116,7 @@ fn dezember_date_text(text: &str) -> bool {
 
 /// A time of day, as a `Value::Time` holds it (milliseconds since midnight, plus one).
 ///
-/// Pinned by types/lt-evaluate-format-lasterror-setview/P86Eval.al, codeunit "LT P86 Eval Time". Number 0 reads
+/// Pinned by format-evaluate/P86Eval.al, codeunit "LT P86 Eval Time". Number 0 reads
 /// `h:m[:s[.f]]` with one or two digits per part, `h.m.s`, `hhmm`, and `h:m[:s] AM|PM`; it rejects hours from 24, minutes
 /// or seconds from 60, a minus sign, a trailing `Z` and `0T`. Number 9 reads exactly `hh:mm:ss[.f]` with an optional `Z`
 /// and rejects everything else. Spaces around the text are dropped and the empty text leaves the time empty in both.
@@ -1146,7 +1146,7 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
         let parts: Vec<&str> = clock.split(':').collect();
         let strict = parts.len() == 3 && parts.iter().all(|p| p.len() == 2);
         let f = match frac {
-            // Four digits keep the milliseconds: `13:45:06.1234` is 13:45:06.123 (types/lt-datetime/Evaluate.al:209,233
+            // Four digits keep the milliseconds: `13:45:06.1234` is 13:45:06.123 (types/date-time/Evaluate.al:209,233
             // Time_Format9 `hms ms 4 digits`). Whether a fourth digit of 5 or more rounds up, and more digits, are not pinned.
             Some(f) if f.len() >= 4 && f.bytes().all(|b| b.is_ascii_digit()) => {
                 if f.len() == 4 && f.as_bytes()[3] < b'5' {
@@ -1185,7 +1185,7 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
         return Ok(Parsed::Rejected);
     }
     // AM or PM after a blank, after a narrow no-break space (U+202F; Format itself writes a blank) or right after the
-    // number, in any case, and a narrow no-break space after it (types/lt-aj-probes/AjScalars.al:QR_Evaluate_Time_NarrowNoBreakSpace:
+    // number, in any case, and a narrow no-break space after it (format-evaluate/AjScalars.al:QR_Evaluate_Time_NarrowNoBreakSpace:
     // `12:00:00~PM`, `12:00:00~pm`, `12:00:00PM`, `12:00:00 PM`, `12:00:00~PM~`; P86Eval.al `h:m[:s] AM|PM`).
     let designated = t.strip_suffix('\u{202F}').unwrap_or(t);
     let (body, meridiem) = match designated
@@ -1216,7 +1216,7 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
         _ => (t, None),
     };
     // Two date-shaped texts read as a time with format number 0: `2021-12-19` is 20:21:12.19 (hhmm, seconds, hundredths) and
-    // `12/19/21` is 12:19:21 (types/lt-aj-probes/AjScalars.al:Evaluate_Time_FromDateText). Pinned for these exact shapes and
+    // `12/19/21` is 12:19:21 (format-evaluate/AjScalars.al:Evaluate_Time_FromDateText). Pinned for these exact shapes and
     // values inside the clock only; anything else of that kind stays refused.
     let digits_at = |s: &str, at: &[usize]| {
         s.bytes()
@@ -1284,8 +1284,8 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
     } else if body.len() == 4 {
         num(&body[..2], 2).zip(num(&body[2..], 2)).map(|(h, m)| (h, m, 0, 0))
     } else if body.len() == 6 && number == 0 {
-        // `hhmmss` reads as hours, minutes and seconds and an hour from 24 is rejected (types/lt-ax-text-format-dates/
-        // AxEvaluateText.al:44-118: `085606`, `246000`), and so are minutes or seconds from 60 (misc/lt-y70-assumptions/
+        // `hhmmss` reads as hours, minutes and seconds and an hour from 24 is rejected (format-evaluate/
+        // AxEvaluateText.al:44-118: `085606`, `246000`), and so are minutes or seconds from 60 (record/
         // Y70Probes.al:123-170 `086000`, `085960`).
         num(&body[..2], 2)
             .zip(num(&body[2..4], 2))
@@ -1331,7 +1331,7 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
 
 /// A date and time in UTC (`Value::DateTime`).
 ///
-/// Pinned by types/lt-evaluate-format-lasterror-setview/P86Eval.al, codeunit "LT P86 Eval DateTime". Number 9 reads
+/// Pinned by format-evaluate/P86Eval.al, codeunit "LT P86 Eval DateTime". Number 9 reads
 /// `yyyy-mm-dd[Thh:mm:ss[.f][Z|+hh:mm]]` (no zone means UTC) and the empty text, and rejects everything else. Number 0
 /// reads the same with `Z` or an offset, the empty text, `m/d/y h:mm[:ss] [AM|PM]` and the forms of `datetime_forms`; it
 /// rejects a time past 23:59:59, a day that does not exist and `0D`, `0T`, `0DT`. Not read: the ISO form without a zone in
@@ -1399,7 +1399,7 @@ fn datetime(text: &str, number: i64, today: Option<i32>) -> Result<Parsed, Signa
 
 /// The RFC 1123 form of an HTTP date header, `Fri, 05 Sep 2025 14:23:45 GMT`, in number 0 (and without a number): read as UTC
 /// with `GMT` or `+0000`; a weekday that is not the date's is rejected without an error; without the weekday the text is rejected
-/// and the error is `The date is not valid.`, also when the result is used (types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al:
+/// and the error is `The date is not valid.`, also when the result is used (format-evaluate/UfEvaluateJsonRfc.al:
 /// 19-60, :62-85; al-runner issue 6172). Number 9 rejects it (the ISO reader above). Another zone or offset, a one-digit day and
 /// a time or date out of range are not pinned: `None`, and the caller refuses.
 fn rfc1123(t: &str) -> Option<Parsed> {
@@ -1419,7 +1419,7 @@ fn rfc1123(t: &str) -> Option<Parsed> {
         return None;
     }
     if weekday.is_none() {
-        // Pinned by types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al DateTime_Rfc1123 (was assumption `evaluate-rfc-date-time`).
+        // Pinned by format-evaluate/UfEvaluateJsonRfc.al DateTime_Rfc1123 (was assumption `evaluate-rfc-date-time`).
         return Some(Parsed::RejectedLastError(
             "The date is not valid.".into(),
             "DateInvalid",
@@ -1431,7 +1431,7 @@ fn rfc1123(t: &str) -> Option<Parsed> {
     let weekday = DAYS.iter().position(|x| Some(*x) == weekday)? as i32 + 1;
     let v = crate::iso::parse_datetime(&format!("{y}-{month:02}-{d}T{clock}Z"))?;
     let day = crate::iso::parse_date(&format!("{y}-{month:02}-{d}"))?;
-    // Pinned by types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al DateTime_Rfc1123 (was assumption `evaluate-rfc-date-time`).
+    // Pinned by format-evaluate/UfEvaluateJsonRfc.al DateTime_Rfc1123 (was assumption `evaluate-rfc-date-time`).
     if crate::datefns::weekday(day) != weekday {
         return Some(Parsed::Rejected);
     }
@@ -1447,8 +1447,8 @@ fn is_blank_tabs(text: &str) -> bool {
 /// variable to evaluate into: `None` for any other type, a text that is no such value, or a form not pinned.
 pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
     use crate::value::RtType as T;
-    // `Format(ClosingDate(D))` is `C` and the date (corpus types/lt-datetime/DateFuncs.al:47 `C12/31/23`,
-    // misc/lt-system-functions/RandomFormat.al:432): the closing date of that day.
+    // `Format(ClosingDate(D))` is `C` and the date (corpus types/date-time/DateFuncs.al:47 `C12/31/23`,
+    // format-evaluate/RandomFormat.al:432): the closing date of that day.
     if let (T::Date, Some(rest)) = (ty, text.strip_prefix('C')) {
         return match date(rest, 0, None, None, false).ok()? {
             Parsed::Value(Value::Date(d, false)) => Some(Value::Date(d, true)),
@@ -1470,8 +1470,8 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
 }
 
 /// A text of ASCII letters, digits and `-./` with letters, read with number 0, 9 or none: its failed Evaluate statement into a
-/// Date raises the Date-format error (types/lt-datetime/Evaluate.al:188-197 Date_Evaluate_Raises `abc` with no number;
-/// errors/lt-ms-refusals-130/P130EvaluateDate.al UN_Evaluate_Statement_NotADate_ByTarget on writer UN's corpus branch,
+/// Date raises the Date-format error (types/date-time/Evaluate.al:188-197 Date_Evaluate_Raises `abc` with no number;
+/// types/P130EvaluateDate.al UN_Evaluate_Statement_NotADate_ByTarget on writer UN's corpus branch,
 /// commit d3bcc580: `not-a-date` with 9, 0 and the default, former assumption `evaluate-date-letters-statement` (pinned on corpus master since bump 1030)). Other texts and
 /// numbers are not pinned.
 fn letters_date_text(text: &str, number: i64) -> bool {
@@ -1494,9 +1494,9 @@ pub fn evaluate_variable_option(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut 
 
 /// `Evaluate` into an Option field that declares an OptionCaption (the lowering appends the captions as a comma list, or the
 /// OptionCaptionML property text and a fifth argument 1): the text names a member by its caption first, else by its name, else
-/// it is an ordinal of any size (corpus errors/lt-ms-refusals-128/P128EvalBasic.al:P128_Evaluate_IntoOptionField_NumericCaptions:
+/// it is an ordinal of any size (corpus recordref-fieldref/P128EvalBasic.al:P128_Evaluate_IntoOptionField_NumericCaptions:
 /// with captions `1,2,3` the text `1` is the first member, `3` the third and `4` the ordinal 4; with `Ten,Twenty,Thirty` `twenty`
-/// is the second member, `Two` the third by its name and `Three` is rejected). Pinned by types/lt-option-evaluate-captions/
+/// is the second member, `Two` the third by its name and `Three` is rejected). Pinned by format-evaluate/
 /// OptionEvaluateCaptions.al:
 /// - a caption that is the name of another member names its own member (:162 CaptionIsNameOfAnotherMember); of two members with
 ///   the same caption the first is taken (:177 SameCaptionTwice);
@@ -1529,7 +1529,7 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
         captions.as_str().to_string()
     };
     let t = text.trim();
-    // An empty or blank text names a blank member (errors/lt-ms-refusals-131/P131EvalOption.al:107-108: `''` and `' '` give the
+    // An empty or blank text names a blank member (format-evaluate/P131EvalOption.al:107-108: `''` and `' '` give the
     // member `" "` of caption `' '`, :146: a field without a blank member rejects `''`).
     let same = |n: &str| {
         if t.is_empty() {
@@ -1573,13 +1573,13 @@ fn evaluate_with(c: &mut dyn Ctx, a: &mut [Value], variable_option: bool) -> Res
     evaluate_with_max(c, a, variable_option, None, false)
 }
 
-/// `Evaluate` into a Text or a Code (corpus errors/lt-ms-refusals-128/P128EvalBasic.al:P128_Evaluate_IntoText,
+/// `Evaluate` into a Text or a Code (corpus recordref-fieldref/P128EvalBasic.al:P128_Evaluate_IntoText,
 /// P128_Evaluate_IntoCode, P128_Evaluate_IntoCode_ResultUnused, P128_Evaluate_IntoShortText_ResultUnused): a Text takes the
 /// text as written (blanks kept), a Code takes it trimmed and in capitals; text that is too long for the variable gives
 /// `false` when the result is used and the length error (with the text as given) when it is not, and the variable keeps
 /// its value. A format number is not pinned.
 fn text_or_code(c: &mut dyn Ctx, a: &Value, text: &str, number: i64, max: Option<u32>) -> Result<Parsed, Signal> {
-    // The numbers 0, 1, 2 and 9 read a Text and a Code alike (types/lt-evaluate-text-decimal/EvaluateTextCodeDecimal.al:
+    // The numbers 0, 1, 2 and 9 read a Text and a Code alike (format-evaluate/EvaluateTextCodeDecimal.al:
     // Text_FormatNumbers, Code_FormatNumbers); the others are not pinned.
     if !matches!(number, 0 | 1 | 2 | 9) {
         return unsupported(format!(
@@ -1606,7 +1606,7 @@ fn text_or_code(c: &mut dyn Ctx, a: &Value, text: &str, number: i64, max: Option
                 Value::text_len(text),
                 crate::ops::shown_in_length_error(text)
             );
-            // With the result used the call answers false and leaves this error as the last one (types/lt-evaluate-text-decimal/
+            // With the result used the call answers false and leaves this error as the last one (format-evaluate/
             // EvaluateTextCodeDecimal.al:Code_FormatNumbers `tooLong0Ok` No with `tooLong0Err`).
             if c.ret_used() {
                 c.set_last_error(crate::native::AlError {
@@ -1650,10 +1650,10 @@ pub fn evaluate_typed(
 }
 
 /// The tail of the error for an unknown table name: a space, then each part after a real backslash and six spaces, the last one after
-/// four spaces (xmlport/lt-y88-xmlport/Y88XmlPortProbes.al:223 and :241; W4PlatformAndMeta.al:706 pins the head up to the backslash).
+/// four spaces (xmlports/shapes-properties/Y88XmlPortProbes.al:223 and :241; W4PlatformAndMeta.al:706 pins the head up to the backslash).
 const METADATA_NOT_FOUND_TAIL: &str = " \\      The metadata object Table -1 was not found.\\      The application might be incompatible with the current compiler. Please unpublish the application that contains the application object Table -1 and republish it. \\      Or, run a technical upgrade of the application database with the 'Force' flag set.\\    ";
 
-/// `Evaluate(TableFilterField, Text)` (al-runner issues 5998 and 6006), pinned by records/W4PlatformAndMeta.al (writer SI:
+/// `Evaluate(TableFilterField, Text)` (al-runner issues 5998 and 6006), pinned by record/W4PlatformAndMeta.al (writer SI:
 /// TableFilterEvaluate_AcceptedForms, _RejectedForms, _ErrorsAsStatement, _StoredValue; writer SR: TableFilterEvaluate_SeveralCodeFields,
 /// _SrMultiFieldForms, _SrSecondFieldTypes, _SrExpressionForms, _SrRejectedForms, _SrStoredSpaceValue). The text is
 /// `<table>: <field>=<filter>,<field>=<filter>`: the table by its name in any casing, quoted or by number (not by caption); `:`
@@ -1698,7 +1698,7 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
         .unwrap_or(table);
     let def = match c.table_filter_table(table) {
         Some(Ok(Some(def))) => def,
-        // An unknown table name: the whole text is pinned by xmlport/lt-y88-xmlport/Y88XmlPortProbes.al:223 (Y88_EvaluateTableFilter_
+        // An unknown table name: the whole text is pinned by xmlports/shapes-properties/Y88XmlPortProbes.al:223 (Y88_EvaluateTableFilter_
         // UnknownTableErrorText, 27-29), see METADATA_NOT_FOUND_TAIL.
         Some(Ok(None)) if table.parse::<i64>().is_err() => {
             return reject(c, METADATA_NOT_FOUND_TAIL, "Evaluate:MetadataNotFound");
@@ -1799,7 +1799,7 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
 }
 
 /// The filter `value` of a TableFilter condition on field `f` as the stored text gives it back, `Ok(Err(text))` with the error
-/// text after `can't be evaluated into type TableFilter.`, or a refusal for a form no test pins (records/W4PlatformAndMeta.al):
+/// text after `can't be evaluated into type TableFilter.`, or a refusal for a form no test pins (record/W4PlatformAndMeta.al):
 /// - a value starting `'`: a comma inside cut it at the split, `An single quote (') is missing.` (`single_quoted_comma`); a Code
 ///   value in quotes is unquoted, kept in quotes when it holds `|` (`single_quoted_space`, `single_quoted_pipe`); a Code value in
 ///   double quotes is unquoted (`double_quoted_value`);
@@ -1882,7 +1882,7 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
             }
             refuse()
         }
-        // Words joined by `|` are kept as written too (xmlport/lt-y67-xmlport-tablefilter/Y67XpTableFilter.al:52 `Note=a|b`).
+        // Words joined by `|` are kept as written too (xmlports/shapes-properties/Y67XpTableFilter.al:52 `Note=a|b`).
         RtType::Text(len)
             if (words(v) || (v.contains('|') && v.split('|').all(words)))
                 && v == value
@@ -1969,7 +1969,7 @@ fn store_table_filter(a: &mut [Value], text: &str) -> Value {
 }
 
 /// `Evaluate(RecordId, Text)`: a table name and the primary key after a colon, or only the table name; the empty text gives the
-/// blank RecordId, also for one that is not blank (types/lt-evaluate-recordid/EvaluateRecordIdComposite.al:Evaluate_IntoSetRecordId
+/// blank RecordId, also for one that is not blank (format-evaluate/EvaluateRecordIdComposite.al:Evaluate_IntoSetRecordId
 /// `emptyResult`, `emptyUnusedResult`). A text that names no table, has more key values than the key has fields or holds a value that
 /// is none of its field's type is rejected: with the result used the answer is false, the RecordId stays as it was and the error is the
 /// last error; with the result unused the error is raised (`garbageResult`, `garbageUnusedErr`, Evaluate_WrongNumberOfValues). The
@@ -2006,7 +2006,7 @@ fn into_record_id(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) -> 
         }
     };
     // The variable gets a RecordId of its own: another variable assigned from it keeps its value
-    // (types/lt-evaluate-recordid/EvaluateRecordIdComposite.al:Evaluate_IntoSetRecordId, `Rid := Start` then Evaluate(Rid, ...)).
+    // (format-evaluate/EvaluateRecordIdComposite.al:Evaluate_IntoSetRecordId, `Rid := Start` then Evaluate(Rid, ...)).
     a[0] = Value::Library(
         crate::library_kind::LibraryKind::RecordId,
         std::rc::Rc::new(std::cell::RefCell::new(new)),
@@ -2026,8 +2026,8 @@ fn into_field_ref(c: &mut dyn Ctx, a: &mut [Value], number: i64) -> Result<Value
     };
     let current = target.rec.borrow().fields[target.pos].clone();
     // With the result unused a text that is no value raises the error of the type and leaves the field, as for a variable
-    // (types/lt-evaluate-recordid/EvaluateRecordIdComposite.al:Evaluate_IntoFieldRef `invalidUnusedErr`, an Integer field;
-    // errors/lt-ms-refusals-128/N582EvalFieldRefUnused.al:71-169: Decimal, Date, Boolean, Code, Text, an Option without an
+    // (format-evaluate/EvaluateRecordIdComposite.al:Evaluate_IntoFieldRef `invalidUnusedErr`, an Integer field;
+    // recordref-fieldref/N582EvalFieldRefUnused.al:71-169: Decimal, Date, Boolean, Code, Text, an Option without an
     // OptionCaption and Integer). The other types are not pinned.
     if !c.ret_used() {
         use crate::value::RtType as T;
@@ -2059,7 +2059,7 @@ fn into_field_ref(c: &mut dyn Ctx, a: &mut [Value], number: i64) -> Result<Value
 
 /// One value of the key text of `Evaluate(RecordId, Text)`: read as `Evaluate` reads a variable of type `ty`, and a text that is
 /// no value raises the error of that type (a Date says so for any text), whether the caller uses the result or not; the caller
-/// turns the error into the last error when it does (corpus types/lt-evaluate-recordid/EvaluateRecordIdComposite.al:
+/// turns the error into the last error when it does (corpus format-evaluate/EvaluateRecordIdComposite.al:
 /// Evaluate_WrongNumberOfValues `badInteger`, `badEnum`, `badDate`, `codeTooLong`). The caller sets the context to "result unused".
 pub fn evaluate_key_part(c: &mut dyn Ctx, ty: &crate::value::RtType, text: &str, number: i64) -> Result<Value, Signal> {
     let max = match ty {
@@ -2095,12 +2095,12 @@ fn pinned_number(number: i64, target: &Value, variable_option: bool) -> Option<i
         || (matches!(number, 1 | 2) && matches!(target, Value::Text(_) | Value::Code(_)))
         || (matches!(number, 1..=3) && matches!(target, Value::Duration(_)))
         || matches!(target, Value::Date(..))
-        // An Option variable reads number 2 as 0 (types/lt-option-evaluate-captions/OptionEvaluateCaptions.al:270 FormatNumber
+        // An Option variable reads number 2 as 0 (format-evaluate/OptionEvaluateCaptions.al:270 FormatNumber
         // `var 2 lower`).
         || (number == 2 && variable_option && matches!(target, Value::Option(..)))
         // Number 10 is the bookmark of a RecordId (`into_record_id`).
         || (number == 10 && matches!(target, Value::Library(crate::library_kind::LibraryKind::RecordId, _)));
-    // A Text, an Integer and a Guid read number 10 as the default (types/lt-y49-recordid-format10/Y49RecordIdFormat10.al:265-301
+    // A Text, an Integer and a Guid read number 10 as the default (format-evaluate/Y49RecordIdFormat10.al:265-301
     // `text` `Yes [x]`, `integer` `Yes 12`, `guid`, also as a statement).
     if number == 10 && matches!(target, Value::Text(_) | Value::Integer(_) | Value::Guid(_)) {
         return Some(0);
@@ -2115,7 +2115,7 @@ fn evaluate_with_max(
     max: Option<u32>,
     any_date_text: bool,
 ) -> Result<Value, Signal> {
-    // A Guid source reads as its text `{XXXXXXXX-...}`: into a Text, a Code and a Guid (types/lt-filter-enum-relation-duration-guid/
+    // A Guid source reads as its text `{XXXXXXXX-...}`: into a Text, a Code and a Guid (types/duration/
     // E_Guid.al:224-311). Other sources that are not text are not pinned.
     let text = match &a[1] {
         Value::Guid(g) => Some(crate::text::Txt::from(crate::format::format_guid(g))),
@@ -2143,7 +2143,7 @@ fn evaluate_with_max(
     if matches!(&a[0], Value::Library(name, _) if name == "TableFilter") {
         return into_table_filter(c, a, &text, number);
     }
-    // Into a JsonArray, without a format number (types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al:88-194); with one it is not pinned.
+    // Into a JsonArray, without a format number (format-evaluate/UfEvaluateJsonRfc.al:88-194); with one it is not pinned.
     if matches!(&a[0], Value::Library(name, _) if name == "JsonArray") {
         if a.len() > 2 {
             return unsupported("Evaluate into a JsonArray with a format number (not pinned)");
@@ -2160,10 +2160,10 @@ fn evaluate_with_max(
         Value::Boolean(_) => boolean(&text, number)?,
         Value::Guid(_) => guid(&text)?,
         Value::Byte(_) | Value::Char(_) if number == 0 => byte_or_char(&a[0], &text)?,
-        // Every number but 9 reads a Date as the default does (types/lt-datetime/Evaluate.al:Date_Other_Formats `fmt 1` to `fmt 8`,
-        // `fmt 10`, `fmt -1`; errors/lt-ms-refusals-130/P130EvaluateDate.al:P130_EvaluateDate_EveryFormat_*).
+        // Every number but 9 reads a Date as the default does (types/date-time/Evaluate.al:Date_Other_Formats `fmt 1` to `fmt 8`,
+        // `fmt 10`, `fmt -1`; types/P130EvaluateDate.al:P130_EvaluateDate_EveryFormat_*).
         // Evaluate reads a TAB, two TABs and one space as the empty date (corpus master, corpus PR 871:
-        // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date). Pinned for
+        // format-evaluate/Np4Misc.al NP4_Evaluate_Tab_Date). Pinned for
         // Evaluate only: `read_text` and the other readers of `date` do not take it.
         Value::Date(..) if number != 9 && is_blank_tabs(&text) => Parsed::Value(Value::Date(0, false)),
         Value::Date(..) => date(
@@ -2177,7 +2177,7 @@ fn evaluate_with_max(
         Value::DateTime(_) => datetime(&text, number, c.today_day())?,
         // The text is kept as written once it is a form the runtime can calculate with
         // (types/TestDateFormulaContracts.al:21-139); what Format prints is docs/probes-needed.md.
-        // `Evaluate(V, '1.2.3.4')`: the four-part form (session/TestMiscTypes.al:44-80).
+        // `Evaluate(V, '1.2.3.4')`: the four-part form (session-system/TestMiscTypes.al:44-80).
         Value::Library(crate::library_kind::LibraryKind::Version, cell) => {
             let parts: Vec<&str> = text.split('.').collect();
             let nums: Option<Vec<i32>> = parts
@@ -2276,14 +2276,14 @@ fn evaluate_with_max(
                 }
             }
         }
-        // Evaluate into PageBackgroundTaskErrorLevel is not pinned: lt-ac/QbEvaluateBgTask.al is an observe-only probe, not a case.
+        // Evaluate into PageBackgroundTaskErrorLevel is not pinned: collections/QbEvaluateBgTask.al is an observe-only probe, not a case.
         Value::Option(_, members) if crate::sysenum::is_page_background_task_error_level(members) => {
             return unsupported(format!(
                 "Evaluate of `{text}` into PageBackgroundTaskErrorLevel (not pinned)"
             ));
         }
         // An ordinal into SecurityFilter: `Evaluate(Filter, '3')` gives Disallowed
-        // (recordref/TestPlatformOptionsLockingContracts.al:42-43). Other options are not pinned.
+        // (recordref-fieldref/recordref/TestPlatformOptionsLockingContracts.al:42-43). Other options are not pinned.
         Value::Option(_, members) if crate::sysenum::is_security_filter(members) => {
             match text.trim().parse::<usize>().ok().filter(|n| *n < members.len()) {
                 Some(n) => Parsed::Value(Value::Option(n as i32, members.clone())),
@@ -2309,7 +2309,7 @@ fn evaluate_with_max(
         // nor a member name is rejected, and the error names the members (P86Eval.al, codeunit "LT P86 Eval Option").
         Value::Option(_, members) if variable_option => {
             let t = text.trim();
-            // An empty text names no member, not even one declared as "" (types/lt-scalars/ScT70062.al:Option_EvaluateByName `empty`).
+            // An empty text names no member, not even one declared as "" (types/decimal-integer/ScT70062.al:Option_EvaluateByName `empty`).
             let by_name = members.iter().position(|m| !t.is_empty() && m.eq_ignore_ascii_case(t));
             let ordinal = if t.starts_with(|ch: char| ch.is_ascii_digit() || ch == '+') {
                 t.parse::<u64>().ok()
@@ -2325,7 +2325,7 @@ fn evaluate_with_max(
                 },
                 (None, Some(n)) => Parsed::Value(Value::Option(n as i32, members.clone())),
                 _ if c.ret_used() => return Ok(Value::Boolean(false)),
-                // A TAB shows as `\t` in the error (types/lt-option-evaluate-captions/OptionEvaluateCaptions.al:330
+                // A TAB shows as `\t` in the error (format-evaluate/OptionEvaluateCaptions.al:330
                 // ResultUnused_Errors `var tab`); the other control characters are not pinned.
                 _ if text.chars().any(|ch| ch.is_control() && ch != '\t') => {
                     return unsupported(
@@ -2350,14 +2350,14 @@ fn evaluate_with_max(
             match (t.parse::<usize>().ok().filter(|n| *n < members.len()), by_name) {
                 (Some(n), _) | (None, Some(n)) => Parsed::Value(Value::Option(n as i32, members.clone())),
                 // A platform option without an OptionCaption rejects a number past its members, as far as measured:
-                // TableConnectionType 5 to 10 (misc/W5TableConnections.al:117-136, TableConnectionType_Members), ExecutionMode
-                // 2 to 12 (misc/lt-probes-needed-3/PnC11SystemEnums.al:13-52, ExecutionMode_Members). Larger numbers are not pinned.
+                // TableConnectionType 5 to 10 (format-evaluate/W5TableConnections.al:117-136, TableConnectionType_Members), ExecutionMode
+                // 2 to 12 (format-evaluate/PnC11SystemEnums.al:13-52, ExecutionMode_Members). Larger numbers are not pinned.
                 _ if crate::sysenum::rejected_number_past_members(members)
                     .is_some_and(|last| t.parse::<usize>().is_ok_and(|n| (members.len()..=last).contains(&n))) =>
                 {
                     Parsed::Rejected
                 }
-                // An OptionCaption may name it (fieldref/TestPrecompiledFieldOptionCaption.al:Evaluate_Caption_SelectsThatMember);
+                // An OptionCaption may name it (recordref-fieldref/fieldref/TestPrecompiledFieldOptionCaption.al:Evaluate_Caption_SelectsThatMember);
                 // the value does not carry the captions.
                 _ => {
                     return unsupported(format!(
@@ -2368,18 +2368,18 @@ fn evaluate_with_max(
         }
         // The blank-like texts store the empty formula; garbage fails and leaves the value
         // (types/TestDateFormulaDurationFormatContracts.al:28-74, TestDateFormulaEvaluateLeftoversContracts.al).
-        // The letters of the global language (types/lt-y62-dateformula-format/Y62DateFormulaFormat.al, `date_formula_language`).
+        // The letters of the global language (format-evaluate/Y62DateFormulaFormat.al, `date_formula_language`).
         Value::DateFormula(_) => match crate::date_formula_language::evaluate(&text, c.language())? {
             crate::datefns::Evaluated::Stored(f) => Parsed::Value(Value::DateFormula(f)),
-            // A statement form raises the formula's error (types/lt-date-formula-edges/DateFormulaEdges.al:SignsAndDigits_ErrorTexts).
+            // A statement form raises the formula's error (types/date-time/DateFormulaEdges.al:SignsAndDigits_ErrorTexts).
             crate::datefns::Evaluated::Rejected(Some(m)) if !c.ret_used() => {
                 return crate::native::raise(m, "Evaluate");
             }
             crate::datefns::Evaluated::Rejected(_) => Parsed::Rejected,
             crate::datefns::Evaluated::Failed(m) if !c.ret_used() => return crate::native::raise(m, "Evaluate"),
             // With the result used, both errors of this kind answer false and leave the value
-            // (errors/lt-ms-refusals-128/P128CalcDateForms.al:154-169: date texts, "should include a
-            // time unit"; errors/lt-ms-refusals-131/P131CalcDate.al:140,152: `<1D>+`, "should include a number").
+            // (types/date-time/P128CalcDateForms.al:154-169: date texts, "should include a
+            // time unit"; types/date-time/P131CalcDate.al:140,152: `<1D>+`, "should include a number").
             crate::datefns::Evaluated::Failed(_) => Parsed::Rejected,
         },
         other => return unsupported(format!("Evaluate into {} (not pinned by the corpus)", other.describe())),
@@ -2399,7 +2399,7 @@ fn evaluate_with_max(
             }
             other => other,
         },
-        // The error of a failed statement form (session/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts,
+        // The error of a failed statement form (session-system/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts,
         // `evaluate_int_overflow_statement`; types/TestProbeScalarContracts.al:Evaluate_BooleanFailureError).
         Parsed::Rejected | Parsed::RejectedUsedRefused(_)
             if matches!(
@@ -2423,23 +2423,23 @@ fn evaluate_with_max(
                 _ => "Boolean",
             };
             // A Boolean's error shows a TAB, two TABs or a space as the empty value `""` (corpus master, corpus PR 871:
-            // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Boolean).
+            // format-evaluate/Np4Misc.al NP4_Evaluate_Tab_Boolean).
             // Integer and Decimal show them as written (NP4_Evaluate_Tab_Integer, _Decimal).
             let text = if ty == "Boolean" && is_blank_tabs(&text) {
                 String::new()
             } else {
                 text.to_string()
             };
-            // In German the text is pinned for Decimal only (types/lt-evaluate-decimal-text/EvalDecimalDe.al:
+            // In German the text is pinned for Decimal only (format-evaluate/EvalDecimalDe.al:
             // P175_De_StatementErrorText, P175_De_Format9StatementErrorText).
             match (c.session_locale().map(|l| l.0), ty) {
-                // ... and Boolean (types/lt-wc/WcUnpinnedSingles.al:79-113 `vielleicht`).
+                // ... and Boolean (errors/WcUnpinnedSingles.al:79-113 `vielleicht`).
                 (Some(1031), "Decimal" | "Boolean") => crate::native::raise(
                     format!("Der Wert „{text}“ kann nicht in Typ {ty} ausgewertet werden."),
                     "Evaluate",
                 ),
                 (Some(1031), _) => unsupported(format!("the Evaluate error of {ty} in German (not pinned)")),
-                // The flag hides the text (errors/lt-last-error-and-events/P70_02LastErrFlag.al:Flag_EvaluateAndOverflow
+                // The flag hides the text (errors/last-error/P70_02LastErrFlag.al:Flag_EvaluateAndOverflow
                 // `eval_int|true`, `eval_int_var|true`); for the other types it is not pinned.
                 (_, "Integer") => crate::native::raise_redacted(
                     format!("The value \"{text}\" can't be evaluated into type {ty}."),
@@ -2454,7 +2454,7 @@ fn evaluate_with_max(
         }
         // The error of a rejected date that looks like one (P86Eval.al:Dflt3_Error_FNone, Fmt03_Error_F0, Fmt93_Error_F9: the same
         // text as a date filter gives, SetFilter on a Date).
-        // In English every text gives this error (types/lt-y49-evaluate-date-blanks/Y49EvaluateDateBlanks.al:79-205: blanks,
+        // In English every text gives this error (format-evaluate/Y49EvaluateDateBlanks.al:79-205: blanks,
         // `,`, `_`, `!`, with and without number 9).
         Parsed::Rejected | Parsed::RejectedUsedRefused(_)
             if matches!(a[0], Value::Date(..))
@@ -2467,12 +2467,12 @@ fn evaluate_with_max(
                     || (number == 9 && text.bytes().all(|b| b.is_ascii_digit() || matches!(b, b'-' | b'\t')))
                     || letters_date_text(&text, number)) =>
         {
-            // Letters alone with no number are pinned on master (types/lt-datetime/Evaluate.al:188-197 Date_Evaluate_Raises `abc`,
-            // errors/lt-last-error-and-events/P70_02LastErrFlag.al:286 `notadate`); number 9 and letters with `-./` wait for the
+            // Letters alone with no number are pinned on master (types/date-time/Evaluate.al:188-197 Date_Evaluate_Raises `abc`,
+            // errors/last-error/P70_02LastErrFlag.al:286 `notadate`); number 9 and letters with `-./` wait for the
             // branch pin.
-            // Number 9 and letters with `-./`: pinned by errors/lt-ms-refusals-130/P130EvaluateDate.al
+            // Number 9 and letters with `-./`: pinned by types/P130EvaluateDate.al
             // UN_Evaluate_Statement_NotADate_ByTarget (was assumption `evaluate-date-letters-statement`).
-            // In German (misc/lt-system-functions/EvalLastError.al:463-481, BT_Evaluate_DottedDate_Language1031). Another
+            // In German (format-evaluate/EvalLastError.al:463-481, BT_Evaluate_DottedDate_Language1031). Another
             // language is not pinned. The flag hides the text in English (P70_02LastErrFlag.al:Flag_EvaluateAndOverflow
             // `eval_date|true`); its German text is not pinned.
             match c.language() {
@@ -2492,7 +2492,7 @@ fn evaluate_with_max(
                 n => unsupported(format!("the Evaluate error of a Date in the language {n} (not pinned)")),
             }
         }
-        // With format 9 (types/lt-datetime/Evaluate.al:640-661 `eval 3000000000 fmt 9`) and 0 (types/lt-y49-evaluate-date-blanks/
+        // With format 9 (types/date-time/Evaluate.al:640-661 `eval 3000000000 fmt 9`) and 0 (format-evaluate/
         // Y49EvaluateDateBlanks.al:251-297 `abc`). With another format it is not pinned.
         Parsed::Rejected if matches!(a[0], Value::Duration(_)) && matches!(number, 0 | 9) => crate::native::raise(
             format!("The value \"{text}\" can't be evaluated into type Duration."),
@@ -2512,7 +2512,7 @@ fn evaluate_with_max(
 mod tests {
     use super::*;
 
-    /// Corpus master (corpus PR 871) misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date: a TAB, two TABs and a space read as
+    /// Corpus master (corpus PR 871) format-evaluate/Np4Misc.al NP4_Evaluate_Tab_Date: a TAB, two TABs and a space read as
     /// the empty date in format 0.
     #[test]
     fn tabs_and_a_space_read_as_the_empty_date() {
@@ -2533,7 +2533,7 @@ mod tests {
         }
     }
 
-    /// types/lt-datetime/Evaluate.al:209,233 Time_Format9: `13:45:06.1234` with format 9 is 13:45:06.123; a fourth digit of 5 or
+    /// types/date-time/Evaluate.al:209,233 Time_Format9: `13:45:06.1234` with format 9 is 13:45:06.123; a fourth digit of 5 or
     /// more and longer fractions are refused (rounding not pinned).
     #[test]
     fn a_time_with_four_digits_of_a_second_keeps_the_milliseconds() {
@@ -2551,7 +2551,7 @@ mod tests {
         }
     }
 
-    // types/lt-evaluate-format-lasterror-setview/P86Eval.al, codeunit "LT P86 Eval Integer"
+    // format-evaluate/P86Eval.al, codeunit "LT P86 Eval Integer"
     #[test]
     fn integers_read_spaces_signs_and_grouping_by_format_number() {
         let int = |s: &str, n: i64| value(integer(s, n)).map(|v| matches!(v, Value::Integer(_)));
@@ -2564,7 +2564,7 @@ mod tests {
         assert_eq!(int("1 234", 0), None);
     }
 
-    // types/lt-sc-eval-decimal-whitespace/ScEvalDecimalWhitespace.al:51-170 (format number 0): a trailing vertical tab or form
+    // types/decimal-integer/ScEvalDecimalWhitespace.al:51-170 (format number 0): a trailing vertical tab or form
     // feed is dropped, a line feed or tab inside the number rejects, for a Decimal and an Integer.
     #[test]
     fn decimals_and_integers_drop_edge_white_space_and_reject_inner_line_feeds() {
@@ -2588,7 +2588,7 @@ mod tests {
         assert!(matches!(value(integer("\t15", 0)), Some(Value::Integer(15))));
     }
 
-    // types/lt-sc-eval-decimal-whitespace/Y6EvalWhitespaceMore.al (corpus master, format number 0): a leading vertical tab or form
+    // types/decimal-integer/Y6EvalWhitespaceMore.al (corpus master, format number 0): a leading vertical tab or form
     // feed is dropped; one alone, or a carriage return, vertical tab or form feed inside the number, rejects. For an Integer the
     // three are dropped on either side and reject inside.
     #[test]
@@ -2652,7 +2652,7 @@ mod tests {
         assert_eq!(ms("085606", 9), None);
     }
 
-    // types/lt-datetime/Evaluate.al:Date_Default_Evaluate: the empty text reads as the empty date in format 0 too.
+    // types/date-time/Evaluate.al:Date_Default_Evaluate: the empty text reads as the empty date in format 0 too.
     #[test]
     fn the_empty_text_reads_as_the_empty_date_in_format_0() {
         assert!(matches!(
@@ -2676,7 +2676,7 @@ mod tests {
         assert_eq!(day("20240115", 0), None);
     }
 
-    // types/lt-evaluate-decimal/EvaluateDecimal.al:Evaluate_SignsBlanksAndGarbage `trailing_minus`, `parentheses`
+    // format-evaluate/EvaluateDecimal.al:Evaluate_SignsBlanksAndGarbage `trailing_minus`, `parentheses`
     #[test]
     fn decimals_read_a_trailing_minus_and_parentheses_as_negative() {
         let dec = |s: &str, n: i64| match decimal(s, n) {
@@ -2693,7 +2693,7 @@ mod tests {
         assert!(matches!(decimal("abc-", 0), Ok(Parsed::Rejected)));
     }
 
-    // types/lt-evaluate-decimal/EvaluateDecimal.al:QR_Evaluate_Punctuation_*, QR_Evaluate_Signs_*, QR_Evaluate_WhiteSpace_*
+    // format-evaluate/EvaluateDecimal.al:QR_Evaluate_Punctuation_*, QR_Evaluate_Signs_*, QR_Evaluate_WhiteSpace_*
     #[test]
     fn decimals_reject_punctuation_and_no_break_spaces_and_read_the_currency_forms() {
         let dec = |s: &str, n: i64| match decimal(s, n) {
@@ -2753,7 +2753,7 @@ mod tests {
         assert!(matches!(value(big_integer("100-", 0)), Some(Value::BigInteger(-100))));
     }
 
-    // types/lt-aj-probes/AjScalars.al:QR_Evaluate_Time_NarrowNoBreakSpace
+    // format-evaluate/AjScalars.al:QR_Evaluate_Time_NarrowNoBreakSpace
     #[test]
     fn times_read_am_and_pm_after_a_narrow_no_break_space() {
         let ms = |s: &str, n: i64| match time(s, n) {
@@ -2784,7 +2784,7 @@ mod tests {
         assert_eq!(ms("2021-12-19", 9), Ok(None));
         assert!(ms("2099-12-19", 0).is_err());
     }
-    // types/lt-datetime/Evaluate.al:380-447, 566-605, 640-670.
+    // types/date-time/Evaluate.al:380-447, 566-605, 640-670.
     #[test]
     fn evaluate_into_a_duration() {
         let ms = |t: &str, n: i64| match duration(t, n) {
@@ -2813,7 +2813,7 @@ mod tests {
         assert_eq!(ms("-1500", 9), None);
         assert_eq!(ms("2 days 3 h 4 min 5 sec 6 ms", 0), None);
         assert_eq!(ms("1500", 2), Some(1500 * 3_600_000));
-        // errors/lt-ms-refusals-131/P131EvalScalars.al:144-226.
+        // types/P131EvalScalars.al:144-226.
         assert_eq!(ms("  7 ", 0), Some(7 * 3_600_000));
         for t in ["+5", "12abc", "0 ms", "1,5", "1e3"] {
             assert_eq!(ms(t, 0), None, "{t}");

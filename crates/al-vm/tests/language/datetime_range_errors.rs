@@ -1,5 +1,5 @@
 //! DateTime +/- a number outside the DateTime range raises: past 9999-12-31 23:59:59.999 and before 0001-01-01 raise
-//! 'The date is not valid.' (DateInvalid), an amount that overflows 64 bits raises the overflow error (types/lt-datetime/
+//! 'The date is not valid.' (DateInvalid), an amount that overflows 64 bits raises the overflow error (types/date-time/
 //! Arithmetic.al:DateTime_Arithmetic_Errors, :294-313).
 
 use al_testkit::text;

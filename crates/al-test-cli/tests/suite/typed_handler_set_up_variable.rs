@@ -1,6 +1,6 @@
 //! A Page-typed PageHandler for a page run from a Page variable that its own procedure set up (Rec.Copy(Temp, true): the Error
 //! Messages shape), and for Page.Run(Id, TempRec) with a temporary record (corpus
-//! pages/lt-y72-page-probes/Y72PageHandlerSetUpVariable.al).
+//! ui-handlers/Y72PageHandlerSetUpVariable.al).
 
 use al_testkit::outcomes_in;
 

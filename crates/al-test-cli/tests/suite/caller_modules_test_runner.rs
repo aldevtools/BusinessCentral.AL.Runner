@@ -1,6 +1,6 @@
 //! al-runner issue 6248: while a `[Test]` procedure runs, `NavApp.GetCallerCallstackModuleInfos()` lists Microsoft's Test Runner
 //! app below the test's own apps, as `SessionInformation.Callstack` lists the Test Runner's frames below the test's
-//! (session/TestSessionInformationCallstackContracts.al:89-97). Pinned by lt-ss1030/SsCallerModulesTestRunner.al (corpus
+//! (session-system/TestSessionInformationCallstackContracts.al:89-97). Pinned by collections/SsCallerModulesTestRunner.al (corpus
 //! branch al-runtime-rs-staging-ss1030 at c36d14ea, not yet on master): called in the test method the list is the Test Runner
 //! alone (:25-43); called in a helper of the test app it is the test app, then the Test Runner (:45-52). The probe is pinned
 //! only for the corpus CI leg that runs tests through the Test Runner app; the newer legs run it through the server's test
@@ -45,7 +45,7 @@ codeunit 50102 "CM Probe Shape"
         exit(Result);
     end;
 
-    // lt-ss1030/SsCallerModulesTestRunner.al:25-43
+    // collections/SsCallerModulesTestRunner.al:25-43
     [Test]
     procedure InTest()
     var
@@ -56,7 +56,7 @@ codeunit 50102 "CM Probe Shape"
             Error('got %1', Describe(Infos));
     end;
 
-    // lt-ss1030/SsCallerModulesTestRunner.al:45-52
+    // collections/SsCallerModulesTestRunner.al:45-52
     [Test]
     procedure ThroughHelper()
     begin

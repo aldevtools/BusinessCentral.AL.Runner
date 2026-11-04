@@ -1,5 +1,5 @@
 //! The part a list's caption takes from a DataCaptionFields field with a TableRelation (corpus probe
-//! pages/lt-y45-list-caption-relation/Y45ListCaptionRelation.al, file header lines 6-11, measured on BC 27.5, 28.5, 29.0 and
+//! pages/properties/Y45ListCaptionRelation.al, file header lines 6-11, measured on BC 27.5, 28.5, 29.0 and
 //! the BC 29 SaaS sandbox).
 
 use super::*;
@@ -12,7 +12,7 @@ impl Session {
     /// record has the value (:147 List_Dcf_FilterRefNoMissingRef_Caption, :418: no suffix).
     /// A relation with where() clauses, or to a field of a table whose key has several fields, takes the first row of the related
     /// table, in its primary key order, whose related field holds the value: the where() clauses are not applied, and a blank
-    /// DataCaptionFields value of that row is left out (pages/lt-y72-page-probes/Y72CaptionRelationWhere.al header;
+    /// DataCaptionFields value of that row is left out (testpage/Y72CaptionRelationWhere.al header;
     /// Caption_WhereField_OtherTemplate `- BAT ∙ Batch one` for template T2, Caption_WhereField_NoDescription `- OTHER`,
     /// Caption_WhereConst_OneKey `- X2 ∙ y` for a row the const leaves out, `Z9` no suffix). A conditional relation, a where
     /// filter() with operators, and a related row whose DataCaptionFields values are all blank are not pinned.

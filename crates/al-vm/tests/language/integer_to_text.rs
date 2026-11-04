@@ -1,5 +1,5 @@
 //! `Integer.ToText` and `BigInteger.ToText` write no thousands separator
-//! (misc/lt-probe-requests-140/P140IntegerToText.al).
+//! (format-evaluate/P140IntegerToText.al).
 
 use al_builtins::native::Signal;
 

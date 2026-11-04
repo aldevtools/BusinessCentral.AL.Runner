@@ -38,9 +38,9 @@ fn text(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
 }
 
 /// A Text argument that may be a Guid: the Guid's upper-case text form, as in an assignment. Pinned for the functions that
-/// call this (types/lt-guid-as-text-argument/GuidAsTextArgument.al:108-146, Guid_AsTextArgument_MoreStringFunctions: DelStr,
+/// call this (types/guid/GuidAsTextArgument.al:108-146, Guid_AsTextArgument_MoreStringFunctions: DelStr,
 /// PadStr, ConvertStr, IncStr, SelectStr, InsStr, DelChr, Contains, IndexOf, StartsWith, Replace; and
-/// misc/lt-y70-assumptions/Y70Probes.al:264-311, GuidAsText_OtherFunctions: EndsWith, LastIndexOf, Split, TrimStart, TrimEnd,
+/// record/Y70Probes.al:264-311, GuidAsText_OtherFunctions: EndsWith, LastIndexOf, Split, TrimStart, TrimEnd,
 /// IndexOfAny). Other text functions keep refusing a Guid.
 fn text_or_guid(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
     if let Some(Value::Guid(g)) = a.get(i) {
@@ -67,7 +67,7 @@ fn int(a: &[Value], i: usize) -> Result<i64, Signal> {
         Some(Value::Byte(n)) => Ok(i64::from(*n)),
         // An Option converts to its ordinal (`SelectStr(Target, Text)` with an Option parameter in Base Application's
         // Calculate Standard Cost); the same conversion as `I := OptionValue` (ops::convert).
-        // (corpus record/lt-record-conversion-assumptions/OptCopyStr_risky.al, OptPadStr_risky.al, OptSelectStr_risky.al)
+        // (corpus text/OptCopyStr_risky.al, OptPadStr_risky.al, OptSelectStr_risky.al)
         Some(Value::Option(o, _)) => Ok(i64::from(*o)),
         other => unsupported(format!("integer argument {i} of type {}", other.describe())),
     }
@@ -83,7 +83,7 @@ pub(crate) fn int_or_decimal(a: &[Value], i: usize) -> Result<i64, Signal> {
 }
 
 /// A Decimal where one of these text functions takes an Integer: a whole value is that Integer, a fraction raises
-/// ConversionCast with the value as written (text/lt-text-functions/
+/// ConversionCast with the value as written (text/text-methods/
 /// PadStr.Codeunit.al:122-235, CopyStr, DelStr, InsStr and SelectStr `*Decimal*` tests).
 /// A whole value beyond the Integer range is not pinned.
 pub(crate) fn decimal_as_int(d: &rust_decimal::Decimal) -> Result<i64, Signal> {
@@ -237,13 +237,13 @@ fn index_of(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult 
 fn last_index_of(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let (st, sb) = (recv_text(&r)?, text_or_guid(a, 0)?);
     // A start index is valid from 1 to one past the end (corpus
-    // text/lt-text-instance/Search1.Codeunit.al:LastIndexOf_StartIndex: 10 of 9 characters is
-    // allowed, 0, -1 and 100 are not; misc/lt-probes-needed-1/PnATextFunctions.al:LastIndexOf_Cases).
+    // text/text-methods/Search1.Codeunit.al:LastIndexOf_StartIndex: 10 of 9 characters is
+    // allowed, 0, -1 and 100 are not; text/PnATextFunctions.al:LastIndexOf_Cases).
     // The empty text is found one past the start index (`'abcabcabc'.LastIndexOf('', 5) = 6`).
     let ascii = st.is_ascii() && sb.is_ascii();
     let len = if ascii { st.len() } else { u16s(&st).len() };
     // On an empty text a start index of 0 or 1 finds nothing, and the empty text at 1
-    // (text/lt-text-instance/Search1.Codeunit.al:351,353,355: `E.LastIndexOf('', 1) = 1`, `('a', 1) = 0`, `('a', 0) = 0`,
+    // (text/text-methods/Search1.Codeunit.al:351,353,355: `E.LastIndexOf('', 1) = 1`, `('a', 1) = 0`, `('a', 0) = 0`,
     // no error), and `E.LastIndexOf('', 0)` is 1 too (Search1.Codeunit.al:466-487 PW_LastIndexOf_EmptyValue_StartZero).
     if len == 0 && a.len() > 1 && matches!(int(a, 1)?, 0 | 1) {
         return Ok(Value::Integer(if sb.is_empty() { 1 } else { 0 }));
@@ -281,10 +281,10 @@ fn last_index_of(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRe
 fn index_of_any(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let s = u16s(&recv_text(&r)?);
     // The 1-based start index counts in the text: `'Hello, World'.IndexOfAny(['o', ','], 6)` is 6
-    // (types/lt-variant-is-text-streams/LTP89TextConst.al:IndexOfAny_Overloads). A start outside the text is not pinned.
+    // (types/variant/LTP89TextConst.al:IndexOfAny_Overloads). A start outside the text is not pinned.
     let from = if a.len() > 1 {
         let n = int(a, 1)?;
-        // One past the end finds nothing and raises nothing (text/lt-text-instance/Search1.Codeunit.al:418-443 `any_start12`).
+        // One past the end finds nothing and raises nothing (text/text-methods/Search1.Codeunit.al:418-443 `any_start12`).
         if n >= 1 && n as usize == s.len() + 1 {
             return Ok(Value::Integer(0));
         }
@@ -318,7 +318,7 @@ fn index_of_any(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
 }
 
 /// `Remove(StartIndex [, Count])`: 1-based, `'Hello, World'.Remove(6)` is `Hello` and `Remove(6, 3)` is `Helloorld`
-/// (types/lt-variant-is-text-streams/LTP89TextConst.al:Edit_1). The errors outside the text follow text/lt-text-instance/
+/// (types/variant/LTP89TextConst.al:Edit_1). The errors outside the text follow text/text-methods/
 /// Edit1.Codeunit.al:216-330 (Remove_OneArg, Remove_TwoArgs): with one argument a start below 1 is `StartIndex cannot be less
 /// than 1.`, one just past the end removes nothing and one further is `startIndex cannot be larger than length of string.`; with
 /// two a start below 1 or a negative count is the non-negative error of `startIndex` (start - 1) or `count`, and a count past the
@@ -470,7 +470,7 @@ fn pad(r: &Option<&mut Value>, a: &[Value], left: bool) -> NResult {
     let (Some(f), None) = (it.next(), it.next()) else {
         return unsupported("PadLeft/PadRight with a fill that is not one character");
     };
-    // text/lt-text-instance/Edit1.Codeunit.al:41-63,114-136; text/lt-textconst-label-methods/P103TextConstEdit.al:98-126.
+    // text/text-methods/Edit1.Codeunit.al:41-63,114-136; text/textconst-label/P103TextConstEdit.al:98-126.
     if width < 0 {
         return Err(out_of_range(&format!(
             "totalWidth ('{width}') must be a non-negative value. (Parameter 'totalWidth')\\Actual value was {width}."
@@ -582,7 +582,7 @@ fn del_chr(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     };
     let strip = |c: char| which.contains(&c);
     // Where is up to three of `=`, `<`, `>` in any order: an `=` deletes everywhere, else `<` and `>` trim that end
-    // (errors/lt-ms-refusals-136/P136Text.al:P136_DelChr_ThreeCharWhere and P136_DelChr_DoubledAndOddWhere: `=<>`, `<=>`,
+    // (text/text-methods/P136Text.al:P136_DelChr_ThreeCharWhere and P136_DelChr_DoubledAndOddWhere: `=<>`, `<=>`,
     // `=>`, `<<`, `>>`, `==`, `<>>`, `<<>`, `><`). An empty Where changes nothing; any other character is an error.
     // Four and five characters read the same way (EvaluateDelChrEdges.al:DelChr_WhereLongerThanOne `=<>=`, `<<<<`, `<>=<`, `=<>=<`); longer texts are not pinned.
     if wh.chars().any(|c| !matches!(c, '=' | '<' | '>')) {
@@ -627,7 +627,7 @@ fn inc_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
         return unsupported("IncStr of a digit block beyond 38 digits (not pinned)");
     };
     let sum = value + by;
-    // text/lt-text-functions/IncStr.Codeunit.al:141-219; the BigInteger increment: BM_IncStr_BigIntegerIncrement `big_neg_below_zero`.
+    // text/text-methods/IncStr.Codeunit.al:141-219; the BigInteger increment: BM_IncStr_BigIntegerIncrement `big_neg_below_zero`.
     if sum < 0 {
         return raise("The result of incrementing cannot be negative.", "InvalidOperation");
     }
@@ -642,7 +642,7 @@ fn pad_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let len = int_or_decimal(a, 1)?;
     let fill = if a.len() > 2 { text(a, 2)? } else { " ".into() };
     let mut it = fill.chars();
-    // A fill that is not one character and a negative length are range errors (text/lt-text-functions/PadStr.Codeunit.al:
+    // A fill that is not one character and a negative length are range errors (text/text-methods/PadStr.Codeunit.al:
     // 37-73, 100-118). Both at once is not pinned.
     let (Some(f), None) = (it.next(), it.next()) else {
         if len < 0 {
@@ -743,7 +743,7 @@ fn secret_content(v: &Value) -> Result<String, Signal> {
             _ => unsupported("SecretText holding something else"),
         },
         // A Text or Code variable is taken as its content where a SecretText is expected
-        // (types/lt-secret-text-from-text/SecretTextFromText.al:SecretStrSubstNo_TextArgument, SecretText_TextToParameter).
+        // (types/text-code-char/SecretTextFromText.al:SecretStrSubstNo_TextArgument, SecretText_TextToParameter).
         Value::Text(t) | Value::Code(t) if !t.has_marker() => Ok(t.to_string()),
         other => unsupported(format!("{} used as a SecretText", other.describe())),
     }
@@ -836,8 +836,8 @@ fn text_len_over(s: &str, cap: i64) -> i64 {
 
 /// A Text argument of a TextBuilder method. A call stack text (it holds `CALL_STACK_MARK`) is carried into the builder
 /// and out of `ToText` like `+` carries it; no text function reads it (al-runner issue 6310; corpus
-/// error-handling/lt-wd/WdCallStackToBlob.al, codeunit 90742: the call stack text round-trips and is not empty).
-/// A Guid is its upper-case braced text, also inside a Variant (text/lt-y49-textbuilder-guid/Y49TextBuilderGuid.al:60-219:
+/// errors/last-error/WdCallStackToBlob.al, codeunit 90742: the call stack text round-trips and is not empty).
+/// A Guid is its upper-case braced text, also inside a Variant (text/textbuilder-bigtext/Y49TextBuilderGuid.al:60-219:
 /// Append, AppendLine, Insert, both texts of Replace).
 fn tb_text(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
     match a.get(i) {
@@ -857,8 +857,8 @@ fn tb_append(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult
 /// `Append` of a Variant (lowering picks this for an argument that is a Variant variable or parameter): a Variant holding an Integer, BigInteger, Decimal, Boolean, Date, Time or DateTime raises the
 /// Variant-to-Text conversion error and appends nothing; a Text or Code appends. Pinned for Date (also blank), DateTime (also blank),
 /// Time, Decimal, Boolean and Integer, and for the fields of every such type through `RecordRef.FieldIndex(i).Value()`
-/// (text/lt-textbuilder-variant/TextBuilderAppendVariant.al:Variant_Dates, Variant_Decimals, Variant_OtherTypes, RecordRef_FieldIndexValue;
-/// types/lt-number-to-text/NumberToTextIsFormat.al:193-216, TextBuilderAppend_VariantNumber_Result). Other kinds keep the plain
+/// (text/textbuilder-bigtext/TextBuilderAppendVariant.al:Variant_Dates, Variant_Decimals, Variant_OtherTypes, RecordRef_FieldIndexValue;
+/// format-evaluate/NumberToTextIsFormat.al:193-216, TextBuilderAppend_VariantNumber_Result). Other kinds keep the plain
 /// `Append`. A `FieldRef.Value()` written directly as the argument stays on `tb_append`, which refuses a number (only the form through
 /// a Variant parameter is pinned).
 pub fn tb_append_variant(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
@@ -880,9 +880,9 @@ pub fn tb_append_variant(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]
 
 /// `Append(FieldRef.Value())` written directly as the argument appends the value as `Format` shows it, for the field types the
 /// corpus pins: Integer, Decimal, Boolean, Date (blank and set) and Code
-/// (text/lt-textbuilder-field-direct/TextBuilderAppendFieldDirect.al, through `FieldRef` and `RecordRef.FieldIndex(i)`), and
+/// (text/textbuilder-bigtext/TextBuilderAppendFieldDirect.al, through `FieldRef` and `RecordRef.FieldIndex(i)`), and
 /// Enum and Option (caption), BigInteger, Time, DateTime, Duration, DateFormula, Guid, Blob (`*`, one space when empty), Media,
-/// MediaSet and RecordId, set and blank (text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:356-470).
+/// MediaSet and RecordId, set and blank (text/text-methods/Y49FieldRefIntoText.al:356-470).
 /// Other kinds are refused.
 pub fn tb_append_field_value(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     use crate::library_kind::LibraryKind as L;
@@ -941,7 +941,7 @@ fn tb_to_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResul
     let u = u16s(&s);
     let (start, count) = (int(a, 0)?, int(a, 1)?);
     // A start of 0 reads from the first character: `ToText(0, 10)` of ten characters is all of them, `ToText(0, 0)` of an empty
-    // builder is empty (text/lt-label-textbuilder/TxCTextBuilderEdit.al:312-330, 365-380).
+    // builder is empty (text/textbuilder-bigtext/TxCTextBuilderEdit.al:312-330, 365-380).
     let start = if start == 0 && (0..=u.len() as i64).contains(&count) {
         1
     } else {
@@ -968,7 +968,7 @@ fn tb_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
 }
 
 /// `Length(N)` cuts the text to N characters or extends it with NUL characters, and the capacity grows to hold it
-/// (text/lt-label-textbuilder/TxCTextBuilderBasics.al:230-257 Length_Getter_Setter; TxCTextBuilderEdit.al:556-567
+/// (text/textbuilder-bigtext/TxCTextBuilderBasics.al:230-257 Length_Getter_Setter; TxCTextBuilderEdit.al:556-567
 /// Length_Larger_Than_Capacity); above the largest capacity it overflows (TxCTextBuilderBasics.al:267-270). A negative length,
 /// and the answer of the setter, are not pinned.
 fn tb_set_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
@@ -994,7 +994,7 @@ fn tb_set_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> N
 
 /// `Replace(Old, New, StartIndex, Count)` replaces within the Count characters from StartIndex (1-based): `aXaXaXaX` with `X`
 /// to `-` from 2 for 4 is `a-a-aXaX`, `aX` to `-` from 1 for 4 is `--aXaX`. A start below 1, a negative count, or a range past
-/// the end is the argument error and leaves the text (text/lt-label-textbuilder/TxCTextBuilderEdit.al:235-304, from 0, -1 and
+/// the end is the argument error and leaves the text (text/textbuilder-bigtext/TxCTextBuilderEdit.al:235-304, from 0, -1 and
 /// `5, 5` of six characters); an empty range just past the end changes nothing. The answer of the call is not pinned.
 fn tb_replace_range(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = string_of(r)?;
@@ -1030,7 +1030,7 @@ fn tb_replace_range(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
 
 fn tb_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     let h = string_of(r)?;
-    // Clear keeps the capacity (text/lt-label-textbuilder/TxCTextBuilderBasics.al:Clear_Basics `capKept`).
+    // Clear keeps the capacity (text/textbuilder-bigtext/TxCTextBuilderBasics.al:Clear_Basics `capKept`).
     let cap = capacity_of(&h);
     *h.borrow_mut() = LibraryValue::TextCap(String::new(), cap);
     Ok(Value::Null)
@@ -1111,9 +1111,9 @@ fn tb_ensure_capacity(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value])
         return crate::native::raise("Arithmetic operation resulted in an overflow.", "AL:Overflow");
     }
     // A negative capacity whose answer is used answers false and changes nothing, on an empty builder and on one holding 'abc',
-    // with capacity 16 and 50 (types/lt-ax-text-format-dates/AxFillerBuilderAutoFormat.al:156-185, `Ret := TB.EnsureCapacity(-1)`
+    // with capacity 16 and 50 (format-evaluate/AxFillerBuilderAutoFormat.al:156-185, `Ret := TB.EnsureCapacity(-1)`
     // in a TryFunction; TxCTextBuilderBasics.al:356 raises nothing either). Called as a statement on a builder that holds text it
-    // is an argument error (types/lt-format-codes-textbuilder-pagerun-labels/P144TextBuilderCapacity.al:160-173: 'abc' appended,
+    // is an argument error (format-evaluate/P144TextBuilderCapacity.al:160-173: 'abc' appended,
     // capacity 16). Called as a statement on an empty builder is not pinned.
     if n < 0 {
         if ctx.ret_used() {
@@ -1151,7 +1151,7 @@ fn tb_replace(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResul
 }
 
 /// `AddText(Text or BigText [, Position])`: appends; with a position the text goes in before that character, at the end when the
-/// position is past it, and a position below 1 is the range error of INSSTR (types/lt-totext-bigtext-codeunit-run/P93BigText.al:
+/// position is past it, and a position below 1 is the range error of INSSTR (format-evaluate/P93BigText.al:
 /// 95-235, a BigText added to itself included).
 fn bt_add_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = string_of(r)?;
@@ -1202,7 +1202,7 @@ fn bt_length(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult
     Ok(Value::Integer(with_string(&h, |s| Value::text_len(s)) as i32))
 }
 
-/// 1-based position of the first occurrence, 0 when absent (session/TestSystemExtended.al BigTextTextPos_*).
+/// 1-based position of the first occurrence, 0 when absent (session-system/TestSystemExtended.al BigTextTextPos_*).
 fn bt_text_pos(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = string_of(r)?;
     let (hay, needle) = (with_string(&h, |s| u16s(s)), u16s(&text(a, 0)?));
@@ -1216,7 +1216,7 @@ fn bt_text_pos(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
 /// `GetSubText(var Text, Position [, Length])`; returns the number of characters.
 /// `GetSubText(var Text or BigText, Position [, Length])` answers the number of characters it gives: from the position to the end,
 /// or at most Length; a position past the end gives nothing. A position below 1 and a negative length are the range errors of
-/// COPYSTR (types/lt-totext-bigtext-codeunit-run/P93BigText.al:237-347). Both at once, and an empty part into a BigText that holds
+/// COPYSTR (format-evaluate/P93BigText.al:237-347). Both at once, and an empty part into a BigText that holds
 /// text, are not pinned.
 fn bt_get_sub_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = string_of(r)?;

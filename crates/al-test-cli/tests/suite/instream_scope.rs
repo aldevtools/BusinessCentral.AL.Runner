@@ -1,5 +1,5 @@
 //! al-runner issue 5688: an InStream handed back from a routine whose local owns its bytes. The pinned shapes read as empty
-//! (streams/lt-dc-stream-leads/DcInStreamScope.al:107-166); the others are refused when they run, never because a test can
+//! (streams/DcInStreamScope.al:107-166); the others are refused when they run, never because a test can
 //! reach them (a page handler refused for `OCR Service Mgt.RsoRequest`, which the test never runs).
 
 use al_test_cli::report::Outcome;

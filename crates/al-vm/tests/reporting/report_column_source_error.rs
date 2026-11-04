@@ -1,5 +1,5 @@
 //! An error in a report column's source expression is wrapped: "The SourceExpr for report control '<column>' is not valid. The
-//! following error occurred: <error>", code ReportSourceExpression (report/lt-qw-ternary-columns/QwTernaryColumns.al:506-516,
+//! following error occurred: <error>", code ReportSourceExpression (reports/dataset/QwTernaryColumns.al:506-516,
 //! a ternary column whose Integer true branch makes a Decimal 12.5 false branch overflow). Only that conversion error is pinned;
 //! any other error in a column's source expression is refused.
 

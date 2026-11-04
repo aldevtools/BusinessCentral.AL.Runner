@@ -1,5 +1,5 @@
 //! XmlPort table element `CalcFields`, `LinkTableForceInsert`, and Occurrence of the attributes of a field element
-//! (xmlport/lt-y68-xmlport-shapes/Y68XmlPortShapes.al, corpus master 0d01b0cc).
+//! (xmlports/shapes-properties/Y68XmlPortShapes.al, corpus master 0d01b0cc).
 
 const SRC: &str = r#"
 table 91610 "XC Parent"

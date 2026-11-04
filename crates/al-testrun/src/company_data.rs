@@ -321,7 +321,7 @@ impl FileSystem for ResourceFiles {
     /// Only a folder AL code created in the temporary folder: the files written directly in it, in name order without case,
     /// each as the folder joined with `/` to the file name as first written (the same join as `staged_folder_files`, for the
     /// runtime's .NET System.IO.Path). Windows BC 29.0 lists the files MediaSet.ExportFile wrote there (windows-check-results
-    /// 2026-10-23 RJ item B; corpus tests/al-language-onprem/media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape,
+    /// 2026-10-23 RJ item B; corpus tests/al-language-onprem/streams/media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape,
     /// cu 61286) and lists every folder in name order without case, never in creation order (windows-check-results 2026-10-23
     /// listing order, cu 61287 LO_ListingOrder: created a,C,b lists a,b,C; B,a lists a,B). The names compare upper-cased, as
     /// NTFS orders its entries. Corpus bump 62 pins this order; until it lands the caller marks
@@ -539,7 +539,7 @@ mod tests {
     }
 
     // The folders of the temporary folder, as static System.IO.Directory sees them on real BC (tests/al-language-onprem-dotnet/
-    // lt-qx-dotnet/QxDotNetDemoShapes.al:265-292 RD_DirectoryExists_Static, :294-346 RD_FileManagement_ServerFolderOperations).
+    // dotnet/dotnet/QxDotNetDemoShapes.al:265-292 RD_DirectoryExists_Static, :294-346 RD_FileManagement_ServerFolderOperations).
     #[test]
     fn folders_of_the_temporary_folder_are_created_and_removed_in_memory() {
         let dir = std::env::temp_dir().join(format!("alr-resdirs-{}", std::process::id()));

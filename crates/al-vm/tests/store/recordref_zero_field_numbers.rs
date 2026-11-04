@@ -1,5 +1,5 @@
 //! RecordRef load-field calls with field number 0 and unknown numbers among known ones
-//! (recordref/lt-y71-loadfields/Y71RecRefLoadFields.al:293-525).
+//! (recordref-fieldref/recordref/Y71RecRefLoadFields.al:293-525).
 
 use al_testkit::{error_message, run, text};
 
@@ -88,7 +88,7 @@ fn set_auto_calc_fields_zero_is_the_timestamp() {
 }
 
 /// AddLoadFields(0) after SetLoadFields(2) adds nothing: the request stays the key and Name
-/// (recordref/lt-y71-loadfields/Y71RecRefLoadFields.al:180-184, :380-382 `add_zero|loaded`).
+/// (recordref-fieldref/recordref/Y71RecRefLoadFields.al:180-184, :380-382 `add_zero|loaded`).
 const ADD_ZERO: &str = r#"
 table 60032 "LF Add Zero Row"
 {

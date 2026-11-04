@@ -1,5 +1,5 @@
 //! `currXMLport.FieldSeparator := v` and the other separator and encoding members set by assignment in a VariableText port
-//! (corpus xmlport/lt-y67-xmlport-separators/Y67XpSeparators.al:314-472). The assignment is the setter: a Text, a Char or a
+//! (corpus xmlports/shapes-properties/Y67XpSeparators.al:314-472). The assignment is the setter: a Text, a Char or a
 //! Code value is used as it is, a token such as `<TAB>` or `<CR/LF>` is written literally, an empty text leaves the
 //! separator out. TextEncoding set so changes the bytes of the export. The getter reads back what was assigned.
 

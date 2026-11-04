@@ -275,7 +275,7 @@ pub(crate) fn build_shared<'a>(
             }
         }
         // A reportextension that extends the request page merges into it the way a page extension
-        // merges into its page (corpus handlers/TestRequestPageControlErrorName.al).
+        // merges into its page (corpus reports/TestRequestPageControlErrorName.al).
         if o.kind == ObjKind::ReportExtension && active(oi) {
             let ext = ws.object_ast(oi);
             if ext.sections().any(|s| s.name().eq_ignore_ascii_case("requestpage")) {
@@ -288,7 +288,7 @@ pub(crate) fn build_shared<'a>(
         }
     }
     // Extensions apply dependencies first, then by object id: when two modify one property, the
-    // later one wins (corpus handlers/TestPageExtensionModifyCaption_Tests.al: a higher object id wins
+    // later one wins (corpus pages/extensions/TestPageExtensionModifyCaption_Tests.al: a higher object id wins
     // within an app, `Twice2Ctl`; the app that depends on the other wins whatever the ids, `FxBoth2Ctl`).
     for list in page_extensions.values_mut() {
         list.sort_by_key(|&e| (ws.app_depth(ws.objects[e].app), ws.objects[e].id, ws.objects[e].offset));
@@ -414,7 +414,7 @@ pub(crate) fn build_shared<'a>(
         }
         page_temporary[oi] = prop("SourceTableTemporary").is_some_and(|v| v.trim().eq_ignore_ascii_case("true"));
         // A SaveValues page stores the variables its page extensions bind as well as its own
-        // (misc/lt-probes-needed-6/PnF02SaveValuesExt.al; the VM's `var_slots`).
+        // (pages/PnF02SaveValuesExt.al; the VM's `var_slots`).
     }
     // A page extension shares the page's `Rec`.
     for (&p, list) in &page_extensions {
@@ -456,7 +456,7 @@ pub(crate) fn build_shared<'a>(
                 }
             }
             // `Rec` of an xmlport whose request page states `SourceTable`: a record of that table in the xmlport's code, temporary
-            // with `SourceTableTemporary = true` (xmlport/lt-y-xmlport-props/YXmlPortProps.al:861-923, al-runner issue 5756).
+            // with `SourceTableTemporary = true` (xmlports/shapes-properties/YXmlPortProps.al:861-923, al-runner issue 5756).
             ObjKind::XmlPort if active(oi) => {
                 let obj = ws.object_ast(oi);
                 if let Some(rp) = obj.sections().find(|s| s.name().eq_ignore_ascii_case("requestpage")) {
@@ -594,7 +594,7 @@ pub(crate) fn build_shared<'a>(
         let (request, request_section) = crate::reports::request_layout(&obj, &l.items, &exts);
         page_reasons[oi].extend(request.reasons.iter().cloned());
         // A request page that declares `SourceTable` has a `Rec` of that table (corpus
-        // handlers/TestReportRequestPageSourceTableCompiledContracts.al).
+        // reports/TestReportRequestPageSourceTableCompiledContracts.al).
         if let Some(t) = request_section
             .as_ref()
             .and_then(|s| s.properties().find(|p| p.name().eq_ignore_ascii_case("SourceTable")))
@@ -606,7 +606,7 @@ pub(crate) fn build_shared<'a>(
             }
         }
         // `SourceTableTemporary = true` gives the request page a temporary `Rec`: empty at OnOpenPage, and what it inserts stays out
-        // of the table (report/lt-y-request-page/YRequestPageTests.al:99-113).
+        // of the table (reports/request-page/YRequestPageTests.al:99-113).
         page_temporary[oi] = request_section.as_ref().is_some_and(|s| {
             s.properties().any(|p| {
                 p.name().eq_ignore_ascii_case("SourceTableTemporary")
@@ -615,11 +615,11 @@ pub(crate) fn build_shared<'a>(
         });
         // A reportextension that changes the run and extends the request page binds its controls to its variables after the
         // base items' records (`ext_slot_table`): a value the request page handler sets reaches the extension's triggers
-        // (report/lt-wd/WdReportExtRequestPage.al:98 WD_ReportExt_RequestPageFieldsReachTheRun, corpus master 930653fe, al-runner issue 6302).
+        // (reports/WdReportExtRequestPage.al:98 WD_ReportExt_RequestPageFieldsReachTheRun, corpus master 930653fe, al-runner issue 6302).
         // Pinned there for fields bound to the extension's own variables on a page without SaveValues. A field of such an
         // extension bound to a variable of the report reads apart from the report's own control (reportext/
         // W3RpExtRequestPage.al:214 Run_ExtensionControls_ReachTheVariablesAndTheRunIsUnchanged `after ext after=6: main=[5]`),
-        // and SaveValues keeps the extension's variables (report/lt-aq/AqTests.al:479 SavedExt_2_NextRunShows): neither is
+        // and SaveValues keeps the extension's variables (reports/AqTests.al:479 SavedExt_2_NextRunShows): neither is
         // built, so both stay refused, as does a field bound to anything else, and a trigger on the extension's request page
         // or its fields (none in the pin).
         let save_values = request_section.as_ref().is_some_and(|s| {
@@ -655,7 +655,7 @@ pub(crate) fn build_shared<'a>(
                 .sections()
                 .filter(|s| s.name().eq_ignore_ascii_case("requestpage"))
                 .any(|s| has_trigger(&s));
-            // SaveValues: the SaveAsXml and Cancel closes are pinned (al-language-onprem/report/lt-y60-reportext-saveasxml/
+            // SaveValues: the SaveAsXml and Cancel closes are pinned (al-language-onprem/reports/layouts-saveas/
             // Y60ReportExtSaveAsXml.al); the VM refuses the other closes (`refuse_ext_save_values_close`).
             let why = match (save_values, foreign, triggers) {
                 (true, Some(_), _) | (true, None, true) => Some("a request page with SaveValues".to_string()),
@@ -1561,7 +1561,7 @@ impl al_ir::walk::RefVisitor for Unembed<'_> {
 type ExtTriggers = (usize, String, Vec<(usize, usize)>, Vec<(usize, usize)>);
 
 /// The object-level properties of a table that a table extension sets on it: the extension's value is the table's
-/// (record/lt-x-table-props/XTablePropsTests.al:TableProperties_Metadata_LookupDrillDownDataCaption :585-587,
+/// (record/table-properties/XTablePropsTests.al:TableProperties_Metadata_LookupDrillDownDataCaption :585-587,
 /// TableExt_DataCaptionFields_TestPageCaption :609).
 const TABLE_EXTENSION_TABLE_PROPERTIES: &[&str] = &["DataCaptionFields", "LookupPageId", "DrillDownPageId"];
 use al_ir::sym::UNSUPPORTED_TABLE_PROPERTY;
@@ -1688,7 +1688,7 @@ fn split_tables(
         touched.sort_unstable();
         touched.dedup();
         for e in touched {
-            // The table properties an extension may set (record/lt-x-table-props/XTablePropsTests.al:585-587, :609).
+            // The table properties an extension may set (record/table-properties/XTablePropsTests.al:585-587, :609).
             let ext_props: Vec<(String, String)> = staged[e]
                 .object
                 .properties
@@ -2532,9 +2532,9 @@ fn tdd_stub_list(checked: &CheckResult, sites: &[(usize, String)]) -> Vec<String
 }
 
 /// Why the report extensions `exts` (in object id order) that change a report's run cannot run in a pinned order. Several
-/// extensions apply in object id order (corpus reportextensiontrigger/TestReportExtensionBaseMembersContracts.al:256, ADR-025).
+/// extensions apply in object id order (corpus reports/extensions/TestReportExtensionBaseMembersContracts.al:256, ADR-025).
 /// Across apps they apply in dependency order when a dependency path orders the apps (al-runner issue 6653; corpus branch
-/// al-runtime-rs-staging-y64 85d86e7b, reportext/lt-y64-xapp-run-order/Y64XappRunOrder.al: A <- B <- C <- the test app). There
+/// al-runtime-rs-staging-y64 85d86e7b, reports/extensions/Y64XappRunOrder.al: A <- B <- C <- the test app). There
 /// the ids rise along the path, so only that is pinned: apps with no path between them, or ids against it, are refused.
 fn extension_order_reasons(ws: &Workspace, exts: &[usize]) -> Vec<String> {
     let app = |e: usize| ws.objects[e].app;

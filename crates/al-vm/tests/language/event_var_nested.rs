@@ -1,4 +1,4 @@
-//! A subscriber's `var` parameter that is the publisher's global (events/lt-event-var-through-sender/EventVarThroughSender.al)
+//! A subscriber's `var` parameter that is the publisher's global (events/binding-senders/EventVarThroughSender.al)
 //! stays that variable when the subscriber hands it on by `var` to a procedure of its own: a value the procedure sets is seen
 //! through Sender, and a value Sender sets is seen in the procedure's parameter; a procedure that takes it by value gets a copy
 //! (al-runner issue 5754; EventVarThroughSender.al:284-306 RO_EventVar_NestedProcedure_SetsParams_ReadsThroughSender and

@@ -1,5 +1,5 @@
 //! DataTransfer inside an install codeunit (al-vm `datatransfer`): the reporter's same-table CopyFields with a source filter
-//! (al-runner issue 6586) and a CopyRows between two tables, as record/lt-as-records/AsDtInstaller.al S1 and S3 pin, and both
+//! (al-runner issue 6586) and a CopyRows between two tables, as install-upgrade/AsDtInstaller.al S1 and S3 pin, and both
 //! with table extensions of the same app (Y47DtInstall.al S4-S7).
 
 use al_sema::workspace::AppSource;

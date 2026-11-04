@@ -45,7 +45,7 @@ fn all_pass(tests: &str) {
 }
 
 // Sales Line SetLoadFieldsForInvDiscoundCalculation passes the FlowField "Reserved Quantity" to SetLoadFields, in about
-// 2,350 Microsoft tests, and real BC runs it (record/lt-priority-assumptions/PriorityAssumptions.al:282-312 pins that SetLoadFields accepts it).
+// 2,350 Microsoft tests, and real BC runs it (record/PriorityAssumptions.al:282-312 pins that SetLoadFields accepts it).
 #[test]
 fn set_load_fields_accepts_a_flow_field() {
     all_pass(
@@ -61,7 +61,7 @@ fn set_load_fields_accepts_a_flow_field() {
 
 // Mfg. Dimension Management does RecRef.GetTable(RecordVariant) for the temporary Purchase Line of a posting check and
 // RecRef.SetTable(PurchaseLine) into a record that is not declared temporary. The target stays a permanent record: it keeps
-// its own table and does not read the temporary rows (corpus recordref/lt-settable-temporary/SetTableTemporaryToPermanent.al:
+// its own table and does not read the temporary rows (corpus recordref-fieldref/recordref/SetTableTemporaryToPermanent.al:
 // SetTable_TempIntoPermanent_Insert `perm_temp` No, SetTable_TempIntoPermanent_FilteredSource `perm_count` 0). This test used to
 // assume the opposite (registry entry settable-temporary-into-permanent, retired).
 #[test]

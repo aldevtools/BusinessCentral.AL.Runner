@@ -112,7 +112,7 @@ const SEED: &str =
 end;
 local procedure Check(Want: Text; Got: Text) begin if Want <> Got then Error('want [%1] got [%2]', Want, Got); end;";
 
-// pageext/lt-u-page-props/UPageProps.al:104-128 PageExt_DrillDownOnAndOff: an error of OnDrillDown comes out with the
+// pages/extensions/UPageProps.al:104-128 PageExt_DrillDownOnAndOff: an error of OnDrillDown comes out with the
 // code TestWrapped:Dialog; DrillDown = false refuses the drill-down before the trigger runs.
 #[test]
 fn drill_down_false_is_refused_and_a_trigger_error_is_wrapped() {
@@ -129,7 +129,7 @@ fn drill_down_false_is_refused_and_a_trigger_error_is_wrapped() {
     ));
 }
 
-// report/lt-bj-request-drilldown/BjRequestDrillDown.al:226-227 and UPageProps.al:122-123: no trigger, no page.
+// reports/request-page/BjRequestDrillDown.al:226-227 and UPageProps.al:122-123: no trigger, no page.
 #[test]
 fn drill_down_without_trigger_or_page_raises_method_not_supported() {
     passes(&format!(
@@ -143,7 +143,7 @@ fn drill_down_without_trigger_or_page_raises_method_not_supported() {
     ));
 }
 
-// pages/lt-page-autoformat-lookups/P113Lookups.al:300-314 P113_LK_DrilldownNonModal (one row in the target table).
+// pages/run-modal/P113Lookups.al:300-314 P113_LK_DrilldownNonModal (one row in the target table).
 #[test]
 fn drill_down_page_id_opens_that_page_non_modally() {
     passes(&format!(
@@ -174,7 +174,7 @@ fn drill_down_page_id_over_several_rows_is_refused() {
     );
 }
 
-// pages/lt-page-editability-width-lookups/P115Lookups.al:108-124 P115_Lookup_PageIdAndRelation_OK: the control's
+// pages/controls/P115Lookups.al:108-124 P115_Lookup_PageIdAndRelation_OK: the control's
 // LookupPageId opens modally on the first row, read only, and the pick writes the relation's field.
 #[test]
 fn control_relation_with_control_lookup_page_writes_the_related_field() {
@@ -191,7 +191,7 @@ fn control_relation_with_control_lookup_page_writes_the_related_field() {
     ));
 }
 
-// pages/lt-page-autoformat-lookups/P113Lookups.al:253-270 P113_LK_LookupWithPageRelation: without a control
+// pages/run-modal/P113Lookups.al:253-270 P113_LK_LookupWithPageRelation: without a control
 // LookupPageId the related table's LookupPageId opens, and the pick is stored.
 #[test]
 fn control_relation_uses_the_related_tables_lookup_page() {
@@ -244,8 +244,8 @@ fn control_relation_over_a_table_relation_or_with_where_is_refused() {
     );
 }
 
-// pages/lt-page-editability-width-lookups/P115Lookups.al:173-191 P115_AssistEdit_OnFieldsWithoutTrigger,
-// lookups/W2Lookups.al:569, :593: AssistEdit with no trigger raises a fixed platform error.
+// pages/controls/P115Lookups.al:173-191 P115_AssistEdit_OnFieldsWithoutTrigger,
+// pages/lookups/W2Lookups.al:569, :593: AssistEdit with no trigger raises a fixed platform error.
 #[test]
 fn assist_edit_without_trigger_raises_method_not_supported() {
     passes(&format!(
@@ -261,7 +261,7 @@ fn assist_edit_without_trigger_raises_method_not_supported() {
     ));
 }
 
-// pageext/lt-z-modify-controls/ZModifyControls.al:435-452 ZLookupPageId_OpensTargetPage: a control LookupPageId over a
+// pages/extensions/ZModifyControls.al:435-452 ZLookupPageId_OpensTargetPage: a control LookupPageId over a
 // field with no relation raises nothing, needs no handler and leaves the value.
 #[test]
 fn control_lookup_page_without_relation_does_nothing() {

@@ -1,5 +1,5 @@
 //! The platform table Tenant Report Layout (2000000232), a stored table with these pinned limits
-//! (report/lt-sc-report-metadata-views/Y6TenantReportLayoutRows.al, corpus master, BC 27, 28 and 29):
+//! (reports/runtime/Y6TenantReportLayoutRows.al, corpus master, BC 27, 28 and 29):
 //!
 //! - A fresh tenant holds rows here that nothing pins (12 on the SaaS Dev tenant), none of a report of the app under test
 //!   (:16-33: Count 0, also for the current company, FindFirst No). So a read, `DeleteAll` or `ModifyAll` is answered only

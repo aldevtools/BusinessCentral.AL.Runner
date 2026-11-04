@@ -1,5 +1,5 @@
 //! CurrPage.Update(false) from an action on a list after a GoToKey, with and without OnAfterGetCurrRecord
-//! (pages/lt-ai-list-order/AiListOrderTests.al). AL source -> compile -> run as a test codeunit.
+//! (pages/list-order/AiListOrderTests.al). AL source -> compile -> run as a test codeunit.
 
 use al_test_cli::report::Outcome;
 
@@ -104,7 +104,7 @@ fn first_on_the_first_row_of_a_find_and_next_list_reads_nothing_only_after_updat
 // AiListOrderTests.al:39, :233 and QgGoToKeyNextCall.al: after a GoToKey that moved a list without OnAfterGetCurrRecord, an action,
 // a Value read, SetValue, Previous and a RunObject action are pinned (al-vm tests/pages_ui/goto_next_call.rs); Next, GoToKey, First
 // and Last read only what they read (AiListOrderTests.al:1012-1021, TestPageRuntimeContracts.al:342-357). Any other call next, an
-// action after a property read other than those pages/lt-wd/WdGoToKeyTypedReads.al pins (ShowMandatory here), and Close right after
+// action after a property read other than those testpage/WdGoToKeyTypedReads.al pins (ShowMandatory here), and Close right after
 // such a Previous are not pinned: refused.
 #[test]
 fn goto_key_on_a_list_without_current_record_trigger_then_another_call_is_refused() {
@@ -130,7 +130,7 @@ fn goto_key_on_a_list_without_current_record_trigger_then_next_reads_nothing_mor
     );
 }
 
-// pages/lt-ai-list-order/QgGoToKeyNextCall.al:223 Plain_GoToKey_ThenValueRead, :277 Plain_GoToKey_ThenClose, :1049 Nav_GoToKey_ThenClose:
+// pages/list-order/QgGoToKeyNextCall.al:223 Plain_GoToKey_ThenValueRead, :277 Plain_GoToKey_ThenClose, :1049 Nav_GoToKey_ThenClose:
 // a GoToKey that moved a list without OnAfterGetCurrRecord and read nothing (the key is among the rows the client holds): Close reads
 // the row once, also after field value reads.
 #[test]

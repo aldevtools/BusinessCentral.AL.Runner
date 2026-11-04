@@ -11,7 +11,7 @@ pub enum FilterExpr {
     Range(Option<Value>, Option<Value>),
     Eq(Value),
     /// A range typed as text whose two ends are the same value (`SetFilter(D, '010126..010126')`): it finds what `Eq` finds, and
-    /// `GetFilter` writes it back as `a..a`, where `SetRange(D, a, a)` gives `a` (record/lt-loadfields-pagesource-validate/
+    /// `GetFilter` writes it back as `a..a`, where `SetRange(D, a, a)` gives `a` (record/load-fields/
     /// P81DateFilters.al:SetFilter_Date_RangeForms `r15`, SetFilter_Date_Placeholders_TwoDates `range_same`).
     RangeSame(Value),
     Ne(Value),
@@ -24,13 +24,13 @@ pub enum FilterExpr {
     /// `*` / `?` wildcards on text; `@` makes it case-insensitive.
     Like(String, bool),
     /// `<>` before a wildcard pattern: the texts the pattern does not match. `<>*` keeps no row, not even the blank one
-    /// (record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:106-173, Forms_CodeField and Forms_TextField).
+    /// (record/filters/WildcardGetFilter.al:106-173, Forms_CodeField and Forms_TextField).
     NotLike(String, bool),
-    /// `@` alone keeps every row; `<>@` alone keeps none (`true`). Pinned on a Text field (filters/lt-wc/WcInvalidFilterExpr.al:
+    /// `@` alone keeps every row; `<>@` alone keeps none (`true`). Pinned on a Text field (record/filters/WcInvalidFilterExpr.al:
     /// 84-90 `@`, :93-111 `<>@`).
     AtSignAlone(bool),
     /// An empty value in a view's `1()` or `FILTER()`: BC keeps every row and writes the filter back as `==`
-    /// (record/lt-y51-setview-shapes/Y51SetViewShapes.al:141-154, SetView_EmptyFilterValue, on Text, Date and Integer fields).
+    /// (record/views/Y51SetViewShapes.al:141-154, SetView_EmptyFilterValue, on Text, Date and Integer fields).
     EmptyViewValue,
     /// Built by a store for a Code field the database stores as a number (`SQLDataType` Integer, BigInteger or Variant), never
     /// by the language: `inner` holds BigInteger bounds and is applied to the number the field's text is (a text that is no
@@ -59,7 +59,7 @@ impl FilterExpr {
     /// Whether a field value passes. Values that cannot be compared do not pass.
     pub fn matches(&self, v: &Value) -> bool {
         // A text of spaces only is blank to a filter: `SetRange(Txt, ' ')` finds the rows holding '', ' ' and '  ', and
-        // `<> ' '` finds the others (filters/W4Filters.al:BlankOnlyFilterValues_MatchOnlyBlankRows, BC 27.5 and 29.0).
+        // `<> ' '` finds the others (record/filters/W4Filters.al:BlankOnlyFilterValues_MatchOnlyBlankRows, BC 27.5 and 29.0).
         // Other trailing spaces are not pinned.
         let v = &*blank_if_spaces(v);
         let cmp = |x: &Value| {
@@ -67,7 +67,7 @@ impl FilterExpr {
             crate::ops::hyphen_filter_order(v, &x).or_else(|| compare(v, &x).ok())
         };
         // A Text field's value against a bound of a range or a comparison: the collation order of the keys, letters without
-        // regard to case first (filters/lt-uc-quoted-values/UcQuotedValues.al SetView_FilterGreaterB `view_txt_plain_ids`,
+        // regard to case first (record/filters/UcQuotedValues.al SetView_FilterGreaterB `view_txt_plain_ids`,
         // PageAndQuery_FilterGreaterB `page_txt_ids`: `>B` keeps neither a>b nor a>). Equality stays exact.
         let ord = |x: &Value| match (v, x) {
             (Value::Text(a), Value::Text(b) | Value::Code(b)) if !a.has_marker() && !b.has_marker() => {
@@ -113,7 +113,7 @@ fn blank_if_spaces(v: &Value) -> std::borrow::Cow<'_, Value> {
         Value::Code(s) if !s.is_empty() && s.bytes().all(|c| c == b' ') => {
             Cow::Owned(Value::Code(String::new().into()))
         }
-        // Trailing blanks do not count in a filter comparison: `SetRange(K, 'abc  ')` finds the row 'abc' (record/lt-key-case-trailing-blank/
+        // Trailing blanks do not count in a filter comparison: `SetRange(K, 'abc  ')` finds the row 'abc' (record/keys-sorting/
         // TableKeyCaseTrailingBlank.al:P184_TextKey_Get_And_Filter_OtherCase_Blanks `range blanks count = 1`).
         Value::Text(s) if s.ends_with(' ') => Cow::Owned(Value::Text(s.trim_end_matches(' ').to_string().into())),
         Value::Code(s) if s.ends_with(' ') => Cow::Owned(Value::Code(s.trim_end_matches(' ').to_string().into())),
@@ -151,25 +151,25 @@ pub fn parse_filter(text: &str, args: &[crate::value::Value], ty: &crate::value:
 /// so that filters on enum fields can name members.
 /// Prefix of the parse error for a word a Boolean filter does not accept; the rest is the word.
 pub const INVALID_BOOLEAN: &str = "invalid Boolean filter value: ";
-/// The prefix of the error for a text no Guid filter reads (types/lt-in-precedence-date-guid-filters/P143Guid_Filters.al:P143_GuidInvalid).
+/// The prefix of the error for a text no Guid filter reads (types/date-time/P143Guid_Filters.al:P143_GuidInvalid).
 pub const INVALID_GUID: &str = "invalid Guid filter value: ";
-/// The prefix of the error for a date text no Date filter reads; the failing value follows (types/lt-in-precedence-date-guid-filters/
+/// The prefix of the error for a date text no Date filter reads; the failing value follows (types/date-time/
 /// P143Date_DePlain.al: `Das Format Date „17.01.27“ ...`).
 pub const INVALID_DATE: &str = "invalid Date filter value: ";
-/// The prefix of the error for a Date filter text with an empty side; the English message follows (record/lt-loadfields-pagesource-validate/
+/// The prefix of the error for a Date filter text with an empty side; the English message follows (record/load-fields/
 /// P81DateFilters.al:SetFilter_Date_RangeForms `..`, SetFilter_Date_InvalidTexts `|`, `&`, `||`).
 pub const FILTER_SYNTAX: &str = "invalid Date filter syntax: ";
 
 /// The prefix of the error for a filter value BC cannot evaluate into the field's type: the type's name, a tab, the value
-/// (`The value "abc" can't be evaluated into type Integer.`, record/lt-record-read/RcAFilters.al:SetFilter_Integer_Invalid,
-/// events/lt-platform-triggers/PtObserve.al:Bad_Int, Bad_Decimal, Bad_Time).
+/// (`The value "abc" can't be evaluated into type Integer.`, record/crud/RcAFilters.al:SetFilter_Integer_Invalid,
+/// events/platform-triggers/PtObserve.al:Bad_Int, Bad_Decimal, Bad_Time).
 pub const NOT_EVALUATED: &str = "filter value not evaluated: ";
 
 /// The prefix of the error for a number filter that starts with a placeholder kept as written; the filter text follows
-/// (`The variable "%1*" was not understood.`, filters/W4Filters.al:694 `num_star_after`).
+/// (`The variable "%1*" was not understood.`, record/filters/W4Filters.al:694 `num_star_after`).
 pub const VARIABLE_NOT_UNDERSTOOD: &str = "filter variable not understood: ";
 
-/// The parse error of a Text filter with an unclosed `(` (filters/lt-wc/WcInvalidFilterExpr.al:66-90 `((*`, `(`, `((x`, `(c-a`).
+/// The parse error of a Text filter with an unclosed `(` (record/filters/WcInvalidFilterExpr.al:66-90 `((*`, `(`, `((x`, `(c-a`).
 const MISSING_PARENTHESIS: &str = "A ')' is missing.";
 
 /// The parse error of a Text filter with `)` or `<>` where it cannot stand (WcInvalidFilterExpr.al:71-87 `c-a)`, `@<>C-A`, `@<>`).
@@ -180,7 +180,7 @@ fn did_not_expect(what: &str) -> String {
 }
 
 /// The upper case of a Code filter value. Under Turkish or Azerbaijani a value with `i` is not pinned (only an assignment to a Code
-/// is, text/lt-text-functions/CaseConv.Codeunit.al:280-310) and is refused.
+/// is, text/text-methods/CaseConv.Codeunit.al:280-310) and is refused.
 fn filter_upper(s: &str) -> Result<String, String> {
     if crate::ops::turkic_code() && s.contains('i') {
         return Err("a Code filter value with `i` under Turkish or Azerbaijani (not pinned)".into());
@@ -204,7 +204,7 @@ pub fn letters_only(text: &str) -> bool {
 }
 
 /// Whether `text` is one word of ASCII letters and hyphens (`NOT-A-NUMBER`, `-`, `abc`): the texts a Decimal, BigInteger, Duration
-/// and Time filter are pinned to refuse with the evaluate error (record/lt-bl-invalid-decimal-filter/InvalidDecimalFilter.al:71, :96,
+/// and Time filter are pinned to refuse with the evaluate error (record/filters/InvalidDecimalFilter.al:71, :96,
 /// :110, :134-137).
 pub fn letters_or_hyphens(text: &str) -> bool {
     !text.is_empty() && text.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
@@ -220,7 +220,7 @@ fn digit_groups(text: &str, sep: char, n: usize) -> bool {
 }
 
 /// How a Decimal filter value reads: `Some(Ok)` the value, `Some(Err)` the evaluate error, `None` a text no corpus test pins.
-/// record/lt-bl-invalid-decimal-filter/InvalidDecimalFilter.al:92-126 (Decimal_Forms): letters and hyphens (`abc`, `x`, `-`,
+/// record/filters/InvalidDecimalFilter.al:92-126 (Decimal_Forms): letters and hyphens (`abc`, `x`, `-`,
 /// `NOT-A-NUMBER`), `*`, `1;5` and `1.2.3` raise the error; `1,5` reads as 15 (the comma is dropped) and `1e3` as 1000.
 fn decimal_filter_text(text: &str) -> Option<Result<rust_decimal::Decimal, ()>> {
     if let Ok(d) = text.parse() {
@@ -237,7 +237,7 @@ fn decimal_filter_text(text: &str) -> Option<Result<rust_decimal::Decimal, ()>> 
     if digit_groups(text, ',', 2) {
         return text.replace(',', "").parse().ok().map(Ok);
     }
-    // A thousands comma before a fraction: `1,234.5` is 1234.5 (events/lt-bd-filter-events/BdFilterEvents.al:BdFilter_Decimal_8).
+    // A thousands comma before a fraction: `1,234.5` is 1234.5 (events/table-events/BdFilterEvents.al:BdFilter_Decimal_8).
     if let Some((int, frac)) = text.split_once('.') {
         let digits = |p: &str| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit());
         if let Some((th, rest)) = int.split_once(',') {
@@ -265,7 +265,7 @@ fn is_noon_text(t: &str) -> bool {
 }
 
 /// Two digit groups split by one blank (`1 000`, `1 2`) or a minus sign, a blank and digits (`- 1`): texts an Integer or
-/// Decimal filter is pinned to refuse with the evaluate error (events/lt-bd-filter-events/BdFilterEvents.al:BdFilter_Int_4,
+/// Decimal filter is pinned to refuse with the evaluate error (events/table-events/BdFilterEvents.al:BdFilter_Int_4,
 /// BdFilter_Decimal_6, BdFilter_Decimal_7). Other texts with blank space in them are not pinned.
 pub fn spaced_number(text: &str) -> bool {
     let digits = |p: &str| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit());
@@ -275,7 +275,7 @@ pub fn spaced_number(text: &str) -> bool {
     }
 }
 
-/// The Time a filter text names in an English session, for the forms the corpus pins (events/lt-bd-filter-events/
+/// The Time a filter text names in an English session, for the forms the corpus pins (events/table-events/
 /// BdFilterEvents.al:BdFilter_Time_1 to _10): an hour of one digit (`1`), a digit, a dot and a digit for the hour and the
 /// minutes (`1.5` is 1:05), `H:MM` (`9:00`), `HH:MM:SS` (`13:00:00`, `09:05:07`), `12:MM:SS PM`, four digits for the hour and the
 /// minutes (`1300`) and six with the seconds (`120000`). `None` for any other text, and for an hour, minute or second out of range.
@@ -315,7 +315,7 @@ fn time_filter_text(t: &str) -> Option<Value> {
     (h < 24 && m < 60 && s < 60).then_some(Value::Time(((h * 60 + m) * 60 + s) * 1000 + 1))
 }
 
-/// The DateTime a filter text names in an English session, for the forms the corpus pins (errors/lt-ms-refusals-136/P136Filter.al:
+/// The DateTime a filter text names in an English session, for the forms the corpus pins (types/P136Filter.al:
 /// 326-380 on corpus master, TV_SetView_DateTime_GetViewRoundTrip and TV_SetView_DateTime_LiteralTexts): `MM/DD/YY` and a clock of
 /// `HH:MM`, `HH:MM:SS` or `HH:MM:SS.f` with one to three digits as tenths, hundredths or milliseconds (`.8`, `.08`, `.033`), then
 /// ` PM` or ` AM` with the hour 12 (`12:00 AM` is midnight, from GetView of a range), or no suffix with the hour 12
@@ -333,7 +333,7 @@ fn datetime_filter_text(t: &str) -> Option<Value> {
             .flatten()
     };
     // The form a view writes, `yyyy-mm-ddThh:mm:ss[.f]Z` in UTC, reads back (P136Filter.al TV_SetView_DateTime_GetViewRoundTrip
-    // `same view=Yes`, with the view text of UN_DateTimeFilter_* errors/lt-ms-refusals-136/P136Filter.al:447-586).
+    // `same view=Yes`, with the view text of UN_DateTimeFilter_* types/P136Filter.al:447-586).
     if let Some((d, c)) = t.strip_suffix('Z').and_then(|r| r.split_once('T')) {
         let p: Vec<&str> = d.split('-').collect();
         if !(digit_groups(d, '-', 3) && p[0].len() == 4 && p[1].len() == 2 && p[2].len() == 2) {
@@ -389,7 +389,7 @@ fn datetime_filter_text(t: &str) -> Option<Value> {
         Some(f) => num(f, f.len())? * 10_i64.pow(3 - f.len() as u32),
         None => 0,
     };
-    // Other hours (errors/lt-ms-refusals-136/P136Filter.al:497-586, UN_DateTimeFilter_HourNotTwelve*, _MoreHourForms*): `08:30 AM`, `08:30 PM`, `05:45:10.5 PM`, and without a suffix a
+    // Other hours (types/P136Filter.al:497-586, UN_DateTimeFilter_HourNotTwelve*, _MoreHourForms*): `08:30 AM`, `08:30 PM`, `05:45:10.5 PM`, and without a suffix a
     // 24-hour clock (`08:30`, `17:45`, `00:00`). An hour past 12 with AM or PM is an error whose filter texts are not built here.
     let h = match suffix {
         Some("PM") if h == 12 => 12,
@@ -406,7 +406,7 @@ fn datetime_filter_text(t: &str) -> Option<Value> {
 }
 
 /// The day a DateTime filter text names when it is a date alone, in an English session: `MM/DD/YY`, `M/DD/YY` or `YYYY-MM-DD`
-/// (P136Filter.al UN_DateTimeFilter_DateAlone* errors/lt-ms-refusals-136/P136Filter.al:447-586). A date alone stands for the
+/// (P136Filter.al UN_DateTimeFilter_DateAlone* types/P136Filter.al:447-586). A date alone stands for the
 /// whole day, from 00:00:00 to 23:59:59 (a row at 23:59:59.999 is not matched). `None` for any other text.
 fn datetime_filter_day(t: &str) -> Option<i32> {
     let ctx = DATE_CONTEXT.with(std::cell::Cell::get)?;
@@ -485,7 +485,7 @@ pub const ACCOUNTING_PERIOD_DEMO_END: (i32, u32, u32) = (2027, 12, 31);
 
 /// The fiscal year `Y` stands for, from the Accounting Period rows: `rows` are the starting dates of the rows with New Fiscal
 /// Year. The year runs from the latest such row on or before `work_date` to the day before the next one, or to 9999-12-31 after
-/// the last (record/lt-y81-values/Y81DateFilterLetters.al:126 Y81_Y_FiscalYearOfWorkDate; needs corpus bump). `None` when the
+/// the last (types/Y81DateFilterLetters.al:126 Y81_Y_FiscalYearOfWorkDate; needs corpus bump). `None` when the
 /// answer could depend on the demo rows, or when no row is on or before the work date (BC raises an error whose text depends on
 /// the demo data).
 pub fn fiscal_year_of(rows: &[i32], work_date: i32) -> Option<(i32, i32)> {
@@ -504,7 +504,7 @@ pub fn fiscal_year_of(rows: &[i32], work_date: i32) -> Option<(i32, i32)> {
 }
 
 /// The Tuesday of ISO week `week` (1 to 7) of the ISO year of `work_date`, which `T-<week>D` stands for in a Date filter; `T-D`
-/// (`week` 0) is the Tuesday of the week of the work date itself (record/lt-y81-values/Y81DateFilterLetters.al:274
+/// (`week` 0) is the Tuesday of the week of the work date itself (types/Y81DateFilterLetters.al:274
 /// Y81_Letters_TFamily; needs corpus bump).
 fn tuesday_of_iso_week(work_date: i32, week: i32) -> i32 {
     // 2024-01-01 was a Monday.
@@ -540,7 +540,7 @@ pub fn parse_filter_with(
             return e;
         }
     }
-    // `@` (case-insensitive) makes no sense for a Guid: `@{1A2B...}` raises the Guid format error (record/lt-y77-guid-filter/
+    // `@` (case-insensitive) makes no sense for a Guid: `@{1A2B...}` raises the Guid format error (record/filters/
     // Y77GuidFilter.al Record_Shapes5To6 `shape5`; pinned for a braced Guid after the `@`).
     if matches!(ty, crate::value::RtType::Guid)
         && text.trim().strip_prefix('@').is_some_and(|rest| {
@@ -550,8 +550,8 @@ pub fn parse_filter_with(
         return Err(format!("{INVALID_GUID}{text}"));
     }
     // A DateFormula field takes no formula in angle brackets (`<1M>`, `<-CM+2D>`: the lexer does not expect the closing `>`), a text
-    // of letters with one that is no unit needs a time unit, and `*M` needs a number (errors/lt-ms-refusals-136/P136Filter.al:241-258
-    // `oneMAngles`, `oneDAngles`, `garbage`, `wildcardM`; record/lt-y77-guid-filter/Y77GuidFilter.al DateFormula_TextFilter_*). The
+    // of letters with one that is no unit needs a time unit, and `*M` needs a number (types/P136Filter.al:241-258
+    // `oneMAngles`, `oneDAngles`, `garbage`, `wildcardM`; record/filters/Y77GuidFilter.al DateFormula_TextFilter_*). The
     // formulas that are valid are refused below.
     if matches!(ty, crate::value::RtType::DateFormula) {
         let t = text.trim();
@@ -597,7 +597,7 @@ pub fn parse_filter_with(
         ));
     }
     // A placeholder kept as written next to a wildcard (see `tokenize`) is pinned on a Text, a Code and an Integer field only
-    // (filters/W4Filters.al:661-695): on an Integer field `%1*` raises `The variable "%1*" was not understood.` and `*%1` the
+    // (record/filters/W4Filters.al:661-695): on an Integer field `%1*` raises `The variable "%1*" was not understood.` and `*%1` the
     // evaluate error.
     if kept_placeholder {
         match ty {
@@ -695,7 +695,7 @@ fn tokenize(
                 '(' => Some("("),
                 ')' => Some(")"),
                 // `@` makes the value case-insensitive only where a value starts; after the first character of a value it is a
-                // normal character (filters/W4Filters.al UN_SetView_AtSignInValue_Text, _Text_2, _TextMore_2, _TextMore_3 on
+                // normal character (record/filters/W4Filters.al UN_SetView_AtSignInValue_Text, _Text_2, _TextMore_2, _TextMore_3 on
                 // writer UN's corpus branch, commit d3bcc580: `a@b.dk`, `@a@b.dk`, `*@b*`, `ab@`, Code `AT1@`; assumption
                 // `filter-at-sign-in-value`).
                 '@' if raw.trim().is_empty() => Some("@"),
@@ -705,14 +705,14 @@ fn tokenize(
             flush(&mut raw, &mut out);
             out.push(Tok::Op(op));
             i += op.len();
-        // A quote opens a literal only where a value starts; inside a word it is a character (record/lt-record-read/RcAMisc.al:
+        // A quote opens a literal only where a value starts; inside a word it is a character (record/crud/RcAMisc.al:
         // GetView_Field_Types `quote`: `it's`).
         } else if c[i] == '\'' && raw.trim().is_empty() {
             flush(&mut raw, &mut out);
             let mut lit = String::new();
             i += 1;
             // A placeholder is replaced inside quotes only when it is the whole quoted text: `'%1'` takes the argument, `'x%1y'` and
-            // `'%1%2'` stay as written (record/lt-filter-placeholder-in/FilterPlaceholderInQuotes.al:P169_QuotedPlaceholder_InsideLongerQuotedText;
+            // `'%1%2'` stay as written (record/filters/FilterPlaceholderInQuotes.al:P169_QuotedPlaceholder_InsideLongerQuotedText;
             // the filter text of Gen. Jnl.-Show CT Entries filters a blank currency as a quoted blank). A text or an Integer argument is put
             // in as it reads; any other type is not pinned.
             loop {
@@ -752,8 +752,8 @@ fn tokenize(
         } else if c[i] == '%' && c.get(i + 1).is_some_and(|d| d.is_ascii_digit()) {
             let n = c[i + 1].to_digit(10).expect("digit") as usize;
             // A placeholder right next to a wildcard is not put in: the filter keeps `%1` as written. Pinned: `<>%1*` with `A` reads
-            // back as `<>%1*` and keeps every row (record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:188, :198); `%1*`, `*%1*`,
-            // `@*%1*`, `*%1` and `?%1` on a Text and a Code field read back as written and keep no row (filters/W4Filters.al:661-695,
+            // back as `<>%1*` and keeps every row (record/filters/WildcardGetFilter.al:188, :198); `%1*`, `*%1*`,
+            // `@*%1*`, `*%1` and `?%1` on a Text and a Code field read back as written and keep no row (record/filters/W4Filters.al:661-695,
             // SetFilterPercent1_WildcardsAroundThePlaceholder_BQ). A placeholder after other text and a wildcard (`x%1*`, `**%1`) is
             // not pinned.
             let wild = |w: &char| matches!(w, '*' | '?');
@@ -763,8 +763,8 @@ fn tokenize(
                 && (out.is_empty() || matches!(out.last(), Some(Tok::Op("@"))));
             let start = before.is_empty() && (out.is_empty() || matches!(out.last(), Some(Tok::Op("<>"))));
             // `@` right before a placeholder: the placeholder is not put in either. Pinned for the whole filter `@%1` on a Text
-            // field: a value that differs from the row only in case keeps no row (onprem platform/lt-y35-stored-tables/
-            // Y35StoredTables.al:194-195, :210). The read-back `@%1` follows `@*%1*` (filters/W4Filters.al:662, :682; a
+            // field: a value that differs from the row only in case keeps no row (onprem metadata/platform-tables/
+            // Y35StoredTables.al:194-195, :210). The read-back `@%1` follows `@*%1*` (record/filters/W4Filters.al:662, :682; a
             // probes-needed row). Inside a longer filter or on a field other than a Text it is refused.
             if before.is_empty() && matches!(out.last(), Some(Tok::Op("@"))) {
                 if out.len() != 1 || i + 2 != c.len() {
@@ -796,13 +796,13 @@ fn tokenize(
             // A text substituted for a placeholder is TEXT, not a filter, except that `*` and `?` stay
             // wildcards and a leading `@` ignores case. `&`, `|`, `(`, `)`, `<`, `=` and `..` in it make
             // BC quote the whole value (record/TestSetFilterSpecialTextContracts.al, BC 27.5);
-            // `>` is also quoted (filters/W4Filters.al:174-191), with a leading `@` too: `'@a>b@x.com'`
-            // ignores case (misc/lt-y14-triage/Y14Small.al:309, corpus master). A text with both a wildcard and one of those is
-            // quoted and keeps the wildcard (filters/W4Filters.al SetFilterPercent1_WildcardTogetherWithOperators: `a*&b` reads back
+            // `>` is also quoted (record/filters/W4Filters.al:174-191), with a leading `@` too: `'@a>b@x.com'`
+            // ignores case (format-evaluate/Y14Small.al:309, corpus master). A text with both a wildcard and one of those is
+            // quoted and keeps the wildcard (record/filters/W4Filters.al SetFilterPercent1_WildcardTogetherWithOperators: `a*&b` reads back
             // `'a*&b'` and matches `a&b`); the text `*` alone is the literal text, not a wildcard (`star_alone`: `='*'`, no row).
             if let Value::Text(t) | Value::Code(t) = &arg {
                 // A lone `@` is the text `@`, quoted: GetFilters reads `'@'` and it matches only that value
-                // (misc/lt-y14-triage/Y14Small.al:309 `@`, corpus master).
+                // (format-evaluate/Y14Small.al:309 `@`, corpus master).
                 if t == "@" {
                     out.push(Tok::Typed(arg.clone()));
                     i += 2;
@@ -839,7 +839,7 @@ fn tokenize(
             out.push(Tok::Typed(arg));
             i += 2;
         } else {
-            // Pinned by filters/W4Filters.al UN_SetView_AtSignInValue_Text, UN_SetView_AtSignInValue_Text_2 (was assumption `filter-at-sign-in-value`).
+            // Pinned by record/filters/W4Filters.al UN_SetView_AtSignInValue_Text, UN_SetView_AtSignInValue_Text_2 (was assumption `filter-at-sign-in-value`).
             raw.push(c[i]);
             i += 1;
         }
@@ -922,18 +922,18 @@ impl Parser<'_> {
         use crate::value::RtType as T;
         let text = match t {
             // An Enum value given for an Option column through SetFilter's %1 filters by its ordinal and shows under the Enum's own name
-            // (types/lt-filter-enum-relation-duration-guid/B_EnumOptionVariant.al:Filter_OptionColumn_SetRange_EnumValue, `filter_green_filter`
+            // (types/duration/B_EnumOptionVariant.al:Filter_OptionColumn_SetRange_EnumValue, `filter_green_filter`
             // is `Green`; SetRange shows the Option's member, `range_green_filter` is `One`).
             Tok::Typed(v @ Value::Enum(..)) if matches!(self.ty, T::Option(_)) => return Ok(v),
             Tok::Typed(v) => return crate::ops::convert(v, self.ty).map_err(|e| e.describe()),
-            // A quoted empty text is the blank date (corpus record/lt-loadfields-pagesource-validate/P81DateFilters.al:193-194,
+            // A quoted empty text is the blank date (corpus record/load-fields/P81DateFilters.al:193-194,
             // :308). The unquoted empty text stays refused.
             Tok::Quoted(s) if s.is_empty() && matches!(self.ty, T::Date) => return Ok(Value::Date(0, false)),
-            // A quoted empty text on a DateTime field is the blank DateTime (errors/lt-ms-refusals-136/P136Filter.al:361, corpus
+            // A quoted empty text on a DateTime field is the blank DateTime (types/P136Filter.al:361, corpus
             // master, TV_SetView_DateTime_LiteralTexts `empty` keeps only the row with no DateTime).
             Tok::Quoted(s) if s.is_empty() && matches!(self.ty, T::DateTime) => return Ok(Value::DateTime(0)),
             // On a Media field a quoted empty text, alone or after `<>`, raises the Guid format error
-            // (media/lt-so-media-filter/SoMediaFilter.al:143-147, SO_MediaFilter_EmptyAndQuoted).
+            // (streams/media/SoMediaFilter.al:143-147, SO_MediaFilter_EmptyAndQuoted).
             Tok::Quoted(s)
                 if s.is_empty() && matches!(self.ty, T::Library(crate::library_kind::LibraryKind::Media)) =>
             {
@@ -954,7 +954,7 @@ impl Parser<'_> {
                     not_evaluated("Integer", &text)
                 }
             })?),
-            // A word of letters and hyphens raises the evaluate error (record/lt-bl-invalid-decimal-filter/InvalidDecimalFilter.al:134,
+            // A word of letters and hyphens raises the evaluate error (record/filters/InvalidDecimalFilter.al:134,
             // Other_Types `NOT-A-NUMBER`); other texts that are no BigInteger are not pinned.
             T::BigInteger => Value::BigInteger(text.parse().map_err(|_| {
                 if letters_or_hyphens(&text) {
@@ -983,7 +983,7 @@ impl Parser<'_> {
             }
             T::DateTime if letters_only(text.trim()) => return Err(not_evaluated("DateTime", text.trim())),
             // A dotted date in an English session, alone or with a clock, is no DateTime (P136Filter.al UN_DateTimeFilter_DateAlone,
-            // _MoreHourForms_3 `15.01.25`, `15.01.25 08:30` errors/lt-ms-refusals-136/P136Filter.al:447-586).
+            // _MoreHourForms_3 `15.01.25`, `15.01.25 08:30` types/P136Filter.al:447-586).
             T::DateTime if dotted_datetime_text(text.trim()) => {
                 return Err(not_evaluated("DateTime", text.trim()));
             }
@@ -1017,7 +1017,7 @@ impl Parser<'_> {
             },
             T::Enum(id) => {
                 // The list holds the captions first, then the names, so a caption wins over a name that spells the same
-                // (corpus record/lt-enum-filter-caption/EnumFilterByCaption.al: SetFilter_CaptionEqualsOtherName_Result).
+                // (corpus record/filters/EnumFilterByCaption.al: SetFilter_CaptionEqualsOtherName_Result).
                 let named = (self.enums)(*id)
                     .into_iter()
                     .find(|(_, n)| !n.is_empty() && n.trim().eq_ignore_ascii_case(text.trim()))
@@ -1034,17 +1034,17 @@ impl Parser<'_> {
                 Some(v) if !text.trim().starts_with('(') => v,
                 _ => return Err(format!("{INVALID_GUID}{text}")),
             },
-            // A date in a filter (types/lt-in-precedence-date-guid-filters/P143Date_EnPlain.al, _EnRanges.al, _EnFormulas.al, _DePlain.al,
+            // A date in a filter (types/date-time/P143Date_EnPlain.al, _EnRanges.al, _EnFormulas.al, _DePlain.al,
             // _DeRanges.al, _DeFormulas.al): month, day and year in that order with `/` (and `.` when the language is German), a closing date
             // as `C` and a date, `T` and `W` (any case) for today and the work date, and in English `CD` the closing date of today, `cd` and
             // `0D` today. The empty text is no filter. A text that is none of these is an error in German (its text is pinned there);
             // in any other language it is refused.
             T::Date if !text.trim().is_empty() && !text.contains(['<', '>']) => date_filter_value(text.trim())?,
             // The empty text is the empty formula: `''` keeps the row without a formula, `<>''` the rows with one
-            // (misc/lt-y70-assumptions/Y70Probes.al:218-262, FilterDateFormula_EmptyText `filter_two_quotes`, `filter_ne_two_quotes`).
+            // (record/Y70Probes.al:218-262, FilterDateFormula_EmptyText `filter_two_quotes`, `filter_ne_two_quotes`).
             T::DateFormula if text.trim().is_empty() => Value::DateFormula(String::new()),
             // A Guid text on a Media field compares with the field's media id, braced or plain, with `=` or `<>` before it: an empty
-            // field equals the null Guid (al-runner issue 5991: media/lt-so-media-filter/SoMediaFilter.al SO_MediaFilter_NullGuidForms,
+            // field equals the null Guid (al-runner issue 5991: streams/media/SoMediaFilter.al SO_MediaFilter_NullGuidForms,
             // SO_MediaFilter_MediaIdOfFilledRow, SO_MediaFilter_FieldRefReproShape). Letters, `*` and a number raise the Guid format
             // error, as on a Guid field (SO_MediaFilter_InvalidText `abc`, `star`, `0`).
             T::Library(crate::library_kind::LibraryKind::Media) if !text.trim().is_empty() => {
@@ -1057,7 +1057,7 @@ impl Parser<'_> {
                 }
             }
             // The null Guid as text on a MediaSet field compares with the field's set id: an empty set equals it, so `<>` keeps no
-            // empty row (media/lt-so-media-filter/SoMediaFilter.al:246-250, SO_MediaSetFilter_NullGuidForms). Another Guid, and a text
+            // empty row (streams/media/SoMediaFilter.al:246-250, SO_MediaSetFilter_NullGuidForms). Another Guid, and a text
             // that is no Guid, are not pinned on a MediaSet field: refused below.
             T::Library(crate::library_kind::LibraryKind::MediaSet)
                 if !text.trim().starts_with('(')
@@ -1107,7 +1107,7 @@ impl Parser<'_> {
         Ok(FilterExpr::Eq(self.typed(t)?))
     }
 
-    /// `<>` before a wildcard pattern on a Text or Code field (record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:106-202):
+    /// `<>` before a wildcard pattern on a Text or Code field (record/filters/WildcardGetFilter.al:106-202):
     /// `<>A*`, `<>*`, `<>?` and `<>@a*` keep the texts the pattern does not match; a placeholder that holds exactly `*` is the
     /// literal text (`<>%1` with `*` reads back as `<>'*'` and keeps every row). A quoted pattern, a placeholder holding another
     /// wildcard text and `<>@` before a text without a wildcard are not pinned. `None`: not a pattern, read as before.
@@ -1277,7 +1277,7 @@ impl Parser<'_> {
                         Some(h) => Some(self.typed(h)?),
                         None => None,
                     };
-                    // An Integer range with the same two ends shows as `5..5` too (events/lt-bd-filter-events/
+                    // An Integer range with the same two ends shows as `5..5` too (events/table-events/
                     // BdFilterEvents.al:BdFilter_Int_8 m3, the text a MakeIntFilter subscriber repaired to `5..5`).
                     if (self.date() || matches!(self.ty, crate::value::RtType::Integer))
                         && hi
@@ -1339,7 +1339,7 @@ pub fn key_cmp(a: &[Value], b: &[Value]) -> Ordering {
 }
 
 /// A Date filter text that is one of the letters `M`, `D`, `CM` or `Y` alone, in an English session
-/// (record/lt-date-filter-letters-workdates/DateFilterLettersWorkDates.al, five work dates): `M` is the Monday of the week of the
+/// (record/filters/DateFilterLettersWorkDates.al, five work dates): `M` is the Monday of the week of the
 /// work date and `D` the work date; `CM` is the last day of the month of Today; `Y` runs from the work date to the end of its year
 /// when that is the year of Today (the work date 2026-01-01). `Y` in another year is refused: it gave `01/01/27..12/31/9999` for
 /// the work date 2030-05-15, which no rule the corpus pins explains.
@@ -1421,7 +1421,7 @@ fn date_filter_value(t: &str) -> Result<Value, String> {
     }
     // The dotted spelling reads like the slashed one in German: `1.1.2027` is the first of January, `17.01.27` has no month 17.
     let slashed;
-    // In an English session `03.01.2020` reads as `03/01/2020` too (record/lt-record-read/RcAFilters.al:689, SetFilter_Decimal_Date_
+    // In an English session `03.01.2020` reads as `03/01/2020` too (record/crud/RcAFilters.al:689, SetFilter_Decimal_Date_
     // Boolean_Option_Enum `dateDotted`); pinned for two digits, two digits and four digits only.
     let english_dotted = english && {
         let p: Vec<&str> = t.split('.').collect();
@@ -1462,7 +1462,7 @@ fn date_filter_value(t: &str) -> Result<Value, String> {
         }
     }
     // Six digits read as month, day, year in an English or a German session: `020126` is 2026-02-01 and `040126` is 2026-04-01
-    // (fieldref/lt-range-min-max-types/RangeMinMaxTypes.al:389-565, filters of a Date field; DateFilterTextForms.al:
+    // (recordref-fieldref/fieldref/RangeMinMaxTypes.al:389-565, filters of a Date field; DateFilterTextForms.al:
     // GetRange_SixDigits_German). Eight digits read the same way with a four-digit year in both (DateFilterTextForms.al:
     // GetRange_SixDigits_German `eight_digits`); seven digits in an English session (P81DateFilters.al:SetFilter_Date_RangeForms
     // `01012026`, SetFilter_Date_InvalidTexts `0101202`).
@@ -1529,7 +1529,7 @@ fn date_filter_value(t: &str) -> Result<Value, String> {
 mod tests {
     use super::*;
 
-    /// filters/W4Filters.al UN_SetView_AtSignInValue_* (writer UN's corpus branch, commit d3bcc580): an `@` after the first
+    /// record/filters/W4Filters.al UN_SetView_AtSignInValue_* (writer UN's corpus branch, commit d3bcc580): an `@` after the first
     /// character of a value is a normal character; `@` where a value starts still ignores case.
     #[test]
     fn an_at_sign_inside_a_value_is_a_character() {
@@ -1551,7 +1551,7 @@ mod tests {
         assert!(m(&e, "AT1@") && !m(&e, "AT1"));
     }
 
-    /// record/lt-record-read/RcAFilters.al:SetFilter_Integer_Invalid and events/lt-platform-triggers/PtObserve.al:Bad_Int, Bad_Decimal,
+    /// record/crud/RcAFilters.al:SetFilter_Integer_Invalid and events/platform-triggers/PtObserve.al:Bad_Int, Bad_Decimal,
     /// Bad_Time: the value that fails is named with its type; texts the corpus does not pin stay refused.
     #[test]
     fn a_value_that_does_not_evaluate_names_its_type() {
@@ -1575,7 +1575,7 @@ mod tests {
 
     /// Microsoft's Tests-SCM and Tests-ERM filter Date and Guid fields with text they built with `Format`
     /// (`SetFilter("Posting Date", '..' + Format(D))`, `SetFilter(SystemId, Format(G))`): the text reads as `Evaluate`
-    /// reads it (pinned by types/lt-in-precedence-date-guid-filters/P143Date_EnPlain.al and the Guid tests); a
+    /// reads it (pinned by types/date-time/P143Date_EnPlain.al and the Guid tests); a
     /// formula or an empty text stays refused.
     #[test]
     fn a_date_or_guid_filter_reads_formatted_text_as_evaluate_does() {
@@ -1612,8 +1612,8 @@ mod tests {
         });
     }
 
-    /// events/lt-bd-filter-events/BdFilterEvents.al: the Time texts an English session reads, the Integer and Decimal texts with a
-    /// errors/lt-ms-refusals-136/P136Filter.al:354-380 (corpus master, TV_SetView_DateTime_LiteralTexts): a DateTime filter text in
+    /// events/table-events/BdFilterEvents.al: the Time texts an English session reads, the Integer and Decimal texts with a
+    /// types/P136Filter.al:354-380 (corpus master, TV_SetView_DateTime_LiteralTexts): a DateTime filter text in
     /// an English session reads `MM/DD/YY HH:MM[:SS[.f]] [AM|PM]`, `''` is the blank DateTime; a date alone stays refused.
     #[test]
     fn datetime_filter_texts() {
@@ -1663,7 +1663,7 @@ mod tests {
         });
     }
 
-    /// errors/lt-ms-refusals-136/P136Filter.al:447-586 UN_DateTimeFilter_*: a date alone covers its whole day, other
+    /// types/P136Filter.al:447-586 UN_DateTimeFilter_*: a date alone covers its whole day, other
     /// hours read on a 24-hour clock or with AM/PM, `15.01.25` raises the evaluate error.
     #[test]
     fn datetime_filter_date_alone_and_other_hours() {
@@ -1769,7 +1769,7 @@ mod tests {
         ));
     }
 
-    /// `@` before a braced Guid is the Guid format error (record/lt-y77-guid-filter/Y77GuidFilter.al Record_Shapes5To6 `shape5`).
+    /// `@` before a braced Guid is the Guid format error (record/filters/Y77GuidFilter.al Record_Shapes5To6 `shape5`).
     #[test]
     fn a_guid_filter_with_an_at_sign_before_the_guid_is_invalid() {
         use crate::value::RtType as T;
@@ -1779,7 +1779,7 @@ mod tests {
     }
 
     /// Microsoft's Library - ERM `GetDiscountPaymentTerm` filters a DateFormula field with `<>` and the empty text: there the
-    /// empty text is the empty formula (misc/lt-y70-assumptions/Y70Probes.al:218-262, FilterDateFormula_EmptyText).
+    /// empty text is the empty formula (record/Y70Probes.al:218-262, FilterDateFormula_EmptyText).
     #[test]
     fn a_date_formula_filter_reads_the_empty_text_as_the_empty_formula() {
         use crate::value::RtType as T;
@@ -1793,7 +1793,7 @@ mod tests {
     }
 
     /// An angle-bracketed formula is no DateFormula filter: the closing `>` is not expected (errors/lt-ms-refusals-136/
-    /// P136Filter.al:P136_SetFilter_DateFormula `oneMAngles`, `oneDAngles`; misc/lt-y70-assumptions/Y70Probes.al:249-258).
+    /// P136Filter.al:P136_SetFilter_DateFormula `oneMAngles`, `oneDAngles`; record/Y70Probes.al:249-258).
     #[test]
     fn a_date_formula_filter_in_angle_brackets_does_not_expect_the_closing_bracket() {
         use crate::value::RtType as T;
@@ -1814,7 +1814,7 @@ mod tests {
     }
 
     /// A quoted empty text in a Date filter is the blank date: `''` finds the blank rows, `<>''` the others
-    /// (corpus record/lt-loadfields-pagesource-validate/P81DateFilters.al:193-194, z9 and z10), and `''..01/01/26` is the range
+    /// (corpus record/load-fields/P81DateFilters.al:193-194, z9 and z10), and `''..01/01/26` is the range
     /// from the blank date (same file, :294 and :308, where %1 holds 0D). Item's GetFilter("Date Filter") gives that text back
     /// to SetFilter in Transfer Line.FilterLinesWithItemToPlan.
     #[test]
@@ -1848,7 +1848,7 @@ mod tests {
         assert!(!FilterExpr::Ne(Value::Text("a".into())).matches(&Value::Text("a".into())));
     }
 
-    // filters/lt-uc-quoted-values/UcQuotedValues.al SetView_FilterGreaterB `view_txt_plain_ids` and PageAndQuery_FilterGreaterB
+    // record/filters/UcQuotedValues.al SetView_FilterGreaterB `view_txt_plain_ids` and PageAndQuery_FilterGreaterB
     // `page_txt_ids`: `>B` on a Text field keeps C, zzz and Diana's (Meals), not a>b or a> (the collation order, letters
     // without regard to case first).
     #[test]

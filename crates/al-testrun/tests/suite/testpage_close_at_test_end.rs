@@ -1,6 +1,6 @@
 //! A TestPage local to the test method that is still open when the test ends closes then: OnQueryClosePage runs with the
 //! action OK and then OnClosePage, a Confirm in it goes to the test's ConfirmHandler, and a veto (the trigger answers false)
-//! does not fail the test; a global TestPage is not closed (testpageclose/Y47CloseAtTestEnd.al;
+//! does not fail the test; a global TestPage is not closed (testpage/lifecycle/Y47CloseAtTestEnd.al;
 //! al-runner issue 6587). Two pages left open close in reverse order of their declaration.
 
 use al_sema::workspace::AppSource;

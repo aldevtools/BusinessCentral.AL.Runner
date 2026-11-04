@@ -9,8 +9,8 @@
 
 /// Same files as KNOWN_UNPARSED in al-syntax/tests/corpus_parse.rs.
 const KNOWN_UNPARSED: &[&str] = &[
-    "types/lt-variant/VaTTextConst.al",
-    "types/lt-variant-is-text-streams/LTP89TextConst.al",
+    "types/variant/VaTTextConst.al",
+    "types/variant/LTP89TextConst.al",
 ];
 
 use al_test_cli::{deps, runtime};

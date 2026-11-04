@@ -1,6 +1,6 @@
 //! al-runner issue 6377: a FactBox with `Provider = Lines` (a ListPart) and a SubPageLink on a field of the provider's row
 //! reads its rows again as soon as that field is typed on the provider's current row. Measured on real BC by corpus writer
-//! Y5 (branch al-runtime-rs-staging-y5, pages/lt-y5/Y5ProviderEditLink.al, codeunit 90980): To Bin B1 -> B2 shows B2 at once
+//! Y5 (branch al-runtime-rs-staging-y5, testpage/Y5ProviderEditLink.al, codeunit 90980): To Bin B1 -> B2 shows B2 at once
 //! (First Yes, Next No), the line is not stored yet, a FactBox linked on another field stays B1; a field whose OnValidate
 //! calls CurrPage.Update stores B2 and shows B2; a read without First shows B2; typed blank: First No, Code ''; after the
 //! edit Next to 20000 shows B2, B1 typed there shows B1, and Previous back to 10000 shows B2. AL source -> compile -> run.
@@ -99,7 +99,7 @@ codeunit 62586 "PFI Seed" {
 "#;
 
 // The linked field changes through another field's OnValidate, of the table field or of the page control: the FactBox
-// follows at once (corpus writer Y5, branch al-runtime-rs-staging-y5b, pages/lt-y5/Y5ProviderIndirectLink.al:157 table
+// follows at once (corpus writer Y5, branch al-runtime-rs-staging-y5b, testpage/Y5ProviderIndirectLink.al:157 table
 // OnValidate `base 4`, :191 page control OnValidate `base 9`, :221 a value with no matching row: First No, Label '').
 #[test]
 fn a_provider_factbox_follows_a_linked_field_changed_through_validation() {

@@ -112,7 +112,7 @@ fn the_before_delete_event_runs_and_then_the_delete_raises_record_changed() {
         text(run("StaleDelete")),
         "DB:RecordChanged / OnBeforeDeleteEvent; / rows 1"
     );
-    // Pinned by the corpus (record/lt-sb-stale-own-modify/Y32StaleDeleteTests.al): no assumption is marked.
+    // Pinned by the corpus (record/crud/Y32StaleDeleteTests.al): no assumption is marked.
     assert!(take_hits().is_empty());
 }
 

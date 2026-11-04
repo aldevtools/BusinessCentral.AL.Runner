@@ -35,7 +35,7 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
     let mut manifest = Manifest {
         publisher: m.publisher.clone(),
         version: m.version.to_string(),
-        // A package file's own resources, for NavApp.GetResource of the test app (session/TestNavAppGetResource.al:26-69);
+        // A package file's own resources, for NavApp.GetResource of the test app (session-system/TestNavAppGetResource.al:26-69);
         // a folder's are read with its app.json below.
         resources: if path.is_file() {
             al_deps::load::package_resources_at(path, build)?

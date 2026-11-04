@@ -1,5 +1,5 @@
 //! "Published As" (column 16) of NAV App Installed App: Dev (2) for an app under test, Global (0) for a Microsoft dependency
-//! (record/lt-y12-published-as/Y12PublishedAs.al:31-80, al-runner issue 6438), and
+//! (record/table-properties/Y12PublishedAs.al:31-80, al-runner issue 6438), and
 //! unknown for another publisher's dependency; against a fixture table with the platform's id and field ids.
 
 const SRC: &str = r#"

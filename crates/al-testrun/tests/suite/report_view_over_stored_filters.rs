@@ -1,5 +1,5 @@
 //! A report with SaveValues stores the filters of its data item when the request page closes with OK (corpus
-//! report/lt-requestpage-savevalues-date-text-setvalue/P147SaveValuesFilter.al:P147_Filter_SetTableViewVsStored). A later run
+//! reports/request-page/P147SaveValuesFilter.al:P147_Filter_SetTableViewVsStored). A later run
 //! that gives the data item a record (the record of `RunModal`) keeps that record's filters, on the assumption
 //! report-view-over-stored-request-filters. Microsoft's "Suggest Fin. Charge Memo Lines" runs once per memo in one codeunit.
 

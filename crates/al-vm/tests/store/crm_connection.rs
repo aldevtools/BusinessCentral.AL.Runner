@@ -1,6 +1,6 @@
 //! A `TableType = CRM` table through the platform's CRM test connection (`@@test@@`): one in-memory store per registered
-//! connection name, used through the default connection (corpus tests/al-language-onprem/session/Y16CrmTableConnectionOps.al
-//! :143-318, codeunit 98620, BC 27.5/28.5/29.0; session/TestDatabaseTableConnectionCrm.al:128-170).
+//! connection name, used through the default connection (corpus tests/al-language-onprem/session-system/Y16CrmTableConnectionOps.al
+//! :143-318, codeunit 98620, BC 27.5/28.5/29.0; session-system/TestDatabaseTableConnectionCrm.al:128-170).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -208,7 +208,7 @@ fn each_connection_has_its_own_rows_and_unregister_drops_them() {
     assert_eq!(text("UnregisterAndSecond"), "0/0/b;");
 }
 
-// session/TestDatabaseTableConnectionCrm.al:128-170: Insert gives a null Guid primary key a fresh Guid.
+// session-system/TestDatabaseTableConnectionCrm.al:128-170: Insert gives a null Guid primary key a fresh Guid.
 #[test]
 fn insert_assigns_a_guid_to_a_null_primary_key() {
     assert_eq!(text("AssignsGuid"), "No/No/first/2");
