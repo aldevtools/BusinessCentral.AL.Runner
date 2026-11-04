@@ -1082,6 +1082,20 @@ impl Parser<'_> {
             // The empty text is the empty formula: `''` keeps the row without a formula, `<>''` the rows with one
             // (record/Y70Probes.al:218-262, FilterDateFormula_EmptyText `filter_two_quotes`, `filter_ne_two_quotes`).
             T::DateFormula if text.trim().is_empty() => Value::DateFormula(String::new()),
+            // A formula without brackets is the stored formula: `1M` keeps the row of `<1M>`, `<=1M` and `<>1M` compare the
+            // stored texts (record/filters/DateFormulaOperatorFilterText.al:116-134, staging r6980). Pinned for a number and an
+            // upper-case unit.
+            T::DateFormula if date_formula_step(text.trim()) => Value::DateFormula(format!("<{}>", text.trim())),
+            // A date (a formatted Date, `'<=' + Format(D)`) is no formula: BC raises the time-unit error of the value without
+            // its operator (DateFormulaOperatorFilterText.al:95-113, al-runner issue 6998).
+            T::DateFormula
+                if text.trim().contains('/') && text.trim().bytes().all(|c| c.is_ascii_digit() || c == b'/') =>
+            {
+                return Err(format!(
+                    "{FILTER_SYNTAX}The date formula '{}' should include a time unit.\\\\Time units can be: D,WD,W,M,Q, or Y.\\C, meaning current time unit based on date, can be specified as a prefix to the time unit.",
+                    text.trim()
+                ));
+            }
             // A Guid text on a Media field compares with the field's media id, braced or plain, with `=` or `<>` before it: an empty
             // field equals the null Guid (al-runner issue 5991: streams/media/SoMediaFilter.al SO_MediaFilter_NullGuidForms,
             // SO_MediaFilter_MediaIdOfFilledRow, SO_MediaFilter_FieldRefReproShape). Letters, `*` and a number raise the Guid format
@@ -1564,6 +1578,12 @@ fn date_filter_value(t: &str) -> Result<Value, String> {
     ))
 }
 
+/// A DateFormula filter value of one step without brackets: digits and an upper-case unit (`1M`, `10D`).
+fn date_formula_step(t: &str) -> bool {
+    let digits = t.trim_end_matches(['D', 'W', 'M', 'Q', 'Y']);
+    t.len() == digits.len() + 1 && !digits.is_empty() && digits.bytes().all(|c| c.is_ascii_digit())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1825,10 +1845,10 @@ mod tests {
         let not_blank = parse_filter("<>''", &[], &T::DateFormula).expect("<> the empty formula");
         assert!(!not_blank.matches(&Value::DateFormula(String::new())));
         assert!(not_blank.matches(&Value::DateFormula("<1M>".into())));
-        assert!(
-            parse_filter("1M", &[], &T::DateFormula).is_err(),
-            "a formula stays refused"
-        );
+        // A formula without brackets is the stored formula (record/filters/DateFormulaOperatorFilterText.al:116-134, staging r6980).
+        let one_month = parse_filter("1M", &[], &T::DateFormula).expect("a formula without brackets");
+        assert!(one_month.matches(&Value::DateFormula("<1M>".into())));
+        assert!(!one_month.matches(&Value::DateFormula("<1D>".into())));
     }
 
     /// An angle-bracketed formula is no DateFormula filter: the closing `>` is not expected (errors/lt-ms-refusals-136/
@@ -1840,8 +1860,8 @@ mod tests {
             let e = parse_filter(text, &[], &T::DateFormula).expect_err(text);
             assert_eq!(e, did_not_expect(">"), "{text}");
         }
-        // An open bracket is a less-than filter on a formula, refused.
-        assert!(parse_filter("<1M", &[], &T::DateFormula).is_err());
+        // An open bracket is a less-than filter on a formula, as `<=1M` is (DateFormulaOperatorFilterText.al:130).
+        assert!(parse_filter("<1M", &[], &T::DateFormula).is_ok());
         // A text of letters that is no unit needs a time unit (Y77GuidFilter.al DateFormula_TextFilter_SetFilterOther `sf_plain`).
         let e = parse_filter("abc", &[], &T::DateFormula).unwrap_err();
         assert!(

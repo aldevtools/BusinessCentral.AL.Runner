@@ -11,6 +11,7 @@ mod clear_table_filter;
 mod companies;
 mod crm_connection;
 mod date_filter_short;
+mod date_formula_operator_date;
 mod delete_all_cascade;
 mod dupkey_after_event;
 mod fieldref_blob_unloaded;
