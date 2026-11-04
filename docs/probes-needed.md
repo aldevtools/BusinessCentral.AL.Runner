@@ -1400,3 +1400,11 @@ text/textbuilder-bigtext, format-evaluate, format-evaluate, types/date-time).
 | A page edit saved after an OnModifyRecordEvent subscriber vetoed a save of the page | REFUSED (al-vm/src/pages/draft.rs save_row). The vetoed edit itself is not saved again after the action or at Close (testpage/TestPageTriggerEvents.al:181-206). | After a veto: SetValue of another value, then Next or Close: whether the subscriber runs again and what is stored; the control's value right after the veto |
 | `FieldRef.Validate` of an Enum field with a text that is no caption, or a member name | REFUSED where it converts. A caption that is no name raises the Option Evaluate error (gate EnumFieldRefValidateCaptionEvaluateErrorFrom28, Y49FieldRefIntoText.al:271-317). | `FieldRef.Validate('Beta Two')` (a name) and `FieldRef.Validate('x')` on an Enum field |
 | `Format(RecordId, 0, 10)` and `Evaluate(RecordId, Text, 10)` of key shapes beyond GetUrl's and Option, Code[20], Integer | REFUSED (al-builtins/src/bookmark.rs). | The bookmark of a Date, Guid, Text and Decimal key field, and of a three-field Code key |
+
+## Trial report false failures (al-runner issue 6924, item 3.3, 2026-11-04)
+
+Probes: corpus branch `al-runtime-rs-staging-r6924b`, `ui-handlers/NotificationRecallNeverSent.al`.
+
+| Behavior | Today | Probe |
+|---|---|---|
+| `Notification.Recall()` of a notification never sent | No Id, no recall handler: answers false (pinned). No Id with a recall handler bound: REFUSED. An Id set: the bound handler runs (assumption `recall-never-sent-runs-handler`); a use of the answer is REFUSED. | Whether the handler runs and what Recall answers, with and without an Id and a handler, and for a second variable with the Id of a sent notification. |

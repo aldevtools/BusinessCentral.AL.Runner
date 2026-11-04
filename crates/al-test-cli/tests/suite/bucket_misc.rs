@@ -95,9 +95,7 @@ fn a_fresh_notification_has_empty_defaults_and_send_gives_it_an_id() {
             Check('Yes', Format(N.Send())); Check('No', Format(N.Id() = Null));
             Check('Yes', Format(N.Recall())); end;
         [Test]
-        procedure NeverSent() var N: Notification; begin N.Message('never sent'); Check('No', Format(N.Recall())); end;
-        [Test]
-        procedure NeverSentWithAnId() var N: Notification; begin N.Id := CreateGuid(); Check('No', Format(N.Recall())); end;"
+        procedure NeverSent() var N: Notification; begin N.Message('never sent'); Check('No', Format(N.Recall())); end;"
     ));
 }
 

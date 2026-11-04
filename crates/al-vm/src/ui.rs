@@ -515,19 +515,47 @@ impl Session {
     /// notification, at every Recall, and what it answers does not matter; with none bound nothing happens
     /// (ui-handlers/TestNotificationSendRecallContracts.al:95-131, ui-handlers/ProbeNotificationRecallEdges.al,
     /// BC 27.5).
+    ///
+    /// A notification never sent (al-runner issue 6924 item 3.3): one with no Id answers false with no recall handler bound
+    /// (ui-handlers/TestNotificationSendRecallContracts.al:123-131); whether a bound handler runs for it is not pinned
+    /// (refused). One given an Id runs the bound handler (assumption `recall-never-sent-runs-handler`, required by
+    /// Microsoft's Tests-SCM "SCM Orders IV" PurchaseLineBlankTypeDifferentPayToVendorNo); what Recall answers for it is
+    /// not pinned, so a use of the answer is refused.
     pub(crate) fn ui_recall_notification(&mut self, notification: Value, id: [u8; 16]) -> Result<bool, Signal> {
-        if !self.ui_state.sent_notifications.contains(&id) {
-            return Ok(false);
-        }
         let bound = self
             .ui_state
             .scope
             .as_ref()
             .is_some_and(|s| s.handlers.iter().any(|h| h.kind == UiKind::RecallNotification));
+        if !self.ui_state.sent_notifications.contains(&id) {
+            return self.ui_recall_never_sent(notification, id, bound);
+        }
         if bound {
             self.dispatch_ui_returning(UiKind::RecallNotification, "", vec![notification])?;
         }
         Ok(true)
+    }
+
+    /// `Notification.Recall()` of a notification this session never sent (`ui_recall_notification`).
+    fn ui_recall_never_sent(&mut self, notification: Value, id: [u8; 16], bound: bool) -> Result<bool, Signal> {
+        if id == [0; 16] {
+            if bound {
+                return Err(Signal::Unsupported(
+                    "Notification.Recall of a notification with no Id that was never sent, with a [RecallNotificationHandler] bound: whether the handler runs is not pinned (docs/probes-needed.md)".into(),
+                ));
+            }
+            return Ok(false);
+        }
+        if self.ret_used {
+            return Err(Signal::Unsupported(
+                "the answer of Notification.Recall of a notification with an Id that was never sent (not pinned, docs/probes-needed.md)".into(),
+            ));
+        }
+        if bound {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RecallNeverSentRunsHandler);
+            self.dispatch_ui_returning(UiKind::RecallNotification, "", vec![notification])?;
+        }
+        Ok(false)
     }
 
     /// The declared id of the object at index `object`, as BC prints it (0 when it has none).
