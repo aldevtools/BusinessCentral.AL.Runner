@@ -38,6 +38,7 @@ mod global_filter_group;
 mod hostvalues;
 mod installed_app_published_as;
 mod isolated_delete_missing_tx;
+mod key_order_punctuation;
 mod key_ties;
 mod lane_codeunit_run;
 mod lane_guarded_run_try_write;
