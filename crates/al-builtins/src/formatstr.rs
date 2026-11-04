@@ -133,9 +133,6 @@ fn canonical_template(template: &str, decimal: bool) -> Option<String> {
         // types it is not pinned and stays invalid.
         // `<Int,4>` is `<Integer,4>` (record/Y70Probes.al:65 `int_int` is `0005`).
         let bare_decimal = decimal && name.eq_ignore_ascii_case("Decimal") && arg.is_none();
-        if bare_decimal {
-            crate::assumptions::assume(crate::assumptions::Assumption::DecimalFieldDigitCodes);
-        }
         let name = if name.eq_ignore_ascii_case("Decimal") && (arg.is_some() || bare_decimal) {
             "Decimals"
         } else if name.eq_ignore_ascii_case("Int") && arg.is_some() {
@@ -640,7 +637,11 @@ fn numeric_of(
             // Pinned for 0:0, 1:3 and 3:3 by TQ_Format_PrecisionComma, 2:2 by TP_Format_PrecisionStrings (FormatCommaFormatString.al),
             // 0:3 by corpus master (corpus PR 886) format-evaluate/FormatPrecision03Comma.al:49-106 (`0.0005` is
             // `0.001`, `-0.0004` with `<Sign>` is `-0`).
-            if !matches!((min, max), (0, 0) | (0, 3) | (1, 3) | (2, 2) | (3, 3)) {
+            // 2:4 with `<Integer>` and `<Decimal>` and no `<Sign>`: language/R6901DecimalFieldFormat.al:810-850 (R6901_PrecisionControl_A to _C:
+            // 1.23456 is `1.2346`, 99999.99999 is `100000.00`, -3.5 is `3.50`, -0.00001 is `0.00`; every field and a Decimal variable alike).
+            let precision_2_4 =
+                (min, max) == (2, 4) && !pieces.iter().any(|(is_code, t)| *is_code && t.starts_with("Sign"));
+            if !precision_2_4 && !matches!((min, max), (0, 0) | (0, 3) | (1, 3) | (2, 2) | (3, 3)) {
                 return Err(format!(
                     "code `<Precision,{min}:{max}>` first without a standard format (not pinned)"
                 ));

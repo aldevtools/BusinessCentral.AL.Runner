@@ -759,11 +759,6 @@ const R6901_CASES: &[R6901Case] = &[
 #[test]
 fn digit_codes_on_decimal_places_fields() {
     for (spec, len, rows, amt27, amt28) in R6901_CASES {
-        // The `<Precision,..>` control is measured by the probe, but a `<Precision,..>` first without a standard format stays refused
-        // for every value (see `precision_first_without_standard_format_is_refused`).
-        if spec.contains("<Precision,") {
-            continue;
-        }
         for n in 1..=9usize {
             let call_row = |bc: &str, amount: bool| match call(
                 bc,
@@ -794,14 +789,15 @@ fn digit_codes_on_decimal_places_fields() {
 }
 
 #[test]
-fn precision_first_without_standard_format_is_refused() {
+fn precision_first_without_standard_format_stays_refused_for_other_places() {
+    // Only `<Precision,2:4><Integer><Decimal>` is pinned (language/R6901DecimalFieldFormat.al:810-850 R6901_PrecisionControl_*).
     let r = call(
         "29.0",
         "R6901",
         vec![
-            Value::Text("<Precision,2:4><Integer><Decimal>".into()),
+            Value::Text("<Precision,2:3><Integer><Decimal>".into()),
             Value::Integer(0),
-            Value::Integer(1),
+            Value::Integer(4),
             Value::Boolean(false),
         ],
     );

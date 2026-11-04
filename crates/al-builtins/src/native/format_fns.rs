@@ -80,14 +80,10 @@ pub(super) fn format_decimal_field(
                 return plain(ctx, r, args);
             }
             if t != "<Standard Format,2>" {
-                // The strings of `FIELD_FORMAT_STRINGS` on `FIELD_FORMAT_PLACES` are pinned (AtPrecisionStandardFormat2.al); any other
-                // string of the covered digit codes, and any other places, are measured by R6901DecimalFieldFormat.al, not yet in the
-                // pinned corpus (assumption `decimal-field-digit-codes`).
+                // The strings of `FIELD_FORMAT_STRINGS` are pinned by AtPrecisionStandardFormat2.al; any other string of the covered digit
+                // codes, on any places, by language/R6901DecimalFieldFormat.al.
                 return match (&args[0], places) {
                     (Value::Decimal(d), Some(places)) if covered_field_template(t) => {
-                        if !(FIELD_FORMAT_STRINGS.contains(&t) && FIELD_FORMAT_PLACES.contains(&places)) {
-                            crate::assumptions::assume(crate::assumptions::Assumption::DecimalFieldDigitCodes);
-                        }
                         format_field_string(ctx, *d, len, t, places)
                     }
                     _ => Err(Signal::Unsupported(format!(
@@ -143,15 +139,10 @@ pub(super) const FIELD_FORMAT_STRINGS: &[&str] = &[
     "<Integer>.<Decimals>",
 ];
 
-/// The places measured with `FIELD_FORMAT_STRINGS`: DecimalPlaces 2:2, 0:0, 3:5 and 0:5, AutoFormatType 1 (2:2), 2 (2:5) and
-/// 10 with `<Precision,1:1>` (AtPrecisionStandardFormat2.al:883-1047). Other places are not pinned and are refused.
-pub(super) const FIELD_FORMAT_PLACES: &[(u32, u32)] = &[(2, 2), (0, 0), (3, 5), (0, 5), (2, 5), (1, 1)];
-
 /// A string of `FIELD_FORMAT_STRINGS` on a field of `(min, max)` places: the value is first rounded half away from zero to
 /// `max` places (0:0 writes 1234.5678 as `1235` and -0.5 as `-1`, `<Integer>` of it `1`: the integer code drops the sign), then
 /// `<Decimals>` shows at least `min` places (2:2 writes 5 as `.00`, 0:5 as nothing, 3:5 -0.5 as `.500`), and `<Decimals,3>`
-/// keeps its width of two (3:5 1234.5678 is `***`) (AtPrecisionStandardFormat2.al:969-1047). A negative value that rounds to
-/// zero, and places outside `FIELD_FORMAT_PLACES`, are not measured and are refused.
+/// keeps its width of two (3:5 1234.5678 is `***`) (AtPrecisionStandardFormat2.al:969-1047; any places and values: language/R6901DecimalFieldFormat.al).
 pub(super) fn format_field_string(
     ctx: &mut dyn Ctx,
     d: rust_decimal::Decimal,
