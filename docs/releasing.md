@@ -11,6 +11,10 @@ Rules:
   the assets of the one release named `edge` and moves its tag.
 - Every night at 02:17 UTC, `nightly-edge.yml` fast-forwards `release` to the
   newest commit of `main` whose CI passed on a push, and builds `edge` from it.
+  Since 2026-11-04 a push run of a merged pull request skips the jobs the pull
+  request already ran on the same tree, and the slow comparisons run only in the
+  nightly CI run (05:17 UTC), so edge can hold a commit those comparisons have
+  not yet checked.
   It does nothing when `release` already has that commit. It fails, and changes
   nothing, when `release` has commits that `main` lacks (a hotfix without
   merge-back). Numbered alphas stay manual (owner decision 2026-10-20).
