@@ -130,9 +130,13 @@ public sealed class Server
                     // A method that is generic only, whose one type parameter is its return type (OpenXml's
                     // `T WorkbookReader.GetWorksheetByName<T>(string)`): the runtime closes it over the declared type of the
                     // DotNet variable the result is stored into (`generic`); without one the type argument is not known.
+                    // Only an overload that can take this many arguments counts: `JProperty.Value()` (Base Application,
+                    // "JSON Management".GetPropertyValueFromJObjectByName) is the property `JToken Value`, read below as a
+                    // call, not JToken's `T Value<T>(object key)`, which needs its key (al-runner issue 6927).
                     var generic = type.GetMethods(flags)
                         .Where(m => m.Name == name && m.IsGenericMethodDefinition && m.GetGenericArguments().Length == 1
-                            && m.ReturnType == m.GetGenericArguments()[0])
+                            && m.ReturnType == m.GetGenericArguments()[0]
+                            && TakesArgCount(m, args.Length))
                         .ToArray();
                     if (generic.Length > 0)
                     {
@@ -437,6 +441,16 @@ public sealed class Server
             coerced[i] = Coerce(args[i], pt)?.Value;
         }
         return (best, coerced, bestScore);
+    }
+
+    // Whether a method can be called with this many arguments: every required parameter given, and no more arguments
+    // than parameters unless the last one is a params array.
+    static bool TakesArgCount(MethodBase m, int count)
+    {
+        var ps = m.GetParameters();
+        bool rest = ps.Length > 0 && ps[^1].IsDefined(typeof(ParamArrayAttribute), false);
+        int required = ps.Count(p => !p.IsOptional) - (rest ? 1 : 0);
+        return count >= required && (rest || count <= ps.Length);
     }
 
     static string Describe(object? a) => a == null ? "null" : a.GetType().Name;

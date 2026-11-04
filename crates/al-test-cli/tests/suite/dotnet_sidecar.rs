@@ -266,6 +266,60 @@ fn a_generic_only_method_is_refused_plainly_and_runs_closed_over_a_type_argument
     sess.close();
 }
 
+/// The folder of the newest .NET SDK, which ships a Newtonsoft.Json.dll, or `None` (skip) without one.
+fn sdk_with_newtonsoft() -> Option<PathBuf> {
+    let out = std::process::Command::new("dotnet").arg("--list-sdks").output().ok()?;
+    let line = String::from_utf8_lossy(&out.stdout).lines().last()?.to_string();
+    let (version, rest) = line.split_once(" [")?;
+    let dir = Path::new(rest.trim_end_matches(']')).join(version.trim());
+    let found = dir.join("Newtonsoft.Json.dll").is_file().then_some(dir);
+    if found.is_none() {
+        assert!(
+            std::env::var("ALRT_REQUIRE_DOTNET").is_err(),
+            "ALRT_REQUIRE_DOTNET is set but no .NET SDK with Newtonsoft.Json.dll was found"
+        );
+        eprintln!("SKIPPED (no .NET SDK with Newtonsoft.Json.dll)");
+    }
+    found
+}
+
+// al-runner issue 6927: Base Application's "JSON Management".GetPropertyValueFromJObjectByName reads
+// `value := JProperty.Value();`. JProperty has the property `JToken Value`; its base JToken has only the
+// generic `T Value<T>(object key)` of that name, which takes one argument. A call with no argument is the
+// property read written as a call (pinned: corpus tests/al-language-onprem-dotnet/dotnet/dotnet-builtin-args/
+// Y51DotNetBuiltinArgs.al:51, `Enc.UTF8()`), never the generic method.
+#[test]
+fn a_property_called_without_arguments_is_read_even_when_a_generic_method_shares_its_name() {
+    let Some(sdk) = sdk_with_newtonsoft() else { return };
+    let mut cfg = config();
+    cfg.assembly_dirs = vec![sdk];
+    let Some(h) = host_with(cfg) else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let mut jobject = ty("Newtonsoft.Json.Linq.JObject");
+    jobject.assembly = "Newtonsoft.Json".into();
+    jobject.public_key_token = None;
+    let obj = handle_of(
+        &sess
+            .invoke(
+                DotNetTarget::Static(jobject),
+                "Parse",
+                vec![s(r#"{"accessCode":"ABC123"}"#)],
+            )
+            .unwrap(),
+    );
+    let prop = handle_of(
+        &sess
+            .invoke(DotNetTarget::Instance(obj), "Property", vec![s("accessCode")])
+            .unwrap(),
+    );
+    let value = handle_of(&sess.invoke(DotNetTarget::Instance(prop), "Value", vec![]).unwrap());
+    assert_eq!(
+        text_of(&sess.invoke(DotNetTarget::Instance(value), "ToString", vec![]).unwrap()),
+        "ABC123"
+    );
+    sess.close();
+}
+
 // ---- ADR-014 conformance: sessions, restricted environment, deadlines ------------------
 
 #[test]
