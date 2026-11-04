@@ -11,6 +11,7 @@ mod dialog;
 mod enum_fns;
 mod error;
 mod error_fns;
+mod format_field_codes;
 mod format_fns;
 mod messages;
 mod registry;

@@ -811,7 +811,10 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bump to master b2a88adc makes it 32: the 14 Y89_Old_Property_* and Y89_Old_Setter_* cases of 81070
     // (reports/runtime/BdRegionTests.al:1521) pass on BC 29 only; on 27 and 28 the format with a FormatRegion
     // other than the default is not pinned and refused (the same refusal as BdProperty_*_DatasetAndFormat).
-    assert!(out.contains("runtime: 32 case(s) differ between versions"), "{out}");
+    // Train 1104e makes it 33: 95042 StoredSize_SmallText_Result (record/flowfields/BlobStoredSizeSign.al:224, al-runner
+    // issue 6896) passes on BC 29 only; on 27 and 28 the stored size of 1 byte in a compressed field is not pinned (gate
+    // ProbedValuesDifferFrom29) and the case is refused.
+    assert!(out.contains("runtime: 33 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 

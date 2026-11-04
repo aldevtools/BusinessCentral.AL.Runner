@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 mod autoinc;
 mod bgsession;
+mod blob_copy;
 mod get_key_value;
 mod package_data;
 mod state;
@@ -50,6 +51,7 @@ mod dev_endpoint_ui;
 mod dispatch;
 pub mod dotnet;
 mod effects;
+mod empty_reads;
 mod errorcollect;
 pub mod events;
 mod ext_validate_order;
@@ -1296,6 +1298,7 @@ impl Session {
                 skip_dependency_subscribers: false,
                 not_installed_apps: None,
                 order_unknown_apps: None,
+                install_written: None,
                 setup_no_ops: Default::default(),
                 global_setups: Default::default(),
             },
@@ -1675,6 +1678,13 @@ impl Session {
     /// receive, and `NavApp.GetModuleInfo` of one of them, are refused. `None`: no install runs.
     pub fn set_apps_install_order_unknown(&mut self, apps: Option<std::collections::BTreeSet<u32>>) {
         self.events.order_unknown_apps = apps;
+    }
+
+    /// The tables (object indexes) the install code of the apps under test may write. A subscriber whose install order is
+    /// not known and that stops unless it finds a row of an empty table of its own app outside this set does nothing in
+    /// either order (empty_reads.rs). `None`: not known.
+    pub fn set_install_written_tables(&mut self, tables: Option<std::collections::BTreeSet<u32>>) {
+        self.events.install_written = tables;
     }
 
     /// The company data codeunit runs (al-testrun baseline.rs): the rules that hold only while the company is built apply
