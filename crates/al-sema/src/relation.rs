@@ -29,6 +29,9 @@ pub struct ParsedArm {
 pub enum ParsedWhere {
     /// `RelatedField = const(text)` or `= filter(text)`.
     Value { related: String, text: String },
+    /// `RelatedField = filter('<>''''')`: a filter written as one AL string with a doubled quote in it; `text` is the
+    /// string's content (`<>''`).
+    QuotedFilter { related: String, text: String },
     /// `RelatedField = field(OwnField)`.
     Field { related: String, own: String },
 }
@@ -203,6 +206,10 @@ impl P {
                             return None;
                         }
                         match kw.as_str() {
+                            "filter" if whole_quoted_filter(&text).is_some() => Some(ParsedWhere::QuotedFilter {
+                                related,
+                                text: whole_quoted_filter(&text)?,
+                            }),
                             "const" | "filter" => Some(ParsedWhere::Value {
                                 related,
                                 text: crate::scan::unquote_relation(&text),
@@ -225,6 +232,13 @@ impl P {
             wheres,
         })
     }
+}
+
+/// The content of a `filter(...)` text written as one AL string that has a doubled quote in it (`'<>'''''` is `<>''`); `None`
+/// for any other text, which [`crate::scan::unquote_relation`] reads. A content with `"` in it keeps the old reading.
+fn whole_quoted_filter(text: &str) -> Option<String> {
+    let inner = crate::queries::whole_literal(text)?;
+    (inner.contains('\'') && !inner.contains('"')).then_some(inner)
 }
 
 /// The arms of a `TableRelation` value, or `None` when its shape is not understood.

@@ -856,6 +856,17 @@ impl Session {
         })))
     }
 
+    /// The text of a value in a parameters text: a Boolean as `true`/`false`, an Option or Enum as its ordinal, anything
+    /// else formatted (reports/W3ReportParametersText.al:255, :272).
+    fn request_option_text(&self, v: &Value) -> Result<String, Signal> {
+        Ok(match v {
+            Value::Boolean(b) => b.to_string(),
+            // An option travels as its ordinal.
+            Value::Option(n, _) | Value::Enum(_, n) => n.to_string(),
+            other => al_builtins::format::try_format(other, 0, 9, self).map_err(Signal::Unsupported)?,
+        })
+    }
+
     /// The parameters of the request page as BC returns them from `RunRequestPage`: the report's
     /// options (the controls bound to variables) and the view of every data item.
     pub(crate) fn request_parameters(
@@ -875,29 +886,14 @@ impl Session {
                     let (slot, who) = b.var_slot(c.owner).expect("a variable binding");
                     let owner = owner_inst(inst, exts, who);
                     let v = owner.borrow().globals[slot].clone();
-                    let text = match &v {
-                        Value::Boolean(b) => b.to_string(),
-                        // An option travels as its ordinal.
-                        Value::Option(n, _) | Value::Enum(_, n) => n.to_string(),
-                        other => al_builtins::format::try_format(other, 0, 9, self).map_err(Signal::Unsupported)?,
-                    };
+                    let text = self.request_option_text(&v)?;
                     // The parameter carries the name of the variable, not of the control (reports/TestProbeReportContracts.al:
                     // RunRequestPage_ParametersText: control OptName shows variable NameValue).
                     let var_name = engine.program.objects[who.unwrap_or(object)]
                         .globals
                         .get(slot)
                         .map_or_else(|| c.name.clone(), |g| g.name.clone());
-                    // An empty value is an empty element, `<Field name="TxtVal" />`, for Text, Code, Date, Time and DateTime
-                    // alike (reports/W3ReportParametersText.al:255).
-                    if text.is_empty() {
-                        options.push_str(&format!("<Field name=\"{}\" />", xml_escape(&var_name)));
-                    } else {
-                        options.push_str(&format!(
-                            "<Field name=\"{}\">{}</Field>",
-                            xml_escape(&var_name),
-                            xml_text(&text)
-                        ));
-                    }
+                    options.push_str(&option_field(&var_name, &text));
                 }
                 (ir::ControlKind::DataItem, ir::Binding::Var(slot)) => {
                     // ShowFilter = false still writes the data item with its view (reports/TestProbeReportContracts.al:
@@ -917,6 +913,25 @@ impl Session {
                         "<DataItem name=\"{}\">{}</DataItem>",
                         xml_escape(&c.name),
                         xml_text(&view)
+                    ));
+                }
+                // A field of the request page's SourceTable is not in the text
+                // (reports/TestReportRequestPageSourceTableCompiledContracts.al:221).
+                (ir::ControlKind::Field, ir::Binding::Field(_)) => {}
+                // A field bound to a place written as an expression (`BufArr[1].Name`): named by its source as written
+                // (`request_expr_params`).
+                (ir::ControlKind::Field, ir::Binding::Expr(_)) => {
+                    let (name, read, _) = self.request_expr_place(c)?;
+                    let v = self.request_expr_read(object, inst, read)?;
+                    let text = self.request_option_text(&v)?;
+                    options.push_str(&option_field(&name, &text));
+                }
+                // Any other field (another expression, a label) and a data item that holds no record of its own: what BC
+                // writes is not pinned (al-runner issue 6960). Refused rather than left out of the text.
+                (ir::ControlKind::Field | ir::ControlKind::DataItem, _) => {
+                    return unsupported(format!(
+                        "the parameters text for request page control {} with this binding (not pinned)",
+                        c.name
                     ));
                 }
                 _ => {}
@@ -1006,6 +1021,17 @@ impl Session {
             .and_then(|r| r.split("</Options>").next())
             .unwrap_or("");
         for (name, text) in super::request_options::option_fields(options) {
+            // A control bound to a place written as an expression, named by its source (`request_expr_params`).
+            let expr = page.controls.iter().find(|c| {
+                c.kind == ir::ControlKind::Field
+                    && matches!(c.binding, ir::Binding::Expr(_))
+                    && c.source_text.as_deref() == Some(name.as_str())
+            });
+            if let Some(c) = expr {
+                let (_, read, write) = self.request_expr_place(c)?;
+                self.request_expr_write(object, inst, &name, &text, (read, write))?;
+                continue;
+            }
             let Some(c) = page.controls.iter().find(|c| {
                 c.kind == ir::ControlKind::Field
                     && c.binding.var_slot(c.owner).is_some_and(|(slot, who)| {
@@ -1355,6 +1381,16 @@ fn xml_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+/// One `Field` element of `<Options>`. An empty value is an empty element, `<Field name="TxtVal" />`, for Text, Code, Date, Time
+/// and DateTime alike (reports/W3ReportParametersText.al:255).
+fn option_field(name: &str, text: &str) -> String {
+    if text.is_empty() {
+        format!("<Field name=\"{}\" />", xml_escape(name))
+    } else {
+        format!("<Field name=\"{}\">{}</Field>", xml_escape(name), xml_text(text))
+    }
 }
 
 #[cfg(test)]

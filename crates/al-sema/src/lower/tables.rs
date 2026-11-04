@@ -200,6 +200,21 @@ impl Lowerer<'_> {
                             };
                             Some(ir::RelationWhere::Value { related: p, text })
                         }
+                        // One AL string with a doubled quote in it is the filter its content spells: `filter('<>''''')` is
+                        // `<>''` (not empty), on a field of the related table and on one a tableextension adds, and
+                        // `filter('''''')` is `''` (the empty value); `filter('<>''')` raises InvalidFilterExpression on BC
+                        // and every other content is not measured, so both stay refused (al-runner issue 6924;
+                        // record/table-relation/TableRelationQuotes.al:1188-1189 conditional arm, :1203-1204 extension and
+                        // own field, :1225 `''`, :1221 `<>'''`; objects TableRelationExtFieldFilter.Objects.al:57-66).
+                        crate::relation::ParsedWhere::QuotedFilter { related, text }
+                            if matches!(text.as_str(), "<>''" | "''") =>
+                        {
+                            Some(ir::RelationWhere::Value {
+                                related: field_pos(&self.members[t], related)?,
+                                text: text.clone(),
+                            })
+                        }
+                        crate::relation::ParsedWhere::QuotedFilter { .. } => None,
                         crate::relation::ParsedWhere::Field { related, own: o } => Some(ir::RelationWhere::Field {
                             related: field_pos(&self.members[t], related)?,
                             own: field_pos(own, o)?,

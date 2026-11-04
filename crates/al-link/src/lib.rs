@@ -1877,6 +1877,7 @@ mod tests {
                 expr_source: None,
                 expr_call: false,
                 array_element: None,
+                source_text: None,
                 bare_quoted_ext_source: false,
                 factbox: false,
             },
