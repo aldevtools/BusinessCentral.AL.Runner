@@ -1276,6 +1276,11 @@ impl Session {
         if let (Value::SqlCount(_), ir::Place::Field(..)) = (&v, p) {
             return Err(al_builtins::sqlcount::refusal("storing in a record field"));
         }
+        if self.sql.active && matches!(p, ir::Place::Field(..)) && al_builtins::sqlcount::formatted(&v) {
+            return Err(al_builtins::sqlcount::refusal(
+                "storing the formatted value in a record field",
+            ));
+        }
         // `:=` between FilterPageBuilders copies the control collection and shares the records
         // (corpus pages/filterpagebuilder/TestFilterPageBuilder.al:FilterPageBuilder_Assignment_*).
         let v = match v {

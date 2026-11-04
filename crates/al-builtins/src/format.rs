@@ -258,13 +258,24 @@ pub fn try_format(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) ->
     })
 }
 
+/// The values `Format` does not read: a column a platform row leaves unknown (refused), and a SQL counter value.
+fn format_unread(v: &Value, length: i32, standard: i32) -> Option<Result<String, FormatFail>> {
+    match v {
+        Value::Unknown(why) => Some(Err(FormatFail::Unsupported(why.to_string()))),
+        // `Format(x)` of a counter value gives digits only (SqlCounters.al P6924_Counters_Format_DigitsOnly), which digits
+        // nothing pins: a marked text that may be passed on and logged, and that no text function reads (`Txt::has_marker`).
+        Value::SqlCount(_) if length == 0 && standard == 0 => Some(Ok(crate::native::SQL_COUNT_TEXT_MARK.to_string())),
+        Value::SqlCount(_) => Some(Err(FormatFail::Unsupported(crate::sqlcount::refusal_text(
+            "Format with a length or a standard format",
+        )))),
+        _ => None,
+    }
+}
+
 /// `Format(Value, Length, Standard)` with BC's own errors kept apart from refusals.
 pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) -> Result<String, FormatFail> {
-    if let Value::Unknown(why) = v {
-        return Err(FormatFail::Unsupported(why.to_string()));
-    }
-    if let Value::SqlCount(_) = v {
-        return Err(FormatFail::Unsupported(crate::sqlcount::refusal_text("Format")));
+    if let Some(r) = format_unread(v, length, standard) {
+        return r;
     }
     if let Some(why) = ctx.region_unpinned() {
         // A text, and an Integer in the standard format, read the same in every region the corpus measured

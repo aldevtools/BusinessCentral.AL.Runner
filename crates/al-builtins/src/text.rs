@@ -77,18 +77,19 @@ impl Txt {
         }
     }
 
-    /// Whether the text holds `CALL_STACK_MARK`, the marker of a call stack with an untracked frame (no text function reads
-    /// such a text). Computed once for this string.
+    /// Whether the text holds a marker (`CALL_STACK_MARK` of a call stack with an untracked frame, `CARRIED_TEXT_MARK`,
+    /// `SQL_COUNT_TEXT_MARK`): no text function reads such a text. Computed once for this string.
     pub fn has_marker(&self) -> bool {
         match self.0.marked.load(Relaxed) {
             1 => true,
             2 => false,
             _ => {
                 MARKER_SCANS.with(|c| c.set(c.get() + 1));
-                let m = self
-                    .0
-                    .s
-                    .contains([crate::native::CALL_STACK_MARK, crate::native::CARRIED_TEXT_MARK]);
+                let m = self.0.s.contains([
+                    crate::native::CALL_STACK_MARK,
+                    crate::native::CARRIED_TEXT_MARK,
+                    crate::native::SQL_COUNT_TEXT_MARK,
+                ]);
                 self.0.marked.store(if m { 1 } else { 2 }, Relaxed);
                 m
             }
