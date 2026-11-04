@@ -481,6 +481,7 @@ impl Lowerer<'_> {
                 kind: raw.kind.clone(),
                 parent: raw.parent,
                 props: with_field_guard(self.members, table, &binding, raw.owner, props),
+                source_text: expr_source_text(&binding, raw.owner, sec),
                 binding,
                 triggers,
                 part_page,
@@ -789,6 +790,14 @@ impl Lowerer<'_> {
 }
 
 /// The control of a data item of a request page: the test client reads and writes the filters of its record (`binding`).
+/// The source of a page's or report's own control bound to an expression, as written and trimmed (`ir::Control::source_text`).
+fn expr_source_text(binding: &ir::Binding, owner: Option<usize>, sec: &ast::Section) -> Option<String> {
+    let own_expr = owner.is_none() && matches!(binding, ir::Binding::Expr(_));
+    own_expr
+        .then(|| sec.args_raw().get(1).map(|a| a.trim().to_string()))
+        .flatten()
+}
+
 fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
     ir::Control {
         name: name.to_string(),
@@ -810,6 +819,7 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         expr_call: false,
         array_element: None,
         bare_quoted_ext_source: false,
+        source_text: None,
         factbox: false,
     }
 }

@@ -1575,7 +1575,13 @@ impl CorpusRuntime {
                             Some((_, _, _, c)) => c.baseline.as_ref(),
                             None => baseline.as_ref(),
                         };
-                        let mut r = run_unit(&engine, lowered, start, &units[k], None, limit);
+                        // `--explain` names where a test of the chain failed too (al-runner issue 6924).
+                        let (si, id) = (units[k].si, units[k].id);
+                        let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
+                            details.insert((si, id, name.to_lowercase()), observed_detail(lowered, seen));
+                        };
+                        let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
+                        let mut r = run_unit(&engine, lowered, start, &units[k], trace, limit);
                         let mut left = super::run::CARRIED.with(|c| c.borrow_mut().take());
                         // A codeunit that left nothing new (`numbers_taken.rs`) leaves the state it was given, not the
                         // session's: under the baseline rule check that session started on an empty store.
@@ -1633,17 +1639,7 @@ impl CorpusRuntime {
                     .map(|&k| &units[k])
                     .map(|u| {
                         let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
-                            let mut d = explain::detail(
-                                &lowered.program,
-                                seen.session.fault_site(),
-                                seen.error.map(|e| explain::ErrorInfo {
-                                    message: e.message.clone(),
-                                    code: e.code.clone(),
-                                    call_stack: e.call_stack.clone(),
-                                }),
-                            );
-                            d.refused_in = seen.refused_in.map(|(o, r)| explain::describe_refused(lowered, o, r));
-                            details.insert((u.si, u.id, name.to_lowercase()), d);
+                            details.insert((u.si, u.id, name.to_lowercase()), observed_detail(lowered, seen));
                         };
                         let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
                         run_unit(&engine, lowered, baseline.as_ref(), u, trace, limit)
@@ -1756,7 +1752,13 @@ impl CorpusRuntime {
                         }
                         None => {
                             units[k].leak = None;
-                            r = run_unit(&engine, lowered, c.baseline.as_ref(), &units[k], None, limit);
+                            // The run again is the one reported, so `--explain` names its site.
+                            let (si, id) = (units[k].si, units[k].id);
+                            let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
+                                details.insert((si, id, name.to_lowercase()), observed_detail(lowered, seen));
+                            };
+                            let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
+                            r = run_unit(&engine, lowered, c.baseline.as_ref(), &units[k], trace, limit);
                         }
                     }
                 }
@@ -2639,4 +2641,19 @@ fn app_contexts(
             ))
         })
         .collect()
+}
+
+/// What `--explain` keeps of a test that just ended: its error, and where it was raised or refused.
+fn observed_detail(lowered: &Lowered, seen: &Observed) -> explain::TestDetail {
+    let mut d = explain::detail(
+        &lowered.program,
+        seen.session.fault_site(),
+        seen.error.map(|e| explain::ErrorInfo {
+            message: e.message.clone(),
+            code: e.code.clone(),
+            call_stack: e.call_stack.clone(),
+        }),
+    );
+    d.refused_in = seen.refused_in.map(|(o, r)| explain::describe_refused(lowered, o, r));
+    d
 }

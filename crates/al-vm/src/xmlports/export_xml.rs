@@ -685,13 +685,37 @@ impl Session {
                         return Ok(());
                     }
                 }
+                // `leaf_triggered_tree` (container_tree.rs): written as any container, its leaves' OnBeforePassVariable in schema
+                // order, Skip there leaves out that leaf (xmlports/shapes-properties/R6924eTreeInTable.al:287-288 all filled,
+                // :296-297 leaves skipped, :305-306 an inner leaf empty). Its own text stays refused (measured at :314, not built).
+                ir::XmlNodeKind::Text if leaf_triggered_tree(schema, child, node) => {
+                    if !got!(self.xp_pass_variable(inst, schema, child)).is_empty() {
+                        return unsupported(
+                            "XmlPort export of a container text element below a table element with its own text (not pinned)",
+                        );
+                    }
+                    let e = self.xp_export_container(inst, schema, child)?;
+                    if matches!(Self::xp_flow(inst), Some(Flow::Break | Flow::Unbound)) {
+                        return unsupported(
+                            "Break in OnBeforePassVariable of a leaf inside a container text element below a table element (not pinned)",
+                        );
+                    }
+                    out.children.push(Node::Elem(e));
+                    if Self::xp_quit(inst) {
+                        return Ok(());
+                    }
+                }
                 ir::XmlNodeKind::Text
                     if schema.node(node).kind == ir::XmlNodeKind::Table
                         && !linked_container(schema, child, node)
                         && !attr_container(schema, child)
                         && !plain_container(schema, child) =>
                 {
-                    return unsupported("XmlPort export of a text element with content inside a table element");
+                    return unsupported(format!(
+                        "XmlPort export of a text element with content inside a table element: {} in {}",
+                        schema.node(child).name,
+                        schema.node(node).name
+                    ));
                 }
                 ir::XmlNodeKind::Text => {
                     let e = self.xp_export_container(inst, schema, child)?;

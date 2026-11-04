@@ -1304,10 +1304,13 @@ impl Tree {
                 // Several layout controls in one move keep the order written (al-runner issue 6483;
                 // pages/extensions/Y20PageExtMoves.al).
                 let first_last = kind == "movefirst" || kind == "movelast";
-                let area = if op.in_actions && first_last {
+                // movefirst/movelast into an area: of actions, and of the layout (`movefirst(FactBoxes; Details)`,
+                // `movelast(Content; Data)`: pages/extension-layout-containers/TestFactboxMove.Codeunit.al:21,
+                // TestContentMove.Codeunit.al:21; issue 6952).
+                let area = if first_last {
                     self.areas
                         .iter()
-                        .position(|a| a.in_actions && a.name.eq_ignore_ascii_case(&target))
+                        .position(|a| a.in_actions == op.in_actions && a.name.eq_ignore_ascii_case(&target))
                 } else {
                     None
                 };
@@ -1333,6 +1336,12 @@ impl Tree {
                             let group = match self.nodes[a].kind {
                                 al_ir::ControlKind::Group => !op.in_actions,
                                 al_ir::ControlKind::ActionGroup => op.in_actions,
+                                // Fields into a repeater (`movefirst(General; Description)`: pages/extension-layout-containers/
+                                // TestRepeaterMove.Codeunit.al:21; issue 6952).
+                                al_ir::ControlKind::Repeater => {
+                                    !op.in_actions
+                                        && ms.iter().all(|&m| self.nodes[m].kind == al_ir::ControlKind::Field)
+                                }
                                 _ => false,
                             };
                             if !group {

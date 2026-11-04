@@ -10,7 +10,7 @@
 # The artifact cache key of CI follows the pin (`--print-builds`).
 corpus_repo = "corpus"
 corpus_app = "corpus/tests/al-language"
-corpus_commit = "eccb13307bd845368246e37bc5421eb4ed43b1d4"
+corpus_commit = "e89f0e53ca7be9c391f671867286e969828c026a"
 # ADR-046 amendment 4: the corpus CI database has two companies, the session company first
 # (install/lt-bf-install-probes/BfInstallTests.al:60-62).
 companies = ["CRONUS International Ltd.", "My Company"]
@@ -20,24 +20,24 @@ major = 27
 app_runtime = "16.1"
 bc_version = "27.5"
 bc_build = "27.5.46862.56249"
-workflow_run = 41841625491
-artifact_id = 13341770412
+workflow_run = 41898837113
+artifact_id = 13362808147
 junit = "27/junit.xml"
 baseline = "metrics/27/passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 41841625491
-artifact_id = 13339735447
+workflow_run = 41898837113
+artifact_id = 13361706896
 oracle = "27/junit-onprem.xml"
 baseline = "metrics/27/passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 41841625491
-artifact_id = 13339221911
+workflow_run = 41898837113
+artifact_id = 13362316246
 oracle = "27/junit-dotnet.xml"
 baseline = "metrics/27/passing-dotnet.txt"
 
@@ -47,8 +47,8 @@ baseline = "metrics/27/passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 41841625491
-artifact_id = 13340322533
+workflow_run = 41898837113
+artifact_id = 13363411713
 oracle = "27/junit-testlibraries.xml"
 baseline = "metrics/27/passing-testlibraries.txt"
 extra_apps = [
@@ -61,24 +61,24 @@ major = 28
 app_runtime = "17.1"
 bc_version = "28.5"
 bc_build = "28.5.54151.56267"
-workflow_run = 41841625491
-artifact_id = 13341617034
+workflow_run = 41898837113
+artifact_id = 13364455045
 junit = "28/junit.xml"
 baseline = "metrics/28/passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 41841625491
-artifact_id = 13339557825
+workflow_run = 41898837113
+artifact_id = 13362316073
 oracle = "28/junit-onprem.xml"
 baseline = "metrics/28/passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 41841625491
-artifact_id = 13337717404
+workflow_run = 41898837113
+artifact_id = 13360892273
 oracle = "28/junit-dotnet.xml"
 baseline = "metrics/28/passing-dotnet.txt"
 
@@ -88,8 +88,8 @@ baseline = "metrics/28/passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 41841625491
-artifact_id = 13341795429
+workflow_run = 41898837113
+artifact_id = 13363077425
 oracle = "28/junit-testlibraries.xml"
 baseline = "metrics/28/passing-testlibraries.txt"
 extra_apps = [
@@ -132,24 +132,24 @@ major = 29
 app_runtime = "18.0"
 bc_version = "29.0"
 bc_build = "29.0.54011.56262"
-workflow_run = 41841625491
-artifact_id = 13339943665
+workflow_run = 41898837113
+artifact_id = 13363807350
 junit = "29/junit.xml"
 baseline = "metrics/29/passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 41841625491
-artifact_id = 13338961789
+workflow_run = 41898837113
+artifact_id = 13360648939
 oracle = "29/junit-onprem.xml"
 baseline = "metrics/29/passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 41841625491
-artifact_id = 13338328567
+workflow_run = 41898837113
+artifact_id = 13361138570
 oracle = "29/junit-dotnet.xml"
 baseline = "metrics/29/passing-dotnet.txt"
 
@@ -159,8 +159,8 @@ baseline = "metrics/29/passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 41841625491
-artifact_id = 13341445983
+workflow_run = 41898837113
+artifact_id = 13362569982
 oracle = "29/junit-testlibraries.xml"
 baseline = "metrics/29/passing-testlibraries.txt"
 extra_apps = [
