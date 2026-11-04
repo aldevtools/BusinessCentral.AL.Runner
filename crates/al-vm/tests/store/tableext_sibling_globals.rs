@@ -1,5 +1,5 @@
 //! A table extension uses a `protected var` global that another extension of the same table in the same app declares
-//! (al-runner issue 6485). Measured on BC by corpus writer Y20 (tableextension/lt-y20-sibling-globals/Y20TableExtSiblingGlobals.al):
+//! (al-runner issue 6485). Measured on BC by corpus writer Y20 (table-objects/extensions/Y20TableExtSiblingGlobals.al):
 //! it compiles, and both extensions read and write one variable per record variable: a value one writes the other reads; a
 //! second record variable has its own; record assignment and Copy do not copy it, Init keeps it, Clear resets it. A plain `var`
 //! of the sibling does not compile (must-not-compile 2356, AL0161).

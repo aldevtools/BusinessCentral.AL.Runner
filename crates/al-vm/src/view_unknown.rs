@@ -1,9 +1,9 @@
 //! A name in a view given to `SetView` that names no field of the table. BC drops a WHERE condition on such a name and gives
-//! the primary key for a SORTING of one (record/lt-setview-caption-form/SetViewCaptionForm.al:179-191 SetView_UnknownField_ErrorText:
-//! `WHERE(Nothing Here=CONST(5))` sets no filter; types/lt-evaluate-format-lasterror-setview/P86SetView.al:222 SetView_Malformed `v3`
+//! the primary key for a SORTING of one (record/views/SetViewCaptionForm.al:179-191 SetView_UnknownField_ErrorText:
+//! `WHERE(Nothing Here=CONST(5))` sets no filter; format-evaluate/P86SetView.al:222 SetView_Malformed `v3`
 //! `WHERE(Nope=CONST(1))`, :184 SetView_GetViewRoundTrip_NameFormSetFilter `v8` `SORTING(Nonexistent)`). Pinned only for a view
 //! given at run time, for a name that is the only condition or the only SORTING field, and for a plain name or a `Field<n>`
-//! with no such field (record/lt-y51-setview-shapes/Y51SetViewShapes.al:166-172, `WHERE(Field99=1(x))` and `SORTING(Field99)`).
+//! with no such field (record/views/Y51SetViewShapes.al:166-172, `WHERE(Field99=1(x))` and `SORTING(Field99)`).
 //! `Field0` names the timestamp column, which the runtime does not model (Y51SetViewShapes.al:164-173): refused, as is a
 //! quoted name.
 
@@ -60,7 +60,7 @@ impl Session {
         match self.view_field(t, name) {
             Ok(p) => Ok(Some(p)),
             // The user-name system FlowFields are fields of every table on BC 29: a condition on one is kept and filters
-            // (al-runner issue 6645; corpus branch al-runtime-rs-staging-y64 85d86e7b, system-fields/lt-y64-username-filters/
+            // (al-runner issue 6645; corpus branch al-runtime-rs-staging-y64 85d86e7b, record/system-fields/
             // Y64UserNameFilters.al:154-191). A table whose schema holds them (al-sema `USER_NAME_FIELDS`) found the field above; a
             // table compiled without them (a target below BC 29 with the gate on) refuses, never drops.
             Err(_) if user_name_field(name) => Err(Signal::Unsupported(format!(
@@ -72,7 +72,7 @@ impl Session {
     }
 
     /// The fields the SORTING `inner` of `view` names, or `None` for the primary key when its one field is a name of no field
-    /// (see the module comment; also record/lt-setview-sorting-nonkey/SetViewSortingNonKey.al:204 `unknown_field`). An empty
+    /// (see the module comment; also record/keys-sorting/SetViewSortingNonKey.al:204 `unknown_field`). An empty
     /// SORTING is an invalid view (SetViewSortingNonKey.al:205, :224-226 `empty_sorting`).
     pub(crate) fn view_sorting_fields(
         &self,

@@ -35,7 +35,7 @@ codeunit 69892 C
 }
 "#;
 
-/// corpus pageext/lt-bl-implicit-creation/ImplicitCreation.al:308-318 Worksheet_OpenNew.
+/// corpus pages/extensions/ImplicitCreation.al:308-318 Worksheet_OpenNew.
 #[test]
 fn worksheet_open_new_is_not_supported() {
     assert_eq!(
@@ -44,7 +44,7 @@ fn worksheet_open_new_is_not_supported() {
     );
 }
 
-/// The error comes before OnInit and OnOpenPage run (pageext/lt-bl-implicit-creation/Y8OpenNewPageTypes.al:306-317).
+/// The error comes before OnInit and OnOpenPage run (pages/extensions/Y8OpenNewPageTypes.al:306-317).
 #[test]
 fn worksheet_open_new_with_open_triggers_fails_before_them() {
     assert_eq!(
@@ -98,7 +98,7 @@ codeunit 69883 C
 }
 "#;
 
-/// corpus pages/lt-cf-page-leads/CfPageLeads.al:144-180 ApiPage_OnInsertRecordInsertsAndReturnsFalse.
+/// corpus testpage/CfPageLeads.al:144-180 ApiPage_OnInsertRecordInsertsAndReturnsFalse.
 #[test]
 fn api_page_open_new_is_denied() {
     let t = text(al_testkit::run_in(API, "C", "OpenNew"));
@@ -189,7 +189,7 @@ codeunit 69873 C
 "#;
 
 /// A card whose OnNewRecord inserts the new row itself: the page still holds it as a new row, so the next write to a field
-/// outside the key inserts it again, which fails (corpus pages/lt-cf-page-leads/CfPageLeads.al:241-289
+/// outside the key inserts it again, which fails (corpus testpage/CfPageLeads.al:241-289
 /// Card_OnNewRecordInserts_OpenNewSetClose).
 #[test]
 fn card_on_new_record_insert_keeps_the_new_row() {
@@ -252,7 +252,7 @@ codeunit 69864 C
 }
 "#;
 
-/// corpus pages/lt-ce-page-run/CePageExt.al:27-41 ClearAll_InOwnBasePage_ExtensionGlobal.
+/// corpus pages/run-modal/CePageExt.al:27-41 ClearAll_InOwnBasePage_ExtensionGlobal.
 #[test]
 fn clear_all_in_a_page_clears_its_extension_globals() {
     assert_eq!(
@@ -319,7 +319,7 @@ codeunit 69852 C
 }
 "#;
 
-/// corpus events/lt-cm-trigger-leads/CmTriggerLeads.al:405-440 Item40_PageInsert_FilteredView, and pages/lt-ao-testpage/
+/// corpus record/CmTriggerLeads.al:405-440 Item40_PageInsert_FilteredView, and testpage/
 /// AoTests.al:467-487 FilterGroup0_NewRowField: a new list row the page inserts outside its filter.
 #[test]
 fn list_insert_outside_the_filter_raises_on_set_value() {

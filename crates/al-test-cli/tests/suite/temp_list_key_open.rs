@@ -1,6 +1,6 @@
 //! A List over a temporary source whose OnOpenPage filled it and changed its key and direction (gap G5-19,
-//! pages/lt-y50-temp-list-key-desc/Y50TempListKeyDesc.al), and a temporary tree Worksheet whose OnOpenPage changed its key
-//! (gap G5-17, pages/lt-y50-tree-expand-leaf/Y50TreeExpandLeaf.al): the page opens on Rec's row.
+//! pages/temp-list-descending-key/Y50TempListKeyDesc.al), and a temporary tree Worksheet whose OnOpenPage changed its key
+//! (gap G5-17, pages/tree-expand-leaf/Y50TreeExpandLeaf.al): the page opens on Rec's row.
 //! AL source -> compile -> run as a test codeunit.
 
 use al_test_cli::report::Outcome;

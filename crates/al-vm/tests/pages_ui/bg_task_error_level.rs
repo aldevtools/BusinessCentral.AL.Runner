@@ -1,7 +1,7 @@
 //! `CurrPage.EnqueueBackgroundTask` with its fifth argument, a `PageBackgroundTaskErrorLevel` (al-runner issue 5806). The type's
-//! members and ordinals are pinned by lt-ac/ACPageBackgroundTaskErrorLevel.al; a task that succeeds under any level runs as
-//! one without the argument (bgtasks/lt-bj-no-gui/BjNoGuiDialogs.al:86, EnqueueBackgroundTask_WithHandlers, level Error);
-//! a failing worker under Ignore runs the error trigger and leaves the page open (bgtasks/W2BackgroundTasks.al:455
+//! members and ordinals are pinned by format-evaluate/ACPageBackgroundTaskErrorLevel.al; a task that succeeds under any level runs as
+//! one without the argument (pages/background-tasks/BjNoGuiDialogs.al:86, EnqueueBackgroundTask_WithHandlers, level Error);
+//! a failing worker under Ignore runs the error trigger and leaves the page open (pages/background-tasks/W2BackgroundTasks.al:455
 //! ErrorLevel_Ignore). A failing worker under Error or Warning is not pinned and is refused.
 
 use al_builtins::native::Signal;
@@ -143,7 +143,7 @@ fn error_and_ignore_level_tasks_complete() {
     assert_eq!(al_testkit::text(run("IgnoreOk")), "done:R1");
 }
 
-/// bgtasks/W2BackgroundTasks.al:455 ErrorLevel_Ignore: the error trigger runs and the page stays open.
+/// pages/background-tasks/W2BackgroundTasks.al:455 ErrorLevel_Ignore: the error trigger runs and the page stays open.
 #[test]
 fn ignore_level_failing_task_runs_the_error_trigger_and_keeps_the_page() {
     assert_eq!(al_testkit::text(run("IgnoreFails")), "error");
@@ -157,13 +157,13 @@ fn failing_task_under_warning_or_error_level_is_refused() {
     }
 }
 
-/// lt-ac/ACPageBackgroundTaskErrorLevel.al: names, ordinals 0, 10, 20, format 1 prints the name, the default is Error.
+/// format-evaluate/ACPageBackgroundTaskErrorLevel.al: names, ordinals 0, 10, 20, format 1 prints the name, the default is Error.
 #[test]
 fn format_of_the_type() {
     assert_eq!(al_testkit::text(run("FormatAll")), "Warning,20,Warning,Error,0");
 }
 
-/// Evaluate into the type is not pinned (lt-ac/QbEvaluateBgTask.al is not a case of the oracle): refused.
+/// Evaluate into the type is not pinned (collections/QbEvaluateBgTask.al is not a case of the oracle): refused.
 #[test]
 fn evaluate_into_the_type_is_refused() {
     let why = refused("EvaluateNumber");

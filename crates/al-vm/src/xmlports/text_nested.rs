@@ -1,7 +1,7 @@
 //! A VariableText port whose table element holds another table element (the nested shape).
 //!
-//! Export (xmlport/lt-df-xmlport-leads/DfXmlPortLeads.al:VariableText_Nested_Export, and the
-//! staged probe xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:VariableText_Nested `export nested`): the first child record follows
+//! Export (streams/DfXmlPortLeads.al:VariableText_Nested_Export, and the
+//! staged probe xmlports/shapes-properties/Y83XpMiscTests.al:VariableText_Nested `export nested`): the first child record follows
 //! the parent's values on the parent's line, the other child records follow on lines of their own, the table separator ends the
 //! children of a parent, and the record separator joins the parents (so the last parent has no record separator after it).
 //! A parent without a child record is not pinned.

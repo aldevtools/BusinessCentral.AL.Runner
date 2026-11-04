@@ -226,7 +226,7 @@ codeunit 50160 C
         exit(StaleModify(Row));
     end;
     // Writer TH (al-runner issue 6040) and writer TE: the same neighbours with 1 to 10 Commits
-    // (record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_*, TH_* on branch al-runtime-rs-staging-pub-th).
+    // (record/crud/SbStaleOwnModify.al TE_*, TH_* on branch al-runtime-rs-staging-pub-th).
     procedure LockMany(Commits: Integer; Deleting: Boolean): Text
     var Row: Record "Repro N2 Row";
     begin

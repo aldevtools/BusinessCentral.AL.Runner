@@ -1,4 +1,4 @@
-//! `Media.FindOrphans()` and `MediaSet.FindOrphans()` (media/lt-y48-find-orphans/Y48FindOrphans.al:305-410): a media no stored
+//! `Media.FindOrphans()` and `MediaSet.FindOrphans()` (streams/media/Y48FindOrphans.al:305-410): a media no stored
 //! row holds is an orphan (never inserted, not modified after the import, held only by a temporary record), a held media and
 //! the items of a held set are not; a set no stored row holds is an orphan.
 

@@ -1,4 +1,4 @@
-//! A RecordRef held by a Variant, assigned or passed by value to a Record (record/lt-ar-records/ArRecordProbes.al:333, :366 and the
+//! A RecordRef held by a Variant, assigned or passed by value to a Record (streams/ArRecordProbes.al:333, :366 and the
 //! SG_VariantRecordRef_* tests of corpus bump PR 738): the Record gets the buffer's values on the ref's row, not its filters, key,
 //! order or temporariness; another table and a ref that is not open raise.
 

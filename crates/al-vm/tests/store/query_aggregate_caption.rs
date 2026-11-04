@@ -1,7 +1,7 @@
 //! The caption of a totals column (Sum, Count, Average, Min, Max) without a Caption property is the column name, not the
 //! caption of its source field: `ColumnCaption` and the `Caption: filter` pairs of `GetFilters`.
-//! query/lt-cf-query-leads/CfQueryLeads.al:174-182 (Min, Max, Sum), :276 (Count);
-//! query/lt-y78-outer-aggregate-filter/Y78QueryOuterAggFilter.al:1057 (`SumQ: >0`), the same file for `AvgQ`.
+//! queries/CfQueryLeads.al:174-182 (Min, Max, Sum), :276 (Count);
+//! queries/flowfields-filters/Y78QueryOuterAggFilter.al:1057 (`SumQ: >0`), the same file for `AvgQ`.
 
 const SRC: &str = r#"
 table 68960 "Probe AggCaption Table"

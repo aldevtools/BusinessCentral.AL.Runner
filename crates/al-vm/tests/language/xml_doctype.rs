@@ -1,4 +1,4 @@
-//! `XmlDocumentType` (corpus xml/lt-xml-doctype-declaration/*; the corpus cases are the full oracle).
+//! `XmlDocumentType` (corpus xml/xml/*; the corpus cases are the full oracle).
 
 use al_testkit::text;
 
@@ -57,7 +57,7 @@ fn a_detached_text_cdata_comment_or_pi_raises_invalid_operation_for_sibling_oper
 
 #[test]
 fn select_single_node_without_a_match_raises_in_the_statement_form_and_a_declaration_added_to_an_element_is_text() {
-    // xml/lt-xml-cdata-comment-pi-text/P90TextRead.al:SelectSingle_Absolute_2 `x2` (InvalidXPathSelection);
+    // xml/xml/P90TextRead.al:SelectSingle_Absolute_2 `x2` (InvalidXPathSelection);
     // P90CDataEdit.al:AfterSelf_Attached_InvalidKinds `k7`.
     let src = "codeunit 50100 C { procedure F(): Text var Doc: XmlDocument; E: XmlElement; N: XmlNode; S: Text; T: Text; begin
         Doc := XmlDocument.Create(); E := XmlElement.Create('r'); Doc.Add(E);

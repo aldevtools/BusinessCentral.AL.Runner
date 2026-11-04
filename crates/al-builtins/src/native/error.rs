@@ -13,7 +13,7 @@ pub struct AlError {
 }
 
 /// The .NET exception type behind an error, for `GetLastErrorObject`. Only the kinds the corpus pins are named
-/// (tests/al-language-onprem-dotnet/lt-dotnet-interop/GetLastErrorObject.al); an error raised any other way is
+/// (tests/al-language-onprem-dotnet/dotnet/dotnet-interop/GetLastErrorObject.al); an error raised any other way is
 /// `Unknown` and `GetLastErrorObject` refuses it, naming the code.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ExceptionKind {
@@ -32,7 +32,7 @@ pub enum ExceptionKind {
 }
 
 /// How the text of `Error(Text, ...)` or `FieldError(Field, Text)` is written in the code: the text `GetLastErrorText(true)`
-/// answers depends on it (error-handling/lt-last-error-text-exclude/LastErrorTextExcludeLabel.al, error-handling/
+/// answers depends on it (errors/last-error/LastErrorTextExcludeLabel.al, error-handling/
 /// lt-last-error-text-forms/). Lowering decides it from the syntax.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorTextForm {
@@ -47,8 +47,8 @@ pub enum ErrorTextForm {
 }
 
 /// How an error was raised, for the text `GetLastErrorText(true)` answers (corpus
-/// types/lt-evaluate-format-lasterror-setview/P86LastError.al, errors/lt-last-error-and-events/P70_02LastErrFlag.al,
-/// misc/lt-probes-needed-6/PnF01LastErrorFlag.al). An origin the corpus does not pin is `Unknown` and refused.
+/// format-evaluate/P86LastError.al, errors/last-error/P70_02LastErrFlag.al,
+/// errors/PnF01LastErrorFlag.al). An origin the corpus does not pin is `Unknown` and refused.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum ErrorOrigin {
     #[default]

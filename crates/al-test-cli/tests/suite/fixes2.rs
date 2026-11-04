@@ -85,7 +85,7 @@ fn passes(tests: &str) {
 
 const HELPERS: &str = "procedure Check(Expected: Text; Actual: Text) begin if Expected <> Actual then Error('expected <%1> got <%2>', Expected, Actual); end;";
 
-// handlers/TestPageQueryCloseMessageHandler_Tests.al: ErrorInQueryClosePage_MessageHandlerReceivesTheTriggersText,
+// ui-handlers/TestPageQueryCloseMessageHandler_Tests.al: ErrorInQueryClosePage_MessageHandlerReceivesTheTriggersText,
 // _MessageConsumed_CallerRegainsControl, _MessageConsumed_SettlesThePagesUncommittedWrite.
 // The modal handler's OK closes the page once (message 1, close refused); the platform closes the
 // page again after the handler returns (message 2, refused again). RunModal reports None and the
@@ -109,7 +109,7 @@ const TX_HELPERS: &str = "procedure Work(Mode: Text): Dictionary of [Text, Text]
     P.Add('Mode', Mode); C.OpenView(); R := C.RunPageBackgroundTask(Codeunit::\"F2 Tx Worker\", P, false); C.Close(); exit(R); end;
 procedure Seed(No: Code[20]) var Row: Record \"F2 Row\"; begin Row.DeleteAll(); Commit(); Row.\"No.\" := No; Row.Insert(); end;";
 
-// handlers/TestPageBgTaskTx_Tests.al: RunPageBackgroundTask_WorkerIsOutsideCallersWriteTransaction
+// testpage/TestPageBgTaskTx_Tests.al: RunPageBackgroundTask_WorkerIsOutsideCallersWriteTransaction
 // (the worker reports no write transaction, a guarded Codeunit.Run inside it runs, the caller's
 // write transaction is still open afterwards) and ..._WorkerCommitLeavesCallersRowsUncommitted
 // (the caller's row is still rolled back by a later error).
@@ -132,7 +132,7 @@ fn a_worker_is_outside_the_callers_write_transaction_and_its_guarded_run_leaves_
 }
 
 // The same separation for a guarded run that fails inside the worker: it undoes the worker's own
-// writes (none), not the caller's (handlers/TestPageBgTaskTx_Tests.al:
+// writes (none), not the caller's (testpage/TestPageBgTaskTx_Tests.al:
 // RunPageBackgroundTask_WorkerCommitLeavesCallersRowsUncommitted gives the separation).
 #[test]
 fn a_failing_guarded_run_in_a_worker_does_not_roll_back_the_callers_row() {
@@ -162,7 +162,7 @@ fn an_unguarded_codeunit_run_in_a_worker_is_refused() {
     );
 }
 
-// session/TestSessionSettings.al:464-545: RequestSessionUpdate(false) is a UI call routed to the
+// session-system/TestSessionSettings.al:464-545: RequestSessionUpdate(false) is a UI call routed to the
 // [SessionSettingsHandler]; the handler gets the assigned settings, the instance and the running
 // session's language stay as they were.
 #[test]
@@ -234,7 +234,7 @@ fn reading_the_unevaluable_field_of_a_record_with_another_field_written_is_refus
     assert!(matches!(&o[0].1, Outcome::NotRun(_)), "{o:?}");
 }
 
-// session/TestStartSessionRecord.al:57-82: StartSession from a test raises the isolation refusal,
+// session-system/TestStartSessionRecord.al:57-82: StartSession from a test raises the isolation refusal,
 // with either overload, and leaves SessionId alone.
 #[test]
 fn start_session_from_a_test_is_refused_under_codeunit_isolation() {
@@ -255,7 +255,7 @@ fn start_session_from_a_test_is_refused_under_codeunit_isolation() {
 
 const LISTS: &str = "procedure Seed() var R: Record \"F2 Row\"; P: Codeunit \"F2 Probe\"; begin R.DeleteAll(); R.\"No.\" := 'A'; R.Insert(); R.\"No.\" := 'B'; R.Insert(); Commit(); P.Reset(); end;";
 
-// handlers/TestPageModeSwitchAction_Tests.al: PlainListWithoutCardPageIdOffersBothActionsAndEnablesOnlyView,
+// testpage/TestPageModeSwitchAction_Tests.al: PlainListWithoutCardPageIdOffersBothActionsAndEnablesOnlyView,
 // ListWhoseCardIsReadOnlyLeavesTheEditActionVisibleButNotEnabled, ListWithAnEditableCardPageIdEnablesBothActions.
 #[test]
 fn the_built_in_view_and_edit_actions_of_a_list_are_visible_and_edit_needs_a_card_that_can_be_edited() {

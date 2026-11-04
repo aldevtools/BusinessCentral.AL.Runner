@@ -1,5 +1,5 @@
 //! Rename of an AutoIncrement key: the OnRename trigger runs before the AutoIncrement check (al-runner issue 6863).
-//! Values: record/lt-r6863-rename-trigger/R6863RenameTrigger.al (BC 28.5; 27.5 and 29.0 as recorded in the PR).
+//! Values: record/crud/R6863RenameTrigger.al (BC 28.5; 27.5 and 29.0 as recorded in the PR).
 
 use al_testkit::text;
 
@@ -158,7 +158,7 @@ fn run_in_with_bool(routine: &str, raise: bool) -> Result<al_builtins::value::Va
     al_testkit::run_with(SRC, "T", routine, vec![al_builtins::value::Value::Boolean(raise)]).map(|(v, _)| v)
 }
 
-// record/lt-r6863-rename-trigger/R6863RenameTrigger.al:202-219 (Rename_TemporaryRecord): a temporary record runs the trigger and
+// record/crud/R6863RenameTrigger.al:202-219 (Rename_TemporaryRecord): a temporary record runs the trigger and
 // gets no AutoIncrement error; the new key is kept.
 #[test]
 fn a_temporary_record_gets_no_autoincrement_error() {

@@ -61,7 +61,7 @@ fn start_session_runs_under_isolation_disabled() {
 
 /// Issues 5607 and 5609 with RequiredTestIsolation on the test codeunit: `--isolation required` runs each test codeunit
 /// under its own RequiredTestIsolation, as BC's TestRunnerHub does on BC 28 and later (corpus
-/// codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16, 25-39).
+/// codeunits/run-onrun/QuCommitIsolation.al:10-16, 25-39).
 const REQUIRED: &str = r#"
 table 50670 "Req Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
 codeunit 50670 "Req Function"
@@ -199,7 +199,7 @@ fn isolation_required_runs_each_codeunit_under_its_required_test_isolation() {
     // RequiredTestIsolation = Disabled has no effect under it: the next codeunit does not see the row.
     assert_eq!(row(&json_of(&o), "Codeunit50672.SeesTheRow")["message"], "gone");
     // A codeunit with handlers runs under runner 130450, as Codeunit isolation, whatever its RequiredTestIsolation says
-    // (corpus codeunit/lt-qu-commit-isolation/RqIsolationModes.al:673-839).
+    // (corpus codeunits/run-onrun/RqIsolationModes.al:673-839).
     let h = d.path().join("handlers");
     write(
         &h,

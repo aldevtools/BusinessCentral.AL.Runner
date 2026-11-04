@@ -309,9 +309,9 @@ mod tests {
         for (id, method) in RECORD_METHODS {
             assert_eq!(&cat.by_id(id).unwrap().name, method.name(), "{id}");
         }
-        // The ErrorInfo overloads registered are those of FieldError (handlers/PWRefusedBuiltins.al:113-168)
+        // The ErrorInfo overloads registered are those of FieldError (recordref-fieldref/PWRefusedBuiltins.al:113-168)
         // and Record.TestField's, whose check that holds raises nothing and whose failure is refused
-        // (issue 41, docs/probes-needed.md). FieldRef.TestField's are those of the Record's, pinned by record/lt-testfield-typed-values/
+        // (issue 41, docs/probes-needed.md). FieldRef.TestField's are those of the Record's, pinned by record/testfield/
         // FieldRefTestFieldTypedNumeric.al:P189_FldRef_Byte_WithErrorInfo and its siblings.
         for (id, _) in REGISTRY.iter().chain(RECORD_REGISTRY) {
             let has = cat.by_id(id).unwrap().params.iter().any(|p| p.ty == "ErrorInfo");

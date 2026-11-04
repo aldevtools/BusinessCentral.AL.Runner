@@ -199,7 +199,7 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         }
         ("XmlAttribute", "WriteTo", ["OutStream"]) => attribute_write_to_outstream,
         ("XmlDeclaration", "WriteTo", ["OutStream"] | ["XmlWriteOptions", "OutStream"]) => declaration_write_to_outstream,
-        // The byte order mark and the markup, as for an element (xml/lt-xml-cdata-comment-pi-text/P90CDataRead.al:
+        // The byte order mark and the markup, as for an element (xml/xml/P90CDataRead.al:
         // WriteTo_OutStream_Attached_AndText, `Ù‹<![CDATA[x]]>`, 16 bytes; the Text, Comment and ProcessingInstruction files pin their own).
         (
             "XmlDocument"
@@ -209,7 +209,7 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
             | "XmlCData"
             | "XmlComment"
             | "XmlProcessingInstruction"
-            // Pinned like the text kinds (xml/lt-xml-remaining-node-methods/P104WriteDocType.al:199 P104_Stream_Detached,
+            // Pinned like the text kinds (xml/xml/P104WriteDocType.al:199 P104_Stream_Detached,
             // `Ù‹<!DOCTYPE r >`, 16 bytes).
             | "XmlDocumentType",
             "WriteTo",

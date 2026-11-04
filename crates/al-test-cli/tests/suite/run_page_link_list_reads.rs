@@ -1,5 +1,5 @@
 //! What a List page reads when an action's RunPageLink opens it on one row and a page handler walks it with First/Next
-//! (misc/lt-probes-needed-7/PnGRunObjectOptions.al:111 LinkAndViewOnAList, codeunit 70188).
+//! (testpage/PnGRunObjectOptions.al:111 LinkAndViewOnAList, codeunit 70188).
 
 use al_test_cli::report::Outcome;
 

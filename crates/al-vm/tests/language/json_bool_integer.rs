@@ -1,4 +1,4 @@
-//! `JsonArray.GetInteger` of a JSON `true` reads 1 (misc/lt-probes-needed-1/PnAJsonGetters.al:191-210,
+//! `JsonArray.GetInteger` of a JSON `true` reads 1 (json/PnAJsonGetters.al:191-210,
 //! ArrayWrongKindAtIndex `int-of-bool`).
 
 use al_builtins::native::Signal;

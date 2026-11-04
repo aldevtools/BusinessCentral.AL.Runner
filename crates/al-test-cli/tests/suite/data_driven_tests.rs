@@ -1,7 +1,7 @@
 //! Data-driven tests (`[TestDataSource(Codeunit, DataSet)]`, BC 29, ADR-059 decision 2): one result per test case that the
 //! data source's `ListTestCases` returns, named `Procedure[identifier]`.
 //!
-//! Pins: corpus al-language-testlibraries/lt-bi-test-framework/BiDataDriven.al (corpus PR 861), the asserting tests
+//! Pins: corpus al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiDataDriven.al (corpus PR 861), the asserting tests
 //! (passed on the corpus CI of BC 29 with these result names) and the reference results in the comments of its red part.
 
 use al_test_cli::report::Outcome;

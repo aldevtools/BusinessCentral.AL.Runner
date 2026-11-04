@@ -1,5 +1,5 @@
 //! Record.Get with the RecordId of another table (al-runner issue 5795): false with the result used, an error otherwise
-//! (record/lt-record-conversion-assumptions/GetRecordId.al:123-164).
+//! (record/crud/GetRecordId.al:123-164).
 
 use al_testkit::{run_in, text};
 
@@ -92,7 +92,7 @@ fn an_unused_get_raises_the_pinned_error() {
 
 #[test]
 fn a_used_get_sets_no_last_error() {
-    // record/lt-record-conversion-assumptions/Y8GetRecordIdCaption.al:65-86 Y8_Get_OtherTable_Used_LastError.
+    // record/crud/Y8GetRecordIdCaption.al:65-86 Y8_Get_OtherTable_Used_LastError.
     assert_eq!(text(run_in(SRC, "C", "UsedThenLastErrorText")), "|#earlier|Dialog");
 }
 

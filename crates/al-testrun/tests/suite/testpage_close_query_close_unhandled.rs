@@ -2,7 +2,7 @@
 //! OnQueryClosePage of a TestPage left open at the end of the test does not fail the test: the close stops there and
 //! OnClosePage does not run. An explicit Close() whose OnQueryClosePage asks a Confirm with no ConfirmHandler raises
 //! 'Unhandled UI: Confirm <question>' with the code TestWrapped (corpus CI run of corpus branch al-runtime-rs-staging-y65 on
-//! every major it runs, testpageclose/lt-y65-close-page-types/Y65ClosePageTypes.al Y65_Open07/08/10/12/13 and
+//! every major it runs, testpage/lifecycle/Y65ClosePageTypes.al Y65_Open07/08/10/12/13 and
 //! Y65_Close_Card_Ask_NoHandler; al-runner issue 6673; assumption test-end-close-query-close-error until that file is on
 //! the pinned corpus).
 

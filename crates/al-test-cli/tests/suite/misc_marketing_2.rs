@@ -57,7 +57,7 @@ fn a_variant_holding_a_record_takes_a_record_of_another_table() {
     );
 }
 
-// Evaluate into a RecordId whose first key field is an Option (types/lt-wc/WcUnpinnedSingles.al:112-146, al-runner issue 6322):
+// Evaluate into a RecordId whose first key field is an Option (errors/WcUnpinnedSingles.al:112-146, al-runner issue 6322):
 // a member name (also with a space), an ordinal (also past the members: Format shows `9`), an empty unquoted value (ordinal 0,
 // Format shows `" "`); the same under language 1031; an unknown name raises InvalidOptionString naming the members.
 #[test]
@@ -87,7 +87,7 @@ fn evaluate_into_a_record_id_reads_an_option_key_field() {
     );
 }
 
-// The shapes of an Option key value types/lt-option-evaluate-captions/OptionEvaluateCaptions.al:414 RecordId_OptionKeyShapes pins:
+// The shapes of an Option key value format-evaluate/OptionEvaluateCaptions.al:414 RecordId_OptionKeyShapes pins:
 // a name in another case, blanks around it and a quoted empty value.
 #[test]
 fn evaluate_into_a_record_id_reads_case_blanks_and_a_quoted_empty_option_key() {
@@ -103,7 +103,7 @@ fn evaluate_into_a_record_id_reads_case_blanks_and_a_quoted_empty_option_key() {
     );
 }
 
-// errors/lt-ms-refusals-128/P128EvalRecordId.al pins a single-field key, types/lt-evaluate-recordid/EvaluateRecordIdComposite.al a composite
+// format-evaluate/P128EvalRecordId.al pins a single-field key, format-evaluate/EvaluateRecordIdComposite.al a composite
 // one (Library - Error Message.LoadErrorMessages): fewer values than key fields are kept, more are rejected.
 #[test]
 fn evaluate_into_a_record_id_of_a_composite_key_reads_one_value_per_field() {

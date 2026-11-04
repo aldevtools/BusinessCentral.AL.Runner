@@ -16,7 +16,7 @@ pub(super) fn doc_create(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]
     Ok(tagged("XmlDocument", doc))
 }
 
-/// `XmlDocument.Create` and `Add` of an empty or blank text to a document (misc/lt-probes-needed-1/PnAXmlNodeAdds.al
+/// `XmlDocument.Create` and `Add` of an empty or blank text to a document (xml/PnAXmlNodeAdds.al
 /// TT_EmptyOrBlankTextIntoXmlDocument on corpus writer TT's branch al-runtime-rs-staging-tt; former assumption `xml-doc-blank-text` (pinned on corpus master since bump 1030)): an
 /// empty Text adds no node; a blank Text, or an empty or blank XmlText, is appended as a node before or after the root, and
 /// `WriteTo` writes it as it is. A second text node in the document is not pinned. `false` for any other argument.
@@ -26,7 +26,7 @@ pub(super) fn doc_blank_text(doc: &Handle, arg: &Value) -> Result<bool, Signal> 
     }
     let node = match arg {
         Value::Text(t) | Value::Code(t) if t.is_empty() => {
-            // Pinned by misc/lt-probes-needed-1/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument (was assumption `xml-doc-blank-text`).
+            // Pinned by xml/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument (was assumption `xml-doc-blank-text`).
             return Ok(true);
         }
         Value::Text(t) | Value::Code(t) if t.trim().is_empty() => new_node(XData::Text(t.to_string())),
@@ -45,7 +45,7 @@ pub(super) fn doc_blank_text(doc: &Handle, arg: &Value) -> Result<bool, Signal> 
     {
         return unsupported("a second empty or blank text added to an XmlDocument (not pinned)");
     }
-    // Pinned by misc/lt-probes-needed-1/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument (was assumption `xml-doc-blank-text`).
+    // Pinned by xml/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument (was assumption `xml-doc-blank-text`).
     with(doc, |d| {
         if let XData::Document { children, .. } = d {
             children.push(node.clone());
@@ -160,12 +160,12 @@ pub(super) fn comment_create(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
 }
 
 /// The name of a document type, as `XmlConvert.VerifyName` takes it: an empty name is an argument error, a bad character
-/// the XML exception with its place (xml/lt-xml-doctype-declaration/DocTypeErrors.al:Create_InvalidNames, DocTypeSetters.al:SetName).
+/// the XML exception with its place (xml/xml/DocTypeErrors.al:Create_InvalidNames, DocTypeSetters.al:SetName).
 pub(super) fn verify_name(name: &str) -> Result<(), Signal> {
     verify_name_with(name, true)
 }
 
-/// [`verify_name`] for a name without a prefix (`XmlConvert.VerifyNCName`): a colon is refused too (xml/lt-xml-attr-doc-http-members/
+/// [`verify_name`] for a name without a prefix (`XmlConvert.VerifyNCName`): a colon is refused too (xml/xml/
 /// P97DocQuery.al:GetChildElements_LocalNameAndNamespace `*` and `b:r`).
 pub(super) fn verify_ncname(name: &str) -> Result<(), Signal> {
     verify_name_with(name, false)
@@ -211,7 +211,7 @@ pub(super) fn doctype_create(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
     verify_name(&name)?;
     let (public, system, subset, ready) = match a.len() {
         1 => (String::new(), String::new(), String::new(), false),
-        // Written `<!DOCTYPE r PUBLIC "pub" "">` (xml/lt-xml-remaining-node-methods/P104WriteDocType.al:150 `v2_m1`,
+        // Written `<!DOCTYPE r PUBLIC "pub" "">` (xml/xml/P104WriteDocType.al:150 `v2_m1`,
         // P104DocTypeCreate.al `doc2`); its getters are not pinned (doctype_get refuses them).
         2 => (arg_text(a, 1)?, String::new(), String::new(), false),
         3 => (arg_text(a, 1)?, arg_text(a, 2)?, String::new(), false),
@@ -425,7 +425,7 @@ pub(super) fn check_pi_target(name: &str) -> Result<(), Signal> {
     Ok(())
 }
 
-/// `XmlProcessingInstruction.SetTarget(Name)` (xml/lt-xml-cdata-comment-pi-text/P90PIRead.al:2215 PI_GetSetTargetAndData):
+/// `XmlProcessingInstruction.SetTarget(Name)` (xml/xml/P90PIRead.al:2215 PI_GetSetTargetAndData):
 /// `t2` is written `<?t2 data1?>`; an empty name raises an Argument error and a name with a blank the XML name error, both
 /// leaving the target as it was. Other invalid names, and names starting with `xml`, are not pinned.
 pub(super) fn pi_set_target(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {

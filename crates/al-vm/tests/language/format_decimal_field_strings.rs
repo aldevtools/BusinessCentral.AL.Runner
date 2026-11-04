@@ -1,6 +1,6 @@
 //! `Format(Rec.Field, 0, '<format string>')` of a Decimal field that declares its places (DecimalPlaces or an AutoFormatType)
 //! with format strings other than `<Precision,..>` and `<Standard Format,2>` (al-runner issue 5737; corpus
-//! types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:805-1047, tests RO_*, tables 87356 and 88442).
+//! format-evaluate/AtPrecisionStandardFormat2.al:805-1047, tests RO_*, tables 87356 and 88442).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -361,7 +361,7 @@ fn unpinned_field_format_strings_are_refused() {
     }
 }
 
-/// types/lt-at-partner-gaps/R6901DecimalFieldFormat.al (al-runner issue 6901): the fields with DecimalPlaces 0:4, 0:2, 1:3, 0:3, 2:4,
+/// language/R6901DecimalFieldFormat.al (al-runner issue 6901): the fields with DecimalPlaces 0:4, 0:2, 1:3, 0:3, 2:4,
 /// 0:5, 2:2, 0:0 and none, and a Decimal variable, formatted with the digit codes; the values 0, 1, 12.5, 1.23456, 12345.6789, 0.0001,
 /// -3.5, -0.00001 and 99999.99999. Per format string and length: the nine rows of the ten columns, and the nine rows of the amount field
 /// (AutoFormatType 1) for BC 27 and for BC 28 and later.

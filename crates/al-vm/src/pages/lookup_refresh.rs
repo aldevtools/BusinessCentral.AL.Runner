@@ -15,7 +15,7 @@ impl Session {
     /// `field(..)` entries, BC leaves the refresh for later. The Lookup runs no OnAfterGetRecord or OnAfterGetCurrRecord on the host or
     /// the part, and reading a control after it runs no trigger: the field shows the picked value, the globals the row
     /// triggers set and the part keep what they showed before (corpus writer Y26,
-    /// pages/lt-y15/Y15LookupThreeFieldLink.al:314 Y26_ThreeLinkCurr_LookupRefresh `lookup log`
+    /// testpage/Y15LookupThreeFieldLink.al:314 Y26_ThreeLinkCurr_LookupRefresh `lookup log`
     /// `lookup;h-fn R1;validate R2;h-fn R1`, `current no` `R1/`, `part current` `R1/`, every read log empty; :574
     /// Y26_ThreeLinkCurr_RegionsSet; two entries the same: :379 Y26_TwoLinkCurr_LookupRefresh, :509 Y26_TwoLinkPlain_LookupRefresh;
     /// al-runner issue 6519). Y26 measured one part, Y63 a second one (below); with others the Lookup is left as it was. BC computes the host's function controls within the Lookup (`h-fn`),
@@ -261,7 +261,7 @@ impl Session {
             )
             && Rc::ptr_eq(st, &root)
         {
-            // The host's own move as the first call after the Lookup (pages/lt-y15/Y15LookupThreeFieldLink.al:1585-1740
+            // The host's own move as the first call after the Lookup (testpage/Y15LookupThreeFieldLink.al:1585-1740
             // Y80_Y15_Host_*_NoRegions; the _Regions variants log the same). Next, Previous, First and Last move as usual, then the
             // refresh reads the row they moved to (`agcr R2;agcr R2`, `agcr R1;agcr R1`, `agcr R1;agcr R1`, `agcr ;agcr R3;agcr R3`);
             // the part follows. GoToKey runs the refresh on the row it stood on first, then scans (`agcr R1;agcr R2;agcr R3`).

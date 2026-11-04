@@ -1,7 +1,7 @@
 //! A list whose repeater says `Editable`: the value decides whether the blank new-row line shows. A repeater with `Editable =
 //! false`, or a page variable that is false, has no line (Next on the last row answers false and stays there), on a List, a
 //! Worksheet and a ListPart in a Card; a page variable that is true keeps the line; OpenView has none; New() raises nothing
-//! (corpus branch al-runtime-rs-staging-y65 eefaf01b, pages/lt-y65-readonly-repeater/Y65ReadOnlyRepeater.al:247-471, al-runner
+//! (corpus branch al-runtime-rs-staging-y65 eefaf01b, pages/readonly-repeater/Y65ReadOnlyRepeater.al:247-471, al-runner
 //! issue 6674). Any other expression (a procedure call) is not pinned and stays refused.
 
 use al_testkit::{run_in, text};

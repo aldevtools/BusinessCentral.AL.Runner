@@ -2,7 +2,7 @@
 //! Microsoft's page "Check Credit Limit" fills the notification's data in a procedure that takes it by value
 //! (`PopulateDataOnNotification(CreditLimitNotification: Notification)`, CheckCreditLimit.Page.al:543), and Tests-ERM
 //! ERM Sales Documents II SendNotificationHandler (ERMSalesDocumentsII.Codeunit.al:6705) reads that data back.
-//! Assignment still copies (errorinfo/lt-errnotif/EnTNotification.al:Copy_Semantics).
+//! Assignment still copies (errors/errorinfo/EnTNotification.al:Copy_Semantics).
 
 use al_builtins::value::Value;
 

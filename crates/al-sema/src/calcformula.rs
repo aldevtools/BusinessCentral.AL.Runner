@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn a_condition_list_as_in_a_query_table_filter() {
-        // query/TestQueryDataItemTableFilter.al: `Status = const(Open), Amount = filter(> 100)`.
+        // queries/TestQueryDataItemTableFilter.al: `Status = const(Open), Amount = filter(> 100)`.
         let conds = parse_conditions("Status = const(Open), Amount = filter(> 100)").unwrap();
         assert_eq!(
             conds,

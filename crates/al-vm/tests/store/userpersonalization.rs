@@ -1,8 +1,8 @@
 //! "User Personalization" (2000000073): the platform creates the session user's row when the user
 //! signs in to a client, and the test runner's session is that sign-in: one row, Scope Tenant, App ID
 //! Base Application, language and locale 1033, a profile id that is not blank
-//! (session/TestUserPersonalizationRowContracts.al). Rows a test
-//! writes itself (profile/TestTenantProfileRenameCascade.al:39-80) are ordinary rows.
+//! (session-system/TestUserPersonalizationRowContracts.al). Rows a test
+//! writes itself (profiles/TestTenantProfileRenameCascade.al:39-80) are ordinary rows.
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;

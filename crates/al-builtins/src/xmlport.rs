@@ -18,6 +18,35 @@ pub struct Elem {
     /// text element's OnAfterAssignVariable twice for the first form only: QrXpContainerOccurs.al TR_EmptyLeaf_Import, writer
     /// TR's branch al-runtime-rs-staging-tr). An element made in code is false.
     pub self_closed: bool,
+    /// Whether the text directly inside the element came from CDATA sections, from plain text, or from both. Only an Xml
+    /// import with PreserveWhiteSpace tells them apart: a CDATA section of white space only is kept, plain white space is not
+    /// (xmlports/Y91XpTests.al:149 `cdata_space`, :214 `n_cdata_space`).
+    pub text_source: TextSource,
+}
+
+impl TextSource {
+    /// The source after one more text node, from CDATA or not.
+    pub fn with(self, cdata: bool) -> TextSource {
+        match (self, cdata) {
+            (TextSource::None, false) | (TextSource::Plain, false) => TextSource::Plain,
+            (TextSource::None, true) | (TextSource::CData, true) => TextSource::CData,
+            _ => TextSource::Mixed,
+        }
+    }
+}
+
+/// Where the text directly inside an element came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextSource {
+    /// No text.
+    #[default]
+    None,
+    /// Plain text only.
+    Plain,
+    /// CDATA sections only.
+    CData,
+    /// Plain text and CDATA sections.
+    Mixed,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +62,7 @@ impl Elem {
             attrs: Vec::new(),
             children: Vec::new(),
             self_closed: false,
+            text_source: TextSource::None,
         }
     }
 
@@ -107,7 +137,7 @@ pub fn parse_in_namespace(text: &str, ns: &str) -> Result<InNamespace, ReadFailu
 
 /// The document text as an export writes it: the declaration, a carriage return and a line feed, then the root with
 /// two spaces of indentation per level. An element without content is `<X />`; an element with
-/// text only is on one line (xmlport/TestXmlPortExportImportContracts.al:XmlPortExport_Document_FullText reads it line by line, which drops the CR; the lengths in xmlport/lt-xmlport-query-datatransfer/XpTExportBasic.al count it).
+/// text only is on one line (xmlports/TestXmlPortExportImportContracts.al:XmlPortExport_Document_FullText reads it line by line, which drops the CR; the lengths in xmlports/import/XpTExportBasic.al count it).
 pub fn serialize(root: &Elem) -> String {
     serialize_as(root, "UTF-16")
 }
@@ -120,7 +150,7 @@ pub fn serialize_as(root: &Elem, encoding: &str) -> String {
 }
 
 /// A document of several root elements one after the other, as an xmlport whose root is a table element writes one root
-/// element per row (corpus platform/lt-ag-contoso/AgXmlPortImport.al:584 QX_RootTableElement_Export_TwoRows).
+/// element per row (corpus metadata/platform-tables/AgXmlPortImport.al:584 QX_RootTableElement_Export_TwoRows).
 pub fn serialize_roots(roots: &[Elem], encoding: &str) -> String {
     let mut out = format!("<?xml version=\"1.0\" encoding=\"{encoding}\" standalone=\"no\"?>\r\n");
     for (i, r) in roots.iter().enumerate() {
@@ -135,7 +165,7 @@ pub fn serialize_roots(roots: &[Elem], encoding: &str) -> String {
 /// An element on one line with no indentation: `<Item><Id>1</Id></Item>`. `None` when an element has no text (how an
 /// empty value is written without indentation is not pinned) or holds attributes.
 pub fn compact(e: &Elem) -> Option<String> {
-    // Attributes in order and an element without content as `<Name />` (xmlport/lt-bd-xmlport/BdXmlPort.al:473
+    // Attributes in order and an element without content as `<Name />` (xmlports/shapes-properties/BdXmlPort.al:473
     // BdInlineSchema_Attributes, :436 BdInlineSchema_FieldTypesEmptyValues: `<Row Id="1" ... Note="">`, `<Name />`). An
     // element with attributes and no content is not pinned.
     fn go(e: &Elem, out: &mut String) -> Option<()> {
@@ -175,7 +205,7 @@ pub fn compact(e: &Elem) -> Option<String> {
 }
 
 /// `escape` of `s`, with a control character other than tab, line feed and carriage return written as a character reference
-/// in capital hex digits, `&#x1;`, `&#xB;`, `&#x1B;` (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Xml_ControlChar_Export_1..3,
+/// in capital hex digits, `&#x1;`, `&#xB;`, `&#x1B;` (xmlports/shapes-properties/Y83XpMiscTests.al:Xml_ControlChar_Export_1..3,
 /// needs the corpus bump; XML 1.0 and 1.1 ports alike). DEL, NEL and the line separator stay as they are.
 fn escape_with_refs(s: &str, out: &mut String, escape: fn(&str, &mut String)) {
     let mut start = 0;
@@ -208,7 +238,7 @@ fn write_elem(e: &Elem, level: usize, out: &mut String) {
     }
     out.push('>');
     // Text next to elements (a field element's value before the nodes below it) puts the whole element on one line, without
-    // indentation inside it (xmlport/lt-af-xmlport/AfXmlPortAttrChildren.al:285, 313: `<Name>Alpha<Child>c1</Child></Name>`).
+    // indentation inside it (xmlports/shapes-properties/AfXmlPortAttrChildren.al:285, 313: `<Name>Alpha<Child>c1</Child></Name>`).
     let mixed = e.children.iter().any(|c| matches!(c, Node::Text(t) if !t.is_empty()))
         && e.children.iter().any(|c| matches!(c, Node::Elem(_)));
     if mixed {
@@ -266,7 +296,7 @@ pub fn line_ends_to_lf(e: &mut Elem) {
 
 /// A serialized document with every line feed that no carriage return comes before written as a carriage return and a line
 /// feed, as an XmlPort export writes a line end of a text value: LF, CR LF and a lone CR all become CR LF (corpus PR 896,
-/// misc/lt-np4-probes/Np4XmlPort.al Y9_XmlPort_Export_LineFeed_Plain `n1\r\nn2\r\nn3\r\nn4`, 149 bytes; Np4XmlPort.al:280,
+/// streams/Np4XmlPort.al Y9_XmlPort_Export_LineFeed_Plain `n1\r\nn2\r\nn3\r\nn4`, 149 bytes; Np4XmlPort.al:280,
 /// :300, :320 `len=161`/`177`). The serializer writes only CR LF between elements, so a bare line feed comes from text
 /// ([`line_ends_to_lf`] first).
 pub fn line_feeds_to_crlf(text: &str) -> String {
@@ -289,18 +319,18 @@ pub fn utf16_bom_bytes(text: &str) -> Vec<u8> {
 
 /// The text an exported field value is written as. `Err` names a type whose text is not pinned.
 ///
-/// Pinned: Integer as its digits (xmlport/TestXmlPortObject.al:`<EntryNo>1</EntryNo>`), Text
+/// Pinned: Integer as its digits (xmlports/TestXmlPortObject.al:`<EntryNo>1</EntryNo>`), Text
 /// and Code as they are (`<TextValue>Second</TextValue>`), Decimal with two decimal places
-/// (xmlport/TestXmlPortAdvanced.al:`Amount="15.00"`; only values that need no rounding to two
+/// (xmlports/TestXmlPortAdvanced.al:`Amount="15.00"`; only values that need no rounding to two
 /// places are written).
 pub fn field_text(v: &Value) -> Result<String, String> {
     match v {
         Value::Integer(i) => Ok(i.to_string()),
         Value::Text(s) | Value::Code(s) => Ok(s.to_string()),
         // Two places and a comma between thousands: `1,234.50`, `-0.50`
-        // (xmlport/TestXmlPortExportImportContracts.al:XmlPortExport_Document_FullText).
+        // (xmlports/TestXmlPortExportImportContracts.al:XmlPortExport_Document_FullText).
         // A positive value that needs rounding is rounded half away from zero (1.005 -> 1.01, 0.125 -> 0.13,
-        // 0.00001 -> 0.00; xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Decimal_Export_Xml, Decimal_Export_Text_Formats;
+        // 0.00001 -> 0.00; xmlports/shapes-properties/Y83XpMiscTests.al:Decimal_Export_Xml, Decimal_Export_Text_Formats;
         // needs the corpus bump). A negative one that needs rounding is not pinned.
         Value::Decimal(d) if d.normalize().scale() <= 2 || !d.is_sign_negative() => {
             let rounded = d.round_dp_with_strategy(2, rust_decimal::RoundingStrategy::MidpointAwayFromZero);
@@ -426,7 +456,7 @@ mod tests {
         row.children.push(Node::Elem(Elem::new("Txt")));
         let mut root = Elem::new("Root");
         root.children.push(Node::Elem(row));
-        // xmlport/TestXmlPortExportImportContracts.al:XmlPortExport_Document_FullText
+        // xmlports/TestXmlPortExportImportContracts.al:XmlPortExport_Document_FullText
         assert_eq!(
             serialize(&root),
             "<?xml version=\"1.0\" encoding=\"UTF-16\" standalone=\"no\"?>\r\n<Root>\r\n  <U Attr=\"a&quot;b&amp;&lt;c&gt;\">\r\n    <EntryNo>1</EntryNo>\r\n    <Txt />\r\n  </U>\r\n</Root>"
@@ -466,7 +496,7 @@ mod tests {
             "1,234.50"
         );
         assert_eq!(field_text(&Value::Decimal("-0.5".parse().unwrap())).unwrap(), "-0.50");
-        // corpus xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Decimal_Export_Xml (needs the corpus bump):
+        // corpus xmlports/shapes-properties/Y83XpMiscTests.al:Decimal_Export_Xml (needs the corpus bump):
         // a positive value that needs rounding is rounded to two places, halves away from zero.
         for (v, t) in [
             ("1.005", "1.01"),

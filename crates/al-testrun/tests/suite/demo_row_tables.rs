@@ -1,7 +1,7 @@
 //! Without test data the tests run against the corpus database's company, which holds demo rows of Accounting Period and
-//! Company Information, and its General Ledger Setup row, that the runtime does not have (session/lt-company-information/
-//! CompanyInformationValues.al:45, :89; record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:804 QF_GLSetup_CorpusRow;
-//! G/L entries, session/lt-outside-workdate/RlWorkDateAtStart.al:48 `G/L entries exist` Yes;
+//! Company Information, and its General Ledger Setup row, that the runtime does not have (session-system/company/
+//! CompanyInformationValues.al:45, :89; record/captions/QdCaptionClassAreas.al:804 QF_GLSetup_CorpusRow;
+//! G/L entries, test-framework/RlWorkDateAtStart.al:48 `G/L entries exist` Yes;
 //! ADR-047 rejected). A Count or IsEmpty of one of those dependency tables before the test wrote to it is refused, also when
 //! install code wrote a row there; once the test wrote to it, it is answered, and other reads stay answered.
 
@@ -86,8 +86,8 @@ fn a_count_of_an_empty_corpus_demo_table_is_refused() {
         &RunOptions::default(),
     )
     .expect("runs");
-    // What an earlier test wrote does not count: the corpus misc/lt-qk-setup-rows/QkSetupRows.al writers put the demo values back,
-    // the runtime then holds the install-code row (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:798 QF_GLSetup_CorpusRow
+    // What an earlier test wrote does not count: the corpus record/QkSetupRows.al writers put the demo values back,
+    // the runtime then holds the install-code row (record/captions/QdCaptionClassAreas.al:798 QF_GLSetup_CorpusRow
     // runs after Literals_FieldCaption wrote and restored the row).
     for name in [
         "CountsCompanyInformation",

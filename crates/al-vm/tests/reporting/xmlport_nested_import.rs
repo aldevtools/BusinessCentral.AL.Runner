@@ -1,5 +1,5 @@
 //! Xml import of nested linked table elements whose parent has no AutoReplace: the trigger order BC runs
-//! (corpus xmlport/lt-xmlport-trigger-flow/RcXmlPortNestedImport.al, tests XmlPortTriggerFlow.al:452-566).
+//! (corpus xmlports/shapes-properties/RcXmlPortNestedImport.al, tests XmlPortTriggerFlow.al:452-566).
 
 use al_testkit::run;
 

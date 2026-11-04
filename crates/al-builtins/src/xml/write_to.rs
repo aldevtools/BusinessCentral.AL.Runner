@@ -46,7 +46,7 @@ pub(super) fn write_to_text_options(_: &mut dyn Ctx, r: Option<&mut Value>, a: &
 }
 
 /// `XmlAttribute.WriteTo(OutStream)`: the attribute's text in UTF-8, without a byte order mark
-/// (xml/lt-xml-attr-doc-http-members/P97AttrWrite.al:150 WriteTo_OutStream `k1`..`k6`: `a="plain"` is 9 bytes, the first
+/// (xml/xml/P97AttrWrite.al:150 WriteTo_OutStream `k1`..`k6`: `a="plain"` is 9 bytes, the first
 /// character `a`). Pinned only for a stream nothing was written to: a stream that holds bytes is refused.
 pub(super) fn attribute_write_to_outstream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv(r)?;
@@ -118,7 +118,7 @@ pub(super) fn write_to_outstream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut
         b
     };
     // A text, CDATA, comment or processing instruction leaves the stream where it was, as JSON does: a second WriteTo writes over the
-    // first one's bytes (xml/lt-xml-cdata-comment-pi-text/P90CDataRead.al:WriteTo_OutStream_TwiceIntoSameStream and its three siblings:
+    // first one's bytes (xml/xml/P90CDataRead.al:WriteTo_OutStream_TwiceIntoSameStream and its three siblings:
     // one copy, 16 bytes). Pinned for a stream nothing else was written to. A document and an element keep appending.
     // A document type is pinned only for a stream nothing was written to (P104WriteDocType.al:199): a second WriteTo
     // into the same stream, or one after other bytes, is refused.
@@ -144,11 +144,11 @@ pub(super) enum OutDecl {
 
 /// The pinned shapes, all of a document with one root element and nothing else:
 /// - read by `ReadFrom` from text and written without XmlWriteOptions, with no declaration, a `version="1.0"` declaration
-///   without encoding, `encoding="utf-16"` or `encoding="UTF-8"` (xml/lt-xml-attr-doc-http-members/P97DocWrite.al:334
+///   without encoding, `encoding="utf-16"` or `encoding="UTF-8"` (xml/xml/P97DocWrite.al:334
 ///   QZ_WriteTo_OutStream_ReadFromText);
 /// - without a declaration, also with XmlWriteOptions that `PreserveWhitespace(true)` set: the declaration says `utf-8`
 ///   (xml/XmlDocReadWrite.al:442-459 WriteTo_OutStream_Options);
-/// - built in code (writer TV, corpus branch al-runtime-rs-staging-tv 8ae7ac0b, xml/lt-de-xml-leads/DeXmlWriteLeads.al
+/// - built in code (writer TV, corpus branch al-runtime-rs-staging-tv 8ae7ac0b, xml/DeXmlWriteLeads.al
 ///   TV_WriteToOutStream_*): with a declaration of `XmlDeclaration.Create('1.0', ..)`, `UTF-8` with standalone `yes` or
 ///   `no` is kept as written (`yes` also with those options), and `utf-16` with standalone empty or `yes`, and an empty
 ///   encoding with standalone empty, are written in UTF-16 LE with its byte order mark, the declaration as written.
@@ -202,11 +202,11 @@ pub(super) fn outstream_declaration(h: &Handle, options: Option<&Value>) -> Opti
             explicit: true,
         } if version == "1.0" => match (encoding.as_str(), standalone.as_str(), preserve) {
             ("UTF-8", "yes", _) | ("UTF-8", "no", false) => {
-                // Pinned by xml/lt-de-xml-leads/DeXmlWriteLeads.al TV_WriteToOutStream_BuiltWithoutDeclaration_Options, TV_WriteToOutStream_Utf8Declaration_OtherStreams, TV_WriteToOutStream_Utf16AndNoEncodingDeclarations, TV_XmlWriteOptions_AsContent_DocumentAdd (was assumption `xml-write-to-outstream-built`).
+                // Pinned by xml/DeXmlWriteLeads.al TV_WriteToOutStream_BuiltWithoutDeclaration_Options, TV_WriteToOutStream_Utf8Declaration_OtherStreams, TV_WriteToOutStream_Utf16AndNoEncodingDeclarations, TV_XmlWriteOptions_AsContent_DocumentAdd (was assumption `xml-write-to-outstream-built`).
                 Some(OutDecl::Keep)
             }
             ("utf-16", "" | "yes", false) | ("", "", false) => {
-                // Pinned by xml/lt-de-xml-leads/DeXmlWriteLeads.al TV_WriteToOutStream_BuiltWithoutDeclaration_Options, TV_WriteToOutStream_Utf8Declaration_OtherStreams, TV_WriteToOutStream_Utf16AndNoEncodingDeclarations, TV_XmlWriteOptions_AsContent_DocumentAdd (was assumption `xml-write-to-outstream-built`).
+                // Pinned by xml/DeXmlWriteLeads.al TV_WriteToOutStream_BuiltWithoutDeclaration_Options, TV_WriteToOutStream_Utf8Declaration_OtherStreams, TV_WriteToOutStream_Utf16AndNoEncodingDeclarations, TV_XmlWriteOptions_AsContent_DocumentAdd (was assumption `xml-write-to-outstream-built`).
                 Some(OutDecl::Utf16)
             }
             _ => None,
@@ -223,7 +223,7 @@ pub(super) fn write_options_preserve_whitespace(_: &mut dyn Ctx, r: Option<&mut 
     let Some(Value::Boolean(on)) = a.first() else {
         return unsupported("PreserveWhitespace with something that is not a Boolean");
     };
-    // `PreserveWhitespace(false)` on a new value writes unindented (xml/lt-xml-attr-doc-http-members/P97DocWrite.al:123
+    // `PreserveWhitespace(false)` on a new value writes unindented (xml/xml/P97DocWrite.al:123
     // WriteTo_TextOptions_Variants `drop2`..`drop4`), while `true` and then `false` on one value writes indented again
     // (xml/XmlDocReadWrite.al:392 WriteTo_Options `preserve_false`, :418; xml/TestXmlDocumentWriteToOutStreamContracts.al:98;
     // P104Element.al:187): the setting follows only a change of the flag.

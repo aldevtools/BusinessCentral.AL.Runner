@@ -1,5 +1,5 @@
 //! OK or Cancel on a request page with a source table, after the handler changed a field of the row: the row is written
-//! (corpus report/lt-y80-reportext-request-page/Y80ReportExtRequestPage.al Y80_RX_SetTxt_OK, _SetTxt_Cancel). What the table's
+//! (corpus reports/request-page/Y80ReportExtRequestPage.al Y80_RX_SetTxt_OK, _SetTxt_Cancel). What the table's
 //! own OnModify does at that write is observed by no corpus case and needed by no Microsoft test, so a table with write code
 //! is refused (needs probe), a table without it passes.
 

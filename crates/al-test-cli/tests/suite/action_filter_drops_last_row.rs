@@ -1,7 +1,7 @@
 //! A List without row triggers stands on its last row (row 3) when an action narrows the view so that the row leaves it and no
 //! row of the new view follows it (`Rec.SetRange(Included, true)` with `CurrPage.Update(false)`). First, Next and Next then walk
 //! the new view, rows 1 and 2 (al-runner issue 6468, the reporter's repro; corpus writer Y15, pages/lt-y15/
-//! Y15ActionNarrowsBelowLast.al). The case where a row of the new view follows is pinned by pages/lt-y5/
+//! Y15ActionNarrowsBelowLast.al). The case where a row of the new view follows is pinned by testpage/
 //! Y5GoToKeyAfterActionFilter.al:158-174 (al-runner issue 6381).
 
 use al_testkit::outcomes_in;

@@ -1,5 +1,5 @@
 //! The `Rec` of an xmlport request page that declares `SourceTable` (al-runner issue 5756), pinned by
-//! xmlport/lt-y-xmlport-props/YXmlPortProps.al (xmlports 88570 and 88571 at :421 and :477): RS_XmlPortRequestPageRec_Export (:861),
+//! xmlports/shapes-properties/YXmlPortProps.al (xmlports 88570 and 88571 at :421 and :477): RS_XmlPortRequestPageRec_Export (:861),
 //! RS_XmlPortRequestPageRec_Import (:885) and RS_XmlPortTemporaryRequestPageRec_Export (:905). On Export and Import no request page
 //! opens; Rec is an unfiltered, unpositioned record of the table, Modify answers false, Insert writes the row before the export
 //! reads the table, OnPostXmlPort sees the same Rec, and with SourceTableTemporary the row stays out of the table.

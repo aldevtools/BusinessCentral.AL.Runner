@@ -1,6 +1,6 @@
 //! Undefined temporal values: `FieldRef.Value()` passed to a procedure overloaded on Integer and Variant takes the Variant
 //! overload, `0DT - 0DT` is 0, and a Variant holding 0D, 0T or 0DT assigned to a number. Every literal is what real BC answered
-//! in the corpus: types/lt-y62-undefined-date/Y62UndefinedDate.al (codeunit 93263, writer Y62).
+//! in the corpus: types/date-time/Y62UndefinedDate.al (codeunit 93263, writer Y62).
 
 use al_testkit::text;
 

@@ -1,5 +1,5 @@
 //! The cookies of an `HttpRequestMessage`: `SetCookie(Name, Value)`, `SetCookie(Cookie)`, `GetCookie`, `GetCookieNames` and
-//! `RemoveCookie` (xml/lt-xml-attr-doc-http-members/P97ReqCookie.al, P97ReqCookieObj.al; BC 29, with and without a uri).
+//! `RemoveCookie` (xml/xml/P97ReqCookie.al, P97ReqCookieObj.al; BC 29, with and without a uri).
 //!
 //! They live in the request's `Cookie` header, one `name=value` value per cookie: the header is there after a SetCookie
 //! (P97ReqCookie.al:264-284 `header_cookie` Yes, `keys` 1), and a `Cookie` value added through the headers is one more cookie

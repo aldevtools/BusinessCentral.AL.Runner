@@ -107,7 +107,7 @@ codeunit 60953 C
 
 #[test]
 fn a_bare_is_dirty_in_on_run_of_a_table_no_codeunit_is_the_record_method_on_bc_29() {
-    // events/lt-with-statement-scopes/WithStatementAmbiguous.al:277-279 (BN_With_ImplicitWithInTableNoCodeunit, codeunit
+    // events/binding-senders/WithStatementAmbiguous.al:277-279 (BN_With_ImplicitWithInTableNoCodeunit, codeunit
     // 82156 at :412-434): Record.IsDirty wins over the codeunit's own local IsDirty, so the local procedure never runs.
     assert_eq!(text(run_on("29.0", DIRTY, "Bare")), "IsDirty()=true");
 }
@@ -153,7 +153,7 @@ codeunit 60961 C
 
 #[test]
 fn the_test_field_text_of_a_byte_of_10_and_200_is_the_pinned_character_from_bc_28() {
-    // record/lt-as-records/AsTestFieldTexts.al:41-45 (Byte10: `\n`) and :60-65 (Byte200: U+02DC); before BC 28 the number.
+    // record/testfield/AsTestFieldTexts.al:41-45 (Byte10: `\n`) and :60-65 (Byte200: U+02DC); before BC 28 the number.
     assert_eq!(
         text(run_on("28.5", BYTES, "Ten")),
         "Num must be equal to '\\n'  in B28 TF: Id=1. Current value is '7'."
@@ -216,7 +216,7 @@ codeunit 60972 C
 
 #[test]
 fn a_lookup_text_flowfield_shorter_than_its_source_holds_the_whole_value() {
-    // calcfields/lt-bm-flowfield-conversions/BmFlowFieldConversions.al:201-217 (BM_LookupFlowField_ShorterThanSource,
+    // record/flowfields/BmFlowFieldConversions.al:201-217 (BM_LookupFlowField_ShorterThanSource,
     // `short_30_chars`): a Text[10] lookup over a Text[30] source reads all 30 characters, on every version.
     for bc in ["27.5", "28.5", "29.0"] {
         assert_eq!(

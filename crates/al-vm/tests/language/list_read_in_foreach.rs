@@ -1,5 +1,5 @@
 //! A List read inside a `foreach` over the same list. `IndexOf` there does not count as a change: the corpus calls
-//! `Ordinals.IndexOf(Index)` inside `foreach Index in Ordinals` (misc/lt-u-obsolete-pending/UObsoletePending.al:35-36) and
+//! `Ordinals.IndexOf(Index)` inside `foreach Index in Ordinals` (language/obsolete-pending/UObsoletePending.al:35-36) and
 //! passes on real BC. The methods that change a list raise "Collection was modified" (collections/RefSemantics.al:343, :365,
 //! :387, :408). Count, Get, Get(i, var), Contains, LastIndexOf and GetRange do not either (collections/RefSemantics.al:566
 //! PW_Foreach_ListReadsWhileIterating), also through a by-value List parameter (:594 RW_Foreach_ReadAndAddThroughByValueParam).

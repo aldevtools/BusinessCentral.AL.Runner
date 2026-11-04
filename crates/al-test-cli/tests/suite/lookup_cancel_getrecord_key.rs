@@ -1,5 +1,5 @@
 //! Page.GetRecord after a TestPage handler cancelled a lookup list that showed no row: the record holds the value the view
-//! filters the primary key to (pages/lt-y68-lookup-getrecord/Y68LookupGetRecord.al:446
+//! filters the primary key to (pages/run-modal/Y68LookupGetRecord.al:446
 //! Q3_TestPageHandler_Cancel_NoRow_NonEditableList, corpus master 0d01b0cc).
 
 use al_testkit::outcomes_in;

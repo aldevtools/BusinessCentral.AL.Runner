@@ -5,8 +5,8 @@ use al_builtins::record_op::RecordOp;
 
 impl Session {
     /// The window of a part that reads its rows last to first, once each, without reading the first row again. Pinned
-    /// for 2 and 3 rows (pages/lt-part-reads/PartReadsOpen.al:OpenView_SixParts_ReadsPerPartLogged `open-Same`;
-    /// misc/lt-probes-needed-7/PnGPartTriggers.al:OpenOrderOfHostWithSixParts); one row or more than 3 is refused.
+    /// for 2 and 3 rows (pages/parts/PartReadsOpen.al:OpenView_SixParts_ReadsPerPartLogged `open-Same`;
+    /// testpage/PnGPartTriggers.al:OpenOrderOfHostWithSixParts); one row or more than 3 is refused.
     pub(super) fn populate_window_backwards(
         &mut self,
         st: &St,
@@ -28,11 +28,11 @@ impl Session {
             }
         }
         // At open 2 and 3 rows are pinned (see `view_names_link_field`); after a move back 1, 2 and 3
-        // (pages/lt-part-reads/PartReadsOpen.al:358-379).
+        // (pages/parts/PartReadsOpen.al:358-379).
         let after_move = why == al_builtins::value::ReadBackwards::AfterMove;
         if after_move && rows.len() > 3 {
             // Kept, not pinned: a part of more than 3 rows after its host moved back reads first to last, as every
-            // refill did before the backward order was pinned (keeps misc/lt-probes-needed-7/PnGPartRows.al:
+            // refill did before the backward order was pinned (keeps testpage/PnGPartRows.al:
             // PendingPartRowSavedWhenHostMoves, which does not log those reads).
             self.ret_used = true;
             self.record_op(RecordOp::Get, &rec, &mut start.clone())?;
@@ -51,7 +51,7 @@ impl Session {
         self.ret_used = true;
         self.record_op(RecordOp::Get, &rec, &mut start.clone())?;
         // A part with OnAfterGetCurrRecord stands on the row it read first (the last one), which it reads twice more before
-        // OnAfterGetCurrRecord, as a forward read does on its first row (pages/lt-y80-subpageview/Y80SubPageViewTests.al
+        // OnAfterGetCurrRecord, as a forward read does on its first row (pages/subpageview/Y80SubPageViewTests.al
         // Y80_SV_F3_OpenView `F3.agr(H1/20000);F3.agr(H1/10000);F3.agr(H1/20000);F3.agr(H1/20000);F3.agcr(H1/20000)`,
         // Y80_SV_F1_HostMoves `previous log`; needs corpus bump).
         if self.declares(st, "onaftergetcurrrecord") && rows.len() > 1 {

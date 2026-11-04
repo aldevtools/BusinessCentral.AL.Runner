@@ -1,6 +1,6 @@
 //! `GetLastErrorText(true)` answers a text that depends on how the error was raised. Each expectation cites the corpus line
-//! that pins it (types/lt-evaluate-format-lasterror-setview/P86LastError.al, errors/lt-last-error-and-events/P70_02LastErrFlag.al,
-//! misc/lt-probes-needed-6/PnF01LastErrorFlag.al). An origin the corpus does not pin is refused.
+//! that pins it (format-evaluate/P86LastError.al, errors/last-error/P70_02LastErrFlag.al,
+//! errors/PnF01LastErrorFlag.al). An origin the corpus does not pin is refused.
 
 use al_builtins::native::Signal;
 use al_testkit::{run_in, text};
@@ -184,7 +184,7 @@ fn the_pinned_origins_answer_the_pinned_texts() {
 
 #[test]
 fn the_text_forms_of_error_and_fielderror_answer_the_pinned_texts() {
-    // error-handling/lt-last-error-text-exclude/LastErrorTextExcludeLabel.al:136, :155 (a global Label, before substitution).
+    // errors/last-error/LastErrorTextExcludeLabel.al:136, :155 (a global Label, before substitution).
     assert_eq!(flag("FromLabel"), "a label text");
     assert_eq!(flag("FromLabelArgs"), "label with %1");
     // lt-last-error-text-forms/LastErrorTextExcludeTextVariable.al:134, :140; LastErrorTextExcludeLabel.al:163.

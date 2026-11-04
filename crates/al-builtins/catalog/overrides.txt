@@ -5,17 +5,17 @@
 # Evidence is a corpus file that BC compiles, a probe result, or a doc page.
 
 # The instance overload is scraped as `Codeunit.Run(var Record: Record)`, but
-# BC compiles a call with no argument: corpus codeunit/TestCodeunitRunGuard.al:69
+# BC compiles a call with no argument: corpus codeunits/TestCodeunitRunGuard.al:69
 # `Ok := RunGuard.Run();`.
 - Codeunit.Run inst (var Record: Record) -> Boolean?
 + Codeunit.Run inst (?var Record: Record) -> Boolean?
 
 # TestPage.Filter is a property (methods-auto only scrapes methods). Corpus:
-# handlers/TestPageModalNewRowLine_Tests.al:136 `TP.Filter.SetFilter(Closed, ...)`.
+# ui-handlers/TestPageModalNewRowLine_Tests.al:136 `TP.Filter.SetFilter(Closed, ...)`.
 + TestPage.Filter inst () -> TestFilter
 
 # TestPart.Filter is a property, like TestPage.Filter. Corpus:
-# testfilter/TestTestFilter.al:586 `Host.Lines.Filter.SetFilter("Line No.", '20');`.
+# testpage/filters/TestTestFilter.al:586 `Host.Lines.Filter.SetFilter("Line No.", '20');`.
 + TestPart.Filter inst () -> TestFilter
 
 # Clear accepts any variable; the scrape only has the Array and SecretText
@@ -26,7 +26,7 @@
 # `Options.PreserveWhitespace(true);` compiles on BC 27.5 and changes what WriteTo writes.
 + XmlWriteOptions.PreserveWhitespace inst (Value: Boolean)
 
-# XmlReadOptions has no scraped methods either. Probe: misc/W4XmlJsonHttp.al (W4 Xml Options Tests.Read)
+# XmlReadOptions has no scraped methods either. Probe: json/W4XmlJsonHttp.al (W4 Xml Options Tests.Read)
 # `Options.PreserveWhitespace(Preserve);` compiles on BC 27.5 and 29.0.
 + XmlReadOptions.PreserveWhitespace inst (Value: Boolean)
 
@@ -35,12 +35,12 @@
 + XmlWriteOptions.PreserveWhitespace inst () -> Boolean
 + XmlReadOptions.PreserveWhitespace inst () -> Boolean
 
-# Record.IsDirty() exists from BC 29 (runtime 18.0) but is not in the scrape. Corpus lt-ac/ACRecordIsDirty.al:30
+# Record.IsDirty() exists from BC 29 (runtime 18.0) but is not in the scrape. Corpus record/ACRecordIsDirty.al:30
 # `Format(Row.IsDirty())` compiles on BC 29.0 (guarded `#if BC29PLUS`; must-not-compile 0960 pins the BC 27 and 28 refusal).
 + Record.IsDirty inst () -> Boolean @18.0
 
 # TestHandlerContext and DataSourceContext exist from BC 29 (runtime 18.0) but are not in the scrape. Corpus
-# lt-ac/ACContexts.al:22, :47, :68, :89, :110, :131, :167 compile on BC 29.0 (guarded `#if BC29PLUS`; must-not-compile
+# permissions/ACContexts.al:22, :47, :68, :89, :110, :131, :167 compile on BC 29.0 (guarded `#if BC29PLUS`; must-not-compile
 # 0961, 0962, 0995 and 0996 pin the refusal before). The ITestHandler and ITestDataSource signatures in the BC 29
 # System.app symbols use them (members: System.app SymbolReference.json, namespaces System.Testability and System.Test).
 + TestHandlerContext.CodeunitId inst () -> Integer @18.0

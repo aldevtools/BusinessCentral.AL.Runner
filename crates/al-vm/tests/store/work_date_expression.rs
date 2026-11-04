@@ -1,5 +1,5 @@
 //! WorkDate(Date) used as an expression returns the new work date (al-runner issue 6862).
-//! Values: session/lt-r6862-workdate-expression/R6862WorkDateExpression.al (BC 28.5 and 29.0).
+//! Values: session-system/session/R6862WorkDateExpression.al (BC 28.5 and 29.0).
 
 use al_testkit::{run_in, text};
 

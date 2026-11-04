@@ -14,6 +14,7 @@ mod http_headers;
 mod http_request_cookies;
 mod instream_read_char;
 mod key_vault;
+mod last_error_frames;
 mod last_error_object;
 mod media;
 mod media_export_unchanged;

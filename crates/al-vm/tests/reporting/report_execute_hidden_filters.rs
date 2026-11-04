@@ -1,5 +1,5 @@
 //! `Report.Execute` with a data item view in the parameters, on a report whose request page has `ShowFilter = false`: the
-//! view still filters the data item (session/lt-y22-copy-company/Y22CopyCompany.al:301-323, Y22_CopyCompany_Report: report
+//! view still filters the data item (session-system/company/Y22CopyCompany.al:301-323, Y22_CopyCompany_Report: report
 //! 357 "Copy Company" hides its filters, and the run copies only the company the view names; al-runner issue 6507).
 
 use al_testkit::{run_in, text};

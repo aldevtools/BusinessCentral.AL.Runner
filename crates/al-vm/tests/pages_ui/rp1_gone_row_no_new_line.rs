@@ -1,6 +1,6 @@
 //! A list without the new-row line (InsertAllowed = false) whose only row an action deleted: the page reads the gone row once
 //! more, then runs OnNewRecord and OnAfterGetCurrRecord once on a blank Rec and shows no row; a second action runs the two
-//! again. A Worksheet opened for edit, for view or run modally, a List opened for edit (corpus pages/lt-outside-worksheet/
+//! again. A Worksheet opened for edit, for view or run modally, a List opened for edit (corpus testpage/
 //! RmWorksheetGoneRow.al:291-:450, al-runner issue 5752). A List without the line opened for view is not pinned.
 
 use al_testkit::{run_in, text};
@@ -106,7 +106,7 @@ fn a_list_without_the_new_row_line_does_the_same() {
     assert_eq!(text(run_in(SRC, "C", "ListEdit")), "R:10000;N:0;C:0;||No");
 }
 
-// Pinned by corpus master pages/lt-y80-gone-rows/Y80GoneRows.al Y80_Gone_NoNew_OpenView_DeleteAllUpdate: nothing is raised and no
+// Pinned by corpus master pages/deleted-rows/Y80GoneRows.al Y80_Gone_NoNew_OpenView_DeleteAllUpdate: nothing is raised and no
 // row is shown (tests/pages_ui/gone_only_row_y80.rs).
 #[test]
 fn a_list_without_the_new_row_line_opened_for_view_raises_nothing() {

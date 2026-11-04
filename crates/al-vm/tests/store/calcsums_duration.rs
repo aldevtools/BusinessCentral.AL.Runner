@@ -1,4 +1,4 @@
-//! `Record.CalcSums` on a Duration field (record/lt-calcsums-duration/CalcSumsDuration.al CalcSums_Duration_All, _Filtered,
+//! `Record.CalcSums` on a Duration field (record/flowfields/CalcSumsDuration.al CalcSums_Duration_All, _Filtered,
 //! _NotInSumIndexFields): the sum in milliseconds, also for a field that is in no SumIndexFields, an empty set gives 0, and
 //! the other fields of the record stay as they were.
 

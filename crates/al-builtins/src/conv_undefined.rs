@@ -4,7 +4,7 @@
 use crate::native::{Signal, raise};
 use crate::value::{RtType, Value};
 
-/// The conversion of an undefined temporal value into `t`, `None` for any other pair (types/lt-y62-undefined-date/
+/// The conversion of an undefined temporal value into `t`, `None` for any other pair (types/date-time/
 /// Y62UndefinedDate.al:VariantHoldingUndefined_IntoNumbers, writer Y62): 0D and 0T are 0 as an Integer, a Decimal and a BigInteger
 /// and a 0 Duration; 0DT raises Conversion into an Integer and is 0 as the others; all three raise TypeConversion into a Text.
 /// A Code target is not pinned.

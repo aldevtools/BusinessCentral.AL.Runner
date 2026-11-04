@@ -1,5 +1,5 @@
 //! A Guid field with FormatEvaluate = Xml (former assumption `xmlport-guid-xml` (pinned on corpus master since bump 1030); corpus branch al-runtime-rs-staging-pub-ts,
-//! xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Guid_*, xmlport 90086 in TsXpObjects.al).
+//! xmlports/shapes-properties/QrXpContainerOccurs.al TS_Guid_*, xmlport 90086 in TsXpObjects.al).
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -224,7 +224,7 @@ fn a_guid_exports_in_braces_upper_case() {
 }
 
 // A second Import on the same instance reads nothing and stores nothing (corpus writer TT's branch al-runtime-rs-staging-tt,
-// QrXpContainerOccurs.al TT_ImportTwice_SameSource; xmlport/lt-xmlport-query-datatransfer/XpTStaticAndInstance.al:74): the rows
+// QrXpContainerOccurs.al TT_ImportTwice_SameSource; xmlports/import/XpTStaticAndInstance.al:74): the rows
 // are the first Import's.
 #[test]
 fn a_second_import_on_one_instance_stores_nothing() {

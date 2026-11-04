@@ -163,7 +163,7 @@ codeunit 69901 TA
 }
 "#;
 
-// corpus text/lt-text-functions/TextAssign.Codeunit.al:240-281 (LT_BU_TextAssign_LongTextToCode20Parameter): the conversion of a
+// corpus text/text-methods/TextAssign.Codeunit.al:240-281 (LT_BU_TextAssign_LongTextToCode20Parameter): the conversion of a
 // by-value argument runs inside the TryFunction, so its error is caught.
 #[test]
 fn a_by_value_argument_of_a_try_function_is_converted_inside_the_try() {
@@ -226,7 +226,7 @@ codeunit 69905 CA
 }
 "#;
 
-// corpus report/lt-bv-report-char-arg/BvReportCharArg.al:108-131 (PlainReport_CharVariableToInteger) and :160-170 (the local control).
+// corpus reports/runtime/BvReportCharArg.al:108-131 (PlainReport_CharVariableToInteger) and :160-170 (the local control).
 #[test]
 fn a_char_variable_into_an_integer_parameter_of_a_report_fails_with_conversion() {
     assert_eq!(
@@ -236,7 +236,7 @@ fn a_char_variable_into_an_integer_parameter_of_a_report_fails_with_conversion()
     assert_eq!(text(run_in(CHAR_ARG, "CA", "LocalCall")), "local integer 113");
 }
 
-// corpus report/lt-bv-report-char-arg/BvReportCharArg.al:140-158 (OtherCodeunit_CharVariableToInteger) was measured on the Linux
+// corpus reports/runtime/BvReportCharArg.al:140-158 (OtherCodeunit_CharVariableToInteger) was measured on the Linux
 // tiers only (a Linux suspect): the call is refused until the Windows check.
 #[test]
 fn a_char_variable_into_an_integer_parameter_of_another_codeunit_is_refused() {
@@ -312,7 +312,7 @@ codeunit 69901 TS
 }
 "#;
 
-// types/lt-qx-ternary-sized/QxTernarySized.al:142-144, :152-155: `T80 := Cond ? T80 : T100` takes the false branch as it is when
+// types/operators-expressions/QxTernarySized.al:142-144, :152-155: `T80 := Cond ? T80 : T100` takes the false branch as it is when
 // it fits and fails StringLengthExceeded when it does not.
 #[test]
 fn a_longer_text_false_branch_into_the_true_branch_type_fits_or_fails_its_length() {
@@ -339,7 +339,7 @@ fn a_longer_text_false_branch_into_the_true_branch_type_fits_or_fails_its_length
 
 // Into a target longer than the true branch (Base App Acc. Schedule Line, `Description := Description = '' ? GLAccCategory.Description
 // : Description`): BC converts the false branch to the true branch's Text[80], a longer value fails StringLengthExceeded
-// (types/lt-y31-conversion-matrix/Y31ConvCd.al, LT Y31 Cd Text10 `Text10_Text`: 11 characters against a Text[10] true branch).
+// (types/operators-expressions/Y31ConvCd.al, LT Y31 Cd Text10 `Text10_Text`: 11 characters against a Text[10] true branch).
 #[test]
 fn a_longer_text_false_branch_into_another_target_fails_the_true_branch_length() {
     let run = |len: i32| {

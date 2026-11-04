@@ -10,17 +10,17 @@
 //! languages only keep the source texts (`translates_into`).
 //!
 //! An app without a translation file keeps the source text in every language, as the corpus pins under 1031 for its own
-//! apps, which ship none (record/lt-enum-filter-caption/EnumFilterByCaption.al, pages/lt-page-controls-aa/AaFieldProps.al).
+//! apps, which ship none (record/filters/EnumFilterByCaption.al, pages/controls/AaFieldProps.al).
 
 use super::*;
 
 /// Whether app `a` may translate a text in `language`: it ships a translation file of that language (any culture), or one
 /// whose language is not known (a package, whose files are not read; a file that could not be read; a language without a
 /// known culture). An app whose files are all of other languages keeps its source texts, as an app without a file does:
-/// localization/lt-ta-app-xliff/TaXliff.al:230 TA_Captions_Language_Without_File (nl-NL file, 1031: field caption, table
+/// localization/app-xliff/TaXliff.al:230 TA_Captions_Language_Without_File (nl-NL file, 1031: field caption, table
 /// caption and option caption keep the source) and the corpus cases that read captions, CaptionML, option captions and
 /// control captions under 1031 in the corpus app that ships the nl-NL file (for example misc/lt-probes-needed-5/
-/// PnE10Formats.al OptionField_CaptionDiffersFromMember_German, pages/lt-ap-testpage-642/ApTestPageTests.al Ap17_NotBlank_List).
+/// PnE10Formats.al OptionField_CaptionDiffersFromMember_German, testpage/ApTestPageTests.al Ap17_NotBlank_List).
 fn translates_into(a: &al_ir::AppInfo, language: i32) -> bool {
     if !a.translations {
         return false;
@@ -121,7 +121,7 @@ impl Session {
     /// the unit's target, `Err` the reason the read is refused. In 1033, or for an app that ships no translation file, the
     /// source text stays (as in step 1). Otherwise the app's file for exactly the language's culture gives the target, and a
     /// unit without one gives the source; a language with no file of its own language keeps the source too
-    /// (localization/lt-ta-app-xliff/TaXliff.al: TA_Enum_Format_And_Evaluate, TA_Label_Text and TA_Captions_And_Options under
+    /// (localization/app-xliff/TaXliff.al: TA_Enum_Format_And_Evaluate, TA_Label_Text and TA_Captions_And_Options under
     /// 1043, TA_Captions_Language_Without_File under 1031; al-runner issue 5772). Refused: a package, whose
     /// files are not read; two files for one culture; a file that could not be read; and a file of the same language but
     /// another culture (nl-NL under nl-BE: which one BC uses is not pinned, ADR-053 P3).

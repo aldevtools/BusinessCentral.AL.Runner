@@ -130,15 +130,15 @@ pub trait Identity {
     fn user_security_id(&self) -> [u8; 16];
     /// `CompanyName()`: the company the session runs in (`BcRuntime.cs:1309`).
     fn company_name(&self) -> String;
-    /// `SessionId()`; positive for a live session (session/TestSessionIdentityValues.al:43-59).
+    /// `SessionId()`; positive for a live session (session-system/TestSessionIdentityValues.al:43-59).
     fn session_id(&self) -> i32;
-    /// `ServiceInstanceId()`; positive (session/TestSessionIdentityValues.al:24-40).
+    /// `ServiceInstanceId()`; positive (session-system/TestSessionIdentityValues.al:24-40).
     fn service_instance_id(&self) -> i32;
-    /// `TenantId()`; not empty (session/TestDatabaseExtended.al:63-70).
+    /// `TenantId()`; not empty (session-system/TestDatabaseExtended.al:63-70).
     fn tenant_id(&self) -> String;
-    /// `GuiAllowed()` (session/TestBCPlatformContracts.al:27-32).
+    /// `GuiAllowed()` (session-system/TestBCPlatformContracts.al:27-32).
     fn gui_allowed(&self) -> bool;
-    /// `IsServiceTier()` (session/TestBCPlatformContracts.al:37-42).
+    /// `IsServiceTier()` (session-system/TestBCPlatformContracts.al:37-42).
     fn is_service_tier(&self) -> bool;
     /// `WindowsLanguage()`: the language id of the Windows user (a positive LCID).
     fn windows_language(&self) -> i32;
@@ -167,7 +167,7 @@ pub trait Identity {
         "localhost".into()
     }
     /// The time zones the host knows, as the Time Zone table lists them (`No.` counts from 1 in
-    /// this order). The default is the corpus CI's 144 rows (record/lt-uv-time-zone-table/UvTimeZoneRows.al).
+    /// this order). The default is the corpus CI's 144 rows (record/table-properties/UvTimeZoneRows.al).
     fn time_zones(&self) -> Vec<TimeZoneInfo> {
         default_time_zones()
     }
@@ -241,7 +241,7 @@ pub struct TimeZoneInfo {
     pub display_name: String,
 }
 
-/// The time zones of the default host: the 144 rows the corpus CI lists (record/lt-uv-time-zone-table/UvTimeZoneRows.al;
+/// The time zones of the default host: the 144 rows the corpus CI lists (record/table-properties/UvTimeZoneRows.al;
 /// see `time_zone_table` for why the real list depends on the host Windows version).
 pub fn default_time_zones() -> Vec<TimeZoneInfo> {
     time_zone_table::TIME_ZONE_ROWS
@@ -277,7 +277,7 @@ impl Identity for AlRunnerIdentity {
     fn user_security_id(&self) -> [u8; 16] {
         USER_SECURITY_ID
     }
-    /// The company of the oracle's test database (session/TestEnvironmentUserTenantContracts.al:238);
+    /// The company of the oracle's test database (session-system/TestEnvironmentUserTenantContracts.al:238);
     /// AL Runner's `My Company` (ADR-013 decision 9) is superseded.
     fn company_name(&self) -> String {
         "CRONUS International Ltd.".into()
@@ -313,12 +313,12 @@ impl Identity for AlRunnerIdentity {
     fn time_zone(&self) -> String {
         "UTC".into()
     }
-    /// The oracle's tests run in a web client session (session/W5SessionFacts.al:135, :137); AL Runner's
+    /// The oracle's tests run in a web client session (session-system/W5SessionFacts.al:135, :137); AL Runner's
     /// `Background` is superseded.
     fn current_client_type(&self) -> ClientType {
         ClientType::Web
     }
-    /// The oracle's tier names Windows (session/W5SessionFacts.al:136, :138).
+    /// The oracle's tier names Windows (session-system/W5SessionFacts.al:136, :138).
     fn default_client_type(&self) -> ClientType {
         ClientType::Windows
     }

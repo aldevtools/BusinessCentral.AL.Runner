@@ -1,4 +1,4 @@
-// Tables and pages of the corpus probe pages/lt-y45-save-before-action (Y45Tables.al, Y45Pages.al), for the unit tests in dirty_save.rs.
+// Tables and pages of the corpus probe pages/actions (Y45Tables.al, Y45Pages.al), for the unit tests in dirty_save.rs.
 table 92880 "LT Y45 Head"
 {
     DataClassification = SystemMetadata;

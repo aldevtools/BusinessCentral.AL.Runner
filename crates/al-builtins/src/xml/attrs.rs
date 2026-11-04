@@ -51,7 +51,7 @@ pub(super) fn remove_attribute(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [
     let target = match a.first() {
         // An attribute object names the attribute to remove from the receiver by its name: one that belongs to another element
         // removes nothing there and leaves its own element alone, and one that no element holds removes the receiver's attribute of
-        // that name; removing it again is silent (fieldref/lt-fieldref-testfield-types/XmlElementRemoveAttributeObject.al:
+        // that name; removing it again is silent (recordref-fieldref/fieldref/XmlElementRemoveAttributeObject.al:
         // RemoveAttribute_ByObject).
         Some(Value::Library(..)) => {
             let attr = node_of(&a[0])?;
@@ -87,7 +87,7 @@ pub(super) fn remove_attribute(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [
 }
 
 /// The attribute `RemoveAttribute(Name)` or `RemoveAttribute(LocalName, NamespaceUri)` takes off `h`: the name is a local
-/// name without a prefix (`p:a` raises the XML name error, xml/lt-ay-xml/AyXmlRemoveNsAttribute.al:71
+/// name without a prefix (`p:a` raises the XML name error, xml/AyXmlRemoveNsAttribute.al:71
 /// RemoveAttribute_ByName_PrefixedPA, :174 `ns_prefixed_local`), matched with the namespace (none for the one-argument form:
 /// `b` leaves `p:b`, :103 RemoveAttribute_ByName_LocalB; :146 `ns_a_p`, `ns_a_empty`). A name nothing matches removes nothing
 /// (xml/XmlAttributes.al:259 RemoveAttribute `remove_missing`; AyXmlRemoveNsAttribute.al:174 `ns_unknown`). Other invalid
@@ -109,7 +109,7 @@ pub(super) fn find_attribute_to_remove(h: &Handle, name: &str, ns: &str) -> Resu
     }))
 }
 
-/// `XmlAttributeCollection.Remove`: by attribute (one this element holds: xml/lt-xml-remaining-node-methods/
+/// `XmlAttributeCollection.Remove`: by attribute (one this element holds: xml/xml/
 /// P104AttrCollection.al:31 P104_Remove_Attribute, its value stays readable), by name or by local name and namespace (:126
 /// P104_Remove_ByName_Overloads; a missing one removes nothing). An attribute of another element, and a name with a prefix,
 /// are not pinned.
@@ -187,7 +187,7 @@ pub(super) fn attrs_set_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Valu
 }
 
 /// `Set(Name, '', Value)` and `SetAttribute(Name, '', Value)` are the two-argument forms: the attribute has no namespace and
-/// replaces the one of that name in place (xml/lt-wd/WdXmlEmptyNsAndUnassigned.al WD_XmlAttrCollection_Set_EmptyNamespace,
+/// replaces the one of that name in place (xml/WdXmlEmptyNsAndUnassigned.al WD_XmlAttrCollection_Set_EmptyNamespace,
 /// WD_XmlElement_SetAttribute_EmptyNamespace; corpus branch al-runtime-rs-staging-1030c, al-runner issue 6303). Pinned for a
 /// plain name on an element without a namespace; a qualified name or an element in a namespace stays refused.
 pub(super) fn empty_namespace_args(owner: &Handle, a: &[Value]) -> Result<Option<Vec<Value>>, Signal> {
@@ -205,7 +205,7 @@ pub(super) fn empty_namespace_args(owner: &Handle, a: &[Value]) -> Result<Option
 }
 
 /// `XmlElement.SetAttribute(Name, NamespaceUri, Value)`: as `XmlAttributeCollection.Set` with a namespace
-/// (xml/lt-xml-remaining-node-methods/P104AttrCollection.al:18,50 `<e a="1" p1:c="3" xmlns:p1="urn:x" />`).
+/// (xml/xml/P104AttrCollection.al:18,50 `<e a="1" p1:c="3" xmlns:p1="urn:x" />`).
 pub(super) fn set_attribute_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let owner = recv(r)?;
     if let Some(mut plain) = empty_namespace_args(&owner, a)? {
@@ -287,7 +287,7 @@ pub(super) fn attrs_get_name(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
         }
         None if c.ret_used() => Ok(Value::Boolean(false)),
         // The statement raises XmlNodeNotFound naming the attribute (corpus master, corpus PR 886:
-        // xml/lt-xml-attr-doc-http-members/AttrCollectionGetMissing.al:113 `missing, two arguments`). A qualified name is not pinned.
+        // xml/xml/AttrCollectionGetMissing.al:113 `missing, two arguments`). A qualified name is not pinned.
         None if !name.contains(':') => Err(attr_not_found(&name)),
         None => unsupported(
             "XmlAttributeCollection.Get of a missing qualified name, result unused (error text not pinned yet)",
@@ -311,10 +311,10 @@ pub(super) fn attr_not_found(name: &str) -> Signal {
 pub(super) fn attrs_get_name_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let owner = owner_of(r)?;
     let (name, uri) = (arg_text(a, 0)?, arg_text(a, 1)?);
-    // An empty namespace URI finds the attribute of that name that has no namespace (xml/lt-wd/WdXmlEmptyNsAndUnassigned.al
+    // An empty namespace URI finds the attribute of that name that has no namespace (xml/WdXmlEmptyNsAndUnassigned.al
     // WD_XmlAttrCollection_Set_EmptyNamespace `Get with empty namespace` Yes; corpus branch al-runtime-rs-staging-1030c). When
     // there is none (also when the name is only in a namespace) it answers No and leaves the variable as it was, and the statement
-    // raises XmlNodeNotFound for `{}<name>` (corpus master, corpus PR 886: xml/lt-xml-attr-doc-http-members/
+    // raises XmlNodeNotFound for `{}<name>` (corpus master, corpus PR 886: xml/xml/
     // AttrCollectionGetMissing.al:68-83 and :109-111).
     if uri.is_empty() && !name.contains(':') {
         let found = attrs_of(&owner).into_iter().find(|x| {

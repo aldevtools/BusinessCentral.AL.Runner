@@ -2,7 +2,7 @@
 //! itself does not: must-not-compile 1786/1787), and Microsoft's Batch Processing Mgt. (codeunit 1380, InvokeProcessing)
 //! relies on it. Rec is the RecordRef's row with its filters, a Modify stores the change and the RecordRef reads it after
 //! the run; a RecordRef of another table fails before the run, also in the guarded form
-//! (recordref/lt-recordref-variant-record/RecordRefVariantToRecord.al, QP_CodeunitRun_* tests).
+//! (recordref-fieldref/recordref/RecordRefVariantToRecord.al, QP_CodeunitRun_* tests).
 //! Before, the runtime ran OnRun on a blank Rec (Tests-ERM 139444 "Unhandled UI: Page 700").
 
 use al_builtins::native::Signal;
@@ -184,7 +184,7 @@ codeunit 50111 C
 "#;
 
 // A Variant holding a RecordRef, passed by value to a Record parameter: real BC hands the procedure the ref's row without its
-// filters (record/lt-ar-records/ArRecordProbes.al:366 VariantRecordRef_PassedToRecordParameter `3|r3||4`).
+// filters (streams/ArRecordProbes.al:366 VariantRecordRef_PassedToRecordParameter `3|r3||4`).
 #[test]
 fn a_variant_record_ref_passed_to_a_record_parameter_drops_the_filters() {
     assert_eq!(text(al_testkit::run_in(PARAM, "C", "Passed")), "3|");

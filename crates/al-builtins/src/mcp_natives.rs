@@ -1,6 +1,6 @@
 //! The `[Native]` procedures of System.app's codeunit "MCP Utilities" that list the system tools of the MCP server features.
 //!
-//! Pinned through the System Application's public MCP surface (the codeunit is Internal): platform/lt-y71-mcp-config-card/
+//! Pinned through the System Application's public MCP surface (the codeunit is Internal): metadata/session-system/
 //! Y71McpConfigCard.al:76-155 (BC 29) reads the "MCP System Tool" rows the features insert from these answers. The System
 //! Application is the only caller and keeps the first 250 characters of a description (`MCPDynToolModeFeature.LoadSystemTools`,
 //! `MCPDataQueryToolsFeature`), so a description is pinned up to that length: `bc_actions_search`, whose stored text is 250

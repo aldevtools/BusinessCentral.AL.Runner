@@ -4,7 +4,7 @@
 //! Tenant Permission Set table.
 //!
 //! Pinned by corpus permissions/TestMetadataPermissionSet.al, TestPermissionSetTable.al,
-//! TestPermissionSetUndeclaredAssignable.al and access-control/TestAggregatePermissionSetTable.al:
+//! TestPermissionSetUndeclaredAssignable.al and permissions/access-control/TestAggregatePermissionSetTable.al:
 //! - "Role ID" is the object name, upper-cased (a Code field) and cut to the field length; "Name" is the
 //!   Caption with its own casing, else the upper-case Role ID;
 //! - "Assignable" is the declared property and false when it is not declared;
@@ -331,7 +331,7 @@ pub(crate) struct Guard {
 }
 
 /// Parses `tabledata "T" = RIMD`, `codeunit "C" = X`, `system "N" = x`, ...: any object type the Permission table knows and a mask of
-/// the letters R, I, M, D, X in either case. Pinned (corpus permissions/lt-y84-perm-shapes/Y84PermAbp.al, BC 29.0): the control is
+/// the letters R, I, M, D, X in either case. Pinned (corpus permissions/permission-sets/Y84PermAbp.al, BC 29.0): the control is
 /// there when the session holds at least one letter of the mask at level Yes (see `access_by_permission_hidden_decided`).
 pub(crate) fn parse_guard(engine: &crate::Engine, text: &str) -> Result<Guard, String> {
     let bad = |why: &str| {
@@ -627,7 +627,7 @@ pub(super) fn grants_mat(
         };
         match grants {
             // The set's key alone is known: a filter on the other key columns cannot rule the row out
-            // (codeunit/lt-x-object-props/XObjectProps.al:341, a filter on Object Type and Object ID of an excluding set).
+            // (codeunits/procedures/XObjectProps.al:341, a filter on Object Type and Object ID of an excluding set).
             Err(why) => entries.push(Entry::poisoned_prefix(
                 key_only(t),
                 if which == GrantTable::Legacy { 1 } else { 2 },
@@ -760,6 +760,7 @@ fn content_of<O: al_ir::ObjectInfo + ?Sized>(
             wild,
             explicit,
             unread_system,
+            cut: Vec::new(),
         }
     })
 }

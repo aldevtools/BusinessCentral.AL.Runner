@@ -5,10 +5,10 @@ use super::*;
 
 impl Session {
     /// The root and table element of a text-format port: `Root > tableelement > fieldelements`.
-    /// `text_columns`: a leaf text element may be a column too (the import of a VariableText port, xmlport/lt-aj-xmlport/
+    /// `text_columns`: a leaf text element may be a column too (the import of a VariableText port, xmlports/shapes-properties/
     /// AjRunAndXmlPort.al:QS_VariableText_TempInteger_AutoSaveFalse: its value goes into the variable).
     /// The table elements of a text-format port with the columns of each. `many`: an export of a VariableText port may have two
-    /// table elements below the root (xmlport/lt-dg-xmlport-leads/DgXmlPortLeads.al:Item106_TwoTablesDefaultSeparator); an import
+    /// table elements below the root (streams/DgXmlPortLeads.al:Item106_TwoTablesDefaultSeparator); an import
     /// and other counts are not pinned.
     pub(super) fn xp_text_tables(
         &self,
@@ -50,7 +50,7 @@ impl Session {
             fields.pop();
         }
         // A field attribute of a FixedText port is a column in schema order like a field element, cut and padded to its Width
-        // (xmlport/lt-ay-xmlport/AyXmlPortAttributeWidth.al:163 export, :181 attributes only, :244 import).
+        // (xmlports/shapes-properties/AyXmlPortAttributeWidth.al:163 export, :181 attributes only, :244 import).
         let fixed = schema.xp().format == ir::XmlFormat::FixedText;
         let column = |f: usize| {
             let n = schema.node(f);
@@ -156,7 +156,7 @@ impl Session {
                     return Err(e);
                 }
                 // An empty first line of a VariableText document is a record of one empty value
-                // (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:VariableText_ImportValueCount_1 `vt empty first line`, needs the
+                // (xmlports/shapes-properties/Y83XpMiscTests.al:VariableText_ImportValueCount_1 `vt empty first line`, needs the
                 // corpus bump); pinned when the second column is a field element that must occur, so the import fails there. An
                 // empty line elsewhere is not pinned.
                 let second_needed = fields
@@ -217,7 +217,7 @@ impl Session {
                 };
                 // A line feed inside a field value, not at its end (a trailing one is dropped, AgXmlPortImport.al:678), reads as
                 // a space: `b<LF>2` under a CR/LF record separator gives `b 2`
-                // (xmlport/lt-y67-xmlport-separators/Y67XpSeparators.al:Assign_Import `record sep crlf token`). A carriage return
+                // (xmlports/shapes-properties/Y67XpSeparators.al:Assign_Import `record sep crlf token`). A carriage return
                 // inside the value is not pinned and refused. Also for a Decimal: `7.25<LF>8` fails as `7.25 8`
                 // (Y83XpMiscTests.al:VariableText_ImportValueCount_2 `vt lf only`, needs the corpus bump).
                 let spaced;
@@ -356,7 +356,7 @@ impl Session {
             out.extend_from_slice(text.as_bytes());
             Ok(out)
         } else if variable && encoding == Some("utf16") {
-            // UTF-16 little endian after FF FE (xmlport/W7XmlPortTests.al:368; XpTEncoding.al:135, 31 characters in 64 bytes).
+            // UTF-16 little endian after FF FE (xmlports/W7XmlPortTests.al:368; XpTEncoding.al:135, 31 characters in 64 bytes).
             let mut out = vec![0xFF, 0xFE];
             out.extend(Encoding::Utf16.encode(&text));
             Ok(out)
@@ -498,7 +498,7 @@ pub(super) fn text_separator(value: Option<&str>, default: &str) -> Result<Strin
 /// Splits a VariableText record at `sep`. A value that starts with the delimiter runs to the next
 /// delimiter and may hold the separator; a doubled delimiter is not an escape, so the text after
 /// the closing delimiter starts the next value
-/// (xmlport/TestXmlPortTextFormatsContracts.al:VariableText_Import_DoubledQuoteInsideAQuotedValue_IsNotAnEscape,
+/// (xmlports/TestXmlPortTextFormatsContracts.al:VariableText_Import_DoubledQuoteInsideAQuotedValue_IsNotAnEscape,
 /// corpus: .
 pub(super) fn split_variable(line: &str, sep: &str, delim: &str) -> Vec<String> {
     if delim.is_empty() {
@@ -543,7 +543,7 @@ pub(super) fn split_variable(line: &str, sep: &str, delim: &str) -> Vec<String> 
 
 /// Reads a VariableText document separator by separator when the field separator and the record separator overlap (the field
 /// separator `<NewLine>` with the record separator `<LF>`): at each place the field separator is tried before the record separator
-/// (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:VariableText_NewLineSeparator `roundtrip newline`, `newline doc crlf`, needs
+/// (xmlports/shapes-properties/Y83XpMiscTests.al:VariableText_NewLineSeparator `roundtrip newline`, `newline doc crlf`, needs
 /// the corpus bump: `7<CR/LF>seven<CR/LF>7.25<CR/LF>` is one record). A value that starts with the delimiter runs to the next one.
 pub(super) fn split_overlapping(text: &str, fsep: &str, rsep: &str, delim: &str) -> Vec<Vec<String>> {
     let mut records: Vec<Vec<String>> = Vec::new();

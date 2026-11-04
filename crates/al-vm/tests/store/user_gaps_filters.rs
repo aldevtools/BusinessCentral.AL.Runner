@@ -1,5 +1,5 @@
 //! Filter behaviors that external users reported as refused (AL Runner issues 5577 and 5578), each pinned by a corpus probe:
-//! record/lt-bl-invalid-decimal-filter/InvalidDecimalFilter.al and record/lt-bl-wildcard-getfilter/WildcardGetFilter.al.
+//! record/filters/InvalidDecimalFilter.al and record/filters/WildcardGetFilter.al.
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -258,7 +258,7 @@ fn lines(v: Result<Value, Signal>) -> Vec<String> {
         .collect()
 }
 
-/// record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:92 (Repro_NotWildcard_RoundTrips): `<>*` reads back as written.
+/// record/filters/WildcardGetFilter.al:92 (Repro_NotWildcard_RoundTrips): `<>*` reads back as written.
 #[test]
 fn not_wildcard_filter_reads_back() {
     assert_eq!(text(run(WILD, "Repro")), "<>*|Yes");
@@ -412,7 +412,7 @@ codeunit 50421 C
 }
 "#;
 
-/// filters/W4Filters.al:656-700 (SetFilterPercent1_WildcardsAroundThePlaceholder_BQ): a placeholder right before or right after
+/// record/filters/W4Filters.al:656-700 (SetFilterPercent1_WildcardsAroundThePlaceholder_BQ): a placeholder right before or right after
 /// a wildcard is not put in; the filter keeps `%1` as written, and on an Integer field it raises BC's errors.
 #[test]
 fn placeholder_next_to_a_wildcard_stays_as_written() {
@@ -434,9 +434,9 @@ fn placeholder_next_to_a_wildcard_stays_as_written() {
     );
 }
 
-/// onprem platform/lt-y35-stored-tables/Y35StoredTables.al:194-195, :210 (C303_Webhook_RowsAndWrites): `@%1` with a value
+/// onprem metadata/platform-tables/Y35StoredTables.al:194-195, :210 (C303_Webhook_RowsAndWrites): `@%1` with a value
 /// that differs from the row only in case keeps no row; the `@` does not make the placeholder's value case-insensitive. The
-/// placeholder stays as written, as next to a wildcard (`@*%1*`, filters/W4Filters.al:662, :682); its read-back is a
+/// placeholder stays as written, as next to a wildcard (`@*%1*`, record/filters/W4Filters.al:662, :682); its read-back is a
 /// probes-needed row.
 #[test]
 fn at_sign_before_a_placeholder_keeps_it_as_written() {

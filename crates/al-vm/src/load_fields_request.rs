@@ -1,10 +1,10 @@
 //! `SetLoadFields` and `AddLoadFields` on a Record or a RecordRef: the request they leave and what the function forms answer.
 //!
-//! Pinned by record/lt-y67-addloadfields-flow/Y67AddLoadFlow.al:375-1517 (writer Y67, real BC 29, the same on 27.5 and 28.5): the
+//! Pinned by record/load-fields/Y67AddLoadFlow.al:375-1517 (writer Y67, real BC 29, the same on 27.5 and 28.5): the
 //! statement and function forms of both methods, on a Record and on a RecordRef, with a normal field, a FlowField and a FlowFilter
 //! field alone and among several in both orders and no field at all, in four request states (none, after `SetLoadFields(Name)`,
-//! after `SetLoadFields()`, after `SetLoadFields(Name, Qty)`). Earlier pins: record/lt-priority-assumptions/PriorityAssumptions.al:
-//! 282-338, record/lt-loadfields-pagesource-validate/P81LoadFields.al:991-1028, record/TestRecordPartialLoad.al:61-99,
+//! after `SetLoadFields()`, after `SetLoadFields(Name, Qty)`). Earlier pins: record/PriorityAssumptions.al:
+//! 282-338, record/load-fields/P81LoadFields.al:991-1028, record/TestRecordPartialLoad.al:61-99,
 //! record/TestRecordExtended.al:58-65.
 
 use crate::Session;

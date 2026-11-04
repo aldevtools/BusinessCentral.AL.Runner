@@ -1,6 +1,6 @@
 //! `FieldRef.Value` of a Blob field of a stored row read without CalcFields, assigned to another Blob. Temp Blob Impl.
 //! FromFieldRef does this and then asks HasValue to decide whether to CalcField. BC hands out an empty Blob: HasValue No,
-//! Length 0, an empty text; after FieldRef.CalcField the content (recordref/lt-refs/RfTValues.al QP_Blob_* tests). The
+//! Length 0, an empty text; after FieldRef.CalcField the content (recordref-fieldref/recordref/RfTValues.al QP_Blob_* tests). The
 //! runtime's copy said HasValue true and its stream read nothing: Microsoft's Tests-ERM 134112 TestMultipleLinesText (Test
 //! Sales Header Work Descr.) failed here.
 

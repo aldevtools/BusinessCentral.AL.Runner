@@ -1,5 +1,5 @@
 //! `FilterPageBuilder.GetView(Name, false)` writes a Date or DateTime filter value in the XML form of a view, as a
-//! record's view does (events/lt-platform-triggers/PtObserve.al:594-600 `view|m0` = `WHERE(Field5=1(2020-01-01..))`).
+//! record's view does (events/platform-triggers/PtObserve.al:594-600 `view|m0` = `WHERE(Field5=1(2020-01-01..))`).
 
 use al_builtins::value::Value;
 

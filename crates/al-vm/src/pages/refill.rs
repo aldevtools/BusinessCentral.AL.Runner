@@ -1,5 +1,5 @@
 //! A Worksheet over a temporary source that empties and refills Rec from a filter field's OnValidate or from an action, the
-//! shape of page 5530 "Item Availability by Event" (corpus pages/lt-outside-worksheet/RmTempRefill.al, al-runner issues 5779
+//! shape of page 5530 "Item Availability by Event" (corpus testpage/RmTempRefill.al, al-runner issues 5779
 //! and 5780): what the client reads afterwards and which row it shows.
 
 use super::*;
@@ -130,7 +130,7 @@ impl Session {
         let rec = self.page_rec(st);
         // A collapsed tree: the client reads every row of the tree as the flat page reads its view, keeps the row it stood on
         // when its key came back (else Rec's row), keeps the rows it had expanded by key, shows the parent of a kept row below the
-        // top level expanded, and holds the rows the cut shows (al-runner issue 6550; pages/lt-outside-worksheet/RmTempRefill.al
+        // top level expanded, and holds the rows the cut shows (al-runner issue 6550; testpage/RmTempRefill.al
         // Y34_Tree_Fewer_AB_To_B `R:B;R:B-1;R:B-2;R:B;R:B;C:B;` rows `B`, Y34_Tree_SameKeys_AB_To_CD_FromSecondRoot
         // `R:D;R:D;R:D-1;R:D-2;R:D;R:C-2;R:C-1;R:C;R:D;R:D;C:D;` rows `C D`, Y34_Tree_ExpandedBefore_AB_To_B rows `B B-1 B-2`,
         // Y34_Tree_EndOnLastRow_A_To_AB rows `A A-1 A-2 B` (Rec's own row, B-2, does not expand B),
@@ -228,7 +228,7 @@ impl Session {
     /// An action that refilled the rows of a temporary Worksheet, a row the client held being gone, Rec left on the first row of
     /// the view. With one row: after the read of the row the client stood on that comes before every action, the client reads the
     /// row three times and runs OnAfterGetCurrRecord, or, without that trigger, reads it twice; it then holds that one row
-    /// (pages/lt-outside-worksheet/RmTempRefill.al SH_RefillFewer_WithCurrRecord_3To1 `R:R1;R:R1;R:R1;R:R1;C:R1;`, _25To1, _25To1_FromRow23 `R:R23;R:R1;R:R1;R:R1;C:R1;`,
+    /// (testpage/RmTempRefill.al SH_RefillFewer_WithCurrRecord_3To1 `R:R1;R:R1;R:R1;R:R1;C:R1;`, _25To1, _25To1_FromRow23 `R:R23;R:R1;R:R1;R:R1;C:R1;`,
     /// SH_RefillFewer_NoCurrRecord_3To1 and _25To1 `R:R1;R:R1;R:R1;`). With two rows up to a window it holds only those rows
     /// (al-runner issue 6029; RmTempRefill.al TD_RefillFewer_WithCurrRecord_*, the reads below). Without OnAfterGetCurrRecord,
     /// Rec on another row of the view, and more rows than a window, are refused.
@@ -253,7 +253,7 @@ impl Session {
         if rows.is_empty() {
             return Ok(false);
         }
-        // Pinned by pages/lt-uj-outside-leads/UjTempList.al (was assumption `list-action-rebuilds-rows`).
+        // Pinned by testpage/UjTempList.al (was assumption `list-action-rebuilds-rows`).
         let table = self.table(&rec)?;
         let now = self.row_key(&rec)?;
         // On the List shape Rec left on a later row of a view the window holds whole: the client reads the row, the rows from it
@@ -321,7 +321,7 @@ impl Session {
     }
 
     /// A List with InsertAllowed, ModifyAllowed and DeleteAllowed false: an action that rebuilds its temporary rows is read as on a
-    /// temporary Worksheet (pages/lt-uj-outside-leads/UjTempList.al UJ_Temp_List_ThreeNewRows, UJ_Temp_List_OneRowRebuilt, corpus
+    /// temporary Worksheet (testpage/UjTempList.al UJ_Temp_List_ThreeNewRows, UJ_Temp_List_OneRowRebuilt, corpus
     /// branch al-runtime-rs-staging-uj 1dc037a8; former assumption `list-action-rebuilds-rows` (pinned on corpus master since bump 1030) until the bump).
     fn temp_list_without_writes(&mut self, st: &St) -> bool {
         let engine = self.engine();
@@ -360,7 +360,7 @@ impl Session {
     /// A ListPart whose control's OnValidate ran `CurrPage.Update` (with or without `false`) on a Document host whose row did not
     /// change, standing on a later row of its view than the first: it stays on that row. It reads from the row to the end of the
     /// view, the row again when it moved, the rows before it back to the first, then the row twice and OnAfterGetCurrRecord
-    /// (writer TH, pages/lt-th-part-update-cursor/ThPartUpdateCursor.al:357 TH_Line2_UpdateTrue `R2 R3 R2 R1 R2 R2 C2`, :373
+    /// (writer TH, pages/parts/ThPartUpdateCursor.al:357 TH_Line2_UpdateTrue `R2 R3 R2 R1 R2 R2 C2`, :373
     /// TH_Line2_UpdateFalse, :437 TH_Line3_UpdateFalse `R3 R2 R1 R3 R3 C3`, :453 TH_Walk_*; on branch al-runtime-rs-staging-pub-th,
     /// assumption part-keeps-row-after-update-in-validate). `rows` is the view from its start, up to a window.
     pub(super) fn read_part_rows_around(&mut self, st: &St, rows: &[Vec<Value>], at: usize) -> Result<(), Signal> {

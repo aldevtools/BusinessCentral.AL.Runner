@@ -55,7 +55,7 @@ codeunit 69402 T { Subtype = Test;
     }
 }
 
-// ErrorInfo.SystemId is assignable and reads back: errorinfo/lt-errnotif/EnTErrorInfoProps.al:106-115 (a row's
+// ErrorInfo.SystemId is assignable and reads back: errors/errorinfo/EnTErrorInfoProps.al:106-115 (a row's
 // SystemId round-trips) and :259-262 (a null Guid reads as null); :42 (a fresh ErrorInfo holds a null Guid).
 #[test]
 fn error_info_system_id_assigns_and_reads_back() {

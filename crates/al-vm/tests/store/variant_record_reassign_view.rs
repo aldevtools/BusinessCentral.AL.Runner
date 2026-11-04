@@ -137,7 +137,7 @@ fn the_new_view_wins_in_another_codeunit_by_var_and_by_value() {
 }
 
 /// A temporary record on either side: the Variant holds the new record whole, as a Variant that held nothing would
-/// (recordref/lt-y23-variant-view/Y23VariantRecordView.al:289-303 Y23_SecondRecordTemporary `temp`, `real after temp`).
+/// (recordref-fieldref/recordref/Y23VariantRecordView.al:289-303 Y23_SecondRecordTemporary `temp`, `real after temp`).
 #[test]
 fn a_temporary_record_on_either_side_replaces_the_record_the_variant_holds() {
     assert_eq!(

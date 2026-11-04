@@ -1,5 +1,5 @@
 //! `Evaluate(RecordId, ..)` on a table whose primary key is a Code and a Text field
-//! (misc/lt-y68-small-probes/Y68Small.al:65-121 Q5_Evaluate_RecordId_CodeAndText_Forms, corpus master 0d01b0cc).
+//! (errors/Y68Small.al:65-121 Q5_Evaluate_RecordId_CodeAndText_Forms, corpus master 0d01b0cc).
 
 const SRC: &str = r#"
 table 91600 "RCT Key" { fields { field(1; A; Code[20]) { } field(2; B; Text[50]) { } } keys { key(PK; A, B) { } } }

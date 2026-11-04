@@ -111,7 +111,7 @@ fn run_on(bc: &str, routine: &str) -> Result<al_builtins::value::Value, al_built
 
 /// Two and three deleted lines run OnNewRecord and OnAfterGetCurrRecord once on BC 28 and twice on BC 27 and from BC 29
 /// (corpus RtFilteredGoneRow.al:656 TD_LeavesKey_Line1WithUpdate_ThreeLines and :679 _TwoLines, `#if BC28PLUS and not BC29PLUS`;
-/// pages/lt-y1-6292/Y1WorksheetPostLog.al:161 Y1_Post_TwoLines, :177 Y1_Post_ThreeLines; al-runner issue 6292).
+/// testpage/Y1WorksheetPostLog.al:161 Y1_Post_TwoLines, :177 Y1_Post_ThreeLines; al-runner issue 6292).
 #[test]
 fn two_and_three_deleted_lines_run_the_triggers_as_the_major_does() {
     for routine in ["PostTwoLines", "PostThreeLines"] {

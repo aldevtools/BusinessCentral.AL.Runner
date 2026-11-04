@@ -15,7 +15,7 @@ impl Session {
     }
 
     /// A save the page refused with SaveAbort (ModifyAllowed is false, see `save_row`) ends the step without raising: the error becomes
-    /// the last error and the move is not made. GoToKey raises TestRowNotFound instead (pages/lt-y80-modify-denied/Y80ModifyDenied.al
+    /// the last error and the move is not made. GoToKey raises TestRowNotFound instead (pages/modify-denied/Y80ModifyDenied.al
     /// Y80_MD_List_Set_goto: ok No, `The row does not exist on the TestPage.`). The answer of a move that did not happen is not
     /// pinned (the corpus discards it: `P.Next();` in Y80_MD_List_Set_Next_Next), so it is an unknown value: a discarded answer
     /// runs, any use of it is refused (hard rule 3).
@@ -43,7 +43,7 @@ impl Session {
     fn page_op_outer(&mut self, method: PageOp, recv: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
         // A TestPage begins a transaction of its own (see `in_page_transaction`). Page.Run and Page.RunModal with a handler that writes are allowed under None, and the
         // transaction the page began has ended afterwards
-        // (codeunit/TestWriteTxNoneModelContracts.al:200-216 and :163-185).
+        // (codeunits/TestWriteTxNoneModelContracts.al:200-216 and :163-185).
         if recv.is_none() && self.no_transaction() {
             if matches!(method, PageOp::PageRunStatic | PageOp::PageRunModalStatic) {
                 return self.in_page_transaction(|s| s.page_op_inner(method, recv, args));
@@ -74,7 +74,7 @@ impl Session {
                 let used = self.ret_used;
                 if let Some(Value::Text(name)) = args.first() {
                     // An empty name: with a record AL:MetadataNotFound like page 0, without one an uncatchable
-                    // NullReferenceException on BC, refused (pages/lt-y89-fqn-missing/Y89FqnMissing.al:125, :153; :113 is no [Test]).
+                    // NullReferenceException on BC, refused (pages/missing-object-fqn/Y89FqnMissing.al:125, :153; :113 is no [Test]).
                     if name.trim().is_empty() {
                         return match args.len() > 1 {
                             true => Err(self.missing_object("Page", 0)),
@@ -94,7 +94,7 @@ impl Session {
                 let record = match args.get(1) {
                     Some(Value::Record(r)) => Some(r.clone()),
                     // A Variant that holds a RecordRef runs the page on the RecordRef's record: the handler sees it, and a pick or an
-                    // edit reaches the RecordRef and the Variant (pages/lt-ce-page-run/CePageRun.al:382 PageRunModal_VariantHoldingRecordRef,
+                    // edit reaches the RecordRef and the Variant (pages/run-modal/CePageRun.al:382 PageRunModal_VariantHoldingRecordRef,
                     // :548 RP_RunModal_VariantRecRef_FieldZero_Card, :594 RP_RunModal_VariantRecRef_FieldNo_ListPick, :633
                     // RP_Run_VariantRecRef_FieldZero_Card; al-runner issue 5759).
                     Some(Value::Library(_, lib))
@@ -129,7 +129,7 @@ impl Session {
                     3 => true,
                     _ => return unsupported("Page.Run with more than three arguments"),
                 };
-                // A FieldRef nobody assigned raises before anything opens (pages/lt-page-run-overloads-testpart/P106RunErrors.al:
+                // A FieldRef nobody assigned raises before anything opens (pages/parts/P106RunErrors.al:
                 // P106_Err_FieldRefVariants, observation 'uninitialized').
                 if let Some(Value::Library(_, lib)) = args.get(2) {
                     if matches!(
@@ -151,7 +151,7 @@ impl Session {
                 }
                 // Id 0 with a record resolves the page from the record's table LookupPageId; a
                 // table without one refuses like any unknown id (corpus
-                // handlers/TestPageRunModalLookupPageId_Tests.al).
+                // pages/run-modal/TestPageRunModalLookupPageId_Tests.al).
                 let mut id = n as u32;
                 if n == 0 {
                     if let Some(r) = &record {
@@ -200,16 +200,16 @@ impl Session {
                 };
                 let st = Rc::new(RefCell::new(PageState::closed(object as u32)));
                 // The static RunModal reports the lookup values, with or without a record: OK reads
-                // LookupOK, Cancel LookupCancel (corpus handlers/TestPageModalHandlerStatic_Tests.al:48-72
+                // LookupOK, Cancel LookupCancel (corpus ui-handlers/TestPageModalHandlerStatic_Tests.al:48-72
                 // for the record overload;
-                // handlers/TestPageModalResultsAndTriggersContracts.al:206 RunModal_Dialog_StaticVersusVariable_ReportedAction
+                // pages/run-modal/TestPageModalResultsAndTriggersContracts.al:206 RunModal_Dialog_StaticVersusVariable_ReportedAction
                 // and :240 RunModal_Card_StaticWithAndWithoutRecord_VersusVariable_ReportedAction for the others). A page variable reports OK and Cancel.
                 // With a record, whether the caller uses the return value decides: used (assigned, passed on, compared),
                 // the list opens in lookup mode with no new-row line; called as a statement it is a plain modal page
-                // (pages/lt-be-runmodal-onlookup/BeRunModalOnLookup.al:18-27, :616 Direct_NoLookupPageId_KeyFilter_WalkOnly,
+                // (pages/triggers/BeRunModalOnLookup.al:18-27, :616 Direct_NoLookupPageId_KeyFilter_WalkOnly,
                 // :916 Shape_ReturnNotUsed_WalkOnly, :949 Shape_ReturnInIf_WalkOnly, :1100-1126 Shape_RunModalZero_*).
                 // Without a record the same: a statement leaves a card without its Cancel action
-                // (errors/lt-ms-refusals-132/P132TwoModalHandlers.al:466 PW_ProbeB_Statement, :508 PW_ProbeB_InIf).
+                // (ui-handlers/P132TwoModalHandlers.al:466 PW_ProbeB_Statement, :508 PW_ProbeB_InIf).
                 if method == PageOp::PageRunModalStatic {
                     let mut s = st.borrow_mut();
                     s.run_static = Some(true);
@@ -221,7 +221,7 @@ impl Session {
                     s.field_run = used && record.is_some() && field;
                 }
                 // A record of another table than the page's is refused before anything opens, and so is a field number the table
-                // lacks (a negative one or 0 goes on; pages/lt-page-run-overloads-testpart/P106RunErrors.al: Err_WrongTableRecord,
+                // lacks (a negative one or 0 goes on; pages/parts/P106RunErrors.al: Err_WrongTableRecord,
                 // Err_FieldNoNotExisting).
                 if let (Some(r), true) = (&record, self.has_source(&st)) {
                     self.page_instance(&st)?;
@@ -310,14 +310,14 @@ impl Session {
         {
             // A new host whose part shows rows of the blank key: Close and New() are pinned (PartLineBeforeHostKey.al:1725
             // QH_BlankRows_OpenNew_CloseOnly, :1909 QH_BlankRows_HostNew_ThenClose), and Next and Last, which answer No, run no
-            // trigger and store nothing (pages/lt-y17-activate-new-host/Y17ActivateNewHost.al:573 QH_BlankRows_HostNext, :602
+            // trigger and store nothing (pages/activate-field-blank-host-rows/Y17ActivateNewHost.al:573 QH_BlankRows_HostNext, :602
             // QH_BlankRows_HostLast); nothing else.
             return unsupported(format!(
                 "TestPage.{name} on a new, unsaved host whose part shows rows of the blank key (not pinned)"
             ));
         }
         // A card whose OnNewRecord inserted its new row: only Close of the unchanged row is pinned (corpus
-        // pages/lt-cf-page-leads/CfPageLeads.al:241-289 Card_OnNewRecordInserts_OpenNewSetClose).
+        // testpage/CfPageLeads.al:241-289 Card_OnNewRecordInserts_OpenNewSetClose).
         if st.borrow().new_row_inserted_by_trigger
             && st.borrow().open
             && (name != PageMethod::Close || st.borrow().dirty)
@@ -345,9 +345,9 @@ impl Session {
             Vec::new()
         };
         // After a GoToKey that moved a list without OnAfterGetCurrRecord every action reads the row twice before its trigger
-        // (`actions.rs`), until a move clears it (pages/lt-ai-list-order/QgGoToKeyNextCall.al, writer QG).
+        // (`actions.rs`), until a move clears it (pages/list-order/QgGoToKeyNextCall.al, writer QG).
         // A move after it reads only what the move reads: Next (AiListOrderTests.al:1012-1021 Paging_GoToKeyThenWalk_Nav, every
-        // `at` log empty), GoToKey, Last and First (handlers/TestPageRuntimeContracts.al:342-357 on a list with OnAfterGetRecord
+        // `at` log empty), GoToKey, Last and First (testpage/TestPageRuntimeContracts.al:342-357 on a list with OnAfterGetRecord
         // alone). Previous reads nothing and the next action reads the new row twice (QgGoToKeyNextCall.al:254
         // Plain_GoToKey_ThenPrevious `previous_log` empty, `action_log` `R:R1002;R:R1002;A:act=R1002`, and Nav_GoToKey_ThenPrevious);
         // what Close reads right after it is not pinned (refused). OK of a lookup-mode page reads the row once (`controls.rs`).
@@ -359,7 +359,7 @@ impl Session {
         // TestPage_SetValue_OfTheValueAlreadyHeld_StillRunsOnValidate (it does not observe the Close).
         // After an action stored one row through another variable while a list opened for edit stood on its new-row line over an
         // empty view, the list is back on that line (`actions.rs`, empty_page_after_action). First then reads the row twice and
-        // runs OnAfterGetCurrRecord with xRec on it (misc/lt-probes-needed-7/PnGShowRow.al:223
+        // runs OnAfterGetCurrRecord with xRec on it (testpage/PnGShowRow.al:223
         // QG_EmptyList_InsertViaOtherVariable_StepLog `first_log` `List.AGR(NEW2,Created);List.AGR(NEW2,Created);
         // List.AGCR(NEW2,NEW2)`, :56 EmptyListInsertViaOtherVariable); Close reads nothing (`close_log` empty). Other calls are not
         // pinned.
@@ -517,7 +517,7 @@ impl Session {
             // "The TestPage is not open." for them. What a method of a page that is not open (any more) does is not pinned, so
             // the call is refused instead of failing with the TestPage error (Posted Sales Document Lines.CopyLineToDoc reads
             // `CurrPage.PostedShpts.PAGE` after its RunModal returned).
-            // `Run` and `RunModal` only pass on what their handler raised (handlers/TestPageModalSelfClose_Tests.al:104).
+            // `Run` and `RunModal` only pass on what their handler raised (ui-handlers/TestPageModalSelfClose_Tests.al:104).
             Err(Signal::Error(e))
                 if e.code == "TestPageNotOpened"
                     && method.recv() == PageRecv::Page
@@ -534,13 +534,13 @@ impl Session {
             r => r?,
         };
         // The client runs the page's background tasks before the call returns (corpus
-        // handlers/TestPageBgTask_Tests.al:EnqueueBackgroundTask_CompletesBeforeOpenViewReturns). The tasks an
+        // testpage/TestPageBgTask_Tests.al:EnqueueBackgroundTask_CompletesBeforeOpenViewReturns). The tasks an
         // `EnqueueBackgroundTask` call queued run once it wrote its task id back (`Session::bg_drain_after_call`).
         if name != PageMethod::EnqueueBackgroundTask {
             self.bg_drain(st)?;
         }
         // A move of the host re-points its parts; a move of a part re-points the parts that take
-        // their link from it (corpus testpart/TestPartProviderMove.al).
+        // their link from it (corpus testpage/parts/TestPartProviderMove.al).
         let moved = match name {
             PageMethod::First
             | PageMethod::Last
@@ -553,11 +553,11 @@ impl Session {
             | PageMethod::FindPreviousField => !matches!(r, Value::Boolean(false)),
             PageMethod::New => true,
             // CurrPage.Update leaves a host's parts as they are: they are not opened again (corpus
-            // handlers/TestPageNoSrcPart_Tests.al:DirectOpen_NoSrcHost_HostWriteIsVisibleThroughTheSameInstance);
+            // testpage/TestPageNoSrcPart_Tests.al:DirectOpen_NoSrcHost_HostWriteIsVisibleThroughTheSameInstance);
             // whether they read their rows again is docs/probes-needed.md.
             _ => false,
         };
-        // pages/lt-ai-list-order/AiListOrderTests.al:38-39 (Keep_Nav), :232-233 (Keep_Plain), :300-301, :334-335: after a
+        // pages/list-order/AiListOrderTests.al:38-39 (Keep_Nav), :232-233 (Keep_Plain), :300-301, :334-335: after a
         // GoToKey that moved a list without OnAfterGetCurrRecord nothing is read (`goto_log` empty), and the next action
         // reads the row twice before its trigger.
         if name == PageMethod::GoToKey
@@ -577,7 +577,7 @@ impl Session {
                 self.sync_dependents_then_host_follows(st, name)?;
             } else {
                 // First and Last that move the host, Next and Previous: only the linked parts follow
-                // (`sync_parts_after_move`, pages/lt-part-reads/PartReadsOpen.al:269-283, :336-379). What a First or
+                // (`sync_parts_after_move`, pages/parts/PartReadsOpen.al:269-283, :336-379). What a First or
                 // Last that stays on the row does, and what GoToKey, GoToRecord, the Find*Field methods and New do
                 // to a part without a link, is not pinned: they keep re-reading every part as before.
                 let stayed = match &before {
@@ -629,8 +629,8 @@ impl Session {
         }
         match method.method() {
             // `TestPart.Visible` / `.Enabled` read the part control of the host: a part that is
-            // reachable at all is visible (corpus testpart/TestTestPart.al:TestPart_Visible_*).
-            // A part whose Visible expression came out false answers No (misc/lt-probes-needed-7/PnGPartTriggers.al:
+            // reachable at all is visible (corpus testpage/parts/TestTestPart.al:TestPart_Visible_*).
+            // A part whose Visible expression came out false answers No (testpage/PnGPartTriggers.al:
             // HiddenPartExpression).
             PageMethod::Visible if method.recv() == PageRecv::TestPart => {
                 self.require_open(st)?;
@@ -649,7 +649,7 @@ impl Session {
                 }
             }
             // The id is a compiler-generated control id; the corpus pins only that a table field
-            // number is not one (testpart/TestTestPart.al:TestPart_GetField_TakesAControlIdNotATableFieldNo).
+            // number is not one (testpage/parts/TestTestPart.al:TestPart_GetField_TakesAControlIdNotATableFieldNo).
             PageMethod::Filter => {
                 self.require_open(st)?;
                 Ok(self.filter_handle(st))
@@ -657,7 +657,7 @@ impl Session {
             PageMethod::GetField => {
                 self.require_open(st)?;
                 match args.first() {
-                    // Code: handlers/TestPageRuntimeContracts.al:274-275 (page and part).
+                    // Code: testpage/TestPageRuntimeContracts.al:274-275 (page and part).
                     Some(Value::Integer(n)) => Err(error_code(
                         format!("The field with ID = {n} is not found on the page."),
                         "TestFieldNotFound",
@@ -708,7 +708,7 @@ impl Session {
             }
             PageMethod::IsExpanded => {
                 self.require_open(st)?;
-                // On a tree, whether the row was expanded with Expand(true) (pages/lt-ah-pages/AhPageTests.al:953-961).
+                // On a tree, whether the row was expanded with Expand(true) (testpage/AhPageTests.al:953-961).
                 if self.has_source(st) && self.tree_indentation(st).is_some() && st.borrow().cursor == Cursor::Row {
                     let key = self.row_key(&self.page_rec(st))?;
                     return Ok(Value::Boolean(
@@ -732,7 +732,7 @@ impl Session {
                 }
                 if m == PageMethod::OK && self.lookup_ok_on_no_row(st)? {
                     // A list page variable in lookup mode whose view shows no row has no OK action
-                    // (errors/lt-ms-refusals-129/P129PageMisc.al:726 TV_GetRecord_AfterLookupOk_FilteredToNoRow, :772
+                    // (testpage/P129PageMisc.al:726 TV_GetRecord_AfterLookupOk_FilteredToNoRow, :772
                     // TV_GetRecord_AfterSetRecordAndLookupOk_FilteredToNoRow).
                     return Err(error_code(
                         "The built-in action = OK is not found on the page.".to_string(),
@@ -740,7 +740,7 @@ impl Session {
                     ));
                 }
                 if !self.builtin_offered(st, m.name()) {
-                    // Code TestActionNotFound (pages/lt-page-run-overloads-testpart/P106RunInstance.al:P106_Inst_RunModal_List `af100`).
+                    // Code TestActionNotFound (pages/parts/P106RunInstance.al:P106_Inst_RunModal_List `af100`).
                     return Err(error_code(
                         format!("The built-in action = {m} is not found on the page."),
                         "TestActionNotFound",
@@ -759,8 +759,8 @@ impl Session {
                 })))
             }
             // `ObjectId(UseNames)`: `Page <id>`, or with names (the default) `Page <Caption>`, the object name when
-            // the page has no Caption. Taken from the probed report form (handlers/PWRefusedBuiltins.al:78-107,
-            // BC 27.5; the page form is pinned by handlers/PRPageObjectId.al). It reads the object, so
+            // the page has no Caption. Taken from the probed report form (recordref-fieldref/PWRefusedBuiltins.al:78-107,
+            // BC 27.5; the page form is pinned by pages/PRPageObjectId.al). It reads the object, so
             // a page that has not run answers too.
             PageMethod::ObjectId if method.recv() == PageRecv::Page => {
                 let names = match args.first() {
@@ -783,7 +783,7 @@ impl Session {
                 Ok(Value::Text(format!("Page {caption}").into()))
             }
             // `CurrPage.Caption := x` sets the page's caption for as long as it stays open; without an
-            // argument it answers the caption in force (handlers/TestPageCaption_Page.al:44).
+            // argument it answers the caption in force (testpage/TestPageCaption_Page.al:44).
             PageMethod::Caption if method.recv() == PageRecv::Page => {
                 // The caption read on a Page variable before the page runs is the page's own (Edit Dimension Set Entries.SetFormCaption
                 // reads `CurrPage.Caption` before Dimension Management runs the page); an assignment still needs an open page
@@ -813,7 +813,7 @@ impl Session {
                 }
             }
             // `ObjectId(UseNames)` (CurrPage and a Page variable alike, open or not): `Page <id>`, or with names, the
-            // default, `Page <Caption>` and the object name when the page has no Caption (handlers/PRPageObjectId.al).
+            // default, `Page <Caption>` and the object name when the page has no Caption (pages/PRPageObjectId.al).
             PageMethod::ObjectId if method.recv() == PageRecv::Page => {
                 let names = match args.first() {
                     None => true,
@@ -837,7 +837,7 @@ impl Session {
                 Ok(Value::Text(self.test_page_caption(st)?.into()))
             }
             // `CurrPage.PromptMode := PromptMode::Prompt` states what a PromptDialog already starts in:
-            // the pages of handlers/TbaPromptDeclared.Page.al and TbaPromptBare.Page.al do it in OnOpenPage
+            // the pages of ui-handlers/TbaPromptDeclared.Page.al and TbaPromptBare.Page.al do it in OnOpenPage
             // and the tests around them (TestPageBuiltInActions_Tests.al (a)-(j)) see an ordinary dialog.
             // The other modes are not pinned.
             PageMethod::PromptMode => match args.first() {
@@ -853,7 +853,7 @@ impl Session {
                 // A Page variable that has not run (Base App sets `Languages.Editable := false` before
                 // `RunModal`): no "not open" error. It reads true until set, and what it was set to is
                 // what the page opens with, for Run and RunModal alike
-                // (handlers/TestPageVariableEditableContracts.al).
+                // (pages/run-modal/TestPageVariableEditableContracts.al).
                 if !st.borrow().open {
                     return match args.first() {
                         Some(v) => {
@@ -862,7 +862,7 @@ impl Session {
                             Ok(Value::Null)
                         }
                         // What it was set to, else the page's own `Editable` property (corpus
-                        // handlers/PWPageVariableEditable.al:187-205: a page with `Editable = false`
+                        // pages/PWPageVariableEditable.al:187-205: a page with `Editable = false`
                         // reads No before it runs).
                         None => {
                             let engine = self.engine();
@@ -878,7 +878,7 @@ impl Session {
                     // CurrPage.Editable(false) in OnOpenPage makes the page, page-variable controls
                     // included, read-only; Editable(true) there does not widen a View page. Calls
                     // from later triggers leave TestPage.Editable() alone (corpus
-                    // handlers/TestPageControlEditableRoutes.al:536-555, TestPageEditable_Tests.al:150-180;
+                    // testpage/TestPageControlEditableRoutes.al:536-555, TestPageEditable_Tests.al:150-180;
                     // their effect on Rec-bound controls is docs/probes-needed.md).
                     Some(v) => {
                         let on = ops::truthy(v)?;
@@ -896,15 +896,15 @@ impl Session {
                         Ok(Value::Null)
                     }
                     // After `CurrPage.Editable(false)` in an action, page code in the same action reads No
-                    // (pages/lt-tc-bare-page-methods/TcBarePageObjects.al:309-310, TcBarePageMethodsTests.al:359); the next
-                    // action reads the page's own value (pages/lt-page-runtime/P82CurrPage.al:196-219). What
+                    // (pages/bare-page-methods/TcBarePageObjects.al:309-310, TcBarePageMethodsTests.al:359); the next
+                    // action reads the page's own value (pages/run-modal/P82CurrPage.al:196-219). What
                     // `Editable(true)` there reads back is not pinned: on an editable page it reads Yes as before, on a read-only page it is refused.
                     None if st.borrow().editable_set_later == Some(false) => Ok(Value::Boolean(false)),
                     None if st.borrow().editable_set_later == Some(true) && !self.page_editable(st) => unsupported(
                         "CurrPage.Editable() read after CurrPage.Editable(true) on a read-only page (not pinned)",
                     ),
                     // Read from page code on an OpenNew page after CurrPage.Editable(false): only TestPage.Editable() is
-                    // pinned there (pages/lt-cd-testpage-leads/CdTestPageLeads.al:117).
+                    // pinned there (testpage/CdTestPageLeads.al:117).
                     None if self.open_lock(st) == Some(PageMode::New) => unsupported(
                         "CurrPage.Editable() read on a page opened with OpenNew whose OnOpenPage called CurrPage.Editable(false) (not pinned)",
                     ),
@@ -917,7 +917,7 @@ impl Session {
             }
             PageMethod::Trap => {
                 // The next plain Page.Run of this page type opens into this variable
-                // (corpus handlers/TestPageRunHandler_Tests.al:TrapReceivesTheNonModalPageAndItStaysOpen).
+                // (corpus ui-handlers/TestPageRunHandler_Tests.al:TrapReceivesTheNonModalPageAndItStaysOpen).
                 st.borrow_mut().trapping = true;
                 // A second Trap() on the same page, from this or another variable, replaces the first.
                 let object = st.borrow().object;
@@ -936,17 +936,17 @@ impl Session {
                 None => Ok(Value::Boolean(st.borrow().lookup)),
             },
             // `P.SetRecord(Rec)` hands the page variable the record it shows when it runs (corpus
-            // handlers/TestPageSetRecord.al).
+            // testpage/TestPageSetRecord.al).
             PageMethod::SetRecord => match args.first() {
                 Some(Value::Record(r)) => {
                     self.page_var_set_record_marked_only(st, r)?;
                     // A call on a Page variable that never ran constructs the page, and its OnInit runs then
-                    // (pages/lt-page-variable-lifecycle/PageVariableLifecycle.al:158 PageVar_MethodCallBeforeRun `afterSetRecord = I`).
+                    // (pages/lifecycle/PageVariableLifecycle.al:158 PageVar_MethodCallBeforeRun `afterSetRecord = I`).
                     if !st.borrow().typed_handler && !st.borrow().open {
                         self.construct_page(st)?;
                     }
                     // Inside a Page-typed modal handler the page holds the record already
-                    // (handlers/PSModalPageHandlerTyped.al: GetRecord answers the record SetRecord handed).
+                    // (ui-handlers/PSModalPageHandlerTyped.al: GetRecord answers the record SetRecord handed).
                     if st.borrow().typed_handler && self.has_source(st) {
                         let rec = self.page_rec(st);
                         rec.borrow_mut().fields = r.borrow().fields.clone();
@@ -960,7 +960,7 @@ impl Session {
                     }
                     let copy = Rc::new(RefCell::new(r.borrow().clone()));
                     // The rows of a temporary record stay with it: a page variable given one by SetRecord shows the table's rows
-                    // (record/lt-loadfields-pagesource-validate/P81PageTempSource.al:PageVar_SetRecord_TempRecord: `D1`, `D2`).
+                    // (record/load-fields/P81PageTempSource.al:PageVar_SetRecord_TempRecord: `D1`, `D2`).
                     copy.borrow_mut().temporary = false;
                     copy.borrow_mut().temp_id = None;
                     Self::without_marked_only(&copy);
@@ -974,7 +974,7 @@ impl Session {
                 other => unsupported(format!("Page.SetRecord with {}", other.describe())),
             },
             // `CurrPage.SetSelectionFilter(var Rec)` on a list the test client stands on a row of: the record is
-            // filtered to that row (handlers/TestPageCloseTriggersSelectionCardPageContracts.al:239-250). A
+            // filtered to that row (testpage/TestPageCloseTriggersSelectionCardPageContracts.al:239-250). A
             // record that already has filters, and a page on no row, are not pinned.
             PageMethod::SetSelectionFilter => {
                 if let Some(Value::Record(dst)) = args.first() {
@@ -983,7 +983,7 @@ impl Session {
                     }
                 }
                 // A Page variable that never ran and has no OnInit is built here for its blank record (the blank-row path below;
-                // pages/lt-page-runtime/P82PageVar.al:86 BeforeRun_Members `selectionfilter = Yes`). One with OnInit is not pinned.
+                // pages/run-modal/P82PageVar.al:86 BeforeRun_Members `selectionfilter = Yes`). One with OnInit is not pinned.
                 if st.borrow().instance.is_none()
                     && self.never_ran_page_var(st)
                     && matches!(args.first(), Some(Value::Record(_)))
@@ -1006,7 +1006,7 @@ impl Session {
                 }
                 if st.borrow().cursor != Cursor::Row && !self.closed_on_handler_set_record(st) {
                     // A page on no row because its table is empty selects nothing, and the record keeps no filter
-                    // (pages/lt-page-runtime/P82CurrPage.al:SetSelectionFilter_EmptyPage: `sel=0 filter=''`). A page on no row
+                    // (pages/run-modal/P82CurrPage.al:SetSelectionFilter_EmptyPage: `sel=0 filter=''`). A page on no row
                     // over a table that has rows is not pinned.
                     let table_empty = st.borrow().open
                         && dst.borrow().filters.is_empty()
@@ -1022,7 +1022,7 @@ impl Session {
                     }
                     // A page whose Rec is the blank record (a part that is hidden, or not yet on a row) hands a record without
                     // filters or marks the filter on the blank key, `Id: 0` and a count of 0
-                    // (pages/lt-hidden-part-selection-filter/HiddenPartSelectionFilter.al:SelectionFilter_HiddenLiteral_FilterAndCount,
+                    // (pages/parts/HiddenPartSelectionFilter.al:SelectionFilter_HiddenLiteral_FilterAndCount,
                     // _HiddenByVariable_, _VisiblePart_): that is the blank-row path below.
                     let initial = self.initial_fields(src.borrow().table as usize);
                     let blank_rec = self.is_blank_row(&src);
@@ -1052,7 +1052,7 @@ impl Session {
                     };
                     // Pinned for the page of a part, and for a Page variable that never ran and was handed no record or view: a
                     // ListPart over a temporary Integer (`Number: 0`, count 1 of the Integer table), a List and a Card (`Id: 0`,
-                    // count 0) (pages/lt-bl-unopened-currpage/UnopenedCurrPage.al:110, :159, :208 Never_Opened_*_TryFunction).
+                    // count 0) (pages/currpage/UnopenedCurrPage.al:110, :159, :208 Never_Opened_*_TryFunction).
                     let unopened_var = self.never_ran_page_var(st) && {
                         let s = st.borrow();
                         s.set_record.is_none() && !s.set_view
@@ -1069,12 +1069,12 @@ impl Session {
                 }
                 // A record that already has filters ends with the filter of the selected row alone: a filter on another field and
                 // on the key field, a range on the key, and the page's own filters copied from Rec are gone; a mark and MarkedOnly stay
-                // (errors/lt-ms-refusals-128/P128SelectionFilter.al:P128_SetSelectionFilter_IntoRecordsWithFilters_SecondRow,
+                // (testpage/P128SelectionFilter.al:P128_SetSelectionFilter_IntoRecordsWithFilters_SecondRow,
                 // _MarkCopyTemporary (without the mark), _CalledTwiceOnOneRecord, _PageWithOwnFilter_CopyOfRec).
                 // A record that has marks and MarkedOnly on, with a mark outside the selected row, ends with the selected row marked
                 // as well: `Marked: Yes, Code: C` in the filters, MarkedOnly still on and a count of 1
                 // (P128_SetSelectionFilter_IntoRecordsWithFilters_MarkCopyTemporary, `marked A only`); marks without MarkedOnly end
-                // the same way without `Marked: Yes` (pages/lt-ap-testpage-642/ApTestPageTests.al:881). MarkedOnly without marks and a
+                // the same way without `Marked: Yes` (testpage/ApTestPageTests.al:881). MarkedOnly without marks and a
                 // mark on the selected row are not pinned.
                 let selected_key = {
                     let t = self.table(dst)?;
@@ -1084,14 +1084,14 @@ impl Session {
                 let marked_only = dst.borrow().marked_only;
                 // The page's record is the blank one (the page stands on no stored row, as in a handler that opened it): the record
                 // takes the filter on the blank key and keeps its marks and MarkedOnly as they were, with no mark added
-                // (pages/lt-selection-filter-no-row/SelectionFilterNoRow.al:Marks_WithoutMarkedOnly, MarkedOnly_WithoutMarks,
+                // (pages/currpage/SelectionFilterNoRow.al:Marks_WithoutMarkedOnly, MarkedOnly_WithoutMarks,
                 // Mark_OnSelectedRow, MarkedOnly_MarkOnOtherRow: `Id: 0`, `Marked: Yes, Id: 0`, count 0).
                 let blank_row = self.is_blank_row(&src) || self.on_list_new_line_blank_key(st, &src)?;
                 if !blank_row
                     && ((marked_only && !marked)
                         // A record whose only mark is the selected row (an earlier call on it left that mark) ends as it was
-                        // (errors/lt-ms-refusals-128/P128SelectionFilter.al:P128_SetSelectionFilter_CalledTwiceOnOneRecord,
-                        // errors/lt-ms-refusals-135/P135SelectionFilter.al:
+                        // (testpage/P128SelectionFilter.al:P128_SetSelectionFilter_CalledTwiceOnOneRecord,
+                        // testpage/P135SelectionFilter.al:
                         // P135_SelFilter_GroupMarkedPresetTwice); the selected row marked among others is not pinned.
                         || (dst.borrow().marks.len() > 1
                             && dst.borrow().marks.iter().any(|m| {
@@ -1109,7 +1109,7 @@ impl Session {
                 let fields = src.borrow().fields.clone();
                 dst.borrow_mut().fields = fields;
                 // The primary key's fields alone get the filter, whatever the current key: a record with `SetCurrentKey(Grp, Name)` ends
-                // with `Id: 2` only and keeps its key (errors/lt-ms-refusals-135/P135SelectionFilter.al:
+                // with `Id: 2` only and keeps its key (testpage/P135SelectionFilter.al:
                 // P135_SelFilter_FreshRecord_AndOtherFieldFilters `keyed`).
                 let t = self.table(dst)?;
                 let group = dst.borrow().filter_group;
@@ -1124,8 +1124,8 @@ impl Session {
                 }
                 drop(d);
                 // The selected row ends as the only marked row: a fresh record gets it marked
-                // (pages/lt-cd-testpage-leads/CdTestPageLeads.al:676-708, Item60_SelectionFilter_*, `marked=2,`), and the marks of
-                // other rows are gone, with or without MarkedOnly (pages/lt-ap-testpage-642/ApTestPageTests.al:866-882,
+                // (testpage/CdTestPageLeads.al:676-708, Item60_SelectionFilter_*, `marked=2,`), and the marks of
+                // other rows are gone, with or without MarkedOnly (testpage/ApTestPageTests.al:866-882,
                 // Ap15_SetSelectionFilter_IntoMarkedRecord, `rows=C*;after=C`).
                 if !blank_row {
                     dst.borrow_mut().marks = vec![selected_key];
@@ -1136,7 +1136,7 @@ impl Session {
             // (docs/probes-needed.md). Refused when reached, like SetSelectionFilter.
             // `P.GetRecord(var Rec)` after the page ran: the row it stood on when it closed, the picked row after
             // OK and the last positioned row after Cancel too, without filters
-            // (handlers/TestPageCloseTriggersSelectionCardPageContracts.al:250-285).
+            // (testpage/TestPageCloseTriggersSelectionCardPageContracts.al:250-285).
             PageMethod::GetRecord => self.page_get_record(st, args),
             PageMethod::SetTableView => match args.first() {
                 Some(Value::Record(r)) => self.page_var_set_table_view(st, r),
@@ -1164,12 +1164,12 @@ impl Session {
                 self.run_page_ui(st, record, true)
             }
             // `CurrPage.Close()` in a procedure of a Page variable that never ran does nothing and the procedure goes on
-            // (pages/lt-closed-page-variable-currpage/ClosedPageVariableCurrPageClose.al:98-114, Close_NeverRun), and so does
+            // (pages/currpage/ClosedPageVariableCurrPageClose.al:98-114, Close_NeverRun), and so does
             // `Close()` of a Page variable whose modal page closed: after its handler failed (ClosedPageVariableCurrPageClose.al:70
-            // Close_AfterModalClosed) and after it closed with OK (pages/lt-page-runtime/P82PageVar.al:138 AfterRunModal_Members).
+            // Close_AfterModalClosed) and after it closed with OK (pages/run-modal/P82PageVar.al:138 AfterRunModal_Members).
             PageMethod::Close if method.recv() == PageRecv::Page && self.page_var_not_shown(st) => Ok(Value::Null),
             // In a Page-typed PageHandler of Page.Run the handler's Close does nothing: no trigger, and the handler goes on
-            // (pages/lt-y17-page-handler-record/Y17PageHandlerRecord.al:301 PageTypedHandler_RunWithRecord_Close `handler;closed;`).
+            // (pages/page-handler-with-record/Y17PageHandlerRecord.al:301 PageTypedHandler_RunWithRecord_Close `handler;closed;`).
             PageMethod::Close
                 if method.recv() == PageRecv::Page && st.borrow().typed_run_handler && !st.borrow().open =>
             {
@@ -1183,7 +1183,7 @@ impl Session {
                 let fields = restored.then(|| self.page_rec(st).borrow().fields.clone());
                 let r = self.close_with(st, &a, false, false)?;
                 // Under Page.RunModal the record variable gets the shown row the call read back, although the page closes with
-                // LookupCancel (misc/lt-probes-needed-7/PnGRefresh.al:996 QN_CloseQ_Sheet_RunModal_OtherChanged_CloseInAction
+                // LookupCancel (testpage/PnGRefresh.al:996 QN_CloseQ_Sheet_RunModal_OtherChanged_CloseInAction
                 // `run-modal-result = LookupCancel`, `row-after = A,orig A`; :1113 the List page). Pinned for that read back only.
                 if let Some(fields) = fields.filter(|_| a == "LookupCancel" && st.borrow().selection.is_none()) {
                     st.borrow_mut().selection = Some(fields);
@@ -1204,7 +1204,7 @@ impl Session {
                 self.require_open(st)?;
                 let i = match args.first() {
                     Some(Value::Integer(i)) => *i,
-                    // No index: the page's errors joined by CR LF (pages/lt-f3-pages/F3ValidationAddinFilter.al:GetValidationError_TwoErrors
+                    // No index: the page's errors joined by CR LF (testpage/F3ValidationAddinFilter.al:GetValidationError_TwoErrors
                     // line 238, two errors; one error and none at :225 and :272). Three or more are not pinned.
                     None => {
                         let s = st.borrow();
@@ -1221,26 +1221,26 @@ impl Session {
                 let s = st.borrow();
                 match usize::try_from(i - 1).ok().and_then(|n| s.errors.get(n)) {
                     Some((_, t)) => Ok(Value::Text(t.clone().into())),
-                    // Index 0 is pinned (handlers/TestPageRuntimeContracts.al:224-236: text and code);
+                    // Index 0 is pinned (testpage/TestPageRuntimeContracts.al:224-236: text and code);
                     // an index past the last error is assumed to raise the same (docs/probes-needed.md).
                     None => Err(error_code("Index out of bounds.", "IndexOutOfBounds")),
                 }
             }
             // A part the page's own code created without opening it (a literal `Visible = false`) has no
             // client to refresh: `CurrPage.Update` in its procedure does nothing, with and without the argument
-            // (pages/lt-hidden-part-currpage/HiddenPartCurrPageUpdateFalse.al:UpdateFalse_LiteralInvisible_OpenEdit,
+            // (pages/parts/HiddenPartCurrPageUpdateFalse.al:UpdateFalse_LiteralInvisible_OpenEdit,
             // HiddenPartCurrPageUpdateTrue.al:UpdateTrue_LiteralInvisible_OpenEdit). Base Application's Approval FactBox ends
             // `UpdateApprovalEntriesFromSourceRecord` with it.
             PageMethod::Update if st.borrow().host.is_some() && !st.borrow().open => Ok(Value::Null),
             // A Page variable the client does not show has no client either; called directly or from its own procedure:
             // - never ran: `Update(false)`, `Update(true)` and `SaveRecord()` do nothing and the code goes on
-            //   (pages/lt-closed-page-variable-currpage/ClosedPageVariableCurrPageUpdate.al:98-114 Update_NeverRun;
-            //   pages/lt-page-runtime/P82PageVar.al:76-81 BeforeRun_Members; pages/lt-bl-unopened-currpage/UnopenedCurrPage.al:101-103,
+            //   (pages/currpage/ClosedPageVariableCurrPageUpdate.al:98-114 Update_NeverRun;
+            //   pages/run-modal/P82PageVar.al:76-81 BeforeRun_Members; pages/currpage/UnopenedCurrPage.al:101-103,
             //   :150-152, :199-201, :227 and :246 after SetRecord and SetTableView);
             // - its modal page closed: `Update(false)` and `SaveRecord()` do nothing (ClosedPageVariableCurrPageUpdate.al:70
             //   Update_AfterModalClosed; P82PageVar.al:136-142 AfterRunModal_Members).
             // - never ran, `Update()` without an argument: does nothing, also on a NavigatePage without a source table and
-            //   before a RunModal of the same variable (pages/lt-y50-update-never-run/Y50UpdateNeverRun.al:241-255 T1, :259 T2,
+            //   before a RunModal of the same variable (pages/currpage/Y50UpdateNeverRun.al:241-255 T1, :259 T2,
             //   :278 T3, :317 T5); after a modal run closed with OK, `Update()` and `Update(true)` do nothing (:336-352 T6,
             //   `closed_after_modal_ok` in `test_page_op`).
             PageMethod::Update | PageMethod::SaveRecord
@@ -1265,7 +1265,7 @@ impl Session {
                 let save = (method == PageOp::PageSaveRecord) || !matches!(args.first(), Some(Value::Boolean(false)));
                 if !(method == PageOp::PageSaveRecord) {
                     // The refresh lands after the trigger that asked for it returns (corpus
-                    // pageupdate/TestPageUpdate.al: ValidateBegin;ValidateEnd;HostAGCR).
+                    // pages/currpage/TestPageUpdate.al: ValidateBegin;ValidateEnd;HostAGCR).
                     st.borrow_mut().refresh = true;
                     st.borrow_mut().refresh_by_update = true;
                     st.borrow_mut().refresh_update_false = !save;
@@ -1276,7 +1276,7 @@ impl Session {
                 }
                 // CurrPage.SaveRecord() in the OnValidate of a part's control changes neither Rec nor xRec of the stored row; a new
                 // row gets its inserted key in Rec while xRec stays the blank new row
-                // (pages/lt-qj-part-propagation/QjPartPropagation.al:733 QJ_SubformSaveRecord_StoredRow `S.V.after(10000 r=5 x=1 ...)`,
+                // (pages/parts/QjPartPropagation.al:733 QJ_SubformSaveRecord_StoredRow `S.V.after(10000 r=5 x=1 ...)`,
                 // :764 QJ_SubformSaveRecord_NewRow `S.V.after(20000 r=5 x=0 x.ln=0 delta=5)`). Pinned for a ListPart only.
                 let keep_xrec = method == PageOp::PageSaveRecord
                     && {
@@ -1297,14 +1297,14 @@ impl Session {
             }
             // `Page.Activate([Refresh])` answers Yes and raises nothing where the test client shows no page:
             // - a Page variable that never ran, with and without Refresh, called directly and from its own procedure
-            //   (pages/lt-page-runtime/P82PageVar.al:82 BeforeRun_Members; pages/lt-bl-unopened-currpage/UnopenedCurrPage.al:104-105,
+            //   (pages/run-modal/P82PageVar.al:82 BeforeRun_Members; pages/currpage/UnopenedCurrPage.al:104-105,
             //   :153-154, :202-203 Never_Opened_*_TryFunction);
             // - a Page variable whose modal page closed (P82PageVar.al:140 AfterRunModal_Members);
             // - a part its host hid, by a literal `Visible = false` (never opened) or by an expression (opened, not shown), called
-            //   from the host's OnAfterGetCurrRecord; no part trigger runs (pages/lt-hidden-part-currpage/HiddenPartCurrPageActivate.al:145
+            //   from the host's OnAfterGetCurrRecord; no part trigger runs (pages/parts/HiddenPartCurrPageActivate.al:145
             //   Activate_LiteralInvisible_OpenEdit, :174 Activate_ExprInvisible_OpenEdit);
             // - the page of a typed ModalPageHandler (`var P: Page`), with and without Refresh
-            //   (platform/lt-xmlport-session-navapp-cookie/P94PageModal.al:338 Activate_InsideModalHandler, :355 ..Refresh).
+            //   (metadata/session-system/P94PageModal.al:338 Activate_InsideModalHandler, :355 ..Refresh).
             // A page the test client shows, and a Refresh of an open page whose row triggers would run again, are not pinned.
             PageMethod::Activate if method.recv() == PageRecv::Page => {
                 let refresh = matches!(args.first(), Some(Value::Boolean(true)));
@@ -1351,9 +1351,9 @@ impl Session {
     fn save_record_now(&mut self, st: &St) -> Result<(), Signal> {
         {
             // Page code changed Rec: SaveRecord writes it whether or not the client typed anything
-            // (corpus handlers/TestPageTriggerEvents.al, ModifyRecordEvent_PageDrivenSave_*).
+            // (corpus testpage/TestPageTriggerEvents.al, ModifyRecordEvent_PageDrivenSave_*).
             // Page code that inserted the new row itself and copied it into Rec hands the page
-            // that row (corpus handlers/TestPageOpenNewAfterGetCurrRecord.al:44-63).
+            // that row (corpus testpage/TestPageOpenNewAfterGetCurrRecord.al:44-63).
             if self.save_found_row_from_new_line(st)? {
                 return Ok(());
             }

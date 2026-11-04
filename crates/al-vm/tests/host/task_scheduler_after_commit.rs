@@ -1,5 +1,5 @@
 //! A TaskScheduler task after the transaction that created it was committed: it stays in the Scheduled Task table as it
-//! was created and never runs in a test (platform/lt-y43-task-after-commit/Y43TaskAfterCommit.al, corpus PR 966).
+//! was created and never runs in a test (metadata/session-system/Y43TaskAfterCommit.al, corpus PR 966).
 
 use al_builtins::native::Signal;
 

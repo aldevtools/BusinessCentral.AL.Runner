@@ -1,4 +1,4 @@
-//! `RecordRef.SetTable(V)` with a RecordRef in the Variant V (recordref/lt-wc/WcSetTableVariant.al, al-runner issue 6308): the
+//! `RecordRef.SetTable(V)` with a RecordRef in the Variant V (types/WcSetTableVariant.al, al-runner issue 6308): the
 //! receiver itself is a no-op, another RecordRef of the same table takes a copy of the filters and the current row, another
 //! table, a RecordRef that is not open and an empty Variant raise.
 

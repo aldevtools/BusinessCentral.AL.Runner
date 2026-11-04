@@ -17,14 +17,14 @@ pub(super) fn add(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     let last = a.len().saturating_sub(1);
     for (i, arg) in a.iter().enumerate() {
         // An XmlWriteOptions after a node, given to Add of a document or an element, is accepted and adds nothing
-        // (writer TV, corpus branch al-runtime-rs-staging-tv 8ae7ac0b, xml/lt-de-xml-leads/DeXmlWriteLeads.al
+        // (writer TV, corpus branch al-runtime-rs-staging-tv 8ae7ac0b, xml/DeXmlWriteLeads.al
         // TV_XmlWriteOptions_AsContent_DocumentAdd and _ElementAdd: one child, written as before).
         if i == last
             && i > 0
             && matches!(arg, Value::Library(name, _) if name.as_str() == "XmlWriteOptions")
             && matches!(kind(&h), "XmlDocument" | "XmlElement")
         {
-            // Pinned by xml/lt-de-xml-leads/DeXmlWriteLeads.al TV_WriteToOutStream_BuiltWithoutDeclaration_Options, TV_WriteToOutStream_Utf8Declaration_OtherStreams, TV_WriteToOutStream_Utf16AndNoEncodingDeclarations, TV_XmlWriteOptions_AsContent_DocumentAdd (was assumption `xml-write-to-outstream-built`).
+            // Pinned by xml/DeXmlWriteLeads.al TV_WriteToOutStream_BuiltWithoutDeclaration_Options, TV_WriteToOutStream_Utf8Declaration_OtherStreams, TV_WriteToOutStream_Utf16AndNoEncodingDeclarations, TV_XmlWriteOptions_AsContent_DocumentAdd (was assumption `xml-write-to-outstream-built`).
             continue;
         }
         if doc_blank_text(&h, arg)? {
@@ -49,7 +49,7 @@ pub(super) fn add(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
 }
 
 /// `Add` of an XML declaration to a document raises (a declaration comes with `Create` or `SetDeclaration`:
-/// misc/lt-probes-needed-1/PnAXmlNodeAdds.al `declaration-into-document`, an Argument error).
+/// xml/PnAXmlNodeAdds.al `declaration-into-document`, an Argument error).
 pub(super) fn reject_declaration_in_document(container: &Handle, nodes: &[Handle]) -> Result<(), Signal> {
     if kind(container) == "XmlDocument" && nodes.iter().any(|n| kind(n) == "XmlDeclaration") {
         return Err(nav_argument());
@@ -140,12 +140,12 @@ pub(super) fn is_text_like(h: &Handle) -> bool {
 }
 
 /// Inserts the content of a sibling operation of a text, CDATA, comment or processing instruction. An attribute among
-/// the nodes raises an Argument error after the nodes before it are in (xml/lt-xml-cdata-comment-pi-text/
+/// the nodes raises an Argument error after the nodes before it are in (xml/xml/
 /// P90CDataEdit.al:887 AfterSelf_ThreeNodes_OneInvalid `t1_6_3` keeps `e1`, `t1_3_6` keeps `e1` and `c3`, `t6_1_3` adds nothing).
 /// Other receivers refuse attributes before inserting anything (reject_attributes).
 pub(super) fn insert_siblings(h: &Handle, p: &Handle, at: usize, nodes: Vec<Handle>) -> Result<(), Signal> {
     // A declaration next to a document type raises an Argument error, as `Add` of one to a document does
-    // (xml/lt-xml-remaining-node-methods/P104TreeADocType.al:211 `c12`, :341; P104TreeBDocType.al:333).
+    // (xml/xml/P104TreeADocType.al:211 `c12`, :341; P104TreeBDocType.al:333).
     if with(h, |d| matches!(d, XData::DocType { .. })) {
         reject_declaration_in_document(p, &nodes)?;
     }
@@ -164,7 +164,7 @@ pub(super) fn insert_siblings(h: &Handle, p: &Handle, at: usize, nodes: Vec<Hand
 
 /// An element whose `Add`, `AddFirst`, `AddAfterSelf` or `AddBeforeSelf` gets one unassigned `XmlNode` raises
 /// `Microsoft.Dynamics.Nav.Runtime.NavXmlNode variable not initialized.` (NotInitialized) and changes nothing; an unassigned
-/// `XmlElement` given to `Add` or `AddAfterSelf` names NavXmlElement (xml/lt-wd/WdXmlEmptyNsAndUnassigned.al
+/// `XmlElement` given to `Add` or `AddAfterSelf` names NavXmlElement (xml/WdXmlEmptyNsAndUnassigned.al
 /// WD_XmlNode_Unassigned_AsContent, WD_XmlElement_Unassigned_AsContent; corpus branch al-runtime-rs-staging-1030c, al-runner
 /// issue 6303). Other receivers, methods and argument lists are not pinned (content_nodes refuses them).
 pub(super) fn reject_unassigned_element_content(h: &Handle, a: &[Value], method: &str) -> Result<(), Signal> {
@@ -203,7 +203,7 @@ pub(super) fn add_before_self(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [V
 
 pub(super) fn remove(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     let h = recv_or_uninit(r, "XmlNode")?;
-    // A declaration cannot be removed, from its document or detached; the document keeps it (xml/lt-xml-remaining-node-methods/
+    // A declaration cannot be removed, from its document or detached; the document keeps it (xml/xml/
     // P104TreeBDecl.al:P104_Remove_InDoc).
     if with(&h, |d| matches!(d, XData::Declaration { .. })) {
         if c.ret_used() {
@@ -244,7 +244,7 @@ pub(super) fn replace_with(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Valu
     }
     let (p, i) = position_in_parent(&h, a)?;
     // A comment or a processing instruction of a document that cannot be replaced is gone all the same, whether the nodes
-    // are refused as an argument or in the document (xml/lt-xml-cdata-comment-pi-text/P90CommentRead.al:
+    // are refused as an argument or in the document (xml/xml/P90CommentRead.al:
     // DocLevel_BeforeSelf_AndReplace, P90PIRead.al).
     if kind(&p) == "XmlDocument" && with(&h, |d| matches!(d, XData::Comment(_) | XData::Pi { .. })) {
         detach(&h);
@@ -258,7 +258,7 @@ pub(super) fn replace_with(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Valu
     }
     // A text, CDATA, comment or processing instruction of an element is removed first, then the content is read and
     // added, so a failing argument leaves it removed and a node that is its own argument goes back in its place
-    // (xml/lt-xml-cdata-comment-pi-text/P90CDataEdit.al:681 ReplaceWith_Attached_InvalidKinds `k6`..`k9`,
+    // (xml/xml/P90CDataEdit.al:681 ReplaceWith_Attached_InvalidKinds `k6`..`k9`,
     // ReplaceWith_Attached_ExistingNodes `k11`, ReplaceWith_ThreeNodes_OneInvalid `t1_6_3`).
     if is_text_like(&h) {
         detach(&h);
@@ -309,9 +309,9 @@ pub(super) fn replace_nodes(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Val
 
 pub(super) fn get_root(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     // The statement form on an unassigned or cleared document raises XmlNodeNotFound (corpus branch al-runtime-rs-staging-ul
-    // b753d3fb7a, xml/lt-ul-clear-ref/UlClearXmlRef.al:168-204 ClearXmlDocument_SecondVariable `cleared doc|root`).
+    // b753d3fb7a, xml/xml/UlClearXmlRef.al:168-204 ClearXmlDocument_SecondVariable `cleared doc|root`).
     if !c.ret_used() && unassigned(&r, "XmlDocument") {
-        // Pinned by xml/lt-ul-clear-ref/UlClearXmlRef.al (was assumption `clear-xml-ref`).
+        // Pinned by xml/xml/UlClearXmlRef.al (was assumption `clear-xml-ref`).
         return Err(error("The XML node is not set.", "XmlNodeNotFound"));
     }
     let h = recv(r)?;
@@ -373,7 +373,7 @@ pub(super) fn set_declaration(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [V
 }
 
 /// The document type of a document: the one a program added (reading a document drops its DOCTYPE, so a read document has
-/// none: xml/lt-xml-doctype-declaration/DocTypeRead.al). The Boolean form is false without one and the statement form
+/// none: xml/xml/DocTypeRead.al). The Boolean form is false without one and the statement form
 /// raises (xml/TestXmlRuntimeContracts.al:XmlDocument_GetDocumentType_WithoutDoctype, DocTypeInDoc.al:GetDocumentType_Statement).
 pub(super) fn get_document_type(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv(r)?;
@@ -393,7 +393,7 @@ pub(super) fn get_document_type(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
 pub(super) fn get_document(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv_or_uninit(r, "XmlNode")?;
     let root = root_of(&h);
-    // A declaration belongs to no document as far as GetDocument goes (xml/lt-xml-remaining-node-methods/P104TreeBDecl.al:
+    // A declaration belongs to no document as far as GetDocument goes (xml/xml/P104TreeBDecl.al:
     // P104_Remove_InDoc `document1`).
     if with(&h, |d| !matches!(d, XData::Declaration { .. })) && with(&root, |d| matches!(d, XData::Document { .. })) {
         a[0] = tagged("XmlDocument", root);

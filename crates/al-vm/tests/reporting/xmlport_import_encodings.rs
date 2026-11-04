@@ -1,5 +1,5 @@
 //! An import of a source that is no UTF-8 or UTF-16 text: a document that declares iso-8859-1 is read as Latin-1 (corpus
-//! xmlport/lt-xmlport-query-datatransfer/XpTEncoding.al:235 Encoding_ImportXmlDeclaredLatin1: `Mü` imports), and a text port
+//! xmlports/import/XpTEncoding.al:235 Encoding_ImportXmlDeclaredLatin1: `Mü` imports), and a text port
 //! whose root is a table element fails with the root error before the bytes are decoded (:165 Encoding_ImportCsvWindows, :179
 //! Encoding_ImportCsvUtf16).
 

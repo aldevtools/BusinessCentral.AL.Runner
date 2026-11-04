@@ -1,6 +1,6 @@
 //! GoToKey on a Document host walks the host rows from the first one; its part reads its rows for each host row passed whose
 //! lines it does not already show, so a GoToKey onto the row the host stands on reads the part for the first row and then for
-//! the target again (pages/lt-qj-part-propagation/QjPartPropagation.al:1183 QL_Both_GoToKey_Counts, :1210
+//! the target again (pages/parts/QjPartPropagation.al:1183 QL_Both_GoToKey_Counts, :1210
 //! QL_Default_GoToKey_Counts `log-gotokey-h2-again`, corpus bump 42).
 
 const SRC: &str = r#"

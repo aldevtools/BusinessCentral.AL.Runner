@@ -12,12 +12,12 @@ pub(super) fn unassigned(r: &Option<&mut Value>, ty: &str) -> bool {
 pub(super) fn element_name(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     // An unassigned XmlElement raises NotInitialized (xml/XmlElement.al:820 Default_Element_Uninitialized `name`); a cleared
     // one is an unassigned one (Clear marks that assumption; corpus branch al-runtime-rs-staging-ul b753d3fb7a,
-    // xml/lt-ul-clear-ref/UlClearXmlRef.al:90-102 ClearXmlElement_NeverAssigned).
+    // xml/xml/UlClearXmlRef.al:90-102 ClearXmlElement_NeverAssigned).
     if unassigned(&r, "XmlElement") {
         return Err(uninitialized("XmlElement"));
     }
     // So does an unassigned XmlAttribute (xml/XmlAttributes.al:517-522 Attribute_Uninitialized), also after a Get that found
-    // nothing (corpus master, corpus PR 886: xml/lt-xml-attr-doc-http-members/AttrCollectionGetMissing.al:76-83).
+    // nothing (corpus master, corpus PR 886: xml/xml/AttrCollectionGetMissing.al:76-83).
     if unassigned(&r, "XmlAttribute") {
         return Err(uninitialized("XmlAttribute"));
     }
@@ -104,9 +104,9 @@ pub(super) fn get_prefix_of_namespace(_: &mut dyn Ctx, r: Option<&mut Value>, a:
         cur = parent_of(&e);
     }
     // No declaration in scope: Yes, the reserved namespaces give `xml` and `xmlns` and any other (the empty one, one no
-    // element declares, on a loaded or a detached element) the empty prefix (xml/lt-tf-xml-ns/XmlNsPrefixes.al:55-108
+    // element declares, on a loaded or a detached element) the empty prefix (xml/xml/XmlNsPrefixes.al:55-108
     // Prefix_OfUndeclaredNamespace; xml/XmlXPathNamespaces.al:594 prefix_of_missing). With the result unused there is no
-    // error (misc/lt-probes-needed-1/PnAXmlParentDocNs.al:56,104 op10).
+    // error (xml/PnAXmlParentDocNs.al:56,104 op10).
     let p = match uri.as_str() {
         "http://www.w3.org/XML/1998/namespace" => "xml",
         XMLNS_URI => "xmlns",
@@ -128,7 +128,7 @@ pub(super) fn get_namespace_of_prefix(c: &mut dyn Ctx, r: Option<&mut Value>, a:
         // xml/TestProbeXmlContracts.al:GetNamespaceOfPrefix_Empty_Statement
         return Err(nav_argument());
     }
-    // The reserved prefixes have their namespaces without a declaration (xml/lt-tf-xml-ns/XmlNsPrefixes.al:76-81, :98-101
+    // The reserved prefixes have their namespaces without a declaration (xml/xml/XmlNsPrefixes.al:76-81, :98-101
     // root_xml, root_xmlns). Pinned with the result used only.
     let reserved = match prefix.as_str() {
         "xml" => Some("http://www.w3.org/XML/1998/namespace"),

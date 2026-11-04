@@ -5,7 +5,7 @@ use super::*;
 
 /// The unbound text element of an import line: the last column, a text element with `Unbound = true` on a VariableText port
 /// takes every further value of the line, its OnAfterAssignVariable once per value, empty ones included, all in one record
-/// (xmlport/lt-y60-xmlport-unbound-text/Y60XpUnboundText.al Unbound_Text_Import_ManyColumns, _ShortAndEmptyColumns,
+/// (xmlports/shapes-properties/Y60XpUnboundText.al Unbound_Text_Import_ManyColumns, _ShortAndEmptyColumns,
 /// _TrailingSeparator_QuotedValue; `MaxOccurs = Unbounded` beside it changes nothing: Unbound_Text_MaxOccursUnbounded).
 /// An unbound element that is not the last column, or on a FixedText port, is not pinned.
 pub(super) fn unbound_column(schema: &Schema, fields: &[usize], variable: bool) -> Result<Option<usize>, Signal> {
@@ -20,7 +20,7 @@ pub(super) fn unbound_column(schema: &Schema, fields: &[usize], variable: bool) 
 /// Whether a line of `values` values is pinned for the columns `fields`.
 /// - As many values as columns.
 /// - VariableText, a line that ends early: the columns it lacks are left as initialized when each is `MinOccurs = Zero`, a field
-///   element (platform/lt-ag-contoso/AgXmlPortImport.al:678, xmlport 87567: `AUD;036;1;0.01` of 8 columns) or a text element
+///   element (metadata/platform-tables/AgXmlPortImport.al:678, xmlport 87567: `AUD;036;1;0.01` of 8 columns) or a text element
 ///   (Y60XpUnboundText.al Unbound_Text_Import_ShortAndEmptyColumns, line `a` of `col1`, `colx`).
 /// - VariableText, values too many: one is left out (AgXmlPortImport.al:678 'too many columns'); when the last column is a text
 ///   element, any number is left out without an error (Y60XpUnboundText.al Unbound_Text_Import_WithoutUnbound_SameFile,

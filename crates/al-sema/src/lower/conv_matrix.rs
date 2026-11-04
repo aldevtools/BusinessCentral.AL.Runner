@@ -36,7 +36,7 @@ pub(super) fn covers(family: Family, a: &Ty, b: &Ty) -> bool {
 impl super::Lowerer<'_> {
     /// An element of `in [...]` or a case label `n` (of `family`, `CmpIn` or `CmpCase`) whose type differs from the selector's
     /// `sel` and whose pair the matrix holds: the element converts to the selector's type before the comparison
-    /// (types/lt-y31-conversion-matrix/Y31ConvCmp.al: `Integer_Decimal` 1 in [1.5] raises ConversionCast to Int32,
+    /// (types/operators-expressions/Y31ConvCmp.al: `Integer_Decimal` 1 in [1.5] raises ConversionCast to Int32,
     /// `Code10_Text` 'ABC' in ['abc'] is true, `Text10_Text` a 36-character element raises StringLengthExceeded, `Text_Guid`
     /// 'a' in [Guid] is false). The matrix tries variables only: a literal or a range keeps the plain comparison (`None`).
     pub(super) fn matrix_set_elem(
@@ -60,7 +60,7 @@ impl super::Lowerer<'_> {
 
 impl super::Lowerer<'_> {
     /// Whether `yes ? ... : no` hands the Variant a TextConstant when the Label branch is taken: a Label before the colon against
-    /// another Label or against a Text or Code that is no literal (types/lt-y81-values/Y81LabelVariant.al routes 1, 4, 6, 8, 10 and 13
+    /// another Label or against a Text or Code that is no literal (types/Y81LabelVariant.al routes 1, 4, 6, 8, 10 and 13
     /// give IsTextConstant for the Label branch; routes 2, 3, 5, 7, 9, 11 and 12, with a literal or the Label second, give Text or
     /// Code; needs corpus bump).
     fn label_branch_is_text_constant(&self, yes: &al_syntax::SyntaxNode, no: &al_syntax::SyntaxNode) -> bool {
@@ -115,7 +115,7 @@ impl super::Lowerer<'_> {
     }
 
     /// `V := B ? x : y` into a Variant with a Label branch and one of another type: in BC the Variant holds the branch taken
-    /// with its own type, a Label answering no Is... test and a Code staying a Code (types/lt-y31-conversion-matrix/
+    /// with its own type, a Label answering no Is... test and a Code staying a Code (types/operators-expressions/
     /// Y31ConvCd.al, LT Y31 Cd Label `Label_Text`, `Label_Code10`: `|abc` and `Code|A`). A Label is a Text in a Variant here
     /// (`refuse_textconst_into_variant`), so the shape is refused.
     pub(super) fn refuse_label_ternary_into_variant(
@@ -131,14 +131,14 @@ impl super::Lowerer<'_> {
             return Ok(());
         };
         let (t, f) = (self.ty_of(yes), self.ty_of(no));
-        // A Guid against a Label is pinned into a Variant (types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al:24-104).
+        // A Guid against a Label is pinned into a Variant (types/guid/UfTernaryGuidLabel.al:24-104).
         let guid = matches!(t, Ty::Guid) || matches!(f, Ty::Guid) || self.label_branch_is_text_constant(yes, no)
             // A Label against a text literal is a Text whichever branch is taken (Y81LabelVariant.al routes 2 and 12).
             || (matches!(t, Ty::Label) && matches!(f, Ty::Text(_) | Ty::Code(_)));
         // A Label false branch after a Text or Code true branch takes the true branch's type: `Text|abc` and `Code|ABC`
         // (Y31ConvCd.al Text10_Label :3187-3212, Code10_Label :3660-3700).
         let label_takes_text = matches!(f, Ty::Label) && matches!(t, Ty::Text(_) | Ty::Code(_));
-        // Two Labels hold a TextConstant in BC (types/lt-y66-ternary-label/Y66TernaryLabel.al:1029-1180, `LblMax : Lbl` and
+        // Two Labels hold a TextConstant in BC (types/text-code-char/Y66TernaryLabel.al:1029-1180, `LblMax : Lbl` and
         // `Lbl : LblMax`, real BC values not on corpus master yet), which is not built either.
         let two_labels = false;
         if (t != f || two_labels) && !guid && !label_takes_text && (matches!(t, Ty::Label) || matches!(f, Ty::Label)) {
@@ -159,7 +159,7 @@ impl super::Lowerer<'_> {
 
     /// `Cond ? Label : 'literal'` (a Label before the colon, a text literal after it) as the exit value of a Variant function
     /// or as the argument of a Variant parameter: BC 29 ends the whole session when the codeunit holding it is loaded, even if
-    /// the routine is never called (writer Y81, types/lt-y81-values/Y81LabelVariant.al codeunit 94259 "LT Y81 Label Variant
+    /// the routine is never called (writer Y81, types/Y81LabelVariant.al codeunit 94259 "LT Y81 Label Variant
     /// Held", Suspect_ReturnLabelOrLiteral and Suspect_ArgumentLabelOrLiteral; needs corpus bump). The literal-first order,
     /// two Labels, an assignment and a named return value do not crash and are not refused here.
     pub(super) fn refuse_session_ending_ternary(&self, target: &Ty, node: &al_syntax::SyntaxNode) -> super::L<()> {
@@ -192,7 +192,7 @@ impl super::Lowerer<'_> {
 
 impl super::Lowerer<'_> {
     /// `G += T` with a Guid `G` and a Text, Code or Label `T`: the Guid stays as it was, whatever the text, a text that is no
-    /// GUID included (types/lt-y31-conversion-matrix/Y31ConvAr.al, LT Y31 Ar Text `Text_Guid`, Text10, Code10, Label:
+    /// GUID included (types/operators-expressions/Y31ConvAr.al, LT Y31 Ar Text `Text_Guid`, Text10, Code10, Label:
     /// `compound_add`). The right side is still evaluated.
     pub(super) fn guid_plus_text_is_kept(&self, target: &Ty, rhs: &al_syntax::SyntaxNode) -> bool {
         matches!(target, Ty::Guid) && covers(Family::AddAssign, &self.ty_of(rhs), target)
@@ -235,7 +235,7 @@ impl super::Lowerer<'_> {
     }
 
     /// The operands of a comparison: a one-character literal compared with a Char is a Char, `C > 'A'` with C = 'a' is true
-    /// (types/lt-scalars/ScT70061.al:Char_Arithmetic `gt`). A Char against a Text variable compares as texts
+    /// (types/decimal-integer/ScT70061.al:Char_Arithmetic `gt`). A Char against a Text variable compares as texts
     /// (`al_builtins::conv::compare_cell`). Other operands are as they are.
     pub(super) fn char_literal_comparison(
         &mut self,

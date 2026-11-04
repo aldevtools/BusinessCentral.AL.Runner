@@ -188,7 +188,7 @@ pub fn entries() -> impl Iterator<Item = (&'static str, NativeFn)> {
 // ---------------------------------------------------------------- agents and feature access
 
 // "Agent Utilities" (System.app 2000000022) in a session that is not an agent session: task id 0
-// (platform/lt-rh-agent-session/RhAgentSession.al:47 through "Agent Session"; al-language-onprem/platform/
+// (metadata/session-system/RhAgentSession.al:47 through "Agent Session"; al-language-onprem/metadata/
 // lt-rh-agent-natives/RhAgentNatives.al:82 called directly) and provider type -1 (RhAgentNatives.al:83).
 fn agent_task_id(_: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Out {
     Ok(Value::Integer(0))
@@ -205,7 +205,7 @@ fn caller_is_microsoft(ctx: &dyn Ctx) -> Option<bool> {
 }
 
 /// Called from a non-Microsoft app, the access checks of "Feature Access Management" (System.app 2000000020) raise this
-/// whatever ThrowError says (al-language-onprem/platform/lt-rh-agent-natives/RhAgentNatives.al:104, :126, :156-178).
+/// whatever ThrowError says (al-language-onprem/metadata/session-system/RhAgentNatives.al:104, :126, :156-178).
 fn not_microsoft<T>() -> Result<T, Signal> {
     raise(
         "Feature availability can only be checked by Microsoft applications.",
@@ -214,7 +214,7 @@ fn not_microsoft<T>() -> Result<T, Signal> {
 }
 
 // AgentManagementAllowed / AgentTaskManagementPreviewEnabled. From the System Application with ThrowError true it returns
-// without an error ("Agent Task Builder".Initialize and SetExternalId, platform/lt-rh-agent-session/RhAgentSession.al:66-69).
+// without an error ("Agent Task Builder".Initialize and SetExternalId, metadata/session-system/RhAgentSession.al:66-69).
 // The answer is not pinned; every Microsoft caller (System Application and Base Application 29) discards it, so no AL code
 // can read it. Microsoft code with ThrowError false is not pinned: refused.
 fn fam_agent_management_allowed(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Out {

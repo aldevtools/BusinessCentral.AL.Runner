@@ -73,7 +73,7 @@ pub struct ListVec {
     items: Vec<Value>,
     pub version: u64,
     /// The list `Enum.Ordinals()` and `Enum.Names()` answer: every change raises NotSupportedOperation
-    /// (collections/lt-cs-odd-leads/CsCollections.al:EnumOrdinals_Mutations, EnumNames_Mutations).
+    /// (collections/CsCollections.al:EnumOrdinals_Mutations, EnumNames_Mutations).
     pub read_only: bool,
 }
 
@@ -118,7 +118,7 @@ pub enum Value {
     Byte(u8),
     Char(u16),
     Text(crate::text::Txt),
-    /// A Label (or TextConst) held by a Variant: the text, answering IsTextConstant and no IsText (types/lt-y81-values/
+    /// A Label (or TextConst) held by a Variant: the text, answering IsTextConstant and no IsText (types/
     /// Y81LabelVariant.al; needs corpus bump). Only a Variant ever holds it; anything that takes it out reads a Text.
     TextConst(crate::text::Txt),
     Code(crate::text::Txt),
@@ -273,10 +273,10 @@ pub struct QueryState {
     /// The result set between `Open` and `Close`.
     pub run: Option<QueryRun>,
     /// The instance of a query with code: its variables live as long as the query variable
-    /// (query/TestQueryOnBeforeOpenVariablesContracts.al:104-140). Made on first use.
+    /// (queries/TestQueryOnBeforeOpenVariablesContracts.al:104-140). Made on first use.
     pub instance: Option<Rc<RefCell<Instance>>>,
     /// The query's OnBeforeOpen trigger is running: `CurrQuery.Open` and `Close` raise
-    /// (query/lt-ch-query-leads/ChQueryLeads.al:259-290).
+    /// (streams/ChQueryLeads.al:259-290).
     pub in_before_open: bool,
     /// `Close` ran since the last `Open`: a filter element read then is not pinned (only before `Open` is,
     /// assumption query-filter-element-read-without-row).
@@ -286,10 +286,10 @@ pub struct QueryState {
 #[derive(Debug, Clone)]
 pub struct QueryRun {
     /// Whether the query has run. `Open` does not run it: the first `Read` does, so a row written
-    /// in between is read (query/TestQueryOuterJoinDescendingSaveAsContracts.al).
+    /// in between is read (queries/TestQueryOuterJoinDescendingSaveAsContracts.al).
     pub started: bool,
     /// A SetRange or SetFilter came after `Open` and before the first `Read`: `Read` raises until the query is opened again
-    /// (misc/lt-probes-needed-1/PnAQueryOpenRead.al:SetRangeBetweenOpenAndFirstRead, SetRangeBeforeOpen_ThenChangedBeforeFirstRead).
+    /// (queries/read-lifecycle/PnAQueryOpenRead.al:SetRangeBetweenOpenAndFirstRead, SetRangeBeforeOpen_ThenChangedBeforeFirstRead).
     pub filters_changed: bool,
     /// The rows still to read, in the query's order.
     pub rows: Vec<QueryRow>,
@@ -322,7 +322,7 @@ pub enum PageMode {
 
 /// A row a repeater has populated: its primary key, the fields as stored when it was read and as
 /// the page showed them after OnAfterGetRecord (the page keeps that buffer for the row while it
-/// stays in the window, corpus handlers/TestPageActionRunObjectPageStoredRow_Tests.al:
+/// stays in the window, corpus testpage/TestPageActionRunObjectPageStoredRow_Tests.al:
 /// OpenHostOnB reads `CALC`, which only the host's OnAfterGetRecord puts into Rec.Grp).
 #[derive(Debug, Clone)]
 pub struct WindowRow {
@@ -339,7 +339,7 @@ pub enum Cursor {
     /// On a stored row (or, for a new record, the row being typed).
     Row,
     /// On the blank line an editable, insert-allowed repeater carries past its data
-    /// (corpus handlers/TestPageNewRowLine_Tests.al:1-30).
+    /// (corpus testpage/TestPageNewRowLine_Tests.al:1-30).
     NewLine,
 }
 
@@ -369,7 +369,7 @@ pub struct PageState {
     /// Object index of the page.
     pub object: u32,
     /// Open pages answer; closed ones, and ones torn down by an error in a row load,
-    /// raise "The TestPage is not open." (corpus testpageteardown/TestPageTeardown.al:3-24).
+    /// raise "The TestPage is not open." (corpus testpage/lifecycle/TestPageTeardown.al:3-24).
     /// The page has been opened at least once (a Page variable that never ran has not).
     pub ran: bool,
     pub open: bool,
@@ -384,23 +384,23 @@ pub struct PageState {
     /// Fields written by the client since the row was loaded.
     pub dirty: bool,
     /// The save of a changed row failed on a page whose ModifyAllowed is false (`SaveAbort`): the change stays shown, nothing is
-    /// stored and a Next no longer moves (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_List_Set_Next_Next).
+    /// stored and a Next no longer moves (pages/modify-denied/Y80ModifyDenied.al Y80_MD_List_Set_Next_Next).
     pub save_aborted: bool,
     /// `Visible` of each control as it was when the page opened (the property is frozen then,
-    /// corpus handlers/TestPageControlPropertyLiveness_Tests.al:56).
+    /// corpus testpage/TestPageControlPropertyLiveness_Tests.al:56).
     pub frozen_visible: Vec<bool>,
     /// The session language when the page opened: OptionCaptionML shows the captions of that language, whatever
-    /// `GlobalLanguage` says later (pages/lt-page-controls-aa/AaFieldProps.al:179-219, pageext/lt-z-modify-controls/
+    /// `GlobalLanguage` says later (pages/controls/AaFieldProps.al:179-219, pages/extensions/
     /// ZModifyControls.al:322-360). `None` before the first open.
     pub open_language: Option<i32>,
     /// The caption each control's CaptionClass resolved to when the page filled: (control index, class text, caption).
-    /// `Caption()` reads it without raising OnResolveCaptionClass again (corpus misc/W2CaptionClass.al:113-116).
+    /// `Caption()` reads it without raising OnResolveCaptionClass again (corpus testpage/W2CaptionClass.al:113-116).
     pub control_captions: Vec<(usize, String, String)>,
     /// Why the caption in `control_captions` of a control is not known: (control index, refusal). `Caption()` refuses with it.
     /// Only read together with a `control_captions` entry of the same control, which an open clears.
     pub caption_refusals: Vec<(usize, String)>,
     /// The caption of each control over a table field whose CaptionClass is an expression, as the page filled it: (control
-    /// index, caption). `Caption()` reads it and runs nothing (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:422-481).
+    /// index, caption). `Caption()` reads it and runs nothing (record/captions/QdCaptionClassAreas.al:422-481).
     pub field_captions: Vec<(usize, String)>,
     /// The open ran the CaptionClass expressions of the source table's fields with an empty record (`field_captions`).
     pub field_captions_opened: bool,
@@ -415,14 +415,14 @@ pub struct PageState {
     /// A `Next()` of the page is filling its row.
     pub moving_next: bool,
     /// A fill after the open (a part refilled after its host moved) runs the CaptionClass expressions with its first row
-    /// only, as the open does (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:1022-1066 QO_Doc_OpenEdit_HostSteps).
+    /// only, as the open does (record/captions/QdCaptionClassAreas.al:1022-1066 QO_Doc_OpenEdit_HostSteps).
     pub field_captions_fill_first: bool,
     /// The refill comes from a SetValue of the host's link field: when it finds no row it runs nothing
     /// (QdCaptionClassAreas.al:1068-1100 QO_Doc_OpenNew `no_setvalue`).
     pub field_captions_link_refill: bool,
     /// Where an action of a Document page stands that saved a SetValue of the host before its trigger: 0 none, 1 that save's
     /// refresh is running, 2 the save is done and a CurrPage.Update in the trigger has not refreshed yet, 3 it has
-    /// (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps `update`).
+    /// (record/captions/QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps `update`).
     pub field_captions_action_save: u8,
     /// Primary keys of the rows a repeater page has populated (its window).
     pub window: Vec<WindowRow>,
@@ -505,46 +505,46 @@ pub struct PageState {
     /// `view_names_link_field`), or after its host moved back (see `sync_parts_after_move`).
     pub read_backwards: Option<ReadBackwards>,
     /// `CurrPage.SetSelectionFilter(Rec)` ran on this page while it stood on no row: the part's next refresh with its host
-    /// drops the filter (pages/lt-hidden-part-selection-filter/HiddenPartSelectionFilter.al).
+    /// drops the filter (pages/parts/HiddenPartSelectionFilter.al).
     pub selection_on_rec: bool,
     /// The control that has the client's focus, and whether it is on the current row. Moving
     /// focus to a non-key control of a new row is what inserts it (corpus
-    /// handlers/TestPageBlankKeyInsert.al:1-25).
+    /// testpage/TestPageBlankKeyInsert.al:1-25).
     pub focus: Option<usize>,
     pub focus_in_row: bool,
     /// Validation errors the client holds: (control index, stored text).
     pub errors: Vec<(usize, String)>,
     /// A SetValue of a value that is not a Text, whose text is longer than the control's field: (control index, the text, the error
     /// the save raises). The control shows the text; the next SetValue of the control drops it; the Close raises the error
-    /// (pages/lt-y80-setvalue-types/Y80SetValueTypes.al Y80_ST_Card_ShortCtl_*).
+    /// (pages/properties/Y80SetValueTypes.al Y80_ST_Card_ShortCtl_*).
     pub deferred_overlong: Option<(usize, String, String)>,
     /// The control and the list row (its key) where a control's ValuesAllowed refused an entry: a Value read of that control on
-    /// another row is not pinned (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al:313-316).
+    /// another row is not pinned (pages/values-allowed-set-value/Y37ValuesAllowedSetValue.al:313-316).
     pub values_allowed_refused_row: Option<(usize, Vec<Value>)>,
     /// The controls among `errors` whose refusal was an error of an AL trigger (the table's or the control's OnValidate),
     /// not one of the client's own checks, with the trigger's message: Close validates those again
-    /// (pages/lt-ah-pages/AhPageTests.al:155-159).
+    /// (testpage/AhPageTests.al:155-159).
     pub trigger_errors: Vec<(usize, String)>,
-    /// A RunObject action saved the row's edit before its target ran (pages/lt-y45-save-before-action/
+    /// A RunObject action saved the row's edit before its target ran (pages/actions/
     /// Y45SaveBeforeAction.al:431 List_SetName_RunObjectCodeunit): a list reads its rows again after the codeunit.
     pub saved_before_run_object: bool,
     /// A SetValue left the row dirty since the last save: an action's save runs the modify chain even when the value is the one
-    /// stored (pages/lt-y45-save-before-action/Y45SaveBeforeAction.al:371 Card_SetSameName_Action).
+    /// stored (pages/actions/Y45SaveBeforeAction.al:371 Card_SetSameName_Action).
     pub set_value_held: bool,
     /// The row an OnModifyRecordEvent subscriber refused to save (AllowModify false): the page does not save it again; another
     /// edit saved after it is not pinned (al-vm pages/draft.rs `save_row`).
     pub modify_vetoed: Option<Vec<Value>>,
     /// A new line of this part was inserted before a host action: the part's refresh after the action stays on it
-    /// (pages/lt-y45-save-before-action/Y45SaveBeforeAction.al:1748 Doc_Existing_NewLine_Action `...;C H1;lC 30000`).
+    /// (pages/actions/Y45SaveBeforeAction.al:1748 Doc_Existing_NewLine_Action `...;C H1;lC 30000`).
     pub inserted_before_host_action: bool,
     /// The call depth (`Session::frames`) at which the client's save of this page's row last failed, cleared before each step
     /// the client saves for: tells the save before a step from a save the step's own code made.
     pub save_failure_depth: Option<usize>,
-    /// The client's save of this page's row before a step failed (pages/lt-y45-save-before-action/Y45SaveBeforeAction.al:1808
+    /// The client's save of this page's row before a step failed (pages/actions/Y45SaveBeforeAction.al:1808
     /// Card_ModifyError_Action_PageState): the page keeps the edit and one validation error; see `pages/dirty_step.rs`.
     pub save_failed: bool,
     /// The started line's insert was refused and the client moved on without raising
-    /// (corpus handlers/TestPageFailedInsert_Tests.al:1-30): `refused` keeps the line, `pending`
+    /// (corpus testpage/TestPageFailedInsert_Tests.al:1-30): `refused` keeps the line, `pending`
     /// is the line left behind by Previous()/First(), whose insert fails again at Close().
     pub refused: bool,
     /// The last close was refused because OnQueryClosePage raised an error (shown as a message).
@@ -602,10 +602,10 @@ pub struct PageState {
     /// CurrPage.Update ran while the page's row was stored but outside the view the action had just set (list refresh).
     pub view_left: bool,
     /// An OnDrillDown turned MarkedOnly on for Rec without `CurrPage.Update`: the client still shows the rows of the view
-    /// without MarkedOnly (pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al, DrilldownWithoutUpdateListAndGoTo).
+    /// without MarkedOnly (testpage/ScDrillDownMarkedOnly.al, DrilldownWithoutUpdateListAndGoTo).
     pub marked_only_unshown: bool,
     /// The same OnDrillDown on a list WITH OnAfterGetRecord or OnAfterGetCurrRecord: what the page shows then is not pinned
-    /// (corpus pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al:422 covers only a page without them); every TestPage call
+    /// (corpus testpage/ScDrillDownMarkedOnly.al:422 covers only a page without them); every TestPage call
     /// but Close is refused until Close.
     pub marked_only_unpinned: bool,
     /// A TestField.Lookup on this page, whose OnValidate called `CurrPage.Update(false)`, left that refresh for later, as BC
@@ -656,7 +656,7 @@ pub struct PageState {
     /// fields of Rec as the trigger left it; Rec shows the client's row until then.
     pub marked_refill_in_key: Option<Vec<Value>>,
     /// A TestPage GoToKey moved the cursor of a list without OnAfterGetCurrRecord: the client reads the row once more before
-    /// every later action (pages/lt-ai-list-order/AiListOrderTests.al:39 Keep_Nav `update` = `R:R1002;R:R1002;A:filter...`;
+    /// every later action (pages/list-order/AiListOrderTests.al:39 Keep_Nav `update` = `R:R1002;R:R1002;A:filter...`;
     /// QgGoToKeyNextCall.al:297 Plain_GoToKey_ThenActionWithoutUpdate_Twice `second_action_log`), until a move clears it.
     pub read_after_goto: bool,
     /// A call that is not pinned (a property read, an `As*` read) came between that GoToKey and the next call: whether the row
@@ -664,18 +664,18 @@ pub struct PageState {
     /// (QgGoToKeyNextCall.al:236, :317) and do not set it.
     pub read_after_goto_doubt: bool,
     /// That GoToKey ran no page trigger (the key is among the rows the client holds): Close then reads the row once
-    /// (pages/lt-ai-list-order/QgGoToKeyNextCall.al:223 Plain_GoToKey_ThenValueRead, :277 Plain_GoToKey_ThenClose `close_log`
-    /// `R:R1003`). A GoToKey that read rows leaves Close reading nothing (handlers/TestPageSystemPartListWindowContracts.al:219).
+    /// (pages/list-order/QgGoToKeyNextCall.al:223 Plain_GoToKey_ThenValueRead, :277 Plain_GoToKey_ThenClose `close_log`
+    /// `R:R1003`). A GoToKey that read rows leaves Close reading nothing (testpage/TestPageSystemPartListWindowContracts.al:219).
     pub read_after_goto_quiet: bool,
     /// A SetValue came between that GoToKey and the next call.
     pub read_after_goto_set: bool,
     /// A Previous came after that GoToKey and no action since: what Close then reads is not pinned (it is refused).
     pub read_after_goto_prev: bool,
     /// A list opened for edit over an empty view went back to its new-row line after an action stored one row through another
-    /// variable: First then reads that row as the list reads it on open (misc/lt-probes-needed-7/PnGShowRow.al:223).
+    /// variable: First then reads that row as the list reads it on open (testpage/PnGShowRow.al:223).
     pub empty_list_row_behind: bool,
     /// An action put a list that showed stored rows on a row the client did not hold before it (an insert through Rec): what a
-    /// move reads next is not pinned (misc/lt-probes-needed-7/PnGShowRow.al:144 NonEmptyListInsertViaRec `first-after` reads
+    /// move reads next is not pinned (testpage/PnGShowRow.al:144 NonEmptyListInsertViaRec `first-after` reads
     /// nothing, the Next after it reads the row it lands on twice); a move is refused.
     pub action_landed_on_new_row: bool,
     /// A refresh after a control's OnValidate changed a list's filters read more rows than a window holds: what the client holds
@@ -692,13 +692,13 @@ pub struct PageState {
     /// Page triggers (the page's or an extension's) run on this page so far.
     pub triggers_run: u64,
     /// The reads after an action on a list without OnAfterGetCurrRecord ended the refresh: `CurrPage.Update` reads nothing more
-    /// (pages/lt-ai-list-order/AiListOrderTests.al:233 Keep_Plain).
+    /// (pages/list-order/AiListOrderTests.al:233 Keep_Plain).
     pub refresh_read_done: bool,
     /// The fields of the row a list showed when the running action started (None outside an action): an action that put another
-    /// row into Rec and called CurrPage.Close() gets this row back (misc/lt-probes-needed-7/PnGRefresh.al:608).
+    /// row into Rec and called CurrPage.Close() gets this row back (testpage/PnGRefresh.al:608).
     pub action_shown_row: Option<Vec<Value>>,
     /// The action left another row (another primary key) in Rec: the list reads that row again from the table, unsaved values
-    /// dropped (misc/lt-probes-needed-7/PnGRefresh.al:387 QL_RecAssign_OtherChanged_ThenClose `P.AGR(B,changed B);P.AGR(B,orig B)`).
+    /// dropped (testpage/PnGRefresh.al:387 QL_RecAssign_OtherChanged_ThenClose `P.AGR(B,changed B);P.AGR(B,orig B)`).
     pub rec_moved_other: bool,
     /// CurrPage.Close() in the running action put the shown row back into Rec (PnGRefresh.al:608): one more read follows the action.
     pub close_restored_row: bool,
@@ -709,33 +709,33 @@ pub struct PageState {
     /// The action changed the row a list shows: it is saved after the first read of the refresh (misc/lt-probes-needed-7/
     /// PnGRefresh.al:503).
     pub save_after_first_read: bool,
-    /// The parts read their rows for a host row a GoToKey walked past (pages/lt-qj-part-propagation/QjPartPropagation.al:1183):
+    /// The parts read their rows for a host row a GoToKey walked past (pages/parts/QjPartPropagation.al:1183):
     /// on the target row they read again even when the host stayed on it.
     pub walk_synced_parts: bool,
     /// xRec of a part that shows no row as it landed on its blank line: OnNewRecord sees it again on the part's Last() and New()
-    /// (pages/lt-qj-part-propagation/QjPartPropagation.al:1346 QL_PartLastNew_NoLines `x=3 x.ln=30000`, the row the part stood on
+    /// (pages/parts/QjPartPropagation.al:1346 QL_PartLastNew_NoLines `x=3 x.ln=30000`, the row the part stood on
     /// for the host row before).
     pub empty_part_xrec: Option<Vec<Value>>,
     /// The part stands on the blank line its Last() ran on a view without rows: a part without DelayedInsert and AutoSplitKey
-    /// inserts that line at the first write to a field outside the key (pages/lt-qj-part-propagation/QjPartPropagation.al:3696).
+    /// inserts that line at the first write to a field outside the key (pages/parts/QjPartPropagation.al:3696).
     pub blank_after_empty_last: bool,
     /// A list without the new-row line lost its only row to an action and stands on a blank Rec: a later action runs
-    /// OnNewRecord and OnAfterGetCurrRecord again (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:352).
+    /// OnNewRecord and OnAfterGetCurrRecord again (testpage/RmWorksheetGoneRow.al:352).
     pub gone_blank_no_new_line: bool,
     /// A list with the new-row line lost its only row to an action and stands on that line: its fields show the blank Rec's
-    /// values, an Integer key 0 (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:452 `shown after action = 0|`).
+    /// values, an Integer key 0 (testpage/RmWorksheetGoneRow.al:452 `shown after action = 0|`).
     pub gone_blank_shows_line: bool,
     /// A List with Editable = false opened for view lost its only row to an action and shows no row: a later action is not
-    /// pinned and is refused (pages/lt-outside-worksheet/RmWorksheetGoneRow.al SH_ListViewNotEditable_, awaiting).
+    /// pinned and is refused (testpage/RmWorksheetGoneRow.al SH_ListViewNotEditable_, awaiting).
     pub gone_view_list: bool,
     /// The same for a List with Editable = false over a temporary source (`gone_read_only_temp_list`): a later action is built
     /// (al-runner issue 6664).
     pub gone_temp_list: bool,
     /// The part's link value failed its validation as the host opened: Last() answers No and reads nothing, a write raises
-    /// TestRowNotFound (pages/lt-qj-part-propagation/QjPartPropagation.al:3766); anything else on the part is refused.
+    /// TestRowNotFound (pages/parts/QjPartPropagation.al:3766); anything else on the part is refused.
     pub link_validate_failed: bool,
     /// The client's rows were read again from the row a list settled on after an action's filter left its row, with no row before
-    /// it: First stays on that row and reads nothing (pages/lt-ai-list-order/AiListOrderTests.al:339, :373 `after_first` empty).
+    /// it: First stays on that row and reads nothing (pages/list-order/AiListOrderTests.al:339, :373 `after_first` empty).
     /// Also set by the refresh of CurrPage.Update on a list with OnFindRecord and OnNextRecord that ends on the first row (:174,
     /// :203). Any TestPage call but First and a field read clears it.
     pub settled_first_row: bool,
@@ -744,12 +744,12 @@ pub struct PageState {
     /// A row with the new record's starting key was already stored when the draft started.
     pub draft_stored: bool,
     /// A page extension's OnInsertRecord answered false for the new row: the page goes on as if the row were stored, and the
-    /// save of its next edit fails as the modify of a row that is not there (pageext/lt-ue-pageext-leads/UeTriggerTests.al
+    /// save of its next edit fails as the modify of a row that is not there (testpage/UeTriggerTests.al
     /// NewRow_FirstExtensionAnswersFalse).
     /// The primary key of that row.
     pub insert_vetoed_by_ext: Option<Vec<Value>>,
     /// The new row of a card that its OnNewRecord inserted itself: the page still holds it as a new row
-    /// (corpus pages/lt-cf-page-leads/CfPageLeads.al:241-289 Card_OnNewRecordInserts_OpenNewSetClose).
+    /// (corpus testpage/CfPageLeads.al:241-289 Card_OnNewRecordInserts_OpenNewSetClose).
     pub new_row_inserted_by_trigger: bool,
     /// TestPage.OpenNew is reading the page's first row (cleared once it is read).
     pub test_opened_new: bool,
@@ -777,8 +777,8 @@ pub struct PageState {
     /// the open mode (see `PageOps::page_editable`).
     pub editable_off_in_open: bool,
     /// What `CurrPage.Editable(..)` set in the OnAction trigger that runs now: what page code reads back in the same trigger
-    /// (pages/lt-tc-bare-page-methods/TcBarePageObjects.al:309-310, TcBarePageMethodsTests.al:359). A later action reads
-    /// the page's own value again (pages/lt-page-runtime/P82CurrPage.al:196-219 Editable_ReadInTrigger).
+    /// (pages/bare-page-methods/TcBarePageObjects.al:309-310, TcBarePageMethodsTests.al:359). A later action reads
+    /// the page's own value again (pages/run-modal/P82CurrPage.al:196-219 Editable_ReadInTrigger).
     pub editable_set_later: Option<bool>,
     /// An action's OnAction (`TestAction.Invoke`) is running.
     pub in_action: bool,
@@ -791,13 +791,13 @@ pub struct PageState {
     /// The keys of every row OnAfterGetRecord ran with since the page opened.
     pub agr_rows: Vec<Vec<Value>>,
     /// Per row of a repeater (its key): what the page variables its controls show held after the row's OnAfterGetRecord, and
-    /// for the current row after OnAfterGetCurrRecord: (control index, value) (pages/lt-qi-row-page-var/QiRowPageVar.al).
+    /// for the current row after OnAfterGetCurrRecord: (control index, value) (pages/row-page-variable/QiRowPageVar.al).
     pub row_vars: Vec<RowVars>,
     /// Per row of a repeater (its key): the page variables the Editable and Enabled expressions of its controls read, as the
-    /// row's OnAfterGetRecord left them: (global slot, value) (writer RT's pages/lt-outside-worksheet-2/RtRowEditable.al).
+    /// row's OnAfterGetRecord left them: (global slot, value) (writer RT's testpage/RtRowEditable.al).
     pub row_prop_vars: Vec<RowVars>,
     /// The row OnAfterGetRecord ran with last (its fields after the trigger): the next OnAfterGetRecord sees it as xRec;
-    /// `None` before the first fetch, when xRec is a blank row (testpart/QiHostSaveParts.al:361 `L.AGR(D1/10000|d1 l1 x=/0)`).
+    /// `None` before the first fetch, when xRec is a blank row (testpage/parts/QiHostSaveParts.al:361 `L.AGR(D1/10000|d1 l1 x=/0)`).
     pub agr_xrec: Option<Vec<Value>>,
     /// The row OnAfterGetCurrRecord ran with last: the next OnAfterGetCurrRecord sees it as xRec; `None` before the first,
     /// when xRec is a blank row with the single-value key filters (the part link) on it (QiHostSaveParts.al:361
@@ -806,11 +806,11 @@ pub struct PageState {
     /// The row Rec stood on when OnAfterGetCurrRecord last started on a stored row (`marked_view_changed_by_move`).
     pub agcr_started: Option<Vec<Value>>,
     /// OnAfterGetCurrRecord ran last on a row that is not stored (a new row): the next one on a stored row sees the xRec the
-    /// page holds (misc/lt-probes-needed-7/PnGShowRow.al EmptyListInsertViaRec `List.AGCR(,);List.AGR(NEW1,Created);...;
+    /// page holds (testpage/PnGShowRow.al EmptyListInsertViaRec `List.AGCR(,);List.AGR(NEW1,Created);...;
     /// List.AGCR(NEW1,NEW1)`).
     pub agcr_after_new: bool,
     /// A sibling part saved a row before a host SetValue and this unlinked part over the same table read it and shows it
-    /// (testpart/QiHostSaveParts.al:500 `U.AGR(D1/30000 ...);U.AGCR(D1/30000 x=/0)`): the fields of the row it stands on.
+    /// (testpage/parts/QiHostSaveParts.al:500 `U.AGR(D1/30000 ...);U.AGCR(D1/30000 x=/0)`): the fields of the row it stands on.
     pub shows_sibling_save: Option<Vec<Value>>,
     /// A part: a TestPart call or a call on one of its fields reached it since its host opened.
     pub part_accessed: bool,
@@ -820,15 +820,15 @@ pub struct PageState {
     pub new_host_part_rows: bool,
     /// New() on the request page of a report landed on a blank row that nothing stores (Y80_RX_New_*).
     pub request_new_blank: bool,
-    /// A new host card or document that a first part access stored with its blank key (pages/lt-y80-new-host-key/Y80NewHostKey.al
+    /// A new host card or document that a first part access stored with its blank key (pages/new-host-key-entry/Y80NewHostKey.al
     /// Y80_NH_*): a key typed afterwards runs its OnValidate, then the page shows and stores the old key again.
     pub host_stored_blank_key: bool,
     /// A field outside the key was typed on that host row: its parts read their rows again (once is pinned).
     pub blank_key_edit_reread: bool,
     /// `P.Editable(false)` or `P.Editable := false` on a Page variable before it runs: the page
-    /// opens non-editable (handlers/TestPageVariableEditableContracts.al).
+    /// opens non-editable (pages/run-modal/TestPageVariableEditableContracts.al).
     pub editable_preset: Option<bool>,
-    /// `CurrPage.Caption := x` (handlers/TestPageCaption_Page.al:44); reset when the page opens.
+    /// `CurrPage.Caption := x` (testpage/TestPageCaption_Page.al:44); reset when the page opens.
     pub caption: Option<String>,
     /// The pages shown by the part controls of this page: (control index, child page). Only parts
     /// that are in the control tree at open have one.
@@ -856,12 +856,12 @@ pub struct PageState {
     /// The record `Page.SetRecord` handed a page variable, shown when the page runs.
     pub set_record: Option<Rc<RefCell<RecordState>>>,
     /// `Page.SetTableView` gave `set_record` its filters and order: a later `SetRecord` moves the position only
-    /// (pages/lt-page-setrecord-settableview/PageVarSetRecordTableView.al:P157_List_SetTableViewThenSetRecord_*).
+    /// (pages/currpage/PageVarSetRecordTableView.al:P157_List_SetTableViewThenSetRecord_*).
     pub set_view: bool,
     /// The line the page stands on was started by a `New()` call, not reached by moving onto the blank line.
     pub new_by_call: bool,
     /// A `Page`-typed modal handler is running on this page: the page never opened, `GetRecord` and `SetRecord`
-    /// read and write its Rec (handlers/PSModalPageHandlerTyped.al).
+    /// read and write its Rec (ui-handlers/PSModalPageHandlerTyped.al).
     pub typed_handler: bool,
     /// The `Page`-typed handler that runs is a `[PageHandler]` of `Page.Run`, not a modal one.
     pub typed_run_handler: bool,
@@ -878,7 +878,7 @@ pub struct PageState {
     /// the report renders.
     pub parameters_wanted: bool,
     /// The parameters string a `Report.RunRequestPage(Id, Parameters)` hands the request page: loaded after its OnInit
-    /// and before its OnOpenPage (report/lt-aq/AqTests.al:362-381).
+    /// and before its OnOpenPage (reports/AqTests.al:362-381).
     pub request_seed: Option<String>,
     /// The session's application areas when the page opened: controls whose area they do not
     /// enable are not on the page.
@@ -889,7 +889,7 @@ pub struct PageState {
     pub hidden_flowfields: Vec<usize>,
     /// OnInit has run on the current instance. BC constructs a page, and so runs OnInit, when a
     /// `Page` variable is first used, which may be a procedure call before it runs (corpus
-    /// handlers/TestPageOnInit_Tests.al:188 POI_SetterBeforeRunModal_RunsAfterOnInitAndSurvives);
+    /// testpage/TestPageOnInit_Tests.al:188 POI_SetterBeforeRunModal_RunsAfterOnInitAndSurvives);
     /// the open that follows must not run it again. The open consumes the flag.
     pub inited: bool,
     /// A page whose rowset OnFindRecord/OnNextRecord serve was refreshed: which row the client
@@ -898,14 +898,14 @@ pub struct PageState {
     /// The page is a lookup without the new-row line: `LookupMode(true)` was called on this variable, or
     /// `Page.RunModal(Id, Rec)` / `Page.RunModal(0, Rec)` had its return value used.
     pub lookup_set: bool,
-    /// `Page.RunModal(Id, Rec)` called as a statement: not a lookup (pages/lt-be-runmodal-onlookup/BeRunModalOnLookup.al:916),
+    /// `Page.RunModal(Id, Rec)` called as a statement: not a lookup (pages/triggers/BeRunModalOnLookup.al:916),
     /// and whether `Rec` takes the row the page closed on is not pinned: a later use of `Rec` refuses when that row differs.
     pub statement_run: bool,
     /// `Page.RunModal(Id, Rec, Field)` with its return value used: a close by the platform after the handler returned hands the
-    /// row back as an action does (pages/lt-f3-pages/F3TrappedAndModal.al:235 Card_HandlerEditsOnly, :341 List_HandlerDoesNothing).
+    /// row back as an action does (ui-handlers/F3TrappedAndModal.al:235 Card_HandlerEditsOnly, :341 List_HandlerDoesNothing).
     pub field_run: bool,
     /// The refresh about to run follows an action on a card with OnFindRecord, without CurrPage.Update: pinned
-    /// (pages/lt-be-card-onfindrecord/BeCardOnFindRecord.al), so it marks no assumption.
+    /// (pages/triggers/BeCardOnFindRecord.al), so it marks no assumption.
     pub refresh_pinned: bool,
     /// A SetValue wrote a control bound to an expression on this page with no source table (an action after it is refused).
     pub expr_set_no_source: bool,
@@ -1249,7 +1249,7 @@ pub struct RecordState {
     /// names it; `None` is the session company.
     pub company: Option<String>,
     /// The table is `TableType = CRM`: any use needs a registered table connection
-    /// (session/TestCrmTableNoConnectionContracts.al).
+    /// (session-system/TestCrmTableNoConnectionContracts.al).
     pub crm: bool,
     /// Field values in the table's field order.
     pub fields: Vec<Value>,
@@ -1271,7 +1271,7 @@ pub struct RecordState {
     pub ascending: bool,
     /// `SetAscending(Field, false)`: bit i is set when the i-th field of the current key's position (the key's fields,
     /// then the primary key's) runs descending. Unlike `ascending` it does not survive a page's view round trip
-    /// (handlers/TestPageViewRoundTripRoutes.al).
+    /// (testpage/TestPageViewRoundTripRoutes.al).
     pub field_descending: u32,
     /// The primary key of the row the record last read: `Find` still finds that row after the
     /// record moved it out of its own filter.
@@ -1284,22 +1284,22 @@ pub struct RecordState {
     /// the first write, and evaluates the `InitValue`s only then (record/TestDateTimeInitValue.Codeunit.al).
     pub touched: bool,
     /// AL code assigned a field since the last `Init` or `Clear`, even to its own default value; `AreFieldsLoaded` on a
-    /// record nothing was fetched into reads it (record/lt-arefieldsloaded-default).
+    /// record nothing was fetched into reads it (record/load-fields).
     pub assigned: bool,
     /// This variable inserted its row since the last `Init` or `Clear`: a `CalcFields` of a Blob that finds the row gone
-    /// (rolled back) empties the Blob (misc/lt-probes-needed-5/PnE08RecordMisc.al:TestField_Blob).
+    /// (rolled back) empties the Blob (recordref-fieldref/PnE08RecordMisc.al:TestField_Blob).
     pub inserted: bool,
     /// What a RecordRef last read or wrote into the buffer: `RecordRef.IsDirty` compares with it, not with the stored row
     /// (recordref/lt-recordref-fieldref-members/RecordRefIsDirtyEdges.al:IsDirty_TwoRefs_OtherModifies). `None` when the
     /// buffer came from elsewhere (GetTable, Init).
     pub dirty_base: Option<Vec<Value>>,
-    /// What `Record.IsDirty` compares the buffer with (lt-ac/ACRecordIsDirty.al). A clone of the state starts unknown.
+    /// What `Record.IsDirty` compares the buffer with (record/ACRecordIsDirty.al). A clone of the state starts unknown.
     pub is_dirty_base: DirtyBase,
     /// The row this variable's last Modify wrote. A later Modify of the unchanged buffer, after a rollback undid that write,
-    /// writes nothing (record/lt-record-conversion-assumptions/StaleBuffer.al:76-86).
+    /// writes nothing (record/StaleBuffer.al:76-86).
     pub last_modify: Option<Vec<Value>>,
     /// The row version the buffer held when its Insert answered false (the key existed): a Modify through the buffer then raises
-    /// DB:RecordChanged when the stored row's version is newer (record/lt-y71-failed-insert-modify/Y71FailedInsertModify.al).
+    /// DB:RecordChanged when the stored row's version is newer (record/crud/Y71FailedInsertModify.al).
     pub failed_insert: Option<i64>,
     /// Where the buffer's row version came from: the variable's own Insert or a Get (with that version and the number of
     /// commits of the session then). A stale buffer from the Insert of the transaction the last Commit closed may still be
@@ -1311,7 +1311,7 @@ pub struct RecordState {
     /// `Page.RunModal(Id, Rec)` called as a statement, see `hand_back_selection`).
     pub unpinned_buffer: Option<&'static str>,
     /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
-    /// carry them (handlers/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
+    /// carry them (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
 }
 
@@ -1319,7 +1319,7 @@ pub struct RecordState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RowOrigin {
     /// The variable's own write: its Insert, or its own Modify or Rename after its Insert or Get in the same transaction
-    /// (record/lt-sb-stale-own-modify/SbStaleOwnModify.al). Else a Get.
+    /// (record/crud/SbStaleOwnModify.al). Else a Get.
     pub own_write: bool,
     /// The row version the buffer got.
     pub version: i64,
@@ -1330,10 +1330,10 @@ pub struct RowOrigin {
     pub read_in_write_tx: bool,
     /// The buffer got its row version from a TransferFields out of a record, not from a read: only a LockTable and Get of the row
     /// in the new transaction lets its stale write through, a Modify of the row does not
-    /// (record/lt-sb-stale-own-modify/Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord).
+    /// (record/crud/Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord).
     pub lock_only: bool,
     /// The variable's own Modify followed its Insert or Get in the same transaction (a buffer with a Modify and one without are
-    /// told apart by record/lt-sb-stale-own-modify/Y76StaleBuffers.al Y76_Part2_*).
+    /// told apart by record/crud/Y76StaleBuffers.al Y76_Part2_*).
     pub own_modified: bool,
     /// The buffer was read by a form of Find no test pins (anything but FindFirst, FindLast and FindSet), or got TransferFields out
     /// of such a record: a stale write of it is refused (Y76StaleBuffers.al Y76_Part1_* pins FindFirst, FindLast and FindSet only).
@@ -1360,12 +1360,12 @@ impl RowOrigin {
 pub type RunPageLinkFill = (Vec<(usize, Value)>, Rc<Vec<crate::filter::FieldFilter>>);
 
 /// What `Record.IsDirty` compares a record variable's buffer with: a copy of the fields the variable last read or wrote
-/// (lt-ac/ACRecordIsDirty.al). BC compares values, not writes: a field set back to what was read is not dirty
+/// (record/ACRecordIsDirty.al). BC compares values, not writes: a field set back to what was read is not dirty
 /// (ACRecordIsDirty.al:54-56, `after_value_restored`).
 ///
 /// `Clone` gives `Unknown`: whether a copy of a record state (xRec, a row image, `RecordRef.GetTable`) keeps the snapshot is
 /// not pinned. `:=` copies it with [`DirtyBase::copy`] (ACRecordIsDirty.al:63-64, `copy_dirty`), and so do Copy and a record
-/// passed by value to a procedure (lt-ac/Y8RecordIsDirtyShapes.al:236-242, :321-324).
+/// passed by value to a procedure (record/Y8RecordIsDirtyShapes.al:236-242, :321-324).
 #[derive(Debug)]
 pub enum DirtyBase {
     /// Nothing pins what IsDirty answers; the text says why.
@@ -1378,7 +1378,7 @@ pub enum DirtyBase {
     /// The fields the variable last read or wrote. `alt` is a second candidate where the corpus does not tell which one BC
     /// keeps (after TransferFields and Delete): IsDirty answers only where both give the same answer. `dirty_only`: the
     /// snapshot was kept by a read or write that answered false (or a `Delete(true)`), which the corpus pins only on a buffer
-    /// that differs from it (lt-ac/Y8RecordIsDirtyShapes.al:278-297, :206-208): an answer "not dirty" is refused.
+    /// that differs from it (record/Y8RecordIsDirtyShapes.al:278-297, :206-208): an answer "not dirty" is refused.
     /// `stale_store`: a ModifyAll or DeleteAll changed the stored row behind the variable (Y8RecordIsDirtyShapes.al:410-421),
     /// so IsDirty does not check its answer against the stored row.
     Row {
@@ -1579,10 +1579,10 @@ pub struct Buffer {
     /// (record/TestRecordPartialLoadNarrowAfterFetch.al:121-185).
     pub cleared: bool,
     /// Fields assigned while not loaded: a load of the missing fields (a read of an unloaded field, a Modify) keeps their
-    /// values (record/lt-loadfields-pagesource-validate/P81LoadFields.al:1169-1188).
+    /// values (record/load-fields/P81LoadFields.al:1169-1188).
     pub assigned: Vec<usize>,
     /// A read of an unloaded field loaded every missing field: a fetch of another row then loads its load set and nothing
-    /// carries over (record/lt-loadfields-pagesource-validate/P81LoadFields.al:1047-1120 `key_after_next_loaded_Qty` No).
+    /// carries over (record/load-fields/P81LoadFields.al:1047-1120 `key_after_next_loaded_Qty` No).
     pub missing_loaded: bool,
     /// The row as it was fetched: a field that is not loaded and no longer holds its fetched value was changed by AL code
     /// (an assignment, Validate, TransferFields, ...), and a load of the missing fields keeps it.
@@ -1657,7 +1657,7 @@ pub struct FilterControl {
     pub name: String,
     /// Object index of the table.
     pub table: u32,
-    /// Shared between copies of the builder (corpus filterpage/TestFilterPageBuilder.al:
+    /// Shared between copies of the builder (corpus pages/filterpagebuilder/TestFilterPageBuilder.al:
     /// FilterPageBuilder_Assignment_ViewOnCopyDoesReachOriginal).
     pub record: Rc<RefCell<RecordState>>,
 }
@@ -1702,7 +1702,7 @@ pub struct HeaderBag {
     pub items: Vec<(String, Vec<String>)>,
     pub secret: Vec<(String, Vec<String>)>,
     /// The headers of a content written from a SecretText: they list one header that is not the Content-Type, which no test
-    /// names (xml/lt-xml-attr-doc-http-members/P97ContentSecret.al:Secret_Content_Headers `keys` 1, `has_type` No). Reading
+    /// names (xml/xml/P97ContentSecret.al:Secret_Content_Headers `keys` 1, `has_type` No). Reading
     /// the list, or a header other than the Content-Type, is refused.
     pub unnamed_secret_header: bool,
     /// `HttpRequestMessage.SetCookie` wrote the `Cookie` header of these request headers (http::request_cookies).
@@ -1720,14 +1720,14 @@ pub fn new_header_list(kind: HeaderKind) -> HttpHeaderList {
     }))
 }
 
-/// What an `HttpRequestMessage` holds (corpus network/TestHttpRequestMessage.al,
-/// network/lt-http/HttpRequest.al). Nothing is sent but through a test handler.
+/// What an `HttpRequestMessage` holds (corpus http/TestHttpRequestMessage.al,
+/// http/HttpRequest.al). Nothing is sent but through a test handler.
 #[derive(Debug, Clone)]
 pub struct HttpRequestState {
     pub method: Option<String>,
     pub uri: Option<String>,
     /// The uri came from `SetSecretRequestUri`: `GetRequestUri` then reads empty
-    /// (xml/lt-xml-attr-doc-http-members/P97ReqSecretUri.al:79, :110).
+    /// (xml/xml/P97ReqSecretUri.al:79, :110).
     pub uri_secret: bool,
     /// The `Content` set on the request: the `HttpContent` handle itself, so the request and the
     /// variable it was set from share it (nothing pins a copy; no corpus test tells them apart).
@@ -1747,7 +1747,7 @@ impl Default for HttpRequestState {
     }
 }
 
-/// What an `HttpContent` holds (corpus network/TestHttpRequestMessage.al:34-43, network/lt-http/HttpContent.al).
+/// What an `HttpContent` holds (corpus http/TestHttpRequestMessage.al:34-43, http/content/HttpContent.al).
 #[derive(Debug, Clone)]
 pub struct HttpContentState {
     /// The body as bytes (text is written as UTF-8).
@@ -1764,7 +1764,7 @@ pub struct HttpContentState {
     pub copied: bool,
     /// The last `WriteFrom` took an `InStream`.
     pub from_stream: bool,
-    /// The last `WriteFrom` took a `SecretText` (xml/lt-xml-attr-doc-http-members/P97ContentSecret.al).
+    /// The last `WriteFrom` took a `SecretText` (xml/xml/P97ContentSecret.al).
     pub secret: bool,
 }
 
@@ -1788,7 +1788,7 @@ impl Default for HttpContentState {
     }
 }
 
-/// What a `Cookie` holds (platform/lt-xmlport-session-navapp-cookie/P94Cookie.al).
+/// What a `Cookie` holds (metadata/session-system/P94Cookie.al).
 #[derive(Debug, Clone, Default)]
 pub struct CookieState {
     pub name: String,
@@ -1801,7 +1801,7 @@ pub struct CookieState {
     pub expires: i64,
 }
 
-/// What an `HttpResponseMessage` holds (network/lt-http/HttpResponse.al). A response nobody filled is
+/// What an `HttpResponseMessage` holds (http/HttpResponse.al). A response nobody filled is
 /// 200 OK with an empty body.
 #[derive(Debug, Clone)]
 pub struct HttpResponseState {
@@ -1815,7 +1815,7 @@ pub struct HttpResponseState {
     pub blocked: bool,
 }
 
-/// What an `HttpClient` holds (network/lt-http/HttpClient.al).
+/// What an `HttpClient` holds (http/HttpClient.al).
 #[derive(Debug, Clone)]
 pub struct HttpClientState {
     pub base_address: String,
@@ -1886,7 +1886,7 @@ pub struct TestHttpResponseState {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NotificationState {
     pub message: Option<String>,
-    /// `Id := guid` (handlers/TestNotificationHandler.al:55-56); the default is not pinned.
+    /// `Id := guid` (ui-handlers/TestNotificationHandler.al:55-56); the default is not pinned.
     pub id: Option<[u8; 16]>,
     /// Ordinal in the `NotificationScope` members.
     pub scope: Option<i32>,
@@ -1895,7 +1895,7 @@ pub struct NotificationState {
     pub actions: Vec<(String, i32, String, Option<String>)>,
 }
 
-/// What an `ErrorInfo` holds (corpus errorinfo/TestErrorInfoType.al).
+/// What an `ErrorInfo` holds (corpus errors/errorinfo/TestErrorInfoType.al).
 #[derive(Debug, Clone)]
 pub struct ErrorInfoState {
     pub message: String,
@@ -1918,8 +1918,8 @@ pub struct ErrorInfoState {
     pub custom_dimensions: Option<Value>,
 }
 
-/// What a `ModuleInfo` reports: an app's manifest (corpus session/TestNavAppExtended.al,
-/// session/TestBCPlatformContracts.al, session/TestMiscTypes.al).
+/// What a `ModuleInfo` reports: an app's manifest (corpus session-system/TestNavAppExtended.al,
+/// session-system/TestBCPlatformContracts.al, session-system/TestMiscTypes.al).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleInfoState {
     pub id: [u8; 16],
@@ -1929,7 +1929,7 @@ pub struct ModuleInfoState {
     pub version: Option<[i32; 4]>,
     pub dependencies: Vec<[u8; 16]>,
     /// The module BC makes up for the null app id: only its data version is pinned
-    /// (session/TestEnvironmentUserTenantContracts.al:195-201); the other properties are refused.
+    /// (session-system/TestEnvironmentUserTenantContracts.al:195-201); the other properties are refused.
     pub synthesized: bool,
 }
 
@@ -1940,8 +1940,8 @@ pub struct Instance {
     pub globals: Vec<Value>,
     pub initialized: bool,
     /// A report variable a `Run` just reset: its next method call other than `Run` runs `OnInitReport` again,
-    /// a `Run` does not (report/TestProbeReportContracts.al:ReportVariable_RunTwice_GlobalsReset against
-    /// handlers/TestReportRuntimeContracts.al:Report_Run_ResetsTheGlobals_NotOnInitReport_RunTwiceIsAllowed_ExecuteTwiceThrows).
+    /// a `Run` does not (reports/TestProbeReportContracts.al:ReportVariable_RunTwice_GlobalsReset against
+    /// reports/TestReportRuntimeContracts.al:Report_Run_ResetsTheGlobals_NotOnInitReport_RunTwiceIsAllowed_ExecuteTwiceThrows).
     pub rerun: bool,
     /// For the instance of a page or report extension: the instance of the page or report it
     /// extends (ADR-023). `Weak`, so the link adds no reference cycle. `None` for every other
@@ -1997,7 +1997,7 @@ pub enum LibraryValue {
     /// A `FieldRef`: the record buffer it points into and the field's position.
     FieldRef(Rc<RefCell<RecordState>>, usize),
     /// A `FieldRef` reached through `KeyRef.FieldIndex`: the same field, but the hidden key on SystemId names
-    /// it `$systemId` (recordref/TestRecordRefKeyIndexSetRecFilterContracts.al:93).
+    /// it `$systemId` (recordref-fieldref/recordref/TestRecordRefKeyIndexSetRecFilterContracts.al:93).
     KeyFieldRef(Rc<RefCell<RecordState>>, usize),
     /// A `KeyRef`: the record buffer and the key's index in the table's keys.
     KeyRef(Rc<RefCell<RecordState>>, usize),
@@ -2010,7 +2010,7 @@ pub enum LibraryValue {
         value: Option<String>,
     },
     /// A `RecordRef` opened on a system table the workspace has no schema for:
-    /// only its number is known (corpus recordref/TestRecordRefOpenCompilationTarget.al).
+    /// only its number is known (corpus recordref-fieldref/recordref/TestRecordRefOpenCompilationTarget.al).
     SystemTable(i64),
     /// A `RecordId`: table object index and number, table name (for `Format`), primary key values.
     RecordId {
@@ -2276,7 +2276,7 @@ impl Value {
             Value::Guid(_) => k == "guid",
             Value::DateFormula(_) => k == "dateformula",
             // An enum in a Variant reports IsOption: corpus types/TestVariantExtended.al:261.
-            // A platform enum is its own type there, not an option (types/lt-variant-is-text-streams/LTP89IsEnumsA.al).
+            // A platform enum is its own type there, not an option (types/variant/LTP89IsEnumsA.al).
             Value::Option(_, members) => match crate::sysenum::kind_of(members) {
                 Some(kind) => k == kind,
                 None => k == "option",
@@ -2293,7 +2293,7 @@ impl Value {
             Value::DotNet(_) => k == "dotnet",
             // Never reached: a read of an unknown column is refused before its value reaches a Variant.
             Value::Unknown(_) => false,
-            // A BigInteger (session/lt-bl-sql-counters/SqlCounters.al:87-103).
+            // A BigInteger (session-system/session/SqlCounters.al:87-103).
             Value::SqlCount(_) => k == "biginteger",
         }
     }

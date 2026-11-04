@@ -21,17 +21,17 @@ impl Session {
 
     /// `RequestOptionsPage.Update(SaveRecord)` in a request page trigger. With `false` the controls show
     /// the variables as they are now, which they do on every read here, so nothing is left to do
-    /// (handlers/TestReportRequestPageUpdateObjectIdContracts.al:RequestPageUpdate_RefreshesTheOtherControls:
+    /// (reports/TestReportRequestPageUpdateObjectIdContracts.al:RequestPageUpdate_RefreshesTheOtherControls:
     /// a handler sets Source to 21 and reads Derived 42 that the trigger set before it called Update(false)).
     /// `RequestOptionsPage.Caption := x` in the code of a report. Set while the request page's own OnOpenPage runs (in it
     /// or in a procedure it calls), it is the caption a request page handler reads
-    /// (report/lt-aq/AqTests.al:313-330, Caption_SetInOnOpenPage_TestRequestPageCaption). Set in its OnInit it is the handler's
-    /// caption too, and OnOpenPage wins over it (report/lt-y86-request-page/Y86RequestCaption.al). Set anywhere else (Base
+    /// (reports/AqTests.al:313-330, Caption_SetInOnOpenPage_TestRequestPageCaption). Set in its OnInit it is the handler's
+    /// caption too, and OnOpenPage wins over it (reports/request-page/Y86RequestCaption.al). Set anywhere else (Base
     /// Application's Financial Report also sets it from OnValidate) the code reads it back and the handler does not (pinned
     /// for OnValidate by the same file; a report trigger or report extension is the assumption request-page-caption-set).
     ///
     /// From the code of a report (a procedure, also called on a variable never run, and a report trigger) the getter reads the
-    /// request page's `Caption`, and after a set the caption set, also inside a later run (report/lt-y40-bare-report-run/
+    /// request page's `Caption`, and after a set the caption set, also inside a later run (reports/runtime/
     /// Y40BareReportRun.al:344, Y40_BareRequestOptionsPage_Caption, corpus master ac3499d6). The caption of a report that also
     /// declares its own Caption, or of a request page without one, is not pinned.
     pub(crate) fn request_page_caption(&mut self, args: &[Value], inst: &Inst) -> Result<Value, Signal> {
@@ -67,7 +67,7 @@ impl Session {
                 {
                     Ok(Value::Text(crate::pages::unquote(rp).into()))
                 }
-                // A report with neither Caption: the request page's caption is the report's name (report/lt-y86-request-page/
+                // A report with neither Caption: the request page's caption is the report's name (reports/request-page/
                 // Y86RequestCaption.al Y86_Caption_OnInitAndOnOpenPage `init_readback`).
                 (None, None) if o.kind == ir::ObjKind::Report => Ok(Value::Text(o.name.clone().into())),
                 _ => unsupported(
@@ -82,7 +82,7 @@ impl Session {
             st.borrow_mut().caption = Some(text);
             return Ok(Value::Null);
         }
-        // Set in the request page's OnInit it is the caption a request page handler reads (report/lt-y86-request-page/
+        // Set in the request page's OnInit it is the caption a request page handler reads (reports/request-page/
         // Y86RequestCaption.al); the page takes it when it opens (`request_page_takes_init_caption`).
         let in_init = self.request_page_in_on_init(inst);
         match own {

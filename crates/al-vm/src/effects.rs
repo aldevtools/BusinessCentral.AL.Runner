@@ -2,7 +2,7 @@
 //!
 //! A page open runs the CaptionClass expressions of its source table with an empty record a number of times BC does not
 //! give stably (8 per Card OpenEdit on one BC 29 container in issue 5870; 240, 480 and 492 calls for one Card open in the
-//! corpus, record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:657). The number can only matter when a run leaves a
+//! corpus, record/captions/QdCaptionClassAreas.al:657). The number can only matter when a run leaves a
 //! trace: a write to a variable that outlives the call, a database write, a dialog, an error. [`Engine::lasting_effect`]
 //! answers that from the code alone, before anything runs.
 //!
@@ -144,7 +144,7 @@ enum Inst {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Effect {
     /// Only writes to variables of SingleInstance codeunits (the description names the first). Refusing such page opens
-    /// costs baseline cases: the corpus counts the runs in a SingleInstance log (record/lt-qd-captionclass-areas/
+    /// costs baseline cases: the corpus counts the runs in a SingleInstance log (record/captions/
     /// QdCaptionClassAreas.al:1227 SF_Count_CardOpenViewFiveTimes and 32 more cases of codeunit 86504), and Base
     /// Application's Sales Line CaptionClass Mgmt keeps the document header in one. Kept, not pinned (al-runner issue 5870).
     Kept(String),

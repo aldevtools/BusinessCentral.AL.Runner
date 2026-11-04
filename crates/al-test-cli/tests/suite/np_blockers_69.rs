@@ -8,7 +8,7 @@ fn outcome(o: &[(String, al_testrun::Outcome)], n: &str) -> String {
 }
 
 // The ASSIGNMENT of UpdLock or RepeatableRead opens the write transaction, the read does not
-// (misc/lt-np4-probes/Np4Misc.al Y9_UpdLock_SetBeforeCommit_FirstRead, Y9_RepeatableRead_SetAfterCommit_FirstRead,
+// (format-evaluate/Np4Misc.al Y9_UpdLock_SetBeforeCommit_FirstRead, Y9_RepeatableRead_SetAfterCommit_FirstRead,
 // Y9_ReadIsolation_ValueAcrossCommit, Y9_ReadIsolation_SetAgainAfterCommit).
 const ISOLATION: &str = r#"
 table 50690 "N69 Row"
@@ -147,7 +147,7 @@ fn an_empty_error_out_of_a_list_part_control_validate_in_a_card_ends_set_value_q
 }
 
 // OK on the lookup list of a static Page.RunModal(Id, Rec) that shows no row fails with TestActionNotFound, and the record
-// comes back without its filters (errors/lt-ms-refusals-129/Y9LookupNoRow.al Y9_Lookup_RunModalIdRec_FilteredToNoRow_Ok,
+// comes back without its filters (pages/run-modal/Y9LookupNoRow.al Y9_Lookup_RunModalIdRec_FilteredToNoRow_Ok,
 // corpus PR 896).
 const LOOKUP: &str = r#"
 table 50698 "N69 Item" { fields { field(1; Id; Integer) { } field(2; Grp; Code[10]) { } } keys { key(PK; Id) { } } }

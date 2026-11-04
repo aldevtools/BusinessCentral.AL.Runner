@@ -1,7 +1,7 @@
 //! `System.Collections.Generic.Dictionary`2` as Base Application's ODataUtility.GenerateFilterText uses it: a new
 //! dictionary of the open generic type, filled by GetNAVFilters only from Tenant Web Service Filter rows, then walked by
 //! `foreach` in CombineFiltersFromTables. With no filter rows the walk finds nothing and the filter text is ''
-//! (tests/al-language-onprem-dotnet/lt-qx-dotnet/QxDotNetDemoShapes.al:473, al-language-onprem/platform/PtWebServiceRows.al:326).
+//! (tests/al-language-onprem-dotnet/dotnet/dotnet/QxDotNetDemoShapes.al:473, al-language-onprem/metadata/PtWebServiceRows.al:326).
 //! The AL below is my own minimal version of that sequence.
 
 use al_builtins::native::Signal;
@@ -51,7 +51,7 @@ fn a_new_dictionary_walked_by_foreach_finds_nothing() {
 }
 
 // The shape of RequestPageParametersHelper.GetViewFromDynamicRequestPage: a dictionary made with a capacity, filled with
-// ContainsKey/Add, walked with foreach into a KeyValuePair (tests/al-language-onprem-dotnet/lt-y17-dotnet-dictionary/
+// ContainsKey/Add, walked with foreach into a KeyValuePair (tests/al-language-onprem-dotnet/dotnet/dotnet-dictionary/
 // Y17DotNetDictionary.al:56 DnDict_Capacity_AddContainsForeach).
 const FILL: &str = "D := D.Dictionary(3); \
     if not D.ContainsKey(18) then D.Add(18, 'view18'); \

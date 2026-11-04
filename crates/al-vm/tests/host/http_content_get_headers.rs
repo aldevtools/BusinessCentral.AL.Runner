@@ -1,5 +1,5 @@
 //! `HttpContent.GetHeaders` on the content of a request that never got content, with the result used and as a statement.
-//! Every literal is what real BC answered in the corpus: network/lt-y62-content-headers/Y62ContentHeaders.al (codeunit 93264,
+//! Every literal is what real BC answered in the corpus: http/headers/Y62ContentHeaders.al (codeunit 93264,
 //! writer Y62).
 
 use al_testkit::text;

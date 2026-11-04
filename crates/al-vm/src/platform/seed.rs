@@ -24,7 +24,7 @@ pub(super) const TENANT_WEB_SERVICE: u32 = 2_000_000_168;
 pub(super) const TENANT_REPORT_LAYOUT_SELECTION: u32 = 2_000_000_233;
 pub(super) const ODATA_EDM_TYPE: u32 = 2_000_000_179;
 
-/// The Tenant Report Layout Selection rows of a fresh tenant (platform/lt-platform-tables/PtCloudTables.al:378-424,
+/// The Tenant Report Layout Selection rows of a fresh tenant (metadata/platform-tables/PtCloudTables.al:378-424,
 /// QX_TenantReportLayoutSelection_RowsAndDemoShape, 'rows'): (Report ID, Layout Name), blank Company Name and null User ID.
 /// The App ID is the Base Application's (`BASE_APPLICATION_APP_ID`).
 const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
@@ -92,7 +92,7 @@ impl SeedRows {
 unsafe impl Send for SeedRows {}
 unsafe impl Sync for SeedRows {}
 
-/// The Web Service rows of a fresh tenant, every column (onprem platform/PtWebServiceRows.al:39-73, WebService_Content:
+/// The Web Service rows of a fresh tenant, every column (onprem metadata/PtWebServiceRows.al:39-73, WebService_Content:
 /// 17 rows): (Object Type ordinal, Service Name, Object ID). Published is Yes and both Exclude columns No on every row.
 /// They are rows of the database the service tier starts with, not written by AL of an app.
 const WEB_SERVICES: &[(i32, &str, i32)] = &[
@@ -115,10 +115,10 @@ const WEB_SERVICES: &[(i32, &str, i32)] = &[
     (9, "TopCustomerOverview", 100),
 ];
 
-/// The Tenant Web Service rows of a fresh tenant, every column (platform/lt-platform-rows-fresh/PlatformRowsWebService.al:66-199,
+/// The Tenant Web Service rows of a fresh tenant, every column (metadata/platform-tables/PlatformRowsWebService.al:66-199,
 /// 64 rows, count at :215): (Object Type ordinal, Service Name, Object ID). Published is Yes and both Exclude columns No on every
 /// row. Microsoft's DemoTool calls CreateTenantWebService for rows that exist and changes nothing (onprem
-/// platform/PtWebServiceRows.al:229, RD_CreateTenantWebService_DemoToolCalls).
+/// metadata/PtWebServiceRows.al:229, RD_CreateTenantWebService_DemoToolCalls).
 const TENANT_WEB_SERVICES: &[(i32, &str, i32)] = &[
     (5, "WorkflowActionResponse", 1544),
     (8, "Chart of Accounts", 16),
@@ -187,7 +187,7 @@ const TENANT_WEB_SERVICES: &[(i32, &str, i32)] = &[
 ];
 
 /// The Full Name of the session user's User row. The corpus pins only that it is not blank and is not the user name
-/// (system-fields/W6SystemFieldStamps.al:240, `is_user_id=No` and `blank=No` for SystemCreatedByFullName, which holds it);
+/// (record/system-fields/W6SystemFieldStamps.al:240, `is_user_id=No` and `blank=No` for SystemCreatedByFullName, which holds it);
 /// the text itself is AL Runner's (docs/probes-needed.md, Identity).
 pub(crate) const SESSION_USER_FULL_NAME: &str = "Test User";
 
@@ -331,7 +331,7 @@ impl Session {
                         let mut r = super::blank(t);
                         r[pos(t, 1)] = Value::Integer(report);
                         r[pos(t, 2)] = text(t, 2, layout);
-                        // The Base Application's id on every row (platform/lt-platform-rows-fresh/PlatformRowsLayoutSelection.al:82-85,
+                        // The Base Application's id on every row (metadata/platform-tables/PlatformRowsLayoutSelection.al:82-85,
                         // BC 27, 28 and 29).
                         r[pos(t, 3)] =
                             Value::Guid(al_builtins::ops::parse_guid(BASE_APPLICATION_APP_ID).expect("a literal guid"));
@@ -364,7 +364,7 @@ impl Session {
                     // ADR-046 step 1 under the `--companies` opt-in: one row per declared company, in the order given.
                     // The session company's row is the row of the default mode. Another company's row has `Evaluation
                     // Company` No and `Display Name` empty, as "My Company" of the corpus database
-                    // (install/lt-bf-install-probes/BfInstallTests.al:47-64, ADR-046 amendment 1, A6); its `Id` is a host
+                    // (record/BfInstallTests.al:47-64, ADR-046 amendment 1, A6); its `Id` is a host
                     // value, as the session company's is (ADR-013 decision 9). The corpus database's session company is
                     // an evaluation company (:61), but a run's own database need not be one, and Company-Initialize reads
                     // the flag, so it is not set here (ADR-046 amendment 2).
@@ -398,7 +398,7 @@ impl Session {
                     r[pos(t, 3)] = text(t, 3, SESSION_USER_FULL_NAME);
                     r
                 }
-                // Every User has a User Property row (onprem access-control/TestUserPropertySessionUser.al:312-330).
+                // Every User has a User Property row (onprem permissions/access-control/TestUserPropertySessionUser.al:312-330).
                 USER_PROPERTY => {
                     let telemetry = self.new_guid();
                     crate::usertable::property_seed(t, i.user_sid, telemetry)
@@ -406,7 +406,7 @@ impl Session {
                 // The session user's row exists when a test runs: the runner's client session is the
                 // sign-in that creates it. One row, Scope Tenant, App ID Base Application, language
                 // and locale 1033, a profile id that is not blank; the profile, time zone and company
-                // are tenant data and not pinned (session/TestUserPersonalizationRowContracts.al:11-35).
+                // are tenant data and not pinned (session-system/TestUserPersonalizationRowContracts.al:11-35).
                 // The profile is the default one, an assumption.
                 USER_PERSONALIZATION => {
                     let mut r = super::blank(t);
@@ -429,7 +429,7 @@ impl Session {
                     }
                     set(12, Value::Integer(1033));
                     set(27, Value::Integer(1033));
-                    // The row carries the session company and the host's time zone (session/W6UserPersonalization.al:
+                    // The row carries the session company and the host's time zone (session-system/W6UserPersonalization.al:
                     // row_company_blank and row_time_zone_blank are No, and SessionSettings.Init matches the row).
                     for (name, value) in [("Company", i.company.clone()), ("Time Zone", i.time_zone.clone())] {
                         if let Some(p) = t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name)) {

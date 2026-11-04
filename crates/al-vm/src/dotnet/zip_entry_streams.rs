@@ -1,6 +1,6 @@
 //! The stream `ZipArchiveEntry.Open()` returns is closed at the end of the statement when no variable keeps it: a later
 //! `CreateEntry` of the same archive then works. A stream kept in a variable stays open, also after `CopyStream` into it
-//! (al-language-onprem-dotnet/lt-y44-zip-create/Y44ZipCreateMode.al, corpus PR 962: Zip_TwoEntries_CopyStreamIntoOpen :244-255
+//! (al-language-onprem-dotnet/dotnet/zip-create/Y44ZipCreateMode.al, corpus PR 962: Zip_TwoEntries_CopyStreamIntoOpen :244-255
 //! `CopyStream(ZipArchiveEntry.Open(), InS)` three times, Zip_OpenTemporaryNoCopy_SecondCreate :293-294
 //! `ZipArchiveEntry.Open().WriteByte(65)`, Zip_OpenKeptInVariable_SecondCreate :274-277 a kept stream blocks the next CreateEntry).
 //!

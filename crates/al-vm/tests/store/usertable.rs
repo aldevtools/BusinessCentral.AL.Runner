@@ -217,7 +217,7 @@ fn two_at_signs_in_the_authentication_email_are_an_error() {
 }
 
 /// Deleting a User deletes its Access Control rows, and no one else's (staging
-/// tests/al-language-onprem/session/PZUserDelete.al:DeleteUser_WithRunTrigger_RemovesItsAccessControlRows and
+/// tests/al-language-onprem/session-system/PZUserDelete.al:DeleteUser_WithRunTrigger_RemovesItsAccessControlRows and
 /// DeleteUser_WithoutRunTrigger_AccessControlRows, BC 29.0; also what Microsoft's codeunit 134614 needs).
 #[test]
 fn deleting_a_user_deletes_its_access_control_rows_and_only_those() {
@@ -281,7 +281,7 @@ fn error_with_code(r: Result<Value, Signal>) -> (String, String) {
     }
 }
 
-/// access-control/lt-av-user-insert/AvUserInsertErrors.al:45-120: the full texts and codes. A used Insert result still
+/// permissions/access-control/AvUserInsertErrors.al:45-120: the full texts and codes. A used Insert result still
 /// raises the name error.
 #[test]
 fn the_user_trigger_errors_carry_their_full_texts_and_codes() {

@@ -1,7 +1,7 @@
 //! A list run with the static `Page.RunModal(id, Rec)` on a record that names the first row of an unfiltered view reads its
 //! rows as a list opened on its first row does (the window, the row once more, then OnAfterGetCurrRecord), and a GoToKey in
 //! the handler reads the new row twice before OnAfterGetCurrRecord, as the same page run from a page variable with no record
-//! (pages/lt-ai-list-order/LookupGoToKeyTypedReads.al:204-221 Y7_PageRunModalRecord_GoToKey_TypedReads_OK against :163
+//! (pages/list-order/LookupGoToKeyTypedReads.al:204-221 Y7_PageRunModalRecord_GoToKey_TypedReads_OK against :163
 //! Y7_NotLookupMode_GoToKey_TypedReads_OK: `open=R:A,R:B,R:C,R:A,R:A,C:A;goto=Yes;after goto=R:B,R:B,C:B`).
 
 use al_test_cli::report::Outcome;

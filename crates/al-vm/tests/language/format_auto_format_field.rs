@@ -1,5 +1,5 @@
 //! `Format` in code of a Decimal table field whose AutoFormatExpression is an expression: BC applies the field's AutoFormat
-//! outside a page too (types/lt-auto-format-currency/QiTableFieldAutoFormat.al:400-418 QI_TableFieldExpression_FormatInCode:
+//! outside a page too (format-evaluate/QiTableFieldAutoFormat.al:400-418 QI_TableFieldExpression_FormatInCode:
 //! a currency of 3:3 / 4:4 places gives `1,234.568` for type 1, `1,234.5679` for type 2, and the procedure of type 10 that
 //! answers `<Precision,3:3><Standard Format,0>` gives `1,234.568`).
 
@@ -86,7 +86,7 @@ fn format_in_code_applies_the_fields_auto_format_expression() {
 }
 
 /// AutoFormatType 4 with a field of the row takes the amount places of the currency, as type 1 does
-/// (misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al `f2A4`).
+/// (text/text-methods/SaUnitAmountSubst.al `f2A4`).
 #[test]
 fn format_in_code_of_auto_format_type_four_takes_the_amount_places() {
     assert_eq!(text(al_testkit::run_in(SRC, "QI AF Test", "TypeFour")), "1,234.568");
@@ -136,7 +136,7 @@ codeunit 50111 "AF Lit Test"
 "#;
 
 /// AutoFormatType 4 and 5 with a constant code that is no currency take the places of an amount and a unit amount
-/// (types/lt-ax-text-format-dates/AxFillerBuilderAutoFormat.al:193-260); with a currency that exists they are refused.
+/// (format-evaluate/AxFillerBuilderAutoFormat.al:193-260); with a currency that exists they are refused.
 #[test]
 fn auto_format_types_four_and_five_with_a_code_that_is_no_currency() {
     let r = al_testkit::run_with(

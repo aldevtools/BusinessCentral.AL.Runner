@@ -1,7 +1,7 @@
 //! A modal lookup (Page.RunModal with a blank record) over a list that sorts descending on a key other than the primary key and
 //! declares OnAfterGetRecord and OnAfterGetCurrRecord (the shape of Base App page 143 "Posted Sales Invoices", al-runner issue
 //! 6363): the open reads the last row and the rows above it, GoToKey reads from the top row held up to the first and then moves
-//! down row by row. Mirrors corpus master 930653fe, pages/lt-wd/WdModalGoToKeyDescSecondary.al.
+//! down row by row. Mirrors corpus master 930653fe, testpage/WdModalGoToKeyDescSecondary.al.
 
 use al_test_cli::report::Outcome;
 

@@ -13,7 +13,7 @@ fn text(vars: &str, body: &str) -> String {
     }
 }
 
-// errors/lt-ms-refusals-130/P130EvaluateDate.al UN_Evaluate_Statement_NotADate_ByTarget (corpus branch
+// types/P130EvaluateDate.al UN_Evaluate_Statement_NotADate_ByTarget (corpus branch
 // al-runtime-rs-staging-un, commit d3bcc580): an Evaluate statement of `not-a-date` into a Date raises the
 // Date-format error with format 9, 0 and the default; the value is kept.
 #[test]
@@ -30,7 +30,7 @@ fn an_evaluate_statement_of_letters_into_a_date_raises_the_date_format_error() {
     }
 }
 
-// Corpus master (corpus PR 886) types/lt-evaluate-format-lasterror-setview/EvaluateDateFormat9Space.al:49-81, :90-120: with
+// Corpus master (corpus PR 886) format-evaluate/EvaluateDateFormat9Space.al:49-81, :90-120: with
 // format 9, white space alone (TAB, blanks, CR, LF, VT, FF, no-break space) reads as the empty date, white space around a date is
 // dropped, and a TAB inside the date rejects it with the Date format error.
 fn eval9(chars: &str) -> String {

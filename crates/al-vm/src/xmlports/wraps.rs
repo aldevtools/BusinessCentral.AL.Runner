@@ -1,4 +1,4 @@
-//! Text elements with content inside a table element, beyond the shapes of `shape.rs` (xmlport/lt-y60-xmlport-text-in-table/
+//! Text elements with content inside a table element, beyond the shapes of `shape.rs` (xmlports/shapes-properties/
 //! Y60XpTextInTable.al; the same shapes as al-sema xmlports `containers`).
 
 use super::*;
@@ -16,7 +16,7 @@ pub(super) fn table_wrap(schema: &Schema, c: usize) -> bool {
 
 /// A text element right below table element `table` whose child nodes are field elements of that table (with only attributes
 /// below them, at least one) and `table_wrap` text elements: `Info > Name (unit), Note, Sub > Child`. Also text elements of only
-/// text attributes and table elements without LinkTable (xmlport/lt-y67-xmlport-wrapper-in-table/Y67XpWrapperInTable.al:533-604
+/// text attributes and table elements without LinkTable (xmlports/shapes-properties/Y67XpWrapperInTable.al:533-604
 /// `membership > loyalty, counts, Entry`).
 pub(super) fn field_wrap(schema: &Schema, c: usize, table: usize) -> bool {
     let n = schema.node(c);
@@ -111,7 +111,7 @@ impl Session {
                 continue;
             };
             match schema.node(child).kind {
-                ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field(inst, schema, child, &ce.text())?),
+                ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?),
                 _ if schema.children(child).is_empty() => self.xp_assign_leaf_text(inst, schema, child, ce)?,
                 _ => {
                     if ce.elements().next().is_some() {

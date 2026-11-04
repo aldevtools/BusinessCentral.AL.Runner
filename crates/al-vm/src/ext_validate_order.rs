@@ -1,13 +1,13 @@
 //! The order of the OnBeforeValidate and OnAfterValidate triggers table extensions add to one field.
 //!
 //! - Two extensions of one app run in the order of their object ids, both before and after the field's own OnValidate
-//!   (record/lt-modify-field-two/ModifyFieldTwoExtensions.al:148-169, P163_Validate_TwoExtensionsOnOneField_Order: 73328 "Ext A"
+//!   (record/crud/ModifyFieldTwoExtensions.al:148-169, P163_Validate_TwoExtensionsOnOneField_Order: 73328 "Ext A"
 //!   then 73329 "Ext B"; events/W4ValidateOrderAndCurrFieldNo.al:331 `ext1.before;ext2.before;base.onvalidate;ext1.after;ext2.after;`,
 //!   68065 "Ext One" then 68066 "Ext Two"). In both pins the id order is also the order of the names; when the two orders differ,
 //!   or with more than two extensions in one app, the order is not pinned and the Validate is refused.
 //! - Extensions of different apps run app by app (al-runner issue 6486), in the order BC visits the apps: an app before the
 //!   apps that depend on it, and two apps that do not depend on each other in ascending app id
-//!   (tableextension/lt-bw-cross-app/Y20CrossAppValidateOrder.al:44-45, `xa;xb;xd;xc;main`: B and D depend on A only, C on A, B
+//!   (table-objects/extensions/Y20CrossAppValidateOrder.al:44-45, `xa;xb;xd;xc;main`: B and D depend on A only, C on A, B
 //!   and D, the test app on A, B and C; B (app id c87ced6d) runs before D (e92be076)). This is the visit order of the event
 //!   subscribers across apps (`dispatch::visit_orders`); where its readings that no probe tells apart give different orders
 //!   for the apps involved, the Validate is refused.

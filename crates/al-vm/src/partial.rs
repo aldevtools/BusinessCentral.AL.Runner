@@ -61,7 +61,7 @@ impl Session {
         let key = &t.keys[r.key.min(t.keys.len() - 1)];
         have.extend(key.iter().copied());
         have.extend(r.filters.iter().map(|f| f.field));
-        // SystemId and the four audit fields are always loaded (record/lt-loadfields-pagesource-validate/P81LoadFields.al:172-190
+        // SystemId and the four audit fields are always loaded (record/load-fields/P81LoadFields.al:172-190
         // LoadFields_Name_Get_LoadedFlags `a_loaded_SystemId` to `a_loaded_SystemModifiedBy`; :1047-1120 `key_before_loaded_System*`).
         have.extend((0..t.fields.len()).filter(|&p| (2_000_000_000..=2_000_000_004).contains(&t.fields[p].id)));
         have.sort_unstable();
@@ -85,7 +85,7 @@ impl Session {
             // After a Clear only a whole fetched row stays in hand for a Get of the same row (session/
             // TestProbeSessionMiscContracts.al:PartialRecords_AreFieldsLoaded). A partial buffer does not: after FindSet and
             // Next under SetLoadFields(Qty), Clear, SetLoadFields(Name) and Get of the row Next fetched, Qty is not loaded
-            // (record/lt-are-fields-loaded-unfetched/AreFieldsLoadedUnfetched.al:119-162, get_qty).
+            // (record/load-fields/AreFieldsLoadedUnfetched.al:119-162, get_qty).
             Some(old)
                 if old.cleared
                     && (old.row.as_deref() != Some(new_row.as_str()) || !matches!(old.have, FieldSet::All)) =>
@@ -131,7 +131,7 @@ impl Session {
                 } else {
                     // Another row: what the old buffer held is not known to carry over, except after a load of every missing
                     // field, which carries nothing (P81LoadFields.al:1047-1120 `key_after_next_loaded_*`).
-                    // A Get of another row after a whole fetched row carries nothing either (record/lt-outside-records/
+                    // A Get of another row after a whole fetched row carries nothing either (record/
                     // ResetClearsLoadFields.al:111 ResetThenGet_AfterEarlierFullGet `control without Reset`: `notes=No`).
                     let carried = match &old.have {
                         _ if old.missing_loaded => FieldSet::Of(Vec::new()),
@@ -164,7 +164,7 @@ impl Session {
     }
 
     /// Loads what a partial buffer misses from the stored row, as BC does on a read of a field that is not loaded and on a
-    /// Modify (record/lt-loadfields-pagesource-validate/P81LoadFields.al:1047-1243, al-runner issue 5764): every stored field
+    /// Modify (record/load-fields/P81LoadFields.al:1047-1243, al-runner issue 5764): every stored field
     /// that is neither loaded nor assigned takes the row's current value (`RN_StaleModify_JitReadAfterOtherChange` reads 99,
     /// `RN_StaleModify_UnloadedFieldChangedElsewhere` keeps the other variable's 99); a loaded field keeps the buffer's value, also
     /// when it is stale (`RN_StaleModify_UnloadedFieldSetHere_LoadedChangedElsewhere`), and so does an assigned one. Afterwards
@@ -176,7 +176,7 @@ impl Session {
     }
 
     /// A read of field `p`, which is not loaded, of a partial record whose row another variable deleted: the JustInTimeFieldLoad
-    /// error, naming the field, the table and the key (record/lt-load-fields-fetched/LoadFieldsFetched.al:232-268, a normal and a
+    /// error, naming the field, the table and the key (record/load-fields/LoadFieldsFetched.al:232-268, a normal and a
     /// table extension field). Pinned for a table whose primary key is one Integer field and whose caption is its name; `None`
     /// otherwise.
     fn jit_row_gone(&self, t: &TableDef, fields: &[Value], p: usize) -> Option<Signal> {
@@ -316,7 +316,7 @@ impl Session {
         let schema = engine.program.objects[t.object as usize].table.as_ref();
         let stored = |p: usize| schema.is_some_and(|s| s.fields.get(p).is_some_and(|f| f.stored));
         match method {
-            // The request and the answers: `load_fields_request` (record/lt-y67-addloadfields-flow/Y67AddLoadFlow.al).
+            // The request and the answers: `load_fields_request` (record/load-fields/Y67AddLoadFlow.al).
             RecordOp::SetLoadFields | RecordOp::AddLoadFields => self.set_or_add_load_fields(method, rec, t, wanted),
             RecordOp::SetBaseLoadFields => {
                 // Only the full-load case is pinned as callable (record/TestRecordExtended.al:71-80);
@@ -344,9 +344,9 @@ impl Session {
                 // A FlowField reads as loaded on a record that fetched a partial request, whether or not it was requested
                 // (PriorityAssumptions.al:282-312 flow_only_cnt_loaded, mixed_cnt_loaded; :325-333 cnt_loaded). A record
                 // that fetched nothing or a whole row is not pinned for it. A FlowFilter reads the same: Yes after a partial
-                // fetch, after a read of an unloaded field and after Next (record/lt-loadfields-pagesource-validate/
+                // fetch, after a read of an unloaded field and after Next (record/load-fields/
                 // P81LoadFields.al:1047-1120 RN_JitRead_UnloadedField_LoadsWhich, `_loaded_KindFilter`). After a fetch of the whole
-                // row both read as loaded too (record/lt-y67-addloadfields-flow/Y67AddLoadFlow.al:375-399 Record_NoRequest_SetStatement
+                // row both read as loaded too (record/load-fields/Y67AddLoadFlow.al:375-399 Record_NoRequest_SetStatement
                 // `1 none` loaded=YesYesYesYesYesYes). A record that fetched nothing is not pinned for them.
                 if flow && rec.borrow().load.buffer.is_none() {
                     return unsupported("AreFieldsLoaded of a FlowField on a record that fetched nothing (not pinned)");
@@ -358,10 +358,10 @@ impl Session {
                     let fresh = self.initial_fields(t.object as usize);
                     // A record filled by assignment, Validate or Insert and never fetched reports every field
                     // loaded, whichever field was assigned; after Init it reports none
-                    // (record/lt-are-fields-loaded-unfetched/AreFieldsLoadedUnfetched.al:42-68 assigned,
+                    // (record/load-fields/AreFieldsLoadedUnfetched.al:42-68 assigned,
                     // :70-92 Init and Validate, :94-117 Insert and Modify, :174-221 temporary).
                     // Any assignment counts, a field assigned its own default value too
-                    // (record/lt-arefieldsloaded-default/AreFieldsLoadedDefault.al:57-88, :122-137). Insert, Modify and
+                    // (record/load-fields/AreFieldsLoadedDefault.al:57-88, :122-137). Insert, Modify and
                     // Validate are read from the buffer differing from a fresh one.
                     let filled = r.assigned
                         || fresh.len() != r.fields.len()
@@ -379,7 +379,7 @@ impl Session {
                     })
                 };
                 let partial = !matches!(b.have, FieldSet::All);
-                // After Clear a partial buffer holds no field (misc/lt-probes-needed-2/PnBErrorsCollections.al:640-674
+                // After Clear a partial buffer holds no field (errors/PnBErrorsCollections.al:640-674
                 // SetLoadFields_ThenRead_AndClear `afterClear.name` No).
                 if partial && b.cleared {
                     return Ok(Value::Boolean(false));
@@ -406,14 +406,14 @@ impl Session {
     /// what was assigned, the key stays as it is) and the function form answers false, with an existing and with a
     /// missing key; on a record that holds a whole fetched row it changes nothing (types/PYLoadFindThis.al, BC 27.5 and
     /// 29.0), and the function form answers true, after Get, FindFirst and Find('-'), over values assigned since and when the row
-    /// was deleted meanwhile (record/lt-load-fields-fetched/LoadFieldsFetched.al:49-185). On a record that holds a partial
+    /// was deleted meanwhile (record/load-fields/LoadFieldsFetched.al:49-185). On a record that holds a partial
     /// buffer it reads the fields asked for from the row and answers true (:104-132 P170_LoadFields_Function_AfterGetUnderSetLoadFields);
     /// when one of them was assigned or changed since the fetch, what BC keeps is not pinned: refused.
     pub(crate) fn load_fields_row(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
         let wanted = positions(args)?;
         let engine = self.engine.clone();
         let schema = engine.program.objects[t.object as usize].table.as_ref();
-        // A FlowField or a FlowFilter field in the list (record/lt-r6795-loadfields-flow/R6795LoadFieldsFlow.al, BC 28.5, every state
+        // A FlowField or a FlowFilter field in the list (record/load-fields/R6795LoadFieldsFlow.al, BC 28.5, every state
         // and list of Statement_* and Function_*): on a record that holds no fetched row the call is the same as with stored fields (the
         // statement raises nothing, the function form answers No, the FlowField is not calculated); on a fetched row the function
         // form answers No and changes nothing, the statement raises DB:Ok for the first such field of the list.

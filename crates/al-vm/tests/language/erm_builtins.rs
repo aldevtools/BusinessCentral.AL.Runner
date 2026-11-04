@@ -53,7 +53,7 @@ fn run(body: &str) -> Result<Value, Signal> {
 
 #[test]
 fn http_request_message_method_round_trips() {
-    // network/TestHttpRequestMessage.al:19-25 (`Req.Method := 'GET'`, read back); :46-55 the request uri.
+    // http/TestHttpRequestMessage.al:19-25 (`Req.Method := 'GET'`, read back); :46-55 the request uri.
     let r = run("procedure F(): Text var Req: HttpRequestMessage; begin Req.Method := 'POST'; exit(Req.Method); end;");
     assert_eq!(text(r), "POST");
     let r = run(

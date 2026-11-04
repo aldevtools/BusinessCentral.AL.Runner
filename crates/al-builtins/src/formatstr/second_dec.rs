@@ -1,5 +1,5 @@
 //! `<Second dec>` on a Time and a DateTime: the fraction of the second (al-runner issue 6650). Real BC's values: corpus writer
-//! Y64, branch al-runtime-rs-staging-y64 85d86e7b, types/lt-datetime/Format.al:1066-1300; `<Second dec>` and `<Second dec,3>` of
+//! Y64, branch al-runtime-rs-staging-y64 85d86e7b, types/date-time/Format.al:1066-1300; `<Second dec>` and `<Second dec,3>` of
 //! .078 also on master (Format.al:296-321, :600-659).
 
 use super::INVALID_FORMAT_MARK;

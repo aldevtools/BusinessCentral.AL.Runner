@@ -2419,11 +2419,11 @@ fn on_hub(lowered: &Lowered, oi: usize, hub: bool, hub_path: bool) -> bool {
 }
 
 /// Whether the `OnRun` trigger of test codeunit `oi` can write a table. Under Microsoft's runner 130450 it runs outside the
-/// codeunit isolation: what it writes, committed or not, reaches the later codeunits (codeunit/lt-qu-commit-isolation/
+/// codeunit isolation: what it writes, committed or not, reaches the later codeunits (codeunits/run-onrun/
 /// RqIsolationModes.al:357-369, :493-505 and :616, the `#else` branches the BC 27 legs run), so such a codeunit carries
 /// what its OnRun left to them (`Unit::onrun_carry`). On the TestRunnerHub, Codeunit and Function isolation roll it back
 /// (:357-362, :493-498) and Disabled carries it with the rest. Isolated storage and number sequences OnRun changes,
-/// committed and open, carry the same way (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al
+/// committed and open, carry the same way (testlibraries test-framework/onrun-storage/Y35OnRunStorage.al
 /// C301_B1_OnRunCommittedStorage, C301_B1_OnRunSequences, C301_B1_OnRunOpenWrites), so an OnRun whose reach can write
 /// them counts too. An OnRun whose reach is not fully known counts only through what it is known to write, as for tables
 /// (a refused OnRun that names nothing does not hold back the later codeunits).
@@ -2475,7 +2475,7 @@ fn check_baseline_rule(lowered: &Lowered, units: &mut [Unit]) {
 }
 
 /// Whether a test of test codeunit `oi` can take a number from a number sequence. Under runner 130450 the codeunit's rollback
-/// does not give it back (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage :457), so
+/// does not give it back (testlibraries test-framework/onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage :457), so
 /// such a codeunit joins the carry chain as one whose OnRun writes (`numbers_taken.rs`). Counted only through what the
 /// tests are known to write, as for OnRun.
 fn tests_take_numbers(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {

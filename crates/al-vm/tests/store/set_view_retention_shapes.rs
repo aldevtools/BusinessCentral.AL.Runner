@@ -1,5 +1,5 @@
 //! SetView texts of the Retention Policy code (gap G5-14): a `field<n>` in any case, a `Field<n>` with no such field, and an
-//! empty value in `1()` / `FILTER()` / `CONST()` (record/lt-y51-setview-shapes/Y51SetViewShapes.al).
+//! empty value in `1()` / `FILTER()` / `CONST()` (record/views/Y51SetViewShapes.al).
 
 use al_builtins::native::Signal;
 use al_testkit::text;

@@ -56,7 +56,7 @@ const HARMLESS_QUERY_PROPERTIES: &[&str] = &[
     "inherententitlements",
     "permissions",
     // Which replica serves the read; the runtime has one store, and the test below reads rows it
-    // wrote itself through a ReadOnly query (query/TestQueryDataItemTableFilterDatabaseConst.al:
+    // wrote itself through a ReadOnly query (queries/TestQueryDataItemTableFilterDatabaseConst.al:
     // 109-136, Base App's query 522).
     "dataaccessintent",
     // Help texts of the object: no corpus test sets them on a query, and they have no effect on the
@@ -89,8 +89,8 @@ pub fn layout(ws: &Workspace, members: &MemberTable<'_>, oi: usize) -> QueryLayo
         tys: Vec::new(),
     };
     // Procedures, variables and OnBeforeOpen run on the query they belong to
-    // (query/TestQueryDataItemTableFilterDatabaseConst.al:96-107, handlers/TestManualObjectIntegrationEvent.al:69-89,
-    // query/TestQueryOnBeforeOpenVariablesContracts.al:104-140). Only OnBeforeOpen exists as a trigger.
+    // (queries/TestQueryDataItemTableFilterDatabaseConst.al:96-107, record/TestManualObjectIntegrationEvent.al:69-89,
+    // queries/TestQueryOnBeforeOpenVariablesContracts.al:104-140). Only OnBeforeOpen exists as a trigger.
     for r in ast::routines_in(obj.syntax()) {
         if r.is_trigger() && !r.name().eq_ignore_ascii_case("OnBeforeOpen") {
             b.reasons.push(format!("query trigger {} is not supported", r.name()));
@@ -108,10 +108,10 @@ pub fn layout(ws: &Workspace, members: &MemberTable<'_>, oi: usize) -> QueryLayo
                 _ => b.reasons.push(format!("TopNumberOfRows = {}", p.value_text())),
             },
             // ReadUncommitted reads the session's own uncommitted rows and the committed ones, as every
-            // read here does (query/TestQueryReadStateContracts.al); ReadCommitted needs runtime 18.
+            // read here does (queries/TestQueryReadStateContracts.al); ReadCommitted needs runtime 18.
             "readstate" if p.value_text().trim().eq_ignore_ascii_case("ReadUncommitted") => {}
             // ReadShared and ReadCommitted read the same rows (al-runner issue 6050;
-            // query/TestQueryReadStateContracts.al ReadStateValues_SeeTheSessionsOwnUncommittedRow_AndTheCommittedOne).
+            // queries/TestQueryReadStateContracts.al ReadStateValues_SeeTheSessionsOwnUncommittedRow_AndTheCommittedOne).
             "readstate"
                 if ["ReadShared", "ReadCommitted"]
                     .iter()
@@ -228,17 +228,17 @@ impl Builder<'_> {
                     None => self.reason(format!("dataitem {name}: DataItemLink on the top-level dataitem")),
                 },
                 "sqljointype" => match value.trim().to_ascii_lowercase().as_str() {
-                    // Corpus query/TestQueryJoin.al:79,117: InnerJoin drops the parent without a
+                    // Corpus queries/TestQueryJoin.al:79,117: InnerJoin drops the parent without a
                     // child, LeftOuterJoin keeps it.
                     "innerjoin" => self.items[idx].left_outer = false,
                     "leftouterjoin" => self.items[idx].left_outer = true,
-                    // query/TestQueryCrossJoinContracts.al:162-226: the product of both tables, an
+                    // queries/TestQueryCrossJoinContracts.al:162-226: the product of both tables, an
                     // inner join whose every inner row matches (no rows when the inner table is empty).
                     "crossjoin" if parent.is_some() => {
                         self.items[idx].left_outer = false;
                         cross = true;
                     }
-                    // query/lt-outer-joins/P71JoinNone.al:Join_Right_NoFilter, Join_Full_NoFilter: a right join keeps the child rows
+                    // queries/joins-links/P71JoinNone.al:Join_Right_NoFilter, Join_Full_NoFilter: a right join keeps the child rows
                     // no parent links to, a full join keeps those and the parents without a child.
                     "rightouterjoin" if parent.is_some() => {
                         self.items[idx].left_outer = false;
@@ -285,7 +285,7 @@ impl Builder<'_> {
 
     /// `DataItemLink = "Child Field" = Parent."Parent Field", ...`. The field on the right may belong to an
     /// item further out than the parent: the link then reads that item's current row (corpus branch
-    /// al-runtime-rs-staging, query/PXQueryOuterLink.al:6-11, probed on BC 27.5). Each part reads the item it
+    /// al-runtime-rs-staging, queries/PXQueryOuterLink.al:6-11, probed on BC 27.5). Each part reads the item it
     /// names; parts naming two different items are an assumption (docs/probes-needed.md).
     fn link(&mut self, idx: usize, parent: usize, text: &str) {
         let table = self.items[idx].table;
@@ -351,7 +351,7 @@ impl Builder<'_> {
             };
             let ty = self.members[table].fields[pos].ty.clone();
             let value = match &c.value {
-                // Corpus query/TestQueryDataItemTableFilterDatabaseConst.al:159-190: a Database::
+                // Corpus queries/TestQueryDataItemTableFilterDatabaseConst.al:159-190: a Database::
                 // const is the object id.
                 CondValue::Const(raw) => match calc_const(self.ws, self.members, self.file, raw, &ty) {
                     Ok(k) => ir::CalcValue::Const(k),
@@ -361,8 +361,8 @@ impl Builder<'_> {
                     }
                 },
                 // `filter('>=2')`: a filter written as one AL string is that filter's text
-                // (query/TestQueryCrossJoinContracts.al:187-198 filters Id >= 2 and Qty > 5 this way).
-                // `filter('')` selects the blank value, as `const('')` (query/TestQueryDataItemTableFilter.al:374
+                // (queries/TestQueryCrossJoinContracts.al:187-198 filters Id >= 2 and Qty > 5 this way).
+                // `filter('')` selects the blank value, as `const('')` (queries/TestQueryDataItemTableFilter.al:374
                 // Sq_EmptyFilterTerm_Rows, Code and Text fields): its filter text is the quoted empty literal.
                 CondValue::Filter(raw) => ir::CalcValue::Filter(match whole_literal(raw) {
                     Some(inner) if inner.is_empty() => "''".to_string(),
@@ -446,7 +446,7 @@ impl Builder<'_> {
                 (FieldClass::Normal, _) | (FieldClass::FlowFilter, true) => {}
                 (FieldClass::FlowField, false) if method.is_none() => {}
                 // A filter() element over a FlowField of the data item: its ColumnFilter or run-time filter keeps the rows
-                // whose calculated value matches (query/lt-cg-query-leads/CgQueryLeads.al:759,792, fixtures
+                // whose calculated value matches (queries/CgQueryLeads.al:759,792, fixtures
                 // QzQueryFlowFieldFilter.al). The VM refuses it in a query with more than one data item or a Method column.
                 (FieldClass::FlowField, true) if method.is_none() => {}
                 // Sum, Average, Min and Max add up the values calculated per row; Base Application's "Cust. Ledg. Entry
@@ -457,7 +457,7 @@ impl Builder<'_> {
                         Some(ir::QueryMethod::Sum | ir::QueryMethod::Average | ir::QueryMethod::Min | ir::QueryMethod::Max)
                     ) => {}
                 // Base Application's "Vend. Ledg. Entry Remain. Amt." sums a FlowField; the corpus pins
-                // a FlowField column only without a method (query/TestQueryJoinFlowFieldGroupBy.al).
+                // a FlowField column only without a method (queries/TestQueryJoinFlowFieldGroupBy.al).
                 (FieldClass::FlowField, false) => self.reason(format!(
                     "column {name}: Method over a FlowField: whether BC sums the calculated values per row is not pinned (docs/probes-needed.md)"
                 )),
@@ -475,9 +475,9 @@ impl Builder<'_> {
                 ty = Ty::Integer;
             }
             Some(ir::QueryMethod::Sum | ir::QueryMethod::Average) => {
-                // Decimal sources (corpus query/TestQueryAggregation.al) and Integer sources keep
+                // Decimal sources (corpus queries/TestQueryAggregation.al) and Integer sources keep
                 // their type: Sum of an Integer column is an Integer and its Average is truncated
-                // (query/TestQueryRuntimeContracts.al:Query_Average_IntegerColumnTruncates_...,
+                // (queries/TestQueryRuntimeContracts.al:Query_Average_IntegerColumnTruncates_...,
                 // :Query_ScalarAggregates_OverNoRows_...). BigInteger and Duration sources are legal
                 // AL (AL0347) but their column type is not pinned.
                 if ty != Ty::Decimal && ty != Ty::Integer {
@@ -568,7 +568,7 @@ impl Builder<'_> {
                 }
             },
             // `filter('>0')`: a filter written as one AL string is that filter's text, as in a DataItemTableFilter
-            // (query/lt-y62-flowfield-filter-join/Y62QueryFlowFieldJoin.al:FlowFieldFilter_Join_Method `mode1`, writer Y62).
+            // (queries/joins-links/Y62QueryFlowFieldJoin.al:FlowFieldFilter_Join_Method `mode1`, writer Y62).
             CondValue::Filter(raw) => Some(ir::CalcValue::Filter(match whole_literal(raw) {
                 Some(inner) if !inner.is_empty() => inner,
                 _ => rewrite_quotes(raw),
@@ -615,8 +615,8 @@ impl Builder<'_> {
     /// Combinations whose result the corpus does not pin.
     fn validate(&mut self) {
         // Aggregates over a left outer join skip the missing side: sum 0 and count 0 for a parent
-        // without children (query/TestQueryOuterJoinDescendingSaveAsContracts.al).
-        // Groups without an OrderBy (query/TestQueryAggregation.al always orders its groups) have no
+        // without children (queries/TestQueryOuterJoinDescendingSaveAsContracts.al).
+        // Groups without an OrderBy (queries/TestQueryAggregation.al always orders its groups) have no
         // pinned order, but that only matters when a run produces several: the VM refuses then
         // (`Session::query_rows`), so a query like Base App's 1302 can be declared and used.
         // A plain column over a Sum or Count FlowField of a left-outer-joined child of the top dataitem is
@@ -657,11 +657,11 @@ impl Builder<'_> {
         }
         // A static filter or table filter on the optional side of an outer join acts after the join: a parent row
         // whose joined row is missing or fails the filter is gone, so the join is an inner join in effect
-        // (corpus query/lt-outer-joins/P71JoinStatic.al: Join_Left_StaticActive gives 2 of 3 items,
+        // (corpus queries/joins-links/P71JoinStatic.al: Join_Left_StaticActive gives 2 of 3 items,
         // Join_Left_StaticZoneBlank gives none; P71FilterCombined.al for a run time filter on top).
         // A ColumnFilter on a Count column is a filter on the groups (HAVING), not on the joined rows: the join
         // stays outer and `const(0)` keeps the parents without children
-        // (errors/lt-ms-refusals-133/P133QueryOuterFilters.al:321-323, :361-362, default join and LeftOuterJoin).
+        // (queries/P133QueryOuterFilters.al:321-323, :361-362, default join and LeftOuterJoin).
         // Other aggregates with a ColumnFilter on the optional side are not pinned.
         for c in &self.columns {
             let item = &self.items[c.item];
@@ -759,7 +759,7 @@ table 50001 "U" { fields { field(1; "No."; Code[20]) { } field(2; Amount; Decima
         layout(&ws, &members, oi)
     }
 
-    // Corpus pins a FlowField column without a method (query/TestQueryJoinFlowFieldGroupBy.al, QffHeaderFlowField);
+    // Corpus pins a FlowField column without a method (queries/TestQueryJoinFlowFieldGroupBy.al, QffHeaderFlowField);
     // an aggregate over a FlowField (Base Application's "Cust. Ledg. Entry Remain. Amt.") is in no corpus test: it is
     // accepted, assumed to add the per-row values (query-method-over-flowfield), and Count over one stays refused.
     #[test]
@@ -815,7 +815,7 @@ table 50001 "U" { fields { field(1; "No."; Code[20]) { } field(2; Amount; Decima
         assert_eq!(l.query.order_by, vec![(1, true), (0, true), (2, false)]);
     }
 
-    // corpus query/QjCustOrdersImplicitJoin.Query.al: a nested dataitem without SqlJoinType is a
+    // corpus queries/QjCustOrdersImplicitJoin.Query.al: a nested dataitem without SqlJoinType is a
     // left outer join (TestQueryJoinDefaultType.al:69); DataItemLink may name several fields
     // (TestQueryDataItemLinkMultiField.al).
     #[test]
@@ -854,7 +854,7 @@ table 50001 "U" { fields { field(1; "No."; Code[20]) { } field(2; Amount; Decima
                 dataitem(B; U) { DataItemLink = \"No.\" = A.\"No.\"; SqlJoinType = SidewaysJoin; column(X; Amount) { } } } } }",
             "sidewaysjoin",
         );
-        // Right and full outer joins keep the child rows no parent links to (query/lt-outer-joins/P71JoinNone.al).
+        // Right and full outer joins keep the child rows no parent links to (queries/joins-links/P71JoinNone.al).
         for (join, left, right) in [("RightOuterJoin", false, true), ("FullOuterJoin", true, true)] {
             let l = layout_of(&format!(
                 "query 50100 Q {{ elements {{ dataitem(A; T) {{ column(No; \"No.\") {{ }}
@@ -866,7 +866,7 @@ table 50001 "U" { fields { field(1; "No."; Code[20]) { } field(2; Amount; Decima
                 (left, right)
             );
         }
-        // Query code: procedures, variables and an OnBeforeOpen run (query/TestQueryOnBeforeOpenVariablesContracts.al);
+        // Query code: procedures, variables and an OnBeforeOpen run (queries/TestQueryOnBeforeOpenVariablesContracts.al);
         // another trigger does not exist.
         assert!(
             layout_of(
@@ -887,7 +887,7 @@ table 50001 "U" { fields { field(1; "No."; Code[20]) { } field(2; Amount; Decima
             .reasons
             .is_empty()
         );
-        // Sum over a BigInteger field (an Integer field is pinned: query/TestQueryRuntimeContracts.al).
+        // Sum over a BigInteger field (an Integer field is pinned: queries/TestQueryRuntimeContracts.al).
         has(
             "query 50100 Q { elements { dataitem(A; T) { column(S; Big) { Method = Sum; } } } }",
             "not Decimal or Integer",
@@ -900,7 +900,7 @@ table 50001 "U" { fields { field(1; "No."; Code[20]) { } field(2; Amount; Decima
     }
 
     /// A ColumnFilter on a Count column of the optional side keeps the join outer
-    /// (errors/lt-ms-refusals-133/P133QueryOuterFilters.al:321-323); on another aggregate it is not pinned.
+    /// (queries/P133QueryOuterFilters.al:321-323); on another aggregate it is not pinned.
     #[test]
     fn a_count_column_filter_keeps_the_join_outer_and_other_aggregates_are_refused() {
         let l = layout_of(
@@ -923,7 +923,7 @@ table 50001 "U" { fields { field(1; "No."; Code[20]) { } field(2; Amount; Decima
     }
 
     /// A static filter on the optional side of an outer join acts after the join, so the join is an inner join in effect
-    /// (query/lt-outer-joins/P71JoinStatic.al).
+    /// (queries/joins-links/P71JoinStatic.al).
     #[test]
     fn a_static_filter_on_the_optional_side_makes_the_join_inner() {
         let l = layout_of(

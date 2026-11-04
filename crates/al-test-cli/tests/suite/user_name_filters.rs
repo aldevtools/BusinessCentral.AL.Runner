@@ -1,6 +1,6 @@
 //! Filters on the user-name system FlowFields (SystemCreatedByUserName 2000000005 to SystemModifiedByFullName 2000000008, BC 29)
 //! filter on the value the field calculates for each row: the user name or full name of the user in SystemCreatedBy or
-//! SystemModifiedBy (system-fields/lt-y64-username-filters/Y64UserNameFilters.al; al-runner issue 6645). With the corpus symbol
+//! SystemModifiedBy (record/system-fields/Y64UserNameFilters.al; al-runner issue 6645). With the corpus symbol
 //! BC29PLUS the schema of every table holds the four fields.
 
 use al_sema::workspace::{AppKind, AppSource};

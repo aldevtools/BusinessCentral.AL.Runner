@@ -1,5 +1,5 @@
 //! Which format strings `Format(Rec.Field, Length, FormatString)` of a Decimal field with places formats by the field's rule
-//! (types/lt-at-partner-gaps/R6901DecimalFieldFormat.al, al-runner issue 6901).
+//! (language/R6901DecimalFieldFormat.al, al-runner issue 6901).
 
 /// The format string holds only codes the probe measured on fields of every places: `<Integer>`, `<Integer,N>`, `<Integer Thousand>`,
 /// `<Decimals>`, `<Decimals,N>`, `<Decimal>`, `<Decimal,N>`, `<Sign>`, `<Filler Character,0>` and `<Standard Format,0|1|9>`, with

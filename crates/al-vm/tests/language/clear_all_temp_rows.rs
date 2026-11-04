@@ -1,7 +1,7 @@
 //! ClearAll leaves the rows of a global temporary record alone, as Clear does
 //! (types/ProbeTypeFormsAndFilters.al:Clear_TemporaryRecordWithRows_ThenCount). Base Application's Purch.-Post
 //! `ClearAllVariables` runs ClearAll and then relies on TempWhseRcptHeader, which SetWhseRcptHeader filled before
-//! (record/lt-priority-assumptions/PriorityAssumptions.al:247-281 pins it; Tests-SCM OverReceiptQtyPreservedAfterPartialWhseReceiptPost).
+//! (record/PriorityAssumptions.al:247-281 pins it; Tests-SCM OverReceiptQtyPreservedAfterPartialWhseReceiptPost).
 
 use al_testkit::text;
 

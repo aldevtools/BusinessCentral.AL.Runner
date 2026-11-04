@@ -1,5 +1,5 @@
 //! A part with `UpdatePropagation = Both` whose trigger changes the host's stored row and calls `CurrPage.Update(false)`: the host
-//! reads its row again, so its later save keeps the change (pages/lt-qj-part-propagation/QjPartPropagation.al:508, corpus bump 41;
+//! reads its row again, so its later save keeps the change (pages/parts/QjPartPropagation.al:508, corpus bump 41;
 //! Tests-ERM Document Totals Pages 134344 PurchaseQuoteUpdateCurrrencyFactor needs it). A host with an unsaved edit is saved first.
 
 use al_testkit::text;

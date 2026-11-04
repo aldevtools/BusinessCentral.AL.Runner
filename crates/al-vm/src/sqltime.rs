@@ -1,5 +1,5 @@
 //! What the SQL `datetime` column behind a Date, Time or DateTime field does to the values of a database (non-temporary)
-//! table: it counts 1/300 s, and it cannot hold every date (corpus errors/lt-ms-refusals-130/P130DateFilters.al).
+//! table: it counts 1/300 s, and it cannot hold every date (corpus record/filters/P130DateFilters.al).
 //! A temporary table keeps the values as they are: whether it rounds too is not pinned, and the old behavior stays.
 
 use al_builtins::filter::{FieldFilter, FilterExpr};
@@ -23,7 +23,7 @@ pub(crate) fn holds_ms(ms: i64) -> bool {
     round_ms(ms) == ms
 }
 
-/// A Time as the column holds it. A time that rounds to midnight reads 00:00:00 (errors/lt-ms-refusals-132/P132ReportTimeMs.al:190,
+/// A Time as the column holds it. A time that rounds to midnight reads 00:00:00 (streams/P132ReportTimeMs.al:190,
 /// :197, 23:59:59.999 shows 12:00:00 AM; :192, :199, 00:00:00.001 too).
 fn round_time(t: i64) -> i64 {
     if t == 0 {
@@ -73,7 +73,7 @@ fn round_expr(e: &FilterExpr) -> FilterExpr {
 /// A primary key as the SQL columns of a database table hold it: its Time and DateTime values rounded. Get, Modify, Rename and
 /// Delete of a database record find the row by the rounded key: `Get('A', 10:00:00.001)` finds the row stored as 10:00:00,
 /// `Get('A', 10:00:00.002)` looks for 10:00:00.003, and Modify, Rename and Delete of a record that holds 10:00:00.001 or
-/// 12:00:00.001 reach their row (errors/lt-ms-refusals-130/P130DateFilters.al:603-608, :651-658, :720-733).
+/// 12:00:00.001 reach their row (record/filters/P130DateFilters.al:603-608, :651-658, :720-733).
 pub(crate) fn rounded_key(pk: &[Value]) -> Vec<Value> {
     pk.iter().map(rounded).collect()
 }
@@ -106,7 +106,7 @@ pub(crate) enum Stored {
 /// pins raise the platform's error (P130DateFilters.al:255-293, :306-318): the Dates 1753-01-01 and 1752-12-31 (also as a
 /// closing date), the DateTimes 1753-01-01 00:00 and 1752-12-31 12:00, and a DateTime that rounds past 9999-12-31. Any other
 /// value before 1753-01-02 is refused. 0001-01-01 reads back as it was written (:261-262: Format gives '' and it equals
-/// the value written, which a blank date would not: types/lt-datetime/Arithmetic.al:111-116).
+/// the value written, which a blank date would not: types/date-time/Arithmetic.al:111-116).
 pub(crate) fn store(
     t: &TableDef,
     field_caption: &dyn Fn(usize) -> String,

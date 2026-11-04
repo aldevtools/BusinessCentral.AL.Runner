@@ -4,7 +4,7 @@ use super::*;
 
 impl Session {
     /// A record handed to the page with filters in FilterGroup(-1) (Page.Run(Id, Rec), SetTableView) reaches OnOpenPage
-    /// without them; its marks and MarkedOnly stay (pages/lt-y50-or-group-page-rec/Y50OrGroupPageRec.al:432
+    /// without them; its marks and MarkedOnly stay (pages/or-filter-groups-on-page-rec/Y50OrGroupPageRec.al:432
     /// G521_PageRunRec_OrMarks `open g0=Marked: Yes gm1=Marked: Yes`, :521 G521_SetTableView_GroupMinus1Current_Lookup `open g0=
     /// gm1= n=5`: the page shows every row).
     pub(super) fn drop_handed_or_group(&mut self, st: &St, has_source: bool) {

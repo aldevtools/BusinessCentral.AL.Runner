@@ -1,6 +1,6 @@
 //! A text element (MinOccurs = Zero, MaxOccurs = Once) right below a temporary table element, holding a temporary table element
 //! without LinkTable (assumption `xmlport-unlinked-temp-in-text`; corpus branch al-runtime-rs-staging-pub-tp,
-//! xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TP_Unlinked_*).
+//! xmlports/shapes-properties/QrXpContainerOccurs.al TP_Unlinked_*).
 
 use al_testkit::text;
 

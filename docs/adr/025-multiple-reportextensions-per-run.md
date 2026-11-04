@@ -10,9 +10,9 @@ The lowering refuses a report that more than one reportextension changes: "more 
 
 Measured on BC 27.5 build 48827 (branch `adr-023`, 2026-10-14, pins on): 2828 page-side and about 400 report-side tests of the 31 buckets (SCM-Service left out) stop at this reason as their first stop. Four corpus tests (67402 and 68620, `PrecompiledPageExtControl_*`, `SourcePageExtModifyEditable_*`) pass in demand mode and are refused in eager mode through the same reason; real BC passes them.
 
-The order is now pinned (BC 27.5, corpus `tests/al-language/reportextensiontrigger/`):
-- `tests/al-language/reportextensiontrigger/TestReportExtensionBaseMembersContracts.al:256`: several reportextensions share the base's variables; for every trigger the base runs first, then the extensions in **object id order** (ids 68893 "Ext", 68894 "Zeta", 68895 "Alpha": Alpha runs last). Columns they add follow in the same order.
-- `tests/al-language/reportextensiontrigger/TestReportExtensionSamePlaceContracts.al:251`: items added at one place go next to the anchor, so the later extension is nearest: `addfirst(Parent)`: G1 F1 F2 (the later extension's items first, one extension's items in declaration order); `addbefore(ChildA)`: X1 X2 Y1 ChildA; `addafter(ChildA)`: ChildA Z2 Z1. Run order and dataset column order are the same.
+The order is now pinned (BC 27.5, corpus `tests/al-language/reports/extensions/`):
+- `tests/al-language/reports/extensions/TestReportExtensionBaseMembersContracts.al:256`: several reportextensions share the base's variables; for every trigger the base runs first, then the extensions in **object id order** (ids 68893 "Ext", 68894 "Zeta", 68895 "Alpha": Alpha runs last). Columns they add follow in the same order.
+- `tests/al-language/reports/extensions/TestReportExtensionSamePlaceContracts.al:251`: items added at one place go next to the anchor, so the later extension is nearest: `addfirst(Parent)`: G1 F1 F2 (the later extension's items first, one extension's items in declaration order); `addbefore(ChildA)`: X1 X2 Y1 ChildA; `addafter(ChildA)`: ChildA Z2 Z1. Run order and dataset column order are the same.
 - Not probed: order across apps; an anchor on an item another extension added; `addlast` of two extensions under one parent; two items added at one place by one extension with `addafter`.
 
 ## Decision (proposed)

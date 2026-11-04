@@ -1,5 +1,5 @@
 //! ADR-062 stage 3: the AccessByPermission shapes `permission_abp.rs` does not cover. Values: corpus
-//! `tests/al-language/permissions/lt-y84-perm-shapes/Y84PermAbp.al` (BC 29.0 Linux CI): a guard with several letters is met by any
+//! `tests/al-language/permissions/permission-sets/Y84PermAbp.al` (BC 29.0 Linux CI): a guard with several letters is met by any
 //! one of them held at level Yes; an Indirect level does not meet it; a part and a control over a table field take a guard too; the
 //! page object's own property changes nothing; a query, an xmlport and a report can be guarded; a FlowField control over an
 //! unreadable table is off the page whether the table has rows or not.

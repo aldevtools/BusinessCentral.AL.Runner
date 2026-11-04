@@ -1,5 +1,5 @@
 //! `Unbound` and `Width` on a table element of an Xml port change neither the export nor the import (corpus
-//! xmlport/lt-y-xmlport-props/YXmlPortProps.al:390 BdUnbound_TableElement_ExportAndImport).
+//! xmlports/shapes-properties/YXmlPortProps.al:390 BdUnbound_TableElement_ExportAndImport).
 
 use al_testkit::{run, text};
 

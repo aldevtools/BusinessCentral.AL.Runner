@@ -1,7 +1,7 @@
 //! A `TableType = CRM` table through the platform's CRM test connection (`@@test@@`, the only connection string the
 //! runtime registers, ADR-027 section 3 row 15). BC serves the table through the session's default CRM table connection,
 //! never through SQL; each registered connection name has rows of its own (corpus
-//! tests/al-language-onprem/session/Y16CrmTableConnectionOps.al:143-318, BC 27.5/28.5/29.0 OnPrem):
+//! tests/al-language-onprem/session-system/Y16CrmTableConnectionOps.al:143-318, BC 27.5/28.5/29.0 OnPrem):
 //!
 //! - FindSet runs in primary key order, SetRange, SetFilter, Reset, Ascending(false), FindFirst, FindLast and IsEmpty act as
 //!   on any table (:154-182);
@@ -9,7 +9,7 @@
 //!   `DB:RecordExists` with the table's usual texts (:224-251);
 //! - a registered connection that is not the default is not used: the "must be registered" error (:253-279);
 //! - UnregisterTableConnection drops the connection's rows, and a second connection starts empty (:281-310);
-//! - Insert gives a null Guid primary key a fresh Guid and keeps a preset one (session/TestDatabaseTableConnectionCrm.al:128-170).
+//! - Insert gives a null Guid primary key a fresh Guid and keeps a preset one (session-system/TestDatabaseTableConnectionCrm.al:128-170).
 //!
 //! What is not pinned is refused: a method that reads or writes the rows other than those above, a table or table extension
 //! trigger, a table event subscriber or a database trigger on a write, a Rename of a key other fields relate to, a primary key
@@ -23,7 +23,7 @@ use al_builtins::value::Value;
 use al_data::TableDef;
 use al_data::memory::MemStore;
 
-/// The ordinal of `TableConnectionType::CRM` (misc/W5TableConnections.al:117-136).
+/// The ordinal of `TableConnectionType::CRM` (format-evaluate/W5TableConnections.al:117-136).
 pub(crate) const CRM_KIND: i32 = 0;
 
 /// The rows of one registered CRM table connection.
@@ -71,7 +71,7 @@ impl Session {
     }
 
     /// The first use of a record of a CRM table needs a default CRM table connection, whatever the use (Init, TableCaption, a
-    /// field, IsEmpty): text and code from session/TestCrmTableNoConnectionContracts.al:15-17,111-118. A connection that is
+    /// field, IsEmpty): text and code from session-system/TestCrmTableNoConnectionContracts.al:15-17,111-118. A connection that is
     /// registered but not the default is not enough (Y16CrmTableConnectionOps.al:253-279, 312-318).
     pub(crate) fn connection_check(&self, rec: &Rec) -> Result<(), Signal> {
         // A temporary record of a CRM table is an in-memory table of its own and needs no connection (not
@@ -91,7 +91,7 @@ impl Session {
     }
 
     /// A record method on a record of a CRM table through its connection: the pinned ones run, the rest is refused (module
-    /// doc). Insert gives a null Guid primary key a fresh Guid (session/TestDatabaseTableConnectionCrm.al:128-170).
+    /// doc). Insert gives a null Guid primary key a fresh Guid (session-system/TestDatabaseTableConnectionCrm.al:128-170).
     pub(crate) fn crm_method_check(
         &mut self,
         t: &TableDef,

@@ -1,6 +1,6 @@
 //! A parent row modified again after its child rows (no AutoReplace) imports when the table element has an OnAfterInitRecord
 //! trigger: the values that trigger assigned equal the stored ones, so which side wins does not matter (corpus
-//! xmlport/lt-xmlport-trigger-flow/XmlPortTriggerFlow.al:452 NoAutoReplace_NewParentTwoChildren, :512
+//! xmlports/shapes-properties/XmlPortTriggerFlow.al:452 NoAutoReplace_NewParentTwoChildren, :512
 //! NoAutoReplace_ExistingChildUnderNewParent log in OnAfterInitRecord only).
 
 use al_testkit::{run, text};

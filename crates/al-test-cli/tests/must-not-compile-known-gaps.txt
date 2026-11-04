@@ -351,12 +351,6 @@
 29 2627-pageext-modify-implicit-promoted-caption
 # corpus bump to master 34ca226f (writer Y66): break/quit/skip and UseRequestPage on an XmlPort variable
 # corpus bump to master 48433dfe (writer Y24, permissions lane): the Permissions property of an object takes only tabledata entries (AL0104)
-27 2360-permissions-property-codeunit-execute
-27 2361-permissions-property-object-execute
-28 2360-permissions-property-codeunit-execute
-28 2361-permissions-property-object-execute
-29 2360-permissions-property-codeunit-execute
-29 2361-permissions-property-object-execute
 # corpus bump to 941cd813 (and 9cce33bd, whose gates were not run): new cases the front end does not reject yet; 2791 and 2793 are Y85 LoadPackageData
 27 2713-global-variable-through-this-variable
 28 2713-global-variable-through-this-variable
@@ -380,3 +374,4 @@
 27 2785-accessbypermission-group
 28 2785-accessbypermission-group
 29 2785-accessbypermission-group
+# corpus bump 1104a: new cases the front end does not decide yet (Permissions property on an object)

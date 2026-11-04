@@ -1,5 +1,5 @@
 //! `Record.GetBySystemId(Guid)` of a missing row with the result unused raises BC's not-found error
-//! (misc/lt-probes-needed-4/PnD04_GetBySystemId.al:36-47 `missUnused`, :111-124 `nullUnused`).
+//! (record/PnD04_GetBySystemId.al:36-47 `missUnused`, :111-124 `nullUnused`).
 
 use al_builtins::value::Value;
 

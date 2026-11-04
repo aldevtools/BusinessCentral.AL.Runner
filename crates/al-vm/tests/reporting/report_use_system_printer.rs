@@ -1,6 +1,6 @@
 //! A report that sets UseSystemPrinter runs as one without it: Run, RunModal, RunRequestPage, SaveAs, Execute and Print give
 //! the same triggers in the same order with it true and false
-//! (misc/lt-y13-triage/Y13ReportSystemPrinter.al:289-543, corpus master).
+//! (reports/Y13ReportSystemPrinter.al:289-543, corpus master).
 
 use al_testkit::text;
 

@@ -1,7 +1,7 @@
 //! A list filtered to one template and batch (key fields, filter group 2 or 0) loses its only row to an action: the blank line
 //! takes the filter values, validated, before OnNewRecord (Rec and xRec hold them), three times; a value typed there is inserted
 //! at Close with Line No. 10000. Opened on no row, the list runs the same steps twice, xRec blank at each OnNewRecord.
-//! Pinned by misc/lt-probes-needed-7/PnGRefresh.al:672 QL_Jnl_SheetFG2_DeleteNoUpdate_OnlyRow, :702 _DeleteWithUpdate_OnlyRow,
+//! Pinned by testpage/PnGRefresh.al:672 QL_Jnl_SheetFG2_DeleteNoUpdate_OnlyRow, :702 _DeleteWithUpdate_OnlyRow,
 //! :732 QL_Jnl_ListFG2_DeleteWithUpdate_OnlyRow, :762 QL_Jnl_SheetFG0_DeleteWithUpdate_OnlyRow, :792 QL_Jnl_SheetFG2_OpenOnNoRow
 //! (corpus bump 42). Tests-ERM 134002 ApplyAndPostPaymentToInvoice posts a General Journal this way.
 

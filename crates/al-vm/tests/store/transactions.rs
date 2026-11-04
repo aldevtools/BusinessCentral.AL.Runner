@@ -19,25 +19,25 @@ codeunit 50910 Erroring
     trigger OnRun() begin Error('BOOM'); end;
 }
 
-// corpus codeunit/ALTRunTxInserter.Codeunit.al: inserts a marker and commits.
+// corpus codeunits/ALTRunTxInserter.Codeunit.al: inserts a marker and commits.
 codeunit 50911 Inserter
 {
     trigger OnRun() var R: Record "TX T"; begin R.K := 'M'; R.Insert(); Commit(); end;
 }
 
-// corpus codeunit/ALTRunTxDirtyInserter.Codeunit.al: inserts and does not commit.
+// corpus codeunits/ALTRunTxDirtyInserter.Codeunit.al: inserts and does not commit.
 codeunit 50912 DirtyInserter
 {
     trigger OnRun() var R: Record "TX T"; begin R.K := 'D'; R.Insert(); end;
 }
 
-// corpus codeunit/ALTRunTxWriteThenError.Codeunit.al
+// corpus codeunits/ALTRunTxWriteThenError.Codeunit.al
 codeunit 50913 WriteThenError
 {
     trigger OnRun() var R: Record "TX T"; begin R.K := 'W'; R.Insert(); Error('BOOM-W'); end;
 }
 
-// corpus codeunit/ALTRunTxCommitThenError.Codeunit.al
+// corpus codeunits/ALTRunTxCommitThenError.Codeunit.al
 codeunit 50914 CommitThenError
 {
     trigger OnRun() var R: Record "TX T"; begin
@@ -69,7 +69,7 @@ codeunit 50917 Single
     procedure GetBumps(): Integer begin exit(Bumps); end;
 }
 
-// corpus handlers/TestPageActionRunObjectKinds_Objects.al:254-268: TableNo gives OnRun a Rec.
+// corpus testpage/TestPageActionRunObjectKinds_Objects.al:254-268: TableNo gives OnRun a Rec.
 codeunit 50919 RecReader
 {
     TableNo = "TX T";
@@ -125,7 +125,7 @@ fn f(body: &str) -> String {
     text(run(&format!("procedure F(): Text {body}")))
 }
 
-// codeunit/TestCodeunitRunGuard.al:GuardedRun_TrapsInnerError_ReturnsFalse
+// codeunits/TestCodeunitRunGuard.al:GuardedRun_TrapsInnerError_ReturnsFalse
 #[test]
 fn a_guarded_run_traps_the_inner_error_and_returns_false() {
     assert_eq!(
@@ -134,7 +134,7 @@ fn a_guarded_run_traps_the_inner_error_and_returns_false() {
     );
 }
 
-// codeunit/TestCodeunitRunGuard.al:UnguardedRun_PropagatesInnerError
+// codeunits/TestCodeunitRunGuard.al:UnguardedRun_PropagatesInnerError
 #[test]
 fn an_unguarded_run_propagates_the_inner_error() {
     assert_eq!(
@@ -143,7 +143,7 @@ fn an_unguarded_run_propagates_the_inner_error() {
     );
 }
 
-// codeunit/TestCodeunitRunGuard.al:GuardedRun_InstanceForm_TrapsInnerError_ReturnsFalse
+// codeunits/TestCodeunitRunGuard.al:GuardedRun_InstanceForm_TrapsInnerError_ReturnsFalse
 // and UnguardedRun_InstanceForm_PropagatesInnerError
 #[test]
 fn the_instance_form_is_guarded_the_same_way() {
@@ -157,7 +157,7 @@ fn the_instance_form_is_guarded_the_same_way() {
     );
 }
 
-// codeunit/TestCodeunitRunGuard.al:GuardedRun_InstanceForm_WriteThenError_RollsBackInsertedRow
+// codeunits/TestCodeunitRunGuard.al:GuardedRun_InstanceForm_WriteThenError_RollsBackInsertedRow
 #[test]
 fn a_failed_guarded_run_rolls_back_its_own_writes() {
     assert_eq!(
@@ -169,7 +169,7 @@ fn a_failed_guarded_run_rolls_back_its_own_writes() {
     );
 }
 
-// codeunit/TestCodeunitRunGuard.al:GuardedRun_StaticForm_CommitThenError_KeepsCommittedRowOnly
+// codeunits/TestCodeunitRunGuard.al:GuardedRun_StaticForm_CommitThenError_KeepsCommittedRowOnly
 #[test]
 fn a_failed_guarded_run_keeps_what_it_committed_and_loses_what_it_wrote_after() {
     assert_eq!(
@@ -181,7 +181,7 @@ fn a_failed_guarded_run_keeps_what_it_committed_and_loses_what_it_wrote_after() 
     );
 }
 
-// codeunit/TestCodeunitRunGuard.al:GuardedRun_InstanceForm_CommitThenError_KeepsCommittedRowOnly
+// codeunits/TestCodeunitRunGuard.al:GuardedRun_InstanceForm_CommitThenError_KeepsCommittedRowOnly
 #[test]
 fn the_instance_form_keeps_the_committed_row_too() {
     assert_eq!(
@@ -193,7 +193,7 @@ fn the_instance_form_keeps_the_committed_row_too() {
     );
 }
 
-// codeunit/TestCodeunitRunWriteTransaction.al:GuardedRun_WithUncommittedWrite_IsRefused_AndCodeunitNeverRuns
+// codeunits/TestCodeunitRunWriteTransaction.al:GuardedRun_WithUncommittedWrite_IsRefused_AndCodeunitNeverRuns
 #[test]
 fn a_guarded_run_is_refused_while_the_caller_has_an_uncommitted_write() {
     // The full text is quoted in corpus docs/handoff-2026-05-25-test-failures.md:242; the
@@ -211,7 +211,7 @@ fn a_guarded_run_is_refused_while_the_caller_has_an_uncommitted_write() {
     );
 }
 
-// codeunit/TestCodeunitRunWriteTransaction.al:UnguardedRun_WithUncommittedWrite_IsAllowed_AndCodeunitRuns
+// codeunits/TestCodeunitRunWriteTransaction.al:UnguardedRun_WithUncommittedWrite_IsAllowed_AndCodeunitRuns
 #[test]
 fn an_unguarded_run_is_allowed_with_an_uncommitted_write() {
     assert_eq!(
@@ -225,7 +225,7 @@ fn an_unguarded_run_is_allowed_with_an_uncommitted_write() {
     );
 }
 
-// codeunit/TestCodeunitRunWriteTransaction.al:GuardedRun_AfterCommit_IsAllowed_AndCodeunitRuns
+// codeunits/TestCodeunitRunWriteTransaction.al:GuardedRun_AfterCommit_IsAllowed_AndCodeunitRuns
 #[test]
 fn a_guarded_run_after_a_commit_runs_and_returns_true() {
     assert_eq!(
@@ -238,7 +238,7 @@ fn a_guarded_run_after_a_commit_runs_and_returns_true() {
     );
 }
 
-// codeunit/TestCodeunitRunWriteTransaction.al:GuardedRun_LeavingUncommittedWrite_DoesNotBlockTheNextGuardedRun
+// codeunits/TestCodeunitRunWriteTransaction.al:GuardedRun_LeavingUncommittedWrite_DoesNotBlockTheNextGuardedRun
 #[test]
 fn a_write_a_guarded_run_leaves_uncommitted_does_not_block_the_next_guarded_run() {
     assert_eq!(
@@ -252,7 +252,7 @@ fn a_write_a_guarded_run_leaves_uncommitted_does_not_block_the_next_guarded_run(
     );
 }
 
-// codeunit/TestCodeunitRunWriteTransaction.al:GuardedRun_LeavingUncommittedWrite_CommitsItWithTheRunsOwnTransaction
+// codeunits/TestCodeunitRunWriteTransaction.al:GuardedRun_LeavingUncommittedWrite_CommitsItWithTheRunsOwnTransaction
 #[test]
 fn a_successful_guarded_run_commits_its_own_transaction() {
     assert_eq!(
@@ -266,7 +266,7 @@ fn a_successful_guarded_run_commits_its_own_transaction() {
     );
 }
 
-// codeunit/TestCodeunitRunContracts.al:Codeunit_Run_SetsErrorTextOnFailure (statement form, no
+// codeunits/TestCodeunitRunContracts.al:Codeunit_Run_SetsErrorTextOnFailure (statement form, no
 // OnRun) and types/TestLanguageEdgeCases.al:CodeunitRun_Success_ReturnsTrue (guarded, no OnRun)
 #[test]
 fn a_codeunit_without_onrun_runs_as_a_no_op() {
@@ -278,7 +278,7 @@ fn a_codeunit_without_onrun_runs_as_a_no_op() {
     );
 }
 
-// codeunit/TestCodeunitVariableDispatch.al:CodeunitRun_ReachesOnRunAndNotTheProcedures and
+// codeunits/TestCodeunitVariableDispatch.al:CodeunitRun_ReachesOnRunAndNotTheProcedures and
 // RunOnAVariable_ReachesThatVariablesOwnInstance
 #[test]
 fn the_static_form_runs_its_own_instance_and_the_instance_form_the_variables() {
@@ -300,7 +300,7 @@ fn the_static_form_runs_its_own_instance_and_the_instance_form_the_variables() {
     );
 }
 
-// codeunit/TestCodeunitSingleInstanceLeak_Tests.al:TestCodeunit_SingleInstance_SurvivesACodeunitBoundary
+// codeunits/TestCodeunitSingleInstanceLeak_Tests.al:TestCodeunit_SingleInstance_SurvivesACodeunitBoundary
 #[test]
 fn a_single_instance_codeunit_keeps_its_state_across_a_run() {
     assert_eq!(
@@ -327,7 +327,7 @@ fn a_nested_guarded_run_that_fails_leaves_the_outer_run_working() {
     );
 }
 
-// codeunit/TestCodeunitRunErrorTextsAndModels.al:162-196: text and code of a run of an id no object declares. The emit version is a number.
+// codeunits/TestCodeunitRunErrorTextsAndModels.al:162-196: text and code of a run of an id no object declares. The emit version is a number.
 #[test]
 fn running_a_codeunit_id_that_does_not_exist_raises_the_metadata_error() {
     let r = run("procedure F(): Text begin Codeunit.Run(99990); exit(''); end;");
@@ -350,7 +350,7 @@ fn running_a_codeunit_id_that_does_not_exist_raises_the_metadata_error() {
     assert_eq!(e.code, "AL:MetadataNotFound");
 }
 
-// ---- [CommitBehavior] (error-handling/TestCommitBehaviorAttribute.al) ----
+// ---- [CommitBehavior] (errors/TestCommitBehaviorAttribute.al) ----
 
 const CB: &str = r#"
     [CommitBehavior(CommitBehavior::Ignore)]
@@ -433,7 +433,7 @@ fn the_scope_ends_when_the_attributed_procedure_fails() {
 // ---- mutation-testing additions (docs/status.md debt) ----
 
 // An unguarded Codeunit.Run in the default model does not commit the caller's pending write
-// (codeunit/TestCodeunitRunWriteTransaction.al:UnguardedRun_WithUncommittedWrite_IsAllowed_AndCodeunitRuns
+// (codeunits/TestCodeunitRunWriteTransaction.al:UnguardedRun_WithUncommittedWrite_IsAllowed_AndCodeunitRuns
 // shows the write is still there afterwards; only a guarded run commits, see
 // a_successful_guarded_run_commits_its_own_transaction).
 #[test]
@@ -448,7 +448,7 @@ fn an_unguarded_run_under_autocommit_leaves_the_callers_write_uncommitted() {
     );
 }
 
-// codeunit/TestWriteTxTestBoundary.al:Test09 (a direct Insert under None is refused) and
+// codeunits/TestWriteTxTestBoundary.al:Test09 (a direct Insert under None is refused) and
 // :Test10_ARunCodeunitMayWriteUnderNone (the run opens a transaction of its own, which ends
 // with the run -- and the refusal applies again afterwards).
 #[test]
@@ -471,7 +471,7 @@ fn under_transaction_model_none_a_run_may_write_and_the_refusal_returns_after_it
     assert_eq!(text(r), format!("{none}|No|{none}"));
 }
 
-// codeunit/TestCodeunitRunNestedTestCodeunit.al:CodeunitRun_TestCodeunitFromTest_Guarded_StillThrows:
+// codeunits/TestCodeunitRunNestedTestCodeunit.al:CodeunitRun_TestCodeunitFromTest_Guarded_StillThrows:
 // only a codeunit with Subtype = Test counts as a test codeunit.
 #[test]
 fn only_a_test_codeunit_is_refused_when_run_from_a_test() {
@@ -509,7 +509,7 @@ fn only_the_on_run_trigger_is_run() {
     assert_eq!(text(r), "YesYes");
 }
 
-// handlers/TestPageActionRunObjectKinds_Tests.al:ProbeControlEachTargetRecordsItsOwnExecution
+// testpage/TestPageActionRunObjectKinds_Tests.al:ProbeControlEachTargetRecordsItsOwnExecution
 // (:143-150): the record handed to Codeunit.Run is the Rec OnRun reads.
 #[test]
 fn codeunit_run_hands_the_record_to_a_tableno_codeunit_as_rec() {
@@ -536,7 +536,7 @@ fn codeunit_run_hands_the_record_to_a_tableno_codeunit_as_rec() {
     );
 }
 
-// codeunit/TestCodeunitRunErrorTextsAndModels.al:198-220: the record is passed by reference, so a change OnRun makes to Rec reaches the caller.
+// codeunits/TestCodeunitRunErrorTextsAndModels.al:198-220: the record is passed by reference, so a change OnRun makes to Rec reaches the caller.
 #[test]
 fn a_tableno_codeunit_that_changes_rec_changes_the_callers_record() {
     assert_eq!(
@@ -558,7 +558,7 @@ fn refused(r: Result<Value, Signal>) -> String {
     }
 }
 
-// codeunit/TestCodeunitRunWriteTransaction.al:211-235 RN_LockTable_WriteTransactionState and :237-252 (temporary: No).
+// codeunits/TestCodeunitRunWriteTransaction.al:211-235 RN_LockTable_WriteTransactionState and :237-252 (temporary: No).
 #[test]
 fn locktable_starts_the_write_transaction_until_commit() {
     assert_eq!(
@@ -576,7 +576,7 @@ fn locktable_starts_the_write_transaction_until_commit() {
     );
 }
 
-// codeunit/TestCodeunitRunWriteTransaction.al:254-278 RN_ReadIsolation_WriteTransactionState.
+// codeunits/TestCodeunitRunWriteTransaction.al:254-278 RN_ReadIsolation_WriteTransactionState.
 #[test]
 fn updlock_set_and_a_repeatable_read_start_the_write_transaction() {
     assert_eq!(
@@ -594,7 +594,7 @@ fn updlock_set_and_a_repeatable_read_start_the_write_transaction() {
     );
 }
 
-// codeunit/TestCodeunitRunWriteTransaction.al:280-293 RN_GuardedRun_AfterLockTable: DB:Ok, the codeunit does not run.
+// codeunits/TestCodeunitRunWriteTransaction.al:280-293 RN_GuardedRun_AfterLockTable: DB:Ok, the codeunit does not run.
 #[test]
 fn a_guarded_run_after_locktable_fails_with_db_ok() {
     assert_eq!(
@@ -609,9 +609,9 @@ fn a_guarded_run_after_locktable_fails_with_db_ok() {
 }
 
 // Not pinned: a FindFirst under a RepeatableRead set in an earlier transaction. What IsInWriteTransaction answers is refused.
-// The assignment alone opens the write transaction (corpus PR 896, misc/lt-np4-probes/Np4Misc.al
+// The assignment alone opens the write transaction (corpus PR 896, format-evaluate/Np4Misc.al
 // Y9_RepeatableRead_SetAfterCommit_FirstRead). A RecordRef.LockTable on a database table opens it too
-// (recordref/lt-wc/WcRecordRefLockTable.al:28-51).
+// (recordref-fieldref/WcRecordRefLockTable.al:28-51).
 #[test]
 fn an_unpinned_lock_shape_refuses_is_in_write_transaction() {
     let m = refused(run("procedure F(): Text var R: Record \"TX T\"; begin
@@ -658,7 +658,7 @@ fn a_readuncommitted_read_opens_no_write_transaction() {
     );
 }
 
-// [CommitBehavior] on an event declaration governs the Commit of its subscribers (misc/lt-cu-odd-leads/CuCommitTests.al
+// [CommitBehavior] on an event declaration governs the Commit of its subscribers (errors/CuCommitTests.al
 // SP_CommitBehaviorIgnore_OnIntegrationEvent_SubscriberCommitIgnored, SP_CommitBehaviorError_OnIntegrationEvent_SubscriberCommitFails).
 const EVENT_CB: &str = r#"
 codeunit 50150 Pub {

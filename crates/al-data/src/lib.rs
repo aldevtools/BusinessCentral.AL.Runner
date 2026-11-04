@@ -22,7 +22,7 @@ pub struct FieldDef {
 }
 
 /// The column type of a Code field (`SQLDataType`). An `Integer` or `BigInteger` one sorts by number: the empty value first,
-/// then 9 before 10 (corpus record/lt-x-table-props/XTablePropsTests.al:322-325; the primary key, BigInteger and Variant:
+/// then 9 before 10 (corpus record/table-properties/XTablePropsTests.al:322-325; the primary key, BigInteger and Variant:
 /// see [`code_storage`]). A `Variant` one sorts the texts before the numbers. Any other SQLDataType is `Other`: a read that
 /// sorts or filters by it is refused, and so is a non-empty value written into it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

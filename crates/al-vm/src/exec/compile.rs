@@ -908,7 +908,7 @@ impl<'a> Compiler<'a> {
     fn foreach(&mut self, var: &'a ir::Place, collection: &'a ir::Expr, body: &'a [ir::Stmt]) -> R<()> {
         let coll = self.expr_copy(collection)?;
         // An error the DotNet member of the header raises is reported at the line of the first statement of the body
-        // (al-language-onprem-dotnet/lt-y44-zip-create/Y44ZipCreateMode.al:326, :332 and :335, Zip_EntriesInCreateMode `stack_list_create`
+        // (al-language-onprem-dotnet/dotnet/zip-create/Y44ZipCreateMode.al:326, :332 and :335, Zip_EntriesInCreateMode `stack_list_create`
         // `List line 5` for `foreach ZipArchiveEntry in ZipArchive.Entries() do` at line 4 of the routine; corpus PR 962).
         if let (ir::Expr::DotNet { .. }, Some(ir::Stmt::Pos(p)), Some(site)) =
             (collection, body.first(), self.chunk.dotnets.last_mut())

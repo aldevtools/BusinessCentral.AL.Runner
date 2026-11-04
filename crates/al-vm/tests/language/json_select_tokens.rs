@@ -1,6 +1,6 @@
 //! `SelectTokens(Path, var List of [JsonToken])` on JsonObject, JsonArray and JsonToken, the forms
-//! json/lt-json-selecttokens/SelectTokensList.al, json/lt-ay-json/AyJsonTokenSelectTokens.al and
-//! json/lt-dc-json-leads/DcJsonLeads.al:412 pin.
+//! json/json/SelectTokensList.al, json/AyJsonTokenSelectTokens.al and
+//! json/DcJsonLeads.al:412 pin.
 
 fn run(decl: &str, body: &str) -> String {
     let src = format!(

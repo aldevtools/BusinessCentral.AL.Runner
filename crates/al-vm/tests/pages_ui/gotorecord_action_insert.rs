@@ -1,5 +1,5 @@
 //! GoToRecord of a row inserted while a list is open on row B (corpus branch al-runtime-rs-staging-y65 eefaf01b,
-//! pages/lt-y65-gotorecord-action-insert/Y65GoToRecordActionInsert.al:593-657, al-runner issue 6671):
+//! pages/actions/Y65GoToRecordActionInsert.al:593-657, al-runner issue 6671):
 //! - a row an action inserted, before the current row (A) or after it (C), with `CurrPage.Update()`, `Update(false)` or no
 //!   update: GoToRecord finds it on a Worksheet with both row triggers, with neither, with only one of them, and on a List with
 //!   both;

@@ -1,5 +1,5 @@
 //! A Worksheet without the new-row line, filtered in filter group 2 on a key field with a TableRelation, loses its only row to
-//! an action (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:533 SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists,
+//! an action (pages/RtFilteredGoneRow.al:533 SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists,
 //! :550 _BatchMissing).
 //! With the related row present the blank Rec takes the filter value as without the relation (`N:B1;C:0:B1;`). Without it
 //! the relation check fails, the error is swallowed and no trigger runs, then or at a later action.

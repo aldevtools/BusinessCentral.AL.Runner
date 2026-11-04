@@ -1,6 +1,6 @@
 //! A stale buffer from the variable's own Insert, made stale by another variable's Modify and Commit in a later transaction,
 //! is written whole (the other variable's change is lost) when the new transaction modified that same row through another
-//! variable (al-runner issue 6522; record/lt-sb-stale-own-modify/Y27StaleOtherVarTests.al).
+//! variable (al-runner issue 6522; record/crud/Y27StaleOtherVarTests.al).
 
 use al_builtins::assumptions::{clear_hits, take_hits};
 use al_builtins::native::Signal;

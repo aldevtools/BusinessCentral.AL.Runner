@@ -1,6 +1,6 @@
 //! `CurrPage.EnqueueBackgroundTask` under a TestPage: the task runs before the next statement (corpus
-//! handlers/TestPageCancelBackgroundTaskContracts.al, bgtasks/W2BackgroundTasks.al:CancelPreviousTask_OnRowMove), after the
-//! call stored the id in its `var TaskId` (bgtasks/W2BackgroundTasks.al:QP_CompletedTaskId_AgainstPageVariable_OpenView).
+//! pages/TestPageCancelBackgroundTaskContracts.al, pages/background-tasks/W2BackgroundTasks.al:CancelPreviousTask_OnRowMove), after the
+//! call stored the id in its `var TaskId` (pages/background-tasks/W2BackgroundTasks.al:QP_CompletedTaskId_AgainstPageVariable_OpenView).
 //! Tests-ERM 134385 CustomerStatisticsYearToDate relies on it: page 9082 compares the trigger's TaskId with that variable.
 
 const SRC: &str = r#"

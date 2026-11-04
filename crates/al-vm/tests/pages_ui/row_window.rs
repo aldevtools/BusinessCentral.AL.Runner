@@ -136,14 +136,14 @@ codeunit 69909 C
     al_testkit::text(al_testkit::run_in(&src, "C", "F"))
 }
 
-/// pages/lt-ai-list-order/AiListOrderTests.al:655 (Next_OneRow_Plain): a list with OnAfterGetRecord alone and one row reads it
+/// pages/list-order/AiListOrderTests.al:655 (Next_OneRow_Plain): a list with OnAfterGetRecord alone and one row reads it
 /// once when it opens.
 #[test]
 fn a_plain_list_of_one_row_reads_it_once_at_open() {
     assert_eq!(open_then_next_twice("RW Plain", 1), "R:1|No:|No:|1");
 }
 
-/// pages/lt-ai-list-order/AiListOrderTests.al:535, :565 (Next_OneRow_Nav, Next_OneRow_NavCurr); pages/lt-an-testpage-640/
+/// pages/list-order/AiListOrderTests.al:535, :565 (Next_OneRow_Nav, Next_OneRow_NavCurr); testpage/
 /// AnTestPageTests.al:405: a find list of one row does not read it again before OnNextRecord(-1).
 #[test]
 fn a_find_list_of_one_row_reads_it_once_before_stepping_back() {
@@ -157,7 +157,7 @@ fn a_find_list_of_one_row_reads_it_once_before_stepping_back() {
     );
 }
 
-/// pages/lt-ai-list-order/AiListOrderTests.al:600, :630 (Next_TwoRows_Nav, Next_TwoRows_NavCurr): after the open read reached
+/// pages/list-order/AiListOrderTests.al:600, :630 (Next_TwoRows_Nav, Next_TwoRows_NavCurr): after the open read reached
 /// the end of the view, Next on the last row answers No without asking OnNextRecord.
 #[test]
 fn next_on_the_last_row_after_an_open_that_read_the_whole_view_asks_nothing() {
@@ -171,7 +171,7 @@ fn next_on_the_last_row_after_an_open_that_read_the_whole_view_asks_nothing() {
     );
 }
 
-/// pages/lt-an-testpage-640/AnTestPageTests.al:147, :168 (An02_Part_ConstLink_OneRow, _FiveRows): a part with OnAfterGetRecord
+/// testpage/AnTestPageTests.al:147, :168 (An02_Part_ConstLink_OneRow, _FiveRows): a part with OnAfterGetRecord
 /// and OnAfterGetCurrRecord reads its first row twice more after a view that ends inside the window, once more after a view
 /// of one row.
 #[test]
@@ -223,7 +223,7 @@ codeunit 69914 C
     );
 }
 
-/// pages/lt-ai-list-order/AiListOrderTests.al:769 (GoToRecord_BeforeAnyNavigation_NavCurr): on a find list with
+/// pages/list-order/AiListOrderTests.al:769 (GoToRecord_BeforeAnyNavigation_NavCurr): on a find list with
 /// OnAfterGetCurrRecord that holds its whole view, GoToRecord from the first row steps through the rows one move at a time.
 /// Without OnAfterGetCurrRecord nothing is read (:739 GoToRecord_BeforeAnyNavigation_Nav).
 #[test]
@@ -256,7 +256,7 @@ codeunit 69909 C
     assert_eq!(go("RW Nav"), "Yes:|4|Yes:");
 }
 
-/// pages/lt-page-report-events/P84ListTemp.al:387-401 (TestPage_Real_OpenNew) and pages/lt-opennew-findrecord/
+/// pages/triggers/P84ListTemp.al:387-401 (TestPage_Real_OpenNew) and pages/opennew-findrecord/
 /// OpenNewFindRecord.al:210-231 (List_OpenNew_TableWithRows): on a list opened with OpenNew over a table with rows, First and
 /// Next answer No, run no trigger, and the cursor stays on the new row.
 #[test]
@@ -292,7 +292,7 @@ codeunit 69909 C
     }
 }
 
-/// record/lt-loadfields-pagesource-validate/P81PageTempSource.al:238-242 (RunModal_TempRecord_NewRow): a row saved by New()
+/// record/load-fields/P81PageTempSource.al:238-242 (RunModal_TempRecord_NewRow): a row saved by New()
 /// below T1 with key N1 stays below T1 in the client's order (`page_row1 = T1`, `page_row2 = N1`). The client keeps key order,
 /// so a move other than Next after such a save is refused; a key that follows its anchor in key order is not.
 #[test]
@@ -344,7 +344,7 @@ codeunit 69909 C
     assert_eq!(al_testkit::text(al_testkit::run_in(&src, "C", "G")), "T1");
 }
 
-/// misc/lt-probes-needed-6/PnF06FindListMoves.al:299-325 (FindList_Descending_3Rows, _25Rows): a find list with
+/// testpage/PnF06FindListMoves.al:299-325 (FindList_Descending_3Rows, _25Rows): a find list with
 /// OnAfterGetCurrRecord over a descending view opens on its last row; the client reads up from there, at most a window of rows,
 /// and moves inside the rows it holds. First past them reads the rest of the view upwards.
 #[test]
@@ -395,7 +395,7 @@ codeunit 69909 C
     );
 }
 
-/// pages/lt-ai-list-order/AiListOrderTests.al:999, :1020 (Paging_GoToKey_Nav, Paging_GoToKeyThenWalk_Nav): GoToKey past a full
+/// pages/list-order/AiListOrderTests.al:999, :1020 (Paging_GoToKey_Nav, Paging_GoToKeyThenWalk_Nav): GoToKey past a full
 /// window on a find list without OnAfterGetCurrRecord reads the last two rows held again, then the rest of the view with
 /// OnNextRecord; the walk to the end afterwards asks nothing.
 #[test]
@@ -425,10 +425,10 @@ codeunit 69909 C
     );
 }
 
-/// handlers/TestPageNewRowLine_Tests.al:64-87: Next() past the last data row of an editable, insert-allowed page lands on the
+/// testpage/TestPageNewRowLine_Tests.al:64-87: Next() past the last data row of an editable, insert-allowed page lands on the
 /// blank new-row line and answers true; the next Next() answers false. A list that declares OnAfterGetRecord and holds its whole
-/// view in the client walks onto the line as well, without asking the page (pagefindrecord/QcFindViewTests.al:505
-/// DocPart_OpenEdit_LinesOfH1 `part_walk = 10000,20000,0`, a part with OnFindRecord; pages/lt-ai-list-order/AiListOrderTests.al:600
+/// view in the client walks onto the line as well, without asking the page (pages/triggers/QcFindViewTests.al:505
+/// DocPart_OpenEdit_LinesOfH1 `part_walk = 10000,20000,0`, a part with OnFindRecord; pages/list-order/AiListOrderTests.al:600
 /// Next_TwoRows_Nav `next2_log` empty: after an open that read the view to its end, Next on the last row asks the page nothing).
 /// Tests-ERM 134344 SI_MoveNextLineAfterQuantityValidateCalcInvDiscount.
 #[test]

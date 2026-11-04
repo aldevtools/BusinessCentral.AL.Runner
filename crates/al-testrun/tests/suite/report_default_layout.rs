@@ -1,7 +1,7 @@
 //! `Report.DefaultLayout(Number)`: the kind the report names with `DefaultLayout` or with the layout `DefaultRenderingLayout`
 //! picks, else RDLC; a processing-only report that names none is `None`
-//! (corpus metadata/lt-report-metadata-columns/ReportMetadata.al:272 P175_DefaultLayout_PerReport,
-//! report/lt-y-report-props/YReportPropsTests.al ExcelLayoutMultipleDataSheets_*, YReportExt.al:152: a Word or RDLC layout
+//! (corpus metadata/platform-tables/ReportMetadata.al:272 P175_DefaultLayout_PerReport,
+//! reports/runtime/YReportPropsTests.al ExcelLayoutMultipleDataSheets_*, YReportExt.al:152: a Word or RDLC layout
 //! property alone leaves RDLC). Anything else is refused.
 
 use al_sema::workspace::AppSource;
@@ -32,7 +32,7 @@ codeunit 50570 "T"
     begin
         if Kind(Id) = '' then;
     end;
-    // From a try function: the missing-object error (report/lt-report-members-testrequestpage/P91Static.al:113-115).
+    // From a try function: the missing-object error (reports/request-page/P91Static.al:113-115).
     [Test] procedure UnknownIdFromATryFunctionRaises()
     begin
         if TryKind(99999) then Error('no error');

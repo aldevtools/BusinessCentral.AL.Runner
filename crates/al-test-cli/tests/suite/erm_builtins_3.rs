@@ -42,7 +42,7 @@ fn unwrap_returns_the_text_a_secret_carries() {
     }
 }
 
-// misc/W4XmlJsonHttp.al (W4 Xml Options Tests.ReadFrom_*): the default XmlReadOptions and PreserveWhitespace true or
+// json/W4XmlJsonHttp.al (W4 Xml Options Tests.ReadFrom_*): the default XmlReadOptions and PreserveWhitespace true or
 // false read white space between tags and around the root as the form without options does.
 #[test]
 fn read_from_text_with_xml_read_options_reads_white_space_as_the_form_without_options_does() {

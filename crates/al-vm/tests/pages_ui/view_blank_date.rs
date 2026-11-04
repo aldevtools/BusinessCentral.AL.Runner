@@ -1,6 +1,6 @@
 //! A list page whose SourceTableView is `where(<Date field> = filter(''))` shows only the rows with a blank date
-//! (pages/lt-cd-testpage-leads/CdTestPageLeads.al:842 SH_SourceTableView_DateFilterBlank_Rows). The same condition in an
-//! action's RunPageView does too (pages/lt-y76-view-filters/Y76ViewBlankDate.al:252 Y76_Action_RunPageView_Blank).
+//! (testpage/CdTestPageLeads.al:842 SH_SourceTableView_DateFilterBlank_Rows). The same condition in an
+//! action's RunPageView does too (pages/view-filters/Y76ViewBlankDate.al:252 Y76_Action_RunPageView_Blank).
 
 const SRC: &str = r#"
 table 50700 "Repro Entry" { fields { field(1; "Entry No."; Integer) { } field(2; "Starting Date"; Date) { } } keys { key(PK; "Entry No.") { } } }

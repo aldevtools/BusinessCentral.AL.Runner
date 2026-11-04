@@ -1,5 +1,5 @@
 //! ADR-062 stage 3: Execute checks around code a platform event starts (table triggers, event subscribers, OnOpenPage).
-//! Values: corpus `tests/al-language/permissions/lt-y84-perm-shapes/Y84PermExecute.al` (Y84_Exec_*, BC 29.0 Linux CI).
+//! Values: corpus `tests/al-language/permissions/permission-sets/Y84PermExecute.al` (Y84_Exec_*, BC 29.0 Linux CI).
 
 use crate::Session;
 use crate::permissions::{Access, Op};
@@ -51,10 +51,10 @@ impl Session {
             .any(|a| a.name.eq_ignore_ascii_case("EventSubscriber"))
     }
 
-    /// The page whose OnOpenPage makes the call about to start, when the session grants Execute on codeunits by no wildcard
+    /// The page whose OnOpenPage, OnInit or OnAfterGetRecord (Y90PermOpenPage.al:72-88 `on_init`, `after_get_record`) makes the call about to start, when the session grants Execute on codeunits by no wildcard
     /// (an exact set). A codeunit call from OnOpenPage then ends the open with `Page <name> has to close.`, code
     /// `FormAbort:Permission`, whether the codeunit is granted or not (Y84PermExecute.al Y84_Exec_PageOpen `page_page`,
-    /// `page_both`). A session that grants Execute by wildcard (`Permissions Mock.Set` adds All Objects) is not pinned and refuses.
+    /// `page_both`). Under a session that grants Execute on codeunits by wildcard the call is checked as any other (Y93WildScope.al:576-599).
     pub(crate) fn permission_open_page_abort(&self, callee: usize) -> Option<Signal> {
         if self.permission_caller.is_some() {
             return None;
@@ -64,7 +64,9 @@ impl Session {
         let routine = &self.engine.program.objects[object].routines[frame.routine];
         if heads[object].kind != al_ir::ObjKind::Page
             || !routine.is_trigger
-            || !routine.name.eq_ignore_ascii_case("OnOpenPage")
+            || !["OnOpenPage", "OnInit", "OnAfterGetRecord"]
+                .iter()
+                .any(|n| routine.name.eq_ignore_ascii_case(n))
             || heads[callee].kind != al_ir::ObjKind::Codeunit
         {
             return None;
@@ -75,15 +77,51 @@ impl Session {
             id: u32::MAX,
             op: Op::Execute,
         };
-        if eff.level(wildcard) != 0 {
-            // A session with wildcard Execute on codeunits (`Set` adds All Objects) is not pinned: Y84 shows the abort under exact
-            // sets only, and Microsoft's tests call codeunits from OnOpenPage under `Set`. Refuse instead of guessing either way.
-            return Some(Signal::Unsupported(
-                "a codeunit call from OnOpenPage under a session with wildcard Execute on codeunits (only exact sets are pinned: Y84PermExecute.al Y84_Exec_PageOpen; needs probe)".into(),
-            ));
+        // The callee is granted by name (a set the test assigned lists `codeunit "X" = X`): Y90PermOpenPage.al:91-118 (Y90_Open_D365BasicPlusAppSet,
+        // `Set('D365 BASIC')` + `Assign` of a set that grants the callee by name) opens the page, and so does an exact set with `system * = X`
+        // and the callee by name (Y90PermOpenPage.al:59,65, `exact_sys_star`, set LT Y90 P PagesSys). Y84PermExecute.al Y84_Exec_PageOpen
+        // `page_both` (the callee by name and no wildcard) aborts.
+        let callee_id = heads[callee].id.unwrap_or(0);
+        let named = eff.content.named_level(5, callee_id, Op::Execute as usize) == 1;
+        let system_wildcard = Access {
+            kind: 10,
+            id: u32::MAX,
+            op: Op::Execute,
+        };
+        let on_open_page = routine.name.eq_ignore_ascii_case("OnOpenPage");
+        if named && (eff.level(wildcard) != 0 || eff.level(system_wildcard) == 1) {
+            return None;
         }
+        match eff.level(wildcard) {
+            0 => {}
+            // A wildcard at Yes: the call is checked like any other, and the wildcard grants the callee whatever app declares it
+            // (Y93WildScope.al:165-244, `xa cu|W All`). The page opens: Y93WildScope.al:576-599 (q1 `Set('D365 BASIC')`, q2 plus
+            // `codeunit * = X`, q4 an exact set of wildcards only, q5 `D365 BASIC` alone, which holds wildcard Execute on every kind),
+            // Y90PermOpenPage.al `set_not_exact`, `pages_cu_star`.
+            1 => return None,
+            // `codeunit * = x` (Indirect): not measured.
+            _ if on_open_page => {
+                return Some(Signal::Unsupported(
+                    "a codeunit call from OnOpenPage under a session whose wildcard Execute on codeunits is indirect only (`codeunit * = x`; Y93WildScope.al pins the wildcard at Yes only)".into(),
+                ));
+            }
+            _ => return None,
+        }
+        // The text names the page's Caption when it has one (Y90PermOpenPage.al:36-37, `Page LT Y90 Shown Caption has to close.`),
+        // else its name. A CaptionML without Caption is not pinned.
+        let props = &self.engine.program.objects[object].properties;
+        let prop = |name: &str| props.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v);
+        let shown = match (prop("Caption"), prop("CaptionML")) {
+            (Some(c), _) => crate::pages::unquote(c),
+            (None, Some(_)) => {
+                return Some(Signal::Unsupported(
+                    "a codeunit call from a page trigger ends the open of a page with CaptionML only (the text of `Page <caption> has to close.` is pinned for Caption, Y90PermOpenPage.al:36)".into(),
+                ));
+            }
+            (None, None) => heads[object].name.clone(),
+        };
         Some(Signal::Error(Box::new(al_builtins::native::AlError {
-            message: format!("Page {} has to close.", heads[object].name),
+            message: format!("Page {shown} has to close."),
             code: "FormAbort:Permission".into(),
             ..Default::default()
         })))
@@ -91,7 +129,7 @@ impl Session {
 }
 
 /// Whether an error of an action's OnAction comes out of the test page's Invoke with the code `TestWrapped:Permission`: an Execute
-/// denial (Y84PermExecute.al Y84_Exec_PageAction) and an Insert denial (permissions/lt-permissions-mock-indirect/
+/// denial (Y84PermExecute.al Y84_Exec_PageAction) and an Insert denial (permissions/permission-sets/
 /// RiskyPagePermissions.al:129).
 pub(crate) fn wraps_as_permission(code: &str, message: &str) -> bool {
     matches!(code, "DB:ExecuteObjDenied" | "DB:ClientInsertDenied")

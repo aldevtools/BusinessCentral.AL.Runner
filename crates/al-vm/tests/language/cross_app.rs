@@ -1,5 +1,5 @@
 //! Objects of one app used by another: table extensions of another app's table (corpus
-//! tableextension/lt-bw-cross-app/BwCrossAppTests.al with the cross-app fixtures tests/al-language-xapp-a, -b).
+//! table-objects/extensions/BwCrossAppTests.al with the cross-app fixtures tests/al-language-xapp-a, -b).
 
 use al_sema::workspace::AppSource;
 use al_testkit::text;

@@ -84,7 +84,7 @@ fn run(body: &str) -> Result<Value, Signal> {
 
 #[test]
 fn relation_answers_the_table_of_the_arm_that_applies() {
-    // corpus fieldref/TestFieldRefRelation.al:36-130, TestFieldRefRelationFieldClass.al:60-145
+    // corpus recordref-fieldref/fieldref/TestFieldRefRelation.al:36-130, TestFieldRefRelationFieldClass.al:60-145
     let r = run(
         "procedure F(): Text var RR: RecordRef; s: Text; begin
             RR.Open(50952);
@@ -121,7 +121,7 @@ fn system_created_by_relates_to_the_user_table() {
 
 #[test]
 fn validate_refuses_a_value_the_related_table_lacks() {
-    // corpus fieldref/TestFieldRefRelation.al:182-262 ('cannot be found in the related table')
+    // corpus recordref-fieldref/fieldref/TestFieldRefRelation.al:182-262 ('cannot be found in the related table')
     let m = text(run("procedure F(): Text var C: Record \"Rel Child\"; begin
             asserterror C.Validate(Plain, 'NOPE');
             exit(GetLastErrorText() + '[' + C.Plain + ']');
@@ -136,7 +136,7 @@ fn validate_refuses_a_value_the_related_table_lacks() {
 
 #[test]
 fn validate_accepts_known_blank_unchecked_and_directly_assigned_values() {
-    // corpus fieldref/TestFieldRefRelationFieldClass.al:130-170, tableextension/TestTableExtFieldTableRelation.al:94-160
+    // corpus recordref-fieldref/fieldref/TestFieldRefRelationFieldClass.al:130-170, table-objects/extensions/TestTableExtFieldTableRelation.al:94-160
     let r = run(
         "procedure F(): Text var C: Record \"Rel Child\"; P: Record \"Rel Parent\"; s: Text; begin
             P.Code := 'P1'; P.Insert();
@@ -152,7 +152,7 @@ fn validate_accepts_known_blank_unchecked_and_directly_assigned_values() {
 
 #[test]
 fn validate_where_field_narrows_the_related_rows_to_the_referencing_rows_group() {
-    // corpus fieldref/TestFieldRefRelation.al:215-262
+    // corpus recordref-fieldref/fieldref/TestFieldRefRelation.al:215-262
     let r = run(
         "procedure F(): Text var C: Record \"Rel Child\"; P: Record \"Rel Parent\"; s: Text; begin
             P.Code := 'P-G1'; P.Grp := 'G1'; P.Insert();
@@ -189,7 +189,7 @@ fn validate_follows_the_arm_the_condition_selects() {
 
 #[test]
 fn record_relation_answers_the_arm_and_refuses_a_field_without_relation() {
-    // corpus record/TestRecordExtended.al:15-40, fieldref/TestFieldRefRelationFieldClass.al:168-190
+    // corpus record/TestRecordExtended.al:15-40, recordref-fieldref/fieldref/TestFieldRefRelationFieldClass.al:168-190
     let r = run("procedure F(): Text var C: Record \"Rel Child\"; s: Text; begin
             s := Format(C.Relation(Plain));
             C.Kind := C.Kind::B;
@@ -273,7 +273,7 @@ fn a_relation_filtered_by_a_flowfield_of_the_record_calculates_it() {
     );
 }
 
-// misc/lt-probes-needed-6/PnF29RelationByFlowField.al:242-260 (FlowRelation_Condition_NoCalcFields): Validate calculates a
+// record/PnF29RelationByFlowField.al:242-260 (FlowRelation_Condition_NoCalcFields): Validate calculates a
 // FlowField that an if condition of the relation names; no CalcFields is needed first.
 #[test]
 fn validate_calculates_a_flowfield_named_by_an_arm_condition() {
@@ -296,7 +296,7 @@ fn validate_calculates_a_flowfield_named_by_an_arm_condition() {
     assert_eq!(text(r), "ONLYA|ONLYB");
 }
 
-// record/lt-sc-enum-const-relation/ScEnumConstRelation.al:52-53, :101-140: a condition `const("Enum"::Value)` on an Enum field
+// record/table-relation/ScEnumConstRelation.al:52-53, :101-140: a condition `const("Enum"::Value)` on an Enum field
 // of the field's own enum selects its arm as `const(Value)` does. An enum other than the field's is not pinned.
 #[test]
 fn an_enum_qualified_const_condition_selects_its_arm() {

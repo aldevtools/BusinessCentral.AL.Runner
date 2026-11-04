@@ -1,7 +1,7 @@
 //! The Tenant Profile Setting table (2000000083, Scope = OnPrem): a stored table whose rows set "Default Role Center" (6) and
 //! "Disable Personalization" (13) of the All Profile row of the same App ID and Profile ID.
 //!
-//! Pinned by corpus al-language-onprem/platform/lt-y35-stored-tables/Y35StoredTables.al:483-620 and
+//! Pinned by corpus al-language-onprem/metadata/platform-tables/Y35StoredTables.al:483-620 and
 //! lt-y59-tenant-profile-setting/Y59AllProfileGhostSetting.al (corpus master 9cf26907):
 //! - a fresh tenant with the Base Application holds two rows (O365 SALES: Default Role Center No, Disable Personalization Yes;
 //!   ORDER PROCESSOR: both No; :581); Insert of any App ID and Profile ID answers true with no check, a duplicate Insert false,

@@ -1,6 +1,6 @@
 //! `al-runner test --dev-endpoint-ui` (al-runner issue 3697, opt-in): a UI call with no handler bound gets the answer
 //! Business Central's dev-endpoint test runner gives it, instead of the "Unhandled UI" error of the `TestRunner`
-//! codeunit mode that every corpus run uses (handlers/TestUnhandledUiAndDialogDefaults.al:68-107).
+//! codeunit mode that every corpus run uses (errors/TestUnhandledUiAndDialogDefaults.al:68-107).
 //!
 //! Only the shapes measured on real BC in the dev-endpoint mode are answered (`answer`); every other shape stays
 //! refused under the flag too. Each answer is kept for the runner, which prints it as a warning naming the test, and
@@ -24,7 +24,7 @@ pub(crate) struct DevEndpointUi {
 /// parameters a bound handler would leave and the answer as the warning names it; `None` for a shape not measured.
 ///
 /// Measured through the dev endpoint (TestRunnerHub) on a BC 28.5 container (corpus branch al-runtime-rs-staging-y53,
-/// handlers/lt-ui-handler-modes/UiHandlerModes.al:132-137, DevEndpointTestRunner_MeasuredValues): `Confirm` answers
+/// pages/UiHandlerModes.al:132-137, DevEndpointTestRunner_MeasuredValues): `Confirm` answers
 /// its default, No when it is omitted; `StrMenu` answers its default, 1 when omitted; `Message` returns. The arguments
 /// already hold the omitted defaults (`native.rs` `confirm`, `str_menu`).
 fn answer(kind: UiKind, args: &[Value]) -> Option<(Vec<Value>, String)> {

@@ -1,5 +1,5 @@
 //! Writes into a FlowField: Validate, TransferFields and a temporary record
-//! (record/lt-flowfield-write/DiFwWriteTests.al).
+//! (record/flowfields/DiFwWriteTests.al).
 
 use al_testkit::{run_in, text};
 
@@ -309,7 +309,7 @@ codeunit 50351 T
 }
 "#;
 
-// record/lt-record-write/RcBTriggers.al:ModifyAll_Equal_Value_Rows_BQ: ModifyAll(.., false) stamps a row that keeps its value.
+// record/crud/RcBTriggers.al:ModifyAll_Equal_Value_Rows_BQ: ModifyAll(.., false) stamps a row that keeps its value.
 #[test]
 fn modifyall_without_triggers_stamps_a_row_that_keeps_its_value() {
     assert_eq!(text(run_in(BULK, "T", "F")), "No/Yes");
@@ -344,7 +344,7 @@ codeunit 50361 T
 }
 "#;
 
-// metadata/lt-custom-report-layout-columns/CustomReportLayoutColumns.al:PW_FieldIndex_FlowFilterAmongNormalFields.
+// metadata/platform-tables/CustomReportLayoutColumns.al:PW_FieldIndex_FlowFilterAmongNormalFields.
 #[test]
 fn fieldindex_lists_normal_fields_then_flowfilters_then_flowfields() {
     assert_eq!(text(run_in(ORDER, "T", "F")), "1;3;2;4;");
@@ -382,7 +382,7 @@ codeunit 50371 T
 }
 "#;
 
-// types/lt-cw-variant-leads/CwVariantChangeCompany.al:CW_Variant_KeepsOrDropsChangeCompany: through a Variant, GetTable drops the company.
+// recordref-fieldref/CwVariantChangeCompany.al:CW_Variant_KeepsOrDropsChangeCompany: through a Variant, GetTable drops the company.
 #[test]
 fn gettable_through_a_variant_drops_the_company_and_keeps_the_filters() {
     assert_eq!(text(run_in(VARIANT, "T", "F")), "Yes|Yes|Id: >=2");
@@ -412,7 +412,7 @@ codeunit 50381 T
 }
 "#;
 
-// record/lt-qd-temp-param/QdStoredToTempParam.al:90-119 StoredRecord_ToTemporaryParameter: a stored record handed by value
+// record/temporary/QdStoredToTempParam.al:90-119 StoredRecord_ToTemporaryParameter: a stored record handed by value
 // to a `temporary` parameter of a plain procedure gives the callee a temporary record with the record's values over an empty
 // table, without the caller's filters (`callee.filters` empty); the caller keeps its own (`caller.filters = Id: 2..3`).
 #[test]
@@ -448,7 +448,7 @@ codeunit 50385 T
 }
 "#;
 
-// events/lt-cl-event-leads/ClEventLeads.al:70 (`ins.temporary temp=Yes count=0 id=103`): an OnAfterInsertEvent subscriber whose Rec
+// events/ClEventLeads.al:70 (`ins.temporary temp=Yes count=0 id=103`): an OnAfterInsertEvent subscriber whose Rec
 // is declared temporary gets a temporary copy of the stored record over an empty table.
 #[test]
 fn a_stored_record_handed_to_a_temporary_subscriber_parameter_is_an_empty_temporary_copy() {
@@ -497,7 +497,7 @@ codeunit 50393 T
 }
 "#;
 
-// pages/lt-cf-page-leads/CfPageLeads.al:EditableFlowField_SetValue: OnValidate first, then the source row with its OnInsert.
+// testpage/CfPageLeads.al:EditableFlowField_SetValue: OnValidate first, then the source row with its OnInsert.
 #[test]
 fn validate_on_a_sum_flowfield_runs_onvalidate_then_inserts_with_the_trigger() {
     assert_eq!(text(run_in(SUM_TRIGGERS, "T", "F")), "OnValidate:50/30,OnInsert:2/20,");
@@ -575,7 +575,7 @@ codeunit 50388 T
 }
 "#;
 
-// record/lt-qd-temp-param/QdStoredToTempParam.al:149-180 QF_StoredRecord_KeyAndOrder_ToTemporaryParameter (corpus bump 37): the
+// record/temporary/QdStoredToTempParam.al:149-180 QF_StoredRecord_KeyAndOrder_ToTemporaryParameter (corpus bump 37): the
 // callee's temporary record has the primary key, ascending (`callee.view = VERSION(1) SORTING(Field1)`), the current values, and
 // sorts its own rows by the primary key; the caller keeps its key and order.
 #[test]
@@ -601,7 +601,7 @@ fn a_stored_record_handed_to_a_temporary_parameter_has_no_marks() {
 }
 
 // al-runner issue 5857: a temporary row keeps the FlowFilter value its Insert wrote; a Modify does not write a new one
-// (record/lt-flowfield-write/DiFwWriteTests.al:937 SF_FlowFilter_TemporaryTableType_InsertThenRead, :975
+// (record/flowfields/DiFwWriteTests.al:937 SF_FlowFilter_TemporaryTableType_InsertThenRead, :975
 // SF_FlowFilter_TemporaryVariable_InsertThenRead). A Rename of such a row is not pinned.
 const TEMP_FF: &str = r#"
 table 50320 TB

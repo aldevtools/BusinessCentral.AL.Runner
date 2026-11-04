@@ -1,6 +1,6 @@
 //! Application areas on the test client: a control whose `ApplicationArea` the session does not
 //! enable is not on the page at all, so a TestPage cannot reach it (corpus
-//! pageapplicationarea/TestPageApplicationAreaControlRemoval.al, ...ActionRemoval.al,
+//! pages/application-area/TestPageApplicationAreaControlRemoval.al, ...ActionRemoval.al,
 //! ...PartRemoval.al, ...ExtensionControlRemoval.al, ...ExtensionActionPartRemoval.al).
 //!
 //! The areas are read when the page opens (`PageState::areas`): the page is built then. Every

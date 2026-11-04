@@ -1,7 +1,7 @@
 //! `TestHandlerContext` and `DataSourceContext` (BC 29, runtime 18.0) on a variable the test framework did not hand
-//! over: a fresh variable of the type (corpus lt-ac/ACContexts.al). A context the runner hands to an `ITestDataSource`
+//! over: a fresh variable of the type (corpus permissions/ACContexts.al). A context the runner hands to an `ITestDataSource`
 //! callback (`LibraryValue::HandedContext`, ADR-059) has its members refused: on BC a call of one there ends the session
-//! (al-language-testlibraries/lt-bi-test-framework/BiDataDriven.al:29-34, corpus PR 861).
+//! (al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiDataDriven.al:29-34, corpus PR 861).
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal};

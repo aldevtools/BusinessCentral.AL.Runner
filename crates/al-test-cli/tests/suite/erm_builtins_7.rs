@@ -39,7 +39,7 @@ fn names_the_open_question(why: &str, words: &[&str]) {
     }
 }
 
-// The error is pinned on every version (record/lt-filters-keys-finds/P68C_EmptyFinds.al:215-250), so the test fails with it.
+// The error is pinned on every version (record/filters/P68C_EmptyFinds.al:215-250), so the test fails with it.
 #[test]
 fn find_first_on_an_empty_set_without_the_result_raises_the_table_is_empty_error() {
     let (l, oi) = compile("[Test] procedure T1() var R: Record \"B7 Row\"; begin R.FindFirst(); end;");
@@ -65,7 +65,7 @@ fn a_text_filter_on_a_date_formula_field_is_refused_with_its_reason() {
 
 // A Boolean `for` loop was refused here; it runs now (registry entry for-boolean, blocked_set_3.rs).
 
-// Pinned by misc/lt-probes-needed-5/PnE08RecordMisc.al:TestField_Blob: an empty Blob fails with the usual error.
+// Pinned by recordref-fieldref/PnE08RecordMisc.al:TestField_Blob: an empty Blob fails with the usual error.
 #[test]
 fn test_field_of_an_empty_blob_fails_with_the_usual_error() {
     let (l, oi) = compile("[Test] procedure T4() var R: Record \"B7 Row\"; begin R.TestField(Pic); end;");
@@ -99,7 +99,7 @@ fn test_field_of_a_blob_written_through_a_stream_passes() {
 }
 
 // A Blob with stored content read by Get without CalcFields passes TestField
-// (record/lt-testfield-blob-decimal/TestFieldBlobDecimal.al:TestField_Blob_StoredContent `after_get_without_calcfields`).
+// (record/testfield/TestFieldBlobDecimal.al:TestField_Blob_StoredContent `after_get_without_calcfields`).
 #[test]
 fn test_field_of_a_stored_blob_not_fetched_with_calcfields_passes() {
     let (l, oi) = compile(

@@ -1,7 +1,7 @@
 //! An xmlport with a request page with content: Export and Import from code (instance and static) never open the page and run
 //! with the globals as code set them; `Xmlport.Run(Id, false, false)` runs; `Xmlport.Run(Id, true, false)` and the instance
 //! `Run()` run OnInitXmlPort, then end in `Unhandled UI: RequestPage <id>` (MissingUIHandler), as no handler can take an
-//! xmlport's request page (corpus master ac3499d6, xmlport/lt-y40-xmlport-request-page/Y40XmlPortRequestPage.al:283-423).
+//! xmlport's request page (corpus master ac3499d6, xmlports/shapes-properties/Y40XmlPortRequestPage.al:283-423).
 
 use al_testrun::Outcome;
 

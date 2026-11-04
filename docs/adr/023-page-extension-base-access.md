@@ -35,7 +35,7 @@ part of this ADR's work).
   and `CurrPage` (they hold the same `Rc` handle).
 - A *control* of an extension that names a base variable already works: `Binding::BaseVar(slot)`
   reads and writes the slot of the base page's instance, "whoever owns the control" (`al-ir`). It
-  was built for report request pages (`handlers/TestRequestPageControlErrorName.al`, documented in
+  was built for report request pages (`reports/TestRequestPageControlErrorName.al`, documented in
   `docs/probes-needed.md` under "Request pages"). Only code is missing: statements and expressions
   in extension triggers and procedures, and control source expressions that are not a bare name
   (`Item."Qty. on Component Lines"`, `Format(BaseVar)`).
@@ -54,10 +54,10 @@ Everything about the *extension's own* instance, and nothing about base access:
 
 | Pin | Where |
 |---|---|
-| An extension's global lives on the extension's instance: assigned in the extension's `OnOpenPage`, read by a control it declares, rewritten by that control's `OnValidate` | `pageextensioncontrol/TestPageExtensionControlTrapped_Page.al:63-82`, `TestPageExtensionControlBinding_Page.al:56-72` |
-| Extension code uses `Rec` (the page's record) for reads and writes, and its own local procedures | `handlers/TestPageExtensionActionInvoke_Page.al:70-91`, `pageextensiontrigger/TestPageExtensionPageTriggers_Page.al:35-60`, `pageextensiontrigger/TestModifiedControlValidateTriggers_Page.al:77-150`, `codeunit/TestCodeCoverageTableExtension.al:71-85` |
-| An extension procedure publishes its own event | `extensionevents/ALTExtEvtFixtures.al:88-96` |
-| A control of a reportextension that names a `protected var` of the base report binds to the base report's variable (read, write, parameters text); a bare name that is no variable of the base is refused | `handlers/TestRequestPageControlErrorName.al` (Ext5803Handler, cases 21-24) |
+| An extension's global lives on the extension's instance: assigned in the extension's `OnOpenPage`, read by a control it declares, rewritten by that control's `OnValidate` | `pages/extensions/TestPageExtensionControlTrapped_Page.al:63-82`, `TestPageExtensionControlBinding_Page.al:56-72` |
+| Extension code uses `Rec` (the page's record) for reads and writes, and its own local procedures | `testpage/TestPageExtensionActionInvoke_Page.al:70-91`, `pages/extensions/TestPageExtensionPageTriggers_Page.al:35-60`, `pages/extensions/TestModifiedControlValidateTriggers_Page.al:77-150`, `codeunits/TestCodeCoverageTableExtension.al:71-85` |
+| An extension procedure publishes its own event | `events/extension-events/ALTExtEvtFixtures.al:88-96` |
+| A control of a reportextension that names a `protected var` of the base report binds to the base report's variable (read, write, parameters text); a bare name that is no variable of the base is refused | `reports/TestRequestPageControlErrorName.al` (Ext5803Handler, cases 21-24) |
 | Page and extension triggers run base first, then the extension (assumed for pages, pinned for reports) | `docs/probes-needed.md` "Page extensions" |
 
 No file in the corpus contains `protected var`, and none has a page extension that calls a
@@ -168,9 +168,9 @@ R4. Two reportextensions of one report that both change the run: today refused; 
 ## Pinned (2026-10-14, BC 27.5 container; corpus `tests/al-language/handlers/` and `reportextensiontrigger/`)
 
 `base_access::PINNED` holds P1, P2, P4, P5, P9, P10, R1, R3, citing
-`handlers/TestPageExtensionBaseAccessContracts.al` (275, 288, 310, 326),
-`handlers/TestPageExtensionBaseMembersContracts.al` (197) and
-`reportextensiontrigger/TestReportExtensionBaseMembersContracts.al` (256).
+`pages/extensions/TestPageExtensionBaseAccessContracts.al` (275, 288, 310, 326),
+`pages/TestPageExtensionBaseMembersContracts.al` (197) and
+`reports/extensions/TestReportExtensionBaseMembersContracts.al` (256).
 - P6: an extension variable named like a base variable is a separate variable (the extension's own
   wins; base keeps its value). An extension procedure named like a base procedure is compile error
   AL0440: refused. A `local` base procedure or a base variable that is not `protected` is AL0161

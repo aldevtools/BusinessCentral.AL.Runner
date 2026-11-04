@@ -1,5 +1,5 @@
 //! `TestHandlerContext` and `DataSourceContext` (BC 29) on a variable that no test handler or data source was handed:
-//! the values of lt-ac/ACContexts.al (codeunits 77506, 77541 to 77546), and the refusal of what it does not pin.
+//! the values of permissions/ACContexts.al (codeunits 77506, 77541 to 77546), and the refusal of what it does not pin.
 
 use al_testkit::{run, text};
 

@@ -1,5 +1,5 @@
 //! Pins of the corpus writer Y17 for pages that need test codeunits with handlers: a Page-typed PageHandler for Page.Run with
-//! a record and for a Page variable that was set up (pages/lt-y17-page-handler-record/Y17PageHandlerRecord.al).
+//! a record and for a Page variable that was set up (pages/page-handler-with-record/Y17PageHandlerRecord.al).
 
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;

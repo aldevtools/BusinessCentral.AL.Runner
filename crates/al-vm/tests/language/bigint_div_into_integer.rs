@@ -1,6 +1,6 @@
 //! A BigInteger expression assigned to an Integer converts to Integer (al-runner issue 6660): the Variant it is passed
 //! as then holds an Integer, not a BigInteger. `:=` of a BigInteger into an Integer converts
-//! (types/lt-y31-conversion-matrix/Y31ConvCv.al:962-971 `BigInteger_To_Integer`).
+//! (types/operators-expressions/Y31ConvCv.al:962-971 `BigInteger_To_Integer`).
 
 use al_testkit::{run, text};
 

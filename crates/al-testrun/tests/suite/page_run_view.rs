@@ -1,7 +1,7 @@
 //! `Page.Run(Page, Rec)` for a page that declares `SourceTableView`: Microsoft's "Assembly Orders"
 //! (`SourceTableView = where("Document Type" = filter(Order))`) is run on a temporary record by
 //! `Assemble-to-Order Link.ShowAsmOrders`; 31 tests of one bucket were refused. How the record and the view combine
-//! is pinned by types/lt-code-digits-page-run-view/P145PageRunView.al (the page alone: handlers/TestPageSourceTableView.al):
+//! is pinned by types/text-code-char/P145PageRunView.al (the page alone: testpage/TestPageSourceTableView.al):
 //! the page shows the rows of the record that the view admits.
 
 use al_sema::workspace::AppSource;
@@ -108,7 +108,7 @@ fn a_page_run_on_a_record_shows_the_rows_its_source_table_view_admits() {
     });
     assert_eq!(o, Outcome::Pass);
     // A view with order(descending) on a page run on a record is read as the view alone is
-    // (types/lt-code-digits-page-run-view/P145PageRunView.al:228-467, SF_B_*, SF_C_*).
+    // (types/text-code-char/P145PageRunView.al:228-467, SF_B_*, SF_C_*).
     let o = rt.first_outcome(&CaseId {
         codeunit: 50102,
         name: "RunOnARecordWithAnOrderInTheView".into(),

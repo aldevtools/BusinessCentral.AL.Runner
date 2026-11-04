@@ -1,6 +1,6 @@
 //! The `<Options>` of a report parameters text: its `Field` elements and the value each one gives the variable a request page
-//! control shows (`apply_request_parameters`). Pinned by report/lt-y68-selfclosing-params/Y68SelfClosingParams.al (corpus
-//! master 0d01b0cc, BC 27.5, 28.5, 29.0) and report/lt-report-requestpage/RptRequestPage.al:878-893; the rest is refused.
+//! control shows (`apply_request_parameters`). Pinned by reports/runtime/Y68SelfClosingParams.al (corpus
+//! master 0d01b0cc, BC 27.5, 28.5, 29.0) and reports/request-page/RptRequestPage.al:878-893; the rest is refused.
 
 use super::*;
 use al_builtins::describe::Describe;

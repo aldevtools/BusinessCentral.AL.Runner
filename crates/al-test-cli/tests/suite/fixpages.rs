@@ -139,7 +139,7 @@ local procedure Seed() var R: Record \"FP Row\"; Log: Codeunit \"FP Log\"; begin
   R.\"No.\" := 11; R.Link := 1; R.Insert(); R.\"No.\" := 12; R.Link := 1; R.Insert(); R.\"No.\" := 31; R.Link := 3; R.Insert();
   Commit(); Log.Take(); end;";
 
-// handlers/TestUnhandledUiAndDialogDefaults.al:68-107 (one space, MissingUIHandler, page ids)
+// errors/TestUnhandledUiAndDialogDefaults.al:68-107 (one space, MissingUIHandler, page ids)
 #[test]
 fn unhandled_ui_text_and_code() {
     passes(&format!(
@@ -157,8 +157,8 @@ fn unhandled_ui_text_and_code() {
     ));
 }
 
-// testpart/TestPartTriggerOrderAndRefresh.al:236-247 and the close order of
-// testpart/TestPartCloseLinkEditableContracts.al
+// testpage/parts/TestPartTriggerOrderAndRefresh.al:236-247 and the close order of
+// testpage/parts/TestPartCloseLinkEditableContracts.al
 #[test]
 fn part_init_and_close_order() {
     passes(&format!(
@@ -170,7 +170,7 @@ fn part_init_and_close_order() {
     ));
 }
 
-// testpart/TestPartTriggerOrderAndRefresh.al:316-340 and handlers/TestPageRuntimeContracts.al:245-278
+// testpage/parts/TestPartTriggerOrderAndRefresh.al:316-340 and testpage/TestPageRuntimeContracts.al:245-278
 #[test]
 fn not_found_ids_and_codes() {
     passes(&format!(
@@ -187,7 +187,7 @@ fn not_found_ids_and_codes() {
     ));
 }
 
-// handlers/TestPageLabelControlContracts.al:131-145 (BC 27.5): an action with no OnAction trigger and no RunObject is
+// testpage/TestPageLabelControlContracts.al:131-145 (BC 27.5): an action with no OnAction trigger and no RunObject is
 // not on the TestPage: naming it raises "The action with ID = <n> is not found on the page." / TestActionNotFound.
 #[test]
 fn an_action_without_behaviour_is_not_on_the_test_page() {
@@ -202,7 +202,7 @@ fn an_action_without_behaviour_is_not_on_the_test_page() {
     ));
 }
 
-// session/TestClearAllTransactionTypeContracts.al:224-285 (BC 27.5): ClearAll resets the globals of a codeunit with a
+// session-system/TestClearAllTransactionTypeContracts.al:224-285 (BC 27.5): ClearAll resets the globals of a codeunit with a
 // TableNo, of a table and of a page, and keeps their record (Rec, the fields).
 #[test]
 fn clear_all_resets_the_globals_and_keeps_the_record() {
@@ -219,7 +219,7 @@ fn clear_all_resets_the_globals_and_keeps_the_record() {
     ));
 }
 
-// handlers/TestPageCloseTriggersSelectionCardPageContracts.al:250-285 (BC 27.5): Page.GetRecord after RunModal gives the
+// testpage/TestPageCloseTriggersSelectionCardPageContracts.al:250-285 (BC 27.5): Page.GetRecord after RunModal gives the
 // row the page was positioned on when it closed: the picked row after OK, the last positioned row after Cancel.
 #[test]
 fn get_record_is_the_row_the_page_closed_on() {
@@ -236,7 +236,7 @@ fn get_record_is_the_row_the_page_closed_on() {
     ));
 }
 
-// handlers/TestPageCloseTriggersSelectionCardPageContracts.al:239-250: SetSelectionFilter on a list positioned on a row
+// testpage/TestPageCloseTriggersSelectionCardPageContracts.al:239-250: SetSelectionFilter on a list positioned on a row
 // filters the record to that row.
 #[test]
 fn set_selection_filter_filters_to_the_row_the_list_stands_on() {
@@ -248,7 +248,7 @@ fn set_selection_filter_filters_to_the_row_the_list_stands_on() {
     ));
 }
 
-// handlers/PWRefusedBuiltins.al:78-107 (BC 27.5): Report.ObjectId(false) is `Report <id>`, ObjectId(true) and ObjectId()
+// recordref-fieldref/PWRefusedBuiltins.al:78-107 (BC 27.5): Report.ObjectId(false) is `Report <id>`, ObjectId(true) and ObjectId()
 // `Report <Caption>`, the report's name when it has no Caption.
 #[test]
 fn report_object_id_reads_the_id_or_the_caption() {
@@ -260,7 +260,7 @@ fn report_object_id_reads_the_id_or_the_caption() {
     ));
 }
 
-// handlers/TestReportRuntimeContracts.al:322-390 (Skip, Break, Quit, discarded OnPreReport filter,
+// reports/TestReportRuntimeContracts.al:322-390 (Skip, Break, Quit, discarded OnPreReport filter,
 // DataItemLink hidden from GetFilters)
 #[test]
 fn report_skip_break_quit_and_filters() {
@@ -278,7 +278,7 @@ fn report_skip_break_quit_and_filters() {
     ));
 }
 
-// handlers/TestPageModalResultsAndTriggersContracts.al:
+// pages/run-modal/TestPageModalResultsAndTriggersContracts.al:
 // RunModal_Dialog_StaticVersusVariable_ReportedAction
 #[test]
 fn static_run_modal_reports_the_lookup_actions() {
@@ -290,7 +290,7 @@ fn static_run_modal_reports_the_lookup_actions() {
     ));
 }
 
-// testpart/TestPartCloseLinkEditableContracts.al:
+// testpage/parts/TestPartCloseLinkEditableContracts.al:
 // Parts_EnabledReadsTheControl_EditableFalseDoesNotBlockWrites
 #[test]
 fn editable_false_part_still_takes_writes() {
@@ -303,7 +303,7 @@ fn editable_false_part_still_takes_writes() {
 }
 
 // Page.RunModal(Id, Rec, Field) with a handler that does not answer LookupOK (Segment Line.RunCreateInteraction, Tests-Marketing, 33 tests):
-// the field is kept (pages/lt-f3-pages/F3TrappedAndModal.al:248 Card_PageTypedHandler); the unhandled case is pinned by errors/lt-last-error-and-events/P70_06RunModalField.al.
+// the field is kept (ui-handlers/F3TrappedAndModal.al:248 Card_PageTypedHandler); the unhandled case is pinned by errors/last-error/P70_06RunModalField.al.
 #[test]
 fn run_modal_with_a_field_argument_and_a_handler_that_does_not_answer_lookup_ok() {
     passes(&format!(
@@ -317,7 +317,7 @@ fn run_modal_with_a_field_argument_and_a_handler_that_does_not_answer_lookup_ok(
     ));
 }
 
-// With a TestPage handler that answers OK the field argument changes nothing (pages/lt-page-run-overloads-testpart/
+// With a TestPage handler that answers OK the field argument changes nothing (pages/parts/
 // P106RunStatic.al:141-866; al-runner issue 5753).
 #[test]
 fn run_modal_with_a_field_argument_and_lookup_ok_runs() {

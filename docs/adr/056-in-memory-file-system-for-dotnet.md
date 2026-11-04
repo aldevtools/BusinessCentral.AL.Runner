@@ -156,7 +156,7 @@ paths outside the temporary folders: `File.Exists('C:\Windows\win.ini')` is No.
   QxDotNetDemoShapes.al on the in-memory store, the assumption marker, the
   refusals (near matches, unserved members, path constructors, `--files-dir`), and
   `XmlDocument.Save` and `Load` through a stream.
-- Corpus onprem-dotnet `lt-qx-dotnet/QxDotNetDemoShapes.al` (`RD_*`) runs on the
+- Corpus onprem-dotnet `dotnet/dotnet/QxDotNetDemoShapes.al` (`RD_*`) runs on the
   in-memory store.
 
 ## Open points for the owner

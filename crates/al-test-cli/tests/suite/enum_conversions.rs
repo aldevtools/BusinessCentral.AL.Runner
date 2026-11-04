@@ -108,7 +108,7 @@ fn an_integer_converts_to_the_enum_value_of_that_ordinal() {
 }
 
 // The not-found error of a Get keyed by an enum of another type names the caller's value, keyed by an Integer the key's
-// enum value (the number for an ordinal it lacks): errors/lt-ms-refusals-138/P138EnumGetNotFound.al:103, :126-128.
+// enum value (the number for an ordinal it lacks): errors/P138EnumGetNotFound.al:103, :126-128.
 #[test]
 fn the_not_found_error_of_a_get_keyed_by_another_enum_or_an_integer_names_the_pinned_value() {
     let outcomes = run(

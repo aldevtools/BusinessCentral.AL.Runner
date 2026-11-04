@@ -1,5 +1,5 @@
 //! The format string of a Decimal table field with AutoFormatType 11, for `Format` in code (al-builtins `autoformat11`):
-//! the AutoFormatExpression evaluated once per call, a text literal as written (types/lt-y43-auto-format-11/Y43AfType11.al).
+//! the AutoFormatExpression evaluated once per call, a text literal as written (format-evaluate/Y43AfType11.al).
 //! A procedure runs on the formatted record itself, so the globals of its table and table extensions are the record's
 //! (`Ext11`: a global setup record of the extension, read again at each call after the setup changed).
 

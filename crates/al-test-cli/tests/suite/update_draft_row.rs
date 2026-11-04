@@ -1,7 +1,7 @@
 //! CurrPage.Update(false) from an action on a list opened for view whose current record is the draft row New() started
-//! (pages/lt-sc-update-empty-row/ScUpdateEmptyRow.al:215-241, codeunit 91255 OpenView_NewDraftRow_ActionUpdate), and
+//! (pages/currpage/ScUpdateEmptyRow.al:215-241, codeunit 91255 OpenView_NewDraftRow_ActionUpdate), and
 //! Update(true) or no Update on that row, a draft started on another row, and a list over an empty table
-//! (pages/lt-sc-update-empty-row/Y6UpdateDraftRow.al:158-342, codeunit 91309, corpus master).
+//! (pages/currpage/Y6UpdateDraftRow.al:158-342, codeunit 91309, corpus master).
 
 use al_test_cli::report::Outcome;
 

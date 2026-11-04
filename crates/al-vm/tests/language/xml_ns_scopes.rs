@@ -1,4 +1,4 @@
-//! XmlNamespaceManager scopes, RemoveNamespace and LookupPrefix (corpus xml/lt-xml-remaining-node-methods/P104NsManager.al).
+//! XmlNamespaceManager scopes, RemoveNamespace and LookupPrefix (corpus xml/xml/P104NsManager.al).
 
 use al_testkit::text;
 

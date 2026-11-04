@@ -1,6 +1,6 @@
 //! A stream write to a Blob of a record read with `Get` and no `CalcFields`, over stored content (AL Runner issue 5681).
 //! The first write stores exactly the new bytes; after that, and after `CalcFields`, a stream writes in place
-//! (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:222-350). What a temporary record or a `CalcFields` between
+//! (record/flowfields/BlobCalcFieldsLength.al:222-350). What a temporary record or a `CalcFields` between
 //! `CreateOutStream` and the write does is not pinned: a look at the Blob is refused there.
 
 use al_testkit::{int, run_in, text};

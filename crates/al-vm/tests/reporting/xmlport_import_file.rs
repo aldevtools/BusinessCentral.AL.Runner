@@ -1,5 +1,5 @@
 //! `ImportFile()` in OnPreXmlPort and OnPostXmlPort: true while the port imports, false while it exports (corpus
-//! xmlport/lt-xmlport-query-datatransfer/XmlPortFixtures.al:265, :275; XpTImportOptions.al:268 Import_TextElementsAndAttributes).
+//! xmlports/import/XmlPortFixtures.al:265, :275; XpTImportOptions.al:268 Import_TextElementsAndAttributes).
 
 use al_testkit::run;
 
@@ -35,7 +35,7 @@ fn import_file_tells_the_direction_of_the_run() {
     assert_eq!(al_testkit::text(run(SRC, "F")), "pre=No;post=No;pre=Yes;post=Yes;");
 }
 
-// xmlport/lt-ay-xmlport/AyXmlPortFlowTriggers.al:352-389 Import_pre_*: Break, BreakUnbound and Quit in OnPreXmlPort end the
+// xmlports/shapes-properties/AyXmlPortFlowTriggers.al:352-389 Import_pre_*: Break, BreakUnbound and Quit in OnPreXmlPort end the
 // import there; the code after the call, the document and OnPostXmlPort do not run.
 const FLOW: &str = r#"
 table 69955 "XQ Blob" { fields { field(1; Code; Code[10]) { } field(2; Data; Blob) { } } keys { key(PK; Code) { } } }

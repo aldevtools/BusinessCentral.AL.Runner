@@ -1,6 +1,6 @@
 //! Page.RunModal(Id, Rec) and Page.RunModal(0, Rec): whether the page opens in lookup mode depends on whether the
 //! caller uses the return value. Each test names the corpus test it mirrors
-//! (pages/lt-be-runmodal-onlookup/BeRunModalOnLookup.al, codeunit 81162).
+//! (pages/triggers/BeRunModalOnLookup.al, codeunit 81162).
 
 use al_test_cli::report::Outcome;
 
@@ -120,7 +120,7 @@ page 62603 "LS Card"
 }
 "#;
 
-// errors/lt-ms-refusals-132/P132TwoModalHandlers.al:466 PW_ProbeB_Statement and :508 PW_ProbeB_InIf: Page.RunModal(Id) as a
+// ui-handlers/P132TwoModalHandlers.al:466 PW_ProbeB_Statement and :508 PW_ProbeB_InIf: Page.RunModal(Id) as a
 // statement opens a card without its Cancel action; with the return value used Cancel is there.
 #[test]
 fn run_modal_without_a_record_as_a_statement_has_no_cancel_action() {
@@ -146,7 +146,7 @@ fn run_modal_without_a_record_as_a_statement_has_no_cancel_action() {
 }
 
 // After OK of Page.RunModal(Id, Rec) called as a statement, Rec keeps the values it had, also when the page closed on another
-// row (pages/lt-y41-page-probes/Y41RunModalStatementRec.al:297 RMS_List_Next_Ok, gap G4-02).
+// row (ui-handlers/Y41RunModalStatementRec.al:297 RMS_List_Next_Ok, gap G4-02).
 #[test]
 fn rec_after_a_statement_run_modal_ok_keeps_its_values() {
     let src = format!(

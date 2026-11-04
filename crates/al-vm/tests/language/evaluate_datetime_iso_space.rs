@@ -1,5 +1,5 @@
 //! Evaluate into a DateTime without a number and with number 0 (al-runner issue 6655), pinned by corpus
-//! types/lt-evaluate-format-lasterror-setview/P86Eval.al:932-1110 (`t4` to `t8`): `yyyy-mm-dd hh:mm:ss` reads as that time in
+//! format-evaluate/P86Eval.al:932-1110 (`t4` to `t8`): `yyyy-mm-dd hh:mm:ss` reads as that time in
 //! UTC, `yyyy-mm-dd` as its midnight, `10:20` as 20 October of the current year at midnight, and `15.01.2024 10:20` is rejected.
 //! Number 9 rejects the form with a space (:1191-1240).
 

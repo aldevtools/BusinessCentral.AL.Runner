@@ -1,7 +1,7 @@
 //! A tree repeater whose IndentationColumn is a page variable that OnAfterGetRecord sets (the Order Planning shape). The tree opens
 //! collapsed: it reads every row of its view once (each row's level is the variable's value after OnAfterGetRecord ran for it), then
 //! shows the rows without a parent, and Expand, Next and the other moves work on those levels as on a tree over an Integer field
-//! (pages/lt-y72-page-probes/Y72TreeDefaultState.al header: `agr 10 .. agr 60;agr 10;agr 10;agcr 10`, the walk 10, 40, 60, Expand
+//! (testpage/Y72TreeDefaultState.al header: `agr 10 .. agr 60;agr 10;agr 10;agcr 10`, the walk 10, 40, 60, Expand
 //! on 10 adds 20 and 30). The levels are those of the rows the open read; a row it did not read is refused.
 
 use super::*;
@@ -144,7 +144,7 @@ impl Session {
     }
 
     /// First on the first row a tree shows, on a tree page whose only row trigger is OnAfterGetCurrRecord, reads nothing
-    /// (pages/lt-y72-page-probes/Y72TreeDefaultState.al TreeDefault_RowTriggerVariants_OnAfterGetCurrRecordOnly `first log` empty;
+    /// (testpage/Y72TreeDefaultState.al TreeDefault_RowTriggerVariants_OnAfterGetCurrRecordOnly `first log` empty;
     /// with OnAfterGetRecord the client's rows answer it, `move_in_client_rows`).
     pub(in crate::pages) fn first_on_first_row(&mut self, st: &St) -> Result<bool, Signal> {
         if self.tree_indentation(st).is_none() {

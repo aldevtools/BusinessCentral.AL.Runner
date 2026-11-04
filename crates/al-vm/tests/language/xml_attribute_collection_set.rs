@@ -1,4 +1,4 @@
-//! `XmlAttributeCollection.Set` (xml/XmlAttributes.al:342-361 Collection_Set; xml/lt-xml-remaining-node-methods/
+//! `XmlAttributeCollection.Set` (xml/XmlAttributes.al:342-361 Collection_Set; xml/xml/
 //! P104AttrCollection.al:74 `set_after`).
 
 use al_builtins::native::Signal;

@@ -1,5 +1,5 @@
 //! ADR-062 stage 3: AccessByPermission on page controls under a restricted session. Values: corpus
-//! `tests/al-language/permissions/lt-y19-perm-probes/Y24PermExecute.al` Y24_P21_AccessByPermissionPage (BC 27.5, 28.5, 29.0): a field
+//! `tests/al-language/permissions/permission-sets/Y24PermExecute.al` Y24_P21_AccessByPermissionPage (BC 27.5, 28.5, 29.0): a field
 //! guarded by `tabledata T = R` or `= I` and an action guarded by `codeunit C = X` are left off the page when the session does not
 //! grant the permission (`The field with ID = n is not found on the page.`), and are there when it does.
 

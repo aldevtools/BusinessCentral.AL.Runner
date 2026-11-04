@@ -13,7 +13,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     ("TextBuilder.AppendFieldValue#1", crate::textfns::tb_append_field_value),
     // `TestField.SetValue(V)` with a Variant argument (lowering picks it): an Enum or Option control reads a Text in it by
-    // ordinal digits (pages/lt-be-enum-setvalue-blank/BeEnumSetValueBlank.al:532-597).
+    // ordinal digits (pages/enum-setvalue-blank/BeEnumSetValueBlank.al:532-597).
     ("TestField.SetValueVariant#1", |c, r, a| {
         c.set_value_from_variant(true);
         let out = c.page(crate::page_op::PageOp::TestFieldSetValue, r, a);
@@ -64,11 +64,11 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("System.Hyperlink#1", hyperlink),
     ("System.Variant2Date#1", variant_2_date),
     ("System.Variant2Time#1", variant_2_time),
-    // Whether the host can create tasks is not pinned (corpus session/TestTaskSchedulerCloudBehavior.al
+    // Whether the host can create tasks is not pinned (corpus session-system/TestTaskSchedulerCloudBehavior.al
     // pins only that CreateTask returns a task id): a run that reaches the question is refused.
     // The URL of the web client depends on the server's address, which a host has not been asked for: a run that builds
-    // one is refused (session/TestFinalCoverage.al:105-125 asks only that GetUrl does not throw).
-    // Measured on real BC: session/TestEnvironmentUserTenantContracts.al:237-241.
+    // one is refused (session-system/TestFinalCoverage.al:105-125 asks only that GetUrl does not throw).
+    // Measured on real BC: session-system/TestEnvironmentUserTenantContracts.al:237-241.
     ("Session.CurrentExecutionMode#1", |_, _, _| {
         let members: std::sync::Arc<[String]> = crate::sysenum::option_members("ExecutionMode")
             .expect("a system option")
@@ -87,7 +87,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("ProductName.Marketing#1", |_, _, _| {
         Ok(Value::Text("Microsoft Dynamics 365 Business Central".into()))
     }),
-    // False in a test: measured on real BC by session/TestEnvironmentUserTenantContracts.al:238
+    // False in a test: measured on real BC by session-system/TestEnvironmentUserTenantContracts.al:238
     // (Assert.IsFalse(TaskScheduler.CanCreateTask())).
     ("TaskScheduler.CanCreateTask#1", |_, _, _| Ok(Value::Boolean(false))),
     // CreateTask, TaskExists, CancelTask and SetTaskReady keep the session's tasks: `Ctx::session_op` (al-vm tasks.rs).
@@ -102,19 +102,19 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("Database.SID#1", database_sid),
     ("System.Clear#1", clear),
     ("System.ArrayLen#1", array_len),
-    // A progress dialog is a headless no-op in a test (handlers/TestHandlersDialogProgressNoOp.al:24-110).
+    // A progress dialog is a headless no-op in a test (ui-handlers/TestHandlersDialogProgressNoOp.al:24-110).
     ("Dialog.Open#1", dialog_open),
     ("Dialog.Update#1", dialog_update),
     ("Dialog.Close#1", dialog_close),
     ("Dialog.HideSubsequentDialogs#1", dialog_hide_subsequent),
-    // Reading the latest committed data is what this runtime always does (session/TestBCDatabaseContracts.al:170-187).
+    // Reading the latest committed data is what this runtime always does (session-system/TestBCDatabaseContracts.al:170-187).
     // Telemetry goes to the server's log, which AL cannot read (ADR-009).
     ("Session.LogMessage#1", |_, _, _| Ok(Value::Null)),
     ("Session.LogMessage#2", |_, _, _| Ok(Value::Null)),
-    // Unique and not null is all the corpus asks (session/TestSystemExtended.al:306-328).
+    // Unique and not null is all the corpus asks (session-system/TestSystemExtended.al:306-328).
     ("Guid.CreateSequentialGuid#1", |c, _, _| Ok(Value::Guid(c.new_guid()))),
     // A TextBuilder is bounded by the Integer range; the corpus needs at least a million
-    // (session/TestSystemExtended.al:450-473).
+    // (session-system/TestSystemExtended.al:450-473).
     ("TextBuilder.MaxCapacity#1", |_, _, _| Ok(Value::Integer(i32::MAX))),
     ("Enum.AsInteger#1", enum_as_integer),
     ("Enum.Names#1", enum_names),
@@ -251,7 +251,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("System.CreateGuid#1", |c, _, _| Ok(Value::Guid(c.new_guid()))),
     // `IsNull(DotNet)`: an unassigned DotNet variable, or a .NET call that returned null, holds
     // `Null` (ADR-014). Microsoft's Azure AD Tenant Impl. and Json Impl. ask it
-    // (session/TestEnvironmentUserTenantContracts.al:204-232 reaches them).
+    // (session-system/TestEnvironmentUserTenantContracts.al:204-232 reaches them).
     ("System.IsNull#1", |_, _, a| {
         Ok(Value::Boolean(match a.first() {
             Some(Value::Null) => true,
@@ -294,7 +294,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         c.record(RecordOp::SetAutoCalcFields, r, a)
     }),
     // `ToText` of an Integer, a BigInteger, a Guid and a Byte: no thousands separator (`1000`, `2147483647`, `-9223372036854775808`),
-    // a Guid with braces in upper case whatever the argument, a Byte as `Format` shows it (types/lt-totext-bigtext-codeunit-run/
+    // a Guid with braces in upper case whatever the argument, a Byte as `Format` shows it (format-evaluate/
     // P93ScalarToText.al:180-300, P93Guid.al:28-102; record/PZFindDirections.al:106).
     ("Integer.ToText#1", |_, r, _| match r.as_deref() {
         Some(Value::Integer(n)) => Ok(Value::Text(n.to_string().into())),
@@ -312,7 +312,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("Byte.ToText#1", |c, r, _| byte_to_text(c, r)),
     ("Byte.ToText#2", |c, r, _| byte_to_text(c, r)),
     // `Date.ToText()` and `Boolean.ToText()` (Base Application's Customer Mgt. CalcLastPaymentInfo puts them in a Dictionary
-    // of [Text, Text]): Format(value) with the default format, pinned by types/lt-conversions-hidden-parts-doctype/
+    // of [Text, Text]): Format(value) with the default format, pinned by types/operators-expressions/
     // P142ToTextLang.al:P142_Date_Language and P142_Boolean_Language.
     ("Date.ToText#1", |c, r, a| primitive_to_text(c, r, "Date", a)),
     ("Boolean.ToText#1", |c, r, a| primitive_to_text(c, r, "Boolean", a)),
@@ -336,14 +336,14 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         is(r, "tableconnectiontype")
     }),
     ("Variant.IsTextEncoding#1", |_, r, _| is(r, "textencoding")),
-    // A Char is also a wide char; nothing else is (types/lt-variant-is-text-streams/LTP89IsMisc.al:WideChar_Variants: Char values
+    // A Char is also a wide char; nothing else is (types/variant/LTP89IsMisc.al:WideChar_Variants: Char values
     // `WideChar,Char,`, a Byte, an Integer, a BigInteger, a Text and a two-character literal not).
     ("Variant.IsWideChar#1", |_, r, _| is(r, "Char")),
     ("Variant.IsFilterPageBuilder#1", |_, r, _| is(r, "FilterPageBuilder")),
     ("Variant.IsInStream#1", |_, r, _| is(r, "InStream")),
     ("Variant.IsOutStream#1", |_, r, _| is(r, "OutStream")),
     // `IsBinary` is No for every value the corpus puts in a Variant: numbers, text, a record, a Blob field's value, an InStream,
-    // an OutStream, a TextBuilder, a FieldRef and an empty Variant (types/lt-variant-is-text-streams/LTP89IsMisc.al:Binary_*).
+    // an OutStream, a TextBuilder, a FieldRef and an empty Variant (types/variant/LTP89IsMisc.al:Binary_*).
     ("Variant.IsBinary#1", |_, _, _| Ok(Value::Boolean(false))),
     ("Variant.IsBoolean#1", |_, r, _| is(r, "Boolean")),
     ("Variant.IsInteger#1", |_, r, _| is(r, "Integer")),
@@ -370,7 +370,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         ))
     }),
     // The routine that created this InStream on its own local hands it back and ends: it reads as empty
-    // (streams/lt-dc-stream-leads/DcInStreamScope.al:107-166).
+    // (streams/DcInStreamScope.al:107-166).
     ("InStream.OwnerOutOfScope#1", crate::stream::owner_out_of_scope),
     // A Label or an OptionCaption list of an app (value, app id, what is read): the value as it is, refused where a translation
     // file of the app could change it in the language in force (ADR-053 step 1, al-runner issue 5772). With a fourth argument,
@@ -394,16 +394,16 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     // A TextConst whose text depends on the language in force (language code, text, ... in declaration order).
     ("System.TextConstText#1", |c, _, a| textconst_text(c.language(), a)),
     // An interface assigned from another interface variable: one that holds no implementation raises
-    // (codeunit/lt-enums-interfaces/OjT71047.al:250-251, Uninitialized_AssignedFromUninitialized `af224`).
+    // (codeunits/interfaces/OjT71047.al:250-251, Uninitialized_AssignedFromUninitialized `af224`).
     ("Interface.AssertAssigned#1", |_, _, a| match a.first() {
         Some(Value::Null) | None => raise("Interface not initialized", "InvalidOperation"),
         Some(v) => Ok(v.clone()),
     }),
     // A Variant assigned to an Integer: a BigInteger or a Duration beyond the Integer range raises TypeConversion:Overflow
-    // (types/lt-variant/VaTConvert.al:183-184; types/lt-filter-enum-relation-duration-guid/D_Duration.al:226). Everything
+    // (types/variant/VaTConvert.al:183-184; types/duration/D_Duration.al:226). Everything
     // else converts as any value does.
     // The text of a Label handed to a Variant by a conditional expression: the Variant holds a TextConstant, answering
-    // IsTextConstant and no IsText (types/lt-y81-values/Y81LabelVariant.al; needs corpus bump).
+    // IsTextConstant and no IsText (types/Y81LabelVariant.al; needs corpus bump).
     ("Variant.FromTextConstant#1", |_, _, a| match a.first() {
         Some(Value::Text(t) | Value::Code(t) | Value::TextConst(t)) => Ok(Value::TextConst(t.clone())),
         _ => unsupported("a TextConstant from a value that is no text"),
@@ -421,7 +421,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         crate::ops::convert(v, &crate::value::RtType::Integer)
     }),
     // A Variant assigned to an Option variable or field: a BigInteger beyond the Integer range raises TypeConversion:Overflow
-    // (types/lt-bigint-enum-option/BigIntToEnumOption.al:353-383 QO_Variant_ToOptionVariable, QO_Variant_ToOptionField_Assign).
+    // (types/enum-option/BigIntToEnumOption.al:353-383 QO_Variant_ToOptionVariable, QO_Variant_ToOptionField_Assign).
     // The value is handed back unchanged; the assignment converts it.
     ("Variant.IntoOption#1", |_, _, a| {
         let v = a.first().cloned().unwrap_or(Value::Null);
@@ -462,7 +462,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
 /// the lowering says so instead of "is not implemented" (hard rule 3; each has a line in
 /// `docs/probes-needed.md`, "Builtins refused until a probe pins them").
 /// None is refused this way now (the last one, `Xmlport.Run#1`, is pinned by corpus master ac3499d6,
-/// xmlport/lt-y40-xmlport-request-page/Y40XmlPortRequestPage.al).
+/// xmlports/shapes-properties/Y40XmlPortRequestPage.al).
 pub fn refusal(_id: &str) -> Option<&'static str> {
     None
 }

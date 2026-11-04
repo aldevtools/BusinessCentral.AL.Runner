@@ -73,7 +73,7 @@ const LANG_HELPERS: &str = "
         exit(C);
     end;";
 
-// text/lt-text-functions/CaseConv.Codeunit.al:280-310 (PYC_CodeAssign_Turkish): under Turkish a text assigned or passed to a Code
+// text/text-methods/CaseConv.Codeunit.al:280-310 (PYC_CodeAssign_Turkish): under Turkish a text assigned or passed to a Code
 // upper-cases `i` to the dotted `İ`; a compare with a literal stays plain.
 #[test]
 fn a_code_assignment_under_turkish_maps_i_to_the_dotted_capital() {
@@ -104,7 +104,7 @@ fn uppercase_and_lowercase_under_azerbaijani_follow_the_turkish_rule() {
     assert_eq!(r("GlobalLanguage(1063); exit(LowerCase('I') + UpperCase('i'));"), "iI");
 }
 
-// fieldref/lt-fieldref-testfield-types/SystemClearArraySecret.al:69-90, errorinfo/lt-errnotif/EnTSecret.al:15-26: Clear of a
+// recordref-fieldref/fieldref/SystemClearArraySecret.al:69-90, errors/errorinfo/EnTSecret.al:15-26: Clear of a
 // SecretText empties it; a copy taken before keeps its content.
 #[test]
 fn clear_of_a_secret_text_empties_it_and_leaves_a_copy() {

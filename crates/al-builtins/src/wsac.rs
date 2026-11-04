@@ -1,5 +1,5 @@
 //! `WebServiceActionContext`: the object an API page action tells the OData layer to answer with.
-//! A mutable in-memory value shared by assignment (corpus session/TestWebServiceActionContext.al).
+//! A mutable in-memory value shared by assignment (corpus session-system/TestWebServiceActionContext.al).
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal};
@@ -47,7 +47,7 @@ fn get_result_code(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> O
 }
 
 /// A plain assignment, with no check that the id names an object
-/// (session/TestWebServiceActionContext.al:279-290, :294-300 stores -7).
+/// (session-system/TestWebServiceActionContext.al:279-290, :294-300 stores -7).
 fn set_object_id(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let Value::Integer(id) = a[0] else {
         return unsupported(format!("SetObjectId with {}", a[0].describe()));
@@ -63,7 +63,7 @@ fn set_object_type(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
 }
 
 /// `Updated` and `Get` are both 200, and the platform stores the code by value: `Updated` reads
-/// back as `Get` (session/TestWebServiceActionContext.al:352-395).
+/// back as `Get` (session-system/TestWebServiceActionContext.al:352-395).
 fn set_result_code(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let Value::Option(o, members) = &a[0] else {
         return unsupported(format!("SetResultCode with {}", a[0].describe()));
@@ -78,7 +78,7 @@ fn set_result_code(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
 
 /// The keys are a map by field id: a second add of the same id fails whatever the value is. The
 /// result used, it is `false`; not used, an error that names the type
-/// (session/TestWebServiceActionContext.al:437-505). The wording around the type name is not pinned.
+/// (session-system/TestWebServiceActionContext.al:437-505). The wording around the type name is not pinned.
 fn add_entity_key(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let Value::Integer(field) = a[0] else {
         return unsupported(format!("AddEntityKey with field id {}", a[0].describe()));

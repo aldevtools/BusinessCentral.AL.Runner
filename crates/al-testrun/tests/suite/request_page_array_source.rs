@@ -2,7 +2,7 @@
 //! Application's "Contact - Cover Sheet" declares its text lines, is a control of the request page. The report's dataset columns put
 //! routines in before the request page, which moved the offsets the control routines are named by (the control was refused as "bound
 //! to a name that is no variable of its base object"; Tests-Marketing, 17 tests, and `Enabled = Var` of LogInteraction, 3 more). The expression control pinned by corpus
-//! misc/lt-probes-needed-7/PnGTempControl.al and pages/W1Controls.al:TempRecordControl_SetValue; that an array element behaves
+//! testpage/PnGTempControl.al and pages/W1Controls.al:TempRecordControl_SetValue; that an array element behaves
 //! the same is the assumption of an expression control.
 
 use al_sema::workspace::AppSource;

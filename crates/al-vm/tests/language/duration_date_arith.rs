@@ -1,5 +1,5 @@
 //! A whole number and a Duration add and subtract as milliseconds into a BigInteger, and a Date converts into a DateTime at
-//! midnight (Tests-SCM-Manufacturing; the assumption date-to-datetime-is-midnight; types/lt-duration-arithmetic pins the BigInteger).
+//! midnight (Tests-SCM-Manufacturing; the assumption date-to-datetime-is-midnight; types/duration pins the BigInteger).
 
 use al_testkit::text;
 

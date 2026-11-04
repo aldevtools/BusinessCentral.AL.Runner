@@ -1,6 +1,6 @@
 //! `GetLastErrorCallStack`: the AL frames an error unwound through, innermost first.
 //!
-//! What the corpus pins (codeunit/TestCodeunitAlCallStack.al): the stack names the frames'
+//! What the corpus pins (codeunits/TestCodeunitAlCallStack.al): the stack names the frames'
 //! objects as `(CodeUnit <id>)`, carries ` line `, ` by ` and ` version `, marks a trigger
 //! frame `OnRun(Trigger)` and a procedure frame without `(Trigger)`, and is empty when no error
 //! was raised. The rest of the frame text, and the line numbers, follow AL Runner v2, which
@@ -69,7 +69,7 @@ codeunit 50101 "Stack Helper"
 }
 "#;
 
-// codeunit/TestCodeunitAlCallStack.al:CallStack_AfterAssertError_ContainsALFrames: the frame of the
+// codeunits/TestCodeunitAlCallStack.al:CallStack_AfterAssertError_ContainsALFrames: the frame of the
 // test and the frame of the helper, with their object ids, ` line `, ` by ` and ` version `.
 #[test]
 fn an_error_through_a_helper_lists_both_frames_innermost_first() {
@@ -81,14 +81,14 @@ fn an_error_through_a_helper_lists_both_frames_innermost_first() {
     );
 }
 
-// codeunit/TestCodeunitAlCallStack.al:CallStack_WhenNoError_ReturnsEmpty
+// codeunits/TestCodeunitAlCallStack.al:CallStack_WhenNoError_ReturnsEmpty
 #[test]
 fn without_an_error_the_stack_is_empty() {
     let src = r#"codeunit 50100 C { procedure F(): Text begin exit(GetLastErrorCallStack()); end; }"#;
     assert_eq!(text(run(src, "F")), "");
 }
 
-// codeunit/TestCodeunitAlCallStack.al:CallStack_ErrorInsideOnRunTrigger_MarksTheFrameAsATrigger and
+// codeunits/TestCodeunitAlCallStack.al:CallStack_ErrorInsideOnRunTrigger_MarksTheFrameAsATrigger and
 // :CallStack_ErrorInsideAProcedure_DoesNotMarkTheFrameAsATrigger
 #[test]
 fn a_trigger_frame_is_marked_and_a_procedure_frame_is_not() {
@@ -245,7 +245,7 @@ fn a_loop_condition_error_names_the_loop_line() {
 }
 
 // A field trigger frame is "<field> - OnValidate"(Trigger), counted from the trigger line
-// (corpus session/TestSessionInformationCallstackContracts.al:60-66 and :164).
+// (corpus session-system/TestSessionInformationCallstackContracts.al:60-66 and :164).
 #[test]
 fn a_field_trigger_frame_names_the_field() {
     let src = r#"table 50104 "Field Row"
@@ -283,7 +283,7 @@ codeunit 50100 C
     );
 }
 
-// session/TestSessionInformationCallstackContracts.al:130-143: innermost first, backslash after
+// session-system/TestSessionInformationCallstackContracts.al:130-143: innermost first, backslash after
 // every frame, the line of a statement counted from the procedure line, the caller's line the
 // line of its call.
 #[test]
@@ -390,7 +390,7 @@ codeunit 50100 C
 }
 
 // A subscriber of a table event stands directly above the code that raised it: BC puts no frame of its own between
-// them (session/TestSessionCallstackSourcesContracts.al:Callstack_FromTablePageReportAndExtensionCode, `table event`).
+// them (session-system/TestSessionCallstackSourcesContracts.al:Callstack_FromTablePageReportAndExtensionCode, `table event`).
 #[test]
 fn session_callstack_in_a_table_event_subscriber_has_no_frame_for_the_event() {
     let src = r#"table 50103 "Stack Row"

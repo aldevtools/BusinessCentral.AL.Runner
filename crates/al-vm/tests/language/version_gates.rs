@@ -134,7 +134,7 @@ fn integer_sum_into_a_biginteger_flowfield_is_refused_before_bc_29_and_calculate
     }
 }
 
-// corpus calcfields/lt-bm-flowfield-conversions/BmFlowFieldConversions.al:166-186 (#if BC29PLUS): a count FlowField
+// corpus record/flowfields/BmFlowFieldConversions.al:166-186 (#if BC29PLUS): a count FlowField
 // whose filter links a BigInteger source field to an Integer field (`Big = field(Id)`) is refused when calculated on
 // BC 27 and 28 (DB:TypeMisMatch, source first); BC 29 counts.
 #[test]
@@ -180,7 +180,7 @@ fn min_and_max_over_systemrowversion_calculate_before_bc_29_and_are_refused_from
     }
 }
 
-// corpus calcfields/W4CalcFields.al:134-135 and misc/lt-probes-needed-1/PnACalcFieldsBC29.al:225-243
+// corpus record/flowfields/W4CalcFields.al:134-135 and types/PnACalcFieldsBC29.al:225-243
 // (#if BC29PLUS) pin the whole text, with BC's backslash line breaks, and the code NDBCS:IncompatibleSqlType.
 #[test]
 fn min_and_max_over_systemrowversion_refusal_has_the_pinned_text_and_code_on_bc_29() {
@@ -208,8 +208,8 @@ fn lookup_of_systemrowversion_calculates_on_every_version() {
     }
 }
 
-// corpus recordref/lt-recordref-fieldref-members/P92Fields.al:72 (#if BC29PLUS): on BC 29 RecordRef.FieldExist(2000000005),
-// the rowversion's number, is true. Before 29 it is false (fieldref/lt-y80-user-name-fields/Y80UserNameFieldExist.al:55-57).
+// corpus recordref-fieldref/recordref/P92Fields.al:72 (#if BC29PLUS): on BC 29 RecordRef.FieldExist(2000000005),
+// the rowversion's number, is true. Before 29 it is false (recordref-fieldref/fieldref/Y80UserNameFieldExist.al:55-57).
 #[test]
 fn field_exist_of_the_rowversion_number_is_true_on_bc_29_and_false_before() {
     assert!(matches!(
@@ -224,7 +224,7 @@ fn field_exist_of_the_rowversion_number_is_true_on_bc_29_and_false_before() {
     }
 }
 
-// fieldref/lt-y80-user-name-fields/Y80UserNameFieldExist.al:55-57 (own table): 2000000005 to 2000000008 exist on BC 29 only,
+// recordref-fieldref/fieldref/Y80UserNameFieldExist.al:55-57 (own table): 2000000005 to 2000000008 exist on BC 29 only,
 // 2000000004 on every version, 2000000009 never.
 #[test]
 fn field_exist_of_the_user_name_system_fields_is_true_on_bc_29_and_false_before() {

@@ -1,5 +1,5 @@
 //! `Page.ObjectId(UseNames)` (issue 42), taken the way the probe pins `Report.ObjectId`: `Page <id>`, or with names
-//! (the default) `Page <Caption>`, the object name when the page has no Caption (handlers/PWRefusedBuiltins.al:78-107
+//! (the default) `Page <Caption>`, the object name when the page has no Caption (recordref-fieldref/PWRefusedBuiltins.al:78-107
 //! pins the report form on BC 27.5). Documented assumption for pages (docs/probes-needed.md).
 
 use al_sema::workspace::AppSource;

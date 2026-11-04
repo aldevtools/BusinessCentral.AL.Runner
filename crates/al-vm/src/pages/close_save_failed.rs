@@ -1,5 +1,5 @@
 //! `TestPage.Close()` of a Card whose save of the changed row fails with an AL Error (an error of the table's OnModify or of the
-//! page's OnModifyRecord), pinned by testpageclose/lt-y67-close-save-error/Y67CloseSaveError.al:239-428:
+//! page's OnModifyRecord), pinned by testpage/lifecycle/Y67CloseSaveError.al:239-428:
 //! - the Close raises the error with its own text and the code TestWrapped; OnQueryClosePage and OnClosePage do not run, and
 //!   the row stays as stored (:239 R1_TableModifyError_SecondClose, :336 R1_PageModifyError_SecondClose, :409
 //!   R1_NoCloseTriggers_TableModifyError on a Card without close triggers);

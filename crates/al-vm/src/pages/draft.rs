@@ -4,7 +4,7 @@ use al_builtins::record_op::RecordOp;
 
 impl Session {
     /// OpenNew of a List whose page says `Editable = false` and that has a SourceTableView opens on its first row as OpenView
-    /// does, with no OnNewRecord (pages/lt-y41-page-probes/Y41SelectionAfterClose.al:295 G401_OpenNew_List_SourceTableView,
+    /// does, with no OnNewRecord (ui-handlers/Y41SelectionAfterClose.al:295 G401_OpenNew_List_SourceTableView,
     /// `agcr id=1`, shown 1; the shape of Purchase Invoices). Without the view, or on another page type, it is not pinned and
     /// opens a new row as before.
     pub(super) fn open_new_mode(&self, st: &St, mode: PageMode) -> PageMode {
@@ -24,7 +24,7 @@ impl Session {
 
     /// New() on the request page of a report with a source table, standing on an unchanged stored row: the page shows a blank
     /// row, runs OnAfterGetCurrRecord (base, then extensions) for it and no OnNewRecord, and stores nothing; closing with OK or
-    /// Cancel then runs only the close triggers (report/lt-y80-reportext-request-page/Y80ReportExtRequestPage.al Y80_RX_New_OK
+    /// Cancel then runs only the close triggers (reports/request-page/Y80ReportExtRequestPage.al Y80_RX_New_OK
     /// `new log` = `base agcr 0 | ext agcr 0`, Y80_RX_New_Cancel `after run log`). Any call after it is refused.
     fn request_new_blank_row(&mut self, st: &St) -> Result<bool, Signal> {
         let shape = {
@@ -47,18 +47,18 @@ impl Session {
         Ok(true)
     }
 
-    /// `TestPage.New()` (corpus handlers/TestPageInsertAllowed_Tests.al:70 New_OnInsertAllowedFalsePage_IsDenied,
-    /// handlers/TestPageOpenNewAfterGetCurrRecord.al New_OnAnOpenCard_RunsOnAfterGetCurrRecordForTheNewRecord).
+    /// `TestPage.New()` (corpus testpage/TestPageInsertAllowed_Tests.al:70 New_OnInsertAllowedFalsePage_IsDenied,
+    /// testpage/TestPageOpenNewAfterGetCurrRecord.al New_OnAnOpenCard_RunsOnAfterGetCurrRecordForTheNewRecord).
     pub(super) fn new_record(&mut self, st: &St) -> Result<Value, Signal> {
         self.refuse_read_only_part(st, "New()")?;
         let engine = self.engine();
         let object = st.borrow().object as usize;
         // A request page without a SourceTable denies New() as InsertAllowed = false does
-        // (report/lt-report-requestpage-query-members/P105RpNav.al:174 P105_New).
+        // (reports/request-page/P105RpNav.al:174 P105_New).
         let insert_denied =
             flag_denied(&engine, object, "InsertAllowed")? || (self.is_request_page(st) && !self.has_source(st));
         // A request page is pinned only where InsertAllowed is false: the error names the report and `Id = 0`
-        // (report/lt-y-request-page/YRequestPageTests.al:161). Which row a new line gets and whether the request page writes the
+        // (reports/request-page/YRequestPageTests.al:161). Which row a new line gets and whether the request page writes the
         // row it leaves are not pinned (the AutoSplitKey cases of the same file go by rules the corpus does not settle).
         if self.is_request_page(st) && !insert_denied {
             let changed = {
@@ -76,7 +76,7 @@ impl Session {
         }
         if insert_denied {
             // The text names the page and its id, the code is DB:ClientInsertDenied (corpus
-            // pageext/lt-z-page-ext-props/ZPageExtProps.al:ZInsertAllowed_1, _4).
+            // pages/extensions/ZPageExtProps.al:ZInsertAllowed_1, _4).
             let o = &engine.program.objects[object];
             let id = if self.is_request_page(st) { Some(0) } else { o.id };
             let Some(id) = id else {
@@ -113,7 +113,7 @@ impl Session {
     }
 
     /// The error of `TestPage.OpenNew` on an API page: `Sorry, the current permissions prevented the action. (Page <id> <name>
-    /// Insert: <app>)`, code DB:ClientInsertDenied, and no trigger runs (corpus pages/lt-cf-page-leads/CfPageLeads.al:144-180
+    /// Insert: <app>)`, code DB:ClientInsertDenied, and no trigger runs (corpus testpage/CfPageLeads.al:144-180
     /// ApiPage_OnInsertRecordInsertsAndReturnsFalse and :182-218 _ReturnsTrue, both on an API page with DelayedInsert = true that
     /// declares OnInsertRecord and nothing else, CfPageObjects.al:122-189). Any other API page shape is refused: not pinned.
     pub(super) fn api_open_new_denied(&self, st: &St) -> Result<Signal, Signal> {
@@ -151,7 +151,7 @@ impl Session {
     }
 
     /// The error of `TestPage.OpenNew` on a card without a source table, after OnOpenPage: the text and code of the API page
-    /// denial (misc/lt-protected-var-abs-query-views/P146PageExprSetValue.al:460 QG_NoSource_OpenNew_StepLog `Sorry, the current
+    /// denial (testpage/P146PageExprSetValue.al:460 QG_NoSource_OpenNew_StepLog `Sorry, the current
     /// permissions prevented the action. (Page 86704 LT QG NoSource Card Insert: AL Language Coverage Tests)`,
     /// `DB:ClientInsertDenied`). An extended page is not pinned.
     pub(super) fn no_source_open_new_denied(&self, st: &St) -> Result<Signal, Signal> {
@@ -180,12 +180,12 @@ impl Session {
 
     /// After the page inserted its new row: a row outside the page's filters. SetValue on a field outside the key of a list
     /// raises `Validation error for Field: ,  Message = 'The view is filtered, and the entry is outside the filter. Some actions
-    /// may not work.'` (TestValidation) and the row stays stored (corpus pages/lt-ao-testpage/AoTests.al:467-487
+    /// may not work.'` (TestValidation) and the row stays stored (corpus testpage/AoTests.al:467-487
     /// FilterGroup0_NewRowField and :489-509 FilterGroup2_NewRowField, a filter on a field outside the key; events/
     /// lt-cm-trigger-leads/CmTriggerLeads.al:405-440 Item40_PageInsert_FilteredView, a TestPage filter on the key). Whether
     /// the field was validated before the error, what the page shows and saves afterwards (also when its variable goes out of
     /// scope) are not pinned: such a field with validation code is refused, and so is every later call on the page and the
-    /// end of the variable's scope. The insert outside the filters at Close raises nothing (pages/lt-ap-testpage-642/
+    /// end of the variable's scope. The insert outside the filters at Close raises nothing (testpage/
     /// ApTestPageTests.al:126-154 Ap02_OpenNew_NonKeyFilter_SetValue, `closed-row |typed|` outside `G7`), and so does the save
     /// of a filter change (misc FilterChangeSavesThePendingRow); this is only called for the insert of a SetValue.
     pub(super) fn inserted_outside_view(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
@@ -249,7 +249,7 @@ impl Session {
     /// SetValue on a field outside the key of a card whose OnNewRecord inserted the new row: the page inserts the row again
     /// (OnInsertRecord, then the table's OnInsert), the insert fails on the stored row and SetValue raises `Validation error for
     /// Field: <control>,  Message = 'This field cannot be validated since the key fields are not valid.'` (TestValidation) without
-    /// validating the field; Close then saves nothing (corpus pages/lt-cf-page-leads/CfPageLeads.al:241-289
+    /// validating the field; Close then saves nothing (corpus testpage/CfPageLeads.al:241-289
     /// Card_OnNewRecordInserts_OpenNewSetClose). Any other outcome of the insert, and every later call but Close, is refused.
     pub(super) fn insert_of_trigger_inserted_row(
         &mut self,
@@ -295,7 +295,7 @@ impl Session {
     }
 
     /// An AL error of OnInsertRecord when SetValue on a non-key control inserts the new row of a card opened for editing: a
-    /// TestValidation error that names no field (corpus pages/lt-cc-page-leads/CcPageLeads.al:585-595 TriggerError_OnInsertRecord
+    /// TestValidation error that names no field (corpus testpage/CcPageLeads.al:585-595 TriggerError_OnInsertRecord
     /// `Validation error for Field: ,  Message = 'LT CC failure in OnInsertRecord'`). The page stays open; what it shows and
     /// saves afterwards is not pinned, so every later call on it is refused (as for `swallowed_trigger_error`).
     pub(super) fn insert_trigger_error(
@@ -312,7 +312,7 @@ impl Session {
     }
 
     /// An AL error of OnNewRecord on `New()`, or of OnModifyRecord when `Next()` saves the row, raises nothing on a card
-    /// opened for editing (corpus pages/lt-cc-page-leads/CcPageLeads.al:572-582 TriggerError_OnNewRecord and :598-608
+    /// opened for editing (corpus testpage/CcPageLeads.al:572-582 TriggerError_OnNewRecord and :598-608
     /// TriggerError_OnModifyRecord, `step = ok`). Which row the page shows then, and what a later save or Close does, is not
     /// pinned (docs/probes-needed.md): every later call on the page is refused. Another error, another page shape, or a trigger
     /// that wrote to the database before it failed (whether the write survives is not pinned) is refused at once.
@@ -347,7 +347,7 @@ impl Session {
     /// Saves the row the cursor is leaving. A started line whose insert fails does not raise:
     /// New(), Next() and Last() stay on it with one validation error on its key control; Previous()
     /// and First() move on and the insert fails again at Close()
-    /// (corpus handlers/TestPageFailedInsert_Tests.al:1-30).
+    /// (corpus testpage/TestPageFailedInsert_Tests.al:1-30).
     pub(super) fn leave_row(&mut self, st: &St, how: PageMethod) -> Result<Left, Signal> {
         let r = self.save_row(st);
         match r {
@@ -463,8 +463,8 @@ impl Session {
 
     /// A new record on the page: xRec stays on the row the cursor was on, Rec starts from the table's
     /// defaults, OnNewRecord runs with BelowxRec true (corpus
-    /// handlers/TestPageCreateModeNewRecordArgs.al:243-270), then the row is populated
-    /// (handlers/TestPageOpenNewAfterGetCurrRecord.al:1-12: OnAfterGetCurrRecord runs after OnNewRecord).
+    /// testpage/TestPageCreateModeNewRecordArgs.al:243-270), then the row is populated
+    /// (testpage/TestPageOpenNewAfterGetCurrRecord.al:1-12: OnAfterGetCurrRecord runs after OnNewRecord).
     pub(super) fn start_draft(&mut self, st: &St, keep_focus: bool) -> Result<(), Signal> {
         if !self.has_source(st) {
             return unsupported("a new record on a page without a source table");
@@ -474,7 +474,7 @@ impl Session {
         let part_xrec = if keep_focus { self.part_new_xrec(st)? } else { None };
         self.set_xrec(st);
         // A new line of a list starts below the last row the client holds: OnNewRecord sees that row as xRec, while the
-        // insert sees the row the cursor was on (misc/W2BelowXRec.al:NewInTheMiddle_CursorOnFirstRow_KeyBetween,
+        // insert sees the row the cursor was on (testpage/W2BelowXRec.al:NewInTheMiddle_CursorOnFirstRow_KeyBetween,
         // NewInTheMiddle_CursorOnMiddleRow_KeyBefore, NewTwice_InTheMiddle: xRec=30 at OnNewRecord, 10 at OnInsertRecord).
         // A list longer than its window first reads on to the end of the view (the new line goes after the last row).
         let reads_on = {
@@ -507,7 +507,7 @@ impl Session {
                 .flatten()
         };
         // New() from the untouched placeholder line the cursor moved onto keeps the row above it as the lower neighbour and
-        // burns one interval on the placeholder (pages/lt-cd-testpage-leads/CdTestPageLeads.al:587 Item59_EnumSubPageLink_NewLine:
+        // burns one interval on the placeholder (testpage/CdTestPageLeads.al:587 Item59_EnumSubPageLink_NewLine:
         // Next() onto the blank line below 10000, New(), the typed line is 30000), as an empty grid does (see `auto_split_key`).
         let from_placeholder = {
             let s = st.borrow();
@@ -551,7 +551,7 @@ impl Session {
                 s.focus_in_row = true;
             } else {
                 // Focus stays on the control of the row the cursor left
-                // (corpus handlers/TestPageBlankKeyInsert.al, List_NewRow_FocusStays...).
+                // (corpus testpage/TestPageBlankKeyInsert.al, List_NewRow_FocusStays...).
                 s.focus_in_row = false;
             }
         }
@@ -565,7 +565,7 @@ impl Session {
         self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
         self.page_event(st, "onnewrecordevent", None, Some(true))?;
         // A card opened with OpenNew whose OnNewRecord inserts the new row itself still holds it as a new row: the next write to
-        // a field outside the key inserts it again (corpus pages/lt-cf-page-leads/CfPageLeads.al:241-289
+        // a field outside the key inserts it again (corpus testpage/CfPageLeads.al:241-289
         // Card_OnNewRecordInserts_OpenNewSetClose: `OnInsertRecord:DOC1,Doc.OnInsert:DOC1` at SetValue). Only that shape is
         // pinned: a list, a part, a host of parts or New() on an open card is refused.
         if !existed && self.stored_row(&rec)?.is_some() {
@@ -582,9 +582,9 @@ impl Session {
             st.borrow_mut().new_row_inserted_by_trigger = true;
         }
         if st.borrow().host.is_none() {
-            // xRec is the new record itself when the line becomes current (misc/lt-probes-needed-7/PnGNewRecord.al:
+            // xRec is the new record itself when the line becomes current (testpage/PnGNewRecord.al:
             // HandedRecordNoFilters `AGCR(,)`). On a card too: OnNewRecord saw the last row, the key control's OnValidate sees
-            // the new record (handlers/TestPageControlOnValidateError_Tests.al:113-124 ControlOnValidate_AcceptsAValueItDoesNotRefuse:
+            // the new record (testpage/TestPageControlOnValidateError_Tests.al:113-124 ControlOnValidate_AcceptsAValueItDoesNotRefuse:
             // page 9170 "Profile Card" confirms when `xRec."Profile ID" <> ''`, and real BC passes with no ConfirmHandler).
             self.set_xrec(st);
         } else if self.is_list(st)
@@ -596,12 +596,12 @@ impl Session {
                 .is_some_and(|h| !self.is_list(&h))
         {
             // The same for a ListPart in a Document page: OnNewRecord sees the last row as xRec, OnAfterGetCurrRecord the blank new
-            // row (pages/lt-qj-part-propagation/QjPartPropagation.al:763 QJ_SubformSaveRecord_NewRow
+            // row (pages/parts/QjPartPropagation.al:763 QJ_SubformSaveRecord_NewRow
             // `S.NEW(x=1 x.ln=10000) S.AGCR(0 r=0 x=0)`).
             self.set_xrec(st);
         }
         // A new row nobody has saved raises OnAfterGetCurrRecord but no OnAfterGetRecord (corpus
-        // pageupdate/TestPageUpdateNewRow.al:OpenNew_TraceIsOneOnAfterGetCurrRecord).
+        // pages/currpage/TestPageUpdateNewRow.al:OpenNew_TraceIsOneOnAfterGetCurrRecord).
         self.populate_expressions(st)?;
         self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
         self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
@@ -617,9 +617,9 @@ impl Session {
     }
 
     /// Writes what the client holds for the current row: inserts a typed new record, modifies an
-    /// edited one when a value really differs (corpus handlers/TestPageSameValueSetValue_Tests.al:1-30).
+    /// edited one when a value really differs (corpus testpage/TestPageSameValueSetValue_Tests.al:1-30).
     /// Closing a page whose row was changed while ModifyAllowed is false raises `Page cannot be saved.` with the
-    /// code TestWrapped and leaves the stored row alone (corpus pageext/lt-z-page-ext-props/ZPageExtProps.al:
+    /// code TestWrapped and leaves the stored row alone (corpus pages/extensions/ZPageExtProps.al:
     /// ZModifyAllowed_1 and _4, a list page opened for edit with one changed field).
     pub(super) fn close_denied_modify(&mut self, st: &St) -> Result<(), Signal> {
         let (cursor, draft, dirty) = {
@@ -651,7 +651,7 @@ impl Session {
             return self.insert_draft(st);
         }
         let rec = self.page_rec(st);
-        // A SetValue of the value already stored: an action saves the row all the same (pages/lt-y45-save-before-action/
+        // A SetValue of the value already stored: an action saves the row all the same (pages/actions/
         // Y45SaveBeforeAction.al:371 Card_SetSameName_Action `pM old/old;...;eAM`), Close does not (handlers/
         // TestPageSameValueSetValue_Tests.al SetValue_WithTheSameValue_DoesNotRunOnModify). Other steps keep the Close rule.
         let set_value_held = std::mem::take(&mut st.borrow_mut().set_value_held) && st.borrow().in_action;
@@ -659,10 +659,25 @@ impl Session {
             st.borrow_mut().dirty = false;
             return Ok(());
         }
+        // A page with Editable = false and ModifyAllowed left true saves nothing for a Blob no stream wrote either: Tests-ERM
+        // Sales Batch Document Posting (codeunit 134891) ReleaseSelectedQuotes and its siblings invoke Release on Sales Quotes,
+        // Sales Order List, ... (Editable = false, a Work Description Blob), and the release must stay. The corpus pins this only
+        // with ModifyAllowed = false as well (RmReadOnlyBlob.al:316-:470), so the rest is an assumption.
+        let modify_denied = flag_denied(&self.engine(), st.borrow().object as usize, "ModifyAllowed")?;
+        if !modify_denied
+            && flag_denied(&self.engine(), st.borrow().object as usize, "Editable")?
+            && Self::same_but_unwritten_blobs(&rec.borrow().fields, &self.page_xrec_fields(st))
+        {
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::PageUnwrittenBlobNoChangeNotEditable,
+            );
+            st.borrow_mut().dirty = false;
+            return Ok(());
+        }
         // Only a close with a changed row on a page that does not allow modify is pinned (see `close_denied_modify`).
-        if flag_denied(&self.engine(), st.borrow().object as usize, "ModifyAllowed")? {
+        if modify_denied {
             // A Blob no stream wrote is not a change, also after a CalcFields loaded what it holds: an action that changes nothing
-            // runs no modify trigger and leaves the row alone (pages/lt-outside-worksheet/RmReadOnlyBlob.al:316, :370, :394,
+            // runs no modify trigger and leaves the row alone (testpage/RmReadOnlyBlob.al:316, :370, :394,
             // :420, :447 on a List; a table without a Blob :340). Another page type is assumed (page-unwritten-blob-no-change-other-page).
             if Self::same_but_unwritten_blobs(&rec.borrow().fields, &self.page_xrec_fields(st)) {
                 if !self.is_list_page(st) {
@@ -674,7 +689,7 @@ impl Session {
                 return Ok(());
             }
             // A row the page code stored itself (Rec.Modify) leaves nothing to save: no error, the page goes on with it
-            // (pages/lt-y61-page-probes/Y61ModifyDeniedSave.al:164 G617a_Temp_NotEditable_DrillDownModify_ThenFirst, :281
+            // (testpage/Y61ModifyDeniedSave.al:164 G617a_Temp_NotEditable_DrillDownModify_ThenFirst, :281
             // G617a_Db_Editable_ActionModify).
             if self.row_stored_as_shown(st, &rec)? {
                 return Ok(());
@@ -692,7 +707,7 @@ impl Session {
             }
             // The save a move or an action asks for is refused with `Page cannot be saved.`, code SaveAbort; `page_op` records it as the
             // last error and the step ends without moving. The change stays shown, nothing is stored, and Close raises nothing
-            // later (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_{List,Card,Worksheet}_Set_{previous,first,last,new,
+            // later (pages/modify-denied/Y80ModifyDenied.al Y80_MD_{List,Card,Worksheet}_Set_{previous,first,last,new,
             // updatetrue,updatefalse,Set2_Next}, Y80_MD_Doc_HeaderSet_Next, Y80_MD_Doc_PartSet_PartNext and _PartLast; needs corpus
             // bump). Y61ModifyDeniedSave.al pins the same for SetValue then Next, SaveRecord and Update(true) on a Card.
             {
@@ -702,13 +717,13 @@ impl Session {
             }
             return Err(error_code("Page cannot be saved.", "SaveAbort"));
         }
-        // corpus handlers/TestPageTriggerEvents.al (ModifyRecordEvent_RunsAfterThePagesOwnOnModifyRecordTrigger)
+        // corpus testpage/TestPageTriggerEvents.al (ModifyRecordEvent_RunsAfterThePagesOwnOnModifyRecordTrigger)
         let keep = self.page_trigger_answer(st, "onmodifyrecord", vec![])?;
         if keep == Some(false) {
             return Ok(());
         }
         // An OnModifyRecordEvent subscriber that vetoes the save: the same edit is not saved again, neither after the action that
-        // called SaveRecord nor at the TestPage.Close (handlers/TestPageTriggerEvents.al:181-206: the subscriber ran once, the
+        // called SaveRecord nor at the TestPage.Close (testpage/TestPageTriggerEvents.al:181-206: the subscriber ran once, the
         // row is unchanged). Another edit saved after it is not pinned and refused.
         let vetoed = st.borrow().modify_vetoed.clone();
         if let Some(fields) = vetoed {
@@ -738,7 +753,7 @@ impl Session {
                 );
             }
             // A changed row that is no longer stored (an asserterror rolled its insert back, code deleted it): real BC closes a
-            // list in that state without an error (pages/lt-be-enum-setvalue-blank/BeEnumSetValueBlank.al:4054
+            // list in that state without an error (pages/enum-setvalue-blank/BeEnumSetValueBlank.al:4054
             // QZ_NotBlankEnum_SetValueBlank_List), but whether it writes the row is not pinned.
             let vetoed = match st.borrow().insert_vetoed_by_ext.clone() {
                 Some(k) => Self::same_key(&k, &self.row_key(&rec)?),
@@ -760,7 +775,7 @@ impl Session {
     }
 
     /// Close inserts a new Document or Card host whose key was typed, over a part that shows no row, declares OnNewRecord or
-    /// OnAfterGetCurrRecord and that the test never called: BC runs neither trigger then (pages/lt-part-line-before-host-key/
+    /// OnAfterGetCurrRecord and that the test never called: BC runs neither trigger then (pages/parts/
     /// PartLineBeforeHostKey.al:1468 QH_EmptyPart_OpenNew_KeyTyped, `close` = `[H.OnInsert:Q1]`), the relink after the insert does.
     /// Refused until the relink is told apart. A key given by the table's OnInsert, a part the test called or a typed line relinks
     /// as before.
@@ -805,7 +820,7 @@ impl Session {
     }
 
     /// OnInsertRecord decides whether the typed record is inserted at all (corpus
-    /// handlers/TestPageRecordTriggers.al:76 OnInsertRecord_ReturningFalse_SuppressesTheInsert).
+    /// testpage/TestPageRecordTriggers.al:76 OnInsertRecord_ReturningFalse_SuppressesTheInsert).
     pub(super) fn insert_draft(&mut self, st: &St) -> Result<(), Signal> {
         let rec = self.page_rec(st);
         // A part line whose host is a new, unsaved record with a blank link key: BC saves the host first (its OnInsert numbers it)
@@ -836,7 +851,7 @@ impl Session {
             }
         }
         // BelowxRec is Yes for a row added with New() at the end, as it is for OnNewRecord (corpus
-        // handlers/TestPageRuntimeContracts.al:197-211 TestPage_New_AtTheEnd_PassesBelowxRecTrueToOnInsertRecord).
+        // testpage/TestPageRuntimeContracts.al:197-211 TestPage_New_AtTheEnd_PassesBelowxRecTrueToOnInsertRecord).
         // A row added in the middle is not pinned; it is given the same Yes as OnNewRecord gets.
         let anchor = st.borrow().after_new.clone();
         // In a part whose whole view the client holds, a line started below a row other than the last one (pages/
@@ -855,12 +870,12 @@ impl Session {
         if let Some(anchor) =
             anchor.filter(|a| self.is_list(st) && (st.borrow().host.is_none() || part_middle(self, a)))
         {
-            // The insert sees the row the line was started below as xRec (misc/W2BelowXRec.al:NewInTheMiddle_*).
+            // The insert sees the row the line was started below as xRec (testpage/W2BelowXRec.al:NewInTheMiddle_*).
             self.set_xrec_fields(st, anchor);
         }
         // A line of a part is inserted while a stored host row may hold an edit of its own. The line goes in first, so the header's
         // OnModify sees it (testpart/ OkInvoke_HeaderOnModifySeesThePartRowSavedFirst); the host then reads its row again, because the
-        // line's table code may have changed it, puts its own edit on top and saves (pages/lt-changed-by-other/
+        // line's table code may have changed it, puts its own edit on top and saves (pages/record-changed-by-other-user/
         // ChangedByOtherPlain.al:P182b_Plain_SaveRecordAction: `stored-after-line` is `descr=typed info=by line insert counter=1`, the
         // card shows `by line insert` and `1`). Only a stored host row is pinned; a new host row or one without a source stays as before.
         let host = st
@@ -869,13 +884,13 @@ impl Session {
             .as_ref()
             .and_then(|(h, _)| h.upgrade())
             .filter(|h| self.has_source(h) && !h.borrow().draft && h.borrow().cursor == Cursor::Row);
-        // The AutoSplitKey number is assigned before OnInsertRecord, which sees it (pages/lt-part-line-before-host-key/
+        // The AutoSplitKey number is assigned before OnInsertRecord, which sees it (pages/parts/
         // PartLineBeforeHostKey.al:612 `LP.OnInsertRecord:D2/20000 | L.OnInsert:D2/20000`, :551, :945; pages/
         // lt-bg-part-line-all-versions/BgPartLineAllVersions.al:349).
         self.auto_split_key(st)?;
         let go = self.page_trigger_answer(st, "oninsertrecord", vec![Value::Boolean(true)])?;
         // A page extension's false answer: the row is not stored, and the page goes on as if it were: the next edit runs
-        // OnModifyRecord and its save fails with DB:RecordNotFound (pageext/lt-ue-pageext-leads/UeTriggerTests.al
+        // OnModifyRecord and its save fails with DB:RecordNotFound (testpage/UeTriggerTests.al
         // NewRow_FirstExtensionAnswersFalse: `log` ends `base.OnModifyRecord id=5 amount=7;...`, `try|code` DB:RecordNotFound).
         // Pinned for a list; another page type is refused.
         if go == Some(false) && self.pages.ext_vetoed {
@@ -898,7 +913,7 @@ impl Session {
         if go == Some(false) {
             // A trigger that inserted the row itself and answered false leaves the page on a stored row: its next edit is
             // a modify (as for a template step in `start_draft`). Pinned for a database table, in a card (OpenNew) and a list
-            // (pages/lt-oninsertrecord-false/OnInsertRecordFalse.al Card_OpenNew_KeyThenField_OK, _Close, _KeyOnly_Close,
+            // (pages/triggers/OnInsertRecordFalse.al Card_OpenNew_KeyThenField_OK, _Close, _KeyOnly_Close,
             // List_New_KeyThenField). Not pinned for a temporary source, as Base Application's Item Tracking Lines has
             // (assumption page-oninsertrecord-false-after-code-insert).
             if !st.borrow().draft_stored && self.stored_row(&rec)?.is_some() {
@@ -932,7 +947,7 @@ impl Session {
             s.cursor = Cursor::Row;
         }
         self.set_xrec(st);
-        // The inserted row is the current row: the next OnAfterGetCurrRecord sees it as xRec (testpart/QiHostSaveParts.al:580
+        // The inserted row is the current row: the next OnAfterGetCurrRecord sees it as xRec (testpage/parts/QiHostSaveParts.al:580
         // `L.AGCR(D1/30000|typed x=D1/30000)` after the typed line was saved before the host SetValue).
         st.borrow_mut().agcr_xrec = Some(rec.borrow().fields.clone());
         if let Some(host) = &host {
@@ -958,7 +973,7 @@ impl Session {
             }
         }
         // The parts of a new host row link to it once it is stored, with the number its OnInsert
-        // gave it (corpus handlers/TestPageOpenNewPartLink.al).
+        // gave it (corpus testpage/TestPageOpenNewPartLink.al).
         // That refill is a link change: a part that then has no row runs no CaptionClass expression (QdCaptionClassAreas.al:
         // 1068-1100 QO_Doc_OpenNew `close = empty>0=No ... rest=`).
         if !st.borrow().parts.is_empty() {
@@ -977,7 +992,7 @@ impl Session {
 
     /// Focus moves to control `idx`. On a new record of a page that inserts as you go, moving from
     /// a control of that row to a non-key control inserts it (corpus
-    /// handlers/TestPageBlankKeyInsert.al:1-25 and its List_NewRow_Focus... arm: after New() the
+    /// testpage/TestPageBlankKeyInsert.al:1-25 and its List_NewRow_Focus... arm: after New() the
     /// focus still sits on the old row's control).
     pub(super) fn activate(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
         let (prev, in_row) = {

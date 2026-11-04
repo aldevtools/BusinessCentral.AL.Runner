@@ -1,6 +1,6 @@
 //! A Variant holding a field's value (or a literal) into a Text or Code field with `FieldRef.Validate(Variant)` or
 //! `FieldRef.Value := Variant`: converted as Format does, Code upper-cased; Validate runs OnValidate, Value := does not
-//! (recordref/lt-y47-validate-fieldref/Y47ValidateFieldRef.al:415-570, Y57_*).
+//! (recordref-fieldref/recordref/Y47ValidateFieldRef.al:415-570, Y57_*).
 
 use al_testkit::text;
 
