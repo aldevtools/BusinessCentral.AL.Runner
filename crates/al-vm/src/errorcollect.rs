@@ -69,6 +69,11 @@ fn summary(first: &str) -> String {
 }
 
 impl Session {
+    /// Whether a collecting scope is open, so that `collect_error` keeps a collectible error.
+    pub(crate) fn collect_error_if_collecting(&self) -> bool {
+        !self.error_scopes.starts.is_empty()
+    }
+
     /// `Error(ErrorInfo)` of a collectible error: kept when a scope is open.
     pub(crate) fn collect_error(&mut self, info: &Value) -> bool {
         if self.error_scopes.starts.is_empty() {
