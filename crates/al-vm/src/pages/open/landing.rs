@@ -368,22 +368,6 @@ impl Session {
                     "OnNewRecord of a list part whose host was opened for view on no row (whether BC runs it is not pinned)",
                 );
             }
-            // The part then runs OnAfterGetCurrRecord once on the blank row (QH_OpenView_NoRow_TraceHost `CP.OnAfterGetCurrRecord:/0`,
-            // _CurrRecordOnlyPart `OP.OnAfterGetCurrRecord:/0`, _BlankKeyLinesExist, QH_OpenView_RowFilteredAway). Not run yet: refused,
-            // so a log that misses the entry is never reported as a result.
-            if host_shows_no_row
-                && self.has_source(st)
-                && st.borrow().mode == PageMode::View
-                && (self.declares(st, "onaftergetcurrrecord")
-                    || self
-                        .engine()
-                        .events
-                        .is_subscribed(st.borrow().object as usize, "onaftergetcurrrecordevent"))
-            {
-                return unsupported(
-                    "OnAfterGetCurrRecord of a list part whose host was opened for view on no row (pinned, not implemented)",
-                );
-            }
             if view_part || (host_shows_no_row && self.has_source(st) && st.borrow().mode == PageMode::View) {
                 let rec = self.page_rec(st);
                 let table = rec.borrow().table as usize;
@@ -392,6 +376,13 @@ impl Session {
                 self.stamp_from_filters(st, false)?;
                 self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
                 self.page_event(st, "onnewrecordevent", None, Some(true))?;
+                // The part then runs OnAfterGetCurrRecord and its event subscribers once on the blank row, after OnNewRecord and
+                // with the link value in place (PartLineBeforeHostKey.al:1594 QH_OpenView_NoRow_TraceHost `CP.OnNewRecord: below=Yes |
+                // CP.OnAfterGetCurrRecord:/0`, :1610 _CurrRecordOnlyPart `OP.OnAfterGetCurrRecord:/0`, :1642 _BlankKeyLinesExist,
+                // :1666 _RowFilteredAway `CP.OnNewRecord:D6 below=Yes | CP.OnAfterGetCurrRecord:D6/0` on a host that stands on a row).
+                self.populate_expressions(st)?;
+                self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+                self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
                 rec.borrow_mut().fields = fresh;
             }
             self.populate_expressions(st)

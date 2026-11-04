@@ -659,8 +659,23 @@ impl Session {
             st.borrow_mut().dirty = false;
             return Ok(());
         }
+        // A page with Editable = false and ModifyAllowed left true saves nothing for a Blob no stream wrote either: Tests-ERM
+        // Sales Batch Document Posting (codeunit 134891) ReleaseSelectedQuotes and its siblings invoke Release on Sales Quotes,
+        // Sales Order List, ... (Editable = false, a Work Description Blob), and the release must stay. The corpus pins this only
+        // with ModifyAllowed = false as well (RmReadOnlyBlob.al:316-:470), so the rest is an assumption.
+        let modify_denied = flag_denied(&self.engine(), st.borrow().object as usize, "ModifyAllowed")?;
+        if !modify_denied
+            && flag_denied(&self.engine(), st.borrow().object as usize, "Editable")?
+            && Self::same_but_unwritten_blobs(&rec.borrow().fields, &self.page_xrec_fields(st))
+        {
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::PageUnwrittenBlobNoChangeNotEditable,
+            );
+            st.borrow_mut().dirty = false;
+            return Ok(());
+        }
         // Only a close with a changed row on a page that does not allow modify is pinned (see `close_denied_modify`).
-        if flag_denied(&self.engine(), st.borrow().object as usize, "ModifyAllowed")? {
+        if modify_denied {
             // A Blob no stream wrote is not a change, also after a CalcFields loaded what it holds: an action that changes nothing
             // runs no modify trigger and leaves the row alone (pages/lt-outside-worksheet/RmReadOnlyBlob.al:316, :370, :394,
             // :420, :447 on a List; a table without a Blob :340). Another page type is assumed (page-unwritten-blob-no-change-other-page).

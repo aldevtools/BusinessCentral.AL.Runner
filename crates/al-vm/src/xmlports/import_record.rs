@@ -135,7 +135,7 @@ impl Session {
             };
             match schema.node(child).kind {
                 ir::XmlNodeKind::Field => {
-                    let pos = self.xp_assign_field(inst, schema, child, &ce.text())?;
+                    let pos = self.xp_assign_field_elem(inst, schema, child, ce)?;
                     // A field element of a table element further up assigns that record, not this one (Y60XpTextInTable.al
                     // TextWrap_TempTable_Inner_Import `Outer.Name` inside `Inner`: `outer ins H1 name=n2`).
                     if schema.node(child).table_node != Some(node) {
@@ -348,7 +348,7 @@ impl Session {
                 // An empty `<tier />` runs its OnAfterAssignVariable twice here (QrXpContainerOccurs.al TQ_Response_Import_Shapes
                 // `optional leaves absent`, `tier=;tier=;`; TR_EmptyLeaf_Import `inner=[];inner=[];`, `<inner></inner>` once).
                 match schema.node(child).kind {
-                    ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field(inst, schema, child, &ce.text())?),
+                    ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?),
                     _ => self.xp_assign_leaf_text(inst, schema, child, ce)?,
                 }
             }
@@ -432,7 +432,7 @@ impl Session {
                 continue;
             };
             match schema.node(child).kind {
-                ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field(inst, schema, child, &ce.text())?),
+                ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?),
                 ir::XmlNodeKind::Text => {
                     Self::xp_refuse_self_closed_leaf(schema, child, ce)?;
                     self.xp_assign_variable(inst, schema, child, ce.text())?

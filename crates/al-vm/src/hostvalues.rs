@@ -304,15 +304,18 @@ impl Session {
     fn work_date_op(&mut self, args: &mut [Value]) -> Result<Value, Signal> {
         match args.first() {
             None => Ok(Value::Date(self.work_date_day().expect("always a date"), false)),
+            // The call returns the work date it set, so it is usable as an expression
+            // (session/lt-r6862-workdate-expression/R6862WorkDateExpression.al, BC 28.5 and 29.0).
             Some(Value::Date(d, false)) if *d > 0 => {
                 self.work_date = Some(*d);
-                Ok(Value::Null)
+                Ok(Value::Date(*d, false))
             }
             // The undefined date sets the work date back to today (session/TestProbeSessionMiscContracts.al:
             // WorkDate_SetUndefined).
+            // The call returns that date (R6862WorkDateExpression.al: `empty: result = Today`).
             Some(Value::Date(0, false)) => {
                 self.work_date = None;
-                Ok(Value::Null)
+                Ok(Value::Date(self.work_date_day().expect("always a date"), false))
             }
             Some(other) => unsupported(format!(
                 "WorkDate({other}): only a defined, non-closing Date is pinned",
