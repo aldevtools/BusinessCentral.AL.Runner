@@ -137,7 +137,7 @@ impl Session {
             }
             // The related field: the arm's, or the first primary key field.
             let rel = r.arm.field.unwrap_or(t.keys[0][0]);
-            if ops::compare(&old[rel], &new[rel]).ok() == Some(Ordering::Equal) {
+            if rename_equal(&old[rel], &new[rel])? {
                 continue;
             }
             // The renamed row must pass the arm's where() on the related table (the field() links are per child row).
@@ -148,6 +148,10 @@ impl Session {
                     let expr = self
                         .parse_filter_text(text, &t.fields[*related].ty)
                         .map_err(|e| Signal::Unsupported(format!("where() of a relation: {e}")))?;
+                    // A value the filter cannot compare does not count as failing it (hard rule 4; issue 6924).
+                    if let Some(e) = expr.compare_error(&new[*related]) {
+                        return Err(rename_refusal(e));
+                    }
                     parent_ok &= expr.matches(&new[*related]);
                 }
             }
@@ -202,7 +206,7 @@ impl Session {
                 for w in &wheres {
                     if let ir::RelationWhere::Field { related, own } = w {
                         let want = ops::convert(row[*own].clone(), &t.fields[*related].ty)?;
-                        linked &= ops::compare(&new[*related], &want).ok() == Some(Ordering::Equal);
+                        linked &= rename_equal(&new[*related], &want)?;
                     }
                 }
                 if !linked {
@@ -260,4 +264,19 @@ fn single_not_equal(v: &al_ir::Const) -> bool {
         }),
         _ => false,
     }
+}
+
+/// Whether two values of a relation are equal; a comparison that cannot be answered is refused, never counted as "differ"
+/// (hard rule 4; issue 6924).
+fn rename_equal(a: &Value, b: &Value) -> Result<bool, Signal> {
+    ops::compare(a, b).map(|o| o == Ordering::Equal).map_err(rename_refusal)
+}
+
+fn rename_refusal(e: Signal) -> Signal {
+    let why = match e {
+        Signal::Unsupported(why) => why,
+        Signal::Error(e) => e.message,
+        _ => "the comparison did not give an order".to_string(),
+    };
+    Signal::Unsupported(format!("a rename cannot evaluate a TableRelation condition: {why}"))
 }
