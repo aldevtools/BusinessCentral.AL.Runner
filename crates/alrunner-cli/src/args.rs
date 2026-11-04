@@ -686,7 +686,9 @@ OUTPUT
     --timings            Compile phases and the slowest test codeunits. For the time per AL
                          routine, set AL_PROFILE=FILE: the run samples the AL call stack every
                          5 ms (AL_PROFILE_US sets the interval in microseconds) and writes the
-                         routines ranked by self and inclusive samples to FILE.
+                         routines ranked by self and inclusive samples to FILE. One
+                         process-wide timer samples one thread per tick; the file's first
+                         line names the interval (samples N of 5 ms).
 
 TEST-FIRST
     --tdd                A test that calls a procedure that does not exist yet runs against a stub
@@ -1012,7 +1014,10 @@ TEST-MICROSOFT
 OTHER
     --server-url URL     The base address of the web client that GetUrl(ClientType::Web) answers with
                          (default http://localhost:8080/BC, else $ALRUNNER_SERVER_URL). Absolute http or
-                         https URL without a query. The summary prints the address. Other GetUrl forms are refused.
+                         https URL without a query. The summary prints the address. The other client types
+                         build on it: SOAP with port 7047, OData, ODataV4 and Api with port 7048, Default
+                         with dynamicsnav://. They need an http address; with https only Web, Current,
+                         Background, Management and NAS answer, the other forms are refused.
     --environment ENV    The server Environment Information describes: `saas` (default; the probed
                          sandbox: IsSaaS and IsSandbox Yes) or `onprem` (IsSaaS and IsSandbox No
                          until a test library's SetTestability* calls change them; Microsoft's own

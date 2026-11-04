@@ -242,7 +242,16 @@ impl Session {
         };
         // Manual instances that unbound themselves while one of their own subscriber methods ran in this raise.
         let mut self_unbound: Vec<Inst> = Vec::new();
-        for (s, inst) in self.event_targets(object, event, element)? {
+        refresh(args);
+        let raised = crate::guard_exit::Raised {
+            names,
+            args,
+            aliased: (0..args.len())
+                .map(|j| matches!(origins.get(j), Some(Some(_))))
+                .collect(),
+        };
+        let targets = self.event_targets(object, event, element, Some(&raised))?;
+        for (s, inst) in targets {
             // A manual instance unbound since the raise began. One that unbound itself in an earlier method of this raise
             // is not called again (events/ProbeEventSubscriberOrder.al:253
             // ManualSubscriber_UnbindsItselfInFirstMethod_SecondMethodInSameRaise); one another subscriber unbound is not pinned.
@@ -361,11 +370,14 @@ impl Session {
     /// The subscribers an event reaches right now, each with the instance it
     /// runs on: static subscribers always, manual ones once per bound instance.
     /// `element` filters field events by field name.
+    /// `raised` (the arguments of the raise, when there is one) lets subscribers whose guard exits for them stand anywhere in
+    /// an unpinned cross-app order (`guard_exit.rs`).
     fn event_targets(
         &mut self,
         object: usize,
         event: &str,
         element: Option<&str>,
+        raised: Option<&crate::guard_exit::Raised>,
     ) -> Result<Vec<(crate::events::Subscriber, Inst)>, Signal> {
         let engine = self.engine.clone();
         // A subscriber BC would run and this program has no code for: running the event without it
@@ -586,11 +598,22 @@ impl Session {
         if let Some(measured) = measured_order(program, object, event, &order, &depends) {
             return Ok(sorted(&measured, targets));
         }
+        // A subscriber whose guard exits for this raise has no effect wherever it runs: only the others need one order
+        // under every reading (guard_exit.rs, al-runner issue 6924). All of them run, in the pinned reading's order.
+        let subs: Vec<crate::events::Subscriber> = targets.iter().map(|(s, _)| s.clone()).collect();
+        let exited = raised.map_or_else(|| vec![false; subs.len()], |r| self.guard_exited(&subs, r));
+        let live: Vec<_> = targets
+            .iter()
+            .zip(&exited)
+            .filter(|(_, e)| !**e)
+            .map(|(t, _)| t.clone())
+            .collect();
         let models = visit_orders(&program.apps);
-        let mut results = models.iter().map(|(what, full)| {
-            let order: Vec<usize> = full.iter().copied().filter(|a| order.contains(a)).collect();
-            (*what, sorted(&order, targets.clone()))
-        });
+        let reading = |full: &[usize]| -> Vec<usize> { full.iter().copied().filter(|a| order.contains(a)).collect() };
+        let pinned = sorted(&reading(&models[0].1), targets.clone());
+        let mut results = models
+            .iter()
+            .map(|(what, full)| (*what, sorted(&reading(full), live.clone())));
         let (_, first) = results.next().expect("at least one reading");
         for (what, other) in results {
             let at = first
@@ -608,7 +631,7 @@ impl Session {
             }
         }
         // Pinned by events/subscriber-order/BwSubscriberOrderTests.al SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps, SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp, SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrderNotDeclaredOrder, SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrder_DuringInstall (was assumption `cross-app-subscriber-order-by-app-id`).
-        Ok(first)
+        Ok(pinned)
     }
 
     /// Whether raising `event` of `object` now would reach any subscriber.
@@ -616,7 +639,7 @@ impl Session {
         if !self.engine.events.is_subscribed(object, event) {
             return Ok(false);
         }
-        Ok(!self.event_targets(object, event, element)?.is_empty())
+        Ok(!self.event_targets(object, event, element, None)?.is_empty())
     }
 
     /// The instance a static (automatic) subscriber runs on: the session's one instance for a
@@ -660,6 +683,16 @@ impl Session {
             }
         }
         *self.events.event_stats.active.borrow_mut() = active;
+    }
+
+    /// The codeunit instances bound by `BindSubscription` and still alive, as addresses: a test runner compares them
+    /// before and after a test to see whether the test left a manual binding (al-runner issue 6924).
+    pub fn bound_subscriptions(&self) -> Vec<usize> {
+        self.events
+            .bindings
+            .iter()
+            .filter_map(|b| b.instance.upgrade().map(|i| Rc::as_ptr(&i) as usize))
+            .collect()
     }
 
     /// `BindSubscription(Codeunit)` (`bind`) and `UnbindSubscription(Codeunit)`.

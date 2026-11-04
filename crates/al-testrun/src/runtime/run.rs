@@ -645,6 +645,7 @@ fn run_codeunit_inner(
         let test_started = std::time::Instant::now();
         let draws_before = session.inherited_random_draws();
         let carried_before = session.carried_random_draws();
+        let bound_before = session.bound_subscriptions();
         // The flags of the codeunit that already hold their only value when this test starts.
         let settled: BTreeSet<(usize, usize)> = {
             let inst = instance.borrow();
@@ -1003,8 +1004,11 @@ fn run_codeunit_inner(
                 // decides alone (`changes_read_by`), and a walk costs about 150 ms with Microsoft's apps.
                 let mut mine: Option<ReachFacts> = None;
                 let found = unfinished.iter_mut().find_map(|u| {
-                    // A failed test counts only through the `Random` sequence, which matters only when this test drew.
-                    if u.ended == Ended::Failed && !drew {
+                    // A failed test counts through a manual binding it left that this test started with, and through the
+                    // `Random` sequence, which matters only when this test drew.
+                    if let Some(why) = u.left_binding_reason(&bound_before) {
+                        return Some(why);
+                    } else if u.ended == Ended::Failed && !drew {
                         return None;
                     }
                     let facts = u.facts.get_or_insert_with(|| {
@@ -1079,6 +1083,7 @@ fn run_codeunit_inner(
             unfinished.push(Unfinished {
                 routine: r,
                 what: format!("{}: {how} ({why})", routine.name).chars().take(120).collect(),
+                left_bindings: left_bindings(&session, &bound_before, ended),
                 ended,
                 facts: None,
                 rest: if ended == Ended::RefusedMidRun {
@@ -1095,6 +1100,7 @@ fn run_codeunit_inner(
                 routine: r,
                 what: format!("{}: {why}", routine.name).chars().take(120).collect(),
                 ended: Ended::RefusedMidRun,
+                left_bindings: Vec::new(),
                 rest: None,
                 facts: Some(ReachFacts {
                     unknown: Some("a step of the test runner around it did not run to its end".into()),
@@ -1447,6 +1453,36 @@ struct Unfinished {
     facts: Option<ReachFacts>,
     /// For a test refused by a statement of its own body: what it did not run (al-runner issue 5961).
     rest: Option<Rest>,
+    /// For a failed test: the manual bindings (`BindSubscription`) it made and left alive, for example on a global of the
+    /// test codeunit, because it failed before its `UnbindSubscription` (al-runner issue 6924).
+    left_bindings: Vec<usize>,
+}
+
+impl Unfinished {
+    /// Why a later failure is not trusted when this failed test left a manual binding that the later test started with.
+    /// The binding outlives the test (codeunits/TestEventManualBinding.al:161-200, Contract 9), and a second
+    /// `BindSubscription` of the instance raises "already been bound" (TestEventManualBinding.al:150-158, Contract 8). On BC
+    /// the earlier test may pass and unbind, so the later test would start without it.
+    fn left_binding_reason(&self, bound_at_start: &[usize]) -> Option<String> {
+        self.left_bindings.iter().any(|b| bound_at_start.contains(b)).then(|| {
+            format!(
+                "a test before this one in the codeunit did not pass ({}) and left a manual event subscription bound that it would have unbound later: the bindings this test starts with are not BC's",
+                self.what
+            )
+        })
+    }
+}
+
+/// The manual bindings alive after a failed test that were not alive when it started.
+fn left_bindings(session: &Session, before: &[usize], ended: Ended) -> Vec<usize> {
+    if ended != Ended::Failed {
+        return Vec::new();
+    }
+    session
+        .bound_subscriptions()
+        .into_iter()
+        .filter(|b| !before.contains(b))
+        .collect()
 }
 
 /// What a test refused by a statement of its own body left undone, for [`remainder_reach_facts`].

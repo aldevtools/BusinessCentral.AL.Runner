@@ -157,8 +157,8 @@ See [Editor and tool integration](editor-tools.md) for the formats.
 
 | Flag | Effect |
 |---|---|
-| `--server-url URL` | The base address that `GetUrl(ClientType::Web)` answers with. Default `http://localhost:8080/BC`, else `$ALRUNNER_SERVER_URL`. |
-| `--environment saas\|onprem` | The server that `Environment Information` describes. Default `saas`. The on-prem values are an unprobed assumption. |
+| `--server-url URL` | The base address that `GetUrl(ClientType::Web)` answers with. Default `http://localhost:8080/BC`, else `$ALRUNNER_SERVER_URL`. The other client types build on it: SOAP with port 7047, OData, ODataV4 and Api with port 7048, Default with `dynamicsnav://`. They need an `http` address; with `https` only Web, Current, Background, Management and NAS answer. |
+| `--environment saas\|onprem` | The server that `Environment Information` describes. Default `saas`. The on-prem values are an unprobed assumption. Comparing against a BC Docker container? Use `--environment onprem`. |
 | `--companies NAMES` | The companies of the database, comma separated, the session company first, or `all` (every company of the restored test data, the session company first). The per-company install code of your apps runs once in each company, then the per-database part runs once. Microsoft's apps stay in the session company: a test that reads one of their per-company tables in another company is not run. Without the flag the run has one company. See [Writing tests](writing-tests.md#companies). |
 | `--files-dir DIR` | Let the `File` data type read and write real files under DIR. |
 | `--license FILE` | The BC license file (`.bclicense`) of the run: a developer, partner or customer license. Default: the license in the BC artifacts of the run's build. License Permission answers from it. The file is read for this run only, never copied or cached; a file that cannot be read stops the run. See [BC license](license.md). |
