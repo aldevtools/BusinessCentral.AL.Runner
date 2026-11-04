@@ -941,7 +941,17 @@ fn blob_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
     Ok(Value::Text(name.into()))
 }
 
-fn blob_length(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+fn blob_length(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    blob_length_of(c, r, false)
+}
+
+/// `Blob.Length` written as an operand of a comparison with the literal 0 (al-sema `blob_length_sign.rs`): only its sign is
+/// observed, so the stored size of non-empty content that is not pinned is answered with a positive number.
+pub fn blob_length_sign(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    blob_length_of(c, r, true)
+}
+
+fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NResult {
     let b = blob_of(r)?;
     let buf = b.borrow();
     buf.observe()?;
@@ -953,7 +963,7 @@ fn blob_length(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
         // 8 bytes (record/flowfields/BlobAutoCalc.al:144, Persistent_InsertedRecord_Blob) and 12 bytes (:276, :320;
         // record/temporary/TemporaryBlobAutoCalc.al:144), and for 1 and 2 bytes from BC 29 (misc/lt-probes-needed-1/
         // PnABlobLength.al:49-54, Length_ByStoredSize; the test is BC 29 only). 100 bytes and more are a compressed size (:55-60:
-        // 10, 31, 118 for 100, 10000, 100000 `x`).
+        // 10, 31, 118 for 100, 10000, 100000 `x`). The other sizes are not pinned and are refused. Probe wanted (docs/probes-needed.md).
         let n = buf.bytes.len();
         if n == 0 || buf.temp_row {
             return Ok(Value::Integer(n as i32));
@@ -963,14 +973,29 @@ fn blob_length(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
         if buf.uncompressed {
             return Ok(Value::Integer(n as i32));
         }
-        // 2 and 3 bytes on every major: record/flowfields/BlobCalcFieldsLength.al:250 ('ab' 8), :222 ('new' 9); 'stored' 12 (:350),
-        // 'a long stored value' 25 (:222); 3 MB of `x` and 7 `y` are 3072 (BlobLengthInteger.al:73-77, :95).
+        // 2 and 3 bytes on every major: record/flowfields/BlobCalcFieldsLength.al:250 ('ab' 8), :222 ('new' 9).
+        // The stored size is compressed (40 repeated digits are 19 at :470), so for longer content only the texts the corpus
+        // stored are given: 'stored' 12 (:350) and 'a long stored value' 25 (:222).
+        let pinned = matches!(n, 2 | 3 | 4 | 5 | 8 | 12)
+            || (n == 1 && c.gate(al_version::Gate::ProbedValuesDifferFrom29))
+            || matches!(&buf.bytes[..], b"stored" | b"a long stored value");
         if is_y57_three_mb(&buf.bytes) {
             return Ok(Value::Integer(3072));
         }
-        // Any other content of a Compressed field: the stored size depends on the host's compression, and the corpus pins only that it
-        // is positive for non-empty content whenever HasValue is Yes (record/flowfields/BlobStoredSizeSign.al:224-356, the `C-`
-        // observations g, fs and mg are `p`; contents of 1 byte to 5 MB, Get, FindSet and Modify). The number given is the content plus 6 (the pinned sizes of 1 to 12 bytes).
+        if !pinned && sign_only {
+            // The stored size of non-empty content is positive whenever HasValue is Yes, for every content measured (1 byte to 5 MB;
+            // text, XML, random, zero and repeated bytes; Compressed true and false; Get, FindSet and Modify): the `g=`, `fs=` and `mg=`
+            // values of record/flowfields/BlobStoredSizeSign.al:224-356 StoredSize_*_Result (`p` = positive; Windows 27.5, 28.5). An
+            // empty or cleared blob is 0 with HasValue No (:354). Assumed until that file is in the pinned corpus
+            // (`blob-stored-size-positive`). Any positive number answers the comparison.
+            crate::assumptions::assume(crate::assumptions::Assumption::BlobStoredSizePositive);
+            return Ok(Value::Integer(n as i32 + 6));
+        }
+        if !pinned {
+            return unsupported(format!(
+                "Blob.Length before CalcFields of a stored blob of {n} bytes (the stored size is not pinned)"
+            ));
+        }
         return Ok(Value::Integer(n as i32 + 6));
     }
     Ok(Value::Integer(buf.bytes.len() as i32))
