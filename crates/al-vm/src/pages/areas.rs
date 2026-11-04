@@ -81,12 +81,12 @@ impl Session {
         }
     }
 
-    /// Refuses what the corpus does not pin: the session's areas changed since the page opened, or a
-    /// group around the control states an area of its own that is not enabled.
+    /// Refuses what the corpus does not pin: a group around the control that states an area of its own that is not enabled.
     pub(super) fn check_areas_pinned(&self, st: &St, idx: usize) -> Result<(), Signal> {
-        if self.application_areas != st.borrow().areas {
-            return unsupported("the session's application areas changed while the page was open");
-        }
+        // A change of the session's areas while the page is open does not reach it: the page keeps the controls it opened with
+        // (the areas it read then, `st.areas`) until it is closed and opened again (corpus branch al-runtime-rs-staging-r6962,
+        // pages/application-area/AreasChangedWhilePageOpen.al AreasSetInPageTrigger_FewerTags_FieldsRead `after` `a;b;s;`,
+        // `reopened` `a;b;ERR(...)`, _OtherTags_, _FromEmpty_, AreasSetInTest_FewerTags_; issue 7001).
         let Some(areas) = enabled(&st.borrow().areas) else {
             return Ok(());
         };
