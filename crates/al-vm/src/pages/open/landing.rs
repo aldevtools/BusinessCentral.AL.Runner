@@ -245,9 +245,8 @@ impl Session {
                         && hb.cursor == Cursor::None
                         && match self.engine.object_facts[hb.object as usize].page_type {
                             Some(al_ir::PageType::Document | al_ir::PageType::Card) => true,
-                            // Opened for view, a ListPlus host behaves the same (corpus branch al-runtime-rs-staging-r6951
-                            // pages/parts/PartListPlusHostNoRow.al ListPlusHost_OpenView_NoRow_PartTriggers, _PartInGroup,
-                            // _PartFirst `No`; issue 6953; assumption `listplus-host-no-row-part` until the file is pinned).
+                            // Opened for view, a ListPlus host behaves the same (pages/parts/PartListPlusHostNoRow.al:288-295
+                            // _PartTriggers, _PartInGroup, :314 _PartFirst `No`, :336 _HiddenPart; issue 6953).
                             Some(al_ir::PageType::ListPlus) => view,
                             _ => false,
                         }
@@ -394,9 +393,6 @@ impl Session {
                 );
             }
             if view_part || (host_shows_no_row && self.has_source(st) && st.borrow().mode == PageMode::View) {
-                if host_shows_no_row && self.host_is_list_plus(st) {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListplusHostNoRowPart);
-                }
                 let rec = self.page_rec(st);
                 let table = rec.borrow().table as usize;
                 let fresh = self.initial_fields(table);
@@ -415,17 +411,6 @@ impl Session {
             }
             self.populate_expressions(st)
         }
-    }
-
-    /// The page's host is a ListPlus page.
-    fn host_is_list_plus(&self, st: &St) -> bool {
-        st.borrow()
-            .host
-            .as_ref()
-            .and_then(|(h, _)| h.upgrade())
-            .is_some_and(|h| {
-                self.engine.object_facts[h.borrow().object as usize].page_type == Some(al_ir::PageType::ListPlus)
-            })
     }
 
     /// A top-level Card, Document or ListPlus page with a source table, no repeater, opened for edit.

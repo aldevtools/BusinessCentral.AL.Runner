@@ -1,6 +1,6 @@
 //! A `TableRelation ... where(F = filter('<>'''''))`: the filter text written as one AL string with doubled quotes in it,
 //! on a field that a tableextension adds to the related table (al-runner issue 6924, item 3.2). Measured on BC 29 by the
-//! corpus writer (record/table-relation/TableRelationQuotes.al TRX_*, assumption table-relation-quoted-literal-filter):
+//! corpus writer (record/table-relation/TableRelationQuotes.al:1188-1189, :1203-1204, :1221, :1225):
 //! `<>''` selects the filled rows, `''` the empty one, and `filter('<>''')` raises InvalidFilterExpression, so it is refused.
 
 use al_builtins::native::Signal;

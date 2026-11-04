@@ -1,11 +1,11 @@
 //! The parameters text of a report request page control bound to a place written as an expression: a field of a record
 //! variable (`Buf.Name`), of an element of an array of records (`BufArr[1].Name`) or of the data item's record (`D.Name`), or
-//! an element of a plain array (`TxtArr[2]`). Pinned by reports/request-page/R6960RequestParamBindings.al (corpus branch
-//! al-runtime-rs-staging-r6960, BC 29.0, al-runner issue 6960):
+//! an element of a plain array (`TxtArr[2]`). Pinned by reports/request-page/R6960RequestParamBindings.al (al-runner
+//! issue 6960):
 //! - `Report.RunRequestPage` writes each such control into `<Options>`, in control order, named by its source as written
-//!   (`Rrp_TypedValues_Text`, `Rrp_Defaults_Text`: an empty value is `<Field name="Buf.Name" />`);
+//!   (`Rrp_TypedValues_Text` :204, `Rrp_Defaults_Text` :221: an empty value is `<Field name="Buf.Name" />`);
 //! - `Report.Execute` and `Report.RunRequestPage(Id, Parameters)` with that text set each place again
-//!   (`Rrp_TypedValues_ThenExecute`, `Rrp_TypedValues_ThenSeededRequestPage`).
+//!   (`Rrp_TypedValues_ThenExecute` :243, `Rrp_TypedValues_ThenSeededRequestPage` :266).
 //!
 //! Other expressions (a call, a quoted name, an index that is not a number, a control of a report extension) are not pinned
 //! and are refused.

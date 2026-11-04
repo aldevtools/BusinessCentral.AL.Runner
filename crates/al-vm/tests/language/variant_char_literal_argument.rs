@@ -1,6 +1,5 @@
 //! A text literal of one character handed to a Variant parameter is a Text, not a Char (al-runner issue 6924, item 3.8;
-//! measured on the newest major: types/variant/VaTIsChecks.al Is_OneCharacter_PassedToVariantParameter, json/JsonObjectBasics.al
-//! QW_Add_CharAndText_ThroughVariant). Assigned to a Variant it is a Char.
+//! types/variant/VaTIsChecks.al:179-180, :185, json/JsonObjectBasics.al:485, :489). Assigned to a Variant it is a Char.
 
 use al_testkit::{run, text};
 

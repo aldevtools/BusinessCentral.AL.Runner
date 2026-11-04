@@ -1,6 +1,6 @@
 //! The parameters text `RunRequestPage` returns for request page fields that are not bound to a plain global variable
-//! (al-runner issue 6960), pinned by reports/request-page/R6960RequestParamBindings.al (corpus branch
-//! al-runtime-rs-staging-r6960). A binding the text is not pinned for is refused, never left out of the text silently.
+//! (al-runner issue 6960), pinned by reports/request-page/R6960RequestParamBindings.al:204, :221,
+//! :243, :266. A binding the text is not pinned for is refused, never left out of the text silently.
 
 use al_test_cli::report::Outcome;
 
@@ -77,7 +77,7 @@ fn passes(tests: &str) {
     }
 }
 
-// reports/request-page/R6960RequestParamBindings.al Rrp_TypedValues_Text (corpus branch al-runtime-rs-staging-r6960): fields bound
+// reports/request-page/R6960RequestParamBindings.al:204 (Rrp_TypedValues_Text): fields bound
 // to a field of a record variable, of an array element, of the data item's record, and to an element of a plain array are in the
 // text, named by their source as written.
 #[test]
@@ -92,7 +92,7 @@ fn fields_bound_to_places_written_as_expressions_are_named_by_their_source() {
     );
 }
 
-// R6960RequestParamBindings.al Rrp_TypedValues_ThenExecute and Rrp_TypedValues_ThenSeededRequestPage: Execute and a seeded
+// R6960RequestParamBindings.al:243 (Rrp_TypedValues_ThenExecute) and :266 (Rrp_TypedValues_ThenSeededRequestPage): Execute and a seeded
 // RunRequestPage set each place again.
 #[test]
 fn execute_and_a_seeded_request_page_set_the_places_again() {

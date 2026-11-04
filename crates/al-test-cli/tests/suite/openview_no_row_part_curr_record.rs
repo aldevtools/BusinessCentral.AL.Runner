@@ -166,7 +166,7 @@ codeunit 62944 T
     (r, log)
 }
 
-// Corpus branch al-runtime-rs-staging-r6951 pages/parts/PartListPlusHostNoRow.al (BC 29 Linux CI, issue 6953):
+// pages/parts/PartListPlusHostNoRow.al:288 and :336 (issue 6953):
 // ListPlusHost_OpenView_NoRow_PartTriggers `[H.OnOpenPage | LP.OnNewRecord: below=Yes | LP.OnAfterGetCurrRecord:/0 New-line
 // marker]`, _PartInGroup the same, _HiddenPart `[H.OnOpenPage]`.
 const VISIBLE_PART: &str = "H.OnOpenPage|LP.OnNewRecord: below=Yes|LP.OnAfterGetCurrRecord:/0 New-line marker|";

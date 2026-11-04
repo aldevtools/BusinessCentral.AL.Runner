@@ -1,9 +1,8 @@
 //! A container text element right below a table element, without a trigger of its own, whose nodes are leaf text elements (one
 //! with an OnBeforePassVariable that skips when empty) and a container of leaves: the TaxCategory of a TaxSubtotal and of an
-//! AllowanceCharge in Microsoft's PEPPOL 3.0 ports (al-runner issue 6924). Not pinned yet: the export marks assumption
-//! `xmlport-leaf-triggers-tree-in-table`.
+//! AllowanceCharge in Microsoft's PEPPOL 3.0 ports (al-runner issue 6924). Pinned by
+//! xmlports/shapes-properties/R6924eTreeInTable.al:287-288, :296-297, :305-306.
 
-use al_builtins::assumptions::{Assumption, take_hits};
 use al_testkit::{run, text};
 
 const SRC: &str = r#"
@@ -79,8 +78,7 @@ codeunit 69984 C
 "#;
 
 #[test]
-fn a_container_without_a_trigger_below_a_table_element_runs_its_leaf_triggers_and_marks_its_assumption() {
-    take_hits();
+fn a_container_without_a_trigger_below_a_table_element_runs_its_leaf_triggers() {
     let out = text(run(SRC, "WithReason"));
     assert!(
         out.contains(
@@ -94,7 +92,6 @@ fn a_container_without_a_trigger_below_a_table_element_runs_its_leaf_triggers_an
         out.ends_with("|agr sub 1;reason ;agr sub 2;reason exempt;agr sub 3;"),
         "{out}"
     );
-    assert!(take_hits().contains(&Assumption::XmlportLeafTriggersTreeInTable));
     let out = text(run(SRC, "NoReason"));
     assert!(!out.contains("TaxExemptionReason"), "{out}");
 }

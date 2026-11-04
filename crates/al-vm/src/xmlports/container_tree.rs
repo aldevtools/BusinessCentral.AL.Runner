@@ -47,7 +47,7 @@ pub(super) fn triggered_container(schema: &Schema, c: usize) -> bool {
 /// A `container_tree` right below a table element whose triggers are only on its leaf text elements: no trigger on itself, on a
 /// container below it, on a text element of only text attributes or on a text attribute. The TaxCategory of a TaxSubtotal and of an
 /// AllowanceCharge in Microsoft's PEPPOL 3.0 ports (`ID`, `Percent`, `TaxExemptionReason` that skips when empty, `TaxScheme > ID`).
-/// Not pinned yet: assumption `xmlport-leaf-triggers-tree-in-table` (PEPPOL Tests, codeunits 139235, 139236).
+/// Pinned by xmlports/shapes-properties/R6924eTreeInTable.al:287-288, :296-297, :305-306 (PEPPOL Tests, codeunits 139235, 139236).
 pub(super) fn leaf_triggered_tree(schema: &Schema, c: usize, table: usize) -> bool {
     fn quiet(schema: &Schema, c: usize) -> bool {
         schema.node(c).triggers.is_empty()

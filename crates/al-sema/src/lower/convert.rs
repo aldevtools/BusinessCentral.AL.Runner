@@ -312,12 +312,10 @@ impl<'a> Lowerer<'a> {
 
     /// [`convert_to`](Self::convert_to) for a by-value argument: a text literal of one character handed to a Variant
     /// parameter is a Text there, not a Char (`','`, `'x'`: IsText; `V := ','` is IsChar), and a JSON helper that switches on
-    /// IsChar adds it as the text "," (al-runner issue 6924; measured on the newest major by the corpus writer, types/variant/
-    /// VaTIsChecks.al Is_OneCharacter_PassedToVariantParameter, json/JsonObjectBasics.al QW_Add_CharAndText_ThroughVariant;
-    /// assumption one-char-literal-argument-is-text until the pin lands).
+    /// IsChar adds it as the text "," (al-runner issue 6924; types/variant/VaTIsChecks.al:179-180, :185,
+    /// json/JsonObjectBasics.al:485, :489).
     pub(crate) fn convert_arg(&mut self, target: &Ty, src: &Ty, value: ir::Expr) -> L<ir::Expr> {
         if self.char_literal_into_variant(target, &value) {
-            self.assume(al_builtins::assumptions::Assumption::OneCharLiteralArgumentIsText);
             return self.convert_after_char_literal(target, src, value);
         }
         self.convert_to(target, src, value)

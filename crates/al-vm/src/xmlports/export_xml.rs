@@ -686,11 +686,9 @@ impl Session {
                     }
                 }
                 // `leaf_triggered_tree` (container_tree.rs): written as any container, its leaves' OnBeforePassVariable in schema
-                // order, Skip there leaves out that leaf. Not pinned: Microsoft's PEPPOL Tests (codeunits 139235, 139236) need it.
+                // order, Skip there leaves out that leaf (xmlports/shapes-properties/R6924eTreeInTable.al:287-288 all filled,
+                // :296-297 leaves skipped, :305-306 an inner leaf empty). Its own text stays refused (measured at :314, not built).
                 ir::XmlNodeKind::Text if leaf_triggered_tree(schema, child, node) => {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::XmlportLeafTriggersTreeInTable,
-                    );
                     if !got!(self.xp_pass_variable(inst, schema, child)).is_empty() {
                         return unsupported(
                             "XmlPort export of a container text element below a table element with its own text (not pinned)",

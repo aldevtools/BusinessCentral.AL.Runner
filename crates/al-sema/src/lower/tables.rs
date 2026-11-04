@@ -203,9 +203,9 @@ impl Lowerer<'_> {
                         // One AL string with a doubled quote in it is the filter its content spells: `filter('<>''''')` is
                         // `<>''` (not empty), on a field of the related table and on one a tableextension adds, and
                         // `filter('''''')` is `''` (the empty value); `filter('<>''')` raises InvalidFilterExpression on BC
-                        // and every other content is not measured, so both stay refused (al-runner issue 6924; corpus
-                        // record/table-relation/TableRelationQuotes.al TRX_*, awaiting the pin: assumption
-                        // table-relation-quoted-literal-filter).
+                        // and every other content is not measured, so both stay refused (al-runner issue 6924;
+                        // record/table-relation/TableRelationQuotes.al:1188-1189 conditional arm, :1203-1204 extension and
+                        // own field, :1225 `''`, :1221 `<>'''`; objects TableRelationExtFieldFilter.Objects.al:57-66).
                         crate::relation::ParsedWhere::QuotedFilter { related, text }
                             if matches!(text.as_str(), "<>''" | "''") =>
                         {
@@ -253,13 +253,6 @@ impl Lowerer<'_> {
                     let mut v = Vec::new();
                     if quoted {
                         v.push(al_builtins::assumptions::Assumption::TableRelationQuotes);
-                    }
-                    if a.wheres
-                        .iter()
-                        .flatten()
-                        .any(|w| matches!(w, crate::relation::ParsedWhere::QuotedFilter { .. }))
-                    {
-                        v.push(al_builtins::assumptions::Assumption::TableRelationQuotedLiteralFilter);
                     }
                     v
                 },
