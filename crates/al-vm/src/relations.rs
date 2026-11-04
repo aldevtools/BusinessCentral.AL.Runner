@@ -111,7 +111,7 @@ impl Session {
         value: &Value,
     ) -> Result<bool, Signal> {
         if !c.filter {
-            return Ok(ops::compare(value, &crate::constant(&c.value)).ok() == Some(Ordering::Equal));
+            return const_cond_holds(value, &c.value, || format!("{}.{field_name}", t.name));
         }
         // `Field = filter(x)`: the arm applies when the field's value passes the filter, which reads
         // like a SetFilter text (`filter('')` the blank value, `filter(<> '')` any other; corpus types/
@@ -137,6 +137,11 @@ impl Session {
                 t.name
             ))
         })?;
+        // A value the filter cannot compare does not count as failing it: that would apply the next or the else arm (hard
+        // rule 4; issue 6924).
+        if let Some(e) = expr.compare_error(value) {
+            return cond_refusal(e, &format!("{}.{field_name}", t.name));
+        }
         Ok(expr.matches(value))
     }
 
@@ -317,6 +322,30 @@ impl Session {
     }
 }
 
+/// Whether a `Field = const(x)` condition holds for `value` (`relation` names the field with the relation, for the
+/// refusal).
+/// A comparison that cannot be answered is refused: counting it as "does not hold" would apply the next or the else arm
+/// (hard rule 4).
+fn const_cond_holds(value: &Value, c: &ir::Const, relation: impl Fn() -> String) -> Result<bool, Signal> {
+    match ops::compare(value, &crate::constant(c)) {
+        Ok(o) => Ok(o == Ordering::Equal),
+        // An error of the comparison itself (a Text that reads as no Guid) is not pinned for a relation either.
+        Err(e) => cond_refusal(e, &relation()),
+    }
+}
+
+/// The refusal of a TableRelation condition of `relation` (table.field) whose comparison failed with `e`.
+fn cond_refusal<T>(e: Signal, relation: &str) -> Result<T, Signal> {
+    let why = match e {
+        Signal::Unsupported(why) => why,
+        Signal::Error(e) => e.message,
+        _ => "the comparison did not give an order".to_string(),
+    };
+    unsupported(format!(
+        "a condition of the TableRelation of {relation} cannot be evaluated: {why}"
+    ))
+}
+
 /// Whether every condition of a relation's `where()` is on a primary key field of the related table and, with the related field
 /// itself, they name the whole key.
 fn where_field(w: &ir::RelationWhere) -> usize {
@@ -331,4 +360,30 @@ fn covers_primary_key(related: &TableDef, rel_pos: usize, wheres: &[ir::Relation
         ir::RelationWhere::Value { related, .. } | ir::RelationWhere::Field { related, .. } => *related,
     };
     wheres.iter().all(|w| pk.contains(&on(w))) && pk.iter().all(|k| *k == rel_pos || wheres.iter().any(|w| on(w) == *k))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A condition whose comparison cannot be answered must refuse the relation, not count as "does not hold" and let the
+    // next or the else arm apply (hard rule 4; issue 6924, a Validate checked against the else arm's table).
+    #[test]
+    fn a_condition_that_cannot_be_compared_refuses() {
+        let unknown = Value::Unknown("the value is not known".into());
+        match const_cond_holds(&unknown, &ir::Const::Text("A".into()), || "T.F".into()) {
+            Err(Signal::Unsupported(why)) => {
+                assert!(why.contains("TableRelation of T.F"), "{why}");
+                assert!(why.contains("the value is not known"), "{why}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_condition_that_compares_answers() {
+        let c = ir::Const::Enum(7, 1);
+        assert!(const_cond_holds(&Value::Enum(7, 1), &c, String::new).unwrap());
+        assert!(!const_cond_holds(&Value::Enum(7, 2), &c, String::new).unwrap());
+    }
 }
