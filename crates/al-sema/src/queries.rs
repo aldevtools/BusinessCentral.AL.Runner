@@ -621,7 +621,7 @@ impl Builder<'_> {
         // (`Session::query_rows`), so a query like Base App's 1302 can be declared and used.
         // A plain column over a Sum or Count FlowField of a left-outer-joined child of the top dataitem is
         // calculated per joined row and is 0 for a parent without a matching child (errors/lt-ms-refusals-130/
-        // P130QueryOuterFlow.al:163-184, :210-229; al-runner issue 6174). Other FlowField kinds (Exist, Lookup,
+        // P130QueryOuterFlow.al:151-172, :198-217; al-runner issue 6174). Other FlowField kinds (Exist, Lookup,
         // Average, Min, Max), a Method column in the query, a ColumnFilter, a deeper dataitem or a right or full outer join in the
         // query are not pinned.
         let any_right = self.items.iter().any(|i| i.right_outer);

@@ -226,7 +226,7 @@ codeunit 69905 CA
 }
 "#;
 
-// corpus reports/runtime/BvReportCharArg.al:108-131 (PlainReport_CharVariableToInteger) and :160-170 (the local control).
+// corpus reports/runtime/BvReportCharArg.al:93-116 (PlainReport_CharVariableToInteger) and :160-170 (the local control).
 #[test]
 fn a_char_variable_into_an_integer_parameter_of_a_report_fails_with_conversion() {
     assert_eq!(
@@ -236,7 +236,7 @@ fn a_char_variable_into_an_integer_parameter_of_a_report_fails_with_conversion()
     assert_eq!(text(run_in(CHAR_ARG, "CA", "LocalCall")), "local integer 113");
 }
 
-// corpus reports/runtime/BvReportCharArg.al:140-158 (OtherCodeunit_CharVariableToInteger) was measured on the Linux
+// corpus reports/runtime/BvReportCharArg.al:125-143 (OtherCodeunit_CharVariableToInteger) was measured on the Linux
 // tiers only (a Linux suspect): the call is refused until the Windows check.
 #[test]
 fn a_char_variable_into_an_integer_parameter_of_another_codeunit_is_refused() {

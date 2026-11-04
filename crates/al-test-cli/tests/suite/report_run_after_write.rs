@@ -1,6 +1,6 @@
 //! `Report.Run(Id, true)` after an uncommitted insert in the test raises `DB:Ok` "An error occurred and the transaction is
 //! stopped. ..." before the request page opens: the handler is not called. Without a write before it the page opens and the
-//! handler runs (corpus reports/bare-report-member/Y36BareReportMember.al:251-264, the comment of
+//! handler runs (corpus reports/bare-report-member/Y36BareReportMember.al:236-249, the comment of
 //! Y36_BareGetter_InsideRun_RequestWindow, measured by writer Y36 on the CI containers of BC 27.5, 28.5 and 29.0).
 
 use al_testkit::outcomes_in;

@@ -2603,7 +2603,7 @@ codeunit 60161 T
 }"#;
 
 // A filter set after the last row and the Read that raises are pinned (errors/lt-ms-refusals-131/
-// P131QuerySetRangeAfterRead.al:154-170), and so is the Open after the last row (queries/read-lifecycle/QueryReadToEnd.al:88-200):
+// P131QuerySetRangeAfterRead.al:141-157), and so is the Open after the last row (queries/read-lifecycle/QueryReadToEnd.al:88-200):
 // neither test is flagged.
 #[test]
 fn an_open_after_the_last_row_is_not_flagged() {
