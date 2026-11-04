@@ -66,6 +66,20 @@ impl Session {
             Value::Codeunit(i) => {
                 let object = i.borrow().object as usize;
                 match targets.iter().find(|(o, _)| *o == object) {
+                    // The codeunit does not declare the member: the interface's default body runs on its
+                    // instance (codeunits/CwDefaultInterfaceMethods.al:114-138, CW_Default_InheritAndOverride).
+                    Some((_, al_ir::walk::DEFAULT_BODY)) => {
+                        let kinds = &self.engine.program.objects;
+                        match targets
+                            .iter()
+                            .find(|(o, _)| kinds[*o].kind == al_ir::ObjKind::Interface)
+                        {
+                            Some((o, r)) => Ok((*o, *r, self.shared_instance(i))),
+                            None => Err(Signal::Unsupported(
+                                "interface call: the default body of the interface is not compiled".into(),
+                            )),
+                        }
+                    }
                     Some((o, r)) => Ok((*o, *r, self.shared_instance(i))),
                     None => Err(Signal::Unsupported(format!(
                         "interface call on an instance of `{}`, which the interface does not list",

@@ -1737,7 +1737,9 @@ pub enum Expr {
     },
     /// A call through an interface: `receiver` evaluates to the codeunit instance the
     /// interface variable holds, and the call runs the target routine of that
-    /// instance's object. `targets` are (object, routine) of every implementation.
+    /// instance's object. `targets` are (object, routine) of every implementation; a codeunit that
+    /// runs the interface's default body has `(codeunit, walk::DEFAULT_BODY)`, and the default body
+    /// itself is the target `(interface, routine)`.
     InterfaceCall {
         receiver: Box<Expr>,
         targets: Vec<(usize, usize)>,
