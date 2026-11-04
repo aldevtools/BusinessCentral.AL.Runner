@@ -677,6 +677,15 @@ impl Lowerer<'_> {
                 // An empty `const('')` selects the blank value, as in a where() (corpus record/lt-relation-where-empty-term/
                 // RelationWhereEmptyTerm.al); Production BOM's `"Version Code" = const('')` (Tests-SCM-Manufacturing).
                 LinkRhs::Filter(t) if t.is_empty() => ir::LinkEntry::Filter(pf, "''".to_string()),
+                // A member name in AL's identifier quotes is the member, as in a TableRelation filter (`rewrite_quotes`): `filter(Open | "Bank
+                // Acc. Entry Applied")` on an Option or Enum field (pages/lt-y42-link-quoted-member/Y42LinkQuotedMember.al:318
+                // Lq_Option_FilterQuoted, :386 Lq_Option_ConstQuoted, :408 Lq_Option_NotEqualQuoted; AL Runner issue 6915).
+                LinkRhs::Filter(t)
+                    if t.contains('"')
+                        && matches!(self.members[target_table].fields[pf].ty, Ty::Option(_) | Ty::Enum(_)) =>
+                {
+                    ir::LinkEntry::Filter(pf, super::rewrite_quotes(&t))
+                }
                 LinkRhs::Filter(t) => ir::LinkEntry::Filter(pf, t),
                 // A qualified enum value is the member of the field's enum (pages/lt-uj-outside-leads/UjSubPageLink.al
                 // UJ_SubPageLink_ConstEnum_Rows, corpus branch al-runtime-rs-staging-uj 1dc037a8: the field may share the enum's

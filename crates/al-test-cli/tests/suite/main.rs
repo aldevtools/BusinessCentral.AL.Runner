@@ -147,6 +147,7 @@ mod stale_delete_triggers;
 mod stale_updlock_read;
 mod step_time_guard;
 mod stored_rec_temp_card;
+mod sub_page_link_quoted_option_member;
 mod subpagelink_field_filter;
 mod temp_list_key_open;
 mod test_framework_refusals;
