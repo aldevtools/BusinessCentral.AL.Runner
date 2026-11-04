@@ -237,7 +237,7 @@ codeunit 86864 "QI RV Test"
 }
 "#;
 
-/// QiRowPageVar.al:312 QI_RV_Part_Navigation.
+/// QiRowPageVar.al:297 QI_RV_Part_Navigation.
 #[test]
 fn each_part_row_shows_its_own_page_variable_values() {
     assert_eq!(

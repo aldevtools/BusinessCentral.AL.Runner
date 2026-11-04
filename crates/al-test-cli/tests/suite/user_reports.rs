@@ -89,7 +89,7 @@ codeunit 69511 T { Subtype = Test;
 }
 
 /// Issue 292: a procedure of a Page variable that never ran calls `CurrPage.Update(false)`; the call does nothing and the
-/// procedure goes on. Pin: pages/currpage/ClosedPageVariableCurrPageUpdate.al:98-114 (Update_NeverRun).
+/// procedure goes on. Pin: pages/currpage/ClosedPageVariableCurrPageUpdate.al:83-99 (Update_NeverRun).
 #[test]
 fn issue_292_currpage_update_false_on_a_page_variable_that_never_ran_returns() {
     let main = "
@@ -173,7 +173,7 @@ codeunit 69525 T { Subtype = Test;
 }
 
 /// Found next to issue 292: `CurrPage.Close()` in a procedure of a Page variable that never ran does nothing either.
-/// Pin: pages/currpage/ClosedPageVariableCurrPageClose.al:98-114 (Close_NeverRun).
+/// Pin: pages/currpage/ClosedPageVariableCurrPageClose.al:83-99 (Close_NeverRun).
 #[test]
 fn issue_292_currpage_close_on_a_page_variable_that_never_ran_returns() {
     let main = "
@@ -814,7 +814,7 @@ codeunit 69622 T {
 }
 
 /// al-runner issue 6179: a generic field-by-field copy compares `FieldRef.Length` of every field, a Media and a MediaSet field
-/// included. Pin: record/crud/MediaLengthFindEmpty.al:56-75 (Media 16, MediaSet 16).
+/// included. Pin: record/crud/MediaLengthFindEmpty.al:43-62 (Media 16, MediaSet 16).
 #[test]
 fn issue_6179_fieldref_length_of_media_and_mediaset() {
     let main = "

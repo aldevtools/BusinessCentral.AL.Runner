@@ -416,7 +416,7 @@ fn feature_key_texts_are_pinned_for_five_keys() {
 
 /// Truncate of the computed tables Integer and AllObj raises "The table does not support truncation." and, with the result used,
 /// answers false and keeps the rows (record/TestCalcFieldsTruncateUniqueContracts.al:311-312; record/crud/
-/// TruncateGuards.al:222-237).
+/// TruncateGuards.al:206-221).
 #[test]
 fn truncate_of_a_computed_table_raises_the_pinned_error() {
     let o = outcomes(

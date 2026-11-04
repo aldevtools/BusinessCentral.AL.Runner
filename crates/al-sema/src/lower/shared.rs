@@ -836,7 +836,7 @@ pub(crate) const EXTENSION_PAGE_TRIGGERS: &[&str] = &[
     // OnQueryClosePage_PageAndExtension_BothRun_AndBothMustAgreeToClose).
     "onqueryclosepage",
     // The test client has no delete operation, and a page action's `Rec.Delete(true)` runs neither the page's nor the
-    // extension's trigger (pages/extensions/PageExtOnDeleteRecord.al:121-206, all four result
+    // extension's trigger (pages/extensions/PageExtOnDeleteRecord.al:108-193, all four result
     // combinations). A client delete is not available, so the trigger never runs here.
     "ondeleterecord",
     // All of them run, the page's first, and an extension's false answer vetoes the insert or the modify (pageext/

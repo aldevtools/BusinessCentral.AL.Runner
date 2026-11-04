@@ -183,7 +183,7 @@ impl<'a> Checker<'a> {
                     // A table procedure named like a built-in Record method hides it only for a call that fits the procedure:
                     // the built-in runs when the call takes another number of arguments or types the procedure cannot take,
                     // and the procedure wins a call both fit (`pick` takes the first of equals, and the procedures come
-                    // first). Pinned by record/builtin-name-procedures/Y36BuiltinNameSameArity.al:146-298 (Get(1, 2)
+                    // first). Pinned by record/builtin-name-procedures/Y36BuiltinNameSameArity.al:131-283 (Get(1, 2)
                     // next to own Get(Record; Record) and Delete(true) next to own Delete(Text) are the built-ins, Delete('why')
                     // and Get('A') next to own Get(Code[20]) the procedures, bare Insert() and Get(1) in table code the
                     // built-ins), BmBuiltinNameProcedures.al:107-140 (own Count(), Insert(), Modify(Boolean), Get() win; Insert(true)

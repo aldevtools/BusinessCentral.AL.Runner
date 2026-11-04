@@ -1297,7 +1297,7 @@ impl Session {
                 };
                 let args = from_id.as_deref().unwrap_or(args);
                 // More values than the primary key has fields raise, with the result used and unused
-                // (record/builtin-name-procedures/Y36BuiltinNameSameArity.al:146-172 Y36_SameArity_Get_IntegerArgs: two
+                // (record/builtin-name-procedures/Y36BuiltinNameSameArity.al:131-157 Y36_SameArity_Get_IntegerArgs: two
                 // Integers on a one-field key of a table without a Caption). A table with a Caption is not pinned (name or caption).
                 if from_id.is_none() && args.len() > t.keys[0].len() {
                     let o = &self.engine.program.objects[t.object as usize];

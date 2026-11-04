@@ -1494,7 +1494,7 @@ impl Session {
         let in_key = self.table(&self.page_rec(st))?.keys[0].contains(&pos);
         // The row was stored with its blank key by a field outside the key typed first, nothing read the part before: the key typed
         // next behaves as after a part access. Only the Document page with one part and no SourceTableView is pinned
-        // (pages/parts/PartLineBeforeHostKey.al:1294 PYB_OpenNew_NameTypedFirst_ThenKey_ThenLine:
+        // (pages/parts/PartLineBeforeHostKey.al:1513 PYB_OpenNew_NameTypedFirst_ThenKey_ThenLine:
         // `type_key_log` = `[H.OnValidate(No.):D7]`, `after_key_card_no` = `[]`, `after_key_header_rows` = `[|]`).
         if !by_part {
             let o = st.borrow().object as usize;
@@ -2110,7 +2110,7 @@ impl Session {
 
     /// A call reaches part `child` of a Document host that is a new, unsaved record: a read of a part field or the part's First
     /// inserts the host (page OnInsertRecord and table OnInsert, nothing typed), and the parts link to it and read their rows
-    /// again, with or without rows of the blank key (pages/parts/PartLineBeforeHostKey.al:1748
+    /// again, with or without rows of the blank key (pages/parts/PartLineBeforeHostKey.al:1967
     /// QH_BlankRows_ReadPart_Stored, :2032 QH_NoRows_ReadPartControl, :2057 QH_OtherKeyRows_ReadPartControl, :2083
     /// QH_BlankRows_PartFirst, :2142 QH_BlankRows_ReadPartControlTwice_TraceHost). Pinned for a field-linked part of a host
     /// nothing was typed into, reached the first time; any other call on such a part while it shows rows of the blank key is

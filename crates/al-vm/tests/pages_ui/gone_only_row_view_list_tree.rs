@@ -1,5 +1,5 @@
 //! An action deletes the only row of a List with Editable = false opened for view, or empties a temporary Worksheet that shows
-//! its rows as a tree (testpage/RmWorksheetGoneRow.al:481 SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate,
+//! its rows as a tree (testpage/RmWorksheetGoneRow.al:465 SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate,
 //! :509 and :535 SH_TreeWorksheetTemp_*, pages with InsertAllowed, DeleteAllowed and ModifyAllowed false). With DeleteAllowed
 //! left out the tree is the registered assumption `tree-worksheet-gone-only-row-blank-rec`.
 

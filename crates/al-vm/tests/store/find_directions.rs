@@ -120,7 +120,7 @@ fn every_direction_text_gives_what_the_corpus_pins_for_record_and_recordref() {
 
 #[test]
 fn integer_to_text_is_the_digits_for_the_values_the_corpus_uses() {
-    // record/PZFindDirections.al:106 (`StartId.ToText()` for 5, 20, 25 and 35); no thousands separator
+    // record/PZFindDirections.al:91 (`StartId.ToText()` for 5, 20, 25 and 35); no thousands separator
     // (format-evaluate/P93ScalarToText.al:219-255: 1000 and 2147483647).
     let src = "codeunit 50100 C { procedure F(): Text var N: Integer; begin N := 25; exit(N.ToText() + (-7).ToText()); end; procedure G(): Text var N: Integer; begin N := 1234; exit(N.ToText()); end; }";
     let mut b = Built::from_source(src);

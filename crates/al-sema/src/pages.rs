@@ -914,7 +914,7 @@ fn implicit_promoted_category(kind: &str, target: &str) -> Option<Option<al_buil
     }
     // Pinned by pages/extensions/UpPromotedCategories.al (was assumption `pageext-implicit-promoted-category`) for
     // `Category_New`, `Category_Category7` and `Category_Category12`, and for `Category_Category5` and 6 by corpus branch
-    // al-runtime-rs-staging-y64 85d86e7b, pages/extensions/Y64PromotedImplicit.al:229-308; every group from 4 to 20 is the
+    // al-runtime-rs-staging-y64 85d86e7b, pages/extensions/Y64PromotedImplicit.al:217-296; every group from 4 to 20 is the
     // same implicit group (`promoted.rs`).
     (lower == "category_new" || promoted::numbered_category(target)).then_some(None)
 }

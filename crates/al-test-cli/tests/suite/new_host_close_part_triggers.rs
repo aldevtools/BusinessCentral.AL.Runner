@@ -1,5 +1,5 @@
 //! A new Document host, its key typed, closed with a part that shows no row: BC inserts the host and runs no trigger of the part
-//! (corpus pages/parts/PartLineBeforeHostKey.al:1468 QH_EmptyPart_OpenNew_KeyTyped, `close` =
+//! (corpus pages/parts/PartLineBeforeHostKey.al:1687 QH_EmptyPart_OpenNew_KeyTyped, `close` =
 //! `[H.OnInsert:Q1]` with no part entry). The runtime relinks the part and runs them, so a part that declares one is refused.
 
 use al_test_cli::report::Outcome;

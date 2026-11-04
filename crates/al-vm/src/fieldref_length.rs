@@ -16,7 +16,7 @@ pub(crate) fn length(ty: &RtType) -> Result<Value, Signal> {
         RtType::Guid => Ok(Value::Integer(16)),
         RtType::BigInteger | RtType::Duration | RtType::DateTime => Ok(Value::Integer(8)),
         RtType::Library(al_builtins::library_kind::LibraryKind::Blob) => Ok(Value::Integer(8)),
-        // record/crud/MediaLengthFindEmpty.al:56-75: Media 16, MediaSet 16.
+        // record/crud/MediaLengthFindEmpty.al:43-62: Media 16, MediaSet 16.
         RtType::Library(
             al_builtins::library_kind::LibraryKind::Media | al_builtins::library_kind::LibraryKind::MediaSet,
         ) => Ok(Value::Integer(16)),

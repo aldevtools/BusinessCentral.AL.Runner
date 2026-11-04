@@ -27,7 +27,7 @@ impl Session {
                 let last = s.agr_row.as_ref().is_some_and(|k| Self::same_key(k, &key));
                 drop(s);
                 // A row other than the one OnAfterGetRecord ran with last shows what the variable held for it (pages/
-                // lt-qi-row-page-var/QiRowPageVar.al:312 QI_RV_Part_Navigation `after-action = 2 | agr 2 | cur 2`); the row
+                // lt-qi-row-page-var/QiRowPageVar.al:297 QI_RV_Part_Navigation `after-action = 2 | agr 2 | cur 2`); the row
                 // OnAfterGetRecord ran with last shows the variable as it is, as before.
                 if ran_for_it && !last {
                     let s = st.borrow();

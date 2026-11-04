@@ -337,7 +337,7 @@ impl Session {
             s.refresh && s.refresh_by_update && s.refresh_update_false
         };
         // Without CurrPage.Update the page keeps showing the rows without MarkedOnly (`marked_only_unshown_call`). Pinned for a
-        // page without the row triggers only (corpus testpage/ScDrillDownMarkedOnly.al:422
+        // page without the row triggers only (corpus testpage/ScDrillDownMarkedOnly.al:408
         // DrilldownWithoutUpdateListAndGoTo); with them the later TestPage calls are refused.
         if !st.borrow().refresh {
             if with_parts {
@@ -459,7 +459,7 @@ impl Session {
             && !self.still_reads_once_more(st)
         {
             // In the primary key the other moves read the marked rows from the table, from Rec where the drilldown left it
-            // (testpage/ScDrillDownMarkedOnly.al:344 BothTriggersListAndGoTo).
+            // (testpage/ScDrillDownMarkedOnly.al:330 BothTriggersListAndGoTo).
             let left = st.borrow_mut().marked_refill_in_key.take();
             if let Some(left) = left {
                 self.page_rec(st).borrow_mut().fields = left;
@@ -532,7 +532,7 @@ impl Session {
     /// After a TestPage First or GoToRecord on a list with a part, OnAfterGetCurrRecord of the row it reached marked the rows again
     /// with MarkedOnly on and called CurrPage.Update(false): the client holds the marked rows of the new view and stays on the row
     /// Rec was left on; a GoToRecord of a row outside the new view is false (corpus writer Y1, branch al-runtime-rs-staging-y1,
-    /// testpage/Y1ExternalReapplyMarks.al:223 Y1_Reapply_FirstAfterExternalRefresh `first` `true/1`, `goto 2 after`
+    /// testpage/Y1ExternalReapplyMarks.al:207 Y1_Reapply_FirstAfterExternalRefresh `first` `true/1`, `goto 2 after`
     /// `false/1`, `next after` `false/1`, `goto 1 after` `true/1`; :278 Y1_Reapply_GoToRecordAfterRefreshWithoutFirst `goto 2`
     /// `false/1`, `goto 2 again` `false/1`; al-runner issue 6288). Which row triggers run while the client reads the new view is
     /// not pinned: none run here. Pinned for a list whose marked rows fit a window and hold Rec's row (another key:
@@ -1907,14 +1907,14 @@ impl Session {
     /// After an action on a list opened for view that stands on the draft row New() started, untouched: the client drops the
     /// draft and stores nothing.
     /// - `CurrPage.Update(false)`: it goes back to the row New() was started from, which it reads as when it opens
-    ///   (pages/currpage/ScUpdateEmptyRow.al:215-241 OpenView_NewDraftRow_ActionUpdate `agcr id=1 count=2 ;
+    ///   (pages/currpage/ScUpdateEmptyRow.al:202-228 OpenView_NewDraftRow_ActionUpdate `agcr id=1 count=2 ;
     ///   agcr id=0 count=2 ; before id=0 ; after id=0 ; agcr id=1 count=2`, `rows after` 2; from the second and the last of three
-    ///   rows Y6UpdateDraftRow.al:200-242, corpus master).
-    /// - `CurrPage.Update(true)`: back to the first row, from the first and from the last row (Y6UpdateDraftRow.al:158-177,
+    ///   rows Y6UpdateDraftRow.al:187-229, corpus master).
+    /// - `CurrPage.Update(true)`: back to the first row, from the first and from the last row (Y6UpdateDraftRow.al:145-164,
     ///   :244-264, corpus master). From another row it is not pinned: refused.
-    /// - An action without Update: as Update(false), from the first row (Y6UpdateDraftRow.al:179-198, corpus master). From
+    /// - An action without Update: as Update(false), from the first row (Y6UpdateDraftRow.al:166-185, corpus master). From
     ///   another row it is not pinned: refused.
-    /// - Over an empty view `CurrPage.Update(true)` leaves the page on no row, with no trigger (Y6UpdateDraftRow.al:326-342,
+    /// - Over an empty view `CurrPage.Update(true)` leaves the page on no row, with no trigger (Y6UpdateDraftRow.al:313-329,
     ///   corpus master); the other actions there go on as before.
     ///
     /// Pinned for a top-level list without OnFindRecord/OnNextRecord.
@@ -2036,7 +2036,7 @@ impl Session {
             }
             // A Worksheet with the new-row line opened for edit on an empty view, left on that line by an action that inserted
             // rows through another record variable: the next action first reads the line, OnAfterGetRecord on the blank Rec
-            // (testpage/RmWorksheetGoneRow.al:573 SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate, two rows).
+            // (testpage/RmWorksheetGoneRow.al:557 SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate, two rows).
             // Another number of rows is the registered assumption `empty-worksheet-filled-by-action`.
             (EmptyShape::EditList, _)
                 if self.engine.object_facts[st.borrow().object as usize].page_type
@@ -2086,7 +2086,7 @@ impl Session {
         if n > 1 {
             // A Worksheet with the new-row line opened for edit on an empty view whose action stored rows through another record
             // variable: the client reads the rows of the view once each, then the first one twice, runs OnAfterGetCurrRecord on
-            // it with a blank xRec and goes back to its new-row line (testpage/RmWorksheetGoneRow.al:573
+            // it with a blank xRec and goes back to its new-row line (testpage/RmWorksheetGoneRow.al:557
             // SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate, :601 _FillThenWalk `calculate log =
             // R:10000;R:20000;R:10000;R:10000;C:10000;N:0;C:0;`). Pinned with two rows; more rows up to a window are the
             // registered assumption `empty-worksheet-filled-by-action`; a view longer than a window is refused.
@@ -3377,7 +3377,7 @@ impl Session {
         };
         if again {
             // A second action on the blank Rec runs OnNewRecord and OnAfterGetCurrRecord once more and reads no row
-            // (testpage/RmWorksheetGoneRow.al:352 RM_Ws_OpenEdit_DeleteAllUpdate_Twice `N:0;C:0;`, an action
+            // (testpage/RmWorksheetGoneRow.al:336 RM_Ws_OpenEdit_DeleteAllUpdate_Twice `N:0;C:0;`, an action
             // that leaves the table empty). One that leaves rows in the view is not pinned.
             let rec = self.page_rec(st);
             let probe = Rc::new(RefCell::new(rec.borrow().clone()));
@@ -3515,7 +3515,7 @@ impl Session {
 
     /// Whether a list without the new-row line that lost its only row to an action stands on a blank Rec: pinned for a page whose
     /// InsertAllowed is false, a Worksheet opened for edit, for view or run modally and a List opened for edit
-    /// (testpage/RmWorksheetGoneRow.al:291, :327, :373, :397, :429). A List opened for view without the line
+    /// (testpage/RmWorksheetGoneRow.al:275, :311, :357, :381, :413). A List opened for view without the line
     /// is not pinned (with the line, pages/W1Update.al:534 pins that it raises nothing), nor is a list without the line for
     /// another reason (Editable = false, lookup mode, a tree).
     fn blank_rec_without_new_line(&mut self, st: &St) -> Result<bool, Signal> {
@@ -3534,7 +3534,7 @@ impl Session {
         }
         let worksheet = engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet);
         // A Worksheet that shows its rows as a tree, opened for edit, stands on the blank Rec the same way, at the action and at a
-        // later one (testpage/RmWorksheetGoneRow.al:509 SH_TreeWorksheetTemp_OpenEdit_EmptyRecNoUpdate
+        // later one (testpage/RmWorksheetGoneRow.al:493 SH_TreeWorksheetTemp_OpenEdit_EmptyRecNoUpdate
         // `R:10000;N:0;C:0;`, :535 _EmptyRecTwice `N:0;C:0;`, a page with InsertAllowed, DeleteAllowed and ModifyAllowed false).
         // Another combination is the registered assumption `tree-worksheet-gone-only-row-blank-rec`. A tree list whose blank Rec
         // would take a filter value is not pinned (`settle_on_blank_rec`).
@@ -3557,7 +3557,7 @@ impl Session {
     }
 
     /// The list stands on a blank Rec: OnNewRecord and OnAfterGetCurrRecord once, no row shown, First/Last/Next answer No
-    /// (testpage/RmWorksheetGoneRow.al:291 `R:10000;N:0;C:0;`, blank controls, `first log` empty). The blank
+    /// (testpage/RmWorksheetGoneRow.al:275 `R:10000;N:0;C:0;`, blank controls, `first log` empty). The blank
     /// Rec takes a single-value filter of a primary-key field set in filter group 0 or 2, before OnNewRecord; a filter on a field
     /// outside the key or a range is not taken
     /// (pages/RtFilteredGoneRow.al:355 RT_UfWs_KeyFieldGroup2 `R:5;N:Yes:0:;C:Yes:0:;`, :372 filter group
