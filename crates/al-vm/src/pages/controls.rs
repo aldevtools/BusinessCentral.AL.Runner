@@ -1448,24 +1448,9 @@ impl Session {
                 }
                 // OK and Yes confirm, Cancel and No cancel; a refused save keeps the page open
                 // (corpus testpage/lifecycle/TestPageClosingActions.al).
-                // The client reads the row of a card before Cancel, as before any action (pages/run-modal/P82PageRun.al:
-                // RunModal_NumberAndRecord_Cancel `OnAfterGetRecord(C);OnAfterGetRecord(C);OnQueryClosePage(LookupCancel)`); OK reads nothing
-                // (RunModal_Number_OnCard).
-                if name == "Cancel"
-                    && self.has_source(st)
-                    && !self.is_list(st)
-                    && !self.is_request_page(st)
-                    && st.borrow().cursor == Cursor::Row
-                    && !st.borrow().draft
-                    && self.declares(st, "onaftergetrecord")
-                {
-                    self.populate_current(st)?;
-                    // A page with OnAfterGetCurrRecord runs it after that read (ui-handlers/P129Handlers.al:
-                    // P129_TwoTestPageHandlers_SecondPageOpenedByAnActionOfTheFirstHandler: `card AGR 1;card AGCR 1;card OnQueryClosePage`).
-                    if self.declares(st, "onaftergetcurrrecord") {
-                        self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
-                        self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
-                    }
+                if name == "Cancel" {
+                    self.cancel_reads_card_row(st)?;
+                    self.cancel_refinds_static_lookup_row(st)?;
                 }
                 // Yes on a ConfirmationDialog whose control still holds a refused entry closes it as Cancel; the values it took stay
                 // (pages/values-allowed-set-value/Y37ValuesAllowedSetValue.al:193-196, :225-226; without a refused entry Yes reports Yes,
@@ -1953,4 +1938,44 @@ pub(super) fn note_refusal(st: &St, idx: usize, text: String) -> Result<(), Sign
 /// after `base MyProc<-base validate`).
 fn unpinned_ext_validate(before: &[(usize, usize)], after: &[(usize, usize)], request_page: bool) -> bool {
     !before.is_empty() || (!after.is_empty() && !request_page)
+}
+
+impl Session {
+    /// Cancel of a list with OnFindRecord that the static Page.RunModal opened in lookup mode finds the current row again (`=`) and
+    /// reads it before it closes; the record is left on that row (corpus branch al-runtime-rs-staging-r6962,
+    /// pages/run-modal/StaticRunModalFindRecordLookup.al StaticRunModalZero_FilteredNotPositioned_Cancel
+    /// `...;H:opened=V2;F:==Yes;R:V2;H:cancel;`, `selected` V2; issue 6992).
+    fn cancel_refinds_static_lookup_row(&mut self, st: &St) -> Result<(), Signal> {
+        let shape = {
+            let s = st.borrow();
+            s.lookup && s.static_lookup && s.host.is_none() && s.cursor == Cursor::Row && !s.draft
+        };
+        if shape && self.is_list(st) && self.declares(st, "onfindrecord") && self.nav_find(st, "=")? {
+            self.populate_current(st)?;
+        }
+        Ok(())
+    }
+
+    /// Before Cancel the client reads the row of a card.
+    fn cancel_reads_card_row(&mut self, st: &St) -> Result<(), Signal> {
+        // The client reads the row of a card before Cancel, as before any action (pages/run-modal/P82PageRun.al:
+        // RunModal_NumberAndRecord_Cancel `OnAfterGetRecord(C);OnAfterGetRecord(C);OnQueryClosePage(LookupCancel)`); OK reads nothing
+        // (RunModal_Number_OnCard).
+        if self.has_source(st)
+            && !self.is_list(st)
+            && !self.is_request_page(st)
+            && st.borrow().cursor == Cursor::Row
+            && !st.borrow().draft
+            && self.declares(st, "onaftergetrecord")
+        {
+            self.populate_current(st)?;
+            // A page with OnAfterGetCurrRecord runs it after that read (ui-handlers/P129Handlers.al:
+            // P129_TwoTestPageHandlers_SecondPageOpenedByAnActionOfTheFirstHandler: `card AGR 1;card AGCR 1;card OnQueryClosePage`).
+            if self.declares(st, "onaftergetcurrrecord") {
+                self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+                self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+            }
+        }
+        Ok(())
+    }
 }

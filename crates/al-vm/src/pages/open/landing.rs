@@ -166,18 +166,15 @@ impl Session {
             // (pages/triggers/QcFindViewTests.al:78 ViewList_OpenView_FindStringAndRow, :361 ViewCard_OpenView_FindStringAndRow,
             // :505 DocPart_OpenEdit_LinesOfH1).
             // A list page variable run in lookup mode (LookupMode(true)) with no record is asked `=>` (pages/list-order/
-            // QgGoToKeyNextCall.al:629 Nav_LookupHandler_GoToKey_ThenOK `log` `F:=>=Yes;R:R1001;N:1=1;...`). The static RunModal
-            // in lookup mode is not pinned; a TableRelation lookup keeps `=><` as before.
+            // QgGoToKeyNextCall.al:629 Nav_LookupHandler_GoToKey_ThenOK `log` `F:=>=Yes;R:R1001;N:1=1;...`). So is a list the
+            // static Page.RunModal(0 or Id, Rec) runs in lookup mode, positioned or not (corpus branch al-runtime-rs-staging-r6962,
+            // pages/run-modal/StaticRunModalFindRecordLookup.al StaticRunModalZero_FilteredNotPositioned_FirstThenOK `F:=>=Yes;R:V2;...`,
+            // _FilteredOnRow_, _NoFilterNotPositioned_, StaticRunModalPageId_; issue 6992). A TableRelation lookup keeps `=><`.
             let (lookup, lookup_set, static_lookup) = {
                 let s = st.borrow();
                 (s.lookup, s.lookup_set, s.static_lookup)
             };
-            if lookup && static_lookup && self.is_list(st) {
-                return unsupported(
-                    "a list with OnFindRecord run in lookup mode by the static Page.RunModal without a record (which Find it is asked is not pinned)",
-                );
-            }
-            if lookup && lookup_set && self.is_list(st) {
+            if lookup && (lookup_set || static_lookup) && self.is_list(st) {
                 "=>"
             } else if !lookup && self.is_list(st) && self.onopenpage_left_rec_past_the_first_row(st)? {
                 // A list whose OnOpenPage left Rec on a row that is not the first of its view is asked `=>`
