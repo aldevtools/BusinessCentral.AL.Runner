@@ -93,6 +93,7 @@ mod format_record_length;
 mod format_recordid_number;
 mod format_second_dec;
 mod format_variant_number;
+mod guard_exit;
 mod guid_max_str_len;
 mod guid_text_compare;
 mod guid_text_functions;
