@@ -498,7 +498,7 @@ impl Session {
     /// SubPageLink read their rows again; a part without one keeps what it shows and runs no trigger
     /// (pages/parts/PartReadsOpen.al:269-283 and :336-379, `-Plain` and `-View` empty;
     /// pages/parts/PartViewFilter.al:381 `next-GtOnly`; types/operators-expressions/
-    /// P142HiddenPartArea.al:386, :420). A linked part hidden by a Visible expression reads too (PartReadsOpen.al `-Hidden`).
+    /// P142HiddenPartArea.al:371, :405). A linked part hidden by a Visible expression reads too (PartReadsOpen.al `-Hidden`).
     /// After Previous and First the linked parts read their rows last to first, once each (PartReadsOpen.al:358-379: 1, 2
     /// and 3 rows; PartViewFilter.al:387-389); after Next and Last first to last, then the first row once more.
     pub(super) fn sync_parts_after_move(&mut self, st: &St, backward: bool) -> Result<(), Signal> {

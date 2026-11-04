@@ -112,7 +112,7 @@ fn a_bare_run_modal_in_a_trigger_of_the_report_is_refused() {
 }
 
 /// The bare report methods are the `CurrReport.` form, also on a report variable never run and from a report extension
-/// (reports/bare-report-member/Y36BareReportMember.al:206-357): UseRequestPage is No for `UseRequestPage = false`,
+/// (reports/bare-report-member/Y36BareReportMember.al:191-342): UseRequestPage is No for `UseRequestPage = false`,
 /// a variable setter is seen by the bare getter, the bare setter in an extension is seen by the variable, ObjectId names
 /// the report, and a bare SetTableView filters the next run.
 const BARE: &str = r#"
