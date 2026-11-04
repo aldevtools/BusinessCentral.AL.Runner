@@ -636,7 +636,7 @@ fn field_row(
     let is_blob = matches!(&f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Blob));
     // SystemId and the audit fields have the platform's own: EndUserPseudonymousIdentifiers (4) for SystemId, SystemCreatedBy and
     // SystemModifiedBy, SystemMetadata (6) for SystemCreatedAt and SystemModifiedAt, whatever the table declares (Windows BC 27.5
-    // and 28.5 probe, corpus branch al-runtime-rs-staging-r6890, platform/lt-y35-username-field-rows/R6890SystemFieldClassification.al,
+    // and 28.5 probe, corpus branch al-runtime-rs-staging-r6890, metadata/platform-tables/R6890SystemFieldClassification.al,
     // the three tests; the entry `system-field-row-data-classification` awaits that file, `table_entries` marks it).
     let dc = match (fprop("DataClassification"), is_flow_field, is_blob) {
         _ if system_field_classification(f.id).is_some() => system_field_classification(f.id).unwrap_or(0),

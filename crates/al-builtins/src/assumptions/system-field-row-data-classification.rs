@@ -5,7 +5,7 @@ SystemFieldRowDataClassification => {
     probe: "R6890SystemFieldClassification.al on corpus branch al-runtime-rs-staging-r6890 (R6890_SystemFieldRows_*): measured on the two older majors on Windows and on the newest on the Linux CI.",
     awaiting: Awaiting {
         issues: &[6890],
-        files: &["tests/al-language/platform/lt-y35-username-field-rows/R6890SystemFieldClassification.al"],
+        files: &["tests/al-language/metadata/platform-tables/R6890SystemFieldClassification.al"],
         since: "2026-11-03",
     },
 }
