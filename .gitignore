@@ -10,3 +10,9 @@ coverage.cobertura.xml
 /packaging/dotnet-tool/native/
 /packaging/dotnet-tool/bin/
 /packaging/dotnet-tool/obj/
+
+# Generated coverage maps (ADR-065: not committed; CI on main uploads them as the artifact coverage-maps-<run id>)
+/docs/corpus-coverage.md
+/docs/corpus-coverage.json
+/docs/corpus-behavior-coverage.md
+/docs/corpus-behavior-coverage.json

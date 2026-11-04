@@ -13,7 +13,8 @@ no pass counts, because they go stale within a day. For the current numbers:
 
 ## BC versions (ADR-015)
 
-One oracle and one ratchet per BC major (`metrics/<major>/passing.txt`). `al-test-cli --root .` runs the newest;
+One oracle per BC major, and per major and test app a list of the cases the runtime does not pass yet
+(`metrics/<major>/not-passing*.txt`, ADR-065). `al-test-cli --root .` runs the newest;
 `--bc-version N` picks one; `--all-versions` runs all three and compares them. On BC 27.5 the corpus compiles
 Microsoft's apps from the corpus's own `.alpackages`; the other versions take them from the artifact of the
 matching build. The OnPrem app and the isolation probe each have their own oracle, ratchet and report line, and

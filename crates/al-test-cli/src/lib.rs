@@ -12,6 +12,7 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub mod args;
 pub mod awaiting;
+pub mod base_oracle;
 pub mod behavior_coverage;
 pub mod config;
 pub mod corpus;
@@ -20,6 +21,7 @@ pub mod drift;
 pub mod insight;
 pub mod language_catalog;
 pub mod mnc;
+pub mod not_passing;
 pub mod oracle;
 pub mod output;
 pub mod pin;

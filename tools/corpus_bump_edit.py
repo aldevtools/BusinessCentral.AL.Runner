@@ -21,7 +21,7 @@ app = "corpus/tests/al-language-isolation-disabled"
 workflow_run = {run}
 artifact_id = {artifact}
 oracle = "{major}/junit-isolation-disabled.xml"
-baseline = "metrics/{major}/passing-isolation-disabled.txt"
+baseline = "metrics/{major}/not-passing-isolation-disabled.txt"
 runner = 130451
 '''
 legs = [rest[i:i + 5] for i in range(0, len(rest), 5)]
