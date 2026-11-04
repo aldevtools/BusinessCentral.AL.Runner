@@ -449,7 +449,13 @@ impl<'a> Checker<'a> {
     /// AL0161 (corpus must-not-compile 0356, 0358, 0359): `C.Name` on a codeunit variable of another codeunit, where `Name`
     /// is only declared `local` or is a global variable (never reachable through a variable).
     /// A member of a test page that is itself the receiver of another member: the control of that name (see `infer`).
-    fn receiver_control_member(&mut self, sc: &Scope, node: &SyntaxNode, base: &Ty, name: &str) -> Option<E> {
+    pub(super) fn receiver_control_member(
+        &mut self,
+        sc: &Scope,
+        node: &SyntaxNode,
+        base: &Ty,
+        name: &str,
+    ) -> Option<E> {
         if matches!(base, Ty::TestPage(_) | Ty::TestRequestPage(_) | Ty::TestPart(_))
             && !(matches!(base, Ty::TestPart(_)) && name.eq_ignore_ascii_case("Page"))
             && node
@@ -1589,14 +1595,12 @@ impl<'a> Checker<'a> {
                 // `Part.Page` is the page the part shows, also when that page has a control called Page (Base
                 // Application's Purch. Invoice Subform has a group "Page"): real BC compiles
                 // `CurrPage.PurchLines.Page.ForceTotalsCalculation()`; no corpus test names a control Page.
-                if let Some(e) = self.receiver_control_member(sc, node, &base_ty, &mname) {
+                // Also `Other.<protected var>` in a table extension (al-runner issue 6984).
+                if let Some(e) = self.control_or_protected_member(sc, node, &base_ty, &mname) {
                     return e;
                 }
                 self.currreport_request_options_page(sc, node, &kids[0], &base_ty, &mname);
                 self.al_codeunit_access(sc, node, &base_ty, &mname);
-                if let Some(e) = self.record_protected_member(sc, node, &base_ty, &mname) {
-                    return e;
-                }
                 match self.member(sc, &base_ty, &mname) {
                     Some(e) => e,
                     None if self.tdd_member(sc, node, &kids[0], &base_ty, &mname) => E::Val(Ty::Unknown),

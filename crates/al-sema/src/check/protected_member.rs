@@ -7,6 +7,18 @@
 use super::*;
 
 impl<'a> Checker<'a> {
+    /// A control named through a page or test page (`receiver_control_member`), else [`Self::record_protected_member`].
+    pub(super) fn control_or_protected_member(
+        &mut self,
+        sc: &Scope,
+        node: &SyntaxNode,
+        base: &Ty,
+        name: &str,
+    ) -> Option<E> {
+        self.receiver_control_member(sc, node, base, name)
+            .or_else(|| self.record_protected_member(sc, node, base, name))
+    }
+
     /// Records [`Res::RecGlobal`] for `Other.Name` when the code is a table extension, `Other` a record of the table it
     /// extends, and `Name` a protected variable it sees by bare name that no field or procedure of the table hides.
     pub(super) fn record_protected_member(
