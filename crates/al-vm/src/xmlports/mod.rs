@@ -457,24 +457,59 @@ impl Session {
         }
     }
 
-    /// `SetTableView`: the filters of the given record go to the first table element
-    /// (xmlports/TestXmlPortObject.al:XmlPort_SetTableView_RestrictsExportedRows).
+    /// `SetTableView`: the filters of the given record go to the first table element, in schema order and nested ones included,
+    /// whose table is the record's table; a second element of the same table keeps all its rows
+    /// (xmlports/TestXmlPortObject.al:XmlPort_SetTableView_RestrictsExportedRows; xmlports/set-table-view/
+    /// XmlPortSetTableViewElement.al SetTableView_RecordOfLaterSiblingElement_Export, _RecordOfNestedChildElement_Export,
+    /// _TwoElementsOfTheSameTable_Export, corpus branch al-runtime-rs-staging-r6918-22). A record of a table no element uses
+    /// raises XmlPortNodeNotFound (same file, SetTableView_RecordOfTableNoElementUses).
     fn xp_set_view(&mut self, inst: &Inst, view: Option<&Value>) -> Result<(), Signal> {
         let schema = self.xp_schema(inst)?;
-        let Some(first) = schema.xp().nodes.iter().find(|n| n.kind == ir::XmlNodeKind::Table) else {
+        if !schema.xp().nodes.iter().any(|n| n.kind == ir::XmlNodeKind::Table) {
             return unsupported(format!(
                 "SetTableView on XmlPort \"{}\", which has no table element",
                 schema.name()
             ));
-        };
+        }
         let Some(Value::Record(view)) = view else {
             return unsupported(format!("SetTableView with {}", view.describe()));
         };
-        let target = self.xp_record(inst, first)?;
-        let v = view.borrow();
-        if v.table != target.borrow().table {
-            return unsupported("SetTableView with a record of another table (error text not pinned)");
+        let view_table = view.borrow().table;
+        let mut target = None;
+        for node in schema.xp().nodes.iter().filter(|n| n.kind == ir::XmlNodeKind::Table) {
+            let rec = self.xp_record(inst, node)?;
+            if rec.borrow().table == view_table {
+                target = Some(rec);
+                break;
+            }
         }
+        let Some(target) = target else {
+            // Measured for a port and a table that have no Caption, where the text names both; whether it shows a caption
+            // instead of the name is not pinned.
+            let port = &self.engine.program.objects[schema.object];
+            let table = &self.engine.program.objects[view_table as usize];
+            let captioned = |o: &ir::Object| {
+                o.properties
+                    .iter()
+                    .any(|(k, _)| k.to_ascii_lowercase().starts_with("caption"))
+            };
+            if captioned(port) || captioned(table) {
+                return unsupported(
+                    "SetTableView with a record of a table no element uses, on a port or table with a Caption (error text not pinned)",
+                );
+            }
+            return Err(Signal::Error(Box::new(AlError {
+                message: format!(
+                    "The {} XmlPort does not have a XmlItem that uses the table (Table {} {}) specified in the function SetTableView.",
+                    port.name,
+                    table.id.unwrap_or(0),
+                    table.name
+                ),
+                code: "XmlPortNodeNotFound".into(),
+                ..Default::default()
+            })));
+        };
+        let v = view.borrow();
         if v.temporary || v.marked_only {
             return unsupported("SetTableView with a temporary or marked record (not pinned)");
         }
