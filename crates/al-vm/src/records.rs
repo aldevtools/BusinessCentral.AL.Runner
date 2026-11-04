@@ -1763,10 +1763,11 @@ impl Session {
     pub(crate) fn load(&mut self, rec: &Rec, mut row: Vec<Value>) -> Result<(), Signal> {
         // A temporary table keeps whole milliseconds; only a write to a database table rounds them to 1/300 s
         // (record/filters/P130DateFilters.al:324, :402).
+        let t = self.table(rec)?;
         if rec.borrow().temp_id.is_none() {
-            for v in &mut row {
+            for (pos, v) in row.iter_mut().enumerate() {
                 if let Value::Blob(b) = v {
-                    *b = al_builtins::stream::copy_blob_db_row(b);
+                    *b = self.copy_blob_db_row(&t, pos, b);
                 }
             }
         } else {
@@ -1803,7 +1804,6 @@ impl Session {
             });
             r.load.partial = false;
         }
-        let t = self.table(rec)?;
         let pk = t.primary_key(&row);
         // The record remembers the row as its own only when the row passed its filters when it was read; a filter set later forgets it
         // (record/TestFindSetSortKeyModify.al:OwnFilter_ModifiedOutOfIt_FindStillFindsTheRow against misc/lt-probes-needed-3/

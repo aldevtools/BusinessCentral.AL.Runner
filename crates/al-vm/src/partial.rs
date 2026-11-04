@@ -275,7 +275,7 @@ impl Session {
                 // A Blob the record calculated or wrote keeps its content (P81LoadFields.al:664-689
                 // CalcFields_OnNotLoadedFlowAndBlob); an unread one takes the row's (:1224-1243 RN_StaleModify_BlobChangedElsewhere).
                 (Value::Blob(a), _) if a.borrow().loaded || a.borrow().written => continue,
-                (_, Value::Blob(b)) => Value::Blob(al_builtins::stream::copy_blob_db_row(b)),
+                (_, Value::Blob(b)) => Value::Blob(self.copy_blob_db_row(&t, p, b)),
                 (_, v) => v.clone(),
             };
         }
