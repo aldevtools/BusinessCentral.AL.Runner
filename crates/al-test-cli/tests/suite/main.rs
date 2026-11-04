@@ -194,5 +194,6 @@ fn every_file_of_the_suite_is_a_module() {
         "add `mod NAME;` to tests/suite/main.rs for: {missing:?}"
     );
 }
+mod issue_6919_xmlport_set_table_view_later_element;
 mod issue_6922_record_substitution_arg;
 mod read_only_temp_list_gone_row;
