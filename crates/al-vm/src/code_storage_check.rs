@@ -3,7 +3,7 @@
 use crate::Session;
 use al_builtins::native::Signal;
 use al_builtins::value::{RtType, Value};
-use al_data::TableDef;
+use al_data::{Store, TableDef};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -41,29 +41,64 @@ impl Session {
 
     /// A Rename to a value a number-stored Code key cannot hold fails like an Insert and changes nothing (Y82PkTests.al
     /// `PkInt_Rename_ToAbc`, `PkBig_Rename_ToAbc`); a value it takes is stored as the number. Then the checks of the new key's
-    /// AutoIncrement fields.
+    /// AutoIncrement fields. The AutoIncrement error is returned, not raised: it comes after the OnRename trigger, and only for a
+    /// row that exists (record/crud/R6863RenameTrigger.al).
     pub(crate) fn check_rename_values(
         &self,
         rec: &Rec,
         t: &TableDef,
         old: &[Value],
         new: &mut Vec<Value>,
-    ) -> Result<(), Signal> {
-        self.check_rename_auto_increment(t, old, new)?;
+    ) -> Result<Option<Signal>, Signal> {
+        let deferred = match self.check_rename_auto_increment(t, old, new) {
+            Err(e @ Signal::Error(_)) => Some(e),
+            other => {
+                other?;
+                None
+            }
+        };
         let held = std::mem::replace(&mut rec.borrow_mut().fields, new.clone());
         let checked = self.check_code_storage(t, rec, false);
         *new = std::mem::replace(&mut rec.borrow_mut().fields, held);
-        checked
+        checked.map(|()| deferred)
+    }
+
+    /// After the OnRename trigger (the global trigger runs here too): record/crud/R6863RenameTrigger.al: the trigger runs first (its error wins), then
+    /// a row that does not exist raises RecordNotFound, then the AutoIncrement error, before a key that exists. A temporary record
+    /// has no AutoIncrement error (Rename_TemporaryRecord, same file, :202-219).
+    pub(crate) fn raise_deferred_auto_increment(
+        &mut self,
+        cx: &al_data::AccessContext,
+        t: &TableDef,
+        rec: &Rec,
+        xrec: &Rec,
+        (old_pk, old): (&[Value], &[Value]),
+        refusal: Option<Signal>,
+    ) -> Result<(), Signal> {
+        self.global_trigger(t, crate::globaltriggers::GlobalOp::Rename, rec, Some(xrec))?;
+        let Some(refusal) = refusal.filter(|_| !rec.borrow().temporary) else {
+            return Ok(());
+        };
+        let exists = self
+            .store_for(rec)
+            .get(cx, t, old_pk)
+            .map_err(|e| Signal::Unsupported(format!("{e}")))?
+            .is_some();
+        if exists {
+            rec.borrow_mut().fields = old.to_vec();
+            return Err(refusal);
+        }
+        Ok(())
     }
 
     /// A Code field the database stores as a number takes plain numbers and the empty value; the check runs where a record is
     /// Inserted or Modified, and the values are stored as the number they are. Pinned (corpus writer's probe, needs corpus bump,
-    /// tests/al-language/record/lt-y82-sqldatatype-code/ Y82InsertTests.al `PkInt_Insert_*`, `PkBig_Insert_*`, `PkVnt_Insert_*`,
+    /// tests/al-language/record/system-fields/ Y82InsertTests.al `PkInt_Insert_*`, `PkBig_Insert_*`, `PkVnt_Insert_*`,
     /// `SecFInt_Insert_*`, `SecFBig_Insert_*`):
     /// * `Integer` and `BigInteger`: `0` and a number with a leading zero fail with error code 22928070 (`NDBCS:BadCSideCodeData`);
     ///   letters (also with digits), `-5` and `1.5` fail with 22928072 (`NDBCS:BadSqlIntCodeData`), as does `3000000000` for
     ///   Integer; `+5` and ` 12` are taken and stored as 5 and 12. A Modify of such a value is pinned for Integer
-    ///   (record/lt-x-table-props/XTablePropsTests.al:352-353, :368-369, :384-385) and refused for BigInteger.
+    ///   (record/table-properties/XTablePropsTests.al:352-353, :368-369, :384-385) and refused for BigInteger.
     /// * `Variant` takes every value; a text of digits is stored as the number (`007` as `7`, `0` stays).
     ///
     /// Any other value is not pinned: refused.

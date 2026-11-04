@@ -1,4 +1,4 @@
-//! An XML report dataset with a Blob column (AL Runner issue 5582), pinned by report/lt-bc-xml-blob/BcXmlBlob.al: an empty Blob is
+//! An XML report dataset with a Blob column (AL Runner issue 5582), pinned by reports/layouts-saveas/BcXmlBlob.al: an empty Blob is
 //! an empty element, content is its Base64 text, with or without CalcFields; an empty Media or MediaSet is an empty element.
 
 const SRC: &str = r#"

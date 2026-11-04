@@ -115,7 +115,7 @@ impl Session {
                 ..Default::default()
             };
             // With the result used it answers false, keeps the rows and leaves the text in GetLastErrorText
-            // (record/lt-truncate-guards/TruncateGuards.al:P163_Truncate_Temporary_ReturnValueUsed_BQ).
+            // (record/crud/TruncateGuards.al:P163_Truncate_Temporary_ReturnValueUsed_BQ).
             if self.ret_used {
                 self.last_error = e;
                 return Ok(Value::Boolean(false));
@@ -137,8 +137,8 @@ impl Session {
                 })
             });
         if has_media {
-            // Code DB:Ok (misc/lt-probes-needed-3/PnC03Truncate.al:Truncate_MediaTable, Truncate_MediaTable_Empty;
-            // record/lt-truncate-guards/TruncateGuards.al:P163_Truncate_MediaSetTable_AndFilters).
+            // Code DB:Ok (streams/PnC03Truncate.al:Truncate_MediaTable, Truncate_MediaTable_Empty;
+            // record/crud/TruncateGuards.al:P163_Truncate_MediaSetTable_AndFilters).
             return Err(Signal::Error(Box::new(AlError {
                 message: "Truncate is not supported when the field has Media and/or MediaSet fields.".into(),
                 code: "DB:Ok".into(),
@@ -148,7 +148,7 @@ impl Session {
         }
         // Corpus record/TestRecordTruncateTryScope.al:34: the scope is inherited by called frames.
         // The computed tables Integer and AllObj: with the result used it answers false, keeps the rows and leaves the text in
-        // GetLastErrorText (record/TestCalcFieldsTruncateUniqueContracts.al:311-312; record/lt-truncate-guards/TruncateGuards.al:
+        // GetLastErrorText (record/TestCalcFieldsTruncateUniqueContracts.al:311-312; record/crud/TruncateGuards.al:
         // 222-237). The error code is not pinned; another computed table is refused by the store.
         if matches!(
             self.engine.program.objects[t.object as usize]

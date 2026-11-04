@@ -18,7 +18,7 @@ pub(super) fn signal(
     e: &DotNetException,
 ) -> Result<(), Signal> {
     // Pinned for the MailAddress constructor only, exactly these two exception types:
-    // corpus tests/al-language-onprem-dotnet/lt-af-dotnet/AfMailAddress.al:77 (Format),
+    // corpus tests/al-language-onprem-dotnet/dotnet/dotnet/AfMailAddress.al:77 (Format),
     // :88 and :99 (Argument, Format). Any other exception stays a refusal (not pinned).
     if kind == MemberKind::Construct && clr_type.eq_ignore_ascii_case("System.Net.Mail.MailAddress") {
         let code = match e.clr_type.as_str() {
@@ -36,9 +36,9 @@ pub(super) fn signal(
     // `new System.Uri(text)` of a text that is no URI (UriFormatException, as System Application Uri.IsValidUri meets
     // it), and XmlDocument.LoadXml of a text with no root element (XmlException): the error AL sees is `A call to
     // <type>[.<member>] failed with this message: <.NET message>`, code `DotNetInvoke:UriFormat` / `DotNetInvoke:Xml`,
-    // caught by a TryFunction and by Codeunit.Run (onprem-dotnet lt-wd-dotnet/WdTryFunctionDotNetException.al:50-102,
+    // caught by a TryFunction and by Codeunit.Run (onprem-dotnet dotnet/dotnet/WdTryFunctionDotNetException.al:50-102,
     // corpus branch al-runtime-rs-staging-1030c, al-runner issue 6305). XmlDocument.Load and LoadXml raise any XmlException
-    // in the same form (lt-ae-dotnet/AeXmlDocumentLoadErrors.al:112-128 LoadXml_NotXml, :149-166 Load_EmptyStream). Other
+    // in the same form (dotnet/dotnet/AeXmlDocumentLoadErrors.al:112-128 LoadXml_NotXml, :149-166 Load_EmptyStream). Other
     // exceptions of these members stay refused.
     let pinned = match (kind, e.clr_type.as_str()) {
         (MemberKind::Construct, "System.UriFormatException") if clr_type.eq_ignore_ascii_case("System.Uri") => {
@@ -47,7 +47,7 @@ pub(super) fn signal(
         (MemberKind::Call, "System.Xml.XmlException") if clr_type.eq_ignore_ascii_case("System.Xml.XmlDocument") => {
             xml_load_member(member).map(|m| (format!("{clr_type}.{m}"), "DotNetInvoke:Xml"))
         }
-        // The Position of a MemoryStream JsonObject.ReadFrom closed (lt-y51-dotnet-builtin-args/Y51DotNetBuiltinArgs.al:
+        // The Position of a MemoryStream JsonObject.ReadFrom closed (dotnet/dotnet-builtin-args/Y51DotNetBuiltinArgs.al:
         // DotNetMemoryStream_JsonObjectReadFrom `pos_after_json`).
         (MemberKind::Get, "System.ObjectDisposedException")
             if clr_type.eq_ignore_ascii_case("System.IO.MemoryStream") && member.eq_ignore_ascii_case("Position") =>
@@ -63,7 +63,7 @@ pub(super) fn signal(
         );
     }
     // System.Enum.Parse(type, name) of a name that is not a member (also one in another case): writer TV, corpus
-    // branch al-runtime-rs-staging-tv 8ae7ac0b, lt-bb-dotnet/BbGetDotNetType.al
+    // branch al-runtime-rs-staging-tv 8ae7ac0b, dotnet/dotnet/BbGetDotNetType.al
     // TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (assumption dotnet-type-unassigned-enum).
     if kind == MemberKind::Call
         && is_static
@@ -73,14 +73,14 @@ pub(super) fn signal(
         && e.clr_type == "System.ArgumentException"
         && e.message.starts_with("Requested value '")
     {
-        // Pinned by tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (was assumption `dotnet-type-unassigned-enum`).
+        // Pinned by tests/al-language-onprem-dotnet/dotnet/dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (was assumption `dotnet-type-unassigned-enum`).
         return al_builtins::native::raise(
             format!("A call to System.Enum.Parse failed with this message: {}", e.message),
             "DotNetInvoke:Argument",
         );
     }
     // Encoding.GetEncoding: the sidecar registers the code-page provider, as BC's server answers code pages
-    // (corpus tests/al-language-onprem-dotnet/lt-ra-dotnet/RaEncodingCodePages.al:115, :131, :152, :244).
+    // (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/RaEncodingCodePages.al:115, :131, :152, :244).
     // Pinned failures: a code page out of range (ArgumentOutOfRange, :168 and :244, 99999) and an unknown
     // name (Argument, :168). A code page in range that .NET has no data for (NotSupported) is not pinned.
     if clr_type.eq_ignore_ascii_case("System.Text.Encoding") && member.eq_ignore_ascii_case("GetEncoding") {
@@ -102,7 +102,7 @@ pub(super) fn signal(
     zip_archive(kind, clr_type, member, e)
 }
 
-/// System.IO.Compression.ZipArchive in Create mode (al-language-onprem-dotnet/lt-y44-zip-create/Y44ZipCreateMode.al, corpus PR
+/// System.IO.Compression.ZipArchive in Create mode (al-language-onprem-dotnet/dotnet/zip-create/Y44ZipCreateMode.al, corpus PR
 /// 962): a CreateEntry while an entry stream is still open (IOException, Zip_OpenKeptInVariable_SecondCreate :276-277), Entries
 /// in Create mode, also after Dispose (NotSupportedException, Zip_EntriesInCreateMode :323-337), and a CreateEntry after
 /// Dispose (ObjectDisposedException, Zip_CreateEntry_AfterDispose :389-390). Other exceptions of these members stay refused.

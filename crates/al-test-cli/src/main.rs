@@ -103,7 +103,7 @@ fn run() -> Result<ExitCode, String> {
         al_test_cli::host::set_environment(env);
     }
     // The corpus pins that real BC's web address in its CI is http, has a port and the path /BC, and that its host is
-    // not `localhost` (session/lt-geturl-shape/GetUrlShape.al:283); the host name itself is masked there and stays the
+    // not `localhost` (session-system/session/GetUrlShape.al:283); the host name itself is masked there and stays the
     // host setting of ADR-042. So the corpus tool runs with an address of that shape instead of al-runner's default.
     al_test_cli::host::set_server_url(Some(CORPUS_SERVER_URL.into()));
     if let Some(dir) = &args.files_dir {
@@ -995,7 +995,7 @@ fn run_version_inner(
         // The corpus CI runs a test codeunit without handlers through BC's TestRunnerHub, which takes its isolation from
         // the codeunit's RequiredTestIsolation, on BC 28 and later; on BC 27 it runs every codeunit under Microsoft's runner
         // 130450 (TestIsolation = Codeunit), where the property has no effect. A difference of the CI's harness, not of
-        // the platform (corpus codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16 and 36-39).
+        // the platform (corpus codeunits/run-onrun/QuCommitIsolation.al:10-16 and 36-39).
         required_isolation: chosen
             .target
             .has(al_version::Gate::TestRunnerHubRequiredIsolationFrom28),

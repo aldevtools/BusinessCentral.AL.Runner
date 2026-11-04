@@ -1,5 +1,5 @@
 //! `Media.ExportStream` of the Layout of a Report Layout List row writes the bytes of the layout file the app holds,
-//! answers true and leaves HasValue No, the same bytes a second time (report/lt-y17-layout-export/Y17LayoutExportTests.al:70
+//! answers true and leaves HasValue No, the same bytes a second time (reports/layouts-saveas/Y17LayoutExportTests.al:70
 //! RDLC, :88 Word, :129 Excel, :146 twice; corpus master). The platform table is not in the test workspace: a table of its
 //! number and name stands in.
 

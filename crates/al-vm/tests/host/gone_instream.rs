@@ -1,6 +1,6 @@
 //! An InStream whose owner (the Blob field of a local temporary record) went out of scope reads as an empty stream for every
 //! use, and a cleared one raises NotInitialized. Every literal is what real BC answered in the corpus:
-//! streams/lt-y62-gone-instream/Y62GoneInStream.al (codeunit 93265, writer Y62).
+//! streams/instream-outstream/Y62GoneInStream.al (codeunit 93265, writer Y62).
 
 use al_testkit::text;
 

@@ -1,5 +1,5 @@
 //! The Date filter letter `Y` is the fiscal year of the work date from the Accounting Period table, and `T-nD` the Tuesday of ISO
-//! week n of the ISO year of the work date (writer Y81, record/lt-y81-values/Y81DateFilterLetters.al:126 Y81_Y_FiscalYearOfWorkDate,
+//! week n of the ISO year of the work date (writer Y81, types/Y81DateFilterLetters.al:126 Y81_Y_FiscalYearOfWorkDate,
 //! :274 Y81_Letters_TFamily; needs corpus bump). Rows from 2060 stand in for the test's own periods: the corpus company's demo
 //! rows end in 2027, so a fiscal year that starts later is decided by the rows the runtime holds.
 

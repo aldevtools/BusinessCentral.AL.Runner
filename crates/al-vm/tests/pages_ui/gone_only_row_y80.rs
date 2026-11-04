@@ -1,4 +1,4 @@
-//! A list that lost its only row to an action, opened for view or edit (corpus master pages/lt-y80-gone-rows/Y80GoneRows.al,
+//! A list that lost its only row to an action, opened for view or edit (corpus master pages/deleted-rows/Y80GoneRows.al,
 //! codeunit 94230: the Y80_Gone_* tests; the pinned values below are its Expect lines). Plain editable list, list with
 //! InsertAllowed = false, with InsertAllowed and ModifyAllowed = false, and with Editable = false.
 
@@ -152,7 +152,7 @@ fn a_read_only_list_opened_for_edit_raises_nothing_after_it_lost_its_only_row() 
 }
 
 // Y80_Gone_All_OpenEdit_DeleteAllUpdate: `action log R:10;D:10;N:0;C:0;N:0;C:0;N:0;C:0`; First raises nothing and answers No
-// (pages/lt-f3-pages/F3ListTests.al:189). A single move after the action (pages/lt-y89-gone-single-move/Y89GoneSingleMove.al,
+// (testpage/F3ListTests.al:189). A single move after the action (pages/deleted-rows-navigation/Y89GoneSingleMove.al,
 // Y89_All_OpenEdit_delallupd_{first,next,previous,last}): all answer No and the Id control reads 0; Next and Previous log nothing,
 // Last raises the pair twice (`move log N:0;C:0;N:0;C:0`). Together they log what Y80_Gone_All_OpenEdit_DeleteAllUpdate pins.
 #[test]

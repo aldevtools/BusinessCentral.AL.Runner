@@ -1,5 +1,5 @@
 //! The call after a GoToKey that moved a list without OnAfterGetCurrRecord (pages/rows.rs, pages/actions.rs, pages/pageops.rs).
-//! Each test names the corpus test of pages/lt-ai-list-order/QgGoToKeyNextCall.al that pins what BC does.
+//! Each test names the corpus test of pages/list-order/QgGoToKeyNextCall.al that pins what BC does.
 
 const SRC: &str = r#"
 table 69960 "GN Log" { fields { field(1; Id; Integer) { } field(2; Txt; Text[250]) { } } keys { key(PK; Id) { } } }

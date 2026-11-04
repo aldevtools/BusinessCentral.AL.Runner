@@ -1,6 +1,6 @@
 //! `FieldRef.Value()` of an Enum into a Text or Code variable or by-value parameter is its caption; a number passed straight as a
 //! Text argument is its Format text; `TextBuilder.Append(FieldRef.Value())` appends the value of every field type as the corpus
-//! shows it (text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:207-470, corpus master).
+//! shows it (text/text-methods/Y49FieldRefIntoText.al:207-470, corpus master).
 
 const SRC: &str = r#"
 enum 50716 YKind { Extensible = true; value(0; " ") { Caption = ' '; } value(1; Alpha) { Caption = 'Alpha Cap'; } value(2; "Beta Two") { Caption = 'Beta Cap'; } }

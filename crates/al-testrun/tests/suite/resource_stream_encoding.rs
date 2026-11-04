@@ -1,6 +1,6 @@
 //! `NavApp.GetResource(Name, InStream, Encoding)` with UTF16, Windows, MSDos and no encoding (al-runner issue 6492: an ISV
 //! test library reads UTF-16LE XML configuration resources with a byte order mark this way). The values are the ones the
-//! corpus pins (session/Y18NavAppResourceEncodings.al).
+//! corpus pins (session-system/Y18NavAppResourceEncodings.al).
 
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
@@ -113,7 +113,7 @@ fn resources_read_with_every_text_encoding() {
     for test in ["ReadUtf16Resource", "ReadWindowsResource", "ReadWithoutEncodingIsMsDos"] {
         let r = outcome(&rt, test);
         assert_eq!(r.outcome, Outcome::Pass, "{test}: {:?}", r.outcome);
-        // Pinned by session/Y18NavAppResourceEncodings.al: a clean pass, not a flagged one.
+        // Pinned by session-system/Y18NavAppResourceEncodings.al: a clean pass, not a flagged one.
         assert!(r.assumptions.is_empty(), "{test}: {:?}", r.assumptions);
     }
     // BC raises InvalidStreamData here, but the bytes also have an odd length: which of the two raises is not pinned.

@@ -283,7 +283,7 @@ fn reads_in_1033_and_locked_labels_keep_the_source_text() {
 #[test]
 fn an_app_without_a_translation_file_keeps_the_source_text_in_another_language() {
     // What the corpus pins under GlobalLanguage 1031 for its apps, which ship no translation file (for example
-    // record/lt-enum-filter-caption/EnumFilterByCaption.al): the source text.
+    // record/filters/EnumFilterByCaption.al): the source text.
     let got = run(false);
     assert!(
         matches!(outcome(&got, "Format_Enum_UsesDutchCaption"), Outcome::Fail(m) if m.contains("Released")),
@@ -544,7 +544,7 @@ fn the_issues_three_tests_pass_with_the_apps_translation_file() {
         "Evaluate_Enum_AcceptsDutchCaption",
         "Label_UsesDutchText",
     ] {
-        // Pinned: localization/lt-ta-app-xliff/TaXliff.al TA_Enum_Format_And_Evaluate, TA_Label_Text (al-runner issue 5772).
+        // Pinned: localization/app-xliff/TaXliff.al TA_Enum_Format_And_Evaluate, TA_Label_Text (al-runner issue 5772).
         let (_, outcome, assumed) = find(&got, test);
         assert_eq!(outcome, &Outcome::Pass, "{test}: {got:?}");
         assert!(assumed.is_empty(), "{test}: {assumed:?}");
@@ -581,7 +581,7 @@ fn unpinned_reads_under_a_translation_stay_refused() {
 #[test]
 fn a_language_with_no_file_of_its_kind_keeps_the_source_text() {
     let got = run_translated(vec![dutch()]);
-    // Pinned: localization/lt-ta-app-xliff/TaXliff.al:230 TA_Captions_Language_Without_File.
+    // Pinned: localization/app-xliff/TaXliff.al:230 TA_Captions_Language_Without_File.
     let (_, outcome, assumed) = find(&got, "German_HasNoFile_KeepsTheSource");
     assert!(
         matches!(outcome, Outcome::Fail(m) if m.contains("Hello world")),

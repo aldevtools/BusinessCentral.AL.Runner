@@ -1,7 +1,7 @@
 //! A table field's OptionCaptionML gives the captions of the session language, ENU where the language has no entry
-//! (record/lt-x-table-props/XTablePropsTests.al:175-232: 1033, 1031 and 1036, also through a table extension's `modify`).
-//! A page shows the captions of the language it opened in (XTablePropsTests.al:229-230, pageext/lt-z-modify-controls/
-//! ZModifyControls.al:322-360; pages/lt-page-controls-aa/AaFieldProps.al:179-219 keeps the open language after a change).
+//! (record/table-properties/XTablePropsTests.al:175-232: 1033, 1031 and 1036, also through a table extension's `modify`).
+//! A page shows the captions of the language it opened in (XTablePropsTests.al:229-230, pages/extensions/
+//! ZModifyControls.al:322-360; pages/controls/AaFieldProps.al:179-219 keeps the open language after a change).
 //! Other languages, and a missing entry of DEU or ENU, are not pinned and are refused.
 
 use al_builtins::native::Signal;
@@ -63,7 +63,7 @@ fn a_language_or_entry_nothing_pins_is_refused() {
 
 #[test]
 fn evaluate_into_a_field_with_option_caption_ml_is_refused() {
-    // Evaluate takes the captions of the session language (types/lt-option-evaluate-captions/OptionEvaluateCaptions.al:236
+    // Evaluate takes the captions of the session language (format-evaluate/OptionEvaluateCaptions.al:236
     // CaptionML_ByLanguage): `Beta` is the ENU caption of B.
     assert!(matches!(al_testkit::run_in(SRC, "C", "Eval"), Ok(Value::Boolean(true))));
 }

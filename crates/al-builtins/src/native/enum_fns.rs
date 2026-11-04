@@ -35,7 +35,7 @@ pub(super) fn enum_names(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Valu
     ))
 }
 
-/// The lists of `Enum.Names()` and `Enum.Ordinals()` cannot be changed (collections/lt-cs-odd-leads/CsCollections.al:
+/// The lists of `Enum.Names()` and `Enum.Ordinals()` cannot be changed (collections/CsCollections.al:
 /// EnumOrdinals_Mutations, EnumNames_Mutations).
 pub(super) fn read_only_list(items: Vec<Value>) -> Value {
     let mut l: crate::value::ListVec = items.into();
@@ -43,7 +43,7 @@ pub(super) fn read_only_list(items: Vec<Value>) -> Value {
     Value::List(Rc::new(std::cell::RefCell::new(l)))
 }
 
-/// `Enum.Ordinals()` (session/TestSystemExtended.al:381-390, types/TestLanguageEdgeCases.al:91-105).
+/// `Enum.Ordinals()` (session-system/TestSystemExtended.al:381-390, types/TestLanguageEdgeCases.al:91-105).
 pub(super) fn enum_ordinals(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Result<Value, Signal> {
     let (_, members) = enum_receiver(ctx, r, "Enum.Ordinals")?;
     Ok(read_only_list(
@@ -59,7 +59,7 @@ pub(super) fn enum_from_integer(ctx: &mut dyn Ctx, r: Option<&mut Value>, args: 
     let n = match args.first() {
         Some(Value::Option(o, _)) => Some(*o),
         // A Variant that holds an Enum, a whole Decimal or a Text of digits takes the ordinal or the number
-        // (enum/lt-enum-fromint-variant/EnumFromIntegerVariant.al:FromInteger_VariantHolding asserts the holders Integer, Enum, Decimal and Text; no other holder is added).
+        // (types/enum-option/EnumFromIntegerVariant.al:FromInteger_VariantHolding asserts the holders Integer, Enum, Decimal and Text; no other holder is added).
         // A fraction or a text that is not a whole number is not pinned.
         Some(Value::Enum(_, o)) => Some(*o),
         Some(Value::Decimal(d)) if d.fract().is_zero() => i32::try_from(d.trunc()).ok(),

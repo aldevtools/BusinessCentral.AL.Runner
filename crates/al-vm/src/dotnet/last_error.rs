@@ -1,7 +1,7 @@
 //! The .NET exception `GetLastErrorObject` answers, and the `System.Type` its `GetType()` gives. The runtime
 //! provides them itself (ADR-014 section 1, ADR-038), so a run needs no .NET host.
 //!
-//! Pinned by tests/al-language-onprem-dotnet/lt-dotnet-interop/GetLastErrorObject.al (BC 27, 28, 29):
+//! Pinned by tests/al-language-onprem-dotnet/dotnet/dotnet-interop/GetLastErrorObject.al (BC 27, 28, 29):
 //! - `Message` is the text `GetLastErrorText` answers (:80), `InnerException` is null for a dialog and a
 //!   record-not-found exception and not null for a `NavALException` (:83, :155, :251, :275);
 //! - `GetType().FullName` is the exception class (:81-82);
@@ -24,7 +24,7 @@ use al_builtins::value::{DotNetKind, DotNetObject, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-const PIN: &str = "tests/al-language-onprem-dotnet/lt-dotnet-interop/GetLastErrorObject.al:79-87";
+const PIN: &str = "tests/al-language-onprem-dotnet/dotnet/dotnet-interop/GetLastErrorObject.al:79-87";
 
 fn pin() -> Pin {
     Pin::Corpus(PIN.into())
@@ -126,7 +126,7 @@ fn get_type(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -> Re
 
 /// The codeunit id and routine name of one AL frame of an error's call stack (`"Name"(CodeUnit 61480).OnRun(Trigger) line 3 - ...`,
 /// see `callstack.rs`); `None` for a frame of another object type.
-fn codeunit_frame(frame: &str) -> Option<(u32, &str)> {
+pub(super) fn codeunit_frame(frame: &str) -> Option<(u32, &str)> {
     let (_, rest) = frame.split_once("(CodeUnit ")?;
     let (id, rest) = rest.split_once(").")?;
     let name = rest.split([' ', '(']).next()?;
@@ -187,6 +187,9 @@ pub(crate) fn exception_text(session: &Session, this: &Rc<DotNetObject>) -> Resu
         }
     }
     let frames: Vec<&str> = stack.split('\n').filter(|f| !f.is_empty()).collect();
+    if let Some(text) = super::exception_frames::pinned_trace(session, type_name, &msg, &frames) {
+        return Ok(text);
+    }
     if frames.is_empty() || frames.contains(&UNTRACKED_CALL_STACK) {
         out.push_str("\n   at ");
         out.push_str(UNTRACKED_CALL_STACK);
@@ -194,7 +197,7 @@ pub(crate) fn exception_text(session: &Session, this: &Rc<DotNetObject>) -> Resu
     }
     // The frames are .NET's: an AL frame of a codeunit is `Codeunit<id>.<procedure>()` (a trigger OnRun is `OnRunAsync`), and an error
     // an asserterror caught shows `NavMethodScope.AssertErrorAsync` where a TryFunction shows its own frame (onprem-dotnet/
-    // lt-y76-dotnet/Y76DotNet.al Y76_TryFunction_*, Y76_Asserterror_*, Y76_CodeunitRun_ThreeDeep_GetMissing_Division, each pinning one
+    // dotnet/dotnet/Y76DotNet.al Y76_TryFunction_*, Y76_Asserterror_*, Y76_CodeunitRun_ThreeDeep_GetMissing_Division, each pinning one
     // frame by name). The rest of each line and the frames between are not pinned: the assumption stays.
     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ExceptionToStringStackFrames);
     if type_name == AL_EXCEPTION {
@@ -223,7 +226,7 @@ pub(crate) fn exception_text(session: &Session, this: &Rc<DotNetObject>) -> Resu
 }
 
 /// Whether codeunit `id` has a procedure `name` marked `[TryFunction]`.
-fn is_try_function(session: &Session, id: u32, name: &str) -> bool {
+pub(super) fn is_try_function(session: &Session, id: u32, name: &str) -> bool {
     let objects = &session.engine.program.objects;
     objects.heads().iter().enumerate().any(|(oi, h)| {
         h.kind == al_ir::ObjKind::Codeunit
@@ -237,7 +240,7 @@ fn is_try_function(session: &Session, id: u32, name: &str) -> bool {
 
 /// Whether codeunit `id` has a procedure `name` with no parameters and no return value, whose name is a plain identifier: the
 /// shape whose .NET frame the corpus pins (`Codeunit99472.Nested()`, `Codeunit99471.Raise()`).
-fn plain_procedure(session: &Session, id: u32, name: &str) -> bool {
+pub(super) fn plain_procedure(session: &Session, id: u32, name: &str) -> bool {
     if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
         return false;
     }

@@ -21,9 +21,9 @@ impl Session {
 
     /// The variables a SaveValues page stores: (owner, global slot) of every control bound to a variable. On a page that
     /// includes the variables of its page extensions, their own and the base page's protected ones they bind
-    /// (misc/lt-probes-needed-6/PnF02SaveValuesExt.al:157-205, SaveValues_Ext_OkThenReopen `second_B`, `second_D`,
+    /// (pages/PnF02SaveValuesExt.al:157-205, SaveValues_Ext_OkThenReopen `second_B`, `second_D`,
     /// `second_E`); a request page keeps its own, and the own ones of a reportextension that changes the run
-    /// (al-language-onprem/report/lt-y60-reportext-saveasxml/Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun:
+    /// (al-language-onprem/reports/layouts-saveas/Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun:
     /// `basis=Details showall=Yes`); another report extension's is not pinned.
     pub(in crate::pages) fn var_slots(&self, st: &St) -> Vec<(Option<usize>, usize)> {
         let engine = self.engine();
@@ -56,7 +56,7 @@ impl Session {
     }
 
     /// A SaveValues request page that a reportextension changing the run extends: the close by SaveAsXml stores the values of the
-    /// base and the extension, and the close by Cancel stores nothing (al-language-onprem/report/lt-y60-reportext-saveasxml/
+    /// base and the extension, and the close by Cancel stores nothing (al-language-onprem/reports/layouts-saveas/
     /// Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun). The close by `close` (OK, an error) is not pinned.
     pub(in crate::pages) fn refuse_ext_save_values_close(&self, st: &St, close: &str) -> Result<(), Signal> {
         let object = st.borrow().object as usize;
@@ -104,7 +104,7 @@ impl Session {
             return;
         };
         // A request page's variables that the caller set before the run (`SetParameters`) keep those values: corpus
-        // reportextensiontrigger/TestPrecompiledReportExtensionDataItems.al (Base Application's "Get Demand To Reserve"
+        // reports/extensions/TestPrecompiledReportExtensionDataItems.al (Base Application's "Get Demand To Reserve"
         // has SaveValues and an earlier run confirmed another demand type; the later run still goes by the one
         // `SetParameters` gave, `All` included). Which one wins in BC is assumed.
         let caller_set = self.is_request_page(st)
@@ -115,15 +115,15 @@ impl Session {
                 .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)));
         for (owner, slot, v) in saved {
             // A page extension's variable, or the page's protected one an extension binds: restored as the page's own
-            // (misc/lt-probes-needed-6/PnF02SaveValuesExt.al:157-205).
+            // (pages/PnF02SaveValuesExt.al:157-205).
             if owner.is_some() {
                 let ext = self.owner_instance(st, owner);
                 ext.borrow_mut().globals[slot] = detached(&v);
                 continue;
             }
             // A data item the caller gave a view (`SetTableView`, or the record of `Report.Run`/`RunModal`) keeps that view over the
-            // filters stored from an earlier run. The view wins on the page and an OK stores it (report/lt-y86-request-page/Y86RequestFilters.al Y86_StoredFilter_*;
-            // report/lt-requestpage-savevalues-date-text-setvalue/P147SaveValuesFilter.al:P147_Filter_SetTableViewVsStored).
+            // filters stored from an earlier run. The view wins on the page and an OK stores it (reports/request-page/Y86RequestFilters.al Y86_StoredFilter_*;
+            // reports/request-page/P147SaveValuesFilter.al:P147_Filter_SetTableViewVsStored).
             // Microsoft's "Suggest Fin. Charge Memo Lines" (SaveValues) is run once per memo with that memo as the record.
             if self.is_request_page(st) && matches!(&v, Value::Record(_)) {
                 if let Value::Record(cur) = &inst.borrow().globals[slot] {
@@ -133,7 +133,7 @@ impl Session {
                 }
             }
             if caller_set && !matches!(v, Value::Record(_)) {
-                // The caller's value stays over the stored one (report/lt-requestpage-savevalues-date-text-setvalue/P147SaveValuesText.al:
+                // The caller's value stays over the stored one (reports/request-page/P147SaveValuesText.al:
                 // P147_Text_StoredVsCaller_Ok, P147_Boolean_CallerFalseOverStoredTrue, P147_Option_CallerSelectedOverStoredAll).
                 continue;
             }

@@ -144,7 +144,7 @@ const QUERY_TYPES: &[&str] = &["Normal", "API"];
 const CODEUNIT_SUBTYPES: &[&str] = &["Normal", "Test", "TestRunner", "Upgrade", "Install"];
 
 /// The members of CodeUnit Metadata TestType and RequiredTestIsolation in ordinal order
-/// (codeunit/lt-x-object-props/XObjectProps.al:255-256, :267-268).
+/// (codeunits/procedures/XObjectProps.al:255-256, :267-268).
 const TEST_TYPES: &[&str] = &["None", "UnitTest", "IntegrationTest", "Uncategorized", "AITest"];
 const TEST_ISOLATIONS: &[&str] = &["None", "Disabled", "Codeunit", "Function"];
 
@@ -197,7 +197,7 @@ impl<'a> Catalog<'a> {
                         .or_default()
                         .push((id, gives_way(o)));
                     if o.kind == al_ir::ObjKind::Table {
-                        // A moved table is not in the runtime app (platform/lt-aw-fresh-tenant/AwTests.al:426-442): the
+                        // A moved table is not in the runtime app (metadata/platform-tables/AwTests.al:426-442): the
                         // table it moved to holds the id (al-runner issue 6716).
                         let first = m.tables.entry(id).or_insert(i);
                         if moved(&self.objects[*first]) && !moved(o) {
@@ -332,7 +332,7 @@ pub(super) fn truncate(s: &str, max: usize) -> String {
 }
 
 /// The object caption: the `Caption` property's literal, else the object name. A tableextension's row names it by its name:
-/// its Caption is the caption of the table it extends (tableextension/TestTableExtFieldModify.al:174-179).
+/// its Caption is the caption of the table it extends (table-objects/extensions/TestTableExtFieldModify.al:174-179).
 pub(super) fn caption<O: ObjectInfo + ?Sized>(o: &O) -> String {
     if o.kind() == al_ir::ObjKind::TableExtension {
         return o.name().to_string();
@@ -479,7 +479,7 @@ pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 return None;
             };
             // A table declared ObsoleteState = Moved is not in the runtime app and has no row
-            // (platform/lt-aw-fresh-tenant/AwTests.al:413-423).
+            // (metadata/platform-tables/AwTests.al:413-423).
             if moved(o) {
                 return None;
             }
@@ -517,7 +517,7 @@ pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     }
     // Every table has a TableData row (ordinal 0) next to its Table row, with the Table row's name, namespace, package id and
     // runtime package id: a table of the app under test, a temporary one, a dependency's (Base Application's Customer and
-    // Contact) and the platform's (Company, the virtual Integer and AllObj) (metadata/lt-all-obj-namespace/AllObjNamespace.al:
+    // Contact) and the platform's (Company, the virtual Integer and AllObj) (metadata/session-system/AllObjNamespace.al:
     // 143-218 PW_AllObj_*, :220-262 UG_AllObj_TableDataRow_OfContact_AllColumns). A table declared Moved has no Table row, and
     // so none here.
     for o in c.objects {
@@ -542,7 +542,7 @@ pub(super) fn all_obj_with_caption_rows(p: &Providers, t: &TableDef) -> Vec<Entr
     let c = Catalog::new(&engine);
     let key = |o: &ObjectHead, ty: i32| Some(vec![(1, option(t, 1, ty)), (3, Value::Integer(o.id? as i32))]);
     let mut out = entries(&c, t, |o| key(o, object_type(o.kind)?), |o, r| caption_row(&c, t, o, r));
-    // Every table has a TableData row next to its Table row, with its name, caption and subtype (metadata/lt-all-obj-namespace/
+    // Every table has a TableData row next to its Table row, with its name, caption and subtype (metadata/session-system/
     // AllObjNamespace.al:156-218 PW_AllObj_TableDataRowPerTableKind; al-runner issue 6643). Its package ids, app id and namespace
     // are taken to be the Table row's, as AllObj's TableData row has them (:220-262): assumption
     // allobjwithcaption-tabledata-columns until corpus writer Y64's probe lands. A table declared Moved has none.
@@ -564,13 +564,13 @@ fn caption_row(c: &Catalog, t: &TableDef, o: &ObjectHead, r: &mut Row) -> Result
     let owner = c.owner(o);
     r[pos(t, 4)] = Value::Text(o.name.clone().into());
     // "Name" (5, BC 29 on, Text[100]): the object name, as Metadata Permission's "AL Object Name" looks it up
-    // (permissions/lt-y59-metadata-permission/Y59MetadataPermissionNames.al:257-266, corpus master 9cf26907).
+    // (permissions/permission-sets/Y59MetadataPermissionNames.al:257-266, corpus master 9cf26907).
     if let Some(p) = t.fields.iter().position(|f| f.id == 5) {
         r[p] = Value::Text(o.name.chars().take(100).collect());
     }
     r[pos(t, 20)] = caption_value(o, 249);
     // A subtype the runtime has no pinned text for (a CDS table) leaves only that column unknown: the other
-    // columns still answer a filter or a count (install/lt-cm-install-leads/CmInstallObjects.al:73-79).
+    // columns still answer a filter or a count (metadata/CmInstallObjects.al:73-79).
     r[pos(t, 30)] = match subtype_text(c, o) {
         Ok(s) => Value::Text(s.into()),
         Err(why) => Value::Unknown(format!("AllObjWithCaption: {why}").into()),
@@ -586,8 +586,8 @@ fn caption_row(c: &Catalog, t: &TableDef, o: &ObjectHead, r: &mut Row) -> Result
 
 /// One row per object, keyed as AllObj names it (Runtime Package ID, Object Type, Object ID) and Emit Version 0: Microsoft's
 /// ODataUtility.GetTenantWebServiceMetadata finds a query's row with `Get(AllObj."App Runtime Package ID", type, id)`, the
-/// missing Emit Version taking its blank value (tests/al-language-onprem-dotnet/lt-qx-dotnet/QxDotNetDemoShapes.al:173-181,
-/// lt-re-dotnet/ReQueryMetadataShapes.al:116-140: the reader it builds is not null). Only a query's Metadata is pinned, and
+/// missing Emit Version taking its blank value (tests/al-language-onprem-dotnet/dotnet/dotnet/QxDotNetDemoShapes.al:173-181,
+/// dotnet/dotnet/ReQueryMetadataShapes.al:116-140: the reader it builds is not null). Only a query's Metadata is pinned, and
 /// only as the input of QueryMetadataReader.FromStream: the Blob holds the query's id under the mark
 /// `stream::QUERY_METADATA`, which refuses any other look. The other columns are unknown (`mark_unpinned`), and the row of
 /// any other object type is refused: nothing pins what it holds.
@@ -661,7 +661,7 @@ pub(super) fn codeunit_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> 
             r[pos(t, 7)] = Value::Text(truncate(&ident(prop(o, "InherentPermissions").unwrap_or("")), 5).into());
             r[pos(t, 8)] = Value::Text(truncate(&ident(prop(o, "InherentEntitlements").unwrap_or("")), 5).into());
             // TestType and RequiredTestIsolation read the declared member; a test codeunit without them reads
-            // UnitTest and None (codeunit/lt-x-object-props/XObjectProps.al:255-256, :267-268, :279), any other
+            // UnitTest and None (codeunits/procedures/XObjectProps.al:255-256, :267-268, :279), any other
             // codeunit None and None (record/TestCodeunitMetadataVirtualTable.al:415-419, :456-459). A non-test
             // codeunit that declares either is not pinned: refused.
             let declared = |name: &str, members: &[&str]| -> Result<Option<i32>, String> {
@@ -775,7 +775,7 @@ pub(super) fn table_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 }
             };
             r[pos(t, 2)] = Value::Text(o.name.clone().into());
-            // Caption is a Text[80] field that holds a 120-character caption whole (metadata/lt-cy-long-caption/CyLongCaption.al:
+            // Caption is a Text[80] field that holds a 120-character caption whole (metadata/session-system/CyLongCaption.al:
             // 47-56); a longer one is not pinned.
             r[pos(t, 3)] = if caption(o).chars().count() > 120 {
                 Value::Unknown(
@@ -793,7 +793,7 @@ pub(super) fn table_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             r[pos(t, 5)] = Value::Integer(page("LookupPageId")?);
             r[pos(t, 6)] = Value::Integer(page("DrillDownPageId")?);
             // DataCaptionFields: the ids of the fields it names, comma-joined; a table extension's counts (link merges it,
-            // record/lt-x-table-props/XTablePropsTests.al:578, :586 `1,4`).
+            // record/table-properties/XTablePropsTests.al:578, :586 `1,4`).
             r[pos(t, 7)] = Value::Text(data_caption_field_ids(o)?.into());
             // LinkedObject (XTablePropsTests.al:579-591: `Yes` on a table that declares it, `No` without).
             r[pos(t, 9)] = Value::Boolean(prop(o, "LinkedObject").is_some_and(truthy));

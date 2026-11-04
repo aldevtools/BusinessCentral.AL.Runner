@@ -1,4 +1,4 @@
-//! A TableFilter field in a field element of an Xml port (corpus xmlport/lt-y67-xmlport-tablefilter/Y67XpTableFilter.al:120-171):
+//! A TableFilter field in a field element of an Xml port (corpus xmlports/shapes-properties/Y67XpTableFilter.al:120-171):
 //! the export writes its table-qualified text, an empty one as an empty element; the import reads the text as Evaluate does.
 
 const SRC: &str = r#"

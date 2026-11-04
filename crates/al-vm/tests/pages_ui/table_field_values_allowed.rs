@@ -1,5 +1,5 @@
 //! TestPage SetValue on controls over TABLE fields that declare ValuesAllowed (al-runner issue 6672; corpus writer Y65,
-//! pages/lt-y65-values-allowed-table-field/Y65ValuesAllowedTableField.al:236-574 on corpus branch al-runtime-rs-staging-y65, not
+//! pages/values-allowed-table-field/Y65ValuesAllowedTableField.al:236-574 on corpus branch al-runtime-rs-staging-y65, not
 //! pinned yet): an Enum with gaps in its ordinals, an Option, an Integer and a Decimal, and an Enum field whose control declares
 //! a ValuesAllowed of its own, on a NavigatePage over a temporary table, a Card and a List. Each case opens a fresh page.
 

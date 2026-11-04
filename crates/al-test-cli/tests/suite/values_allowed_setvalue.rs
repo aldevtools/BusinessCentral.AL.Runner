@@ -1,4 +1,4 @@
-//! TestPage SetValue on an Enum or Option control with ValuesAllowed (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al):
+//! TestPage SetValue on an Enum or Option control with ValuesAllowed (pages/values-allowed-set-value/Y37ValuesAllowedSetValue.al):
 //! an allowed value is taken, one outside the list is a TestValidation error naming the text typed (or, for an Enum or an
 //! Integer, the ordinal the control holds), and Value then shows that ordinal. Yes on a ConfirmationDialog that holds such a
 //! refused entry reports Cancel.

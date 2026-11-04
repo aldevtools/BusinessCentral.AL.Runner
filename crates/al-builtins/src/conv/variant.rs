@@ -1,7 +1,7 @@
 //! `Variant.Into#1`: the value a Variant holds, on its way into a slot of another type. The lowering puts it around every
 //! conversion whose source is a Variant (`al-sema` `lower/conv_matrix.rs`), so the cells the matrix pins only for a Variant
 //! (`Family::CvVariant`) apply there and nowhere else: a `FieldRef.Value` or a `TestField` value is no Variant here
-//! (fieldref/lt-fieldref-testfield-types/FieldRefTestFieldWrongType.al, misc/lt-cx-odd-leads/CxScalars.al).
+//! (recordref-fieldref/fieldref/FieldRefTestFieldWrongType.al, types/CxScalars.al).
 
 use super::Kind;
 use crate::native::{Ctx, NativeFn, Signal};
@@ -68,7 +68,7 @@ fn into(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value
 /// a Variant is converted here (`variant_convert`) or raises its error (`variant_error`); anything else is handed back for the
 /// conversion that follows.
 pub fn variant_into(v: Value, t: &RtType) -> Result<Value, Signal> {
-    // A TextConst taken out of a Variant is a Text (types/lt-y81-values/Y81LabelVariant.al, codeunits 94256 to 94258).
+    // A TextConst taken out of a Variant is a Text (types/Y81LabelVariant.al, codeunits 94256 to 94258).
     let v = match v {
         Value::TextConst(s) => Value::Text(s),
         other => other,

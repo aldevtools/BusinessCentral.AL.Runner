@@ -1,6 +1,6 @@
 //! A reply row's optional text element holding field elements of the row and an unlinked temporary table element
 //! (MaxOccurs = Once, MinOccurs = Zero) (assumption `xmlport-unlinked-reply`; corpus branch al-runtime-rs-staging-tr,
-//! xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TR_Member_*, xmlport 90065 in TrXpReplyObjects.al).
+//! xmlports/shapes-properties/QrXpContainerOccurs.al TR_Member_*, xmlport 90065 in TrXpReplyObjects.al).
 
 use al_testkit::text;
 

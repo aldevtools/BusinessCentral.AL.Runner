@@ -1,5 +1,5 @@
 //! `[ReportHandler]`: a run that would show the request page calls the handler with the report instead
-//! (report/lt-ae-reporthandler/AeReportHandler.al, AeReportHandlerCalls.al).
+//! (reports/reporthandler/AeReportHandler.al, AeReportHandlerCalls.al).
 
 use al_test_cli::report::Outcome;
 

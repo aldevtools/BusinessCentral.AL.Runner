@@ -1,5 +1,5 @@
-//! `Evaluate` into a Duration (types/lt-datetime/Evaluate.al:379-447, Duration_Evaluate; types/lt-filter-enum-relation-
-//! duration-guid/D_Duration.al:420-444, Duration_Evaluate; misc/lt-system-functions/EvalLastError.al:257-264).
+//! `Evaluate` into a Duration (types/date-time/Evaluate.al:379-447, Duration_Evaluate; types/lt-filter-enum-relation-
+//! duration-guid/D_Duration.al:420-444, Duration_Evaluate; format-evaluate/EvalLastError.al:257-264).
 
 use al_builtins::native::Signal;
 
@@ -39,7 +39,7 @@ fn a_duration_rejects_what_is_no_duration_and_keeps_its_value() {
     assert_eq!(eval("5000", ", 9"), "No|P0DT0H0M0.007S");
     assert_eq!(eval("1 hour", ", 9"), "No|P0DT0H0M0.007S");
     assert_eq!(eval("", ", 9"), "No|P0DT0H0M0.007S");
-    // errors/lt-ms-refusals-131/P131EvalScalars.al:144-200 (P131_EvaluateDuration_PlainNumbers).
+    // types/P131EvalScalars.al:144-200 (P131_EvaluateDuration_PlainNumbers).
     for text in ["+5", "12abc", "0 ms", "1,5", "1e3"] {
         assert_eq!(eval(text, ""), "No|P0DT0H0M0.007S", "{text}");
     }
@@ -66,7 +66,7 @@ fn the_unpinned_duration_texts_are_refused() {
 
 #[test]
 fn a_time_plus_a_duration_beyond_integer_raises_a_conversion_error() {
-    // types/lt-filter-enum-relation-duration-guid/D_Duration.al:445-478 (TimePlusDuration `af373`).
+    // types/duration/D_Duration.al:445-478 (TimePlusDuration `af373`).
     let src = "codeunit 50100 C { procedure F(): Text var T: Time; D: Duration; B: BigInteger; begin T := 100000T; \
                B := 50000; B := B * 100000; D := B; asserterror T := T + D; exit(GetLastErrorText() + '|' + GetLastErrorCode() + '|' + Format(T, 0, 9)); end; }";
     assert_eq!(

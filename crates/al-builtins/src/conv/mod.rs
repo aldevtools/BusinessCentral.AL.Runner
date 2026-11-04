@@ -1,4 +1,4 @@
-//! Implicit conversions from the run matrix of corpus writer Y31 (`tests/al-language/types/lt-y31-conversion-matrix/`):
+//! Implicit conversions from the run matrix of corpus writer Y31 (`tests/al-language/types/operators-expressions/`):
 //! the table of its cells (`rows.rs`, generated from the corpus files by `tests/conv_matrix_rows.rs`) and the engine that
 //! converts a value of a covered cell (`engine.rs`). A cell the matrix does not cover keeps the conversion of `ops::convert`.
 

@@ -99,7 +99,7 @@ impl Session {
         }
     }
 
-    /// A DotNet variable that holds nothing (tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al:233-278, 364, 373):
+    /// A DotNet variable that holds nothing (tests/al-language-onprem-dotnet/dotnet/dotnet/BbGetDotNetType.al:233-278, 364, 373):
     /// a `System.String` answers System.Object; `System.Object`, `System.Char`, `System.Byte`, `System.Int32`,
     /// `System.Text.StringBuilder`, `System.Type` and `System.Exception` answer their own type, and so do the enums
     /// `System.DayOfWeek` and `System.Security.Cryptography.X509Certificates.X509ContentType` (writer TV, corpus branch
@@ -117,11 +117,11 @@ impl Session {
             | "System.Type"
             | "System.Exception" => self.type_named(declared),
             "System.DayOfWeek" => {
-                // Pinned by tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (was assumption `dotnet-type-unassigned-enum`).
+                // Pinned by tests/al-language-onprem-dotnet/dotnet/dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (was assumption `dotnet-type-unassigned-enum`).
                 self.type_named(declared)
             }
             "System.Security.Cryptography.X509Certificates.X509ContentType" => {
-                // Pinned by tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (was assumption `dotnet-type-unassigned-enum`).
+                // Pinned by tests/al-language-onprem-dotnet/dotnet/dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (was assumption `dotnet-type-unassigned-enum`).
                 self.type_named("System.Security.Cryptography.X509Certificates.X509ContentType, netstandard")
             }
             "" => unsupported("GetDotNetType of an unassigned DotNet value whose declared type is not known"),

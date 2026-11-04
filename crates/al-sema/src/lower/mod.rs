@@ -442,36 +442,36 @@ pub(crate) fn is_stmt(k: SyntaxKind) -> bool {
 /// property of its type in the AL language, so valid code assigns it. Listed by name, not by
 /// shape: a method with one optional parameter is not a property (`Rec.Find(Which)`).
 ///
-/// - `FieldRef.Value`: corpus recordref/TestRecordRefCRUD.al:20-23.
-/// - `Page.Editable`, `Page.PromptMode`: handlers/TestPageModalNewRowLine_Objects.al:69;
-///   `Page.Caption`: handlers/TestPageCaption_Page.al:44; `Page.LookupMode`: the property of the
+/// - `FieldRef.Value`: corpus recordref-fieldref/recordref/TestRecordRefCRUD.al:20-23.
+/// - `Page.Editable`, `Page.PromptMode`: ui-handlers/TestPageModalNewRowLine_Objects.al:69;
+///   `Page.Caption`: testpage/TestPageCaption_Page.al:44; `Page.LookupMode`: the property of the
 ///   same name on a page.
-/// - `Notification.Id`, `.Message`, `.Scope`: handlers/TestNotificationHandler.al:21 and :55.
+/// - `Notification.Id`, `.Message`, `.Scope`: ui-handlers/TestNotificationHandler.al:21 and :55.
 /// - `Record.ReadIsolation`, `RecordRef.ReadIsolation` and `.SecurityFiltering`: Base
 ///   Application (`Item.ReadIsolation := IsolationLevel::ReadUncommitted`).
 /// - `ErrorInfo.Message`, `.DetailedMessage`, `.Title`, `.ControlName`, `.FieldNo`, `.PageNo`,
 ///   `.TableId`, `.Verbosity`, `.DataClassification`, `.Collectible`, `.ErrorType`,
-///   `.CustomDimensions`: the call form pins getter and storage (errorinfo/TestErrorInfoType.al:
+///   `.CustomDimensions`: the call form pins getter and storage (errors/errorinfo/TestErrorInfoType.al:
 ///   249-271, :284-307, :313-345; TestErrorInfoErrorType.al:25-45). Nothing sets `RecordId` in
 ///   the corpus (only `Create(.., Record)` does, :360-377): its native raises `Unsupported` when
 ///   run, so the assignment is refused when it is reached, not before. `SystemId` assigns and reads
-///   back (errorinfo/lt-errnotif/EnTErrorInfoProps.al:106-115, :259-262).
+///   back (errors/errorinfo/EnTErrorInfoProps.al:106-115, :259-262).
 /// - `Record.Ascending`, `.Mark`, `.MarkedOnly`: record/TestRecordFind.al:237-284 (`Mark`,
-///   `MarkedOnly`), handlers/TestPartOwnSortVsSubPageView.al:187 and :300 (`Ascending(false)`),
-///   handlers/TestPageActionRunPageView.al:134 (`Ascending()`).
-/// - `Report.Language`, `.FormatRegion`: handlers/TestReportCurrReportLanguage.al:58-103.
-/// - `Report.UseRequestPage`: handlers/TestReportGetFilterInTriggers.al:66 and
-///   codeunit/TestWriteTxTestBoundary.al:272 (`UseRequestPage(false)`).
-/// - `System.WorkDate`: session/TestSessionFunctions.al:63-65 (`WorkDate(20240101D)`).
-/// - `HttpRequestMessage.Method`: network/TestHttpRequestMessage.al:23; `.Content`: :39.
+///   `MarkedOnly`), testpage/TestPartOwnSortVsSubPageView.al:187 and :300 (`Ascending(false)`),
+///   testpage/TestPageActionRunPageView.al:134 (`Ascending()`).
+/// - `Report.Language`, `.FormatRegion`: streams/TestReportCurrReportLanguage.al:58-103.
+/// - `Report.UseRequestPage`: reports/TestReportGetFilterInTriggers.al:66 and
+///   codeunits/TestWriteTxTestBoundary.al:272 (`UseRequestPage(false)`).
+/// - `System.WorkDate`: session-system/TestSessionFunctions.al:63-65 (`WorkDate(20240101D)`).
+/// - `HttpRequestMessage.Method`: http/TestHttpRequestMessage.al:23; `.Content`: :39.
 /// - `TestHttpResponseMessage.HttpStatusCode`, `.ReasonPhrase`, `.IsBlockedByEnvironment`, `.IsSuccessfulRequest` and
-///   `HttpClient.Timeout`: the HTTP probes (PZHttpHandler.al; network/lt-http/HttpClient.al, TestHttpMessages.al).
+///   `HttpClient.Timeout`: the HTTP probes (PZHttpHandler.al; http/HttpClient.al, TestHttpMessages.al).
 /// - `HttpClient.UseServerCertificateValidation`, `.UseResponseCookies` (`Client.UseResponseCookies := false`):
-///   network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:16-74.
+///   http/client/HttpClientPropertyAssign.al:16-74.
 /// - `File.TextMode`, `File.WriteMode`: Base Application's "Export Consolidation" report.
-/// - `FilterPageBuilder.PageCaption`: the call form is pinned by filterpage/TestFilterPageBuilder.al:600.
+/// - `FilterPageBuilder.PageCaption`: the call form is pinned by pages/filterpagebuilder/TestFilterPageBuilder.al:600.
 /// - `XmlReadOptions.PreserveWhitespace`, `XmlWriteOptions.PreserveWhitespace` (al-runner issue 5647): the call form is
-///   pinned by xml/XmlDocReadWrite.al:215-217 and :399-406, what `ReadFrom` then reads by misc/W4XmlJsonHttp.al:18-19
+///   pinned by xml/XmlDocReadWrite.al:215-217 and :399-406, what `ReadFrom` then reads by json/W4XmlJsonHttp.al:18-19
 ///   (ReadFrom_InnerWhitespace, _WhitespaceAroundTheRoot, _TextContentWhitespace), what `WriteTo` writes by
 ///   xml/TestXmlDocumentWriteToOutStreamContracts.al.
 pub(crate) fn is_property_setter(receiver: &str, name: &str) -> bool {
@@ -515,11 +515,11 @@ pub(crate) fn is_property_setter(receiver: &str, name: &str) -> bool {
                 "TestHttpResponseMessage",
                 "HttpStatusCode" | "ReasonPhrase" | "IsBlockedByEnvironment" | "IsSuccessfulRequest"
             )
-            // network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:24-33,51-53,71
+            // http/client/HttpClientPropertyAssign.al:24-33,51-53,71
             | ("HttpClient", "Timeout" | "UseServerCertificateValidation" | "UseResponseCookies")
             | ("File", "TextMode" | "WriteMode")
             | ("DataTransfer", "UpdateAuditFields")
-            // `currXMLport.FieldSeparator := ';'` (xmlport/lt-y67-xmlport-separators/Y67XpSeparators.al:85-145; an Integer
+            // `currXMLport.FieldSeparator := ';'` (xmlports/shapes-properties/Y67XpSeparators.al:85-145; an Integer
             // value is AL0133, must-not-compile 2650 and 2651).
             | (
                 "Xmlport",
@@ -529,7 +529,7 @@ pub(crate) fn is_property_setter(receiver: &str, name: &str) -> bool {
             // `NsMgr.NameTable := Doc.NameTable` (al-runner issue 6526; assumption `nametable-assign-is-call` until corpus
             // writer Y29's pin lands, xml/XmlXPathNamespaces.al Y29_NameTable_AssignForm_SelectsLikeCallForm).
             | ("XmlNamespaceManager", "NameTable")
-            // `S.Company := ''` (platform/lt-platform-members/PlTSessionSettings.al:103-131 Properties_EdgeValues,
+            // `S.Company := ''` (metadata/platform-tables/PlTSessionSettings.al:103-131 Properties_EdgeValues,
             // SettingsAreCopies).
             | (
                 "SessionSettings",

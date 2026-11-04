@@ -1,5 +1,5 @@
 //! Format, StrSubstNo and Error in code of a Decimal table field with AutoFormatType 11: the AutoFormatExpression is the
-//! format string, evaluated at each call (types/lt-y43-auto-format-11/Y43AfType11.al, corpus PR 966, en-US).
+//! format string, evaluated at each call (format-evaluate/Y43AfType11.al, corpus PR 966, en-US).
 
 use al_builtins::native::Signal;
 use al_testkit::text;

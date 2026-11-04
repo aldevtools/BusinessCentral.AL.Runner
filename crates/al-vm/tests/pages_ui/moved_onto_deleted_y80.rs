@@ -1,4 +1,4 @@
-//! A move of a plain list onto a row that code deleted after the list read it (corpus pages/lt-y80-gone-rows/Y80GoneRows.al,
+//! A move of a plain list onto a row that code deleted after the list read it (corpus pages/deleted-rows/Y80GoneRows.al,
 //! the Y80_Moved_All_* and Y80_Moved_NoNew_* tests; the values below are the BC 29 `Expect` lines, the table has no OnDelete here).
 //! BC 27 and BC 28 values are checked by the corpus run (`--bc-version`).
 

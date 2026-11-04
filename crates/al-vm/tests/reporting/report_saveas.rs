@@ -1,6 +1,6 @@
 //! `Report.SaveAs(.., ReportFormat::Xml, ..)`, end to end: the dataset a report run writes. Each
 //! test names the corpus test that pins it. The fixtures copy the probe in
-//! handlers/TestReportSaveAsDatasetContracts.al (tables 68300/68301, report 68302).
+//! text/TestReportSaveAsDatasetContracts.al (tables 68300/68301, report 68302).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -90,7 +90,7 @@ report 68302 "Probe SaveAs Report"
         Prefix: Text;
 }
 
-// corpus reportextensiontrigger/TestReportExtensionDataItemPlacementContracts.al (68810..68815)
+// corpus reports/extensions/TestReportExtensionDataItemPlacementContracts.al (68810..68815)
 table 68810 "Probe Place Parent" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
 table 68811 "Probe Place Child" { fields { field(1; Id; Integer) { } field(2; ParentId; Integer) { } } keys { key(PK; Id) { } } }
 codeunit 68814 "Probe Place Log"
@@ -192,7 +192,7 @@ report 68310 "Probe Plain Report"
     end;
 }
 
-// A report with an RDLC layout whose OnPreReport fails (corpus handlers/TestReportSaveAsRecordRefFilterReport.al).
+// A report with an RDLC layout whose OnPreReport fails (corpus streams/TestReportSaveAsRecordRefFilterReport.al).
 report 68311 "Probe Layout Guard Report"
 {
     DefaultRenderingLayout = Rdlc;
@@ -259,7 +259,7 @@ report 68313 "Probe Types Report"
     }
 }
 
-// report/lt-y-report-props/YReports.al:111 (a report with the FormatRegion property).
+// reports/runtime/YReports.al:111 (a report with the FormatRegion property).
 report 68391 "Probe Region Fr"
 {
     ProcessingOnly = false;
@@ -302,7 +302,7 @@ report 68391 "Probe Region Fr"
         LongDayText: Text;
 }
 
-// report/lt-y-report-props/YReports.al:111 (a report with the FormatRegion property).
+// reports/runtime/YReports.al:111 (a report with the FormatRegion property).
 report 68392 "Probe Region Jp"
 {
     ProcessingOnly = false;
@@ -345,7 +345,7 @@ report 68392 "Probe Region Jp"
         LongDayText: Text;
 }
 
-// report/lt-y-report-props/YReports.al:111 (a report with the FormatRegion property).
+// reports/runtime/YReports.al:111 (a report with the FormatRegion property).
 report 68393 "Probe Region Nl"
 {
     ProcessingOnly = false;
@@ -389,7 +389,7 @@ report 68393 "Probe Region Nl"
 }
 
 // A report with the FormatRegion property whose OnInitReport formats a Decimal: which culture Format uses there is not pinned
-// (report/lt-y-report-props/YReports.al sets values in OnInitReport and formats them only in OnAfterGetRecord).
+// (reports/runtime/YReports.al sets values in OnInitReport and formats them only in OnAfterGetRecord).
 report 68394 "Probe Region Init"
 {
     ProcessingOnly = false;
@@ -440,7 +440,7 @@ report 68315 "Probe Caption Report"
 }
 
 // IncludeCaption on a field written with a data item name: the own item named like its table, a child's field in the parent, the
-// parent's in the child, an earlier sibling's (errors/lt-ms-refusals-138/P138ColCaptionQualified.al:113, report 87352).
+// parent's in the child, an earlier sibling's (streams/P138ColCaptionQualified.al:113, report 87352).
 report 68398 "Probe Caption Sources"
 {
     ProcessingOnly = false;
@@ -484,7 +484,7 @@ report 68397 "Probe Labels Both"
     procedure SetFailEarly(NewFailEarly: Boolean) begin FailEarly := NewFailEarly; end;
 }
 
-// One data item: the caption labels come first, then the declared ones (report/lt-report-layout-merger/ReportMergerLabelsSM.al:49).
+// One data item: the caption labels come first, then the declared ones (reports/layouts-saveas/ReportMergerLabelsSM.al:49).
 report 68395 "Probe Labels One Item"
 {
     ProcessingOnly = false;
@@ -749,7 +749,7 @@ fn lines(ls: &[(usize, &str)]) -> String {
     ls.iter().map(|(n, t)| format!("{}{t}|", " ".repeat(*n))).collect()
 }
 
-// handlers/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_DataItemsBlock_ExactText. The text is the one of BC 27.5,
+// text/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_DataItemsBlock_ExactText. The text is the one of BC 27.5,
 // which writes no identity pair on a DataItem.
 #[test]
 fn the_data_items_block_is_written_exactly() {
@@ -810,7 +810,7 @@ fn the_data_items_block_is_written_exactly() {
 const DATASET: &str =
     "var H: Codeunit Helpers; begin H.Seed(); exit(H.Dataset(Report::\"Probe SaveAs Report\", '')); end;";
 
-// handlers/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_WritesAByteOrderMarkDeclarationAndHeader (:206-212)
+// text/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_WritesAByteOrderMarkDeclarationAndHeader (:206-212)
 #[test]
 fn the_stream_starts_with_a_byte_order_mark_a_declaration_and_the_root_element() {
     assert_eq!(
@@ -852,7 +852,7 @@ fn header_tags(text: &str) -> String {
     tags
 }
 
-// handlers/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_WritesAByteOrderMarkDeclarationAndHeader (:213-220):
+// text/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_WritesAByteOrderMarkDeclarationAndHeader (:213-220):
 // BC 27 and 28 write one list, BC 29 adds ReportCaption and the company information block.
 #[test]
 fn the_header_lists_its_elements_in_the_order_the_probe_pins() {
@@ -874,8 +874,8 @@ fn the_header_lists_its_elements_in_the_order_the_probe_pins() {
     }
 }
 
-// The parents of the header elements: misc/lt-probes-needed-2/PnBReportSaveAs.al:526-575 and report/W3ReportDataset.al:510-590
-// (BC 29). `DateTimeValues` holds the clock parts on BC 27 and 28 too: report/W3ReportDataset.al:256 counts 46 line ends
+// The parents of the header elements: text/PnBReportSaveAs.al:526-575 and reports/W3ReportDataset.al:510-590
+// (BC 29). `DateTimeValues` holds the clock parts on BC 27 and 28 too: reports/W3ReportDataset.al:256 counts 46 line ends
 // there, two more than a flat list gives.
 #[test]
 fn the_header_groups_the_clock_parts_and_the_company_metadata() {
@@ -922,7 +922,7 @@ fn the_header_groups_the_clock_parts_and_the_company_metadata() {
     }
 }
 
-// handlers/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_WritesAByteOrderMarkDeclarationAndHeader (:221-222)
+// text/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_WritesAByteOrderMarkDeclarationAndHeader (:221-222)
 #[test]
 fn the_header_names_the_report_and_the_company() {
     let text = f(DATASET);
@@ -940,7 +940,7 @@ fn the_header_names_the_report_and_the_company() {
 
 const FILTERED: &str = "<?xml version=\"1.0\" standalone=\"yes\"?><ReportParameters name=\"Probe SaveAs Report\" id=\"68302\"><Options><Field name=\"Prefix\">PFX</Field></Options><DataItems><DataItem name=\"P\">VERSION(1) SORTING(Field1) WHERE(Field1=1(2))</DataItem><DataItem name=\"C\">VERSION(1) SORTING(Field1)</DataItem></DataItems></ReportParameters>";
 
-// handlers/TestReportSaveAsDatasetContracts.al:RunRequestPage_ReturnsTheParametersString_AndSaveAsHonoursItsFilter (:370-378)
+// text/TestReportSaveAsDatasetContracts.al:RunRequestPage_ReturnsTheParametersString_AndSaveAsHonoursItsFilter (:370-378)
 #[test]
 fn the_parameters_string_filters_the_dataset() {
     let text = f(&format!(
@@ -952,7 +952,7 @@ fn the_parameters_string_filters_the_dataset() {
     assert!(!text.contains("<Column name=\"CNo\">10</Column>"), "{text}");
 }
 
-// handlers/TestReportSaveAsDatasetContracts.al:SaveAs_Html_WithAnRdlcLayout_IsRefused
+// text/TestReportSaveAsDatasetContracts.al:SaveAs_Html_WithAnRdlcLayout_IsRefused
 #[test]
 fn html_of_a_report_with_an_rdlc_layout_answers_false_with_the_layout_error_and_writes_nothing() {
     assert_eq!(
@@ -983,8 +983,8 @@ fn a_rendered_format_is_refused_not_guessed() {
     }
 }
 
-// handlers/TestReportRunExecution.al:InstanceSaveAsXml_ExecutesTriggersAndBody; the columns read what
-// OnAfterGetRecord left (handlers/TestReportFlowFieldColumnAutoCalc.al:FlowFieldColumn_IsCalculatedBeforeOnAfterGetRecord
+// reports/runtime/TestReportRunExecution.al:InstanceSaveAsXml_ExecutesTriggersAndBody; the columns read what
+// OnAfterGetRecord left (xml/TestReportFlowFieldColumnAutoCalc.al:FlowFieldColumn_IsCalculatedBeforeOnAfterGetRecord
 // reads a column bound to a variable the trigger sets).
 #[test]
 fn an_instance_saveas_runs_the_triggers_and_the_columns_see_their_result() {
@@ -1021,7 +1021,7 @@ fn an_error_in_a_report_without_a_layout_reaches_the_caller() {
     }
 }
 
-// handlers/TestReportSaveAsRecordRefFilter.al:TestReport_SaveAs_NoRecordRef_LeavesDataItemUnfiltered: the
+// streams/TestReportSaveAsRecordRefFilter.al:TestReport_SaveAs_NoRecordRef_LeavesDataItemUnfiltered: the
 // guard in OnPreReport of a report with an RDLC layout fails the SaveAs, which answers false.
 #[test]
 fn an_error_in_a_report_with_an_rdlc_layout_answers_false() {
@@ -1038,7 +1038,7 @@ fn an_error_in_a_report_with_an_rdlc_layout_answers_false() {
     );
 }
 
-// handlers/TestReportSaveAsRecordRefFilter.al:TestReport_SaveAs_FilteredRecordRef_LimitsDatasetToThatRecord
+// streams/TestReportSaveAsRecordRefFilter.al:TestReport_SaveAs_FilteredRecordRef_LimitsDatasetToThatRecord
 #[test]
 fn a_filtered_recordref_limits_the_data_item_over_its_table() {
     let text = f("var H: Codeunit Helpers; Buf: Record \"Probe Rep Parent\"; Parent: Record \"Probe Rep Parent\"; RR: RecordRef; Out: OutStream; Ok: Boolean; begin
@@ -1061,7 +1061,7 @@ fn dataset_of(report: &str, parameters: &str) -> String {
     ))
 }
 
-// handlers/TestReportFlowFieldColumnAutoCalc.al:FlowFieldColumn_IsCalculatedWithoutCalcFields,
+// xml/TestReportFlowFieldColumnAutoCalc.al:FlowFieldColumn_IsCalculatedWithoutCalcFields,
 // FlowFieldColumn_IsCalculatedBeforeOnAfterGetRecord (the trigger reads the calculated FlowField)
 #[test]
 fn a_flowfield_column_is_calculated_for_every_row_before_the_trigger() {
@@ -1105,8 +1105,8 @@ fn a_column_an_extension_adds_is_written_after_the_columns_of_the_item() {
     );
 }
 
-// handlers/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_DataItemsBlock_ExactText: Skip in
-// OnAfterGetRecord leaves the row and its nested items out (handlers/TestReportRuntimeContracts.al:322-368).
+// text/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_DataItemsBlock_ExactText: Skip in
+// OnAfterGetRecord leaves the row and its nested items out (reports/TestReportRuntimeContracts.al:322-368).
 #[test]
 fn a_skipped_row_is_not_written() {
     let text = dataset_of("Probe Skip Report", "");
@@ -1114,7 +1114,7 @@ fn a_skipped_row_is_not_written() {
     assert!(text.contains("<Column name=\"PNo\">2</Column>"), "{text}");
 }
 
-// handlers/TestReportSaveAsColumnTypesContracts.al:174-215: an Option is written as its caption (its
+// reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:174-215: an Option is written as its caption (its
 // name when the field declares none), a Decimal expression keeps its scale (`12.5 * 2` is `25.0`, as
 // `12.345678 * 1.5` is `18.5185170`), and with no DecimalPlaces the formatter is the default.
 #[test]
@@ -1127,7 +1127,7 @@ fn an_option_is_written_as_its_caption_and_a_decimal_expression_keeps_its_scale(
     );
 }
 
-// handlers/TestReportSaveAsColumnTypesContracts.al:178-182: a Time is `h:mm:ss`, a plain space, AM or PM; an
+// reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:178-182: a Time is `h:mm:ss`, a plain space, AM or PM; an
 // undefined one is blank (not pinned, docs/probes-needed.md).
 #[test]
 fn a_time_column_is_written_in_the_en_us_form_with_a_plain_space() {
@@ -1138,7 +1138,7 @@ fn a_time_column_is_written_in_the_en_us_form_with_a_plain_space() {
     assert!(text.contains("<Column name=\"AtCol\"></Column>"), "{text}");
 }
 
-// handlers/TestReportSaveAsColumnTypesContracts.al:222-229: IncludeCaption adds a Labels block, between
+// reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:222-229: IncludeCaption adds a Labels block, between
 // the information block and the data items, with the field's caption.
 #[test]
 fn include_caption_writes_a_label_for_the_column() {
@@ -1149,7 +1149,7 @@ fn include_caption_writes_a_label_for_the_column() {
     );
 }
 
-// handlers/TestReportNestedLinkImplicitParent.al: `Change Log Setup (Table)` is `Change_Log_Setup_Table`.
+// reports/dataset/TestReportNestedLinkImplicitParent.al: `Change Log Setup (Table)` is `Change_Log_Setup_Table`.
 #[test]
 fn a_data_item_name_with_spaces_and_parentheses_is_written_the_way_the_corpus_shows() {
     let text = dataset_of("Probe Quoted Report", "");
@@ -1161,7 +1161,7 @@ fn a_data_item_name_with_spaces_and_parentheses_is_written_the_way_the_corpus_sh
     );
 }
 
-// handlers/PWReportSaveAsColumns.al:Labels_NoRowAtAll sees a line that starts with `<DataItems` in a dataset with no row at
+// streams/PWReportSaveAsColumns.al:Labels_NoRowAtAll sees a line that starts with `<DataItems` in a dataset with no row at
 // all. Assumption (docs/probes-needed.md): it is the short form `<DataItems />`.
 #[test]
 fn a_dataset_without_rows_has_an_empty_data_items_element() {
@@ -1192,7 +1192,7 @@ fn a_second_saveas_on_one_report_variable_is_refused() {
     assert!(why.contains("second SaveAs"), "{why}");
 }
 
-// report/W3ReportDataset.al:Rows_ParentsWithoutChildRows (staging probe, BC 27 to 29): a parent row whose item
+// reports/W3ReportDataset.al:Rows_ParentsWithoutChildRows (staging probe, BC 27 to 29): a parent row whose item
 // declares nested items but no child row reaches them is written with an empty `DataItems` element.
 #[test]
 fn a_parent_row_without_child_rows_has_an_empty_nested_data_items_element() {
@@ -1211,8 +1211,8 @@ fn a_parent_row_without_child_rows_has_an_empty_nested_data_items_element() {
     );
 }
 
-// handlers/TestReportDatasetHelpLink.al:RenderDataset reads the stream back with XmlDocument.ReadFrom, and
-// handlers/TestReportFlowFieldColumnAutoCalc.al walks the rows with SelectNodes and foreach.
+// xml/TestReportDatasetHelpLink.al:RenderDataset reads the stream back with XmlDocument.ReadFrom, and
+// xml/TestReportFlowFieldColumnAutoCalc.al walks the rows with SelectNodes and foreach.
 #[test]
 fn the_dataset_reads_back_as_xml() {
     assert_eq!(
@@ -1242,7 +1242,7 @@ fn a_data_item_over_a_temporary_record_has_no_rows_of_the_table() {
     assert!(!text.contains("<DataItem "), "{text}");
 }
 
-// session/TestBCPlatformContracts.al:CompanyProperty_DisplayName_NonEmpty
+// session-system/TestBCPlatformContracts.al:CompanyProperty_DisplayName_NonEmpty
 #[test]
 fn the_company_display_name_is_not_empty() {
     assert_ne!(f("begin exit(CompanyProperty.DisplayName()); end;"), "");
@@ -1250,7 +1250,7 @@ fn the_company_display_name_is_not_empty() {
 
 #[test]
 fn a_processing_only_report_raises_in_the_statement_form() {
-    // handlers/TestReportSaveAsColumnDetailsContracts.al:ProcessingOnlyReport_StatementFormRaises
+    // streams/TestReportSaveAsColumnDetailsContracts.al:ProcessingOnlyReport_StatementFormRaises
     match run(
         "var H: Codeunit Helpers; Buf: Record \"Probe Rep Parent\"; Out: OutStream; begin H.Seed(); Buf.Data.CreateOutStream(Out); Report.SaveAs(Report::\"Probe Processing Report\", '', ReportFormat::Xml, Out); end;",
     ) {
@@ -1265,7 +1265,7 @@ fn a_processing_only_report_raises_in_the_statement_form() {
     }
 }
 
-// handlers/TestReportSaveAsDatasetContracts.al:253-300 (BC28PLUS): from BC 28 every DataItem element carries
+// text/TestReportSaveAsDatasetContracts.al:253-300 (BC28PLUS): from BC 28 every DataItem element carries
 // ` tableId="<table id>" systemId="<guid>"` after its name, the table id of the data item's table and a different
 // lower case 36 character GUID per element; before BC 28 it carries neither.
 #[test]
@@ -1306,7 +1306,7 @@ fn from_bc_28_every_data_item_carries_its_table_id_and_a_distinct_guid() {
     }
 }
 
-// handlers/TestReportSaveAsColumnTypesContracts.al:372-388: a ProcessingOnly report answers false with the
+// reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:372-388: a ProcessingOnly report answers false with the
 // text and the code ReportProcessingOnly, and writes nothing; with the answer dropped it is refused.
 #[test]
 fn a_processing_only_report_answers_false_with_its_error_and_writes_nothing() {
@@ -1319,7 +1319,7 @@ fn a_processing_only_report_answers_false_with_its_error_and_writes_nothing() {
     );
 }
 
-// reportextensiontrigger/TestReportExtensionDataItemPlacementContracts.al:150-198: the triggers run, and the
+// reports/extensions/TestReportExtensionDataItemPlacementContracts.al:150-198: the triggers run, and the
 // data items and their columns are written, in position order.
 #[test]
 fn added_data_items_run_and_are_written_in_position_order() {
@@ -1366,8 +1366,8 @@ fn added_data_items_run_and_are_written_in_position_order() {
     assert_eq!(cols, ["PId", "EFId", "EBAId", "AId", "EAId", "EBId", "BId", "ELId"]);
 }
 
-// A report with the FormatRegion property: report/lt-y-report-props/YReportPropsTests.al:34-148 pins the DataItems block of its
-// SaveAs Xml dataset, and report/lt-bd-format-region/BdRegionTests.al:173-182 (fr-FR), :195-200 (ja-JP) and :282-292 (nl-NL) pin the
+// A report with the FormatRegion property: reports/runtime/YReportPropsTests.al:34-148 pins the DataItems block of its
+// SaveAs Xml dataset, and reports/runtime/BdRegionTests.al:173-182 (fr-FR), :195-200 (ja-JP) and :282-292 (nl-NL) pin the
 // `formatRegion` of the header and the data items and the culture of the columns (`AmtCol` 1234567,891 and `D1Col` 31/01/2025 for fr-FR).
 #[test]
 fn the_save_as_of_a_report_with_the_format_region_property_writes_its_region() {
@@ -1412,7 +1412,7 @@ fn the_save_as_of_a_report_with_the_nl_nl_property_still_refuses_an_unpinned_for
 }
 
 // `Format` in OnInitReport of a report with the FormatRegion property writes en-US: the region is not applied yet
-// (report/lt-bd-format-region/BdRegionTests.al:120 BdProperty_De_DatasetAndFormat `init=1,234,567.891#... region=[]` for de-DE;
+// (reports/runtime/BdRegionTests.al:120 BdProperty_De_DatasetAndFormat `init=1,234,567.891#... region=[]` for de-DE;
 // the same text, `region=[]`, in the 13 property values that file measures). The dataset itself carries the region.
 #[test]
 fn format_in_oninitreport_of_a_report_with_the_format_region_property_writes_en_us() {
@@ -1443,7 +1443,7 @@ fn include_caption_of_a_field_written_with_a_data_item_name() {
 }
 
 // With two data items the caption labels of every data item come first, in declaration order, then the declared labels
-// (types/lt-format-codes-textbuilder-pagerun-labels/P144ReportLabelsCaption.al:154 Sq_TwoDataItems_Labels_Order). A trigger that
+// (format-evaluate/P144ReportLabelsCaption.al:154 Sq_TwoDataItems_Labels_Order). A trigger that
 // fails before any row still raises its own error.
 #[test]
 fn caption_labels_come_before_declared_labels_with_two_data_items() {
@@ -1472,7 +1472,7 @@ fn caption_labels_come_before_declared_labels_on_a_report_of_one_data_item() {
     );
 }
 
-// report/lt-reportext-rendering/ReportExtensionSaveAs.al:194-201, :252-260: a reportextension's rendering section changes no
+// reports/layouts-saveas/ReportExtensionSaveAs.al:194-201, :252-260: a reportextension's rendering section changes no
 // dataset: Report.SaveAs as Xml answers true with the dataset, with and without a base layout; Html on the RDLC default
 // layout answers the layout error (:238-243). Pdf, Word and Excel stay refused as rendered formats.
 #[test]

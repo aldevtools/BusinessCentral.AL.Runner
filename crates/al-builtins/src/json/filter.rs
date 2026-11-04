@@ -1,5 +1,5 @@
 //! `SelectToken` paths with a filter indexer `[?(@.name == x)]`, `!=`, `>` or `<=`: the forms
-//! json/lt-db-json-leads/DbJPathLeads.al:52-85 and json/lt-dc-json-leads/DcJsonLeads.al:286-345 pin, and the `Y47_*` tests
+//! json/DbJPathLeads.al:52-85 and json/DcJsonLeads.al:286-345 pin, and the `Y47_*` tests
 //! of DbJPathLeads.al:184-388 (al-runner issue 6588).
 
 use super::{Handle, JsonNode, Scalar, Seg, error, tagged, with_node};
@@ -99,7 +99,7 @@ fn keep(h: &Handle, f: &Filter) -> Result<Vec<Handle>, Signal> {
             JsonNode::Object(o) => Ok(o.iter().find(|(e, _)| *e == f.name).map(|(_, c)| c.clone())),
             _ => Err(()),
         });
-        // An element without the name is left out, as SelectTokens leaves it out (json/lt-json-selecttokens/
+        // An element without the name is left out, as SelectTokens leaves it out (json/json/
         // SelectTokensList.al:265 `{"x":30}`).
         let field = match field {
             Ok(Some(c)) => c,

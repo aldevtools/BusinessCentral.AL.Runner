@@ -1,7 +1,7 @@
 //! `Clear` of an ErrorInfo variable gives a fresh one: the message, title and detailed message are empty
-//! again (misc/lt-system-functions/ErrorMessage.al:184-206, `Error` of a cleared ErrorInfo raises ''), its SystemId
-//! is the empty Guid (errorinfo/lt-bc-errorinfo-systemid/BcErrorInfoSystemId.al:55-66), and a TestField given it
-//! raises the plain text (record/lt-testfield-value-types/RecordTestFieldGroupA.al:59-72). A variable assigned from it shares it
+//! again (errors/error-texts/ErrorMessage.al:184-206, `Error` of a cleared ErrorInfo raises ''), its SystemId
+//! is the empty Guid (errors/errorinfo/BcErrorInfoSystemId.al:55-66), and a TestField given it
+//! raises the plain text (record/testfield/RecordTestFieldGroupA.al:59-72). A variable assigned from it shares it
 //! and is cleared too (errorinfo Copy_Semantics, codeunit 73026: `b kept` is '').
 
 use al_testkit::text;

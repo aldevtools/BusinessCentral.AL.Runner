@@ -8,7 +8,7 @@ fn text(vars: &str, body: &str) -> String {
     }
 }
 
-// types/lt-af-char-literal/AfCharLiteralArithmetic.al:22-58: a one-character literal next to a Char is a Char; the
+// types/text-code-char/AfCharLiteralArithmetic.al:22-58: a one-character literal next to a Char is a Char; the
 // sum or difference is an Integer.
 #[test]
 fn a_char_plus_or_minus_a_one_character_literal_is_an_integer() {
@@ -31,7 +31,7 @@ fn a_char_plus_or_minus_a_one_character_literal_is_an_integer() {
     assert_eq!(r, "2");
 }
 
-// types/lt-at-partner-gaps/AtTextCharLiteral.al:15-112: a character taken by index from a Text or Code variable is a Char
+// format-evaluate/AtTextCharLiteral.al:15-112: a character taken by index from a Text or Code variable is a Char
 // next to a one-character literal too; a longer or empty literal still joins as text.
 #[test]
 fn a_character_of_a_text_variable_plus_or_minus_a_one_character_literal_is_an_integer() {
@@ -75,7 +75,7 @@ fn table_text(vars: &str, body: &str) -> String {
     }
 }
 
-// errors/lt-ms-refusals-128/N582EvalFieldRefUnused.al:84-91, 125-129: the statement form raises the error of the type and keeps the field.
+// recordref-fieldref/N582EvalFieldRefUnused.al:84-91, 125-129: the statement form raises the error of the type and keeps the field.
 #[test]
 fn evaluate_into_a_fieldref_as_a_statement_raises_and_keeps_the_field() {
     let body = |no: i32, input: &str| {

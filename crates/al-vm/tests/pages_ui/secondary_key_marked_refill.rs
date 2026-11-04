@@ -1,6 +1,6 @@
 //! A list in a key other than its primary key, and the same list in its primary key, after a TestPage filter change, after an
 //! action that marks rows and turns MarkedOnly on, and after a field's OnDrillDown that does the same (corpus
-//! pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al and SyKeyMoves.al; al-runner issues 6008 and 5871). The fixture is the
+//! pages/onopenpage-moves-rec/SuRefillKey.al and SyKeyMoves.al; al-runner issues 6008 and 5871). The fixture is the
 //! corpus file's objects, renumbered; each routine returns the observations the corpus test compares.
 
 const SRC: &str = r##"table 50130 "Rk Row"

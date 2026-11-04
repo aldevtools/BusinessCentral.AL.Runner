@@ -1,6 +1,6 @@
 //! A table element linked with LinkTable and LinkFields, MinOccurs = Zero and MaxOccurs = Once, on export: a parent without a
 //! child row writes no child element, of two child rows only the lowest key is written, and OnAfterGetRecord runs for that row
-//! only (misc/lt-y14-triage/Y14XmlPortLink.al:136 LinkedZeroOnce_ZeroOneTwoChildren, corpus master).
+//! only (streams/Y14XmlPortLink.al:136 LinkedZeroOnce_ZeroOneTwoChildren, corpus master).
 
 use al_testkit::{run, text};
 

@@ -1,5 +1,5 @@
 //! A main card, two list parts and a FactBox that show one codeunit's state through an expression control: each page shows
-//! the value it computed when it last refreshed (pages/lt-qj-part-propagation/QjPartPropagation.al:4629-4710, codeunit 86889;
+//! the value it computed when it last refreshed (pages/parts/QjPartPropagation.al:4629-4710, codeunit 86889;
 //! al-runner issue 5765). A read after an event whose refresh is not pinned, of a value that changed since, is refused.
 
 use al_builtins::native::Signal;

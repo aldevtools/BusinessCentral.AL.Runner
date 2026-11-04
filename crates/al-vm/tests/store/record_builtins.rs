@@ -73,8 +73,8 @@ fn error_text(body: &str) -> String {
 
 #[test]
 fn field_and_table_metadata() {
-    // corpus fieldref/TestPrecompiledFieldOptionCaption.al:100-125 (Caption property, else the name),
-    // record/TestRecordTableCaption.al, recordref/TestRecordRefField.al:118-131
+    // corpus recordref-fieldref/fieldref/TestPrecompiledFieldOptionCaption.al:100-125 (Caption property, else the name),
+    // record/TestRecordTableCaption.al, recordref-fieldref/recordref/TestRecordRefField.al:118-131
     let r = run(
         "procedure F(): Text var R: Record \"ALT T\"; begin
             exit(R.FieldCaption(Amount) + '|' + R.FieldCaption(Grp) + '|' + R.FieldName(Amount) + '|' + Format(R.FieldNo(Grp)) + '|' + R.TableCaption() + '|' + R.TableName());
@@ -115,7 +115,7 @@ fn text_or_int(r: Result<Value, Signal>) -> i32 {
 
 #[test]
 fn testfield_with_a_wrong_value_names_the_field() {
-    // corpus error-handling/TestErrorTextContracts.al:68-79 pins only the field caption; the
+    // corpus errors/TestErrorTextContracts.al:68-79 pins only the field caption; the
     // rest of the wording is Assert.al's documented format (docs/probes-needed.md).
     let m = error_text("R.TestField(Grp, 99);");
     assert!(m.contains("Grp"), "{m}");
@@ -241,7 +241,7 @@ fn system_field_captions_only_where_the_corpus_pins_them() {
 
 #[test]
 fn a_tableextension_modify_changes_the_caption_the_ref_and_the_record_answer() {
-    // corpus tableextension/TestTableExtFieldModify.al:40-100
+    // corpus table-objects/extensions/TestTableExtFieldModify.al:40-100
     let src = r#"
 table 50930 T { fields { field(1; A; Integer) { Caption = 'Orig A'; } field(2; B; Integer) { Caption = 'Orig B'; } } keys { key(PK; A) { } } }
 tableextension 50931 X extends T { fields { modify(A) { Caption = 'New A'; } } }
@@ -504,7 +504,7 @@ fn get_range_min_and_max_read_the_set_range() {
         "F",
     );
     assert_eq!(text(r), "5|10");
-    // Without a filter: DB:NoFilter (corpus record/lt-get-range-filter/GetRangeFilterGroups.al: P168_GetRange_FilterOnlyInGroup2).
+    // Without a filter: DB:NoFilter (corpus record/filters/GetRangeFilterGroups.al: P168_GetRange_FilterOnlyInGroup2).
     let r = run(
         "procedure F(): Text var R: Record \"ALT T\"; begin exit(Format(R.GetRangeMin(Grp))); end;",
         "F",
@@ -571,7 +571,7 @@ codeunit 50100 C { procedure F(): Text var R: Record "Temp Only"; S: Record "Tem
 
 #[test]
 fn locking_isolation_and_security_settings_round_trip() {
-    // corpus record/TestRecordLock.al:13-104, TestSecurityFilteringContracts.al:16-175, session/TestBCLockingContracts.al
+    // corpus record/TestRecordLock.al:13-104, TestSecurityFilteringContracts.al:16-175, session-system/TestBCLockingContracts.al
     let r = run(
         "procedure F(): Text var R: Record \"ALT T\"; RR: RecordRef; s: Text; begin
             R.LockTable(); R.LockTable(true); R.Consistent(true); R.Consistent(false);
@@ -596,7 +596,7 @@ fn locking_isolation_and_security_settings_round_trip() {
 
 #[test]
 fn lock_table_without_waiting_fails() {
-    // record/TestRecordLock.al:38 and record/lt-record-write/RcBMeta.al:415-419 pin the text and code.
+    // record/TestRecordLock.al:38 and record/crud/RcBMeta.al:415-419 pin the text and code.
     let r = run(
         "procedure F() var R: Record \"ALT T\"; begin R.LockTable(false, true); end;",
         "F",
@@ -623,7 +623,7 @@ fn count_approx_and_current_company() {
 
 #[test]
 fn positions_round_trip_and_set_position_restores_the_key_fields() {
-    // corpus record/TestRecordExtended.al:188-206, TestRecordFilter.al:480-520, recordref/TestBCMetadataContracts.al:195-212
+    // corpus record/TestRecordExtended.al:188-206, TestRecordFilter.al:480-520, recordref-fieldref/recordref/TestBCMetadataContracts.al:195-212
     let r = run(
         "procedure F(): Text var A: Record \"ALT T\"; B: Record \"ALT T\"; P: Text; s: Text; begin
             A.\"No.\" := 'K1'; A.Grp := 5; A.Insert(); A.\"No.\" := 'K2'; A.Grp := 6; A.Insert();
@@ -750,7 +750,7 @@ fn get_ascending_reads_the_direction_of_a_key_field() {
     assert!(matches!(r, Ok(Value::Boolean(false))), "{r:?}");
 }
 
-// A field outside the current sorting raises the pinned error (record/lt-filters-keys-finds/P68D_Ascending.al:Field_Not_In_Key);
+// A field outside the current sorting raises the pinned error (record/filters/P68D_Ascending.al:Field_Not_In_Key);
 // a field of a multi-field key has a direction of its own (same file: Composite_Key_Second_Descending).
 #[test]
 fn set_ascending_outside_the_sorting_raises_and_inside_a_composite_key_is_per_field() {
@@ -813,9 +813,9 @@ end; }"#;
 #[test]
 fn set_current_key_on_fields_no_key_starts_with_orders_by_them_then_the_primary_key() {
     // record/TestRecordNavContracts.al:180-195 (SetCurrentKey on a non-key field does not throw and
-    // the record still finds), recordref/TestRecordRefRuntimeContracts.al:115-143 (CurrentKey is
+    // the record still finds), recordref-fieldref/recordref/TestRecordRefRuntimeContracts.al:115-143 (CurrentKey is
     // just `Text Field`; GetTable and SetTable carry the key and the direction),
-    // xmlport/TestXmlPortTriggersReplaceViewContracts.al:339-375 (ascending: by the field, ties by
+    // xmlports/TestXmlPortTriggersReplaceViewContracts.al:339-375 (ascending: by the field, ties by
     // primary key; Ascending(false) reverses both).
     let r = run(
         "procedure F(): Text var R: Record \"ALT T\"; C: Record \"ALT T\"; RR: RecordRef; s: Text; begin
@@ -845,7 +845,7 @@ fn set_current_key_on_fields_no_key_starts_with_orders_by_them_then_the_primary_
 
 #[test]
 fn set_ascending_true_after_ascending_false_keeps_ties_in_descending_primary_key_order() {
-    // record/lt-record-sort-ascending/RecordSortAscendingViews.al:P161_SetAscending_Single_AscendingMethodAndTies `back.walk`.
+    // record/keys-sorting/RecordSortAscendingViews.al:P161_SetAscending_Single_AscendingMethodAndTies `back.walk`.
     let r = run(
         "procedure F(): Text var R: Record \"ALT T\"; s: Text; begin
             R.\"No.\" := 'A'; R.Descr := 'k'; R.Insert();
@@ -865,7 +865,7 @@ fn set_ascending_true_after_ascending_false_keeps_ties_in_descending_primary_key
 
 #[test]
 fn view_and_ascending_after_set_ascending_true_following_ascending_false_ignore_the_tie_order() {
-    // record/lt-record-sort-ascending/RecordSortAscendingViews.al:P161_SetAscending_Single_AscendingMethodAndTies `back.asc`, `back.view`.
+    // record/keys-sorting/RecordSortAscendingViews.al:P161_SetAscending_Single_AscendingMethodAndTies `back.asc`, `back.view`.
     let r = run(
         "procedure F(): Text var R: Record \"ALT T\"; begin
             R.SetCurrentKey(Descr);
@@ -945,7 +945,7 @@ codeunit 50101 C2 { procedure F(): Boolean var R: Record T2; begin exit(R.FieldA
 #[test]
 fn special_filter_values_are_quoted_escaped_and_round_trip() {
     // TestFilterQuotedLiterals.al:95-105 pins doubled apostrophes in quoted literals;
-    // TestSetFilterSpecialTextContracts.al:94-103 and filters/W4Filters.al:174-191 pin operator quoting.
+    // TestSetFilterSpecialTextContracts.al:94-103 and record/filters/W4Filters.al:174-191 pin operator quoting.
     for (value, quoted) in [
         ("Diana's (Meals)", "'Diana''s (Meals)'"),
         ("'A|B'", "'''A|B'''"),
@@ -1008,7 +1008,7 @@ fn code_filter_with_angle_brackets_round_trips_through_a_view() {
 }
 
 // A parenthesis inside a quoted value does not count as a group of the view: an unmatched ( or ) round trips
-// (the quoting of a value with ( or ) is record/TestSetFilterSpecialTextContracts.al, filters/lt-uc-quoted-values/
+// (the quoting of a value with ( or ) is record/TestSetFilterSpecialTextContracts.al, record/filters/
 // UcQuotedValues.al:Value05_ApostropheAndParens).
 #[test]
 fn a_value_with_an_unmatched_parenthesis_round_trips_through_a_view() {
@@ -1045,7 +1045,7 @@ fn a_value_with_an_unmatched_parenthesis_round_trips_through_a_view() {
     }
 }
 
-// filters/lt-uc-quoted-values/UcQuotedValues.al:SetView_FilterGreaterB: in a view given to SetView, FILTER('>B') is
+// record/filters/UcQuotedValues.al:SetView_FilterGreaterB: in a view given to SetView, FILTER('>B') is
 // the literal value (`view_cd_ids` 2,16, GetFilter `'>B'`) and FILTER(>B) a comparison (`view_cd_plain_ids` 5,14,15).
 #[test]
 fn set_view_reads_a_quoted_greater_than_as_a_literal_and_a_bare_one_as_a_comparison() {
@@ -1074,7 +1074,7 @@ fn set_view_reads_a_quoted_greater_than_as_a_literal_and_a_bare_one_as_a_compari
     assert_eq!(text(r), "1:'>B';1:'>b';1;1");
 }
 
-// misc/lt-y14-triage/Y14Small.al:309 (corpus master): a case-insensitive `@` value with `>` reads back quoted, `@` inside the
+// format-evaluate/Y14Small.al:309 (corpus master): a case-insensitive `@` value with `>` reads back quoted, `@` inside the
 // quotes, and matches the value ignoring case; a lone `@` is the quoted text `@`.
 #[test]
 fn setfilter_placeholder_case_insensitive_text_with_a_greater_than_is_quoted() {
@@ -1094,7 +1094,7 @@ fn setfilter_placeholder_case_insensitive_text_with_a_greater_than_is_quoted() {
 
 #[test]
 fn setfilter_placeholder_text_with_wildcard_and_operator_runs_and_a_leading_at_is_refused() {
-    // Wildcards mixed with operators are quoted and keep the wildcard (filters/W4Filters.al
+    // Wildcards mixed with operators are quoted and keep the wildcard (record/filters/W4Filters.al
     // SetFilterPercent1_WildcardTogetherWithOperators: `a*&b` matches `a&b`).
     let r = run(
         "procedure F(): Integer var R: Record \"ALT T\"; begin
@@ -1216,7 +1216,7 @@ fn find_tries_the_directions_in_the_order_written() {
     assert_eq!(text(r), "YesAYesA");
 }
 
-// record/lt-filters-keys-finds/P68C_EmptyFinds.al:215-250 (FindFirst, FindLast; the BC 27 oracle passes it too), ErTTriggerErrors.al:140-147
+// record/filters/P68C_EmptyFinds.al:215-250 (FindFirst, FindLast; the BC 27 oracle passes it too), ErTTriggerErrors.al:140-147
 // (FindSet): an unfiltered, empty table.
 #[test]
 fn find_first_last_and_set_on_an_empty_unfiltered_table_say_the_table_is_empty() {
@@ -1234,7 +1234,7 @@ fn find_first_last_and_set_on_an_empty_unfiltered_table_say_the_table_is_empty()
     assert_eq!(text(r), format!("{one}#{one}#{one}"));
 }
 
-// record/lt-find-empty-table/FindEmptyTable.al:Find_EmptyTable: Find with the result unused on an empty, unfiltered table.
+// record/crud/FindEmptyTable.al:Find_EmptyTable: Find with the result unused on an empty, unfiltered table.
 #[test]
 fn find_on_an_empty_unfiltered_table_with_an_unused_result_raises_the_pinned_errors() {
     let one = |call: &str| {

@@ -1,8 +1,8 @@
 //! `DataTransfer`: copies table data during upgrade and install code only. The corpus pins what it
-//! does anywhere else (install/TestDataTransferContracts.al): `SetTables` is accepted and staged;
+//! does anywhere else (install-upgrade/TestDataTransferContracts.al): `SetTables` is accepted and staged;
 //! a call before it asks for `SetTables`; a call after it says the type is for upgrade and install
 //! code. Inside install code each staging and copying call goes to the VM (`Ctx::ref_op`, al-vm `datatransfer`), which keeps
-//! the staged [`Plan`] in the variable and runs the copy (record/lt-as-records/AsDtInstaller.al, AsDtInstallRead.al).
+//! the staged [`Plan`] in the variable and runs the copy (install-upgrade/AsDtInstaller.al, AsDtInstallRead.al).
 
 use crate::native::{AlError, Ctx, NativeFn, Signal};
 use crate::signature::Signature;
@@ -47,7 +47,7 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
 fn error<T>(message: &str) -> Result<T, Signal> {
     Err(Signal::Error(Box::new(AlError {
         message: message.to_string(),
-        // xmlport/lt-xmlport-query-datatransfer/XpTDataTransfer.al, misc/W5DataTransferOutside.al: the code is DB:Ok.
+        // xmlports/import/XpTDataTransfer.al, install-upgrade/W5DataTransferOutside.al: the code is DB:Ok.
         code: "DB:Ok".into(),
         call_stack: String::new(),
         ..Default::default()
@@ -83,8 +83,8 @@ fn other_call(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
 }
 
 /// `UpdateAuditFields(Value)` and `UpdateAuditFields := Value`: accepted after `SetTables` even outside upgrade and install code,
-/// where the other staging calls raise (misc/W5DataTransferOutside.al:SetTables_Twice_AndUpdateAuditFields,
-/// misc/lt-probes-needed-2/PnBErrorsCollections.al:DataTransfer_OutsideInstall `op6`). Before `SetTables` and inside install code
+/// where the other staging calls raise (install-upgrade/W5DataTransferOutside.al:SetTables_Twice_AndUpdateAuditFields,
+/// errors/PnBErrorsCollections.al:DataTransfer_OutsideInstall `op6`). Before `SetTables` and inside install code
 /// it is not pinned.
 fn update_audit_fields(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let Some(Value::Library(_, cell)) = r else {

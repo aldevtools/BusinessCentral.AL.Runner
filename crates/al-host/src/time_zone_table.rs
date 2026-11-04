@@ -1,6 +1,6 @@
 //! The rows of the platform Time Zone table (2000000164): Windows time zone id and display name, `No.` from 1 in this order.
 //!
-//! Generated from the expected rows of corpus record/lt-uv-time-zone-table/UvTimeZoneRows.al:42-240 (corpus PR 829,
+//! Generated from the expected rows of corpus record/table-properties/UvTimeZoneRows.al:42-240 (corpus PR 829,
 //! al-runner issue 6218): BC 27.5, 28.5 and 29.0 on the corpus CI (Linux) give these 144 rows.
 //! The real table depends on the host Windows version (header of UvTimeZoneRows.al:7-11): a BC SaaS sandbox on Windows
 //! (BC 29.0, 2026-10-29) listed 141 rows, without 'British Columbia Standard Time', 'Alberta Standard Time' and 'Manitoba

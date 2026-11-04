@@ -1,6 +1,6 @@
 //! The function controls of a page in a tree with parts (al-runner issue 6639). BC runs a control whose source is a function
 //! right after each OnAfterGetRecord and OnAfterGetCurrRecord of its page, and the client shows the value that run gave until
-//! a later run: a read of the control runs no code (pages/lt-y15/Y15LookupThreeFieldLink.al:373 Y26_ThreeLinkCurr_LookupRefresh
+//! a later run: a read of the control runs no code (testpage/Y15LookupThreeFieldLink.al:373 Y26_ThreeLinkCurr_LookupRefresh
 //! `open log` `h-agr R1;h-fn R1;...;p-agcr R1;p-fn R1`, every `.. log` of a read empty). `PageState::fn_rows` holds the values
 //! per row key.
 //!

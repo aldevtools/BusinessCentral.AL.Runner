@@ -76,19 +76,19 @@ pub(crate) struct TxState {
     /// many of them an Insert or Modify accounts for, and why the value is not pinned.
     pub(crate) row_versions: RowVersionTx,
     /// The transaction world of an XmlPort export started inside a TryFunction whose result is used: its triggers' Insert and
-    /// Modify are not writes of the try (xmlport/lt-y-xmlport-props/YXmlPortProps.al:861); other writes there are refused.
+    /// Modify are not writes of the try (xmlports/shapes-properties/YXmlPortProps.al:861); other writes there are refused.
     pub(crate) xp_export_try_world: Option<usize>,
     /// The tables (object indexes) `Consistent(false)` marked in the open transaction: `Commit` fails while one is marked.
     pub(crate) inconsistent: Vec<u32>,
     /// A lock started the open write transaction: `LockTable` on a database table, `ReadIsolation := UpdLock`, or a FindFirst
-    /// under RepeatableRead or UpdLock (codeunit/TestCodeunitRunWriteTransaction.al:211-278). A Commit ends it.
+    /// under RepeatableRead or UpdLock (codeunits/TestCodeunitRunWriteTransaction.al:211-278). A Commit ends it.
     pub(crate) lock_tx: bool,
     /// A lock whose effect on the write transaction is not pinned ran since the last Commit (a RecordRef.LockTable, a
     /// RepeatableRead set without a read, another read than FindFirst under a locking ReadIsolation): while no pinned write
     /// or lock opened the transaction, what depends on it is refused (`Session::in_write_transaction`).
     pub(crate) lock_unpinned: Option<&'static str>,
     /// A `RecordRef.LockTable` on a database table ran since the last Commit: the write transaction is open
-    /// (recordref/lt-wc/WcRecordRefLockTable.al:28-51), while what else it changes stays refused through `lock_unpinned`.
+    /// (recordref-fieldref/WcRecordRefLockTable.al:28-51), while what else it changes stays refused through `lock_unpinned`.
     pub(crate) recref_lock_tx: bool,
     /// The tables (object index, company) a locking ReadIsolation locked since the last Commit: UpdLock set on a database
     /// table, or a read under RepeatableRead or UpdLock.
@@ -211,7 +211,7 @@ pub(crate) struct PageClients {
     pub(crate) bg_drain_after_call: Option<Rc<RefCell<al_builtins::value::PageState>>>,
     /// The xRec fields the next `Modify` hands the table's triggers instead of the stored row: a
     /// page saving a row passes its own xRec (corpus
-    /// handlers/TestPageActionRunObjectPageRec_Tests.al:HostSaveAfterTheTargetEditedTheRowCarriesXRec).
+    /// testpage/TestPageActionRunObjectPageRec_Tests.al:HostSaveAfterTheTargetEditedTheRowCarriesXRec).
     pub(crate) page_xrec: Option<Vec<Value>>,
     /// Records whose `CurrFieldNo` is set (a TestPage write validating a field, or an assignment in table
     /// code), with the field's number: what `CurrFieldNo` reads. Held weakly: the entry keeps the record's
@@ -352,10 +352,10 @@ pub(crate) struct ReportState {
     /// A `CurrReport.Skip`, `Break` or `Quit` is leaving the procedures down to the report trigger at this depth.
     pub(crate) flow_unwind: Option<usize>,
     /// The request page of a `RunRequestPage` is open: a table write in its handler finds no transaction
-    /// (report/TestProbeReportContracts.al:RequestPage_TableWriteInsideHandler).
+    /// (reports/TestProbeReportContracts.al:RequestPage_TableWriteInsideHandler).
     pub(crate) request_only_page: bool,
     /// The run failed on a DataItemTableView `const(0D)` (`report_prepare`): a SaveAs whose answer is used keeps that error
-    /// as the last error (report/lt-cj-report-leads/CjDataset.al:190-211).
+    /// as the last error (streams/CjDataset.al:190-211).
     pub(crate) zero_date_view_failed: bool,
     pub(crate) report_executed: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// The parameters string of the `Execute` about to run (taken by `report_body`).
@@ -382,7 +382,7 @@ pub(crate) struct ReportState {
     /// run it again.
     pub(crate) rp_init_done: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// The report instances whose request page OnInit ran before their `[ReportHandler]` was called: a run the handler starts
-    /// does not run it again (report/lt-ae-reporthandler/AeReportHandlerCalls.al:83 Handler_RunsReport).
+    /// does not run it again (reports/reporthandler/AeReportHandlerCalls.al:83 Handler_RunsReport).
     pub(crate) rp_init_by_handler: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// For each report body running, innermost last: how it was started, which says what `CurrReport.Preview()` answers.
     pub(crate) report_preview_pinned: Vec<ReportStart>,
@@ -390,7 +390,7 @@ pub(crate) struct ReportState {
     pub(crate) run_modal: bool,
     /// The filters each data item record got from a `SetTableView`: the request page shows those and not the filters a procedure
     /// of the report set on the item. Held by a `Weak` of the record and not by its address: a `Weak` keeps the allocation, so no
-    /// later record can get the address of one that is gone and read its view (al-runner CI flake of report/lt-report-requestpage/
+    /// later record can get the address of one that is gone and read its view (al-runner CI flake of reports/request-page/
     /// RptFilters.al:510 RequestFilterFields_Handler_SetsFilters). The entries of dropped records go on each new SetTableView.
     pub(crate) set_view_filters: Vec<(std::rc::Weak<RefCell<RecordState>>, Vec<ViewFilterKey>)>,
     /// The dataset a `Report.SaveAs(.., Xml, ..)` run is writing (al-vm reports.rs).

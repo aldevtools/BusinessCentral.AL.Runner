@@ -1,7 +1,7 @@
 //! `TableRelation`: which table a field relates to (`FieldRef.Relation`) and whether a value
 //! exists there (`Validate`).
 //!
-//! Pinned by corpus fieldref/TestFieldRefRelation.al and TestFieldRefRelationFieldClass.al: the
+//! Pinned by corpus recordref-fieldref/fieldref/TestFieldRefRelation.al and TestFieldRefRelationFieldClass.al: the
 //! first arm whose conditions hold applies, an else arm has none, a condition on a FlowFilter
 //! field is not evaluated, `where(A = field(B))` reads B off the referencing row, and a value the
 //! related table lacks is refused with "... cannot be found in the related table".
@@ -81,7 +81,7 @@ impl Session {
             let mut holds = true;
             for c in &arm.conditions {
                 // BC evaluates conditions on Normal fields and FlowFields only
-                // (corpus fieldref/TestFieldRefRelationFieldClass.al:106-145).
+                // (corpus recordref-fieldref/fieldref/TestFieldRefRelationFieldClass.al:106-145).
                 if self.is_flow_filter(t.object, c.field) {
                     continue;
                 }
@@ -120,7 +120,7 @@ impl Session {
             return unsupported("a filter condition of a TableRelation without its text");
         };
         // The AL string of `filter('A|B')` is the filter text `A|B`; the blank `filter('')` stays the blank value
-        // (query/lt-query-links-relations-httpstream/RelArms.al:P100_ZoneFilterArms).
+        // (queries/joins-links/RelArms.al:P100_ZoneFilterArms).
         let unquoted;
         let text = match text.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')) {
             Some(inner) if !inner.is_empty() && !inner.replace("''", "").contains('\'') => {
@@ -144,7 +144,7 @@ impl Session {
     pub(crate) fn field_relation(&self, rec: &Rec, t: &TableDef, pos: usize) -> Result<i32, Signal> {
         let id = t.fields[pos].id;
         // SystemId, SystemCreatedAt and SystemModifiedAt relate to nothing, SystemCreatedBy and SystemModifiedBy to the User table, on
-        // an own and on a Base Application table (fieldref/lt-y67-system-field-relation/Y67SystemFieldRelation.al:71-126).
+        // an own and on a Base Application table (recordref-fieldref/fieldref/Y67SystemFieldRelation.al:71-126).
         if id >= 2_000_000_000 {
             return match id {
                 SYSTEM_CREATED_BY | SYSTEM_MODIFIED_BY => Ok(USER_TABLE),
@@ -179,7 +179,7 @@ impl Session {
             return Ok(());
         }
         // The check calculates a FlowField that an if condition of the relation names, without a CalcFields first
-        // (misc/lt-probes-needed-6/PnF29RelationByFlowField.al:242-260, FlowRelation_Condition_NoCalcFields). Like the
+        // (record/PnF29RelationByFlowField.al:242-260, FlowRelation_Condition_NoCalcFields). Like the
         // where() case below, whether the calculated value stays on the record is not observed.
         let flow_conds = self.flow_field_conditions(t, pos);
         if !flow_conds.is_empty() {
@@ -221,7 +221,7 @@ impl Session {
                 ir::RelationWhere::Value { related, .. } | ir::RelationWhere::Field { related, .. } => *related,
             };
             if self.is_flow_filter(related.object, related_pos) {
-                // record/lt-relation-where-flowfilter/RelationWhereFlowFilter.al:ValidateFlowFilterConstRelation, ValidateFlowFilterFieldRelation_ExistingValue.
+                // record/filters/RelationWhereFlowFilter.al:ValidateFlowFilterConstRelation, ValidateFlowFilterFieldRelation_ExistingValue.
                 continue;
             }
             filters.push(match w {
@@ -244,7 +244,7 @@ impl Session {
                         // A condition that names the validated field itself (`Item Variant.Code where("Item No." =
                         // field("Item No."), Code = field("Variant Code"))` on Prod. Order Line, Assembly Header and
                         // Assembly Line "Variant Code") reads the value being validated, not the old one; the old
-                        // blank value would make the filter contradict the key. Pinned by record/lt-relation-where-validated/
+                        // blank value would make the filter contradict the key. Pinned by record/table-relation/
                         // RelationWhereValidated.al (Validate_OldBlank_ExistingAndMissing, Validate_OldNonBlank_NewExisting).
                         let own_value = if *own == pos {
                             value.clone()
@@ -278,15 +278,15 @@ impl Session {
             // The related table "Field" (2000000041) answers DB:RecordNotFound (staging types/PZMisc.al:
             // Validate_TableRelation_MissingFieldNumber, BC 29.0); other tables DB:PrimRecordNotFound.
             // A relation with a where() filter answers DB:NothingInsideFilter, whether the value is missing or fails the filter
-            // (query/lt-query-links-relations-httpstream/RelQuotedEnum.al:P100_Validate_EachKind).
+            // (queries/joins-links/RelQuotedEnum.al:P100_Validate_EachKind).
             code: if self.engine.program.objects[related.object as usize].id == Some(2_000_000_041) {
                 "DB:RecordNotFound".into()
             } else if let [ir::RelationWhere::Value { related: w, .. } | ir::RelationWhere::Field { related: w, .. }] =
                 wheres.as_slice()
             {
                 // A single where() on a field of the related table's primary key answers DB:RecordNotFound (corpus
-                // misc/lt-probes-needed-6/PnF13RelationFilterConditions.al:122-126, 144-149, 166-169, primary key (Code, Zone)); on
-                // another field DB:NothingInsideFilter (record/lt-relation-where-empty-term/RelationWhereEmptyTerm.al:173-177). Several conditions are refused.
+                // record/table-relation/PnF13RelationFilterConditions.al:122-126, 144-149, 166-169, primary key (Code, Zone)); on
+                // another field DB:NothingInsideFilter (record/table-relation/RelationWhereEmptyTerm.al:173-177). Several conditions are refused.
                 if related.keys[0].contains(w) {
                     "DB:RecordNotFound".into()
                 } else {
@@ -295,12 +295,12 @@ impl Session {
             } else if wheres.len() > 1 && covers_primary_key(&related, rel_pos, wheres) {
                 // Conditions on primary key fields only, which with the related field name the whole key, answer RecordNotFound:
                 // `Item Variant.Code where("Item No." = field("Item No."), Code = field("Variant Code"))`
-                // (record/lt-relation-where-validated/RelationWhereValidated.al:Validate_OldBlank_ExistingAndMissing,
+                // (record/table-relation/RelationWhereValidated.al:Validate_OldBlank_ExistingAndMissing,
                 // Validate_OldNonBlank_NewMissing, Validate_OtherItemNo_SameValue). Any other set of several conditions is refused below.
                 "DB:RecordNotFound".into()
             } else if wheres.len() > 1 && !wheres.iter().any(|w| related.keys[0].contains(&where_field(w))) {
                 // Several conditions, none on a primary key field: the code of the one-condition form on a non-key field
-                // (record/lt-relation-where-empty-term/RelationWhereEmptyTerm.al:173-177), on an assumption.
+                // (record/table-relation/RelationWhereEmptyTerm.al:173-177), on an assumption.
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TableRelationSeveralWhereNonKey);
                 "DB:NothingInsideFilter".into()
             } else if !wheres.is_empty() {

@@ -1,5 +1,5 @@
 //! A `Format = Xml` port whose schema root is a table element (the DemoTool's xmlport 101899 "Demo Data Configuration"),
-//! pinned by platform/lt-ag-contoso/AgXmlPortImport.al (xmlports 87562 and 87563 at :784-833): QX_RootTableElement_Import
+//! pinned by metadata/platform-tables/AgXmlPortImport.al (xmlports 87562 and 87563 at :784-833): QX_RootTableElement_Import
 //! (:514), QX_RootTableElement_Export (:557) and QX_RootTableElement_Export_TwoRows (:584).
 
 use al_testkit::{error_message, text};

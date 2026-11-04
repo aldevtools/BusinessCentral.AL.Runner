@@ -293,7 +293,7 @@ pub(crate) enum Op {
     },
     /// The arguments of a TryFunction call whose result is used are evaluated inside the try: the code up to `end`
     /// (the `Call`) evaluates them; an error there is trapped as the call's error would be, `d` gets false and the
-    /// code goes on after the call (misc/lt-ct-odd-leads/CtErrorLeads.al:76-93, :550-570 Item27_TryFunction_ArgumentRaises).
+    /// code goes on after the call (errors/CtErrorLeads.al:76-93, :550-570 Item27_TryFunction_ArgumentRaises).
     TryArgs {
         end: u32,
         d: u16,

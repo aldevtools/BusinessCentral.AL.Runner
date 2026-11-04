@@ -92,7 +92,7 @@ pub fn run_codeunit_limited(
 }
 
 /// The frames BC's test runner has below a test, as `SessionInformation.Callstack` shows them
-/// (corpus session/TestSessionInformationCallstackContracts.al:89-97 and the failure texts of the
+/// (corpus session-system/TestSessionInformationCallstackContracts.al:89-97 and the failure texts of the
 /// corpus CI on 27.5, 28.5 and 29.0, where the lines are the same). The runner's own app is
 /// `Test Runner by Microsoft`; its version is the loaded app's, else the run's BC version.
 pub(crate) fn runner_frames(program: &al_ir::Program, engine: &Engine) -> String {
@@ -155,7 +155,7 @@ pub fn run_codeunit_full(
 
 /// Why the BC 29 test framework features of a test codeunit keep it from running (`None`: it runs). A codeunit with
 /// `TestHandlers` has ITestHandler callbacks run around it and around each test on BC
-/// (al-language-testlibraries/lt-bi-test-framework/BiTestHandler.al:98, :125); the runner does not call them yet.
+/// (al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandler.al:98, :125); the runner does not call them yet.
 /// An extension of the system enum DefaultTestHandler (2000000024) adds a handler to every test codeunit
 /// (System.app `DefaultTestHandler.Enum.al`); what it does is not probed.
 /// The reason of the first skipped install that wrote a table `routine` can reach. The tables the routine reaches are
@@ -441,7 +441,7 @@ fn run_codeunit_inner(
     };
     // A test codeunit with SingleInstance = true runs its tests on the session's single instance: a variable of its own type
     // and its manual subscriber share its globals, and the second test sees what the first left
-    // (codeunit/QiSingleInstanceTestCodeunit.al:57 QI_SI_1_OwnTypeVariableAndManualSubscriber, :98 QI_SI_2_SecondTestSeesTheFirst).
+    // (codeunits/QiSingleInstanceTestCodeunit.al:57 QI_SI_1_OwnTypeVariableAndManualSubscriber, :98 QI_SI_2_SecondTestSeesTheFirst).
     // Taken after the install code and the company open, which drop the session's single instances.
     let instance = session.codeunit_instance(object);
     // What BC's AL test runner does around each test method (runner_reset.rs). A scratch run has no runner.
@@ -499,7 +499,7 @@ fn run_codeunit_inner(
         session.store_mut().watch(Default::default());
         match ran {
             // NavTestCodeunit.DoRunAsync commits after a declared OnRun
-            // (codeunit/TestTestCodeunitOnRun.al).
+            // (codeunits/TestTestCodeunitOnRun.al).
             Ok(_) if session.inconsistent_table().is_some() => {
                 return on_run_refused(
                     "OnRun: ends while Consistent(false) marks a table (the runner's commit is not pinned)".into(),
@@ -520,7 +520,7 @@ fn run_codeunit_inner(
                         tables: session.store_mut().tables_changed_since(changes_from),
                         unfinished: None,
                         // Isolated storage and number sequences carry as the rows do, committed and open
-                        // (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al C301_B1_OnRunCommittedStorage,
+                        // (testlibraries test-framework/onrun-storage/Y35OnRunStorage.al C301_B1_OnRunCommittedStorage,
                         // C301_B1_OnRunSequences, C301_B1_OnRunOpenWrites): a later codeunit whose reach can touch them
                         // starts from this baseline (`corpus.rs`, `Carried::everything`).
                         storage_why: None,
@@ -741,11 +741,11 @@ fn run_codeunit_inner(
                         runner_refused = Some(why.clone());
                     }
                     // The AL test runner enables every application area before each test method
-                    // (corpus session/TestSessionApplicationAreaTestBoundary.al:67552).
+                    // (corpus session-system/TestSessionApplicationAreaTestBoundary.al:67552).
                     session.start_test_method();
                     let model = models.get(&r).copied().unwrap_or_default();
                     // TransactionModel::None is handled before the method body: every active
-                    // transaction is ended on the way in (codeunit/TestWriteTxTestBoundary.al:
+                    // transaction is ended on the way in (codeunits/TestWriteTxTestBoundary.al:
                     // Test08). Nothing is pending here, because every earlier test ended its
                     // transaction at its own boundary, so which way it ends is not observable.
                     if model == al_vm::TxModel::None {
@@ -853,7 +853,7 @@ fn run_codeunit_inner(
                     session.tx_model = al_vm::TxModel::AutoCommit;
                     let unexecuted = session.end_ui_scope();
                     // The runner commits a test that passes: with a table still marked by Consistent(false) what BC does there
-                    // is not pinned (only Commit() is, misc/lt-cu-odd-leads/CuCommitTests.al:405-419), so the test is not run.
+                    // is not pinned (only Commit() is, errors/CuCommitTests.al:405-419), so the test is not run.
                     let result = match result {
                         Ok(_) if model != al_vm::TxModel::AutoRollback && unexecuted.is_empty() => {
                             match session.inconsistent_table() {
@@ -894,12 +894,12 @@ fn run_codeunit_inner(
                             Outcome::Pass
                         }
                         // The default TransactionModel commits at the test boundary; a failed
-                        // test's transaction is rolled back (corpus codeunit/TestWriteTxTestBoundary.al:26).
+                        // test's transaction is rolled back (corpus codeunits/TestWriteTxTestBoundary.al:26).
                         Ok(_) if unexecuted.is_empty() => {
                             session.commit_transaction();
                             Outcome::Pass
                         }
-                        // corpus handlers/TestPageQueryCloseMessageHandler_Tests.al:51: a declared
+                        // corpus ui-handlers/TestPageQueryCloseMessageHandler_Tests.al:51: a declared
                         // handler that never fires is a test failure. The text after the prefix
                         // is not pinned (docs/probes-needed.md).
                         Ok(_) => {
@@ -936,7 +936,7 @@ fn run_codeunit_inner(
                         }
                         // A refused test did not run: what it wrote before the refusal must not
                         // reach the next test of the codeunit, nor the session language or WorkDate it set (the
-                        // BdSetterLanguage_* tests after BdSummaryML_1040 in report/lt-bd-format-region/BdRegionTests.al
+                        // BdSetterLanguage_* tests after BdSummaryML_1040 in reports/runtime/BdRegionTests.al
                         // ran in 1040: the refusal came before that test's own `GlobalLanguage(Original)`).
                         Err(Signal::Unsupported(_)) if execute && crate::events::cancelled() => {
                             session.rollback_transaction();

@@ -1,4 +1,4 @@
-//! An `xmlns` attribute made with `XmlAttribute.Create('xmlns', Uri)` on an element (xml/lt-de-xml-leads/DeXmlWriteLeads.al:246-310).
+//! An `xmlns` attribute made with `XmlAttribute.Create('xmlns', Uri)` on an element (xml/DeXmlWriteLeads.al:246-310).
 
 use al_testkit::{run_in, text};
 

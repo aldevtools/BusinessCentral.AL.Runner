@@ -1,5 +1,5 @@
 //! An Xml export of a field element bound to a FlowFilter writes the field's own value (its type's default), whatever filter the
-//! table view holds on it (corpus xmlport/lt-xmlport-flowfield-sum-count/XmlPortFlowFieldSumCount.al:390-442
+//! table view holds on it (corpus xmlports/shapes-properties/XmlPortFlowFieldSumCount.al:390-442
 //! Export_Xml_SumAndCountFlowFields_Utf16, Export_Xml_FlowFilterOnView_Utf16, Export_Xml_FlowFilterRangeOnView_Utf16:
 //! `<SeqFilter>0</SeqFilter>`).
 

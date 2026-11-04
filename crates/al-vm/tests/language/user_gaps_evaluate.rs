@@ -1,4 +1,4 @@
-//! Evaluate of a list of numbers (AL Runner issue 5579), pinned by types/lt-bl-evaluate-lists/EvaluateLists.al.
+//! Evaluate of a list of numbers (AL Runner issue 5579), pinned by format-evaluate/EvaluateLists.al.
 
 fn text(vars: &str, body: &str) -> String {
     let src = format!("codeunit 50100 C {{ procedure F(): Text var {vars} begin {body} end; }}");

@@ -1,6 +1,6 @@
 //! A DataItemLink whose parent field is a FlowFilter. The child gets the parent's filter on the FlowFilter as its own
 //! filter: none, a single value, a range or an or-filter, and the child's GetFilter does not show it
-//! (report/lt-report-requestpage/RptFilters.al QP_DataItemLink_FlowFilter_* tests). Tests-ERM 134404 and 134429
+//! (reports/request-page/RptFilters.al QP_DataItemLink_FlowFilter_* tests). Tests-ERM 134404 and 134429
 //! TestDirectDebitCollectionEntryIsNotCreatedTwice reach it (report 1200 links "Currency Code" = field("Currency Filter")).
 
 use al_testkit::text;

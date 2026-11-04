@@ -1,5 +1,5 @@
 //! `Record.GetView(false)` writes the filter of an Option field as its ordinal: `WHERE(Field1=1(1))` for
-//! `SetRange(DocType, DocType::Order)` (record/lt-set-current-key/Y43SetAscendingFlowField.al:234, corpus PR 966).
+//! `SetRange(DocType, DocType::Order)` (record/keys-sorting/Y43SetAscendingFlowField.al:234, corpus PR 966).
 
 use al_testkit::text;
 

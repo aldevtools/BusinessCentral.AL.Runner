@@ -1,4 +1,4 @@
-//! The region tables of report/lt-bd-format-region/BdRegionTests.al: 31 January 2025 14:30:15 and 5 March 2024 09:05:07,
+//! The region tables of reports/runtime/BdRegionTests.al: 31 January 2025 14:30:15 and 5 March 2024 09:05:07,
 //! 1234567.891 and -1234.5, as `Format` writes them (TextsCol) and as a dataset column writes them.
 
 use super::*;

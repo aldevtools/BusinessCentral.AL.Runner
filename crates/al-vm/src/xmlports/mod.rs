@@ -65,7 +65,7 @@ fn xerr(message: impl Into<String>, code: &str) -> Signal {
     }))
 }
 
-/// xmlport/TestXmlPortExportImportContracts.al:XmlPortImport_SchemaMismatch_ThrowsXmlPortInvalidXml
+/// xmlports/TestXmlPortExportImportContracts.al:XmlPortImport_SchemaMismatch_ThrowsXmlPortInvalidXml
 fn schema_error(why: impl AsRef<str>) -> Signal {
     xerr(
         format!("Imported XML cannot validate with the schema: {}", why.as_ref()),
@@ -73,7 +73,7 @@ fn schema_error(why: impl AsRef<str>) -> Signal {
     )
 }
 
-/// xmlport/TestXmlPortExportImportContracts.al:XmlPortImport_BadInteger_ThrowsEvaluate
+/// xmlports/TestXmlPortExportImportContracts.al:XmlPortImport_BadInteger_ThrowsEvaluate
 fn evaluate_error(text: &str, type_name: &str) -> Signal {
     xerr(
         format!("The value \"{text}\" can't be evaluated into type {type_name}."),
@@ -115,7 +115,7 @@ impl Schema {
 
 impl Session {
     /// The xmlport object of a static `Xmlport.Export` or `Xmlport.Import` with the id `n`: an id no xmlport declares is a
-    /// missing-object error, also one of another object kind, 0 and 2000000000 (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:
+    /// missing-object error, also one of another object kind, 0 and 2000000000 (xmlports/shapes-properties/Y83XpMiscTests.al:
     /// Static_Undeclared_Id, needs the corpus bump); one of a dependency app that was not compiled is refused.
     fn xp_static_object(&self, id: al_ir::BuiltinId, n: i32) -> Result<usize, Signal> {
         let heads = self.engine.program.objects.heads();
@@ -163,7 +163,7 @@ impl Session {
             }
             // The separators of a text xmlport: a value a program set reads back as it was given; a declared one reads as the
             // characters it stands for (`<CR/LF>` is `\r\n`, `<None>` is empty); an undeclared one reads as the default
-            // (platform/lt-xmlport-session-navapp-cookie/P94XpDelim.al:Getters_*, Setters_*, *_Variants).
+            // (metadata/session-system/P94XpDelim.al:Getters_*, Setters_*, *_Variants).
             ids::XMLPORT_FIELDDELIMITER_1
             | ids::XMLPORT_FIELDSEPARATOR_1
             | ids::XMLPORT_RECORDSEPARATOR_1
@@ -209,7 +209,7 @@ impl Session {
                     }
                 }
             }
-            // Break, BreakUnbound and Quit end the trigger that calls them (platform/lt-xmlport-session-navapp-cookie/P94XpPathFlow.al:
+            // Break, BreakUnbound and Quit end the trigger that calls them (metadata/session-system/P94XpPathFlow.al:
             // Export_Break, Export_BreakUnbound, Export_Quit); what the run does next is `xp_flow`. Called from a procedure the
             // trigger called, the Exit leaves only that procedure: pinned only where the trigger ends with the call.
             ids::XMLPORT_BREAK_1 | ids::XMLPORT_BREAKUNBOUND_1 | ids::XMLPORT_QUIT_1 | ids::XMLPORT_SKIP_1 => {
@@ -220,7 +220,7 @@ impl Session {
                     .iter()
                     .find(|(k, _)| *k == 9)
                     .and_then(|(_, v)| v.parse::<usize>().ok());
-                // From the trigger itself or from any procedure it calls: the whole trigger ends (corpus xml/lt-xml-port-flow/
+                // From the trigger itself or from any procedure it calls: the whole trigger ends (corpus xml/xml/
                 // XmlPortFlowFromTrigger.al:P170_Flow_*ViaProcedure, the code after the call in the trigger does not run).
                 match trigger_depth {
                     Some(d) if self.depth > d => {
@@ -252,7 +252,7 @@ impl Session {
                 Ok(Value::Text(path.into()))
             }
             // ImportFile(): true while the port imports, false while it exports, read in OnPreXmlPort and OnPostXmlPort
-            // (xmlport/lt-xmlport-query-datatransfer/XmlPortFixtures.al:265 and :275, xmlport 73421: XpTExportBasic.al:211
+            // (xmlports/import/XmlPortFixtures.al:265 and :275, xmlport 73421: XpTExportBasic.al:211
             // Export_TextAndAttributeElements, XpTImportOptions.al:268-307). Outside a run and the setter are not pinned.
             ids::XMLPORT_IMPORTFILE_1 => {
                 let inst = self.xp_instance(receiver)?;
@@ -366,7 +366,7 @@ impl Session {
                     other => return unsupported(format!("{id} with the stream {}", other.describe())),
                 }
                 // The record only seeds the table view
-                // (xmlport/TestXmlPortObject.al:XmlPort_Import_StaticWithRecord_GivenVariableUnchangedWithoutExplicitGet,
+                // (xmlports/TestXmlPortObject.al:XmlPort_Import_StaticWithRecord_GivenVariableUnchangedWithoutExplicitGet,
                 // :XmlPort_Export_StaticWithRecord_RespectsFilters).
                 if let Some(rec) = args.get(2) {
                     self.xp_set_view(&inst, Some(rec))?;
@@ -374,7 +374,7 @@ impl Session {
                 self.xp_run(&inst, dir, ret_used, true)
             }
             // The static `Xmlport.Run(Number, RequestWindow, Import, Record)`. Pinned: an id no xmlport declares raises the missing-object
-            // error (platform/lt-xmlport-session-navapp-cookie/P94XpPathFlow.al:RunStatic_UnknownNumbers; misc/W5MissingObject.al:
+            // error (metadata/session-system/P94XpPathFlow.al:RunStatic_UnknownNumbers; errors/W5MissingObject.al:
             // MissingReport_Page_XmlPort), and an import of an export-only xmlport raises its direction error (same file:
             // RunStatic_ImportWithoutSource). What a run that passes those checks reads or writes is in no corpus test and is refused.
             ids::XMLPORT_RUN_2 => {
@@ -458,7 +458,7 @@ impl Session {
     }
 
     /// `SetTableView`: the filters of the given record go to the first table element
-    /// (xmlport/TestXmlPortObject.al:XmlPort_SetTableView_RestrictsExportedRows).
+    /// (xmlports/TestXmlPortObject.al:XmlPort_SetTableView_RestrictsExportedRows).
     fn xp_set_view(&mut self, inst: &Inst, view: Option<&Value>) -> Result<(), Signal> {
         let schema = self.xp_schema(inst)?;
         let Some(first) = schema.xp().nodes.iter().find(|n| n.kind == ir::XmlNodeKind::Table) else {
@@ -479,7 +479,7 @@ impl Session {
             return unsupported("SetTableView with a temporary or marked record (not pinned)");
         }
         // The view's key and direction order the export, ties included
-        // (xmlport/TestXmlPortTriggersReplaceViewContracts.al:Export_OnBeforePassField_Runs_AndSetTableViewFiltersAndOrders,
+        // (xmlports/TestXmlPortTriggersReplaceViewContracts.al:Export_OnBeforePassField_Runs_AndSetTableViewFiltersAndOrders,
         // corpus: .
         let mut t = target.borrow_mut();
         t.filters = v.filters.clone();
@@ -505,7 +505,7 @@ impl Session {
 
     fn xp_run_tx(&mut self, inst: &Inst, dir: Dir, ret_used: bool, static_form: bool) -> Result<Value, Signal> {
         // An export started inside a TryFunction whose result is used: its triggers' Insert and Modify are the export's, not
-        // writes of the try (xmlport/lt-y-xmlport-props/YXmlPortProps.al:861, RS_XmlPortRequestPageRec_Export: in
+        // writes of the try (xmlports/shapes-properties/YXmlPortProps.al:861, RS_XmlPortRequestPageRec_Export: in
         // OnPreXmlPort Modify answers false and Insert writes the row the export then lists), as an import's are
         // (`used_try_nested_world`). Other writes there are refused (`refuse_used_try_write`).
         if dir == Dir::Export
@@ -525,7 +525,7 @@ impl Session {
 
     fn xp_run_body(&mut self, inst: &Inst, dir: Dir, ret_used: bool, static_form: bool) -> Result<Value, Signal> {
         let schema = self.xp_schema(inst)?;
-        // xmlport/TestXmlPortExportImportContracts.al:XmlPort_WrongDirection_Throws
+        // xmlports/TestXmlPortExportImportContracts.al:XmlPort_WrongDirection_Throws
         match (dir, schema.xp().direction) {
             (Dir::Import, ir::XmlDirection::Export) => {
                 return Err(xerr(
@@ -566,7 +566,7 @@ impl Session {
             self.permission_gate_object_read(schema.object, &tables)?;
         }
         // OnPreXmlPort runs when the port starts, in both directions
-        // (handlers/TestPageActionRunObjectKinds_Tests.al:ProbeControlEachTargetRecordsItsOwnExecution pins
+        // (testpage/TestPageActionRunObjectKinds_Tests.al:ProbeControlEachTargetRecordsItsOwnExecution pins
         // it for an export); the other object triggers are not pinned and refused.
         let routines = &schema.engine.program.objects[schema.object].routines;
         let mut pre = None;
@@ -630,13 +630,13 @@ impl Session {
             self.xp_run_object_trigger(inst, r)?;
             unmark(inst);
             // Break, BreakUnbound and Quit in OnPreXmlPort end an import there: nothing is read, OnPostXmlPort does not run and
-            // the import succeeds (xmlport/lt-ay-xmlport/AyXmlPortFlowTriggers.al:352-389, Import_pre_*: `pre1;`, no rows).
+            // the import succeeds (xmlports/shapes-properties/AyXmlPortFlowTriggers.al:352-389, Import_pre_*: `pre1;`, no rows).
             // An export writes the declaration alone (:584-624); whether a line break follows it is not pinned. Skip there,
             // and the value of a guarded import, are not pinned either.
             if let Some(flow) = Self::xp_flow(inst) {
                 Self::xp_clear_flow(inst);
                 // An export whose result is used writes the declaration alone and returns true, for an Xml port with Encoding = UTF8
-                // (xmlport/lt-ay-xmlport/AyXmlPortFlowTriggers.al:586-625 Export_pre_Break, _BreakUnbound, _Quit, and :790-835 _Bytes:
+                // (xmlports/shapes-properties/AyXmlPortFlowTriggers.al:586-625 Export_pre_Break, _BreakUnbound, _Quit, and :790-835 _Bytes:
                 // 54 bytes, no line break, no OnPostXmlPort). Other ports and encodings are not pinned.
                 if dir == Dir::Export
                     && ret_used
@@ -674,7 +674,7 @@ impl Session {
             Self::xp_clear_flow(inst);
             return unsupported("Break, BreakUnbound, Skip or Quit in a trigger the corpus does not pin (not pinned)");
         }
-        // OnPostXmlPort runs after the data was passed, in both directions (platform/lt-xmlport-session-navapp-cookie/
+        // OnPostXmlPort runs after the data was passed, in both directions (metadata/session-system/
         // P94XpPathFlow.al and P94XpFilename.al log it last); after an error it does not run. After a guarded run that
         // returned false it is not pinned.
         if let Some(r) = post {
@@ -725,7 +725,7 @@ fn doc_name(schema: &Schema, c: usize) -> String {
 }
 
 /// Whether text element `c` inside table element `table` is a container of table elements linked to it and nothing else,
-/// declared last in the table element: the shape xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:91-104 pins
+/// declared last in the table element: the shape xmlports/shapes-properties/QrXpContainerOccurs.al:91-104 pins
 /// (`<lines>` in `<head>`, exported once per row, also when empty: QR_Export_OneHead_NoLines, QR_Export_TwoHeads_LinesOnSecond).
 /// The filter group of a table element's SourceTableView: its own, as a report's DataItemTableView has.
 const XP_VIEW_GROUP: i32 = crate::reports::ITEM_VIEW_GROUP;

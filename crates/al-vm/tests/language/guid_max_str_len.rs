@@ -1,4 +1,4 @@
-//! MaxStrLen of a Guid, and a Guid concatenated with a Text (types/lt-aj-probes/AjMisc.al:54-90,
+//! MaxStrLen of a Guid, and a Guid concatenated with a Text (types/AjMisc.al:54-90,
 //! Guid_TextConcatenationAndMaxStrLen).
 
 use al_testkit::{run_in, text};

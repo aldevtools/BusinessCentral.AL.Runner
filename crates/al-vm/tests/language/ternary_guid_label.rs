@@ -1,5 +1,5 @@
 //! A conditional expression with a Guid branch and a Label, Text, Code or literal branch: the true branch's type is the
-//! result, the other branch is converted (al-runner issue 6160; corpus types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al,
+//! result, the other branch is converted (al-runner issue 6160; corpus types/guid/UfTernaryGuidLabel.al,
 //! writer UF branch al-runtime-rs-staging-uf, commit 3d7d7b66).
 
 use al_testkit::text;

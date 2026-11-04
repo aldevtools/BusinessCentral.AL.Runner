@@ -1,7 +1,7 @@
 //! Control add-ins in a test session (ADR-027 section 3 row 18). BC never creates the add-in of a `usercontrol` there:
 //! from BC 28 every call of one of its procedures raises 'The control add-in on control <ctl> on page <page> has not
 //! been instantiated.' (code DotNetControlAddInNotCreated, wrapped by the caller's context), its event triggers never run,
-//! and the page works as usual (corpus lt-ac/ACControlAddIn.al TZ_*). Code that does not reach a call still runs (issue 34:
+//! and the page works as usual (corpus testpage/ACControlAddIn.al TZ_*). Code that does not reach a call still runs (issue 34:
 //! Base Application's "Item Tracking Lines" calls its barcode add-in only after the client said it is supported).
 
 use al_sema::workspace::AppSource;
@@ -63,7 +63,7 @@ codeunit 63502 T
 "#;
 
 /// A call that does not run changes nothing; one that runs raises the not-instantiated error out of the action
-/// (corpus pages/lt-ao-testpage/AoTests.al:793 AddinProcedureFromAction, BC28PLUS).
+/// (corpus testpage/AoTests.al:793 AddinProcedureFromAction, BC28PLUS).
 #[test]
 fn a_control_add_in_call_raises_the_not_instantiated_error_only_when_it_runs() {
     let o = run(SRC, None);
@@ -90,7 +90,7 @@ fn before_bc_28_a_control_add_in_call_refuses_when_it_runs() {
     }
 }
 
-/// The error and its code in each place the corpus pins (lt-ac/ACControlAddIn.al, TZ fixtures in TzAddinFixtures.al):
+/// The error and its code in each place the corpus pins (testpage/ACControlAddIn.al, TZ fixtures in TzAddinFixtures.al):
 /// a TryFunction (plain code), an action (TestWrapped:), OnOpenPage and OnAfterGetRecord during OpenEdit (plain),
 /// OnAfterGetCurrRecord during OpenEdit (:TargetInvocation), OnClosePage (the closing text, TestWrapped), a field's
 /// OnValidate (NSValidationFailed:), a usercontrol with Visible = false, one a page extension adds, and a page variable never

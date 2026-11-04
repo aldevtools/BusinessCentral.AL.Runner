@@ -6,20 +6,20 @@ use super::*;
 
 pub(super) const INVALID_URL: &str = "Failed to create the URL for the request. Please, make sure to set a valid URL.";
 
-/// What `System.Uri` makes of a text, for the forms the probes measured (network/lt-http/HttpRequest.al:
+/// What `System.Uri` makes of a text, for the forms the probes measured (http/HttpRequest.al:
 /// SetRequestUriValid, SetRequestUriRelativeAndInvalid, SetRequestUriOtherSchemes, SetRequestUriLongAndUnicode).
 /// `Err(false)` is an invalid uri, `Err(true)` a text whose validity is not measured.
 pub fn normalize_uri(input: &str) -> Result<String, bool> {
     if input.is_empty() {
         return Err(false);
     }
-    // A rooted path is not an absolute uri on the Windows tier (network/lt-http/HttpRequest.al:
+    // A rooted path is not an absolute uri on the Windows tier (http/HttpRequest.al:
     // SetRequestUriRelativeAndInvalid); it is the invalid-url error.
     if input.starts_with('/') && !input.starts_with("//") {
         return Err(false);
     }
-    // A text with no colon has no scheme and is no absolute uri: 'orders' (misc/lt-probes-needed-4/PnD06_SetRequestUri.al is the wide pin:
-    // `/api/v1/items`, `api/v1/items`, `./items`, `../items`, `?a=1`, `#top`, `/`; network/lt-http-relative-request/HttpRelativeRequestPath.al:
+    // A text with no colon has no scheme and is no absolute uri: 'orders' (http/PnD06_SetRequestUri.al is the wide pin:
+    // `/api/v1/items`, `api/v1/items`, `./items`, `../items`, `?a=1`, `#top`, `/`; http/client/HttpRelativeRequestPath.al:
     // P168_Send_RelativeRequestUri `af109` for `orders`) is invalid.
     let Some(colon) = input.find(':') else {
         return Err(false);
@@ -37,7 +37,7 @@ pub fn normalize_uri(input: &str) -> Result<String, bool> {
         };
     }
     let scheme = scheme.to_ascii_lowercase();
-    // `http:` and `https:` with nothing after the colon are no uri (misc/lt-probes-needed-4/PnD06_SetRequestUri.al:65-66);
+    // `http:` and `https:` with nothing after the colon are no uri (http/PnD06_SetRequestUri.al:65-66);
     // a web scheme followed by something other than `//` is not measured.
     if matches!(scheme.as_str(), "http" | "https") && !rest.starts_with("//") {
         return Err(!rest.is_empty());
@@ -189,7 +189,7 @@ pub(super) fn resolve_request_path(base: &str, path: &str) -> Result<(String, bo
         .or_else(|_| invalid_url())
 }
 
-/// The joins al-language-onprem/network/lt-ay-http-handler/AyHttpHandler.al:BaseAddress_RelativePaths_1 and _2 pin (BC 29, a
+/// The joins al-language-onprem/http/client/AyHttpHandler.al:BaseAddress_RelativePaths_1 and _2 pin (BC 29, a
 /// base address `https://example.invalid/api/v1/`): a plain word, a rooted word, `../` and a word, and a query alone.
 pub(super) fn is_pinned_join(base_path: &str, path: &str) -> bool {
     let word = |w: &str| !w.is_empty() && w.chars().all(|c| c.is_ascii_alphanumeric());
@@ -227,8 +227,8 @@ pub(super) fn remove_dot_segments(path: &str) -> String {
 }
 
 /// The relative paths the corpus pins as reaching the request policy with no base address: a plain word and a rooted path
-/// (network/lt-http-relative-request/HttpRelativeRequestPath.al:P168_Get_NoBaseAddress `orders`, `/orders`), and `a/b`, `a.b`
-/// and `?q=1` (al-language-onprem/network/lt-ay-http-handler/AyHttpHandler.al:NoBaseAddress_RelativePaths_1 and _2: the
+/// (http/client/HttpRelativeRequestPath.al:P168_Get_NoBaseAddress `orders`, `/orders`), and `a/b`, `a.b`
+/// and `?q=1` (al-language-onprem/http/client/AyHttpHandler.al:NoBaseAddress_RelativePaths_1 and _2: the
 /// unhandled-request error on BC 27 and 28, where the handler is not reached).
 pub(super) fn is_pinned_relative(path: &str) -> bool {
     let word = path.strip_prefix('/').unwrap_or(path);
@@ -246,20 +246,20 @@ pub(super) fn invalid_url<T>() -> Result<T, Signal> {
 }
 
 /// `SetRequestUri` and `SetBaseAddress`: a valid uri is kept in its normal form; an invalid one answers false when
-/// the result is used and raises otherwise (handlers/PWRefusedBuiltins.al:HttpRequestMessage_SetRequestUri_ValidAndInvalid).
+/// the result is used and raises otherwise (recordref-fieldref/PWRefusedBuiltins.al:HttpRequestMessage_SetRequestUri_ValidAndInvalid).
 pub(super) fn checked_uri(c: &dyn Ctx, u: &str) -> Result<Option<String>, Signal> {
     match normalize_uri(u) {
         Ok(n) => Ok(Some(n)),
         Err(false) if c.ret_used() => Ok(None),
         Err(false) => invalid_url(),
         Err(true) => unsupported(format!(
-            "a request uri of `{u}`: whether it is valid is not measured (an absolute uri, white space without a scheme, and the forms of network/lt-http/HttpRequest.al are)"
+            "a request uri of `{u}`: whether it is valid is not measured (an absolute uri, white space without a scheme, and the forms of http/HttpRequest.al are)"
         )),
     }
 }
 
-/// `Method := 'GET'` sets and `Method` reads it back as written (network/TestHttpRequestMessage.al:19-25;
-/// network/lt-http/HttpRequest.al:MethodValues). A request nobody gave a method is `GET`. A method with a space
+/// `Method := 'GET'` sets and `Method` reads it back as written (http/TestHttpRequestMessage.al:19-25;
+/// http/HttpRequest.al:MethodValues). A request nobody gave a method is `GET`. A method with a space
 /// or a colon raises `The format of the HTTP method is invalid.` (`AL:Format`).
 pub(super) fn method(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if a.is_empty() {
@@ -289,7 +289,7 @@ pub(super) fn set_request_uri(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [V
 }
 
 /// `GetRequestUri` of a request whose uri is secret reads empty; a plain uri set over a secret one reads back
-/// (xml/lt-xml-attr-doc-http-members/P97ReqSecretUri.al:79, :110, :113).
+/// (xml/xml/P97ReqSecretUri.al:79, :110, :113).
 pub(super) fn get_request_uri(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let uri = with_request(r, |s| if s.uri_secret { None } else { s.uri.clone() })?;
     Ok(Value::Text(uri.unwrap_or_default().into()))
@@ -297,7 +297,7 @@ pub(super) fn get_request_uri(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [V
 
 /// `SetSecretRequestUri(SecretText)` answers whether the uri is valid and keeps a valid one as the request's secret uri. The forms
 /// the corpus pins agree with `SetRequestUri`: empty, `not a uri` and a rooted path answer false; `ftp://`, `https://` with a
-/// port, user info, a fragment or no path answer true; the method stays (xml/lt-xml-attr-doc-http-members/P97ReqSecretUri.al:
+/// port, user info, a fragment or no path answer true; the method stays (xml/xml/P97ReqSecretUri.al:
 /// 118-158 SecretUri_InvalidValues, :160-192 SecretUri_Variants, :194-207 SecretUri_Method_Unchanged). A statement with an
 /// invalid uri is not pinned (refused), nor is a form `SetRequestUri` itself has not measured.
 pub(super) fn set_secret_request_uri(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
@@ -315,7 +315,7 @@ pub(super) fn set_secret_request_uri(c: &mut dyn Ctx, r: Option<&mut Value>, a: 
 }
 
 /// `GetSecretRequestUri` gives the uri as a SecretText, plain or secret; empty on a request with none
-/// (xml/lt-xml-attr-doc-http-members/P97ReqSecretUri.al:75 `new_secret` Yes, :106 `after_plain_secret` No).
+/// (xml/xml/P97ReqSecretUri.al:75 `new_secret` Yes, :106 `after_plain_secret` No).
 pub(super) fn get_secret_request_uri(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let uri = with_request(r, |s| s.uri.clone())?.unwrap_or_default();
     Ok(lib("SecretText", LibraryValue::Text(uri)))
@@ -327,16 +327,16 @@ pub(super) fn request_get_headers(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mu
     Ok(Value::Boolean(true))
 }
 
-/// `Content := C` stores a copy of the content (misc/W4XmlJsonHttp.al:RequestContent_IsCopyOrReference: writing
+/// `Content := C` stores a copy of the content (json/W4XmlJsonHttp.al:RequestContent_IsCopyOrReference: writing
 /// the original afterwards does not change the request's), `Content` reads the request's own content. A request
-/// nobody set a content on has an uninitialized one (network/lt-http/HttpRequest.al:FreshRequestContent).
+/// nobody set a content on has an uninitialized one (http/HttpRequest.al:FreshRequestContent).
 pub(super) fn request_content(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if let Some(c) = a.first() {
         let copy = copy_content(c)?;
         return with_request(r, |s| s.content = Some(copy)).map(|()| Value::Null);
     }
     // The uninitialized content is the request's own: a `Clear` on it gives the request a body and content headers that a
-    // later `Content` shows (network/lt-db-http-leads/DbHttpContentLeads.al:176-219).
+    // later `Content` shows (http/content/DbHttpContentLeads.al:176-219).
     with_request(r, |s| {
         s.content
             .get_or_insert_with(|| {

@@ -1,5 +1,5 @@
 //! The order of the rows after SetCurrentKey on a FlowField whose value depends on the row: by the FlowField's value, ties
-//! by the primary key, `SetAscending(FlowField, false)` reversing the FlowField only (record/lt-set-current-key/
+//! by the primary key, `SetAscending(FlowField, false)` reversing the FlowField only (record/keys-sorting/
 //! Y43SetAscendingFlowField.al, corpus PR 966; SetCurrentKeyFlowFieldOrder.al:85-180 for a count FlowField).
 
 use al_testkit::text;

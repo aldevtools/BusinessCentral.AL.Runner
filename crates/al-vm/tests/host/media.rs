@@ -61,7 +61,7 @@ fn yn(b: &str) -> String {
 
 #[test]
 fn an_empty_media_and_media_set_answer_a_null_media_id() {
-    // media/TestMediaEmptyMediaId.al:22-120: Init without Insert, after Insert, and read back by
+    // streams/media/TestMediaEmptyMediaId.al:22-120: Init without Insert, after Insert, and read back by
     // Get into two variables.
     let body = format!(
         "Rec.Init(); Rec.Code := 'E0'; {} {}
@@ -80,7 +80,7 @@ fn an_empty_media_and_media_set_answer_a_null_media_id() {
 
 #[test]
 fn a_media_set_nothing_was_added_to_counts_zero_and_removes_nothing() {
-    // media/TestMediaSetPersistence.al:59-70 (Count) and :251-262 (Remove of an id never inserted).
+    // streams/media/TestMediaSetPersistence.al:59-70 (Count) and :251-262 (Remove of an id never inserted).
     let body = format!(
         "Rec.Code := 'C1'; Rec.Insert(); a += Format(Rec.Images.Count()); {} exit(a);",
         yn("Rec.Images.Remove(CreateGuid())")
@@ -90,7 +90,7 @@ fn a_media_set_nothing_was_added_to_counts_zero_and_removes_nothing() {
 
 #[test]
 fn an_imported_media_survives_modify_and_get() {
-    // media/TestMediaSetPersistence.al:30-54 (Media_ImportStream_ModifyThenGet_HasValueTrue).
+    // streams/media/TestMediaSetPersistence.al:30-54 (Media_ImportStream_ModifyThenGet_HasValueTrue).
     let body = format!(
         "Rec.Code := 'M1'; Rec.Insert(); {} id := Rec.Picture.ImportStream(ins, 'a picture'); Rec.Modify();
          {} Rec.Get('M1'); {} exit(a);",
@@ -107,7 +107,7 @@ fn an_import_with_a_file_name_fills_the_field_like_the_other_forms() {
     // ("description and mime-type are set empty and will be automatically set by platform code from
     // the filename"). What the file name changes is visible only in the Tenant Media row, which this
     // runtime does not read (ADR-017); the field and the bytes behave as in the three argument form
-    // (media/TestMediaSetPersistence.al:30-54).
+    // (streams/media/TestMediaSetPersistence.al:30-54).
     let body = format!(
         "Rec.Code := 'F1'; Rec.Insert(); {} id := Rec.Picture.ImportStream(ins, '', '', 'doc.pdf'); Rec.Modify();
          {} Rec.Get('F1'); {} exit(a);",
@@ -121,7 +121,7 @@ fn an_import_with_a_file_name_fills_the_field_like_the_other_forms() {
 #[test]
 fn an_import_is_not_saved_until_the_record_is() {
     // The field holds the media's id only once Modify wrote it: a second Get without it reads an
-    // empty field (media/TestMediaEmptyMediaId.al:80-98 reads an empty field after Insert).
+    // empty field (streams/media/TestMediaEmptyMediaId.al:80-98 reads an empty field after Insert).
     let body = format!(
         "Rec.Code := 'M2'; Rec.Insert(); {} id := Rec.Picture.ImportStream(ins, 'x'); {} Rec2.Get('M2'); {} exit(a);",
         feed("Rec", "bytes"),
@@ -133,7 +133,7 @@ fn an_import_is_not_saved_until_the_record_is() {
 
 #[test]
 fn an_imported_media_set_has_one_item_whose_id_differs_from_the_set_id() {
-    // media/TestMediaSetPersistence.al:73-155 (CountIsOne, MediaId_EqualsReturnedId, Item_DiffersFromMediaId)
+    // streams/media/TestMediaSetPersistence.al:73-155 (CountIsOne, MediaId_EqualsReturnedId, Item_DiffersFromMediaId)
     // and :100-124 (read through a second record variable).
     let body = format!(
         "Rec.Code := 'MS1'; Rec.Insert(); {} id := Rec.Images.ImportStream(ins, 'sample image'); Rec.Modify();
@@ -149,7 +149,7 @@ fn an_imported_media_set_has_one_item_whose_id_differs_from_the_set_id() {
 
 #[test]
 fn removing_an_item_empties_the_set_after_modify_and_get() {
-    // media/TestMediaSetPersistence.al:221-248 (MediaSet_Remove_ModifyThenGet_CountIsZero).
+    // streams/media/TestMediaSetPersistence.al:221-248 (MediaSet_Remove_ModifyThenGet_CountIsZero).
     let body = format!(
         "Rec.Code := 'MS6'; Rec.Insert(); {} Rec.Images.ImportStream(ins, 'to be removed'); Rec.Modify();
          Rec.Get('MS6'); id := Rec.Images.Item(1); {} Rec.Modify(); Rec.Get('MS6'); a += Format(Rec.Images.Count()); exit(a);",
@@ -161,7 +161,7 @@ fn removing_an_item_empties_the_set_after_modify_and_get() {
 
 #[test]
 fn a_temporary_record_keeps_its_media_set() {
-    // media/TestMediaSetPersistence.al:265-285.
+    // streams/media/TestMediaSetPersistence.al:265-285.
     let body = format!(
         "Tmp.Code := 'TMP1'; Tmp.Insert(); {} id := Tmp.Images.ImportStream(ins, 'temp record'); Tmp.Modify();
          {} Tmp.Get('TMP1'); a += Format(Tmp.Images.Count()); exit(a);",
@@ -174,7 +174,7 @@ fn a_temporary_record_keeps_its_media_set() {
 #[test]
 fn a_look_at_the_exported_bytes_is_refused() {
     // types/W7Media.al:141-145 (corpus bump 34): BC re-encodes an imported PNG on every major, into bytes the corpus does not
-    // pin, so reading what ExportStream wrote is refused (media/TestMediaPngImport.al:99-168 asserts only the signature and
+    // pin, so reading what ExportStream wrote is refused (streams/media/TestMediaPngImport.al:99-168 asserts only the signature and
     // the dimensions, which the runtime cannot produce without the encoder).
     let body = format!(
         "Rec.Code := 'PNG2'; Rec.Insert(); {} Rec.Picture.ImportStream(ins, 'png', 'image/png'); Rec.Modify(); Rec.Get('PNG2');
@@ -256,7 +256,7 @@ fn export_of_an_empty_field_writes_nothing() {
     assert_eq!(text("", body).unwrap(), "0|No");
 }
 
-// media/PXMediaFileName.al: importing into a Media field that already holds a value replaces it. The exported bytes cannot
+// streams/media/PXMediaFileName.al: importing into a Media field that already holds a value replaces it. The exported bytes cannot
 // show it any more (they are refused, types/W7Media.al:141-145); the second import still runs.
 #[test]
 fn importing_into_a_media_that_holds_a_value_replaces_it() {
@@ -355,7 +355,7 @@ fn import_file_on(bc: Option<&str>, body: &str) -> Result<String, Signal> {
 const DESCRIBE: &str = "Rec.Code := 'A'; Rec.Insert(); T.Get(id); exit(Format(Rec.Picture.HasValue()) + '|' + T.Description + '|' + \
                         T.\"Mime Type\" + '|' + Format(T.Width) + 'x' + Format(T.Height) + '|' + T.\"File Name\");";
 
-// onprem media/MediaFiles.al:293-340 QX_MediaAndMediaSet_ImportFile_Jpeg: the returned id is the media's, image/jpeg from a
+// onprem streams/media/MediaFiles.al:293-340 QX_MediaAndMediaSet_ImportFile_Jpeg: the returned id is the media's, image/jpeg from a
 // .jpg (and .JPG) file, the picture's size, and the File Name is the path as given ('<tmp><name>').
 #[test]
 fn import_file_of_a_jpeg_file_fills_the_tenant_media_row() {
@@ -378,7 +378,7 @@ fn import_file_of_a_png_file_takes_its_assumption() {
     assert!(take_hits().contains(&Assumption::MediaImportFilePng));
 }
 
-// onprem media/ReMediaJpgHoldingPng.al:108 RE_MediaAndMediaSet_ImportFile_JpgHoldingPng: a .jpg file holding a PNG is
+// onprem streams/media/ReMediaJpgHoldingPng.al:108 RE_MediaAndMediaSet_ImportFile_JpgHoldingPng: a .jpg file holding a PNG is
 // image/jpeg (the name decides) with the PNG's size, in a Media and in a MediaSet. BC stores re-encoded content (not
 // pinned): a look at the Tenant Media Content is refused.
 #[test]
@@ -412,7 +412,7 @@ fn import_file_of_other_content_or_a_media_set_stays_refused() {
     }
 }
 
-// onprem media/MediaFiles.al:317-344 QX_MediaAndMediaSet_ImportFile_Jpeg: a .jpg imported into an empty MediaSet gives the set
+// onprem streams/media/MediaFiles.al:317-344 QX_MediaAndMediaSet_ImportFile_Jpeg: a .jpg imported into an empty MediaSet gives the set
 // one member whose Tenant Media row has the description, image/jpeg and the picture's size ('mediaset count',
 // 'mediaset item 1 tenant').
 #[test]
@@ -425,7 +425,7 @@ fn media_set_import_file_of_a_jpeg_fills_the_set() {
     assert_eq!(r.unwrap(), "1|Item picture|image/jpeg|3x2");
 }
 
-// onprem media/MediaFiles.al:394-447 RD_MediaSet_ImportFile_JpegThenUpperCasePng: both ImportFile calls return the set's
+// onprem streams/media/MediaFiles.al:394-447 RD_MediaSet_ImportFile_JpegThenUpperCasePng: both ImportFile calls return the set's
 // id (MediaId, not an item's), a second file joins the set as Item(2) and a `.PNG` file holding a PNG is image/png with its
 // size; Count 2 and the order stay after Modify and Get.
 #[test]
@@ -443,7 +443,7 @@ fn media_set_import_file_returns_the_set_id_and_a_png_joins_as_the_second_item()
     assert!(take_hits().is_empty());
 }
 
-// onprem media/MediaFiles.al:335, :351 QX_MediaAndMediaSet_ImportFile_Jpeg 'mediaset file name' = '<name>' and :256-259 (corpus
+// onprem streams/media/MediaFiles.al:335, :351 QX_MediaAndMediaSet_ImportFile_Jpeg 'mediaset file name' = '<name>' and :256-259 (corpus
 // bump 62): the File Name of a member's Tenant Media row is the bare file name, without the folder.
 #[test]
 fn media_set_import_file_stores_the_bare_file_name() {
@@ -466,7 +466,7 @@ fn media_set_import_file_third_member_is_refused() {
     );
 }
 
-// onprem media/MediaFiles.al:461-517 RD_Media_ImportFile_Docx: a .docx file imports into a Media with its description, the Word
+// onprem streams/media/MediaFiles.al:461-517 RD_Media_ImportFile_Docx: a .docx file imports into a Media with its description, the Word
 // MIME type, width and height 0 and the path as File Name ('<tmp><name>'); on BC 27 and 28 the Tenant Media content and the
 // exported bytes are the file's. BC 29 on Linux stores a re-zipped package (a Linux suspect, :505-509 ignore it): there a look
 // at the row or at the export is refused.
@@ -514,7 +514,7 @@ fn import_file_of_a_docx_file_on_bc_29_refuses_a_look_at_its_bytes() {
     }
 }
 
-// onprem media/MediaFiles.al:490-509 RD_Media_ImportFile_Docx on BC 29: ExportStream of the imported .docx runs without an error
+// onprem streams/media/MediaFiles.al:490-509 RD_Media_ImportFile_Docx on BC 29: ExportStream of the imported .docx runs without an error
 // (the test passes there; only the bytes are ignored), as Config. XML Exchange.ExportMedia needs it in the DemoTool company build
 // (ConfigXMLExchange.Codeunit.al:1486). The stream is marked: a look at what it holds stays refused.
 // Windows BC 29.0 probe (winprobe-wc6 cu 61288 SC_DemoTool_Media_ExportStream, case JD): Media.ExportStream of a JPEG that
@@ -633,7 +633,7 @@ fn export_file_in(bc: &str, serve: bool, company_build: bool, body: &str) -> Res
 const LEN: &str = "local procedure Len(Name: Text): Integer var G: File; begin if not Exists(Name) then exit(-1); \
                    G.Open(Name); exit(G.Len()); end;";
 
-// onprem media/MediaFiles.al:772 RJ_MediaSet_ExportFile_ConfigPackageShape (Config. XML Exchange.ExportMediaSet): ExportFile
+// onprem streams/media/MediaFiles.al:772 RJ_MediaSet_ExportFile_ConfigPackageShape (Config. XML Exchange.ExportMediaSet): ExportFile
 // returns the number of items and writes <prefix>-1 with no extension. Whether a JPEG's bytes are kept is not pinned since corpus
 // bump 62 (Windows BC 29.0 re-encodes it, the Linux image keeps it; corpus issue 723): the file is written with a mark and a look
 // at its bytes is refused, on BC 29 too.
@@ -750,7 +750,7 @@ fn media_set_export_file_that_is_not_pinned_is_refused() {
     }
 }
 
-// media/TestMediaPngImport.al:340-378 MediaSet_Remove_KeepsTheTenantMediaRow: the Delete of a row removes the Tenant Media rows of
+// streams/media/TestMediaPngImport.al:340-378 MediaSet_Remove_KeepsTheTenantMediaRow: the Delete of a row removes the Tenant Media rows of
 // the items still in its MediaSet ('kept_item_after_delete' No) and keeps an item removed from the set earlier
 // ('removed_item_after_delete' Yes).
 #[test]

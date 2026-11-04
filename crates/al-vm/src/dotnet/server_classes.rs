@@ -40,7 +40,7 @@ fn no_args(args: Args, what: &str) -> Result<(), Signal> {
 
 /// The `ALConfigSettings` flags are measured on real BC 27.5. They equal the `ConfigSetting`
 /// attribute defaults of `ServerUserSettings` (Nav.Types 27.5), which AL Runner v2 answers.
-const CFG_PIN: &str = "probe tests/al-language-onprem/session/TestServerSettingContracts.al:31-48; \
+const CFG_PIN: &str = "probe tests/al-language-onprem/session-system/TestServerSettingContracts.al:31-48; \
     AL Runner v2 agrees: it patches nothing here (no ALConfigSettings in AlRunner/), \
     so the real ServerUserSettings answers its attribute default, and AlRunner/Patches/\
     RecordPatches.AggregatePermissionSetVirtualTable.cs:9 states UsePermissionSetsFromExtensions is true";
@@ -154,7 +154,7 @@ fn text(what: &str, args: Args, want: usize, v: &str) -> Result<Value, Signal> {
 
 /// `SetTestTenantEnvironmentType(Boolean)`: what the test library's `SetTestabilitySandbox` /
 /// `SetTestabilitySoftwareAsAService` reach changes nothing a test can see on the probe tier
-/// (corpus tests/al-language-onprem/session/PVEnvironmentTestability.al, staging 8217373: after
+/// (corpus tests/al-language-onprem/session-system/PVEnvironmentTestability.al, staging 8217373: after
 /// SetTestabilitySandbox(false) the session still reads IsSandbox Yes, IsProduction No and the name
 /// "Sandbox"). So the setter is accepted and does nothing.
 fn set_test_tenant_environment_type(
@@ -180,7 +180,7 @@ fn environment_name(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -
 /// `TryGetStringTenantSetting(name, out value)`: the three settings System Application reads, with
 /// the values the oracle tenant answers through the wrappers `Tenant Information.GetTenantId` and
 /// `GetTenantDisplayName` and `Azure AD Tenant.GetAadTenantId`
-/// (session/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers, :209-212). The
+/// (session-system/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers, :209-212). The
 /// wrappers return the out value as it is; `GetAadTenantId` returns it when it is not a Guid, so
 /// the setting itself is `common`. Any other name is refused: nothing pins its value or whether
 /// the call succeeds.
@@ -211,7 +211,7 @@ fn try_get_string_tenant_setting(
 
 /// `GetPlatformVersion()`: the platform file version as a `System.Version`. Its ToString equals Base Application's
 /// `"Application System Constants".PlatformFileVersion()` on 27.5, 28.5 and 29.0 (corpus master
-/// tests/al-language-onprem-dotnet/lt-y35-platform-version/Y35PlatformVersion.al C304_GetPlatformVersion), so the runtime
+/// tests/al-language-onprem-dotnet/dotnet/platform-version/Y35PlatformVersion.al C304_GetPlatformVersion), so the runtime
 /// asks codeunit 9015 of the loaded Base Application and parses the text with `System.Version.Parse` on the host. Without
 /// that codeunit, or when the demand-driven compile left it out, the value is not known: refused.
 fn platform_version(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
@@ -280,7 +280,7 @@ fn environment_application_setting(_: &mut Session, _: Option<&Rc<DotNetObject>>
 /// `!NavEnvironment.Topology.IsServiceRunningInLocalEnvironment`, which is
 /// `Environment Information.IsSaaSInfrastructure`. The oracle answers true on BC 27.5 and 28.5 and
 /// false on 29.0 (`Gate::NotSaaSInfrastructure`; corpus
-/// `session/TestEnvironmentUserTenantContracts.al:164-174`). AL Runner's `StandardServiceTopology`
+/// `session-system/TestEnvironmentUserTenantContracts.al:164-174`). AL Runner's `StandardServiceTopology`
 /// answers false throughout; the probe wins where it says true.
 fn is_azure(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "NavUserAccountHelper.IsAzure")?;
@@ -291,23 +291,23 @@ fn is_azure(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result
 }
 
 /// `NavUserAccountHelper.IsUserDelegatedAdmin()`: false in a test session on every supported major (corpus
-/// `al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:62`; through `Azure AD Graph User`:
-/// `lt-ae-dotnet/AeUserAccountHelper.al:23`).
+/// `al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:62`; through `Azure AD Graph User`:
+/// `dotnet/dotnet/AeUserAccountHelper.al:23`).
 fn is_user_delegated_admin(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "NavUserAccountHelper.IsUserDelegatedAdmin")?;
     Ok(Value::Boolean(false))
 }
 
 /// `NavUserAccountHelper.IsDelegatedUser()`: false in a test session on every supported major (corpus
-/// `al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:61`).
+/// `al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:61`).
 fn is_delegated_user(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "NavUserAccountHelper.IsDelegatedUser")?;
     Ok(Value::Boolean(false))
 }
 
 /// `NavUserAccountHelper.IsUserDelegatedHelpdesk()`: false in a test session on every supported major (corpus
-/// `al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:63`; through `Azure AD Graph User`:
-/// `lt-ae-dotnet/AeUserAccountHelper.al:24`). System Application's `Azure AD User Mgmt. Impl.` calls it on company open.
+/// `al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:63`; through `Azure AD Graph User`:
+/// `dotnet/dotnet/AeUserAccountHelper.al:24`). System Application's `Azure AD User Mgmt. Impl.` calls it on company open.
 fn is_user_delegated_helpdesk(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "NavUserAccountHelper.IsUserDelegatedHelpdesk")?;
     Ok(Value::Boolean(false))
@@ -316,8 +316,8 @@ fn is_user_delegated_helpdesk(_: &mut Session, _: Option<&Rc<DotNetObject>>, arg
 /// The service tier's credential type, which System Application `Identity Management.IsWindowsAuthentication`,
 /// `IsUserNamePasswordAuthentication` and `IsAccessControlServiceAuthentication` read (al-runner issue 6380). Measured on the
 /// corpus CI containers by corpus writer Y5 (branch al-runtime-rs-staging-y5): user name and password, so Windows No, user
-/// name and password Yes, Access Control Service No (al-language-onprem/lt-y5/Y5AuthenticationTypeOnPrem.al:29-31, an OnPrem
-/// app; al-language/session/lt-y5/Y5AuthenticationType.al:29-30, a Cloud app). Both of the runner's environments are such a
+/// name and password Yes, Access Control Service No (al-language-onprem/session-system/authentication-type/Y5AuthenticationTypeOnPrem.al:29-31, an OnPrem
+/// app; al-language/permissions/Y5AuthenticationType.al:29-30, a Cloud app). Both of the runner's environments are such a
 /// container (the SaaS-like sandbox is the corpus CI tier). A real SaaS sandbox answers No for user name and password
 /// (Y5AuthenticationType.al:9-10, measured, not asserted); the runner has no environment for it.
 fn credential_type_is(_: &mut Session, args: Args, member: &str, user_password: bool) -> Result<Value, Signal> {
@@ -353,7 +353,7 @@ fn is_access_control_service_authentication(
 /// `NavUserAccountHelper.GetEffectivePermissionForObject(user, company, objectType, objectId)`:
 /// five comma-separated Permission ordinals (Read, Insert, Modify, Delete, Execute) of the
 /// session user. A test session is SUPER; on table data it holds the four data rights and no
-/// Execute (corpus session/TestSessionCompanyInfoExperienceClose.al:62-90, measured on real BC).
+/// Execute (corpus session-system/TestSessionCompanyInfoExperienceClose.al:62-90, measured on real BC).
 /// Other object kinds and other users are not pinned and are refused.
 fn effective_permission(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     let [
@@ -389,6 +389,13 @@ fn effective_permission(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Arg
         // (Y24PermExecute.al Y24_P22_EffectivePermission `noset table|codeunit|page|report`, BC 27.5, 28.5, 29.0).
         // Query and XmlPort too (Y84PermEffective.al Y84_Eff_ObjectKinds `noset`).
         1 | 3 | 5 | 6 | 8 | 9 if !s.runner_permission_sets => Ok(Value::Text("0,0,0,0,1".into())),
+        // System objects: X on the measured ones (Y90PermSystem.al:240-241 `noset`), nothing on id 0 (session-system/W6EnvironmentHelpers.al:116-117).
+        10 if !s.runner_permission_sets && *object_id == 0 => Ok(Value::Text("0,0,0,0,0".into())),
+        10 if !s.runner_permission_sets
+            && crate::permissions::SYSTEM_OBJECTS_MEASURED.contains(&(*object_id as u32)) =>
+        {
+            Ok(Value::Text("0,0,0,0,1".into()))
+        }
         _ => Err(Signal::Unsupported(
             "DotNet NavUserAccountHelper.GetEffectivePermissionForObject on an object kind other than table \
              data: the rights of a SUPER session are not pinned (docs/probes-needed.md)"
@@ -398,7 +405,7 @@ fn effective_permission(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Arg
 }
 
 /// `NavUserAccountHelper.IsPermissionSetAssigned(user, company, roleId, appId, scope)`: false when no Access Control row of that
-/// user and role is for that company or all companies with that app id (platform/lt-outside-platform/RvPermissionSetAssigned.al:
+/// user and role is for that company or all companies with that app id (session-system/RvPermissionSetAssigned.al:
 /// 74-200, through "User Permissions".HasUserPermissionSetAssigned, AL Runner issue 5796: a set not held, a row for another company,
 /// a row with another app id). "User Permissions" finds a matching row itself before it asks, so what the member answers for one
 /// is not pinned and is refused; so are a row with another scope, a company that differs only in case, and an assignment
@@ -468,7 +475,7 @@ fn is_in_test_mode(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) ->
 
 /// `ALCopilotFunctions.IsPlatformAuthorizationConfigured(callerPublisher, systemApplicationPublisher)`, which System Application's
 /// "AOAI Authorization".IsConfigured asks for First Party authorization: false, with no error, for a caller published by
-/// 'AL Language' and the System Application published by 'Microsoft' (corpus platform/lt-ri-aoai/RiAoaiAuthorization.al:44-94,
+/// 'AL Language' and the System Application published by 'Microsoft' (corpus metadata/session-system/RiAoaiAuthorization.al:44-94,
 /// BC 27, 28 and 29; al-runner issue 5693). A Microsoft caller is not pinned: whether the platform authorizes its own
 /// publisher's Copilot features on the test tier is refused.
 fn copilot_platform_authorization(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
@@ -513,7 +520,7 @@ fn akv_initialize(s: &mut Session, this: Option<&Rc<DotNetObject>>, args: Args) 
                 .into(),
         ));
     }
-    // Pinned by tests/al-language-onprem-dotnet/lt-ty-dotnet/TyAkvProvider.al TY_Akv_Construct_Initialize, TY_Akv_TryGetSecret_NoInitialize (was assumption `akv-provider-no-key-vault`).
+    // Pinned by tests/al-language-onprem-dotnet/dotnet/dotnet/TyAkvProvider.al TY_Akv_Construct_Initialize, TY_Akv_TryGetSecret_NoInitialize (was assumption `akv-provider-no-key-vault`).
     let program = &s.engine.program;
     let app = s
         .frames
@@ -539,7 +546,7 @@ fn akv_initialize(s: &mut Session, this: Option<&Rc<DotNetObject>>, args: Args) 
 /// `TryGetAzureKeyVaultSecret(name, var value)`: the provider never initializes, so it raises `Not initialized.`
 /// and leaves the out value as it was (TyAkvProvider.al:108-120).
 fn akv_try_get(s: &mut Session, this: Option<&Rc<DotNetObject>>, _: Args) -> Result<Value, Signal> {
-    // Pinned by tests/al-language-onprem-dotnet/lt-ty-dotnet/TyAkvProvider.al TY_Akv_Construct_Initialize, TY_Akv_TryGetSecret_NoInitialize (was assumption `akv-provider-no-key-vault`).
+    // Pinned by tests/al-language-onprem-dotnet/dotnet/dotnet/TyAkvProvider.al TY_Akv_Construct_Initialize, TY_Akv_TryGetSecret_NoInitialize (was assumption `akv-provider-no-key-vault`).
     if this.is_none() {
         // A variable never constructed (TyAkvProvider.al:140-152, TY_Akv_TryGetSecret_NotConstructed): the error names the
         // routine of the codeunit that made the call.
@@ -568,7 +575,7 @@ fn akv_try_get(s: &mut Session, this: Option<&Rc<DotNetObject>>, _: Args) -> Res
     al_builtins::native::raise("Not initialized.", "AzureKeyVaultAppSecretProvider")
 }
 
-const ENV_PROBE: &str = "probe tests/al-language/session/TestEnvironmentUserTenantContracts.al";
+const ENV_PROBE: &str = "probe tests/al-language/session-system/TestEnvironmentUserTenantContracts.al";
 
 fn member(name: &str, pin: Pin, f: MemberFn) -> RegistryMember {
     RegistryMember {
@@ -594,9 +601,9 @@ fn member_ref(name: &str, pin: Pin, f: MemberRefFn) -> RegistryMember {
 }
 
 /// Azure AD Graph on a tier without Microsoft Entra ID, probed on BC 27.5 (corpus branch
-/// al-runtime-rs-staging, tests/al-language-onprem/session/PXAzureAdGraph.al:1-12, 86-109).
+/// al-runtime-rs-staging, tests/al-language-onprem/session-system/PXAzureAdGraph.al:1-12, 86-109).
 const GRAPH_PIN: &str =
-    "probe tests/al-language-onprem/session/PXAzureAdGraph.al:1-12,86-109 (corpus branch al-runtime-rs-staging)";
+    "probe tests/al-language-onprem/session-system/PXAzureAdGraph.al:1-12,86-109 (corpus branch al-runtime-rs-staging)";
 
 fn graph_query_new(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "GraphQuery constructor")?;
@@ -639,7 +646,7 @@ fn graph_first_group(_: &mut Session, _: Option<&Rc<DotNetObject>>, _: Args) -> 
 }
 
 /// `GetCurrentUser()` on a tier without Entra ID returns without an error and leaves the UserInfo null (probe agent,
-/// OnPrem codeunit 61296 of the newest major, tests/al-language-onprem/session/PZAzureAdUser.al): Microsoft's
+/// OnPrem codeunit 61296 of the newest major, tests/al-language-onprem/session-system/PZAzureAdUser.al): Microsoft's
 /// `InitializeGraphUser` then asks for the authentication object id of the session user.
 fn graph_current_user(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "GraphQuery.GetCurrentUser")?;
@@ -657,7 +664,7 @@ fn graph_tenant_detail(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args
 
 /// Microsoft's Azure AD Tenant Impl. raises "Failed to retrieve ..." for a null TenantInfo, and the corpus test
 /// expects '' from `GetAadTenantDomainName`, `GetCountryLetterCode` and `GetPreferredLanguage`.
-const TENANT_INFO_PIN: &str = "session/TestEnvironmentUserTenantContracts.al:213-232 (GetAadTenantDomainName, GetCountryLetterCode and GetPreferredLanguage answer '' without an error)";
+const TENANT_INFO_PIN: &str = "session-system/TestEnvironmentUserTenantContracts.al:213-232 (GetAadTenantDomainName, GetCountryLetterCode and GetPreferredLanguage answer '' without an error)";
 
 fn tenant_info_empty_text(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "TenantInfo member")?;
@@ -709,7 +716,7 @@ fn permission_helper_dispose(s: &mut Session, _: Option<&Rc<DotNetObject>>, args
 /// the test does (`runner-permission-sets-grant-all`); those tests pass in Microsoft's CI under them. On BC they do not
 /// grant everything: they grant what D365 Full Access, D365 Basic and LOCAL name, plus Execute on every object (All
 /// Objects); a test app table no set names reads as ReadPermission false and fails with DB:ClientReadDenied, and Tenant
-/// Media has only indirect write (permissions/lt-qc-runner-sets/QcRunnerSets.al:1-24, :226-291).
+/// Media has only indirect write (permissions/testpermissions/QcRunnerSets.al:1-24, :226-291).
 fn permission_helper_add_set(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     if s.runner_permission_step {
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RunnerPermissionSetsGrantAll);
@@ -754,7 +761,7 @@ fn environment_variable(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Arg
 }
 
 /// The credential-type members, measured on the corpus CI containers (`credential_type_is`).
-const CREDENTIAL_PIN: &str = "probe tests/al-language/session/lt-y5/Y5AuthenticationType.al (corpus branch al-runtime-rs-staging-y5, codeunit 90987)";
+const CREDENTIAL_PIN: &str = "probe tests/al-language/permissions/Y5AuthenticationType.al (corpus branch al-runtime-rs-staging-y5, codeunit 90987)";
 
 fn probe(what: &str) -> Pin {
     Pin::Probe(format!("{ENV_PROBE}:{what}"))
@@ -783,11 +790,11 @@ pub fn types() -> Vec<RegistryType> {
 
 /// Microsoft's client camera on the service tier (a variable without `[RunOnClient]`, or a by-value parameter that got the
 /// Camera page's provider): the static `IsAvailable()` answers No and `Create()` gives null with no error (corpus master
-/// 92fdde19, tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:244-262 and :304-326, with Y16RunOnClientShapes.al
+/// 92fdde19, tests/al-language-onprem-dotnet/dotnet/runonclient/BgRunOnClient.al:244-262 and :304-326, with Y16RunOnClientShapes.al
 /// codeunit 99476). On a `[RunOnClient]` variable the calls run on the client instead (`dotnet/mod.rs` `run_on_client_call`).
 fn camera_provider() -> RegistryType {
     const PIN: &str =
-        "tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:304-326 (corpus master 92fdde19)";
+        "tests/al-language-onprem-dotnet/dotnet/runonclient/BgRunOnClient.al:304-326 (corpus master 92fdde19)";
     RegistryType {
         clr_name: al_builtins::dotnet_sigs::CAMERA_PROVIDER.into(),
         members: vec![
@@ -842,7 +849,7 @@ fn own_types() -> Vec<RegistryType> {
                 member(
                     "SetTestTenantEnvironmentType",
                     Pin::Corpus(
-                        "tests/al-language-onprem/session/PVEnvironmentTestability.al:25-60 (staging 8217373)".into(),
+                        "tests/al-language-onprem/session-system/PVEnvironmentTestability.al:25-60 (staging 8217373)".into(),
                     ),
                     set_test_tenant_environment_type,
                 ),
@@ -855,7 +862,7 @@ fn own_types() -> Vec<RegistryType> {
                 member(
                     "GetPlatformVersion",
                     Pin::Corpus(
-                        "tests/al-language-onprem-dotnet/lt-y35-platform-version/Y35PlatformVersion.al:41-110 (corpus master, PR 948)"
+                        "tests/al-language-onprem-dotnet/dotnet/platform-version/Y35PlatformVersion.al:41-110 (corpus master, PR 948)"
                             .into(),
                     ),
                     platform_version,
@@ -889,17 +896,17 @@ fn own_types() -> Vec<RegistryType> {
                 ),
                 member(
                     "IsUserDelegatedAdmin",
-                    Pin::Corpus("al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:62".into()),
+                    Pin::Corpus("al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:62".into()),
                     is_user_delegated_admin,
                 ),
                 member(
                     "IsDelegatedUser",
-                    Pin::Corpus("al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:61".into()),
+                    Pin::Corpus("al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:61".into()),
                     is_delegated_user,
                 ),
                 member(
                     "IsUserDelegatedHelpdesk",
-                    Pin::Corpus("al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:63".into()),
+                    Pin::Corpus("al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:63".into()),
                     is_user_delegated_helpdesk,
                 ),
                 member(
@@ -919,12 +926,12 @@ fn own_types() -> Vec<RegistryType> {
                 ),
                 member(
                     "IsPermissionSetAssigned",
-                    Pin::Corpus("platform/lt-outside-platform/RvPermissionSetAssigned.al:74-200".into()),
+                    Pin::Corpus("session-system/RvPermissionSetAssigned.al:74-200".into()),
                     is_permission_set_assigned,
                 ),
                 member(
                     "GetEffectivePermissionForObject",
-                    Pin::Corpus("session/TestSessionCompanyInfoExperienceClose.al:62-90".into()),
+                    Pin::Corpus("session-system/TestSessionCompanyInfoExperienceClose.al:62-90".into()),
                     effective_permission,
                 ),
             ],
@@ -952,7 +959,7 @@ fn own_types() -> Vec<RegistryType> {
                     member(
                         "GetCurrentUser",
                         Pin::Probe(
-                            "probe tests/al-language-onprem/session/PZAzureAdUser.al (corpus branch al-runtime-rs-staging, OnPrem codeunit 61296)"
+                            "probe tests/al-language-onprem/session-system/PZAzureAdUser.al (corpus branch al-runtime-rs-staging, OnPrem codeunit 61296)"
                                 .into(),
                         ),
                         graph_current_user,
@@ -993,7 +1000,7 @@ fn own_types() -> Vec<RegistryType> {
             members: vec![member(
                 "IsPlatformAuthorizationConfigured",
                 Pin::Corpus(
-                    "platform/lt-ri-aoai/RiAoaiAuthorization.al:44-94 (false for the caller publisher 'AL Language')"
+                    "metadata/session-system/RiAoaiAuthorization.al:44-94 (false for the caller publisher 'AL Language')"
                         .into(),
                 ),
                 copilot_platform_authorization,

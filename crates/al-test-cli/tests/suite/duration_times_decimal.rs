@@ -1,5 +1,5 @@
 //! Duration * Decimal and Decimal * Duration multiply the Duration's milliseconds into a Decimal that keeps the fraction; the
-//! product assigns to a BigInteger or, when whole, to a Duration (corpus types/lt-ax-text-format-dates/AxDurationDateTime.al,
+//! product assigns to a BigInteger or, when whole, to a Duration (corpus format-evaluate/AxDurationDateTime.al,
 //! the Duration_Wb_* tests, corpus branch al-runtime-rs-staging-wb at a07787b2, not yet on master; al-runner issue 6285).
 
 use al_testkit::outcomes_in;

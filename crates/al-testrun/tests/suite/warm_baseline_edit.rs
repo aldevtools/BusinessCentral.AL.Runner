@@ -114,7 +114,7 @@ const TESTS: &str = r#"codeunit 60300 Reads
         D.Get('DEP');
         S.Get('WS');
         // The workspace is not installed while Company-Initialize runs, so its subscriber writes no row
-        // (install/lt-bf-install-probes/BfUpgradeTagInstallTests.al:42-43).
+        // (install-upgrade/BfUpgradeTagInstallTests.al:42-43).
         if not T.Get('SUB') then
             T.N := 0;
         E.Get('E');

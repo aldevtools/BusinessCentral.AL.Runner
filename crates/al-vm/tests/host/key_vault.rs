@@ -1,6 +1,6 @@
 //! `Microsoft.Dynamics.Nav.AzureKeyVaultClient.AzureKeyVaultClientHelper` and the test provider
 //! `MockTest.MockAzureKeyVaultSecret.MockAzureKeyVaultSecretProvider`, as System Application's "Azure Key Vault Impl." and
-//! Microsoft's tests use them (corpus tests/al-language-onprem-dotnet/lt-y58-key-vault/Y58AzureKeyVault.al, real BC 27.5,
+//! Microsoft's tests use them (corpus tests/al-language-onprem-dotnet/dotnet/key-vault/Y58AzureKeyVault.al, real BC 27.5,
 //! 28.5 and 29.0: KvHelper_Direct :362, KeyVault_Cache :245). The AL below is my own minimal version of those calls.
 
 use al_builtins::native::Signal;

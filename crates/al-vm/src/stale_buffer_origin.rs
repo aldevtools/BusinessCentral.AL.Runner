@@ -1,5 +1,5 @@
 //! Stale buffers by where their row version came from, and what the transaction after the Commit did beside inserting another
-//! row of the table (corpus record/lt-sb-stale-own-modify/Y76StaleBuffers.al).
+//! row of the table (corpus record/crud/Y76StaleBuffers.al).
 
 use crate::Session;
 use crate::records::StaleVerdict;

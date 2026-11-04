@@ -1,5 +1,5 @@
 //! `Evaluate` into a Byte and a Char reads one character as its code; a number of two or more characters is rejected
-//! (types/lt-scalars/ScT70055.al:205-249, EvaluateByte_Char; misc/lt-system-functions/EvalLastError.al:342-343).
+//! (types/decimal-integer/ScT70055.al:205-249, EvaluateByte_Char; format-evaluate/EvalLastError.al:342-343).
 
 use al_builtins::native::Signal;
 

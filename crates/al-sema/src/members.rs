@@ -221,7 +221,7 @@ fn merged_members(ws: &Workspace, i: usize) -> Members {
         target.enum_impls.extend(ext.enum_impls);
         target.procedures.extend(ext.procedures);
         // `modify(Field) { Caption = ...; }` changes properties of an existing field
-        // (corpus tableextension/TestTableExtFieldModify.al:40-67, record/TestRecordCaptionSeparators.al:79-85).
+        // (corpus table-objects/extensions/TestTableExtFieldModify.al:40-67, record/TestRecordCaptionSeparators.al:79-85).
         if o.kind == ObjKind::TableExtension {
             for (name, props) in modify_properties(ws, e) {
                 let Some(field) = target.fields.iter_mut().find(|f| f.name.eq_ignore_ascii_case(&name)) else {
@@ -233,7 +233,7 @@ fn merged_members(ws: &Workspace, i: usize) -> Members {
                     // `FieldRef.Relation()` names it).
                     if k.eq_ignore_ascii_case("TableRelation") {
                         // A field that has a relation already keeps it, and the extension's arms come after its arms
-                        // (tableextension/TestTableExtFieldTableRelation.al:241-298): the property is listed once more, and
+                        // (table-objects/extensions/TestTableExtFieldTableRelation.al:241-298): the property is listed once more, and
                         // `relation_arms` in lower/tables.rs joins the arms (or refuses a combination that is not pinned).
                         // The first entry stays what a single relation answers (`Field.RelationTableNo` names the base's
                         // table, :262).
@@ -329,7 +329,7 @@ const SYSTEM_FIELDS: &[(u32, &str, Ty)] = &[
 
 /// The FlowFields every table has from BC 29 (`Workspace::user_name_fields`): the internal id, the name, the caption, the
 /// length, and the system field that stamps the user (SystemCreatedBy 2000000002 or SystemModifiedBy 2000000004). AL code
-/// sees them as fields 2000000005 to 2000000008 (platform/lt-y35-username-field-rows/Y35UserNameFieldRows.al:88-90); the
+/// sees them as fields 2000000005 to 2000000008 (metadata/platform-tables/Y35UserNameFieldRows.al:88-90); the
 /// runtime keeps SystemRowVersion at 2000000005, so the table schema holds these at the ids 2000001005 to 2000001008
 /// (`al_ir::user_name_field_no`) and the VM's `refs::al_field_no` maps them back. Captions: Y64UserNameFilters.al:148-149, :230 and the Field rows
 /// of Y35UserNameFieldRows.al:88-90.
@@ -852,7 +852,7 @@ tableextension 50901 "ALT Ext" extends "ALT Universal"
 
     #[test]
     fn a_tableextension_modify_block_overrides_field_properties() {
-        // corpus tableextension/TestTableExtFieldModify.al:40-67
+        // corpus table-objects/extensions/TestTableExtFieldModify.al:40-67
         let w = ws(&[(
             "t.al",
             "table 50920 T { fields { field(1; A; Integer) { Caption = 'Orig A'; } field(2; B; Integer) { Caption = 'Orig B'; } } keys { key(PK; A) { } } }

@@ -1,6 +1,6 @@
 //! `[RunOnClient]` DotNet variables in a test session, which has no client (ADR-027 section 3 row 21). The shapes are
 //! the ones corpus writer Y16 pinned on real BC 27.5, 28.5 and 29.0 (corpus master 92fdde19,
-//! tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:244-468 with the helpers of
+//! tests/al-language-onprem-dotnet/dotnet/runonclient/BgRunOnClient.al:244-468 with the helpers of
 //! Y16RunOnClientShapes.al): Microsoft's Camera page hands its `[RunOnClient] [WithEvents]` provider to an implementation
 //! codeunit by value and by `var`.
 

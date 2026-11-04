@@ -1,7 +1,7 @@
 //! The dataset XML that `Report.SaveAs(.., ReportFormat::Xml, ..)` writes: a header, then one
 //! `DataItem` element per row of every data item, nested the way the data items are.
 //!
-//! The shape is pinned by the probe in handlers/TestReportSaveAsDatasetContracts.al (written
+//! The shape is pinned by the probe in text/TestReportSaveAsDatasetContracts.al (written
 //! against a real BC on Linux, en-US): the byte order mark and declaration, the order of the
 //! header elements, the `DataItems` block to the character, and the escaping of text. What no
 //! test pins is listed in docs/probes-needed.md ("Report.SaveAs dataset").
@@ -15,9 +15,9 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
 }
 
 /// The name of a data item or column as the dataset spells it. A name made of letters, digits
-/// and underscores is written as it is (handlers/TestReportSaveAsDatasetContracts.al: `P`,
+/// and underscores is written as it is (text/TestReportSaveAsDatasetContracts.al: `P`,
 /// `PNo`). The one other shape the corpus shows is the data item `"Change Log Setup (Table)"`,
-/// which the dataset calls `Change_Log_Setup_Table` (handlers/TestReportNestedLinkImplicitParent.al:98);
+/// which the dataset calls `Change_Log_Setup_Table` (reports/dataset/TestReportNestedLinkImplicitParent.al:98);
 /// a name with spaces and parentheses is written the way both readings of that one example agree
 /// on, and any other name is refused.
 pub(crate) fn dataset_name(name: &str) -> Result<String, Signal> {
@@ -91,7 +91,7 @@ pub(crate) fn dataset_name(name: &str) -> Result<String, Signal> {
 }
 
 /// Text as an XML element writes it: `&`, `<` and `>` become entities
-/// (handlers/TestReportSaveAsDatasetContracts.al: `one <&>` is `one &lt;&amp;&gt;`). In an
+/// (text/TestReportSaveAsDatasetContracts.al: `one <&>` is `one &lt;&amp;&gt;`). In an
 /// attribute value a quote does too. A control character is refused: how the writer treats it is
 /// not pinned.
 pub(crate) fn escape(text: &str) -> Result<String, Signal> {
@@ -149,7 +149,7 @@ pub(crate) struct Header {
 
 /// The company elements after the address lines, in order, with the caption element each one has (en-US), and the
 /// field of the Company Information record that holds the value. The captions and the values of the CRONUS company:
-/// misc/lt-probes-needed-2/PnBReportSaveAs.al:568-592 (`0666-666-6666` is its Phone No., `World Wide Bank` its Bank Name).
+/// text/PnBReportSaveAs.al:568-592 (`0666-666-6666` is its Phone No., `World Wide Bank` its Bank Name).
 /// `CompanyLogo` (the Picture field, base64) has no caption.
 pub(crate) const COMPANY_ELEMENTS: [(&str, Option<&str>); 13] = [
     ("CompanyPhone", Some("Phone No.")),
@@ -197,8 +197,8 @@ fn element(out: &mut String, indent: usize, name: &str, value: &str) -> Result<(
 
 impl Header {
     /// The declaration, the root element and the information block, up to the data items.
-    /// Elements: handlers/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_WritesAByteOrderMarkDeclarationAndHeader;
-    /// `BCReportInformation/ReportMetadata/...` for the report's own: handlers/TestReportDatasetHelpLink.al.
+    /// Elements: text/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_WritesAByteOrderMarkDeclarationAndHeader;
+    /// `BCReportInformation/ReportMetadata/...` for the report's own: xml/TestReportDatasetHelpLink.al.
     /// `ReportRequest` and, from BC 29, `CompanyMetadata` follow `ReportMetadata` under `BCReportInformation`.
     fn write(&self, out: &mut String, language: &str, region: &str) -> Result<(), Signal> {
         out.push_str("<?xml version=\"1.0\" standalone=\"yes\"?>\r\n");
@@ -222,7 +222,7 @@ impl Header {
         element(out, 6, "AboutThisReportText", &self.about_text)?;
         element(out, 6, "ReportHelpLink", &self.help_link)?;
         out.push_str("    </ReportMetadata>\r\n");
-        // The request information is one element, its children two spaces further in (report/lt-report-dataset-header/
+        // The request information is one element, its children two spaces further in (reports/dataset/
         // ReportDatasetHeaderRaw.al:Lines_Window2, `4|<ReportRequest>` and `6|<TenantEntraId>`). Tenant and environment: nothing in the
         // corpus says what a test run reports.
         out.push_str("    <ReportRequest>\r\n");
@@ -243,8 +243,8 @@ impl Header {
         element(out, 6, "Language", language)?;
         element(out, 6, "FormatRegion", region)?;
         // The clock parts sit in `DateTimeValues`, two spaces further in, and `ReportRequest` closes after it
-        // (misc/lt-probes-needed-2/PnBReportSaveAs.al:542-549, report/W3ReportDataset.al:524-534 on BC 29; on BC 27 and
-        // 28 report/W3ReportDataset.al:256 counts 46 line ends, the two lines of this element more than a flat list).
+        // (text/PnBReportSaveAs.al:542-549, reports/W3ReportDataset.al:524-534 on BC 29; on BC 27 and
+        // 28 reports/W3ReportDataset.al:256 counts 46 line ends, the two lines of this element more than a flat list).
         out.push_str("      <DateTimeValues>\r\n");
         element(out, 8, "Year", &y.to_string())?;
         element(out, 8, "MonthNumber", &mo.to_string())?;
@@ -255,7 +255,7 @@ impl Header {
         out.push_str("    </ReportRequest>\r\n");
         if self.company_block {
             // BC 29: the company information is a sibling of `ReportRequest`, the address lines one element of their
-            // own (misc/lt-probes-needed-2/PnBReportSaveAs.al:558-596, report/W3ReportDataset.al:532-590). The captions
+            // own (text/PnBReportSaveAs.al:558-596, reports/W3ReportDataset.al:532-590). The captions
             // are the texts those probes read (en-US); the values are the fields of the Company Information record.
             out.push_str("    <CompanyMetadata>\r\n");
             element(out, 6, "CompanyName", &self.company_name)?;
@@ -289,7 +289,7 @@ impl Header {
 }
 
 /// The attribute `decimalformatter` of a Decimal column. A plain Decimal field is pinned
-/// (handlers/TestReportSaveAsDatasetContracts.al: `#,##0.00`); a field or column that states
+/// (text/TestReportSaveAsDatasetContracts.al: `#,##0.00`); a field or column that states
 /// `DecimalPlaces` or `AutoFormatType` may change it, which no test pins
 /// (docs/probes-needed.md).
 pub(crate) const DECIMAL_FORMATTER: &str = "#,##0.00";
@@ -297,11 +297,11 @@ pub(crate) const DECIMAL_FORMATTER: &str = "#,##0.00";
 /// The `decimalformatter` of a Decimal column. `places` is the `DecimalPlaces` of the column, else
 /// of the field, as written: `min : max`, or one number for both. The format is `#,##0`, then the
 /// minimum number of zeros after the point and the further optional places as `#`
-/// (handlers/TestReportSaveAsColumnDetailsContracts.al:UndefinedTimesGuidsHoursAndDecimalPlaces and
-/// handlers/PWReportSaveAsColumns.al:DecimalPlaces_SingleNumberRangeAndZero): `2 : 4` gives
+/// (streams/TestReportSaveAsColumnDetailsContracts.al:UndefinedTimesGuidsHoursAndDecimalPlaces and
+/// streams/PWReportSaveAsColumns.al:DecimalPlaces_SingleNumberRangeAndZero): `2 : 4` gives
 /// `#,##0.00##`, `0 : 0` gives `#,##0`, `1` gives `#,##0.0`, `0 : 5` gives `#,##0.#####`, `0 : 2`
 /// gives `#,##0.##`, `1 : 1` gives `#,##0.0`, `3 : 3` gives `#,##0.000`
-/// (handlers/TestReportSaveAsColumnTypesContracts.al:230-244). No property is the default.
+/// (reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:230-244). No property is the default.
 pub(crate) fn decimal_formatter(places: Option<&str>) -> Result<String, Signal> {
     let Some(places) = places else {
         return Ok(DECIMAL_FORMATTER.to_string());
@@ -328,10 +328,10 @@ pub(crate) fn decimal_formatter(places: Option<&str>) -> Result<String, Signal> 
 }
 
 /// A Time as the dataset writes it: `h:mm:ss`, a plain space, `AM` or `PM`
-/// (handlers/TestReportSaveAsColumnTypesContracts.al:12-14, 12:34:56 PM). The hour is not padded
+/// (reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:12-14, 12:34:56 PM). The hour is not padded
 /// (the culture's pattern; no single-digit hour is measured). Milliseconds are cut off, not rounded: a stored field shows the
 /// value the SQL column rounded (`sqltime`, 13:30:00.999 is stored as 13:30:01), a column bound to a variable its own value
-/// (errors/lt-ms-refusals-132/P132ReportTimeMs.al:181 P132_Dataset_Time_Milliseconds, Y38_P132_Dataset_Time_NearNextSecond,
+/// (streams/P132ReportTimeMs.al:181 P132_Dataset_Time_Milliseconds, Y38_P132_Dataset_Time_NearNextSecond,
 /// Y38_P132_Dataset_Time_OtherMilliseconds, and the global-variable column of the Y38 tests: 23:59:59.999 is 11:59:59 PM).
 pub(crate) fn time_text(ms_of_day: i64) -> Result<String, Signal> {
     let (h, m, s) = (ms_of_day / 3_600_000, ms_of_day / 60_000 % 60, ms_of_day / 1000 % 60);
@@ -357,7 +357,7 @@ pub(crate) struct Column {
     pub data: DataFileText,
 }
 
-/// The value of a column in a SaveAsXml data file (al-language-onprem/report/lt-aq/AqSaveAsXml.al:247).
+/// The value of a column in a SaveAsXml data file (al-language-onprem/reports/AqSaveAsXml.al:247).
 #[derive(Clone, Default)]
 pub(crate) enum DataFileText {
     /// The text the dataset writes.
@@ -379,7 +379,7 @@ pub(crate) struct Dataset {
     declares: Vec<bool>,
     root: bool,
     /// The report's `FormatRegion` property: the `formatRegion` of the top data items and the culture of the columns
-    /// (report/lt-y-report-props/YReportPropsTests.al:34-148). `None`: the session's en-US.
+    /// (reports/runtime/YReportPropsTests.al:34-148). `None`: the session's en-US.
     pub region: Option<(String, al_builtins::format::Region)>,
     /// The culture name of the run's language when it is not the session's en-US (`de-DE` for 1031: report/
     /// W3ReportObjectIdPreviewLanguage.al:870, :893), written in the header and on the top data items.
@@ -576,7 +576,7 @@ impl Dataset {
     }
 
     /// Closes the row opened last; with `only_if_detail` (the item's `PrintOnlyIfDetail`) a row whose nested items wrote no row is
-    /// taken back (corpus report/lt-report-requestpage/RptFilters.al:PrintOnlyIfDetail_Dataset, `1,3,`).
+    /// taken back (corpus reports/request-page/RptFilters.al:PrintOnlyIfDetail_Dataset, `1,3,`).
     pub(crate) fn end_row(&mut self, only_if_detail: bool) {
         let mark = self.marks.pop().expect("a row is open");
         if only_if_detail && mark.kids == 0 {
@@ -610,10 +610,10 @@ impl Dataset {
 
     /// The bytes of the .NET DataSet `TestRequestPage.SaveAsXml` writes: the schema of the rows (one
     /// element per column with its .NET type) and a `Result` element per row, behind a byte order
-    /// mark (corpus al-language-onprem/handlers/TestRequestPageSaveAsXmlContracts.al:
+    /// mark (corpus al-language-onprem/reports/TestRequestPageSaveAsXmlContracts.al:
     /// SaveAs_ReportDataFile_IsADataSet, one data item with Integer and Text columns).
     ///
-    /// The file is one flat table `Result` (al-language-onprem/handlers/Y17SaveAsXmlTrees.al, BC 27, 28 and 29 alike):
+    /// The file is one flat table `Result` (al-language-onprem/reports/Y17SaveAsXmlTrees.al, BC 27, 28 and 29 alike):
     /// - The schema lists the columns of every declared data item, depth first in run order, also of an item that wrote no row
     ///   (:521 A3, :562 B2, :644 C1 `TTotal` after the nested items, :685 D1 no row at all, :726 D2, :767 B3).
     /// - A row of an item with no nested items gives one Result with the columns of the rows above it and its own (:544 A3).
@@ -786,14 +786,14 @@ impl Dataset {
             return Err(Signal::Unsupported(why));
         }
         let mut out = String::new();
-        // The header names the run's language and region as the data items do (report/lt-bd-format-region/BdRegionTests.al:809,
+        // The header names the run's language and region as the data items do (reports/runtime/BdRegionTests.al:809,
         // :928 for a trigger's setter, :120-415 for the property).
         header.write(
             &mut out,
             self.language.as_deref().unwrap_or(LANGUAGE),
             self.region.as_ref().map_or(LANGUAGE, |(r, _)| r.as_str()),
         )?;
-        // handlers/TestReportSaveAsColumnTypesContracts.al:222-229: between the information block and
+        // reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:222-229: between the information block and
         // the data items.
         if !self.labels.is_empty() {
             out.push_str("  <Labels>\r\n");
@@ -811,7 +811,7 @@ impl Dataset {
             out.push_str("  </DataItems>\r\n");
         } else if self.body.is_empty() {
             // A report with no row at all still writes the element, in the XmlWriter's short form `  <DataItems />`
-            // (report/PTSaveAsEmpty.al:no_rows; handlers/PWReportSaveAsColumns.al:Labels_NoRowAtAll).
+            // (reports/PTSaveAsEmpty.al:no_rows; streams/PWReportSaveAsColumns.al:Labels_NoRowAtAll).
             out.push_str("  <DataItems />\r\n");
         }
         out.push_str("</ReportDataSet>");
@@ -841,7 +841,7 @@ mod tests {
         text[text.find("</xs:schema>|").unwrap() + 13..].to_string()
     }
 
-    // al-language-onprem/report/lt-aq/AqSaveAsXml.al:264 SaveAsXml_NestedDataItems_DataFile (and TO_SaveAsXml_Nested_Rows on
+    // al-language-onprem/reports/AqSaveAsXml.al:264 SaveAsXml_NestedDataItems_DataFile (and TO_SaveAsXml_Nested_Rows on
     // corpus branch al-runtime-rs-staging-pub-to): one Result per child row with the parent's columns first, a parent without
     // child rows only its own; a Decimal adds its Format column (:257), an empty Text is an empty element (:258).
     #[test]
@@ -926,7 +926,7 @@ mod tests {
             .collect()
     }
 
-    // al-language-onprem/handlers/Y17SaveAsXmlTrees.al:544 Y17_SaveAsXml_A3_Rows: one Result per leaf with the columns of every
+    // al-language-onprem/reports/Y17SaveAsXmlTrees.al:544 Y17_SaveAsXml_A3_Rows: one Result per leaf with the columns of every
     // level above it; a middle row whose nested item ran with no row gives a Result with the columns down to it (C 1/20), a parent
     // whose child item has no row one with its own (P 2). :521 the schema lists the declared columns depth first.
     #[test]
@@ -1059,7 +1059,7 @@ mod tests {
         assert!(schema_columns(&text).contains("PName"));
     }
 
-    // al-language-onprem/report/lt-aq/AqSaveAsXml.al:247 SaveAsXml_ColumnTypes_DataFile: a Date is `xs:dateTime` with
+    // al-language-onprem/reports/AqSaveAsXml.al:247 SaveAsXml_ColumnTypes_DataFile: a Date is `xs:dateTime` with
     // `msdata:DateTimeMode="Local"`, written `2024-12-25T00:00:00+00:00` and left out when blank; a Boolean `xs:boolean`, `true` or
     // `false`; an Option `xs:string`, the member.
     #[test]
@@ -1108,7 +1108,7 @@ mod tests {
         );
     }
 
-    // al-language-onprem/report/lt-y51-saveasxml-time/Y51SaveAsXmlTime.al:276: a Guid names its .NET type in `msdata:DataType`.
+    // al-language-onprem/reports/layouts-saveas/Y51SaveAsXmlTime.al:276: a Guid names its .NET type in `msdata:DataType`.
     #[test]
     fn a_guid_column_names_its_dotnet_type() {
         let g = crate::data_file_types::of_value(&al_builtins::value::Value::Guid([0; 16]), 29)
@@ -1158,13 +1158,13 @@ mod tests {
         assert!(matches!(d.finish_data_set(&unknown), Err(Signal::Unsupported(_))));
     }
 
-    // handlers/TestReportSaveAsColumnTypesContracts.al:222-244
+    // reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:222-244
     #[test]
     fn decimal_places_decide_the_formatter() {
         assert_eq!(decimal_formatter(None).unwrap(), "#,##0.00");
         assert_eq!(decimal_formatter(Some("1 : 1")).unwrap(), "#,##0.0");
         assert_eq!(decimal_formatter(Some("3:3")).unwrap(), "#,##0.000");
-        // handlers/TestReportSaveAsColumnDetailsContracts.al and handlers/PWReportSaveAsColumns.al
+        // streams/TestReportSaveAsColumnDetailsContracts.al and streams/PWReportSaveAsColumns.al
         for (places, want) in [
             ("2 : 4", "#,##0.00##"),
             ("0 : 0", "#,##0"),
@@ -1182,7 +1182,7 @@ mod tests {
     fn time_and_date_follow_the_en_us_pattern() {
         assert_eq!(time_text(45_296_000).unwrap(), "12:34:56 PM");
         assert_eq!(time_text(0).unwrap(), "12:00:00 AM");
-        // Milliseconds are cut off (errors/lt-ms-refusals-132/P132ReportTimeMs.al P132_Dataset_Time_Milliseconds, Y38_*).
+        // Milliseconds are cut off (streams/P132ReportTimeMs.al P132_Dataset_Time_Milliseconds, Y38_*).
         assert_eq!(time_text(1).unwrap(), "12:00:00 AM");
         assert_eq!(time_text(48_600_999).unwrap(), "1:30:00 PM");
         assert_eq!(time_text(86_399_999).unwrap(), "11:59:59 PM");
@@ -1197,7 +1197,7 @@ mod tests {
         );
     }
 
-    // handlers/TestReportNestedLinkImplicitParent.al:98 (`//DataItem[@name="Change_Log_Setup_Table"]`)
+    // reports/dataset/TestReportNestedLinkImplicitParent.al:98 (`//DataItem[@name="Change_Log_Setup_Table"]`)
     #[test]
     fn a_name_with_spaces_and_parentheses_is_spelled_the_way_the_example_shows() {
         assert_eq!(
@@ -1236,7 +1236,7 @@ mod tests {
         assert!(dataset_name("").is_err());
     }
 
-    // handlers/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_DataItemsBlock_ExactText (`one <&>`)
+    // text/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_DataItemsBlock_ExactText (`one <&>`)
     #[test]
     fn text_is_escaped() {
         assert_eq!(escape("one <&>").unwrap(), "one &lt;&amp;&gt;");

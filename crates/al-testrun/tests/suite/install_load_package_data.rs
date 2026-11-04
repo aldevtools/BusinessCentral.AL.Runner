@@ -1,5 +1,5 @@
 //! al-runner issue 6649: `NavApp.LoadPackageData` in install code. An app that ships no package data loads nothing, per
-//! company and per database (corpus install/lt-cm-install-leads/Y64InstallLeads.al:81-96, CmInstallObjects.al:270, :296).
+//! company and per database (corpus metadata/Y64InstallLeads.al:81-96, CmInstallObjects.al:270, :296).
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::CorpusRuntime;
@@ -77,7 +77,7 @@ fn load_package_data_of_an_own_table_loads_nothing_in_install_code() {
     assert_eq!(out, Outcome::Pass);
 }
 
-// ---- an app that ships a data file (corpus install/lt-y85-package-data/Y85PackageData.al, fixtures Y85XaPackageData.al) ----
+// ---- an app that ships a data file (corpus install-upgrade/install-triggers/Y85PackageData.al, fixtures Y85XaPackageData.al) ----
 
 fn string(out: &mut Vec<u8>, s: &str) {
     out.push(s.len() as u8);

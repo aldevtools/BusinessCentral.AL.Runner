@@ -1,5 +1,5 @@
 //! An XmlPort marked `ObsoleteState = Pending` (with ObsoleteReason and ObsoleteTag) still exports as before
-//! (misc/lt-u-obsolete-pending/UObsoleteObjects.al:221-240, UObsoletePending.al:103-140 Pending_QueryReportXmlPort_StillRun).
+//! (streams/UObsoleteObjects.al:221-240, UObsoletePending.al:103-140 Pending_QueryReportXmlPort_StillRun).
 //! Another ObsoleteState value is not pinned and stays refused.
 
 use al_testkit::run;

@@ -1,5 +1,5 @@
 //! DrillDown on a FlowField control without a trigger or a control DrillDownPageId opens the DrillDownPageId of the
-//! CalcFormula's table (record/lt-x-table-props/XTablePropsTests.al:646-658). Which rows and filters that page gets is not
+//! CalcFormula's table (record/table-properties/XTablePropsTests.al:646-658). Which rows and filters that page gets is not
 //! pinned, so the drill-down is refused, not run on a guessed view and not answered with the error of a plain field.
 
 use al_builtins::native::Signal;

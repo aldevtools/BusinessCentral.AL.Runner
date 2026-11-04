@@ -1,7 +1,7 @@
 //! A request page shows the filters of a `SetTableView` only for the record that got them. The views were keyed by the record's
 //! address, which a later record can reuse once the first is gone: a later run without `SetTableView` then read a stale view
 //! (its handler's `GetFilter` gave the old filter, or was refused). The outcome hung on the allocator, so the corpus case
-//! report/lt-report-requestpage/RptFilters.al:510 RequestFilterFields_Handler_SetsFilters passed on one CI machine and not on
+//! reports/request-page/RptFilters.al:510 RequestFilterFields_Handler_SetsFilters passed on one CI machine and not on
 //! another. The two tests are the corpus's (RptFilters.al:510 and :594), the SetTableView one first so that its record is
 //! freed before the plain run allocates its own.
 

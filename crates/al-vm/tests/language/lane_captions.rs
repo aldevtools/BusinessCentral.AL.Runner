@@ -12,7 +12,7 @@ fn refused(r: Result<Value, Signal>, needle: &str) {
 }
 
 /// `Format(RecordId, 0, 1)` names the table by its caption; no number, 0, 2 and 9 name it by its name
-/// (record/lt-record-write/RcBMeta.al:556-579).
+/// (record/crud/RcBMeta.al:556-579).
 #[test]
 fn format_1_of_a_record_id_names_the_table_caption() {
     let src = "table 50100 \"LT Meta\" { Caption = 'Meta Caption'; fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
@@ -25,7 +25,7 @@ fn format_1_of_a_record_id_names_the_table_caption() {
 }
 
 /// `Format(RecordId, 0, 9)` of a table in a namespace writes `[<namespace>.<name>]`, and Evaluate reads that text back; the
-/// other numbers write the plain name (misc/lt-inferred-behaviors/P69NsConsumers.al:194-217).
+/// other numbers write the plain name (language/namespaces/P69NsConsumers.al:194-217).
 #[test]
 fn format_9_of_a_record_id_of_a_namespaced_table_names_it_qualified() {
     let src = "namespace LT.Data; table 50100 \"LT Ns Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
@@ -47,7 +47,7 @@ fn format_9_of_a_record_id_of_a_namespaced_table_without_a_space_is_refused() {
 }
 
 /// A tableextension's Caption is the caption of the table it extends when that table declares none
-/// (tableextension/TestTableExtFieldModify.al:168-178).
+/// (table-objects/extensions/TestTableExtFieldModify.al:168-178).
 #[test]
 fn a_table_extension_caption_is_the_table_caption() {
     let src = "table 50100 Base { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
@@ -57,7 +57,7 @@ fn a_table_extension_caption_is_the_table_caption() {
 }
 
 /// One extension's Caption over the table's own wins (corpus writer Y5, branch al-runtime-rs-staging-y5,
-/// tableextension/lt-y5/Y5TestFieldExtCaption.al, al-runner issue 6378). Which one wins when two extensions set one is not
+/// recordref-fieldref/Y5TestFieldExtCaption.al, al-runner issue 6378). Which one wins when two extensions set one is not
 /// pinned: refused.
 #[test]
 fn a_table_extension_caption_over_another_caption_is_refused() {
@@ -111,7 +111,7 @@ fn caption_class_translate_after_a_language_change_is_refused() {
 /// A table field whose CaptionClass is an expression (a procedure call) is evaluated in the record's context, and its
 /// `3,<text>` result reads as <text> for FieldCaption and for the caption of a page control over the field: a `modify`
 /// block with FieldNo as the argument and a new field whose expression is a procedure without parentheses
-/// (pageext/lt-page-ext-properties/TableExtCaptionClass.al:56-74, BP_TableExtCaptionClass_ProcedureCall :124-149).
+/// (pages/extensions/TableExtCaptionClass.al:56-74, BP_TableExtCaptionClass_ProcedureCall :124-149).
 const EXPR_CAPTION_CLASS: &str = "table 50100 Base { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
     tableextension 50101 BaseExt extends Base { fields { modify(Id) { CaptionClass = Cc(FieldNo(Id)); } \
     field(50101; Style; Code[20]) { CaptionClass = Cc50101; } } \
@@ -147,7 +147,7 @@ fn a_caption_class_expression_of_a_tables_own_field_sees_the_record() {
 }
 
 /// An expression result reads as a literal does: a numeric area nobody resolves stays as written, `3,` reads as the field's
-/// Caption, here its name (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:262-296 `expr9`, `expr3`). An area that is
+/// Caption, here its name (record/captions/QdCaptionClassAreas.al:262-296 `expr9`, `expr3`). An area that is
 /// not a number is refused.
 #[test]
 fn a_caption_class_expression_with_another_area_reads_as_a_literal() {

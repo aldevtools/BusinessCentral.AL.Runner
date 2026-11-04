@@ -1,5 +1,5 @@
 //! A Byte into a Char maps through a fixed table (code page 437 read as Windows-1252), and a Char into a Byte maps back
-//! (types/lt-byte-char-high/ByteCharHigh.al, writer Y57).
+//! (types/text-code-char/ByteCharHigh.al, writer Y57).
 
 use al_testkit::text;
 

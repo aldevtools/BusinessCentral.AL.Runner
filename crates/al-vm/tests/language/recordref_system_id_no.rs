@@ -1,6 +1,6 @@
 //! `RecordRef.SystemIdNo()` on a RecordRef that is not open answers 2000000000 without an error: never opened, after
 //! Close (Number 0) and after Clear, as when it is open (corpus branch al-runtime-rs-staging-y30 at 2f7609a1,
-//! tests/al-language/recordref/W4RecordRefGetUnopened.al:178-194, Y30_SystemIdNo_NotOpen, measured on BC 29). The
+//! tests/al-language/recordref-fieldref/recordref/W4RecordRefGetUnopened.al:178-194, Y30_SystemIdNo_NotOpen, measured on BC 29). The
 //! audit members answer 2000000001-2000000004 in every state, without an error (corpus master ac3499d6,
 //! W4RecordRefGetUnopened.al:317, Y40_SystemAuditFieldNos_NotOpen, BC 27.5/28.5/29.0).
 

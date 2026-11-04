@@ -1,6 +1,6 @@
 //! An Xml-format import skips a field element bound to a FlowField: the field keeps its value and the element's
-//! OnAfterAssignField does not run (corpus xmlport/lt-ay-xmlport/AyXmlPortLookupFlowField.al:Import_AutoCalc, Import_NoAutoCalc
-//! for Lookup; xmlport/lt-xmlport-flowfield-sum-count/XmlPortFlowFieldSumCount.al:326-347 for Sum with OnAfterAssignField, and
+//! OnAfterAssignField does not run (corpus xmlports/shapes-properties/AyXmlPortLookupFlowField.al:Import_AutoCalc, Import_NoAutoCalc
+//! for Lookup; xmlports/shapes-properties/XmlPortFlowFieldSumCount.al:326-347 for Sum with OnAfterAssignField, and
 //! :350-372 for Sum and Count). Other FlowField methods are refused.
 
 use al_builtins::native::Signal;
@@ -98,7 +98,7 @@ fn an_import_skips_an_exist_flowfield_and_checks_an_integer_one() {
     }
 }
 
-// xmlport/lt-xmlport-flowfield-element/XmlPortFlowFilterElement.al:224 Import_FlowFilterElement_AssignedWithoutSave: a field
+// xmlports/shapes-properties/XmlPortFlowFilterElement.al:224 Import_FlowFilterElement_AssignedWithoutSave: a field
 // element bound to a FlowFilter is skipped too, its OnAfterAssignField does not run, and the import goes on.
 #[test]
 fn an_import_skips_a_flowfilter_element() {

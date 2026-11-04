@@ -11,7 +11,7 @@ pub(super) fn select(
     path: &str,
     prefixes: Prefixes,
 ) -> Result<Option<Vec<Handle>>, Signal> {
-    // An XmlDeclaration selects nothing, whatever the path, even one that is no XPath (xml/lt-xml-remaining-node-methods/
+    // An XmlDeclaration selects nothing, whatever the path, even one that is no XPath (xml/xml/
     // P104SelDecl.al: every case answers `No:0`).
     if with(h, |d| matches!(d, XData::Declaration { .. })) {
         return Ok(None);
@@ -63,7 +63,7 @@ pub(super) fn set_xpath_error(c: &mut dyn Ctx, text: &str) {
 /// The text .NET gives for the reasons the corpus pins (PnAXmlXPath.al:NamespacePaths, MalformedPaths); the other reasons leave no text.
 /// - Tokens after a complete expression, or a character no token starts with: `'<path>' has an invalid token.`
 ///   (xml/XmlXPathNamespaces.al:150 SelectNodes_Invalid_XPath `two_names` `a b`, :640 `\\contract`;
-///   xml/lt-xml-cdata-comment-pi-text/P90CDataRead.al:1266 `a b`).
+///   xml/xml/P90CDataRead.al:1266 `a b`).
 /// - A variable: the namespace manager text (P90CDataRead.al:1239 `$v`).
 /// - A missing expression, step or `]`: `Expression must evaluate to a node-set.` (XmlXPathNamespaces.al:150 `/a/[`, ``,
 ///   `///`, `foo(`; P90CDataRead.al:1225 ``, ` `, `[`, `//`, `self::`, `/r/a[`).

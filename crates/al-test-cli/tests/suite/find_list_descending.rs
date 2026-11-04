@@ -1,5 +1,5 @@
 //! The reads of a descending list that serves its rows from OnFindRecord and OnNextRecord, with OnAfterGetCurrRecord, when a
-//! TestPage opens it and moves Next, Last, Previous and First (misc/lt-probes-needed-6/PnF06FindListMoves.al, codeunit 73874,
+//! TestPage opens it and moves Next, Last, Previous and First (testpage/PnF06FindListMoves.al, codeunit 73874,
 //! the PW_FindList_Descending_* tests).
 
 use al_test_cli::report::Outcome;

@@ -1,5 +1,5 @@
 //! foreach over an XmlNodeList that was never assigned runs zero times, also over the unassigned named return value of a
-//! procedure; Get as a statement on such a list raises (xml/lt-y44-fresh-nodelist/Y44ForeachFreshNodeList.al, corpus PR 962).
+//! procedure; Get as a statement on such a list raises (xml/xml/Y44ForeachFreshNodeList.al, corpus PR 962).
 
 /// Y44ForeachFreshNodeList.al ForeachNodeList_NeverAssigned, ForeachNodeList_LocalEmptyReturn.
 #[test]

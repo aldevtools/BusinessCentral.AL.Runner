@@ -112,7 +112,7 @@ codeunit 69993 C
 }
 "#;
 
-// record/lt-cn-transferfields-modify/CnTransferFieldsModify.al:414-479 QE_TF_Other_SystemFields_AfterModify
+// record/crud/CnTransferFieldsModify.al:414-479 QE_TF_Other_SystemFields_AfterModify
 // (`buffer createdat = other`, `buffer modifiedat = other`): from another table the buffer takes the source's
 // SystemCreatedAt and SystemModifiedAt.
 #[test]

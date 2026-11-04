@@ -2,7 +2,7 @@
 //! wrapper, `FromOutStream` and `FromInStream`). BC hands .NET its own blob stream, a `NavBLOB+InternalStream`; the runtime
 //! serves that object itself (ADR-014 section 1), so a run needs no .NET host for it.
 //!
-//! Pinned by tests/al-language-onprem-dotnet/lt-sg-dotnet/SgDotNetStreams.al (27, 28, 29):
+//! Pinned by tests/al-language-onprem-dotnet/dotnet/dotnet/SgDotNetStreams.al (27, 28, 29):
 //! - the type name, `CanRead`, `CanWrite`, `CanSeek` (all Yes), and right after the assignment `Length` and `Position` of
 //!   either stream (:106-126, :369-397);
 //! - over an `OutStream`: `WriteByte` and `Write(byte[], offset, count)` reach the Blob at once, `Flush` changes nothing
@@ -33,7 +33,7 @@ use al_builtins::library_kind::LibraryKind;
 use al_builtins::stream::{BlobBuf, DOTNET_WRITE_AFTER_CLOSE};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-const PIN: &str = "tests/al-language-onprem-dotnet/lt-sg-dotnet/SgDotNetStreams.al:106-446";
+const PIN: &str = "tests/al-language-onprem-dotnet/dotnet/dotnet/SgDotNetStreams.al:106-446";
 
 // The state of the object: which side it is, the Blob, the AL stream, the .NET position, the AL position seen at the last
 // .NET call, whether it was closed, and (OutStream side) the id written into the Blob.

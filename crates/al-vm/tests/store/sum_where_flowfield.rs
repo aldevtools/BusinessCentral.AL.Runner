@@ -1,6 +1,6 @@
 //! A sum, -sum, average, min or max FlowField whose WHERE tests a FlowField of the summed table (gap G14, the Bank Acc.
 //! Reconciliation "Total Outstd Bank Transactions" shape). The tables are those of corpus
-//! tests/al-language/record/lt-y17-sum-where-flowfield/Y17SumWhereFlowField.al:9-115; each test cites the corpus test it mirrors.
+//! tests/al-language/record/flowfields/Y17SumWhereFlowField.al:9-115; each test cites the corpus test it mirrors.
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;

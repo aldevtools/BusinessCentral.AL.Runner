@@ -2,7 +2,7 @@
 //! Application's "Business Chart Impl." keeps behind Base Application's "Business Chart Buffer". It is plain data with no
 //! session, but its assembly is a server class (`server-prefix Microsoft.Dynamics.Nav.`), so the registry serves it.
 //!
-//! Pinned by tests/al-language/misc/lt-au-language-edges/AuEdgeTests.al:608 (BusinessChartBuffer_Initialize_InTest, real BC
+//! Pinned by tests/al-language/streams/AuEdgeTests.al:608 (BusinessChartBuffer_Initialize_InTest, real BC
 //! 27-29): Initialize constructs it and calls `ClearMeasures`, SetXAxis sets `XDimension`, AddIntegerMeasure calls
 //! `AddMeasure(Caption, DataMeasureType)`, and GetXCaption reads `XDimension` back ('Month').
 //!
@@ -17,7 +17,7 @@ use al_builtins::value::{DotNetKind, DotNetObject, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-const PIN: &str = "tests/al-language/misc/lt-au-language-edges/AuEdgeTests.al:608-631";
+const PIN: &str = "tests/al-language/streams/AuEdgeTests.al:608-631";
 
 /// State slots: the x dimension caption, and how many measures were added since the last `ClearMeasures`.
 const X_DIMENSION: usize = 0;

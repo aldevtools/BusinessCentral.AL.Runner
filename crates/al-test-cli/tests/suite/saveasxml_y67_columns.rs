@@ -1,4 +1,4 @@
-//! TestRequestPage.SaveAsXml data file columns that Y60 does not cover (al-language-onprem/report/lt-y67-saveasxml-columns/
+//! TestRequestPage.SaveAsXml data file columns that Y60 does not cover (al-language-onprem/reports/dataset/
 //! Y67SaveAsXmlColumns.al): Label, Format(..), caption, literal and procedure columns with no row (:326), Decimal formatters of
 //! AutoFormatType 2 and 10 (:370) and Media/MediaSet columns with no row (:388).
 

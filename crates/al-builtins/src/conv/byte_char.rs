@@ -1,7 +1,7 @@
 //! The character a Byte converts to and the byte a Char converts back to. BC maps every byte through one fixed table (code page
 //! 437 read as Windows-1252): 139 is 239 (`ï`), 128 is 199, 177 the euro sign 8364, 255 is 160, and below 128 only 15, 20
 //! and 21 move (to 164, 182, 167). The table is a permutation, and a Char of the table goes back to its byte (Char 8364 is
-//! Byte 177). Pinned whole by types/lt-byte-char-high/ByteCharHigh.al:111-180 (ByteChar_Codes_*, every byte and its way
+//! Byte 177). Pinned whole by types/text-code-char/ByteCharHigh.al:111-180 (ByteChar_Codes_*, every byte and its way
 //! back) and :182-256 (ByteChar_139_Details, ByteChar_CharAbove255_ToByte), writer Y57.
 
 /// The character code of each byte.

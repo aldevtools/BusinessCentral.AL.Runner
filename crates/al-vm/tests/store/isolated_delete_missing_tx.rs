@@ -1,5 +1,5 @@
 //! IsolatedStorage.Delete of a missing key answers false and opens the write transaction
-//! (corpus misc/lt-y76-assumptions/Y76IsolatedStorage.al Y76_PlainStorage_Transactions `delete_missing`).
+//! (corpus session-system/Y76IsolatedStorage.al Y76_PlainStorage_Transactions `delete_missing`).
 
 use al_testkit::text;
 

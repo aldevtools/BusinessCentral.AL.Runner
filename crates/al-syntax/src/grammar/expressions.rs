@@ -4,7 +4,7 @@
 //! 1. `.` `[ ]` `( )` `::`          — postfix, handled in `postfix`
 //! 2. `not` unary `-` unary `+`
 //! 3. `*` `/` `div` `mod` `and`
-//! 4. `+` `-` `or` `xor`   (xor below and: corpus misc/lt-expressions-statements/PBinaryUnaryExpressions.al:72, `true xor true and false` is true)
+//! 4. `+` `-` `or` `xor`   (xor below and: corpus types/PBinaryUnaryExpressions.al:72, `true xor true and false` is true)
 //! 5. `>` `>=` `<` `<=` `=` `<>` `in` `is` `as`
 //! 6. `..`                          — only inside set literals and case labels
 //!
@@ -397,7 +397,7 @@ mod tests {
 
     #[test]
     fn xor_binds_looser_than_and() {
-        // corpus misc/lt-expressions-statements/PBinaryUnaryExpressions.al:72
+        // corpus types/PBinaryUnaryExpressions.al:72
         assert_eq!(
             e("a xor b and c"),
             "(BinExpr (NameRef a) xor (BinExpr (NameRef b) and (NameRef c)))"

@@ -7,7 +7,7 @@ use al_builtins::value::{LibraryValue, RtType};
 
 impl Session {
     /// The RecordId a bookmark text names: the table of the number in it, the key read from the bytes after it
-    /// (types/lt-y49-recordid-format10/Y49RecordIdFormat10.al:176-262: a Code key and an Option, Code and Integer key read back,
+    /// (format-evaluate/Y49RecordIdFormat10.al:176-262: a Code key and an Option, Code and Integer key read back,
     /// equal the record's RecordId and Get finds the row; a text without `;` is none: `Ok(None)`). A table number no table has,
     /// bytes that do not match the key, and the key shapes the corpus does not pin are refused.
     pub(crate) fn evaluate_record_id_bookmark(&mut self, text: &str) -> Result<Option<LibraryValue>, Signal> {

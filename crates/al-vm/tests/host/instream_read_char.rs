@@ -1,6 +1,6 @@
 //! InStream.Read into a Char: a stream of the default or MS-DOS encoding reads one byte and gives the Char the Byte to Char table
 //! maps it to; a Windows stream gives the byte as it is; a UTF-8 or UTF-16 stream reads two bytes as one little-endian code
-//! unit, and one byte left is read as 1 with the Char 0 (corpus xmlport/lt-ay-xmlport/AyXmlPortAttributeWidth.al:295-420
+//! unit, and one byte left is read as 1 with the Char 0 (corpus xmlports/shapes-properties/AyXmlPortAttributeWidth.al:295-420
 //! ReadChar_*; set 1 = FF FE 41 00 E9 00 0D 00 0A 00 42, set 2 = 41 C3 A9 42 0A 43).
 
 use al_testkit::text;

@@ -1,4 +1,4 @@
-//! A text element with content inside a table element (corpus xmlport/lt-y60-xmlport-text-in-table/Y60XpTextInTable.al):
+//! A text element with content inside a table element (corpus xmlports/shapes-properties/Y60XpTextInTable.al):
 //! a text element that wraps a table element without LinkTable (import: the inner rows are stored before the outer one, a field
 //! element of the outer table assigns it on every inner row; export: the inner table lists all its rows under every outer row,
 //! `<Wrap />` without rows); a text element with a text attribute, leaf text elements and one with its own text attribute

@@ -1,6 +1,6 @@
-//! The bytes a VariableText export writes per `TextEncoding` (corpus xmlport/W7XmlPortTests.al:345
+//! The bytes a VariableText export writes per `TextEncoding` (corpus xmlports/W7XmlPortTests.al:345
 //! XmlPortExport_BytesPerDeclaredEncoding: MSDOS and no TextEncoding write `é` as 82, Windows as E9, UTF16 with FF FE;
-//! xmlport/lt-xmlport-query-datatransfer/XpTEncoding.al:90-160 for `€`, `ü`, `ß` and a character Windows lacks, `?`). An
+//! xmlports/import/XpTEncoding.al:90-160 for `€`, `ü`, `ß` and a character Windows lacks, `?`). An
 //! import into such a port is refused, unless its root is a table element (XpTEncoding.al:165-205, the root error).
 
 use al_testkit::run;

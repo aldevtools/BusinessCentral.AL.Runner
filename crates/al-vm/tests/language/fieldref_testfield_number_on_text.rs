@@ -1,5 +1,5 @@
 //! `FieldRef.TestField(5)` on a Text field holding '5' holds for a BigInteger, a Decimal and an Integer: the number is
-//! compared as the text it writes (record/lt-testfield-typed-values/FieldRefTestFieldMismatchedType.al:206-211 and :234,
+//! compared as the text it writes (record/testfield/FieldRefTestFieldMismatchedType.al:206-211 and :234,
 //! P189_FldRefMismatch_OnTextField, Big_result Yes).
 
 const TABLE: &str =

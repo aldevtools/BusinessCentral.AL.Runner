@@ -152,7 +152,7 @@ pub(crate) fn type_ref(p: &mut Parser) {
         "label" => {
             p.expect(StringLit);
             // A trailing comma right after the text is accepted by the AL compiler: `X: Label 'text',;`
-            // (text/lt-label-textbuilder/TxCLabel.al Y12_Label_TrailingComma). After a property it is
+            // (text/textbuilder-bigtext/TxCLabel.al Y12_Label_TrailingComma). After a property it is
             // AL0301 (must-not-compile 2330, 2331); a second comma is AL0107 (2332): `alcodes` gives the codes.
             let mut had_property = false;
             while p.eat(Comma) {
@@ -360,7 +360,7 @@ mod tests {
 
     #[test]
     fn a_textconst_has_a_text_per_language() {
-        // Corpus types/lt-variant/VaTTextConst.al.
+        // Corpus types/variant/VaTTextConst.al.
         assert_eq!(t("TextConst ENU = 'Hello'"), "(TypeRef TextConst ENU = 'Hello')");
         assert_eq!(
             t("TextConst DEU = 'Hallo', ENU = 'It''s %1', FRA = ''"),
@@ -425,7 +425,7 @@ mod tests {
     #[test]
     fn a_label_or_textconst_may_end_in_a_trailing_comma() {
         // The AL compiler accepts `X: Label 'text',;` with no properties after the comma
-        // (text/lt-label-textbuilder/TxCLabel.al Y12_Label_TrailingComma, al-runner issue 6436),
+        // (text/textbuilder-bigtext/TxCLabel.al Y12_Label_TrailingComma, al-runner issue 6436),
         // and the same shape after a TextConst text.
         assert_eq!(errors("var X: Label 'text',;", var_section), 0);
         assert_eq!(errors("var X: Label 'text' ,;", var_section), 0);

@@ -4,7 +4,7 @@ use al_syntax::ast::NodeText;
 
 impl Lowerer<'_> {
     /// `Rec.SecurityFiltering()` read on a variable declared with `[SecurityFiltering(...)]` answers the declared value on
-    /// BC (al-language/lt-ac/ACAttributes.al:176-191); the runtime keeps it only for a local record
+    /// BC (al-language/reports/runtime/ACAttributes.al:176-191); the runtime keeps it only for a local record
     /// (`Lowerer::declared_security_filtering`), so the read is refused on anything else.
     fn security_filtering_read_refusal(&self, callee: &SyntaxNode, args: &[SyntaxNode]) -> L<()> {
         if !args.is_empty() || callee.kind() != SyntaxKind::MemberExpr {
@@ -193,7 +193,7 @@ impl Lowerer<'_> {
                     if p.by_var {
                         let arg = self.by_var_arg(a)?;
                         // A `var` Text or Code parameter handed on to another `var` parameter keeps the declared length of the
-                        // first caller's variable or field (text/lt-text-functions/MaxStrLen.Codeunit.al:146-170,
+                        // first caller's variable or field (text/text-methods/MaxStrLen.Codeunit.al:146-170,
                         // PYC_MaxStrLen_VarParameterHops; to an event's subscribers too, :172-201): the routine takes the
                         // lengths from its caller to hand them on.
                         if matches!(p.ty, Ty::Text(_) | Ty::Code(_))
@@ -213,7 +213,7 @@ impl Lowerer<'_> {
                         }
                         let value = self.expr_into(&p.ty, a)?;
                         // A Variant handed to a by-value Text or Code parameter goes in as it is: the callee's binding converts it, and
-                        // raises TypeConversion for a number, Boolean, Date, Enum or Option (types/lt-variant-to-text-fields/
+                        // raises TypeConversion for a number, Boolean, Date, Enum or Option (types/variant/
                         // VariantNumberToTextParam.al; the text follows the session language, P147DateToText.al).
                         // The cells the matrix pins for a Variant apply first (`Variant.Into#1`: a Byte is its character).
                         if matches!(p.ty, Ty::Text(_) | Ty::Code(_)) && matches!(self.ty_ref(a), Ty::Variant) {
@@ -222,7 +222,7 @@ impl Lowerer<'_> {
                         }
                         // A Variant handed to a by-value Record parameter goes in as it is too: the binding gives a RecordRef of
                         // another table the ObjectDefinitionChanged error, where an assignment raises NotSupportedOperation
-                        // (record/lt-ar-records/ArRecordProbes.al:410-436 SG_VariantRecordRef_OtherTable_AssignAndParameter `param`;
+                        // (streams/ArRecordProbes.al:410-436 SG_VariantRecordRef_OtherTable_AssignAndParameter `param`;
                         // al-vm `record_ref_into_record_param`). A Record is a Record of any table there as before. For a
                         // TryFunction callee the conversion stays at the call: whether it runs inside the try is not pinned.
                         if !try_call && matches!(p.ty, Ty::Record { .. }) && matches!(self.ty_ref(a), Ty::Variant) {
@@ -239,9 +239,9 @@ impl Lowerer<'_> {
                         self.refuse_variant_argument(&p.ty, a)?;
                         // A Text or Code handed to a by-value Text or Code parameter of a TryFunction is converted by the callee's
                         // binding, inside the try: a text too long for a Code[20] parameter makes the TryFunction answer false
-                        // (text/lt-text-functions/TextAssign.Codeunit.al:240-281, LT_BU_TextAssign_LongTextToCode20Parameter). A Decimal or
+                        // (text/text-methods/TextAssign.Codeunit.al:240-281, LT_BU_TextAssign_LongTextToCode20Parameter). A Decimal or
                         // a BigInteger handed to an Integer parameter too: 2.5 and 3000000000 make it answer false with the conversion
-                        // error (TextAssign.Codeunit.al:292-358 PYC_TryFunction_NumberArgumentConversion; types/lt-implicit-conversions/
+                        // error (TextAssign.Codeunit.al:292-358 PYC_TryFunction_NumberArgumentConversion; types/operators-expressions/
                         // P79Enums.al:53-118 FromInteger_WithBigIntegerArgument). The other types keep the conversion at the call:
                         // whether theirs runs inside the try is not pinned.
                         if try_call
@@ -269,7 +269,7 @@ impl Lowerer<'_> {
             Some(Res::Builtin(id)) if id.starts_with("Text.MaxStrLen#") => {
                 let arg = args.first().ok_or("MaxStrLen without an argument")?;
                 // A `var` Text or Code parameter reports the declared length of the caller's variable or field, which the
-                // call hands to the frame (text/lt-text-functions/MaxStrLen.Codeunit.al:91-151, LT_BU_MaxStrLen_TextParameters:
+                // call hands to the frame (text/text-methods/MaxStrLen.Codeunit.al:91-151, LT_BU_MaxStrLen_TextParameters:
                 // `var text with field text100 = 100`, `var text30 with field text100 = 100`, `var code30 with code20 = 20`).
                 if arg.kind() == SyntaxKind::NameRef
                     && matches!(self.ty_of(arg), Ty::Text(_) | Ty::Code(_))
@@ -287,10 +287,10 @@ impl Lowerer<'_> {
                 match self.ty_of(arg) {
                     Ty::Text(Some(n)) | Ty::Code(Some(n)) => Ok(ir::Expr::Const(ir::Const::Integer(n as i32))),
                     Ty::Text(None) | Ty::Code(None) => Ok(ir::Expr::Const(ir::Const::Integer(i32::MAX))),
-                    // A TextConst has the length 2048 (types/lt-variant/VaTTextConst.al:TextConst_MaxStrLen: Simple, Long, Empty and
-                    // MultiLang). A Label answers 2048 too (text/lt-label-textbuilder/TxCLabel.al:Label_MaxLength).
+                    // A TextConst has the length 2048 (types/variant/VaTTextConst.al:TextConst_MaxStrLen: Simple, Long, Empty and
+                    // MultiLang). A Label answers 2048 too (text/textbuilder-bigtext/TxCLabel.al:Label_MaxLength).
                     Ty::Label => Ok(ir::Expr::Const(ir::Const::Integer(2048))),
-                    // A Guid, null or not, answers 2147483647 (types/lt-aj-probes/AjMisc.al:68-69 and :82-83).
+                    // A Guid, null or not, answers 2147483647 (types/AjMisc.al:68-69 and :82-83).
                     Ty::Guid => Ok(ir::Expr::Const(ir::Const::Integer(i32::MAX))),
                     other => Err(format!("MaxStrLen of a value of type {other}")),
                 }
@@ -327,7 +327,7 @@ impl Lowerer<'_> {
                 };
                 match dim.and_then(|k| usize::try_from(k - 1).ok()).and_then(|k| dims.get(k)) {
                     Some(n) => Ok(ir::Expr::Const(ir::Const::Integer(*n as i32))),
-                    // A dimension outside the array raises when the call runs (misc/lt-system-functions/Arrays.al:ArrayLen_Values
+                    // A dimension outside the array raises when the call runs (collections/Arrays.al:ArrayLen_Values
                     // `dim 3 of 2d`, `dim 0`); the call carries the dimension and the number of dimensions.
                     None => Ok(ir::Expr::Builtin {
                         id: builtin_id(&id)?,
@@ -342,15 +342,15 @@ impl Lowerer<'_> {
             }
             // Refused when it runs, so code that never reaches it still runs: Base Application's Item Picture page exports in an
             // action's trigger, which a test that only opens an Item Card never invokes. What the call writes is not pinned (the
-            // corpus skips it: streams/lt-stream-read-write-media/P102Media.al line 5).
+            // corpus skips it: streams/media/P102Media.al line 5).
             // `MediaSet.ExportFile` runs in the company build only (al-builtins media.rs `set_export_file`).
             Some(Res::Builtin(id)) if id == "Media.ExportFile#1" => {
                 Ok(ir::Expr::Refused(format!(
                     "builtin {id}: what a media export writes to the server's file system is not pinned (docs/probes-needed.md)"
                 )))
             }
-            // The Layout of a Report Layout List row: its HasValue is No for a built-in layout (report/PZReportLayoutMedia.al:51-53),
-            // and its export writes the layout file of the app's package (report/lt-y17-layout-export/Y17LayoutExportTests.al:70,
+            // The Layout of a Report Layout List row: its HasValue is No for a built-in layout (reports/PZReportLayoutMedia.al:51-53),
+            // and its export writes the layout file of the app's package (reports/layouts-saveas/Y17LayoutExportTests.al:70,
             // corpus master). The VM looks the layout up by the row's report id and name (`Report.LayoutListExportStream#1`, the row
             // as its receiver); an empty Media field of another table exports nothing (al-builtins media.rs `media_export`).
             Some(Res::Builtin(id))
@@ -430,7 +430,7 @@ impl Lowerer<'_> {
                 } else if id == "System.Evaluate#1"
                     && args.first().is_some_and(|a| {
                         // An element of an Option array variable reads as the variable does: an unknown name answers false
-                        // and keeps the element (misc/lt-probes-needed-3/PnC14OptionArray.al:51-78,
+                        // and keeps the element (types/arrays/PnC14OptionArray.al:51-78,
                         // OptionArray_Evaluate_And_Out_Of_Range).
                         let var = if a.kind() == SyntaxKind::IndexExpr {
                             a.children().next()
@@ -479,7 +479,7 @@ impl Lowerer<'_> {
                         .is_some_and(|a| matches!(self.res(a), Some(Res::Builtin(i)) if i == "FieldRef.Value#1"))
                 {
                     // `FieldRef.Value()` written directly as the argument appends the formatted value
-                    // (text/lt-textbuilder-field-direct/TextBuilderAppendFieldDirect.al).
+                    // (text/textbuilder-bigtext/TextBuilderAppendFieldDirect.al).
                     "TextBuilder.AppendFieldValue#1".to_string()
                 } else if id == "TextBuilder.Append#1"
                     && args.first().is_some_and(|a| {
@@ -487,7 +487,7 @@ impl Lowerer<'_> {
                             && matches!(self.res(a), Some(Res::Local(_) | Res::Global(_)))
                     })
                 {
-                    // A Variant variable holding a number raises (types/lt-number-to-text/NumberToTextIsFormat.al:193-216);
+                    // A Variant variable holding a number raises (format-evaluate/NumberToTextIsFormat.al:193-216);
                     // a `FieldRef.Value()` argument goes to `TextBuilder.AppendFieldValue#1`.
                     "TextBuilder.AppendVariant#1".to_string()
                 } else if id == "RecordRef.GetTable#1"
@@ -500,7 +500,7 @@ impl Lowerer<'_> {
                     && args.first().is_some_and(|a| matches!(self.ty_of(a), Ty::Variant))
                 {
                     // A Text inside a Variant goes by ordinal digits on an Enum or Option control
-                    // (pages/lt-be-enum-setvalue-blank/BeEnumSetValueBlank.al:532-597).
+                    // (pages/enum-setvalue-blank/BeEnumSetValueBlank.al:532-597).
                     "TestField.SetValueVariant#1".to_string()
                 } else if (id == "System.Format#1" || id == "System.Format#2") && decimal_field_places.is_some() {
                     "System.FormatDecimalField#1".to_string()
@@ -568,7 +568,7 @@ impl Lowerer<'_> {
                     })),
                     // `this.Run()` in a codeunit runs the codeunit's own instance: its globals see the run, an error is
                     // returned when the result is used, and the record form hands the record to OnRun
-                    // (xmlport/lt-aj-xmlport/AjRunAndXmlPort.al:6-140, the ThisRun_* tests). The bare `Run()` / `Run(Rec)`
+                    // (xmlports/shapes-properties/AjRunAndXmlPort.al:6-140, the ThisRun_* tests). The bare `Run()` / `Run(Rec)`
                     // does the same (AjRunAndXmlPort.al:170,194,215, the QZ_BareRun* tests).
                     None if sig.instance
                         && id == "Codeunit.Run#1"
@@ -590,11 +590,11 @@ impl Lowerer<'_> {
                         Some(Box::new(ir::Arg::Ref(ir::Place::Global(*slot))))
                     }
                     // A bare report method in a report's or report extension's procedure is the `CurrReport.` form: the VM
-                    // takes the report whose code runs (report/lt-y36-bare-report-member/Y36BareReportMember.al:206-357, also
+                    // takes the report whose code runs (reports/bare-report-member/Y36BareReportMember.al:206-357, also
                     // on a report variable never run and from a report extension; the checker resolves only the pinned names,
                     // `check::calls::BARE_REPORT_MEMBERS`). In a trigger the bare form is not pinned. The bare `RunModal()` and
                     // `Run()` run the report's own instance: the triggers run once, the globals they set read back through the
-                    // variable, a second call raises ObjectHasAlreadyBeenRun (report/lt-y40-bare-report-run/Y40BareReportRun.al:
+                    // variable, a second call raises ObjectHasAlreadyBeenRun (reports/runtime/Y40BareReportRun.al:
                     // 214-377, corpus master ac3499d6). From a report extension they are not pinned.
                     None if sig.instance
                         && sig.receiver == "Report"
@@ -608,7 +608,7 @@ impl Lowerer<'_> {
                         Some(Box::new(ir::Arg::Ref(self.implicit_rec(node)?)))
                     }
                     // A bare `Run(Page::X, ...)` in a page is the static Page.Run (the checker resolves it, `check::calls`;
-                    // pages/lt-uf-unqualified-runmodal/Y47UnqualifiedRun.al:237-325, al-runner issue 6590).
+                    // pages/run-modal/Y47UnqualifiedRun.al:237-325, al-runner issue 6590).
                     _ => None,
                 };
                 let mut out = Vec::new();
@@ -663,7 +663,7 @@ impl Lowerer<'_> {
                     }
                     // `FilterPageBuilder.AddField(Name, Rec."Field", ..)`: the field of a record variable, passed as that record
                     // and the field's position, so that the runtime can check it is a field of the control's table
-                    // (filterpage/W3FilterPageBuilder.al:180, platform/lt-platform-members/PlTFilterPageBuilder.al:225-230).
+                    // (pages/filterpagebuilder/W3FilterPageBuilder.al:180, metadata/platform-tables/PlTFilterPageBuilder.al:225-230).
                     if id.starts_with("FilterPageBuilder.AddField#") && i == 1 {
                         if let Some(Res::Field { table, id: fid }) = self.res(a).cloned() {
                             self.readable_field_pos(table, fid)?;
@@ -707,7 +707,7 @@ impl Lowerer<'_> {
                         _ => {}
                     }
                     // `Page.FindFirstField(Name, v)` names the control bare. The corpus only
-                    // qualifies it (`ListPage."Integer Field"`, handlers/TestBCReportHandlerContracts.al:247);
+                    // qualifies it (`ListPage."Integer Field"`, testpage/TestBCReportHandlerContracts.al:247);
                     // what a bare name means (the receiver's controls first?) is not pinned.
                     if p.ty == "TestField"
                         && a.kind() != SyntaxKind::MemberExpr
@@ -732,7 +732,7 @@ impl Lowerer<'_> {
                     } else if let Some(el) = elem {
                         ir::Arg::Value(ir::Expr::Convert(self.rt(&el)?, Box::new(self.expr(a)?)))
                     // A Variant argument with a standard format number 3 to 8 raises an error that names the type
-                    // 'Variant' (corpus types/lt-scalars/ScT70052.al): `System.FormatVariant#1` checks the number when it runs,
+                    // 'Variant' (corpus types/decimal-integer/ScT70052.al): `System.FormatVariant#1` checks the number when it runs,
                     // a literal, a variable or an expression alike.
                     } else if id.starts_with("System.Format#") && i == 0 {
                         ir::Arg::Value(self.format_option_field(
@@ -743,7 +743,7 @@ impl Lowerer<'_> {
                             a,
                         )?)
                     // The substituted values of StrSubstNo, Message and Error are `Format`ted: an Option
-                    // field shows its caption (corpus xmlport/PWXmlPortFormatEvaluate.al:Import_Xml_Option,
+                    // field shows its caption (corpus xmlports/PWXmlPortFormatEvaluate.al:Import_Xml_Option,
                     // `%3` of a field with OptionCaption).
                     } else if i > 0
                         && (id.starts_with("Text.StrSubstNo#")
@@ -751,7 +751,7 @@ impl Lowerer<'_> {
                             || id.starts_with("Dialog.Error#"))
                     {
                         // A Decimal field that declares its format is substituted as `Format(Rec.Field)`, the version gate
-                        // of an amount without an expression included (misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al:83
+                        // of an amount without an expression included (text/text-methods/RwDecimalFieldPlaces.al:83
                         // RW_StrSubstNo_DecimalField_TempRecord, :214 a row read with Get, :293 Message and Error; misc/
                         // lt-sa-unit-amount-subst/SaUnitAmountSubst.al: AutoFormatType 1, 2, 4 and 5 with a field of the row, a
                         // constant code or no expression, Message and Error too). The places are lost through any other carrier
@@ -876,7 +876,7 @@ impl Lowerer<'_> {
             // `Window.Open(..)` in a report extension, where `Window` is a variable of the base report.
             None if self.base_member(callee).is_some() => Err(self.base_member(callee).unwrap_or_default()),
             // `CurrPage.<AddIn>.Method()`: the add-in was never created, so the call raises an error when it runs (ADR-027
-            // section 3 row 18; corpus lt-ac/ACControlAddIn.al TZ_*), and code that never reaches it runs (Base Application's
+            // section 3 row 18; corpus testpage/ACControlAddIn.al TZ_*), and code that never reaches it runs (Base Application's
             // "Item Tracking Lines" calls its barcode add-in only after the client said it is supported).
             None if callee.kind() == SyntaxKind::MemberExpr
                 && callee.children().next().and_then(|b| self.usercontrol_name(&b)).is_some() =>
@@ -932,7 +932,7 @@ impl Lowerer<'_> {
     /// A Char argument for a by-value number parameter of a procedure called on a variable of another object (`receiver`
     /// is its kind). A Char variable handed to an Integer parameter of a report procedure fails with 'Unable to convert from
     /// System.Char to System.Int32.' (code Conversion), with and without a report extension that adds an overload, measured on
-    /// Windows too (report/lt-bv-report-char-arg/BvReportCharArg.al:87-131); a local procedure converts it (:160-170, the
+    /// Windows too (reports/runtime/BvReportCharArg.al:87-131); a local procedure converts it (:160-170, the
     /// runtime's usual conversion). The same call on another codeunit was measured on the Linux tiers only (:140-158), so it
     /// is refused until the Windows check; other receivers, other number types and other Char expressions are not pinned and
     /// are refused. `None`: not such an argument.
@@ -963,7 +963,7 @@ impl Lowerer<'_> {
 
     /// A bare call of a codeunit's own IsDirty in a codeunit with TableNo, outside its OnRun: whether the call is the
     /// codeunit's procedure or Record.IsDirty of the implicit Rec is not pinned (only OnRun is:
-    /// events/lt-with-statement-scopes/WithStatementAmbiguous.al:277-279, see `Checker::lookup_callable`).
+    /// events/binding-senders/WithStatementAmbiguous.al:277-279, see `Checker::lookup_callable`).
     fn bare_is_dirty_unpinned(&self, node: &SyntaxNode, object: usize, offset: usize) -> L<()> {
         if self.ws.objects[object].kind != ObjKind::Codeunit || self.rec_slot.is_none() {
             return Ok(());
@@ -986,7 +986,7 @@ impl Lowerer<'_> {
     }
 
     /// A call in a report data item to a name the report and the item's table both declare, in a shape no corpus test
-    /// pins (the checker's AR1006, see `Checker::lookup_callable`; report/lt-cj-report-leads/CjDataset.al:215-241 pins
+    /// pins (the checker's AR1006, see `Checker::lookup_callable`; streams/CjDataset.al:215-241 pins
     /// only one procedure on each side with the same parameters). Also a bare call in a third object's code to a name a
     /// table and another app's table extension declare with the same parameters (`same_signature_in_two_objects`).
     fn report_item_same_name_refusal(&self, node: &SyntaxNode) -> L<()> {
@@ -1021,7 +1021,7 @@ impl Lowerer<'_> {
 impl Lowerer<'_> {
     /// How the text argument `a` of `Error` or `FieldError` is written, as far as the corpus tells the forms apart for
     /// `GetLastErrorText(true)`: a string literal; a Label or TextConst variable of the object
-    /// (error-handling/lt-last-error-text-exclude/LastErrorTextExcludeLabel.al:28-32, lt-last-error-text-forms/
+    /// (errors/last-error/LastErrorTextExcludeLabel.al:28-32, lt-last-error-text-forms/
     /// LastErrorTextExcludeTextConst.al:15-17, FieldErrorTextConst.al:28); a Text or Code variable of the routine, a
     /// concatenation with `+` or a `StrSubstNo` call (LastErrorTextExcludeTextVariable.al:16-54, :129,
     /// FieldErrorTextVariable.al:43-63, LastErrorTextExcludeLabel.al:55). Anything else (a global Text variable, a field,

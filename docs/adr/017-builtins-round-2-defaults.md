@@ -16,7 +16,7 @@ Decided without owner review (2026-10-13/14):
    "Multiple errors occurred..." summary and contains the first message. Options: refuse the case (loses one
    test), or this text. Chosen: this text, because the pinned test passes and no pinned behaviour is contradicted.
 2. **`HasCollectedErrors()` outside a scope answers true.** The corpus documents it (finding D in
-   errorinfo/TestErrorInfoType.al) as true by arithmetic in the platform, and the tier failed an assertion of false.
+   errors/errorinfo/TestErrorInfoType.al) as true by arithmetic in the platform, and the tier failed an assertion of false.
 3. **A collectible `Error(ErrorInfo)` inside a scope returns and the raiser runs on.** The corpus raisers have
    nothing after the call, so both readings pass. Chosen: continue, which matches the documented wording.
 4. **Media and MediaSet fields hold a Guid; the objects live in a session store.** This stands in for the

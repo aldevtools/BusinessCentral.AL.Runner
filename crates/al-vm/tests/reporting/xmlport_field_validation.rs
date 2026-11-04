@@ -1,5 +1,5 @@
 //! `DefaultFieldsValidation` and `FieldValidate` on an import (corpus
-//! xmlport/lt-bj-xmlport-default-validation/BjXmlPortDefaultValidation.al:255-334): with the property true or left out,
+//! xmlports/import/BjXmlPortDefaultValidation.al:255-334): with the property true or left out,
 //! every field element without `FieldValidate = No` is validated (OnValidate runs with xRec already holding the new
 //! value, a TableRelation is checked); with false only `FieldValidate = Yes` is. Per field in document order, before
 //! OnInsert. Pinned for Format = Xml only: another format is refused where validation would be seen.
@@ -105,7 +105,7 @@ fn validation_on_another_format_is_refused() {
     );
 }
 
-// platform/lt-ag-contoso/AgXmlPortImport.al:678 (QX_VariableText_TextElementEvaluateAndShortLines, xmlport 87567): on a
+// metadata/platform-tables/AgXmlPortImport.al:678 (QX_VariableText_TextElementEvaluateAndShortLines, xmlport 87567): on a
 // VariableText port with DefaultFieldsValidation = false, a field element without FieldValidate is not validated (the Iso
 // field's OnValidate never runs). The same port with the property true or left out is not pinned.
 fn text_src(port_props: &str) -> String {
@@ -195,13 +195,13 @@ fn a_variable_text_record_of_another_length() {
     assert_eq!(al_testkit::text(run(&short_src("A;1;02:02#"), "F")), "A:1:02:02,");
     assert_eq!(al_testkit::text(run(&short_src("A;1"), "F")), "A:1:,");
     assert_eq!(al_testkit::text(run(&short_src("A;1;x;extra#"), "F")), "A:1:x,");
-    // Several values too many are left out (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:VariableText_ImportValueCount_1 `vt five
+    // Several values too many are left out (xmlports/shapes-properties/Y83XpMiscTests.al:VariableText_ImportValueCount_1 `vt five
     // values`, _2 `vt five values two rows`; needs the corpus bump).
     assert_eq!(al_testkit::text(run(&short_src("A;1;x;e1;e2"), "F")), "A:1:x,");
 }
 
-/// A port whose fields arrive as attributes (corpus pages/lt-report-page-properties/06-xmlport-fvat.al:7-30, :107-152,
-/// and xmlport/lt-bj-xmlport-default-validation/BjXmlPortDefaultValidation.al:185-405 for the field with a TableRelation).
+/// A port whose fields arrive as attributes (corpus pages/properties/06-xmlport-fvat.al:7-30, :107-152,
+/// and xmlports/import/BjXmlPortDefaultValidation.al:185-405 for the field with a TableRelation).
 fn attr_src(port_props: &str, txt_props: &str, doc: &str) -> String {
     format!(
         r#"

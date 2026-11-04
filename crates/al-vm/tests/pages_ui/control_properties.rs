@@ -53,14 +53,14 @@ codeunit 69992 C
 }
 "#;
 
-/// pages/lt-cd-testpage-leads/CdTestPageLeads.al:93-95 (Item49_LockCard_OpenView): the page and its Rec controls read No,
+/// testpage/CdTestPageLeads.al:93-95 (Item49_LockCard_OpenView): the page and its Rec controls read No,
 /// a page-variable control stays editable.
 #[test]
 fn editable_false_in_on_open_page_of_a_view_card_leaves_a_variable_control_editable() {
     assert_eq!(text(al_testkit::run_in(LOCK, "C", "View")), "No No Yes");
 }
 
-/// pages/lt-cd-testpage-leads/CdTestPageLeads.al:117-118 (Item49_LockCard_OpenNew): the page reads Yes, a Rec control No.
+/// testpage/CdTestPageLeads.al:117-118 (Item49_LockCard_OpenNew): the page reads Yes, a Rec control No.
 #[test]
 fn editable_false_in_on_open_page_of_a_new_card_keeps_the_page_editable_and_locks_rec_controls() {
     assert_eq!(text(al_testkit::run_in(LOCK, "C", "New")), "Yes No");
@@ -75,7 +75,7 @@ fn a_variable_control_of_a_new_card_after_editable_false_is_refused() {
     }
 }
 
-/// handlers/TestPageControlEditableRoutes.al:553 (CurrPageEditableFalse_OpenEdit): everything reads No.
+/// testpage/TestPageControlEditableRoutes.al:553 (CurrPageEditableFalse_OpenEdit): everything reads No.
 #[test]
 fn editable_false_in_on_open_page_of_an_edit_card_locks_every_control() {
     assert_eq!(text(al_testkit::run_in(LOCK, "C", "Edit")), "No No No");
@@ -131,7 +131,7 @@ codeunit 69995 C
 }
 "#;
 
-/// pages/lt-cd-testpage-leads/CdTestPageLeads.al:251-253 (Item51_VisibleVariables_ActionWithoutUpdate): a field keeps its
+/// testpage/CdTestPageLeads.al:251-253 (Item51_VisibleVariables_ActionWithoutUpdate): a field keeps its
 /// open-time Visible, a group and an action follow the variable.
 #[test]
 fn an_action_visible_variable_follows_an_action_that_changed_it() {
@@ -141,7 +141,7 @@ fn an_action_visible_variable_follows_an_action_that_changed_it() {
     );
 }
 
-/// pages/lt-cd-testpage-leads/CdTestPageLeads.al:267 (Item51_VisibleVariables_ActionWithUpdate).
+/// testpage/CdTestPageLeads.al:267 (Item51_VisibleVariables_ActionWithUpdate).
 #[test]
 fn an_action_visible_variable_follows_an_action_that_updated_the_page() {
     assert_eq!(text(al_testkit::run_in(VIS, "C", "Update")), "Yes No No");
@@ -201,7 +201,7 @@ codeunit 69989 C
 }
 "#;
 
-/// pages/lt-cc-page-leads/CcPageLeads.al:722-723 (FlowField_VisibleFalse_OnOpenView): a card opened for viewing does not
+/// testpage/CcPageLeads.al:722-723 (FlowField_VisibleFalse_OnOpenView): a card opened for viewing does not
 /// calculate a FlowField whose control says `Visible = false`.
 #[test]
 fn a_view_card_does_not_calculate_a_hidden_flowfield() {
@@ -209,7 +209,7 @@ fn a_view_card_does_not_calculate_a_hidden_flowfield() {
 }
 
 /// Whether another open mode calculates it is not pinned (docs/probes-needed.md); it keeps calculating it, as before
-/// (kept for handlers/TestPartSubPageViewPrecompiled.al:104).
+/// (kept for testpage/TestPartSubPageViewPrecompiled.al:104).
 #[test]
 fn an_edit_card_still_calculates_a_hidden_flowfield() {
     assert_eq!(text(al_testkit::run_in(FLOW, "C", "Edit")), "shown=5 hidden=5;");
@@ -234,7 +234,7 @@ codeunit 69988 C
 }
 "#;
 
-/// handlers/N582TestPageEdges.al:400 (BR_Editable_FlowFilterControl): an unset Decimal FlowFilter control shows nothing;
+/// testpage/N582TestPageEdges.al:400 (BR_Editable_FlowFilterControl): an unset Decimal FlowFilter control shows nothing;
 /// :428 (BR_SetValue_FlowFilterControl) after SetValue('7') it shows 7.00.
 #[test]
 fn an_unset_decimal_flowfilter_control_shows_nothing() {
@@ -273,7 +273,7 @@ fn refused(prop: &str) -> String {
     }
 }
 
-/// pages/lt-cc-page-leads/CcPageLeads.al:764 and :846 and :880: BC compiles these control expressions when the page opens
+/// testpage/CcPageLeads.al:764 and :846 and :880: BC compiles these control expressions when the page opens
 /// and fails there. Neither the grammar nor the error index rule is pinned beyond these cases, so the page is refused.
 #[test]
 fn control_expressions_bc_fails_to_compile_are_refused() {
@@ -311,7 +311,7 @@ fn run_on(bc: &str, src: &str) -> Result<Value, Signal> {
     s.call(oi, ri, inst, vec![]).map(|(v, _)| v)
 }
 
-/// pages/lt-cc-page-leads/CcPageLeads.al:801-808 (Expr_BigIntegerLiteral_Enabled): BC 27 fails to compile `0L <> Rec.Big`
+/// testpage/CcPageLeads.al:801-808 (Expr_BigIntegerLiteral_Enabled): BC 27 fails to compile `0L <> Rec.Big`
 /// when the page opens (refused: the error's index rule is not pinned); BC 28 and 29 run it.
 #[test]
 fn a_big_integer_literal_in_a_control_expression_is_refused_on_bc_27_only() {

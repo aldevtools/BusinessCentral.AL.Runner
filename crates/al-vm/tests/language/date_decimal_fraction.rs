@@ -1,5 +1,5 @@
 //! A Date plus or minus a Decimal with a fraction, and `Next` with one, raise ConversionCast
-//! (misc/lt-probes-needed-6/PnF11DateDecimalArithmetic.al).
+//! (errors/PnF11DateDecimalArithmetic.al).
 
 fn run(src: &str) -> String {
     al_testkit::text(al_testkit::run_with(src, "C", "F", vec![]).map(|(v, _)| v))

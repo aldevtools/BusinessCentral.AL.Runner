@@ -1,4 +1,4 @@
-//! A VariableText export whose root holds two table elements (corpus xmlport/lt-dg-xmlport-leads/DgXmlPortLeads.al:193-218,
+//! A VariableText export whose root holds two table elements (corpus streams/DgXmlPortLeads.al:193-218,
 //! Item106_TwoTablesDefaultSeparator and Item106_TwoTablesNewLineSeparator): the records of a table are joined by the record
 //! separator, the table separator takes the place of the record separator between the two tables, and the last record has none.
 //! The default table separator reads back as CR/LF twice, `<NewLine>` as CR/LF once.
@@ -104,7 +104,7 @@ fn the_table_separator_reads_back() {
     );
 }
 
-// The staged probe xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:VariableText_TwoTables (table separator '#'): `Import(Doc)` seeds
+// The staged probe xmlports/shapes-properties/Y83XpMiscTests.al:VariableText_TwoTables (table separator '#'): `Import(Doc)` seeds
 // Item 1/one and Line 1/c1 first and reads `~` in the document as CR/LF.
 fn import(doc: &str) -> String {
     let (v, _) = al_testkit::run_with(

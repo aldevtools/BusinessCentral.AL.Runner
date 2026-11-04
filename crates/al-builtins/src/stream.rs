@@ -31,7 +31,7 @@ pub struct BlobBuf {
     pub loaded: bool,
     /// The content is what the database holds or was saved there, or the buffer never came from a row: a stream write does not
     /// change it. `CalcFields` fetches a Blob that is not (a `Get` row written in memory is read back from the database:
-    /// record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:BlobCalcFields_UnsavedContent_Result) and leaves one that is
+    /// record/flowfields/BlobCalcFieldsLength.al:BlobCalcFields_UnsavedContent_Result) and leaves one that is
     /// (streams/TestBlobCalcFieldsUncommittedWrite.al:Blob_CalcFields_AfterUncommittedWriteWithoutModify_KeepsWrite).
     pub fetched: bool,
     /// The buffer is the copy a record assignment made: its bytes show, but `CalcFields` fetches the Blob from the stored
@@ -40,38 +40,38 @@ pub struct BlobBuf {
     /// A `Modify` of a temporary record wrote this content to the row; a write through a stream clears it.
     pub persisted: bool,
     /// The buffer is the unloaded copy a Get of a temporary record handed out: its `Length` is the content's, not the
-    /// stored size of a database row (misc/lt-probes-needed-1/PnABlobLength.al:Length_InMemoryAndFindVariants `temporary-regot`).
+    /// stored size of a database row (record/PnABlobLength.al:Length_InMemoryAndFindVariants `temporary-regot`).
     pub temp_row: bool,
     /// A stream wrote to the buffer since it was fetched or saved: `Modify` counts the Blob as changed whatever it holds now
-    /// (misc/lt-probes-needed-1/PnASystemFields.al:Modify_StampsOnlyWhenStoredFieldDiffers `same-blob-content-keeps-stamp`).
+    /// (record/PnASystemFields.al:Modify_StampsOnlyWhenStoredFieldDiffers `same-blob-content-keeps-stamp`).
     pub written: bool,
     /// ADR-040: a report on the allow-list was saved to this buffer in a rendered format and nothing was written:
     /// the name of the report. Any look at the buffer is refused (`observe`); a copy of the buffer carries the mark
     /// (`copy_blob`, a record assignment, `CalcFields`); creating the stream again clears it.
     pub render_pending: Option<std::sync::Arc<str>>,
     /// The content is what an `Insert` stored, and no `Modify` or stream write came after. `Media.ImportStream` from a stream on
-    /// such a Blob of the same record is refused (misc/lt-probes-needed-5/PnE06Media.al:66-84 against streams/
+    /// such a Blob of the same record is refused (streams/PnE06Media.al:66-84 against streams/
     /// lt-stream-read-write-media/P102Media.al:24-41, see `refuse_media_import_from_own_blob` in al-vm).
     pub inserted: bool,
     /// A temporary table's `Insert` stored this buffer, which held content then, as the row's own Blob, and no stream was
     /// created on it since: the next `CreateOutStream` on the record writes to a copy, and the row keeps its content
-    /// (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_ImportTwice_Direct).
+    /// (xmlports/shapes-properties/QrXpContainerOccurs.al TT_ImportTwice_Direct).
     pub temp_inserted: bool,
     /// The buffer is the unloaded copy a read of a database row handed out (`copy_blob_db_row`): the first stream write
-    /// after `CreateOutStream` replaces the stored content (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:222-350).
+    /// after `CreateOutStream` replaces the stored content (record/flowfields/BlobCalcFieldsLength.al:222-350).
     pub db_row: bool,
     /// `CreateOutStream` was called on an unloaded database-row Blob and nothing was written yet: the next write empties
     /// the buffer first (BlobCalcFieldsLength.al:222 'new' over 'a long stored value' is 'new'); until then the stored value
     /// stays (:350 RF_GetWithoutCalcFields_OutStreamNotWritten_Modify).
     pub first_write_truncates: bool,
     /// The buffer is the content of a `File` (on-premises): writes of a Record, a RecordId or a BigText raise another text
-    /// there (al-language-onprem/lt-file-type/FileQProbes.al:1309 `invalid stream mode: FileBinary`).
+    /// there (al-language-onprem/streams/files/file-type/FileQProbes.al:1309 `invalid stream mode: FileBinary`).
     pub file: bool,
     /// The id of the `DotNet` System.IO.Stream an `OutStream` on this buffer was given to (al-vm `dotnet/blob_stream.rs`), or 0.
     /// `CreateOutStream` and `Import` set it back to 0: what the .NET stream does after that is not pinned.
     pub dotnet_view: u32,
     /// The empty Blob `FieldRef.Value` hands out for a stored row's Blob that holds content and was not read with CalcFields
-    /// ([`unread_content_blob`]): `Format` shows `*` (text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:383) and a comparison
+    /// ([`unread_content_blob`]): `Format` shows `*` (text/text-methods/Y49FieldRefIntoText.al:383) and a comparison
     /// sees a Blob with content (`blob_compare`). A copy does not keep it.
     pub unread_content: bool,
 }
@@ -97,7 +97,7 @@ pub const MEDIA_SET_FILE_REENCODED: &str = "MediaSet.ExportFile";
 pub const MEDIA_DOCX_REZIPPED: &str = "Media.ImportFile of a .docx";
 
 /// The mark on the Tenant Media Content of an imported PNG: BC stores the picture re-encoded (the Guided Experience Icon an
-/// app's logo is imported into, onprem session/UsAppLogo.al:7; an exported PNG, types/W7Media.al:141-145), bytes not pinned.
+/// app's logo is imported into, onprem session-system/UsAppLogo.al:7; an exported PNG, types/W7Media.al:141-145), bytes not pinned.
 pub const MEDIA_PNG_STORED_REENCODED: &str = "the Tenant Media Content of an imported PNG";
 
 /// The mark on the Tenant Media Content of a .jpg file holding a PNG (`media::jpg_holding_png`): BC re-encodes it.
@@ -105,7 +105,7 @@ pub const MEDIA_JPG_HOLDING_PNG: &str = "Media.ImportFile of a .jpg holding a PN
 
 /// The mark a stream write puts on a Blob of a record read without `CalcFields` while the stored content is longer than what
 /// was written: what the Blob holds then is not pinned (AL Runner issue 5681). A write that reaches the stored content's end
-/// clears it (`write_bytes`): both readings agree then (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:
+/// clears it (`write_bytes`): both readings agree then (record/flowfields/BlobCalcFieldsLength.al:
 /// BlobCalcFields_UnsavedContent_Result, BlobCalcFields_AfterModifyAndClear_Result).
 pub const UNLOADED_WRITE: &str = "Blob.CreateOutStream without CalcFields";
 
@@ -114,7 +114,7 @@ pub const UNLOADED_WRITE: &str = "Blob.CreateOutStream without CalcFields";
 pub const UNLOADED_THEN_LOADED: &str = "Blob.CreateOutStream without CalcFields, loaded before the write";
 
 /// The mark a `DotNet` System.IO.Stream over an `OutStream` puts on the Blob when it is written to after `Close` or `Dispose`:
-/// the write succeeds (tests/al-language-onprem-dotnet/lt-sg-dotnet/SgDotNetStreams.al:192, `stream write after close ok`), what
+/// the write succeeds (tests/al-language-onprem-dotnet/dotnet/dotnet/SgDotNetStreams.al:192, `stream write after close ok`), what
 /// it leaves in the Blob is not pinned (al-vm `dotnet/blob_stream.rs`).
 pub const DOTNET_WRITE_AFTER_CLOSE: &str = "System.IO.Stream write after Close";
 
@@ -347,7 +347,7 @@ pub fn copy_blob_temp_row(b: &BlobRef) -> BlobRef {
 }
 
 /// The value `FieldRef.Value` hands out for a stored row's Blob with content that was not read with CalcFields: empty
-/// (`HasValue` No, `Length` 0, recordref/lt-refs/RfTValues.al:QP_Blob_GetTable_ValueWithoutCalcFields), marked `unread_content`.
+/// (`HasValue` No, `Length` 0, recordref-fieldref/recordref/RfTValues.al:QP_Blob_GetTable_ValueWithoutCalcFields), marked `unread_content`.
 pub fn unread_content_blob() -> BlobRef {
     let b = new_blob();
     b.borrow_mut().unread_content = true;
@@ -437,7 +437,7 @@ const CP437_HIGH: [char; 128] = [
 
 /// What the Windows tier reads for the code page 437 bytes whose character code page 1252 does not have (corpus
 /// streams/StTEncodings.al:CrossEncodingUtf8ToOthers and CrossEncodingWindowsToOthers, streams/W7StreamRead.al:
-/// ReadTextWithLength_Utf8Sequences, types/PEOptionEnumBigText.al): and al-language-onprem/handlers/TestRequestPageSaveAsXmlContracts.al:FileText (EF BB BF): and streams/StTEncodings.al:RoundTripSameEncoding (B1 is the euro sign): XmlPort byte order mark FF FE (xmlport/lt-xmlport-query-datatransfer, misc/lt-probes-needed-3/PnC19XmlPort.al): only these fifteen bytes are pinned.
+/// ReadTextWithLength_Utf8Sequences, types/PEOptionEnumBigText.al): and al-language-onprem/reports/TestRequestPageSaveAsXmlContracts.al:FileText (EF BB BF): and streams/StTEncodings.al:RoundTripSameEncoding (B1 is the euro sign): XmlPort byte order mark FF FE (xmlports/import, xmlports/PnC19XmlPort.al): only these fifteen bytes are pinned.
 const CP437_AS_READ: [(u8, char); 18] = [
     (0xFE, '\u{FE}'),
     (0xB1, '\u{20AC}'),
@@ -453,16 +453,16 @@ const CP437_AS_READ: [(u8, char); 18] = [
     (0xE4, '\u{CD}'),
     (0xE9, '\u{D2}'),
     (0xFC, '\u{FD}'),
-    // streams/lt-bigtext-write/BigTextWriteEdges.al:Write_NonAscii_Utf8Stream (D0 reads as 168).
+    // streams/instream-outstream/BigTextWriteEdges.al:Write_NonAscii_Utf8Stream (D0 reads as 168).
     (0xD0, '\u{A8}'),
-    // report/lt-y-report-props/YReportPropsTests.al:96, the UTF-8 bytes of `年` (E5 B9 B4) read as `\u00CE\u2030\u201E`.
+    // reports/runtime/YReportPropsTests.al:96, the UTF-8 bytes of `年` (E5 B9 B4) read as `\u00CE\u2030\u201E`.
     (0xE5, '\u{CE}'),
     (0xB9, '\u{2030}'),
     (0xB4, '\u{201E}'),
 ];
 
 /// The byte from 128 up an MS-DOS stream writes for a character the Byte to Char table gives (`conv::byte_char`): the
-/// byte it came from (types/lt-byte-char-high/ByteCharHigh.al:213-228, `stream_write_char200` and `stream_writetext_char200`
+/// byte it came from (types/text-code-char/ByteCharHigh.al:213-228, `stream_write_char200` and `stream_writetext_char200`
 /// write 200 for the Char 732 the Byte 200 gives, 139 for 239, 255 for 160; :250-255 `char8364_write` 177).
 fn msdos_table_byte(c: char) -> Option<u8> {
     u16::try_from(c as u32)
@@ -507,7 +507,7 @@ impl Encoding {
                         out.push(cp as u8);
                     } else if c == crate::native::CALL_STACK_MARK {
                         // The runtime's mark of an untracked call stack frame has no code page 1252 byte; a call stack text
-                        // written to a Windows stream reads back equal (error-handling/lt-wd/WdCallStackToBlob.al
+                        // written to a Windows stream reads back equal (errors/last-error/WdCallStackToBlob.al
                         // WD_CallStack_Collected_ToWindowsBlob, corpus branch al-runtime-rs-staging-1030c, al-runner issue
                         // 6310). Its bytes are not pinned: the mark is kept as its UTF-8 bytes, which `decode` reads back.
                         out.extend_from_slice(CALL_STACK_MARK_BYTES);
@@ -596,8 +596,8 @@ impl Encoding {
 
     /// Whether the bytes `OutStream.Write(Text)` gives for `t` are pinned: what `encode_pinned` accepts, and also, on a UTF-8 or
     /// UTF-16 stream, every character of the Basic Multilingual Plane as its plain encoding, and on a Windows, MS-DOS or default
-    /// stream a Cyrillic or Japanese character as '?' (streams/lt-y38-utf8-write/Y38Utf8Write.al UW_Write_Utf8_Cyrillic_TableBlob,
-    /// UW_Write_Cyrillic_PerEncoding; errors/lt-ms-refusals-132/P132OutStreamUnicode.al:81-83, :127-134). Other characters a
+    /// stream a Cyrillic or Japanese character as '?' (streams/instream-outstream/Y38Utf8Write.al UW_Write_Utf8_Cyrillic_TableBlob,
+    /// UW_Write_Cyrillic_PerEncoding; streams/P132OutStreamUnicode.al:81-83, :127-134). Other characters a
     /// code page lacks may take a best-fit byte instead ('α' is 61 on MS-DOS, :84 `greek`) and stay refused.
     pub fn write_text_pinned(self, t: &str) -> bool {
         let question_mark =
@@ -646,7 +646,7 @@ pub struct InState {
     pub pos: usize,
     pub enc: Encoding,
     /// A read already found the stream at its end: the next typed read there raises (streams/StTStreams.al:ReadPastEnd against
-    /// streams/lt-stream-read-write-media/P102ReadTyped.al `pastend`: the first one answers 0).
+    /// streams/media/P102ReadTyped.al `pastend`: the first one answers 0).
     pub hit_end: bool,
     /// `HttpContent.WriteFrom` took the stream: only `EOS` is pinned afterwards (see [`hand_to_content`]).
     pub handed_to_content: bool,
@@ -778,7 +778,7 @@ pub(crate) fn set_stream(slot: &Value, content: LibraryValue) -> Result<(), Sign
 fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let enc = Encoding::from_arg(a)?;
     // A Blob that held content when a temporary table's Insert stored it: the stream writes to a copy, and the stored row
-    // keeps what the Insert stored (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_ImportTwice_Direct:
+    // keeps what the Insert stored (xmlports/shapes-properties/QrXpContainerOccurs.al TT_ImportTwice_Direct:
     // row 1 written `A` and inserted, then written `C` under key 2 and inserted; Get(1) reads `A`). A Blob empty at the
     // Insert stays the row's own (streams/TestBlobUncommittedWriteIsolation.al:171).
     if let Some(Value::Blob(b)) = r.as_deref_mut() {
@@ -876,8 +876,8 @@ fn blob_has_value(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> 
     if buf.render_pending.as_deref() == Some(QUERY_METADATA) {
         return Ok(Value::Boolean(true));
     }
-    // The stored content of an imported PNG has a value (platform/W6TenantMedia.al:95-104,
-    // onprem media/MediaFiles.al:145-146 `hascontent=Yes`); its bytes are not pinned.
+    // The stored content of an imported PNG has a value (metadata/W6TenantMedia.al:95-104,
+    // onprem streams/media/MediaFiles.al:145-146 `hascontent=Yes`); its bytes are not pinned.
     if buf.render_pending.as_deref() == Some(MEDIA_PNG_STORED_REENCODED) {
         return Ok(Value::Boolean(true));
     }
@@ -890,7 +890,7 @@ fn blob_has_value(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> 
     Ok(Value::Boolean(!buf.bytes.is_empty()))
 }
 
-/// `Blob.Import(Name)` (al-language-onprem/lt-o-system-onprem/OBlobAndSession.al:27-58): the blob holds the bytes of the
+/// `Blob.Import(Name)` (al-language-onprem/session-system/database-and-blob-operations/OBlobAndSession.al:27-58): the blob holds the bytes of the
 /// file, read through the host file system. A missing file raises `FileNotFound` and the blob keeps what it held (:74-103,
 /// `import missing|code`, `blob length after failed import` 1); the text names the server's path and only its start and end
 /// are pinned, so it is raised as an unpinned text. The name it returns is pinned only by its end (`return ends with file
@@ -942,18 +942,18 @@ fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NR
     buf.observe()?;
     if !buf.loaded {
         // Before CalcFields the length is the stored size. An empty blob is 0 (streams/TestProbeStreamContracts.al:
-        // BlobLength_EmptyUnloaded); a temporary row's is its content's (misc/lt-probes-needed-1/PnABlobLength.al:
+        // BlobLength_EmptyUnloaded); a temporary row's is its content's (record/PnABlobLength.al:
         // Length_InMemoryAndFindVariants). The stored size is the content plus 6 on every major for 4 bytes (streams/StTStreams.al:640,
         // LengthNeedsCalcFields), 5 bytes (streams/TestStreamsRuntimeContracts.al:264, Blob_Length_WithoutCalcFields_ReportsTheStoredSize),
-        // 8 bytes (record/lt-blob-autocalc/BlobAutoCalc.al:144, Persistent_InsertedRecord_Blob) and 12 bytes (:276, :320;
-        // record/lt-temporary-blob/TemporaryBlobAutoCalc.al:144), and for 1 and 2 bytes from BC 29 (misc/lt-probes-needed-1/
+        // 8 bytes (record/flowfields/BlobAutoCalc.al:144, Persistent_InsertedRecord_Blob) and 12 bytes (:276, :320;
+        // record/temporary/TemporaryBlobAutoCalc.al:144), and for 1 and 2 bytes from BC 29 (misc/lt-probes-needed-1/
         // PnABlobLength.al:49-54, Length_ByStoredSize; the test is BC 29 only). 100 bytes and more are a compressed size (:55-60:
         // 10, 31, 118 for 100, 10000, 100000 `x`). The other sizes are not pinned and are refused. Probe wanted (docs/probes-needed.md).
         let n = buf.bytes.len();
         if n == 0 || buf.temp_row {
             return Ok(Value::Integer(n as i32));
         }
-        // 2 and 3 bytes on every major: record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:250 ('ab' 8), :222 ('new' 9).
+        // 2 and 3 bytes on every major: record/flowfields/BlobCalcFieldsLength.al:250 ('ab' 8), :222 ('new' 9).
         // The stored size is compressed (40 repeated digits are 19 at :470), so for longer content only the texts the corpus
         // stored are given: 'stored' 12 (:350) and 'a long stored value' 25 (:222).
         let pinned = matches!(n, 2 | 3 | 4 | 5 | 8 | 12)
@@ -982,7 +982,7 @@ fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NR
 }
 
 /// The one large content whose stored size is pinned: 3 MB of `x` and 7 `y`, stored as 3072 bytes
-/// (streams/lt-blob-length-integer/BlobLengthInteger.al:73-77, :95 `after_get_int`).
+/// (streams/blob-tempblob/BlobLengthInteger.al:73-77, :95 `after_get_int`).
 fn is_y57_three_mb(b: &[u8]) -> bool {
     const X: usize = 3 * 1024 * 1024;
     b.len() == X + 7 && b[..X].iter().all(|c| *c == b'x') && b[X..].iter().all(|c| *c == b'y')
@@ -1002,7 +1002,7 @@ pub fn refuse_pending_in(v: &mut Value) -> Result<(), Signal> {
 
 /// Reads the rest of an `InStream` value and moves its position to the end.
 /// `HttpContent.WriteFrom(InStream)`: the bytes the stream has left, and the stream stays where it was, not at its end
-/// (network/lt-db-http-leads/DbHttpContentLeads.al:310). What a read, `Length`, `Position` or `ResetPosition` of it gives
+/// (http/content/DbHttpContentLeads.al:310). What a read, `Length`, `Position` or `ResetPosition` of it gives
 /// afterwards is not pinned: they are refused.
 pub fn hand_to_content(v: &mut Value) -> Result<Vec<u8>, Signal> {
     with_in(Some(v), |s| {
@@ -1023,9 +1023,9 @@ fn with_in<T>(r: Option<&mut Value>, f: impl FnOnce(&mut InState) -> Result<T, S
 
 /// `InStream.OwnerOutOfScope` (invented): the routine that created the stream on its own local (a Temp Blob, the Blob field
 /// of a temporary record) hands it back and ends. BC reads it as empty: Length 0, EOS Yes, ReadText gives '' and EOS stays
-/// Yes (streams/lt-dc-stream-leads/DcInStreamScope.al:107-126, :128-166, al-runner issue 5688). It is an empty stream for every
+/// Yes (streams/DcInStreamScope.al:107-126, :128-166, al-runner issue 5688). It is an empty stream for every
 /// other use too: HttpContent.WriteFrom, CopyStream into an OutStream or a Blob field, Read, ReadText with a length, Position 1,
-/// ResetPosition, Position(1) out of range, a `var` parameter and an assignment (streams/lt-y62-gone-instream/Y62GoneInStream.al,
+/// ResetPosition, Position(1) out of range, a `var` parameter and an assignment (streams/instream-outstream/Y62GoneInStream.al,
 /// writer Y62). Only the DotNet uses of it stay refused (`owner_gone`, dotnet/blob_stream.rs).
 pub(crate) fn owner_out_of_scope(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     with_in(r, |s| {
@@ -1069,7 +1069,7 @@ pub fn create_in_of(v: &Value, bytes: Vec<u8>) -> bool {
 }
 
 /// A `Report.RdlcLayout` call as a statement on a report whose only layout is `DefaultLayout = RDLC` without a file: a stream
-/// that was never created becomes an empty one (report/lt-report-members-testrequestpage/P91Static.al:126 `eos=Yes`). Answers
+/// that was never created becomes an empty one (reports/request-page/P91Static.al:126 `eos=Yes`). Answers
 /// false, and changes nothing, for a stream that was created.
 pub fn create_empty_in(v: &Value) -> bool {
     let Value::Library(_, h) = v else {
@@ -1123,12 +1123,12 @@ pub(crate) fn read_all_text(stream: &mut Value) -> Result<String, Signal> {
             Encoding::Utf8 if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) => &bytes[3..],
             Encoding::Utf16 if bytes.starts_with(&[0xFF, 0xFE]) => &bytes[2..],
             // The text of a stream created without an encoding ends at the first NUL byte: the UTF-16 bytes `E4 00 AC 20 16 04`
-            // read as one character (streams/lt-bigtext-write/BigTextWriteEdges.al:Write_NonAscii_ExplicitEncodings, utf16.readlen).
+            // read as one character (streams/instream-outstream/BigTextWriteEdges.al:Write_NonAscii_ExplicitEncodings, utf16.readlen).
             Encoding::MsDos => bytes.split(|b| *b == 0).next().unwrap_or(&[]),
             _ => &bytes[..],
         };
         match enc {
-            // Bytes that are no UTF-8 raise the stream data error, as ReadText does (corpus pages/lt-pages-xmlport-upload-members/
+            // Bytes that are no UTF-8 raise the stream data error, as ReadText does (corpus pages/pages-xmlports-upload-members/
             // P112XpXml.al:P112_Export_TriggerOrder, af379: the UTF-16 bytes of an export read through a UTF-8 stream).
             Encoding::Utf8 if std::str::from_utf8(body).is_err() => {
                 Err(Signal::Error(Box::new(crate::native::AlError {
@@ -1160,13 +1160,13 @@ fn in_eos(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult 
 
 fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     // EOS of a stream a Report layout call found no layout for: the variable was never initialized
-    // (report/lt-report-requestpage-query-members/P105LytRdlc.al:76, P105LytWord.al:76, P105LytExcel.al:76).
+    // (reports/request-page/P105LytRdlc.al:76, P105LytWord.al:76, P105LytExcel.al:76).
     if let Some(Value::Library(_, h)) = r.as_deref()
         && matches!(&*h.borrow(), LibraryValue::InStream(s) if s.not_initialized)
     {
         return Err(crate::xml::uninitialized("InStream"));
     }
-    // A stream HttpContent.WriteFrom took is not at its end (network/lt-db-http-leads/DbHttpContentLeads.al:310): its position
+    // A stream HttpContent.WriteFrom took is not at its end (http/content/DbHttpContentLeads.al:310): its position
     // did not move.
     with_in_of(r, true, |s| Ok(Value::Boolean(s.pos >= s.len())))
 }
@@ -1264,7 +1264,7 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
     let text = with_in_of(r, false, |s| {
         // A UTF-8 mark is taken as one only by a stream created with `TextEncoding::UTF8` (handlers/
         // TestReportSaveAsDatasetContracts.al:DatasetLines); a stream with the default encoding reads it as the three
-        // characters 239, 187, 191 (al-language-onprem/handlers/TestRequestPageSaveAsXmlContracts.al:FileText). A UTF-16 mark
+        // characters 239, 187, 191 (al-language-onprem/reports/TestRequestPageSaveAsXmlContracts.al:FileText). A UTF-16 mark
         // is no mark to ReadText: the default encoding reads `FF FE` as two characters (misc/lt-probes-needed-3/
         // PnC19XmlPort.al:Export_BothFormatEvaluates, ` þ`).
         if s.pos == 0 {
@@ -1276,7 +1276,7 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
                 if utf8 && d.starts_with(&[0xEF, 0xBB, 0xBF]) {
                     Some((Encoding::Utf8, 3))
                 } else if s_enc == Encoding::Utf16 && d.starts_with(&[0xFF, 0xFE]) {
-                    // A stream created as UTF-16 skips the mark (xmlport/TestXmlPortExportImportContracts.al:ExportedText).
+                    // A stream created as UTF-16 skips the mark (xmlports/TestXmlPortExportImportContracts.al:ExportedText).
                     Some((Encoding::Utf16, 2))
                 } else {
                     None
@@ -1296,8 +1296,8 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
             let rest = &data[pos.min(data.len())..];
             let mut end = 0;
             // A NUL ends the text like a line feed does and is consumed with it: the UTF-16 bytes of an export read one
-            // character per call (xmlport/lt-xmlport-query-datatransfer/XpTExportBasic.al:Export_StaticWithRecordNoRows,
-            // misc/lt-probes-needed-3/PnC19XmlPort.al:Export_BothFormatEvaluates, streams/StTEncodings.al:CrossEncodingMsDosAndUtf16).
+            // character per call (xmlports/import/XpTExportBasic.al:Export_StaticWithRecordNoRows,
+            // xmlports/PnC19XmlPort.al:Export_BothFormatEvaluates, streams/StTEncodings.al:CrossEncodingMsDosAndUtf16).
             let ends = |u: &[u8]| is_unit(u, b'\n') || u.iter().all(|b| *b == 0);
             while end + unit <= rest.len() && end / unit < max_chars && !ends(&rest[end..end + unit]) {
                 end += unit;
@@ -1315,7 +1315,7 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
             } else {
                 end
             };
-            // Bytes that are no UTF-8 cannot be read from a stream created as UTF-8 (xmlport/lt-xmlport-query-datatransfer/
+            // Bytes that are no UTF-8 cannot be read from a stream created as UTF-8 (xmlports/import/
             // XpTExportBasic.al:Export_ThreeRows: the UTF-16 bytes of an export).
             let invalid_utf8 = enc == Encoding::Utf8 && std::str::from_utf8(&line).is_err();
             (
@@ -1341,7 +1341,7 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
         Ok(text)
     })?;
     // The count is the bytes of the text in the stream's encoding, without the terminators (a UTF-16 `ab` is 4).
-    // UTF-8 counts its own bytes: `aéb` is 4 (streams/lt-stream-non-ascii/StreamRawBytes.al:P175_Raw_EAcute_ReadText `utf8 utf8`).
+    // UTF-8 counts its own bytes: `aéb` is 4 (streams/instream-outstream/StreamRawBytes.al:P175_Raw_EAcute_ReadText `utf8 utf8`).
     let n = if enc_used == Encoding::Utf8 {
         text.len() as i32
     } else {
@@ -1371,7 +1371,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         let n = usize::try_from(*n).unwrap_or(0);
         let used = c.ret_used();
         // A stream whose owner went out of scope reads nothing: 0, and the text is empty
-        // (streams/lt-y62-gone-instream/Y62GoneInStream.al:GoneStream_ReadAndPosition `step2` `0|[]`).
+        // (streams/instream-outstream/Y62GoneInStream.al:GoneStream_ReadAndPosition `step2` `0|[]`).
         if used && with_in(r.as_deref_mut(), |s| Ok(s.owner_gone && s.rest().is_empty()))? {
             a[0] = Value::Text(String::new().into());
             return Ok(Value::Integer(0));
@@ -1391,7 +1391,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
                 return unsupported("InStream.Read(Text, Length) of MS-DOS bytes whose character is not pinned");
             }
             // The result is the number of bytes read, pinned for ASCII text (al-language-onprem-dotnet/
-            // lt-y51-blob-stream-position/Y51BlobStreamPosition.al:274, :283 `read_text_2` `ef|2`).
+            // dotnet/blob-stream-position/Y51BlobStreamPosition.al:274, :283 `read_text_2` `ef|2`).
             if used && (!taken.is_ascii() || taken.len() != n) {
                 return unsupported(
                     "the result of InStream.Read(Text, Length) of non-ASCII bytes or past the end (not pinned)",
@@ -1419,7 +1419,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         let Some(width) = fixed_stream_width(&a[0], enc) else {
             return unsupported("InStream.Read with a length (not pinned)");
         };
-        // The length of the type reads as without one (streams/lt-stream-length/StreamLengthIntegers.al:Integer_WriteReadLength_1
+        // The length of the type reads as without one (streams/instream-outstream/StreamLengthIntegers.al:Integer_WriteReadLength_1
         // `w4_rd`, :BigInteger_WriteReadLength_1 `w8_rd`, StreamLengthOthers.al `w12_rd`, `w16_rd`, `w1_rd`, `w4_rd`).
         if usize::try_from(n).ok() == Some(width) {
             return in_read(c, r, &mut a[..1]);
@@ -1442,7 +1442,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
     if matches!(a[0], Value::Text(_) | Value::Code(_)) {
         let used = c.ret_used();
         let (taken, count) = with_in(r, |s| {
-            // A UTF-8 byte order mark at the start of a stream created as UTF-8 is skipped (streams/lt-dd-stream-leads/
+            // A UTF-8 byte order mark at the start of a stream created as UTF-8 is skipped (streams/
             // DdStreamLeads.al:502 Item68_Utf8Bom `read utf8` 3 [97,98,99]). The count Read returns over a mark is not pinned.
             if s.pos == 0 && s.enc == Encoding::Utf8 && s.with_data(|d| d.starts_with(&[0xEF, 0xBB, 0xBF])) {
                 if used {
@@ -1455,7 +1455,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             let unit = s.enc.unit();
             let rest = s.rest();
             // At the end of the stream the Text is emptied, no error. The result is 0 on a stream of the default encoding
-            // (misc/lt-probes-needed-3/PnC20JsonStreams.al:312-318, `pastEnd`) and 1 on a UTF-8 one (misc/lt-probes-needed-5/
+            // (streams/PnC20JsonStreams.al:312-318, `pastEnd`) and 1 on a UTF-8 one (misc/lt-probes-needed-5/
             // PnE04Streams.al:89 and :113, `atEnd`).
             if rest.is_empty() {
                 return Ok((String::new(), usize::from(s.enc == Encoding::Utf8)));
@@ -1476,7 +1476,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             let counted = consumed + usize::from(utf8_unterminated);
             let body = &rest[..body_len];
             // Non-ASCII characters read as their characters on a UTF-8 stream, with and without a zero byte after them, the
-            // count in bytes as for ASCII (misc/lt-probes-needed-5/PnE04Streams.al:118 ReadText_Utf8_NonAscii `7|wörld`; the
+            // count in bytes as for ASCII (streams/PnE04Streams.al:118 ReadText_Utf8_NonAscii `7|wörld`; the
             // same file's TO_ReadText_NonAscii_NoTerminator `7|wörld` with no terminator,
             // `5|äö` then `5|€A`). On a UTF-16 stream the pin reads only the characters before the first non-ASCII one, which
             // is not modelled.
@@ -1498,7 +1498,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         return Ok(Value::Integer(count as i32));
     }
     let width = match a[0] {
-        // An Option is its ordinal in 4 bytes (streams/lt-stream-length/StreamLengthOthers.al:Option_WriteReadLength_1 `nb_rd`).
+        // An Option is its ordinal in 4 bytes (streams/instream-outstream/StreamLengthOthers.al:Option_WriteReadLength_1 `nb_rd`).
         Value::Integer(_) | Value::Boolean(_) | Value::Date(..) | Value::Option(..) => 4,
         Value::Byte(_) | Value::Char(_) => 1,
         Value::BigInteger(_) => 8,
@@ -1513,9 +1513,9 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         }
     };
     // At the end of a stream that holds data nothing is read: the result is 0 and the variable takes its default value
-    // (streams/lt-stream-read-write-media/P102ReadTyped.al: every `pastend_*`). A stream without any data keeps the error below.
+    // (streams/media/P102ReadTyped.al: every `pastend_*`). A stream without any data keeps the error below.
     let at_end = with_in(r.as_deref_mut(), |s| {
-        // An empty stream is at its end like any other (types/lt-variant-is-text-streams/LTP89StreamNumbers.al:
+        // An empty stream is at its end like any other (types/variant/LTP89StreamNumbers.al:
         // Integer_RoundTrip_PastEnd `read_empty`, with the second read raising: types/PRFileUpload.al:ReadFromUnfilledStream).
         let at = s.pos >= s.len();
         // The first read at the end answers 0; one after another read already hit the end raises.
@@ -1541,7 +1541,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         return Ok(Value::Integer(0));
     }
     // A Char: the default and MS-DOS encodings read one byte through the Byte to Char table, Windows reads it as it is, and UTF-8 and
-    // UTF-16 read two bytes as one little-endian code unit, one byte left being read as 1 with the Char 0 (xmlport/lt-ay-xmlport/
+    // UTF-16 read two bytes as one little-endian code unit, one byte left being read as 1 with the Char 0 (xmlports/shapes-properties/
     // AyXmlPortAttributeWidth.al:295-420 ReadChar_*).
     if let Value::Char(_) = a[0] {
         let (ch, count) = with_in(r, |s| {
@@ -1611,7 +1611,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             } else {
                 let closing = (n - 731) % 2 != 0;
                 let day = (n - 731 - i32::from(closing)) / 2;
-                // Bytes that are no date raise (misc/lt-probes-needed-1/PnAStreamReadMisc.al:Read_Types_A `op5`).
+                // Bytes that are no date raise (streams/PnAStreamReadMisc.al:Read_Types_A `op5`).
                 if !(1..=3_652_059).contains(&day) {
                     return Err(Signal::Error(Box::new(crate::native::AlError {
                         message: "The date is not valid.".into(),
@@ -1654,7 +1654,7 @@ fn out_buf(r: Option<&mut Value>) -> Result<(BlobRef, Encoding), Signal> {
 pub(crate) fn write_serialised_text(stream: &mut Value, text: &str) -> Result<(), Signal> {
     let (b, _) = out_buf(Some(stream))?;
     // The stream does not move: a second `WriteTo` on the same stream writes over the first one's bytes, and the
-    // blob is not emptied (misc/lt-probes-needed-3/PnC20JsonStreams.al:WriteTo_DefaultStream_And_Appending,
+    // blob is not emptied (streams/PnC20JsonStreams.al:WriteTo_DefaultStream_And_Appending,
     // `[1,2]1}`). Pinned only for a stream nothing was written to; after other writes it is refused.
     if b.borrow().write_pos != 0 {
         return unsupported(
@@ -1668,7 +1668,7 @@ pub(crate) fn write_serialised_text(stream: &mut Value, text: &str) -> Result<()
 
 /// `BigText.Write(OutStream)`: the text in the stream's encoding, appended at the stream's position like `WriteText`, so a stream
 /// written to before takes the text after it and a later `WriteText` or `Write` goes after it
-/// (streams/lt-bigtext-write/BigTextWriteEdges.al:Write_AfterWriteText_SameStream, WriteText_AfterBigTextWrite_SameStream;
+/// (streams/instream-outstream/BigTextWriteEdges.al:Write_AfterWriteText_SameStream, WriteText_AfterBigTextWrite_SameStream;
 /// corpus streams/StTBigText.al:WriteToStreamAndRead, :WriteReadLargeText). Pinned bytes: ASCII; for a default or MS-DOS stream
 /// `84 B1 3F` for a-umlaut, euro sign and the Cyrillic zhe, for Windows `E4 80 3F`, for UTF-8 and UTF-16 the plain encoding of
 /// the same three (BigTextWriteEdges.al:Write_NonAscii_*). A character beyond those and the characters the other stream writes
@@ -1739,7 +1739,7 @@ pub(crate) fn read_serialised_text(stream: &mut Value) -> Result<String, Signal>
                 "reading bytes with NUL characters (UTF-16 text?) from an InStream as UTF-8 (not pinned)".into(),
             ));
         }
-        // The stream does not move: `EOS` stays false after the read (misc/lt-probes-needed-3/PnC20JsonStreams.al:
+        // The stream does not move: `EOS` stays false after the read (streams/PnC20JsonStreams.al:
         // ReadFrom_RestOfStream, `eosAfter` = No), as for `XmlDocument.ReadFrom`.
         Ok(text.strip_prefix('\u{FEFF}').map(str::to_owned).unwrap_or(text))
     })
@@ -1749,7 +1749,7 @@ pub(crate) fn read_serialised_text(stream: &mut Value) -> Result<String, Signal>
 /// CR LF (:OutStream_WriteText_WithoutArgument_WritesCarriageReturnLineFeed).
 fn out_write_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     if a.len() > 1 {
-        // A length equal to that of an ASCII text writes the text (al-language-onprem-dotnet/lt-y51-blob-stream-position/
+        // A length equal to that of an ASCII text writes the text (al-language-onprem-dotnet/dotnet/blob-stream-position/
         // Y51BlobStreamPosition.al:245-247, `writetext_len1` 9|9: WriteText('x', 1) wrote one byte).
         let whole = matches!((crate::native::text_of(&a[0]), &a[1]), (Some(t), Value::Integer(n))
             if t.is_ascii() && usize::try_from(*n).ok() == Some(t.len()));
@@ -1795,7 +1795,7 @@ fn decimal_bytes(d: &rust_decimal::Decimal) -> Result<Vec<u8>, Signal> {
     let digits = d.mantissa().unsigned_abs().to_string();
     let exponent = digits.len() as i32 - 1 - d.scale() as i32;
     let digits = digits.trim_end_matches('0');
-    // Digits after the 18th are dropped (misc/lt-probes-needed-1/PnAStreamDecimalBytes.al:Write_Decimal_Tiny, `thirds-28-places`:
+    // Digits after the 18th are dropped (streams/instream-outstream/PnAStreamDecimalBytes.al:Write_Decimal_Tiny, `thirds-28-places`:
     // 28 threes write 18). Whether a dropped digit of 5 or more rounds up is not pinned: refused.
     let digits = if digits.len() > 18 {
         if digits.as_bytes()[18] >= b'5' {
@@ -1850,8 +1850,8 @@ fn decimal_from_bytes(b: &[u8]) -> Result<rust_decimal::Decimal, Signal> {
 fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let (b, enc) = out_buf(r.as_deref_mut())?;
     // A Record or a RecordId cannot be written to a stream of a Blob or a Temp Blob, with a length or without one: the error
-    // is raised and nothing is written (streams/lt-stream-read-write-media/P102WriteRecord.al:26 and :45, streams/lt-stream-length/
-    // StreamLengthOthers.al:Record_RecordId_WriteLength, types/lt-aj-probes/AjMisc.al:175-176 and :221).
+    // is raised and nothing is written (streams/media/P102WriteRecord.al:26 and :45, streams/instream-outstream/
+    // StreamLengthOthers.al:Record_RecordId_WriteLength, types/AjMisc.al:175-176 and :221).
     let record_kind = match &a[0] {
         Value::Record(rec) => Some(rec.try_borrow().map(|r| r.temporary).unwrap_or(true)),
         Value::Library(_, h) => matches!(&*h.borrow(), LibraryValue::RecordId { .. }).then_some(false),
@@ -1873,7 +1873,7 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
         && let Value::Integer(n) = a[1]
         && let Some(width) = fixed_stream_width(&a[0], enc)
     {
-        // The length of the type writes as without one (streams/lt-stream-length/StreamLengthIntegers.al:Integer_WriteReadLength_1
+        // The length of the type writes as without one (streams/instream-outstream/StreamLengthIntegers.al:Integer_WriteReadLength_1
         // `w4_wret`, :BigInteger_WriteReadLength_1 `w8_wret`, StreamLengthOthers.al `w12_wret`, `w16_wret`, `w1_wret`, `w4_wret`).
         if usize::try_from(n).ok() == Some(width) {
             return out_write(c, r, &mut a[..1]);
@@ -1894,7 +1894,7 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
                 "OutStream.Write with a length of something else than a Text and an Integer (not pinned)",
             );
         };
-        // A negative length writes the whole text (streams/lt-stream-read-write-media/P102WriteTextLike.al:P102_Text `lenneg_ret`).
+        // A negative length writes the whole text (streams/media/P102WriteTextLike.al:P102_Text `lenneg_ret`).
         // A Code ignores the length and writes the whole text (:P102_Code `len2_ret` is 5).
         let take = if *n < 0 || matches!(a[0], Value::Code(_)) {
             usize::MAX
@@ -1937,7 +1937,7 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
         // (corpus types/PEOptionEnumBigText.al:313-333, whose results fix the bytes on BC 27.5).
         Value::Byte(b) => vec![*b],
         Value::Integer(n) => n.to_le_bytes().to_vec(),
-        // An Option is its ordinal in 4 bytes (streams/lt-stream-length/StreamLengthOthers.al:Option_WriteReadLength_1 `nb_bytes`
+        // An Option is its ordinal in 4 bytes (streams/instream-outstream/StreamLengthOthers.al:Option_WriteReadLength_1 `nb_bytes`
         // 4:01000000 for the second member).
         Value::Option(n, _) => n.to_le_bytes().to_vec(),
         Value::Boolean(v) => i32::from(*v).to_le_bytes().to_vec(),
@@ -1951,7 +1951,7 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
         // Non-ASCII characters are pinned only for a Windows stream, as one cp1252 byte each
         // (streams/ProbeJsonAndInStreamBytes.al:InStreamRead_Text_AfterWriteTextAndAfterWriteText_NonAscii:
         // 'wörld' is 77 F6 72 6C 64 00).
-        // The text ends at its first NUL character (types/lt-variant-is-text-streams/LTP89StreamText.al:Text_BytesWritten `nul_char`).
+        // The text ends at its first NUL character (types/variant/LTP89StreamText.al:Text_BytesWritten `nul_char`).
         // Cyrillic and Japanese text on every encoding: `Encoding::write_text_pinned`.
         Value::Text(t) | Value::Code(t) if enc.write_text_pinned(t.split('\0').next().unwrap_or_default()) => {
             let mut v = enc.encode(t.split('\0').next().unwrap_or_default());
@@ -1970,7 +1970,7 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
 }
 
 /// The bytes `Write(Value)` and `Read(Value)` take for a type whose length form is pinned
-/// (streams/lt-stream-length/StreamLengthIntegers.al and StreamLengthOthers.al: Integer, Boolean and Option 4, BigInteger 8,
+/// (streams/instream-outstream/StreamLengthIntegers.al and StreamLengthOthers.al: Integer, Boolean and Option 4, BigInteger 8,
 /// Byte 1, Decimal 12, Guid 16, and Char 1 on a stream of the default encoding).
 fn fixed_stream_width(v: &Value, enc: Encoding) -> Option<usize> {
     match v {
@@ -1999,7 +1999,7 @@ fn is_default_fixed(v: &Value) -> bool {
 }
 
 /// "An invalid length 1 was specified in stream function. 4 was expected." (InvalidStreamLength,
-/// streams/lt-stream-length/StreamLengthIntegers.al:Integer_WriteReadLength_2 `w1_w`).
+/// streams/instream-outstream/StreamLengthIntegers.al:Integer_WriteReadLength_2 `w1_w`).
 fn invalid_stream_length(given: i32, width: usize) -> Signal {
     Signal::Error(Box::new(crate::native::AlError {
         message: format!("An invalid length {given} was specified in stream function. {width} was expected."),
@@ -2124,7 +2124,7 @@ fn copy_array(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResul
     let src = src.borrow();
     let mut dst = dst.borrow_mut();
     // The length parameter is the Length given, else what is left of the source from Position on. When it is not the length of
-    // the destination, the copy raises (misc/lt-system-functions/Arrays.al:CopyArray_Forms `af30`, `af37`, `af44`, `into smaller`,
+    // the destination, the copy raises (collections/Arrays.al:CopyArray_Forms `af30`, `af37`, `af44`, `into smaller`,
     // `from 6`, `from 0`, `count 6`, `count -1`, `from 5 count 2`; CopyArray_Texts). Position 0 and 6 of 5 are pinned, others outside are not.
     let length = match a.get(3) {
         Some(Value::Integer(n)) => i64::from(*n),
@@ -2233,7 +2233,7 @@ mod blob_cell_tests {
         // A box-drawing byte nothing pins is not decoded.
         assert!(!Encoding::MsDos.decode_pinned(&[0xC4]));
         // The UTF-8 bytes of U+202F and of `年月日` in a SaveAs Xml dataset read through the default encoding
-        // (report/lt-y-report-props/YReportPropsTests.al:80, :96).
+        // (reports/runtime/YReportPropsTests.al:80, :96).
         let ja = "2025\u{5E74}1\u{6708}31\u{65E5} 1\u{202F}2".as_bytes();
         assert!(Encoding::MsDos.decode_pinned(ja));
         assert_eq!(

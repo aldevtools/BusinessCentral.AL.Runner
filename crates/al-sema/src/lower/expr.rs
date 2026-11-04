@@ -17,7 +17,7 @@ impl Lowerer<'_> {
     /// Variable `name` (lower case) of the base object, seen from the extension being lowered
     /// (ADR-023): its slot among the base object's globals, and its type. Refused until the probes
     /// of ADR-023 pin the access. A table extension's use of a base table variable is pinned by
-    /// misc/lt-protected-var-abs-query-views/P146TableExtProtected.al.
+    /// record/P146TableExtProtected.al.
     pub(crate) fn base_var(&self, name: &str) -> L<(usize, Ty, Option<String>)> {
         // A table extension sees the protected variables of its base table, on the globals of the same record
         // (ADR-021 per-record instances). Not pinned by a corpus test; Microsoft's own tableextension 906 "Asm.
@@ -103,7 +103,7 @@ impl Lowerer<'_> {
     }
 
     /// The global slot of `name`, a protected variable of page extension `ext` that another extension of the same page names
-    /// (al-runner issue 6159). Pinned in one app (pageext/lt-ue-pageext-leads/UeProtectedVarTests.al, awaiting the corpus pin);
+    /// (al-runner issue 6159). Pinned in one app (testpage/UeProtectedVarTests.al, awaiting the corpus pin);
     /// across apps (the extension's app depends on the declaring one) the writer observed the same on real BC but it is not in
     /// the corpus. A variable of a simple type only, outside a control's source expression: the other forms are not pinned.
     pub(crate) fn ext_var(&mut self, ext: usize, name: &str) -> L<usize> {
@@ -128,7 +128,7 @@ impl Lowerer<'_> {
                 | Ty::Enum(_)
         );
         // A table extension's sibling: an Integer and a Record are pinned (al-runner issue 6485,
-        // tableextension/lt-y20-sibling-globals/Y20TableExtSiblingGlobals.al); a Record is allowed there too.
+        // table-objects/extensions/Y20TableExtSiblingGlobals.al); a Record is allowed there too.
         let table_ext = self.ws.objects[ext].kind == crate::workspace::ObjKind::TableExtension;
         if table_ext && !simple && !matches!(ty, Ty::Record { .. }) {
             return Err(format!(
@@ -157,7 +157,7 @@ impl Lowerer<'_> {
         }
         let slot = crate::base_access::slot_of(&ast, None, name)
             .ok_or_else(|| format!("`{name}` has no slot in the page extension that declares it"))?;
-        // Pinned by pageext/lt-ue-pageext-leads/UeProtectedVarTests.al (was assumption `pageext-sibling-protected-var`).
+        // Pinned by testpage/UeProtectedVarTests.al (was assumption `pageext-sibling-protected-var`).
         if self.ws.objects[ext].app != self.ws.objects[self.oi].app {
             self.assume(al_builtins::assumptions::Assumption::PageExtSiblingProtectedVarCrossApp);
         }
@@ -165,7 +165,7 @@ impl Lowerer<'_> {
     }
 
     /// A procedure of the extension with the name of a callable procedure of its base is compile
-    /// error AL0440 in BC (corpus handlers/TestPageExtensionBaseAccessContracts.al:20), so it is
+    /// error AL0440 in BC (corpus pages/extensions/TestPageExtensionBaseAccessContracts.al:20), so it is
     /// refused: BC never runs such code.
     pub(crate) fn declared_in_both_proc(&mut self, object: usize, offset: usize) -> L<()> {
         self.twin_call_refusal(object, offset)?;
@@ -184,7 +184,7 @@ impl Lowerer<'_> {
             return Ok(());
         };
         // Only the same parameter types are AL0440; a different signature is an overload (corpus
-        // pageext/POPageExtOverload.al on the staging branch).
+        // pages/extensions/POPageExtOverload.al on the staging branch).
         let mine = ast::routines_in(self.ws.object_ast(object).syntax())
             .into_iter()
             .find(|r| usize::from(r.syntax().text_range().start()) == offset);
@@ -196,7 +196,7 @@ impl Lowerer<'_> {
             // A local procedure of an extension of another app's page or report next to a public or protected base
             // procedure with the same parameter types compiles (al-runner issue 6043), and a bare call in the
             // extension's code runs the extension's own procedure; the base's own calls and a call on a page variable run
-            // the base's (pageext/lt-ext-local-same-name/ExtLocalSameNameTests.al:48-72). Pinned for a page extension
+            // the base's (pages/extensions/ExtLocalSameNameTests.al:48-72). Pinned for a page extension
             // only: a report extension stays assumed. In the base's app the same call does not compile (alc: AL0196,
             // the call is ambiguous): refused below.
             let local = mine.as_ref().is_some_and(|m| m.is_local());
@@ -207,7 +207,7 @@ impl Lowerer<'_> {
                 return Ok(());
             }
             // An internal procedure of an extension of another app's page next to a public or protected page procedure
-            // compiles, and the extension's own bare call runs its own procedure (pageext/lt-wd/WdPageExtInternalTwin.al
+            // compiles, and the extension's own bare call runs its own procedure (permissions/WdPageExtInternalTwin.al
             // WD_PageExtInternal_ExtensionCodeCallsTheName `ext internal public-twin;ext internal protected-twin`; corpus
             // branch al-runtime-rs-staging-1030c, al-runner issue 6294). The base's own calls: `twin_call_refusal`.
             // (Reached only inside the `any` above: at least one base procedure has the same signature.)
@@ -298,7 +298,7 @@ impl Lowerer<'_> {
             };
             // An internal procedure of a page extension in another app with the name and parameter types of a public or
             // protected procedure of the page: the page's own code and a Page variable's call from another object run the
-            // page's procedure, the extension's own code runs the extension's (pageext/lt-wd/WdPageExtInternalTwin.al with
+            // page's procedure, the extension's own code runs the extension's (permissions/WdPageExtInternalTwin.al with
             // xapp-a WdXaTwin.al and xapp-b WdXbTwin.al: `base public;base protected`, `ext internal public-twin;ext internal
             // protected-twin`, `base public`; corpus branch al-runtime-rs-staging-1030c, al-runner issue 6294). Only the call
             // that resolves that way is pinned (a Page variable call from an app other than the extension's); the other
@@ -413,7 +413,7 @@ impl Lowerer<'_> {
     }
 
     /// The call `node` of procedure `method` of the add-in of usercontrol `control` (ADR-027 section 3 row 18): it raises
-    /// the add-in's not-instantiated error when it runs (al-vm `control_add_in.rs`, pinned by corpus lt-ac/ACControlAddIn.al).
+    /// the add-in's not-instantiated error when it runs (al-vm `control_add_in.rs`, pinned by corpus testpage/ACControlAddIn.al).
     /// The error names the page; only pages without a caption are pinned (the TZ fixtures, LT AO Addin Card, LT F3 Addin
     /// Page), so the call on a page with a caption refuses when it runs. The arguments are not evaluated; whether BC
     /// evaluates one that calls a procedure before the error is not pinned, so such a call refuses when it runs too.
@@ -454,7 +454,7 @@ impl Lowerer<'_> {
     /// Why a name cannot be lowered in a page or report extension: it is a variable or procedure of
     /// the object the extension extends. Extension code runs on its own object, which holds none of
     /// the base object's variables or procedures (a bare control name binds to a base variable
-    /// through `Binding::BaseVar`, corpus handlers/TestRequestPageControlErrorName.al). A report
+    /// through `Binding::BaseVar`, corpus reports/TestRequestPageControlErrorName.al). A report
     /// extension reaches the `protected` ones of its base report (Microsoft's "Mfg. Adjust Add. Rep.
     /// Currency" calls `Window.Open(..)` and `ExchangeAmtLCYToFCY(..)`).
     pub(crate) fn base_member(&self, n: &SyntaxNode) -> Option<String> {
@@ -478,7 +478,7 @@ impl Lowerer<'_> {
             if crate::base_access::scope_enabled() {
                 // The checker already resolves what extension code may name (ADR-023), so this one
                 // is `local`, or a variable that is not `protected`.
-                // AL0161 in BC (corpus handlers/TestPageExtensionBaseAccessContracts.al, header; the text
+                // AL0161 in BC (corpus pages/extensions/TestPageExtensionBaseAccessContracts.al, header; the text
                 // is the compiler's): BC never runs such code.
                 let is_proc = obj.routines().any(|r| r.name().eq_ignore_ascii_case(&name))
                     && !obj.var_decls().any(|v| v.names().iter().any(|x| x.eq_ignore_ascii_case(&name)));
@@ -666,7 +666,7 @@ impl Lowerer<'_> {
         };
         match n.kind() {
             Literal => Ok(ir::Expr::Const(self.constant(n)?)),
-            // `this` in a codeunit is the running instance (corpus handlers/ProbeEventSubscriberOrder.al:
+            // `this` in a codeunit is the running instance (corpus events/ProbeEventSubscriberOrder.al:
             // `BindSubscription(this)`).
             NameRef if crate::check::is_this_keyword(n) && self.ws.objects[self.oi].kind == ObjKind::Codeunit => {
                 Ok(ir::Expr::ThisInstance)
@@ -762,12 +762,12 @@ impl Lowerer<'_> {
                     let mut elems = self.in_set_elems(&kids[0], set)?;
                     let mut l = l;
                     // A text literal on the left of a range: the ends of the range compare in the culture order when the value is a
-                    // Text (types/lt-ax-text-format-dates/AxCodeCompare.al:193-213), but a one-character literal in a range of
+                    // Text (format-evaluate/AxCodeCompare.al:193-213), but a one-character literal in a range of
                     // one-character literals compares as a Char (`'K' in ['a' .. 'z']` is No:
-                    // types/lt-expression-operators-literals/ExpressionBinaryOperators.al:288, :303). Another literal on the left of a
+                    // types/operators-expressions/ExpressionBinaryOperators.al:288, :303). Another literal on the left of a
                     // range is not pinned.
                     // A BigInteger on the left of a set of Integers converts to an Integer, so one beyond the Integer range raises
-                    // the conversion error (types/lt-implicit-conversions/P79BigOption.al:401, 511-529 Compare_InSet,
+                    // the conversion error (types/operators-expressions/P79BigOption.al:401, 511-529 Compare_InSet,
                     // `Big in [0, 1, 2]`). A set with other elements is compared as it is.
                     if matches!(self.ty_of(&kids[0]), Ty::BigInteger)
                         && set.children().count() > 0
@@ -820,7 +820,7 @@ impl Lowerer<'_> {
                 }
                 let r = self.operand(&kids[1], operand_use)?;
                 // A one-character literal next to a Char under `+` or `-` is a Char, so the two add or subtract as numbers
-                // (corpus types/lt-af-char-literal/AfCharLiteralArithmetic.al:22-43, types/lt-at-partner-gaps/AtTextCharLiteral.al;
+                // (corpus types/text-code-char/AfCharLiteralArithmetic.al:22-43, format-evaluate/AtTextCharLiteral.al;
                 // check::char_and_one_char_literal).
                 let (l, r) = if crate::check::char_and_one_char_literal(
                     &op,
@@ -952,7 +952,7 @@ impl Lowerer<'_> {
                     })
                 }
                 Some(Res::EnumValue { object, value }) => {
-                    // Pinned by types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al (was assumption `enum-type-before-rec-field`).
+                    // Pinned by types/enum-option/EnumTypeBeforeRecField.al (was assumption `enum-type-before-rec-field`).
                     Ok(ir::Expr::Const(ir::Const::Enum(object as u32, value)))
                 }
                 Some(Res::OptionValue(i)) => match self.ty_of(n) {
@@ -998,7 +998,7 @@ impl Lowerer<'_> {
                         && kids[0].kind() == NameRef
                         && kids[0].text_string().trim().eq_ignore_ascii_case("this") =>
                 {
-                    // `this.Id` (corpus query/PRQueryOpenColumn.al `PeekThis`).
+                    // `this.Id` (corpus queries/PRQueryOpenColumn.al `PeekThis`).
                     let layout = self.checked.queries[query].as_ref().ok_or("query layout")?;
                     if layout.query.columns[column].filter_element {
                         return Err("reading a filter element of a query (not pinned)".into());
@@ -1067,12 +1067,12 @@ impl Lowerer<'_> {
                     let base = self.base_object().map_or(self.oi, |(b, ..)| b);
                     self.label_read(text, true, base)
                 }
-                // `CurrPage.<protected var>` read in a page extension: the base page's variable (pages/lt-up-page-ext/UpPageExt.al:74
+                // `CurrPage.<protected var>` read in a page extension: the base page's variable (pages/extensions/UpPageExt.al:74
                 // with :143-152, corpus PR 808 at branch commit 910da83e; al-runner issue 6219). Runs on the assumption
                 // `pageext-currpage-protected-var` until PR 808 is in the pinned corpus.
                 Some(Res::BaseGlobal(name)) if n.kind() == MemberExpr => {
                     let (slot, _, _) = self.base_var(&name)?;
-                    // Pinned by pages/lt-up-page-ext/UpPageExt.al (was assumption `pageext-currpage-protected-var`).
+                    // Pinned by pages/extensions/UpPageExt.al (was assumption `pageext-currpage-protected-var`).
                     Ok(ir::Expr::Load(ir::Place::BaseGlobal(slot)))
                 }
                 // `CurrXmlPort` in an xmlport is the running instance (P94Fixtures.al:317 `currXMLport.Filename()`).
@@ -1200,8 +1200,8 @@ impl Lowerer<'_> {
         let found = layout.controls.iter().position(|c| c.name.eq_ignore_ascii_case(name));
         // A parameterless TestPage method that returns a TestAction, written without parentheses (`P.OK.Invoke()`), is the
         // method when no control has its name: a parameterless method reads the same without parentheses
-        // (pages/lt-ca-odd-667/CaTestPageTests.al:261-282 Ca07_CaptionWithoutParentheses, _fixtures/Assert.al:167 RecRef.Count).
-        // A control of that name wins (handlers/TestPageKeywordActionName_Tests.al:64).
+        // (testpage/notifications-and-control-values/CaTestPageTests.al:261-282 Ca07_CaptionWithoutParentheses, _fixtures/Assert.al:167 RecRef.Count).
+        // A control of that name wins (testpage/TestPageKeywordActionName_Tests.al:64).
         if found.is_none() && matches!(self.ty_ref(recv), Ty::TestPage(_)) {
             if let Some(m) = ["OK", "Cancel", "Yes", "No", "Edit", "View"]
                 .iter()
@@ -1232,7 +1232,7 @@ impl Lowerer<'_> {
     /// An expression used as an operand. A `DotNet` value has no static type: it is settled when
     /// the code runs, from the kind the host returned (ADR-024). A variable declared `DotNet String` holds a text
     /// or nothing, and nothing reads as the empty text
-    /// (tests/al-language-onprem-dotnet/lt-dotnet-interop/DotNetOperandStringEq.al: `Nothing = ''` is Yes,
+    /// (tests/al-language-onprem-dotnet/dotnet/dotnet-interop/DotNetOperandStringEq.al: `Nothing = ''` is Yes,
     /// `Nothing + 'x'` is `x`).
     pub(crate) fn operand(&mut self, n: &SyntaxNode, how: ir::OperandUse) -> L<ir::Expr> {
         let e = self.expr(n)?;
@@ -1259,7 +1259,7 @@ impl Lowerer<'_> {
     }
 
     /// `x in [..]` where `x` is a `DotNet` variable: each element is `=` (a .NET text compares by case), each range
-    /// `>= lo and <= hi` (tests/al-language-onprem-dotnet/lt-dotnet-interop/DotNetOperandStringIn.al,
+    /// `>= lo and <= hi` (tests/al-language-onprem-dotnet/dotnet/dotnet-interop/DotNetOperandStringIn.al,
     /// DotNetOperandInt32In.al, DotNetOperandDecimalIn.al, DotNetOperandDateTimeIn.al, XmlNodeTypeOrder.al:`InSet`).
     /// The subject is read once per element, so it must be a plain variable: a member call stays refused.
     fn dotnet_in(&mut self, subject: &SyntaxNode, set: &SyntaxNode) -> L<ir::Expr> {
@@ -1337,7 +1337,7 @@ pub(crate) fn is_string_literal(node: &SyntaxNode) -> bool {
 }
 
 /// A read of a TextConst whose text depends on the language in force: `System.TextConstText#1` with its language codes and
-/// texts in declaration order, which picks the text when it runs (misc/lt-probe-requests-140/P140TextConstLang.al).
+/// texts in declaration order, which picks the text when it runs (text/textconst-label/P140TextConstLang.al).
 fn textconst_read(texts: &[(String, String)]) -> L<ir::Expr> {
     Ok(ir::Expr::Builtin {
         id: super::call::builtin_id("System.TextConstText#1")?,
@@ -1356,7 +1356,7 @@ fn textconst_read(texts: &[(String, String)]) -> L<ir::Expr> {
 }
 
 /// `Text[i]` read: a position outside a text literal raises the .NET error, where a variable reads the character 0 past its end
-/// (text/lt-text-instance/Index1.Codeunit.al Index_Read_Literal: `'hello'[6]`, `'hello'[0]`, `''[1]`).
+/// (text/text-methods/Index1.Codeunit.al Index_Read_Literal: `'hello'[6]`, `'hello'[0]`, `''[1]`).
 fn char_at_expr(base: ir::Expr, index: ir::Expr) -> ir::Expr {
     if let (ir::Expr::Const(ir::Const::Text(t)), ir::Expr::Const(ir::Const::Integer(i))) = (&base, &index)
         && !(1..=t.encode_utf16().count() as i64).contains(&i64::from(*i))

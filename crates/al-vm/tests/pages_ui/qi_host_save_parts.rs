@@ -1,4 +1,4 @@
-//! corpus testpart/QiHostSaveParts.al (codeunit 86836): a host card with a linked ListPart and an unlinked ListPart.
+//! corpus testpage/parts/QiHostSaveParts.al (codeunit 86836): a host card with a linked ListPart and an unlinked ListPart.
 //! A host SetValue whose OnValidate calls CurrPage.SaveRecord() re-reads both parts; Rec.Modify() or neither re-reads no part;
 //! in OnAfterGetRecord xRec is the row the page fetched before it. The fixture objects are the corpus file's, unchanged.
 
@@ -438,7 +438,7 @@ fn obs(s: &str, name: &str) -> String {
         .to_string()
 }
 
-/// testpart/QiHostSaveParts.al QI_HostSaveRecord_ChangedValue (:361-367).
+/// testpage/parts/QiHostSaveParts.al QI_HostSaveRecord_ChangedValue (:361-367).
 #[test]
 fn qi_hostsaverecord_changedvalue() {
     let s = run("SaveChanged");
@@ -459,7 +459,7 @@ fn qi_hostsaverecord_changedvalue() {
     assert_eq!(obs(&s, "stored-after-close"), "b|a|a|", "stored-after-close");
 }
 
-/// testpart/QiHostSaveParts.al QI_HostSaveRecord_SameValue (:385-387).
+/// testpage/parts/QiHostSaveParts.al QI_HostSaveRecord_SameValue (:385-387).
 #[test]
 fn qi_hostsaverecord_samevalue() {
     let s = run("SaveSame");
@@ -476,7 +476,7 @@ fn qi_hostsaverecord_samevalue() {
     assert_eq!(obs(&s, "close"), "", "close");
 }
 
-/// testpart/QiHostSaveParts.al QI_HostModify_ChangedValue (:437-443).
+/// testpage/parts/QiHostSaveParts.al QI_HostModify_ChangedValue (:437-443).
 #[test]
 fn qi_hostmodify_changedvalue() {
     let s = run("ModChanged");
@@ -497,7 +497,7 @@ fn qi_hostmodify_changedvalue() {
     assert_eq!(obs(&s, "stored-after-close"), "a|b|a|", "stored-after-close");
 }
 
-/// testpart/QiHostSaveParts.al QI_HostPlain_ChangedValue (:465-471).
+/// testpage/parts/QiHostSaveParts.al QI_HostPlain_ChangedValue (:465-471).
 #[test]
 fn qi_hostplain_changedvalue() {
     let s = run("PlainChanged");
@@ -518,7 +518,7 @@ fn qi_hostplain_changedvalue() {
     assert_eq!(obs(&s, "stored-after-close"), "a|a|b|", "stored-after-close");
 }
 
-/// testpart/QiHostSaveParts.al QI_PartNewRow_ThenHostSetValue (:499-505).
+/// testpage/parts/QiHostSaveParts.al QI_PartNewRow_ThenHostSetValue (:499-505).
 #[test]
 fn qi_partnewrow_thenhostsetvalue() {
     let s = run("PartNew");
@@ -547,7 +547,7 @@ fn qi_partnewrow_thenhostsetvalue() {
     );
 }
 
-/// testpart/QiHostSaveParts.al QI_PartNewRowUntouched_ThenHostSetValue (:527-530).
+/// testpage/parts/QiHostSaveParts.al QI_PartNewRowUntouched_ThenHostSetValue (:527-530).
 #[test]
 fn qi_partnewrowuntouched_thenhostsetvalue() {
     let s = run("PartUntouched");
@@ -561,7 +561,7 @@ fn qi_partnewrowuntouched_thenhostsetvalue() {
     );
 }
 
-/// testpart/QiHostSaveParts.al QI_PartEditedRow_ThenHostSetValue (:553-557).
+/// testpage/parts/QiHostSaveParts.al QI_PartEditedRow_ThenHostSetValue (:553-557).
 #[test]
 fn qi_parteditedrow_thenhostsetvalue() {
     let s = run("PartEdited");
@@ -580,7 +580,7 @@ fn qi_parteditedrow_thenhostsetvalue() {
     );
 }
 
-/// testpart/QiHostSaveParts.al QI_PartNewRow_ThenHostSaveRecord (:580-583).
+/// testpage/parts/QiHostSaveParts.al QI_PartNewRow_ThenHostSaveRecord (:580-583).
 #[test]
 fn qi_partnewrow_thenhostsaverecord() {
     let s = run("PartNewSave");
@@ -602,7 +602,7 @@ fn qi_partnewrow_thenhostsaverecord() {
     );
 }
 
-/// testpart/QiHostSaveParts.al QI_HostSaveRecord_PartMovedToSecondRow (:409-415).
+/// testpage/parts/QiHostSaveParts.al QI_HostSaveRecord_PartMovedToSecondRow (:409-415).
 #[test]
 fn qi_hostsaverecord_partmovedtosecondrow() {
     let s = run("PartMoved");

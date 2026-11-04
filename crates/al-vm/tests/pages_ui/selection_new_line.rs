@@ -1,5 +1,5 @@
 //! CurrPage.SetSelectionFilter in OnAfterGetCurrRecord while an editable list stands on its new line (pages/pageops.rs,
-//! pages/page_var_view.rs). Each test names the corpus test of pages/lt-y61-page-probes/Y61SelectionComposite.al that pins it.
+//! pages/page_var_view.rs). Each test names the corpus test of testpage/Y61SelectionComposite.al that pins it.
 
 const SRC: &str = r#"
 table 69990 "SN Log" { fields { field(1; Id; Integer) { } field(2; Txt; Text[250]) { } } keys { key(PK; Id) { } } }

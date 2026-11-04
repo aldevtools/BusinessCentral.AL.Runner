@@ -1,6 +1,6 @@
 //! `GetLastErrorObject` (OnPrem): the last error as a .NET exception object, served by the runtime.
 //! Every pinned literal is what the real service tier answered in the corpus:
-//! tests/al-language-onprem-dotnet/lt-dotnet-interop/GetLastErrorObject.al (BC 27, 28, 29; corpus issue 572).
+//! tests/al-language-onprem-dotnet/dotnet/dotnet-interop/GetLastErrorObject.al (BC 27, 28, 29; corpus issue 572).
 //! The stack text of `ToString` after its first line is not pinned (only that it has `   at ` frames).
 
 use al_builtins::native::Signal;
@@ -253,14 +253,16 @@ fn to_string_of_a_trace_that_is_not_pinned_marks_the_assumption() {
 }
 
 /// An error an asserterror caught shows `NavMethodScope.AssertErrorAsync` in its frames (onprem-dotnet/lt-y76-dotnet/Y76DotNet.al
-/// Y76_Asserterror_Error pins that name as a substring). The namespace before it is not pinned, so the line carries the name alone.
+/// Y76_Asserterror_Error pins that name as a substring; Y89ToStringFrames.al the whole line with its namespace and argument).
 #[test]
-fn to_string_of_an_asserterror_error_names_the_assert_frame_without_a_guessed_namespace() {
+fn to_string_of_an_asserterror_error_names_the_assert_frame() {
     let r = text(run(
         "procedure F(): Text var T: Codeunit \"LEO Thrower\"; Exc: DotNet LeoExc; begin asserterror T.Raise(); Exc := GetLastErrorObject(); exit(Exc.ToString()); end;",
     ));
-    assert!(r.contains("\n   at NavMethodScope.AssertErrorAsync\n"), "{r}");
-    assert!(!r.contains("Nav.Runtime.NavMethodScope"), "{r}");
+    assert!(
+        r.ends_with("\n   at Microsoft.Dynamics.Nav.Runtime.NavMethodScope.AssertErrorAsync(Func`1 body)"),
+        "{r}"
+    );
 }
 
 /// GetLastErrorObject.al:Observer.Expect('toStringFirstLine', 'NavALException: Attempted to divide by zero.') ends the first line

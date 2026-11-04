@@ -548,6 +548,7 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
         test_request_pages_of_no_report(ws, oi, &obj, &mut out);
         ambiguous_dotnet_aliases(ws, oi, &decls, &mut out);
         object_properties(ws, oi, &obj, &mut out);
+        permissions_property::check(ws, oi, &obj, &mut out);
         object_triggers(ws, oi, &obj, &mut out);
         label_trailing_commas(ws, o.file, &types, &mut out);
         if !unparsed.contains(&(ws.files[o.file].app, ws.files[o.file].path.as_str())) && !whole.contains(&o.file) {
@@ -584,7 +585,7 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
 }
 
 /// AL0301 and AL0107 for the trailing commas of a Label declaration (al-runner issue 6436). One comma right after the text
-/// compiles (text/lt-label-textbuilder/TxCLabel.al Y12_Label_TrailingComma); a trailing comma after a property is AL0301
+/// compiles (text/textbuilder-bigtext/TxCLabel.al Y12_Label_TrailingComma); a trailing comma after a property is AL0301
 /// (must-not-compile 2330 `Locked = true,;`, 2331 `Comment = 'c',;`), two commas after the text AL0107 (2332 `'T',,;`).
 /// The diagnostic is at the comma that is wrong; the parser rejects both shapes too, so the file never runs.
 fn label_trailing_commas(ws: &Workspace, file: usize, types: &[SyntaxNode], out: &mut Vec<Diagnostic>) {
@@ -643,7 +644,7 @@ fn label_trailing_commas(ws: &Workspace, file: usize, types: &[SyntaxNode], out:
 
 /// AL0185 `Table 'Integer' is missing`. The platform table Integer lives in namespace System.Utilities: a file in a namespace
 /// names it bare only through `using System.Utilities;` (must-not-compile 2081: a Record variable, 2082: a report data item;
-/// misc/lt-inferred-behaviors/RiNsPlatformTable.al:19 compiles with the using, al-runner issue 5694). Only those two shapes and
+/// record/RiNsPlatformTable.al:19 compiles with the using, al-runner issue 5694). Only those two shapes and
 /// only Integer are pinned: other platform tables, other places that name a table, a qualified name and a file whose namespace
 /// is System.Utilities or below it keep compiling. A table Integer the file finds in its own namespace, a using or among the
 /// objects without a namespace is no error.
@@ -774,7 +775,7 @@ fn test_request_pages_of_no_report(ws: &Workspace, oi: usize, obj: &ast::Object,
 }
 
 /// AL0460 (corpus must-not-compile 2335): a DotNet variable of a codeunit declared both `[RunOnClient]` and `[WithEvents]`.
-/// The same declaration on a page compiles (al-language-onprem-dotnet/lt-bg-runonclient/Y16RunOnClientShapes.al, page
+/// The same declaration on a page compiles (al-language-onprem-dotnet/dotnet/runonclient/Y16RunOnClientShapes.al, page
 /// 99475). Other object kinds are not judged.
 fn client_events_outside_pages(ws: &Workspace, oi: usize, decls: &[ast::VarDecl], out: &mut Vec<Diagnostic>) {
     for d in decls {
@@ -795,7 +796,7 @@ fn client_events_outside_pages(ws: &Workspace, oi: usize, decls: &[ast::VarDecl]
 /// AL0275: a variable of type `DotNet N`, N bare, where the app declares the alias N outside a namespace and an app it
 /// depends on declares N in namespace System (must-not-compile 2359, corpus writer Y20, al-runner issue 6488: System
 /// Application declares String, DateTime and StringBuilder there). The dependency's alias alone, and `DotNet System.N`,
-/// compile (al-language-onprem-dotnet/lt-y20-dotnet-fullname/Y20DotNetFullTypeName.al:27-58). Only that shape is pinned: a
+/// compile (al-language-onprem-dotnet/dotnet/dotnet-fullname/Y20DotNetFullTypeName.al:27-58). Only that shape is pinned: a
 /// file or a declaration in a namespace, another namespace of the dependency, a parameter or a return type keep compiling.
 /// A dependency that is not loaded declares nothing here, so nothing is reported.
 fn ambiguous_dotnet_aliases(ws: &Workspace, oi: usize, decls: &[ast::VarDecl], out: &mut Vec<Diagnostic>) {
@@ -985,7 +986,7 @@ fn page_customization_variables(ws: &Workspace, oi: usize, obj: &ast::Object, ou
 
 /// AL0322 (corpus must-not-compile 2000): `Visible`, `Enabled` or `Editable` of a page's field control is a call of one
 /// of the page's procedures with no arguments ("Procedure calls is not valid for client expressions."). The same
-/// binding on an action compiles (warning AL0573, pages/lt-qq-procedure-bound-action/QqBoundObjects.al). Other forms of a
+/// binding on an action compiles (warning AL0573, pages/actions/QqBoundObjects.al). Other forms of a
 /// call (with arguments, inside a larger expression) are not judged.
 fn field_control_procedure_calls(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
     let procedures = page_procedures(obj);
@@ -1208,14 +1209,14 @@ pub(crate) fn duplicate_id_objects(ws: &Workspace) -> Vec<usize> {
 const AL0305_LIMIT: usize = 30;
 /// The longest name of a permission set with `Assignable = true` (2131-permissionset-name-21-characters.al:3-5:
 /// 21 is refused, 20 compiles). Other permission sets have the limit of 30 (2333-permissionset-not-assignable-name-31-characters.al,
-/// 2334-permissionset-no-assignable-name-31-characters.al: 31 is refused; al-language/permissions/lt-y12-permset-name-length/
+/// 2334-permissionset-no-assignable-name-31-characters.al: 31 is refused; al-language/permissions/permission-sets/
 /// Y12PermSetNames.al: 21 to 30 compile; al-runner issue 6445).
 const AL0305_PERMISSION_SET_LIMIT: usize = 20;
 
 /// The name limit AL0305 applies to an object type, where a case pins it: codeunits (0055, 2115, 2120, 2121), tables
 /// (2122), pages (2123), reports (2124), queries (2125), xmlports (2126), table, page and report extensions
 /// (2127-2129), profiles (2130) and permission sets (2131). Enums have no such limit (2132's comment, and
-/// al-language/misc/lt-cv-odd-leads/CvEnumLongNames.al compiles a name of 38). Enum extensions, permission set
+/// al-language/types/enum-option/CvEnumLongNames.al compiles a name of 38). Enum extensions, permission set
 /// extensions and interfaces are not pinned and are not judged (docs/probes-needed.md).
 fn name_limit(kind: ObjKind) -> Option<usize> {
     match kind {
@@ -1268,7 +1269,7 @@ fn long_object_names(ws: &Workspace, out: &mut Vec<Diagnostic>) {
 }
 
 /// The triggers of a page that a page extension may not declare (corpus 0004, 0017, 0018). The other
-/// twelve page triggers compile in an extension (corpus al-language/pageext/POPageExtTriggers.al);
+/// twelve page triggers compile in an extension (corpus al-language/pages/extensions/POPageExtTriggers.al);
 /// any other trigger name is not judged here.
 const PAGE_ONLY_TRIGGERS: &[&str] = &["OnInit", "OnFindRecord", "OnNextRecord"];
 
@@ -1292,9 +1293,9 @@ fn page_extension_triggers(ws: &Workspace, oi: usize, obj: &ast::Object, out: &m
 
 /// The properties of a codeunit (docs: Codeunit object properties). A name outside the list is AL0124
 /// (corpus must-not-compile 0305, 0310, 0312, over the 3,500 codeunit properties of the corpus: none else occurs).
-/// `TestType` compiles on a Test codeunit (corpus al-language/codeunit/lt-x-object-props/XObjectProps.al:11); on a
+/// `TestType` compiles on a Test codeunit (corpus al-language/codeunits/procedures/XObjectProps.al:11); on a
 /// codeunit without Subtype = Test and with an invalid value it does not (must-not-compile 0781, 0782), which this list does not judge.
-/// `TestHandlers` compiles on BC 29 (corpus al-language-testlibraries/lt-bi-test-framework/BiTestHandler.al:98); on BC 27 the
+/// `TestHandlers` compiles on BC 29 (corpus al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandler.al:98); on BC 27 the
 /// compiler answers AL0666 and AL0928 for it, not AL0124 (must-not-compile 0784), which this list does not judge either.
 // behavior-coverage: validation-only begin
 const CODEUNIT_PROPERTIES: &[&str] = &[
@@ -1365,7 +1366,7 @@ fn object_properties(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec
 
 /// Triggers an object type does not have (corpus must-not-compile 0316 to 0321): the triggers of the other
 /// object types. A codeunit has more triggers than OnRun (install, upgrade and test runner codeunits, corpus
-/// install/TestInstallSeeder.al and events/lt-trigger-pins/PTestRunnerTriggers.al:107, :116), so only the
+/// install-upgrade/TestInstallSeeder.al and events/platform-triggers/PTestRunnerTriggers.al:107, :116), so only the
 /// triggers of tables, pages, reports and xmlports are judged there.
 // behavior-coverage: validation-only begin
 fn foreign_triggers(kind: ObjKind) -> &'static [&'static str] {
@@ -1793,7 +1794,7 @@ pub(crate) enum Twin {
     /// `ext` is `local`: it compiles; code outside the extension cannot reach it.
     Local,
     /// Error AL0440: both public or protected, in the same app (page and report) or a report extension of another app
-    /// (corpus must-not-compile 0003 and 0042, handlers/TestPageExtensionBaseAccessContracts.al:20).
+    /// (corpus must-not-compile 0003 and 0042, pages/extensions/TestPageExtensionBaseAccessContracts.al:20).
     Al0440,
     /// alc compiles both: a page extension of another app with both public or protected (warning AL0523 only), or
     /// `internal` on either side (same app or another app; in the same app a bare call of the name in the extension
@@ -2026,7 +2027,7 @@ fn report_variable_columns(ws: &Workspace, file: usize, obj: &ast::Object) -> Ve
 
 /// AL0385. `IncludeCaption = true` on a report column whose source is an expression, not a named
 /// field (corpus 0015), or a bare name of a global variable of the report that no data item's table has a field of (corpus 2010).
-/// A source written with a data item name (`Item.Field`) is a named field (errors/lt-ms-refusals-138/P138ColCaptionQualified.al).
+/// A source written with a data item name (`Item.Field`) is a named field (streams/P138ColCaptionQualified.al).
 fn report_columns(
     ws: &Workspace,
     file: usize,
@@ -2508,5 +2509,6 @@ fn typed_names(d: &ast::VarDecl) -> Vec<(String, String)> {
 }
 
 mod control_visible;
+mod permissions_property;
 #[cfg(test)]
 mod tests;

@@ -1,6 +1,6 @@
 //! Clear of a Dialog, opened or not, raises nothing and leaves it closed: Update and Close then raise "The operation failed
 //! because the dialog box is not open." (code Dialog) and Open works again; ClearAll and Clear of a `var` parameter do the same
-//! (al-runner issue 6656; corpus writer Y64, branch al-runtime-rs-staging-y64 85d86e7b, pages/lt-page-runtime/P82Dialog.al:
+//! (al-runner issue 6656; corpus writer Y64, branch al-runtime-rs-staging-y64 85d86e7b, pages/run-modal/P82Dialog.al:
 //! 442-547 Y64_Clear_UnopenedDialog, Y64_Clear_OpenedDialog, Y64_Clear_DialogInSingleInstanceCodeunit).
 
 use al_testkit::text;

@@ -1,7 +1,7 @@
 //! XmlPort import of an empty leaf text element: `<x />` runs its OnAfterAssignVariable twice, `<x></x>`, `<x> </x>` and
 //! `<x>v</x>` once, below the root, below a table element and inside a text element below a table element. A field element's
 //! OnAfterAssignField and a container text element's OnAfterAssignVariable run once for both forms (corpus branch
-//! al-runtime-rs-staging-tr, xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TR_EmptyLeaf_Import, port in
+//! al-runtime-rs-staging-tr, xmlports/shapes-properties/QrXpContainerOccurs.al TR_EmptyLeaf_Import, port in
 //! TrXpReplyObjects.al).
 
 use al_testkit::text;

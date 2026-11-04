@@ -1,7 +1,7 @@
 //! The Metadata Permission Set Rel. table (2000000252): one row per include and per exclude of a permission set object.
 //!
-//! Pinned by corpus permissions/lt-y59-metadata-permission/Y59PermissionSetRel.al (corpus master 9cf26907) and
-//! codeunit/lt-x-object-props/XObjectProps.al:335-360:
+//! Pinned by corpus permissions/permission-sets/Y59PermissionSetRel.al (corpus master 9cf26907) and
+//! codeunits/procedures/XObjectProps.al:335-360:
 //! - a row per `IncludedPermissionSets` entry (Type Include) and per `ExcludedPermissionSets` entry (Type Exclude), keyed
 //!   (App ID, Role ID, Related App ID, Related Role ID), Role IDs upper case (:192-197);
 //! - an include that a permission set extension adds is a row of the extended set (:193); a set with no includes has no rows,

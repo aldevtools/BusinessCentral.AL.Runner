@@ -1,5 +1,5 @@
 //! A call stack text (it carries the untracked-frame mark) goes into a TextBuilder and comes back out of it, as it goes
-//! through `+` and a Blob round trip (al-runner issue 6310; corpus error-handling/lt-wd/WdCallStackToBlob.al, codeunit
+//! through `+` and a Blob round trip (al-runner issue 6310; corpus errors/last-error/WdCallStackToBlob.al, codeunit
 //! 90742: the call stack text round-trips and is not empty). Its content is not pinned, so no text function reads it.
 
 use al_testkit::{boolean, run_in};

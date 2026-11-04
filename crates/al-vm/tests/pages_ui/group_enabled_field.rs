@@ -1,5 +1,5 @@
 //! A field with `Enabled = true` inside a group with `Enabled = false` is disabled on a TestPage of a card
-//! (pages/lt-ap-testpage-642/ApTestPageTests.al:1082 Ap16_GroupEnabledFalse_FieldEnabledTrue). Another page type is the
+//! (testpage/ApTestPageTests.al:1082 Ap16_GroupEnabledFalse_FieldEnabledTrue). Another page type is the
 //! registered assumption `group-enabled-disables-field`.
 
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
@@ -54,7 +54,7 @@ fn a_field_in_a_disabled_group_of_a_document_is_the_assumption() {
 
 #[test]
 fn a_card_field_without_enabled_in_a_disabled_group_is_pinned() {
-    // pages/lt-ap-testpage-642/ApTestPageTests.al:895 Ap16_GroupEnabledFalse_Card: no assumption on this path.
+    // testpage/ApTestPageTests.al:895 Ap16_GroupEnabledFalse_Card: no assumption on this path.
     let src = SRC.replace("ApplicationArea = All; Enabled = true;", "ApplicationArea = All;");
     clear_hits();
     assert_eq!(al_testkit::text(al_testkit::run_in(&src, "C", "F")), "No,Yes");

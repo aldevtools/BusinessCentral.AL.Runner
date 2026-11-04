@@ -157,7 +157,7 @@ fn issue_6639_a_lookup_on_a_host_with_a_second_part_shows_the_picked_value() {
     let get = |n: &str| format!("{:?}", o.iter().find(|(name, _)| name == n).map(|(_, x)| x));
     assert_eq!(get("SecondListPartShowsThePickedResource"), "Some(Pass)");
     assert_eq!(get("CardFactBoxShowsThePickedResource"), "Some(Pass)");
-    // Pinned by pages/lt-y15/Y15LookupThreeFieldLink.al Y63_PartThenOther_LookupReadEachControl: `resource no` `R2`.
+    // Pinned by testpage/Y15LookupThreeFieldLink.al Y63_PartThenOther_LookupReadEachControl: `resource no` `R2`.
     assert_eq!(get("LinkedPartFirst"), "Some(Pass)");
     let g = get("PartNextAfterTheLookup");
     assert!(

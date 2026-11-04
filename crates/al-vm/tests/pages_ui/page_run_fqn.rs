@@ -1,4 +1,4 @@
-//! Page.Run and Page.RunModal with a fully qualified page name (corpus master pages/lt-y74-fqn-run/Y74FqnRunForms.al,
+//! Page.Run and Page.RunModal with a fully qualified page name (corpus master pages/run-modal/Y74FqnRunForms.al,
 //! BC 28 and later): Run_Name_Only, Run_Name_Record, Run_Name_Record_FieldValue, Run_Name_Spellings, RunModal_Name_Only,
 //! Err_NoNamespace, Err_PageIdAsText. A name that resolves to no page is not pinned and refused.
 
@@ -62,7 +62,7 @@ fn a_name_that_resolves_to_no_page_is_refused() {
     );
 }
 
-// corpus pages/lt-y89-fqn-missing/Y89FqnMissing.al:125 Y89_Fqn_Empty_RunRec and :153 Y89_Fqn_Empty_RunModalRec (BC 28.5): an empty
+// corpus pages/missing-object-fqn/Y89FqnMissing.al:125 Y89_Fqn_Empty_RunRec and :153 Y89_Fqn_Empty_RunModalRec (BC 28.5): an empty
 // name with a record raises AL:MetadataNotFound (the text is not asserted there). The name alone ends in an uncatchable
 // NullReferenceException on BC (:113 Y89_Fqn_Empty_Run is no [Test]) and stays refused.
 #[test]

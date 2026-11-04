@@ -1,4 +1,4 @@
-//! `Page.Run` and `Page.RunModal` with a fully qualified page name, from BC 28 (corpus master pages/lt-y74-fqn-run/
+//! `Page.Run` and `Page.RunModal` with a fully qualified page name, from BC 28 (corpus master pages/run-modal/
 //! Y74FqnRunForms.al):
 //! - `Namespace.Name` and `Namespace."Name"` find the page, upper and lower case alike (Run_Name_Spellings);
 //! - a name without a namespace, and a page number as text, raise `The provided object name is not fully qualified.` with the

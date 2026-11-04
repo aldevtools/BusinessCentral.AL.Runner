@@ -7,7 +7,7 @@
 # opt-in, is an error.
 #
 # The opt-in is `companies` of oracle/oracle.toml; while that key is absent, the companies of the corpus CI database
-# (install/lt-bf-install-probes/BfInstallTests.al:47-64), or COMPANIES="A,B" from the environment.
+# (record/BfInstallTests.al:47-64), or COMPANIES="A,B" from the environment.
 #
 #   tools/company_mode_check.sh compare DIR   compare the files in DIR
 #   tools/company_mode_check.sh run [DIR]     make the runs, then compare

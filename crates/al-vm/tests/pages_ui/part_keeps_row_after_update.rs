@@ -1,4 +1,4 @@
-//! Writer TH (al-runner issue 6038), pages/lt-th-part-update-cursor/ThPartUpdateCursor.al on branch al-runtime-rs-staging-pub-th:
+//! Writer TH (al-runner issue 6038), pages/parts/ThPartUpdateCursor.al on branch al-runtime-rs-staging-pub-th:
 //! a ListPart of a Document page whose control's OnValidate runs CurrPage.Update(true) or CurrPage.Update(false) stays on its row,
 //! and the usual First/SetValue/Next walk visits every line once. The objects are copied from the probe; the procedures return
 //! what the probe observes, and each Rust test compares it with the values the probe asserts on real BC.

@@ -2,7 +2,7 @@
 //! table that returns a currency code (gap G5: Reminder Line GetCurrencyCodeFromHeader, G/L Entry
 //! GetAdditionalReportingCurrencyCode, Bank Acc. Reconciliation GetCurrencyCode). BC calls the procedure once per Format on the
 //! formatted record, also a local one; the table globals of that record variable keep their values between calls; an error
-//! in it is the error of the Format. Pinned by corpus tests/al-language/types/lt-auto-format-currency/Y17AfProcedure.al
+//! in it is the error of the Format. Pinned by corpus tests/al-language/format-evaluate/Y17AfProcedure.al
 //! (each test cites its line). The AL below is my own smaller version of that file.
 
 use al_builtins::native::Signal;

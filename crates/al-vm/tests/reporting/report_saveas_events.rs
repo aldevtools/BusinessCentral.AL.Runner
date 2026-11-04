@@ -1,5 +1,5 @@
 //! The `Reporting Triggers` events of an Xml `Report.SaveAs`: `SubstituteReport` before the run and `OnDocumentReady`
-//! after it (events/lt-platform-events-v/PeVTests.al:432 SaveAs_Xml_RaisedEvents, :483
+//! after it (events/platform-triggers/PeVTests.al:432 SaveAs_Xml_RaisedEvents, :483
 //! SubstituteReport_SubscriberChangesTheReport, :513 ChangeVarArguments_XmlSaveAs_Second).
 
 use al_builtins::native::Signal;
@@ -148,7 +148,7 @@ fn a_substitutereport_subscriber_changes_the_report() {
     );
 }
 
-/// report/lt-am-rdlc-output/AMRdlcOutput.al:TextRdlc_SaveAsHtml_IsRefused: SubstituteReport, then the layout error. A subscriber
+/// reports/layouts-saveas/AMRdlcOutput.al:TextRdlc_SaveAsHtml_IsRefused: SubstituteReport, then the layout error. A subscriber
 /// that does not read RequestPageXml runs.
 #[test]
 fn an_html_saveas_of_an_rdlc_report_raises_substitutereport_then_fails() {
@@ -279,7 +279,7 @@ codeunit 50978 "SE Header Tests"
 }
 "#;
 
-/// The city line of the header depends on the General Ledger Setup's local address format (report/lt-ah-dataset-header/
+/// The city line of the header depends on the General Ledger Setup's local address format (reports/dataset/
 /// AhDatasetHeader.al:125-126); without that table a Company Information row with City set is refused.
 #[test]
 fn a_header_with_company_address_fields_is_refused() {
@@ -294,7 +294,7 @@ fn a_header_with_company_address_fields_is_refused() {
     )));
 }
 
-/// misc/lt-probes-needed-2/PnBReportSaveAs.al:392-396 (OtherFormats_NoLayout): the ordinals of ReportFormat.
+/// text/PnBReportSaveAs.al:392-396 (OtherFormats_NoLayout): the ordinals of ReportFormat.
 #[test]
 fn reportformat_has_the_platform_ordinals() {
     let src = r#"
@@ -310,7 +310,7 @@ codeunit 50979 "SE Ordinals"
     assert_eq!(text(al_testkit::run_in(src, "SE Ordinals", "F")), "12345");
 }
 
-/// AhDatasetHeader.al:120-124: Address is line 2 whenever it is set (report/W3ReportDataset.al:204 sets only Address).
+/// AhDatasetHeader.al:120-124: Address is line 2 whenever it is set (reports/W3ReportDataset.al:204 sets only Address).
 #[test]
 fn the_address_alone_is_the_second_address_line() {
     assert_eq!(

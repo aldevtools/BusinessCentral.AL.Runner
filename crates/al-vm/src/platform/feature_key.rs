@@ -5,7 +5,7 @@ use al_builtins::value::Value;
 use al_data::{Row, StoreError, TableDef};
 
 /// Get of a Feature Key row: the ID matches the listed row's in any case, and the row shows the listed casing; SetRange and
-/// SetFilter stay case-sensitive (record/lt-y48-feature-key-writes/Y48FeatureKeyWrites.al:104-122 FK_Get_OtherCasing, the
+/// SetFilter stay case-sensitive (record/keys-sorting/Y48FeatureKeyWrites.al:104-122 FK_Get_OtherCasing, the
 /// shape of Microsoft's Web Service Management tests, which Get 'DisableSOAPwebservicesonMicrosoftUIpages').
 pub(super) fn get_ignoring_case(m: &Mat, t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
     if let Some(row) = m.get(t, pk)? {

@@ -1,7 +1,7 @@
 //! A request page control bound to a report variable shows the value the caller set before `RunModal` and keeps it on
 //! OK: Base Application's "Get Demand To Reserve" takes its DemandType through `SetParameters` and a request page with
 //! a bound field, and its OnPreDataItem triggers `Break` by it (corpus
-//! reportextensiontrigger/TestPrecompiledReportExtensionDataItems.al:DemandSalesOrders_..., DemandAssemblyComponents_...).
+//! reports/extensions/TestPrecompiledReportExtensionDataItems.al:DemandSalesOrders_..., DemandAssemblyComponents_...).
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};

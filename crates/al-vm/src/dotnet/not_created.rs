@@ -9,10 +9,10 @@ impl Session {
     /// `Some` with the error when the instance member `member` of the declared type `ty`, on a variable that holds no object,
     /// raises a pinned error; `None` to go on (a static member of the type, or not pinned).
     ///
-    /// - `X.GetType()` on an unassigned `System.Object` variable (tests/al-language-onprem-dotnet/lt-dotnet-interop/
-    ///   DotNetTypeOfDotNet.al:224 `Unassigned_error`, after GetDotNetType(X) answered System.Object: lt-bb-dotnet/BbGetDotNetType.al:364).
+    /// - `X.GetType()` on an unassigned `System.Object` variable (tests/al-language-onprem-dotnet/dotnet/dotnet-interop/
+    ///   DotNetTypeOfDotNet.al:224 `Unassigned_error`, after GetDotNetType(X) answered System.Object: dotnet/dotnet/BbGetDotNetType.al:364).
     /// - `CreateEntry(Path)`, the property `Entries` and `Dispose()` of System.IO.Compression.ZipArchive
-    ///   (lt-y44-zip-create/Y44ZipCreateMode.al:358-367 Zip_CreateEntry_NoObject, corpus PR 962).
+    ///   (dotnet/zip-create/Y44ZipCreateMode.al:358-367 Zip_CreateEntry_NoObject, corpus PR 962).
     ///
     /// The text names the routine and its codeunit; outside a codeunit the object kind's spelling is not pinned.
     pub(super) fn not_created(

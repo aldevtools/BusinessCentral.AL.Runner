@@ -1,7 +1,7 @@
 use super::*;
 
 /// `Database.SID(UserName)`: a Windows-style security identifier as Text. Probed on BC 27.5 (corpus
-/// branch al-runtime-rs-staging, ae3fe88, tests/al-language-onprem/session/PXDatabaseSid.al:31-46):
+/// branch al-runtime-rs-staging, ae3fe88, tests/al-language-onprem/session-system/PXDatabaseSid.al:31-46):
 /// `S-1-5-21-<a>-<b>-<c>-<rid>`, eight dash-separated parts, all but the first numeric (each read by
 /// `Evaluate` into an Integer), the same for the same name, not the text of `UserSecurityId()`, and
 /// a SID of that shape for a name no user has. The numbers are the machine's and are not pinned:
@@ -23,8 +23,8 @@ pub(super) fn database_sid(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [V
 }
 
 /// `Session.LogMessage`, `Session.LogSecurityAudit` and `Session.LogAuditMessage`: telemetry and the security audit log have
-/// no effect AL code can see in a test, so the call returns (session/TestSessionExtended.al:76-89
-/// only needs LogMessage callable; session/TestEnvironmentUserTenantContracts.al:315-374 runs
+/// no effect AL code can see in a test, so the call returns (session-system/TestSessionExtended.al:76-89
+/// only needs LogMessage callable; session-system/TestEnvironmentUserTenantContracts.al:315-374 runs
 /// Change Log Management, which logs a security audit entry, and reads only the change log).
 pub(super) fn log_message(_: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Result<Value, Signal> {
     Ok(Value::Null)
@@ -32,7 +32,7 @@ pub(super) fn log_message(_: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value
 
 /// `Session.LogAuditMessage(Description, Result, Category, Operation, OperationResult [, Dimensions])`: the audit log has no effect AL
 /// code can see, but an Operation outside the members of AuditMessageOperation (0 to 7, as the error text lists them) raises
-/// (al-language-onprem/lt-system-database-onprem/PLogAuditMessage.al:P109_LogAuditMessage_Overload1 `negative`, `large`).
+/// (al-language-onprem/session-system/server-system-functions/PLogAuditMessage.al:P109_LogAuditMessage_Overload1 `negative`, `large`).
 pub(super) fn log_audit_message(c: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     if let Some(Value::Integer(op)) = args.get(3) {
         if !(0..=7).contains(op) {
@@ -48,12 +48,12 @@ pub(super) fn log_audit_message(c: &mut dyn Ctx, r: Option<&mut Value>, args: &m
 }
 
 /// `Hyperlink(Url)` asks the client to open a page. A bound `[HyperlinkHandler]` gets the URL, also an empty one or a
-/// mailto link (handlers/W3Hyperlink.al:24-63); without one the platform raises `Unhandled UI: Hyperlink <url>`
-/// (record/ProbeClearAllSetKeyHyperlink.al:322-338, handlers/W3Hyperlink.al:65-83); a routine that only mentions the call
+/// mailto link (ui-handlers/W3Hyperlink.al:24-63); without one the platform raises `Unhandled UI: Hyperlink <url>`
+/// (record/ProbeClearAllSetKeyHyperlink.al:322-338, ui-handlers/W3Hyperlink.al:65-83); a routine that only mentions the call
 /// still runs.
 pub(super) fn hyperlink(c: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let url = text_arg(args, 0)?;
-    // Install code has no client: Hyperlink does nothing there (install/lt-outside-install-ui/RlInstallUi.al:224).
+    // Install code has no client: Hyperlink does nothing there (errors/RlInstallUi.al:224).
     if c.install_without_client() {
         return Ok(Value::Null);
     }
@@ -69,10 +69,10 @@ pub(super) fn hyperlink(c: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Valu
 }
 
 /// `StartSession`, every overload. While an app installs it starts nothing, leaves `SessionId` alone
-/// and answers false (or raises nothing when the result is ignored): install/TestInstallStartSession_Tests.al,
+/// and answers false (or raises nothing when the result is ignored): install-upgrade/TestInstallStartSession_Tests.al,
 /// ALSession.ALStartSessionAsyncImpl. In a test run under TestIsolation = Codeunit it raises the
 /// refusal below, also for the overload with a record, and `SessionId` stays 0
-/// (session/TestStartSessionRecord.al:StartSession_FromATestCodeunit_IsRefusedUnderCodeunitIsolation).
+/// (session-system/TestStartSessionRecord.al:StartSession_FromATestCodeunit_IsRefusedUnderCodeunitIsolation).
 /// Under Disabled test isolation the session runs to its end inside the call (`Ctx::start_background_session`).
 /// Anywhere else a session would start, which this runtime does not do: refused.
 pub(super) fn start_session(c: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
@@ -113,7 +113,7 @@ pub(super) fn start_session_of(c: &mut dyn Ctx, args: &mut [Value], timeout: boo
         });
     }
     // Under Disabled isolation BC starts the session, it ends and its committed writes are seen: on the TestRunnerHub under
-    // RequiredTestIsolation = Disabled (codeunit/lt-qu-commit-isolation/RqIsolationModes.al:101-128, :585-614 RQ_D03,
+    // RequiredTestIsolation = Disabled (codeunits/run-onrun/RqIsolationModes.al:101-128, :585-614 RQ_D03,
     // RQ_D04 on BC 28 and later: start_ok, a positive id, session_ended, session_row) and under a test runner codeunit's
     // TestIsolation = Disabled or none (tests/al-language-isolation-probe/src/SdIsolStartSession.Codeunit.al:22-30,
     // :38-63). The session runs to its end inside the call (`Ctx::start_background_session`, which refuses what no probe
@@ -171,7 +171,7 @@ pub(super) fn context_value(c: &dyn Ctx) -> Value {
     let members: std::sync::Arc<[String]> = crate::sysenum::option_members("ExecutionContext")
         .expect("a system option")
         .into();
-    // Install inside an install codeunit, Normal anywhere else (install/TestInstallEnvVisible_Tests.al:90-127).
+    // Install inside an install codeunit, Normal anywhere else (install-upgrade/TestInstallEnvVisible_Tests.al:90-127).
     Value::Option(i32::from(c.install_scope()), members)
 }
 

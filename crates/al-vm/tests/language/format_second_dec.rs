@@ -1,6 +1,6 @@
 //! `<Second dec>` and `<Second dec.>` (with the period, as the test libraries' unique-code builders write it), their widths and
 //! case, on a Time and a DateTime (al-runner issue 6650). Every value below is real BC's: corpus writer Y64, branch
-//! al-runtime-rs-staging-y64 85d86e7b, types/lt-datetime/Format.al:1066-1300 (Y64_Time_Format_SecondDecPeriod, _More, _Edges,
+//! al-runtime-rs-staging-y64 85d86e7b, types/date-time/Format.al:1066-1300 (Y64_Time_Format_SecondDecPeriod, _More, _Edges,
 //! Y64_DateTime_Format_SecondDecPeriod, Y64_SecondDecPeriod_ReporterCode).
 
 use al_testkit::text;

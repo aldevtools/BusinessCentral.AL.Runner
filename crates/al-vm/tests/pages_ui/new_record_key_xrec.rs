@@ -1,6 +1,6 @@
 //! xRec in a control's OnValidate on a NEW record of a DelayedInsert card opened with OpenNew (pages/draft.rs `start_draft`).
-//! OnNewRecord sees the last row as xRec (handlers/TestPageCreateModeNewRecordArgs.al:243-257 `x=B`); from then on xRec is
-//! the new record. Pinned by corpus handlers/TestPageControlOnValidateError_Tests.al:113-124
+//! OnNewRecord sees the last row as xRec (testpage/TestPageCreateModeNewRecordArgs.al:243-257 `x=B`); from then on xRec is
+//! the new record. Pinned by corpus testpage/TestPageControlOnValidateError_Tests.al:113-124
 //! ControlOnValidate_AcceptsAValueItDoesNotRefuse: Base Application page 9170 "Profile Card" (DelayedInsert, OnNewRecord sets
 //! Scope) confirms when `xRec."Profile ID" <> ''` in the key control's OnValidate, the table holds rows, and real BC passes the
 //! test with no ConfirmHandler.

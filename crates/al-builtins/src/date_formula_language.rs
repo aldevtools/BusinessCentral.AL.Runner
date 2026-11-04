@@ -1,5 +1,5 @@
 //! The letters of a date formula in the global language: `Format(DateFormula, 0, 0)` and `Format(DateFormula, 0, 1)` print them,
-//! Evaluate reads a formula without angle brackets in them (types/lt-y62-dateformula-format/Y62DateFormulaFormat.al, codeunit
+//! Evaluate reads a formula without angle brackets in them (format-evaluate/Y62DateFormulaFormat.al, codeunit
 //! 93262, writer Y62; the same on the BC Linux legs and the SaaS sandbox).
 
 /// The English letter of a unit and its letter in a language, for the languages and letters measured: Danish (1030) `U` for W,

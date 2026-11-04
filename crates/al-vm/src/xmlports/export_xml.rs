@@ -31,7 +31,7 @@ impl Session {
             if n.source_view.is_some() {
                 if let Ok(rec) = self.xp_record(inst, schema.node(i)) {
                     // The link filter of a linked element with LinkFields does not show afterwards: GetFilters reads '' (corpus
-                    // PR 896, misc/lt-np4-probes/Np4XmlPort.al Y9_XmlPort_LinkedOnceOnce_* `held ...|filters=`). It is kept
+                    // PR 896, streams/Np4XmlPort.al Y9_XmlPort_LinkedOnceOnce_* `held ...|filters=`). It is kept
                     // with the view's own filters, which count but do not show.
                     if !n.link_fields.is_empty() {
                         for f in rec.borrow_mut().filters.iter_mut() {
@@ -62,7 +62,7 @@ impl Session {
                 _ => al_builtins::stream::new_blob(),
             },
             // An Export without SetDestination succeeds (BC offers the document as a download, which a test cannot observe):
-            // xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Instance_Export_Without_Destination, Instance_Export_After_SetSource
+            // xmlports/shapes-properties/Y83XpMiscTests.al:Instance_Export_Without_Destination, Instance_Export_After_SetSource
             // (needs the corpus bump). The document goes to a buffer nobody reads.
             Value::Null => al_builtins::stream::new_blob(),
             _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
@@ -81,13 +81,13 @@ impl Session {
                 _ => al_builtins::stream::new_blob(),
             },
             // An Export without SetDestination succeeds (BC offers the document as a download, which a test cannot observe):
-            // xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Instance_Export_Without_Destination, Instance_Export_After_SetSource
+            // xmlports/shapes-properties/Y83XpMiscTests.al:Instance_Export_Without_Destination, Instance_Export_After_SetSource
             // (needs the corpus bump). The document goes to a buffer nobody reads.
             Value::Null => al_builtins::stream::new_blob(),
             _ => return unsupported("XmlPort export without SetDestination (a download is not supported)"),
         };
         // BC's export of a port with an unbound field element does not end (YXmlPortProps.al:715-716), nor of one with an unbound
-        // text element (xmlport/lt-y60-xmlport-unbound-text/Y60XpUnboundText.al Unbound_Text_Xml_Export, not a test).
+        // text element (xmlports/shapes-properties/Y60XpUnboundText.al Unbound_Text_Xml_Export, not a test).
         if let Some(n) = xp.nodes.iter().find(|n| n.unbound) {
             let what = if n.kind == ir::XmlNodeKind::Text {
                 "text"
@@ -105,7 +105,7 @@ impl Session {
         };
         let table_top = xp.format != ir::XmlFormat::Xml && xp.nodes[top].kind == ir::XmlNodeKind::Table;
         // A table element root written once with any content below it, in a port that declares namespaces: the PEPPOL BIS 3.0
-        // shape (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespaces.al, an Integer root with MaxOccurs = Once, an OnAfterGetRecord,
+        // shape (xmlports/shapes-properties/Y17XmlPortNamespaces.al, an Integer root with MaxOccurs = Once, an OnAfterGetRecord,
         // text and table elements below; Y17XmlPortNamespacesTests.al:60-93). Without namespaces it is not pinned.
         let declares = !xp.namespaces.is_empty() || xp.default_ns.is_some();
         let table_root = root_table_element(schema, top) || (declares && table_root_with_content(schema, top));
@@ -126,10 +126,10 @@ impl Session {
                 return unsupported("XmlPort export with TextEncoding = UTF8 (not pinned)");
             }
             // A table element as the root is written once per row, one root element after the other; with no row, once with
-            // the record as it stands (platform/lt-ag-contoso/AgXmlPortImport.al:557 QX_RootTableElement_Export, :584 _TwoRows).
+            // the record as it stands (metadata/platform-tables/AgXmlPortImport.al:557 QX_RootTableElement_Export, :584 _TwoRows).
             if table_root {
                 // Namespaces on a table element root that is written once (MaxOccurs = Once over Integer, the PEPPOL shape):
-                // xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:60, :71, :82, :93 (UTF8). Several roots, UTF16 or
+                // xmlports/shapes-properties/Y17XmlPortNamespacesTests.al:60, :71, :82, :93 (UTF8). Several roots, UTF16 or
                 // InlineSchema with them are not pinned.
                 if xp.inline_schema || (declares && (!xp.xml_utf8 || xp.preserve_whitespace)) {
                     return unsupported(
@@ -143,7 +143,7 @@ impl Session {
                     other => other?,
                 };
                 if declares {
-                    // Every root declares the namespaces again, one root element after the other (xmlport/lt-y72-xmlport-probes/
+                    // Every root declares the namespaces again, one root element after the other (streams/
                     // Y72XpEInvoiceShapes.al DeepAttrLeaf_RealTableRoot_TwoRows: a real table root, two rows, `<Invoice xmlns:cac=...>`
                     // twice). With no row it is not pinned.
                     if rows.is_empty() {
@@ -183,7 +183,7 @@ impl Session {
                 root
             }) {
                 // A line end in a text value (LF, CR LF, a lone CR) is written as CR LF: pinned on an UTF8 export, with and without
-                // PreserveWhiteSpace and a default namespace (misc/lt-np4-probes/Np4XmlPort.al:280, :300, :320, corpus PR 871;
+                // PreserveWhiteSpace and a default namespace (streams/Np4XmlPort.al:280, :300, :320, corpus PR 871;
                 // Y9_XmlPort_Export_LineFeed_Plain, corpus PR 896), and on an UTF16 export without either (FF FE, 302 bytes:
                 // Y9_XmlPort_Export_LineFeed_Utf16_RawStream, _Utf16Stream). UTF16 with PreserveWhiteSpace or a namespace is not.
                 Ok(root)
@@ -220,7 +220,7 @@ impl Session {
         Ok(if guarded { Value::Boolean(true) } else { Value::Null })
     }
 
-    /// The `SourceTableView` of each table element, before an export reads a row (xmlport/lt-ra-xmlport/RaXmlPortExport.al): the
+    /// The `SourceTableView` of each table element, before an export reads a row (xmlports/shapes-properties/RaXmlPortExport.al): the
     /// view's sorting and order replace the key and direction a SetTableView gave the record (:654 `SetTableView sorting(Seq)`,
     /// also descending, exports in the view's order) and its filters are added to the record's (:654 `SetTableView filter
     /// only`; on a linked element to the link, :793 `where on the link field`: Def B has no line of Def A). A view without
@@ -245,7 +245,7 @@ impl Session {
             let lower = view.to_ascii_lowercase();
             // A filter on an element without LinkTable (QrXpContainerOccurs.al TS_View_FirstExport on branch
             // al-runtime-rs-staging-pub-ts): the rows of the filter in the view's key, combined with the code's filters.
-            // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_View_FirstExport, TS_View_SecondExport (was assumption `xmlport-view-filter-unlinked`).
+            // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TS_View_FirstExport, TS_View_SecondExport (was assumption `xmlport-view-filter-unlinked`).
             let rec = self.xp_record(inst, schema.node(i))?;
             let t = self.table(&rec)?;
             if again {
@@ -263,7 +263,7 @@ impl Session {
                         "a later XmlPort export on the same instance of a table element whose SourceTableView has an ORDER (not pinned)",
                     );
                 }
-                // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Again_SameData, TS_Again_AssignBetween, TS_Again_TransferFieldsBetween, TS_Again_InitBetween, TS_Again_KeyBetween, TS_Again_LineFilter, TS_View_SecondExport, TS_Again_TrBooking, TS_Again_TrMember (was assumption `xmlport-export-again`).
+                // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TS_Again_SameData, TS_Again_AssignBetween, TS_Again_TransferFieldsBetween, TS_Again_InitBetween, TS_Again_KeyBetween, TS_Again_LineFilter, TS_View_SecondExport, TS_Again_TrBooking, TS_Again_TrMember (was assumption `xmlport-export-again`).
                 let mut r = rec.borrow_mut();
                 if r.unpinned_buffer == Some(crate::records::XP_VIEW_AFTER_EXPORT) {
                     r.unpinned_buffer = None;
@@ -296,7 +296,7 @@ impl Session {
     }
 
     /// The export of a port with `InlineSchema = true`: the root, an XSD with a complex type for the table element and one
-    /// for the root, then the rows on one line (xmlport/lt-y-xmlport-props/YXmlPortProps.al:563
+    /// for the root, then the rows on one line (xmlports/shapes-properties/YXmlPortProps.al:563
     /// InlineSchema_Export_ContainsSchema). Pinned for a root text element holding one table element whose children are
     /// Integer and Text field elements, with at least one row; anything else is refused.
     pub(super) fn xp_export_inline(&mut self, inst: &Inst, schema: &Schema, top: usize) -> Result<String, Signal> {
@@ -322,7 +322,7 @@ impl Session {
         let rec = self.xp_record(inst, tn)?;
         let t = self.table(&rec)?;
         // The schema of the table element: its elements in a sequence, then its attributes, in schema order
-        // (xmlport/lt-bd-xmlport/BdXmlPort.al:425 BdInlineSchema_FieldTypes, :473 BdInlineSchema_Attributes). An Integer
+        // (xmlports/shapes-properties/BdXmlPort.al:425 BdInlineSchema_FieldTypes, :473 BdInlineSchema_Attributes). An Integer
         // element is `xs:int` and a BigInteger one `xs:long`, both with `default="0"`; every other pinned type is `xs:string`.
         // A field attribute is `xs:string` whatever its type, `use="required"` unless Occurrence = Optional; a text attribute
         // is required; a text element with MinOccurs = Zero is `minOccurs="0" maxOccurs="unbounded"`.
@@ -403,7 +403,7 @@ impl Session {
         let (root_name, table_name) = (&schema.node(top).xml_name, &tn.xml_name);
         let table_min = if tn.min_zero { "0" } else { "1" };
         // With UseDefaultNamespace and no DefaultNamespace the root declares BC's namespace of the port, the schema targets it and its
-        // types are `tns:` ones (xmlport/lt-y83-xmlport-shapes/Y83XpNsTests.al:Ns_UdnInline, needs the corpus bump). Another
+        // types are `tns:` ones (xmlports/shapes-properties/Y83XpNsTests.al:Ns_UdnInline, needs the corpus bump). Another
         // default namespace is not pinned.
         let (root_decl, schema_decl, tns) = match xp.default_ns.as_deref() {
             None => (String::new(), String::new(), ""),
@@ -455,7 +455,7 @@ impl Session {
             match c.kind {
                 ir::XmlNodeKind::TextAttr => {
                     let v = got!(self.xp_pass_variable(inst, schema, child));
-                    // currXMLport.Skip() in its OnBeforePassVariable leaves out the attribute only (xmlport/lt-y60-xmlport-container-skip/
+                    // currXMLport.Skip() in its OnBeforePassVariable leaves out the attribute only (xmlports/shapes-properties/
                     // Y60XpContainerSkip.al Container_TwoLevelsBelowTable_Export 'uri empty on two': `<cbc:Blob mime="text/plain">b2`).
                     if Self::xp_flow(inst) == Some(Flow::Skip) {
                         Self::xp_clear_flow(inst);
@@ -470,7 +470,7 @@ impl Session {
                 ir::XmlNodeKind::FieldAttr => {
                     let v = got!(self.xp_field_text(inst, schema, child));
                     // An Optional field attribute whose text is empty is left out, a Required one is written as `attr=""`
-                    // (xmlport/lt-ra-xmlport/RaXmlPortExport.al:553 RA_FieldAttribute_Occurrence_Export_EmptyValues: Text, Code
+                    // (xmlports/shapes-properties/RaXmlPortExport.al:553 RA_FieldAttribute_Occurrence_Export_EmptyValues: Text, Code
                     // and a blank Date left out or empty, `OptNum="0"` and `OptFlag="No"` written).
                     if v.is_empty() && c.required == Some(false) {
                         continue;
@@ -479,7 +479,7 @@ impl Session {
                 }
                 ir::XmlNodeKind::Field => {
                     // Break in OnBeforePassField leaves the field element out of the row alone; the row and the export go on
-                    // (xmlport/lt-ay-xmlport/AyXmlPortFlowTriggers.al:712 Export_passfield_Break: `<Row><Id>2</Id></Row>`).
+                    // (xmlports/shapes-properties/AyXmlPortFlowTriggers.al:712 Export_passfield_Break: `<Row><Id>2</Id></Row>`).
                     if got!(self.xp_site(inst, schema, child, "onbeforepassfield")) == Some(Flow::Break) {
                         Self::xp_clear_flow(inst);
                         continue;
@@ -488,7 +488,7 @@ impl Session {
                     let empty = v.is_empty();
                     let mut e = Elem::new(&doc_name(schema, child));
                     // An empty value writes no text, so the elements below it are indented like any element content
-                    // (xmlport/lt-at-partner-gaps/AtXmlPortFieldElementEdges.al:162 AT_EmptyFieldElement_ChildText_Export `<Name>` then
+                    // (streams/AtXmlPortFieldElementEdges.al:162 AT_EmptyFieldElement_ChildText_Export `<Name>` then
                     // `<Child>c1</Child>` on its own line; :178 `<Child />`).
                     let text_below = schema
                         .children(child)
@@ -525,7 +525,7 @@ impl Session {
                 }
                 ir::XmlNodeKind::Text if schema.children(child).is_empty() => {
                     let v = got!(self.xp_pass_variable(inst, schema, child));
-                    // currXMLport.Skip() in its OnBeforePassVariable leaves the element out (xmlport/lt-y17-xmlport-ns/
+                    // currXMLport.Skip() in its OnBeforePassVariable leaves the element out (xmlports/shapes-properties/
                     // Y17XmlPortNamespaces.al `Opt`, Y17XmlPortNamespacesTests.al:60: no `<b:Opt />`). Break, BreakUnbound and
                     // Quit are handled where the flow is read (lt-ay-xmlport/AyXmlPortFlowTriggers.al Export_head_*).
                     if Self::xp_flow(inst) == Some(Flow::Skip) {
@@ -534,7 +534,7 @@ impl Session {
                     }
                     // A leaf text element below the root: Quit leaves it out and ends the document, Break leaves it out and ends the
                     // export, the siblings after it are not passed (their OnPreXmlItem does not run) and OnPostXmlPort runs
-                    // (xmlport/lt-ay-xmlport/AyXmlPortFlowTriggers.al:628 Export_head_Break `pre1;head1;post;`, :656 Export_head_Quit
+                    // (xmlports/shapes-properties/AyXmlPortFlowTriggers.al:628 Export_head_Break `pre1;head1;post;`, :656 Export_head_Quit
                     // `pre1;head1;` with `<Root />`).
                     if c.parent.is_some_and(|p| schema.node(p).parent.is_none()) {
                         match Self::xp_flow(inst) {
@@ -660,7 +660,7 @@ impl Session {
                         || unlinked_reply_container(schema, child, node)
                         || default_unlinked_container(schema, child, node) =>
                 {
-                    // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Cards_DefaultOccurs_Export (was assumption `xmlport-default-container-unlinked`).
+                    // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TS_Cards_DefaultOccurs_Export (was assumption `xmlport-default-container-unlinked`).
                     let e = self.xp_export_container(inst, schema, child)?;
                     out.children.push(Node::Elem(e));
                     if Self::xp_quit(inst) {
@@ -673,7 +673,7 @@ impl Session {
                 // branch al-runtime-rs-staging-tt: `<Ticket ChangeRequestToken="" Kind="K"><Admissions><Admission Code="">...`).
                 // Its own text is not pinned.
                 ir::XmlNodeKind::Text if attrs_over_unlinked(schema, child, node) => {
-                    // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Change_Export_TwoRows, TT_Change_Export_TokenNoRows, TT_Change_Export_Error (was assumption `xmlport-attrs-over-unlinked`).
+                    // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TT_Change_Export_TwoRows, TT_Change_Export_TokenNoRows, TT_Change_Export_Error (was assumption `xmlport-attrs-over-unlinked`).
                     if !got!(self.xp_pass_variable(inst, schema, child)).is_empty() {
                         return unsupported(
                             "XmlPort export of a text element with text attributes over a text element that holds a table element, with its own text (not pinned)",
@@ -714,13 +714,13 @@ impl Session {
     }
 
     /// `OnBeforePassVariable`, then the variable's text
-    /// (xmlport/TestXmlPortAdvanced.al:XmlPort_TextVariableTriggers_ExportManipulatesTextAndAttributes).
+    /// (xmlports/TestXmlPortAdvanced.al:XmlPort_TextVariableTriggers_ExportManipulatesTextAndAttributes).
     pub(super) fn xp_pass_variable(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<String, Signal> {
         self.xp_run_trigger(inst, schema, node, "onbeforepassvariable")?;
         let slot = schema.node(node).slot.expect("text nodes have a slot");
         match &inst.borrow().globals[slot] {
             Value::Text(s) | Value::Code(s) => Ok(s.to_string()),
-            // A BigText element writes its whole text (xmlport/lt-xmlport-bigtext/XmlPortBigText.al:178, :198).
+            // A BigText element writes its whole text (xmlports/shapes-properties/XmlPortBigText.al:178, :198).
             Value::Library(al_builtins::library_kind::LibraryKind::BigText, h) => match &*h.borrow() {
                 al_builtins::value::LibraryValue::Empty => Ok(String::new()),
                 al_builtins::value::LibraryValue::Text(s) => Ok(s.clone()),
@@ -730,10 +730,10 @@ impl Session {
         }
     }
 
-    /// `OnBeforePassField` (it runs for every row: xmlport/TestXmlPortTriggersReplaceViewContracts.al:
+    /// `OnBeforePassField` (it runs for every row: xmlports/TestXmlPortTriggersReplaceViewContracts.al:
     /// Export_OnBeforePassField_Runs_AndSetTableViewFiltersAndOrders), then the field's text: the
     /// display text of its type
-    /// (xmlport/TestXmlPortExportImportContracts.al:XmlPortExport_Document_FullText). A blank option
+    /// (xmlports/TestXmlPortExportImportContracts.al:XmlPortExport_Document_FullText). A blank option
     /// is a single space.
     pub(super) fn xp_field_text(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<String, Signal> {
         self.xp_site(inst, schema, node, "onbeforepassfield")?;
@@ -756,9 +756,9 @@ impl Session {
         let rec = self.xp_record(inst, schema.node(n.table_node.expect("field nodes have a table node")))?;
         let pos = n.field.expect("field nodes have a field");
         // A FlowField is calculated for the export (assumption xmlport-exports-flowfield-calculated).
-        // AutoCalcField decides it when declared (xmlport/lt-y-xmlport-props/YXmlPortProps.al:
+        // AutoCalcField decides it when declared (xmlports/shapes-properties/YXmlPortProps.al:
         // NodeProperties_Export_NamesPrefixesAutoCalc: true calculates, false writes the field as it is).
-        // A FlowFilter is not calculated: it writes the field's own value (xmlport/lt-xmlport-flowfield-sum-count/
+        // A FlowFilter is not calculated: it writes the field's own value (xmlports/shapes-properties/
         // XmlPortFlowFieldSumCount.al:390-442 `<SeqFilter>0</SeqFilter>`).
         let flow_filter = {
             let table = rec.borrow().table as usize;
@@ -782,7 +782,7 @@ impl Session {
             return self.xp_field_text_xml(&v);
         }
         // An Option field with an OptionCaption writes the caption (corpus
-        // xmlport/PWXmlPortFormatEvaluate.al:Export_Legacy_TimeDurationOptionEnum: `Beta cap`).
+        // xmlports/PWXmlPortFormatEvaluate.al:Export_Legacy_TimeDurationOptionEnum: `Beta cap`).
         if let Value::Option(o, _) = &v {
             let t = self.table(&rec)?;
             if let Some((_, members)) = self.members_of_field(&t, pos)? {
@@ -795,7 +795,7 @@ impl Session {
                 }
             }
         }
-        // A TableFilter field writes its table-qualified text, the empty one as an empty element (xmlport/lt-y67-xmlport-tablefilter/
+        // A TableFilter field writes its table-qualified text, the empty one as an empty element (xmlports/shapes-properties/
         // Y67XpTableFilter.al:120-138 TableFilterField_Export).
         if matches!(&v, Value::Library(k, _) if k.as_str() == "TableFilter") {
             return al_builtins::format::try_format(&v, 0, 0, self)
@@ -803,7 +803,7 @@ impl Session {
         }
         match &v {
             Value::Integer(i) => Ok(i.to_string()),
-            // A BigInteger without digit grouping and a Guid in braces (xmlport/lt-bd-xmlport/BdXmlPort.al:425
+            // A BigInteger without digit grouping and a Guid in braces (xmlports/shapes-properties/BdXmlPort.al:425
             // BdInlineSchema_FieldTypes: `9876543210`, `{5A2F6C9E-...}`; :436 `0`, `{00000000-...}`). A negative BigInteger
             // is not pinned.
             Value::BigInteger(i) if *i >= 0 => Ok(i.to_string()),
@@ -827,7 +827,7 @@ impl Session {
         }
     }
 
-    /// The XML forms `FormatEvaluate = Xml` writes (xmlport/TestXmlPortFormatEvaluateContracts.al:
+    /// The XML forms `FormatEvaluate = Xml` writes (xmlports/TestXmlPortFormatEvaluateContracts.al:
     /// Export_Xml_WritesTheXmlForms): `2024-03-05`, `1234.50`, `true`, `2024-03-05T12:34:56Z`. Other
     /// types are not pinned.
     pub(super) fn xp_field_text_xml(&mut self, v: &Value) -> Result<String, Signal> {
@@ -839,24 +839,24 @@ impl Session {
                 .or_else(|why| unsupported(format!("XmlPort export of {why} (the text form is not pinned)"))),
             Value::Boolean(b) => Ok(if *b { "true" } else { "false" }.to_string()),
             // A Time or DateTime with milliseconds writes them without trailing zeros, the DateTime with `Z` (writer TU's branch
-            // al-runtime-rs-staging-tu, xmlport/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds: `12:34:56.789`,
+            // al-runtime-rs-staging-tu, xmlports/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds: `12:34:56.789`,
             // `12:34:56.5`, `12:34:56.007`, `2024-03-05T12:34:56.789Z`; former assumption `xmlport-time-ms-xml` (pinned on corpus master since bump 1030)).
             Value::Date(..) | Value::DateTime(_) => {
-                // Pinned by xmlport/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds (was assumption `xmlport-time-ms-xml`).
+                // Pinned by xmlports/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds (was assumption `xmlport-time-ms-xml`).
                 al_builtins::format::try_format(v, 0, 9, self)
                     .or_else(|why| unsupported(format!("XmlPort export of a value: {why}")))
             }
-            // corpus xmlport/PWXmlPortFormatEvaluate.al:Export_Xml_TimeDurationOptionEnum: `12:34:56`,
+            // corpus xmlports/PWXmlPortFormatEvaluate.al:Export_Xml_TimeDurationOptionEnum: `12:34:56`,
             // `P1DT1H1M1.001S`, and the ordinal of an Option or Enum.
             Value::Time(0) => Ok(String::new()),
             // A zero Duration is `P0DT0H0M0.0S` (writer TU's branch al-runtime-rs-staging-tu, PWXmlPortFormatEvaluate.al
             // TU_Export_TimeMilliseconds `<Dur>P0DT0H0M0.0S</Dur>`; former assumption `xmlport-time-ms-xml` (pinned on corpus master since bump 1030)).
             Value::Duration(0) => {
-                // Pinned by xmlport/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds (was assumption `xmlport-time-ms-xml`).
+                // Pinned by xmlports/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds (was assumption `xmlport-time-ms-xml`).
                 Ok("P0DT0H0M0.0S".to_string())
             }
             Value::Time(_) => {
-                // Pinned by xmlport/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds (was assumption `xmlport-time-ms-xml`).
+                // Pinned by xmlports/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds (was assumption `xmlport-time-ms-xml`).
                 al_builtins::format::try_format(v, 0, 9, self)
                     .or_else(|why| unsupported(format!("XmlPort export of a value: {why}")))
             }
@@ -865,7 +865,7 @@ impl Session {
             Value::Enum(_, o) => Ok(o.to_string()),
             // `{UPPER-CASE}`, the null Guid too (QrXpContainerOccurs.al TS_Guid_Export on branch al-runtime-rs-staging-pub-ts).
             Value::Guid(g) => {
-                // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Guid_Import_Element, TS_Guid_Import_Attribute, TS_Guid_Export (was assumption `xmlport-guid-xml`).
+                // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TS_Guid_Import_Element, TS_Guid_Import_Attribute, TS_Guid_Export (was assumption `xmlport-guid-xml`).
                 Ok(al_builtins::format::format_guid(g))
             }
             other => unsupported(format!(
@@ -888,11 +888,11 @@ fn table_root_with_content(schema: &Schema, top: usize) -> bool {
 }
 
 /// The namespace declarations of an exported root. The prefixed entries come first, in declaration order, before the root's
-/// own attributes (xmlport/lt-bd-xmlport/BdXmlPort.al:407). The default namespace follows the root's own attributes, last:
+/// own attributes (xmlports/shapes-properties/BdXmlPort.al:407). The default namespace follows the root's own attributes, last:
 /// with UseDefaultNamespace the port's (BC's namespace of the port without DefaultNamespace: BdXmlPort.al:511,
-/// DgXmlPortLeads.al:290; after the root's attributes: xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al TF_NsAttr_Export
+/// DgXmlPortLeads.al:290; after the root's attributes: xmlports/shapes-properties/SgXmlPortOccurs.al TF_NsAttr_Export
 /// `<Root Ver="v1" xmlns="...">`), else the uri of the empty prefix `""`, whether `""` is listed first or last
-/// (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:60, :71); a used default namespace replaces that uri (:82).
+/// (xmlports/shapes-properties/Y17XmlPortNamespacesTests.al:60, :71); a used default namespace replaces that uri (:82).
 pub(super) fn declare_namespaces(root: &mut Elem, namespaces: &[(String, String)], default_ns: Option<&str>) {
     for (at, (prefix, uri)) in namespaces.iter().filter(|(p, _)| !p.is_empty()).enumerate() {
         root.attrs.insert(at, (format!("xmlns:{prefix}"), uri.clone()));

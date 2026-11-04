@@ -1,5 +1,5 @@
 //! A Variant handed to `Get` of a key of another type converts as the corpus pins it
-//! (misc/lt-y70-assumptions/Y70Probes.al RecordGet_BooleanOnTextKey, RecordGet_TextOnIntegerKey).
+//! (record/Y70Probes.al RecordGet_BooleanOnTextKey, RecordGet_TextOnIntegerKey).
 
 use al_testkit::text;
 

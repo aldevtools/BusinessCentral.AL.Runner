@@ -1,6 +1,6 @@
 //! A page whose SourceTableView sorts by a secondary key, over a table whose primary key has an InitValue: Rec stands on a
 //! primary key no row has when the page opens and OnOpenPage does not touch it. A List or Card opened for edit or view opens
-//! on the first row of the view (corpus pages/lt-outside-worksheet/RmInitValueKey.al:231, :250, :330, :349; al-runner issue
+//! on the first row of the view (corpus testpage/RmInitValueKey.al:231, :250, :330, :349; al-runner issue
 //! 5760). OnOpenPage that moves Rec onto a primary key no row has stays refused (not pinned).
 
 use al_testkit::{run_in, text};

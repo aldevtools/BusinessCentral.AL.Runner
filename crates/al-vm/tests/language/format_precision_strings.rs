@@ -1,6 +1,6 @@
 //! `Format` of a Decimal with `<Precision,2:26>` before a standard format, and `<Precision,2:2>` before `<Sign><Integer><Decimals>`
 //! with `<Comma,.>` or `<Comma,,>`, before `<Integer Thousand><Decimals><Comma,,>`, and after `<Sign>` (corpus branch
-//! al-runtime-rs-staging-pub-tp, types/lt-format-comma-format-string/FormatCommaFormatString.al TP_Format_PrecisionStrings,
+//! al-runtime-rs-staging-pub-tp, format-evaluate/FormatCommaFormatString.al TP_Format_PrecisionStrings,
 //! TP_Format_PrecisionStrings_Small).
 
 use al_testkit::text;

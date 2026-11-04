@@ -1,5 +1,5 @@
 //! A query DataItemLink to an outer data item (the grandparent), as probed on BC 27.5: corpus branch
-//! al-runtime-rs-staging, tests/al-language/query/PXQueryOuterLink.al (objects :14-198, expectations :274-349).
+//! al-runtime-rs-staging, tests/al-language/queries/PXQueryOuterLink.al (objects :14-198, expectations :274-349).
 //! The link joins on the named ancestor's current row, like a link to the parent joins on the parent's.
 
 use al_builtins::native::Signal;
@@ -290,7 +290,7 @@ fn a_link_naming_the_parent_and_the_grandparent_reads_each() {
 }
 
 /// `DataItemTableFilter = "Code" = filter('')` selects the rows whose Code is blank, as `const('')` does
-/// (corpus query/TestQueryDataItemTableFilter.al:374 Sq_EmptyFilterTerm_Rows, query 89590).
+/// (corpus queries/TestQueryDataItemTableFilter.al:374 Sq_EmptyFilterTerm_Rows, query 89590).
 #[test]
 fn a_table_filter_of_an_empty_term_selects_blank_rows() {
     let src = r#"

@@ -49,17 +49,17 @@ node_kind!(is_document, as_document, "XmlDocument");
 node_kind!(is_element_node, as_element_node, "XmlElement");
 
 /// An unassigned or cleared XmlNode is no element, and AsXmlElement of it raises a Conversion error (corpus branch
-/// al-runtime-rs-staging-ul b753d3fb7a, xml/lt-ul-clear-ref/UlClearXmlRef.al:106-142 ClearXmlNode_SecondVariable).
+/// al-runtime-rs-staging-ul b753d3fb7a, xml/xml/UlClearXmlRef.al:106-142 ClearXmlNode_SecondVariable).
 pub(super) fn is_element(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     if unassigned(&r, "XmlNode") {
-        // Pinned by xml/lt-ul-clear-ref/UlClearXmlRef.al (was assumption `clear-xml-ref`).
+        // Pinned by xml/xml/UlClearXmlRef.al (was assumption `clear-xml-ref`).
         return Ok(Value::Boolean(false));
     }
     is_element_node(c, r, a)
 }
 pub(super) fn as_element(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     if unassigned(&r, "XmlNode") {
-        // Pinned by xml/lt-ul-clear-ref/UlClearXmlRef.al (was assumption `clear-xml-ref`).
+        // Pinned by xml/xml/UlClearXmlRef.al (was assumption `clear-xml-ref`).
         return Err(error(
             "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavXmlNode to Microsoft.Dynamics.Nav.Runtime.NavXmlElement.",
             "Conversion",

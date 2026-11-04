@@ -1,7 +1,7 @@
 //! `Page.GetRecord`, and the case of it after a TestPage handler cancelled a lookup list that showed no row of a table that has rows: the record
-//! holds the values the page's view filters its primary key fields to (pages/lt-y68-lookup-getrecord/Y68LookupGetRecord.al:446
+//! holds the values the page's view filters its primary key fields to (pages/run-modal/Y68LookupGetRecord.al:446
 //! Q3_TestPageHandler_Cancel_NoRow_NonEditableList: `SetRange("No.", 'ZZ')` gives `no=[ZZ] name=[] rank=0`, corpus master
-//! 0d01b0cc). A filter on another field is not carried (errors/lt-ms-refusals-129/P129PageMisc.al:749
+//! 0d01b0cc). A filter on another field is not carried (testpage/P129PageMisc.al:749
 //! TV_GetRecord_AfterLookupCancel_FilteredToNoRow, a filter on Grp gives `grp=`). A Page-typed handler, which opens no page,
 //! hands back the blank record (Y68LookupGetRecord.al:253-335).
 
@@ -25,12 +25,12 @@ impl Session {
         }
         if st.borrow().cursor != Cursor::Row {
             // A page that ran over a table with no row at all hands back the blank record, whatever the record held
-            // (errors/lt-ms-refusals-129/P129PageMisc.al:P129_GetRecord_AfterRunModalCancelledOnEmptyTable,
+            // (testpage/P129PageMisc.al:P129_GetRecord_AfterRunModalCancelledOnEmptyTable,
             // _AfterRunModalOkOnEmptyTable, _PageTypedHandlerOnEmptyTable: `id=0|grp=|qty=0`). So does a list with no
             // Editable property that closed on no row of a table that has rows, after OK, LookupOK, LookupCancel and
             // SetRecord of a row (P129PageMisc.al:675-818 on corpus master, TV_GetRecord_*_FilteredToNoRow). Other pages
             // on no row of a table that has rows, and a page on its new-row line, are not pinned.
-            // A page that never ran hands back the record SetRecord gave it (pages/lt-part-never-ran/NeverRanSetRecord.al:
+            // A page that never ran hands back the record SetRecord gave it (pages/parts/NeverRanSetRecord.al:
             // P182b_HostNeverRan_PartSetRecord, `id=7 name=seven`).
             // Only a part is pinned: a Page variable's SetRecord before a typed handler ran it is not (PageVariable_LookupMode_HandlerSetRecord_Cancel).
             let given = st
@@ -46,7 +46,7 @@ impl Session {
             let initial = self.initial_fields(dst.borrow().table as usize);
             let src_blank = self.is_blank_row(&src);
             // After a Page-typed handler called SetRecord, GetRecord hands back that record, for LookupOK and Cancel
-            // (pages/lt-modal-handler-typed-page/PageTypedHandlerRec.al:214-266 PageVariable_LookupMode_HandlerSetRecord_*;
+            // (pages/run-modal/PageTypedHandlerRec.al:214-266 PageVariable_LookupMode_HandlerSetRecord_*;
             // a SetTableView view does not bound the page's Rec, :116 SettableView_ThenAssignRecOutsideView).
             // So does an empty temporary Card or NavigatePage handed a record by SetRecord (`empty_temp_card_by_set_record`).
             if st.borrow().handler_set_record || self.empty_temp_card_by_set_record(st, &src)? {

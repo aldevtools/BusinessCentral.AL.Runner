@@ -1,6 +1,6 @@
 //! XmlPort `InlineSchema = true`: the export writes an XSD inside the root element, then the rows without
-//! indentation (corpus xmlport/lt-y-xmlport-props/YXmlPortProps.al:563 InlineSchema_Export_ContainsSchema, a root text
-//! element with one table element of an Integer and a Text field), and xmlport/lt-bd-xmlport/BdXmlPort.al:425-492
+//! indentation (corpus xmlports/shapes-properties/YXmlPortProps.al:563 InlineSchema_Export_ContainsSchema, a root text
+//! element with one table element of an Integer and a Text field), and xmlports/shapes-properties/BdXmlPort.al:425-492
 //! (more field types, attributes, an optional text element, an optional table element without rows). Other shapes are refused.
 
 use al_sema::workspace::AppSource;

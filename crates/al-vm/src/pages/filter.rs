@@ -1,6 +1,6 @@
 //! `TestPage.Filter` / `TestPart.Filter` (the `TestFilter` handle): the test's way to change which
 //! rows an open page has and in what order. It writes the page's user filter, filter group 0
-//! (corpus testfilter/TestTestFilter.al, TestTestFilterFilterGroups.al).
+//! (corpus testpage/filters/TestTestFilter.al, TestTestFilterFilterGroups.al).
 
 use super::*;
 use al_builtins::describe::Describe;
@@ -24,7 +24,7 @@ impl Session {
         let table = self.table(&rec)?;
         match method {
             // The first filter on the field across the filter groups, in the order they were
-            // written (corpus testfilter/TestTestFilterFilterGroups.al:3 and 4). A tree's cut is no filter of the page
+            // written (corpus testpage/filters/TestTestFilterFilterGroups.al:3 and 4). A tree's cut is no filter of the page
             // (Y28CollapsedTreeTests.al:40 Y28_CollapsedOpenAndWalk `testpage-filter-indent` reads ``, `apply_tree_cut`).
             PageMethod::GetFilter => {
                 let pos = field_arg(args, 0)?;
@@ -40,7 +40,7 @@ impl Session {
                         "TestFilter.GetFilter of a SourceTableView const(0D) or filter(0D) (the filter text is not pinned)",
                     );
                 }
-                // With MarkedOnly it reads the page's own filters, the dropped ones gone (pages/lt-y50-or-group-page-rec/
+                // With MarkedOnly it reads the page's own filters, the dropped ones gone (pages/or-filter-groups-on-page-rec/
                 // Y50OrGroupPageRec.al:491 G521_OnOpenPage_OrMarks_TestPageFilter `getfilter` = `Yes/`).
                 if st.borrow().or_group_dropped && !rec.borrow().marked_only {
                     return unsupported(
@@ -56,18 +56,18 @@ impl Session {
                 }
                 match (&table.fields[pos].ty, first.as_ref().map(|f| &f.expr)) {
                     // A typed single value on an Enum field (SetRange on the record handed to the page, a RunPageLink `field()`, a
-                    // SourceTableView `const`) reads as the ordinal; a filter given as text keeps the names (pages/lt-ce-page-run/
+                    // SourceTableView `const`) reads as the ordinal; a filter given as text keeps the names (pages/run-modal/
                     // CePageRun.al SetTableView_ConflictingFilterOnTheSameField `Kind=1`, SetTableView_FilterOnAnotherField `Kind=0`,
-                    // SetTableView_WiderFilterOnTheSameField `Kind=A|B`; pages/lt-cd-testpage-leads/CdTestPageLeads.al:626
+                    // SetTableView_WiderFilterOnTheSameField `Kind=A|B`; testpage/CdTestPageLeads.al:626
                     // Item61_RunPageLinkEnumKey_ByField_New `2`, :650 _ByConst_New `Second`).
                     (RtType::Enum(_), Some(FilterExpr::Range(Some(a), Some(b)))) => {
                         let (Value::Enum(_, x), Value::Enum(_, y)) = (a, b) else {
                             return unsupported("TestFilter.GetFilter of an Enum range that holds no Enum value");
                         };
                         // A range of two values reads as the two ordinals, from SetRange and from a SetFilter text range alike
-                        // (pages/lt-cd-testpage-leads/CdTestPageLeads.al:923 SH_TestPageFilter_GetFilter_EnumRangeAndList
+                        // (testpage/CdTestPageLeads.al:923 SH_TestPageFilter_GetFilter_EnumRangeAndList
                         // `SetRange First..Second = 0..1`, `Second..Third = 1..2`, `SetFilter text First..Second = 0..1`), and over
-                        // more than two ordinals (pages/lt-y76-view-filters/Y76TestFilterEnum.al:122 `0..2`, `0..7`).
+                        // more than two ordinals (pages/view-filters/Y76TestFilterEnum.al:122 `0..2`, `0..7`).
                         if x != y {
                             return Ok(Value::Text(format!("{x}..{y}").into()));
                         }
@@ -79,7 +79,7 @@ impl Session {
                         return Ok(Value::Text(format!("<>{x}").into()));
                     }
                     // A Boolean that a SourceTableView (group 2) or an action's RunPageView (group 3) filters with `const(true)`
-                    // reads `1` (pages/lt-rz-outside-page-moves/RzRunPageLinkView.al:62 RZ_Link_WhereView_I1, :112
+                    // reads `1` (testpage/RzRunPageLinkView.al:62 RZ_Link_WhereView_I1, :112
                     // RZ_LinkAndRunPageViewWhere_DescendingView_I1). `const(false)` there is not pinned.
                     (RtType::Boolean, Some(e @ (FilterExpr::Range(Some(_), Some(_)) | FilterExpr::Eq(_))))
                         if matches!(first.as_ref().map(|f| f.group), Some(2 | 3)) =>
@@ -114,7 +114,7 @@ impl Session {
                 };
                 let ty = table.fields[pos].ty.clone();
                 // `Filter.SetFilter(Active, 'true')` and `'false'` on a Boolean field change nothing the handler of a modal list sees: the rows
-                // stay as the record handed to RunModal left them (pages/lt-modal-list-new-row/ModalListNewRowKeyFilters.al:
+                // stay as the record handed to RunModal left them (pages/triggers/ModalListNewRowKeyFilters.al:
                 // P157_HandlerSetFilter_NoRecFilters, _WithTwoKeyFilters, _MatchesNothing, _NonKeyRecFilter). Whether it is the Boolean
                 // words or the modal list that matters is not probed (docs/probes-needed.md).
                 if matches!(ty, al_builtins::value::RtType::Boolean)
@@ -123,7 +123,7 @@ impl Session {
                     return Ok(Value::Null);
                 }
                 // An empty text or one of spaces takes the user's filter off the field: GetFilter reads empty and every row shows
-                // (pages/lt-ao-testpage/AoTests.al:673-695 TestFilter_SetFilterSpace, _SetFilterEmpty, :930-940
+                // (testpage/AoTests.al:673-695 TestFilter_SetFilterSpace, _SetFilterEmpty, :930-940
                 // SF_TestFilter_SetFilterTwoSpaces).
                 if text.trim().is_empty() {
                     rec.borrow_mut().filters.retain(|f| !(f.field == pos && f.group == 0));
@@ -137,7 +137,7 @@ impl Session {
                 // field's filter again replaces the group-0 one.
                 {
                     // In place when there is one: group 0 keeps its place ahead of the groups the
-                    // page wrote after it (corpus testfilter/TestTestFilterFilterGroups.al:4).
+                    // page wrote after it (corpus testpage/filters/TestTestFilterFilterGroups.al:4).
                     let mut r = rec.borrow_mut();
                     match r.filters.iter().position(|f| f.field == pos && f.group == 0) {
                         Some(i) => r.filters[i].expr = expr,
@@ -185,11 +185,11 @@ impl Session {
     }
 
     /// The page reads its rows again after the filter or the key changed, and stands on the first
-    /// match (corpus handlers/TestPageFilterPosition_Tests.al:SetFilter_ExcludingTheCurrentRow_*,
+    /// match (corpus testpage/TestPageFilterPosition_Tests.al:SetFilter_ExcludingTheCurrentRow_*,
     /// SetFilter_EvenWhenCurrentRowStillQualifies_RepositionsToTheFirstMatch).
     fn filter_changed(&mut self, st: &St) -> Result<(), Signal> {
         // A list that reads each row once more in a key other than its primary key refills as it opens, the first row three times
-        // before OnAfterGetCurrRecord (`populate_window`; pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:299 Name_Filter_Refill
+        // before OnAfterGetCurrRecord (`populate_window`; pages/onopenpage-moves-rec/SuRefillKey.al:299 Name_Filter_Refill
         // `filter` `4:R4;R2;R3;R4;R4;R4;C4;`, SyKeyMoves.al:209 Name_FilterMoves `filter` `4:R4;R2;R1;R4;R4;R4;C4;`).
         self.save_row(st)?;
         {
@@ -208,17 +208,17 @@ impl Session {
         let r = self.page_first_row(st);
         self.torn_down_on_error(st, r)?;
         // A page the filter left without a row shows a blank one, its key pre-filled from a
-        // single-valued filter (corpus pageupdate/TestPageUpdateGoneRow.al:
+        // single-valued filter (corpus pages/currpage/TestPageUpdateGoneRow.al:
         // Card_OpenEdit_FilterMatchesNothing_NoOpAction_StaysOpen).
         if st.borrow().cursor == Cursor::None {
             // A list that offers the blank line stands on it (a page opened with OpenNew starts a new row), with the filter
-            // value on it (pages/lt-filter-change-new-line/FilterChangeNewLine.al: OpenNew_*, OpenEdit_EmptyTable_*,
+            // value on it (pages/triggers/FilterChangeNewLine.al: OpenNew_*, OpenEdit_EmptyTable_*,
             // OpenEdit_FilterToEmptyResult_*, OpenEdit_FilterOnNonKeyField_*).
             let new_mode = st.borrow().mode == PageMode::New && self.has_source(st);
             if new_mode || (st.borrow().new_line && self.is_list(st)) {
                 if new_mode {
                     self.start_draft(st, false)?;
-                    // The blank line of a list is read twice here too (pages/lt-filter-change-new-line/FilterChangeNewLine.al:
+                    // The blank line of a list is read twice here too (pages/triggers/FilterChangeNewLine.al:
                     // OpenNew_FilterSetFilter_ThenSetValueDescr_StoresRowWithFilterKey: `NewRecord(G1);AGCR(G1,0)` twice).
                     if self.is_list(st) && st.borrow().host.is_none() {
                         self.start_draft(st, false)?;

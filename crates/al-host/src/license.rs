@@ -79,8 +79,8 @@ const LIMITED_USAGE_LIST: &str = "LimitedUsageTable";
 
 /// SHA-256 of the limited-usage list of the license that ships with the BC artifacts (the Cronus demo license; the same
 /// file in the artifacts of the three supported majors), written one range per line as `first-last:mask\n`. With that
-/// list, Limited Usage Permission is blank on every pinned row (platform/lt-ag-contoso/AgLicensePermission.al,
-/// lt-ss1030/SsLicensePermissionObjects.al:31-34, platform/lt-platform-rows-fresh/PlatformRowsLicensePermission.al:66-73),
+/// list, Limited Usage Permission is blank on every pinned row (metadata/platform-tables/AgLicensePermission.al,
+/// permissions/permission-sets/SsLicensePermissionObjects.al:31-34, metadata/platform-tables/PlatformRowsLicensePermission.al:66-73),
 /// also for table 18, which the list names (ADR-060 decision 2). Only the hash is kept here, never the list.
 const ARTIFACT_LIMITED_USAGE_SHA256: &str = "76825f1c208349aa31bafb5e55fbdcb439ce0932f53cf0b8a14a3d77a11ddb14";
 

@@ -1,7 +1,7 @@
 //! The `File` type on the host file system capability (ADR-006), end to end.
 //!
 //! The corpus pins no `File` behaviour: its only reach is Base Application report 91 "Export
-//! Consolidation" (handlers/TestPrecompiledOptionCaption.al and others), which needs the calls to
+//! Consolidation" (reports/TestPrecompiledOptionCaption.al and others), which needs the calls to
 //! lower. What runs here is the documented behaviour of the Business Central `File` data type
 //! (Microsoft Learn, "File data type") on an in-memory file system, and each assumption is a row
 //! in docs/probes-needed.md. Whatever is not documented plainly is refused.
@@ -148,7 +148,7 @@ fn what_needs_a_client_or_is_not_documented_plainly_is_refused() {
 #[test]
 fn the_static_file_methods_can_be_called_without_the_type_name() {
     // Base Application's "File Management" calls `Download(...)`, `Exists(...)` and `Erase(...)`
-    // unqualified (reached by the report 91 tests, handlers/TestPrecompiledOptionCaption.al).
+    // unqualified (reached by the report 91 tests, reports/TestPrecompiledOptionCaption.al).
     assert_eq!(
         text(
             "F: File;",
@@ -182,7 +182,7 @@ fn is_path_temporary_refuses_the_forms_where_windows_and_linux_differ() {
     }
 }
 
-// Blob.Import(Name) (al-language-onprem/lt-o-system-onprem/OBlobAndSession.al:27-58, :74-103): the blob holds the file's
+// Blob.Import(Name) (al-language-onprem/session-system/database-and-blob-operations/OBlobAndSession.al:27-58, :74-103): the blob holds the file's
 // bytes; a missing file raises FileNotFound (its text names the server's path: only its start and end are pinned) and the
 // blob keeps what it held. The returned name is pinned only by its end, so a call that uses it is refused.
 #[test]
@@ -244,7 +244,7 @@ fn blob_import_reads_the_file_into_the_blob() {
 }
 
 /// A write into a folder under TemporaryPath() that does not exist fails with InvalidPath and creates nothing; Open of a file
-/// there fails the same way (al-language-onprem/lt-file-type/FileErrors.al:216-241 P110_InvalidPaths, Windows BC 29.0).
+/// there fails the same way (al-language-onprem/streams/files/file-type/FileErrors.al:216-241 P110_InvalidPaths, Windows BC 29.0).
 #[test]
 fn create_and_open_in_a_missing_folder_fail_with_invalid_path() {
     let t = text(

@@ -76,16 +76,20 @@ pub(crate) fn read_tree(text: &str) -> Result<Result<crate::xmlport::Elem, Optio
         for c in children_of(h) {
             enum K {
                 Element,
-                Text(String),
+                Text(String, bool),
                 Skip,
             }
             match with(&c, |d| match d {
                 XData::Element { .. } => K::Element,
-                XData::Text(t) | XData::CData(t) => K::Text(t.clone()),
+                XData::Text(t) => K::Text(t.clone(), false),
+                XData::CData(t) => K::Text(t.clone(), true),
                 _ => K::Skip,
             }) {
                 K::Element => out.children.push(Node::Elem(convert(&c)?)),
-                K::Text(t) => out.children.push(Node::Text(t)),
+                K::Text(t, cdata) => {
+                    out.text_source = out.text_source.with(cdata);
+                    out.children.push(Node::Text(t));
+                }
                 K::Skip => {}
             }
         }
@@ -115,7 +119,7 @@ pub(crate) fn read_tree(text: &str) -> Result<Result<crate::xmlport::Elem, Optio
 
 /// The element tree of a document for an import into a port whose elements are all in namespace `want`
 /// (`UseDefaultNamespace = true`, al-builtins xmlport.rs `parse_in_namespace`). Pinned shapes only
-/// (xmlport/lt-bd-xmlport/BdXmlPort.al:499): every element in `want`, by default or by a prefix; the root elsewhere; the
+/// (xmlports/shapes-properties/BdXmlPort.al:499): every element in `want`, by default or by a prefix; the root elsewhere; the
 /// root's first child in no namespace. Anything else in another namespace, and any other namespace declaration, is refused.
 pub(crate) fn read_tree_in(
     text: &str,
@@ -169,11 +173,15 @@ pub(crate) fn read_tree_in(
         for c in children_of(h) {
             match with(&c, |d| match d {
                 XData::Element { .. } => None,
-                XData::Text(t) | XData::CData(t) => Some(Some(t.clone())),
+                XData::Text(t) => Some(Some((t.clone(), false))),
+                XData::CData(t) => Some(Some((t.clone(), true))),
                 _ => Some(None),
             }) {
                 None => out.children.push(Node::Elem(convert(&c, want)?)),
-                Some(Some(t)) => out.children.push(Node::Text(t)),
+                Some(Some((t, cdata))) => {
+                    out.text_source = out.text_source.with(cdata);
+                    out.children.push(Node::Text(t));
+                }
                 Some(None) => {}
             }
         }

@@ -1,5 +1,5 @@
 //! The stream `Report.RdlcLayout` gives for a report with an RDLC layout file: the file with its `<Fields>` list replaced by the
-//! report's data set columns (report/lt-y86-request-page/Y86LayoutStreams.al:82 Y86_RdlcLayout_StreamIsTheFile `length` 1917
+//! report's data set columns (reports/request-page/Y86LayoutStreams.al:82 Y86_RdlcLayout_StreamIsTheFile `length` 1917
 //! for a 2316-byte file with four fields and a report without columns, `lines` 73, `line 3` and `line 4` unchanged;
 //! :230 Y86_RdlcLayout_FieldsSectionFollowsTheDataset `<Fields />` for no columns and, for `NumberCol` (Integer) and `TextCol`
 //! ('abc'), one `<Field Name=..><DataField>..</DataField></Field>` per column, nested one level deeper each, in the line

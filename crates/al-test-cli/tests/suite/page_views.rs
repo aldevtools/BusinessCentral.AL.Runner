@@ -173,7 +173,7 @@ const WALK: &str = r#"
             repeat Result += List.IdCtl.Value() + ','; until not List.Next();
 "#;
 
-// pages/lt-cd-testpage-leads/CdTestPageLeads.al:508 Item58_SourceTableView_Const0D and :521 Item58_SourceTableView_Filter0D.
+// testpage/CdTestPageLeads.al:508 Item58_SourceTableView_Const0D and :521 Item58_SourceTableView_Filter0D.
 #[test]
 fn a_source_table_view_const_or_filter_0d_shows_the_blank_dates() {
     passes(&format!(
@@ -186,7 +186,7 @@ fn a_source_table_view_const_or_filter_0d_shows_the_blank_dates() {
     ));
 }
 
-// pages/lt-cd-testpage-leads/CdTestPageLeads.al:539 Item58_SourceTableView_ConstEmptyTextAndEnum: const('') on a Text field
+// testpage/CdTestPageLeads.al:539 Item58_SourceTableView_ConstEmptyTextAndEnum: const('') on a Text field
 // does not filter; const(Open) on an Enum field does.
 #[test]
 fn a_source_table_view_const_blank_on_a_text_field_does_not_filter() {
@@ -218,7 +218,7 @@ fn a_source_table_view_const_blank_on_a_code_field_is_refused() {
     );
 }
 
-// pages/lt-cd-testpage-leads/CdTestPageLeads.al:776 Item63_FilterGroupMinus1_InOnOpenPage: the record counts the OR rows inside
+// testpage/CdTestPageLeads.al:776 Item63_FilterGroupMinus1_InOnOpenPage: the record counts the OR rows inside
 // OnOpenPage, the page shows every row.
 #[test]
 fn filter_group_minus_1_from_on_open_page_does_not_limit_the_rows_shown() {
@@ -236,7 +236,7 @@ fn filter_group_minus_1_from_on_open_page_does_not_limit_the_rows_shown() {
 }
 
 // The filters OnOpenPage left in group -1 are dropped after it, also on a page with later triggers: the list shows every
-// row (pages/lt-y50-or-group-page-rec/Y50OrGroupPageRec.al:468-485, G521_OnOpenPage_OrOnly_LaterCode).
+// row (pages/or-filter-groups-on-page-rec/Y50OrGroupPageRec.al:468-485, G521_OnOpenPage_OrOnly_LaterCode).
 #[test]
 fn filter_group_minus_1_left_on_a_page_with_later_triggers_is_dropped() {
     passes(&format!(
@@ -247,7 +247,7 @@ fn filter_group_minus_1_left_on_a_page_with_later_triggers_is_dropped() {
     ));
 }
 
-// pages/lt-cd-testpage-leads/CdTestPageLeads.al:587 Item59_EnumSubPageLink_NewLine: Next() onto the blank line, then New():
+// testpage/CdTestPageLeads.al:587 Item59_EnumSubPageLink_NewLine: Next() onto the blank line, then New():
 // the blank line burns one AutoSplitKey interval, the typed line gets the last line + 20000.
 #[test]
 fn auto_split_key_after_next_onto_the_blank_line_burns_one_interval() {
@@ -271,7 +271,7 @@ fn auto_split_key_after_next_onto_the_blank_line_burns_one_interval() {
     );
 }
 
-// pages/lt-cd-testpage-leads/CdTestPageLeads.al:626 Item61_RunPageLinkEnumKey_ByField_New (the ordinal) and :650 _ByConst_New
+// testpage/CdTestPageLeads.al:626 Item61_RunPageLinkEnumKey_ByField_New (the ordinal) and :650 _ByConst_New
 // (the name).
 #[test]
 fn a_run_page_link_field_on_an_enum_shows_the_ordinal_in_the_test_page_filter() {
@@ -306,7 +306,7 @@ fn a_run_page_link_field_on_an_enum_shows_the_ordinal_in_the_test_page_filter() 
     );
 }
 
-// pages/lt-ce-page-run/CePageRun.al OpenView_DescendingWithOnFindRecord_CurrentRow: a descending SourceTableView, OnFindRecord is
+// pages/run-modal/CePageRun.al OpenView_DescendingWithOnFindRecord_CurrentRow: a descending SourceTableView, OnFindRecord is
 // asked `=><` on open and the blank key finds the lowest id.
 #[test]
 fn a_descending_view_with_on_find_record_opens_with_the_client_find() {
@@ -324,7 +324,7 @@ fn a_descending_view_with_on_find_record_opens_with_the_client_find() {
     );
 }
 
-// pages/lt-ce-page-run/CePageRun.al RunModal_EnumFilter_RowsAndNewRowDefault and RunModal_OptionFilter_RowsAndNewRowDefault: a
+// pages/run-modal/CePageRun.al RunModal_EnumFilter_RowsAndNewRowDefault and RunModal_OptionFilter_RowsAndNewRowDefault: a
 // handed record filtered to one Enum or Option value the blank row does not hold shows no blank line; New() still starts a line.
 #[test]
 fn run_modal_with_an_enum_or_option_filter_shows_no_blank_line() {
@@ -365,7 +365,7 @@ fn run_modal_with_an_enum_or_option_filter_shows_no_blank_line() {
     );
 }
 
-// pages/lt-ce-page-run/CePageRun.al SetTableView_ConflictingFilterOnTheSameField, SetTableView_FilterOnAnotherField and
+// pages/run-modal/CePageRun.al SetTableView_ConflictingFilterOnTheSameField, SetTableView_FilterOnAnotherField and
 // SetTableView_WiderFilterOnTheSameField: a SetRange value and a SourceTableView const on an Enum field read as the ordinal, a
 // SetFilter text as the names.
 #[test]

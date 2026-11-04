@@ -5,7 +5,7 @@ use crate::Signal;
 use crate::dataset;
 
 /// The formatter of a Decimal column from its own `DecimalPlaces`, `AutoFormatType` and `AutoFormatExpression`, else the
-/// `DecimalPlaces` of its field (`field_places`). Pinned by al-language-onprem/report/lt-y67-saveasxml-columns/
+/// `DecimalPlaces` of its field (`field_places`). Pinned by al-language-onprem/reports/dataset/
 /// Y67SaveAsXmlColumns.al:370 Columns_DecimalFormatters (BC 27.5, 28.5, 29.0):
 /// - DecimalPlaces of the column or the field (`dataset::decimal_formatter`): `0 : 0` `#,##0`, `1` `#,##0.0`, `2 : 4`
 ///   `#,##0.00##`, `0 : 5` `#,##0.#####`, `3` on an expression `#,##0.000`;

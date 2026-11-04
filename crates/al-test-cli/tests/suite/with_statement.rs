@@ -1,6 +1,6 @@
 //! The `with` statement: AL source → compile → run as a test codeunit. Each test mirrors a corpus test (the
-//! scenarios of events/lt-global-triggers-statements/P114WithStatement.al and
-//! events/lt-with-statement-scopes/WithStatementAmbiguous.al and WithStatementNested.al), with `Check` in place
+//! scenarios of events/platform-triggers/P114WithStatement.al and
+//! events/binding-senders/WithStatementAmbiguous.al and WithStatementNested.al), with `Check` in place
 //! of the Probe Observer fixture.
 
 use al_test_cli::report::Outcome;

@@ -47,7 +47,7 @@ fn all_pass(tests: &str) {
 
 // Application Area Mgmt. does `FieldRef := RecRef.Field(Buffer."Field No.")`: a record field as the argument is the
 // field's VALUE for RecordRef.Field, not a reference to the field (the parameter is an Integer). Corpus
-// recordref/TestRecordRefRuntimeContracts.al passes Integer variables; Microsoft's test
+// recordref-fieldref/recordref/TestRecordRefRuntimeContracts.al passes Integer variables; Microsoft's test
 // Test ApplicationArea Setup.TestSetExperienceTierCurrentCompanyErrorOnInvalidValues needs the field form.
 #[test]
 fn recordref_field_takes_the_value_of_a_record_field_argument() {

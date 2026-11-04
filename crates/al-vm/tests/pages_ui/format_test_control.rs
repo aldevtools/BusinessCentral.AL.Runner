@@ -1,6 +1,6 @@
 //! Format of a TestPage control is the text the control shows, cut or padded to the length; the format number changes
-//! nothing (corpus errors/lt-ms-refusals-132/P132TestPageFormatRisky.al:P132_FormatOfControl_Standard0, _StandardNumbers;
-//! errors/lt-ms-refusals-129/P129FormatTestPageControl.al:94-138).
+//! nothing (corpus testpage/P132TestPageFormatRisky.al:P132_FormatOfControl_Standard0, _StandardNumbers;
+//! testpage/P129FormatTestPageControl.al:94-138).
 
 const SRC: &str = r#"
 table 69980 "FmtCtl Row"

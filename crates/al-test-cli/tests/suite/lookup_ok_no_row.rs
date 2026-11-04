@@ -1,5 +1,5 @@
 //! `Page.RunModal(Id, Rec)` whose handler answers OK on a lookup page that shows no row (an empty view of a list that has no
-//! new-row line, handlers/TestPageModalNewRowLine_Tests.al:164 NotEditable_RunModalById_HasNoNewRowLine), and a page variable
+//! new-row line, ui-handlers/TestPageModalNewRowLine_Tests.al:164 NotEditable_RunModalById_HasNoNewRowLine), and a page variable
 //! in lookup mode on such a view.
 
 use al_test_cli::report::Outcome;
@@ -29,9 +29,9 @@ fn outcomes(tests: &str) -> Vec<(String, Outcome)> {
 }
 
 // OK on that page has no OK action: the call fails with TestActionNotFound and Rec comes back without its filters, its values
-// kept (corpus PR 896, errors/lt-ms-refusals-129/Y9LookupNoRow.al Y9_Lookup_RunModalIdRec_FilteredToNoRow_Ok,
+// kept (corpus PR 896, pages/run-modal/Y9LookupNoRow.al Y9_Lookup_RunModalIdRec_FilteredToNoRow_Ok,
 // _EmptyTable_PrefilledRec_Ok, _EmptyTable_ReadOnlyList_Ok: a page id). On a row it is LookupOK with that row. Page.RunModal(0, Rec)
-// with a filter in group 0 only is refused (`lookup_page_from_table`, misc/lt-y14-triage/Y14LookupNoRow.al).
+// with a filter in group 0 only is refused (`lookup_page_from_table`, ui-handlers/Y14LookupNoRow.al).
 #[test]
 fn ok_on_a_static_lookup_page_without_a_row_is_not_found() {
     let o = outcomes(
@@ -59,7 +59,7 @@ fn ok_on_a_static_lookup_page_without_a_row_is_not_found() {
     assert_eq!(o[1].1, Outcome::Pass, "{:?}", o[1]);
 }
 
-// errors/lt-ms-refusals-129/P129PageMisc.al:726 TV_GetRecord_AfterLookupOk_FilteredToNoRow and :772
+// testpage/P129PageMisc.al:726 TV_GetRecord_AfterLookupOk_FilteredToNoRow and :772
 // TV_GetRecord_AfterSetRecordAndLookupOk_FilteredToNoRow: a list page variable with LookupMode(true) whose view shows no row has
 // no OK action (TestActionNotFound); Cancel closes it with LookupCancel.
 #[test]
@@ -83,7 +83,7 @@ fn ok_of_a_lookup_mode_list_variable_that_shows_no_row_is_not_found() {
     assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0]);
 }
 
-// errors/lt-ms-refusals-129/P129PageMisc.al:675-818 (writer TV, corpus master 44b64f47): a Page variable of a list with no Editable
+// testpage/P129PageMisc.al:675-818 (writer TV, corpus master 44b64f47): a Page variable of a list with no Editable
 // property, filtered with SetTableView to no row of a table that has rows. In lookup mode the handler's OK is not found
 // (TestActionNotFound) and RunModal answers LookupCancel; GetRecord afterwards hands back the blank record whatever the record held,
 // also after SetRecord of a row, after a plain OK and after Cancel.
@@ -122,7 +122,7 @@ fn get_record_of_a_page_closed_on_no_row_of_a_table_with_rows_is_blank() {
     }
 }
 
-// pages/lt-modal-handler-typed-page/PageTypedHandlerRec.al:214-266 (PageVariable_LookupMode_HandlerSetRecord_LookupOK, _Cancel):
+// pages/run-modal/PageTypedHandlerRec.al:214-266 (PageVariable_LookupMode_HandlerSetRecord_LookupOK, _Cancel):
 // a Page-typed handler that calls SetRecord leaves that record on the page; GetRecord afterwards hands it back, for LookupOK and
 // Cancel. A view the test set with SetTableView does not bound the page's Rec (PageTypedHandlerRec.al:116
 // SettableView_ThenAssignRecOutsideView), so the same holds after SetTableView.

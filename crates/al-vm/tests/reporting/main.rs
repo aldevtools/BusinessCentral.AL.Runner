@@ -47,6 +47,7 @@ mod xmlport_attr_leaf_outside_table;
 mod xmlport_autoupdate_init_trigger;
 mod xmlport_bigtext;
 mod xmlport_bigtext_attr;
+mod xmlport_blank_cdata;
 mod xmlport_calcfields_attrs;
 mod xmlport_container_in_table;
 mod xmlport_container_skip;

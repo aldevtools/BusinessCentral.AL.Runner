@@ -1,5 +1,5 @@
 //! Sorting by a key whose rows tie, and the primary key fields that follow a key
-//! (corpus record/lt-setascending-ties/SetAscendingTies.al).
+//! (corpus record/keys-sorting/SetAscendingTies.al).
 
 use al_builtins::native::Signal;
 use al_testkit::{error_message, text};
@@ -155,7 +155,7 @@ codeunit 69996 C
 }
 "#;
 
-// records/W4SortKeys.al:459, :471: a FlowField whose value is the same for every row is accepted and the key stays the primary
+// record/W4SortKeys.al:459, :471: a FlowField whose value is the same for every row is accepted and the key stays the primary
 // key. A FlowField that depends on the row is reported as the key, alone and after a normal field (record/
 // Y8SetCurrentKeyNotStored.al:84-106; SetCurrentKeyFlowFieldOrder.al:109-113). The order of the rows is built only with the
 // FlowField first (flowfield_key_order.rs): after a normal field a read refuses.
@@ -257,8 +257,8 @@ codeunit 69995 C
 "#;
 
 // SetCurrentKey on a Media or MediaSet field that no key holds: the record itself answers the field as its key
-// (record/lt-ar-records/ArRecordProbes.al:198-229 SetCurrentKey_Media `Pic`, SetCurrentKey_MediaSet `Pics`), a by-value copy of it
-// answers the primary key (records/W4SortKeys.al:440-471 `media` `ok:[Id]`). The order of the rows, the view and the rest of
+// (streams/ArRecordProbes.al:198-229 SetCurrentKey_Media `Pic`, SetCurrentKey_MediaSet `Pics`), a by-value copy of it
+// answers the primary key (record/W4SortKeys.al:440-471 `media` `ok:[Id]`). The order of the rows, the view and the rest of
 // what such a record answers are not pinned: refused.
 #[test]
 fn set_current_key_on_a_media_field_answers_the_field_and_its_copy_the_primary_key() {

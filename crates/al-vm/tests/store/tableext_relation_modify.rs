@@ -1,6 +1,6 @@
 //! `modify(Field) { TableRelation = ...; }` in a table extension adds its arms after the base field's arms; the first arm
-//! that applies decides (corpus tableextension/TestTableExtFieldTableRelation.al:241-298, objects in
-//! tableextension/lt-bs-tableext-leads/BsObjects.al): an unconditional base relation keeps deciding, and a conditional one is
+//! that applies decides (corpus table-objects/extensions/TestTableExtFieldTableRelation.al:241-298, objects in
+//! table-objects/BsObjects.al): an unconditional base relation keeps deciding, and a conditional one is
 //! extended by the extension's condition. Other combinations are not pinned and are refused.
 
 use al_builtins::native::Signal;

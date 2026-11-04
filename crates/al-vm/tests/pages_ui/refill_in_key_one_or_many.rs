@@ -1,6 +1,6 @@
 //! A TestPage filter change refills a list in a key other than the primary key (SourceTableView descending, the Customer Ledger
 //! Entries shape) to one row, or to more rows than a window holds: the client reads the window from the first row of the view,
-//! then that row three more times, then OnAfterGetCurrRecord (corpus master 97c29f86, pages/lt-y17-refill-key/Y17RefillKey.al:341
+//! then that row three more times, then OnAfterGetCurrRecord (corpus master 97c29f86, pages/list-refill-key-order/Y17RefillKey.al:341
 //! Refill_Desc_OneRow `10:R10;R10;R10;C10;`, :364 Refill_Desc_MoreThanWindow `29:R29;R28;...;R7;R29;R29;R29;C29;`, :311
 //! Refill_Desc_ManyThenOne).
 

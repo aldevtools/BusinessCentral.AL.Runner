@@ -350,7 +350,7 @@ fn convert(cell: &Cell, kind: &Kind, default: &Value) -> Result<Value, String> {
 /// seven quantors as one control character, `C D WD W M Q Y` as 1 to 7, and the rest as written: the
 /// demo database shows it (Payment Terms "10 DAYS" holds `10` and 2, Company Information's `1Y` holds
 /// `1` and 7). The table is not pinned by a corpus test (docs/probes-needed.md, "Test data"); AL code
-/// reads a stored DateFormula field without brackets (recordref/lt-refs/RfTValues.al QP_DateFormula_*).
+/// reads a stored DateFormula field without brackets (recordref-fieldref/recordref/RfTValues.al QP_DateFormula_*).
 fn date_formula_text(stored: &str) -> String {
     const QUANTORS: [&str; 7] = ["C", "D", "WD", "W", "M", "Q", "Y"];
     let mut out = String::from("<");

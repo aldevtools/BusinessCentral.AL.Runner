@@ -1,5 +1,5 @@
 //! After a Page variable's RunModal closed with OK, the page's own code may still reach a part a Visible expression had hidden
-//! (it hands out its row at close) and call CurrPage.Update and SaveRecord, which do nothing (pages/lt-y37-part-after-close/
+//! (it hands out its row at close) and call CurrPage.Update and SaveRecord, which do nothing (pages/parts/
 //! Y37PartAfterClose.al:376-441).
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;

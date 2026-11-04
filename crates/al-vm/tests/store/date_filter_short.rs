@@ -1,5 +1,5 @@
 //! Date filter texts of month and day only, impossible slash forms, DateTime texts, and `0D` in a query's static filters.
-//! Every literal is what real BC answered in the corpus: filters/lt-y62-date-filter-short/Y62DateFilterShort.al
+//! Every literal is what real BC answered in the corpus: record/filters/Y62DateFilterShort.al
 //! (codeunit 93260, writer Y62).
 
 use al_testkit::text;

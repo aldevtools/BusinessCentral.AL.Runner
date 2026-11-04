@@ -112,7 +112,7 @@ fn a_rename_of_the_related_table_parses_the_arm_and_keeps_a_field_without_valida
 }
 
 // The same qualified form on an Option field, and `filter(Type::X)`, name the member too
-// (record/lt-y65-rename-const-relation/Y65RenameConstRelation.al RefOptionQualified, RefFilter).
+// (record/table-relation/Y65RenameConstRelation.al RefOptionQualified, RefFilter).
 #[test]
 fn an_option_field_qualified_const_arm_validates() {
     assert_eq!(text(al_testkit::run_in(OPTION_SRC, "C", "ValidateOption")), "Colour");

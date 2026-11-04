@@ -1,5 +1,5 @@
 //! A buffer made stale by a Commit whose row version came from a Find, an assignment, Copy or TransferFields (not from a Get or
-//! from the variable's own Insert). Pinned by corpus record/lt-sb-stale-own-modify/Y76StaleBuffers.al Y76_Part1_*: a Find, an
+//! from the variable's own Insert). Pinned by corpus record/crud/Y76StaleBuffers.al Y76_Part1_*: a Find, an
 //! assignment and Copy behave as a Get; TransferFields from a record is written only after LockTable + Get, from a temporary
 //! copy never.
 

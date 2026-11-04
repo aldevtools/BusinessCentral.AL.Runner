@@ -1,7 +1,7 @@
 //! A global passed by `var` to a procedure while code reaches the same global by its own name. BC passes a `var` argument
 //! by reference: when the procedure is the codeunit's own (same instance), the parameter and the global are ONE variable, and
-//! a change through either shows in the other (codeunit/lt-var-global-alias/VarGlobalAlias.al:12-118, tests :120-170).
-//! The event form is pinned in events/lt-event-var-through-sender/EventVarThroughSender.al. A global passed by var to a
+//! a change through either shows in the other (codeunits/procedures/VarGlobalAlias.al:12-118, tests :120-170).
+//! The event form is pinned in events/binding-senders/EventVarThroughSender.al. A global passed by var to a
 //! procedure of another codeunit instance, reached by name while that call runs, is still refused (not pinned).
 //! Found by Microsoft's Tests-ERM (Reminder Header.InsertTextLines passes its global NextLineNo by var and
 //! InsertBlankLine adds to the global: "Reminder Line already exists" in 134997 and 134012).
@@ -96,20 +96,20 @@ fn global_by_var_read_by_its_name_in_the_callee_sees_the_parameter() {
 }
 
 /// A local passed by var cannot be reached by another name: nothing to refuse
-/// (codeunit/TestScopeIsolationContracts.al:176 pins the write-back).
+/// (codeunits/TestScopeIsolationContracts.al:176 pins the write-back).
 #[test]
 fn local_by_var_runs() {
     assert_eq!(int(run(SRC, "LocalByVar")), 2 + 110);
 }
 
 /// A global passed by var that nothing else touches while the callee runs: the copy and the reference agree
-/// (codeunit/TestCodeunitRunContracts.al:149 pins that the change reaches the caller).
+/// (codeunits/TestCodeunitRunContracts.al:149 pins that the change reaches the caller).
 #[test]
 fn global_by_var_not_touched_otherwise_runs() {
     assert_eq!(int(run(SRC, "GlobalByVarUntouched")), 20);
 }
 
-/// The corpus host of codeunit/lt-var-global-alias/VarGlobalAlias.al:12-118, with the traces its tests assert (:120-170).
+/// The corpus host of codeunits/procedures/VarGlobalAlias.al:12-118, with the traces its tests assert (:120-170).
 const CORPUS: &str = r#"
 codeunit 87140 "LT QP Alias Host"
 {

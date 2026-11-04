@@ -1,6 +1,6 @@
 //! A page whose property says `Editable = false`: every control reads Editable() = No, a control over a global variable
 //! too, also one with its own `Editable = true` and one in a group outside the repeater; on a List and a Card, opened for
-//! edit or for view (corpus pages/lt-outside-worksheet/RmReadOnlyPageVarControl.al:146-:277, al-runner issue 5755).
+//! edit or for view (corpus testpage/RmReadOnlyPageVarControl.al:146-:277, al-runner issue 5755).
 //! A page of another type is not pinned.
 
 use al_testkit::{run_in, text};

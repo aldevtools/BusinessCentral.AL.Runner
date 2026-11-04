@@ -1,6 +1,6 @@
 //! A stale buffer from the variable's own Insert and Modify, made stale before two Commits, is written whole once the
 //! transaction after the second Commit inserted another row of the table (al-runner issue 5954, the reporter's repro on
-//! real BC; pinned by record/lt-sb-stale-own-modify/SbStaleOwnModify.al:666-745 and :2484-2580). Without that Insert BC
+//! real BC; pinned by record/crud/SbStaleOwnModify.al:666-745 and :2484-2580). Without that Insert BC
 //! refuses it. Other writes beside the Insert (a Delete of another row, say) stay on assumption
 //! `stale-own-insert-two-commits-other-insert`.
 

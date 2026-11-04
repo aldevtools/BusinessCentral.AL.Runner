@@ -1,6 +1,6 @@
 use super::{declared_separator, split_variable};
 
-// xmlport/TestXmlPortTextFormatsContracts.al:VariableText_Import_QuotedUnquotedAndBlankValues
+// xmlports/TestXmlPortTextFormatsContracts.al:VariableText_Import_QuotedUnquotedAndBlankValues
 #[test]
 fn a_variable_text_record_splits_into_its_values() {
     let split = |l: &str| split_variable(l, ",", "\"");
@@ -17,7 +17,7 @@ fn a_variable_text_record_splits_into_its_values() {
     );
 }
 
-// platform/lt-xmlport-session-navapp-cookie/P94XpDelim.al:Getters_* (escaped alike); xmlport/lt-y88-xmlport/Y88XmlPortProbes.al:Y88_VariableText_DeclaredSeparatorGetters (real characters)
+// metadata/session-system/P94XpDelim.al:Getters_* (escaped alike); xmlports/shapes-properties/Y88XmlPortProbes.al:Y88_VariableText_DeclaredSeparatorGetters (real characters)
 #[test]
 fn a_declared_separator_reads_back_as_its_characters() {
     assert_eq!(declared_separator("<CR/LF>").unwrap(), "\r\n");

@@ -73,7 +73,7 @@ fn passes(src: &str) {
 
 // G6-01a: "Object Name" (6) of Metadata Permission is the object's caption, or its name without a Caption; blank until
 // CalcFields; filled by SetAutoCalcFields; filterable. "Role Name" (3) is the set's Caption, "Assignable" (13) Yes and "AL Object
-// Name" (15) the object name (permissions/lt-y59-metadata-permission/Y59MetadataPermissionNames.al:146, :173, :195, :257, :280).
+// Name" (15) the object name (permissions/permission-sets/Y59MetadataPermissionNames.al:146, :173, :195, :257, :280).
 #[test]
 fn metadata_permission_object_name_and_the_other_flowfield_columns() {
     passes(
@@ -112,7 +112,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 // G6-02: Page Metadata "SourceTableTemporary" (25) is Yes for a page that declares it true and for a page on a TableType =
 // Temporary table; No for explicit false, no property and no SourceTable. "App ID" (29) is the app's id
-// (platform/lt-y59-page-metadata/Y59PageMetaSourceTemp.al:192-197, :236-239, :257).
+// (metadata/platform-tables/Y59PageMetaSourceTemp.al:192-197, :236-239, :257).
 #[test]
 fn page_metadata_source_table_temporary_and_app_id() {
     passes(
@@ -138,7 +138,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 // G6-01b: Metadata Permission Set Rel. has a row per include (also one a permission set extension adds) and per exclude, in key
 // order, Related Role ID upper case; none for a set without includes; a non-assignable set's rows are listed; Get with lower-case
-// Role IDs finds a row; writes raise the read-only error (permissions/lt-y59-metadata-permission/Y59PermissionSetRel.al:192-197,
+// Role IDs finds a row; writes raise the read-only error (permissions/permission-sets/Y59PermissionSetRel.al:192-197,
 // :221-229, :297-304).
 #[test]
 fn metadata_permission_set_rel_lists_includes_and_excludes() {
@@ -173,7 +173,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 // G6-04b: Page Data Personalization is a stored table: Insert(false), a duplicate Insert false keeping the old value, Modify, the
 // BLOB read back, "User ID" a FlowField on the User table, Date and Time left blank, any User SID
-// (platform/lt-y59-page-personalization/Y59PageDataPersonalization.al:122-129, :152-156, :253-255).
+// (metadata/platform-tables/Y59PageDataPersonalization.al:122-129, :152-156, :253-255).
 #[test]
 fn page_data_personalization_is_a_stored_table() {
     passes(
@@ -197,7 +197,7 @@ fn page_data_personalization_is_a_stored_table() {
 }
 
 // G6-04a/c: Tenant Profile Setting is stored; a setting of an existing profile sets Default Role Center of its All Profile row,
-// DeleteAll turns it off; a setting that names no profile adds no All Profile row (al-language-onprem/platform/
+// DeleteAll turns it off; a setting that names no profile adds no All Profile row (al-language-onprem/metadata/
 // lt-y35-stored-tables/Y35StoredTables.al:610-617, lt-y59-tenant-profile-setting/Y59AllProfileGhostSetting.al:82-85).
 #[test]
 fn tenant_profile_setting_sets_its_profile_in_all_profile() {
@@ -232,7 +232,7 @@ fn not_run(src: &str, test: &str) -> String {
 
 // Two shapes the Metadata Permission Set Rel. provider lets run further, which stay refused: the Expanded Permission rows of a
 // set that excludes sets (not pinned; a filter on Object Type and Object ID must not rule the refused row out,
-// codeunit/lt-x-object-props/XObjectProps.al:341), and the Description of a profile that declares ProfileDescriptionML (per
+// codeunits/procedures/XObjectProps.al:341), and the Description of a profile that declares ProfileDescriptionML (per
 // session language, :365-400).
 #[test]
 fn an_excluding_set_and_a_profile_description_ml_stay_refused() {

@@ -1,7 +1,7 @@
 //! A key typed on a new Card without parts whose row a field outside the key stored with a blank key.
 //!
 //! BC drops the key: the card shows the blank key again, nothing is renamed, and the edit still waiting is saved at Close
-//! (pages/lt-part-link-unsaved-host/PagePartLinkUnsavedHost.al:482 PYB_NoPart_DescrFirstThenKey `db_after_code` `1 [|]`,
+//! (pages/parts/PagePartLinkUnsavedHost.al:482 PYB_NoPart_DescrFirstThenKey `db_after_code` `1 [|]`,
 //! `code_value` `[]`, `db_after_close` `1 [|d1]`). Pinned for that card only: a Card with no part and no SourceTableView; other
 //! pages keep the key they were given (and the save of the renamed row is refused when it finds no row).
 

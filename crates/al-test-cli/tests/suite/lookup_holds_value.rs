@@ -1,5 +1,5 @@
 //! TestField.Lookup over a TableRelation when the field already holds a value: the lookup page stands on the related row that holds
-//! it (pages/lt-y80-lookup-holds-value/Y80LookupHoldsValue.al, same on BC 27, 28 and 29). The corpus file is the full pin; these
+//! it (pages/run-modal/Y80LookupHoldsValue.al, same on BC 27, 28 and 29). The corpus file is the full pin; these
 //! tests keep the shapes in the unit run.
 
 use al_test_cli::report::Outcome;

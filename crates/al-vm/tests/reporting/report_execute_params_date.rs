@@ -1,5 +1,5 @@
 //! `Report.Execute(Parameters)` with a Date option: the `yyyy-MM-dd` text `RunRequestPage` writes lands in the variable the
-//! control shows (report/lt-report-requestpage/RptRequestPage.al:878-893 RunRequestPage_ThenExecute_AppliesValues:
+//! control shows (reports/request-page/RptRequestPage.al:878-893 RunRequestPage_ThenExecute_AppliesValues:
 //! `<Field name="DateVal">2021-06-05</Field>` gives `date=2021-06-05` in OnPreReport). Other texts are not pinned.
 
 use al_builtins::native::Signal;
@@ -41,7 +41,8 @@ fn an_iso_date_option_lands_in_the_variable() {
 
 #[test]
 fn a_date_option_in_another_form_is_refused() {
-    for routine in ["OtherForm"] {
+    {
+        let routine = "OtherForm";
         match al_testkit::run_in(SRC, "C", routine) {
             Err(Signal::Unsupported(s)) => assert!(s.contains("parameter D"), "{routine}: {s}"),
             other => panic!("{routine}: {other:?}"),

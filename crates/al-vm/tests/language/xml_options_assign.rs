@@ -1,6 +1,6 @@
 //! The assignment form of `XmlReadOptions.PreserveWhitespace` and `XmlWriteOptions.PreserveWhitespace` (al-runner issue
 //! 5647): `Options.PreserveWhitespace := true` is the call `Options.PreserveWhitespace(true)`, whose effect is pinned
-//! (xml/XmlDocReadWrite.al:215-217; misc/W4XmlJsonHttp.al:18-19, ReadFrom_InnerWhitespace).
+//! (xml/XmlDocReadWrite.al:215-217; json/W4XmlJsonHttp.al:18-19, ReadFrom_InnerWhitespace).
 
 use al_testkit::text;
 

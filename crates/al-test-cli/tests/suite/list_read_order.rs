@@ -1,5 +1,5 @@
 //! The read order of a list that serves its rows from OnFindRecord and OnNextRecord and has OnAfterGetRecord but no
-//! OnAfterGetCurrRecord (pages/lt-f3-pages/F3ListTests.al, F3PartTests.al). AL source → compile → run as a test codeunit.
+//! OnAfterGetCurrRecord (testpage/F3ListTests.al, F3PartTests.al). AL source → compile → run as a test codeunit.
 //! Each test names the corpus test or the Microsoft test it mirrors.
 
 use al_test_cli::report::Outcome;
@@ -163,8 +163,8 @@ const HELPERS: &str = "procedure Check(Expected: Text; Actual: Text) begin if Ex
 // The shape of Microsoft's Tests-ERM "ERM Base Calendar" (codeunit 134233) BaseCalendarEntriesShowCorrespondingRecords: a part
 // that keeps its position in a global its OnAfterGetRecord sets, refilled by the host's OnAfterGetRecord. Its open read from day 10
 // fills the first window and steps back over every row above it, so the position ends on day 1 (al-runner issue 5887, corpus
-// branch al-runtime-rs-staging-sf misc/lt-probes-needed-6/PnF06FindListMoves.al SF_DayHost_RunWithFilter_OpensPart; for a page of
-// its own pages/lt-ai-list-order/AiListOrderTests.al:1090). After the host moves, the refill opens on day 1, which shows no Descr.
+// branch al-runtime-rs-staging-sf testpage/PnF06FindListMoves.al SF_DayHost_RunWithFilter_OpensPart; for a page of
+// its own pages/list-order/AiListOrderTests.al:1090). After the host moves, the refill opens on day 1, which shows no Descr.
 #[test]
 fn a_part_refilled_by_its_host_opens_on_the_row_its_step_back_reached_after_the_host_moves() {
     passes(&format!(
@@ -186,7 +186,7 @@ fn seed_days() -> &'static str {
     "procedure SeedDays() var D: Record \"LRO Day\"; I: Integer; begin D.DeleteAll(); for I := 1 to 6 do begin D.\"Day No.\" := I; D.Insert(); end; end;"
 }
 
-// pages/lt-ai-list-order/AiListOrderTests.al:777 OpenOnRow_SetPositionInOnOpenPage: a list whose OnOpenPage puts the cursor on
+// pages/list-order/AiListOrderTests.al:777 OpenOnRow_SetPositionInOnOpenPage: a list whose OnOpenPage puts the cursor on
 // row 4 of 6 reads on to the end, then back from row 3 to the first row, each row once, until OnNextRecord(-1) answers 0 (the
 // corpus log loses its first entry, the OnFindRecord call: its first Add writes Id 0, which Dump leaves out; that call is
 // `=>`, AiListOrderTests.al:851, :871 OpenOnRow_SetPositionInOnOpenPage_LastRow_OpenLog / _SecondLastRow_OpenLog); the
@@ -210,7 +210,7 @@ fn a_list_opened_on_a_later_row_reads_back_to_the_first_row() {
     ));
 }
 
-// A part in the same shape is not pinned (pages/lt-f3-pages/F3PartTests.al pins parts whose OnNextRecord(-1) answers 0): refused.
+// A part in the same shape is not pinned (testpage/F3PartTests.al pins parts whose OnNextRecord(-1) answers 0): refused.
 #[test]
 fn a_part_with_rows_before_the_first_one_read_is_refused() {
     let o = outcomes(&format!(
@@ -229,7 +229,7 @@ fn a_part_with_rows_before_the_first_one_read_is_refused() {
 
 // Microsoft's Tests-ERM "ERM Accounts" (codeunit 134020) AnalysisViewWithUpdate: "Analysis by Dimensions" (page 554), a card over a
 // temporary table run with Page.Run(id, TempRec), sets Rec."Account Filter" in OnOpenPage without Modify; its ShowMatrix action
-// must see it. The card is asked OnFindRecord('=') for the record as it holds it (pages/lt-be-card-onfindrecord/
+// must see it. The card is asked OnFindRecord('=') for the record as it holds it (pages/triggers/
 // BeCardOnFindRecord.al:292 CardTempFind_PageRun_TempRec `F:=:1/passed/in memory`).
 #[test]
 fn a_card_run_with_a_record_keeps_what_on_open_page_set_on_rec() {

@@ -1,5 +1,5 @@
 //! A Guid compared with a Text reads the text as a Guid; a text that is no Guid raises InvalidGuidFormat
-//! (misc/lt-cx-odd-leads/CxScalars.al:203-267, Guid_ComparedWithText and Guid_ComparedWithLiterals).
+//! (types/CxScalars.al:203-267, Guid_ComparedWithText and Guid_ComparedWithLiterals).
 
 use al_builtins::native::Signal;
 

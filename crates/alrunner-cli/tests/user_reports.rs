@@ -270,7 +270,7 @@ fn issue_6044_dependency_apps_on_a_workspace_app_through_other_dependency_apps_w
 
 /// al-runner issue 6367: during an app's first install, `ModuleInfo.DataVersion()` of that app is 0.0.0.0 whoever
 /// reads it, also a helper in a dependency app that calls `NavApp.GetModuleInfo(<installing app id>)`
-/// (install/lt-x3-first-install/X3FirstInstallVersions.al:76-85, corpus PR 874).
+/// (install-upgrade/install-order/X3FirstInstallVersions.al:76-85, corpus PR 874).
 #[test]
 fn issue_6367_data_version_of_the_app_being_installed_is_zero_from_a_dependency_app() {
     let d = tempfile::tempdir().unwrap();

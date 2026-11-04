@@ -1,7 +1,7 @@
 //! A Variant given to `FieldRef.Validate` or `FieldRef.Value :=` of a field that is no Text or Code field (those are
 //! `fieldref_value_text`): an Integer, Decimal, BigInteger, Boolean, Option, Enum, Guid, Duration, Date, Time or DateTime field.
 //!
-//! Pinned by fieldref/lt-y67-fieldref-validate-variant/Y67FieldRefValidateVariant.al:288-1180 (writer Y67, real BC 27.5, 28.5 and
+//! Pinned by recordref-fieldref/fieldref/Y67FieldRefValidateVariant.al:288-1180 (writer Y67, real BC 27.5, 28.5 and
 //! 29.0; Validate and the assignment give the same value or error, Validate runs OnValidate once and the assignment does not):
 //! a Variant holding 42, -3, 2.5, 5000000000, true, 20260115D, 120000T, a DateTime, '42', 'abc', 'C1', '', an Option, an Enum, a
 //! Guid or a Duration of 1500 into each field type. A value converts where BC converts it (a Date, Time and DateTime as the

@@ -1,5 +1,5 @@
 //! `DMY2Date(Day)` and `DMY2Date(Day, Month)` take the missing month and year from Today, not from the work date, and the
-//! day's range is the length of that month (errors/lt-ms-refusals-133/P133DateEvaluateFormat.al:104-218).
+//! day's range is the length of that month (types/P133DateEvaluateFormat.al:104-218).
 
 use al_testkit::{run, text};
 

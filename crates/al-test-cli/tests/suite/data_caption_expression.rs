@@ -1,8 +1,8 @@
 //! The caption of a page with `DataCaptionExpression`: the page caption, ` - ` and the expression's value, evaluated when
-//! the caption is read. Pinned on a card with a source table (pages/lt-page-autoformat-lookups/P113DataCaption.al:83-88,
+//! the caption is read. Pinned on a card with a source table (pages/run-modal/P113DataCaption.al:83-88,
 //! :264-279, P113_DC_DataCaptionExpression: `P113 Expr - EXPR-Alpha`, after GoToKey `... - EXPR-Beta`). An expression whose
 //! value is empty, a page with no source table (al-runner issue 6320) and a new row are not pinned and are refused. A list
-//! page shows the caption, ` - ` and the value for its current row (pages/lt-y50-list-caption-expr/Y50ListCaptionExpr.al:391-409,
+//! page shows the caption, ` - ` and the value for its current row (pages/properties/Y50ListCaptionExpr.al:391-409,
 //! G518_List_RowExpr).
 
 use al_testkit::outcomes_in;

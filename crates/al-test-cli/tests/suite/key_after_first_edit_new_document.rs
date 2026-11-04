@@ -1,7 +1,7 @@
 //! A new Document host (OpenNew) with one part linked on its key: a field outside the key typed first stores the host with a
 //! blank key; the key typed next runs its OnValidate and then the card shows the blank key again and nothing is renamed (corpus
-//! pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:1294 PYB_OpenNew_NameTypedFirst_ThenKey_ThenLine). A Card with a
-//! part linked on its key does the same (pages/lt-new-line-stamps-filters/NewLineStampsFilters.al:372 PYB_OpenNew_TypeThenNo_Steps).
+//! pages/parts/PartLineBeforeHostKey.al:1294 PYB_OpenNew_NameTypedFirst_ThenKey_ThenLine). A Card with a
+//! part linked on its key does the same (pages/triggers/NewLineStampsFilters.al:372 PYB_OpenNew_TypeThenNo_Steps).
 
 use al_test_cli::report::Outcome;
 

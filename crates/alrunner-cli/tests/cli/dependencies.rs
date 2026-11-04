@@ -111,7 +111,7 @@ fn a_source_archive_runs_with_its_dependency_given_by_dep() {
 
 #[test]
 fn a_dependency_app_reads_its_own_packaged_resources() {
-    // session/W5NavAppResources.al:GetResourceAsText_NameMatching: the name is matched exactly, relative to the
+    // session-system/W5NavAppResources.al:GetResourceAsText_NameMatching: the name is matched exactly, relative to the
     // resource folder. The library's own code asks; the folder comes from the `resourceFolders` of its app.json.
     let d = tempfile::tempdir().unwrap();
     let lib_id = "22222222-0000-0000-0000-000000000011";

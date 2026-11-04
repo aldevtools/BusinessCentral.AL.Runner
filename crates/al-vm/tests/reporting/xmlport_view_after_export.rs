@@ -1,5 +1,5 @@
 //! The table element record after an export under `SourceTableView`. The export order is pinned
-//! (xmlport/lt-ra-xmlport/RaXmlPortExport.al:416, :448, :474); its buffer afterwards (the last row read) is pinned by corpus
+//! (xmlports/shapes-properties/RaXmlPortExport.al:416, :448, :474); its buffer afterwards (the last row read) is pinned by corpus
 //! writer TS (former assumption `xmlport-export-again` (pinned on corpus master since bump 1030)), the other reads of its key, filters and position refuse until the code sets
 //! a view of its own (Reset, SetView).
 

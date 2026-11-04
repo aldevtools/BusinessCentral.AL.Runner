@@ -1,5 +1,5 @@
 //! The filter reads and copies of Rec itself in the OnOpenPage of a page an action opens through RunPageLink (run_page_link_open.rs,
-//! pages/runobject.rs). Each test names the corpus test of pages/lt-y61-page-probes/Y61RunPageLinkCopyFilter.al that pins it.
+//! pages/runobject.rs). Each test names the corpus test of testpage/Y61RunPageLinkCopyFilter.al that pins it.
 
 const SRC: &str = r#"
 codeunit 69950 "RC Log"

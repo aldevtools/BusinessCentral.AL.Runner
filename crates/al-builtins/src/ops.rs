@@ -30,7 +30,7 @@ pub fn convert_plain(v: Value, t: &RtType) -> Result<Value, Signal> {
 }
 
 /// The ordinal a BigInteger gives an Option or an Enum: one beyond Integer raises ConversionCast
-/// (types/lt-bigint-enum-option/BigIntToEnumOption.al:123-145, P79BigOption.al `v2147483648`).
+/// (types/enum-option/BigIntToEnumOption.al:123-145, P79BigOption.al `v2147483648`).
 fn bigint_ordinal(n: i64) -> Result<i32, Signal> {
     i32::try_from(n).or_else(|_| {
         raise(
@@ -71,7 +71,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
     // The conversions between the plain numbers that cannot fail, without the Decimal detour.
     match (&v, t) {
         // A Decimal keeps 18 significant digits when it is stored: `Dec := 123456789012345.12345` holds `123456789012345.123`, so
-        // `Dec * 2` is `246913578024690.246` (types/lt-expression-operators-literals/ExpressionLiteralsRisky.al:
+        // `Dec * 2` is `246913578024690.246` (types/operators-expressions/ExpressionLiteralsRisky.al:
         // P195_Literal_DecimalTwentyDigits). Fewer digits leave the value, and its scale, as it is.
         (Value::Decimal(d), T::Decimal) if d.abs().mantissa() > 999_999_999_999_999_999 => {
             let kept = d.round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero);
@@ -83,7 +83,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         (Value::Integer(n), T::BigInteger) => return Ok(Value::BigInteger(i64::from(*n))),
         (Value::Integer(n), T::Decimal) => return Ok(Value::Decimal(Decimal::from(*n))),
         // A BigInteger of 19 digits keeps 18 as a Decimal: `Dec := 4611686018427387905L` holds 4611686018427387910
-        // (types/lt-decimal-digits/DecimalDigits.al:287-288, :327 QE_Decimal_BigIntegerOperands `dec := b62p1, back`).
+        // (types/decimal-integer/DecimalDigits.al:287-288, :327 QE_Decimal_BigIntegerOperands `dec := b62p1, back`).
         (Value::BigInteger(n), T::Decimal) => return Ok(Value::Decimal(keep_18_digits(Decimal::from(*n)))),
         _ => {}
     }
@@ -107,7 +107,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         (v @ Value::List(_), T::List(_))
         | (v @ Value::Dictionary(_), T::Dictionary(..))
         | (v @ Value::Array(_), T::Array(..)) => v,
-        // A SessionSettings is a value: assignment copies it (session/TestSessionSettings.al:222-262).
+        // A SessionSettings is a value: assignment copies it (session-system/TestSessionSettings.al:222-262).
         (Value::Library(crate::library_kind::LibraryKind::SessionSettings, cell), T::Library(_)) => {
             let copy = match &*cell.borrow() {
                 LibraryValue::SessionSettings(s) => LibraryValue::SessionSettings(s.clone()),
@@ -118,7 +118,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
                 Rc::new(RefCell::new(copy)),
             )
         }
-        // A Notification is a value too: `B := A` copies its message and data (errorinfo/lt-errnotif/EnTNotification.al:Copy_Semantics).
+        // A Notification is a value too: `B := A` copies its message and data (errors/errorinfo/EnTNotification.al:Copy_Semantics).
         (Value::Library(crate::library_kind::LibraryKind::Notification, cell), T::Library(_)) => {
             let copy = match &*cell.borrow() {
                 LibraryValue::Notification(s) => LibraryValue::Notification(s.clone()),
@@ -131,7 +131,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         }
         // A BigText is a value: assignment and a by-value parameter copy its text, Clear of a copy keeps the original
         // (text/TestBigText.al:108-160). A by-value event parameter and a return value are copied the same way, a `var` event
-        // parameter is shared (text/lt-bigtext-copies/BigTextCopies.al:95-170). A `var` parameter keeps the caller's own
+        // parameter is shared (text/textbuilder-bigtext/BigTextCopies.al:95-170). A `var` parameter keeps the caller's own
         // BigText (`Session::call_inner`).
         (Value::Library(crate::library_kind::LibraryKind::BigText, cell), T::Library(_)) => {
             let copy = match &*cell.borrow() {
@@ -143,7 +143,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
             Value::Library(crate::library_kind::LibraryKind::BigText, Rc::new(RefCell::new(copy)))
         }
         // An HttpContent is a value: assignment and a by-value parameter copy its body and headers
-        // (misc/W4XmlJsonHttp.al:RequestContent_IsCopyOrReference).
+        // (json/W4XmlJsonHttp.al:RequestContent_IsCopyOrReference).
         (Value::Library(n, cell), T::Library(_))
             if n == "HttpContent" && matches!(&*cell.borrow(), LibraryValue::HttpContent(_)) =>
         {
@@ -160,7 +160,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         // A DotNet variable shares the object it is assigned (ADR-014; probe pending).
         (v @ Value::DotNet(_), T::DotNet(_)) => v,
         // A .NET enum value into an Integer or a BigInteger is its number, also for a combination of flags
-        // (tests/al-language-onprem-dotnet/lt-sg-dotnet/SgDotNetEnumToInteger.al:42-88 SG_DotNetEnum_IntoInteger: Wednesday 3,
+        // (tests/al-language-onprem-dotnet/dotnet/dotnet/SgDotNetEnumToInteger.al:42-88 SG_DotNetEnum_IntoInteger: Wednesday 3,
         // AllowCurrencySymbol 256, Number 111, BigInteger 3). A number beyond the Integer range is not pinned.
         (Value::DotNet(o), T::Integer | T::BigInteger) if matches!(o.kind, crate::value::DotNetKind::Enum { .. }) => {
             let crate::value::DotNetKind::Enum {
@@ -217,18 +217,18 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         (Value::Enum(_, o), T::Enum(to)) => Value::Enum(*to, o),
         (Value::Option(o, _), T::Option(m)) => Value::Option(o, m.clone()),
         // An Enum value into an Option, an Integer or a Decimal is its ordinal; one beyond the members is kept
-        // (types/lt-filter-enum-relation-duration-guid/B_EnumOptionVariant.al:EnumVariant_DirectAssign_Option_Integer, EnumVariant_To_Integer).
+        // (types/duration/B_EnumOptionVariant.al:EnumVariant_DirectAssign_Option_Integer, EnumVariant_To_Integer).
         (Value::Enum(_, o), T::Option(m)) => Value::Option(o, m.clone()),
         (Value::Enum(_, o), T::Integer) => Value::Integer(o),
         (Value::Enum(_, o), T::Decimal) => Value::Decimal(Decimal::from(o)),
         // The conversions between numbers (Integer, BigInteger, Decimal, Char, Byte, an Option's and a Duration's number) into
         // another number type but Decimal are the cells of the conversion matrix (`conv::convert_cell`, called above): a checked
-        // cast, an ordinal the Option lacks and a negative one kept (types/lt-bigint-enum-option/BigIntToEnumOption.al:95-145,
-        // types/lt-implicit-conversions/P79BigOption.al:194-218, P79OptionDecimal.al:80-107, types/PRDecimalToInteger.al,
-        // types/lt-filter-enum-relation-duration-guid/D_Duration.al:211-218). What is left here is a number into a Decimal
+        // cast, an ordinal the Option lacks and a negative one kept (types/enum-option/BigIntToEnumOption.al:95-145,
+        // types/operators-expressions/P79BigOption.al:194-218, P79OptionDecimal.al:80-107, types/PRDecimalToInteger.al,
+        // types/duration/D_Duration.al:211-218). What is left here is a number into a Decimal
         // and a Char or Byte into its own type.
         // An Option into a Decimal is its ordinal: assignment, argument and Validate (al-runner issue 6060;
-        // types/lt-implicit-conversions/P79OptionDecimal.al:40-77, :139-179).
+        // types/operators-expressions/P79OptionDecimal.al:40-77, :139-179).
         (Value::Option(o, _), T::Decimal) => Value::Decimal(Decimal::from(o)),
         // A Duration into a Decimal is its milliseconds (D_Duration.al:Duration_To_BigInteger_Decimal).
         (Value::Duration(ms), T::Decimal) => Value::Decimal(Decimal::from(ms)),
@@ -238,7 +238,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         (Value::Text(s), T::Text(_)) if s.has_marker() => Value::Text(s),
         // A Date, Time or DateTime handed to a Text or Code (`FieldRef.Value` straight into a Text, Text[30] or Code[20] parameter
         // or assigned to a Text or Code variable) is its default `Format` text, which `Evaluate` reads back; a Code drops the
-        // leading blank of a Time (report/lt-requestpage-savevalues-date-text-setvalue/P147DateToText.al:297-489, corpus bump 45:
+        // leading blank of a Time (reports/request-page/P147DateToText.al:297-489, corpus bump 45:
         // QO_DateFieldRef_EachConversion, QO_TimeFieldRef_EachConversion, QO_DateTimeFieldRef_EachConversion). A Variant
         // variable holding one raises before it gets here (the parameter binding in al-vm, the assignment guards in al-sema
         // lower/stmt.rs; P147DateToText.al:89-105, QO_*Variant_EachConversion).
@@ -275,8 +275,8 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         // A Text assigns into a Guid, with or without braces (record/TestRecordGetBySystemId*.al uses
         // `'00000000-0000-0000-0000-000000000000'`; the system-id tests use the braced form).
         // 32 hexadecimal digits without hyphens or braces are a Guid too; any other text is the InvalidGuidFormat error, the empty
-        // and a blank text included (types/W7Scalars.al:46-76 TextToGuid_AssignmentForms; types/lt-filter-enum-relation-duration-guid/
-        // E_Guid.al:101-158; types/lt-notification-id-text/NotificationIdFromText.al:30-65).
+        // and a blank text included (types/W7Scalars.al:46-76 TextToGuid_AssignmentForms; types/duration/
+        // E_Guid.al:101-158; types/text-code-char/NotificationIdFromText.al:30-65).
         (Value::Text(s) | Value::Code(s), T::Guid) => match parse_guid(&s).or_else(|| parse_guid_without_hyphens(&s)) {
             Some(g) => Value::Guid(g),
             None => {
@@ -295,10 +295,10 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         // types/PXEnumRecordRef.al:11-12, :137-196, probed on BC 27.5).
         (Value::Integer(n), T::Enum(id)) => Value::Enum(*id, n),
         // A BigInteger goes by ordinal as an Integer does, beyond Integer it raises ConversionCast
-        // (types/lt-bigint-enum-option/BigIntToEnumOption.al:148-195; the assignment compiles from BC 29 on).
+        // (types/enum-option/BigIntToEnumOption.al:148-195; the assignment compiles from BC 29 on).
         (Value::BigInteger(n), T::Enum(id)) => Value::Enum(*id, bigint_ordinal(n)?),
         // A Guid assigns into a Text or Code as its text form `{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}`, as
-        // Format gives it (corpus types/lt-filter-enum-relation-duration-guid/E_Guid.al: Guid_To_Text40_Text_Code40).
+        // Format gives it (corpus types/duration/E_Guid.al: Guid_To_Text40_Text_Code40).
         (Value::Guid(g), T::Text(max)) => Value::Text(fit(crate::format::format_guid(&g), *max)?.into()),
         (Value::Guid(g), T::Code(max)) => Value::Code(fit(crate::format::format_guid(&g), *max)?.into()),
         // A Text into a Decimal (a Variant meets a number): pinned, see `convert_rare`.
@@ -324,9 +324,9 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
             }
         }
         // A Boolean for a Code (a Boolean handed to `Get` of a Code key): as `Format` writes it, upper-cased: Get(true)
-        // finds the row YES and not 1 or TRUE (types/lt-ax-text-format-dates/AxEvaluateText.al:348 GetTrue_CodeKey_Yes).
+        // finds the row YES and not 1 or TRUE (format-evaluate/AxEvaluateText.al:348 GetTrue_CodeKey_Yes).
         // An assignment of a Boolean to a Text or Code does not compile (must-not-compile cases 1190, 1191). For a Text
-        // (`Get` of a Text key) it is Yes or No (misc/lt-y70-assumptions/Y70Probes.al RecordGet_BooleanOnTextKey `text_true`, `text_false`).
+        // (`Get` of a Text key) it is Yes or No (record/Y70Probes.al RecordGet_BooleanOnTextKey `text_true`, `text_false`).
         (Value::Boolean(b), T::Text(max)) => Value::Text(fit(if b { "Yes" } else { "No" }.to_string(), *max)?.into()),
         (Value::Boolean(b), T::Code(max)) => Value::Code(fit(if b { "YES" } else { "NO" }.to_string(), *max)?.into()),
         // A Date into a DateTime is that day at midnight, the blank Date the blank DateTime (as CreateDateTime(D, 0T)). Not
@@ -337,7 +337,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
 }
 
 /// A text into a Text of length `max`. The flag hides the value of a text too long for a Text field or variable
-/// (errors/lt-last-error-and-events/P70_02LastErrFlag.al:Flag_EvaluateAndOverflow `overflow_field|true`, `overflow_var|true`).
+/// (errors/last-error/P70_02LastErrFlag.al:Flag_EvaluateAndOverflow `overflow_field|true`, `overflow_var|true`).
 fn into_text(text: crate::text::Txt, max: Option<u32>) -> Result<Value, Signal> {
     Ok(Value::Text(fit_txt(text, max).map_err(|s| match s {
         Signal::Error(mut e) if e.code == "StringLengthExceeded" => {
@@ -357,7 +357,7 @@ fn into_text(text: crate::text::Txt, max: Option<u32>) -> Result<Value, Signal> 
 /// A text into a Code of length `max`. Doc (Code data type): upper case, leading and trailing spaces removed.
 fn into_code(text: &crate::text::Txt, max: Option<u32>) -> Result<Value, Signal> {
     let s = upper_code_assigned(text.trim());
-    // The error shows the text as it was given (text/lt-label-textbuilder/TxCLabel.al:Label_MaxLength `toCode2`).
+    // The error shows the text as it was given (text/textbuilder-bigtext/TxCLabel.al:Label_MaxLength `toCode2`).
     if max.is_some_and(|m| Value::text_len(&s) > m as usize) {
         fit(text.trim().to_string(), max)?;
     }
@@ -423,7 +423,7 @@ pub fn turkic_code() -> bool {
 
 /// The upper case of a Code: a character whose upper case is several characters keeps its own (`ß` stays `ß`,
 /// types/TestProbeScalarContracts.al:CodeAssign_UpperAndTrim, `umlaut_sharp_s`). Under Turkish a text assigned or passed to a Code
-/// maps `i` to the dotted `İ` (text/lt-text-functions/CaseConv.Codeunit.al:280-310, PYC_CodeAssign_Turkish).
+/// maps `i` to the dotted `İ` (text/text-methods/CaseConv.Codeunit.al:280-310, PYC_CodeAssign_Turkish).
 fn upper_code_assigned(s: &str) -> String {
     if turkic_code() && s.contains('i') {
         return upper_code_plain(&s.replace('i', "İ"));
@@ -460,8 +460,8 @@ fn fit_txt(s: crate::text::Txt, max: Option<u32>) -> Result<crate::text::Txt, Si
     }
 }
 
-/// The value an over-long text error shows: the first 200 characters and `...` after them (recordref/lt-refs/RfTValues.al:
-/// Value_Truncation_And_Length `text250_over`, misc/lt-system-functions/ErrorMessage.al `af235`).
+/// The value an over-long text error shows: the first 200 characters and `...` after them (recordref-fieldref/recordref/RfTValues.al:
+/// Value_Truncation_And_Length `text250_over`, errors/error-texts/ErrorMessage.al `af235`).
 pub fn shown_in_length_error(s: &str) -> String {
     if s.chars().count() > 200 {
         format!("{}...", s.chars().take(200).collect::<String>())
@@ -517,7 +517,7 @@ pub fn int_arith(op: Arith, a: i32, b: i32) -> Result<i32, Signal> {
         Arith::Mul => a.checked_mul(b),
         Arith::IntDiv | Arith::Mod if b == 0 => return raise("Attempted to divide by zero.", "AL:DivideByZero"),
         Arith::IntDiv => a.checked_div(b),
-        // The smallest Integer mod -1 overflows, as div does (types/lt-scalars/ScT70056.al:Integer_Overflow `min_mod_neg`).
+        // The smallest Integer mod -1 overflows, as div does (types/decimal-integer/ScT70056.al:Integer_Overflow `min_mod_neg`).
         Arith::Mod => a.checked_rem(b),
         Arith::Div => return Err(Signal::Unsupported("int_arith of the quotient operator".into())),
     };
@@ -535,7 +535,7 @@ fn arith_overflow() -> Signal {
 pub fn arith(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
     use Value as V;
     // Integer with Integer is done in 32 bits: the same results and errors as the general path below, which goes
-    // through a Decimal (session/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts for the two error texts). `/` is a
+    // through a Decimal (session-system/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts for the two error texts). `/` is a
     // Decimal quotient and stays below. `MIN mod -1` is 0, as the Decimal remainder is.
     if let (V::Integer(a), V::Integer(b)) = (l, r) {
         if op != Arith::Div {
@@ -606,13 +606,13 @@ fn variant_text_decimal(text: &str) -> Option<Result<Decimal, ()>> {
     text.parse::<Decimal>().ok().map(Ok)
 }
 
-/// The error text of a RecordRef that is not open where a record is wanted (record/lt-ar-records/ArRecordProbes.al
-/// SG_VariantRecordRef_NotOpen_Assign, record/lt-as-records/AsRecRefGetTable.al:110 FromNotOpen; code Conversion).
+/// The error text of a RecordRef that is not open where a record is wanted (streams/ArRecordProbes.al
+/// SG_VariantRecordRef_NotOpen_Assign, recordref-fieldref/AsRecRefGetTable.al:110 FromNotOpen; code Conversion).
 pub const RECORD_REF_NOT_OPEN: &str = "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavRecordRef to Microsoft.Dynamics.Nav.Runtime.INavRecordHandle.";
 
 /// The Record a RecordRef (held by a Variant) of the same table gives, assigned or passed by value: the field values of the
 /// ref's buffer, an unsaved value too, on the ref's row; not its filters, key, sort order or marks; and a temporary ref gives
-/// a Record that is not temporary (record/lt-ar-records/ArRecordProbes.al:333 VariantRecordRef_AssignedToRecord `filters` empty,
+/// a Record that is not temporary (streams/ArRecordProbes.al:333 VariantRecordRef_AssignedToRecord `filters` empty,
 /// `count` 4, `next` from the ref's row in the primary key; :366 VariantRecordRef_PassedToRecordParameter `3|r3||4`; and the
 /// SG_VariantRecordRef_KeyViewAndUnsavedValue `view` = `VERSION(1) SORTING(Field1)`, `ascending` Yes, `row` 3|unsaved, and
 /// SG_VariantRecordRef_Temporary_Assign `istemp` No, `count` 4, `db_has_77` No, corpus bump PR 738). A ref of another company is
@@ -645,7 +645,7 @@ fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
     }
     match (&v, t) {
         (Value::Date(n, false), RtType::DateTime) if *n >= 0 => Ok(date_to_datetime(*n)),
-        // A RecordRef a Variant holds, assigned to a Record (record/lt-ar-records/ArRecordProbes.al:333 VariantRecordRef_AssignedToRecord
+        // A RecordRef a Variant holds, assigned to a Record (streams/ArRecordProbes.al:333 VariantRecordRef_AssignedToRecord
         // and the SG_VariantRecordRef_* tests after it): see `record_ref_into_record`. A RecordRef of another table raises
         // NotSupportedOperation and one that is not open a Conversion error, the Record left as it was
         // (SG_VariantRecordRef_OtherTable_AssignAndParameter `assign`, SG_VariantRecordRef_NotOpen_Assign). Passed to a Record
@@ -662,12 +662,12 @@ fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
         (Value::Record(_), RtType::Library(crate::library_kind::LibraryKind::RecordRef)) => {
             crate::record_into_recordref::record_into_recordref(&v)
         }
-        // A Variant holding true assigned to a Decimal is 1 (types/lt-variant-time-enum/VariantTextTimeEnumFilter.al:
+        // A Variant holding true assigned to a Decimal is 1 (types/date-time/VariantTextTimeEnumFilter.al:
         // Variant_CodeAndOtherTypes_ToDecimal `boolean`); false is not pinned.
         (Value::Boolean(true), RtType::Decimal) => Ok(Value::Decimal(Decimal::ONE)),
         // A Variant holding a Text or Code assigned to a Decimal reads the text. Pinned: `-111.69`, `5`, `1,000.5`, `1,000`,
         // `100,5` (commas drop out), ` 7 ` (blanks around) read; an empty text, letters only and `1e3` raise
-        // (types/lt-variant-time-enum/VariantTextTimeEnumFilter.al:Variant_Text_ToDecimal, types/lt-evaluate-decimal/
+        // (types/date-time/VariantTextTimeEnumFilter.al:Variant_Text_ToDecimal, format-evaluate/
         // EvaluateDecimal.al:Variant_HoldingText_ConvertsToDecimal and _HoldingCode_). Other forms are refused.
         (Value::Text(s) | Value::Code(s), RtType::Decimal) => match variant_text_decimal(s) {
             Some(Ok(d)) => Ok(Value::Decimal(d)),
@@ -678,7 +678,7 @@ fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
             None => unsupported(format!("conversion of {} to {t}", v.describe(), t = t.describe())),
         },
         // A Variant holding an empty Text or two letters or more assigned to an Integer raises TypeConversion:Format, also into an Integer
-        // parameter (types/lt-variant/VaTConvert.al:13-38, 310-338; ScT70063 Variant_Types `text_to_int`); digits are read
+        // parameter (types/variant/VaTConvert.al:13-38, 310-338; ScT70063 Variant_Types `text_to_int`); digits are read
         // in `convert` (assumption text-digits-to-integer). Other forms, a single letter included (a Char literal may stand there),
         // are refused.
         (Value::Text(s) | Value::Code(s), RtType::Integer)
@@ -691,10 +691,10 @@ fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
             )
         }
         // A Variant holding an Integer assigned to a Text variable raises TypeConversion (corpus
-        // types/lt-variant/VaTCompare.al:Concat_After_Conversion, af117). The other numbers and a Code target are not pinned.
-        // The same for an Enum (types/lt-filter-enum-relation-duration-guid/B_EnumOptionVariant.al:EnumVariant_To_Integer, `text_big`).
+        // types/variant/VaTCompare.al:Concat_After_Conversion, af117). The other numbers and a Code target are not pinned.
+        // The same for an Enum (types/duration/B_EnumOptionVariant.al:EnumVariant_To_Integer, `text_big`).
         // A Variant holding a number or an Enum into a Text or Code field raises likewise, with NavCode for a Code target
-        // (types/lt-variant-to-text-fields/VariantNumberToField.al: TextField_FromVariantInteger_Result, _BigInteger_, _Decimal_,
+        // (types/variant/VariantNumberToField.al: TextField_FromVariantInteger_Result, _BigInteger_, _Decimal_,
         // CodeField_FromVariantNumbers_Result; VariantEnumOptionToText.al:TextField_FromVariantEnum_Result).
         (
             Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Enum(..),
@@ -713,7 +713,7 @@ fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
             )
         }
         // A Variant holding an Integer (a FieldRef.Value of an Integer field) assigned to a Blob raises TypeConversion and leaves
-        // the Blob empty (types/lt-y71-value-conversions/Y71ValueConversions.al:543-547 `integer_via_variant`).
+        // the Blob empty (types/operators-expressions/Y71ValueConversions.al:543-547 `integer_via_variant`).
         (Value::Integer(_), RtType::Library(n)) if n.eq_ignore_ascii_case("Blob") => raise(
             "The expression Microsoft.Dynamics.Nav.Runtime.NavIndirectValue cannot be type-converted to a Microsoft.Dynamics.Nav.Runtime.NavBLOB value.",
             "TypeConversion",
@@ -723,10 +723,10 @@ fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
     }
 }
 
-/// A number `FieldRef.Value()` returns, assigned to a Text or Code field of a record: its default `Format` text (types/lt-variant-to-text-fields/
-/// VariantFieldRefBigIntToText.al:TextField_FromFieldRefValue_Numbers); an Enum goes in as its caption (types/lt-enum-to-text-fieldref/EnumToTextFieldRef.al:FieldRefValue_EnumToTextField_PerMember). Base Application's Workflow Table Relation Value.CreateNew does `Value := FieldRef.Value()` into
+/// A number `FieldRef.Value()` returns, assigned to a Text or Code field of a record: its default `Format` text (types/variant/
+/// VariantFieldRefBigIntToText.al:TextField_FromFieldRefValue_Numbers); an Enum goes in as its caption (types/enum-option/EnumToTextFieldRef.al:FieldRefValue_EnumToTextField_PerMember). Base Application's Workflow Table Relation Value.CreateNew does `Value := FieldRef.Value()` into
 /// a Text[250] field (114 Tests-Workflow tests). The same holds into a Text or Code variable or by-value parameter: a number is its
-/// Format text (misc/lt-y13-triage/Y13FieldRefValueToText.al:96-153; text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:290-327,
+/// Format text (recordref-fieldref/Y13FieldRefValueToText.al:96-153; text/text-methods/Y49FieldRefIntoText.al:290-327,
 /// as an argument), an Enum its caption (Y49FieldRefIntoText.al:207-269: Text[250], Text, Code[20] upper-cased, Code[3] raises
 /// StringLengthExceeded). A Variant into a Text *variable* is not this: it raises (VaTCompare.al:af117).
 /// `None` when the value is no number or the target no Text or Code.
@@ -753,7 +753,7 @@ pub fn number_into_text_field(
         Err(e) => return Some(Err(Signal::Unsupported(e))),
     };
     // The length is checked before the upper-casing: the error shows the caption as written (`Value: Beta Cap`,
-    // text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:229-230).
+    // text/text-methods/Y49FieldRefIntoText.al:229-230).
     Some(if code {
         fit(text.trim().to_string(), *max)
             .and_then(|t| upper_code_checked(&t))
@@ -764,7 +764,7 @@ pub fn number_into_text_field(
 }
 
 /// A Date into a DateTime is that day at midnight, the blank Date the blank DateTime (as CreateDateTime(D, 0T)): through a
-/// Variant, a FieldRef and Evaluate of Format(D, 0, 9) (misc/lt-y70-assumptions/Y70Probes.al:172-216). Kept off the
+/// Variant, a FieldRef and Evaluate of Format(D, 0, 9) (record/Y70Probes.al:172-216). Kept off the
 /// conversion's hot path.
 #[cold]
 #[inline(never)]
@@ -775,7 +775,7 @@ fn date_to_datetime(n: i32) -> Value {
     Value::DateTime((i64::from(n) - 1) * 86_400_000 + 1)
 }
 
-/// A whole number and a Duration add and subtract as milliseconds, into a BigInteger (types/lt-duration-integer-arithmetic/
+/// A whole number and a Duration add and subtract as milliseconds, into a BigInteger (types/duration/
 /// DurationPlusInteger.al:DurationPlusInteger_ResultType_Result, IntegerPlusDuration.al, IntegerMinusDuration.al).
 #[cold]
 #[inline(never)]
@@ -790,9 +790,9 @@ fn duration_with_number(op: Arith, duration_first: bool, d: i64, k: i64) -> Resu
 }
 
 /// Duration `/`, `div` and `mod` by a whole number, and Duration / Duration (pinned by corpus
-/// types/lt-filter-enum-relation-duration-guid/D_Duration.al:354-370 with 90000 ms: `/ 4` is 22500 ms, `div 7` is 12,857, `mod 7` is 1,
+/// types/duration/D_Duration.al:354-370 with 90000 ms: `/ 4` is 22500 ms, `div 7` is 12,857, `mod 7` is 1,
 /// Duration / Duration is the Decimal 3, `/ 7` is the Decimal 12857.1428571428571; only assigning it to a Duration raises;
-/// `div` and `mod` of two Durations: types/lt-duration-div-mod/DurationDivModDuration.al).
+/// `div` and `mod` of two Durations: types/duration/DurationDivModDuration.al).
 #[cold]
 #[inline(never)]
 fn duration_divide(op: Arith, a: i64, r: &Value) -> Result<Value, Signal> {
@@ -807,7 +807,7 @@ fn duration_divide(op: Arith, a: i64, r: &Value) -> Result<Value, Signal> {
         // `div` and `mod` of two Durations are a BigInteger of milliseconds (25 days div 1 ms is 2160000000, which an Integer cannot
         // hold: Overflow under conversion of System.Int64 value 2160000000 to System.Int32, DurationDivDurationOverflow.al
         // Div_Duration_QuotientDoesNotFit; Format shows it without separators): 100000 div 30000 is 3, -100000 div 30000 is -3, 100000 mod 30000 is
-        // 10000 and -100000 mod 30000 is -10000 (types/lt-duration-div-mod/DurationDivModDuration.al Div_TwoDurations,
+        // 10000 and -100000 mod 30000 is -10000 (types/duration/DurationDivModDuration.al Div_TwoDurations,
         // Mod_TwoDurations; a zero divisor raises above, _ZeroDivisor).
         if op != Arith::Div {
             let r = if op == Arith::IntDiv {
@@ -829,7 +829,7 @@ fn duration_divide(op: Arith, a: i64, r: &Value) -> Result<Value, Signal> {
         // The result formats as a Decimal (`D1 div 7` is '12,857' in Format; D_Duration.al:369).
         Arith::IntDiv => Ok(Value::Decimal(Decimal::from(a / b))),
         // The remainder is a whole number that formats without a thousands separator: `3600000 mod 1000000` is '600000', not
-        // '600,000' (types/lt-datetime/Arithmetic.al:Duration_Arithmetic `A mod 1000000`, :393).
+        // '600,000' (types/date-time/Arithmetic.al:Duration_Arithmetic `A mod 1000000`, :393).
         Arith::Mod => Ok(Value::BigInteger(a % b)),
         // The quotient is a number too (`slash-int` is `22500`, ExpressionBinaryDateTimeOperands.al:P195_Binary_DurationOperands).
         // The quotient is a Decimal and never raises; only an assignment into a Duration does when it has a fraction
@@ -850,13 +850,13 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
     }
     // An Option takes part in arithmetic as its ordinal, an Integer (types/PROptionInteger.al:OptionMember_AsInteger:
     // `Opt + 1`, `Opt * 2`).
-    // So does an Enum next to a number or another Enum (types/lt-uf-enum-arithmetic/UfEnumArithmetic.al:41-62 `Usage - 1`,
+    // So does an Enum next to a number or another Enum (types/enum-option/UfEnumArithmetic.al:41-62 `Usage - 1`,
     // `10 - Usage`, `Usage + Usage`, :172-176 a negative result; al-runner issue 6156).
     let number_or_enum = |v: &Value| matches!(v, V::Enum(..) | V::Integer(_) | V::BigInteger(_) | V::Decimal(_));
     if (matches!(l, V::Option(..)) || matches!(r, V::Option(..)))
         || ((matches!(l, V::Enum(..)) || matches!(r, V::Enum(..))) && number_or_enum(l) && number_or_enum(r))
     {
-        // Pinned by types/lt-uf-enum-arithmetic/UfEnumArithmetic.al; tests/must-not-compile/cases/2268-enum-unary-minus-ambiguous.al (was assumption `enum-operand-arithmetic`).
+        // Pinned by types/enum-option/UfEnumArithmetic.al; tests/must-not-compile/cases/2268-enum-unary-minus-ambiguous.al (was assumption `enum-operand-arithmetic`).
         let ord = |v: &Value| match v {
             V::Option(n, _) | V::Enum(_, n) => V::Integer(*n),
             other => other.clone(),
@@ -882,7 +882,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             _ => {}
         }
         // A Guid next to a text joins as its Format, braces and upper case, null or not: 'x' + G, G + 'x', 'x' + an
-        // empty Guid (types/lt-aj-probes/AjMisc.al:63-72, :77-81).
+        // empty Guid (types/AjMisc.al:63-72, :77-81).
         match (l, r) {
             (V::Text(t) | V::Code(t), V::Guid(g)) => {
                 return Ok(V::Text(format!("{t}{}", crate::format::format_guid(g)).into()));
@@ -916,7 +916,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
     match (l, r) {
         // A whole number of Durations (milliseconds); other Duration arithmetic is not pinned.
         (V::Duration(ms), n) | (n, V::Duration(ms)) if op == Arith::Mul && int_of(n).is_some() => {
-            // The product is a number of milliseconds, not a Duration: `Format(A * 2, 0, 9)` answers `180000` (types/lt-expression-operators-literals/
+            // The product is a number of milliseconds, not a Duration: `Format(A * 2, 0, 9)` answers `180000` (types/operators-expressions/
             // ExpressionBinaryDateTimeOperands.al:P195_Binary_DurationOperands, `mul-int`); `D := D1 * 2` converts it back (D_Duration.al:344).
             return int_of(n)
                 .and_then(|n| n.checked_mul(*ms))
@@ -924,7 +924,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
                 .ok_or_else(|| Signal::Unsupported("Duration overflow (error text not pinned yet)".into()));
         }
         // Duration * Decimal and Decimal * Duration: the Duration counts as its milliseconds and the product is a Decimal that
-        // keeps the fraction (types/lt-ax-text-format-dates/AxDurationDateTime.al, Duration_Wb_DurationTimesDecimalVariable100,
+        // keeps the fraction (format-evaluate/AxDurationDateTime.al, Duration_Wb_DurationTimesDecimalVariable100,
         // Duration_Wb_DecimalTimesDurationVariable, Duration_Wb_DurationTimesFractionVariable,
         // Duration_Wb_DurationTimesFractionPrintsValue: 7 * 1.5 is 10.5; corpus branch al-runtime-rs-staging-wb at a07787b2,
         // not yet on master; al-runner issue 6285). An overflow is not pinned.
@@ -935,7 +935,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
                 .ok_or_else(|| Signal::Unsupported("Duration * Decimal overflow (error text not pinned yet)".into()));
         }
         // Duration +/- Duration is a BigInteger of milliseconds: `Format(D1 + D2)` answers '4000', not a duration text, and `R := D1 + D2`
-        // converts it back (corpus types/lt-duration-arithmetic/DurationAddDuration.al:Add_TwoVariables_Result, sum_format_default).
+        // converts it back (corpus types/duration/DurationAddDuration.al:Add_TwoVariables_Result, sum_format_default).
         (V::Duration(a), V::Duration(b)) if matches!(op, Arith::Add | Arith::Sub) => return duration_sum(op, *a, *b),
         // A whole number and a Duration add and subtract as milliseconds, into a BigInteger (`duration_with_number`).
         (V::Duration(d), n) | (n, V::Duration(d)) if matches!(op, Arith::Add | Arith::Sub) && int_of(n).is_some() => {
@@ -943,7 +943,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         }
         (V::DateTime(0), n) if moves_undefined_datetime(op, n) => return undefined_datetime_moved(),
         // DateTime + Duration is a DateTime and DateTime - DateTime a Duration, in milliseconds
-        // (types/TestDurationContracts.al:44-171, session/TestDateTimeContracts.al:52-90). The undefined
+        // (types/TestDurationContracts.al:44-171, session-system/TestDateTimeContracts.al:52-90). The undefined
         // DateTime is not pinned.
         (V::DateTime(a), V::Duration(d)) | (V::Duration(d), V::DateTime(a))
             if *a > 0 && (op == Arith::Add || (op == Arith::Sub && matches!(l, V::DateTime(_)))) =>
@@ -968,7 +968,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         {
             let ms = match n {
                 V::Decimal(d) if d.fract().is_zero() => d.to_i64(),
-                // A subtraction names the negated amount (types/lt-y31-conversion-matrix/Y31ConvAr.al, LT Y31 Ar DateTime
+                // A subtraction names the negated amount (types/operators-expressions/Y31ConvAr.al, LT Y31 Ar DateTime
                 // `DateTime_Decimal`: DT - 1.5 names -1.5).
                 V::Decimal(d) => return crate::conv::datetime_fraction_error(op, *d),
                 other => int_of(other),
@@ -1000,8 +1000,8 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
                 other => int_of(other).expect("an integer"),
             };
             // A BigInteger beyond the Int32 range raises the conversion error with the signed amount moved
-            // (types/lt-time-big-integer/TimeBigIntegerArithmetic.al:P170_TimePlusMinusBigInteger `plus_over_int32`, `minus_over_int32`).
-            // A Duration beyond the Int32 range likewise when added (types/lt-filter-enum-relation-duration-guid/D_Duration.al:
+            // (types/date-time/TimeBigIntegerArithmetic.al:P170_TimePlusMinusBigInteger `plus_over_int32`, `minus_over_int32`).
+            // A Duration beyond the Int32 range likewise when added (types/duration/D_Duration.al:
             // 463-474 `af373`: 100000T + 5000000000 ms). Subtracting one is not pinned.
             if matches!(n, V::Duration(_)) && i32::try_from(ms).is_err() && op == Arith::Sub {
                 return unsupported("Time minus a Duration beyond the Integer range (not pinned)".to_string());
@@ -1023,7 +1023,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
                 .ok_or_else(|| Signal::Unsupported("Time moved by an amount that overflows (not pinned)".into()));
         }
         // A whole-number Decimal moves a Time like an Integer (Calendar Management's `Time + Decimal`); a fraction raises
-        // below (corpus types/lt-for-option-time-decimal/TimeAddWholeDecimal.al: TimeDecimal_Whole_PlusMinus1000, _Zero, _Negative,
+        // below (corpus types/date-time/TimeAddWholeDecimal.al: TimeDecimal_Whole_PlusMinus1000, _Zero, _Negative,
         // _WrapsAroundMidnight, _FromDivisionAndProduct). A whole value beyond Integer raises ConversionCast like a fraction (_BeyondInteger).
         (V::Time(_), V::Decimal(d)) | (V::Decimal(d), V::Time(_))
             if matches!(op, Arith::Add | Arith::Sub)
@@ -1051,8 +1051,8 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             );
         }
         (V::Time(a), V::Time(b)) if op == Arith::Sub => {
-            // 0T - 0T is 0 (misc/lt-cq-odd-leads/CqOddLeads.al:147-149); 0T - Time and Time - 0T raise
-            // (misc/lt-probes-needed-6/PnF31TimeArithmetic.al:115-116).
+            // 0T - 0T is 0 (types/CqOddLeads.al:147-149); 0T - Time and Time - 0T raise
+            // (errors/PnF31TimeArithmetic.al:115-116).
             if *a == 0 && *b == 0 {
                 return Ok(V::Integer(0));
             }
@@ -1064,11 +1064,11 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             }
             // Time - Time is a number of milliseconds (`Format(T1 - T2, 0, 9)` is `-9000000`; ExpressionBinaryDateTimeOperands.al:
             // P195_Binary_TimeAndDateTimeOperands), which a Duration variable takes back (`Diff := T2 - T1`).
-            // The result is an Integer (misc/lt-expressions-statements/PBinaryUnaryExpressions.al:147: TypeOf is Integer).
+            // The result is an Integer (types/PBinaryUnaryExpressions.al:147: TypeOf is Integer).
             return Ok(V::Integer((a - b) as i32));
         }
         (V::DateTime(a), V::DateTime(b)) if op == Arith::Sub => return datetime_difference(*a, *b),
-        // An undefined date has no difference, and the whole range is too wide a difference (types/lt-datetime/
+        // An undefined date has no difference, and the whole range is too wide a difference (types/date-time/
         // Arithmetic.al:Date_Plus_Minus_Integer `af30`, `af32`, `af34`).
         (V::Date(a, _), V::Date(b, _)) if op == Arith::Sub => {
             if *a == 0 || *b == 0 || (a - b).abs() >= 3_652_058 {
@@ -1078,13 +1078,13 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         }
         // A whole-number Decimal adds days like an Integer (`StartDate + Days` with `Days: Decimal` holding
         // `(EndDate - StartDate + 1) div 2` in Base Application's Phys. Invt. Count.-Management). Pinned for a whole Decimal:
-        // corpus record/lt-record-conversion-assumptions/DateDecimalWhole.al:P98_DatePlusMinusWholeDecimal. A fraction raises
+        // corpus types/date-time/DateDecimalWhole.al:P98_DatePlusMinusWholeDecimal. A fraction raises
         // (the next arm).
         (V::Date(a, c), n) if matches!(op, Arith::Add | Arith::Sub) && whole_days(n).is_some() => {
             // The result stays within 0001-01-01 and 9999-12-31, an undefined date takes no days, and the sum is computed in 32
             // bits on twice the day number (a date and its closing date): 2024-01-01 + 2147483647 and 2026-01-31 - 2147483647
             // overflow, +/- 3000000 is an invalid date (Arithmetic.al:Date_Arithmetic_Errors, Date_Plus_Minus_Integer `af39`,
-            // `af41`; types/lt-y31-conversion-matrix/Y31ConvAr.al, LT Y31 Ar Date `Date_Integer` `sub.d.max`).
+            // `af41`; types/operators-expressions/Y31ConvAr.al, LT Y31 Ar Date `Date_Integer` `sub.d.max`).
             let n = whole_days(n).expect("whole");
             let Ok(n) = i32::try_from(n) else {
                 return raise("Arithmetic operation resulted in an overflow.", "AL:Overflow");
@@ -1103,7 +1103,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             return Ok(V::Date(sum, *c));
         }
         // A defined Date plus or minus a Decimal with a fraction raises; a subtraction names the negated amount
-        // (misc/lt-probes-needed-6/PnF11DateDecimalArithmetic.al:57-117, DatePlusDecimal: 2.5, 0.4, -0.5, 12 / 5 as `2.4`;
+        // (errors/PnF11DateDecimalArithmetic.al:57-117, DatePlusDecimal: 2.5, 0.4, -0.5, 12 / 5 as `2.4`;
         // DateMinusDecimal: D - 2.5 names `-2.5`, D - -2.5 names `2.5`). A Decimal before the Date and the undefined date are
         // not pinned.
         (V::Date(a, _), V::Decimal(d)) if matches!(op, Arith::Add | Arith::Sub) && *a > 0 && !d.fract().is_zero() => {
@@ -1118,7 +1118,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         _ => {}
     }
     let (Some(a), Some(b)) = (as_decimal(l), as_decimal(r)) else {
-        // Duration `/`, `div` and `mod` a whole number, and Duration / Duration (types/lt-filter-enum-relation-duration-guid/
+        // Duration `/`, `div` and `mod` a whole number, and Duration / Duration (types/duration/
         // D_Duration.al:Duration_Arithmetic). Here, off the path of the numbers.
         if let V::Duration(d) = l {
             if matches!(op, Arith::Div | Arith::IntDiv | Arith::Mod)
@@ -1127,7 +1127,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
                 return duration_divide(op, *d, r);
             }
             // Duration / Decimal: the Duration counts as its milliseconds and the quotient is a Decimal; a zero divisor
-            // raises DivideByZero (types/lt-ax-text-format-dates/AxDurationDateTime.al:21 Duration_DividedBy_IntegerAndDecimal,
+            // raises DivideByZero (format-evaluate/AxDurationDateTime.al:21 Duration_DividedBy_IntegerAndDecimal,
             // :53 Duration_DividedBy_ZeroDecimal).
             if op == Arith::Div {
                 if let V::Decimal(b) = r {
@@ -1156,11 +1156,11 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
     let any_big = matches!(l, V::BigInteger(_)) || matches!(r, V::BigInteger(_));
     let any_dec = matches!(l, V::Decimal(_)) || matches!(r, V::Decimal(_));
     if b.is_zero() && matches!(op, Arith::Div | Arith::IntDiv | Arith::Mod) {
-        // session/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts.
+        // session-system/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts.
         return raise("Attempted to divide by zero.", "AL:DivideByZero");
     }
     // A BigInteger operand of a Decimal operation becomes a Decimal of 18 significant digits first:
-    // `4611686018427387905L - Power(2, 62)` is 10, not 5 (types/lt-decimal-digits/DecimalDigits.al:257-346
+    // `4611686018427387905L - Power(2, 62)` is 10, not 5 (types/decimal-integer/DecimalDigits.al:257-346
     // QE_Decimal_BigIntegerOperands, `b62p1 - p62`; `dec := b62p1` holds ...910).
     let (a, b) = if any_dec && any_big {
         let round = |v: &Value, d: Decimal| {
@@ -1184,7 +1184,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             return Ok(V::Decimal(
                 a.checked_div(b)
                     .and_then(|q| q.round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero))
-                    // A quotient carries no trailing zeros (types/lt-scalars/ScT70056.al:Integer_DivisionResult `value 3.5`).
+                    // A quotient carries no trailing zeros (types/decimal-integer/ScT70056.al:Integer_DivisionResult `value 3.5`).
                     .map(|q| q.normalize())
                     .ok_or_else(|| Signal::Unsupported("decimal overflow".into()))?,
             ));
@@ -1195,15 +1195,15 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
     .ok_or_else(|| Signal::Unsupported("decimal overflow".into()))?;
     // A sum, difference or product keeps 18 significant digits, rounded half away from zero, for any sign and with a
     // BigInteger operand: `Power(2, 62) + 1` equals `Power(2, 62)`, and `Power(2, 63) - 1` equals `Power(2, 63) - 5`
-    // (misc/lt-cq-odd-leads/CqOddLeads.al:419-446 Item40_PowerPrecision, misc/lt-system-functions/Round.al:
-    // LT_BU_Power_LargeResultPrecision; with a fraction, types/lt-decimal-digits/DecimalDigits.al:116-137
+    // (types/CqOddLeads.al:419-446 Item40_PowerPrecision, types/decimal-integer/Round.al:
+    // LT_BU_Power_LargeResultPrecision; with a fraction, types/decimal-integer/DecimalDigits.al:116-137
     // P163_Decimal_AddSubtract_KeepsDigits; negative results, mixed signs and ties, DecimalDigits.al:179-254
     // QE_Decimal_SumDifference_SignsAndTies; products, `1234.56 * (1/3) = 411.52`, DecimalDigits.al:349-440
     // QE_Decimal_Products_SignsAndRound; BigInteger operands, DecimalDigits.al:257-346 QE_Decimal_BigIntegerOperands).
     if any_dec && matches!(op, Arith::Add | Arith::Sub | Arith::Mul) {
         return Ok(V::Decimal(keep_18_digits(res)));
     }
-    // A Decimal mod keeps the fraction (types/lt-scalars/ScT70058.al:Decimal_Basic `mod_int`, Decimal_DivModTruncation `mod2`).
+    // A Decimal mod keeps the fraction (types/decimal-integer/ScT70058.al:Decimal_Basic `mod_int`, Decimal_DivModTruncation `mod2`).
     if any_dec && !matches!(op, Arith::IntDiv) {
         return Ok(V::Decimal(res));
     }
@@ -1262,7 +1262,7 @@ fn int_of(v: &Value) -> Option<i64> {
     }
 }
 
-/// 0D - 0D is 0 (types/lt-y65-undefined-arith/Y65UndefinedArith.al Y65_UndefinedDate_Arithmetic); one undefined side or too wide a difference raises DateInvalid.
+/// 0D - 0D is 0 (types/decimal-integer/Y65UndefinedArith.al Y65_UndefinedDate_Arithmetic); one undefined side or too wide a difference raises DateInvalid.
 fn undefined_date_difference(a: i32, b: i32) -> Result<Value, Signal> {
     if a == 0 && b == 0 {
         return Ok(Value::Integer(0));
@@ -1281,7 +1281,7 @@ fn duration_sum(op: Arith, a: i64, b: i64) -> Result<Value, Signal> {
         .ok_or_else(|| Signal::Unsupported("Duration overflow (error text not pinned yet)".into()))
 }
 
-/// 0DT plus or minus a whole number or a Duration raises DateInvalid (types/lt-y65-undefined-arith/Y65UndefinedArith.al:
+/// 0DT plus or minus a whole number or a Duration raises DateInvalid (types/decimal-integer/Y65UndefinedArith.al:
 /// Y65_UndefinedDateTime_Arithmetic `0DT + 1000`, `0DT + 0`, `0DT - 1000`, `0DT + Duration 0`).
 fn moves_undefined_datetime(op: Arith, n: &Value) -> bool {
     matches!(op, Arith::Add | Arith::Sub) && (int_of(n).is_some() || matches!(n, Value::Duration(_)))
@@ -1291,8 +1291,8 @@ fn undefined_datetime_moved() -> Result<Value, Signal> {
     date_invalid()
 }
 
-/// DateTime - DateTime is a Duration in milliseconds (session/TestDateTimeContracts.al:52-90). 0DT - 0DT is a 0 Duration;
-/// one undefined side raises DateInvalid (types/lt-y62-undefined-date/Y62UndefinedDate.al: DateTimeSub_BothUndefined,
+/// DateTime - DateTime is a Duration in milliseconds (session-system/TestDateTimeContracts.al:52-90). 0DT - 0DT is a 0 Duration;
+/// one undefined side raises DateInvalid (types/date-time/Y62UndefinedDate.al: DateTimeSub_BothUndefined,
 /// DateTimeSub_OneUndefined_AndDefinedPair, :166-203).
 fn datetime_difference(a: i64, b: i64) -> Result<Value, Signal> {
     if a > 0 && b > 0 {
@@ -1308,7 +1308,7 @@ fn datetime_difference(a: i64, b: i64) -> Result<Value, Signal> {
 fn datetime_moved(moved: Option<i64>, ms: Option<i64>) -> Result<Value, Signal> {
     match (moved, ms) {
         (Some(m), _) if (1..=MAX_DATETIME).contains(&m) => Ok(Value::DateTime(m)),
-        // Moved past 9999-12-31 23:59:59.999 or before 0001-01-01 by an Integer-sized amount (types/lt-datetime/Arithmetic.al:
+        // Moved past 9999-12-31 23:59:59.999 or before 0001-01-01 by an Integer-sized amount (types/date-time/Arithmetic.al:
         // DateTime_Arithmetic_Errors, :294-297: `max + 1`). Only that size is pinned.
         (Some(_), Some(ms)) if i32::try_from(ms).is_ok() => date_invalid(),
         // The largest BigInteger added or subtracted overflows (Arithmetic.al:298-301, `+ 9223372036854775807L`, `-`).
@@ -1327,7 +1327,7 @@ fn date_invalid<T>() -> Result<T, Signal> {
 }
 
 /// `=`, `<>`, `<`, ... on two values in AL code: as [`compare`], except that an undefined date against 0001-01-01 raises
-/// (types/lt-datetime/Arithmetic.al:Date_Comparisons `af72`, `af75`, `af79`).
+/// (types/date-time/Arithmetic.al:Date_Comparisons `af72`, `af75`, `af79`).
 pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering, Signal> {
     // A comparison cell of the conversion matrix (`conv`).
     if let Some(o) = crate::conv::compare_cell(l, r, ordered) {
@@ -1344,8 +1344,8 @@ pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering,
         }
     }
     // A BigInteger of more than 18 digits compared with a Decimal counts with the 18 significant digits a Decimal keeps:
-    // `Power(2, 60) = 1152921504606846976L` is true (misc/lt-system-functions/Round.al:LT_BU_Power_LargeResultPrecision).
-    // Negative ones the same: `-4611686018427387905L < -Power(2, 62)` is true and `=` false (types/lt-decimal-digits/
+    // `Power(2, 60) = 1152921504606846976L` is true (types/decimal-integer/Round.al:LT_BU_Power_LargeResultPrecision).
+    // Negative ones the same: `-4611686018427387905L < -Power(2, 62)` is true and `=` false (types/decimal-integer/
     // DecimalDigits.al:257-346 QE_Decimal_BigIntegerOperands, `-b62p1 < -p62`). Pinned only for a whole Decimal; a
     // fractional one is refused.
     if let (Value::Decimal(d), Value::BigInteger(b)) | (Value::BigInteger(b), Value::Decimal(d)) = (l, r) {
@@ -1364,8 +1364,8 @@ pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering,
             });
         }
     }
-    // An Enum value against an Integer is equal when the ordinal is the number (types/lt-implicit-conversions/P79AcceptedShapes.al:
-    // 116-119, 204-234 EnumEqualsInteger, both orders, `=` and `<>`; types/lt-enum-option-conversions/P67EnumCompare.al:117-123).
+    // An Enum value against an Integer is equal when the ordinal is the number (types/operators-expressions/P79AcceptedShapes.al:
+    // 116-119, 204-234 EnumEqualsInteger, both orders, `=` and `<>`; types/enum-option/P67EnumCompare.al:117-123).
     // Their order is not pinned.
     if !ordered {
         if let (Value::Enum(_, a), Value::Integer(b)) | (Value::Integer(b), Value::Enum(_, a)) = (l, r) {
@@ -1379,8 +1379,8 @@ pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering,
 /// (types/TestFormatEvaluateTextContracts.al:Operators_TextComparison_IsCultureOrderAndCaseSensitiveEquality).
 pub fn compare_order(l: &Value, r: &Value) -> Result<Ordering, Signal> {
     // Two Codes of digits only (leading zeros and the empty Code included) are ordered by length first, then as text: `'9' < '10'`, `'0010'
-    // > '10'`, `'9' < '0010'`, `'0009' > '10'`, `'' < '0'` (types/lt-code-digits-page-run-view/P145CodeCompare.al:P145_CodeVars_DigitsOnly,
-    // P145_CodeVars_NumberSeriesPair; text/lt-text-functions/TextCompare.Codeunit.al:CodeComparison `tenlt`). A Text on either side, and a Code
+    // > '10'`, `'9' < '0010'`, `'0009' > '10'`, `'' < '0'` (types/text-code-char/P145CodeCompare.al:P145_CodeVars_DigitsOnly,
+    // P145_CodeVars_NumberSeriesPair; text/text-methods/TextCompare.Codeunit.al:CodeComparison `tenlt`). A Text on either side, and a Code
     // with a letter, keep the culture order (P145_CodeVars_WithLetters, P145_TextVsText_DigitStrings, P145_TextVsCode_Mixed).
     if let (Value::Code(a), Value::Code(b)) = (l, r) {
         if let Some(o) = digit_code_order(a, b) {
@@ -1396,9 +1396,9 @@ pub fn compare_order(l: &Value, r: &Value) -> Result<Ordering, Signal> {
 }
 
 /// The order a range end of `in [a .. z]` or `case` uses. A Code or a Text on either side follows the order of `<` (the culture order, so
-/// the Code `K` is inside `'a' .. 'z'`: types/lt-expression-operators-literals/ExpressionBinaryOperators.al:P195_Binary_InOperatorOverTypes,
+/// the Code `K` is inside `'a' .. 'z'`: types/operators-expressions/ExpressionBinaryOperators.al:P195_Binary_InOperatorOverTypes,
 /// `code-in-range` is Yes; the Text `K` is inside the Text variables `a .. z` and the literals `'A' .. 'z'` and `'a' .. 'Z'`, the Text `k`
-/// inside `'A' .. 'Z'`: types/lt-ax-text-format-dates/AxCodeCompare.al:193-213, InRange_CodeAndTextMixedCase). Char values compare by
+/// inside `'A' .. 'Z'`: format-evaluate/AxCodeCompare.al:193-213, InRange_CodeAndTextMixedCase). Char values compare by
 /// number (`'K' in ['a' .. 'z']` is No, `char-range-upper`). Other pairs as [`compare`].
 pub fn compare_range_end(l: &Value, r: &Value) -> Result<Ordering, Signal> {
     if matches!(l, Value::Code(_) | Value::Text(_)) || matches!(r, Value::Code(_) | Value::Text(_)) {
@@ -1411,7 +1411,7 @@ pub fn compare_range_end(l: &Value, r: &Value) -> Result<Ordering, Signal> {
 /// The order of two Codes that are digits only: the shorter is the smaller, else the text order. Between a Code of digits only
 /// (the empty one included) and a Code with any other character the second is the greater, whatever the characters: `'-5' > '3'`,
 /// `'-1' > '9'`, `'+5' > '3'`, `'5' < '+5'`, `'-0' > '0'`, `'1A' > '2'`, `'1A' > '10'`, `'1A' > '1'`, `'-5' > ''`
-/// (types/lt-code-digits-compare-more/CodeDigitsCompare.al:P182b_CodeVars_Negative, _DigitThenLetter). `None` for two Codes that
+/// (types/text-code-char/CodeDigitsCompare.al:P182b_CodeVars_Negative, _DigitThenLetter). `None` for two Codes that
 /// both have another character.
 fn digit_code_order(a: &str, b: &str) -> Option<Ordering> {
     let digits = |t: &str| t.bytes().all(|c| c.is_ascii_digit());
@@ -1426,7 +1426,7 @@ fn digit_code_order(a: &str, b: &str) -> Option<Ordering> {
 /// The order of two text key values: trailing blanks do not count, the letters compare without regard to their case first
 /// (collation order), and two texts that differ only in case are ordered by it (`a` before `A`), so they are two keys. A
 /// character the collation has no weight for falls back to the code point order of the trimmed texts
-/// (record/lt-record-read/RcAGetFind.al:Get_Text_Key, Find_Text_Key_Case_Insensitive).
+/// (record/crud/RcAGetFind.al:Get_Text_Key, Find_Text_Key_Case_Insensitive).
 pub fn text_key_order(a: &str, b: &str) -> Ordering {
     // The common case first, without trimming or copying: byte-equal texts are equal, and two texts that first differ
     // at an upper-case letter or a digit are ordered by that byte (the collation agrees with the code points there), or,
@@ -1482,7 +1482,7 @@ pub fn text_key_order(a: &str, b: &str) -> Ordering {
 }
 
 /// The order a filter applies to two texts when one starts with a hyphen and both are letters and digits besides it: the key order,
-/// in which the hyphen does not count first (`'-5'` is above `'3'` and below `'9'`; types/lt-code-digits-compare-more/
+/// in which the hyphen does not count first (`'-5'` is above `'3'` and below `'9'`; types/text-code-char/
 /// CodeDigitsCompare.al:P182b_Filters_OverMixedValues, `range-m5-3` is empty). `None` for every other pair: a filter compares
 /// them by code point as before.
 pub fn hyphen_filter_order(a: &Value, b: &Value) -> Option<Ordering> {
@@ -1490,7 +1490,7 @@ pub fn hyphen_filter_order(a: &Value, b: &Value) -> Option<Ordering> {
         return None;
     };
     // Any number of leading hyphens, then a plus sign or not, then letters and digits: `-+5`, `--5`, `+A` against `+5`, `0`, `-0`,
-    // `A`, `-A` and `-+5` (record/lt-as-records/AsCodeKeySigns.al:79-123, Filters_Range, Filters_Compare).
+    // `A`, `-A` and `-+5` (record/AsCodeKeySigns.al:79-123, Filters_Range, Filters_Compare).
     let shape = |t: &str| {
         let t = t.trim_start_matches('-');
         t.strip_prefix('+')
@@ -1502,7 +1502,7 @@ pub fn hyphen_filter_order(a: &Value, b: &Value) -> Option<Ordering> {
 }
 
 /// The key order of two Code values: the text key order of the texts without a leading hyphen, and for two that tie there the one
-/// with the hyphen is the greater: `0|10|1A|3|-5|9|A` and `0|00|01|1|-1|10|-10` (types/lt-code-digits-compare-more/
+/// with the hyphen is the greater: `0|10|1A|3|-5|9|A` and `0|00|01|1|-1|10|-10` (types/text-code-char/
 /// CodeDigitsCompare.al:P182b_SecondaryKeyOrder_Mixed, _DigitsAndEmpty; both are Code fields). Only a hyphen at the start of a text
 /// of letters, digits and that hyphen is pinned, and only for Code; a Text key keeps [`text_key_order`] (docs/probes-needed.md).
 /// The hyphen is dropped from every Code, not only from the pinned shape: an order that dropped it for some pairs only is not
@@ -1510,7 +1510,7 @@ pub fn hyphen_filter_order(a: &Value, b: &Value) -> Option<Ordering> {
 /// (docs/probes-needed.md).
 ///
 /// Every leading hyphen is dropped, and of two Codes that tie there the one with fewer hyphens comes first: `+5 -+5 +A 0 -0 5 -5 --5 A
-/// -A` (record/lt-as-records/AsCodeKeySigns.al:56, Order_Ascending; :68 Order_Descending).
+/// -A` (record/AsCodeKeySigns.al:56, Order_Ascending; :68 Order_Descending).
 pub fn code_key_order(a: &str, b: &str) -> Ordering {
     let (sa, sb) = (a.trim_start_matches('-'), b.trim_start_matches('-'));
     text_key_order(sa, sb).then_with(|| (a.len() - sa.len()).cmp(&(b.len() - sb.len())))
@@ -1622,7 +1622,7 @@ fn compare_general(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         (V::Option(a, _), V::Option(b, _)) => a.cmp(b),
         (V::Option(a, _), V::Integer(b)) | (V::Integer(a), V::Option(b, _)) => a.cmp(b),
         // An Option against a BigInteger compares the ordinal with the number, beyond an Integer too, in `=`, `<>`, `<`, `>=`,
-        // `>`, `if`, `case` and `in` (types/lt-implicit-conversions/P79BigOption.al:326-470).
+        // `>`, `if`, `case` and `in` (types/operators-expressions/P79BigOption.al:326-470).
         (V::Option(a, _), V::BigInteger(b)) => i64::from(*a).cmp(b),
         (V::BigInteger(a), V::Option(b, _)) => a.cmp(&i64::from(*b)),
         // An Option against a Decimal compares the ordinal with the Decimal, a fraction included, in both orders and for
@@ -1644,7 +1644,7 @@ fn compare_general(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         // AssignmentCompatibility; other pairs are an assumption, docs/probes-needed.md).
         (V::Enum(_, a), V::Enum(_, b)) => a.cmp(b),
         (V::DateFormula(a), V::DateFormula(b)) => crate::datefns::formula_text(a).cmp(&crate::datefns::formula_text(b)),
-        // SessionSettings compare by value (session/TestSessionSettings.al:513-545).
+        // SessionSettings compare by value (session-system/TestSessionSettings.al:513-545).
         (
             V::Library(crate::library_kind::LibraryKind::SessionSettings, a),
             V::Library(crate::library_kind::LibraryKind::SessionSettings, b),
@@ -1688,7 +1688,7 @@ fn compare_general(l: &Value, r: &Value) -> Result<Ordering, Signal> {
     })
 }
 
-/// The Guid a text stands for when it is compared with a Guid, in either order (misc/lt-cx-odd-leads/CxScalars.al:203-230,
+/// The Guid a text stands for when it is compared with a Guid, in either order (types/CxScalars.al:203-230,
 /// Guid_ComparedWithText: the braced form, the form without braces and lower case digits compare as that Guid). A text that
 /// is no Guid raises InvalidGuidFormat: pinned for the empty text, `garbage` (:203-230) and `abc` (:233-267,
 /// Guid_ComparedWithLiterals), so it is raised for a text with fewer than 32 hex digits, which no form of a Guid has. The
@@ -1730,7 +1730,7 @@ pub fn truthy(v: &Value) -> Result<bool, Signal> {
 mod tests {
     #[test]
     fn a_dotnet_enum_converts_to_its_number_in_an_integer_and_a_biginteger() {
-        // tests/al-language-onprem-dotnet/lt-sg-dotnet/SgDotNetEnumToInteger.al:42-88 SG_DotNetEnum_IntoInteger.
+        // tests/al-language-onprem-dotnet/dotnet/dotnet/SgDotNetEnumToInteger.al:42-88 SG_DotNetEnum_IntoInteger.
         use crate::value::{DotNetKind, DotNetObject};
         use std::rc::Rc;
         let e = |n: i64| {
@@ -1760,7 +1760,7 @@ mod tests {
     fn text_keys_are_equal_without_trailing_blanks_and_ordered_by_case_last() {
         use super::text_key_order;
         use std::cmp::Ordering::{Equal, Greater, Less};
-        // record/lt-record-read/RcAGetFind.al:Get_Text_Key: 'abc ' is the key 'abc', 'ABC' is another one.
+        // record/crud/RcAGetFind.al:Get_Text_Key: 'abc ' is the key 'abc', 'ABC' is another one.
         assert_eq!(text_key_order("abc", "abc  "), Equal);
         assert_ne!(text_key_order("abc", "ABC"), Equal);
         assert_eq!(text_key_order("abc", "ABC"), Less);
@@ -1855,7 +1855,7 @@ mod tests {
     }
 
     /// What Integer arithmetic gives, worked out in 128 bits: the definition the fast path must keep
-    /// (session/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts for the two error texts).
+    /// (session-system/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts for the two error texts).
     fn integer_reference(op: Arith, a: i32, b: i32) -> Option<Result<i32, (&'static str, &'static str)>> {
         const OVERFLOW: (&str, &str) = ("Arithmetic operation resulted in an overflow.", "AL:Overflow");
         const ZERO: (&str, &str) = ("Attempted to divide by zero.", "AL:DivideByZero");
@@ -1866,7 +1866,7 @@ mod tests {
             Arith::Mul => x * y,
             Arith::IntDiv | Arith::Mod if y == 0 => return Some(Err(ZERO)),
             Arith::IntDiv => x / y,
-            // The smallest Integer mod -1 overflows (types/lt-scalars/ScT70056.al:Integer_Overflow `min_mod_neg`).
+            // The smallest Integer mod -1 overflows (types/decimal-integer/ScT70056.al:Integer_Overflow `min_mod_neg`).
             Arith::Mod if a == i32::MIN && b == -1 => return Some(Err(OVERFLOW)),
             Arith::Mod => x % y,
             Arith::Div => return None,
@@ -1944,7 +1944,7 @@ mod tests {
 
     /// Regression guard (a fast path, no new behavior): `convert_plain`, which call arguments, return values and typed
     /// assignments go through, gives what `convert` gives: the value, its scale, and the 18 significant digits a
-    /// longer Decimal keeps (types/lt-expression-operators-literals/ExpressionLiteralsRisky.al:P195_Literal_DecimalTwentyDigits).
+    /// longer Decimal keeps (types/operators-expressions/ExpressionLiteralsRisky.al:P195_Literal_DecimalTwentyDigits).
     #[test]
     fn convert_plain_gives_what_convert_gives() {
         use std::str::FromStr;
@@ -2059,7 +2059,7 @@ mod tests {
                 noon.clone(),
                 "Subtracting from an undefined (0T) time.",
             ),
-            // misc/lt-probes-needed-6/PnF31TimeArithmetic.al:115.
+            // errors/PnF31TimeArithmetic.al:115.
             (
                 Arith::Sub,
                 noon.clone(),
@@ -2072,7 +2072,7 @@ mod tests {
             };
             assert_eq!((e.message.as_str(), e.code.as_str()), (text, "InvalidTime"));
         }
-        // 0T - 0T is 0 (misc/lt-cq-odd-leads/CqOddLeads.al:147-149).
+        // 0T - 0T is 0 (types/CqOddLeads.al:147-149).
         assert!(matches!(
             arith(Arith::Sub, &Value::Time(0), &Value::Time(0)),
             Ok(Value::Integer(0))
@@ -2104,7 +2104,7 @@ mod tests {
             Ok(Value::Enum(5056, 5))
         ));
         // A BigInteger goes by ordinal as an Integer does; beyond Integer it raises ConversionCast
-        // (types/lt-bigint-enum-option/BigIntToEnumOption.al:148-195).
+        // (types/enum-option/BigIntToEnumOption.al:148-195).
         assert!(matches!(
             convert(Value::BigInteger(5), &RtType::Enum(5056)),
             Ok(Value::Enum(5056, 5))
@@ -2166,7 +2166,7 @@ mod tests {
             convert(Value::Duration(i64::MAX), &RtType::Integer),
             Err(Signal::Error(_))
         ));
-        // Beyond Integer raises ConversionCast (types/lt-filter-enum-relation-duration-guid/D_Duration.al:DateTimeMinusDateTime_To_Integer).
+        // Beyond Integer raises ConversionCast (types/duration/D_Duration.al:DateTimeMinusDateTime_To_Integer).
     }
 
     // Calendar Management: `Time + Decimal` with a whole Decimal (about 820 Microsoft tests through the service set-up).
@@ -2250,7 +2250,7 @@ mod tests {
     }
 
     /// Duration `/`, `div` and `mod` with a whole number, and Duration / Duration, as corpus
-    /// types/lt-filter-enum-relation-duration-guid/D_Duration.al:Duration_Arithmetic pins them (D1 = 90000 ms, D2 = 30000 ms).
+    /// types/duration/D_Duration.al:Duration_Arithmetic pins them (D1 = 90000 ms, D2 = 30000 ms).
     /// A number `FieldRef.Value()` returns, into a record's Text or Code field, is its Format text (VariantFieldRefBigIntToText.al; a BigInteger has
     /// no thousands separator in Format); into a Text variable an Integer raises TypeConversion (corpus VaTCompare.al af117).
     #[test]
@@ -2319,7 +2319,7 @@ mod tests {
 
     #[test]
     fn a_decimal_with_a_fraction_into_a_duration_raises() {
-        // types/lt-filter-enum-relation-duration-guid/D_Duration.al:211-212, 217-218 (af186, af191).
+        // types/duration/D_Duration.al:211-212, 217-218 (af186, af191).
         for (d, text) in [(Decimal::new(25007, 1), "2500.7"), (Decimal::new(-25007, 1), "-2500.7")] {
             let Err(Signal::Error(e)) = convert(Value::Decimal(d), &RtType::Duration) else {
                 panic!("{text} into a Duration raises");
@@ -2416,7 +2416,7 @@ mod tests {
         ));
     }
 
-    /// types/lt-duration-div-mod/DurationDivModDuration.al: `div` and `mod` of two Durations count milliseconds, truncating
+    /// types/duration/DurationDivModDuration.al: `div` and `mod` of two Durations count milliseconds, truncating
     /// toward zero, and the remainder takes the sign of the dividend.
     #[test]
     fn div_and_mod_of_two_durations() {
@@ -2485,7 +2485,7 @@ mod tests {
         ));
     }
 
-    // types/TestDurationContracts.al:44-171 and session/TestDateTimeContracts.al:52-90.
+    // types/TestDurationContracts.al:44-171 and session-system/TestDateTimeContracts.al:52-90.
     #[test]
     fn datetime_and_duration_arithmetic() {
         let dt = |n: i64| Value::DateTime(n);
@@ -2506,10 +2506,10 @@ mod tests {
             arith(Arith::Sub, &dt(3_601_000), &dt(1_000)),
             Ok(Value::Duration(3_600_000))
         ));
-        // 0DT moved by a Duration raises DateInvalid (types/lt-y65-undefined-arith/Y65UndefinedArith.al); a Duration taken from a
+        // 0DT moved by a Duration raises DateInvalid (types/decimal-integer/Y65UndefinedArith.al); a Duration taken from a
         // DateTime is not pinned.
         assert!(matches!(arith(Arith::Add, &dt(0), &dur(1)), Err(Signal::Error(_))));
-        // One undefined side raises DateInvalid, both a 0 Duration (types/lt-y62-undefined-date/Y62UndefinedDate.al).
+        // One undefined side raises DateInvalid, both a 0 Duration (types/date-time/Y62UndefinedDate.al).
         assert!(matches!(arith(Arith::Sub, &dt(5), &dt(0)), Err(Signal::Error(_))));
         assert!(matches!(arith(Arith::Sub, &dt(0), &dt(0)), Ok(Value::Duration(0))));
         assert!(matches!(
@@ -2540,7 +2540,7 @@ mod tests {
 
     #[test]
     fn division_by_zero_and_overflow_raise_the_pinned_errors() {
-        // session/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts.
+        // session-system/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts.
         let Err(Signal::Error(e)) = arith(Arith::Div, &Value::Integer(1), &Value::Integer(0)) else {
             panic!("1 / 0 must raise");
         };
@@ -2745,7 +2745,7 @@ mod tests {
     }
     #[test]
     fn a_big_integer_beyond_an_integer_is_the_conversion_error() {
-        // types/lt-scalars/ScT70057.al:140-160.
+        // types/decimal-integer/ScT70057.al:140-160.
         match convert(Value::BigInteger(-3_000_000_000), &RtType::Integer) {
             Err(Signal::Error(e)) => {
                 assert_eq!(
