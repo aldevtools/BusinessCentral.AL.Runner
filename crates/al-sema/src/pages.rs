@@ -1645,6 +1645,11 @@ fn unquote_literals(inner: &str) -> String {
     let mut out = String::new();
     let mut chars = inner.chars().peekable();
     while let Some(c) = chars.next() {
+        // A double-quoted member name loses its quotes (pages/link-quoted-member/Y42LinkQuotedMember.al:7, :182, :202).
+        if c == '"' {
+            out.extend(chars.by_ref().take_while(|&d| d != '"'));
+            continue;
+        }
         if c != '\'' {
             out.push(c);
             continue;
@@ -2390,6 +2395,28 @@ mod tests {
             ]
         );
         assert!(parse_sub_page_link("A = bogus(B)").is_err());
+    }
+
+    // Corpus pages/link-quoted-member/Y42LinkQuotedMember.al:7 (BC 27.5-29.0: "the quotes are dropped and the members
+    // match"), :182 `filter(Open | "Bank Acc. Entry Applied" | "Check Entry Applied")` (rows 1,2,3,7,8 at :334), :202
+    // `filter(<> "Bank Acc. Entry Applied")` (GetFilter `<>1` at :424). The Bank Acc. Reconciliation part link (issue 6953).
+    #[test]
+    fn quoted_members_in_a_filter_lose_their_quotes() {
+        let got = parse_sub_page_link(
+            "S = filter(Open | \"Bank Acc. Entry Applied\" | \"Check Entry Applied\"), N = filter(<> \"Bank Acc. Entry Applied\"), T = filter('a\"b')",
+        )
+        .unwrap();
+        assert_eq!(
+            got,
+            vec![
+                (
+                    "S".to_string(),
+                    LinkRhs::Filter("Open | Bank Acc. Entry Applied | Check Entry Applied".into())
+                ),
+                ("N".to_string(), LinkRhs::Filter("<> Bank Acc. Entry Applied".into())),
+                ("T".to_string(), LinkRhs::Filter("a\"b".into())),
+            ]
+        );
     }
 
     // Corpus testpage/TestPageActionRunPageLink.al:ActionRunPageLink_Filter_AppliesTheFilterExpression:

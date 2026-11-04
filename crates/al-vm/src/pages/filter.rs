@@ -49,6 +49,9 @@ impl Session {
                 }
                 use al_builtins::filter::FilterExpr;
                 use al_builtins::value::RtType;
+                if let Some(t) = Self::part_link_ordinals(&rec.borrow().filters, pos, first.as_ref()) {
+                    return Ok(Value::Text(t.into()));
+                }
                 if let (RtType::Enum(id), Some(f)) = (&table.fields[pos].ty, first.as_ref()) {
                     if let Some(t) = self.enum_filter_text(*id, &f.expr, f.group)? {
                         return Ok(Value::Text(t.into()));

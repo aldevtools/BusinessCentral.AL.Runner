@@ -115,6 +115,7 @@ mod pageext_worksheet_factbox;
 mod pagemisc;
 mod part_after_modal_close;
 mod part_array_element_control;
+mod part_link_quoted_member;
 mod perm_compose;
 mod prepush_script;
 mod printer_table;
