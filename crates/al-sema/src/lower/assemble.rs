@@ -543,7 +543,7 @@ pub(crate) fn build_shared<'a>(
         if o.kind != ObjKind::ReportExtension || prov(oi) {
             continue;
         }
-        if !active(oi) && !ws.extension_target(oi).is_some_and(&active) {
+        if !active(oi) && !ws.extension_target(oi).is_some_and(active) {
             continue;
         }
         if !ws.usable(oi) {
@@ -1924,12 +1924,12 @@ fn split_pages(staged: &mut StagedList, provided: &(dyn Fn(usize) -> bool + Sync
                 Some((e, _)) => {
                     let ext = ExtControl {
                         pred: (i > 0).then(|| id_of(i - 1)),
-                        parent: c.parent.map(&id_of),
+                        parent: c.parent.map(id_of),
                         target: match c.action_ref {
                             Some(ir::ActionRef::Target(t)) => Some(id_of(t)),
                             _ => None,
                         },
-                        provider: c.part_link.as_ref().and_then(|l| l.provider).map(&id_of),
+                        provider: c.part_link.as_ref().and_then(|l| l.provider).map(id_of),
                         area: if c.parent.is_none() { area_of(i) } else { None },
                         provider_page: c
                             .part_link

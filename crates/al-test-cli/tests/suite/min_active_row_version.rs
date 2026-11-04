@@ -118,7 +118,8 @@ fn minimum_active_row_version_stays_at_the_codeunit_start_under_codeunit_isolati
     for t in ["AfterInsertAndRead", "AfterModify", "InsertHereModifyThere"] {
         assert!(matches!(of(t), Outcome::Pass), "{t}: {:?}", of(t));
     }
-    for t in ["DeleteOfInsertedTable"] {
+    {
+        let t = "DeleteOfInsertedTable";
         match of(t) {
             Outcome::NotRun(r) => assert!(r.contains("Database.LastUsedRowVersion after"), "{t}: {r}"),
             other => panic!("{t}: {other:?}"),

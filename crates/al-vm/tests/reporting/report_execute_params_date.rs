@@ -41,7 +41,8 @@ fn an_iso_date_option_lands_in_the_variable() {
 
 #[test]
 fn a_date_option_in_another_form_is_refused() {
-    for routine in ["OtherForm"] {
+    {
+        let routine = "OtherForm";
         match al_testkit::run_in(SRC, "C", routine) {
             Err(Signal::Unsupported(s)) => assert!(s.contains("parameter D"), "{routine}: {s}"),
             other => panic!("{routine}: {other:?}"),
