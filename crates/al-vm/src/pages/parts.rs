@@ -7,6 +7,9 @@ use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::page_op::PageMethod;
 use al_builtins::record_op::RecordOp;
 
+/// A part's view (its rows) and the part's place in it (`both_later_row`).
+type PartView = (Vec<Vec<Value>>, usize);
+
 /// The filter group `SubPageLink` filters live in
 /// (corpus testpage/TestPagePartLinkFilterGroup.al: `FilterGroup(4)` answers the link).
 pub(super) const LINK_GROUP: i32 = 4;
@@ -1770,7 +1773,7 @@ impl Session {
     /// serves its rows from OnFindRecord or OnNextRecord, one that is not a list, a row its view no longer holds and a view longer than
     /// a window are refused. Returns the view and the part's place in it when the part stands on a later row (the caller reads the
     /// host, then calls `read_part_rows_around`), `None` on the first row.
-    fn both_later_row(&mut self, st: &St) -> Result<Option<(Vec<Vec<Value>>, usize)>, Signal> {
+    fn both_later_row(&mut self, st: &St) -> Result<Option<PartView>, Signal> {
         let rec = self.page_rec(st);
         let rows = self.view_rows(&rec, Self::WINDOW + 1)?;
         let table = self.table(&rec)?;
@@ -1804,7 +1807,7 @@ impl Session {
         st: &St,
         host: &St,
         without_parts: bool,
-        later: Option<(Vec<Vec<Value>>, usize)>,
+        later: Option<PartView>,
     ) -> Result<(), Signal> {
         let mut h = host.borrow_mut();
         h.refresh = true;
