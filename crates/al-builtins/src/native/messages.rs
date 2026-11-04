@@ -49,8 +49,8 @@ pub(super) fn str_menu(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
 
 /// The arguments of a substitution with each Record, RecordRef and FieldRef replaced by its `Format` text: BC writes such an
 /// argument exactly as `Format` of it writes it, in StrSubstNo, Message and Error, with a literal, a Text or a Label template, and
-/// a record in a Variant too (format-evaluate/record-format/RecordAsSubstitutionArg.al, every RecordArg_* test, corpus branch
-/// al-runtime-rs-staging-r6918-22; al-runner issue 6922).
+/// a record in a Variant too (format-evaluate/record-format/RecordAsSubstitutionArg.al, every RecordArg_* test from :246;
+/// al-runner issue 6922).
 pub(super) fn composite_args(ctx: &mut dyn Ctx, args: &[Value]) -> Result<Vec<Value>, Signal> {
     args.iter()
         .map(|v| match ctx.format_composite(v) {

@@ -77,7 +77,7 @@ fn set_value_on_a_global_record_field_of_a_card_with_no_source_table_stores_the_
     );
 }
 
-/// testpage/no-source-controls/NoSourceGlobalRecordSetValue.al (corpus branch al-runtime-rs-staging-r6918-22), with what BC
+/// testpage/no-source-controls/NoSourceGlobalRecordSetValue.al:180,258 (corpus PR 1121), with what BC
 /// 29.0 gave.
 const PROBE: &str = r#"
 table 50140 "NSRow"

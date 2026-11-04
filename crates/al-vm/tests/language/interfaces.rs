@@ -594,9 +594,8 @@ fn a_local_procedure_of_a_member_with_a_default_body_refuses_the_interface_call(
 }
 
 // `this.Member(..)` in a default body calls the implementor's member, overloads chosen by arity, as
-// Microsoft's PEPPOL Tax Info Provider (BC 29) does in GetTaxExemptionReason. Not pinned: the pass is
-// flagged (assumption `this-in-default-interface-body`; the bare call is pinned by
-// codeunits/CwDefaultInterfaceMethods.al:30-33).
+// Microsoft's PEPPOL Tax Info Provider (BC 29) does in GetTaxExemptionReason (codeunits/interfaces/
+// R6924dThisInDefaultBody.al:93 R6924d_This_Overload). The pass is clean: no assumption is marked.
 #[test]
 fn this_in_a_default_body_calls_the_member_of_the_implementing_codeunit() {
     let fixtures = "interface IT { procedure Get(A: Text): Text; \
@@ -609,8 +608,5 @@ fn this_in_a_default_body_calls_the_member_of_the_implementing_codeunit() {
         "P",
     );
     assert_eq!(text(r), "impl ab");
-    assert_eq!(
-        al_builtins::assumptions::take_hits(),
-        vec![al_builtins::assumptions::Assumption::ThisInDefaultInterfaceBody]
-    );
+    assert_eq!(al_builtins::assumptions::take_hits(), vec![]);
 }

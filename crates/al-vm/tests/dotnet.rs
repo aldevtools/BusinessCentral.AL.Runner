@@ -1546,8 +1546,8 @@ fn try_get_string_tenant_setting_answers_the_pinned_names_and_not_the_others() {
 }
 
 /// al-runner issue 6925 (the reporter's repro): `TryGetStringTenantSetting('DatabaseServer', V)` runs; BC 29.0 does not find
-/// the setting and clears V (al-language-onprem-dotnet/dotnet/dotnet/BbNavHelpers.al
-/// TenantSettings_TryGetStringTenantSetting_SettingNames, corpus branch al-runtime-rs-staging-r6918-22).
+/// the setting and clears V (al-language-onprem-dotnet/dotnet/dotnet/BbNavHelpers.al:185
+/// TenantSettings_TryGetStringTenantSetting_SettingNames).
 #[test]
 fn try_get_string_tenant_setting_does_not_find_the_database_server() {
     let host = no_host();

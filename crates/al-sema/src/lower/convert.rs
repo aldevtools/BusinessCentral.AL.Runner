@@ -656,7 +656,6 @@ impl<'a> Lowerer<'a> {
         &mut self,
         iface: usize,
         offset: usize,
-        callee: &SyntaxNode,
         receiver: Option<&SyntaxNode>,
         args: &[SyntaxNode],
     ) -> L<ir::Expr> {
@@ -664,10 +663,9 @@ impl<'a> Lowerer<'a> {
         // implementing instance the body runs on (codeunits/CwDefaultInterfaceMethods.al:30-33, `Chain`
         // calls `Req`; :138, 'default chain of inherit req').
         let in_default_body = receiver.is_none() && self.oi == iface;
-        // `this.Member(..)` there (the `this` receiver is dropped by `call`): not pinned, only the bare call is.
-        if in_default_body && callee.kind() == al_syntax::SyntaxKind::MemberExpr {
-            self.assume(al_builtins::assumptions::Assumption::ThisInDefaultInterfaceBody);
-        }
+        // `this.Member(..)` there (the `this` receiver is dropped by `call`) does the same: it calls the implementing
+        // codeunit's member, its override of another default member, and picks an overload by its arguments
+        // (codeunits/interfaces/R6924dThisInDefaultBody.al:72 R6924d_This_CallsImplementor, :93 R6924d_This_Overload).
         if let Some(receiver) = receiver {
             if !matches!(self.ty_ref(receiver), Ty::Object(ObjKind::Interface, _)) {
                 return Err("an interface procedure called on something that is not an interface variable".into());

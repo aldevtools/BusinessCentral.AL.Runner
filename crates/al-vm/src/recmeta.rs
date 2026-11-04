@@ -180,8 +180,8 @@ impl Session {
         // filter 4 show as `0 0 1`).
         let (mut normal, calculated): (Vec<usize>, Vec<usize>) = order.into_iter().partition(|&i| t.fields[i].stored);
         // The primary key fields come first, in key order, then the other stored fields in field number order: a key on the
-        // last field gives `7<TAB>Last<TAB>3` (format-evaluate/record-format/RecordAsSubstitutionArg.al
-        // RecordArg_KeyOnLastField_EmptyAndFilled `filled format`, corpus branch al-runtime-rs-staging-r6918-22).
+        // last field gives `7<TAB>Last<TAB>3` (format-evaluate/record-format/RecordAsSubstitutionArg.al:246
+        // RecordArg_KeyOnLastField_EmptyAndFilled `filled format`).
         if let Some(key) = t.keys.first() {
             let rest: Vec<usize> = normal.iter().copied().filter(|i| !key.contains(i)).collect();
             normal = key.iter().copied().filter(|i| normal.contains(i)).chain(rest).collect();

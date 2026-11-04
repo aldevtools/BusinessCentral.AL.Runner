@@ -9,8 +9,8 @@ impl Session {
     /// nested in it by the table's own code: it then sees that before-image as xRec (record/TestXRecContracts.al:133, a
     /// Validate that the table's OnValidate trigger nests). `None` when no Validate of the record runs, or when other code
     /// nests it (an event subscriber of the validate events, a codeunit that OnValidate calls): that Validate sees the
-    /// record as it is when it starts, as an unnested one does (events/table-events/ValidateInValidateSubscriber.al,
-    /// corpus branch al-runtime-rs-staging-r6924b, BC 27.5: AfterValidateSubscriber_* `B(rec=BLUE,x=BLUE)`,
+    /// record as it is when it starts, as an unnested one does (events/table-events/ValidateInValidateSubscriber.al:188-235
+    /// AfterValidateSubscriber_* `B(rec=BLUE,x=BLUE)`, :236
     /// OnValidate_CodeunitValidatesSameFieldAgain `B(rec=INNER,x=BLUE)`; al-runner issue 6924 item 3.9).
     pub(crate) fn outer_validate_before(&self, handle: usize, table_object: usize) -> Option<Vec<Value>> {
         let (_, before) = self.validating.iter().rev().find(|(h, _)| *h == handle)?;

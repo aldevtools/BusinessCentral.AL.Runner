@@ -515,9 +515,9 @@ impl Session {
     /// (ui-handlers/TestNotificationSendRecallContracts.al:95-131, ui-handlers/ProbeNotificationRecallEdges.al,
     /// BC 27.5).
     ///
-    /// A notification never sent (al-runner issue 6924 item 3.3; ui-handlers/NotificationRecallNeverSent.al, corpus branch
-    /// al-runtime-rs-staging-r6924b, BC 27.5): one given an Id answers true and runs the bound handler at every Recall
-    /// (Recall_IdSetNeverSent_HandlerBound, _IdOnlyNeverSent_HandlerBound, _IdSetNeverSent_NoHandler); one with no Id
+    /// A notification never sent (al-runner issue 6924 item 3.3; ui-handlers/NotificationRecallNeverSent.al,
+    /// BC 27.5): one given an Id answers true and runs the bound handler at every Recall
+    /// (Recall_IdSetNeverSent_HandlerBound :41, _IdOnlyNeverSent_HandlerBound :62, _IdSetNeverSent_NoHandler :93); one with no Id
     /// answers false and does not run it (Recall_NoIdNeverSent_HandlerBound). Microsoft's Tests-SCM "SCM Orders IV"
     /// PurchaseLineBlankTypeDifferentPayToVendorNo relies on it (Purchase Header.RecallModifyAddressNotification).
     pub(crate) fn ui_recall_notification(&mut self, notification: Value, id: [u8; 16]) -> Result<bool, Signal> {

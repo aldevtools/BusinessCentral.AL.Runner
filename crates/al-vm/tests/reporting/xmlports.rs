@@ -1279,8 +1279,8 @@ fn set_table_view_refuses_a_view_that_is_more_than_filters() {
 // give the view to; both refusals name the xmlport.
 #[test]
 fn set_table_view_refusals_name_what_is_wrong() {
-    // A record of a table no element uses raises XmlPortNodeNotFound (xmlports/set-table-view/XmlPortSetTableViewElement.al
-    // SetTableView_RecordOfTableNoElementUses, corpus branch al-runtime-rs-staging-r6918-22).
+    // A record of a table no element uses raises XmlPortNodeNotFound (xmlports/set-table-view/XmlPortSetTableViewElement.al:226
+    // SetTableView_RecordOfTableNoElementUses).
     match run(
         "V: Record \"ALT Universal\"; P: XmlPort \"ALT Keyed XmlPort\";",
         "P.SetTableView(V); exit('');",

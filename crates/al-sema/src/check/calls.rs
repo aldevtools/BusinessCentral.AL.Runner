@@ -708,8 +708,8 @@ impl<'a> Checker<'a> {
                 )));
             }
             // In the default body of an interface procedure (runtime 18.0), `this` is the implementing instance seen as
-            // the interface (Microsoft's PEPPOL Tax Info Provider: `this.GetTaxExemptionReason(..)`); the
-            // lowering marks the assumption (`this-in-default-interface-body`).
+            // the interface (Microsoft's PEPPOL Tax Info Provider: `this.GetTaxExemptionReason(..)`;
+            // codeunits/interfaces/R6924dThisInDefaultBody.al:72, :93).
             if self.ws.objects[sc.oi].kind == ObjKind::Interface && sc.self_obj == sc.oi {
                 return Some(E::Val(Ty::Object(
                     ObjKind::Interface,

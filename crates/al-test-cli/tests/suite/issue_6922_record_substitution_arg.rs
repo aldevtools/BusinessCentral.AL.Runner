@@ -145,8 +145,8 @@ fn a_record_as_a_substitution_argument_is_written_as_format_writes_it() {
     assert!(not_passing.is_empty(), "{not_passing:#?}");
 }
 
-/// format-evaluate/record-format/RecordAsSubstitutionArg.al (corpus branch al-runtime-rs-staging-r6918-22): the primary key
-/// fields come first (RecordArg_KeyOnLastField_EmptyAndFilled), a RecordRef and a FieldRef are written as Format writes them
+/// format-evaluate/record-format/RecordAsSubstitutionArg.al (corpus PR 1121): the primary key
+/// fields come first (RecordArg_KeyOnLastField_EmptyAndFilled, :246), a RecordRef and a FieldRef are written as Format writes them
 /// (RecordArg_RecordRefAndFieldRef), a #n field of StrSubstNo fills or stars (RecordArg_TwoRecordsAndHashField).
 const PROBE: &str = r#"
 table 50130 "KeyLast" { fields { field(1; Name; Text[30]) { } field(2; Qty; Integer) { } field(3; Id; Integer) { } } keys { key(PK; Id) { } } }

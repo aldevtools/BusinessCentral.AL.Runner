@@ -2,7 +2,7 @@
 //! `[RecallNotificationHandler]` bound. Base Application gives a fresh Notification a fixed Id and recalls it without a
 //! Send (Purchase Header.RecallModifyAddressNotification); Microsoft's Tests-SCM "SCM Orders IV"
 //! PurchaseLineBlankTypeDifferentPayToVendorNo binds a recall handler for it. Pinned on BC 27.5 by
-//! ui-handlers/NotificationRecallNeverSent.al (corpus branch al-runtime-rs-staging-r6924b).
+//! ui-handlers/NotificationRecallNeverSent.al:41-145 (corpus PR 1119).
 
 use al_test_cli::report::Outcome;
 

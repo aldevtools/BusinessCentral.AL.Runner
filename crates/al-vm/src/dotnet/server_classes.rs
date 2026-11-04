@@ -185,8 +185,8 @@ fn environment_name(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -
 /// the setting itself is `common`. The names are matched without regard to case. Any other name (`DatabaseServer`,
 /// `DatabaseName`, `DefaultCompany`, the other Mount-NAVTenant settings, the empty name, an unknown one) is not found: false,
 /// and the out value is cleared (al-language-onprem-dotnet/dotnet/dotnet/BbNavHelpers.al:127
-/// TenantSettings_TryGetStringTenantSetting `LTBBNOSUCHSETTING`, and TenantSettings_TryGetStringTenantSetting_SettingNames,
-/// corpus branch al-runtime-rs-staging-r6918-22; al-runner issue 6925).
+/// TenantSettings_TryGetStringTenantSetting `LTBBNOSUCHSETTING`, and TenantSettings_TryGetStringTenantSetting_SettingNames
+/// at :185; al-runner issue 6925).
 fn try_get_string_tenant_setting(
     s: &mut Session,
     _: Option<&Rc<DotNetObject>>,

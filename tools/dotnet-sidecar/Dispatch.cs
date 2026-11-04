@@ -132,8 +132,8 @@ public sealed class Server
                     // DotNet variable the result is stored into (`generic`); without one the type argument is not known.
                     // Only an overload that can take this many arguments counts: `JProperty.Value()` (Base Application,
                     // "JSON Management".GetPropertyValueFromJObjectByName) is the property `JToken Value`, read below as a
-                    // call, not JToken's `T Value<T>(object key)`, which needs its key (al-runner issue 6927; corpus branch
-                    // al-runtime-rs-staging-r6927, tests/al-language-onprem-dotnet/dotnet/dotnet/R6927JPropertyValue.al:31,
+                    // call, not JToken's `T Value<T>(object key)`, which needs its key (al-runner issue 6927;
+                    // tests/al-language-onprem-dotnet/dotnet/dotnet/R6927JPropertyValue.al:31,
                     // passed on BC 27.5, 28.5 and 29.0).
                     var generic = type.GetMethods(flags)
                         .Where(m => m.Name == name && m.IsGenericMethodDefinition && m.GetGenericArguments().Length == 1

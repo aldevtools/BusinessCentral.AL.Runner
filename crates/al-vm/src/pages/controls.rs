@@ -99,7 +99,7 @@ impl Session {
 
     /// The type of the record field a control of a page with no source table is bound to, when it names a field of a global
     /// record: Code, Text, Integer, Decimal, Boolean, Date, BigInteger, Time and Option are pinned (testpage/no-source-controls/
-    /// NoSourceGlobalRecordSetValue.al, corpus branch al-runtime-rs-staging-r6918-22; al-runner issue 6918). An Option field there
+    /// NoSourceGlobalRecordSetValue.al:180; al-runner issue 6918). An Option field there
     /// shows and takes its member names (27.5, 28.5 and 29.0).
     fn global_record_field_type(&self, st: &St, idx: usize, no_source_expr: bool) -> Result<Option<RtType>, Signal> {
         if !no_source_expr {
@@ -118,8 +118,8 @@ impl Session {
     /// The validation message of an entry longer than the control's Text or Code field allows, if it is one: a Text variable
     /// given too many characters (errors/TestPageVariableMinMaxContracts.al:119), a table field's overlong text
     /// (P81PageValidateEvents.al:TestPage_SetValue_NameTooLong). A Code field of a global record on a page with no source table
-    /// says the same (testpage/no-source-controls/NoSourceGlobalRecordSetValue.al SetValue_TextThatDoesNotFit_Errors `railcar 21
-    /// chars`, an upper-case entry; corpus branch al-runtime-rs-staging-r6918-22). Whether it shows a lower-case entry upper-cased
+    /// says the same (testpage/no-source-controls/NoSourceGlobalRecordSetValue.al SetValue_TextThatDoesNotFit_Errors :258 `railcar 21
+    /// chars`, an upper-case entry). Whether it shows a lower-case entry upper-cased
     /// is not pinned.
     fn overlong_entry(&self, st: &St, idx: usize, ty: &RtType, parsed: &Value) -> Result<Option<String>, Signal> {
         let (max, t) = match (ty, parsed) {
@@ -146,7 +146,7 @@ impl Session {
 
     /// A Time control bound to a field of a global record, on a page with no source table, takes `10:30:00` without AM or PM and
     /// shows `10:30:00 AM` (testpage/no-source-controls/NoSourceGlobalRecordSetValue.al SetValue_EveryKind_TextArgs_ValueReadBack
-    /// `tm`, corpus branch al-runtime-rs-staging-r6918-22). Measured for an hour below 12 only; other entries read as before.
+    /// :180 `tm`). Measured for an hour below 12 only; other entries read as before.
     fn time_entry(&self, st: &St, idx: usize, ty: &RtType, text: &str) -> String {
         let global_rec = page_of(&self.engine(), st).controls[idx].var_field.is_some() && !self.has_source(st);
         let parts: Vec<&str> = text.split(':').collect();
@@ -166,8 +166,8 @@ impl Session {
     }
 
     /// On a control bound to a field of a global record of a page with no source table the refused-entry texts of an Integer,
-    /// Boolean, Date and Option field are pinned (testpage/no-source-controls/NoSourceGlobalRecordSetValue.al
-    /// SetValue_TextThatDoesNotFit_Errors, corpus branch al-runtime-rs-staging-r6918-22).
+    /// Boolean, Date and Option field are pinned (testpage/no-source-controls/NoSourceGlobalRecordSetValue.al:258
+    /// SetValue_TextThatDoesNotFit_Errors).
     fn refused_entry_text_pinned(&self, st: &St, idx: usize, ty: &RtType) -> bool {
         page_of(&self.engine(), st).controls[idx].var_field.is_some()
             && matches!(ty, RtType::Integer | RtType::Boolean | RtType::Date | RtType::Option(_))

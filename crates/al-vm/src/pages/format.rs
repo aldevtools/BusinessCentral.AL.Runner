@@ -190,8 +190,8 @@ impl Session {
                 ));
             }
             // On a page with no source table the control shows and takes the member names on 27.5, 28.5 and 29.0 (testpage/no-source-controls/
-            // NoSourceGlobalRecordSetValue.al SetValue_EveryKind_TextArgs_ValueReadBack `opt`, SetValue_TextThatDoesNotFit_Errors
-            // `opt caption`; corpus branch al-runtime-rs-staging-r6918-22).
+            // NoSourceGlobalRecordSetValue.al:180 SetValue_EveryKind_TextArgs_ValueReadBack `opt`, :258
+            // SetValue_TextThatDoesNotFit_Errors `opt caption`).
             if let Some(c) = has("OptionCaption").filter(|_| {
                 ctl.prop("optioncaption").is_none() && ctl.prop("optioncaptionml").is_none() && self.has_source(st)
             }) {

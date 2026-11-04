@@ -460,9 +460,9 @@ impl Session {
     /// `SetTableView`: the filters of the given record go to the first table element, in schema order and nested ones included,
     /// whose table is the record's table; a second element of the same table keeps all its rows
     /// (xmlports/TestXmlPortObject.al:XmlPort_SetTableView_RestrictsExportedRows; xmlports/set-table-view/
-    /// XmlPortSetTableViewElement.al SetTableView_RecordOfLaterSiblingElement_Export, _RecordOfNestedChildElement_Export,
-    /// _TwoElementsOfTheSameTable_Export, corpus branch al-runtime-rs-staging-r6918-22). A record of a table no element uses
-    /// raises XmlPortNodeNotFound (same file, SetTableView_RecordOfTableNoElementUses).
+    /// XmlPortSetTableViewElement.al:128 SetTableView_RecordOfLaterSiblingElement_Export, :186 _RecordOfNestedChildElement_Export,
+    /// :248 _TwoElementsOfTheSameTable_Export). A record of a table no element uses
+    /// raises XmlPortNodeNotFound (same file, :226 SetTableView_RecordOfTableNoElementUses).
     fn xp_set_view(&mut self, inst: &Inst, view: Option<&Value>) -> Result<(), Signal> {
         let schema = self.xp_schema(inst)?;
         if !schema.xp().nodes.iter().any(|n| n.kind == ir::XmlNodeKind::Table) {

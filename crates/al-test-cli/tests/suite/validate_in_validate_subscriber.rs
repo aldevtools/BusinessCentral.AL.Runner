@@ -1,9 +1,9 @@
 //! al-runner issue 6924, item 3.9: a subscriber of OnAfterValidateEvent of a field validates the same field of the same
 //! Rec again, guarded by `if Rec.F = xRec.F then exit`. The runtime handed that inner Validate the outer before-image as
 //! xRec, so the guard never held and the run ended in "Excessive recursion" where real BC ends. On BC 27.5 the inner
-//! Validate sees the record as it is when it starts (events/table-events/ValidateInValidateSubscriber.al, corpus
-//! branch al-runtime-rs-staging-r6924b: AfterValidateSubscriber_XRecGuard_ValidatesAgain_NoValue `B(rec=BLUE,x=BLUE)`,
-//! `guard exit`), and so does one that a codeunit called from OnValidate nests (OnValidate_CodeunitValidatesSameFieldAgain).
+//! Validate sees the record as it is when it starts (events/table-events/ValidateInValidateSubscriber.al:212
+//! AfterValidateSubscriber_XRecGuard_ValidatesAgain_NoValue `B(rec=BLUE,x=BLUE)`,
+//! `guard exit`), and so does one that a codeunit called from OnValidate nests (OnValidate_CodeunitValidatesSameFieldAgain, :236).
 
 use al_test_cli::report::Outcome;
 

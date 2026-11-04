@@ -105,7 +105,7 @@ fn set_table_view_with_the_record_of_a_later_table_element_exports() {
     );
 }
 
-/// The ports of xmlports/set-table-view/XmlPortSetTableViewElement.al (corpus branch al-runtime-rs-staging-r6918-22), with the
+/// The ports of xmlports/set-table-view/XmlPortSetTableViewElement.al:128-266 (corpus PR 1121), with the
 /// exports BC 29.0 gave.
 const PROBE: &str = r#"
 table 50120 "S14" { fields { field(1; Code; Code[10]) { } field(2; Name; Text[20]) { } } keys { key(PK; Code) { } } }
