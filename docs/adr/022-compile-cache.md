@@ -395,6 +395,8 @@ The owner accepted every recommendation above and answered question 5:
 
 **Amendment (owner, 2026-10-31): runs on main and nightly only.** The cache restore, the cache build, the cached run against the uncached run (decisions 6 and 7 of this list and of the CI step order) and the cache prune run in CI on a push to main and on the nightly schedule, not on a pull request. The comparison had no failure in about 2 000 runs since 2026-10-14. A merge train runs as a pull request, so its comparison runs on main after the train merges. The step order is unchanged; the steps carry an `if:` condition.
 
+**Owner decision (2026-11-04): nightly only.** These steps no longer run on a push to main either. They run on the nightly schedule, on manual dispatch and when `release-tag.yml` calls CI (env `NIGHTLY_SET` in `.github/workflows/ci.yml`).
+
 Decided without owner review (2026-10-14): see `docs/owner-review.md` (the file layout of an entry, the way a block is
 lowered again from source, the corruption handling, and the CLI spelling).
 

@@ -18,6 +18,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 mod flowfield_key;
+mod nested_validate;
 mod op_inner;
 mod platform_rows;
 mod stale;

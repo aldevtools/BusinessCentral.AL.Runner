@@ -182,8 +182,11 @@ fn environment_name(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -
 /// `GetTenantDisplayName` and `Azure AD Tenant.GetAadTenantId`
 /// (session-system/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers, :209-212). The
 /// wrappers return the out value as it is; `GetAadTenantId` returns it when it is not a Guid, so
-/// the setting itself is `common`. Any other name is refused: nothing pins its value or whether
-/// the call succeeds.
+/// the setting itself is `common`. The names are matched without regard to case. Any other name (`DatabaseServer`,
+/// `DatabaseName`, `DefaultCompany`, the other Mount-NAVTenant settings, the empty name, an unknown one) is not found: false,
+/// and the out value is cleared (al-language-onprem-dotnet/dotnet/dotnet/BbNavHelpers.al:127
+/// TenantSettings_TryGetStringTenantSetting `LTBBNOSUCHSETTING`, and TenantSettings_TryGetStringTenantSetting_SettingNames
+/// at :185; al-runner issue 6925).
 fn try_get_string_tenant_setting(
     s: &mut Session,
     _: Option<&Rc<DotNetObject>>,
@@ -199,10 +202,8 @@ fn try_get_string_tenant_setting(
         "DISPLAYNAME" => String::new(),
         "AADTENANTID" => "common".to_string(),
         _ => {
-            return Err(Signal::Unsupported(format!(
-                "DotNet NavTenantSettingsHelper.TryGetStringTenantSetting('{name}'): the setting is not pinned \
-                 (docs/probes-needed.md)"
-            )));
+            *out = Value::Text(String::new().into());
+            return Ok(Value::Boolean(false));
         }
     };
     *out = Value::Text(value.into());

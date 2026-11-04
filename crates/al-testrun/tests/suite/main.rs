@@ -14,6 +14,7 @@ mod baseline_skip;
 mod capture;
 mod code_coverage_refresh;
 mod compile_cache;
+mod datatransfer_clear;
 mod datatransfer_install;
 mod datatransfer_other_app_ext;
 mod demo_row_tables;

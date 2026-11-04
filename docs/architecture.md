@@ -223,8 +223,9 @@ varies by half between runs of the same code. Two checks of the corpus job catch
   - The counts depend on the Microsoft build of the dependency apps; another build of the same minor changes them by
     far less than 10 %. The file records the build it was made with.
 - **Step time guard** (`tools/step_time_guard.py`). The step of the normal run fails when it took more than 1.5 times
-  the median of the same step in main's last 10 successful CI runs (read with the workflow token through the GitHub
-  API). With fewer than 5 earlier runs, or when the API cannot be read, it prints a note and passes.
+  the median of the same step in main's last 10 successful CI runs on a push (read with the workflow token through the GitHub
+  API). Only the time of the normal run counts, so the nightly run, whose step also holds the eager and fresh runs
+  (owner, 2026-11-04), is compared like for like. With fewer than 5 earlier runs, or when the API cannot be read, it prints a note and passes.
 
 `cargo run --release -p al-test-cli --example phases` prints timings per
 phase. `--example compile_dump` dumps every compile output so a performance

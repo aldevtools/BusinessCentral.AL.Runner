@@ -50,6 +50,7 @@ mod erm_builtins_7;
 mod erm_builtins_8;
 mod erm_lowering_gaps;
 mod explain_site;
+mod failure_after_left_binding;
 mod filtergroup_or;
 mod find_list_descending;
 mod fixes2;
@@ -123,6 +124,7 @@ mod quoted_ident;
 mod r1b_page_moves;
 mod readable_messages;
 mod reapply_marks_other_key;
+mod recall_never_sent;
 mod regen_bot;
 mod report_handler;
 mod report_run_after_write;
@@ -161,6 +163,7 @@ mod update_draft_row;
 mod user_name_filters;
 mod user_name_getfilter;
 mod user_reports;
+mod validate_in_validate_subscriber;
 mod values_allowed_setvalue;
 mod with_statement;
 mod worksheet_validate_temp_part;
@@ -193,4 +196,7 @@ fn every_file_of_the_suite_is_a_module() {
         "add `mod NAME;` to tests/suite/main.rs for: {missing:?}"
     );
 }
+mod issue_6918_no_source_global_record_set_value;
+mod issue_6919_xmlport_set_table_view_later_element;
+mod issue_6922_record_substitution_arg;
 mod read_only_temp_list_gone_row;

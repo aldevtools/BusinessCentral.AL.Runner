@@ -178,7 +178,14 @@ impl Session {
         // All FlowFilter fields come before the FlowFields, whatever their numbers
         // (recordref-fieldref/PnE08RecordMisc.al:FormatRecord_FlowFilterPlacement `afterCalc`: filter 2, FlowField 3,
         // filter 4 show as `0 0 1`).
-        let (normal, calculated): (Vec<usize>, Vec<usize>) = order.into_iter().partition(|&i| t.fields[i].stored);
+        let (mut normal, calculated): (Vec<usize>, Vec<usize>) = order.into_iter().partition(|&i| t.fields[i].stored);
+        // The primary key fields come first, in key order, then the other stored fields in field number order: a key on the
+        // last field gives `7<TAB>Last<TAB>3` (format-evaluate/record-format/RecordAsSubstitutionArg.al:246
+        // RecordArg_KeyOnLastField_EmptyAndFilled `filled format`).
+        if let Some(key) = t.keys.first() {
+            let rest: Vec<usize> = normal.iter().copied().filter(|i| !key.contains(i)).collect();
+            normal = key.iter().copied().filter(|i| normal.contains(i)).chain(rest).collect();
+        }
         let schema = self.engine.program.objects[t.object as usize].table.as_ref();
         let (filters, flow_fields): (Vec<usize>, Vec<usize>) = calculated
             .into_iter()
