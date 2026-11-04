@@ -161,6 +161,7 @@ mod update_draft_row;
 mod user_name_filters;
 mod user_name_getfilter;
 mod user_reports;
+mod validate_in_validate_subscriber;
 mod values_allowed_setvalue;
 mod with_statement;
 mod worksheet_validate_temp_part;
