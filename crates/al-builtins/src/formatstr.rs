@@ -525,15 +525,68 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
             "<Integer Thousand><Comma,.>"
             | "<Integer Thousand><Comma,.><Decimals>"
             | "<Integer><Comma,,><Decimals>" => invalid(),
+            _ if matches!(v, Value::DateTime(_)) => time_comma(v, length, template, ctx),
             _ => Err(format!(
                 "format string `{template}`: the `<Comma` element is pinned for six strings only"
             )),
         },
+        Value::Time(_) => time_comma(v, length, template, ctx),
         _ => Err(format!(
             "format string `{template}`: the `<Comma` element is not pinned for {}",
             v.describe()
         )),
     }
+}
+
+/// `<Comma,x>` in a format string of a Time or a DateTime (types/date-time/FormatSecondDecComma.al, corpus branch
+/// al-runtime-rs-staging-r6963, Time_Format_SecondDecComma, _More, DateTime_Format_SecondDecComma): the element writes nothing.
+/// Right after `<Second dec>` or `<Second dec.>` (without a width) it sets the character that code writes before the fraction
+/// (`143059,123` for `<Comma,,>`); before it, after `<Seconds,2>`, or with `<Thousands>` it changes nothing. Pinned only with the
+/// `<Second dec>` and its `<Comma,x>` at the end of the string; other places of that pair, and `<Comma>` without a character,
+/// are refused.
+fn time_comma(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -> Result<String, String> {
+    let refuse = || {
+        Err(format!(
+            "format string `{template}`: this `<Comma` element is not pinned for {}",
+            v.describe()
+        ))
+    };
+    let mut stripped = String::new();
+    let mut point: Option<(char, &str)> = None;
+    let mut rest = template;
+    while let Some(at) = rest.find("<Comma,") {
+        let after = &rest[at + "<Comma,".len()..];
+        let mut chars = after.chars();
+        let (Some(c), Some('>')) = (chars.next(), chars.next()) else {
+            return refuse();
+        };
+        let before = &rest[..at];
+        stripped.push_str(before);
+        rest = &after[c.len_utf8() + 1..];
+        let dec = ["<Second dec>", "<Second dec.>"]
+            .into_iter()
+            .find(|d| before.ends_with(d));
+        if let Some(d) = dec {
+            if !rest.is_empty() || point.is_some() {
+                return refuse();
+            }
+            point = Some((c, d));
+        }
+    }
+    stripped.push_str(rest);
+    if stripped.contains("<Comma") {
+        return refuse();
+    }
+    let mut out = format_with_string(v, 0, &stripped, ctx)?;
+    if let Some((c, d)) = point {
+        let code = &d[1..d.len() - 1];
+        if let Some(Ok(part)) = second_dec::part(v, code) {
+            if let Some(head) = out.strip_suffix(part.as_str()) {
+                out = format!("{head}{}", part.replacen('.', &c.to_string(), 1));
+            }
+        }
+    }
+    Ok(crate::format::pad(out, length))
 }
 
 fn numeric_of(
@@ -1874,5 +1927,72 @@ mod tests {
             text(fmt(Value::Integer(1234567), "<Integer,10><Filler Character,0>")),
             "0001234567"
         );
+    }
+
+    /// FormatSecondDecComma.al (corpus branch al-runtime-rs-staging-r6963) Time_Format_SecondDecComma, _More and
+    /// DateTime_Format_SecondDecComma.
+    #[test]
+    fn comma_with_second_dec_and_thousands() {
+        let strings = [
+            "<Seconds,2><Second dec.><Comma,,>",
+            "<Comma,;><Seconds,2><Second dec.>",
+            "<Seconds,2><Comma,.>",
+            "<Seconds,2><Second dec><Comma,,>",
+            "<Seconds,2>:<Thousands><Comma,,>",
+        ];
+        let time = |h: i64, m: i64, sec: i64, ms: i64| Value::Time((h * 3600 + m * 60 + sec) * 1000 + ms + 1);
+        let day = i64::from(day_from_civil(2024, 3, 5)) - 1;
+        let date_time = |h: i64, m: i64, sec: i64, ms: i64| {
+            Value::DateTime(day * 86_400_000 + (h * 3600 + m * 60 + sec) * 1000 + ms + 1)
+        };
+        let cases: [(Value, [&str; 5]); 7] = [
+            (time(14, 30, 59, 123), ["59,123", "59.123", "59", "59,123", "59:123"]),
+            (time(0, 0, 0, 0), ["00", "00", "00", "00", "00:0"]),
+            (time(9, 5, 0, 50), ["00,05", "00.05", "00", "00,05", "00:50"]),
+            (time(23, 59, 59, 999), ["59,999", "59.999", "59", "59,999", "59:999"]),
+            (
+                date_time(14, 30, 59, 123),
+                ["59,123", "59.123", "59", "59,123", "59:123"],
+            ),
+            (date_time(9, 5, 0, 50), ["00,05", "00.05", "00", "00,05", "00:50"]),
+            (date_time(14, 30, 59, 0), ["59", "59", "59", "59", "59:0"]),
+        ];
+        for (v, want) in cases {
+            for (t, w) in strings.iter().zip(want) {
+                match fmt(v.clone(), t) {
+                    Ok(Value::Text(got)) => assert_eq!(got.as_str(), w, "{t} {v:?}"),
+                    other => panic!("{t} {v:?}: {other:?}"),
+                }
+            }
+        }
+        let app = "<Hours24,2><Filler Character,0><Minutes,2><Seconds,2><Second dec.><Comma,.>";
+        for (v, want) in [
+            (time(0, 0, 0, 0), "000000"),
+            (time(9, 5, 0, 50), "090500.05"),
+            (date_time(14, 30, 59, 0), "143059"),
+        ] {
+            match fmt(v.clone(), app) {
+                Ok(Value::Text(got)) => assert_eq!(got.as_str(), want, "{v:?}"),
+                other => panic!("{v:?}: {other:?}"),
+            }
+        }
+        // Not measured: the pair in the middle of the string.
+        assert!(matches!(
+            fmt(time(1, 2, 3, 4), "<Second dec.><Comma,,>:<Seconds,2>"),
+            Err(Signal::Unsupported(_))
+        ));
+    }
+
+    /// AL Runner issue 7033: `<Comma,.>` after `<Second dec.>` in a format string of a Time.
+    #[test]
+    fn second_dec_with_comma_on_a_time() {
+        let time = Value::Time((14 * 3600 + 30 * 60 + 59) * 1000 + 123 + 1);
+        match fmt(
+            time,
+            "<Hours24,2><Filler Character,0><Minutes,2><Seconds,2><Second dec.><Comma,.>",
+        ) {
+            Ok(Value::Text(got)) => assert_eq!(got.as_str(), "143059.123"),
+            other => panic!("{other:?}"),
+        }
     }
 }
