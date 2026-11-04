@@ -403,6 +403,14 @@ pub fn set_origin_of(v: &Value, table_id: i32, field_no: i32) -> bool {
     }
 }
 
+/// Sets the RecordId an `ErrorInfo` value names (what a collected `TestField` records).
+pub fn set_record_id_of(v: &Value, record_id: Value) {
+    let Value::Library(_, cell) = v else { return };
+    if let LibraryValue::ErrorInfo(s) = &mut *cell.borrow_mut() {
+        s.record_id = Some(record_id);
+    }
+}
+
 /// The message of an `ErrorInfo` value.
 pub fn message_of(v: &Value) -> Option<String> {
     let Value::Library(_, cell) = v else { return None };

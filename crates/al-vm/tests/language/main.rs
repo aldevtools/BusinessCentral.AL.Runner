@@ -51,6 +51,7 @@ mod erm_builtins_2;
 mod erm_defects;
 mod errorcollect;
 mod errorcollect_internal;
+mod errorcollect_testfield;
 mod evaluate_boolean_german;
 mod evaluate_byte_char;
 mod evaluate_date_blanks;
