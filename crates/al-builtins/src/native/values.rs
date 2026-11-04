@@ -241,6 +241,8 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         // (recordref-fieldref/fieldref/SystemClearArraySecret.al:69-90, errors/errorinfo/EnTSecret.al:15-26).
         // A cleared ModuleInfo reads as one nobody filled (metadata/platform-tables/PlTNavApp.al:69-81).
         // A cleared BigText is empty (streams/StTBigText.al:ClearBigText `len-after-clear` 0, `len-after-add` 1).
+        // A cleared DataTransfer is a new one: what was staged before is dropped, and a call before the next SetTables asks for
+        // it (install-upgrade/AsDtInstallRead.al:166-180 C1, :198-208 C3).
         // A cleared HttpClient is a new one: no base address, the default timeout, no default headers; the next call
         // starts it fresh (http/client/HttpRelativeRequestPath.al:NewClient clears, then sets the base address).
         // A cleared ErrorInfo is a fresh one, and so is every variable assigned from it, which shares it: `Error` of it raises ''
@@ -284,6 +286,7 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
                     | "SecretText"
                     | "ModuleInfo"
                     | "BigText"
+                    | "DataTransfer"
             ) =>
         {
             Value::Library(
