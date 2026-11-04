@@ -1470,6 +1470,7 @@ impl Session {
 fn reset_host_row_flags(s: &mut al_builtins::value::PageState) {
     s.new_host_part_rows = false;
     s.host_stored_blank_key = false;
+    s.part_insert_swallowed = false;
     s.blank_key_edit_reread = false;
     s.request_new_blank = false;
 }
