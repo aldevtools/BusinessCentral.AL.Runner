@@ -812,6 +812,9 @@ pub struct Session {
     /// Validate, which nested Validates of the same record see as xRec (corpus
     /// record/TestXRecContracts.al:133).
     pub(crate) validating: Vec<(usize, Vec<Value>)>,
+    /// The records (by handle) whose `validating` entry a part's link stamp pushed (`stamp_from_filters_seen_as`): the
+    /// platform validates the link value, so the entry holds whatever code runs at that moment.
+    pub(crate) stamp_validating: Vec<usize>,
     /// The table procedures that run on a record by a plain call (no operation of the record called them), innermost
     /// last: the record's handle, the depth of `call_stack` inside the procedure and its blank xRec. A Validate of that
     /// record in the procedure's own body passes this xRec (`RecordOp::Validate`).
@@ -1176,6 +1179,7 @@ impl Session {
             autoinc: Default::default(),
             truncate_undo: Default::default(),
             validating: Vec::new(),
+            stamp_validating: Vec::new(),
             plain_proc_xrec: Vec::new(),
             cx: al_data::AccessContext {
                 company: company.into(),
