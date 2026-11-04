@@ -296,12 +296,35 @@ impl<'a> Lowerer<'a> {
         };
         // A text literal of one character is a Char once it goes into a Variant (types/lt-variant/VaTIs*.al:Is_Text_Code_Char_Byte
         // `V := 'a'` is IsChar and not IsText; `V := 'ab'` and `V := ''` are Text; a Text variable holding 'a' stays Text).
-        if matches!(self.rt(target), Ok(RtType::Variant))
-            && matches!(&value, ir::Expr::Const(ir::Const::Text(s)) if s.encode_utf16().count() == 1)
-        {
+        // Handed to a Variant parameter it stays a Text (`convert_arg`).
+        if self.char_literal_into_variant(target, &value) {
             let ch = self.convert_to(&Ty::Char, src, value)?;
             return self.convert_to(target, &Ty::Char, ch);
         }
+        self.convert_after_char_literal(target, src, value)
+    }
+
+    /// Whether `value` is a text literal of one character going into a Variant.
+    fn char_literal_into_variant(&self, target: &Ty, value: &ir::Expr) -> bool {
+        matches!(self.rt(target), Ok(RtType::Variant))
+            && matches!(value, ir::Expr::Const(ir::Const::Text(s)) if s.encode_utf16().count() == 1)
+    }
+
+    /// [`convert_to`](Self::convert_to) for a by-value argument: a text literal of one character handed to a Variant
+    /// parameter is a Text there, not a Char (`','`, `'x'`: IsText; `V := ','` is IsChar), and a JSON helper that switches on
+    /// IsChar adds it as the text "," (al-runner issue 6924; measured on the newest major by the corpus writer, types/variant/
+    /// VaTIsChecks.al Is_OneCharacter_PassedToVariantParameter, json/JsonObjectBasics.al QW_Add_CharAndText_ThroughVariant;
+    /// assumption one-char-literal-argument-is-text until the pin lands).
+    pub(crate) fn convert_arg(&mut self, target: &Ty, src: &Ty, value: ir::Expr) -> L<ir::Expr> {
+        if self.char_literal_into_variant(target, &value) {
+            self.assume(al_builtins::assumptions::Assumption::OneCharLiteralArgumentIsText);
+            return self.convert_after_char_literal(target, src, value);
+        }
+        self.convert_to(target, src, value)
+    }
+
+    /// The rest of [`convert_to`](Self::convert_to), after the rule for a one-character literal going into a Variant.
+    fn convert_after_char_literal(&mut self, target: &Ty, src: &Ty, value: ir::Expr) -> L<ir::Expr> {
         // Into a number it is a Char too: `I := 'a'` is 97 (types/operators-expressions/Y31ConvCv.al, LT Y31 Cv Literals
         // `LitChar1_To_Integer`, `_BigInteger`, `_Decimal`, `_Byte`, `_Option`, `_Duration`).
         if matches!(
@@ -690,7 +713,7 @@ impl<'a> Lowerer<'a> {
             } else {
                 let value = self.expr_into(&p.ty, a)?;
                 self.refuse_variant_argument(&p.ty, a)?;
-                out.push(ir::Arg::Value(self.convert_to(&p.ty, self.ty_ref(a), value)?));
+                out.push(ir::Arg::Value(self.convert_arg(&p.ty, self.ty_ref(a), value)?));
             }
         }
         let params = {
