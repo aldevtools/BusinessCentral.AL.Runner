@@ -632,18 +632,48 @@ impl<'a> Lowerer<'a> {
 
     /// A call of an interface procedure on `receiver`: it runs the same-named procedure of
     /// whichever codeunit the variable holds, so every implementation is a possible target.
+    /// The routine of interface procedure `offset` of `iface` when it has a body: the default
+    /// implementation a codeunit that does not declare the member runs (runtime 18.0;
+    /// codeunits/CwDefaultInterfaceMethods.al:20-33).
+    fn interface_default_body(&self, iface: usize, offset: usize) -> Option<usize> {
+        let routine = self.routine_at.get(&(iface, offset))?;
+        let node = self.routine_nodes.get(iface).get(routine)?;
+        node.body().is_some().then_some(routine)
+    }
+
+    /// Whether codeunit `cu` has a `local` procedure of the member's name beside the interface's default body. Which body
+    /// a call through the interface runs then is not pinned (BC raised "Function ID ... was called" on the Linux tier;
+    /// codeunits/CwDefaultInterfaceMethods.al:6-9, not asserted), so the codeunit is left off the targets: a call on its
+    /// instance refuses when it runs (`Session::interface_target_value`).
+    fn local_beside_default(&self, cu: usize, name: &str) -> bool {
+        self.members[cu]
+            .procedures
+            .iter()
+            .any(|p| p.local && p.name.eq_ignore_ascii_case(name))
+    }
+
     pub(crate) fn interface_call(
         &mut self,
         iface: usize,
         offset: usize,
+        callee: &SyntaxNode,
         receiver: Option<&SyntaxNode>,
         args: &[SyntaxNode],
     ) -> L<ir::Expr> {
-        let Some(receiver) = receiver else {
+        // A bare call of a member in a default body of the same interface runs that member of the
+        // implementing instance the body runs on (codeunits/CwDefaultInterfaceMethods.al:30-33, `Chain`
+        // calls `Req`; :138, 'default chain of inherit req').
+        let in_default_body = receiver.is_none() && self.oi == iface;
+        // `this.Member(..)` there (the `this` receiver is dropped by `call`): not pinned, only the bare call is.
+        if in_default_body && callee.kind() == al_syntax::SyntaxKind::MemberExpr {
+            self.assume(al_builtins::assumptions::Assumption::ThisInDefaultInterfaceBody);
+        }
+        if let Some(receiver) = receiver {
+            if !matches!(self.ty_ref(receiver), Ty::Object(ObjKind::Interface, _)) {
+                return Err("an interface procedure called on something that is not an interface variable".into());
+            }
+        } else if !in_default_body {
             return Err("an interface procedure called without a receiver is not lowered yet".into());
-        };
-        if !matches!(self.ty_ref(receiver), Ty::Object(ObjKind::Interface, _)) {
-            return Err("an interface procedure called on something that is not an interface variable".into());
         }
         let sig = self.members[iface]
             .procedures
@@ -651,6 +681,7 @@ impl<'a> Lowerer<'a> {
             .find(|p| p.offset == offset)
             .ok_or("interface procedure signature")?
             .clone();
+        let default_body = self.interface_default_body(iface, offset);
         let mut targets = Vec::new();
         for &cu in self.implementers(iface).iter() {
             let same_shape: Vec<_> = self.members[cu]
@@ -667,6 +698,17 @@ impl<'a> Lowerer<'a> {
                 .iter()
                 .find(|p| p.params.iter().zip(&sig.params).all(|(a, b)| a.ty == b.ty));
             let Some(imp) = exact.or(same_shape.first()) else {
+                if let Some(routine) = default_body {
+                    if self.local_beside_default(cu, &sig.name) {
+                        continue;
+                    }
+                    targets.push((cu, ir::walk::DEFAULT_BODY));
+                    if !targets.contains(&(iface, routine)) {
+                        self.calls.push((iface, routine));
+                        targets.push((iface, routine));
+                    }
+                    continue;
+                }
                 return Err(format!(
                     "codeunit \"{}\" implements \"{}\" without a procedure `{}`",
                     self.ws.objects[cu].name, self.ws.objects[iface].name, sig.name
@@ -681,7 +723,10 @@ impl<'a> Lowerer<'a> {
         // (al-runner issue 6299). The variable can then only be unassigned when the call runs, which
         // raises "Interface not initialized" (codeunits/TestInterfaceRuntimeContracts.al:76); an instance
         // the list does not hold is refused at run time (`interface_target_value`).
-        let receiver = Box::new(self.expr(receiver)?);
+        let receiver = Box::new(match receiver {
+            Some(r) => self.expr(r)?,
+            None => ir::Expr::ThisInstance,
+        });
         let mut out = Vec::new();
         for (i, a) in args.iter().enumerate() {
             let p = sig.params.get(i).ok_or("too many arguments")?;

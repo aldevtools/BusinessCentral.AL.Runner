@@ -472,3 +472,145 @@ fn a_loop_over_an_empty_extensible_enum_with_an_interface_call_runs() {
     );
     assert_eq!(int(r), 0);
 }
+
+/// corpus codeunits/CwDefaultInterfaceMethods.al:20-63 (fixtures, BC 29, runtime 18.0).
+const DEFAULTS: &str = r#"
+interface "LT CW I68"
+{
+    procedure Req(): Text;
+
+    procedure Opt(): Text
+    begin
+        exit('default');
+    end;
+
+    procedure Chain(): Text
+    begin
+        exit('default chain of ' + Req());
+    end;
+}
+
+codeunit 85430 "LT CW Impl68 Inherit" implements "LT CW I68"
+{
+    procedure Req(): Text
+    begin
+        exit('inherit req');
+    end;
+}
+
+codeunit 85431 "LT CW Impl68 Override" implements "LT CW I68"
+{
+    procedure Req(): Text
+    begin
+        exit('override req');
+    end;
+
+    procedure Opt(): Text
+    begin
+        exit('override opt');
+    end;
+
+    procedure Chain(): Text
+    begin
+        exit('override chain');
+    end;
+}
+
+codeunit 85432 "LT CW Impl68 Internal" implements "LT CW I68"
+{
+    internal procedure Req(): Text
+    begin
+        exit('internal req');
+    end;
+
+    internal procedure Opt(): Text
+    begin
+        exit('internal opt');
+    end;
+}
+"#;
+
+// A codeunit that does not declare an interface member with a body runs the default body, and a
+// default body calls the implementor's own members; one that declares it runs its own; internal
+// procedures still implement (corpus codeunits/CwDefaultInterfaceMethods.al:114-158,
+// CW_Default_InheritAndOverride and CW_Default_NonPublicImplementations).
+#[test]
+fn a_codeunit_without_a_member_that_has_a_default_body_runs_the_default() {
+    let r = run(
+        DEFAULTS,
+        "procedure P(): Text var I: Interface \"LT CW I68\"; Inh: Codeunit \"LT CW Impl68 Inherit\"; \
+         Ovr: Codeunit \"LT CW Impl68 Override\"; Intl: Codeunit \"LT CW Impl68 Internal\"; \
+         begin I := Inh; exit(I.Opt() + '|' + I.Chain() + '|' + Ovr.Opt() + '|' + Intl.Opt()); end;",
+        "P",
+    );
+    assert_eq!(
+        text(r),
+        "default|default chain of inherit req|override opt|internal opt"
+    );
+    let r = run(
+        DEFAULTS,
+        "procedure P(): Text var I: Interface \"LT CW I68\"; Ovr: Codeunit \"LT CW Impl68 Override\"; \
+         Intl: Codeunit \"LT CW Impl68 Internal\"; \
+         begin I := Ovr; exit(I.Opt() + '|' + I.Chain()); end;",
+        "P",
+    );
+    assert_eq!(text(r), "override opt|override chain");
+    let r = run(
+        DEFAULTS,
+        "procedure P(): Text var I: Interface \"LT CW I68\"; Intl: Codeunit \"LT CW Impl68 Internal\"; \
+         begin I := Intl; exit(I.Req() + '|' + I.Opt() + '|' + I.Chain()); end;",
+        "P",
+    );
+    assert_eq!(text(r), "internal req|internal opt|default chain of internal req");
+}
+
+// A local procedure of the member's name next to a default body: calling through the interface is
+// not pinned (codeunits/CwDefaultInterfaceMethods.al:6-9, not asserted), so the call on that
+// instance refuses when it runs; the codeunit's own call runs its local procedure (:150).
+#[test]
+fn a_local_procedure_of_a_member_with_a_default_body_refuses_the_interface_call() {
+    let fixtures = format!(
+        "{DEFAULTS}\ncodeunit 85433 \"LT CW Impl68 Local\" implements \"LT CW I68\" {{ \
+         procedure Req(): Text begin exit('local req'); end; \
+         local procedure Opt(): Text begin exit('local opt'); end; \
+         procedure CallOwnOpt(): Text begin exit(Opt()); end; }}"
+    );
+    let r = run(
+        &fixtures,
+        "procedure P(): Text var L: Codeunit \"LT CW Impl68 Local\"; begin exit(L.CallOwnOpt()); end;",
+        "P",
+    );
+    assert_eq!(text(r), "local opt");
+    let r = run(
+        &fixtures,
+        "procedure P(): Text var I: Interface \"LT CW I68\"; L: Codeunit \"LT CW Impl68 Local\"; \
+         begin I := L; exit(I.Opt()); end;",
+        "P",
+    );
+    let Err(Signal::Unsupported(why)) = r else {
+        panic!("{r:?}")
+    };
+    assert!(why.contains("does not list"), "{why}");
+}
+
+// `this.Member(..)` in a default body calls the implementor's member, overloads chosen by arity, as
+// Microsoft's PEPPOL Tax Info Provider (BC 29) does in GetTaxExemptionReason. Not pinned: the pass is
+// flagged (assumption `this-in-default-interface-body`; the bare call is pinned by
+// codeunits/CwDefaultInterfaceMethods.al:30-33).
+#[test]
+fn this_in_a_default_body_calls_the_member_of_the_implementing_codeunit() {
+    let fixtures = "interface IT { procedure Get(A: Text): Text; \
+         procedure Get(A: Text; B: Text): Text begin exit(this.Get(A + B)); end; } \
+         codeunit 60396 ImplT implements IT { procedure Get(A: Text): Text begin exit('impl ' + A); end; }";
+    al_builtins::assumptions::clear_hits();
+    let r = run(
+        fixtures,
+        "procedure P(): Text var I: Interface IT; C: Codeunit ImplT; begin I := C; exit(I.Get('a', 'b')); end;",
+        "P",
+    );
+    assert_eq!(text(r), "impl ab");
+    assert_eq!(
+        al_builtins::assumptions::take_hits(),
+        vec![al_builtins::assumptions::Assumption::ThisInDefaultInterfaceBody]
+    );
+}

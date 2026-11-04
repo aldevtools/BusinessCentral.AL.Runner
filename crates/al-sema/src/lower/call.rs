@@ -120,7 +120,7 @@ impl Lowerer<'_> {
         }
         match self.res(node).cloned() {
             Some(Res::Proc { object, offset }) if self.ws.objects[object].kind == ObjKind::Interface => {
-                self.interface_call(object, offset, receiver_node.as_ref(), args)
+                self.interface_call(object, offset, callee, receiver_node.as_ref(), args)
             }
             Some(Res::Proc { object, offset }) => {
                 self.twin_call_refusal(object, offset)?;
