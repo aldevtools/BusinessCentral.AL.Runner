@@ -49,6 +49,14 @@ impl Session {
                 }
                 use al_builtins::filter::FilterExpr;
                 use al_builtins::value::RtType;
+                // A part's SubPageLink filter on an Option or Enum field reads as member numbers (filter_link_numbers).
+                if let (RtType::Option(_) | RtType::Enum(_), Some(f)) = (&table.fields[pos].ty, first.as_ref()) {
+                    if f.group == super::parts::LINK_GROUP {
+                        if let Some(t) = super::filter_link_numbers::link_filter_numbers(&f.expr) {
+                            return Ok(Value::Text(t.into()));
+                        }
+                    }
+                }
                 if let (RtType::Enum(id), Some(f)) = (&table.fields[pos].ty, first.as_ref()) {
                     if let Some(t) = self.enum_filter_text(*id, &f.expr, f.group)? {
                         return Ok(Value::Text(t.into()));

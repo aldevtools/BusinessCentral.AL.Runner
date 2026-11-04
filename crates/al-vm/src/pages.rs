@@ -172,6 +172,7 @@ mod flowfield_hidden;
 pub(crate) use background::BgWorker;
 mod filter;
 mod filter_enum;
+mod filter_link_numbers;
 mod param_read;
 mod parts;
 mod qualified_name;
