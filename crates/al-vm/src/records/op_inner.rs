@@ -2214,11 +2214,7 @@ impl Session {
                 // entry is popped below on every way out (the result is held, not `?`-ed, until then), so no other
                 // record can get the address while it is on the stack (tests/store/xrec.rs).
                 let handle = Rc::as_ptr(rec) as usize;
-                let outer = self
-                    .validating
-                    .iter()
-                    .find(|(h, _)| *h == handle)
-                    .map(|(_, b)| b.clone());
+                let outer = self.outer_validate_before(handle, t.object as usize);
                 // In a table procedure that no operation of the record called (a plain call, whose xRec is a blank record:
                 // `enter_record`), a Validate of the procedure's own Rec passes that xRec, not the record as it is
                 // (types/operators-expressions/UpThisField.al:175 UP_This_ValidateTestFieldCompound: `this.Validate(Qty, 5)` after

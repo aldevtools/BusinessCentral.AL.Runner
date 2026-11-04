@@ -866,6 +866,7 @@ impl SqlCounters {
                 chain: cur.chain,
                 floor: cur.floor,
             },
+            ty: al_builtins::value::SqlType::BigInteger,
         });
         self.trim();
         v
@@ -1159,8 +1160,12 @@ fn one_step(seg: &[Event]) -> Option<()> {
 }
 
 /// A builtin given a counter value (as receiver or argument) would read its number: refused, except the Variant type tests
-/// (`IsBigInteger`: SqlCounters.al:87-103) and `Variant.Into#1`, which hands a counter on unread to the conversion after it
-/// (`al_builtins::conv::variant_into`). Checked only while the counters are active.
+/// (`IsBigInteger`: SqlCounters.al:87-103), `Variant.Into#1`, which hands a counter on unread to the conversion after it
+/// (`al_builtins::conv::variant_into`), `Round(x, 1)` (`al_builtins::sqlcount::round_whole`), `Format(x)` (a marked text,
+/// `al_builtins::format`), and a Dictionary or List that
+/// stores it as a value, not as a key: the value is not compared or read (SqlCounters.al
+/// P6924_Counters_DictionaryOfGuidInteger_AddGetAndLaterDifference, `Stored.Add(Key1, ...)`, `Stored.Get(Key1)`). Checked
+/// only while the counters are active.
 #[cold]
 #[inline(never)]
 pub(crate) fn guard(
@@ -1168,11 +1173,22 @@ pub(crate) fn guard(
     recv: Option<&Value>,
     args: &[Value],
 ) -> Result<(), al_builtins::native::Signal> {
-    let tainted = |v: &Value| matches!(v, Value::SqlCount(_));
-    if id.name() == "Variant.Into#1" {
-        return Ok(());
-    }
-    if args.iter().any(tainted) || (recv.is_some_and(tainted) && !id.name().starts_with("Variant.Is")) {
+    // A text `Format` made of a counter value (`al_builtins::sqlcount::formatted`) is refused the same way: a text function
+    // refuses it anyway (`Txt::has_marker`), and Error, Message and StrSubstNo would show its digits. It may go to telemetry
+    // (SqlCounters.al P6924_Counters_FormattedInTelemetryDimension_NoError), where nothing reads it.
+    let tainted = |v: &Value| matches!(v, Value::SqlCount(_)) || al_builtins::sqlcount::formatted(v);
+    // The argument positions that hold a collection's value (never its key or index).
+    let values: &[usize] = match id.name() {
+        "Variant.Into#1" | "Session.LogMessage#1" | "Session.LogMessage#2" => return Ok(()),
+        "System.Round#1" | "System.Format#1" => &[0],
+        "List.Add#1" => &[0],
+        "List.Get#2" | "Dictionary.Get#2" | "Dictionary.Add#1" | "Dictionary.Set#1" => &[1],
+        "Dictionary.Set#2" => &[1, 2],
+        _ => &[],
+    };
+    if args.iter().enumerate().any(|(i, v)| tainted(v) && !values.contains(&i))
+        || (recv.is_some_and(tainted) && !id.name().starts_with("Variant.Is"))
+    {
         return Err(al_builtins::sqlcount::refusal(&format!(
             "{} given the value",
             id.name()

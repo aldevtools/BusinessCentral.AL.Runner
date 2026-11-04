@@ -131,16 +131,18 @@ fn a_single_read_compared_with_zero_other_than_not_negative_is_refused() {
     refused(run(&s, "F"), "SQL counter");
 }
 
-/// Format, Message text, a record field and a text concatenation would show the model's number: refused.
+/// StrSubstNo, Format with a length, Message text, a record field, a key and a text concatenation would show the model's
+/// number: refused. (An Integer, a Decimal, a collection value and `Format(x)` hold it unread: sql_counter_stored.rs.)
 #[test]
 fn other_uses_of_a_counter_are_refused() {
     for body in [
-        "procedure F(): Text begin exit(Format(SessionInformation.SqlStatementsExecuted())); end;",
+        "procedure F(): Text begin exit(StrSubstNo('%1', SessionInformation.SqlStatementsExecuted())); end;",
+        "procedure F(): Text begin exit(Format(SessionInformation.SqlStatementsExecuted(), 5)); end;",
         "procedure F(): Text begin Message('%1', SessionInformation.SqlRowsRead()); end;",
         "procedure F(): Text var Row: Record Row; begin Row.Id := SessionInformation.SqlRowsRead(); end;",
-        "procedure F(): Text var D: Decimal; begin D := SessionInformation.SqlRowsRead(); end;",
+        "procedure F(): Text var D: Dictionary of [BigInteger, Integer]; begin D.Set(SessionInformation.SqlRowsRead(), 1); end;",
         "procedure F(): Text var B: BigInteger; Row: Record Row; begin Mark(); Row.FilterGroup(2); Row.SetRange(Id, 1, 3); Row.FilterGroup(0); Seed(); Mark(); Row.Get(2); B := (SessionInformation.SqlRowsRead() - RowsBefore) * 2; end;",
-        "procedure F(): Text var L: List of [BigInteger]; begin L.Add(SessionInformation.SqlRowsRead()); end;",
+        "procedure F(): Text var L: List of [BigInteger]; begin L.Add(1); L.Remove(SessionInformation.SqlRowsRead()); end;",
     ] {
         refused(run(&src(body), "F"), "SQL counter");
     }

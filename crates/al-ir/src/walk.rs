@@ -45,6 +45,15 @@ pub trait RefVisitor {
 pub const EXPAND: usize = usize::MAX - 1;
 /// The same marker in the `u32` list of `Expr::InterfaceTest` and as the ordinal in `Expr::EnumImpl`.
 pub const EXPAND_U32: u32 = u32::MAX - 1;
+/// The routine of an `Expr::InterfaceCall` target `(codeunit, DEFAULT_BODY)`: the codeunit does not declare the member, so
+/// the call runs the default body of the interface (the one target whose object is the interface) on its instance.
+pub const DEFAULT_BODY: usize = usize::MAX - 2;
+
+/// The routines an `Expr::InterfaceCall` with these targets can run, as (object, routine): the
+/// `DEFAULT_BODY` entries stand for the interface's default body, which is listed once.
+pub fn interface_routines(targets: &[(usize, usize)]) -> impl Iterator<Item = (usize, usize)> + '_ {
+    targets.iter().copied().filter(|&(_, r)| r != DEFAULT_BODY)
+}
 pub const EXPAND_ORDINAL: i32 = i32::MIN;
 
 /// What a site that stands for a set holds.
@@ -478,7 +487,11 @@ fn walk_expr<V: RefVisitor>(e: &mut Expr, v: &mut V) {
                 Some(&(EXPAND, index)) => v.expansion(index, ExpansionSite::InterfaceCall { targets }),
                 _ => {
                     for t in targets {
-                        pair(v, t);
+                        if t.1 == DEFAULT_BODY {
+                            obj(v, &mut t.0);
+                        } else {
+                            pair(v, t);
+                        }
                     }
                 }
             }

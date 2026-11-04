@@ -1523,7 +1523,7 @@ fn registry_results_are_operands() {
 /// session-system/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers (:209-212) pins the three
 /// settings System Application reads through `TryGetStringTenantSetting(name, var value)`.
 #[test]
-fn try_get_string_tenant_setting_answers_the_pinned_names_and_refuses_the_others() {
+fn try_get_string_tenant_setting_answers_the_pinned_names_and_not_the_others() {
     let host = no_host();
     for (name, want) in [("TENANTID", "default"), ("DISPLAYNAME", ""), ("AADTENANTID", "common")] {
         let r = run(
@@ -1540,7 +1540,24 @@ fn try_get_string_tenant_setting_answers_the_pinned_names_and_refuses_the_others
         "exit(Format(T.TryGetStringTenantSetting('SOMETHINGELSE', V)));",
         ": Text",
     );
-    assert!(unsupported(&r).contains("SOMETHINGELSE"));
+    // BbNavHelpers.al:127 `LTBBNOSUCHSETTING`: an unknown name is not found.
+    assert_eq!(text(r), "No");
+    assert_eq!(host.log(), vec![]);
+}
+
+/// al-runner issue 6925 (the reporter's repro): `TryGetStringTenantSetting('DatabaseServer', V)` runs; BC 29.0 does not find
+/// the setting and clears V (al-language-onprem-dotnet/dotnet/dotnet/BbNavHelpers.al:185
+/// TenantSettings_TryGetStringTenantSetting_SettingNames).
+#[test]
+fn try_get_string_tenant_setting_does_not_find_the_database_server() {
+    let host = no_host();
+    let r = run(
+        &host,
+        "T: DotNet NavTenantSettingsHelper; V: Text;",
+        "V := 'unchanged'; exit(Format(T.TryGetStringTenantSetting('DatabaseServer', V)) + '|[' + V + ']');",
+        ": Text",
+    );
+    assert_eq!(text(r), "No|[]");
     assert_eq!(host.log(), vec![]);
 }
 
