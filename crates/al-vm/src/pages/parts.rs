@@ -1138,7 +1138,7 @@ impl Session {
         let parts = host.borrow().parts.clone();
         for (i, sibling) in &parts {
             let follows = page.controls[*i].part_link.as_ref().is_some_and(|l| {
-                l.provider == Some(idx) && l.entries.iter().any(|e| e.host_field().is_some_and(&changed))
+                l.provider == Some(idx) && l.entries.iter().any(|e| e.host_field().is_some_and(changed))
             });
             if follows {
                 self.sync_part(&host, *i, sibling)?;
