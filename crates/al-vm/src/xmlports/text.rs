@@ -184,6 +184,12 @@ impl Session {
                     })
                     .collect()
             };
+            // A TAB inside a value: the evaluate error of such a value shows the TAB as a space (XpSeparatorTokens.al
+            // VariableText_Import_SepTabLower_Plain, corpus branch al-runtime-rs-staging-r6963, `1 Alpha`); where BC changes it is not
+            // pinned.
+            if variable && values.iter().any(|v| v.contains('\t')) {
+                return unsupported("a TAB inside a VariableText value (not pinned)");
+            }
             if xp.preserve_whitespace && variable {
                 if let Some(v) = values.iter().find(|v| {
                     v.as_str() != v.trim() && (fdelim.is_empty() || !line.contains(&format!("{fdelim}{v}{fdelim}")))

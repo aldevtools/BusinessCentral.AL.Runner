@@ -187,12 +187,6 @@ fn import_reads_values_as_the_probe_measured() {
             "1Alpha|",
             "The value \"1Alpha\" can't be evaluated into type Integer.",
         ),
-        (
-            "<None>",
-            "<tab>",
-            "1~Alpha|",
-            "The value \"1\tAlpha\" can't be evaluated into type Integer.",
-        ),
     ];
     for (fd, fs, data, want) in failing {
         assert_eq!(
@@ -201,4 +195,10 @@ fn import_reads_values_as_the_probe_measured() {
             "FieldDelimiter {fd} FieldSeparator {fs}"
         );
     }
+    // With FieldSeparator = '<tab>' a line with a TAB goes to the first field whole; BC's evaluate error shows the TAB as a space
+    // (VariableText_Import_SepTabLower_Plain, `1 Alpha`). Where it changes is not pinned: refused.
+    assert!(matches!(
+        import("<None>", "<tab>", "1~Alpha|"),
+        Err(al_builtins::native::Signal::Unsupported(_))
+    ));
 }
