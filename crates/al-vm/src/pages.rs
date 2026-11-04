@@ -210,6 +210,7 @@ mod lookup_start;
 mod modify_denied;
 mod moved_onto_deleted;
 mod open;
+mod other_record_no_row;
 mod page_get_record;
 mod page_var_view;
 mod pageops;
