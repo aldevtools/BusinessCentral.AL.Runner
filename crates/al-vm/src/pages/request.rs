@@ -845,6 +845,18 @@ impl Session {
                         xml_text(&view)
                     ));
                 }
+                // A field of the request page's SourceTable is not in the text
+                // (reports/TestReportRequestPageSourceTableCompiledContracts.al:221).
+                (ir::ControlKind::Field, ir::Binding::Field(_)) => {}
+                // Any other field (a field of a record variable or of an array element, an element of an array, an
+                // expression, a label) and a data item that holds no record of its own: what BC writes is not pinned
+                // (al-runner issue 6960). Refused rather than left out of the text.
+                (ir::ControlKind::Field | ir::ControlKind::DataItem, _) => {
+                    return unsupported(format!(
+                        "the parameters text for request page control {} with this binding (not pinned)",
+                        c.name
+                    ));
+                }
                 _ => {}
             }
         }

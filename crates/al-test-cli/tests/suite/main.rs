@@ -134,6 +134,7 @@ mod request_caption_on_init;
 mod request_close_table_code_refused;
 mod request_view_stale_address;
 mod requestpage;
+mod request_parameters_bindings;
 mod requestpage_close_and_parameters;
 mod rp1_worksheet_modal;
 mod run_page_link_list_reads;
