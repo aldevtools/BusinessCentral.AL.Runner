@@ -231,8 +231,8 @@ impl Session {
     /// `Expand(on)` on the row a tree stands on: Expand(true) shows the row's direct children, Expand(false) hides them again, and
     /// IsExpanded reads which (testpage/AhPageTests.al:950-961 Walk, :986-993 Tree_ThroughPageRun `T1 T5` -> `T1 T2 T4 T5`
     /// -> `T1 T5`, GoToKey of a hidden child `No`). A row's parent is the nearest row before it, in the page's order, with a lower
-    /// level. Pinned only for a page without row triggers, expanding a row with children and collapsing
-    /// an expanded one, a second Expand of either, and Expand(true) on a leaf without a parent; anything else is refused.
+    /// level. Pinned for expanding a row with children and collapsing an expanded one, a second Expand of either, and Expand(true)
+    /// on a leaf (without a parent; with one, on a page with row triggers); anything else is refused.
     pub(in crate::pages) fn tree_expand(&mut self, st: &St, on: bool) -> Result<(), Signal> {
         for t in ["onfindrecord", "onnextrecord"] {
             if self.declares(st, t) {
@@ -286,8 +286,17 @@ impl Session {
                 // Expand(true) on a row without children and without a parent (a level-0 row, or every row at level 1 with no
                 // level-0 row) changes nothing: no error, IsExpanded stays No, no row trigger runs, the cursor stays
                 // (Y50TreeExpandLeaf.al:263 and :280 FLAT, :296 MIXED row 40, :351 a tree without row triggers or
-                // TreeInitialState). A leaf under a parent is not pinned.
-                (true, None) if !has_children && at.is_some_and(|i| !rows[..i].iter().any(|(_, l)| *l < rows[i].1)) => {
+                // TreeInitialState). The same for a leaf under a parent, at any level, on a tree with OnAfterGetRecord and
+                // OnAfterGetCurrRecord (pages/tree-expand-leaf/TreeExpandIndentedLeaf.al Collapsed_ExpandTrue_LeafLevel1 `expand 40`
+                // `Yes/No/40:`, _LeafLevel2 `expand 30` `Yes/No/30:`, _LastLeafLevel1, Collapsed_WalkExpandingEveryRow; al-runner
+                // issue 6947). A leaf under a parent on a tree without row triggers is not pinned.
+                (true, None)
+                    if !has_children
+                        && at.is_some_and(|i| row_triggers || !rows[..i].iter().any(|(_, l)| *l < rows[i].1)) =>
+                {
+                    if at.is_some_and(|i| rows[..i].iter().any(|(_, l)| *l < rows[i].1)) {
+                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TreeExpandIndentedLeaf);
+                    }
                     return Ok(());
                 }
                 _ => {
