@@ -161,7 +161,8 @@ pub(super) fn group_thousands(n: i64) -> String {
 
 pub(super) fn strsubstno(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let template = text_arg(args, 0)?;
-    Ok(Value::Text(substitute_fields(&template, &args[1..], ctx)?.into()))
+    let values = super::messages::composite_args(ctx, &args[1..])?;
+    Ok(Value::Text(substitute_fields(&template, &values, ctx)?.into()))
 }
 
 /// The text a TextConst reads in language `language`, from its language codes and texts `args` in declaration order:

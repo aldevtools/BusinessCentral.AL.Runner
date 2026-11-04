@@ -4,7 +4,8 @@ use super::*;
 /// before it reaches the UI (corpus ui-handlers/TestMessageHandler.al
 /// Message_FormattedString_HandlerGetsFormatted).
 pub(super) fn message(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
-    let mut text = substitute(&text_arg(args, 0)?, &args[1..], ctx)?;
+    let values = composite_args(ctx, &args[1..])?;
+    let mut text = substitute(&text_arg(args, 0)?, &values, ctx)?;
     // A CR LF in the text or in an argument reaches the handler as one backslash (errors/error-texts/ErrorMessage.al:598-616,
     // LT_BU_Message_BackslashAndAppendLine).
     if text.contains("\r\n") {
@@ -44,6 +45,19 @@ pub(super) fn str_menu(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
         default,
         instruction,
     )?))
+}
+
+/// The arguments of a substitution with each Record, RecordRef and FieldRef replaced by its `Format` text: BC writes such an
+/// argument exactly as `Format` of it writes it, in StrSubstNo, Message and Error, with a literal, a Text or a Label template, and
+/// a record in a Variant too (format-evaluate/record-format/RecordAsSubstitutionArg.al, every RecordArg_* test, corpus branch
+/// al-runtime-rs-staging-r6918-22; al-runner issue 6922).
+pub(super) fn composite_args(ctx: &mut dyn Ctx, args: &[Value]) -> Result<Vec<Value>, Signal> {
+    args.iter()
+        .map(|v| match ctx.format_composite(v) {
+            Some(text) => Ok(Value::Text(text?.into())),
+            None => Ok(v.clone()),
+        })
+        .collect()
 }
 
 /// `%n` replaced by `Format(arg n)`. A placeholder without an argument stays as written, `%0`, `%10` of one argument and a
