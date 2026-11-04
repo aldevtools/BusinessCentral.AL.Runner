@@ -20,6 +20,7 @@ mod caption_class_areas;
 mod caption_setup_deferred;
 mod caption_setup_written;
 mod case_code_label_longer;
+mod clear_all_table_extension;
 mod clear_all_temp_rows;
 mod clear_dialog;
 mod clear_enum;
