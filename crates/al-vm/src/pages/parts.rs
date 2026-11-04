@@ -1764,9 +1764,9 @@ impl Session {
     /// A part with UpdatePropagation Both on a stored row other than the first of its view, after its code ran `CurrPage.Update`: it
     /// stays on that row on a Document, Card and ListPlus host, with or without a change of the host's stored row before. The host
     /// reads its row first (its triggers, no part read), then the part reads from its row, the row again, the rows before it back to
-    /// the first, the row twice and OnAfterGetCurrRecord, as without Both (pages/lt-th-part-update-cursor/R6877PartBothLaterRow.al
+    /// the first, the row twice and OnAfterGetCurrRecord, as without Both (corpus pages/lt-th-part-update-cursor/R6877PartBothLaterRow.al:375
     /// R_Doc_, R_Card_, R_Plus_Nav1..3_Ctl1..2, BC 28.5: `Q.V Q.V.end HR HC R2 R3 R2 R1 R2 R2 C2`; the next SetValue lands on the same
-    /// row; assumption part-both-keeps-row-after-update until the probe is in the pinned corpus; al-runner issue 6877). A part that
+    /// row; al-runner issue 6877). A part that
     /// serves its rows from OnFindRecord or OnNextRecord, one that is not a list, a row its view no longer holds and a view longer than
     /// a window are refused. Returns the view and the part's place in it when the part stands on a later row (the caller reads the
     /// host, then calls `read_part_rows_around`), `None` on the first row.
@@ -1816,7 +1816,6 @@ impl Session {
         host.borrow_mut().read_keeps_xrec = false;
         r?;
         if let Some((rows, at)) = later {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartBothKeepsRowAfterUpdate);
             self.read_part_rows_around(st, &rows, at)?;
         }
         self.set_xrec(host);

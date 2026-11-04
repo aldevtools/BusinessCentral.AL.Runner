@@ -2168,8 +2168,8 @@ codeunit 50000 "T" { Subtype = Test;
 /// The Field rows of SystemId and the audit fields carry the platform's own DataClassification whatever the table declares
 /// (CustomerContent, ToBeClassified or nothing): EndUserPseudonymousIdentifiers (4) for SystemId (2000000000), SystemCreatedBy
 /// (2000000002) and SystemModifiedBy (2000000004); SystemMetadata (6) for SystemCreatedAt (2000000001) and SystemModifiedAt
-/// (2000000003), by `Get` and in a `SetRange(TableNo)` walk, on BC 27.5, 28.5 and 29.0 alike (corpus staging branch
-/// al-runtime-rs-staging-r6890, metadata/platform-tables/R6890SystemFieldClassification.al, al-runner issue 6890).
+/// (2000000003), by `Get` and in a `SetRange(TableNo)` walk, on BC 27.5, 28.5 and 29.0 alike (corpus
+/// metadata/platform-tables/R6890SystemFieldClassification.al:97-157, al-runner issue 6890).
 #[test]
 fn system_field_rows_carry_the_platforms_data_classification() {
     let src = r#"table 50001 "RCC" { DataClassification = CustomerContent; fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
