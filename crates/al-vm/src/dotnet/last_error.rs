@@ -126,7 +126,7 @@ fn get_type(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -> Re
 
 /// The codeunit id and routine name of one AL frame of an error's call stack (`"Name"(CodeUnit 61480).OnRun(Trigger) line 3 - ...`,
 /// see `callstack.rs`); `None` for a frame of another object type.
-fn codeunit_frame(frame: &str) -> Option<(u32, &str)> {
+pub(super) fn codeunit_frame(frame: &str) -> Option<(u32, &str)> {
     let (_, rest) = frame.split_once("(CodeUnit ")?;
     let (id, rest) = rest.split_once(").")?;
     let name = rest.split([' ', '(']).next()?;
@@ -187,6 +187,9 @@ pub(crate) fn exception_text(session: &Session, this: &Rc<DotNetObject>) -> Resu
         }
     }
     let frames: Vec<&str> = stack.split('\n').filter(|f| !f.is_empty()).collect();
+    if let Some(text) = super::exception_frames::pinned_trace(session, type_name, &msg, &frames) {
+        return Ok(text);
+    }
     if frames.is_empty() || frames.contains(&UNTRACKED_CALL_STACK) {
         out.push_str("\n   at ");
         out.push_str(UNTRACKED_CALL_STACK);
@@ -223,7 +226,7 @@ pub(crate) fn exception_text(session: &Session, this: &Rc<DotNetObject>) -> Resu
 }
 
 /// Whether codeunit `id` has a procedure `name` marked `[TryFunction]`.
-fn is_try_function(session: &Session, id: u32, name: &str) -> bool {
+pub(super) fn is_try_function(session: &Session, id: u32, name: &str) -> bool {
     let objects = &session.engine.program.objects;
     objects.heads().iter().enumerate().any(|(oi, h)| {
         h.kind == al_ir::ObjKind::Codeunit
@@ -237,7 +240,7 @@ fn is_try_function(session: &Session, id: u32, name: &str) -> bool {
 
 /// Whether codeunit `id` has a procedure `name` with no parameters and no return value, whose name is a plain identifier: the
 /// shape whose .NET frame the corpus pins (`Codeunit99472.Nested()`, `Codeunit99471.Raise()`).
-fn plain_procedure(session: &Session, id: u32, name: &str) -> bool {
+pub(super) fn plain_procedure(session: &Session, id: u32, name: &str) -> bool {
     if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
         return false;
     }
