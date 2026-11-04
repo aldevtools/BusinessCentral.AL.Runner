@@ -1483,7 +1483,7 @@ impl Session {
                 return self.close_with(st, name, true, true);
             }
             // The built-in OK and Cancel are visible (reports/TestProbeReportContracts.al:RequestPage_InvokeActionNotFound).
-            ControlTarget::BuiltIn(_) if m == PageMethod::Visible => return Ok(Value::Boolean(true)),
+            ControlTarget::BuiltIn(name) if m == PageMethod::Visible => return self.builtin_visible(st, name),
             _ => return unsupported(format!("{method} on a built-in control")),
         };
         // The data items and actions of a report's request page.
