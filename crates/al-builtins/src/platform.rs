@@ -75,6 +75,8 @@ pub enum Virtual {
     /// A table of the platform app that is not in [`REGISTRY`]: it lowers, a temporary record of it is
     /// an ordinary temporary table, and every read or write of its persistent rows is refused.
     Unprovided,
+    /// No rows (metadata/platform-tables/Y21EnvColumns.al:30-40 Y21_Printer_NoRows).
+    Printer,
 }
 
 /// (table id, table name, provider). Every entry is a table of the platform `System` app.
@@ -119,6 +121,7 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
         "Page Control Field",
         Provider::Virtual(Virtual::PageControlField),
     ),
+    (2_000_000_039, "Printer", Provider::Virtual(Virtual::Printer)),
     (2_000_000_164, "Time Zone", Provider::Virtual(Virtual::TimeZone)),
     (
         2_000_000_045,

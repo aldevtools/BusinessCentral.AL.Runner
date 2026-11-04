@@ -627,6 +627,8 @@ impl Providers {
             Virtual::ApiWebhookEntity | Virtual::TenantMedia | Virtual::Media | Virtual::Unprovided => {
                 unreachable!("refused or listed before")
             }
+            // No rows (metadata/platform-tables/Y21EnvColumns.al:30-40 Y21_Printer_NoRows).
+            Virtual::Printer => Vec::new(),
             Virtual::XmlPortMetadata => metadata::xmlport_metadata_rows(self, t),
             Virtual::EventSubscription => metadata::event_subscription_rows(self, t),
             Virtual::PageAction => metadata::page_action_rows(self, t),
