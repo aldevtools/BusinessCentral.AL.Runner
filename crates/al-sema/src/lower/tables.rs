@@ -200,6 +200,21 @@ impl Lowerer<'_> {
                             };
                             Some(ir::RelationWhere::Value { related: p, text })
                         }
+                        // One AL string with a doubled quote in it is the filter its content spells: `filter('<>''''')` is
+                        // `<>''` (not empty), on a field of the related table and on one a tableextension adds, and
+                        // `filter('''''')` is `''` (the empty value); `filter('<>''')` raises InvalidFilterExpression on BC
+                        // and every other content is not measured, so both stay refused (al-runner issue 6924; corpus
+                        // record/table-relation/TableRelationQuotes.al TRX_*, awaiting the pin: assumption
+                        // table-relation-quoted-literal-filter).
+                        crate::relation::ParsedWhere::QuotedFilter { related, text }
+                            if matches!(text.as_str(), "<>''" | "''") =>
+                        {
+                            Some(ir::RelationWhere::Value {
+                                related: field_pos(&self.members[t], related)?,
+                                text: text.clone(),
+                            })
+                        }
+                        crate::relation::ParsedWhere::QuotedFilter { .. } => None,
                         crate::relation::ParsedWhere::Field { related, own: o } => Some(ir::RelationWhere::Field {
                             related: field_pos(&self.members[t], related)?,
                             own: field_pos(own, o)?,
@@ -238,6 +253,13 @@ impl Lowerer<'_> {
                     let mut v = Vec::new();
                     if quoted {
                         v.push(al_builtins::assumptions::Assumption::TableRelationQuotes);
+                    }
+                    if a.wheres
+                        .iter()
+                        .flatten()
+                        .any(|w| matches!(w, crate::relation::ParsedWhere::QuotedFilter { .. }))
+                    {
+                        v.push(al_builtins::assumptions::Assumption::TableRelationQuotedLiteralFilter);
                     }
                     v
                 },

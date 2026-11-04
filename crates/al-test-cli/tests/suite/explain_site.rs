@@ -58,10 +58,34 @@ codeunit 63100 T
         Error('boom from Inner');
     end;
 }
+codeunit 63103 T2
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ValidatesAValueTheRelatedTableLacks()
+    var
+        L: Record "XS Line";
+    begin
+        L.Init();
+        L.Validate(Ref, 'MISSING');
+    end;
+}
+table 63101 "XS Target" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { } } }
+table 63102 "XS Line"
+{
+    fields { field(1; Id; Integer) { } field(2; Ref; Code[20]) { TableRelation = "XS Target"; } }
+    keys { key(PK; Id) { } }
+}
 "#;
 
 /// For each test: its outcome and the detail `--explain` would print.
 fn run() -> (al_ir::Program, Vec<(String, Outcome, explain::TestDetail)>) {
+    run_codeunit("T")
+}
+
+/// The same for the test codeunit named `codeunit`.
+fn run_codeunit(codeunit: &str) -> (al_ir::Program, Vec<(String, Outcome, explain::TestDetail)>) {
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),
@@ -78,7 +102,7 @@ fn run() -> (al_ir::Program, Vec<(String, Outcome, explain::TestDetail)>) {
         .map(|o| o.iter().map(|r| r.first().cloned()).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
-    let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
+    let oi = l.program.objects.iter().position(|o| o.name == codeunit).unwrap();
     let mut details = Vec::new();
     let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
         let mut d = explain::detail(
@@ -227,4 +251,27 @@ fn blocked_site_finds_the_routine_a_reason_sits_in_through_the_call_graph() {
     let b = blocked_site(&l, 0, t).expect("blocked through Helper");
     assert_eq!((b.object, b.routine), (0, helper));
     assert!(b.text.starts_with("C.Helper: "), "{}", b.text);
+}
+
+#[test]
+fn a_relation_error_of_validate_names_the_validating_line() {
+    // al-runner issue 6924: `--explain` printed "where: not recorded" for the error Validate raises when the related
+    // table has no row with the value.
+    let (_, rows) = run_codeunit("T2");
+    let (_, outcome, d) = of(&rows, "ValidatesAValueTheRelatedTableLacks");
+    assert!(
+        matches!(outcome, Outcome::Fail(m) if m.contains("cannot be found in the related table (XS Target)")),
+        "{outcome:?}"
+    );
+    assert_eq!(d.raised_in.len(), 1, "{d:?}");
+    assert_eq!(
+        d.raised_in[0].who,
+        "codeunit 63103 \"T2\".ValidatesAValueTheRelatedTableLacks"
+    );
+    assert_eq!(d.raised_in[0].at, "a: src/t.al:61:9");
+    let text = explain::render("head", outcome, "passes", Some(d));
+    assert!(
+        text.contains("raised in (innermost first):") && text.contains("src/t.al:61:9"),
+        "{text}"
+    );
 }
