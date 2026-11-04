@@ -9,6 +9,7 @@ mod bump_36_transferfields_system_fields;
 mod calcsums_duration;
 mod clear_table_filter;
 mod companies;
+mod count_into_biginteger;
 mod crm_connection;
 mod date_filter_short;
 mod delete_all_cascade;
