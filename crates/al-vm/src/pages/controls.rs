@@ -100,7 +100,7 @@ impl Session {
     /// The type of the record field a control of a page with no source table is bound to, when it names a field of a global
     /// record: Code, Text, Integer, Decimal, Boolean, Date, BigInteger, Time and Option are pinned (testpage/no-source-controls/
     /// NoSourceGlobalRecordSetValue.al, corpus branch al-runtime-rs-staging-r6918-22; al-runner issue 6918). An Option field there
-    /// shows and takes its member names on BC 29.0; earlier versions are not measured yet and refused.
+    /// shows and takes its member names (27.5, 28.5 and 29.0).
     fn global_record_field_type(&self, st: &St, idx: usize, no_source_expr: bool) -> Result<Option<RtType>, Signal> {
         if !no_source_expr {
             return Ok(None);
@@ -112,11 +112,6 @@ impl Session {
                 .as_ref()
                 .map(|tb| tb.fields[p].ty.clone())
         });
-        if matches!(ty, Some(RtType::Option(_))) && !self.has(al_version::Gate::OtherRecordOptionCaptionFrom29) {
-            return unsupported(
-                "SetValue on a control bound to an Option field of a global record of a page with no source table on a version before the gate OtherRecordOptionCaptionFrom29 (not pinned)",
-            );
-        }
         Ok(ty)
     }
 

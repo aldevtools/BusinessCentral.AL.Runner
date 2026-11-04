@@ -189,7 +189,7 @@ impl Session {
                     vf.name
                 ));
             }
-            // On a page with no source table the control shows and takes the member names on BC 29.0 (testpage/no-source-controls/
+            // On a page with no source table the control shows and takes the member names on 27.5, 28.5 and 29.0 (testpage/no-source-controls/
             // NoSourceGlobalRecordSetValue.al SetValue_EveryKind_TextArgs_ValueReadBack `opt`, SetValue_TextThatDoesNotFit_Errors
             // `opt caption`; corpus branch al-runtime-rs-staging-r6918-22).
             if let Some(c) = has("OptionCaption").filter(|_| {
