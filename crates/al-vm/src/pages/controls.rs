@@ -97,6 +97,58 @@ impl Session {
         }
     }
 
+    /// The type of the record field a control of a page with no source table is bound to, when it names a field of a global
+    /// record: Code, Text, Integer, Decimal, Boolean, Date, BigInteger and Time are pinned (testpage/no-source-controls/
+    /// NoSourceGlobalRecordSetValue.al, corpus branch al-runtime-rs-staging-r6918-22; al-runner issue 6918). An Option field there
+    /// shows its member name and takes no caption, which is not modelled: refused.
+    fn global_record_field_type(&self, st: &St, idx: usize, no_source_expr: bool) -> Result<Option<RtType>, Signal> {
+        if !no_source_expr {
+            return Ok(None);
+        }
+        let engine = self.engine();
+        let ty = page_of(&engine, st).controls[idx].var_field.and_then(|(t, p)| {
+            engine.program.objects[t]
+                .table
+                .as_ref()
+                .map(|tb| tb.fields[p].ty.clone())
+        });
+        if matches!(ty, Some(RtType::Option(_))) {
+            return unsupported(
+                "SetValue on a control bound to an Option field of a global record of a page with no source table (not pinned)",
+            );
+        }
+        Ok(ty)
+    }
+
+    /// The validation message of an entry longer than the control's Text or Code field allows, if it is one: a Text variable
+    /// given too many characters (errors/TestPageVariableMinMaxContracts.al:119), a table field's overlong text
+    /// (P81PageValidateEvents.al:TestPage_SetValue_NameTooLong). A Code field of a global record on a page with no source table
+    /// says the same (testpage/no-source-controls/NoSourceGlobalRecordSetValue.al SetValue_TextThatDoesNotFit_Errors `railcar 21
+    /// chars`, an upper-case entry; corpus branch al-runtime-rs-staging-r6918-22). Whether it shows a lower-case entry upper-cased
+    /// is not pinned.
+    fn overlong_entry(&self, st: &St, idx: usize, ty: &RtType, parsed: &Value) -> Result<Option<String>, Signal> {
+        let (max, t) = match (ty, parsed) {
+            (RtType::Text(Some(max)), Value::Text(t)) => (*max as usize, t),
+            (RtType::Code(Some(max)), Value::Text(t) | Value::Code(t))
+                if page_of(&self.engine(), st).controls[idx].var_field.is_some() && !self.has_source(st) =>
+            {
+                if Value::text_len(t) > *max as usize && t.chars().any(char::is_lowercase) {
+                    return unsupported(
+                        "SetValue of an overlong lower-case text on a Code control (the message is not pinned)",
+                    );
+                }
+                (*max as usize, t)
+            }
+            _ => return Ok(None),
+        };
+        let len = Value::text_len(t);
+        Ok((len > max).then(|| {
+            format!(
+                "The length of the string is {len}, but it must be less than or equal to {max} characters. Value: {t}"
+            )
+        }))
+    }
+
     fn control_set_value_now(&mut self, st: &St, idx: usize, args: &mut [Value]) -> Result<Value, Signal> {
         // Taken first: a trigger that runs below may call SetValue itself.
         let from_variant = std::mem::take(&mut self.set_value_from_variant);
@@ -205,12 +257,15 @@ impl Session {
             && !self.is_request_page(st);
         // A Decimal (the array element), a Text (the temporary record's field) and an Enum field of a global record on a
         // ConfirmationDialog (pages/values-allowed-set-value/Y37ValuesAllowedSetValue.al:179-189, :226) are pinned.
-        let ty = self.control_type(st, idx, &current).or(match &current {
-            Value::Decimal(_) if no_source_expr => Some(RtType::Decimal),
-            Value::Text(_) if no_source_expr => Some(RtType::Text(None)),
-            Value::Enum(id, _) if no_source_expr => Some(RtType::Enum(*id)),
-            _ => None,
-        });
+        let var_field_ty = self.global_record_field_type(st, idx, no_source_expr)?;
+        let ty = var_field_ty
+            .or_else(|| self.control_type(st, idx, &current))
+            .or(match &current {
+                Value::Decimal(_) if no_source_expr => Some(RtType::Decimal),
+                Value::Text(_) if no_source_expr => Some(RtType::Text(None)),
+                Value::Enum(id, _) if no_source_expr => Some(RtType::Enum(*id)),
+                _ => None,
+            });
         let Some(ty) = ty else {
             if no_source_expr {
                 return unsupported(
@@ -660,7 +715,14 @@ impl Session {
                         && !self.has_source(st)
                         && !self.is_request_page(st)
                 };
-                if no_source_expr && !matches!(ty, RtType::Decimal) {
+                // On a control bound to a field of a global record the Integer, Boolean and Date texts are pinned too
+                // (testpage/no-source-controls/NoSourceGlobalRecordSetValue.al SetValue_TextThatDoesNotFit_Errors, corpus branch
+                // al-runtime-rs-staging-r6918-22).
+                let global_rec_field = page_of(&self.engine(), st).controls[idx].var_field.is_some();
+                if no_source_expr
+                    && !matches!(ty, RtType::Decimal)
+                    && !(global_rec_field && matches!(ty, RtType::Integer | RtType::Boolean | RtType::Date))
+                {
                     return unsupported(
                         "a refused entry on a control bound to an expression of a page with no source table, of a type other than Decimal (the text is not pinned)",
                     );
@@ -749,15 +811,8 @@ impl Session {
         if self.shows_no_row(st, idx) {
             return Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"));
         }
-        // A Text variable given too many characters (errors/TestPageVariableMinMaxContracts.al:119).
-        // A table field's overlong text is a TestValidation error too (P81PageValidateEvents.al:TestPage_SetValue_NameTooLong).
-        if let (RtType::Text(Some(max)), Value::Text(t)) = (&ty, &parsed) {
-            let len = Value::text_len(t);
-            if len > *max as usize {
-                return Err(refuse_bound(format!(
-                    "The length of the string is {len}, but it must be less than or equal to {max} characters. Value: {t}"
-                )));
-            }
+        if let Some(msg) = self.overlong_entry(st, idx, &ty, &parsed)? {
+            return Err(refuse_bound(msg));
         }
         let parsed = ops::convert(parsed, &ty)?;
         // A value outside the control's ValuesAllowed is a TestValidation error; the entry it names is the text typed, and for an
