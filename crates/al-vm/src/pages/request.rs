@@ -1309,6 +1309,16 @@ fn xml_escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// One `Field` element of `<Options>`. An empty value is an empty element, `<Field name="TxtVal" />`, for Text, Code, Date, Time
+/// and DateTime alike (reports/W3ReportParametersText.al:255).
+fn option_field(name: &str, text: &str) -> String {
+    if text.is_empty() {
+        format!("<Field name=\"{}\" />", xml_escape(name))
+    } else {
+        format!("<Field name=\"{}\">{}</Field>", xml_escape(name), xml_text(text))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::action_id;
@@ -1328,15 +1338,5 @@ mod tests {
         assert_eq!(action_id(329, "Name"), 301_776_846);
         assert_eq!(action_id(5361, "User Defined"), 104_384_132);
         assert_eq!(action_id(6478, "Ignore Status on Service Docs."), 1_790_009_997);
-    }
-}
-
-/// One `Field` element of `<Options>`. An empty value is an empty element, `<Field name="TxtVal" />`, for Text, Code, Date, Time
-/// and DateTime alike (reports/W3ReportParametersText.al:255).
-fn option_field(name: &str, text: &str) -> String {
-    if text.is_empty() {
-        format!("<Field name=\"{}\" />", xml_escape(name))
-    } else {
-        format!("<Field name=\"{}\">{}</Field>", xml_escape(name), xml_text(text))
     }
 }
