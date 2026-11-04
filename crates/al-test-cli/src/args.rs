@@ -383,7 +383,8 @@ DIAGNOSE
                               the baseline, and baseline cases that no longer pass; listed by area
   --timings                   print how long loading, compiling and running took, and the slowest
                               test codeunits (the --json and --markdown reports always carry the
-                              times)
+                              times); for the time per AL routine set AL_PROFILE=FILE (see the
+                              manual, results.md)
   --timings-table FILE        print the timing table of the --json reports named (repeatable), then stop
   --permission-shadow FILE    check every access under the test runner's permission sets, grant it anyway, write what would be
                               denied to FILE (ADR-062 stage 4 shadow run; a diagnostic, never a baseline)
