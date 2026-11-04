@@ -770,7 +770,9 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bump to master 941cd813 makes it 283: the bump to 9cce33bd (writers Y76 to Y81, which did not update this count)
     // and the Y79 fix and Y85 pins after it add BC28PLUS and BC29PLUS guards that the probed-values gates cite.
     // Corpus bump to master c8bb6694 makes it 298: the Y90 BC28PLUS guards (gate PermissionShapeProbesFrom28) and the other new cases.
-    assert!(out.contains("oracle: 298 case(s) differ between versions"), "{out}");
+    // Corpus bump to master eccb1330 makes it 300: the two tests of codeunits/interfaces/R6924dThisInDefaultBody.al (`#if BC29PLUS`;
+    // gate DefaultInterfaceMethodsFrom29) run on BC 29 only.
+    assert!(out.contains("oracle: 300 case(s) differ between versions"), "{out}");
     // The known BC 29 differences are gated (ADR-015 3.4), so the runtime passes the same cases on every version, among the
     // cases every oracle has. One difference is known and open (corpus bump 10, backlog): the runtime passes
     // 71500 Get_Uses_Primary_Key_Not_Current_Key on BC 27 only. A new difference would be listed here.
