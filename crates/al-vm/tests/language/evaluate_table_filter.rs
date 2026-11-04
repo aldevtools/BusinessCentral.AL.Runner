@@ -224,10 +224,10 @@ fn format_number_9_and_a_failed_evaluate_keep_the_value() {
 #[test]
 fn forms_no_test_pins_are_refused() {
     for text in [
-        // other field types, filter forms of a type the corpus does not pin, other format text shapes
+        // other field types, filter forms of a type the corpus does not pin, other format text shapes (an Option list is
+        // pinned since TableFilterEnumForms.al TableFilterEvaluate_OptionExpressions: evaluate_table_filter_enum.rs)
         "SR TF Pair: D=010125D",
         "SR TF Pair: Qty=>5",
-        "SR TF Pair: Kind=MAIN|SIDE",
         "SR TF Pair: Descr=A*",
         "SI TF Target:",
         "SR TF Pair: Code=A,,Qty=1",

@@ -52,8 +52,9 @@ pub struct TableFilterField {
     /// Its caption, or why reading it is refused.
     pub caption: Result<String, String>,
     pub ty: crate::value::RtType,
-    /// An Option field's members as (name, caption), or why reading them is refused; `Ok(None)` for other fields.
-    pub options: Result<Option<Vec<(String, String)>>, String>,
+    /// An Option or Enum field's members as (ordinal, name, caption), or why reading them is refused; `Ok(None)` for other
+    /// fields.
+    pub options: Result<Option<Vec<(i32, String, String)>>, String>,
 }
 
 /// The field an `Evaluate` into a `FieldRef` writes (see [`Ctx::evaluate_field_target`]).

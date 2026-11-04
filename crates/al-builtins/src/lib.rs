@@ -34,6 +34,7 @@ pub mod describe;
 pub mod dotnet_sigs;
 pub mod errorinfo;
 pub mod evaluate;
+mod evaluate_table_filter_member;
 pub mod features;
 pub mod fieldref_value_text;
 pub mod fieldref_variant_cells;
