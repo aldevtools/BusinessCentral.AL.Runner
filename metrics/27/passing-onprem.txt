@@ -88,6 +88,8 @@
 61261 PlatformTable_TenantReportLayoutSelection
 61261 PlatformTable_TenantWebService
 61261 PlatformTable_WebService
+61262 Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps
+61262 TenantVisible_Installed_AndDescription_OfWellKnownApps
 61267 P110_CreateTwiceWithoutClose
 61267 P110_InvalidPaths
 61268 P110_Copy
@@ -222,6 +224,7 @@
 98701 Handler_UnusedResult_BlockOnce
 98701 NoHandler_ConnectionRefused
 98701 NoHandler_StrMenuAllowOnce_ConnectionRefused
+98702 PA_ApplicationRow_PackageIds
 98703 IC_InsertModifyGet
 98703 IC_Standard
 98706 Columns_Expressions_NoRow

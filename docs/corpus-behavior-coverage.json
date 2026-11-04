@@ -16981,7 +16981,7 @@
         "code": "FormAbort:Dialog",
         "file": "crates/al-vm/src/pages.rs",
         "generic": false,
-        "line": 316,
+        "line": 317,
         "pinned": true,
         "site": "permissions/permission-sets/Y24PermExecute.al:58",
         "template": "Page % has to close."
@@ -17017,7 +17017,7 @@
         "code": "FormCloseNotAllowed",
         "file": "crates/al-vm/src/pages/rows.rs",
         "generic": false,
-        "line": 3508,
+        "line": 3504,
         "pinned": true,
         "site": "pages/triggers/PageModalQueryCloseVeto.al:153",
         "template": "The page cannot be closed at this time."
