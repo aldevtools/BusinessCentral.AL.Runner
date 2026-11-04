@@ -492,6 +492,15 @@ fn user_name_system_field_rows(
         .collect()
 }
 
+/// The DataClassification ordinal of the Field row of SystemId (2000000000) and the audit fields (2000000001-2000000004).
+fn system_field_classification(id: u32) -> Option<i32> {
+    match id {
+        2_000_000_000 | 2_000_000_002 | 2_000_000_004 => Some(4),
+        2_000_000_001 | 2_000_000_003 => Some(6),
+        _ => None,
+    }
+}
+
 fn field_row(
     c: &Catalog,
     table: &Object,
@@ -622,7 +631,12 @@ fn field_row(
     // DataClassification: the field's own; else the table's; a FlowField is SystemMetadata and a
     // silent Blob is CustomerContent (TestFieldDataClassificationInheritance.al:17-50).
     let is_blob = matches!(&f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Blob));
+    // SystemId and the audit fields have the platform's own: EndUserPseudonymousIdentifiers (4) for SystemId, SystemCreatedBy and
+    // SystemModifiedBy, SystemMetadata (6) for SystemCreatedAt and SystemModifiedAt, whatever the table declares (Windows BC 27.5
+    // and 28.5 probe, pinned in the corpus at metadata/platform-tables/R6890SystemFieldClassification.al:97-157,
+    // R6890_SystemFieldRows_CustomerContentTable, _NoClassificationTable and _ToBeClassifiedTable).
     let dc = match (fprop("DataClassification"), is_flow_field, is_blob) {
+        _ if system_field_classification(f.id).is_some() => system_field_classification(f.id).unwrap_or(0),
         (_, true, _) => 6,
         (Some(v), _, _) => ordinal_of(DATA_CLASSIFICATIONS, v)
             .ok_or_else(|| format!("{}: DataClassification `{v}` is not understood", what()))?,
