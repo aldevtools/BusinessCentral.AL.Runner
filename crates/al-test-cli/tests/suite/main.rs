@@ -123,6 +123,7 @@ mod quoted_ident;
 mod r1b_page_moves;
 mod readable_messages;
 mod reapply_marks_other_key;
+mod recall_never_sent;
 mod regen_bot;
 mod report_handler;
 mod report_run_after_write;
