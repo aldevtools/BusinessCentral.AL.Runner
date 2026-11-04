@@ -189,3 +189,65 @@ fn a_codeunit_does_not_see_a_protected_var_through_a_record_variable() {
     let r = out(al_testkit::run_in(&src, "T", "Run"));
     assert!(r.starts_with("refused:"), "{r}");
 }
+
+const SAME_APP: &str = r#"
+table 50570 "PVM S"
+{
+    fields { field(1; K; Code[10]) { } }
+    keys { key(PK; K) { Clustered = true; } }
+
+    protected var
+        Marker: Text;
+
+    procedure SetMarker(V: Text)
+    begin
+        Marker := V;
+    end;
+}
+tableextension 50571 "PVM S Ext" extends "PVM S"
+{
+    procedure GetOther(var Other: Record "PVM S"): Text
+    begin
+        exit(Other.Marker);
+    end;
+
+    procedure SetOther(var Other: Record "PVM S"; V: Text)
+    begin
+        Other.Marker := V;
+    end;
+}
+codeunit 50572 T
+{
+    procedure Read(): Text
+    var
+        R: Record "PVM S";
+        Other: Record "PVM S";
+    begin
+        Other.SetMarker('m');
+        exit(R.GetOther(Other) + '|' + R.GetOther(R));
+    end;
+
+    procedure Write(): Text
+    var
+        R: Record "PVM S";
+        Other: Record "PVM S";
+    begin
+        R.SetOther(Other, 'm');
+        exit(R.GetOther(Other));
+    end;
+}
+"#;
+
+/// ProtectedVarCrossApp.al ProtVar_OtherRecordVariable_MemberFormRead_SameAppTable: a read in the same app works.
+#[test]
+fn the_member_form_reads_a_same_app_var() {
+    assert_eq!(out(al_testkit::run_in(SAME_APP, "T", "Read")), "m|");
+}
+
+/// ProtectedVarCrossApp.al, the comment at table 95533: a write in the same app makes real BC fail to compile the extension's
+/// C# (CS0131), so it is refused.
+#[test]
+fn the_member_form_write_of_a_same_app_var_is_refused() {
+    let r = out(al_testkit::run_in(SAME_APP, "T", "Write"));
+    assert!(r.starts_with("refused:") && r.contains("CS0131"), "{r}");
+}

@@ -2004,21 +2004,20 @@ impl Lowerer<'_> {
                     let slot = self.ext_var(ext, &name)?;
                     Ok(ir::Place::ExtGlobal(ext, slot))
                 }
-                // `Other.<protected var>` in a table extension: Other's variable (al-runner issue 6984; corpus PR 1126,
-                // table-objects/extensions/ProtectedVarCrossApp.al, see `check/protected_member.rs`).
+                // `Other.<protected var> := ...` (or passed by var) in a table extension. Declared in another app it writes Other's
+                // variable (corpus PR 1126, branch al-runtime-rs-staging-r6983, table-objects/extensions/ProtectedVarCrossApp.al
+                // ProtVar_OtherRecordVariable_MemberForm_OtherApp, ProtVar_SalesLineStatusCheckSuspended_MemberForm; al-runner
+                // issue 6984). Declared in the same app, alc compiles it but real BC fails to compile the extension's C# (CS0131;
+                // ProtectedVarCrossApp.al, the comments at tables 95533 and 95535), so it is refused.
                 Some(Res::RecGlobal { object, name }) => {
                     let (object, name) = (*object, name.clone());
-                    let slot = if self.ws.objects[object].kind == ObjKind::Table {
-                        let (slot, _, label) = self.base_var(&name)?;
-                        if label.is_some() {
-                            return Err(format!("`{name}`, a Label of the table, through another record variable (not pinned)"));
-                        }
-                        slot
-                    } else {
-                        self.ext_var(object, &name)?
-                    };
-                    let base = self.place(&n.children().next().ok_or("member base")?)?;
-                    Ok(ir::Place::RecGlobal(Box::new(base), object, slot))
+                    if self.ws.objects[object].app == self.ws.objects[self.oi].app {
+                        return Err(format!(
+                            "`{}` written through another record variable, for a protected variable declared in the same app: real BC fails to compile the extension's C# (CS0131)",
+                            n.text_string().trim()
+                        ));
+                    }
+                    self.rec_global_place(n, object, &name)
                 }
                 Some(Res::Field { table, id }) => {
                     let (table, id) = (*table, *id);
@@ -2056,6 +2055,27 @@ impl Lowerer<'_> {
                     .unwrap_or_else(|| format!("`{}` is not assignable", n.text()))),
             },
         }
+    }
+}
+
+impl Lowerer<'_> {
+    /// `Other.<protected var>` in a table extension as a place: the slot of the table's or the extension's variable on the
+    /// record in `Other` (al-runner issue 6984; corpus PR 1126, table-objects/extensions/ProtectedVarCrossApp.al, read in the
+    /// same app by ProtVar_OtherRecordVariable_MemberFormRead_SameAppTable and _SameAppSibling).
+    pub(crate) fn rec_global_place(&mut self, n: &SyntaxNode, object: usize, name: &str) -> L<ir::Place> {
+        let slot = if self.ws.objects[object].kind == ObjKind::Table {
+            let (slot, _, label) = self.base_var(name)?;
+            if label.is_some() {
+                return Err(format!(
+                    "`{name}`, a Label of the table, through another record variable (not pinned)"
+                ));
+            }
+            slot
+        } else {
+            self.ext_var(object, name)?
+        };
+        let base = self.place(&n.children().next().ok_or("member base")?)?;
+        Ok(ir::Place::RecGlobal(Box::new(base), object, slot))
     }
 }
 
