@@ -573,7 +573,6 @@ fn sig_tokens(n: &SyntaxNode) -> Vec<ast::GreenTok<'_>> {
 }
 
 mod assemble;
-mod blob_length_sign;
 mod call;
 mod compile;
 mod conv_matrix;

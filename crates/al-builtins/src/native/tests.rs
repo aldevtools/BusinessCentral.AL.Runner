@@ -186,7 +186,6 @@ fn every_registered_id_is_in_the_catalog() {
         "InStream.OwnerOutOfScope#1",
         "System.TranslatedText#1",
         "System.TextConstText#1",
-        "Blob.LengthSign#1",
     ];
     for id in registered_ids().into_iter().filter(|id| !derived.contains(id)) {
         assert!(ids.iter().any(|i| i == id), "{id} is not a catalog overload id");

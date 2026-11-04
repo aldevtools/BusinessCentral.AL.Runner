@@ -2326,6 +2326,14 @@ impl Session {
         })))
     }
 
+    /// The unloaded copy of a stored row's Blob field `pos`, marked when the field says `Compressed = false`.
+    pub(crate) fn copy_blob_db_row(&self, t: &TableDef, pos: usize, b: &al_builtins::stream::BlobRef) -> al_builtins::stream::BlobRef {
+        let off = self
+            .field_property(t, pos, "Compressed")
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("false"));
+        al_builtins::stream::copy_blob_db_row_of(b, off)
+    }
+
     /// Reads a row into the record, then calculates its `SetAutoCalcFields` fields. A database
     /// table hands out its own copy of every Blob, not yet loaded
     /// (streams/TestBlobUncommittedWriteIsolation.al, TestBlob.al Blob_Get_WithoutCalcFields_InStreamReadsEmpty);
@@ -2335,9 +2343,10 @@ impl Session {
         // A temporary table keeps whole milliseconds; only a write to a database table rounds them to 1/300 s
         // (record/filters/P130DateFilters.al:324, :402).
         if rec.borrow().temp_id.is_none() {
-            for v in &mut row {
+            let t = self.table(rec)?;
+            for (pos, v) in row.iter_mut().enumerate() {
                 if let Value::Blob(b) = v {
-                    *b = al_builtins::stream::copy_blob_db_row(b);
+                    *b = self.copy_blob_db_row(&t, pos, b);
                 }
             }
         } else {
