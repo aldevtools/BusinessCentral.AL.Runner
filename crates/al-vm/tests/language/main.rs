@@ -131,6 +131,7 @@ mod lazy_objects;
 mod list_read_in_foreach;
 mod max_str_len_var_hops;
 mod moved_fields;
+mod msdos_read_high_bytes;
 mod notification_by_value;
 mod np_blockers_6;
 mod np_blockers_7;
