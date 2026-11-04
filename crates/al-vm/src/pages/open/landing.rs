@@ -243,10 +243,13 @@ impl Session {
                     hb.host.is_none()
                         && mode_ok
                         && hb.cursor == Cursor::None
-                        && matches!(
-                            self.engine.object_facts[hb.object as usize].page_type,
-                            Some(al_ir::PageType::Document | al_ir::PageType::Card)
-                        )
+                        && match self.engine.object_facts[hb.object as usize].page_type {
+                            Some(al_ir::PageType::Document | al_ir::PageType::Card) => true,
+                            // Opened for view, a ListPlus host behaves the same (pages/parts/PartListPlusHostNoRow.al:288-295
+                            // _PartTriggers, _PartInGroup, :314 _PartFirst `No`, :336 _HiddenPart; issue 6953).
+                            Some(al_ir::PageType::ListPlus) => view,
+                            _ => false,
+                        }
                 })
         };
         let edit_host_no_row = host_shows_no_row_as(false);
@@ -368,7 +371,8 @@ impl Session {
             // OnAfterGetCurrRecord once; the host runs neither (PartLineBeforeHostKey.al:1722 QH_OpenView_NoRow_Document
             // `[LP.OnNewRecord:]`, :1530 _TraceHost `[TH.OnOpenPage | CP.OnOpenPage | CP.OnNewRecord: below=Yes |
             // CP.OnAfterGetCurrRecord:/0]`, :1562 _UnlinkedPart, :1602 QH_OpenView_RowFilteredAway after the host's filter
-            // left no row). Pinned for a Document or Card host (`host_shows_no_row`); another host is refused.
+            // left no row). Pinned for a Document or Card host, and measured for a ListPlus host (`host_shows_no_row`); another
+            // host is refused.
             let view_part_no_host_row = self.has_source(st)
                 && !host_on_row
                 && !host_shows_no_row

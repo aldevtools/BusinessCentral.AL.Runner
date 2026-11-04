@@ -16981,7 +16981,7 @@
         "code": "FormAbort:Dialog",
         "file": "crates/al-vm/src/pages.rs",
         "generic": false,
-        "line": 317,
+        "line": 318,
         "pinned": true,
         "site": "permissions/permission-sets/Y24PermExecute.al:58",
         "template": "Page % has to close."
