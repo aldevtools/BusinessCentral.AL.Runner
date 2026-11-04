@@ -1,5 +1,5 @@
 //! Arithmetic with an Enum operand takes the Enum as its ordinal (al-runner issue 6156; corpus
-//! types/lt-uf-enum-arithmetic/UfEnumArithmetic.al, writer UF branch al-runtime-rs-staging-uf, commit 3d7d7b66).
+//! types/enum-option/UfEnumArithmetic.al, writer UF branch al-runtime-rs-staging-uf, commit 3d7d7b66).
 
 use al_testkit::text;
 

@@ -40,7 +40,7 @@ fn all_pass(tests: &str) {
     }
 }
 
-// types/lt-variant-record-reassign/VariantRecordReassign.al:130 Variant_Reassign_ReadBack: a Variant that held a record of
+// types/variant/VariantRecordReassign.al:130 Variant_Reassign_ReadBack: a Variant that held a record of
 // another table cannot be read into a record variable of this table.
 #[test]
 fn variant_of_another_table_does_not_read_into_a_record() {

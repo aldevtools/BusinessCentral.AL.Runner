@@ -1,6 +1,6 @@
 //! A JSON string read by `JsonValue.AsDecimal`: which texts are numbers, which raise the conversion error.
 //!
-//! Pinned before (json/JsonValueGetters.al NumericTextGetters, TextGetters; types/lt-aj-probes/AjScalars.al:150-209): digits,
+//! Pinned before (json/JsonValueGetters.al NumericTextGetters, TextGetters; format-evaluate/AjScalars.al:150-209): digits,
 //! `100.00`, `-3.5`, ` 7 ` read as the number; letters, `""` and `1e2` raise the conversion error. Measured by corpus writer
 //! Y65 (json/JsonValueGetters.al:532-612 Y65_NotANumberText_EveryGetter, Y65_DecimalShapedText_AsDecimal, _2): `4,5` reads 45 and `1,000.5` 1000.5 (a comma in the whole part is
 //! dropped), `+3` 3, `.5` 0.5, ` 4.5 ` 4.5, `-0` 0; `n/a`, `NaN`, `Infinity`, `0x10`, `1e3`, `1.5.1` and `1 000` raise the

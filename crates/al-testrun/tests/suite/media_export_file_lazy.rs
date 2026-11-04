@@ -1,6 +1,6 @@
 //! Media.ExportFile and MediaSet.ExportFile are refused when they run, not before: Base Application's Item Picture page
 //! has them in an action's trigger, and the 82 Tests-SCM tests that only open an Item Card never reach it (the corpus skips
-//! both calls: streams/lt-stream-read-write-media/P102Media.al line 5, so what they write is not pinned).
+//! both calls: streams/media/P102Media.al line 5, so what they write is not pinned).
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};

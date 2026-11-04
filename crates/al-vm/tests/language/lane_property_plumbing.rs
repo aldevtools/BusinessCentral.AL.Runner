@@ -3,7 +3,7 @@
 use al_testkit::text;
 
 /// `Caption = '..', MaxLength = n` cuts the caption to n characters, on a table and on a field
-/// (record/lt-u-table-field-props/UTableTextSearch.al:41-44).
+/// (record/table-properties/UTableTextSearch.al:41-44).
 #[test]
 fn caption_max_length_cuts_the_table_and_field_caption() {
     let src = "table 50100 T { Caption = 'Text search caption', MaxLength = 5; \
@@ -12,7 +12,7 @@ fn caption_max_length_cuts_the_table_and_field_caption() {
     assert_eq!(text(al_testkit::run_in(src, "C", "F")), "Text |Text");
 }
 
-/// `Format(Row.Opt::Two)` shows the field's OptionCaption entry (misc/lt-probes-needed-2/PnBRecordMisc.al:96, :113).
+/// `Format(Row.Opt::Two)` shows the field's OptionCaption entry (session-system/PnBRecordMisc.al:96, :113).
 #[test]
 fn format_of_an_option_member_of_a_field_shows_its_caption() {
     let src = "table 50100 T { fields { field(1; Id; Integer) { } field(2; Opt; Option) { OptionMembers = One,Two; OptionCaption = 'Uno,Dos'; } } } \
@@ -21,7 +21,7 @@ fn format_of_an_option_member_of_a_field_shows_its_caption() {
 }
 
 /// Evaluate of an empty or blank text into an Option field whose first member is blank selects that member
-/// (errors/lt-ms-refusals-131/P131EvalOption.al:107-108); without a blank member it is rejected (:146).
+/// (format-evaluate/P131EvalOption.al:107-108); without a blank member it is rejected (:146).
 #[test]
 fn evaluate_of_a_blank_text_selects_the_blank_member() {
     let src = "table 50100 T { fields { field(1; Id; Integer) { } \
@@ -34,7 +34,7 @@ fn evaluate_of_a_blank_text_selects_the_blank_member() {
     assert_eq!(text(al_testkit::run_in(src, "C", "F")), "Yes|0;Yes|0;No|2");
 }
 
-/// A table extension's DataCaptionFields is the table's (record/lt-x-table-props/XTablePropsTests.al:609, `LT X Props Card - 1 ∙ 1M`).
+/// A table extension's DataCaptionFields is the table's (record/table-properties/XTablePropsTests.al:609, `LT X Props Card - 1 ∙ 1M`).
 #[test]
 fn table_extension_data_caption_fields_show_in_the_page_caption() {
     let src = "table 50100 T { fields { field(1; Id; Integer) { } field(2; Txt; Text[30]) { } } keys { key(PK; Id) { } } } \
@@ -68,7 +68,7 @@ fn a_text_longer_than_its_max_length_on_another_property_is_refused() {
     assert_eq!(al_testkit::int(al_testkit::run_in(fits, "C", "F")), 0);
 }
 
-/// `Format(Row.Opt::Two, 0, 9)` gives the ordinal (misc/lt-probes-needed-5/PnE10Formats.al:96-97); `Format(Row.Opt::Two, 0, 2)`
+/// `Format(Row.Opt::Two, 0, 9)` gives the ordinal (json/PnE10Formats.al:96-97); `Format(Row.Opt::Two, 0, 2)`
 /// and the other forms with a length or format number are not pinned: refused.
 #[test]
 fn format_of_an_option_member_with_a_format_number_is_refused() {

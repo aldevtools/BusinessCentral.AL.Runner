@@ -1,6 +1,6 @@
 //! `FindFirstField` and `FindNextField` on a list, then reads of controls whose source is an expression: a function call, a
 //! string expression and a page variable that OnAfterGetRecord sets follow the row the search ended on; a search on an
-//! arithmetic control with a text finds nothing and leaves the cursor (misc/lt-y13-triage/Y13PageTriage.al:150-186, corpus
+//! arithmetic control with a text finds nothing and leaves the cursor (testpage/Y13PageTriage.al:150-186, corpus
 //! master).
 
 const SRC: &str = r#"

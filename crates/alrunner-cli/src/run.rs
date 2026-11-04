@@ -1247,7 +1247,7 @@ fn test_inner(
     }
     // `--isolation required` follows BC's TestRunnerHub, which takes the isolation from RequiredTestIsolation on BC 28 and
     // later. On BC 27 the corpus CI runs every test codeunit under runner 130450 (TestIsolation = Codeunit), whatever the
-    // property says (corpus codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:36-40, the BC28PLUS guards at :443,
+    // property says (corpus codeunits/run-onrun/QuCommitIsolation.al:36-40, the BC28PLUS guards at :443,
     // :531 and :724); AL Runner runs it that way.
     let hub = a.required_isolation
         && chosen

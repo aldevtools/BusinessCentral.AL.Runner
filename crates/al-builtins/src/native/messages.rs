@@ -1,11 +1,11 @@
 use super::*;
 
 /// `Message(String, Values...)`: the text is substituted like `StrSubstNo`
-/// before it reaches the UI (corpus handlers/TestMessageHandler.al
+/// before it reaches the UI (corpus ui-handlers/TestMessageHandler.al
 /// Message_FormattedString_HandlerGetsFormatted).
 pub(super) fn message(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let mut text = substitute(&text_arg(args, 0)?, &args[1..], ctx)?;
-    // A CR LF in the text or in an argument reaches the handler as one backslash (misc/lt-system-functions/ErrorMessage.al:598-616,
+    // A CR LF in the text or in an argument reaches the handler as one backslash (errors/error-texts/ErrorMessage.al:598-616,
     // LT_BU_Message_BackslashAndAppendLine).
     if text.contains("\r\n") {
         text = text.replace("\r\n", "\\");
@@ -15,7 +15,7 @@ pub(super) fn message(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Valu
 }
 
 /// `Confirm(String, Default, Values...)`. Values are not substituted into the
-/// question a handler sees (corpus handlers/TestConfirmFormatArgs.al). An
+/// question a handler sees (corpus ui-handlers/TestConfirmFormatArgs.al). An
 /// omitted Default is false (docs/probes-needed.md).
 pub(super) fn confirm(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let question = text_arg(args, 0)?;
@@ -47,7 +47,7 @@ pub(super) fn str_menu(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
 }
 
 /// `%n` replaced by `Format(arg n)`. A placeholder without an argument stays as written, `%0`, `%10` of one argument and a
-/// `%` at the end of the text too; an argument is not scanned again (types/lt-variant/VaTTextConst.al:TextConst_StrSubstNo
+/// `%` at the end of the text too; an argument is not scanned again (types/variant/VaTTextConst.al:TextConst_StrSubstNo
 /// `one_arg_only`, `no_args`, `pct10`, `pct0`, `pct5_not_given`, `pct_end`, `arg_has_percent`;
 /// text/TestTextProcessingContracts.al:StrSubstNo_FewerArgsThanPlaceholders_NoError). `#n` fields are pinned for
 /// `StrSubstNo` only ([`substitute_fields`]); here they are refused.
@@ -55,8 +55,8 @@ pub fn substitute(template: &str, args: &[Value], ctx: &dyn FormatCtx) -> Result
     substitute_with(template, args, ctx, false)
 }
 
-/// [`substitute`] that also fills `#n` fields, as `StrSubstNo` does (types/lt-evaluate-format-lasterror-setview/
-/// P86StrSubstNo.al:Sub_FieldWidth, text/lt-text-functions/StrSubstNo.Codeunit.al:SubstNoHash): a run of `#`, one digit
+/// [`substitute`] that also fills `#n` fields, as `StrSubstNo` does (format-evaluate/
+/// P86StrSubstNo.al:Sub_FieldWidth, text/text-methods/StrSubstNo.Codeunit.al:SubstNoHash): a run of `#`, one digit
 /// n and a run of `#` is a field as wide as that run (`#1` 2, `##1##` 5, `#1#1` is `#1#` then `1`). `Format(arg n)` fills
 /// it from the left, padded with spaces; a value longer than the field gives `*` over the whole width. A field whose
 /// digit is 0 or names no argument, a `#` run without a digit and `# 1` stay as written. Two or more digits are not
@@ -84,7 +84,7 @@ pub(super) fn substitute_with(
                 out.push_str(&template[lit..i]);
                 let rest = &template[i + 1..];
                 // A number that starts with 0 is no placeholder (`%0`, `%01`, `%001` stay as written:
-                // types/lt-evaluate-format-lasterror-setview/P86StrSubstNo.al:Sub_Percent t11, t19, t20).
+                // format-evaluate/P86StrSubstNo.al:Sub_Percent t11, t19, t20).
                 let digits = if rest.starts_with('0') {
                     0
                 } else {

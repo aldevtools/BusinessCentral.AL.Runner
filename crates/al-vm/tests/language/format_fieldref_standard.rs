@@ -1,5 +1,5 @@
 //! Format(FieldRef, Length, FormatNumber) with a format number other than 0 formats the field's value as
-//! Format(FieldRef.Value, Length, FormatNumber) does (corpus errors/lt-ms-refusals-129/P129FormatFieldRef.al).
+//! Format(FieldRef.Value, Length, FormatNumber) does (corpus recordref-fieldref/P129FormatFieldRef.al).
 
 use al_testkit::text;
 

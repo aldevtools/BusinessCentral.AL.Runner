@@ -1,7 +1,7 @@
 //! `StartSession` under Disabled test isolation (al-runner issue 5609). BC starts a background session there; what the
 //! probes measure is that it starts, gets a positive id, ends within the starting test's wait (`Session.IsSessionActive`
 //! then answers false) and that what it wrote is committed and seen by the starting test and the later ones
-//! (codeunit/lt-qu-commit-isolation/RqIsolationModes.al:101-128 with RQ_D03/RQ_D04 at :585-614, BC 28 and later;
+//! (codeunits/run-onrun/RqIsolationModes.al:101-128 with RQ_D03/RQ_D04 at :585-614, BC 28 and later;
 //! tests/al-language-isolation-probe/src/SdIsolStartSession.Codeunit.al:22-30, :38-63, runners 61304 and 61305).
 //!
 //! The runtime runs the session's codeunit to its end inside the call, on this `Session` with the state of a new session

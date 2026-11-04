@@ -1,7 +1,7 @@
 //! XmlPort export with FormatEvaluate = Xml of a Time and a DateTime with milliseconds: the milliseconds without trailing zeros
 //! (`12:34:56.789`, `12:34:56.5`, `12:34:56.007`, `00:00:00` without any), a DateTime with the same fraction and `Z`; a database
 //! table holds the value SQL Server stored (.789 is .79, 23:59:59.999 is the next day's 00:00:00). A zero Duration is `P0DT0H0M0.0S`. Corpus writer TU's branch
-//! al-runtime-rs-staging-tu, xmlport/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds (xmlport 90130).
+//! al-runtime-rs-staging-tu, xmlports/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds (xmlport 90130).
 
 use al_testkit::run;
 

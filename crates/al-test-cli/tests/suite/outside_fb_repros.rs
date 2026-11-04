@@ -50,7 +50,7 @@ fn issue_6118_lookup_onvalidate_updates_the_part() {
 
 /// Issue 6115: with a ListPart on the page, GoToRecord of Rec's row after a marking OnDrillDown, in a secondary key (the
 /// reporter's test) and in the primary key, with the part's row read after it as corpus writer TW pins it
-/// (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:518 TW_NameKeyWithPart_GoToRecordOfRecsRow `part` `D1`, :562
+/// (pages/onopenpage-moves-rec/SuRefillKey.al:518 TW_NameKeyWithPart_GoToRecordOfRecsRow `part` `D1`, :562
 /// TW_IdKeyWithPart_GoToRecordOfRecsRow `goto 3` `Yes/3:R3;R1;R3;R3;C3;`, `part` `D3`). A GoToRecord of another row walks the
 /// marked rows and answers false, in either key (TW's :541 and :585; al-runner issue 6141).
 #[test]

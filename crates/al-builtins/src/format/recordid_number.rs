@@ -1,5 +1,5 @@
 //! The standard format numbers of a RecordId: 0 and 1 format the key values as format 0 does, 2 and 9 with that number, and 3
-//! to 8 do not exist (types/lt-implicit-conversions/P79RecordId.al:183-200 TryFmt, :330-346 CodeKey_FormatNumbers and
+//! to 8 do not exist (types/operators-expressions/P79RecordId.al:183-200 TryFmt, :330-346 CodeKey_FormatNumbers and
 //! DateKey_FormatNumbers). 10 is the bookmark ([`bookmark_text`]). Any other number is not pinned and refused.
 
 use super::{FormatCtx, FormatFail, no_such_format};
@@ -17,7 +17,7 @@ pub(super) fn recordid_key_standard(standard: i32) -> Result<i32, FormatFail> {
 }
 
 /// `Format(RecordId, 0, 10)`: the bookmark of the key as GetUrl writes it, unescaped (`17;D2sBAAJ7/0EALQAx`; the blank RecordId
-/// of a Code key `11;D2sBAAJ7`; types/lt-y49-recordid-format10/Y49RecordIdFormat10.al:117-148, `crate::bookmark`). A RecordId
+/// of a Code key `11;D2sBAAJ7`; format-evaluate/Y49RecordIdFormat10.al:117-148, `crate::bookmark`). A RecordId
 /// that names no table, or a key of another shape, is refused.
 pub(super) fn bookmark_text(rid: &crate::value::LibraryValue, ctx: &dyn FormatCtx) -> Result<String, FormatFail> {
     let crate::value::LibraryValue::RecordId {

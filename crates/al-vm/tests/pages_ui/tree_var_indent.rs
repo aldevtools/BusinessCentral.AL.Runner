@@ -1,6 +1,6 @@
 //! A tree repeater whose IndentationColumn is a page variable OnAfterGetRecord sets, with no TreeInitialState: it opens collapsed
 //! after reading every row, walks the level-0 rows, and Expand(true) shows a row's children (corpus
-//! pages/lt-y72-page-probes/Y72TreeDefaultState.al).
+//! testpage/Y72TreeDefaultState.al).
 
 use al_testkit::text;
 

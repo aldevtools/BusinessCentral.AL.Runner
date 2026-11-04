@@ -332,7 +332,7 @@ fn refusal(body: &str) -> String {
 const SEED: &str = "R.\"No.\" := 'A'; R.Name := 'Alpha'; R.Other := 'o1'; R.Insert();
     R.\"No.\" := 'B'; R.Name := 'Bravo'; R.Other := 'o2'; R.Insert();";
 
-// pageextensiontrigger/TestPageExtensionPageTriggers_Tests.al:
+// pages/extensions/TestPageExtensionPageTriggers_Tests.al:
 // PageextensionOnOpenPageRunsOnceWhenTheExtendedPageOpens, ...OnAfterGetRecordRunsForEachRowTheTestPageVisits,
 // ...OnOpenPageIsRaisedBeforeTheFirstOnAfterGetRecord
 #[test]
@@ -348,13 +348,13 @@ fn an_extension_trigger_runs_in_the_pages_context_for_each_row() {
         "F",
     );
     // A list with OnAfterGetRecord alone reads its window and then the current row once more, whether the view ends inside the window
-    // or not (handlers/TestPageRuntimeContracts.al:121-136; pages/lt-testpage-list-rows/ListRowsOpenAG.al:OpenView_OnlyRec5Rows_ReadsAtOpen).
+    // or not (testpage/TestPageRuntimeContracts.al:121-136; testpage/ListRowsOpenAG.al:OpenView_OnlyRec5Rows_ReadsAtOpen).
     assert_eq!(text(r), "ext-open;ext-agr:A;ext-agr:B;ext-agr:A;");
 }
 
-// pageextensioncontrol/TestPageExtensionControlTrapped_Tests.al: TrappedPageRun_ExtExpressionControl_ReadsTheCurrentRow,
+// pages/extensions/TestPageExtensionControlTrapped_Tests.al: TrappedPageRun_ExtExpressionControl_ReadsTheCurrentRow,
 // _ExtGlobalControl_ReadsTheValueItsOnOpenPageAssigned, _ExtControlOnValidate_UpdatesTheGlobalTheControlShows;
-// pageextensioncontrol/TestPageExtensionControlBinding_Tests.al (a control bound to Rec from the extension)
+// pages/extensions/TestPageExtensionControlBinding_Tests.al (a control bound to Rec from the extension)
 #[test]
 fn extension_controls_are_bound_to_rec_to_an_expression_and_to_the_extensions_own_global() {
     let r = run(
@@ -433,8 +433,8 @@ fn an_extension_controls_on_validate_runs_on_the_extensions_instance() {
     assert_eq!(text(r), "TYPED!");
 }
 
-// handlers/TestPageExtensionActionInvoke_Tests.al: ExtActionInvokeRunsAgainstThePagesCurrentRow,
-// ExtActionInvokePropagatesAnErrorRaisedInsideOnAction; handlers/TestPageSpacedActionName_Tests.al: SpacedExtActionInvokeRunsItsTrigger
+// testpage/TestPageExtensionActionInvoke_Tests.al: ExtActionInvokeRunsAgainstThePagesCurrentRow,
+// ExtActionInvokePropagatesAnErrorRaisedInsideOnAction; testpage/TestPageSpacedActionName_Tests.al: SpacedExtActionInvokeRunsItsTrigger
 #[test]
 fn an_extension_action_runs_its_trigger_against_the_current_row() {
     let r = run(
@@ -459,7 +459,7 @@ fn an_extension_action_runs_its_trigger_against_the_current_row() {
     );
 }
 
-// pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al:
+// pages/extensions/TestModifiedControlValidateTriggers_Tests.al:
 // ModifiedControlBeforeAndAfterValidateWrapTheBaseControlsOwnOnValidate, TheOtherControlsOwnModifyBlockWrapsItsOwnBaseTrigger,
 // AModifyBlockOnAnotherControlIsNotRaisedForThisOne
 #[test]
@@ -528,8 +528,8 @@ fn drill_down_lookup_and_assist_edit_run_the_triggers_of_the_control_they_are_ca
     assert_eq!(text(r), "extdrill;extlookup;baseassist;baseassist;extassist;");
 }
 
-// handlers/TestPageExtensionModifyCaption_Tests.al: SamePage_ModifiedCaption_OnRecordControl_WinsOverFieldCaption;
-// handlers/TestPageExtensionControlCaption_Tests.al: ExtRecordFieldControl_DeclaredCaption_WinsOverFieldCaption
+// pages/extensions/TestPageExtensionModifyCaption_Tests.al: SamePage_ModifiedCaption_OnRecordControl_WinsOverFieldCaption;
+// pages/extensions/TestPageExtensionControlCaption_Tests.al: ExtRecordFieldControl_DeclaredCaption_WinsOverFieldCaption
 #[test]
 fn a_modified_or_declared_caption_wins_over_the_field_caption() {
     let r = run(
@@ -547,7 +547,7 @@ fn a_modified_or_declared_caption_wins_over_the_field_caption() {
     assert_eq!(text(r), "Modified Plain|Ext Other");
 }
 
-// pageextensioncontrol/TestPageExtensionModifyEditable_Tests.al:
+// pages/extensions/TestPageExtensionModifyEditable_Tests.al:
 // SourcePageExtModifyEditable_SourcePage_FollowsTheExtensionsVariablePerRow, ..._ExtensionReplacesTheBase
 #[test]
 fn a_modified_editable_or_enabled_follows_the_extensions_variable_and_replaces_the_base() {
@@ -568,7 +568,7 @@ fn a_modified_editable_or_enabled_follows_the_extensions_variable_and_replaces_t
     assert_eq!(text(r), "YesNoNo|YesYesYesYes");
 }
 
-// handlers/TestPagePromotedActionref_Tests.al: PromotedActionrefInvokeRunsItsTargetsTrigger, PromotedActionrefInsideAGroupRunsItsTargetsTrigger,
+// testpage/TestPagePromotedActionref_Tests.al: PromotedActionrefInvokeRunsItsTargetsTrigger, PromotedActionrefInsideAGroupRunsItsTargetsTrigger,
 // PageExtensionPromotedActionrefRunsItsOwnExtensionActionsTrigger, PageExtensionPromotedActionrefRunsABasePageActionsTrigger
 #[test]
 fn an_actionref_invokes_its_targets_trigger_whether_base_or_extension_declares_either() {
@@ -587,7 +587,7 @@ fn an_actionref_invokes_its_targets_trigger_whether_base_or_extension_declares_e
     assert_eq!(text(r), "base-open;doit;doit;ext:;base-via-ext;");
 }
 
-// pageextensionpart/TestPageExtensionPart.al: SourceHost_ExtensionPart_OpensWithTheHost, SourceHost_ExtensionPartVisibleFalse_IsNotOnThePage
+// pages/extensions/TestPageExtensionPart.al: SourceHost_ExtensionPart_OpensWithTheHost, SourceHost_ExtensionPartVisibleFalse_IsNotOnThePage
 #[test]
 fn a_part_an_extension_adds_opens_with_its_host_and_hides_when_not_visible() {
     let r = run(
@@ -606,7 +606,7 @@ fn a_part_an_extension_adds_opens_with_its_host_and_hides_when_not_visible() {
     assert!(t.contains("was not found on the page"), "{t}");
 }
 
-// pageextensiontrigger/TestPageExtQualifiedExtends_Tests.al: ImportedAndQualifiedExtendsBothRunForAUniquelyNamedPage
+// pages/extensions/TestPageExtQualifiedExtends_Tests.al: ImportedAndQualifiedExtendsBothRunForAUniquelyNamedPage
 // (two extensions declare OnOpenPage; both run once, the test states no order between them).
 #[test]
 fn two_extensions_declaring_the_same_page_trigger_both_run_in_application_order() {
@@ -618,7 +618,7 @@ fn two_extensions_declaring_the_same_page_trigger_both_run_in_application_order(
 }
 
 // OnFindRecord is page-only in BC: an extension that declares it is not called for it, so it is refused. (OnQueryClosePage is
-// pinned: handlers/TestPageCloseTriggersSelectionCardPageContracts.al; OnInsertRecord and OnModifyRecord: pageext_leads.rs.)
+// pinned: testpage/TestPageCloseTriggersSelectionCardPageContracts.al; OnInsertRecord and OnModifyRecord: pageext_leads.rs.)
 #[test]
 fn an_extension_trigger_the_page_alone_runs_is_refused() {
     let why = refusal("procedure F() var P: TestPage \"PX Closing\"; begin P.OpenView(); end;");
@@ -675,7 +675,7 @@ codeunit 52301 C
 }
 "#;
 
-// handlers/TestPageExtensionModifyCaption_Tests.al: DependencyPage_ModifiedByBothApps_ThisAppWins_EvenWithTheLowerId (FxBoth2Ctl),
+// pages/extensions/TestPageExtensionModifyCaption_Tests.al: DependencyPage_ModifiedByBothApps_ThisAppWins_EvenWithTheLowerId (FxBoth2Ctl),
 // DependencyPage_ModifiedCaption_FromItsOwnApp, SamePage_TwoExtensionsOfOneApp_HigherIdWins_WhateverTheOrder (Twice2Ctl)
 #[test]
 fn the_app_that_depends_on_the_other_wins_a_modify_and_within_an_app_the_higher_id_does() {
@@ -689,8 +689,8 @@ fn the_app_that_depends_on_the_other_wins_a_modify_and_within_an_app_the_higher_
     assert_eq!(text(r), "Main Both|High Id Twice|Dependency Own");
 }
 
-// pageextensioncontrol/TestPageExtensionControlTrapped_Tests.al: TrappedPageRun_UndeclaredControlId_IsNotFound;
-// autoformat/TestAutoFormat.al:135 AutoFormat_GetFieldByTableFieldNo_Errors
+// pages/extensions/TestPageExtensionControlTrapped_Tests.al: TrappedPageRun_UndeclaredControlId_IsNotFound;
+// format-evaluate/autoformat/TestAutoFormat.al:135 AutoFormat_GetFieldByTableFieldNo_Errors
 #[test]
 fn get_field_of_an_id_the_page_does_not_declare_is_not_found() {
     let r = run(
@@ -704,8 +704,8 @@ fn get_field_of_an_id_the_page_does_not_declare_is_not_found() {
     assert_eq!(text(r), "The field with ID = 12345 is not found on the page.");
 }
 
-// handlers/TestPageExtensionActionInvoke_Tests.al (the extension's code runs in the page's context) with
-// handlers/TestPageControlEditableRoutes.al (CurrPage.Editable(false) in OnOpenPage): an extension reaches the page through CurrPage.
+// testpage/TestPageExtensionActionInvoke_Tests.al (the extension's code runs in the page's context) with
+// testpage/TestPageControlEditableRoutes.al (CurrPage.Editable(false) in OnOpenPage): an extension reaches the page through CurrPage.
 #[test]
 fn an_extensions_code_reaches_the_page_through_curr_page() {
     let r = run(
@@ -739,7 +739,7 @@ fn found(ctl: &str, areas_set: &str) -> bool {
     }
 }
 
-// pageapplicationarea/TestPageApplicationAreaControlRemoval.al: AreaNotEnabled_ControlIsNotFound,
+// pages/application-area/TestPageApplicationAreaControlRemoval.al: AreaNotEnabled_ControlIsNotFound,
 // AreaNotEnabled_EnabledControlIsStillFoundAndWrites, AreaEnabled_ControlIsFoundAndWrites, EmptyAreaString_EveryControlIsFound
 #[test]
 fn a_control_whose_area_is_not_enabled_is_not_on_the_page() {
@@ -749,7 +749,7 @@ fn a_control_whose_area_is_not_enabled_is_not_on_the_page() {
     assert!(found("ServiceCtl", ""));
 }
 
-// pageapplicationarea/TestPageApplicationAreaExtensionControlRemoval.al: ExtNoArea_DoesNotInheritPageArea_IsNotFound
+// pages/application-area/TestPageApplicationAreaExtensionControlRemoval.al: ExtNoArea_DoesNotInheritPageArea_IsNotFound
 // (the page's own control without an area inherits the page's), ExtOwnArea_NotEnabled_IsNotFound,
 // ModifiedArea_ModifyValueEnabled_IsFoundAndWrites, ModifiedArea_BaseValueNoLongerApplies_IsNotFound,
 // ExtNoArea_EmptyAreaString_IsFoundAndWrites
@@ -766,7 +766,7 @@ fn extension_controls_inherit_no_page_area_and_a_modify_replaces_the_area() {
     assert!(found("EveryCtl", "#Basic"));
 }
 
-// pageapplicationarea/TestPageApplicationAreaActionRemoval.al, ...ExtensionActionPartRemoval.al:
+// pages/application-area/TestPageApplicationAreaActionRemoval.al, ...ExtensionActionPartRemoval.al:
 // an action is removed like a control; an actionref follows its target unless it states an area of its own.
 #[test]
 fn actions_and_actionrefs_follow_the_areas_and_parts_are_removed() {
@@ -801,7 +801,7 @@ fn actions_and_actionrefs_follow_the_areas_and_parts_are_removed() {
     );
 }
 
-// pageapplicationarea/TestPageDiscardedFieldValueCall.al: RemovedControl_DiscardedValueCall_RaisesNothing,
+// pages/application-area/TestPageDiscardedFieldValueCall.al: RemovedControl_DiscardedValueCall_RaisesNothing,
 // FoundControl_DiscardedValueCall_RaisesNothing
 #[test]
 fn a_discarded_value_call_is_not_evaluated() {
@@ -833,8 +833,8 @@ fn changing_the_areas_while_a_page_is_open_is_refused() {
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-// handlers/TestPagePartAgcr_Tests.al (a host reaches its part's page through CurrPage.<Part>.Page) with
-// pageextensioncontrol/TestPageExtensionControlBinding_Page.al (a procedure of the part page's extension runs on the
+// testpage/TestPagePartAgcr_Tests.al (a host reaches its part's page through CurrPage.<Part>.Page) with
+// pages/extensions/TestPageExtensionControlBinding_Page.al (a procedure of the part page's extension runs on the
 // extension's own instance, where its variables live).
 #[test]
 fn a_procedure_of_a_part_pages_extension_runs_on_the_extensions_instance() {

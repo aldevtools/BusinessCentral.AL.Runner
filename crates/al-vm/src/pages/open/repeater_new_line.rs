@@ -15,7 +15,7 @@ pub(in crate::pages) enum RepeaterLine {
 
 impl Session {
     /// The value of the repeater's `Editable`, evaluated now, decides whether the new-row line shows (corpus branch
-    /// al-runtime-rs-staging-y65 eefaf01b, pages/lt-y65-readonly-repeater/Y65ReadOnlyRepeater.al, al-runner issue 6674):
+    /// al-runtime-rs-staging-y65 eefaf01b, pages/readonly-repeater/Y65ReadOnlyRepeater.al, al-runner issue 6674):
     /// - `Editable = false` (:255 List, :422 Worksheet, :443 ListPart in a Card) and a page variable that is false (:297): no
     ///   line, Next on the last row answers false and stays there;
     /// - a page variable that is true (:339): the line shows, as on a repeater without the property.
@@ -50,7 +50,7 @@ impl Session {
     }
 
     /// TestPage.Editable(): the page's own editability, except that a Worksheet whose repeater says Editable = false answers
-    /// Yes when it is opened with OpenView (pages/lt-y65-readonly-repeater/Y65ReadOnlyRepeater.al:423 `view two rows`
+    /// Yes when it is opened with OpenView (pages/readonly-repeater/Y65ReadOnlyRepeater.al:423 `view two rows`
     /// `editable=No/Yes`). A Worksheet opened for view with an editable repeater is not pinned and keeps the earlier answer.
     pub(in crate::pages) fn test_page_editable(&mut self, st: &St) -> Result<bool, Signal> {
         if self.page_editable(st) {
@@ -71,7 +71,7 @@ impl Session {
 
     /// A List opened for edit over an empty view whose repeater's Editable is false, the literal or a page variable that is
     /// false, runs OnNewRecord and OnAfterGetCurrRecord once on a blank record at the open, as a Card does, and shows no row
-    /// (pages/lt-y42-repeater-new-line/Y42RepeaterNewLine.al:350 NrEd_ListRepeaterFalse_Empty `log open` = `new;agcr ;`, :453
+    /// (pages/triggers/Y42RepeaterNewLine.al:350 NrEd_ListRepeaterFalse_Empty `log open` = `new;agcr ;`, :453
     /// NrEd_ListRepeaterVarFalse_Empty `open editable=No;new;agcr ;`). A Worksheet or a ListPart with such a repeater is not
     /// pinned and opens as before.
     pub(in crate::pages) fn list_without_line_on_empty_view(&mut self, st: &St) -> Result<bool, Signal> {

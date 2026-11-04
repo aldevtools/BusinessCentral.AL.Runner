@@ -498,7 +498,7 @@ fn xmlport_text_elements_are_variables() {
 
 #[test]
 fn xmlport_bigtext_text_element_is_a_bigtext_variable() {
-    // corpus xmlport/lt-xmlport-bigtext/XmlPortBigText.al: a text element with TextType = BigText is a BigText variable.
+    // corpus xmlports/shapes-properties/XmlPortBigText.al: a text element with TextType = BigText is a BigText variable.
     let x = "xmlport 50901 X { schema { textelement(Root) { textelement(Big) { TextType = BigText; } } } trigger OnPreXmlPort() var N: Integer; begin Big.AddText('x'); N := Big.Length(); end; }";
     assert_eq!(diags(&[x]), Vec::<String>::new());
 }
@@ -947,7 +947,7 @@ fn a_page_extension_cannot_modify_editable_of_a_part() {
 }
 
 // al-runner issue 5756: an xmlport whose request page states `SourceTable` has a `Rec` of that table in its triggers,
-// procedures and request page (xmlport/lt-y-xmlport-props/YXmlPortProps.al:421-470, the ALCops example); without one, `Rec`
+// procedures and request page (xmlports/shapes-properties/YXmlPortProps.al:421-470, the ALCops example); without one, `Rec`
 // does not exist (must-not-compile 2111: a request page without SourceTable; 2112: no request page).
 #[test]
 fn an_xmlport_request_page_source_table_gives_the_xmlport_a_rec() {
@@ -1018,7 +1018,7 @@ fn a_local_procedure_of_a_codeunit_does_not_hide_a_builtin_codeunit_method_of_it
     );
 }
 
-/// codeunit/lt-sc-overload-record-interface/ScOverloadRecordInterface.al:50-107: with a `var Record` and an `Interface`
+/// codeunits/interfaces/ScOverloadRecordInterface.al:50-107: with a `var Record` and an `Interface`
 /// overload, an enum or a codeunit that implements the interface takes the Interface one, a record the Record one.
 #[test]
 fn an_enum_or_codeunit_that_implements_the_interface_takes_the_interface_overload() {

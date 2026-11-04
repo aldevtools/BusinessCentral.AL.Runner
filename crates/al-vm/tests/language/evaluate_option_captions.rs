@@ -1,5 +1,5 @@
 //! `Evaluate` into an Option field with captions, and into the Option key field of a RecordId
-//! (types/lt-option-evaluate-captions/OptionEvaluateCaptions.al, codeunit 90822).
+//! (format-evaluate/OptionEvaluateCaptions.al, codeunit 90822).
 
 fn run(src: &str) -> String {
     al_testkit::text(al_testkit::run_with(src, "C", "F", vec![]).map(|(v, _)| v))

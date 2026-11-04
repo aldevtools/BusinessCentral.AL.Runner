@@ -93,7 +93,7 @@ fn name_of_a_field_ref_that_was_never_assigned_raises_not_initialized() {
 }
 
 /// Base Application's `Error Message Handler.ShowNotification` does `Notification.SetData('RegisterID', RegisterID)`
-/// with a Guid (27 Tests-ERM tests). The Guid is its text form (misc/lt-y70-assumptions/Y70Probes.al:264-343).
+/// with a Guid (27 Tests-ERM tests). The Guid is its text form (record/Y70Probes.al:264-343).
 #[test]
 fn notification_set_data_takes_a_guid_as_its_text_form() {
     let r = run(
@@ -103,7 +103,7 @@ fn notification_set_data_takes_a_guid_as_its_text_form() {
 }
 
 /// Evaluate into a Text takes the source as it is, an empty one too; into a Code it trims and upper-cases (corpus
-/// errors/lt-ms-refusals-128/P128EvalBasic.al:P128_Evaluate_IntoText, P128_Evaluate_IntoCode). Purchase Prices.GetRecFilters
+/// recordref-fieldref/P128EvalBasic.al:P128_Evaluate_IntoText, P128_Evaluate_IntoCode). Purchase Prices.GetRecFilters
 /// does `Evaluate(StartingDateFilter, Rec.GetFilter("Starting Date"))` into a Text (52 Tests-ERM tests).
 #[test]
 fn evaluate_into_text_and_code() {
@@ -113,7 +113,7 @@ fn evaluate_into_text_and_code() {
     assert_eq!(text(r), "Yes|[]|[AB]");
 }
 
-/// errors/lt-ms-refusals-135/P135RecordIdTestField.al: TestField on a RecordId field fails while nothing was assigned
+/// recordref-fieldref/P135RecordIdTestField.al: TestField on a RecordId field fails while nothing was assigned
 /// (Tests-ERM, 41 tests behind `Job Queue Entry.TestField("Record ID to Process")`-like checks) and passes for an assigned id,
 /// the id of an initialized record included.
 #[test]
@@ -140,7 +140,7 @@ codeunit 50961 C
     );
 }
 
-/// misc/lt-probes-needed-5/PnE08RecordMisc.al:TestField_Blob: a Blob with no content fails TestField with the plain text, with or
+/// recordref-fieldref/PnE08RecordMisc.al:TestField_Blob: a Blob with no content fails TestField with the plain text, with or
 /// without CalcFields (noDataNoCalc, noDataCalc); one written through a stream and not yet saved passes (dataNoCalcPassed).
 /// A Blob that holds content the database gave is not pinned: it passes only as a flagged assumption (Tests-ERM, 25 tests).
 #[test]

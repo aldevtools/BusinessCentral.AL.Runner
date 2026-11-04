@@ -229,7 +229,7 @@ const SEED: &str = "local procedure Seed() var R: Record \"RO Row\"; P: Codeunit
 end;
 procedure Check(Expected: Text; Actual: Text) begin if Expected <> Actual then Error('expected <%1> got <%2>', Expected, Actual); end;";
 
-// handlers/TestPageActionRunObject_Tests.al:RunObjectActionOpensTheTargetOnTheHostsCurrentRow
+// testpage/TestPageActionRunObject_Tests.al:RunObjectActionOpensTheTargetOnTheHostsCurrentRow
 #[test]
 fn a_page_action_opens_its_target_on_the_hosts_current_row_and_a_handler_answers_it() {
     passes(&format!(
@@ -242,7 +242,7 @@ fn a_page_action_opens_its_target_on_the_hosts_current_row_and_a_handler_answers
     ));
 }
 
-// handlers/TestPageActionRunObject_Tests.al:ActionrefToARunObjectActionOpensTheSameTarget
+// testpage/TestPageActionRunObject_Tests.al:ActionrefToARunObjectActionOpensTheSameTarget
 #[test]
 fn an_actionref_opens_what_its_action_opens() {
     passes(&format!(
@@ -255,7 +255,7 @@ fn an_actionref_opens_what_its_action_opens() {
     ));
 }
 
-// handlers/TestPageActionRunObject_Tests.al:AnActionWithATriggerStillRunsItsTriggerAndOpensNothing
+// testpage/TestPageActionRunObject_Tests.al:AnActionWithATriggerStillRunsItsTriggerAndOpensNothing
 #[test]
 fn an_action_with_a_trigger_runs_it_and_opens_nothing() {
     passes(&format!(
@@ -267,7 +267,7 @@ fn an_action_with_a_trigger_runs_it_and_opens_nothing() {
     ));
 }
 
-// handlers/TestPageActionRunObject_Tests.al:RunObjectActionToAStandardDialogTargetIsAnsweredByTheModalHandler
+// testpage/TestPageActionRunObject_Tests.al:RunObjectActionToAStandardDialogTargetIsAnsweredByTheModalHandler
 #[test]
 fn a_standard_dialog_target_is_answered_by_the_modal_page_handler() {
     passes(&format!(
@@ -280,7 +280,7 @@ fn a_standard_dialog_target_is_answered_by_the_modal_page_handler() {
     ));
 }
 
-// handlers/TestPageActionRunObjectNoHandler_Tests.al:RunObjectActionWithoutAHandlerOpensItsTargetUnattended
+// testpage/TestPageActionRunObjectNoHandler_Tests.al:RunObjectActionWithoutAHandlerOpensItsTargetUnattended
 #[test]
 fn a_card_target_with_no_handler_opens_unattended_and_raises_nothing() {
     passes(&format!(
@@ -292,7 +292,7 @@ fn a_card_target_with_no_handler_opens_unattended_and_raises_nothing() {
     ));
 }
 
-// handlers/TestPageActionRunObjectNoHandler_Tests.al:RunObjectActionOnADialogTargetWithoutAHandlerIsRefused / ...OpensItBeforeRefusing
+// testpage/TestPageActionRunObjectNoHandler_Tests.al:RunObjectActionOnADialogTargetWithoutAHandlerIsRefused / ...OpensItBeforeRefusing
 #[test]
 fn a_dialog_target_with_no_handler_opens_and_then_is_refused() {
     passes(&format!(
@@ -306,7 +306,7 @@ fn a_dialog_target_with_no_handler_opens_and_then_is_refused() {
     ));
 }
 
-// handlers/TestPageActionRunObjectKinds_Tests.al:RunObjectNamingAReport/XmlPort/Query... (the refusals of the TestPage surface)
+// testpage/TestPageActionRunObjectKinds_Tests.al:RunObjectNamingAReport/XmlPort/Query... (the refusals of the TestPage surface)
 #[test]
 fn report_xmlport_and_query_targets_are_refused_with_the_test_surface_texts() {
     passes(&format!(
@@ -329,8 +329,8 @@ fn report_xmlport_and_query_targets_are_refused_with_the_test_surface_texts() {
     ));
 }
 
-// handlers/TestPageActionRunObjectKinds_Tests.al:RunObjectNamingACodeunitRunsItOnTheHostsRow
-// handlers/TestPageActionRunObjectCodeunitRec_Tests.al:CodeunitMovingItsRecMovesTheHost, CodeunitModifyingItsRecIsShownOnTheHost
+// testpage/TestPageActionRunObjectKinds_Tests.al:RunObjectNamingACodeunitRunsItOnTheHostsRow
+// testpage/TestPageActionRunObjectCodeunitRec_Tests.al:CodeunitMovingItsRecMovesTheHost, CodeunitModifyingItsRecIsShownOnTheHost
 #[test]
 fn a_codeunit_target_runs_on_the_hosts_own_record() {
     passes(&format!(
@@ -351,8 +351,8 @@ fn a_codeunit_target_runs_on_the_hosts_own_record() {
     ));
 }
 
-// handlers/TestPageActionRunPageLink.al:ActionRunPageLink_Field_FiltersTargetToTheHostsCurrentRow, _Const_, _Filter_
-// handlers/TestActionRunPageLinkFilterGroup.al:RunPageLink_FilterLandsInGroup0_NotTheLinkGroup
+// testpage/TestPageActionRunPageLink.al:ActionRunPageLink_Field_FiltersTargetToTheHostsCurrentRow, _Const_, _Filter_
+// testpage/TestActionRunPageLinkFilterGroup.al:RunPageLink_FilterLandsInGroup0_NotTheLinkGroup
 #[test]
 fn run_page_link_filters_the_target_in_filter_group_zero() {
     passes(
@@ -383,7 +383,7 @@ fn run_page_link_filters_the_target_in_filter_group_zero() {
     );
 }
 
-// handlers/TestPageActionRunPageView.al:RunPageView_SortingAndWhere_FiltersAndOrdersTheOpenedPage
+// testpage/TestPageActionRunPageView.al:RunPageView_SortingAndWhere_FiltersAndOrdersTheOpenedPage
 #[test]
 fn run_page_view_filters_in_group_three_and_orders_the_target() {
     passes(&format!(
@@ -398,7 +398,7 @@ fn run_page_view_filters_in_group_three_and_orders_the_target() {
     ));
 }
 
-// handlers/TestPageActionRunPageMode.al:RunPageModeView_OpensTheCardReadOnly, RunPageModeCreate_OpensTheCardOnANewRecord,
+// testpage/TestPageActionRunPageMode.al:RunPageModeView_OpensTheCardReadOnly, RunPageModeCreate_OpensTheCardOnANewRecord,
 // RunPageModeCreate_NoHandlerBound_Triggers, RunPageModeCreate_Trapped_Triggers
 #[test]
 fn run_page_mode_opens_the_target_read_only_or_on_a_new_record() {
@@ -419,7 +419,7 @@ fn run_page_mode_opens_the_target_read_only_or_on_a_new_record() {
     ));
 }
 
-// handlers/TestPageActionRunObject_Tests.al:RunObjectActionOpensTheTargetOnTheHostsCurrentRow (RunPageOnRec absent opens the first row)
+// testpage/TestPageActionRunObject_Tests.al:RunObjectActionOpensTheTargetOnTheHostsCurrentRow (RunPageOnRec absent opens the first row)
 #[test]
 fn without_run_page_on_rec_the_target_opens_on_its_first_row() {
     passes(&format!(
@@ -432,7 +432,7 @@ fn without_run_page_on_rec_the_target_opens_on_its_first_row() {
     ));
 }
 
-// handlers/TestPageActionRunObjectPageRec_Tests.al:HostOnAfterGetRecordAfterTheTargetWroteTheRow, TargetEditingTheRowAndTheHostsValue
+// testpage/TestPageActionRunObjectPageRec_Tests.al:HostOnAfterGetRecordAfterTheTargetWroteTheRow, TargetEditingTheRowAndTheHostsValue
 #[test]
 fn the_host_shows_the_row_a_page_target_wrote() {
     passes(&format!(
@@ -454,7 +454,7 @@ const MOD_SEED: &str = "local procedure SeedMod() var R: Record \"RO Mod\"; P: C
 end;
 procedure Check(Expected: Text; Actual: Text) begin if Expected <> Actual then Error('expected <%1> got <%2>', Expected, Actual); end;";
 
-// handlers/TestPageActionRunObjectPageStoredRow_Tests.al:OpenHostOnB (the precondition), TestPageActionRunObjectPageRec_Tests.al:HostOnAfterGetRecordValueAfterPlainRunObject
+// testpage/TestPageActionRunObjectPageStoredRow_Tests.al:OpenHostOnB (the precondition), TestPageActionRunObjectPageRec_Tests.al:HostOnAfterGetRecordValueAfterPlainRunObject
 #[test]
 fn a_list_row_keeps_what_on_after_get_record_put_into_rec() {
     passes(&format!(
@@ -471,7 +471,7 @@ fn a_list_row_keeps_what_on_after_get_record_put_into_rec() {
     ));
 }
 
-// handlers/TestPageActionRunObjectPageStoredRow_Tests.al:TargetOnOpenPageSeesHostRow, TargetSaveDoesNotStoreHostsComputedValue
+// testpage/TestPageActionRunObjectPageStoredRow_Tests.al:TargetOnOpenPageSeesHostRow, TargetSaveDoesNotStoreHostsComputedValue
 #[test]
 fn the_target_opens_on_the_stored_row_not_on_what_the_hosts_page_code_left_in_rec() {
     passes(&format!(
@@ -484,7 +484,7 @@ fn the_target_opens_on_the_stored_row_not_on_what_the_hosts_page_code_left_in_re
     ).replace("Check('G2', P.GetGroups())", "Check('BBravo', P.GetGroups())"));
 }
 
-// handlers/TestPageActionRunObjectPageRec_Tests.al:HostSaveAfterTheTargetEditedTheRowCarriesXRec
+// testpage/TestPageActionRunObjectPageRec_Tests.al:HostSaveAfterTheTargetEditedTheRowCarriesXRec
 #[test]
 fn the_host_saves_with_the_xrec_it_loaded_after_a_target_wrote_the_row() {
     passes(&format!(
@@ -499,7 +499,7 @@ fn the_host_saves_with_the_xrec_it_loaded_after_a_target_wrote_the_row() {
     ));
 }
 
-// handlers/TestPageActionRunPageMode.al: the host has actions named OpenView and OpenEdit, which are
+// testpage/TestPageActionRunPageMode.al: the host has actions named OpenView and OpenEdit, which are
 // not the TestPage methods when a member of theirs is used
 #[test]
 fn an_action_named_like_a_test_page_method_is_the_control_when_a_member_follows() {
@@ -512,7 +512,7 @@ fn an_action_named_like_a_test_page_method_is_the_control_when_a_member_follows(
     ));
 }
 
-// handlers/TestPageControlEditableRoutes.al:Part_HostOpenEdit_ThenViewAction
+// testpage/TestPageControlEditableRoutes.al:Part_HostOpenEdit_ThenViewAction
 #[test]
 fn the_built_in_view_action_of_a_host_makes_its_parts_read_only() {
     passes(&format!(
@@ -546,7 +546,7 @@ fn what_the_corpus_does_not_pin_is_refused_when_the_action_is_invoked() {
     ));
     let why = |name: &str| got.iter().find(|(n, _)| n == name).unwrap().1.clone();
     // Create mode on a target with SourceTableView, and on a List with RunPageOnRec (pages/W1RunObject.al:388 and
-    // misc/lt-probes-needed-7/PnGRunObjectOptions.al:65 pin a Card, :89 a List with a link or a view).
+    // testpage/PnGRunObjectOptions.al:65 pin a Card, :89 a List with a link or a view).
     assert!(
         why("OnRecWithSourceTableView").contains("RunPageMode = Create"),
         "{got:?}"
@@ -557,8 +557,8 @@ fn what_the_corpus_does_not_pin_is_refused_when_the_action_is_invoked() {
 }
 
 // Real BC fills the linked fields of Rec in the OnOpenPage of a page opened through `RunPageLink` = field(..) or const(..)
-// (handlers/TestActionRunPageLinkFilterGroup.al:292-369): a read of a field of Rec there gives the host's value. A filter(..)
-// link with a single value fills it the same way (pages/lt-y41-page-probes/Y41RunPageLinkOnOpen.al:13, RPL_Card_FilterEntry
+// (testpage/TestActionRunPageLinkFilterGroup.al:292-369): a read of a field of Rec there gives the host's value. A filter(..)
+// link with a single value fills it the same way (testpage/Y41RunPageLinkOnOpen.al:13, RPL_Card_FilterEntry
 // :535).
 #[test]
 fn a_field_read_of_rec_in_onopenpage_of_a_run_page_link_target_reads_the_linked_value() {
@@ -579,7 +579,7 @@ fn a_field_read_of_rec_in_onopenpage_of_a_run_page_link_target_reads_the_linked_
 }
 
 // A by-value copy of that Rec holds its fields and no link filter: its GetFilters reads '' in OnOpenPage
-// (handlers/TestActionRunPageLinkFilterGroup.al:292, `filters=`); whether it reads rows without the link is not pinned.
+// (testpage/TestActionRunPageLinkFilterGroup.al:292, `filters=`); whether it reads rows without the link is not pinned.
 #[test]
 fn a_by_value_copy_of_rec_of_a_run_page_link_target_has_no_filters() {
     passes(
@@ -602,13 +602,13 @@ fn a_by_value_copy_of_rec_of_a_run_page_link_target_has_no_filters() {
 
 // Real BC fills the linked fields of Rec in that OnOpenPage, and GetFilters() of a copy of Rec reads '' (corpus issue 712, writer
 // QZ). The runtime holds the link as a filter, so the reads of Rec's filters, view and rows refuse there. GetFilter of one field
-// runs (pinned per filter group, handlers/TestActionRunPageLinkFilterGroup.al:119-131), and so does CurrentKey
-// (handlers/TestPageActionRunPageView.al:134). GetFilters and GetRangeMin/GetRangeMax of Rec itself read the link
-// (pages/lt-outside-worksheet-2/RtLinkRange.al; tests/outside_rt_pages.rs). Count, Find, FindFirst and FindLast run there with the
-// linked fields filled (pages/lt-rz-outside-page-moves/SjRunPageLinkOpenFind.al; tests/run_page_link_open_find.rs).
+// runs (pinned per filter group, testpage/TestActionRunPageLinkFilterGroup.al:119-131), and so does CurrentKey
+// (testpage/TestPageActionRunPageView.al:134). GetFilters and GetRangeMin/GetRangeMax of Rec itself read the link
+// (testpage/RtLinkRange.al; tests/outside_rt_pages.rs). Count, Find, FindFirst and FindLast run there with the
+// linked fields filled (testpage/SjRunPageLinkOpenFind.al; tests/run_page_link_open_find.rs).
 #[test]
 fn filter_and_view_reads_of_rec_in_onopenpage_of_a_run_page_link_target_are_refused() {
-    // GetView and HasFilter answer the link filter (pages/lt-y61-page-probes/Y61RunPageLinkCopyFilter.al, fix-c6c); IsEmpty is not pinned.
+    // GetView and HasFilter answer the link filter (testpage/Y61RunPageLinkCopyFilter.al, fix-c6c); IsEmpty is not pinned.
     let ops = ["IsEmpty"];
     let helper = String::from(
         "[PageHandler] procedure Handler(var P: TestPage \"RO Lines Op Reader\") begin P.Close(); end;
@@ -642,7 +642,7 @@ fn filter_and_view_reads_of_rec_in_onopenpage_of_a_run_page_link_target_are_refu
 }
 
 // An action that declares both runs only its RunObject
-// (handlers/TestPageRunObjectContracts.al:371-390 RunObject_ActionWithBothRunObjectAndOnAction_OnlyTheTargetRuns).
+// (testpage/TestPageRunObjectContracts.al:371-390 RunObject_ActionWithBothRunObjectAndOnAction_OnlyTheTargetRuns).
 #[test]
 fn an_action_with_run_object_and_on_action_runs_only_the_target() {
     passes(&format!(
@@ -653,7 +653,7 @@ fn an_action_with_run_object_and_on_action_runs_only_the_target() {
 }
 
 // A target with no handler is dropped without its close triggers
-// (handlers/TestPageRunObjectContracts.al:RunObject_CardAndListTargets_NoHandler_OpenAndAreDroppedWithoutCloseTriggers).
+// (testpage/TestPageRunObjectContracts.al:RunObject_CardAndListTargets_NoHandler_OpenAndAreDroppedWithoutCloseTriggers).
 #[test]
 fn an_unattended_page_with_close_triggers_is_dropped_without_running_them() {
     passes(&format!(

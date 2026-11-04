@@ -1,7 +1,7 @@
 //! Error collection: `[ErrorBehavior(ErrorBehavior::Collect)]`, `Error(ErrorInfo)` of a collectible
 //! error, `GetCollectedErrors`, `HasCollectedErrors`, `ClearCollectedErrors`, `IsCollectingErrors`.
 //!
-//! Every rule is pinned by corpus errorinfo/TestErrorInfoType.al (its header, findings A to D, and
+//! Every rule is pinned by corpus errors/errorinfo/TestErrorInfoType.al (its header, findings A to D, and
 //! the tests at :448-520); what it does not pin is refused or listed in docs/probes-needed.md.
 //!
 //! - The attribute opens a scope for the dynamic extent of the procedure it is on. It does not
@@ -61,7 +61,7 @@ pub(crate) fn declares_collect(attrs: &[al_ir::Attribute]) -> Result<bool, Signa
 
 /// The text a scope raises when it closes holding several errors. The corpus pins that it carries
 /// the first message and calls it a "Multiple errors occurred..." summary (errorinfo/
-/// TestErrorInfoType.al:129,500-503); the whole text is session/TestProbeSessionMiscContracts.al:ErrorCollection_ScopeExitText.
+/// TestErrorInfoType.al:129,500-503); the whole text is session-system/TestProbeSessionMiscContracts.al:ErrorCollection_ScopeExitText.
 fn summary(first: &str) -> String {
     format!(
         "Multiple errors occurred during the operation the first of which is: {first}. All errors can be found under 'Detailed Information'."
@@ -104,7 +104,7 @@ impl Session {
         let held = std::mem::take(&mut sc.held);
         let mut first = al_builtins::errorinfo::message_of(&held[0]).unwrap_or_default();
         // An Internal error raises the generic text with a backslash before its correlation id, where its collected Message
-        // has a line break (misc/lt-probes-needed-2/PnBErrorsCollections.al:360-375 RO_CollectedErrorInfo_Internal_NotCleared_
+        // has a line break (errors/PnBErrorsCollections.al:360-375 RO_CollectedErrorInfo_Internal_NotCleared_
         // ScopeExit). As the first of several, the summary is not measured.
         if al_builtins::errorinfo::is_internal(&held[0]) {
             if held.len() > 1 {
@@ -116,7 +116,7 @@ impl Session {
             first = first.replace("\r\n", "\\");
         }
         let message = if held.len() == 1 { first } else { summary(&first) };
-        // session/TestProbeSessionMiscContracts.al:ErrorCollection_ScopeExitText, ErrorCollection_SingleError: code Dialog.
+        // session-system/TestProbeSessionMiscContracts.al:ErrorCollection_ScopeExitText, ErrorCollection_SingleError: code Dialog.
         Err(Signal::Error(Box::new(AlError {
             message,
             code: "Dialog".into(),
@@ -134,7 +134,7 @@ impl Session {
         Some(match id {
             ids::SYSTEM_ISCOLLECTINGERRORS_1 => Ok(Value::Boolean(!self.error_scopes.starts.is_empty())),
             // Outside a scope the platform computes 0 < 0 - (-1), which is true
-            // (errorinfo/TestErrorInfoType.al:133-141, corpus docs/al-language-coverage-gaps.md:518).
+            // (errors/errorinfo/TestErrorInfoType.al:133-141, corpus docs/al-language-coverage-gaps.md:518).
             ids::SYSTEM_HASCOLLECTEDERRORS_1 => Ok(Value::Boolean(
                 self.error_scopes.starts.is_empty() || !self.error_scopes.visible().is_empty(),
             )),
@@ -146,7 +146,7 @@ impl Session {
             }
             ids::SYSTEM_GETCOLLECTEDERRORS_1 => {
                 // The list is what the scope holds; with `Clear` true the scope is emptied afterwards, as the
-                // documentation says (handlers/PWRefusedBuiltins.al:FieldError_WithErrorInfo_InCollectScope pins the
+                // documentation says (recordref-fieldref/PWRefusedBuiltins.al:FieldError_WithErrorInfo_InCollectScope pins the
                 // list a call with true returns; that it empties the scope is the documented meaning only).
                 let clear = match args.first() {
                     None | Some(Value::Null) => false,

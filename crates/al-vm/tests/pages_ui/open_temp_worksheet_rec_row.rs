@@ -1,10 +1,10 @@
 //! A Worksheet page over a temporary source, opened without a record, whose Rec stands on a row other than the first of the
 //! view when it opens. Rows a procedure of the page variable filled before Run or RunModal, with OnOpenPage leaving Rec as it
-//! was: it opens on that row, as a List does (pinned by pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:2378-2705, the
+//! was: it opens on that row, as a List does (pinned by pages/onopenpage-moves-rec/QrMovedTests.al:2378-2705, the
 //! QT_Temp* tests; the modal and lookup forms are checked by the corpus run). Forms past those pins are refused. A Worksheet
 //! (not a tree) whose OnOpenPage filled it and moved Rec or changed its key opens on Rec's row too (QrMovedTests.al QR_TempWs_*
 //! and QR_TempWsNext_*, writer Y57); a tree Worksheet there stays under assumption `worksheet-temp-source-open-row`.
-//! The same Worksheet over a database table opens on the row OnOpenPage left Rec on (pages/lt-outside-worksheet-2/RtFillOnOpen.al).
+//! The same Worksheet over a database table opens on the row OnOpenPage left Rec on (testpage/RtFillOnOpen.al).
 
 const SRC: &str = r#"
 table 69987 "OpWs Tree Row" {
@@ -185,7 +185,7 @@ fn a_temporary_worksheet_filled_in_onopenpage_opens_on_the_last_insert() {
     );
 }
 
-/// Writer RT's pages/lt-outside-worksheet-2/RtFillOnOpen.al (al-runner issue 5785): a Worksheet over a database table opens on
+/// Writer RT's testpage/RtFillOnOpen.al (al-runner issue 5785): a Worksheet over a database table opens on
 /// the row its OnOpenPage left Rec on, by every route.
 #[test]
 fn a_worksheet_over_a_database_table_whose_onopenpage_moves_rec_opens_on_that_row() {

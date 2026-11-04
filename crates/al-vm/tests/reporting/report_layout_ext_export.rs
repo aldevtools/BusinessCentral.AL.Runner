@@ -1,5 +1,5 @@
 //! `Media.ExportStream` of the Layout of a Report Layout List row of a layout a reportextension declares: the bytes of the file
-//! the extension's app holds (report/lt-y67-layout-ext/Y67LayoutExtExport.al:134 Export_ExtensionLayouts_OwnReport, :187
+//! the extension's app holds (reports/layouts-saveas/Y67LayoutExtExport.al:134 Export_ExtensionLayouts_OwnReport, :187
 //! Export_ExtensionLayout_BaseApplicationReport). A Word file whose data set part names another report is refused: the compiler
 //! rewrites that part at build, and BC exports the rewritten bytes (the Y67 files name report 93617, the hashes BC answered
 //! are not those of the files).

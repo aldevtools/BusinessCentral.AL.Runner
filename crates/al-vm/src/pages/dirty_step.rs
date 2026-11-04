@@ -1,4 +1,4 @@
-//! The edit a TestPage holds is saved before the next step (corpus probe pages/lt-y45-save-before-action/
+//! The edit a TestPage holds is saved before the next step (corpus probe pages/actions/
 //! Y45SaveBeforeAction.al, file header lines 7-26, measured on BC 27.5, 28.5 and 29.0): an action, a RunObject codeunit or
 //! page, Next, Previous, GoToRecord, GoToKey, OK and Close each save the dirty row first (OnModifyRecord, OnBeforeModifyEvent,
 //! OnModify, OnAfterModifyEvent), then run.
@@ -13,7 +13,7 @@ impl Session {
     /// Document page, :1596 Card_New_CodeThenName_RunObjectCodeunit on the row a SetValue inserted).
     /// What is saved before action control `idx` of page `st` runs, besides the page's own edit (which the action path saves
     /// in the shape each page needs). A part saves its own row first, as it always did (corpus
-    /// handlers/TestPageAutoSplitKey_Tests.al:TestPage_ActionInvoke_OnANewSubpageRow_*), so nothing is read again before the
+    /// testpage/TestPageAutoSplitKey_Tests.al:TestPage_ActionInvoke_OnANewSubpageRow_*), so nothing is read again before the
     /// action (Y45SaveBeforeAction.al:847 Doc_SetLine_LineAction `lpM...;lM ...;lact 10000 rec=new`); a part action saves the
     /// host's edit before that (:700 Doc_SetName_LineAction, :1015 CardPart_SetName_LineAction `pM ...;eAM db=new/1;lact 10000
     /// ... head=new/1`). A host action saves the edit or new line of each part first (:817 Doc_SetLine_Action, :1045
@@ -43,7 +43,7 @@ impl Session {
             }
         }
         // A host with a part linked by field(filter(...)) saves its edit before the action, and the part reads its rows once, at
-        // the action's CurrPage.Update (pages/lt-y37-link-filter/Y37LinkFilterTests.al:418 LT_C311_Link_ValueChangedOnPage
+        // the action's CurrPage.Update (pages/link-filter/Y37LinkFilterTests.al:418 LT_C311_Link_ValueChangedOnPage
         // `update log` `LP.c B2 ...` once, `rows after update` B1,B2, and after a reopen).
         let engine = self.engine();
         let filter_linked = page_of(&engine, st).controls.iter().any(|c| {
@@ -62,7 +62,7 @@ impl Session {
     }
 
     /// SetValue on a control bound to a page variable saves the row the page holds an edit of first, then validates (inside the
-    /// repeater on a page that has one); a control bound to a field of Rec saves nothing (al-runner issue 6629; corpus pages/lt-y45-save-before-action/
+    /// repeater on a page that has one); a control bound to a field of Rec saves nothing (al-runner issue 6629; corpus pages/actions/
     /// Y45SaveBeforeAction.al NextField_*, pinned since corpus 2c42c8aa, the same on BC 27.5, 28.5, 29.0: :2051 NextField_Worksheet_NameThenPageVar
     /// `set act` `pM new/old db=old/1;eBM new t=Yes db=old/1;tM new/old db=old/1;eAM db=new/1;pvAct rec=new/1 db=new/1`, the
     /// same on a Card :2206, a List :2356, a Document header :2445 and after GoToRecord :2534; :2085 NameThenRecField `set qty`
@@ -98,7 +98,7 @@ impl Session {
 
     /// After a control validated: the row CurrPage.SaveRecord stored becomes xRec, and a change a page variable control's
     /// OnValidate made to Rec in code marks the row edited, so the next page variable SetValue, an action, Next or Close saves
-    /// it (pages/lt-y65-code-change-next-field/Y65CodeChangeNextField.al:305 Y65_Worksheet_Reporter_NameSecretActivate,
+    /// it (pages/extensions/Y65CodeChangeNextField.al:305 Y65_Worksheet_Reporter_NameSecretActivate,
     /// :327 _SecretOnlyThenActivate, :413 _SecretThenAction, :433 _SecretThenClose, :452 _SecretThenNext, :553 Card, :614 List;
     /// writer Y65's corpus branch, assumption page-var-validate-code-change-saved until the pin).
     pub(super) fn after_validate_rows(&mut self, st: &St) {
@@ -126,10 +126,10 @@ impl Session {
     }
 
     /// Before an action reads the row of a page that holds an edit again (it asks for that refresh here): a top-level page
-    /// without row triggers saves the row first; the read clears the edit, which was lost before (pages/lt-y65-code-change-next-field/Y65CodeChangeNextField.al:413
+    /// without row triggers saves the row first; the read clears the edit, which was lost before (pages/extensions/Y65CodeChangeNextField.al:413
     /// Y65_Worksheet_SecretThenAction, :594 Y65_Card_TableTriggerChangeThenAction `peek db ... cnt=7`; writer Y65's corpus branch,
     /// assumption page-var-validate-code-change-saved until the pin; the save before an action is pinned for pages with row
-    /// triggers by pages/lt-y45-save-before-action/Y45SaveBeforeAction.al, file header lines 7-26).
+    /// triggers by pages/actions/Y45SaveBeforeAction.al, file header lines 7-26).
     pub(super) fn save_edit_before_action_read(&mut self, st: &St) -> Result<(), Signal> {
         let edited = {
             let s = st.borrow();
@@ -157,12 +157,12 @@ impl Session {
             return Ok(());
         }
         // The request page of a report saves nothing first: the row typed before stays an edit until the close
-        // (report/lt-y80-reportext-request-page/Y80ReportExtRequestPage.al Y80_RX_SetBoth_OK `setnum log` empty).
+        // (reports/request-page/Y80ReportExtRequestPage.al Y80_RX_SetBoth_OK `setnum log` empty).
         if self.is_request_page(st) {
             return Ok(());
         }
         // A page variable outside the repeater of a page that has one (a journal's batch field in a header group) saves
-        // nothing first: its OnValidate runs, then its CurrPage.SaveRecord saves (pages/lt-y17-journal-batch/
+        // nothing first: its OnValidate runs, then its CurrPage.SaveRecord saves (pages/journal-batch-switch/
         // Y17JournalBatchSwitch.al:522 UpdWs_BatchSwitch_AfterEdit `validate log` `V:start 20000;M:B1/20000;...`).
         let has_repeater = page_of(&engine, st)
             .controls
@@ -289,7 +289,7 @@ impl Session {
         }
         // Close then runs no close trigger either (:1296 Card_ValidateError_Action `close` empty, the page's OnQueryClosePage
         // logs). It stores nothing and leaves the error as the last error, as `close_with` does after such a refusal
-        // (pages/lt-ah-pages/AhPageTests.al:155-159).
+        // (testpage/AhPageTests.al:155-159).
         if name == PageMethod::Close && (self.is_card(st) || self.is_list(st)) && self.refused_entry_held(st) {
             let trigger_errors = st.borrow().trigger_errors.clone();
             self.last_error = match trigger_errors.as_slice() {

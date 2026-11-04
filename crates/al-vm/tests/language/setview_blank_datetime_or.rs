@@ -1,5 +1,5 @@
 //! A blank DateTime next to another alternative in a view reads back as `''..''`, a blank Date as `''`
-//! (record/lt-y71-setview-datetime/Y71SetViewDateTime.al:125, :289).
+//! (record/views/Y71SetViewDateTime.al:125, :289).
 
 use al_testkit::text;
 

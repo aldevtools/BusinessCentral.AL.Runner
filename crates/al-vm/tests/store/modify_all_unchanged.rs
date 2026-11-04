@@ -1,5 +1,5 @@
 //! ModifyAll(Field, Value, false) over a row that has the value already
-//! (record/lt-modify-without-change/ModifyWithoutChange.al:286-365, writer QD; record/lt-record-write/RcBTriggers.al:682-722).
+//! (record/crud/ModifyWithoutChange.al:286-365, writer QD; record/crud/RcBTriggers.al:682-722).
 
 use al_testkit::text;
 

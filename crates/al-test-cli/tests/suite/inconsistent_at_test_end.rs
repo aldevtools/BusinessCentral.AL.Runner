@@ -1,5 +1,5 @@
 //! A test that ends with a table still marked by `Consistent(false)`: the runner's commit there is not pinned (only
-//! `Commit()` is, corpus misc/lt-cu-odd-leads/CuCommitTests.al:405-419), so the test is not run.
+//! `Commit()` is, corpus errors/CuCommitTests.al:405-419), so the test is not run.
 
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;

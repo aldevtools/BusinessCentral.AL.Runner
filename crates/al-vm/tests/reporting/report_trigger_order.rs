@@ -271,8 +271,8 @@ codeunit 50953 "RTO Tests"
 }
 "#;
 
-/// report/lt-report-requestpage/RptTriggerOrder.al:308,:324 (SaveAs_NestedItems_Order, SaveAs_Siblings_Order) and
-/// misc/lt-probes-needed-8/PnH5aExt.al:380: a SaveAs of a processing-only report runs OnInitReport, then answers false.
+/// reports/request-page/RptTriggerOrder.al:308,:324 (SaveAs_NestedItems_Order, SaveAs_Siblings_Order) and
+/// reports/PnH5aExt.al:380: a SaveAs of a processing-only report runs OnInitReport, then answers false.
 #[test]
 fn saveas_of_a_processing_only_report_runs_oninitreport_then_answers_false() {
     assert_eq!(
@@ -281,8 +281,8 @@ fn saveas_of_a_processing_only_report_runs_oninitreport_then_answers_false() {
     );
 }
 
-/// report/lt-report-requestpage/RptTriggerOrder.al:353 (VariableRun_Twice_InitReportEachTime) and
-/// misc/lt-probes-needed-8/PnH5aExt.al:396: a second Run on one variable runs OnInitReport again.
+/// reports/request-page/RptTriggerOrder.al:353 (VariableRun_Twice_InitReportEachTime) and
+/// reports/PnH5aExt.al:396: a second Run on one variable runs OnInitReport again.
 #[test]
 fn a_second_run_on_one_variable_runs_oninitreport_again() {
     assert_eq!(
@@ -291,7 +291,7 @@ fn a_second_run_on_one_variable_runs_oninitreport_again() {
     );
 }
 
-/// report/lt-requestpage-savevalues-date-text-setvalue/P147UseRequestPagePreGet.al:79: `Report.Run(id, false, false)`
+/// reports/request-page/P147UseRequestPagePreGet.al:79: `Report.Run(id, false, false)`
 /// runs without the page and `CurrReport.UseRequestPage()` then answers false.
 #[test]
 fn static_run_with_requestwindow_false_answers_false_to_userequestpage() {
@@ -301,7 +301,7 @@ fn static_run_with_requestwindow_false_answers_false_to_userequestpage() {
     );
 }
 
-/// misc/lt-probes-needed-8/PnH2UseRp.al:347-355: `Report.Run(id, true)` on a report declaring `UseRequestPage = false`
+/// reports/PnH2UseRp.al:347-355: `Report.Run(id, true)` on a report declaring `UseRequestPage = false`
 /// shows the request page (with no handler: the error, after OnInitReport only).
 #[test]
 fn static_run_with_requestwindow_true_shows_the_page_of_a_report_that_declares_none() {
@@ -315,7 +315,7 @@ fn static_run_with_requestwindow_true_shows_the_page_of_a_report_that_declares_n
     );
 }
 
-/// misc/lt-probes-needed-8/PnH2UseRp.al:388 (WithRP_UseFalse_Run_RunModal_Execute): a RunModal whose request page cannot
+/// reports/PnH2UseRp.al:388 (WithRP_UseFalse_Run_RunModal_Execute): a RunModal whose request page cannot
 /// open (a write is pending) leaves the variable reset, so the Execute that follows runs OnInitReport again.
 #[test]
 fn a_runmodal_refused_at_its_request_page_resets_the_variable() {
@@ -325,7 +325,7 @@ fn a_runmodal_refused_at_its_request_page_resets_the_variable() {
     );
 }
 
-/// misc/lt-probes-needed-8/PnH2UseRp.al:389 (WithRP_UseFalse_Run_RunModal_Execute, `getter`): after an Execute on a variable
+/// reports/PnH2UseRp.al:389 (WithRP_UseFalse_Run_RunModal_Execute, `getter`): after an Execute on a variable
 /// whose UseRequestPage was never set, the getter answers false, although the report shows its page by default.
 #[test]
 fn userequestpage_answers_false_after_an_execute() {
@@ -336,8 +336,8 @@ fn userequestpage_answers_false_after_an_execute() {
 }
 
 /// The request page's OnInit runs although the page is not shown, after OnInitReport and before OnPreReport; OnOpenPage does
-/// not run: SaveAs (misc/lt-probes-needed-2/PnBReportSaveAs.al:348 TriggerOrder, :262 Rows_SkipAndBreak), Execute and Run
-/// with UseRequestPage(false) (report/lt-ae-reporthandler/AeReportHandler.al:85, :121).
+/// not run: SaveAs (text/PnBReportSaveAs.al:348 TriggerOrder, :262 Rows_SkipAndBreak), Execute and Run
+/// with UseRequestPage(false) (reports/reporthandler/AeReportHandler.al:85, :121).
 #[test]
 fn the_request_page_oninit_runs_when_the_page_is_not_shown() {
     assert_eq!(
@@ -346,7 +346,7 @@ fn the_request_page_oninit_runs_when_the_page_is_not_shown() {
     );
 }
 
-/// misc/lt-probes-needed-2/PnBReportSaveAs.al:412-413 (TriggerError_InPreReport): an error in OnPreReport of a report without
+/// text/PnBReportSaveAs.al:412-413 (TriggerError_InPreReport): an error in OnPreReport of a report without
 /// a layout makes a SaveAs whose answer is used answer false, and nothing is raised.
 #[test]
 fn an_error_in_onprereport_makes_a_used_saveas_answer_false() {
@@ -356,7 +356,7 @@ fn an_error_in_onprereport_makes_a_used_saveas_answer_false() {
     );
 }
 
-/// misc/lt-probes-needed-2/PnBReportSaveAs.al:387-391 (OtherFormats_NoLayout): after a SaveAs that stopped at the missing
+/// text/PnBReportSaveAs.al:387-391 (OtherFormats_NoLayout): after a SaveAs that stopped at the missing
 /// layout, a second SaveAs on the variable answers false with "The object has been run".
 #[test]
 fn a_second_saveas_on_one_variable_answers_false_with_the_object_has_been_run() {

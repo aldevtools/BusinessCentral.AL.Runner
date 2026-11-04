@@ -69,12 +69,12 @@ fn text_prop(o: &Object, name: &str, max: usize) -> String {
 }
 
 /// A source table view as BC formats it: `SORTING(Field2,Field1) ORDER(1) WHERE(Field2=CONST(1),Field3=FILTER(1..5))`.
-/// Pinned shapes (misc/W2PageMetadata.al:384 SourceTableView_Shapes, :461 RP_LookupPageSortedBySecondaryKey_CardPageId,
+/// Pinned shapes (pages/W2PageMetadata.al:384 SourceTableView_Shapes, :461 RP_LookupPageSortedBySecondaryKey_CardPageId,
 /// TestPageMetadataSourceObject.al:61-80): `sorting` over one or more fields and `order(descending)`, each followed by a
 /// space; `where` with one or more conditions, each `const` of an integer, option, enum or Text value or `filter` of an
 /// integer range `a .. b`, and on a Date field `filter('')`, `filter(0D)`, `filter(<> '')` and `const(0D)`
-/// (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890), `order(ascending)`, a Code const and a Decimal `filter(> 0)`
-/// (platform/lt-aw-fresh-tenant/AwTests.al:116-117), a Decimal const of a whole number, and the Option, Enum and Code `filter()`
+/// (testpage/CdTestPageLeads.al:890), `order(ascending)`, a Code const and a Decimal `filter(> 0)`
+/// (metadata/platform-tables/AwTests.al:116-117), a Decimal const of a whole number, and the Option, Enum and Code `filter()`
 /// shapes of [`member_filter_text`]. Anything else (a const on another type, another filter) is not pinned.
 /// The second value is the assumption the text rests on, if any.
 fn view_text(
@@ -123,7 +123,7 @@ fn view_text(
         out.push_str(&format!("SORTING({}) ", ids.join(",")));
     }
     if let Some(body) = order {
-        // `order(ascending)` adds nothing (platform/lt-aw-fresh-tenant/AwTests.al:116 `SORTING(Field2,Field3) WHERE(...)`).
+        // `order(ascending)` adds nothing (metadata/platform-tables/AwTests.al:116 `SORTING(Field2,Field3) WHERE(...)`).
         if body.trim().eq_ignore_ascii_case("descending") {
             out.push_str("ORDER(1) ");
         } else if !body.trim().eq_ignore_ascii_case("ascending") {
@@ -142,7 +142,7 @@ fn view_text(
                 .and_then(|r| r.strip_suffix(')'))
                 .filter(|_| matches!(f.ty, RtType::Decimal))
             {
-                // A Decimal const of a whole number reads as written (pages/lt-cd-testpage-leads/CdTestPageLeads.al
+                // A Decimal const of a whole number reads as written (testpage/CdTestPageLeads.al
                 // TD_SourceTableView_Const_Decimal `WHERE(Field2=CONST(0))`, `CONST(-2)`; al-runner issue 6030). A fraction
                 // (`CONST(1.5)` there) is not built yet.
                 let value = value.trim();
@@ -170,7 +170,7 @@ fn view_text(
                 )
             {
                 // A Date field blank or not blank: `filter('')` and `filter(0D)` read `Field7=FILTER('')`, `filter(<> '')` reads
-                // `Field7=FILTER(<>'')` (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890-905
+                // `Field7=FILTER(<>'')` (testpage/CdTestPageLeads.al:890-905
                 // SH_SourceTableView_DateFilterBlank_PageMetadata).
                 conds.push(format!("Field{}=FILTER({text})", f.id));
             } else if let Some(n) = rest
@@ -181,7 +181,7 @@ fn view_text(
                 .map(str::trim)
                 .filter(|n| n.parse::<u32>().is_ok())
             {
-                // A Decimal `filter(> 0)` reads `FILTER(>0)` (platform/lt-aw-fresh-tenant/AwTests.al:117). Another operator
+                // A Decimal `filter(> 0)` reads `FILTER(>0)` (metadata/platform-tables/AwTests.al:117). Another operator
                 // or a fraction is not pinned.
                 conds.push(format!("Field{}=FILTER(>{n})", f.id));
             } else if let Some(text) = rest
@@ -210,7 +210,7 @@ fn view_text(
 /// The value of a `const(...)` as the view text shows it: an option or enum member by its ordinal
 /// (TestPageMetadataSourceObject.al:61-80 declares `Status = const(Active)` and expects `CONST(2)`), a number as written,
 /// a Text value without its quotes (W2PageMetadata.al:394 `CONST(x)`, :397 `CONST(a b)`).
-/// The text of a `filter()` on an Option, Enum or Code field, the shapes pinned by lt-ss1030/SsPageMetaFilterView.al:97-113
+/// The text of a `filter()` on an Option, Enum or Code field, the shapes pinned by pages/SsPageMetaFilterView.al:97-113
 /// (PageMetadata_SourceTableView_FilterShapes; al-runner issue 6251): an Option member reads as its ordinal (`filter(Quote)`
 /// `FILTER(0)`), two Option members joined by `|` as their ordinals (`filter(Quote | Invoice)` `FILTER(0|2)`), `<>` and one Option
 /// member as `<>` and its ordinal (`filter(<> "Order")` `FILTER(<>1)`), one Enum member as its ordinal (`filter(Beta)`
@@ -251,7 +251,7 @@ fn const_text(f: &al_ir::Field, value: &str, table_objects: &al_ir::Objects) -> 
             let text = string_lit(value)?;
             (!text.is_empty() && text.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ')).then_some(text)
         }
-        // A Code value without its quotes (platform/lt-aw-fresh-tenant/AwTests.al:116 `const('A')` reads `CONST(A)`). Pinned
+        // A Code value without its quotes (metadata/platform-tables/AwTests.al:116 `const('A')` reads `CONST(A)`). Pinned
         // for upper-case letters and digits; a lower-case letter (whether BC raises it) or another character is not.
         RtType::Code(_) => {
             let text = string_lit(value)?;
@@ -263,7 +263,7 @@ fn const_text(f: &al_ir::Field, value: &str, table_objects: &al_ir::Objects) -> 
             .map(|p| p.to_string()),
         RtType::Enum(e) if plain(value) => objects_enum_ordinal(table_objects, *e, value).map(|p| p.to_string()),
         RtType::Integer | RtType::BigInteger if value.parse::<i64>().is_ok() => Some(value.to_string()),
-        // The blank date as a DateTime text (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890-905, `const 0D`).
+        // The blank date as a DateTime text (testpage/CdTestPageLeads.al:890-905, `const 0D`).
         RtType::Date if value.eq_ignore_ascii_case("0d") => Some("0001-01-01T00:00:00.0000000".into()),
         _ => None,
     }
@@ -397,7 +397,7 @@ pub(super) fn page_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
 }
 
 /// A property of a page as the page and its extensions leave it: an extension's value wins over the
-/// base page's (corpus pageext/lt-z-page-ext-props/ZPageExtProps.al:629, 685-1110). Two extensions that set
+/// base page's (corpus pages/extensions/ZPageExtProps.al:629, 685-1110). Two extensions that set
 /// the same property are not pinned.
 fn effective_prop<'a>(c: &'a Catalog, o: &'a Object, name: &str) -> Result<Option<&'a str>, String> {
     let own = o.id.filter(|_| o.kind == al_ir::ObjKind::Page);
@@ -468,7 +468,7 @@ fn page_metadata_row(
             .map_err(|e| format!("page '{}': CardPageID {e}", o.name))
             .map(|id| Value::Integer(id as i32)),
     }));
-    // Editable: the declared literal, Yes when undeclared (misc/W2PageMetadata.al:461 RP_LookupPageSortedBySecondaryKey_CardPageId:
+    // Editable: the declared literal, Yes when undeclared (pages/W2PageMetadata.al:461 RP_LookupPageSortedBySecondaryKey_CardPageId:
     // a List with Editable = false reads No, a Card that declares none Yes). Other page types without the property are not
     // pinned (docs/probes-needed.md).
     r[pos(t, 4)] = col(allowed(c, o, "Editable").map(Value::Boolean));
@@ -517,7 +517,7 @@ fn page_metadata_row(
     r[pos(t, 22)] = Value::Boolean(has_source && lit_bool(o, "SaveValues", false));
     r[pos(t, 23)] = Value::Boolean(has_source && lit_bool(o, "AutoSplitKey", false));
     // DataCaptionFields that cannot be resolved leave only this column unknown, as an unpinned view does (al-runner issue
-    // 6251: lt-ss1030/SsPageMetaFilterView.al:116 PageMetadata_FilteredRead_ApiPageOfTable reads the table beside such a page).
+    // 6251: pages/SsPageMetaFilterView.al:116 PageMetadata_FilteredRead_ApiPageOfTable reads the table beside such a page).
     r[pos(t, 24)] = if has_source {
         match caption_fields(o, src) {
             Ok(text) => Value::Text(text.into()),
@@ -691,7 +691,7 @@ fn control_row(
         // `False` for an arithmetic expression (al-runner issue 5842, corpus writer's probe
         // record/TestPageControlFieldArraySource.al; not on the pinned corpus yet). A call with an argument list and no space
         // or text constant (`Format(Rec.Kind)`, `Rec.DisplayCode()`, `Names.NameOf(Rec."No.")`) names the call as written, `Rec.`
-        // kept, and an undeclared Editable is `False` (record/lt-x3-6368/X3PageControlCalls.al:142-147 and :162-167, al-runner
+        // kept, and an undeclared Editable is `False` (record/X3PageControlCalls.al:142-147 and :162-167, al-runner
         // issue 6368; corpus PR 874, branch al-runtime-rs-staging-x3 at 83d0857d, not yet on master).
         Binding::Expr(_) if let Some((text, editable)) = &ctl.expr_source => {
             r[pos(t, 9)] = Value::Text(text.clone().into());
@@ -700,7 +700,7 @@ fn control_row(
         }
         // A single call of another form (a built-in such as `field(companyName; CompanyName)`, a method call written with a space,
         // `Control::expr_call`): the row is served with no
-        // source field, FieldNo 0 (record/lt-wb-6284/WbPageControlBuiltIn.al:46-70, al-runner issue 6284; corpus branch
+        // source field, FieldNo 0 (record/WbPageControlBuiltIn.al:46-70, al-runner issue 6284; corpus branch
         // al-runtime-rs-staging-wb at a07787b2, not yet on master). What BC stores as its SourceExpression, and an undeclared
         // Editable, are not pinned: a read of either is refused.
         Binding::Expr(_) if ctl.expr_call => {

@@ -1,6 +1,6 @@
 //! `Format(Rec.Field, 0, '<format string>')` of a Decimal field that declares its places (DecimalPlaces or an AutoFormatType)
 //! with format strings other than `<Precision,..>` and `<Standard Format,2>` (al-runner issue 5737; corpus
-//! types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:805-1047, tests RO_*, tables 87356 and 88442).
+//! format-evaluate/AtPrecisionStandardFormat2.al:805-1047, tests RO_*, tables 87356 and 88442).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;

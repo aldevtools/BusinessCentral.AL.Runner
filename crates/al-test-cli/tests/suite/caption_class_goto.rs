@@ -1,5 +1,5 @@
 //! The CaptionClass expression runs of a Card and a Document page on GoToRecord, GoToKey, Last, Previous and First (al-runner
-//! issue 5858). Pinned by record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:1463-1960 (the SI_ tests): GoToRecord and
+//! issue 5858). Pinned by record/captions/QdCaptionClassAreas.al:1463-1960 (the SI_ tests): GoToRecord and
 //! GoToKey run each expression control once more with the row the captions came from and Caption() keeps its value; Last and
 //! First run them with the new row; Previous and Next run nothing; after a SetValue the save runs them once more.
 

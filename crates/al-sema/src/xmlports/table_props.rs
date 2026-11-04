@@ -1,4 +1,4 @@
-//! The `CalcFields` and `LinkTableForceInsert` properties of a table element (xmlport/lt-y68-xmlport-shapes/
+//! The `CalcFields` and `LinkTableForceInsert` properties of a table element (xmlports/shapes-properties/
 //! Y68XmlPortShapes.al, corpus master 0d01b0cc, BC 27.5, 28.5, 29.0).
 
 use super::{Context, Layout, bool_prop};

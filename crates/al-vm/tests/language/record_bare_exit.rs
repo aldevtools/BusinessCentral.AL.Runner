@@ -1,6 +1,6 @@
 //! al-runner issue 5757: a procedure that returns a Record and leaves by a bare `exit;` or falls off its end returns a record
 //! with the InitValue values; a named return value returns what was assigned to it; the receiving variable keeps its filters
-//! (misc/lt-inferred-behaviors/P69ProcResultField.al:424-480 RN_BareExit_ReturnsRecord, RN_NamedBareExit_And_NoExit_ReturnRecord).
+//! (codeunits/procedures/P69ProcResultField.al:424-480 RN_BareExit_ReturnsRecord, RN_NamedBareExit_And_NoExit_ReturnRecord).
 
 const SRC: &str = r#"
 table 50950 "Ret Row" { fields { field(1; Code; Code[10]) { } field(2; Name; Text[20]) { } field(3; Qty; Decimal) { InitValue = 7; } } keys { key(PK; Code) { } } }

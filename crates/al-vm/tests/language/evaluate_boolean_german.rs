@@ -1,4 +1,4 @@
-//! `Evaluate` of a Boolean under language 1031 (types/lt-wc/WcUnpinnedSingles.al:79-113, al-runner issue 6322 item B): `Ja` is
+//! `Evaluate` of a Boolean under language 1031 (errors/WcUnpinnedSingles.al:79-113, al-runner issue 6322 item B): `Ja` is
 //! true, `Nein` false, `Yes` and `vielleicht` raise the German evaluate error.
 
 use al_testkit::text;

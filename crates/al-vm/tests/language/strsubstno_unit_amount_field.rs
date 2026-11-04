@@ -1,5 +1,5 @@
 //! StrSubstNo, Message and Error `%n` of a Decimal field with an AutoFormat give the text of `Format(Rec.Field)`
-//! (misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al, al-runner issue 5827): AutoFormatType 1 and 4 take the amount places,
+//! (text/text-methods/SaUnitAmountSubst.al, al-runner issue 5827): AutoFormatType 1 and 4 take the amount places,
 //! 2 and 5 the unit-amount places, of the currency the expression names (a field of the row or a constant code), else of
 //! General Ledger Setup; AutoFormatType 2 wins over DecimalPlaces. Without an expression the setup holds the places the
 //! probe measured (2:2 and 2:5); other setup places are not run.

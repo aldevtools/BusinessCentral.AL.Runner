@@ -13,7 +13,7 @@ pub(crate) fn package_id(app: [u8; 16]) -> [u8; 16] {
 }
 
 /// The Media id of an app's logo (Published Application's Logo): not null, the same on every read
-/// (onprem session/UsAppLogo.al:93-96), and one per app. Its value is not pinned.
+/// (onprem session-system/UsAppLogo.al:93-96), and one per app. Its value is not pinned.
 pub(crate) fn logo_media_id(app: [u8; 16]) -> [u8; 16] {
     let mut salted = package_id(app);
     salted[14] ^= 0x4c;

@@ -276,7 +276,7 @@ fn recordref_open_and_change_company_use_the_other_companys_rows() {
 #[test]
 fn recordref_open_with_the_session_company_name_opens_the_session_company() {
     // Base App's Change Log Management.LogModification opens `xRecRef.Open(No, false, RecRef.CurrentCompany())`;
-    // the onprem tests of the User table pass through it (access-control/TestUserAuthEmailTrigger.al:187).
+    // the onprem tests of the User table pass through it (permissions/access-control/TestUserAuthEmailTrigger.al:187).
     let out = text(
         "Home: Record \"CC Row\"; Opened: RecordRef; s: Text;",
         &format!(
@@ -366,7 +366,7 @@ fn change_company_keeps_the_filters_the_marks_and_works_on_a_temporary_record() 
     assert_eq!(out, "Yes;>0|Yes;1;");
 }
 
-// ---- session/TestCrmTableNoConnectionContracts.al:111-118 (BC 27.5) --------------------------------------------
+// ---- session-system/TestCrmTableNoConnectionContracts.al:111-118 (BC 27.5) --------------------------------------------
 
 #[test]
 fn record_ref_open_of_a_crm_table_without_a_connection_raises_the_connection_error() {
@@ -396,7 +396,7 @@ table 50920 "CRM Entity"
 }
 "#;
 
-// session/TestCrmTableNoConnectionContracts.al:15-17,111-118: with no CRM table connection registered
+// session-system/TestCrmTableNoConnectionContracts.al:15-17,111-118: with no CRM table connection registered
 // the first use of a record variable of a CRM table fails (Init, TableCaption, a field, IsEmpty), and
 // the statement after it does not run; declaring the variable is no use.
 #[test]
@@ -532,7 +532,7 @@ fn text_in(tables: &str, vars: &str, body: &str) -> String {
 // Microsoft's Assert.RecordCount(Variant, N) counts a caller's temporary record through a Variant parameter (Tests-ERM
 // Price Source List UT.T001 expects 2 on BC). A by-value copy of a temporary record is an empty buffer
 // (record/TestTempTableContracts.al:141-148), but a Variant parameter keeps the caller's table
-// (recordref/PWRecordMisc.al:TempRecord_PassedToVariantParameter_ByValue).
+// (recordref-fieldref/recordref/PWRecordMisc.al:TempRecord_PassedToVariantParameter_ByValue).
 #[test]
 fn a_temporary_record_handed_to_a_variant_parameter_keeps_its_rows() {
     let tables = r#"
@@ -553,7 +553,7 @@ codeunit 50932 "TS Assert" { procedure RecordCount(RecVariant: Variant): Integer
     assert_eq!(out, "22");
 }
 
-// ---- Database.CopyCompany: lt-o-small-builtins/OSmallBuiltins.al (BC 27, 28, 29) ---------------------------------
+// ---- Database.CopyCompany: types/variant/OSmallBuiltins.al (BC 27, 28, 29) ---------------------------------
 
 #[test]
 fn copy_company_from_a_missing_source_fails_and_makes_no_company() {
@@ -611,7 +611,7 @@ fn copy_company_with_the_result_used_and_an_existing_destination_is_refused() {
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-// ---- Database.CopyCompany that succeeds: session/lt-y22-copy-company/Y22CopyCompany.al (corpus writer Y22, newest major) ------
+// ---- Database.CopyCompany that succeeds: session-system/company/Y22CopyCompany.al (corpus writer Y22, newest major) ------
 
 const COPY_OBJECTS: &str = r#"
 table 50930 "CP Row"

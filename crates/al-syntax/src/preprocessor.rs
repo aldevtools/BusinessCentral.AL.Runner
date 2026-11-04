@@ -19,7 +19,7 @@ pub struct Preprocessed {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// Symbols are matched case-sensitively: corpus misc/lt-bm-preprocessor-scope/BmPreprocessorDefine.al:83
+/// Symbols are matched case-sensitively: corpus permissions/BmPreprocessorDefine.al:83
 /// (`#if ltbmdefined` after `#define LTBMDEFINED` is false; BmPreprocessorScope.al:35).
 pub fn preprocess(src: &str, tokens: &[Token], symbols: &BTreeSet<String>) -> Preprocessed {
     let mut syms: BTreeSet<String> = symbols.clone();
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn symbols_are_case_sensitive() {
-        // corpus misc/lt-bm-preprocessor-scope/BmPreprocessorDefine.al:83 (`#if ltbmdefined` after
+        // corpus permissions/BmPreprocessorDefine.al:83 (`#if ltbmdefined` after
         // `#define LTBMDEFINED` takes the #else branch), read by BmPreprocessorScope.al:25, :35.
         assert_eq!(code(SRC, &["bc29plus"]), vec!["a", ";", "c", ";", "d", ";"]);
         let src = "#define LTBMDEFINED\n#if ltbmdefined\na\n#else\nb\n#endif\n";

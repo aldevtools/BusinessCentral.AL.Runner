@@ -10,7 +10,7 @@ impl Session {
         guarded: bool,
         static_form: bool,
     ) -> Result<Value, Signal> {
-        // An import ignores the SourceTableView of an element that is not linked (platform/lt-ag-contoso/AgXmlPortImport.al:62-80);
+        // An import ignores the SourceTableView of an element that is not linked (metadata/platform-tables/AgXmlPortImport.al:62-80);
         // a filter on a linked one is not pinned on import. An XML import refuses it when it reaches an element of that table element
         // (`xp_import_record`): an import never touches the record of a table element the document has no element of.
         if let Some(n) = schema.xp().nodes.iter().find(|n| {
@@ -26,7 +26,7 @@ impl Session {
             ));
         }
         // A second Import on an instance that imported reads nothing and stores nothing: only OnPreXmlPort and OnPostXmlPort run
-        // again, also after SetSource on the same or a new stream, with or without Codeunit.Run (xmlport/lt-xmlport-query-datatransfer/XpTStaticAndInstance.al:74 Instance_ImportTwiceSameSource:
+        // again, also after SetSource on the same or a new stream, with or without Codeunit.Run (xmlports/import/XpTStaticAndInstance.al:74 Instance_ImportTwiceSameSource:
         // nothing stored again; QrXpContainerOccurs.al
         // TT_ImportTwice_SameSource, _SameStreamAgain, _NewSourceOtherRows, _NewSourceSameRows, _Direct on corpus writer TT's
         // branch al-runtime-rs-staging-tt; former assumption `xmlport-import-again` (pinned on corpus master since bump 1030)). Pinned for an unguarded XML import after one that
@@ -42,9 +42,9 @@ impl Session {
                     "a second Import on the same XmlPort instance after an Import that failed (not pinned)",
                 );
             }
-            // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_ImportTwice_SameSource, TT_ImportTwice_SameStreamAgain, TT_ImportTwice_NewSourceOtherRows, TT_ImportTwice_NewSourceSameRows, TT_ImportTwice_Direct (was assumption `xmlport-import-again`).
+            // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TT_ImportTwice_SameSource, TT_ImportTwice_SameStreamAgain, TT_ImportTwice_NewSourceOtherRows, TT_ImportTwice_NewSourceSameRows, TT_ImportTwice_Direct (was assumption `xmlport-import-again`).
             // A schema without a table element reads the new source again, its globals kept (al-runner issue 6657;
-            // xmlport/lt-y66-xmlport-var-members/Y66XmlPortVarMembers.al:235-277 `got = a;a;`).
+            // xmlports/shapes-properties/Y66XmlPortVarMembers.al:235-277 `got = a;a;`).
             if schema.xp().nodes.iter().any(|n| n.table.is_some()) {
                 return Ok(Value::Null);
             }
@@ -53,7 +53,7 @@ impl Session {
             // A guarded import needs a transaction world of its own, which BC refuses to open
             // while the caller holds an uncommitted write; the static form turns the refusal
             // into false, the instance form raises it
-            // (xmlport/TestXmlPortImportWriteTx.al:StaticGuardedImport_WithUncommittedWrite_ReturnsFalse_AndImportsNothing,
+            // (xmlports/TestXmlPortImportWriteTx.al:StaticGuardedImport_WithUncommittedWrite_ReturnsFalse_AndImportsNothing,
             // :InstanceGuardedImport_WithUncommittedWrite_IsRefused_AndImportsNothing).
             if self.in_write_transaction()? {
                 if self.tx_model == TxModel::AutoRollback {
@@ -74,7 +74,7 @@ impl Session {
         }
         // Import begins a transaction of its own, so a write is allowed inside it even under
         // TransactionModel::None, and the transaction ends with the import
-        // (codeunit/TestWriteTxTestBoundary.al:WriteTx_Test12_AnXmlPortImportMayWriteUnderNone).
+        // (codeunits/TestWriteTxTestBoundary.al:WriteTx_Test12_AnXmlPortImportMayWriteUnderNone).
         let began_world = self.no_transaction();
         self.tx.tx_world += 1;
         let result = self.xp_import_document(inst, schema);
@@ -91,7 +91,7 @@ impl Session {
             Ok(()) if guarded => {
                 // The import's own transaction ends with it, so a second guarded import is not
                 // blocked by the first one's rows
-                // (xmlport/TestXmlPortImportWriteTx.al:GuardedImport_LeavingImportedRows_DoesNotBlockTheNextGuardedImport).
+                // (xmlports/TestXmlPortImportWriteTx.al:GuardedImport_LeavingImportedRows_DoesNotBlockTheNextGuardedImport).
                 if self.tx_model != TxModel::AutoRollback {
                     self.commit_transaction();
                 }
@@ -104,7 +104,7 @@ impl Session {
                 Ok(Value::Null)
             }
             // A guarded import that fails returns false and loses its writes; the error stays
-            // readable (xmlport/TestXmlPortImportWriteTx.al:StaticGuardedImport_FailingSecondElement_ReturnsFalse_AndRollsBackTheFirstRow).
+            // readable (xmlports/TestXmlPortImportWriteTx.al:StaticGuardedImport_FailingSecondElement_ReturnsFalse_AndRollsBackTheFirstRow).
             Err(Signal::Error(e)) if guarded => {
                 self.rollback_transaction();
                 self.error_finals = None;
@@ -128,7 +128,7 @@ impl Session {
         };
         // `xp_import` answers a second Import before it gets here.
         inst.borrow_mut().xp_text.push((XP_IMPORTED, String::new()));
-        // xmlport/TestXmlPortExportImportContracts.al:XmlPortImport_MalformedXml_Throws
+        // xmlports/TestXmlPortExportImportContracts.al:XmlPortImport_MalformedXml_Throws
         if text.is_empty() {
             return Err(xerr(
                 "Cannot import the specified XML document because the file is empty.",
@@ -143,7 +143,7 @@ impl Session {
             return unsupported("XmlPort import into a VariableText port with TextEncoding = MSDOS (not pinned)");
         }
         // An import of a text port whose root is a table element is refused by BC, an export is not
-        // (xmlport/lt-xmlport-query-datatransfer/XpTVariableText.al:Csv_ImportBasic and the other Csv_Import tests).
+        // (xmlports/import/XpTVariableText.al:Csv_ImportBasic and the other Csv_Import tests).
         if xp.format != ir::XmlFormat::Xml && xp.nodes[top].kind == ir::XmlNodeKind::Table {
             return Err(root_type_error());
         }
@@ -160,13 +160,13 @@ impl Session {
             return unsupported("XmlPort import whose root is not a text element with content (not pinned)");
         }
         // A table view (Xmlport.SetTableView, a record with filters) does not stop an import: the rows are inserted as without it,
-        // also one the filter does not match (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:RequestFilterFields_Import `import
+        // also one the filter does not match (xmlports/shapes-properties/Y83XpMiscTests.al:RequestFilterFields_Import `import
         // with view`, a filter on the key of the first table element; needs the corpus bump).
         if xp.format != ir::XmlFormat::Xml {
             return self.xp_import_text(inst, schema, top, &text);
         }
 
-        // PreserveWhiteSpace with a default namespace imports as without one (corpus PR 896, misc/lt-np4-probes/Np4XmlPort.al
+        // PreserveWhiteSpace with a default namespace imports as without one (corpus PR 896, streams/Np4XmlPort.al
         // Y9_XmlPort_Import_PreserveWhiteSpace_WithNamespace).
         let parsed = match &xp.default_ns {
             None => al_builtins::xmlport::parse(&text),
@@ -179,16 +179,16 @@ impl Session {
                 return unsupported("XmlPort import of a malformed document whose error text is not pinned");
             }
             // A port without namespaces does not find a root element that is in one, by a default namespace or a prefix
-            // (xmlport/lt-xmlport-query-datatransfer/XpTNamespaces.al:Import_NoNamespaceXmlportWithNamespacedInput and, for a
+            // (xmlports/import/XpTNamespaces.al:Import_NoNamespaceXmlportWithNamespacedInput and, for a
             // port whose DefaultNamespace is not used, Import_DefaultNsMatching, _DefaultNsWrong, _DefaultNsViaPrefixDeclaration;
-            // xmlport/lt-bd-xmlport/BdXmlPort.al:315 BdDefaultNamespace_OnRoot, strict and lax; pages/lt-report-page-properties/
+            // xmlports/shapes-properties/BdXmlPort.al:315 BdDefaultNamespace_OnRoot, strict and lax; pages/properties/
             // 06-xmlport-dnsfalse.al:45). Pinned for a text element root of the document's local name.
             Err(ReadFailure::Unsupported(why)) => {
                 if let Some(local) = why.strip_prefix(al_builtins::xmlport::ROOT_IN_NAMESPACE) {
                     if prefixed_root_and_table(xp, top) {
                         return Err(prefixed_import_error());
                     }
-                    // Named prefixes on field elements do not change it (xmlport/lt-y83-xmlport-shapes/Y83XpNsTests.al:Ns_DnNsprefix,
+                    // Named prefixes on field elements do not change it (xmlports/shapes-properties/Y83XpNsTests.al:Ns_DnNsprefix,
                     // Ns_PwsPrefix `import dn`, needs the corpus bump).
                     if xp.namespaces.iter().all(|(p, _)| !p.is_empty())
                         && xp.nodes.iter().all(|n| {
@@ -235,7 +235,7 @@ impl Session {
                 })
                 || e.elements().any(|c| foreign_prefix(c, declared))
         }
-        // With PreserveWhiteSpace, white space between elements is passed over (corpus PR 896, misc/lt-np4-probes/Np4XmlPort.al
+        // With PreserveWhiteSpace, white space between elements is passed over (corpus PR 896, streams/Np4XmlPort.al
         // Y9_XmlPort_Import_PreserveWhiteSpace_NoNamespace: indented rows import as `rows=3`); other text between them is not
         // pinned.
         if xp.preserve_whitespace {
@@ -253,7 +253,7 @@ impl Session {
             }
         }
         // An import port with the empty prefix `""` among its Namespaces fails on BC with a schema error that names an element
-        // (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:178, `The 'urn:lt-d:Name' element is not declared.`); which
+        // (xmlports/shapes-properties/Y17XmlPortNamespacesTests.al:178, `The 'urn:lt-d:Name' element is not declared.`); which
         // element it names is not modelled.
         // With UseDefaultNamespace and DefaultNamespace the default namespace takes its place (Y83XpNsTests.al:Ns_UdnDnEprefixUtf8,
         // needs the corpus bump).
@@ -310,13 +310,13 @@ impl Session {
             return Err(schema_error(format!("The '{}' element is not declared.", root.name)));
         }
         // A table element as the root is one row: its fields are validated and the row is inserted, an empty element
-        // fails the schema check (platform/lt-ag-contoso/AgXmlPortImport.al:514 QX_RootTableElement_Import).
+        // fails the schema check (metadata/platform-tables/AgXmlPortImport.al:514 QX_RootTableElement_Import).
         if table_root {
             return self.xp_import_record(inst, schema, top, &root, true, false);
         }
         let root_triggers = Self::xp_root_triggers_pinned(schema, top)?;
         self.xp_import_container(inst, schema, top, &root)?;
-        // The root's OnAfterAssignVariable runs after everything (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al
+        // The root's OnAfterAssignVariable runs after everything (xmlports/shapes-properties/Y83XpMiscTests.al
         // ContainerTriggers_Nested 'import full': `...hdr-aav;root-aav;`). After a Break or Quit it is not pinned.
         if root_triggers {
             if Self::xp_import_stopped(inst) || Self::xp_flow(inst).is_some() {
@@ -330,7 +330,7 @@ impl Session {
     }
 
     /// The root element of an import into a port with `UseDefaultNamespace = true` and no `DefaultNamespace`, whose elements
-    /// are all in BC's namespace of the port (xmlport/lt-bd-xmlport/BdXmlPort.al:499 SqUseDefaultNamespace_NoDefaultNamespace,
+    /// are all in BC's namespace of the port (xmlports/shapes-properties/BdXmlPort.al:499 SqUseDefaultNamespace_NoDefaultNamespace,
     /// xmlport 89580): a root in that namespace, by default or by a prefix, is read with local names; a root in another
     /// namespace or in none is not found; a first child in no namespace below a root with one child fails the schema check.
     /// Pinned for a text element root whose name the document's root has.
@@ -366,7 +366,7 @@ impl Session {
             }
             // An attribute of the root prefixed into the port's namespace is not the port's attribute, which is in no namespace:
             // the schema check fails before anything is imported (writer TF's branch al-runtime-rs-staging-pub-tf,
-            // xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al TF_NsAttr_Import_Qualified `prefixed attributes`, a declared
+            // xmlports/shapes-properties/SgXmlPortOccurs.al TF_NsAttr_Import_Qualified `prefixed attributes`, a declared
             // text attribute of the root). Pinned for a port without DefaultNamespace (BC's own namespace), the case
             // `xmlport-udn-text-attribute` registers.
             Ok(InNamespace::RootAttributeInNamespace(attr))
@@ -407,7 +407,7 @@ impl Session {
             if pos != 0 && pos < len {
                 return unsupported("XmlPort import of a source stream read partly before (not pinned)");
             }
-            // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Import_SourceReadBefore, TT_ImportTwice_SameSource (was assumption `xmlport-import-whole-source`).
+            // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TT_Import_SourceReadBefore, TT_ImportTwice_SameSource (was assumption `xmlport-import-whole-source`).
             st.pos = 0;
             let all = st.rest();
             st.pos = pos;
@@ -420,7 +420,7 @@ impl Session {
             return utf16_declared_utf8(String::from_utf16_lossy(&units));
         }
         // A UTF-16 little endian document without a byte order mark that starts with `<` is read as UTF-16 (a TextEncoding::UTF16
-        // OutStream writes no byte order mark and the document declares encoding="UTF-16": xmlport/lt-xmlport-linktable/
+        // OutStream writes no byte order mark and the document declares encoding="UTF-16": xmlports/import/
         // XmlPortLinkTableNoLinkFields.al, Import runner at line 395 and BothTemporary_Import_OneParentOneChild).
         if bytes.len() >= 2 && bytes[0] == b'<' && bytes[1] == 0 {
             let units: Vec<u16> = bytes
@@ -431,7 +431,7 @@ impl Session {
         }
         // A UTF-16 big endian document, with the byte order mark FE FF or without one when it starts with `<`, is read as UTF-16
         // when it declares utf-16 or (without a mark) nothing; one without a mark that declares utf-8 fails at the first NUL after
-        // the declaration (xmlport/lt-ah-xmlport/AhXmlPort.al:543-597, BigEndian_*: `'.', hexadecimal value 0x00, is an invalid
+        // the declaration (xmlports/shapes-properties/AhXmlPort.al:543-597, BigEndian_*: `'.', hexadecimal value 0x00, is an invalid
         // character. Line 1, position 39.` after the 38 characters of the declaration). Other declarations are not pinned.
         let bom_be = bytes.starts_with(&[0xFE, 0xFF]);
         if bom_be || (bytes.len() >= 2 && bytes[0] == 0 && bytes[1] == b'<') {
@@ -469,7 +469,7 @@ impl Session {
         let rest = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
         match std::str::from_utf8(rest) {
             // A document that declares utf-16 in bytes without a UTF-16 byte order mark cannot be read
-            // (xmlport/lt-xmlport-query-datatransfer/XpTImportBasic.al:Import_PrologUtf16Declared).
+            // (xmlports/import/XpTImportBasic.al:Import_PrologUtf16Declared).
             Ok(t)
                 if t.starts_with("<?xml")
                     && t.split_once("?>").is_some_and(|(decl, _)| {
@@ -514,7 +514,7 @@ impl Session {
         match schema.node(node).trigger(name) {
             Some(r) => {
                 // `CurrentPath` in a trigger of an export is the path of the element; in an import and outside the triggers it
-                // is empty (platform/lt-xmlport-session-navapp-cookie/P94XpPathFlow.al: Export_PathsInTriggers,
+                // is empty (metadata/session-system/P94XpPathFlow.al: Export_PathsInTriggers,
                 // Import_PathsInTriggers).
                 let exporting = inst.borrow().xp_text.iter().any(|(k, _)| *k == 6);
                 if exporting {
@@ -554,7 +554,7 @@ impl Session {
     }
 
     /// Runs the trigger `name` of `node` and answers what it asked for with Skip, Break or BreakUnbound. Quit ends the run: the
-    /// request stays set and the error unwinds to `xp_run` (corpus pages/lt-pages-xmlport-upload-members/P112XpXml.al:
+    /// request stays set and the error unwinds to `xp_run` (corpus pages/pages-xmlports-upload-members/P112XpXml.al:
     /// P112_Export_Quit, P112_Import_Quit).
     pub(super) fn xp_site(
         &mut self,
@@ -651,7 +651,7 @@ impl Session {
                 ir::XmlNodeKind::Text => {
                     self.xp_assign_leaf_text(inst, schema, child, ce)?;
                     // Break in OnAfterAssignVariable of a text element right below the root ends the import there and
-                    // OnPostXmlPort runs; Quit ends it without OnPostXmlPort (xmlport/lt-ay-xmlport/AyXmlPortFlowTriggers.al:391
+                    // OnPostXmlPort runs; Quit ends it without OnPostXmlPort (xmlports/shapes-properties/AyXmlPortFlowTriggers.al:391
                     // Import_head_Break `pre1;head1;post;`, :417 Import_head_Quit `pre1;head1;`, no rows). Deeper it is not pinned.
                     if let Some(f @ (Flow::Break | Flow::Quit)) = Self::xp_flow(inst) {
                         if schema.node(node).parent.is_some() {
@@ -681,15 +681,15 @@ impl Session {
         elem: &Elem,
         mut assigned: Option<&mut Vec<usize>>,
     ) -> Result<(), Signal> {
-        // A field attribute of the schema has to be there (xmlport/lt-xmlport-query-datatransfer/XpTImportOptions.al:
+        // A field attribute of the schema has to be there (xmlports/import/XpTImportOptions.al:
         // Import_AttributesMissing, Import_AttributesAsElements); the first one the element lacks is named. So has a text
-        // attribute declared `Occurrence = Required`, also when its value is empty (xmlport/lt-qr-xmlport-container-occurs/
-        // QrXpContainerOccurs.al:QS_TextAttr_Import_Root, QS_TextAttr_Import_Rows; report/lt-u-report-props/UPropertyTests.al:336).
+        // attribute declared `Occurrence = Required`, also when its value is empty (xmlports/shapes-properties/
+        // QrXpContainerOccurs.al:QS_TextAttr_Import_Root, QS_TextAttr_Import_Rows; reports/runtime/UPropertyTests.al:336).
         // A text attribute without `Occurrence` may be missing, as before these pins. A field attribute declared
         // `Occurrence = Optional` may be missing and leaves its field as it is, one declared Required may not
-        // (platform/lt-ag-contoso/AgXmlPortImport.al:248 FieldAttribute_Occurrence_RequiredAndOptional_Import).
+        // (metadata/platform-tables/AgXmlPortImport.al:248 FieldAttribute_Occurrence_RequiredAndOptional_Import).
         // A text attribute of the root text element without `Occurrence` is required too
-        // (xmlport/lt-xmlport-query-datatransfer/XpTImportOptions.al:282 Import_TextElementsMissingAttribute, xmlport 73421).
+        // (xmlports/import/XpTImportOptions.al:282 Import_TextElementsMissingAttribute, xmlport 73421).
         // So is a text attribute without `Occurrence` of a text element right below a table element in a pinned shape
         // (`text_in_table`; QrXpContainerOccurs.al TO_AttrItem_Trigger_Import `attribute missing`, TO_TextContent_Import
         // `no kind`, on branch al-runtime-rs-staging-pub-to); beside a field attribute it is pinned only in the nested shape
@@ -697,7 +697,7 @@ impl Session {
         let root_text = schema.node(node).parent.is_none() && schema.node(node).kind == ir::XmlNodeKind::Text;
         let in_table = text_in_table(schema, node).is_some();
         // Also a text attribute without `Occurrence` of a text element that holds only text attributes and stands below text elements
-        // alone (an e-document `Endpoint` below the root): xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:1088
+        // alone (an e-document `Endpoint` below the root): xmlports/shapes-properties/Y83XpMiscTests.al:1088
         // ContainerTriggers_AttributeOnly `import no scheme`. How many attributes, how deep, and with a table element elsewhere in the
         // port are not pinned beyond that shape.
         let outside_table = attributed_outside_table(schema, node);
@@ -740,7 +740,7 @@ impl Session {
         });
         if let Some((name, _)) = unknown {
             // An attribute written with the prefix of the port's namespace is not the port's attribute, which is in no namespace,
-            // when a field attribute of that prefix and name is declared (xmlport/lt-y83-xmlport-shapes/Y83XpNsTests.al:
+            // when a field attribute of that prefix and name is declared (xmlports/shapes-properties/Y83XpNsTests.al:
             // Ns_PrefixAttrOnly `import prefixed`, needs the corpus bump; it wins over the missing required attribute); the declaration on the
             // root was checked above.
             if let Some((prefix, local)) = name.split_once(':') {
@@ -805,7 +805,7 @@ impl Session {
     }
 
     /// Text element or attribute: the text goes into its variable, then `OnAfterAssignVariable`
-    /// (xmlport/TestXmlPortAdvanced.al:XmlPort_TextVariableTriggers_ImportMutatesAssignedValues).
+    /// (xmlports/TestXmlPortAdvanced.al:XmlPort_TextVariableTriggers_ImportMutatesAssignedValues).
     pub(super) fn xp_assign_variable(
         &mut self,
         inst: &Inst,
@@ -814,7 +814,7 @@ impl Session {
         text: String,
     ) -> Result<(), Signal> {
         let slot = schema.node(node).slot.expect("text nodes have a slot");
-        // A BigText element gets the whole text, past 2048 characters (xmlport/lt-xmlport-bigtext/XmlPortBigText.al:218).
+        // A BigText element gets the whole text, past 2048 characters (xmlports/shapes-properties/XmlPortBigText.al:218).
         inst.borrow_mut().globals[slot] = if schema.node(node).big_text {
             Value::Library(
                 al_builtins::library_kind::LibraryKind::BigText,
@@ -840,7 +840,7 @@ impl Session {
     ) -> Result<(), Signal> {
         // `<x> </x>` gives the empty text (TR_EmptyLeaf_Import `space`: `top=[];`).
         // Other white space: kept with PreserveWhiteSpace, each run made one space and the ends trimmed without it (corpus PR
-        // 896, misc/lt-np4-probes/Np4XmlPort.al Y9_XmlPort_Import_PreserveWhiteSpace_NoNamespace `note=[  lead  inner\n gap\t ]`,
+        // 896, streams/Np4XmlPort.al Y9_XmlPort_Import_PreserveWhiteSpace_NoNamespace `note=[  lead  inner\n gap\t ]`,
         // Y9_XmlPort_Import_DefaultWhiteSpace_NoNamespace `note=[lead inner gap]`, with a default namespace the same).
         let text = ce.text();
         let text = if schema.xp().preserve_whitespace
@@ -858,7 +858,7 @@ impl Session {
             text
         };
         // `<x />` does not assign the variable: it keeps the value it had, and the trigger sees that value both times
-        // (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:1070 ContainerTriggers_Nested 'import empty leaf':
+        // (xmlports/shapes-properties/Y83XpMiscTests.al:1070 ContainerTriggers_Nested 'import empty leaf':
         // `hcode-aav(hc);hcode-aav(hc);` after OnPreXmlPort set `hc`; with an empty variable this reads `top=[];top=[];` as before).
         // `<x></x>` and `<x> </x>` with a non-empty old value are not pinned and assign the empty text as they did.
         if ce.self_closed {
@@ -915,7 +915,7 @@ impl Session {
     }
 
     /// Whether the white space only text of `ce` is a CDATA section, which an import with PreserveWhiteSpace keeps
-    /// (xmlport/lt-y91-xmlport-probes/Y91XpTests.al:149 `cdata_space`, :214 `n_cdata_space`). White space of plain text and of
+    /// (xmlports/Y91XpTests.al:149 `cdata_space`, :214 `n_cdata_space`). White space of plain text and of
     /// both kinds together: plain is dropped (:145 `space`); the mix is not pinned.
     pub(super) fn xp_blank_cdata(ce: &Elem) -> Result<bool, Signal> {
         match ce.text_source {
@@ -947,7 +947,7 @@ impl Session {
         text: &str,
         keep_blank: bool,
     ) -> Result<(usize, Option<Flow>), Signal> {
-        // White space around a value is dropped, for text too (xmlport/lt-xmlport-query-datatransfer/XpTImportBasic.al:
+        // White space around a value is dropped, for text too (xmlports/import/XpTImportBasic.al:
         // Import_WhitespaceAroundValues).
         let raw = text;
         let text = text.trim();
@@ -972,7 +972,7 @@ impl Session {
         };
         // With PreserveWhiteSpace a Text field element keeps it (XpTImportOptions.al:406 Import_PreserveWhitespace, `  a  b  `);
         // around another value or in an attribute that is not pinned.
-        // A value of white space only is the empty text with and without it (corpus PR 896, misc/lt-np4-probes/Np4XmlPort.al
+        // A value of white space only is the empty text with and without it (corpus PR 896, streams/Np4XmlPort.al
         // Y9_XmlPort_Import_PreserveWhiteSpace_NoNamespace `[]`). Without it an Xml import makes each run of white space inside a
         // Text field element one space (Y9_XmlPort_Import_DefaultWhiteSpace_NoNamespace, _WithNamespace `[a b]`).
         let collapsed;
@@ -1002,8 +1002,8 @@ impl Session {
             text
         };
         // A field element bound to a FlowFilter is skipped by an Xml import: its OnAfterAssignField does not run and the import
-        // goes on (xmlport/lt-xmlport-flowfield-element/XmlPortFlowFilterElement.al:224 Import_FlowFilterElement_AssignedWithoutSave,
-        // `log` empty; xmlport/lt-xmlport-flowfield-sum-count/XmlPortFlowFieldSumCount.al:326 `no error`). The other formats and
+        // goes on (xmlports/shapes-properties/XmlPortFlowFilterElement.al:224 Import_FlowFilterElement_AssignedWithoutSave,
+        // `log` empty; xmlports/shapes-properties/XmlPortFlowFieldSumCount.al:326 `no error`). The other formats and
         // a text that is no value of the type are not pinned.
         if flow_filter {
             if schema.xp().format != al_ir::XmlFormat::Xml {
@@ -1021,9 +1021,9 @@ impl Session {
             return Ok((pos, None));
         }
         // A field element bound to a FlowField is skipped by an import: the field keeps its value and OnAfterAssignField
-        // does not run. Xml: every method, with the trigger or without (xmlport/lt-ay-xmlport/AyXmlPortLookupFlowField.al:
+        // does not run. Xml: every method, with the trigger or without (xmlports/shapes-properties/AyXmlPortLookupFlowField.al:
         // Import_AutoCalc and Import_NoAutoCalc for Lookup, `before-insert=;`; :364 PYD_Import_Xml_ExistMinMaxAverage for Exist,
-        // Min, Max, Average, Lookup and Count with triggers; xmlport/lt-xmlport-flowfield-sum-count/XmlPortFlowFieldSumCount.al:
+        // Min, Max, Average, Lookup and Count with triggers; xmlports/shapes-properties/XmlPortFlowFieldSumCount.al:
         // 326-372 for Sum and Count). VariableText: Lookup, Count and Min (:415); FixedText: Lookup and Count (:439). A text that
         // is no value of the type is skipped too for a Decimal or Boolean element (:389, :402); for an Integer one the schema
         // check fails (:377 `many`). The other methods of the text formats and the other wrong texts are not pinned.
@@ -1082,8 +1082,8 @@ impl Session {
                     // A Date that neither reads gives the long text with the code Evaluate (XpTImportBasic.al: Import_BadDate,
                     // Import_DateWrongFormat).
                     Err(Signal::Error(_)) if matches!(ty, RtType::Date) => {
-                        // In German the same text in German (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:DateDecimal_XML_German,
-                        // needs the corpus bump; the text as Evaluate gives it, misc/lt-system-functions/EvalLastError.al:463-481).
+                        // In German the same text in German (xmlports/shapes-properties/Y83XpMiscTests.al:DateDecimal_XML_German,
+                        // needs the corpus bump; the text as Evaluate gives it, format-evaluate/EvalLastError.al:463-481).
                         let message = if self.global_language == 1031 {
                             format!(
                                 "Das Format Date \u{201e}{text}\u{201c} stimmt nicht mit den Datumseinstellungen Ihres Ger\u{e4}ts \u{fc}berein.\\\\Stellen Sie sicher, dass Tag, Monat und Jahr die richtige Reihenfolge aufweisen und das richtige Trennzeichen verwendet wird (z. b. - oder /). Alternativ k\u{f6}nnen Sie das Format \u{201e}jjjj-mm-tt\u{201c} verwenden."
@@ -1107,7 +1107,7 @@ impl Session {
             }
         } else {
             match self.xp_value(text, &ty, false) {
-                // FormatEvaluate = Legacy reads a Date in the form yyyy-mm-dd too (xmlport/lt-xmlport-query-datatransfer/
+                // FormatEvaluate = Legacy reads a Date in the form yyyy-mm-dd too (xmlports/import/
                 // XpTImportOptions.al:337 Import_FormatEvaluateLegacy_XmlValues, `2024-01-15`). Other XML forms are not pinned
                 // here (TestXmlPortFormatEvaluateContracts.al:192 refuses the document as a whole).
                 Err(Signal::Error(e))
@@ -1152,7 +1152,7 @@ impl Session {
         Ok((pos, flow))
     }
 
-    /// The validation of an imported field (xmlport/lt-bj-xmlport-default-validation/BjXmlPortDefaultValidation.al:255-334):
+    /// The validation of an imported field (xmlports/import/BjXmlPortDefaultValidation.al:255-334):
     /// on a Format = Xml port a field element is validated unless it says `FieldValidate = No`, or, with
     /// `DefaultFieldsValidation = false`, when it says `FieldValidate = Yes`. Validated, its OnValidate runs with xRec
     /// already holding the new value and a TableRelation is checked, per field in document order before the insert; not
@@ -1193,7 +1193,7 @@ impl Session {
         }
         let xp = schema.xp();
         // A VariableText port with `DefaultFieldsValidation = false` does not validate a field element that does not say
-        // FieldValidate (platform/lt-ag-contoso/AgXmlPortImport.al:678, xmlport 87567: the Iso field's OnValidate never runs).
+        // FieldValidate (metadata/platform-tables/AgXmlPortImport.al:678, xmlport 87567: the Iso field's OnValidate never runs).
         if xp.format == al_ir::XmlFormat::VariableText
             && xp.no_default_fields_validation
             && n.kind == al_ir::XmlNodeKind::Field
@@ -1208,8 +1208,8 @@ impl Session {
             ));
         }
         // A field attribute is validated as a field element is: FieldValidate = Yes always, No never, left out when
-        // DefaultFieldsValidation is true or left out (pages/lt-report-page-properties/06-xmlport-fvat.al:118-119;
-        // xmlport/lt-bj-xmlport-default-validation/BjXmlPortDefaultValidation.al:625, :657, :689, :721: OnValidate runs with
+        // DefaultFieldsValidation is true or left out (pages/properties/06-xmlport-fvat.al:118-119;
+        // xmlports/import/BjXmlPortDefaultValidation.al:625, :657, :689, :721: OnValidate runs with
         // xRec already holding the new value, a value the related table lacks fails the import).
         if !matches!(n.kind, al_ir::XmlNodeKind::Field | al_ir::XmlNodeKind::FieldAttr) {
             return unsupported(format!(
@@ -1223,7 +1223,7 @@ impl Session {
         // A blank field attribute is not validated, even with FieldValidate = Yes, where a blank field element is
         // (BjXmlPortDefaultValidation.al:625 'AttrDef blank'/'AttrYes blank' against :641 'ElDef blank'). Pinned for a field
         // with a TableRelation, and for an Enum or Option field with OnValidate, an empty or one-blank attribute giving member 0
-        // (xmlport/lt-y72-xmlport-probes/Y72XpTextTypeBlankEnum.al:847 BlankAttribute_Import_Literal `ins 5 res=0 plain=0 opt=0`,
+        // (streams/Y72XpTextTypeBlankEnum.al:847 BlankAttribute_Import_Literal `ins 5 res=0 plain=0 opt=0`,
         // :881 with FieldValidate = Yes and DefaultFieldsValidation = false).
         if n.kind == al_ir::XmlNodeKind::FieldAttr && blank {
             if field.relation || matches!(t.fields[pos].ty, RtType::Enum(_) | RtType::Option(_)) {
@@ -1247,7 +1247,7 @@ impl Session {
 
 /// A document read as UTF-16 whose declaration says `utf-8`: the reader switches to UTF-8 after the declaration and meets the
 /// zero byte that follows the next `<`: `Name cannot begin with the '.' character, hexadecimal value 0x00. Line 1, position N.`
-/// with N two past the end of the declaration (xmlport/lt-af-xmlport/AfXmlPortEncoding.al:
+/// with N two past the end of the declaration (xmlports/shapes-properties/AfXmlPortEncoding.al:
 /// AF_Encoding_Import_Utf8Property_Utf16DocDeclaredUtf8, a declaration followed at once by the root element). Any other
 /// shape after the declaration is not pinned.
 pub(super) fn utf16_declared_utf8(text: String) -> Result<String, Signal> {

@@ -2,18 +2,18 @@
 //! the .NET host cannot create. Base Application's ODataUtility.GenerateFilterText creates one, fills it in GetNAVFilters
 //! from Tenant Web Service Filter rows only, and walks it with `foreach` in CombineFiltersFromTables. With no filter rows
 //! the dictionary stays empty, the walk finds nothing and the V3 and V4 filter texts are '' (tests/al-language-onprem-dotnet/
-//! lt-qx-dotnet/QxDotNetDemoShapes.al:473, a query service; al-language-onprem/platform/PtWebServiceRows.al:326, a page
+//! dotnet/dotnet/QxDotNetDemoShapes.al:473, a query service; al-language-onprem/metadata/PtWebServiceRows.al:326, a page
 //! service; Microsoft's DemoTool, Create Web Services).
 //!
 //! Base Application's RequestPageParametersHelper.GetViewFromDynamicRequestPage makes one with the Int32 capacity
 //! constructor, fills it with `ContainsKey`/`Add` (Integer keys, Text values) and walks it with `foreach` into a
 //! `KeyValuePair`2` (ConvertFiltersToParameters). That shape is pinned by tests/al-language-onprem-dotnet/
-//! lt-y17-dotnet-dictionary/Y17DotNetDictionary.al (walk order, `Count`, `Item`, `ContainsKey`, and the errors of a duplicate
+//! dotnet/dotnet-dictionary/Y17DotNetDictionary.al (walk order, `Count`, `Item`, `ContainsKey`, and the errors of a duplicate
 //! `Add`, `Item` of a missing key and a negative capacity).
 //!
 //! System Application's Edit in Excel filters make one with the parameterless constructor and fill it with Text keys and .NET
 //! object values (`ContainsKey`, `Add`, `TryGetValue`, `Remove`, `.Values`). That shape is pinned by tests/
-//! al-language-onprem-dotnet/lt-y51-dotnet-dictionary/Y51DotNetDictNoCap.al: Text keys compare as .NET strings, exactly
+//! al-language-onprem-dotnet/dotnet/dotnet-dictionary/Y51DotNetDictNoCap.al: Text keys compare as .NET strings, exactly
 //! (`NAME` and `Name ` are other keys), an object value is held by reference, `.Values` walks in insertion order, and the
 //! constructor does not change any of it (DnDictNoCap_IntegerKeys).
 //!
@@ -35,10 +35,10 @@ use al_builtins::value::{DotNetKind, DotNetObject, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-const PIN: &str = "tests/al-language-onprem-dotnet/lt-qx-dotnet/QxDotNetDemoShapes.al:473; \
-    al-language-onprem/platform/PtWebServiceRows.al:326";
+const PIN: &str = "tests/al-language-onprem-dotnet/dotnet/dotnet/QxDotNetDemoShapes.al:473; \
+    al-language-onprem/metadata/PtWebServiceRows.al:326";
 
-pub(super) const FILL_PIN: &str = "tests/al-language-onprem-dotnet/lt-y17-dotnet-dictionary/Y17DotNetDictionary.al:56";
+pub(super) const FILL_PIN: &str = "tests/al-language-onprem-dotnet/dotnet/dotnet-dictionary/Y17DotNetDictionary.al:56";
 
 /// What BC names the closed type in the message of a failed member call (Y17DotNetDictionary.al:126, :147).
 const CLOSED: &str = "System.Collections.Generic.Dictionary`2[System.Object,System.Object]";

@@ -1,5 +1,5 @@
 //! A page control over a FlowField whose source table the session's permission sets cannot read is not on the page (ADR-062
-//! stage 2; corpus permissions/lt-y19-perm-probes/Y24PermReads.al Y24_P15_FlowFieldsNothingOnSource `testpage_field`: with rows in
+//! stage 2; corpus record/Y24PermReads.al Y24_P15_FlowFieldsNothingOnSource `testpage_field`: with rows in
 //! the source table, `Card.SumCtl.Value()` raises "The field with ID = n is not found on the page.", code TestFieldNotFound; with
 //! the table readable the value is there).
 

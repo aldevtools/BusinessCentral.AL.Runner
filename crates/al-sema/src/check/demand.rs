@@ -233,7 +233,7 @@ pub(super) const SET_FILTER: u8 = 16;
 /// `Report.GetSubstituteReportId` raises `SubstituteReport` when it has a subscriber (P91Unsure.al:112).
 pub(super) const SUBSTITUTE: u8 = 32;
 /// The static `Report.Run`, `RunModal`, `Execute` and `RunRequestPage` raise `SubstituteReport`, and `RunRequestPage`
-/// `SetupPrinters` (misc/lt-y14-triage/Y14ReportSubstitute.al, events/lt-platform-events-v/PeVTests.al:450, :665).
+/// `SetupPrinters` (reports/Y14ReportSubstitute.al, events/platform-triggers/PeVTests.al:450, :665).
 pub(super) const REPORT: u8 = 64;
 /// The object's text has been searched.
 const SCANNED: u8 = 128;
@@ -470,7 +470,7 @@ impl Checker<'_> {
             V::PageAction => &[ObjKind::Page, ObjKind::Table, ObjKind::Codeunit],
             V::EventSubscription => &[ObjKind::Codeunit],
             // The Metadata of a query's row feeds Microsoft's QueryMetadataReader, which reads the query's columns and
-            // their tables (lt-re-dotnet/ReQueryMetadataShapes.al:171, Base Application's query 51 by id).
+            // their tables (dotnet/dotnet/ReQueryMetadataShapes.al:171, Base Application's query 51 by id).
             V::ApplicationObjectMetadata => &[ObjKind::Query],
             _ => return,
         };
@@ -739,7 +739,7 @@ impl Checker<'_> {
         match kind {
             // A field's CaptionClass expression runs when code reads the field's caption (FieldCaption, a FieldRef's
             // Caption, a page control over the field): `pages::expand` made it a `__captionclass_N` routine of the table or
-            // table extension that writes it (pageext/lt-page-ext-properties/TableExtCaptionClass.al:56-74).
+            // table extension that writes it (pages/extensions/TableExtCaptionClass.al:56-74).
             ObjKind::Table => {
                 self.activate_table(i, level);
                 if level >= READ {
@@ -1065,8 +1065,8 @@ impl Checker<'_> {
     }
 
     /// Object `i` calls `SaveAs`: an Xml `SaveAs` raises the platform's `SubstituteReport` and `OnDocumentReady`
-    /// (events/lt-platform-events-v/PeVTests.al:432), so their subscribers are reached. So does `Report.GetSubstituteReportId`,
-    /// which raises `SubstituteReport` (report/lt-report-members-testrequestpage/P91Unsure.al:112).
+    /// (events/platform-triggers/PeVTests.al:432), so their subscribers are reached. So does `Report.GetSubstituteReportId`,
+    /// which raises `SubstituteReport` (reports/request-page/P91Unsure.al:112).
     pub(super) fn reach_save_as_events_if_used(&self, i: usize) {
         if !self.pending(|st| st.save_as_events) || self.mentions(i) & (SAVE_AS | SUBSTITUTE | REPORT) == 0 {
             return;
@@ -1094,7 +1094,7 @@ impl Checker<'_> {
     }
 
     /// Object `i` sets filters from text: a Date text with a piece that does not read raises the platform's
-    /// `MakeDateFilter`, so its subscribers are reached (events/lt-platform-triggers/PtObserve.al:157).
+    /// `MakeDateFilter`, so its subscribers are reached (events/platform-triggers/PtObserve.al:157).
     pub(super) fn reach_filter_helper_if_used(&self, i: usize) {
         if !self.pending(|st| st.filter_helper) || self.mentions(i) & SET_FILTER == 0 {
             return;
@@ -1158,7 +1158,7 @@ impl Checker<'_> {
                 if matches!(self.ws.objects[i].kind, ObjKind::Page | ObjKind::PageExtension) {
                     self.touch_ops(t, ALL_OPS);
                     // A lookup on a control the page gives no OnLookup runs the table field's
-                    // (corpus handlers/TestPageFieldTableLookup.al:55).
+                    // (corpus testpage/TestPageFieldTableLookup.al:55).
                     if self.ws.is_dependency(t) && self.ws.usable(t) {
                         for o in std::iter::once(t).chain(self.ws.extensions_of(t).iter().copied()) {
                             if !self.ws.usable(o) {
@@ -2030,7 +2030,7 @@ mod tests {
 
     #[test]
     fn a_dependency_report_request_page_expression_is_reached_by_a_test_request_page() {
-        // handlers/TestReqPageBoundVisibility.al:172-188: the handler reads `.Visible()` of a control
+        // reports/TestReqPageBoundVisibility.al:172-188: the handler reads `.Visible()` of a control
         // whose `Visible = FlagVisible;` is a synthetic `__visible_N` routine of Base App's report.
         let (_, l) = compile(
             "codeunit 1 Main { procedure Go() var R: TestRequestPage \"Lib Rep\"; begin end; }",
@@ -2184,7 +2184,7 @@ mod tests {
 
     /// A trigger of a page in a dependency app calls a procedure of the page its part shows
     /// (`CurrPage.PurchLines.Page.ForceTotalsCalculation()` in Base Application's Purchase Invoice): the part's
-    /// page is reached with the page that names it. Pinned in the workspace by handlers/TestPageTempPart_Host.al
+    /// page is reached with the page that names it. Pinned in the workspace by testpage/TestPageTempPart_Host.al
     /// (`CurrPage.Lines.Page.SetRows`). The part's page has a group named `Page` (Base Application's Purch.
     /// Invoice Subform does): `.Page` is still the part's page, not that control.
     #[test]
@@ -2615,7 +2615,7 @@ mod tests {
         );
         assert!(!compiled(&named, "Rep", "OnPreReport"));
         // Handed to a procedure as an argument, workspace code may run it there
-        // (corpus handlers/TestReportDatasetHelpLink.al: `RenderDataset(Report::"G/L Register")`).
+        // (corpus xml/TestReportDatasetHelpLink.al: `RenderDataset(Report::"G/L Register")`).
         let (_, passed) = compile(
             "codeunit 1 Main { procedure Go() begin Show(Report::Rep); end; procedure Show(Id: Integer) begin end; }",
             &dep,

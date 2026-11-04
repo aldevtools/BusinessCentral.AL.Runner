@@ -70,7 +70,7 @@ Tests: `al-host` (default, wrappers, check), `al-vm/tests/store/hostvalues.rs` (
 
 ## Decided without owner review (2026-10-18)
 
-Corpus bump 22 pins the forms with a company, an object, a record and its filters (session/lt-geturl-shape/GetUrlShape.al,
+Corpus bump 22 pins the forms with a company, an object, a record and its filters (session-system/session/GetUrlShape.al,
 platform/lt-system-database-members/GetUrl*.al). They build `<base>/?query`, where `<base>` is `GetUrl(ClientType::Web)` cut at
 its first `?` and has no trailing slash. So the default is now `http://localhost:8080/BC` (no trailing slash), and the forms
 with arguments cut a trailing slash of a user-set address before adding `/?`. `GetUrl(ClientType::Web)` alone still returns the
@@ -79,7 +79,7 @@ address as set. Other client types stay refused: their host part is not pinned (
 ## Decided without owner review (2026-10-20)
 
 Corpus bump 32 pins `GetUrl(ClientType::Web)` alone with a host part that is not `localhost`
-(session/lt-geturl-shape/GetUrlShape.al:283), and `GetUrl(ClientType::Default)` alone as `dynamicsnav://<host>/BC//`
+(session-system/session/GetUrlShape.al:283), and `GetUrl(ClientType::Default)` alone as `dynamicsnav://<host>/BC//`
 (GetUrlShape.al:270). So `al-test-cli` (the corpus tool) now sets the server address `http://bcserver:8080/BC`
 (`CORPUS_SERVER_URL` in `crates/al-test-cli/src/main.rs`) instead of the default. It is a host setting, as this ADR
 decides; `alrunner` keeps the default `http://localhost:8080/BC`. The host name itself stays under the assumption

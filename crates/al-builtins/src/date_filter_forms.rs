@@ -1,6 +1,6 @@
 //! Date and DateTime filter texts of an English session that the readers in `filter.rs` leave out: a month and a day without
 //! a year, slash forms with impossible numbers, and DateTime texts with a four-digit year
-//! (filters/lt-y62-date-filter-short/Y62DateFilterShort.al, codeunit 93260, writer Y62).
+//! (record/filters/Y62DateFilterShort.al, codeunit 93260, writer Y62).
 
 use crate::value::{RtType, Value};
 

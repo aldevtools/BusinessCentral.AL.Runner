@@ -5,7 +5,7 @@ use super::*;
 impl Session {
     /// First on the first row a list shows, on a list whose only row trigger is OnAfterGetCurrRecord (no OnAfterGetRecord,
     /// OnFindRecord or OnNextRecord), reads nothing: the page opened on that row already
-    /// (pages/lt-y42-repeater-new-line/Y42RepeaterNewLine.al:313 NrEd_ListRepeaterFalse_NextPastLast `First` adds no `agcr`,
+    /// (pages/triggers/Y42RepeaterNewLine.al:313 NrEd_ListRepeaterFalse_NextPastLast `First` adds no `agcr`,
     /// and :381, :483, :511 with a repeater whose Editable is false, a false or a true page variable). With OnAfterGetRecord
     /// the client's rows answer it, `move_in_client_rows`.
     pub(in crate::pages) fn plain_list_first_on_first_row(&mut self, st: &St) -> Result<bool, Signal> {

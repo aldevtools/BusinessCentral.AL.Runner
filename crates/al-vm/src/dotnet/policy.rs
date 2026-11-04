@@ -171,7 +171,7 @@ mod tests {
         }
     }
 
-    /// Owner decision 2026-10-18; pinned by corpus tests/al-language-onprem-dotnet/lt-af-dotnet/AfMailAddress.al.
+    /// Owner decision 2026-10-18; pinned by corpus tests/al-language-onprem-dotnet/dotnet/dotnet/AfMailAddress.al.
     #[test]
     fn mail_address_is_allowed_and_only_it_under_system_net() {
         let p = p();

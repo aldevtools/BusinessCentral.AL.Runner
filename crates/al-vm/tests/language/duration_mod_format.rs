@@ -1,5 +1,5 @@
 //! `Duration mod Integer` formats as a plain whole number: `3600000 mod 1000000` is '600000', while `div` formats as a
-//! Decimal ('1,800,000') (types/lt-datetime/Arithmetic.al:Duration_Arithmetic, :373, :386, :393).
+//! Decimal ('1,800,000') (types/date-time/Arithmetic.al:Duration_Arithmetic, :373, :386, :393).
 
 use al_testkit::text;
 

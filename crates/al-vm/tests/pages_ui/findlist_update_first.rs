@@ -1,6 +1,6 @@
 //! `CurrPage.Update(false)` from an action on a descending List served by OnFindRecord and OnNextRecord, then `First()` (al-runner
-//! issue 5802, the reporter's shape). The open read and the moves are pinned (misc/lt-probes-needed-6/PnF06FindListMoves.al:1137,
-//! :1248); after an Update the client asks the triggers again (pagefindrecord/TestPageFindRecord.al:113).
+//! issue 5802, the reporter's shape). The open read and the moves are pinned (testpage/PnF06FindListMoves.al:1137,
+//! :1248); after an Update the client asks the triggers again (pages/triggers/TestPageFindRecord.al:113).
 
 fn src(rows: u32) -> String {
     format!(

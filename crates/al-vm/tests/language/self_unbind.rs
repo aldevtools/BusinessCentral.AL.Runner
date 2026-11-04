@@ -1,5 +1,5 @@
 //! A manual subscriber instance that unbinds itself in its first subscriber method does not run its second method in
-//! the same raise (handlers/ProbeEventSubscriberOrder.al:253 ManualSubscriber_UnbindsItselfInFirstMethod_SecondMethodInSameRaise).
+//! the same raise (events/ProbeEventSubscriberOrder.al:253 ManualSubscriber_UnbindsItselfInFirstMethod_SecondMethodInSameRaise).
 //! An instance unbound by another subscriber is not pinned and is refused.
 
 use al_builtins::native::Signal;

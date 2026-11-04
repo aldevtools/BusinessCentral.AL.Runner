@@ -1,7 +1,7 @@
 //! Report parameters with empty options: a self-closing `<Field name="X" />` or an empty `<Field name="X"></Field>` sets the
 //! variable to its blank value, over what the request page's OnInit set; the other types' filled forms; the root and Options
 //! forms without fields; a SaveAs with parameters after the request page's OnInit
-//! (report/lt-y68-selfclosing-params/Y68SelfClosingParams.al, corpus master 0d01b0cc).
+//! (reports/runtime/Y68SelfClosingParams.al, corpus master 0d01b0cc).
 
 use al_builtins::native::Signal;
 

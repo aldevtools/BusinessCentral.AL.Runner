@@ -1,5 +1,5 @@
 //! A Decimal where PadStr, CopyStr, DelStr, InsStr and SelectStr take an Integer: a whole value works, a fraction raises
-//! ConversionCast (corpus branch al-runtime-rs-staging-pub-tg, text/lt-text-functions/PadStr.Codeunit.al:122-235,
+//! ConversionCast (corpus branch al-runtime-rs-staging-pub-tg, text/text-methods/PadStr.Codeunit.al:122-235,
 //! CopyStr.Codeunit.al, DelStr.Codeunit.al, InsStr.Codeunit.al, SelectStr.Codeunit.al).
 
 use al_testkit::text;

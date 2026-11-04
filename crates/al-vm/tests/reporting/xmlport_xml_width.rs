@@ -1,5 +1,5 @@
 //! A Width on a field attribute or field element of an Xml port changes nothing in the export: no padding, no cut (corpus
-//! xmlport/lt-ay-xmlport/AyXmlPortAttributeWidth.al:199 Width_Xml_FieldAttribute_Export).
+//! xmlports/shapes-properties/AyXmlPortAttributeWidth.al:199 Width_Xml_FieldAttribute_Export).
 
 use al_testkit::{run, text};
 

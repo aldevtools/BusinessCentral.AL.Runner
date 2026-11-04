@@ -1,5 +1,5 @@
 //! The JSON text of a Time with milliseconds is `Format(T, 0, 9)`: trailing zeros of the milliseconds are dropped, leading
-//! zeros kept (al-runner issue 5794; corpus misc/lt-outside-format-json-list/RwJsonTimeMs.al:116 RW_JsonTime_InMemory_
+//! zeros kept (al-runner issue 5794; corpus json/RwJsonTimeMs.al:116 RW_JsonTime_InMemory_
 //! Milliseconds, :62 RW_JsonTime_StoredField_Reporter).
 
 use al_testkit::{run_in, text};

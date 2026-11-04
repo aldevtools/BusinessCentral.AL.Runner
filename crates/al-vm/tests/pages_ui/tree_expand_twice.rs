@@ -1,7 +1,7 @@
 //! Expand(true) on a tree row already expanded and Expand(false) on one not expanded change nothing: no error, IsExpanded
-//! unchanged, the same rows show (pages/lt-page-runtime/P82TestPage.al:283-289 Tree_Expand_IsExpanded, :336-341
+//! unchanged, the same rows show (pages/run-modal/P82TestPage.al:283-289 Tree_Expand_IsExpanded, :336-341
 //! Tree_Rows_WhileCollapsed). Expand(true) on a leaf without a parent changes nothing either; a leaf under a parent stays
-//! refused (pages/lt-y50-tree-expand-leaf/Y50TreeExpandLeaf.al, gap G5-17).
+//! refused (pages/tree-expand-leaf/Y50TreeExpandLeaf.al, gap G5-17).
 
 use al_builtins::native::Signal;
 

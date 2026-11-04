@@ -24,17 +24,17 @@ fn dec(v: &Value) -> Option<Decimal> {
 }
 
 /// `Round(Number, Precision, Direction)`: the nearest multiple of `Precision`, halves away from
-/// zero (session/TestSystemComplete.al:88-113, types/TestArithmeticContracts.al:126-130);
+/// zero (session-system/TestSystemComplete.al:88-113, types/TestArithmeticContracts.al:126-130);
 /// `'='` is the default direction (TestArithmeticContracts.al:108-115), `'>'` rounds away from zero and
 /// `'<'` towards it, on negative numbers too (TestArithmeticContracts.al:82-97,
 /// types/TestDateRoundFormatStringContracts.al:Round_DefaultPrecision_Directions_AndPrecisions). The
 /// default precision is 0.01 (same test). A precision of 0 or -1 raises (types/TestProbeScalarContracts.al:477-528),
 /// a smaller one is refused.
 ///
-/// A Duration rounds its milliseconds the same way and gives a Decimal (types/lt-bc-round-duration/BcRoundDuration.al:51-143: zero,
+/// A Duration rounds its milliseconds the same way and gives a Decimal (types/duration/BcRoundDuration.al:51-143: zero,
 /// positive and negative durations by 1, 1000 with each direction, 0.5 and 60000; no precision; the result type). Its errors are
 /// pinned for a precision of 0 and -1000 (shown as `1,000`) and the direction `x` (:91-109). Any direction text other than `=`, `>`
-/// and `<` raises InvalidValue (misc/lt-system-functions/Round.al:118-138, :435-505; BcRoundDuration.al:163-190).
+/// and `<` raises InvalidValue (types/decimal-integer/Round.al:118-138, :435-505; BcRoundDuration.al:163-190).
 fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let duration = matches!(a[0], Value::Duration(_));
     let number = match &a[0] {
@@ -61,7 +61,7 @@ fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         } else if precision == Decimal::from(-1000) && duration {
             "1,000"
         } else if precision > Decimal::NEGATIVE_ONE && !duration {
-            // -0.1 shows 0.1 (misc/lt-probes-needed-2/PnBDateFormat.al:387-407, Round_Precision `precisionNegative`).
+            // -0.1 shows 0.1 (errors/PnBDateFormat.al:387-407, Round_Precision `precisionNegative`).
             return crate::native::raise(
                 format!(
                     "The value of ROUND parameter 2 is outside of the permitted range. The current value is: {}. The permitted range is: from 1 to 2,147,483,647.",
@@ -88,9 +88,9 @@ fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         ">" => RoundingStrategy::AwayFromZero,
         "<" => RoundingStrategy::ToZero,
         // Every other text raises, on a Decimal, an Integer, a BigInteger and a Duration (zero too), blanks around a valid
-        // direction included: misc/lt-system-functions/Round.al:118-138 (Round_InvalidDirection: `x`, ``, `>>`) and :435-505
+        // direction included: types/decimal-integer/Round.al:118-138 (Round_InvalidDirection: `x`, ``, `>>`) and :435-505
         // (RO_Round_InvalidDirection_Texts: `q`, `Q`, `X`, blanks, `<>`, `==`, `<<`, `=<`, `< `, ` <`, ` = `, `1`, `0`, `up`;
-        // RO_Round_InvalidDirection_CodeunitRun), types/lt-bc-round-duration/BcRoundDuration.al:91-109 and :163-190.
+        // RO_Round_InvalidDirection_CodeunitRun), types/duration/BcRoundDuration.al:91-109 and :163-190.
         _ => return crate::native::raise("The supplied value is not valid.", "InvalidValue"),
     };
     let Some(steps) = number.checked_div(precision) else {
@@ -125,7 +125,7 @@ fn overflow() -> Out {
 }
 
 /// `Power(Number, Power)` with a whole exponent: `Power(2, 3)`, `(5, 0)`, `(1, 100)`, `(0, 0) = 1`,
-/// `(2, -1) = 0.5`, `(2, 10)` (session/TestSystemComplete.al:124-144,
+/// `(2, -1) = 0.5`, `(2, 10)` (session-system/TestSystemComplete.al:124-144,
 /// types/TestArithmeticContracts.al:46-73, types/TestDateRoundFormatStringContracts.al:Power_NonWholeAndNegativeExponents:
 /// `(-8, 3) = -512`). Any other exponent is computed in floating point and read back as a Decimal
 /// of 15 significant digits, as .NET converts a double (`Power(2, 0.5)` is `1.4142135623731`, same
@@ -135,8 +135,8 @@ fn power(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         return unsupported(format!("Power of {} and {}", a[0].describe(), a[1].describe()));
     };
     // A fraction, a huge or a negative exponent goes through a double, 15 significant digits: `Power(3, -1)` is
-    // 0.333333333333333 (types/lt-decimal-digits/DecimalDigits.al:151,162), `Power(10, -10)` 0.0000000001
-    // (misc/lt-probes-needed-2/PnBDateFormat.al:425,439).
+    // 0.333333333333333 (types/decimal-integer/DecimalDigits.al:151,162), `Power(10, -10)` 0.0000000001
+    // (errors/PnBDateFormat.al:425,439).
     if exp.fract() != Decimal::ZERO || exp.abs() > Decimal::from(10_000) || exp.is_sign_negative() {
         use rust_decimal::prelude::ToPrimitive;
         let (Some(b), Some(e)) = (base.to_f64(), exp.to_f64()) else {
@@ -163,7 +163,7 @@ fn power(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         };
     }
     // A result keeps 18 significant digits: `Power(2, 62)` into a BigInteger is 4611686018427387900
-    // (misc/lt-system-functions/Round.al:LT_BU_Power_LargeResultPrecision, misc/lt-cq-odd-leads/CqOddLeads.al:419-446).
+    // (types/decimal-integer/Round.al:LT_BU_Power_LargeResultPrecision, types/CqOddLeads.al:419-446).
     Ok(Value::Decimal(crate::ops::keep_18_digits(result.normalize())))
 }
 
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn round_half_away_from_zero() {
-        // session/TestSystemComplete.al:88,100,112; types/TestArithmeticContracts.al:126-130.
+        // session-system/TestSystemComplete.al:88,100,112; types/TestArithmeticContracts.al:126-130.
         is_dec(call("System.Round#1", vec![d("2.5"), Value::Integer(1)]), "3");
         is_dec(call("System.Round#1", vec![d("-2.5"), Value::Integer(1)]), "-3");
         is_dec(call("System.Round#1", vec![d("3.14159"), d("0.01")]), "3.14");
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn round_raises_for_every_invalid_direction() {
-        // misc/lt-system-functions/Round.al:118-138 (Round_InvalidDirection) and :435-492 (RO_Round_InvalidDirection_Texts):
+        // types/decimal-integer/Round.al:118-138 (Round_InvalidDirection) and :435-492 (RO_Round_InvalidDirection_Texts):
         // only `=`, `>` and `<` are directions; every other text raises, blanks around a valid one too.
         let dirs = [
             "x", "", ">>", "q", "Q", "X", " ", "  ", "<>", "==", "<<", "=<", "< ", " <", " = ", "1", "0", "up",
@@ -229,7 +229,7 @@ mod tests {
                 "InvalidValue",
             );
         }
-        // A Duration, zero too (types/lt-bc-round-duration/BcRoundDuration.al:163-190, RO_Round_Duration_InvalidDirections).
+        // A Duration, zero too (types/duration/BcRoundDuration.al:163-190, RO_Round_Duration_InvalidDirections).
         for ms in [1500, 0] {
             for dir in ["", ">>", "q", " ", "<>", "< "] {
                 raised(
@@ -285,7 +285,7 @@ mod tests {
         is_dec(p(1, 100), "1");
         is_dec(p(0, 0), "1");
         is_dec(p(2, -1), "0.5");
-        // A negative exponent goes through a double: 15 significant digits (types/lt-decimal-digits/DecimalDigits.al:151,162).
+        // A negative exponent goes through a double: 15 significant digits (types/decimal-integer/DecimalDigits.al:151,162).
         is_dec(p(3, -1), "0.333333333333333");
         is_dec(p(10, -10), "0.0000000001");
         is_dec(p(2, 10), "1024");

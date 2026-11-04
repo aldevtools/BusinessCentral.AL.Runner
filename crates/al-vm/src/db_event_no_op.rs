@@ -2,7 +2,7 @@
 //! issue 6852).
 //!
 //! While an app installs, a subscriber of an app with no dependency path to it runs only if BC installed its app first
-//! (ADR-046 amendment 6: install/lt-install-order-subscribers/InstallOrderSubscriberTests.al:66-79, :104-117), and that
+//! (ADR-046 amendment 6: install-upgrade/install-order/InstallOrderSubscriberTests.al:66-79, :104-117), and that
 //! order is not known, so the event is refused (`dispatch.rs`, `order_unknown_apps`). The refusal is only needed where the
 //! order can change a result. A subscriber to `Global Triggers.OnDatabaseInsert`, `OnDatabaseModify`, `OnDatabaseDelete`,
 //! `OnDatabaseRename` or `OnGlobalRename` for which the code that runs for this table has no effect writes nothing and

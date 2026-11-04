@@ -10,7 +10,7 @@ BC 29 (runtime 18.0) adds two test framework features that change the shape of a
 1. **Test handlers.** A test codeunit names handlers in its `TestHandlers` property (values of the system enum
    `TestHandler`, 2000000023, each implementing `ITestHandler`). `TestHandlerContext.Skip(Reason)` called in
    `OnBeforeTestProcedureRun` (or `OnBeforeTestCaseRun`) keeps the test body from running, and the test is
-   reported as skipped (corpus `al-language-testlibraries/lt-bi-test-framework/BiTestHandler.al:7-9`, `:56`, `:125`).
+   reported as skipped (corpus `al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandler.al:7-9`, `:56`, `:125`).
    Our runner has three outcomes: Pass, Fail, NotRun. NotRun means "the runner refused or could not run it". JUnit
    writes NotRun as `<skipped>`, and the corpus ratchet and every count treat it as a gap of the runner.
    A test skipped by a handler is not a gap: real BC skips it too.
@@ -47,7 +47,7 @@ its procedure name (`al-testrun` `runtime/run.rs`, `test_handlers_refusal`, `dat
 
 - `crates/al-test-cli/tests/suite/test_framework_refusals.rs`: the refusals that hold until this ADR is accepted.
 - `crates/al-test-cli/tests/suite/data_driven_tests.rs`: decision 2 as built (2026-10-30). The row shape is
-  `Procedure[identifier]`, pinned by corpus `al-language-testlibraries/lt-bi-test-framework/BiDataDriven.al` (corpus
+  `Procedure[identifier]`, pinned by corpus `al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiDataDriven.al` (corpus
   PR 861: the BC 29 reference run in its header and the result names of the corpus CI on BC 29). No `CaseId` field was
   added: the case name is the test name of the row, so every consumer of the result model works unchanged.
 

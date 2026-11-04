@@ -1,6 +1,6 @@
 //! `CurrPage.Update` on a page that shows no row (an empty view, or an editable list on its new line) after a filter change made
 //! rows visible: which row the client lands on, and which row triggers run, is not pinned (corpus
-//! pageupdate/TestPageUpdateNewRow.al pins only a card's unsaved new row). Refused. Tests-ERM 134022
+//! pages/currpage/TestPageUpdateNewRow.al pins only a card's unsaved new row). Refused. Tests-ERM 134022
 //! PurchasePaymentAppliedWithToleranceAmount reaches it: General Journal (page 39) opens on an empty batch and the
 //! test switches the batch name.
 

@@ -1,5 +1,5 @@
 //! A temporary record whose Blob is written with CreateOutStream after Insert, under a new key, and inserted again: the first
-//! row keeps its own Blob. xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_ImportTwice_Direct (Buffer rows 1
+//! row keeps its own Blob. xmlports/shapes-properties/QrXpContainerOccurs.al TT_ImportTwice_Direct (Buffer rows 1
 //! `A` and 2 `C`; Get(1) then reads `A`).
 
 use al_testkit::{run, text};

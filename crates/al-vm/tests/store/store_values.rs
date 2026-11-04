@@ -34,7 +34,7 @@ table 69982 "SV Code Key"
 }
 codeunit 69981 C
 {
-    // record/lt-at-partner-gaps/AtGetIntegerOnCodeKey.al:27-58.
+    // record/crud/AtGetIntegerOnCodeKey.al:27-58.
     procedure GetIntegerOnCodeKey(): Text
     var Row: Record "SV Code Key"; N: Integer; s: Text;
     begin
@@ -62,7 +62,7 @@ codeunit 69981 C
         if Row.Get(-5) then;
     end;
 
-    // record/lt-cn-transferfields-modify/CnTransferFieldsModify.al:133-173.
+    // record/crud/CnTransferFieldsModify.al:133-173.
     procedure TransferFromNewer(WithKey: Boolean): Text
     var R1: Record "SV Row"; R2: Record "SV Row";
     begin
@@ -105,7 +105,7 @@ codeunit 69981 C
         exit(Format(R1.Amount));
     end;
 
-    // misc/lt-cv-odd-leads/CvReadIsolationState.al:36-66.
+    // record/CvReadIsolationState.al:36-66.
     procedure IsolationAfterOps(): Text
     var Rec: Record "SV Row"; Other: Record "SV Row"; s: Text;
     begin
@@ -161,7 +161,7 @@ codeunit 69981 C
         exit(s);
     end;
 
-    // record/lt-cn-transferfields-modify/CnTransferFieldsModify.al:543 QH_TF_Other_SourceInMemory_AuditFields.
+    // record/crud/CnTransferFieldsModify.al:543 QH_TF_Other_SourceInMemory_AuditFields.
     procedure TransferAuditFromMemory(): Text
     var R1: Record "SV Row"; R4: Record "SV Row"; O: Record "SV Other Row"; s: Text;
     begin
@@ -199,8 +199,8 @@ fn read_isolation_after_record_operations() {
     );
 }
 
-// recordref/lt-refs/RfTViews.al:316-322 and :332-360 (RecordRef: every Wait = false form and (true, true));
-// record/lt-record-write/RcBMeta.al:415-419 (Record.LockTable(false)); session/TestBCLockingContracts.al:124 (false, false).
+// recordref-fieldref/recordref/RfTViews.al:316-322 and :332-360 (RecordRef: every Wait = false form and (true, true));
+// record/crud/RcBMeta.al:415-419 (Record.LockTable(false)); session-system/TestBCLockingContracts.al:124 (false, false).
 #[test]
 fn locktable_with_wait_false_fails() {
     let e = "The request to lock the SV Row table with a Wait parameter of FALSE is not supported.|AL:LockTableBadParm";
@@ -297,7 +297,7 @@ codeunit 69985 M
         Row.Pic.ImportStream(ins, Content);
     end;
 
-    // media/TestMediaPngImport.al:297-334.
+    // streams/media/TestMediaPngImport.al:297-334.
     procedure SharedReplace(): Text
     var Row1: Record "SV Media"; Row2: Record "SV Media"; TenantMedia: Record "Tenant Media"; First: Guid; s: Text;
     begin
@@ -314,7 +314,7 @@ codeunit 69985 M
         exit(s + Format(TenantMedia.Get(First)));
     end;
 
-    // media/TestMediaPngImport.al TP_TenantMedia_Delete (corpus branch al-runtime-rs-staging-pub-tp).
+    // streams/media/TestMediaPngImport.al TP_TenantMedia_Delete (corpus branch al-runtime-rs-staging-pub-tp).
     procedure DeleteTenantMedia(): Text
     var Row: Record "SV Media"; TenantMedia: Record "Tenant Media"; Id: Guid; outs: OutStream; s: Text;
     begin
@@ -389,7 +389,7 @@ codeunit 69985 M
         Row.Delete();
     end;
 
-    // media/TestMediaPngImport.al:441-470 QE_Media_OtherTable_Assigned_SourceRowDeleted.
+    // streams/media/TestMediaPngImport.al:441-470 QE_Media_OtherTable_Assigned_SourceRowDeleted.
     procedure SharedWithOtherTable(): Text
     var Row: Record "SV Media"; Other: Record "SV Media Other"; TenantMedia: Record "Tenant Media"; Id: Guid; outs: OutStream;
     begin
@@ -479,7 +479,7 @@ table 69987 "SV Dates Blob"
 }
 codeunit 69988 D
 {
-    // errors/lt-ms-refusals-130/P130DateFilters.al:123-186.
+    // record/filters/P130DateFilters.al:123-186.
     procedure Milliseconds(): Text
     var R: Record "SV Dates"; Back: Record "SV Dates"; Ms: List of [Integer]; M: Integer; T: Time; DT: DateTime; s: Text;
     begin
@@ -701,13 +701,13 @@ fn unpinned_sql_range_cases_are_refused() {
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-// errors/lt-ms-refusals-132/P132ReportTimeMs.al:190, :197: a Time that rounds to midnight reads 00:00:00.
+// streams/P132ReportTimeMs.al:190, :197: a Time that rounds to midnight reads 00:00:00.
 #[test]
 fn a_time_that_rounds_to_midnight_reads_midnight() {
     assert_eq!(text(dates("TimeRollsOver", vec![])), "00:00:00");
 }
 
-// errors/lt-ms-refusals-130/P130DateFilters.al:324 (QA_TempRecord_Milliseconds_InsertGetModify): a temporary table keeps
+// record/filters/P130DateFilters.al:324 (QA_TempRecord_Milliseconds_InsertGetModify): a temporary table keeps
 // the milliseconds whole through Insert and Get; only a write to a database table rounds them.
 #[test]
 fn a_temporary_row_keeps_unrounded_milliseconds() {
@@ -722,7 +722,7 @@ fn getfilters_of_a_datetime_with_seconds_is_refused() {
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-// Pinned since: media/TestMediaPngImport.al:340-378 MediaSet_Remove_KeepsTheTenantMediaRow (the Delete removes the Tenant
+// Pinned since: streams/media/TestMediaPngImport.al:340-378 MediaSet_Remove_KeepsTheTenantMediaRow (the Delete removes the Tenant
 // Media rows of the set's items; host/media.rs delete_of_a_row_removes_the_tenant_media_rows_of_the_items_still_in_its_media_set).
 #[test]
 fn a_delete_of_a_row_with_a_media_set_runs() {

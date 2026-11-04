@@ -1,5 +1,5 @@
 //! AllObj and AllObjWithCaption hold a TableData row next to the Table row of every table, with the Table row's name, caption,
-//! subtype, namespace and packages (corpus metadata/lt-all-obj-namespace/AllObjNamespace.al:143-218, writer PW: a table of the
+//! subtype, namespace and packages (corpus metadata/session-system/AllObjNamespace.al:143-218, writer PW: a table of the
 //! app under test, a temporary one, Base Application's Customer, the platform's Company and the virtual Integer and AllObj).
 //! al-runner issue 6643: an install code's OnValidate reads `AllObjWithCaption.Get(TableData, Database::Contact)`.
 //!

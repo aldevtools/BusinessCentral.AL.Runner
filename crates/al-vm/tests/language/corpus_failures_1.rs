@@ -23,7 +23,7 @@ fn a_dictionary_key_added_after_a_remove_takes_the_freed_slot() {
 
 #[test]
 fn copy_array_raises_when_the_length_is_not_the_destination_length() {
-    // misc/lt-system-functions/Arrays.al:CopyArray_Forms
+    // collections/Arrays.al:CopyArray_Forms
     let r = text(
         "S: array[5] of Integer; D: array[5] of Integer;",
         "CopyArray(D, S, 3); exit('no error');",
@@ -36,7 +36,7 @@ fn copy_array_raises_when_the_length_is_not_the_destination_length() {
 
 #[test]
 fn an_unquoted_empty_option_member_shows_its_number_and_a_quoted_one_a_space() {
-    // misc/lt-inferred-behaviors/P69OptionInText.al:Option_StrSubstNo, types/lt-scalars/ScT70053.al:Option_Format
+    // text/P69OptionInText.al:Option_StrSubstNo, types/decimal-integer/ScT70053.al:Option_Format
     let r = text(
         "O: Option Zero,,Two,\"\"; R: Text;",
         "O := 1; R := '[' + Format(O) + ']'; O := 3; exit(R + '[' + Format(O) + ']');",
@@ -46,7 +46,7 @@ fn an_unquoted_empty_option_member_shows_its_number_and_a_quoted_one_a_space() {
 
 #[test]
 fn a_notification_assignment_copies_it() {
-    // errorinfo/lt-errnotif/EnTNotification.al:Copy_Semantics
+    // errors/errorinfo/EnTNotification.al:Copy_Semantics
     let r = text(
         "A: Notification; B: Notification;",
         "A.Message := 'one'; B := A; B.Message := 'two'; exit(A.Message() + B.Message());",
@@ -56,7 +56,7 @@ fn a_notification_assignment_copies_it() {
 
 #[test]
 fn the_isolation_level_option_shows_member_names_in_the_number_form() {
-    // misc/lt-probes-needed-1/PnAPlatformOptions.al:IsolationLevel_Members
+    // format-evaluate/PnAPlatformOptions.al:IsolationLevel_Members
     let r = text(
         "L: IsolationLevel;",
         "L := IsolationLevel::UpdLock; exit(Format(L, 0, 2));",
@@ -66,7 +66,7 @@ fn the_isolation_level_option_shows_member_names_in_the_number_form() {
 
 #[test]
 fn a_negative_decimal_too_small_to_show_reads_minus_zero_in_the_xml_form() {
-    // misc/lt-probes-needed-1/PnAStreamDecimalBytes.al:Write_Decimal_Tiny `minus-1E-28`
+    // streams/instream-outstream/PnAStreamDecimalBytes.al:Write_Decimal_Tiny `minus-1E-28`
     let r = text(
         "D: Decimal;",
         "Evaluate(D, '-0.0000000000000000000000000001', 9); exit(Format(D, 0, 9));",

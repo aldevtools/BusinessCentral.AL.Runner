@@ -1,6 +1,6 @@
 //! A conditional expression with a Label that has MaxLength against a Text or Code branch (al-runner issue 6659): the true
 //! branch decides the type, as without MaxLength. Real BC values from corpus writer Y66
-//! (types/lt-y66-ternary-label/Y66TernaryLabel.al:27-63, :65-140, :293-368, not on corpus master yet).
+//! (types/text-code-char/Y66TernaryLabel.al:27-63, :65-140, :293-368, not on corpus master yet).
 
 use al_testkit::{run_in, text};
 

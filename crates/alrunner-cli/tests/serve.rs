@@ -1544,7 +1544,7 @@ codeunit 50672 \"Res Install Tests\" { Subtype = Test; [Test] procedure Installe
 
 /// Issues 5607 and 5609 with RequiredTestIsolation on the test codeunit: `testIsolation: "required"` runs each test
 /// codeunit under its own RequiredTestIsolation, as BC's TestRunnerHub does on BC 28 and later (corpus
-/// codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16, 25-39).
+/// codeunits/run-onrun/QuCommitIsolation.al:10-16, 25-39).
 const REQUIRED: &str = r#"
 table 50680 "Req Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
 codeunit 50680 "Req Function"

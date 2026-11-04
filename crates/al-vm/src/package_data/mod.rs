@@ -1,12 +1,12 @@
 //! `NavApp.LoadPackageData` in install code: the rows of an app's table data file (`reader.rs`) are inserted into the table.
-//! Pinned by tests/al-language/install/lt-y85-package-data/Y85PackageData.al (fixtures tests/al-language-xapp-a/
+//! Pinned by tests/al-language/install-upgrade/install-triggers/Y85PackageData.al (fixtures tests/al-language-xapp-a/
 //! Y85XaPackageData.al, Y8XaInstallOrder.al, corpus writer Y85, al-runner issue 6649):
 //! - the rows land in the company of the per-company install part, or in the shared table of the per-database part, with the
 //!   SystemId of the file; no table trigger runs (Y85_PerCompany_RowsAndNoTrigger);
 //! - the stored fields are listed primary key fields first, then the others in declaration order, without FlowFields,
 //!   FlowFilters and disabled fields (Y85_FieldOrder_KeyFieldsFirstThenDeclarationOrder);
 //! - an AutoIncrement key keeps the file's values and continues after them (Y85_AutoIncrement_ContinuesAfterLoadedRows);
-//! - a table without a data file in the app loads nothing (install/lt-cm-install-leads/Y64InstallLeads.al:81-96).
+//! - a table without a data file in the app loads nothing (metadata/Y64InstallLeads.al:81-96).
 //!
 //! Refused: a table of another app, a table with a table extension of another app or a field with `ObsoleteState = Removed`
 //! (the file layout of those is not pinned), a table with event subscribers (whether the load raises the insert events is not

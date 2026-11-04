@@ -1,6 +1,6 @@
 //! `HttpClient.UseDefaultNetworkWindowsAuthentication` and `UseWindowsAuthentication` (Text and SecretText): each call answers
 //! Yes, also twice and with blank texts, and a request after it that a handler answers is answered as before
-//! (al-language-onprem/network/HttpClientAuthConfig.al:19-71, :109-136). A request no handler answers is refused (not pinned).
+//! (al-language-onprem/http/HttpClientAuthConfig.al:19-71, :109-136). A request no handler answers is refused (not pinned).
 
 use al_testkit::outcomes_in;
 

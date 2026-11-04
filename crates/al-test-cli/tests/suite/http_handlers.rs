@@ -1,7 +1,7 @@
 //! `HttpClient` served by `[HttpClientHandler]` mocks, and the HTTP message types around it. Never a network:
 //! a request is answered by a handler of the test, or it raises the policy error, or it is refused.
 //!
-//! Pins: the staging probes tests/al-language-onprem/session/PZHttpHandler.al (BC 29.0.54011.55816, codeunit
+//! Pins: the staging probes tests/al-language-onprem/session-system/PZHttpHandler.al (BC 29.0.54011.55816, codeunit
 //! 61297) and PZHttpBlock.al (61298), and tests/al-language/network/lt-http/*.al (the laptop's HTTP topic, BC
 //! 29.0.54011.55816). Each test names its source.
 
@@ -196,7 +196,7 @@ fn a_handler_still_answers_under_block_outbound_requests() {
     );
 }
 
-// Without TestHttpRequestPolicy a request to a public host goes out for real (network/TestHttpClient.al); the runtime refuses.
+// Without TestHttpRequestPolicy a request to a public host goes out for real (http/TestHttpClient.al); the runtime refuses.
 #[test]
 fn a_request_with_no_handler_and_no_policy_is_refused_not_sent() {
     let why = not_run(
@@ -237,7 +237,7 @@ fn an_http_content_passed_by_reference_keeps_the_headers_handed_out_before() {
     );
 }
 
-// Cache-Control directives are written in .NET's order (network/lt-http-header-names-cache-control/CacheControlPairs.al: `public, no-cache`
+// Cache-Control directives are written in .NET's order (http/headers/CacheControlPairs.al: `public, no-cache`
 // reads back `public, no-cache`, `no-cache, public` too), and a known header written in lower case is stored under its canonical
 // name (HeaderNameCaseRequest.al).
 #[test]
@@ -295,7 +295,7 @@ fn run_on(bc: &str, header: &str, body: &str) -> Vec<(String, Outcome)> {
     run_codeunit(&engine, &l, oi)
 }
 
-// al-language-onprem/session/PZHttpBlock.al:46-63 (Handler_UnderBlockOutboundRequests_StillAnswers): 'Yes |' on BC 29, and on
+// al-language-onprem/session-system/PZHttpBlock.al:46-63 (Handler_UnderBlockOutboundRequests_StillAnswers): 'Yes |' on BC 29, and on
 // Windows BC 27.5 and 28.5 (Windows check 2026-10-22; the Linux images of 27 and 28 never call the handler, a Linux image bug, so
 // the corpus asserts nothing there). The handler answers on every major (al-runner issue 5777).
 #[test]
@@ -413,7 +413,7 @@ fn under_block_outbound_requests_a_handler_answering_true_raises_the_fallthrough
     }
 }
 
-/// The handlers and helpers of al-language-onprem/network/lt-ay-http-handler/AyHttpHandler.al (codeunit 98550).
+/// The handlers and helpers of al-language-onprem/http/client/AyHttpHandler.al (codeunit 98550).
 const AY: &str = r#"
     var Seen: Text; Calls: Integer;
     [HttpClientHandler]
@@ -750,7 +750,7 @@ const DEFAULT_POLICY_TESTS: &str = r#"
     end;
 "#;
 
-// al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al (codeunits 98700 default policy and 98701 AllowAllOutboundRequests,
+// al-language-onprem/http/client/PyHttpPolicy.al (codeunits 98700 default policy and 98701 AllowAllOutboundRequests,
 // the same values): a handler answers (Handler_AnswersFalse_Mocked: 201 Mocked, calls 1), BC 29 asserted; Windows BC 28.5 gives the
 // same values (Windows check 2026-10-22; the Linux images of 27 and 28 never call the handler, so the corpus asserts nothing there).
 #[test]
@@ -784,7 +784,7 @@ fn under_the_default_policy_a_handler_answers_on_every_major() {
     }
 }
 
-// network/lt-http-send-failure/LtDaSendFailure.al:37-104 and network/lt-cz-http-leads/CzHttpOutbound.al:91-108: with no handler a
+// http/client/LtDaSendFailure.al:37-104 and http/CzHttpOutbound.al:91-108: with no handler a
 // request goes out for real. A host under `.invalid` never resolves (HttpRequest:Socket) and an internal address is refused
 // before any connection (HttpRequest:Security); as a statement the call raises that error and the response reads status 0.
 // 0.0.0.0 (HttpRequest:Argument, text not pinned) and a public host stay refused: the runtime never opens a connection.
@@ -841,7 +841,7 @@ fn a_request_to_an_unresolvable_or_internal_host_fails_without_a_connection() {
     }
 }
 
-// network/lt-ay-http/AyCookieSetterExpression.al:CookieSetter_EmptyName: Name('') raises and keeps the old name.
+// permissions/AyCookieSetterExpression.al:CookieSetter_EmptyName: Name('') raises and keeps the old name.
 #[test]
 fn a_cookie_name_of_empty_text_raises_and_keeps_the_old_name() {
     all_pass(
@@ -859,7 +859,7 @@ fn a_cookie_name_of_empty_text_raises_and_keeps_the_old_name() {
     );
 }
 
-// network/lt-ay-http/AyContentLength.al:ContentLength_SecondWriteFrom: the Content-Length a read put in the headers stays when
+// http/AyContentLength.al:ContentLength_SecondWriteFrom: the Content-Length a read put in the headers stays when
 // a later WriteFrom('') empties the body.
 #[test]
 fn a_content_length_from_a_read_stays_after_writing_empty_text() {
@@ -880,7 +880,7 @@ fn a_content_length_from_a_read_stays_after_writing_empty_text() {
     );
 }
 
-// network/lt-ay-http/AyContentLength.al:PY_ContentLength_HandleTakenAfterReadThenRewrite: a Content-Length that a read put in
+// http/AyContentLength.al:PY_ContentLength_HandleTakenAfterReadThenRewrite: a Content-Length that a read put in
 // stays with its value (5) after a WriteFrom of a longer text, on the handle taken before and on a new one.
 #[test]
 fn a_content_length_from_a_read_keeps_its_value_after_a_rewrite_of_another_length() {
@@ -919,7 +919,7 @@ fn an_unpinned_no_base_address_form_reaching_a_handler_is_refused() {
     }
 }
 
-// GetDotNetType of an AL Enum is pinned for Enum "Sales Document Type" only (lt-bb-dotnet/BbGetDotNetType.al:341): another
+// GetDotNetType of an AL Enum is pinned for Enum "Sales Document Type" only (dotnet/dotnet/BbGetDotNetType.al:341): another
 // enum is refused when lowered.
 #[test]
 fn get_dotnet_type_of_an_unpinned_enum_is_refused() {
@@ -940,7 +940,7 @@ dotnet { assembly("mscorlib") { type("System.Type"; LtT) { } } }"#
     assert!(reasons.contains("GetDotNetType of an Enum"), "{reasons}");
 }
 
-// al-language-onprem/network/LtDaHttpHandlerOdd.al:119-120, :145-146: a handler that sets IsSuccessfulRequest to false makes
+// al-language-onprem/http/LtDaHttpHandlerOdd.al:119-120, :145-146: a handler that sets IsSuccessfulRequest to false makes
 // the call answer false; the response is the one the handler filled, and as a statement the call raises nothing.
 #[test]
 fn a_handler_that_marks_the_request_unsuccessful_makes_the_call_answer_false() {
@@ -969,7 +969,7 @@ fn a_handler_that_marks_the_request_unsuccessful_makes_the_call_answer_false() {
     );
 }
 
-// The Set-Cookie forms of network/lt-http-cookies/HttpCookieForms.al (codeunit 90820): a helper reads the names a response has
+// The Set-Cookie forms of http/headers/HttpCookieForms.al (codeunit 90820): a helper reads the names a response has
 // after one Set-Cookie header, or the parse error, and the cookie of a name.
 const COOKIE_HELPERS: &str = r#"
     local procedure Names(Header: Text): Text

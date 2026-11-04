@@ -1,5 +1,5 @@
 //! An OnModifyRecordEvent subscriber that answers AllowModify false: real BC runs it once for an action's SaveRecord and the
-//! Close after it, and the row stays (handlers/TestPageTriggerEvents.al:181-206). A new edit saved after it is not pinned and
+//! Close after it, and the row stays (testpage/TestPageTriggerEvents.al:181-206). A new edit saved after it is not pinned and
 //! refused.
 
 const SRC: &str = r#"

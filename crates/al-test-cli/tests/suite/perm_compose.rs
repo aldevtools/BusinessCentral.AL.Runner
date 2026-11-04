@@ -1,5 +1,5 @@
 //! The Expanded Permission rows of tenant permission sets (crates/al-vm/src/platform/tenant_compose.rs). Each test names the
-//! corpus test of permissions/lt-y67-perm-compose/Y67PermCompose.al that pins it.
+//! corpus test of permissions/permission-sets/Y67PermCompose.al that pins it.
 
 use super::y48_platform_probes::outcomes;
 use al_test_cli::report::Outcome;

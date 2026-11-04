@@ -1,5 +1,5 @@
 //! OK of a Card page variable in lookup mode whose view is filtered to no row: the action is not found
-//! (pages/lt-y68-lookup-getrecord/Y68LookupGetRecord.al:425 Q3_TestPageHandler_OK_NoRow_Card, corpus master 0d01b0cc).
+//! (pages/run-modal/Y68LookupGetRecord.al:425 Q3_TestPageHandler_OK_NoRow_Card, corpus master 0d01b0cc).
 
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;

@@ -25,7 +25,7 @@ fn test_field_with_an_error_info_is_implemented_not_refused_at_lowering() {
     }
 }
 
-// GetDotNetType is pinned by the OnPrem DotNet corpus app (tests/al-language-onprem-dotnet/lt-dotnet-interop,
+// GetDotNetType is pinned by the OnPrem DotNet corpus app (tests/al-language-onprem-dotnet/dotnet/dotnet-interop,
 // DotNetType*.al); the VM runs it through `Ctx::session_op`.
 #[test]
 fn get_dot_net_type_is_implemented_not_refused_at_lowering() {
@@ -112,7 +112,7 @@ fn start_session_answers_false_in_install_and_is_refused_in_a_test_run() {
         let mut args = vec![Value::Integer(777), Value::Integer(60448)];
         lookup("Session.StartSession#1").unwrap()(ctx, None, &mut args)
     };
-    // install/TestInstallStartSession_Tests.al:51-65
+    // install-upgrade/TestInstallStartSession_Tests.al:51-65
     let mut install = TestCtx {
         install: true,
         ..Default::default()
@@ -124,7 +124,7 @@ fn start_session_answers_false_in_install_and_is_refused_in_a_test_run() {
         ..Default::default()
     };
     assert!(matches!(run(&mut plain), Ok(Value::Null)));
-    // session/TestStartSessionRecord.al:57-66
+    // session-system/TestStartSessionRecord.al:57-66
     let mut test = TestCtx {
         in_test: true,
         ..Default::default()
@@ -245,7 +245,7 @@ fn a_duration_format_number_that_does_not_exist_raises() {
 
 #[test]
 fn the_call_stack_of_a_recorded_error_is_refused_not_invented() {
-    // codeunit/TestCodeunitAlCallStack.al expects AL frames such as `(CodeUnit 60211)`. The VM
+    // codeunits/TestCodeunitAlCallStack.al expects AL frames such as `(CodeUnit 60211)`. The VM
     // fills them in (al-vm/tests/language/call_stack.rs); an error that has no frame gets a marker no text function reads.
     let mut ctx = TestCtx::default();
     let f = lookup("System.GetLastErrorCallStack#1").unwrap();
@@ -263,7 +263,7 @@ fn the_call_stack_of_a_recorded_error_is_refused_not_invented() {
     assert!(text_of(&stack).is_none(), "its content cannot be inspected");
 }
 
-// session/TestSystemExtended.al:218-256 pins the range; the values are the documentation's formula.
+// session-system/TestSystemExtended.al:218-256 pins the range; the values are the documentation's formula.
 #[test]
 fn strchecksum_follows_the_documented_formula() {
     let n = |v: Result<Value, Signal>| int(v);
@@ -354,8 +354,8 @@ fn case_conversion() {
     assert_eq!(text(call("Text.LowerCase#1", vec![t("ABC")])), "abc");
 }
 
-// types/lt-evaluate-format-lasterror-setview/P86StrSubstNo.al:Sub_FieldWidth and
-// text/lt-text-functions/StrSubstNo.Codeunit.al:SubstNoHash.
+// format-evaluate/P86StrSubstNo.al:Sub_FieldWidth and
+// text/text-methods/StrSubstNo.Codeunit.al:SubstNoHash.
 #[test]
 fn strsubstno_fills_hash_fields_to_their_width() {
     let sub = |f: &str, a: Vec<Value>| {

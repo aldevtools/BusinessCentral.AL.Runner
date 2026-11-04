@@ -2,7 +2,7 @@
 //! on the next row (else the previous one) and reads it as a move does, `r;r;c` with the deleted row as xRec; the refresh after
 //! the action then reads the rows from there without the extra first read, so the log is two such blocks
 //! (pages/W1Update.al:577 List_ActionDeletesOneOfTwoRows_WithoutUpdate `r1;action DeleteRowNoUpdate done;r2;r2;c2;r2;r2;c2;`;
-//! misc/lt-probes-needed-7/PnGRefresh.al:168 ListLosesOneOfTwoRowsWithoutUpdate `AGR(U2,Upd 2);AGR(U2,Upd 2);AGCR(U2,U1);AGR(U2,Upd 2);
+//! testpage/PnGRefresh.al:168 ListLosesOneOfTwoRowsWithoutUpdate `AGR(U2,Upd 2);AGR(U2,Upd 2);AGCR(U2,U1);AGR(U2,Upd 2);
 //! AGR(U2,Upd 2);AGCR(U2,U2)`). The client no longer holds the deleted row, so First stands on the row that is left and reads nothing
 //! (W1Update.al:574 `first` Yes, `id_after_first` 2; PnGRefresh.al:159 `first-no` U2).
 //!

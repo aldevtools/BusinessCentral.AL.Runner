@@ -1,6 +1,6 @@
 //! DataTransfer.CopyFields into a table that has a table extension of another app (al-runner issue 6668): the reporter's
 //! shape, a filter on and a copy into the extension's field, and a constant into it filtered on a base field
-//! (record/lt-as-records/Y47DtInstallRead.al Y65_DtItemAttribute_Outcomes on writer Y65's corpus branch; assumption
+//! (record/Y47DtInstallRead.al Y65_DtItemAttribute_Outcomes on writer Y65's corpus branch; assumption
 //! datatransfer-other-app-extension). CopyRows into such a table is not pinned and stays refused.
 
 use al_sema::workspace::AppSource;

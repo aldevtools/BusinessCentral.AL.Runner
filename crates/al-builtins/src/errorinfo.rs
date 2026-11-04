@@ -1,4 +1,4 @@
-//! `ErrorInfo`: a property bag describing an error (corpus errorinfo/TestErrorInfoType.al,
+//! `ErrorInfo`: a property bag describing an error (corpus errors/errorinfo/TestErrorInfoType.al,
 //! TestErrorInfoErrorType.al). Raising one (`Error(ErrorInfo)`), collecting errors and the
 //! callback of an action are not here: they need the error pipeline.
 
@@ -44,9 +44,9 @@ pub fn set_callstack_of(v: &Value, stack: &str) {
     }
 }
 
-/// `Callstack`: empty until the error is raised (session/TestProbeSessionMiscContracts.al:ErrorInfo_Callstack_IsAvailable); a
+/// `Callstack`: empty until the error is raised (session-system/TestProbeSessionMiscContracts.al:ErrorInfo_Callstack_IsAvailable); a
 /// collected error has the frames of its `Error` call and then the untracked mark, so it is not empty and no text function reads
-/// it (misc/lt-probes-needed-2/PnBErrorsCollections.al:329-358 pins only the frames of the test's own app; al-vm
+/// it (errors/PnBErrorsCollections.al:329-358 pins only the frames of the test's own app; al-vm
 /// `collected_call_stack`).
 fn callstack(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let cell = match &r {
@@ -76,7 +76,7 @@ fn with_state<R>(r: Option<&mut Value>, f: impl FnOnce(&mut ErrorInfoState) -> R
     let mut held = cell.borrow_mut();
     // A declared but never created ErrorInfo takes a property and gives it back
     // (types/TestHttpRequestFileUploadFieldErrorContracts.al:FieldError_WithErrorInfoAndWithText sets
-    // `Message` on one and raises it). It is not collectible (session/TestProbeSessionMiscContracts.al:
+    // `Message` on one and raises it). It is not collectible (session-system/TestProbeSessionMiscContracts.al:
     // ErrorInfo_UnsetAndOrdinals).
     if matches!(&*held, LibraryValue::Empty) {
         *held = LibraryValue::ErrorInfo(fresh(String::new(), false));
@@ -117,7 +117,7 @@ fn fresh(message: String, collectible: bool) -> ErrorInfoState {
         title: String::new(),
         detailed_message: String::new(),
         control_name: String::new(),
-        // Verbosity::Error and DataClassification::CustomerContent (errorinfo/TestErrorInfoType.al:30-34).
+        // Verbosity::Error and DataClassification::CustomerContent (errors/errorinfo/TestErrorInfoType.al:30-34).
         verbosity: 1,
         data_classification: 0,
         error_type: None,
@@ -136,7 +136,7 @@ fn wrap(s: ErrorInfoState) -> Value {
 }
 
 /// `ErrorInfo.Create()` is collectible; `Create(Message[, Collectible, ...])` is not unless asked
-/// (errorinfo/TestErrorInfoType.al:21-60,:225-245).
+/// (errors/errorinfo/TestErrorInfoType.al:21-60,:225-245).
 fn create(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     if a.is_empty() {
         return Ok(wrap(fresh(String::new(), true)));
@@ -155,7 +155,7 @@ fn create(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
             }
         }
         s.record_id = Some(id);
-        // The SystemId is the record's (errorinfo/lt-bc-errorinfo-systemid/BcErrorInfoSystemId.al:69-99), which is not read here:
+        // The SystemId is the record's (errors/errorinfo/BcErrorInfoSystemId.al:69-99), which is not read here:
         // a read of it is refused.
         s.system_id = Some(Value::Unknown(std::sync::Arc::from(
             "the SystemId of an ErrorInfo created with a record (the record's SystemId is not carried over yet)",
@@ -240,7 +240,7 @@ fn collectible(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     with_state(r, |s| s.collectible = b).map(|()| Value::Null)
 }
 
-/// Both members round-trip (errorinfo/TestErrorInfoErrorType.al:25-45); the default is Client
+/// Both members round-trip (errors/errorinfo/TestErrorInfoErrorType.al:25-45); the default is Client
 /// (record/ProbePropertyAssignmentForms.al:302-329, BC 27.5).
 fn error_type(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if a.is_empty() {
@@ -260,7 +260,7 @@ fn record_id(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 }
 
 /// `Err.SystemId := G` reads back, a null Guid reads as null, and a fresh ErrorInfo holds a null Guid
-/// (errorinfo/lt-errnotif/EnTErrorInfoProps.al:42, :106-115, :259-262).
+/// (errors/errorinfo/EnTErrorInfoProps.al:42, :106-115, :259-262).
 fn system_id(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if let Some(g) = a.first() {
         let g = match g {
@@ -272,11 +272,11 @@ fn system_id(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     Ok(with_state(r, |s| s.system_id.clone())?.unwrap_or(Value::Guid([0; 16])))
 }
 
-/// A fresh ErrorInfo carries no custom dimensions (errorinfo/TestErrorInfoType.al:423-442). An assigned
+/// A fresh ErrorInfo carries no custom dimensions (errors/errorinfo/TestErrorInfoType.al:423-442). An assigned
 /// dictionary is held, not copied: an entry added to it later shows through `CustomDimensions()`
 /// (record/ProbePropertyAssignmentForms.al:332-349, BC 27.5). So is the empty one a read gives: `CustomDimensions.Add` on a
-/// fresh ErrorInfo keeps the entry (misc/lt-system-functions/ErrorMessage.al:225-227 `customdims after add`,
-/// misc/lt-probes-needed-2/PnBErrorsCollections.al:270 and :329-358 `dims=1:Dim1=Val1`).
+/// fresh ErrorInfo keeps the entry (errors/error-texts/ErrorMessage.al:225-227 `customdims after add`,
+/// errors/PnBErrorsCollections.al:270 and :329-358 `dims=1:Dim1=Val1`).
 fn custom_dimensions(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if a.is_empty() {
         return with_state(r, |s| {
@@ -293,7 +293,7 @@ fn custom_dimensions(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) ->
 }
 
 /// Actions are stored for the client; there is none in a test, so they only have to bind and not
-/// disturb the object (errorinfo/TestErrorInfoType.al:523-557).
+/// disturb the object (errors/errorinfo/TestErrorInfoType.al:523-557).
 fn add_action(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     text(a, 0)?;
     int(a, 1)?;
@@ -306,7 +306,7 @@ fn add_navigation_action(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]
 }
 
 /// `Error(ErrorInfo)`: raises the message as it is for a client error
-/// (errorinfo/TestErrorInfoErrorType.al:50-65). A collectible one is collected inside a collecting scope.
+/// (errors/errorinfo/TestErrorInfoErrorType.al:50-65). A collectible one is collected inside a collecting scope.
 pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let Some(info @ Value::Library(_, cell)) = a.first() else {
         return unsupported(format!("Error with {} as an ErrorInfo", a.first().describe()));
@@ -317,7 +317,7 @@ pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     };
     // An internal error hides its message behind a fixed text and a correlation id (session/
     // TestProbeSessionMiscContracts.al:ErrorInfo_ErrorClientAndInternal; the id changes from run to run). Collected, its Message
-    // is that text with a line break before the id (misc/lt-probes-needed-2/PnBErrorsCollections.al:329-358 `internal message`).
+    // is that text with a line break before the id (errors/PnBErrorsCollections.al:329-358 `internal message`).
     let (message, collected_message) = if internal {
         let g = c.new_guid();
         let id = crate::pagefmt::guid_text(&g);
@@ -329,7 +329,7 @@ pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         (message, None)
     };
     // A collectible error inside a `[ErrorBehavior(Collect)]` scope is kept and execution goes on
-    // (errorinfo/TestErrorInfoType.al:448-459); a non-collectible one unwinds even there (:474-490).
+    // (errors/errorinfo/TestErrorInfoType.al:448-459); a non-collectible one unwinds even there (:474-490).
     if collectible {
         let collected = match &collected_message {
             Some(m) => {
@@ -353,7 +353,7 @@ pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     })))
 }
 
-/// The text an Internal error shows instead of its message (session/TestProbeSessionMiscContracts.al:
+/// The text an Internal error shows instead of its message (session-system/TestProbeSessionMiscContracts.al:
 /// ErrorInfo_ErrorClientAndInternal).
 pub const INTERNAL_ERROR_TEXT: &str =
     "An error has occurred. If the error persists, please contact your system administrator.";

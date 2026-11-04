@@ -1,5 +1,5 @@
 //! al-runner issue 5692: a modal page whose OnQueryClosePage returns false. Mirrors
-//! pages/lt-modal-query-close-veto/PageModalQueryCloseVeto.al (codeunit 70867).
+//! pages/triggers/PageModalQueryCloseVeto.al (codeunit 70867).
 
 use al_test_cli::report::Outcome;
 

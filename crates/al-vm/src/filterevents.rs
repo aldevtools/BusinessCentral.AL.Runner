@@ -1,6 +1,6 @@
 //! `Filter Helper Triggers.MakeDateFilter`: the platform asks subscribers to repair a Date filter text it cannot read.
 //!
-//! Pinned by events/lt-platform-triggers/PtObserve.al (`Filter_Date`, `Bad_Date`), against PtFixtures.al (the subscriber)
+//! Pinned by events/platform-triggers/PtObserve.al (`Filter_Date`, `Bad_Date`), against PtFixtures.al (the subscriber)
 //! and PtObjects.al (`datefiltertext`, `baddate`):
 //! - The event fires once for each piece of the text that does not read as a date, with that piece (`311220` of
 //!   `010120..311220`), before any error is raised.
@@ -56,7 +56,7 @@ impl Session {
             }
         }
         // Microsoft's own subscriber (System Application "Filter Tokens") is not run: it reads date formulas, which are not
-        // pinned, and running it turned a passing corpus case into a refusal (filters/lt-date-text-forms/
+        // pinned, and running it turned a passing corpus case into a refusal (record/filters/
         // DateFilterTextForms.al:GetRange_DayAboveTwelve_English). So only the subscribers of the app under test run.
         self.events.skip_dependency_subscribers = true;
         let raised = self.raise(&call, &mut args);
@@ -143,12 +143,12 @@ impl Session {
 
     /// `MakeIntFilter` and `MakeTimeFilter`: a filter text of one word of letters (`abc`) that does not read is asked about as
     /// `MakeDateFilter` asks about a piece: once (m1), again with a changed text that does not read (m2), and the text a
-    /// subscriber repairs is parsed instead (m3) (events/lt-platform-triggers/PtObserve.al:Bad_Int, Bad_Time).
+    /// subscriber repairs is parsed instead (m3) (events/platform-triggers/PtObserve.al:Bad_Int, Bad_Time).
     ///
     /// A range or two alternatives (`1..x`, `x|1`, `abc..xyz`) ask about the piece that does not read, by the same rule, and
     /// only about it: the whole text is not asked about after a failure (unlike `MakeDateFilter`). A repaired piece goes back
     /// into the text, and the next piece that does not read is asked about in turn. `MakeIntFilter` is also asked about `1.5`
-    /// and `1 2` (events/lt-bd-filter-events/BdFilterEvents.al:BdFilter_Int_1 to _4 and _8, BdFilter_Time_1 and _2).
+    /// and `1 2` (events/table-events/BdFilterEvents.al:BdFilter_Int_1 to _4 and _8, BdFilter_Time_1 and _2).
     /// Whether BC raises the event for another text that does not evaluate (`*`, a word with hyphens, other filter syntax) is
     /// not pinned: with a subscriber present it is refused rather than answered with the evaluate error (docs/probes-needed.md).
     pub(crate) fn repair_word_filter_text(

@@ -1,4 +1,4 @@
-//! `FPB.PageCaption := text` is the call `FPB.PageCaption(text)` that corpus filterpage/TestFilterPageBuilder.al:600 pins (Base
+//! `FPB.PageCaption := text` is the call `FPB.PageCaption(text)` that corpus pages/filterpagebuilder/TestFilterPageBuilder.al:600 pins (Base
 //! Application's Workflow Event.RunDynamicRequestPage and Exchange Contact Sync assign it; 63 Tests-Workflow tests were refused).
 
 use al_sema::workspace::AppSource;

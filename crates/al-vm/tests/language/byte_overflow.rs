@@ -1,5 +1,5 @@
 //! An Integer beyond a Byte assigned to a Byte raises ConversionCast
-//! (misc/lt-probes-needed-2/PnBErrorsCollections.al:560-583, Arithmetic_ErrorTexts `byteOverflow`).
+//! (errors/PnBErrorsCollections.al:560-583, Arithmetic_ErrorTexts `byteOverflow`).
 
 #[test]
 fn an_integer_beyond_a_byte_raises_a_conversion_error() {

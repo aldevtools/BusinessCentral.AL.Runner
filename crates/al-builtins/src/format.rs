@@ -102,9 +102,9 @@ impl FormatCtx for WithoutRegion<'_> {
 }
 
 /// `Format` while a report's `FormatRegion` is set (by `CurrReport.FormatRegion` or the report property). Pinned: de-DE through
-/// the setter (misc/lt-probes-needed-3/PnC06ReportLanguage.al:Language_SetAndRead), de-DE, fr-FR and da-DK through the setter
-/// (misc/lt-probes-needed-8/PnH4CurrReport.al:Culture_FormatRegion_ChangesFormat: Decimal, Date, Boolean) and de-DE, en-GB,
-/// fr-FR, ja-JP and zz-ZZ through the property (report/lt-y-report-props/YReportPropsTests.al:34-148: Decimal, Date, long Date,
+/// the setter (reports/PnC06ReportLanguage.al:Language_SetAndRead), de-DE, fr-FR and da-DK through the setter
+/// (reports/PnH4CurrReport.al:Culture_FormatRegion_ChangesFormat: Decimal, Date, Boolean) and de-DE, en-GB,
+/// fr-FR, ja-JP and zz-ZZ through the property (reports/runtime/YReportPropsTests.al:34-148: Decimal, Date, long Date,
 /// DateTime, Integer). Texts are not culture sensitive; every other value, shape and region is refused.
 fn format_in_region(
     v: &Value,
@@ -155,7 +155,7 @@ fn format_in_region(
             Region::ZzZZ | Region::EnUS => format_value(v, 0, standard, &plain)?,
             _ => r.date_time_text(t - 1, g29).ok_or_else(refuse)?,
         },
-        // A Time: 24 hours, two digits each (report/W3ReportObjectIdPreviewLanguage.al:912 `09:30:05`, BdRegionTests.al:131
+        // A Time: 24 hours, two digits each (reports/W3ReportObjectIdPreviewLanguage.al:912 `09:30:05`, BdRegionTests.al:131
         // `14:30:15#09:05:07`), ja-JP and es-ES ` 9:05:07` (:199, :344); zz-ZZ keeps en-US's `2:30:15 PM`. Milliseconds are not measured.
         Value::Time(t) if *t != 0 && standard == 0 => match r {
             Region::ZzZZ | Region::EnUS => format_value(v, 0, standard, &plain)?,
@@ -183,7 +183,7 @@ fn format_in_region(
 }
 
 /// The text of a multi-language property (`ENU = 'a,b', DEU = 'x,y'`) in session language `language`: the entry of its
-/// language code, else the ENU entry. Pinned for OptionCaptionML (record/lt-x-table-props/XTablePropsTests.al:175-232 on a
+/// language code, else the ENU entry. Pinned for OptionCaptionML (record/table-properties/XTablePropsTests.al:175-232 on a
 /// table field: 1033 ENU, 1031 DEU, 1036 falls back to ENU; :741-785 on a report column: an ENU-only list in 1031 gives ENU).
 /// Another language and a list without the entry and without ENU are not pinned: the error says why.
 pub fn ml_text_in_language(ml: &str, language: i32) -> Result<String, String> {
@@ -268,7 +268,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
     }
     if let Some(why) = ctx.region_unpinned() {
         // A text, and an Integer in the standard format, read the same in every region the corpus measured
-        // (report/lt-y-report-props/YReportPropsTests.al:34-148 `1234567`); any other value is refused.
+        // (reports/runtime/YReportPropsTests.al:34-148 `1234567`); any other value is refused.
         let same_everywhere = match v {
             Value::Null | Value::Text(_) | Value::Code(_) => true,
             Value::Integer(_) | Value::BigInteger(_) => standard == 0,
@@ -294,9 +294,9 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         // A byte from 0x80 up reads as the default (code page 437) stream encoding reads it: the bytes of a UTF-8 text
         // `C3 A9 E2 82 AC` format as the characters `\u201C \u0014 \u00CB \u00E9 \u00BC` (misc/lt-probes-needed-3/
         // PnC20JsonStreams.al:WriteTo_NonAscii_PerEncoding).
-        // Byte 200 formats as U+02DC (streams/lt-stream-length/StreamLengthIntegers.al:Byte_WriteReadLength_1 `n200_rd` 1/˜/Yes/2,
-        // streams/lt-stream-read-write-media/P102ReadTyped.al:187-188 `r1_v`).
-        // Also in every standard format that exists for it (types/lt-scalars/ScT70052.al:173-187).
+        // Byte 200 formats as U+02DC (streams/instream-outstream/StreamLengthIntegers.al:Byte_WriteReadLength_1 `n200_rd` 1/˜/Yes/2,
+        // streams/media/P102ReadTyped.al:187-188 `r1_v`).
+        // Also in every standard format that exists for it (types/decimal-integer/ScT70052.al:173-187).
         Value::Byte(200) => "\u{2DC}".into(),
         Value::Byte(b) if *b >= 0x80 && crate::stream::Encoding::MsDos.decode_pinned(&[*b]) => {
             crate::stream::Encoding::MsDos.decode(&[*b])
@@ -306,7 +306,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         Value::Byte(b) => char::from(*b).to_string(),
         Value::Char(c) => char::from_u32(u32::from(*c)).map(String::from).unwrap_or_default(),
         // Under GlobalLanguage 1031 a standard format a Decimal does not have raises the German text
-        // (types/lt-format-precision-standard/FormatPrecStdDe.al:52-55, `Die Standardformatnummer 5 ist für den Typ 'Decimal'
+        // (format-evaluate/FormatPrecStdDe.al:52-55, `Die Standardformatnummer 5 ist für den Typ 'Decimal'
         // nicht vorhanden.`).
         Value::Decimal(d) => format_decimal(d, standard).map_err(|f| match f {
             FormatFail::Error { code, .. } if code == "InvalidStandardFormat" && ctx.language() == 1031 => {
@@ -317,7 +317,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             }
             f => f,
         })?,
-        // A NUL character does not show (types/lt-variant-is-text-streams/LTP89StreamText.al:Text_BytesWritten `nul_between`).
+        // A NUL character does not show (types/variant/LTP89StreamText.al:Text_BytesWritten `nul_between`).
         Value::Text(t) | Value::TextConst(t) | Value::Code(t) if t.contains('\0') => t.replace('\0', ""),
         Value::Text(t) | Value::TextConst(t) | Value::Code(t) => t.to_string(),
         Value::Option(o, members) => match standard {
@@ -327,7 +327,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             2 | 9 if crate::sysenum::platform_ordinal(members, *o).is_some() => {
                 crate::sysenum::platform_ordinal(members, *o).unwrap_or(*o).to_string()
             }
-            // The IsolationLevel option shows member names for format 2 (misc/lt-probes-needed-1/PnAPlatformOptions.al:
+            // The IsolationLevel option shows member names for format 2 (format-evaluate/PnAPlatformOptions.al:
             // IsolationLevel_Members: Default, UpdLock, ReadCommitted, RepeatableRead). ReadUncommitted is not pinned.
             2 | 9 if crate::sysenum::is_isolation_level(members) => {
                 match members.get(*o as usize).map(String::as_str) {
@@ -341,12 +341,12 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             }
             2 | 9 if !crate::sysenum::ordinals_hidden(members) => o.to_string(),
             // `Option` declared without members is the one empty name: it shows the number
-            // (types/lt-scalars/ScT70062.al:Option_Defaults `nomembers_len`, `nomembers_3`).
+            // (types/decimal-integer/ScT70062.al:Option_Defaults `nomembers_len`, `nomembers_3`).
             _ if members.len() == 1 && members[0].is_empty() => o.to_string(),
-            // A member with a blank name shows as one space (types/lt-scalars/ScT70053.al:Option_Format `blank_len`).
+            // A member with a blank name shows as one space (types/decimal-integer/ScT70053.al:Option_Format `blank_len`).
             _ => match members.get(*o as usize) {
-                // An unquoted empty member shows its number (misc/lt-inferred-behaviors/P69OptionInText.al:Option_StrSubstNo
-                // `subst_2`; record/lt-record-write/RcBInit.al:Props_BlankZero_Option_Caption `opt blank member`).
+                // An unquoted empty member shows its number (text/P69OptionInText.al:Option_StrSubstNo
+                // `subst_2`; record/crud/RcBInit.al:Props_BlankZero_Option_Caption `opt blank member`).
                 Some(m) if m.is_empty() => o.to_string(),
                 Some(m) => m.clone(),
                 None => o.to_string(),
@@ -363,7 +363,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 ctx.enum_name(*id, *o)
             }
         },
-        // Numbers 0, 1, 2 and 9 are the braced form; 3 has neither braces nor dashes, 4 only the dashes (platform/lt-platform-members/
+        // Numbers 0, 1, 2 and 9 are the braced form; 3 has neither braces nor dashes, 4 only the dashes (metadata/platform-tables/
         // PlTGuid.al:Format_Numbers, NullGuid_Values); the others are not pinned for a Guid.
         Value::Guid(g) => match standard {
             0 | 1 | 2 | 9 => format_guid(g),
@@ -386,14 +386,14 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         Value::DateTime(t) => format_datetime(t - 1, standard)?,
         Value::Duration(ms) => format_duration(*ms, standard, ctx.language())?,
         Value::DateFormula(f) => date_formula_text(f, standard, ctx.language())?,
-        // A Version reads `major.minor.build.revision` (session/TestBCPlatformContracts.al:120-136
+        // A Version reads `major.minor.build.revision` (session-system/TestBCPlatformContracts.al:120-136
         // compares the formatted AppVersion with the manifest's `1.0.0.0`).
         Value::Library(crate::library_kind::LibraryKind::Version, _) if standard == 9 => {
-            // session/TestProbeSessionMiscContracts.al:Version_Forms.
+            // session-system/TestProbeSessionMiscContracts.al:Version_Forms.
             return Err(no_such_format(9, "Version"));
         }
         // A BigText formats as the text it holds, all of it (streams/StTBigText.al:248 ConvertTextAndBack `direct`;
-        // streams/lt-dd-stream-leads/DdStreamLeads.al:595, two AddText calls; xmlport/lt-xmlport-bigtext/XmlPortBigText.al:
+        // streams/DdStreamLeads.al:595, two AddText calls; xmlports/shapes-properties/XmlPortBigText.al:
         // 218, 0 to 50000 characters). Only the plain Format(BigText) is pinned.
         Value::Library(crate::library_kind::LibraryKind::BigText, l) if standard == 0 && length == 0 => {
             match &*l.borrow() {
@@ -406,9 +406,9 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             crate::value::LibraryValue::Version(v) => format!("{}.{}.{}.{}", v[0], v[1], v[2], v[3]),
             _ => return Err("Format of a Version nobody set".to_string().into()),
         },
-        // A SessionSettings renders its properties in this layout (a fresh instance: session/lt-session-settings-fresh/
+        // A SessionSettings renders its properties in this layout (a fresh instance: session-system/session/
         // SessionSettingsFreshReads.al:57); it shows the time zone and differs when a property differs
-        // (session/TestSessionSettings.al:457-493). ProfileSystemScope reads No (its setter keeps nothing, sessiontypes.rs).
+        // (session-system/TestSessionSettings.al:457-493). ProfileSystemScope reads No (its setter keeps nothing, sessiontypes.rs).
         Value::Library(crate::library_kind::LibraryKind::SessionSettings, l) => {
             let fresh = crate::value::SessionSettingsState::default();
             let b = l.borrow();
@@ -427,8 +427,8 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             )
         }
         // The text form of a FilterPageBuilder is only known to be non-empty
-        // (filterpage/TestFilterPageBuilder.al:FilterPageBuilder_Format_ReturnsANonEmptyRendering).
-        // A builder nobody added a control to formats as an empty text (filterpage/W3FilterPageBuilder.al:
+        // (pages/filterpagebuilder/TestFilterPageBuilder.al:FilterPageBuilder_Format_ReturnsANonEmptyRendering).
+        // A builder nobody added a control to formats as an empty text (pages/filterpagebuilder/W3FilterPageBuilder.al:
         // PageCaption_DefaultOfAFreshBuilder, BC 27.5 and 29.0).
         Value::Library(crate::library_kind::LibraryKind::FilterPageBuilder, l) => match &*l.borrow() {
             crate::value::LibraryValue::FilterPageBuilder(s) if !s.controls.is_empty() => {
@@ -454,7 +454,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             String::new()
         }
         // A TableFilter Evaluate set formats as the text it was given
-        // (permissions/lt-av-permission-filter/AvSetPermissionFilter.al:131,158; evaluate.rs into_table_filter).
+        // (permissions/permission-sets/AvSetPermissionFilter.al:131,158; evaluate.rs into_table_filter).
         Value::Library(name, l)
             if name == "TableFilter" && matches!(&*l.borrow(), crate::value::LibraryValue::Text(_)) =>
         {
@@ -463,7 +463,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 _ => unreachable!(),
             }
         }
-        // A document type or an XML declaration formats as its markup (xml/lt-xml-doctype-declaration/DocTypeErrors.al:
+        // A document type or an XML declaration formats as its markup (xml/xml/DocTypeErrors.al:
         // FormatOfUninitialisedAndInitialised); an unassigned one raises.
         Value::Library(name, l) if matches!(name.as_str(), "XmlDocumentType" | "XmlDeclaration") => {
             match crate::xml::format_node(name, l) {
@@ -481,7 +481,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         Value::Library(name, l) if matches!(name.as_str(), "JsonObject" | "JsonArray" | "JsonValue" | "JsonToken") => {
             crate::format_json::format_json(name.as_str(), l, standard)?
         }
-        // A WebServiceActionContext has no text form (session/TestWebServiceActionContext.al:615-650).
+        // A WebServiceActionContext has no text form (session-system/TestWebServiceActionContext.al:615-650).
         Value::Library(crate::library_kind::LibraryKind::WebServiceActionContext, _) => String::new(),
         // A RecordId reads `Table: key1,key2` (corpus record/TestRecordRecordId.al:42-56 only needs
         // the key values in it; the layout is docs/probes-needed.md).
@@ -496,16 +496,16 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                     .iter()
                     .map(|k| {
                         format_value(k, 0, key_standard, ctx).map(|t| {
-                            // A text that starts with a double quote is quoted and doubles its quotes (types/lt-evaluate-recordid/
+                            // A text that starts with a double quote is quoted and doubles its quotes (format-evaluate/
                             // EvaluateRecordIdComposite.al:RoundTrip_KeyValueWithComma `dquote`: `"Q"` reads `"""Q"""`); a quote further in
-                            // is left as it is (types/lt-implicit-conversions/P79RecordId.al:CompositeKey_SpecialCharacters: `A"B`).
+                            // is left as it is (types/operators-expressions/P79RecordId.al:CompositeKey_SpecialCharacters: `A"B`).
                             // An Option key value whose member is a blank (` `) is quoted too: `" "`
-                            // (types/lt-wc/WcUnpinnedSingles.al:129, :140).
+                            // (errors/WcUnpinnedSingles.al:129, :140).
                             if t.is_empty()
                                 || (matches!(k, Value::Option(..)) && t.trim().is_empty())
                                 || (matches!(k, Value::Text(_) | Value::Code(_))
                                     && (t.contains(',') || t.starts_with('"')))
-                                // A Text key that starts with a blank is quoted: `" lead"` (misc/lt-y14-triage/Y14Small.al:173,
+                                // A Text key that starts with a blank is quoted: `" lead"` (format-evaluate/Y14Small.al:173,
                                 // corpus master). A trailing blank is not pinned.
                                 || (matches!(k, Value::Text(_)) && t.starts_with(' '))
                             {
@@ -516,9 +516,9 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                // Format 1 names the table by its caption (record/lt-record-write/RcBMeta.al:572, :578, also under
+                // Format 1 names the table by its caption (record/crud/RcBMeta.al:572, :578, also under
                 // GlobalLanguage 1031); format 9 of a table in a namespace names it `[<namespace>.<name>]`
-                // (misc/lt-inferred-behaviors/P69NsConsumers.al:214, a name with spaces; :210 format 1 of the same table
+                // (language/namespaces/P69NsConsumers.al:214, a name with spaces; :210 format 1 of the same table
                 // gives the plain name, which is its caption). The other numbers give the plain name (RcBMeta.al:570-574).
                 let shown = match standard {
                     1 | 9 => {
@@ -540,7 +540,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                     _ => name.clone(),
                 };
                 // A RecordId made by Evaluate from a table name alone has no key values and reads as the name
-                // (errors/lt-ms-refusals-128/P128EvalRecordId.al:P128_Evaluate_IntoRecordId_OtherTexts `table name only`).
+                // (format-evaluate/P128EvalRecordId.al:P128_Evaluate_IntoRecordId_OtherTexts `table name only`).
                 if key.is_empty() {
                     if shown != *name {
                         return Err(format!(
@@ -556,7 +556,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             _ => String::new(),
         },
         // A KeyRef reads `Field<no>` for each field of the key, in key order, joined by commas; format numbers 0, 1, 2 and 9 give
-        // the same text, and a length shorter than the text cuts it (recordref/lt-y12-keyref-format/Y12KeyRefFormat.al:33-87, corpus
+        // the same text, and a length shorter than the text cuts it (recordref-fieldref/recordref/Y12KeyRefFormat.al:33-87, corpus
         // branch al-runtime-rs-staging-y12, al-runner issue 6437). Other numbers, a length that would pad, and the implicit
         // SystemId key are not pinned.
         Value::Library(crate::library_kind::LibraryKind::KeyRef, l) => {
@@ -615,22 +615,22 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             " ".repeat((length as usize).saturating_sub(cut.chars().count()))
         ));
     }
-    // A Text shorter than the length is padded on the right (types/lt-scalars/ScT70053.al:Text_FormatNumbers `len30`).
+    // A Text shorter than the length is padded on the right (types/decimal-integer/ScT70053.al:Text_FormatNumbers `len30`).
     if let (Value::Text(_) | Value::Code(_), true) = (v, length > 0) {
         let n = s.chars().count();
         if n < length as usize {
             return Ok(format!("{s}{}", " ".repeat(length as usize - n)));
         }
     }
-    // A RecordId is padded on the right too (types/lt-implicit-conversions/P79RecordId.al:409,421 `len-30`).
+    // A RecordId is padded on the right too (types/operators-expressions/P79RecordId.al:409,421 `len-30`).
     if let (Value::Library(crate::library_kind::LibraryKind::RecordId, _), true) = (v, length > 0) {
         let n = s.chars().count();
         if n < length as usize {
             return Ok(format!("{s}{}", " ".repeat(length as usize - n)));
         }
     }
-    // A negative length cuts a Text the same way (types/lt-scalars/ScT70053.al:Text_FormatNumbers `len-5`), and a Date
-    // (types/lt-datetime/Format.al:525,535: `Format(20240305D, -1, 9)` is `2`), and a RecordId (P79RecordId.al:410,422).
+    // A negative length cuts a Text the same way (types/decimal-integer/ScT70053.al:Text_FormatNumbers `len-5`), and a Date
+    // (types/date-time/Format.al:525,535: `Format(20240305D, -1, 9)` is `2`), and a RecordId (P79RecordId.al:410,422).
     if let (
         Value::Text(_)
         | Value::Code(_)
@@ -643,7 +643,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             return Ok(s.chars().take(length.unsigned_abs() as usize).collect());
         }
     }
-    // A text longer than the length is cut to it (text/lt-label-textbuilder/TxCLabel.al:Label_Value_And_Format `Format(Plain, 5)`).
+    // A text longer than the length is cut to it (text/textbuilder-bigtext/TxCLabel.al:Label_Value_And_Format `Format(Plain, 5)`).
     if matches!(
         v,
         Value::Text(_)
@@ -654,7 +654,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             | Value::Date(..)
             | Value::Time(_)
             | Value::DateTime(_)
-            // types/lt-implicit-conversions/P79RecordId.al:RecordId_InLongerTexts `comp-subst-width`.
+            // types/operators-expressions/P79RecordId.al:RecordId_InLongerTexts `comp-subst-width`.
             | Value::Library(crate::library_kind::LibraryKind::RecordId, _)
     ) && length > 0
         && s.chars().count() > length as usize
@@ -693,9 +693,9 @@ fn blob_text(b: &crate::stream::BlobRef, ctx: &dyn FormatCtx) -> String {
 }
 
 /// A formula prints without its angle brackets in formats 0 and 9 (types/TestDateRoundFormatStringContracts.al:
-/// DateFormula_Evaluate_ThenFormat_PrintsTheNormalizedFormula; misc/lt-system-functions/RandomFormat.al:484-505). Formats 0 and 1
+/// DateFormula_Evaluate_ThenFormat_PrintsTheNormalizedFormula; format-evaluate/RandomFormat.al:484-505). Formats 0 and 1
 /// print the letters of the global language, format 9 the English letters, format 2 the English letters in angle brackets (the
-/// empty formula `<>`), and formats 3 to 8 raise (types/lt-y62-dateformula-format/Y62DateFormulaFormat.al, writer Y62; see
+/// empty formula `<>`), and formats 3 to 8 raise (format-evaluate/Y62DateFormulaFormat.al, writer Y62; see
 /// `date_formula_language`). Formats 3 to 8 in another language than 1033 and the other numbers are refused.
 fn date_formula_text(f: &str, standard: i32, language: i32) -> Result<String, FormatFail> {
     let text = crate::datefns::formula_text(f);
@@ -743,13 +743,13 @@ pub(crate) fn pad(s: String, length: i32) -> String {
     }
 }
 
-/// The error of a Decimal outside +-999,999,999,999,999.99 (misc/lt-system-functions/RandomFormat.al:Format_Decimal `af191`, `af193`;
-/// a Duration converted into a Decimal: types/lt-filter-enum-relation-duration-guid/D_Duration.al:Duration_To_Integer_BeyondRange `af126`).
+/// The error of a Decimal outside +-999,999,999,999,999.99 (format-evaluate/RandomFormat.al:Format_Decimal `af191`, `af193`;
+/// a Duration converted into a Decimal: types/duration/D_Duration.al:Duration_To_Integer_BeyondRange `af126`).
 pub(crate) fn decimal_range_error(d: &rust_decimal::Decimal) -> Option<FormatFail> {
     if d.abs() <= rust_decimal::Decimal::new(99_999_999_999_999_999, 2) {
         return None;
     }
-    // The shown value keeps 18 significant digits (types/lt-scalars/ScT70058.al:Decimal_Digits `af83`).
+    // The shown value keeps 18 significant digits (types/decimal-integer/ScT70058.al:Decimal_Digits `af83`).
     let kept = d
         .round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
         .unwrap_or(*d);
@@ -777,7 +777,7 @@ fn format_decimal(d: &rust_decimal::Decimal, standard: i32) -> Result<String, Fo
     if let Some(e) = decimal_range_error(d) {
         return Err(e);
     }
-    // A Decimal keeps 18 significant digits: 123456789012345.123456 shows as 123456789012345.123 (types/lt-scalars/ScT70050.al:
+    // A Decimal keeps 18 significant digits: 123456789012345.123456 shows as 123456789012345.123 (types/decimal-integer/ScT70050.al:
     // FormatNumbers_Large).
     let int_digits = if d.trunc().is_zero() {
         0
@@ -792,7 +792,7 @@ fn format_decimal(d: &rust_decimal::Decimal, standard: i32) -> Result<String, Fo
     };
     let n = d.normalize();
     // A negative value that is too small to show reads `-0` in the XML form, not `0` (misc/lt-probes-needed-1/
-    // PnAStreamDecimalBytes.al:Write_Decimal_Tiny `minus-1E-28`), and in the default format 0 too (types/lt-decimal-digits/
+    // PnAStreamDecimalBytes.al:Write_Decimal_Tiny `minus-1E-28`), and in the default format 0 too (types/decimal-integer/
     // DecimalDigits.al:480-541 QE_Decimal_SmallResults_DecimalPlaces, `neg tiny quotient default format`). The other
     // standard formats are not pinned for it.
     if n.is_zero() && orig.is_sign_negative() && !orig.is_zero() {
@@ -809,7 +809,7 @@ fn format_decimal(d: &rust_decimal::Decimal, standard: i32) -> Result<String, Fo
         return Ok(plain);
     }
     // Format 4 is format 1 and 3 is format 0 with the sign behind the number: a trailing blank when it is not negative, a
-    // trailing minus when it is (types/lt-evaluate-format-lasterror-setview/P86FormatDecimal.al:Num_*; text/
+    // trailing minus when it is (format-evaluate/P86FormatDecimal.al:Num_*; text/
     // TestProbeTextDateFormatContracts.al:Format_FormatStrings_Number). Numbers 5 to 8 do not exist for a Decimal.
     if (5..=8).contains(&standard) {
         return Err(no_such_format(standard, "Decimal"));
@@ -934,7 +934,7 @@ fn format_time(ms_of_day: i64, standard: i32) -> Result<String, FormatFail> {
 }
 
 /// A DateTime, from its milliseconds since 0001-01-01. Formats 0 and 2 render to the minute
-/// (`09/20/26 01:10 PM`, pagesave/TestPageSaveDataLayer.al:199-206); format 1 adds seconds and
+/// (`09/20/26 01:10 PM`, pages/record-save/TestPageSaveDataLayer.al:199-206); format 1 adds seconds and
 /// milliseconds (refused without milliseconds); format 9 is the round-trip form
 /// (`2026-09-20T11:10:12.851Z`, no fraction when there are no milliseconds:
 /// types/TestFormatEvaluateTextContracts.al:Format_DateTime_StandardFormats). The session time zone
@@ -953,8 +953,8 @@ fn format_datetime(ms: i64, standard: i32) -> Result<String, FormatFail> {
         in_day % 1000,
     );
     // The year has two digits from 1950 to 2049 and four otherwise (format 2 for 1753 to 5000, and formats 0 to 3 in 9998 and
-    // 9999: types/lt-y49-datetime-9999/Y49DateTime9999.al:64-209; the largest DateTime is `12/31/9999 11:59 PM`,
-    // types/lt-datetime/Format.al:377, 396).
+    // 9999: types/date-time/Y49DateTime9999.al:64-209; the largest DateTime is `12/31/9999 11:59 PM`,
+    // types/date-time/Format.al:377, 396).
     let date = if TWO_DIGIT_YEARS.contains(&y) {
         format!("{m:02}/{d:02}/{:02}", y.rem_euclid(100))
     } else {
@@ -978,7 +978,7 @@ fn format_datetime(ms: i64, standard: i32) -> Result<String, FormatFail> {
 
 /// A Duration. Formats 0 and 1 spell the units (`1 day 1 hour 1 minute 1 second 1 millisecond`, a
 /// zero unit left out, a zero duration blank, every unit negative for a negative one:
-/// handlers/TestPageFieldFormats_Tests.al:599-602, handlers/TestPageRuntimeContracts.al:162);
+/// testpage/TestPageFieldFormats_Tests.al:599-602, testpage/TestPageRuntimeContracts.al:162);
 /// format 9 is `P1DT1H1M1.001S` (types/TestFormatEvaluateTextContracts.al:Format_Duration_StandardFormats)
 /// with `.0` for whole seconds (json/TestJsonRuntimeContracts.al:214, `P0DT0H0M5.0S`).
 /// The words of a Duration (`1 day 1 hour`, every unit negative for a negative one, blank for zero).
@@ -1054,7 +1054,7 @@ fn duration_format(ms: i64, codes: bool, lang: i32) -> Result<String, FormatFail
 }
 
 /// The word for a Duration unit (index into `DURATION_UNITS`) in a language. English has all of them; German and French only the
-/// forms the probe measured: `1 Stunde 2 Minuten 3 Sekunden` (types/lt-conversions-hidden-parts-doctype/P142ToTextLang.al:190) and
+/// forms the probe measured: `1 Stunde 2 Minuten 3 Sekunden` (types/operators-expressions/P142ToTextLang.al:190) and
 /// `1 heure 2 minutes 3 secondes` (:214). Every other form is refused.
 fn unit_word(lang: i32, unit: usize, plural: bool) -> Option<String> {
     match (lang, unit, plural) {
@@ -1064,7 +1064,7 @@ fn unit_word(lang: i32, unit: usize, plural: bool) -> Option<String> {
         (1036, 1, false) => Some("heure".into()),
         (1036, 2, true) => Some("minutes".into()),
         (1036, 3, true) => Some("secondes".into()),
-        // types/lt-ax-text-format-dates/AxLanguageFormats.al:134-163: `1 Tag;2 Tage;2 Stunden;1 Minute;1 Sekunde;1 Millisekunde`
+        // format-evaluate/AxLanguageFormats.al:134-163: `1 Tag;2 Tage;2 Stunden;1 Minute;1 Sekunde;1 Millisekunde`
         // and `1 jour;2 jours;2 heures;1 minute;1 seconde;1 milliseconde`.
         (1031, 0, false) => Some("Tag".into()),
         (1031, 0, true) => Some("Tage".into()),
@@ -1085,7 +1085,7 @@ fn unit_word(lang: i32, unit: usize, plural: bool) -> Option<String> {
 
 fn format_duration(ms: i64, standard: i32, lang: i32) -> Result<String, FormatFail> {
     // A Duration of 9223372028264841218 ms raises the overflow with the default format (D_Duration.al:Duration_To_Integer_BeyondRange
-    // `af128`, `Format(D)`). Up to 1.8e16 ms it formats: 922337203685478 ms, 3e15 ms and 5000000000 hours (types/lt-datetime/
+    // `af128`, `Format(D)`). Up to 1.8e16 ms it formats: 922337203685478 ms, 3e15 ms and 5000000000 hours (types/date-time/
     // Evaluate.al:640-670; D_Duration.al:421-443 `big_number`). Other values above 1.8e16 ms, that value with another format and a
     // negative Duration below -922337203685477 ms (the largest .NET TimeSpan) are not pinned.
     if ms == 9_223_372_028_264_841_218 && standard == 0 {
@@ -1205,7 +1205,7 @@ fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<Stri
         return Err(format!("Format of a closing date with standard format {standard} (not pinned)").into());
     }
     // The month names of formats 4 and 7 follow the language: English, German, French and Spanish are pinned for every month
-    // (types/lt-ax-text-format-dates/AxLanguageFormats.al:52-132; P142ToTextLang.al:109,117). Another language is refused.
+    // (format-evaluate/AxLanguageFormats.al:52-132; P142ToTextLang.al:109,117). Another language is refused.
     let month = match (lang, standard) {
         (1033, _) => MONTHS[m as usize - 1],
         (1031, 4) => MONTHS_DE[m as usize - 1],
@@ -1230,14 +1230,14 @@ fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<Stri
     };
     Ok(match standard {
         // The year has two digits from 1950 to 2049 and four otherwise
-        // (controls/W2ValueControls.al:Date_SessionFormatTwoDigitYear_*: 1929 and 1930 give 10 characters, 1999
+        // (pages/controls/W2ValueControls.al:Date_SessionFormatTwoDigitYear_*: 1929 and 1930 give 10 characters, 1999
         // to 2030 give 8, BC 27.5 and 29.0; format 1: 1949 and 2050 four digits, 1950 and 2049 two,
-        // types/lt-y49-datetime-9999/Y49DateTime9999.al:172-209).
+        // types/date-time/Y49DateTime9999.al:172-209).
         0 | 1 if TWO_DIGIT_YEARS.contains(&y) => format!("{c}{m:02}/{d:02}/{yy:02}"),
         0 | 1 => format!("{c}{m:02}/{d:02}/{y:04}"),
         2 => format!("{m:02}{d:02}{yy:02}{c}D"),
         3 => format!("{yy:02}/{m:02}/{d:02}"),
-        // The year has four digits: `June 15, 0001` (types/lt-y81-values/Y81DMY2Date.al:94-114 Y81_DMY2Date_Year1_Arithmetic
+        // The year has four digits: `June 15, 0001` (types/Y81DMY2Date.al:94-114 Y81_DMY2Date_Year1_Arithmetic
         // `format 4`; needs corpus bump).
         4 => format!("{month} {d}, {y:04}"),
         5 => format!("{m:02}{d:02}{yy:02}"),
@@ -1360,7 +1360,7 @@ mod tests {
 
     #[test]
     fn date_times_in_the_two_standard_formats_the_corpus_measured() {
-        // pagesave/TestPageSaveDataLayer.al:199-206 (measured on BC): Format(_, 0, 2) of a DateTime
+        // pages/record-save/TestPageSaveDataLayer.al:199-206 (measured on BC): Format(_, 0, 2) of a DateTime
         // renders to the minute ('09/20/26 01:10 PM'); Format(_, 0, 9) is the round-trip form
         // ('2026-09-20T11:10:12.851Z'). The session time zone is taken to be UTC here.
         let day = i64::from(day_from_civil(2026, 9, 20)) - 1;
@@ -1384,7 +1384,7 @@ mod tests {
 
     #[test]
     fn language_changes_month_names_duration_words_and_booleans_as_measured() {
-        // types/lt-conversions-hidden-parts-doctype/P142ToTextLang.al:109,117,153,190,214
+        // types/operators-expressions/P142ToTextLang.al:109,117,153,190,214
         struct L(i32);
         impl FormatCtx for L {
             fn enum_name(&self, _: u32, o: i32) -> String {
@@ -1399,7 +1399,7 @@ mod tests {
         assert_eq!(format_value(&d, 0, 4, &L(1036)).unwrap(), "mars 15, 2024");
         assert_eq!(format_value(&d, 0, 0, &L(1036)).unwrap(), "03/15/24");
         let jan = Value::Date(day_from_civil(2024, 1, 15), false);
-        // types/lt-ax-text-format-dates/AxLanguageFormats.al:79.
+        // format-evaluate/AxLanguageFormats.al:79.
         assert_eq!(format_value(&jan, 0, 4, &L(1031)).unwrap(), "Januar 15, 2024");
         assert!(matches!(
             format_value(&d, 0, 4, &L(1030)),
@@ -1430,7 +1430,7 @@ mod tests {
 
     #[test]
     fn a_format_region_rewrites_date_and_decimal_and_refuses_the_rest() {
-        // misc/lt-probes-needed-3/PnC06ReportLanguage.al:Language_SetAndRead
+        // reports/PnC06ReportLanguage.al:Language_SetAndRead
         struct R;
         impl FormatCtx for R {
             fn enum_name(&self, _: u32, o: i32) -> String {
@@ -1454,8 +1454,8 @@ mod tests {
 
     #[test]
     fn the_report_format_regions_the_corpus_pins() {
-        // report/lt-y-report-props/YReportPropsTests.al:34-148 (31 January 2025 14:30:15, 1234567.891, 1234567) and
-        // misc/lt-probes-needed-8/PnH4CurrReport.al:241-249 (5 March 2024, 1234.5, true).
+        // reports/runtime/YReportPropsTests.al:34-148 (31 January 2025 14:30:15, 1234567.891, 1234567) and
+        // reports/PnH4CurrReport.al:241-249 (5 March 2024, 1234.5, true).
         struct R(&'static str);
         impl FormatCtx for R {
             fn enum_name(&self, _: u32, o: i32) -> String {
@@ -1529,8 +1529,8 @@ mod tests {
 
     #[test]
     fn a_zz_zz_dataset_column_pads_month_and_day() {
-        // report/lt-y-report-props/YReportPropsTests.al:128 (`01/31/2025`, `01/31/2025 14:30:15`, BC 27, 28, 29) and
-        // report/lt-bd-format-region/BdRegionTests.al:213,220 (`03/05/2024`).
+        // reports/runtime/YReportPropsTests.al:128 (`01/31/2025`, `01/31/2025 14:30:15`, BC 27, 28, 29) and
+        // reports/runtime/BdRegionTests.al:213,220 (`03/05/2024`).
         let day = Value::Date(day_from_civil(2025, 1, 31), false);
         let stamp = Value::DateTime((i64::from(day_from_civil(2025, 1, 31)) - 1) * 86_400_000 + 52_215_000 + 1);
         let march = Value::Date(day_from_civil(2024, 3, 5), false);
@@ -1547,7 +1547,7 @@ mod tests {
 
     #[test]
     fn fr_fr_groups_with_a_no_break_space_on_every_version() {
-        // misc/lt-probes-needed-8/PnH4CurrReport.al:247 and :311 and report/lt-y-report-props/YReportPropsTests.al:74: U+00A0 on
+        // reports/PnH4CurrReport.al:247 and :311 and reports/runtime/YReportPropsTests.al:74: U+00A0 on
         // BC 27, 28 and 29 (corpus bump 62; the older Linux image gave U+202F on BC 27 and 28).
         struct R;
         impl FormatCtx for R {
@@ -1610,7 +1610,7 @@ mod tests {
         // json/TestJsonRuntimeContracts.al:214.
         assert_eq!(fmt(Value::Duration(5000), 9), "P0DT0H0M5.0S");
         // types/TestDateFormulaDurationFormatContracts.al:114-120: Format carries the sign on the
-        // first unit only (a TestPage control shows every unit negative, handlers/TestPageRuntimeContracts.al:162).
+        // first unit only (a TestPage control shows every unit negative, testpage/TestPageRuntimeContracts.al:162).
         assert_eq!(
             fmt(Value::Duration(-90_061_001), 0),
             "-1 day 1 hour 1 minute 1 second 1 millisecond"
@@ -1731,7 +1731,7 @@ mod tests {
         assert_eq!(f2(Value::Time(1)), "000000T");
         assert_eq!(f2(Value::Time(86_400_000)), "235959.999T");
     }
-    // D_Duration.al:Duration_To_Integer_BeyondRange `af128`; types/lt-datetime/Evaluate.al:640-670.
+    // D_Duration.al:Duration_To_Integer_BeyondRange `af128`; types/date-time/Evaluate.al:640-670.
     #[test]
     fn duration_overflow_only_where_pinned() {
         use super::format_duration;
@@ -1755,7 +1755,7 @@ mod tests {
         }
     }
 
-    // types/lt-ax-text-format-dates/AxLanguageFormats.al:52-163.
+    // format-evaluate/AxLanguageFormats.al:52-163.
     #[test]
     fn month_names_and_duration_words_in_other_languages() {
         use super::{day_from_civil, duration_format, format_date};

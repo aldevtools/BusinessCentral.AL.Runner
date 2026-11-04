@@ -1,4 +1,4 @@
-//! A date formula that is only a number above 9999 (errors/lt-ms-refusals-128/P128CalcDateForms.al:111, :127
+//! A date formula that is only a number above 9999 (types/date-time/P128CalcDateForms.al:111, :127
 //! P128_CalcDate_DateTextIsNotAFormula: `161026` raises "contains a number that is too large", not the missing time unit
 //! error a shorter number gets).
 

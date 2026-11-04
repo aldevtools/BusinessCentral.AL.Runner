@@ -1,5 +1,5 @@
 //! A text element right below a table element that holds field elements, text elements of only text attributes, a text element
-//! that wraps a table element and a table element directly (corpus xmlport/lt-y67-xmlport-wrapper-in-table/Y67XpWrapperInTable.al:
+//! that wraps a table element and a table element directly (corpus xmlports/shapes-properties/Y67XpWrapperInTable.al:
 //! 533-604). The inner tables have no link: every outer row lists all their rows; a wrapped table without rows leaves its
 //! wrapper empty, a direct one writes nothing. Skip in the element's OnBeforePassVariable leaves it out with all below it.
 

@@ -1,6 +1,6 @@
 //! A page control named exactly like a field of the source table, beside another control on that field: the bare
 //! name in `field(<Control>; <Source>)` binds the FIELD, so both controls read and write it
-//! (pages/lt-wd/R6858ControlNamedLikeField.al, al-runner issue 6858). Names with a space, a dot and one word.
+//! (testpage/R6858ControlNamedLikeField.al, al-runner issue 6858). Names with a space, a dot and one word.
 
 use al_test_cli::report::Outcome;
 

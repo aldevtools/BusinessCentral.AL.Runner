@@ -1,5 +1,5 @@
 //! `Record.IsDirty` (BC 29, runtime 18.0): whether the buffer of a record variable differs from what the variable last
-//! read or wrote. Pinned by lt-ac/ACRecordIsDirty.al (codeunit 77504). The snapshot lives in `RecordState::is_dirty_base`
+//! read or wrote. Pinned by record/ACRecordIsDirty.al (codeunit 77504). The snapshot lives in `RecordState::is_dirty_base`
 //! and is kept by [`Session::record_op_tracked`], around every record method.
 //!
 //! What the corpus pins, and so what is implemented:
@@ -14,7 +14,7 @@
 //!   agree (ACRecordIsDirty.al:65-71); where they differ IsDirty is refused. Whether system fields count is not pinned
 //!   either: an answer that depends on them is refused.
 //!
-//! - lt-ac/Y8RecordIsDirtyShapes.al (codeunit 91415) adds: a temporary record behaves like a database record; Find, FindSet,
+//! - record/Y8RecordIsDirtyShapes.al (codeunit 91415) adds: a temporary record behaves like a database record; Find, FindSet,
 //!   Next and GetBySystemId clean like Get; a read or write that answers false keeps the snapshot; Insert(true) and Modify(true)
 //!   clean, Delete(true) keeps the snapshot; inside the write's own trigger Rec (and xRec in OnModify) answer the caller's state;
 //!   Copy and a by-value parameter copy the state, RecordRef.SetTable takes the ref's; Clear makes a fresh variable;

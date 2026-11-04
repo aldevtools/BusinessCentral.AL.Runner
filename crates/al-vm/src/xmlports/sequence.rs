@@ -5,7 +5,7 @@ use super::*;
 /// Checks the child elements of an imported element against the schema's sequence: the children
 /// in declaration order, each once (a table element any number of times) unless it is optional
 /// (`MinOccurs = Zero`). The messages are .NET's schema validation messages
-/// (xmlport/TestXmlPortExportImportContracts.al:XmlPortImport_SchemaMismatch_ThrowsXmlPortInvalidXml).
+/// (xmlports/TestXmlPortExportImportContracts.al:XmlPortImport_SchemaMismatch_ThrowsXmlPortInvalidXml).
 pub(super) struct Sequence {
     /// `UseLax = true` on the port.
     lax: bool,
@@ -99,11 +99,11 @@ impl Sequence {
         out
     }
 
-    /// Several possible elements are listed in one pair of quotes, `'Opt, Once'` (xmlport/W7XmlPortTests.al:129); with a
+    /// Several possible elements are listed in one pair of quotes, `'Opt, Once'` (xmlports/W7XmlPortTests.al:129); with a
     /// namespace among them the form is not pinned.
     pub(super) fn list(&self, head: String) -> Result<String, Signal> {
         let expected = self.expected();
-        // A UseLax port's schema allows an element of another namespace between its elements (xmlport/lt-y83-xmlport-shapes/
+        // A UseLax port's schema allows an element of another namespace between its elements (xmlports/shapes-properties/
         // Y83XpMiscTests.al:Lax_Nested_1..4, needs the corpus bump): the list ends `as well as any element in namespace
         // '##other'`. Several names with it are not pinned.
         if self.lax {

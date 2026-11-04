@@ -1,6 +1,6 @@
 //! A Code field with `SQLDataType = Integer`, `BigInteger` or `Variant` in the primary key or a secondary key: the order,
 //! the filters and the values an Insert takes. Pinned by the corpus writer's probe (not in the corpus pin yet: needs corpus
-//! bump) tests/al-language/record/lt-y82-sqldatatype-code/ Y82PkTests.al (`Pk*_NumericOrder`, `Pk*_FilterLetters_*`,
+//! bump) tests/al-language/record/system-fields/ Y82PkTests.al (`Pk*_NumericOrder`, `Pk*_FilterLetters_*`,
 //! `Pk*_Blank`, `Pk*_Mixed`), Y82InsertTests.al (`Pk*_Insert_*`, `SecF*_Insert_*`), Y82SecTests.al (`Sec*_NumericOrder`).
 
 use al_builtins::value::Value;

@@ -1,5 +1,5 @@
 //! Export shapes of e-invoice ports (PEPPOL, Fin. Results) beyond the container trees of `container_tree.rs`
-//! (xmlport/lt-y72-xmlport-probes/Y72XpEInvoiceShapes.al; the same shapes as al-sema xmlports/containers.rs `attributed_leaf_shape`
+//! (streams/Y72XpEInvoiceShapes.al; the same shapes as al-sema xmlports/containers.rs `attributed_leaf_shape`
 //! and `table_container_shape`).
 
 use super::*;

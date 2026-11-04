@@ -1,5 +1,5 @@
 //! `XmlAttributeCollection.Get` of an attribute that is not there (corpus master, corpus PR 886:
-//! xml/lt-xml-attr-doc-http-members/AttrCollectionGetMissing.al:68-83, :109-113).
+//! xml/xml/AttrCollectionGetMissing.al:68-83, :109-113).
 
 use al_testkit::{run_in, text};
 

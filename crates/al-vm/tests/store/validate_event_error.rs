@@ -1,5 +1,5 @@
 //! An error in an OnBeforeValidateEvent or OnAfterValidateEvent subscriber puts the record back at its values from before the
-//! Validate, as one in the field's OnValidate does (events/lt-db-events/DbtEvents.al:623 Validate_ErrorInSubscriber).
+//! Validate, as one in the field's OnValidate does (events/binding-senders/DbtEvents.al:623 Validate_ErrorInSubscriber).
 
 const SRC: &str = r#"
 table 50960 "Ve Row"

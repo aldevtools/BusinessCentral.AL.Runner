@@ -1,7 +1,7 @@
 //! A field's OnDrillDown sets marks and MarkedOnly on Rec and calls `CurrPage.Update(false)` on a Worksheet with
 //! OnAfterGetRecord and OnAfterGetCurrRecord that has a part, in the content area or in the FactBoxes area: the page then lists
 //! only the marked row, as the same page without a part does (al-runner issue 5886, the reporter's run on real BC
-//! 29.0.54011.55407, 6/6 tests; corpus writer SF's pins in pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al SF_WithPart_*,
+//! 29.0.54011.55407, 6/6 tests; corpus writer SF's pins in testpage/ScDrillDownMarkedOnly.al SF_WithPart_*,
 //! SF_WithFactBox_*). The fixture is the reporter's repro; each procedure raises an error when the page shows the wrong rows.
 
 const SRC: &str = r##"table 50100 "Repro Operation"

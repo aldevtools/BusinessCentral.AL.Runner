@@ -3,7 +3,7 @@
 //! "report property ... is not supported yet" (200 of Pageworks' 1013 tests were not run, 14 of them for these two).
 //!
 //! `Extensible` says whether a report extension may extend the report: a compile-time fact. It is not a column of the
-//! Report Metadata table (the column list in misc/lt-probes-needed-3/PnC21Metadata.al:ReportMetadata_Defaults). No
+//! Report Metadata table (the column list in recordref-fieldref/PnC21Metadata.al:ReportMetadata_Defaults). No
 //! corpus test runs a report that declares it, so this is a documentation-only assumption (docs/probes-needed.md).
 //! `EnableHyperlinks` is a layout property (the hyperlinks of an RDLC layout): like the other layout properties a run
 //! that renders a layout is refused, a dataset run is not. It is a Report Metadata column, whose value stays refused

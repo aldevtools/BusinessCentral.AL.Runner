@@ -1,7 +1,7 @@
 //! The size of the change of `SessionInformation.SqlStatementsExecuted()` and `SqlRowsRead()` around a statement budget
 //! test (al-runner issue 5861): a procedure in another codeunit copies a temporary record into a database table of a
 //! two-field key with FindSet, Next and Insert, then SetRange and Count, with or without a Commit before the first read
-//! (session/lt-bl-sql-counters/SkSqlBudget.al). Any other shape, N or buffer state refuses.
+//! (session-system/session/SkSqlBudget.al). Any other shape, N or buffer state refuses.
 
 use al_builtins::native::Signal;
 use al_testkit::{Built, run, text};

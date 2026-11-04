@@ -11,14 +11,14 @@ and 38 pin some of them:
 - **Company Information** (table 79), one row: Primary Key `''`, Name = CompanyName(), Name 2 `''`, Address `5 The Ring`,
   Address 2 `Westminster`, City `London`, Post Code `W2 8HG`, County `''`, Country/Region Code `GB`, Phone No.
   `0666-666-6666`, VAT Registration No. `777777777`, Registration No. `''`, Picture HasValue Yes (its bytes are not pinned)
-  (session/lt-company-information/CompanyInformationValues.al:QG_CompanyInformation_CorpusRow). The report dataset header
+  (session-system/company/CompanyInformationValues.al:QG_CompanyInformation_CorpusRow). The report dataset header
   tests read more of it: Fax No. `0666-666-6660`, Bank Branch No. `BG99999` and the logo (misc 70535 PW_Dump_Lines*,
   report 78603 Header_AddressLines_AsInCorpusDatabase, report 67755).
 - **Accounting Period** (table 50), 36 rows from 2025-01-01 to 2027-12-01 with pinned flags
   (CompanyInformationValues.al:QG_AccountingPeriod_CorpusRows).
 - **General Ledger Setup** (table 98): LCY Code `GBP`, Global Dimension 1 Code `DEPARTMENT`, Global Dimension 2 Code
   `CUSTOMERGROUP`, Additional Reporting Currency `EUR` from BC 28 and `''` on BC 27
-  (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:808 QF_GLSetup_CorpusRow; gate `ProbedValuesDifferFrom28`).
+  (record/captions/QdCaptionClassAreas.al:808 QF_GLSetup_CorpusRow; gate `ProbedValuesDifferFrom28`).
 
 Every other field of these rows is unknown. These cases fail or are refused for the missing rows (per major): 67858 x2,
 78603, 70535 x3, 67755, 84363, 86504 Literals_FieldCaption, Expressions_FieldCaption and QF_GLSetup_CorpusRow (the

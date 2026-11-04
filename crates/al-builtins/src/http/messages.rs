@@ -61,7 +61,7 @@ pub(super) fn test_response_status(_: &mut dyn Ctx, r: Option<&mut Value>, a: &m
         None => with_test_response(r, |s| Value::Integer(s.status)),
         Some(Value::Integer(n)) => {
             let n = *n;
-            // AyHttpHandler.al:PY_ReasonPhrase_1 to _3 (al-language-onprem/network/lt-ay-http-handler, :486-583, BC 29; Windows
+            // AyHttpHandler.al:PY_ReasonPhrase_1 to _3 (al-language-onprem/http/client, :486-583, BC 29; Windows
             // BC 27.5 and 28.5 give the same values): these values raise InvalidValue. The text of 301, 302 and 304 is pinned
             // only up to its 60th character, so reading it is refused. Every other value is kept as before.
             match n {

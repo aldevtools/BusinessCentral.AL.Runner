@@ -1,4 +1,4 @@
-//! Code comparison (text/lt-text-functions/TextCompare.Codeunit.al:CodeComparison, lines 205-246, BC 27.5 and 29): two
+//! Code comparison (text/text-methods/TextCompare.Codeunit.al:CodeComparison, lines 205-246, BC 27.5 and 29): two
 //! Code values compare without regard to case, and a Code of digits only is ordered as a number (`'10' < '9'` is No). A
 //! Text compares as before (a25 and a26 of the same file). Base Application's `NoIsWithinValidRange` compares the last
 //! number used with the ending number of a number series as Codes: with a text order the Cronus series `P-CR+`

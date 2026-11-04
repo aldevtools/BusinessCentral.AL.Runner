@@ -1,6 +1,6 @@
 //! FieldRef.GetFilter of the user-name system FlowFields (SystemCreatedByUserName 2000000005 to SystemModifiedByFullName 2000000008)
 //! with no filter on them is the empty text (al-runner issue 6645; corpus writer Y64, branch al-runtime-rs-staging-y64 85d86e7b,
-//! system-fields/lt-y64-username-filters/Y64UserNameFilters.al:85-108). A filter on them (SetFilter, SetRange, a view that names
+//! record/system-fields/Y64UserNameFilters.al:85-108). A filter on them (SetFilter, SetRange, a view that names
 //! them) is pinned there too but not supported yet: refused. SetView used to drop a condition on them as on a name of no field.
 
 use al_sema::workspace::{AppKind, AppSource};
@@ -72,7 +72,7 @@ fn getfilter_of_a_user_name_flow_field_without_a_filter_is_empty() {
     );
 }
 
-/// FieldRef.Name of SystemCreatedByUserName is its name (fieldref/lt-y66-fieldref-length-types/Y66FieldRefLengthTypes.al:
+/// FieldRef.Name of SystemCreatedByUserName is its name (recordref-fieldref/fieldref/Y66FieldRefLengthTypes.al:
 /// 99-108, BC 29).
 const NAME: &str = "
 table 69672 \"UN Name Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }

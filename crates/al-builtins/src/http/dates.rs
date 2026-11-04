@@ -84,7 +84,7 @@ pub(super) fn rfc1123(t: i64) -> String {
     )
 }
 
-/// The date forms network/lt-se-header-values/SeHeaderValues.al:SE_Shapes_Dates measured (corpus bump PR 737), all stored as
+/// The date forms http/headers/SeHeaderValues.al:SE_Shapes_Dates measured (corpus bump PR 737), all stored as
 /// RFC 1123 GMT: `Tue, 15 Nov 1994 08:12:31 GMT` (also lt-http-header-rules/P87Values.al, AyHeaderAddResult.al:119), the same with
 /// `UTC`, RFC 850 `Tuesday, 15-Nov-94 08:12:31 GMT`, asctime `Tue Nov 15 08:12:31 1994` and `15 Nov 1994 08:12:31 +0100` (the offset
 /// is taken off). `None` for another text.

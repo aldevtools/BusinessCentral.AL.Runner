@@ -2,7 +2,7 @@
 //!
 //! A Media field holds the id of its media object; a MediaSet field holds the id of its set, and
 //! the set holds the ids of its media objects. Both are stored as a Guid, null for an empty field
-//! (media/TestMediaEmptyMediaId.al). The media objects and the sets live in the session's
+//! (streams/media/TestMediaEmptyMediaId.al). The media objects and the sets live in the session's
 //! `MediaStore`, the stand-in for the platform tables "Tenant Media" and "Tenant Media Set"
 //! (ADR-013 gives those tables rows). The field only holds the id once the record is written,
 //! so an import that was not followed by `Modify` is not seen by the next `Get`.
@@ -39,9 +39,9 @@ pub struct MediaObject {
 /// The Tenant Media `File Name` of a media an ImportFile read.
 #[derive(Debug, Clone)]
 pub enum FileColumn {
-    /// `Media.ImportFile`: the path as given (onprem media/MediaFiles.al:337 'media file name' = '<tmp><name>').
+    /// `Media.ImportFile`: the path as given (onprem streams/media/MediaFiles.al:337 'media file name' = '<tmp><name>').
     Path(String),
-    /// `MediaSet.ImportFile`: the bare file name, without the folder (onprem media/MediaFiles.al:351 'mediaset file name' =
+    /// `MediaSet.ImportFile`: the bare file name, without the folder (onprem streams/media/MediaFiles.al:351 'mediaset file name' =
     /// '<name>', :256-259 `filename_longer_than_name=No`; Windows BC 27.5, 28.5 and 29.0 and bc-linux dc007079, corpus bump 62).
     Bare(String),
 }
@@ -107,10 +107,10 @@ pub struct MediaStore {
     pub objects: Rc<RefCell<HashMap<Id, MediaObject>>>,
     pub sets: Rc<RefCell<HashMap<Id, Vec<Id>>>>,
     /// Media a Modify or Delete of one holder removed from Tenant Media while a row of another table, or another field,
-    /// still holds the id (media/TestMediaPngImport.al:441-674 QE_Media_*): that holder has no value any more.
+    /// still holds the id (streams/media/TestMediaPngImport.al:441-674 QE_Media_*): that holder has no value any more.
     pub removed: Rc<RefCell<std::collections::HashSet<Id>>>,
     /// Media imported into a field of a Media Resources row, which BC keeps out of Tenant Media
-    /// (platform/lt-platform-tables/PtCloudTables.al:352): their Tenant Media row is refused.
+    /// (metadata/platform-tables/PtCloudTables.al:352): their Tenant Media row is refused.
     pub outside_tenant: Rc<RefCell<std::collections::HashSet<Id>>>,
 }
 
@@ -137,7 +137,7 @@ fn store(c: &mut dyn Ctx) -> Result<&mut MediaStore, Signal> {
 fn text_arg(a: &[Value], i: usize) -> Result<String, Signal> {
     // A Guid description is its text form, in braces and upper case: Guided Experience Impl imports an app's logo with
     // `Icon.ImportStream(IconInStream, ExtensionId)` and the Tenant Media Description reads '{E92BE076-...}' (onprem
-    // session/UsAppLogo.al:170-186, corpus PR 816).
+    // session-system/UsAppLogo.al:170-186, corpus PR 816).
     if let Some(Value::Guid(g)) = a.get(i) {
         return Ok(crate::format::format_guid(g));
     }
@@ -148,7 +148,7 @@ fn text_arg(a: &[Value], i: usize) -> Result<String, Signal> {
 }
 
 /// A four-argument import (blank description and MIME type) named `.xlsx` or `.docx` reads the content as an Office document:
-/// text content raises MediaUnsupportedFormat and no media is made (media/lt-y48-tenant-media/Y48TenantMediaRows.al:600-631
+/// text content raises MediaUnsupportedFormat and no media is made (streams/media/Y48TenantMediaRows.al:600-631
 /// TM_RowOfFourArgImport_MoreNames `attach D`, `attach H`, writer Y57). Other content under those names imports as before.
 fn office_header_check(bytes: &[u8], description: &str, mime: &str, file_name: &str) -> Result<(), Signal> {
     if file_name.is_empty() || !description.is_empty() || !mime.is_empty() {
@@ -222,7 +222,7 @@ fn import_object(c: &mut dyn Ctx, a: &[Value]) -> Result<Id, Signal> {
     office_header_check(&bytes, &description, &mime, &file_name)?;
     let id = c.new_guid();
     // A PNG without a MIME type is `image/png`, and its Tenant Media row has its size (corpus
-    // media/PXMediaFileName.al: `Mime Type` is `image/png` also when it is omitted, 1 x 1).
+    // streams/media/PXMediaFileName.al: `Mime Type` is `image/png` also when it is omitted, 1 x 1).
     let size = png_size(&bytes);
     let mime = if mime.is_empty() && size.is_some() {
         "image/png".to_string()
@@ -251,7 +251,7 @@ fn has_value(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     if id == [0; 16] {
         return Ok(Value::Boolean(false));
     }
-    // A holder whose media another holder let go keeps the id but has no value (media/TestMediaPngImport.al:441-470
+    // A holder whose media another holder let go keeps the id but has no value (streams/media/TestMediaPngImport.al:441-470
     // QE_Media_OtherTable_Assigned_SourceRowDeleted, `after delete has_value`).
     Ok(Value::Boolean(
         c.media_store().is_none_or(|m| !m.removed.borrow().contains(&id)),
@@ -265,7 +265,7 @@ fn media_id(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
 /// `Media.ImportStream` gives the field a new media. `MediaSet.ImportStream` fills an empty set only;
 /// extending what a set already holds is not pinned, so it is refused.
 fn media_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    // A field that already holds a media takes the new one (corpus media/PXMediaFileName.al:
+    // A field that already holds a media takes the new one (corpus streams/media/PXMediaFileName.al:
     // ImportStream_DescriptionOnly_AndEmptyDescription imports into the same field twice); what becomes
     // of the old media object is not pinned, it stays.
     id_of(&r)?;
@@ -305,7 +305,7 @@ fn set_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         return Ok(Value::Guid(current));
     }
     // The set's own id is what the call returns and what MediaId answers; the member has another
-    // (media/TestMediaSetPersistence.al:127-155).
+    // (streams/media/TestMediaSetPersistence.al:127-155).
     let member = import_object(c, a)?;
     let set = c.new_guid();
     store(c)?.sets.borrow_mut().insert(set, vec![member]);
@@ -326,14 +326,14 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         return Ok(Value::Boolean(false));
     }
     let Some(obj) = store(c)?.objects.borrow().get(&id).cloned() else {
-        // A media another holder let go exports nothing and answers false (media/TestMediaPngImport.al:441-470
+        // A media another holder let go exports nothing and answers false (streams/media/TestMediaPngImport.al:441-470
         // QE_Media_OtherTable_Assigned_SourceRowDeleted, `after delete export_result`, `export_nonempty`).
         if store(c)?.removed.borrow().contains(&id) {
             return Ok(Value::Boolean(false));
         }
         return unsupported("Media.ExportStream of a media the session does not hold");
     };
-    // A .docx imported on BC 29 exports without an error (media/MediaFiles.al:490-509 RD_Media_ImportFile_Docx passes there and
+    // A .docx imported on BC 29 exports without an error (streams/media/MediaFiles.al:490-509 RD_Media_ImportFile_Docx passes there and
     // ignores only the bytes; Config. XML Exchange.ExportMedia in the DemoTool company build): the stream is marked with the
     // import's mark, so a look at what it holds is refused.
     let docx_mark = obj.pending.as_deref() == Some(crate::stream::MEDIA_DOCX_REZIPPED);
@@ -374,7 +374,7 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
             // An imported PNG comes back re-encoded on every major: 68 bytes export as 99 other bytes on Windows BC 27, 28 and 29
             // (types/W7Media.al:141-145, ExportStream_OfAnImportedPicture, corpus bump 34; bc-linux #161). The export itself
             // succeeds (streams/StTMedia.al:170 and :213, MediaExportStream and MediaExportAfterReload). The re-encoded bytes are
-            // pinned for one 1x1 PNG only (streams/lt-y44-media-export/Y44MediaExportStream.al DocAttach_Png_ExportStream), which
+            // pinned for one 1x1 PNG only (streams/media/Y44MediaExportStream.al DocAttach_Png_ExportStream), which
             // gives no encoder: the stream's buffer is marked like an unproduced report (ADR-040) and any look at it is refused.
             let mut buf = blob.borrow_mut();
             buf.bytes.clear();
@@ -434,7 +434,7 @@ fn set_remove(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     Ok(Value::Boolean(members.len() != before))
 }
 
-/// `MediaSet.Insert(MediaId)` (media/TestMediaSetPersistence.al:424-600, QV_MediaSet_Insert_*; AL Runner issue 5683):
+/// `MediaSet.Insert(MediaId)` (streams/media/TestMediaSetPersistence.al:424-600, QV_MediaSet_Insert_*; AL Runner issue 5683):
 /// the id of a media that another set holds (another row, another table, another field) goes into an empty set, which
 /// then gets a set id of its own, and the call answers true. An id the set already holds, an id of no media and the null
 /// id answer false and raise nothing. The field holds the new set id at once, a row not yet inserted too; a Modify or
@@ -470,10 +470,10 @@ fn set_insert(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 
 /// `Media.ImportFile` and `MediaSet.ImportFile` (OnPrem): a file name that is empty raises "The specified path is
 /// invalid.", one that names no file "Could not find a part of the path '<path>'.", both with the code InvalidPath
-/// and nothing imported (onprem session/PZMediaImportFile.al, BC 29.0). Importing a file that exists is not pinned:
+/// and nothing imported (onprem session-system/PZMediaImportFile.al, BC 29.0). Importing a file that exists is not pinned:
 /// which MIME type and description the Tenant Media row keeps for it is unknown, so it is refused.
 /// The bytes of the file `ImportFile` names, or the error of an empty path or a missing file
-/// (session/PZMediaImportFile.al).
+/// (session-system/PZMediaImportFile.al).
 fn import_file_bytes(c: &mut dyn Ctx, a: &[Value]) -> Result<(String, Vec<u8>), Signal> {
     let name = text_arg(a, 0)?;
     if name.is_empty() {
@@ -486,7 +486,7 @@ fn import_file_bytes(c: &mut dyn Ctx, a: &[Value]) -> Result<(String, Vec<u8>), 
 }
 
 /// `Media.ImportFile(FileName, Description)`. A `.jpg` file holding a JPEG: the returned id is the media's, the Tenant Media
-/// row has the description, `image/jpeg`, the picture's size and the path as File Name (onprem media/MediaFiles.al:293-340
+/// row has the description, `image/jpeg`, the picture's size and the path as File Name (onprem streams/media/MediaFiles.al:293-340
 /// QX_MediaAndMediaSet_ImportFile_Jpeg, also for `.JPG`). A `.png` file holding a PNG is answered alike under the
 /// assumption `media-importfile-png`. Any other file is refused (which of content and extension decides is not pinned).
 fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
@@ -498,7 +498,7 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         .unwrap_or_default();
     let (mime, (width, height)) = match (ext.as_str(), jpeg_size(&bytes), png_size(&bytes)) {
         ("jpg", Some(size), _) => ("image/jpeg", size),
-        // A .jpg holding a PNG: the name decides the MIME type, the PNG data the size (onprem media/ReMediaJpgHoldingPng.al:108,
+        // A .jpg holding a PNG: the name decides the MIME type, the PNG data the size (onprem streams/media/ReMediaJpgHoldingPng.al:108,
         // 'media tenant'). Its stored content is re-encoded, not pinned (`jpg_holding_png`).
         ("jpg", None, Some(size)) if name.ends_with(".jpg") => ("image/jpeg", size),
         ("png", _, Some(size)) => {
@@ -543,7 +543,7 @@ fn bare_file_name(path: &str) -> &str {
 }
 
 /// `MediaSet.ImportFile(FileName, Description)`: a `.jpg` file holding a JPEG gives an empty set one member whose Tenant Media
-/// row has the description, `image/jpeg` and the picture's size (onprem media/MediaFiles.al:317-344
+/// row has the description, `image/jpeg` and the picture's size (onprem streams/media/MediaFiles.al:317-344
 /// QX_MediaAndMediaSet_ImportFile_Jpeg). A `.PNG` file holding a PNG gives `image/png` and its size, a second file joins a
 /// set of one member as Item(2), and the call returns the set's id, which MediaId answers and no item has; the id stays
 /// when a member joins (MediaFiles.al:394-447 RD_MediaSet_ImportFile_JpegThenUpperCasePng). A lower-case `.png` is
@@ -606,7 +606,7 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
 }
 
 /// `MediaSet.ExportFile(Prefix)` as Config. XML Exchange.ExportMediaSet calls it in the company build (onprem
-/// media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape): it returns the number of items and writes one file per
+/// streams/media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape): it returns the number of items and writes one file per
 /// item, `<Prefix>-1`, `<Prefix>-2` ... with no extension; file n holds the Tenant Media content of the n-th Tenant Media Set
 /// row of the set in primary key order (ID, Media ID), not Item(n); only a set of one item is served. Only the company build's file system is served (owner rule
 /// 2026-10-22), and only items `MediaSet.ImportFile` read: each is written as a file a look at is refused (a PNG is re-encoded

@@ -1,6 +1,6 @@
 //! A Modify(true) through a stale buffer from the variable's own Insert two or three Commits back, in a transaction that
 //! wrote nothing and took no lock: the table's OnModify trigger runs on the buffer, with xRec the buffer itself, then the
-//! write raises DB:RecordChanged and the row stays (record/lt-sb-stale-own-modify/Y27StaleOtherVarTests.al:269-299,
+//! write raises DB:RecordChanged and the row stays (record/crud/Y27StaleOtherVarTests.al:269-299,
 //! Y27_2C_Nothing and Y27_3C_Nothing, `buffer` `Changed|100|1|1|100|Changed`; al-runner issue 6522). A table extension's
 //! modify triggers, modify event subscribers and the OnDatabaseModify global trigger are not pinned there: with any of
 //! them the error comes before the trigger, as before.
@@ -55,7 +55,7 @@ impl Session {
     }
 
     /// Notes that a guarded Insert of `rec` answered false (the key existed): the buffer keeps the version it had, and a Modify
-    /// through it is refused when the row is newer (record/lt-y71-failed-insert-modify/Y71FailedInsertModify.al).
+    /// through it is refused when the row is newer (record/crud/Y71FailedInsertModify.al).
     pub(crate) fn note_failed_insert(&self, t: &TableDef, rec: &Rec, outcome: &Result<Value, Signal>) {
         if !(self.ret_used && matches!(outcome, Ok(Value::Boolean(false))) && !rec.borrow().temporary) {
             return;

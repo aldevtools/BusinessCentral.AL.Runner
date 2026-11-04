@@ -506,7 +506,7 @@ a probe. The options differ in what serves everything else.
      JSON) grows without bound.
    - First small step: the `Convert`/`Encoding`/`MemoryStream`/`Array`/
      `Base64FormattingOptions` set behind the refuse-by-default registry, with
-     the reaching corpus tests (`media/TestMediaPngImport.al:70`) as the pin.
+     the reaching corpus tests (`streams/media/TestMediaPngImport.al:70`) as the pin.
 
 Why I lean to option 1, in the order I reasoned:
 

@@ -1,6 +1,6 @@
 //! al-runner issue 6716: a permission set that names a table BC 29 ships twice under one id, the Base Application's
 //! `ObsoleteState = Moved` copy and its Business Foundation target. The moved copy is not in the runtime app
-//! (platform/lt-aw-fresh-tenant/AwTests.al:426-442), and a permission row is keyed on (object type, id), so the name
+//! (metadata/platform-tables/AwTests.al:426-442), and a permission row is keyed on (object type, id), so the name
 //! names one table and the set composes in full.
 
 use al_sema::workspace::AppKind;

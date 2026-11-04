@@ -1,5 +1,5 @@
 //! A `case` label of type Code[n] with a selector of type Code[m], n > m (al-runner issue 6491). Measured on BC by corpus writer
-//! Y20 (types/lt-y20-case-code-label/Y20CaseCodeLabel.al:18): the label is converted to the selector's Code, as a Text label is
+//! Y20 (types/text-code-char/Y20CaseCodeLabel.al:18): the label is converted to the selector's Code, as a Text label is
 //! (types/TestCaseContracts.al:441-466). A value that fits compares as it is; a longer one raises StringLengthExceeded when the
 //! label is reached, also when a later label would match, and is never cut to the selector's length.
 

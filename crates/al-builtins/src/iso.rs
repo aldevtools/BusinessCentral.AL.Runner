@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn datetimes() {
         // json/TestJsonComplete.al JsonObject_GetDateTime_ReturnsDateTime parses "2024-01-15T12:00:00";
-        // session/TestSessionEvaluateRegionalPatterns.al:38 "2026-01-02T10:11:12.0000000Z".
+        // session-system/TestSessionEvaluateRegionalPatterns.al:38 "2026-01-02T10:11:12.0000000Z".
         let day = i64::from(day_from_civil(2024, 1, 15)) - 1;
         assert_eq!(
             parse_datetime("2024-01-15T12:00:00"),

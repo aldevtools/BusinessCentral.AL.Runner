@@ -1,6 +1,6 @@
 //! A List with OnFindRecord (and OnNextRecord), a descending filtered SourceTableView and no row trigger, over a view of one row
 //! and over more rows than a window (AL Runner issues 5738 and 5739, the reporter's page shapes). Pinned by
-//! misc/lt-probes-needed-6/PnF06FindListMoves.al:1014-1260 (writer RK, corpus bump 62): RK_DescKind_Find_<N>Rows and
+//! testpage/PnF06FindListMoves.al:1014-1260 (writer RK, corpus bump 62): RK_DescKind_Find_<N>Rows and
 //! RK_DescKind_FindNext_<N>Rows.
 
 use al_testkit::text;

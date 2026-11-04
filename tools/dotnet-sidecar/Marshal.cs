@@ -107,7 +107,7 @@ public sealed class Marshaller
             case "outs":
             {
                 // An OutStream over bytes AL already wrote: BC hands .NET the Blob's own stream, which reads, writes and
-                // seeks, standing at the end of the bytes (al-runner issue 6317, corpus lt-wd-dotnet/WdZipArchiveOverOutStream.al).
+                // seeks, standing at the end of the bytes (al-runner issue 6317, corpus dotnet/dotnet/WdZipArchiveOverOutStream.al).
                 var seed = o["v"] is JsonNode sv ? Convert.FromBase64String(sv.GetValue<string>()) : Array.Empty<byte>();
                 var ms = seed.Length == 0 ? new MemoryStream() : new SeededBridge(seed);
                 long id = nextBridge++;

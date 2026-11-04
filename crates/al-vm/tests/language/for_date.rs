@@ -1,4 +1,4 @@
-//! A `for` loop whose control variable is a Date (misc/lt-system-functions/ControlFlow.al:607,
+//! A `for` loop whose control variable is a Date (language/ControlFlow.al:607,
 //! QX_ForLoop_DateControlVariable; the DemoTool's Create Sequence of Actions loops `for ActualDate := ... to ... do`).
 //! The loop ends when the variable equals the end bound, else it moves one day by Date arithmetic: an end that is a
 //! closing date leaves the day after it, 0D cannot move, and a closing date start raises ClosingDateOperation.

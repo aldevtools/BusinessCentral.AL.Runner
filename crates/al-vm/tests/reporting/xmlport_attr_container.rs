@@ -1,5 +1,5 @@
 //! A text element directly below a table element that holds only attributes, with a field attribute of the row
-//! (corpus xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:78-175 SG_AttrBelowText_*, xmlport 89361).
+//! (corpus xmlports/shapes-properties/SgXmlPortOccurs.al:78-175 SG_AttrBelowText_*, xmlport 89361).
 
 use al_builtins::native::Signal;
 use al_testkit::run;

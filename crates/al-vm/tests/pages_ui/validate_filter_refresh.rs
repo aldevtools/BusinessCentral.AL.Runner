@@ -1,5 +1,5 @@
 //! `CurrPage.Update(false)` in a field's OnValidate that changes the filters of a Worksheet list (al-runner issues 5914 and
-//! 5888; pinned by pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al:340-560, corpus writer SF; a List in another key is refused). After the refresh the client holds the rows the refresh read, so the next move reads as
+//! 5888; pinned by testpage/RzUpdateFromValidate.al:340-560, corpus writer SF; a List in another key is refused). After the refresh the client holds the rows the refresh read, so the next move reads as
 //! on a page without a refresh: in the primary key the row twice, in another key three times. In another key the refresh
 //! reads the row it starts from once more first, also when the new filter excludes it.
 

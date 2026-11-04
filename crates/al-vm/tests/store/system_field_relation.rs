@@ -1,6 +1,6 @@
 //! `FieldRef.Relation` of the system fields: SystemId, SystemCreatedAt and SystemModifiedAt relate to nothing, SystemCreatedBy and
 //! SystemModifiedBy to the User table 2000000120. Every literal is what real BC answered in the corpus:
-//! fieldref/lt-y67-system-field-relation/Y67SystemFieldRelation.al:71-126 (codeunit 93633, writer Y67).
+//! recordref-fieldref/fieldref/Y67SystemFieldRelation.al:71-126 (codeunit 93633, writer Y67).
 
 use al_testkit::text;
 

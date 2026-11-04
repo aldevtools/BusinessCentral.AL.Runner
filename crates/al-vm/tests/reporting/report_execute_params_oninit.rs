@@ -1,7 +1,7 @@
 //! `Report.Execute(Parameters)` on a report whose request page has an OnInit: OnInitReport, the request page's OnInit, then the
 //! parameter values, then the page's OnOpenPage and OnClosePage (no OnQueryClosePage), then OnPreReport. A control the
 //! parameters do not name keeps the value OnInit gave it; with an empty string no page trigger after OnInit runs
-//! (report/lt-report-requestpage/Y12ExecuteOnInit.al:117-156, corpus branch al-runtime-rs-staging-y12, al-runner issue 6446;
+//! (reports/request-page/Y12ExecuteOnInit.al:117-156, corpus branch al-runtime-rs-staging-y12, al-runner issue 6446;
 //! RptRequestPage.al:878-893 RunRequestPage_ThenExecute_AppliesValues pins the order for parameters that name every control).
 
 const SRC: &str = r#"

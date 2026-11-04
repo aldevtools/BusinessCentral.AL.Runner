@@ -1,6 +1,6 @@
 //! Query objects end to end: AL source → compile → run on the in-memory store.
 //! Each test cites the corpus file that pins the behaviour
-//! (corpus/tests/al-language/query/...).
+//! (corpus/tests/al-language/queries/...).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -664,7 +664,7 @@ const SEED_UNIVERSAL: &str = "
 ";
 
 /// Customers C1 Alice, C2 Bob, C3 Carol; orders 1 C1 100, 2 C1 200, 3 C2 300
-/// (query/TestQueryJoin.al:44-53).
+/// (queries/TestQueryJoin.al:44-53).
 const SEED_JOIN: &str = "
     procedure SeedJ()
     var C: Record \"QJ Customer\"; O: Record \"QJ Order\";
@@ -682,7 +682,7 @@ fn with(seed: &str, body: &str) -> String {
     format!("{SEED_UNIVERSAL}{SEED_JOIN}{seed}{body}")
 }
 
-// query/TestQueryObject.al:15-40 Query_Open_Read_ReturnsInsertedRows.
+// queries/TestQueryObject.al:15-40 Query_Open_Read_ReturnsInsertedRows.
 #[test]
 fn open_read_returns_the_rows_in_order_by_order() {
     let r = run(&with(
@@ -701,7 +701,7 @@ fn open_read_returns_the_rows_in_order_by_order() {
     assert_eq!(text(r), "1/10/First;2/20/Second;");
 }
 
-// query/TestQueryObject.al:42-60 Query_Close_Reopen_RestartsDatasetFromFirstRow.
+// queries/TestQueryObject.al:42-60 Query_Close_Reopen_RestartsDatasetFromFirstRow.
 #[test]
 fn close_and_reopen_restarts_from_the_first_row() {
     let r = run(&with(
@@ -722,7 +722,7 @@ fn close_and_reopen_restarts_from_the_first_row() {
     assert_eq!(text(r), "11");
 }
 
-// query/TestQueryObject.al:62-80 SetRange, :82-100 SetFilter with a placeholder, :102-120 wildcard.
+// queries/TestQueryObject.al:62-80 SetRange, :82-100 SetFilter with a placeholder, :102-120 wildcard.
 #[test]
 fn runtime_filters_on_columns() {
     let r = run(&with(
@@ -747,7 +747,7 @@ fn runtime_filters_on_columns() {
     assert_eq!(text(r), "R2P2W2");
 }
 
-// query/TestQueryObject.al:200-225 inclusive ranges and :270-300 alternated ranges.
+// queries/TestQueryObject.al:200-225 inclusive ranges and :270-300 alternated ranges.
 #[test]
 fn range_filters_include_both_ends() {
     let r = run(&with(
@@ -766,7 +766,7 @@ fn range_filters_include_both_ends() {
     assert_eq!(text(r), "12/1");
 }
 
-// query/TestQueryObject.al:313-335 GetFilter after SetRange; :337-345 GetFilters.
+// queries/TestQueryObject.al:313-335 GetFilter after SetRange; :337-345 GetFilters.
 #[test]
 fn get_filter_reads_back_the_filter() {
     let r = run(&with(
@@ -781,7 +781,7 @@ fn get_filter_reads_back_the_filter() {
     assert_eq!(text(r), "2");
 }
 
-// query/TestQueryObject.al:347-365 ColumnName, ColumnCaption, ColumnNo.
+// queries/TestQueryObject.al:347-365 ColumnName, ColumnCaption, ColumnNo.
 #[test]
 fn column_metadata() {
     let r = run(&with(
@@ -797,7 +797,7 @@ fn column_metadata() {
 }
 
 // ColumnNo is |FNV-1a 32 of the column name in UTF-16LE| read as a signed 32-bit number
-// (misc/lt-probes-needed-1/PnAQueryFiltersColumnNo.al:143-150, :168-175: twelve names checked).
+// (record/PnAQueryFiltersColumnNo.al:143-150, :168-175: twelve names checked).
 #[test]
 fn column_no_is_the_absolute_fnv1a_hash_of_the_column_name() {
     let r = run(&with(
@@ -830,7 +830,7 @@ fn column_no_reference_hash_matches_the_corpus_values() {
     assert_eq!(fnv("Amt"), 84079987);
 }
 
-// query/TestQueryJoin.al:79-115 InnerJoin drops the unmatched parent.
+// queries/TestQueryJoin.al:79-115 InnerJoin drops the unmatched parent.
 #[test]
 fn inner_join_pairs_parent_with_child_and_drops_the_unmatched_parent() {
     let r = run(&with(
@@ -849,8 +849,8 @@ fn inner_join_pairs_parent_with_child_and_drops_the_unmatched_parent() {
     assert_eq!(text(r), "C1/Alice/1/100;C1/Alice/2/200;C2/Bob/3/300;");
 }
 
-// query/TestQueryJoin.al:117-145 LeftOuterJoin keeps the unmatched parent with default child columns;
-// query/TestQueryJoinDefaultType.al:69-95 an omitted SqlJoinType joins as LeftOuterJoin.
+// queries/TestQueryJoin.al:117-145 LeftOuterJoin keeps the unmatched parent with default child columns;
+// queries/TestQueryJoinDefaultType.al:69-95 an omitted SqlJoinType joins as LeftOuterJoin.
 #[test]
 fn left_outer_join_keeps_the_unmatched_parent_and_is_the_default() {
     let body = |q: &str| {
@@ -874,7 +874,7 @@ fn left_outer_join_keeps_the_unmatched_parent_and_is_the_default() {
     assert_eq!(text(run(&body("QJ Cust Orders Implicit"))), "C1/1;C1/2;C2/3;C3/0;");
 }
 
-// query/TestQueryJoin.al:147-175 runtime filter on a parent column, :177-205 on a child column.
+// queries/TestQueryJoin.al:147-175 runtime filter on a parent column, :177-205 on a child column.
 #[test]
 fn runtime_filters_reach_parent_and_child_columns_of_a_join() {
     let r = run(&with(
@@ -894,7 +894,7 @@ fn runtime_filters_reach_parent_and_child_columns_of_a_join() {
     assert_eq!(text(r), "3/2/3");
 }
 
-// query/TestQueryAggregation.al:36-80 each Method per group; :82-100 one row per group.
+// queries/TestQueryAggregation.al:36-80 each Method per group; :82-100 one row per group.
 #[test]
 fn aggregates_group_by_the_other_columns() {
     let r = run(&with(
@@ -919,7 +919,7 @@ fn aggregates_group_by_the_other_columns() {
     assert_eq!(text(r), "C1:300,2,150,100,200;C2:50,1,50,50,50;");
 }
 
-// query/TestQueryAggregation.al:102-135 a scalar aggregate is one row; :137-160 even over an empty
+// queries/TestQueryAggregation.al:102-135 a scalar aggregate is one row; :137-160 even over an empty
 // table; :162-180 a grouped query over an empty table is empty.
 #[test]
 fn scalar_aggregate_is_always_one_row() {
@@ -940,7 +940,7 @@ fn scalar_aggregate_is_always_one_row() {
     assert_eq!(text(r), "0,0;");
 }
 
-// query/TestQueryAggregation.al:182-215 a filter on an aggregated column is evaluated per group.
+// queries/TestQueryAggregation.al:182-215 a filter on an aggregated column is evaluated per group.
 #[test]
 fn filter_on_an_aggregated_column_is_a_having_filter() {
     let r = run(&with(
@@ -965,7 +965,7 @@ fn filter_on_an_aggregated_column_is_a_having_filter() {
     assert_eq!(text(r), "C1120");
 }
 
-// query/TestQueryColumnFilter.al:36-60 a static ColumnFilter on a Sum column drops groups;
+// queries/TestQueryColumnFilter.al:36-60 a static ColumnFilter on a Sum column drops groups;
 // :62-100 a runtime filter on the same column replaces it; :102-148 on a plain column it drops rows.
 #[test]
 fn static_column_filters() {
@@ -991,7 +991,7 @@ fn static_column_filters() {
     assert_eq!(text(r), "C2:50;C1:0;1C1;2C1;");
 }
 
-// query/TestQueryReverseSign.al:36-125.
+// queries/TestQueryReverseSign.al:36-125.
 #[test]
 fn reverse_sign_negates_one_column_only() {
     let r = run(&with(
@@ -1007,7 +1007,7 @@ fn reverse_sign_negates_one_column_only() {
     assert_eq!(text(r), "100/-100");
 }
 
-// query/TestQueryOrderAfterWrite.al:60-110 descending and non-key OrderBy, ties by the primary key.
+// queries/TestQueryOrderAfterWrite.al:60-110 descending and non-key OrderBy, ties by the primary key.
 #[test]
 fn order_by_descending_and_by_a_non_key_column() {
     let seed = "procedure SeedO()
@@ -1033,7 +1033,7 @@ fn order_by_descending_and_by_a_non_key_column() {
     assert_eq!(text(r), "4;3;2;1;|1;2;4;3;");
 }
 
-// query/TestQueryTopProperty.al:56-181 the property is the initial cap, the method replaces it.
+// queries/TestQueryTopProperty.al:56-181 the property is the initial cap, the method replaces it.
 #[test]
 fn top_number_of_rows_property_and_method() {
     let seed = "procedure SeedO()
@@ -1063,7 +1063,7 @@ fn top_number_of_rows_property_and_method() {
     assert_eq!(text(r), "2:4;3;4;3;2;4;3;2;1;uu");
 }
 
-// query/TestQueryTopProperty.al:173-181 a negative cap is an error and leaves the property in place.
+// queries/TestQueryTopProperty.al:173-181 a negative cap is an error and leaves the property in place.
 #[test]
 fn negative_top_number_of_rows_is_an_error() {
     let r = run(&with(
@@ -1078,7 +1078,7 @@ fn negative_top_number_of_rows_is_an_error() {
     assert_eq!(text(r), "Top number of rows cannot be negative|2");
 }
 
-// query/TestQueryReadAfterWrite.al:102-118 a Modify in the loop resumes after the last row,
+// queries/TestQueryReadAfterWrite.al:102-118 a Modify in the loop resumes after the last row,
 // :120-141 an insert after the position is read and one before it is not, :143-162 a deleted row is skipped.
 #[test]
 fn read_resumes_after_the_last_row_when_the_table_changes() {
@@ -1105,7 +1105,7 @@ fn read_resumes_after_the_last_row_when_the_table_changes() {
     assert_eq!(text(r), "2,4,");
 }
 
-// query/TestQueryOrderAfterWrite.al:115-135 a write in the loop must not extend a TopNumberOfRows cap.
+// queries/TestQueryOrderAfterWrite.al:115-135 a write in the loop must not extend a TopNumberOfRows cap.
 #[test]
 fn a_write_in_the_loop_keeps_the_cap_for_the_whole_read() {
     let seed = "procedure SeedO()
@@ -1134,7 +1134,7 @@ fn a_write_in_the_loop_keeps_the_cap_for_the_whole_read() {
     assert_eq!(text(r), "4;3;");
 }
 
-// query/TestQueryReadAfterWrite.al:181-200 a write to a temporary record is not a write to the table.
+// queries/TestQueryReadAfterWrite.al:181-200 a write to a temporary record is not a write to the table.
 #[test]
 fn a_temporary_record_write_does_not_invalidate_the_result() {
     let r = run(&with(
@@ -1156,7 +1156,7 @@ fn a_temporary_record_write_does_not_invalidate_the_result() {
     assert_eq!(text(r), "2");
 }
 
-// query/TestQueryRuntimeContracts.al:Query_StateMisuse_DoesNotThrow: a Read before Open is false.
+// queries/TestQueryRuntimeContracts.al:Query_StateMisuse_DoesNotThrow: a Read before Open is false.
 #[test]
 fn read_before_open_is_false() {
     let r = run(&with(
@@ -1181,7 +1181,7 @@ const SEED_ROWS: &str = "
     end;
 ";
 
-// query/TestQueryDataItemTableFilter.al:69-135 DataItemTableFilter selects rows on a field the query
+// queries/TestQueryDataItemTableFilter.al:69-135 DataItemTableFilter selects rows on a field the query
 // does not project; two conditions on different fields both apply.
 #[test]
 fn data_item_table_filter_selects_rows_and_combines_conditions() {
@@ -1199,7 +1199,7 @@ fn data_item_table_filter_selects_rows_and_combines_conditions() {
     assert_eq!(text(r), "B-OPEN;D-OPEN;/B-OPEN200");
 }
 
-// query/TestQueryDataItemTableFilter.al:137-179 a runtime filter on a column narrows the table filter;
+// queries/TestQueryDataItemTableFilter.al:137-179 a runtime filter on a column narrows the table filter;
 // :202-251 a filter() element over the very field the table filter names combines with it.
 #[test]
 fn runtime_filters_combine_with_the_table_filter() {
@@ -1223,7 +1223,7 @@ fn runtime_filters_combine_with_the_table_filter() {
     assert_eq!(text(r), "B-OPEN/B-OPEN/D-OPEN");
 }
 
-// query/TestQueryDataItemTableFilterDatabaseConst.al:158-190: Database::"T" in a table filter is T's id.
+// queries/TestQueryDataItemTableFilterDatabaseConst.al:158-190: Database::"T" in a table filter is T's id.
 #[test]
 fn database_const_in_a_table_filter_is_the_object_id() {
     let r = run(&with(
@@ -1239,7 +1239,7 @@ fn database_const_in_a_table_filter_is_the_object_id() {
     assert_eq!(text(r), "D-OPEN;");
 }
 
-// query/TestQueryFilterElementGroupBy.al:67-107 a filter() element is not a grouping column, and a
+// queries/TestQueryFilterElementGroupBy.al:67-107 a filter() element is not a grouping column, and a
 // filter set on it restricts the rows before they are aggregated.
 #[test]
 fn filter_element_is_a_where_condition_and_not_a_group_key() {
@@ -1271,7 +1271,7 @@ fn filter_element_is_a_where_condition_and_not_a_group_key() {
     assert_eq!(text(r), "A:1150:3;B:9:1;A:150:2;");
 }
 
-// query/TestQueryDataItemLinkMultiField.al:58-90 both equalities of a DataItemLink constrain the join.
+// queries/TestQueryDataItemLinkMultiField.al:58-90 both equalities of a DataItemLink constrain the join.
 #[test]
 fn every_equality_of_a_data_item_link_constrains_the_join() {
     let r = run(&with(
@@ -1289,7 +1289,7 @@ fn every_equality_of_a_data_item_link_constrains_the_join() {
     assert_eq!(text(r), "H1-RED/RED-LINE;");
 }
 
-// query/TestQueryFlowFieldColumn.al:125-175 a FlowField column is calculated per row; an unset flow
+// queries/TestQueryFlowFieldColumn.al:125-175 a FlowField column is calculated per row; an unset flow
 // filter constrains nothing and one set through a filter() element narrows the aggregate.
 #[test]
 fn flow_field_column_is_calculated_with_the_flow_filter_of_the_query() {
@@ -1332,7 +1332,7 @@ fn sum_over_a_flow_field_adds_the_value_calculated_per_row() {
     assert_eq!(text(r), "15;");
 }
 
-// query/TestQueryOuterJoinDescendingSaveAsContracts.al: rows that tie under a descending OrderBy
+// queries/TestQueryOuterJoinDescendingSaveAsContracts.al: rows that tie under a descending OrderBy
 // are read (their order, ascending by primary key, is pinned by the corpus test).
 #[test]
 fn ties_under_a_descending_order_by_are_read() {
@@ -1363,7 +1363,7 @@ const SEED_NUM: &str = "
     end;
 ";
 
-// query/TestQueryReverseSign.al:36-77 pins the sign flip for Decimal; Integer and BigInteger
+// queries/TestQueryReverseSign.al:36-77 pins the sign flip for Decimal; Integer and BigInteger
 // columns flip the same way (they share the code path, and a BigInteger past Int32 keeps its size).
 #[test]
 fn reverse_sign_negates_integer_and_big_integer_columns_too() {
@@ -1382,7 +1382,7 @@ fn reverse_sign_negates_integer_and_big_integer_columns_too() {
     assert_eq!(text(r), "1/-1/-4294967294/-7.5;2/-2/3/-2.5;3/-3/-4/-9;");
 }
 
-// query/TestQueryReverseSign.al:79-125: the group total is negated.
+// queries/TestQueryReverseSign.al:79-125: the group total is negated.
 #[test]
 fn reverse_sign_negates_a_group_total() {
     let r = run(&with(
@@ -1400,7 +1400,7 @@ fn reverse_sign_negates_a_group_total() {
     assert_eq!(text(r), "A-19");
 }
 
-// query/TestQueryAggregation.al:36-80: Min and Max pick the smallest and the largest value
+// queries/TestQueryAggregation.al:36-80: Min and Max pick the smallest and the largest value
 // wherever it sits in the group (the corpus rows come in ascending order, so the first row is
 // already the Min).
 #[test]
@@ -1444,7 +1444,7 @@ fn get_filter_of_a_statically_filtered_column_is_refused_and_of_a_plain_one_is_e
     assert!(unsupported(r).contains("static ColumnFilter"));
 }
 
-// query/TestQueryReadAfterWrite.al:102-179 for a join: a write to the *second* table the query
+// queries/TestQueryReadAfterWrite.al:102-179 for a join: a write to the *second* table the query
 // reads also invalidates the result set, so a child row inserted after the position is read.
 #[test]
 fn a_write_to_the_child_table_of_a_join_is_noticed_between_reads() {
@@ -1469,7 +1469,7 @@ fn a_write_to_the_child_table_of_a_join_is_noticed_between_reads() {
     assert_eq!(text(r), "1,2,9,");
 }
 
-// query/TestQueryDataItemTableFilterDatabaseConst.al:96-107 (a query's own procedure sets its
+// queries/TestQueryDataItemTableFilterDatabaseConst.al:96-107 (a query's own procedure sets its
 // filter without raising) and :109-136 (the filter applies when the query is opened).
 #[test]
 fn a_query_procedure_sets_the_queries_own_filters_and_the_query_reads_them() {
@@ -1492,7 +1492,7 @@ fn a_query_procedure_sets_the_queries_own_filters_and_the_query_reads_them() {
     assert_eq!(text(r), "16,");
 }
 
-// handlers/TestManualObjectIntegrationEvent.al:69-89: a query's procedure runs and raises an
+// record/TestManualObjectIntegrationEvent.al:69-89: a query's procedure runs and raises an
 // IntegrationEvent it declares; the subscriber fires.
 #[test]
 fn a_query_procedure_raises_the_integration_event_the_query_declares() {
@@ -1510,7 +1510,7 @@ fn a_query_procedure_raises_the_integration_event_the_query_declares() {
     assert_eq!(text(r), "fired13,ran13,");
 }
 
-// query/TestQueryObject.al reads queries without code; with an OnBeforeOpen whose body is empty
+// queries/TestQueryObject.al reads queries without code; with an OnBeforeOpen whose body is empty
 // (Base App's query 1302 has one) Open and Read behave the same.
 #[test]
 fn an_empty_on_before_open_changes_nothing() {
@@ -1527,7 +1527,7 @@ fn an_empty_on_before_open_changes_nothing() {
     assert_eq!(text(r), "Yes5");
 }
 
-// query/TestQueryOnBeforeOpenVariablesContracts.al:104-140: OnBeforeOpen runs inside Open after the
+// queries/TestQueryOnBeforeOpenVariablesContracts.al:104-140: OnBeforeOpen runs inside Open after the
 // filters set so far, may change them, and the query's variables live as long as the query variable
 // (Close and Open keep them); Clear starts again.
 #[test]
@@ -1567,7 +1567,7 @@ fn on_before_open_sees_the_filters_and_the_variables_live_with_the_query() {
 }
 
 // Base App's query 1302 groups with no OrderBy. Several groups come sorted by their grouping columns
-// (corpus query/PWQueryContracts.al:165-178); one group (or none) has no order to get wrong
+// (corpus queries/PWQueryContracts.al:165-178); one group (or none) has no order to get wrong
 // (record/TestSalesQuoteVatRounding.al:67-79 reads a single VAT % group).
 #[test]
 fn groups_without_an_order_by_come_sorted_by_their_grouping_columns() {
@@ -1597,7 +1597,7 @@ fn groups_without_an_order_by_come_sorted_by_their_grouping_columns() {
     assert_eq!(text(r), "Yes");
 }
 
-// query/TestQueryCrossJoinContracts.al:162-226: SqlJoinType = CrossJoin without a DataItemLink gives the
+// queries/TestQueryCrossJoinContracts.al:162-226: SqlJoinType = CrossJoin without a DataItemLink gives the
 // product (outer key order, then inner), the table filter of each item applies, a Sum of the inner
 // item is the same for every outer row, and an empty inner table gives no rows.
 #[test]
@@ -1650,7 +1650,7 @@ fn grouped_rows_that_tie_on_the_order_by_come_in_grouping_column_order() {
     assert_eq!(text(r), "A:10:2;A:20:4;A:30:1;");
 }
 
-/// The objects of misc/lt-probes-needed-1/PnAQueryObjects.al:8-43.
+/// The objects of queries/PnAQueryObjects.al:8-43.
 const PNA_PLAIN: &str = r#"
 table 70123 "PnA Src"
 {
@@ -1687,9 +1687,9 @@ fn run_pna(body: &str) -> Result<Value, Signal> {
     al_testkit::run_in(&src, "C", "F")
 }
 
-// GetFilters with a filter element: misc/lt-probes-needed-1/PnAQueryFiltersColumnNo.al:59-118 (the
+// GetFilters with a filter element: record/PnAQueryFiltersColumnNo.al:59-118 (the
 // filter element lands by its field number among the filters set before it; a column lands by
-// column order among the columns only) and query/TestQueryRuntimeContracts.al:219-268.
+// column order among the columns only) and queries/TestQueryRuntimeContracts.al:219-268.
 #[test]
 fn get_filters_with_a_filter_element_follows_the_order_of_setting() {
     let r = run_pna(
@@ -1730,7 +1730,7 @@ fn get_filters_with_a_filter_element_after_a_filter_was_set_again_is_refused() {
     assert!(unsupported(r).contains("GetFilters"));
 }
 
-/// The objects of errors/lt-ms-refusals-133/P133QueryOuterFilters.al:8-122.
+/// The objects of queries/P133QueryOuterFilters.al:8-122.
 const P133: &str = r#"
 table 74054 "P133 Parent"
 {
@@ -1874,7 +1874,7 @@ const P133_SEED: &str = "
 
 // A Count column on the outer-joined child with ColumnFilter = const(0) keeps the parents that have
 // no child, with the default join type and with LeftOuterJoin spelled out
-// (errors/lt-ms-refusals-133/P133QueryOuterFilters.al:321-323, :361-362).
+// (queries/P133QueryOuterFilters.al:321-323, :361-362).
 #[test]
 fn count_zero_column_filter_on_the_outer_child_keeps_the_parents_without_children() {
     let r = run_p133(&format!(
@@ -1940,7 +1940,7 @@ codeunit 50100 C
         if TryReadAll(Rows) then exit('Yes ' + Rows);
         exit('No ' + GetLastErrorCode());
     end;
-    // misc/lt-probes-needed-1/PnAQueryOpenRead.al:247-290 PX_TopNumberOfRows_AroundOpen.
+    // queries/read-lifecycle/PnAQueryOpenRead.al:247-290 PX_TopNumberOfRows_AroundOpen.
     procedure AroundOpen(): Text
     var Seen: Text;
     begin
@@ -1986,7 +1986,7 @@ codeunit 50100 C
 }
 "#;
 
-// misc/lt-probes-needed-1/PnAQueryOpenRead.al:247-290 PX_TopNumberOfRows_AroundOpen: TopNumberOfRows after Open (before or
+// queries/read-lifecycle/PnAQueryOpenRead.al:247-290 PX_TopNumberOfRows_AroundOpen: TopNumberOfRows after Open (before or
 // after a Read) raises nothing, the next Read raises the metadata-changed error (code Query), and Open again takes the new top.
 #[test]
 fn top_number_of_rows_on_an_open_query_applies_to_the_next_open() {

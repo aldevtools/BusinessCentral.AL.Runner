@@ -1,5 +1,5 @@
 //! A Guid given to TextBuilder.Append, AppendLine, Insert and Replace is its upper-case braced text, also inside a Variant
-//! (text/lt-y49-textbuilder-guid/Y49TextBuilderGuid.al:60-219, corpus master).
+//! (text/textbuilder-bigtext/Y49TextBuilderGuid.al:60-219, corpus master).
 
 const SRC: &str = r#"
 codeunit 50770 C {

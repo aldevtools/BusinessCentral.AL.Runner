@@ -85,7 +85,7 @@ impl<'a> Checker<'a> {
     pub(crate) fn member(&mut self, sc: &Scope, t: &Ty, name: &str) -> Option<E> {
         match t {
             // `CurrReport.RequestOptionsPage` is the request page, as the bare name is (the checker reports AL0161 outside the
-            // request page's code: `currreport_request_options_page`; report/lt-y86-request-page/Y86RequestCaption.al).
+            // request page's code: `currreport_request_options_page`; reports/request-page/Y86RequestCaption.al).
             Ty::Object(ObjKind::Report, _) if name.eq_ignore_ascii_case("RequestOptionsPage") => {
                 return Some(E::Val(Ty::Builtin("RequestPage".into())));
             }
@@ -183,11 +183,11 @@ impl<'a> Checker<'a> {
                     // A table procedure named like a built-in Record method hides it only for a call that fits the procedure:
                     // the built-in runs when the call takes another number of arguments or types the procedure cannot take,
                     // and the procedure wins a call both fit (`pick` takes the first of equals, and the procedures come
-                    // first). Pinned by record/lt-bm-builtin-name-procedures/Y36BuiltinNameSameArity.al:146-298 (Get(1, 2)
+                    // first). Pinned by record/builtin-name-procedures/Y36BuiltinNameSameArity.al:146-298 (Get(1, 2)
                     // next to own Get(Record; Record) and Delete(true) next to own Delete(Text) are the built-ins, Delete('why')
                     // and Get('A') next to own Get(Code[20]) the procedures, bare Insert() and Get(1) in table code the
                     // built-ins), BmBuiltinNameProcedures.al:107-140 (own Count(), Insert(), Modify(Boolean), Get() win; Insert(true)
-                    // and Get(2) reach the built-in) and record/lt-record-write/RcBInit.al:445,475 (own Init(A; B) next to Init()).
+                    // and Get(2) reach the built-in) and record/crud/RcBInit.al:445,475 (own Init(A; B) next to Init()).
                     // A call no candidate fits is checked against the procedure (must-not-compile 2500: AL0133).
                     let mut procs = procs;
                     if let Some(recv) = receiver_of(t) {
@@ -216,7 +216,7 @@ impl<'a> Checker<'a> {
                     .map(|p| proc_cand(p))
                     .collect();
                 // An interface also has the procedures of the interfaces it extends
-                // (codeunit/TestInterfaceRuntimeContracts.al:Interface_ExtendedInterface_IsAndAs).
+                // (codeunits/TestInterfaceRuntimeContracts.al:Interface_ExtendedInterface_IsAndAs).
                 // A base overload of a name the derived interface declares again with other parameters is a candidate too,
                 // as alc compiles it (al-runner issue 6249); one with the same parameter types is the derived one's.
                 if *kind == ObjKind::Interface {

@@ -1,5 +1,5 @@
 //! `SubPageLink = F = field(filter(H))` and `RunPageLink` of that form: the host field's value is read as a filter text, a blank
-//! value sets no filter (pages/lt-y37-link-filter/Y37LinkFilterTests.al).
+//! value sets no filter (pages/link-filter/Y37LinkFilterTests.al).
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;
 

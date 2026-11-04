@@ -1,6 +1,6 @@
 //! `Report.Run` / `Report.RunModal(Id, RequestWindow, SystemPrinter = true, Rec)` runs as with `false`: the request page
 //! opens with the same handler, OK runs the report with the page's filters and fields, Cancel runs no trigger, and with no
-//! request page the report runs at once (report/lt-report-run-system-printer/Y43SystemPrinterRequestPage.al, corpus PR 966;
+//! request page the report runs at once (reports/layouts-saveas/Y43SystemPrinterRequestPage.al, corpus PR 966;
 //! ReportRunSystemPrinter.al:110-150).
 
 use al_testkit::outcomes_in;

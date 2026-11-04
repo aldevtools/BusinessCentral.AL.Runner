@@ -86,7 +86,7 @@ codeunit 69912 PW
 }
 "#;
 
-// misc/lt-cq-odd-leads/CqOddLeads.al:419-446 (Item40_PowerPrecision).
+// types/CqOddLeads.al:419-446 (Item40_PowerPrecision).
 #[test]
 fn power_results_keep_18_significant_digits() {
     assert_eq!(text(run_in(POWER, "PW", "Item40")), "Yes|No|0|1|0|0|0|Yes");
@@ -122,7 +122,7 @@ codeunit 69913 PB
 }
 "#;
 
-// misc/lt-system-functions/Round.al:370-409 (LT_BU_Power_LargeResultPrecision).
+// types/decimal-integer/Round.al:370-409 (LT_BU_Power_LargeResultPrecision).
 #[test]
 fn power_results_keep_18_significant_digits_into_big_integer() {
     assert_eq!(
@@ -156,7 +156,7 @@ codeunit 69914 UD
 "#;
 
 // Negative sums and comparisons of more than 18 significant digits round as the non-negative ones do
-// (types/lt-decimal-digits/DecimalDigits.al:179-346, QE_Decimal_SumDifference_SignsAndTies, QE_Decimal_BigIntegerOperands).
+// (types/decimal-integer/DecimalDigits.al:179-346, QE_Decimal_SumDifference_SignsAndTies, QE_Decimal_BigIntegerOperands).
 #[test]
 fn negative_results_of_more_than_18_digits_keep_18() {
     assert_eq!(text(run_in(SIGNED_DIGITS, "UD", "NegativeSum")), "Yes");

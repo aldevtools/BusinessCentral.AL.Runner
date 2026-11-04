@@ -1,6 +1,6 @@
 //! How many times a page open runs the CaptionClass expressions of its source table with an empty record (al-runner issue
 //! 5870, assumption page-open-caption-class-empty-record-count). BC gives no stable number: the corpus saw 240, 480 and 492
-//! calls for the same Card open (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:657) and asserts only that such runs
+//! calls for the same Card open (record/captions/QdCaptionClassAreas.al:657) and asserts only that such runs
 //! happen and give the same count per field and per open (:1227 SF_Count_CardOpenViewFiveTimes); the issue's reporter saw 8
 //! per open on one BC 29 container where al-runner ran 20. Writer SX pinned the count for a Card or List with one or two
 //! expression fields (the last test here). For any other shape the number can only matter when the expression leaves something
@@ -274,7 +274,7 @@ fn a_count_in_a_single_instance_codeunit_still_runs() {
     assert_eq!(outcome(&outs, "CountsInASingleInstanceCodeunit"), &Outcome::Pass);
 }
 
-/// The shapes writer SX pinned (corpus branch al-runtime-rs-staging-sx, tests/al-language/record/lt-sx-captionclass-count/
+/// The shapes writer SX pinned (corpus branch al-runtime-rs-staging-sx, tests/al-language/record/captions/
 /// SxCaptionClassCount.al:190-369, not on master yet): a Card or List opened with OpenView or OpenEdit over a table with one
 /// or two CaptionClass expression fields (the same expression), three cycles of open, GoToRecord and Close.
 const SX: &str = r#"

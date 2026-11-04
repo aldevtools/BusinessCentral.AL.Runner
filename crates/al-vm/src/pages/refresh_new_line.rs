@@ -8,7 +8,7 @@ impl Session {
     ///
     /// From the untouched new-row line of an empty view, to a view with rows, the page leaves the line and refreshes as from a
     /// stored row: it stands on the row Rec is on, else the next row of the view after Rec's key, else the one before
-    /// (pages/lt-y50-update-from-new-line/Y50UpdateFromNewLine.al:556 G520_FromNewLine_ToBatchWithRows `V:done 10000;R:B2/10000;
+    /// (pages/triggers/Y50UpdateFromNewLine.al:556 G520_FromNewLine_ToBatchWithRows `V:done 10000;R:B2/10000;
     /// R:B2/20000;R:B2/10000;R:B2/10000;C:B2/10000` as Y17JournalBatchSwitch.al:466 from a row; :574 _NoFind, Rec still the
     /// new-line buffer, lands on 20000; :592 _ThenLast; :610 _UpdateTrue; :646 the same on a List). To a view without rows it is
     /// not pinned.

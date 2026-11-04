@@ -1,5 +1,5 @@
 //! The Expanded Permission rows of TENANT permission sets: the stored Tenant Permission Set, Tenant Permission and Tenant
-//! Permission Set Rel. rows, composed. Pinned by corpus permissions/lt-y67-perm-compose/Y67PermCompose.al and
+//! Permission Set Rel. rows, composed. Pinned by corpus permissions/permission-sets/Y67PermCompose.al and
 //! permissions/TestMetadataExpandedPermission.al:150-180:
 //! - a set lists its own Tenant Permission rows of Type Include under Scope Tenant (TestMetadataExpandedPermission.al:150-180);
 //! - an included tenant set (relation Type Include) adds its rights, level by level, also through a further include and a

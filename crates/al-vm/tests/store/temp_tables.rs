@@ -80,7 +80,7 @@ fn a_temporary_table_that_is_still_in_use_keeps_its_rows() {
 
 /// al-runner issue 5768: a temporary record handed by value to a `temporary` parameter, or to a parameter of a TableType =
 /// Temporary table, is an empty table with the current values, no filters, the primary key ascending and no marks; the
-/// caller keeps its own (record/lt-qd-temp-param/QdStoredToTempParam.al:283-469).
+/// caller keeps its own (record/temporary/QdStoredToTempParam.al:283-469).
 #[test]
 fn a_temporary_record_by_value_to_a_temporary_parameter_has_no_view() {
     let src = r#"

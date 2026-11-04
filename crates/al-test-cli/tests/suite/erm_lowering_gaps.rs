@@ -29,7 +29,7 @@ fn refusal(src: &str, object: &str, routine: &str) -> String {
 
 // Base Application's Sales Header passes CurrFieldNo to an event publisher
 // (`OnBeforeShouldSearchForCustomerByName(CustomerNo, Result, IsHandled, CurrFieldNo, Rec, xRec)`): a value argument,
-// so no place is needed. The value itself is pinned by handlers/TestPageCurrFieldNo_Tests.al (the field number a
+// so no place is needed. The value itself is pinned by testpage/TestPageCurrFieldNo_Tests.al (the field number a
 // TestPage write validates, 0 elsewhere).
 #[test]
 fn curr_field_no_can_be_an_argument_of_a_call() {

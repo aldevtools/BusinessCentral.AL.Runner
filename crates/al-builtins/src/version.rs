@@ -1,4 +1,4 @@
-//! `Version`: four numbers read by `Evaluate` (corpus session/TestMiscTypes.al:44-80).
+//! `Version`: four numbers read by `Evaluate` (corpus session-system/TestMiscTypes.al:44-80).
 //! `Create` and `ToText` are not pinned and are not implemented.
 
 use crate::describe::Describe;

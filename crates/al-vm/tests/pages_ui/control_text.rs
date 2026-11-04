@@ -34,13 +34,13 @@ codeunit 69992 C
 
 #[test]
 fn assert_equals_on_a_code_control_ignores_the_case_of_the_expected_text() {
-    // corpus pages/lt-testpage-assertequals-option/TestPageAssertEqualsOption.al:167, :179.
+    // corpus testpage/TestPageAssertEqualsOption.al:167, :179.
     assert_eq!(text(al_testkit::run_in(CODE_SRC, "C", "Lower")), "ok");
 }
 
 #[test]
 fn a_mismatch_on_a_code_control_shows_the_expected_text_as_written() {
-    // corpus handlers/TestRequestPageControlErrorName.al:281, :397.
+    // corpus reports/TestRequestPageControlErrorName.al:281, :397.
     assert_eq!(
         al_testkit::error_message(al_testkit::run_in(CODE_SRC, "C", "LowerMismatch")),
         "AssertEquals for Field: Cde Expected = 'abd', Actual = 'ABC'"
@@ -88,8 +88,8 @@ codeunit 69995 C
 
 #[test]
 fn a_closing_date_shows_its_mark_where_the_field_or_the_control_sets_closing_dates() {
-    // corpus record/lt-x-table-props/XTablePropsTests.al:523-524, pageext/lt-z-modify-controls/ZModifyControls.al:290-291,
-    // pages/lt-page-presentation-properties/P119ReportFields.al:174.
+    // corpus record/table-properties/XTablePropsTests.al:523-524, pages/extensions/ZModifyControls.al:290-291,
+    // pages/properties/P119ReportFields.al:174.
     assert_eq!(
         text(al_testkit::run_in(CLOSING_SRC, "C", "Shown")),
         "C12/31/2025|C12/31/2025|12/31/2025"
@@ -185,7 +185,7 @@ codeunit 69999 C
 
 #[test]
 fn a_control_caption_class_is_resolved_when_the_page_fills_and_read_from_there() {
-    // corpus misc/W2CaptionClass.al:92 (at open), :113-116 (no event at either read).
+    // corpus testpage/W2CaptionClass.al:92 (at open), :113-116 (no event at either read).
     assert_eq!(
         text(al_testkit::run_in(CAPTION_SRC, "C", "ReadTwice")),
         "resolve(Hello)resolve()|resolved:Hello||resolved:Hello|"
@@ -194,7 +194,7 @@ fn a_control_caption_class_is_resolved_when_the_page_fills_and_read_from_there()
 
 #[test]
 fn a_caption_class_expression_is_resolved_again_only_when_its_text_changes() {
-    // corpus misc/W2CaptionClass.al:174-178: after SetValue only the changed expression raises the event.
+    // corpus testpage/W2CaptionClass.al:174-178: after SetValue only the changed expression raises the event.
     assert_eq!(
         text(al_testkit::run_in(CAPTION_SRC, "C", "FollowsTheVariable")),
         "resolved:||resolve(World)|resolved:World|"
@@ -203,7 +203,7 @@ fn a_caption_class_expression_is_resolved_again_only_when_its_text_changes() {
 
 #[test]
 fn a_control_without_caption_shows_its_field_caption_class() {
-    // corpus pageext/lt-page-ext-properties/TableExtCaptionClass.al:69.
+    // corpus pages/extensions/TableExtCaptionClass.al:69.
     assert_eq!(
         text(al_testkit::run_in(CAPTION_SRC, "C", "FieldClass")),
         "Class caption"
@@ -310,7 +310,7 @@ fn a_second_read_of_a_field_caption_class_that_raises_the_event_is_refused() {
 }
 
 /// A page field bound to a bare field name of the source table (no `Rec.`, warning AL0604) is that field: its caption is the
-/// field's (pages/lt-page-controls-aa/AaControls.al:684-692, `SystemId` gives 'System ID'), its value the record's, and
+/// field's (pages/controls/AaControls.al:684-692, `SystemId` gives 'System ID'), its value the record's, and
 /// SystemId is not editable.
 #[test]
 fn a_control_bound_to_a_bare_field_name_is_the_field() {
@@ -377,7 +377,7 @@ codeunit 69992 C {{ procedure F(): Text var P: TestPage "CT Card"; begin P.OpenV
 }
 
 /// The session keeps what it translated (types/PSCaptionClass.al:94-115): a page fill after SetValue whose CaptionClass expression
-/// gives the text it gave before raises no OnResolveCaptionClass and keeps the caption (pageext/lt-z-modify-controls/
+/// gives the text it gave before raises no OnResolveCaptionClass and keeps the caption (pages/extensions/
 /// ZModifyControls.al:424-440 runs through it).
 #[test]
 fn a_caption_class_that_gives_the_same_text_at_a_later_fill_is_kept() {

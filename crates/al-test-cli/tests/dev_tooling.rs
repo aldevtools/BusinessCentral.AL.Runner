@@ -205,10 +205,10 @@ fn selection_flags_repeat_and_make_a_union() {
         .count() as u64;
     assert_eq!(total_of(&["--test", &name.to_uppercase()]), by_name);
     // --area and --codeunit together: the area, plus the codeunit when it is outside it.
-    assert_eq!(total_of(&["--area", "json"]), 495); // corpus bump to 21a41286: six more (JsonValueGetters.al); corpus bump 29: 22 more json cases on BC 29; the multi-app bump one more; bump to 86a98479 seven more; bump to 84ebf506 one more (FormatOfEmptyJsonArrays); bump to 55ad94c3 one more (Sq_DigitText_BigIntegerByteOption); bump to 92031e20 seven more (json/lt-y44-format-jsonvalue/Y44FormatJsonValue.al); bump to 7f7cdc2a four more (the Y47_* tests of json/lt-db-json-leads/DbJPathLeads.al); bump to 4b6013d0 four more (Y65 tests of json/JsonValueGetters.al)
+    assert_eq!(total_of(&["--area", "json"]), 535); // corpus bump to 833a01ce: 40 more (the restructure moved JSON tests into json/); corpus bump to 21a41286: six more (JsonValueGetters.al); corpus bump 29: 22 more json cases on BC 29; the multi-app bump one more; bump to 86a98479 seven more; bump to 84ebf506 one more (FormatOfEmptyJsonArrays); bump to 55ad94c3 one more (Sq_DigitText_BigIntegerByteOption); bump to 92031e20 seven more (json/json/Y44FormatJsonValue.al); bump to 7f7cdc2a four more (the Y47_* tests of json/DbJPathLeads.al); bump to 4b6013d0 four more (Y65 tests of json/JsonValueGetters.al)
     assert_eq!(
         total_of(&["--area", "json", "--codeunit", &SMALL_CU.to_string()]),
-        495 + in_cu(SMALL_CU)
+        535 + in_cu(SMALL_CU)
     );
 }
 
@@ -446,11 +446,11 @@ fn explain_a_passing_test_and_a_refused_test() {
 
 #[test]
 fn explain_a_failure_prints_error_code_and_stack() {
-    // Any test of the recordref area that fails today; the unit tests in explain_site.rs pin the
+    // Any test of the record area that fails today; the unit tests in explain_site.rs pin the
     // content, this one the wiring.
     let dir = tempfile::tempdir().unwrap();
     let f = dir.path().join("j.xml");
-    let r = cli(&["--no-ratchet", "--junit", f.to_str().unwrap(), "--area", "recordref"]);
+    let r = cli(&["--no-ratchet", "--junit", f.to_str().unwrap(), "--area", "record"]);
     assert_eq!(r.code, 0, "{}", r.err);
     let xml = std::fs::read_to_string(&f).unwrap();
     let Some(failing) = xml.split("<testcase ").skip(1).find(|c| c.contains("<failure")) else {

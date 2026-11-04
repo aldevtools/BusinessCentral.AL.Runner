@@ -1,6 +1,6 @@
 //! SetValue on a request page control bound to a field of a report's record variable (`field(Nm; Buf.Name)`) writes the field,
 //! as Base Application's "Implement Standard Cost Change" request page (`ItemJnlLine."Journal Template Name"`) needs. The write
-//! through an expression control is pinned by corpus misc/lt-probes-needed-7/PnGTempControl.al and pages/W1Controls.al:
+//! through an expression control is pinned by corpus testpage/PnGTempControl.al and pages/W1Controls.al:
 //! TempRecordControl_SetValue; a page with no source table that has actions stays refused for the refresh after an action,
 //! which a request page does not have.
 

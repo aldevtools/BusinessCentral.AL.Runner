@@ -1,6 +1,6 @@
 //! `TryGetValue`, `Remove` and `Values` of a `System.Collections.Generic.Dictionary`2` the runtime made (generic_dictionary.rs),
 //! the members System Application's Edit in Excel filters call (EditInExcelFiltersImpl.Codeunit.al). Pinned by
-//! tests/al-language-onprem-dotnet/lt-y51-dotnet-dictionary/Y51DotNetDictNoCap.al:DnDictNoCap_ObjectValues: `TryGetValue` of a
+//! tests/al-language-onprem-dotnet/dotnet/dotnet-dictionary/Y51DotNetDictNoCap.al:DnDictNoCap_ObjectValues: `TryGetValue` of a
 //! key gives true and the value into the `var` argument, of a missing key false and null there (`tryget_z_isnull`); `Remove`
 //! gives true, then false; `Values` walks the values in insertion order (`node2;node1+;`).
 
@@ -58,7 +58,7 @@ pub(super) fn try_get_value() -> RegistryMember {
     RegistryMember {
         call_ref: Some(try_get),
         pin: Pin::Corpus(format!(
-            "{FILL_PIN}; tests/al-language-onprem-dotnet/lt-y51-dotnet-dictionary/Y51DotNetDictNoCap.al"
+            "{FILL_PIN}; tests/al-language-onprem-dotnet/dotnet/dotnet-dictionary/Y51DotNetDictNoCap.al"
         )),
         ..member("TryGetValue", MemberKind::Call, plain)
     }

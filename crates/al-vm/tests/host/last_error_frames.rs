@@ -1,5 +1,5 @@
 //! `Exception.ToString()` of the exception `GetLastErrorObject` answers after an asserterror or in a TryFunction: every line the
-//! corpus pins (tests/al-language-onprem-dotnet/lt-y89-tostring-frames/Y89ToStringFrames.al, BC 27, 28, 29; the ValueTask frame
+//! corpus pins (tests/al-language-onprem-dotnet/dotnet/tostring-frames/Y89ToStringFrames.al, BC 27, 28, 29; the ValueTask frame
 //! from BC 29). The one compiler-generated `b__` line the corpus counts is not written: its text is not shown.
 
 use al_builtins::native::Signal;

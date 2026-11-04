@@ -1,5 +1,5 @@
 //! The code an error of a TestPage action's OnAction carries after `Invoke`: the test framework wraps it
-//! (corpus errors/lt-az-error-texts/AzErrorTexts.al:139-185, PageAction_ErrorCodes and PageAction_DuplicateInsert).
+//! (corpus errors/error-texts/AzErrorTexts.al:139-185, PageAction_ErrorCodes and PageAction_DuplicateInsert).
 //! A code outside the pinned set has no pinned wrapped form: reading it refuses the test.
 
 use al_testkit::outcomes_in;

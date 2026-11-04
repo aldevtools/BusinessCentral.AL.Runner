@@ -1,6 +1,6 @@
 //! A query `filter()` element over a FlowField of the JOINED data item of an inner join, with a Sum column on the root item: the
 //! FlowField is calculated per joined row before the grouping. Every literal is what real BC answered in the corpus:
-//! query/lt-y67-query-flowfield-filter/Y67QueryFlowFieldFilter.al (codeunit 93644, writer Y67).
+//! queries/flowfields-filters/Y67QueryFlowFieldFilter.al (codeunit 93644, writer Y67).
 
 use al_testkit::text;
 

@@ -1,6 +1,6 @@
 //! A Modify that changes no field leaves the row version, so a buffer read before it is not stale afterwards, while a Modify that
 //! changes a field makes it stale after a Commit (corpus record/TestRecordStaleBufferWrite.al pins the second;
-//! record/lt-priority-assumptions/PriorityAssumptions.al:143-244 pins the first, real BC 29).
+//! record/PriorityAssumptions.al:143-244 pins the first, real BC 29).
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};

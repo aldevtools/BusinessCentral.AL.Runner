@@ -1,4 +1,4 @@
-//! `SetFilter` on a RecordId field with the text `Format(RecordId)` (filters/lt-wc/WcRecordIdFilter.al, al-runner issue 6309):
+//! `SetFilter` on a RecordId field with the text `Format(RecordId)` (record/WcRecordIdFilter.al, al-runner issue 6309):
 //! an equality filter on that RecordId, `<>` before it keeps the others, `GetFilter` writes the text back; a text that names no
 //! table, or names it by its caption, raises the evaluate error.
 

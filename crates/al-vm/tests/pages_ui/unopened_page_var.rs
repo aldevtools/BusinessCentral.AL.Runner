@@ -1,6 +1,6 @@
 //! A Page variable the test client does not show (it never ran): Activate answers Yes, Update(true) and SaveRecord do nothing,
 //! SetSelectionFilter filters on the blank key, and its procedures read the row SetRecord gave and the filters SetTableView gave.
-//! corpus pages/lt-page-runtime/P82PageVar.al (BeforeRun_Members) and pages/lt-bl-unopened-currpage/UnopenedCurrPage.al.
+//! corpus pages/run-modal/P82PageVar.al (BeforeRun_Members) and pages/currpage/UnopenedCurrPage.al.
 
 use al_testkit::text;
 

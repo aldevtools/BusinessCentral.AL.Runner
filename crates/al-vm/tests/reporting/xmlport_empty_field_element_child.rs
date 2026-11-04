@@ -1,5 +1,5 @@
 //! A field element with an empty value and a text element below it writes no text of its own: the child is indented as element
-//! content (corpus xmlport/lt-at-partner-gaps/AtXmlPortFieldElementEdges.al:162 AT_EmptyFieldElement_ChildText_Export, :178
+//! content (corpus streams/AtXmlPortFieldElementEdges.al:162 AT_EmptyFieldElement_ChildText_Export, :178
 //! AT_EmptyFieldElement_EmptyChild_Export).
 
 use al_testkit::{run, text};

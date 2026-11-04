@@ -1,5 +1,5 @@
 //! A TestPage saves the row it holds an edit of before the next step runs (corpus probe
-//! pages/lt-y45-save-before-action/Y45SaveBeforeAction.al, file header lines 7-26): the modify chain (OnModifyRecord,
+//! pages/actions/Y45SaveBeforeAction.al, file header lines 7-26): the modify chain (OnModifyRecord,
 //! OnBeforeModifyEvent, OnModify, OnAfterModifyEvent) runs first, also for the same value set again, then the step.
 
 const SRC: &str = include_str!("dirty_save_fixture.al");

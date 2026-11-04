@@ -7,8 +7,8 @@
 ## Context
 
 `SessionInformation.Callstack` and `GetLastErrorCallStack` name, for each frame, the object, the routine and the line of the
-current statement relative to the routine (corpus session/TestSessionInformationCallstackContracts.al:130-143,
-session/TestSessionCallstackSourcesContracts.al:Callstack_FromTablePageReportAndExtensionCode). The lowering gave only the
+current statement relative to the routine (corpus session-system/TestSessionInformationCallstackContracts.al:130-143,
+session-system/TestSessionCallstackSourcesContracts.al:Callstack_FromTablePageReportAndExtensionCode). The lowering gave only the
 routines of the workspace such positions: for a dependency app they cost a third of the lowering and "no corpus test reads
 them" (ADR-013, measured; ADR-022 keeps them out of the cache entries).
 

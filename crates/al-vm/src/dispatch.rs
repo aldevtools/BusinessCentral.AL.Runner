@@ -3,23 +3,23 @@
 //!
 //! Semantics, with the corpus tests that pin them:
 //! - Subscriber parameters are matched to the publisher's by name; a
-//!   subscriber may declare any subset (codeunit/TestCodeunitEventSenderPosition.al:
+//!   subscriber may declare any subset (codeunits/TestCodeunitEventSenderPosition.al:
 //!   a trailing parameter may be omitted), and with `IncludeSender` the
 //!   one parameter that matches no publisher parameter is the sender, at any
 //!   position (same file, SenderFirst/Middle/Last).
-//! - `var` parameters write back to the publisher (codeunit/TestEventContracts.al:12,
+//! - `var` parameters write back to the publisher (codeunits/TestEventContracts.al:12,
 //!   record/TestTableEventByRefMutation.al:23).
 //! - An error in a subscriber reaches the publisher's caller
-//!   (codeunit/TestEventUnderscoreName.al, UnderscoredEvent_SubscriberError_Propagates).
+//!   (codeunits/TestEventUnderscoreName.al, UnderscoredEvent_SubscriberError_Propagates).
 //! - A `Manual` subscriber fires only on instances bound by `BindSubscription`
-//!   (codeunit/TestEventManualBinding.al, Contracts 1-3), once per bound
+//!   (codeunits/TestEventManualBinding.al, Contracts 1-3), once per bound
 //!   instance (Contract 7), on the bound instance itself (Contract 2). A
 //!   binding lasts until `UnbindSubscription` or until the last reference to
 //!   the instance is gone (TestEventManualBinding.al Contract 10,
 //!   TestEventManualBindingByValue.al); a `SingleInstance` codeunit is its
 //!   session-wide instance, so it is never gone.
 //! - Isolated events: each subscriber is its own transaction when nothing is
-//!   pending (codeunit/TestIsolatedEventSubscriberError.al).
+//!   pending (codeunits/TestIsolatedEventSubscriberError.al).
 
 use crate::Session;
 use al_builtins::describe::Describe;
@@ -86,7 +86,7 @@ impl Session {
             values.push(match (a, r.by_var.get(i).copied().unwrap_or(false)) {
                 (Value::Record(rc), false) => self.record_by_value(&rc),
                 // A Notification handed by value to an event is the caller's own notification: a subscriber's SetData and Message
-                // reach the publisher's caller (events/lt-notification-by-value/NotificationByValue.al:Event_ByValueArgument_SubscriberChanges).
+                // reach the publisher's caller (events/binding-senders/NotificationByValue.al:Event_ByValueArgument_SubscriberChanges).
                 (a @ Value::Library(al_builtins::library_kind::LibraryKind::Notification, _), false) => a,
                 // An unknown event argument a subscriber passes on to its own event stays unknown (see `call_inner`).
                 (a @ Value::Unknown(_), false) => a,
@@ -125,13 +125,13 @@ impl Session {
                 (al_ir::ObjKind::Codeunit, _) => Some(Value::Codeunit(instance)),
                 // The sender of a page's event is the page (a `Page` variable), not its Rec: Item Tracking Lines
                 // publishes with IncludeSender and Asm. Item Tracking Mgt. takes `var sender: Page "Item Tracking
-                // Lines"`. Pinned by pages/lt-page-event-sender/PageEventSender.al:PageEvent_FromOpenPage_SenderIsTheOpenedPage, PageEvent_FromPageVariable_SenderIsTheVariable.
+                // Lines"`. Pinned by pages/triggers/PageEventSender.al:PageEvent_FromOpenPage_SenderIsTheOpenedPage, PageEvent_FromPageVariable_SenderIsTheVariable.
                 (al_ir::ObjKind::Page, _) => match o.globals.iter().position(|g| g.name == "CurrPage") {
                     Some(slot) => Some(instance.borrow().globals[slot].clone()),
                     None => return unsupported(format!("{}: IncludeSender on a page without CurrPage", r.name)),
                 },
                 // The sender of a report's event is the running report, as a Report variable: the subscriber calls the
-                // report's procedures and sees its state (pages/lt-page-report-events/P84ReportSender.al).
+                // report's procedures and sees its state (pages/triggers/P84ReportSender.al).
                 (al_ir::ObjKind::Report, _) => Some(Value::Codeunit(instance)),
                 (_, Some(slot)) => Some(instance.borrow().globals[slot].clone()),
                 _ => return unsupported(format!("{}: IncludeSender on a {}", r.name, o.kind)),
@@ -149,7 +149,7 @@ impl Session {
             sender,
         };
         // The publisher's event frame stands below its subscribers' (corpus
-        // session/TestSessionInformationCallstackContracts.al:187).
+        // session-system/TestSessionInformationCallstackContracts.al:187).
         self.frames.push(object);
         self.call_stack.push(crate::CallFrame {
             event: true,
@@ -184,10 +184,10 @@ impl Session {
     pub(crate) fn raise(&mut self, ev: &EventCall, args: &mut [Value]) -> Result<(), Signal> {
         let from_publisher = std::mem::take(&mut self.events.publish_frame);
         // A table event (OnAfterInsertEvent and the others the platform raises) puts no frame of its own
-        // between the subscriber and the code that raised it (session/TestSessionCallstackSourcesContracts.al:
+        // between the subscriber and the code that raised it (session-system/TestSessionCallstackSourcesContracts.al:
         // Callstack_FromTablePageReportAndExtensionCode, `table event`); page events and Global Triggers are
         // not measured, except these page events, whose subscriber stands right above the code that raised them as well
-        // (errors/lt-ms-refusals-128/P128CallstackPageEvents.al:189-193, lt-ms-refusals-129/P129CallstackEvents.al:269-272,
+        // (events/P128CallstackPageEvents.al:189-193, lt-ms-refusals-129/P129CallstackEvents.al:269-272,
         // lt-ms-refusals-135/P135CallstackPage.al:244-246).
         let pinned_page_event = matches!(
             ev.event,
@@ -227,7 +227,7 @@ impl Session {
         let sender_refused = self.events.sender_refused.take();
         let origins = std::mem::take(&mut self.events.var_origins);
         // The declared lengths of the publisher's `var` Text and Code arguments: a subscriber's `var` parameter reports the
-        // length of the publisher's argument (text/lt-text-functions/MaxStrLen.Codeunit.al:172-201,
+        // length of the publisher's argument (text/text-methods/MaxStrLen.Codeunit.al:172-201,
         // PYC_MaxStrLen_EventSubscriberVarParameter: `direct raise field text100` = 100, `subscriber via var param text30` =
         // 30). An event the platform raises has none: MaxStrLen refuses there when it runs.
         let lens = std::mem::take(&mut self.events.publisher_var_lens);
@@ -244,7 +244,7 @@ impl Session {
         let mut self_unbound: Vec<Inst> = Vec::new();
         for (s, inst) in self.event_targets(object, event, element)? {
             // A manual instance unbound since the raise began. One that unbound itself in an earlier method of this raise
-            // is not called again (handlers/ProbeEventSubscriberOrder.al:253
+            // is not called again (events/ProbeEventSubscriberOrder.al:253
             // ManualSubscriber_UnbindsItselfInFirstMethod_SecondMethodInSameRaise); one another subscriber unbound is not pinned.
             if s.manual && !self.is_bound(&inst) {
                 if self_unbound.iter().any(|i| Rc::ptr_eq(i, &inst)) {
@@ -284,7 +284,7 @@ impl Session {
             // An Isolated event runs each subscriber in its own transaction: with nothing pending
             // in the caller's, a subscriber's error is swallowed and only its writes are rolled
             // back; with a write pending the event is not isolated and the error propagates
-            // (codeunit/TestIsolatedEventSubscriberError.al). The swallowed error becomes the last
+            // (codeunits/TestIsolatedEventSubscriberError.al). The swallowed error becomes the last
             // error, and a subscriber that succeeds has its writes committed (corpus
             // record/TestTableEventSequenceContracts.al:IsolatedEvent_SubscriberError_BecomesTheLastError_...).
             *self
@@ -420,7 +420,7 @@ impl Session {
             }
             // While an app installs, a subscriber of an app with no dependency path to it runs only if BC installed that app
             // first, and nothing pins that order: refused. Apps with a path between them install in dependency order
-            // (corpus branch al-runtime-rs-staging-y3, install/lt-install-order-subscribers/InstallOrderSubscriberTests.al:66-79, :104-117).
+            // (corpus branch al-runtime-rs-staging-y3, install-upgrade/install-order/InstallOrderSubscriberTests.al:66-79, :104-117).
             let app = engine.program.objects[s.object].app;
             if !s.manual
                 && self
@@ -464,7 +464,7 @@ impl Session {
         }
         // Inside one app, subscribers run in ascending codeunit id, a bound manual one among them (corpus
         // record/TestTableEventSequenceContracts.al:Subscribers_RunInAscendingCodeunitIdOrder_...;
-        // events/lt-bw-subscriber-order/BwSubscriberOrderTests.al:66-67 for five codeunits whose names, namespaces and
+        // events/subscriber-order/BwSubscriberOrderTests.al:66-67 for five codeunits whose names, namespaces and
         // files predict other orders); the sort is stable, so one codeunit's subscribers keep their declaration order.
         let program = &engine.program;
         let id_of = |s: &crate::events::Subscriber| program.objects[s.object].id.unwrap_or(0);
@@ -564,7 +564,7 @@ impl Session {
         }
         // Apps under test that do not depend on each other. BC visits the apps in ascending app id and places each
         // app's dependencies before it (depth first, post-order), the dependencies themselves in ascending app id:
-        // - corpus branch al-runtime-rs-staging-ua (bump PR 794), events/lt-bw-subscriber-order/BwSubscriberOrderTests.al
+        // - corpus branch al-runtime-rs-staging-ua (bump PR 794), events/subscriber-order/BwSubscriberOrderTests.al
         //   SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps and
         //   SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp: A runs before F (lower app id; F has the
         //   earlier name, the lower subscriber ids and was published first);
@@ -602,7 +602,7 @@ impl Session {
                 ));
             }
         }
-        // Pinned by events/lt-bw-subscriber-order/BwSubscriberOrderTests.al SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps, SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp, SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrderNotDeclaredOrder, SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrder_DuringInstall (was assumption `cross-app-subscriber-order-by-app-id`).
+        // Pinned by events/subscriber-order/BwSubscriberOrderTests.al SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps, SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp, SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrderNotDeclaredOrder, SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrder_DuringInstall (was assumption `cross-app-subscriber-order-by-app-id`).
         Ok(first)
     }
 
@@ -672,7 +672,7 @@ impl Session {
             .iter()
             .position(|b| b.instance.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)));
         if bind {
-            // Not Manual: false, no error (codeunit/TestEventManualBinding.al Contract 5, the
+            // Not Manual: false, no error (codeunits/TestEventManualBinding.al Contract 5, the
             // Boolean form only; the statement form is not pinned).
             if !manual {
                 return if ret_used {
@@ -741,9 +741,9 @@ const TESTS_TESTLIBRARIES: &str = "5d86850b-0d76-4eca-bd7b-951ad998e997";
 /// predictable across the probes: corpus PR 883 and BwSubscriberOrderTests.al:253). Base Application's
 /// GlobalTriggerManagement (codeunit 49) .OnAfterGetDatabaseTableTriggerSetup, in the corpus TestLibraries job:
 /// - XApp D (e92be076-...) runs, then Tests-TestLibraries' 130011 "Backup Management", then the main corpus app
-///   (a1b2c3d4-...): corpus PR 883, tests/al-language-testlibraries/lt-y3-setup-order/Y3SetupOrderTests.al:38-46
+///   (a1b2c3d4-...): corpus PR 883, tests/al-language-testlibraries/test-framework/setup-order/Y3SetupOrderTests.al:38-46
 ///   (`M: seq=2 in=YesYesYesYes | D: seq=1 in=NoNoNoNo`);
-/// - 130011 runs before the corpus testlibraries app (a93b8636-...): tests/al-language-testlibraries/lt-bi-trigger-setup/
+/// - 130011 runs before the corpus testlibraries app (a93b8636-...): tests/al-language-testlibraries/test-framework/trigger-setup/
 ///   BiTriggerSetup.al:21-22;
 /// - XApp C (0df0fadc-...) runs before 130011: Y3SetupOrderTests.al:22-25 (`C: seq=2 in=NoNoNoNo | A: seq=1 in=NoNoNoNo`,
 ///   neither saw 130011's flags). XApp A and XApp D come before C through C's dependencies.

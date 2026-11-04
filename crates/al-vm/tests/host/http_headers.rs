@@ -1,6 +1,6 @@
 //! `HttpHeaders.Add` used as an expression and `GetValues` of a name that is not there, on request, content and response headers.
-//! Every literal is what real BC answered in the corpus: network/lt-ay-http/AyHeaderAddResult.al (codeunit 80507) and
-//! network/lt-http/HttpContent.al:OldHeadersHandle_AfterWriteFrom (codeunit 72019).
+//! Every literal is what real BC answered in the corpus: http/AyHeaderAddResult.al (codeunit 80507) and
+//! http/content/HttpContent.al:OldHeadersHandle_AfterWriteFrom (codeunit 72019).
 
 use al_testkit::text;
 
@@ -323,7 +323,7 @@ fn a_page_validation_error_built_from_the_unpinned_error_is_refused() {
     refused_naming_the_probe(al_testkit::run_in(UNPINNED_SRC, "C", "PageValidate"));
 }
 
-// Writer SE's probes, network/lt-se-header-values/SeHeaderValues.al (codeunit 89030, corpus bump PR 737; same on BC 27.5, 28.5, 29.0).
+// Writer SE's probes, http/headers/SeHeaderValues.al (codeunit 89030, corpus bump PR 737; same on BC 27.5, 28.5, 29.0).
 
 #[test]
 fn se_headers_dotnet_types_check_on_request_headers() {
@@ -696,7 +696,7 @@ fn an_add_that_answers_false_sets_the_last_error() {
     );
 }
 
-/// network/lt-ay-http/AyContentLength.al:249-365 (SE_ContentLength_*).
+/// http/AyContentLength.al:249-365 (SE_ContentLength_*).
 const LENGTH_SRC: &str = r#"
 codeunit 50195 C
 {
@@ -804,7 +804,7 @@ fn a_read_adds_the_content_length_only_when_it_is_missing() {
     );
 }
 
-/// Writer Y2's value shapes (network/lt-se-header-values/SeHeaderValues.al:507-614).
+/// Writer Y2's value shapes (http/headers/SeHeaderValues.al:507-614).
 #[test]
 fn y2_date_and_quality_shapes() {
     let cases = [
@@ -858,7 +858,7 @@ fn y2_date_and_quality_shapes() {
     }
 }
 
-/// network/lt-se-header-values/UserAgentProductForms.al (codeunit 91350): the read back with the GetValues error and Contains.
+/// http/headers/UserAgentProductForms.al (codeunit 91350): the read back with the GetValues error and Contains.
 const UA_SRC: &str = r#"
 codeunit 50195 U
 {

@@ -83,7 +83,7 @@ fn case_of_an_option_with_a_decimal_label() {
     };
     assert_eq!(text(call(Decimal::new(1, 0))), "D");
     assert_eq!(text(call(Decimal::new(0, 0))), "else");
-    // A fraction raises ConversionCast: the label converts to the selector's type (types/lt-y31-conversion-matrix/
+    // A fraction raises ConversionCast: the label converts to the selector's type (types/operators-expressions/
     // Y31ConvCmp.al, LT Y31 Cmp Option `Option_Decimal` `case_label.1.1p5`).
     match call(Decimal::new(15, 1)) {
         Err(al_builtins::native::Signal::Error(e)) => assert_eq!(

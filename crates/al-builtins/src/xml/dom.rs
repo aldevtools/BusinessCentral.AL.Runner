@@ -41,7 +41,7 @@ pub enum XData {
         data: String,
     },
     /// `XmlDocumentType`. `ready` is false for one made by `Create(Name)` or `Create(Name, Public, System)`: its members raise
-    /// `MemberNotInitialized` (xml/lt-xml-doctype-declaration/DocTypeCreate.al:Create_NameOnly, Create_ThreeArguments).
+    /// `MemberNotInitialized` (xml/xml/DocTypeCreate.al:Create_NameOnly, Create_ThreeArguments).
     DocType {
         name: String,
         public: String,
@@ -83,7 +83,7 @@ pub(super) fn error(message: impl Into<String>, code: &str) -> Signal {
 }
 
 /// `Microsoft.Dynamics.Nav.Runtime.NavXmlDocumentType variable not initialized.` (code NotInitialized): a variable nobody assigned,
-/// used where the type is known (xml/lt-xml-doctype-declaration/DocTypeErrors.al:Uninitialised_*).
+/// used where the type is known (xml/xml/DocTypeErrors.al:Uninitialised_*).
 pub(crate) fn uninitialized(nav_type: &str) -> Signal {
     error(
         format!("Microsoft.Dynamics.Nav.Runtime.Nav{nav_type} variable not initialized."),

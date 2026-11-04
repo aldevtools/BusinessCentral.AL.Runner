@@ -1,5 +1,5 @@
 //! Container text elements (text elements with child elements) whose triggers run, and `currXMLport.Skip()` in them
-//! (xmlport/lt-y60-xmlport-container-skip/Y60XpContainerSkip.al; the same shape as al-sema xmlports `container_tree_shape`).
+//! (xmlports/shapes-properties/Y60XpContainerSkip.al; the same shape as al-sema xmlports `container_tree_shape`).
 
 use super::*;
 
@@ -18,7 +18,7 @@ pub(super) fn container_tree(schema: &Schema, c: usize) -> bool {
         })
 }
 
-/// A text element of only text attributes whose ancestors are all text elements (xmlport/lt-y67-xmlport-textattr-skip/
+/// A text element of only text attributes whose ancestors are all text elements (xmlports/shapes-properties/
 /// Y67XpTextAttrSkip.al:298-374; the same shape as al-sema xmlports `attributed_outside_table`). The export writes it as a text
 /// element right below a table element (`text_in_table`): its OnBeforePassVariable, then its attributes'.
 pub(super) fn attributed_outside_table(schema: &Schema, c: usize) -> bool {
@@ -73,7 +73,7 @@ impl Session {
 
     /// On import a container's OnAfterAssignVariable runs after its children, with its own text (empty without one:
     /// Y60XpContainerSkip.al Container_NestedTriggers_Import `refid=x;invdoc=[];billing=[];`, `<Billing/>` once `billing=[];`;
-    /// xmlport/W7XmlPortTests.al:55 `Cont.AfterAssign=direct`). Below a table element it is not pinned.
+    /// xmlports/W7XmlPortTests.al:55 `Cont.AfterAssign=direct`). Below a table element it is not pinned.
     pub(super) fn xp_container_assigned(
         &mut self,
         inst: &Inst,
@@ -104,7 +104,7 @@ impl Session {
     }
 }
 
-/// The root text element with triggers beside table elements (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al ContainerTriggers_Nested;
+/// The root text element with triggers beside table elements (xmlports/shapes-properties/Y83XpMiscTests.al ContainerTriggers_Nested;
 /// the same test as al-sema xmlports `root_table_shape`): table elements without LinkTable (at least one) and text elements that are
 /// leaves, hold only text attributes or are container trees.
 pub(super) fn root_with_table(schema: &Schema, top: usize) -> bool {

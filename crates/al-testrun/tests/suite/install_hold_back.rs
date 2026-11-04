@@ -1,7 +1,7 @@
 //! The apps under test are not installed while the dependency apps install and Company-Initialize runs: their subscribers
 //! to `OnCompanyInitialize` and to the events Company-Initialize raises (Upgrade Tag `OnGetPerCompanyUpgradeTags`) do not
 //! run there. A freshly installed app's per-company install code sees no row its `OnCompanyInitialize` subscriber writes
-//! and `HasUpgradeTag` = No for its own tag (install/lt-bf-install-probes/BfUpgradeTagInstallTests.al:42-43).
+//! and `HasUpgradeTag` = No for its own tag (install-upgrade/BfUpgradeTagInstallTests.al:42-43).
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::CorpusRuntime;
@@ -190,7 +190,7 @@ codeunit 60104 T
 
 // The app's own subscribers run while its own install code runs: the platform asks the app's trigger setup subscriber
 // once per company during its OnInstallAppPerCompany
-// (install/lt-ug-install-trigger-setup/UgInstallTests.al:37-41 TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart).
+// (install-upgrade/install-triggers/UgInstallTests.al:37-41 TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart).
 // The apps under test install after the baseline (`install::plan` with `dependency` false), when every app is installed:
 // the hold-back covers only the dependency installs, Company-Initialize and the company build. A guard, green before and
 // after the hold-back.

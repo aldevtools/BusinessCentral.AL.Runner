@@ -37,7 +37,7 @@ codeunit 69981 C
 }
 "#;
 
-// Pins: corpus recordref/lt-refs/RfTFieldFilters.al:183, record/lt-filters-keys-finds/P68B_RangeMinMax.al.
+// Pins: corpus recordref-fieldref/recordref/RfTFieldFilters.al:183, record/filters/P68B_RangeMinMax.al.
 #[test]
 fn field_ref_range_bounds_follow_the_record_rules() {
     assert_eq!(text(al_testkit::run_in(T, "C", "F")), "20/40 20");
@@ -119,8 +119,8 @@ codeunit 69983 C
 }
 "#;
 
-// record/lt-qr-systemid-insert-events/QrSystemIdTests.al:56-63 (a table extension's OnBeforeInsert), :71-78 (its OnInsert),
-// record/lt-at-partner-gaps/AtSystemIdOnInsert.al:135-150 (the table's OnInsert): the id is kept in the variable and the stored row.
+// record/system-fields/QrSystemIdTests.al:56-63 (a table extension's OnBeforeInsert), :71-78 (its OnInsert),
+// types/AtSystemIdOnInsert.al:135-150 (the table's OnInsert): the id is kept in the variable and the stored row.
 #[test]
 fn a_system_id_set_in_an_insert_trigger_is_kept() {
     for mode in [1, 2, 5] {
@@ -163,7 +163,7 @@ codeunit 69984 C
 }
 "#;
 
-// session/lt-isolated-storage-guid/IsoStorageGuidKey.al: a Guid key is its Format text.
+// session-system/isolated-storage/IsoStorageGuidKey.al: a Guid key is its Format text.
 #[test]
 fn an_isolated_storage_guid_key_is_its_text() {
     assert_eq!(text(al_testkit::run_in(ISO, "C", "F")), "xYes");

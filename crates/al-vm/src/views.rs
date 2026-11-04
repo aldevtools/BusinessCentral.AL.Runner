@@ -1,10 +1,10 @@
 //! Filter and view text: `GetFilter`, `GetFilters`, `GetView`, `SetView`.
 //!
 //! The corpus pins how a filter reads back for the simple shapes
-//! (`'10..20'`, `'30'`, `'A'`: testfilter/TestTestFilter.al:227-350) and the view
+//! (`'10..20'`, `'30'`, `'A'`: testpage/filters/TestTestFilter.al:227-350) and the view
 //! grammar through the strings it feeds to `SetView`
 //! (`'SORTING(Entry No.) WHERE(Entry No.=FILTER(1..3))'`:
-//! recordref/TestRecordRefFilter.al:23). Anything else is refused.
+//! recordref-fieldref/recordref/TestRecordRefFilter.al:23). Anything else is refused.
 
 use crate::Session;
 use al_builtins::describe::Describe;
@@ -22,7 +22,7 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
 }
 
 /// Characters whose presence in a text value makes `GetFilter` quote the whole value (record/
-/// TestSetFilterSpecialTextContracts.al, filters/W4Filters.al:174-191), and `..`.
+/// TestSetFilterSpecialTextContracts.al, record/filters/W4Filters.al:174-191), and `..`.
 fn needs_quotes(s: &str) -> bool {
     s.contains(['|', '&', '<', '>', '=', '(', ')']) || s.contains("..")
 }
@@ -35,12 +35,12 @@ impl Session {
         al_builtins::filter::parse_filter_with(text, &[], ty, &enums)
     }
 
-    /// `filter_value`; with `iso` a Date reads `yyyy-mm-dd`, as a view writes it (record/lt-record-read/RcAMisc.al:
+    /// `filter_value`; with `iso` a Date reads `yyyy-mm-dd`, as a view writes it (record/crud/RcAMisc.al:
     /// GetView_Field_Types `date`).
     fn filter_value_with(&self, v: &Value, iso: bool) -> Result<String, Signal> {
-        // A blank date shows as two single quotes, like a blank text (record/lt-record-read/RcAMisc.al:
+        // A blank date shows as two single quotes, like a blank text (record/crud/RcAMisc.al:
         // SetRecFilter_Composite_And_Text_Keys `dateBlank`).
-        // A blank DateTime too, in a view and in GetFilters (record/lt-y71-setview-datetime/Y71SetViewDateTime.al:105-134
+        // A blank DateTime too, in a view and in GetFilters (record/views/Y71SetViewDateTime.al:105-134
         // `>''&..2025-11-01T23:59:59Z`, `''..''|...`, `Dt: >''&..11/01/25 11:59:59 PM`).
         if matches!(v, Value::Date(0, false) | Value::DateTime(0)) {
             return Ok("''".into());
@@ -56,7 +56,7 @@ impl Session {
             }
         }
         // A view writes a DateTime in UTC as `yyyy-mm-ddThh:mm:ssZ`, with the milliseconds after a dot without trailing zeros
-        // (`2025-01-15T17:45:10.5Z`) (P136Filter.al UN_DateTimeFilter_* `view=` errors/lt-ms-refusals-136/P136Filter.al:447-586).
+        // (`2025-01-15T17:45:10.5Z`) (P136Filter.al UN_DateTimeFilter_* `view=` types/P136Filter.al:447-586).
         if let (true, Value::DateTime(d)) = (iso, v) {
             if *d != 0 {
                 let t = d - 1;
@@ -97,7 +97,7 @@ impl Session {
                 // record/TestFilterQuotedLiterals.al:95-105: an apostrophe in a quoted value is doubled.
                 return Ok(format!("'{}'", s.replace('\'', "''")));
             }
-            // The text `@` alone, from `SetFilter(F, '%1', '@')`, reads back quoted (misc/lt-y14-triage/Y14Small.al:309, corpus
+            // The text `@` alone, from `SetFilter(F, '%1', '@')`, reads back quoted (format-evaluate/Y14Small.al:309, corpus
             // master).
             if &**s == "@" {
                 return Ok("'@'".into());
@@ -108,14 +108,14 @@ impl Session {
                 return unsupported("a filter value that needs quoting");
             }
         }
-        // A Time reads as Format gives it (events/lt-platform-triggers/PtObserve.al:Filter_DateTime_Time `>=12:00:00 PM`, Bad_Time m3);
+        // A Time reads as Format gives it (events/platform-triggers/PtObserve.al:Filter_DateTime_Time `>=12:00:00 PM`, Bad_Time m3);
         // a time with milliseconds is not pinned.
         if let Value::Time(t) = v {
             if *t != 0 && (t - 1) % 1000 == 0 {
                 return al_builtins::format::try_format(v, 0, 0, self).map_err(Signal::Unsupported);
             }
             // A time with milliseconds shows them as standard format 1 writes it (`12:00:00.123 PM`, `>= 9:05:07.5 AM`), and a
-            // view writes it on a 24-hour clock as format 9 does (`T=FILTER(23:59:59.999)`) (events/lt-bd-filter-events/
+            // view writes it on a 24-hour clock as format 9 does (`T=FILTER(23:59:59.999)`) (events/table-events/
             // BdFilterEvents.al:BdFilter_TimeMilliseconds, BdFilter_TimeMillisecondsView).
             if *t != 0 {
                 let standard = if iso { 9 } else { 1 };
@@ -124,13 +124,13 @@ impl Session {
             return unsupported("the filter text of an undefined Time (not pinned)");
         }
         // A DateTime with milliseconds shows its seconds and milliseconds, as standard format 1 writes them
-        // (errors/lt-ms-refusals-130/P130DateFilters.al:211, `03/24/24 11:59:59.999 PM`; a whole minute stays `12:00 AM`).
+        // (record/filters/P130DateFilters.al:211, `03/24/24 11:59:59.999 PM`; a whole minute stays `12:00 AM`).
         if let Value::DateTime(d) = v {
             if *d != 0 && (d - 1) % 1000 != 0 {
                 return al_builtins::format::try_format(v, 0, 1, self).map_err(Signal::Unsupported);
             }
             // The last second of a day, the end of a date-alone filter, shows its seconds (`01/15/25 11:59:59 PM`, P136Filter.al
-            // UN_DateTimeFilter_DateAlone errors/lt-ms-refusals-136/P136Filter.al:447-586).
+            // UN_DateTimeFilter_DateAlone types/P136Filter.al:447-586).
             if *d != 0 && (d - 1) % 86_400_000 == 86_399_000 {
                 return al_builtins::format::try_format(v, 0, 1, self).map_err(Signal::Unsupported);
             }
@@ -143,7 +143,7 @@ impl Session {
         // A value that is only blank space is shown in single quotes (corpus
         // record/TestRecordRuntimeTextsAndViews.al:Record_GetView_And_GetFilters_Texts, the blank
         // option member: `Status: <>' '`).
-        // A value with a leading space too (filters/W4Filters.al:BlankOnlyFilterValues_MatchOnlyBlankRows:
+        // A value with a leading space too (record/filters/W4Filters.al:BlankOnlyFilterValues_MatchOnlyBlankRows:
         // `SetRange(Txt, ' a')` shows `Txt: ' a'`).
         if !text.is_empty() && (text.trim().is_empty() || text.starts_with(' ')) {
             return Ok(format!("'{text}'"));
@@ -172,7 +172,7 @@ impl Session {
             FilterExpr::Range(Some(a), None) => format!("{}..", self.filter_value_with(a, iso)?),
             FilterExpr::Range(None, Some(b)) => format!("..{}", self.filter_value_with(b, iso)?),
             FilterExpr::Range(None, None) => return unsupported("an unbounded range filter"),
-            // The text `*` from `SetFilter(F, '%1', '*')` is the literal text, shown `='*'` (filters/W4Filters.al
+            // The text `*` from `SetFilter(F, '%1', '*')` is the literal text, shown `='*'` (record/filters/W4Filters.al
             // SetFilterPercent1_WildcardTogetherWithOperators `star_alone`).
             FilterExpr::Eq(Value::Text(s) | Value::Code(s)) if &**s == "*" => "='*'".to_string(),
             FilterExpr::Eq(v) => self.filter_value_with(v, iso)?,
@@ -180,25 +180,25 @@ impl Session {
                 let t = self.filter_value_with(v, iso)?;
                 format!("{t}..{t}")
             }
-            // `<>%1` with the text `*` reads back quoted (record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:196, :199).
+            // `<>%1` with the text `*` reads back quoted (record/filters/WildcardGetFilter.al:196, :199).
             FilterExpr::Ne(Value::Text(s) | Value::Code(s)) if &**s == "*" => "<>'*'".to_string(),
             FilterExpr::Ne(v) => format!("<>{}", self.filter_value_with(v, iso)?),
             FilterExpr::Lt(v) => format!("<{}", self.filter_value_with(v, iso)?),
             FilterExpr::Le(v) => format!("<={}", self.filter_value_with(v, iso)?),
             FilterExpr::Gt(v) => format!(">{}", self.filter_value_with(v, iso)?),
             FilterExpr::Ge(v) => format!(">={}", self.filter_value_with(v, iso)?),
-            // With `>` too: `'@a>b@x.com'` (misc/lt-y14-triage/Y14Small.al:309, corpus master).
+            // With `>` too: `'@a>b@x.com'` (format-evaluate/Y14Small.al:309, corpus master).
             FilterExpr::Like(p, ci) if needs_quotes(p) && !p.contains('\'') => {
                 format!("'{}{p}'", if *ci { "@" } else { "" })
             }
             FilterExpr::Like(p, ci) => format!("{}{p}", if *ci { "@" } else { "" }),
-            // record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:125-171: `<>*`, `<>A*`, `<>@a*` read back as written.
+            // record/filters/WildcardGetFilter.al:125-171: `<>*`, `<>A*`, `<>@a*` read back as written.
             FilterExpr::NotLike(p, ci) => format!("<>{}{p}", if *ci { "@" } else { "" }),
-            // filters/lt-wc/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
+            // record/filters/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
             FilterExpr::EmptyViewValue => "==".to_string(),
             FilterExpr::NumCode(inner) => self.filter_text_with(inner, iso)?,
-            // The blank DateTime next to another alternative reads back as the range `''..''` (record/lt-y71-setview-datetime/
+            // The blank DateTime next to another alternative reads back as the range `''..''` (record/views/
             // Y71SetViewDateTime.al:125-127 dt_empty_or, :207-209 sca_empty_or); a Date stays `''` (:289-291). Alone it is not pinned
             // here and stays `''`.
             FilterExpr::Or(xs) => xs
@@ -274,7 +274,7 @@ impl Session {
     }
 
     /// The end of `CopyFilter(FromField, Target.ToField)`: `copied` (already moved to the target's group) replace the target field's
-    /// filters, and the target forgets the row it holds (record/lt-r6807-view-find/R6807ViewFind.al, Rec_copyFilterFieldStored,
+    /// filters, and the target forgets the row it holds (record/views/R6807ViewFind.al, Rec_copyFilterFieldStored,
     /// Rec_copyFilterFieldFlowZero).
     pub(crate) fn put_copied_filters(dst: &Rec, to: usize, to_group: i32, copied: Vec<FieldFilter>) {
         let mut d = dst.borrow_mut();
@@ -288,7 +288,7 @@ impl Session {
     }
 
     /// `Target.CopyFilters(Source)`: the source's filters replace the target's; the target forgets the row it holds, so the next
-    /// Find tests it against them like after SetRange (record/lt-r6807-view-find/R6807ViewFind.al, Rec_copyStored, Rec_copyFlowZero).
+    /// Find tests it against them like after SetRange (record/views/R6807ViewFind.al, Rec_copyStored, Rec_copyFlowZero).
     pub(crate) fn copy_filters(rec: &Rec, args: &[Value]) -> Result<Value, Signal> {
         let Some(Value::Record(src)) = args.first() else {
             return unsupported(format!("CopyFilters from {}", args.first().describe()));
@@ -309,7 +309,7 @@ impl Session {
         if let Some(v) = args.first() {
             r.filter_group = match v {
                 // The OR group: filters on different fields are alternatives (corpus record/PWFilterGroupOr.al). Another negative
-                // group is set and read back like any other (record/lt-filters-keys-finds/P68F_FilterGroup.al
+                // group is set and read back like any other (record/filters/P68F_FilterGroup.al
                 // RecordRef_Setter_Negative_And_Large: -100 and -2147483647); a filter set in it is refused in `record_op_inner`.
                 Value::Integer(n) => *n,
                 other => return unsupported(format!("FilterGroup({})", other.describe())),
@@ -326,7 +326,7 @@ impl Session {
     /// `GetFilters`: `Caption: filter` pairs joined by `, ` (docs/probes-needed.md).
     pub(crate) fn get_filters(&self, rec: &Rec, t: &TableDef) -> Result<String, Signal> {
         let mut parts = Vec::new();
-        // A record on MarkedOnly names it first (errors/lt-ms-refusals-128/P128SelectionFilter.al `marked A only`,
+        // A record on MarkedOnly names it first (testpage/P128SelectionFilter.al `marked A only`,
         // lt-ms-refusals-135/P135SelectionFilter.al:357 `filters=[Marked: Yes]` with no other filter).
         if rec.borrow().marked_only {
             parts.push("Marked: Yes".to_string());
@@ -353,7 +353,7 @@ impl Session {
 
     /// `get_view`; with `option_ordinals` an Option or Enum filter value is written as its
     /// ordinal (a FilterPageBuilder's `GetView(Name, false)`, corpus
-    /// filterpage/TestFilterPageBuilder.al:FilterPageBuilder_GetView_CaptionsFlag_RendersAnOptionFilterDifferently).
+    /// pages/filterpagebuilder/TestFilterPageBuilder.al:FilterPageBuilder_GetView_CaptionsFlag_RendersAnOptionFilterDifferently).
     pub(crate) fn get_view_with(
         &self,
         rec: &Rec,
@@ -382,13 +382,13 @@ impl Session {
         let fields = t.keys[key].len();
         // Only the key's own fields show in the view. When just the primary key fields after the key run descending
         // (`Ascending(false)`, then `SetAscending(Field, true)`), the view is the plain ascending sorting
-        // (record/lt-record-sort-ascending/RecordSortAscendingViews.al:P161_SetAscending_Single_AscendingMethodAndTies `back.view`).
+        // (record/keys-sorting/RecordSortAscendingViews.al:P161_SetAscending_Single_AscendingMethodAndTies `back.view`).
         let key_bits = if fields >= 32 { u32::MAX } else { (1u32 << fields) - 1 };
         let mask_all = mask;
         let mask = mask & key_bits;
         let only_ties_descending = mask == 0 && mask_all != 0;
         if mask != 0 && !(fields == 1 && mask == 1) {
-            // One direction per field of the key: `ORDER(Descending,Ascending)` (records/W4SortKeys.al:
+            // One direction per field of the key: `ORDER(Descending,Ascending)` (record/W4SortKeys.al:
             // SetAscending_TwoFieldKey_OneFieldAtATime). Every field descending, a field of the primary key's part, or the
             // numeric form is not pinned.
             if mask == key_bits {
@@ -421,11 +421,11 @@ impl Session {
         if !filters.is_empty() {
             let mut items = Vec::new();
             for f in &filters {
-                // The numeric form of a record writes an Option filter as its ordinal (record/lt-set-current-key/
+                // The numeric form of a record writes an Option filter as its ordinal (record/keys-sorting/
                 // Y43SetAscendingFlowField.al:234 `WHERE(Field1=1(1))`); an Enum there is not pinned and keeps its name.
                 let numeric_option = !use_names && record_form && matches!(t.fields[f.field].ty, RtType::Option(_));
                 let text = if option_ordinals || numeric_option {
-                    // A Date or DateTime value takes the XML form here too (events/lt-platform-triggers/PtObserve.al:600
+                    // A Date or DateTime value takes the XML form here too (events/platform-triggers/PtObserve.al:600
                     // `WHERE(Field5=1(2020-01-01..))`); a Boolean of this form is not pinned and keeps its session form.
                     let iso = !matches!(t.fields[f.field].ty, RtType::Boolean);
                     self.filter_text_with(&ordinals(&f.expr), iso)?
@@ -445,7 +445,7 @@ impl Session {
     }
 
     /// The field a view names: by name or `Field<n>`; failing that by caption, which is what
-    /// `GetView` writes; a name wins over a caption (record/lt-setview-caption/SetViewByCaption.al: SetView_CaptionInWhere
+    /// `GetView` writes; a name wins over a caption (record/views/SetViewByCaption.al: SetView_CaptionInWhere
     /// `name_beta_is_also_a_caption`, SetView_CaptionInSorting).
     pub(crate) fn view_field(&self, t: &TableDef, name: &str) -> Result<usize, Signal> {
         if let Some(p) = field_by_name(t, name) {
@@ -466,9 +466,9 @@ impl Session {
     /// `set_view`, writing the filters of the view to filter group `group` (default: the current
     /// one). With `keep_unnamed`, a view that names no SORTING keeps the record's key and one that
     /// names no ORDER keeps its direction (a part page's SourceTableView after the part control's
-    /// SubPageView, corpus handlers/TestPartOwnSortVsSubPageView.al:1-45). With `order_needs_key`,
+    /// SubPageView, corpus testpage/TestPartOwnSortVsSubPageView.al:1-45). With `order_needs_key`,
     /// an ORDER without a SORTING is ignored (a part's SubPageView, corpus
-    /// handlers/TestPartSubPageViewSorting.al:SubPageViewOrderOnly_KeepsPrimaryKeyOrder). `runtime` is a
+    /// testpage/TestPartSubPageViewSorting.al:SubPageViewOrderOnly_KeepsPrimaryKeyOrder). `runtime` is a
     /// view given to SetView at run time; otherwise it is an object property (SourceTableView, SubPageView, ...),
     /// which reads a quoted Text/Code operator differently (see the WHERE arm).
     #[allow(clippy::too_many_arguments)]
@@ -552,7 +552,7 @@ impl Session {
                         }
                         let ty = t.fields[pos].ty.clone();
                         // `filter('>10')` is an AL text literal: the filter is what it holds, operators included
-                        // (misc/lt-probes-needed-7/PnGFixtures.al:666 `SubPageView = where("Line No." = filter('>10'))`, opened by
+                        // (testpage/PnGFixtures.al:666 `SubPageView = where("Line No." = filter('>10'))`, opened by
                         // PnGPartTriggers.al:DisabledPartControlEnabled). A literal with a quote inside is not stripped.
                         let value = value
                             .trim()
@@ -560,7 +560,7 @@ impl Session {
                             .and_then(|v| v.strip_suffix('\''))
                             // In a view given to SetView, a quoted value of a Text/Code field is the literal value (as
                             // GetView writes it): FILTER('>B') selects `>B`, FILTER(>B) compares. In an object property
-                            // it compares, as above (filters/lt-uc-quoted-values/UcQuotedValues.al: SetView_FilterGreaterB,
+                            // it compares, as above (record/filters/UcQuotedValues.al: SetView_FilterGreaterB,
                             // PageAndQuery_FilterGreaterB, BC 27.5-29.0).
                             .filter(|_| {
                                 !runtime
@@ -586,9 +586,9 @@ impl Session {
                         };
                         let empty = self.empty_view_value(&kind, &ty, value, runtime)?;
                         // `filter('')` on a Date field reaches here as an empty value: it selects the blank date, as `filter(0D)`
-                        // (`''` here) does, in a top-level page's SourceTableView (pages/lt-cd-testpage-leads/CdTestPageLeads.al:842
+                        // (`''` here) does, in a top-level page's SourceTableView (testpage/CdTestPageLeads.al:842
                         // SH_SourceTableView_DateFilterBlank_Rows; Item58_SourceTableView_Filter0D at :521 for filter(0D)) and in an
-                        // action's RunPageView, a part's SubPageView, a report's, XMLport's and query's view (pages/lt-y76-view-filters/
+                        // action's RunPageView, a part's SubPageView, a report's, XMLport's and query's view (pages/view-filters/
                         // Y76ViewBlankDate.al:252 Y76_Action_RunPageView_Blank, :293 Y76_Part_SubPageView, :325, :346, :368).
                         let value = if empty.is_none()
                             && kind == "FILTER"
@@ -600,7 +600,7 @@ impl Session {
                             value
                         };
                         // A Date text reads as SetFilter reads it in the session's language: `010120..` is 01/01/20..
-                        // (events/lt-platform-triggers/PtObserve.al:Filter_View).
+                        // (events/platform-triggers/PtObserve.al:Filter_View).
                         let date_ctx = self.date_filter_context_for(value);
                         let expr = match empty {
                             Some(e) => e,
@@ -654,7 +654,7 @@ impl Session {
         let mut r = rec.borrow_mut();
         // A view set after a Get or a Find makes the record forget that it holds its row, as SetRange and SetFilter do: Find()
         // then tests the row against the new filters, on a stored field and on a FlowField, Record and RecordRef alike
-        // (record/lt-r6807-view-find/R6807ViewFind.al, Rec_svStored, Rec_svFlowZero, Ref_svStored, Ref_svFlowZero,
+        // (record/views/R6807ViewFind.al, Rec_svStored, Rec_svFlowZero, Ref_svStored, Ref_svFlowZero,
         // Ref_viewRoundTripFlowZero).
         r.position = None;
         if order_dirs.is_some() {
@@ -677,7 +677,7 @@ impl Session {
         drop(r);
         if let Some(wanted) = adhoc {
             // SORTING(...) that no key starts with orders by those fields, then by the primary key, as SetCurrentKey does
-            // (record/lt-setview-sorting-nonkey/SetViewSortingNonKey.al:SetView_SortingNonKeyField_Descending, SetView_SortingFieldLists).
+            // (record/keys-sorting/SetViewSortingNonKey.al:SetView_SortingNonKeyField_Descending, SetView_SortingFieldLists).
             self.ret_used = false;
             let mut args: Vec<Value> = wanted.iter().map(|p| Value::Integer(*p as i32)).collect();
             self.record_op(al_builtins::record_op::RecordOp::SetCurrentKey, rec, &mut args)?;
@@ -728,7 +728,7 @@ fn ordinals(e: &FilterExpr) -> FilterExpr {
 /// identifier, which the filter grammar writes with single quotes. Corpus
 /// record/TestCalcFormulaQuotedFilterTests.Codeunit.al:189-215 (the oracle passes a DataItemTableView
 /// `filter(<> "Initial Entry")` and `filter("Payment Discount (VAT Excl.)")`) and
-/// handlers/TestPageSourceTableView.al:169-190 (a SourceTableView `const("G/L")`). Field names keep their
+/// testpage/TestPageSourceTableView.al:169-190 (a SourceTableView `const("G/L")`). Field names keep their
 /// quotes (`field_by_name` takes either).
 pub(crate) fn property_view(raw: &str) -> String {
     property_view_with(raw, true)
@@ -738,7 +738,7 @@ pub(crate) fn property_view(raw: &str) -> String {
 /// `const` on an Enum field (the page holds those as typed values: a TestPage's `Filter.GetFilter` reads the ordinal, pages/
 /// lt-ce-page-run/CePageRun.al SetTableView_FilterOnAnotherField `Kind=0`).
 /// - `const(0D)` and `filter(0D)` on a Date field filter on the blank date (the third list: how the filter reads back is not
-///   pinned, so the page refuses every read of it) (pages/lt-cd-testpage-leads/CdTestPageLeads.al:508
+///   pinned, so the page refuses every read of it) (testpage/CdTestPageLeads.al:508
 ///   Item58_SourceTableView_Const0D, :521 Item58_SourceTableView_Filter0D: the rows with 0D show).
 /// - `const('')` on a Text field sets no filter (CdTestPageLeads.al:539 Item58_SourceTableView_ConstEmptyTextAndEnum: a row
 ///   whose field is `x` shows). On a field of another type nothing pins it, so it is refused.
@@ -849,7 +849,7 @@ fn property_view_with(raw: &str, unquote_filter: bool) -> String {
                     Some((field, cond)) => match (cond.find('('), cond.find('(').and_then(|o| balanced(&cond[o..]))) {
                         (Some(o), Some((value, tail))) => {
                             // The AL string of `filter('>10')` is the filter text `>10`; in a `const` it stays a quoted
-                            // literal (handlers/TestPageSourceTableView.al, misc/lt-probes-needed-7/PnGFixtures.al:666, 1036).
+                            // literal (testpage/TestPageSourceTableView.al, testpage/PnGFixtures.al:666, 1036).
                             let value = value.trim();
                             let is_filter = unquote_filter && cond[..o].trim().eq_ignore_ascii_case("filter");
                             let whole = value.len() >= 2
@@ -971,7 +971,7 @@ fn split_top_with(s: &str, sep: char, quotes: bool) -> Option<Vec<&str>> {
 }
 
 /// A view names a field by its name or, in the numeric form, as `Field<n>` in any case (`field2`, `fIeLd4`:
-/// record/lt-y51-setview-shapes/Y51SetViewShapes.al:118-131, SetView_LowercaseFieldN).
+/// record/views/Y51SetViewShapes.al:118-131, SetView_LowercaseFieldN).
 fn field_by_name(t: &TableDef, name: &str) -> Option<usize> {
     let name = name.trim_matches('"');
     if let Some(p) = t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name)) {

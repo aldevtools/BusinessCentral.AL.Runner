@@ -1,7 +1,7 @@
 //! `GetUrl` with a company, an object, a record and its filters, for `ClientType::Web`. Only what the corpus pins is built;
 //! every other form is refused (ADR-042). The host part is the server address of the host (assumption
 //! `geturl-web-base-address`); the query after it is pinned by:
-//! - platform/lt-system-database-members/GetUrlCompany.al:67-77 and session/lt-geturl-shape/GetUrlShape.al:121-130 (company),
+//! - metadata/platform-tables/GetUrlCompany.al:67-77 and session-system/session/GetUrlShape.al:121-130 (company),
 //! - GetUrlObjects.al:62-91 and GetUrlShape.al:152-163 (object type and id),
 //! - GetUrlBookmarkFilter.al (bookmark of the key, filter text, UseFilters), GetUrlRecord.al, GetUrlRecordLayout.al.
 
@@ -36,7 +36,7 @@ fn member(v: Option<&Value>) -> Option<String> {
 
 /// Percent-encodes `s` for a query value. Letters, digits, `-`, `.`, `_` and `~` stay; every other printable ASCII
 /// character but the backtick, and non-ASCII characters (UTF-8), are encoded with capital hex digits
-/// (GetUrlCompany.al:67-77, GetUrlBookmarkFilter.al: filter_*, platform/lt-t-geturl/TGetUrl.al:310-329
+/// (GetUrlCompany.al:67-77, GetUrlBookmarkFilter.al: filter_*, metadata/session-system/TGetUrl.al:310-329
 /// GetUrl_Web_CompanyCharacters and TGetUrl.al:356-364 GetUrl_Web_FilterCharacters). The backtick and control characters
 /// are not pinned and are refused.
 fn encode(s: &str) -> Result<String, Signal> {
@@ -116,7 +116,7 @@ fn mobile_company(v: &Value) -> Result<(), Signal> {
 impl Session {
     /// `GetUrl(ClientType::Default, ...)`: the web address with the scheme `dynamicsnav`, then `/<company>/` and for an
     /// object `runpage?page=N` or `runreport?report=N`, for a page with a record `&bookmark=...`. Pinned for an http address
-    /// by session/lt-geturl-shape/GetUrlShape.al:270 (`default alone`) and platform/lt-t-geturl/TGetUrl.al:203-210
+    /// by session-system/session/GetUrlShape.al:270 (`default alone`) and metadata/session-system/TGetUrl.al:203-210
     /// (GetUrl_ClientDefault: a company with a space, the empty company, page 21, report 69367, a page with a record and
     /// UseFilters false). Every other form is refused.
     fn get_url_default(&mut self, args: &[Value]) -> Result<Value, Signal> {
@@ -177,7 +177,7 @@ impl Session {
         match member(args.first()).as_deref() {
             // Windows gives the same text as Default for every form TGetUrl.al pins (GetUrl_ClientWindows,
             // TGetUrl.al:233-240, against GetUrl_ClientDefault, TGetUrl.al:203-210; also
-            // lt-system-database-onprem/PGetUrl.al:71,75).
+            // session-system/server-system-functions/PGetUrl.al:71,75).
             Some("Default") | Some("Windows") => return self.get_url_default(args),
             Some("Phone") | Some("Tablet") | Some("Desktop") => return self.get_url_mobile(args),
             // Background, Management and NAS have no address: the empty text, alone and with a company
@@ -209,7 +209,7 @@ impl Session {
     /// `GetUrl(ClientType::SOAP | OData | ODataV4 | Api, ...)`: the web address (its host and instance, masked by the pins,
     /// come from the host's server address: assumption `geturl-web-base-address`), then `/WS/Services`, `/ODataV4` or
     /// `/api/`; with a company `/WS/<company>/Services` or `/ODataV4/Company('<company>')`, the empty company as none;
-    /// with an object or a record the empty text. Pinned by platform/lt-t-geturl/TGetUrl.al:481-559 on corpus master
+    /// with an object or a record the empty text. Pinned by metadata/session-system/TGetUrl.al:481-559 on corpus master
     /// (TV_GetUrl_ClientSOAP, _ClientOData, _ClientODataV4, _ClientApi): the company `My Company`, page 21, report 69367,
     /// a page with a record and UseFilters false, a codeunit (SOAP, ODataV4) and a query (ODataV4). Refused: Api with a
     /// company (the id in `companies(...)` is not pinned), other company characters (`.` only with an object) and every other
@@ -279,9 +279,9 @@ impl Session {
 
     /// `GetUrl(ClientType::Phone | Tablet | Desktop, ...)`: the scheme `ms-dynamicsnav`, the web address after `http://`
     /// without a trailing slash, then the query of the web form directly after it (no `/` before the `?`). Pinned by
-    /// platform/lt-t-geturl/TGetUrl.al:248-255, 263-270, 278-285 (alone, a company, the empty company, page 21, report
+    /// metadata/session-system/TGetUrl.al:248-255, 263-270, 278-285 (alone, a company, the empty company, page 21, report
     /// 69367, a page with a record and UseFilters false), lt-system-database-members/GetUrlCtMain.al:111-115, 153-157,
-    /// 195-199 (CompanyName()) and lt-system-database-onprem/PGetUrl.al:68-73 (a company and page 99999). Every other form
+    /// 195-199 (CompanyName()) and session-system/server-system-functions/PGetUrl.al:68-73 (a company and page 99999). Every other form
     /// is refused.
     fn get_url_mobile(&mut self, args: &[Value]) -> Result<Value, Signal> {
         if let Some(company) = args.get(1) {

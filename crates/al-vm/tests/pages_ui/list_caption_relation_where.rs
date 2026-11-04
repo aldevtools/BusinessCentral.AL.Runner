@@ -1,6 +1,6 @@
 //! The caption of a list whose DataCaptionFields field relates with where(field()) to a table with a two-field key: the first
 //! related row with that name, whatever the template; a blank description is left out
-//! (corpus pages/lt-y72-page-probes/Y72CaptionRelationWhere.al).
+//! (corpus testpage/Y72CaptionRelationWhere.al).
 
 use al_testkit::text;
 

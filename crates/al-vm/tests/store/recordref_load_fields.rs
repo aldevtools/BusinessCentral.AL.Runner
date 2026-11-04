@@ -1,5 +1,5 @@
 //! `RecordRef.LoadFields(Fields: Integer*)`: the Record rule with field numbers
-//! (fieldref/lt-fieldref-testfield-types/RecordRefLoadFieldsList.al:13-50).
+//! (recordref-fieldref/fieldref/RecordRefLoadFieldsList.al:13-50).
 
 use al_testkit::{run, text};
 

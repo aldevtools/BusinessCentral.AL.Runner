@@ -1,7 +1,7 @@
 //! XmlPort export with several Namespaces entries, one of them the empty prefix `""` (gap G15, the PEPPOL BIS 3.0 ports): the
 //! root declares the prefixed entries in declaration order, then `xmlns=` with the uri of `""` last; an element without a
 //! prefix is written without one; UseDefaultNamespace with a DefaultNamespace replaces the uri of `""`. Pinned by corpus
-//! tests/al-language/xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:60, :71, :82, :93 (ports in
+//! tests/al-language/xmlports/shapes-properties/Y17XmlPortNamespacesTests.al:60, :71, :82, :93 (ports in
 //! Y17XmlPortNamespaces.al). The AL below is my own smaller version of those ports (a table of
 //! its own with two rows in place of Integer, which the test workspace lacks).
 

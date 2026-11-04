@@ -1,5 +1,5 @@
 //! The page's Rec when a temporary record is handed to `Page.Run(Id, TempRec)` answered by a Page-typed PageHandler
-//! (pages/lt-y72-page-probes/Y72PageHandlerSetUpVariable.al header): the page's Rec shares the caller's temporary rows, takes its
+//! (ui-handlers/Y72PageHandlerSetUpVariable.al header): the page's Rec shares the caller's temporary rows, takes its
 //! filters and stands on its row (TypedHandler_TempRecord_PageRun_OnRowTwo `got=2/b pagecount=3 cur=2`, _Filtered `pagecount=2`,
 //! _Empty `got=0/ pagecount=0`); the caller's record keeps its row and count.
 

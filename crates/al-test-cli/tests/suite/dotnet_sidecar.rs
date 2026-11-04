@@ -1253,7 +1253,7 @@ fn an_indexer_is_called_by_its_indexer_name_with_its_arguments() {
 
 /// AL assigns through a .NET indexer by calling it with the index arguments and the value last: System Application
 /// "Business Chart Impl." writes `DataRow.Item(ColumnName, Value)` and reads `DataRow.Item(ColumnName)` back (corpus
-/// tests/al-language/misc/lt-au-language-edges/AuEdgeTests.al:608 BusinessChartBuffer_Initialize_InTest, real BC 27-29:
+/// tests/al-language/streams/AuEdgeTests.al:608 BusinessChartBuffer_Initialize_InTest, real BC 27-29:
 /// SetValueByIndex(0, 0, 7) then GetValue answers 7).
 #[test]
 fn an_indexer_called_with_one_argument_more_than_its_index_is_assigned() {
@@ -1316,7 +1316,7 @@ fn move_next_and_current_answer_through_ienumerator_on_an_explicit_implementatio
 
 // A generic type AL declares without type arguments (System Application's ABS/AFS Operation Payload declares
 // `GenericSortedDictionary2` and calls `SortedDictionary.SortedDictionary()`): BC closes it over System.Object, as the closed
-// type name in its messages shows (tests/al-language-onprem-dotnet/lt-y17-dotnet-dictionary/Y17DotNetDictionary.al:126, :147).
+// type name in its messages shows (tests/al-language-onprem-dotnet/dotnet/dotnet-dictionary/Y17DotNetDictionary.al:126, :147).
 #[test]
 fn an_open_generic_type_is_constructed_closed_over_object() {
     let Some(h) = host() else { return };
@@ -1357,7 +1357,7 @@ fn the_sidecar_built_from_source_is_ready_to_run() {
 // ---- DotNet members written in another letter case (al-runner issue 6897) ------------------------------------------
 // AL does not tell identifiers apart by case: Base Application codeunit 1203 writes `XmlElement.OuterXML` for the .NET
 // `OuterXml` (ImportXMLFiletoDataExch.Codeunit.al:106; Microsoft test Tests-Data Exchange codeunit 132547
-// ReadElementFromXMLFileUTF8NodeNameUsingXmlReader runs it). Assumption `dotnet-member-name-case`.
+// ReadElementFromXMLFileUTF8NodeNameUsingXmlReader runs it). Pinned by al-language-onprem-dotnet/dotnet/dotnet/R6897DotNetMemberCase.al.
 
 fn fixture() -> DotNetType {
     DotNetType {
@@ -1367,47 +1367,34 @@ fn fixture() -> DotNetType {
     }
 }
 
-fn case_hits() -> bool {
-    al_builtins::assumptions::take_hit_bits().has(al_builtins::assumptions::Assumption::DotNetMemberNameCase)
-}
-
 #[test]
 fn a_member_written_in_another_case_binds_for_get_set_invoke_and_static_members() {
     let Some(h) = host() else { return };
     let mut sess = h.open_session(&DotNetSessionConfig::default());
     let doc = handle_of(&sess.construct(&ty("System.Xml.XmlDocument"), vec![]).unwrap());
     let d = || DotNetTarget::Instance(doc);
-    al_builtins::assumptions::clear_hits();
-    // A member written exactly: no flag.
+    // A member written exactly.
     sess.invoke(d(), "LoadXml", vec![s("<a><b>x</b></a>")]).unwrap();
-    assert!(!case_hits());
     // Method, in lower and upper case.
     sess.invoke(d(), "loadxml", vec![s("<a><b>x</b></a>")]).unwrap();
-    assert!(case_hits());
     sess.invoke(d(), "LOADXML", vec![s("<a><b>x</b></a>")]).unwrap();
-    assert!(case_hits());
     // Property get (the Base Application spelling).
     let el = handle_of(&sess.get_property(d(), "DocumentElement").unwrap());
     let outer = sess.get_property(DotNetTarget::Instance(el), "OuterXML").unwrap();
     assert_eq!(text_of(&outer), "<a><b>x</b></a>");
-    assert!(case_hits());
     // Property set.
     sess.set_property(DotNetTarget::Instance(el), "innertext", DotNetValue::Str("y".into()))
         .unwrap();
-    assert!(case_hits());
     let inner = sess.get_property(DotNetTarget::Instance(el), "InnerText").unwrap();
     assert_eq!(text_of(&inner), "y");
     // Static field and static method.
     let e = sess.get_property(st("System.String"), "empty").unwrap();
     assert_eq!(text_of(&e), "");
-    assert!(case_hits());
     let n = sess.invoke(st("System.Convert"), "TOINT32", vec![s("7")]).unwrap();
     assert_eq!(n.value, DotNetValue::Int32(7));
-    assert!(case_hits());
     // A name no member carries in any case is still a refusal.
     let why = refused(sess.get_property(d(), "NoSuchThing"));
     assert!(why.contains("not found"), "{why}");
-    assert!(!case_hits());
     sess.close();
 }
 
@@ -1417,11 +1404,9 @@ fn two_members_that_differ_only_in_case_keep_an_exact_call_and_refuse_another_ca
     let mut sess = h.open_session(&DotNetSessionConfig::default());
     let obj = handle_of(&sess.construct(&fixture(), vec![]).unwrap());
     let o = || DotNetTarget::Instance(obj);
-    al_builtins::assumptions::clear_hits();
     // An exact spelling is kept, as before.
     assert_eq!(text_of(&sess.get_property(o(), "value").unwrap()), "lower");
     assert_eq!(text_of(&sess.get_property(o(), "Value").unwrap()), "upper");
-    assert!(!case_hits());
     // Another spelling matches both: refused, naming both.
     let why = refused(sess.get_property(o(), "VALUE"));
     assert!(
@@ -1434,6 +1419,5 @@ fn two_members_that_differ_only_in_case_keep_an_exact_call_and_refuse_another_ca
     assert!(why.contains("not pinned"), "{why}");
     // One member of its own: other case binds.
     assert_eq!(text_of(&sess.get_property(o(), "SINGLE").unwrap()), "single");
-    assert!(case_hits());
     sess.close();
 }

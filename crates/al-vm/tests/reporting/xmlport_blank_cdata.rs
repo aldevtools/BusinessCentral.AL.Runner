@@ -1,4 +1,4 @@
-//! Xml import of a value that is white space only (corpus xmlport/lt-y91-xmlport-probes/Y91XpTests.al): with
+//! Xml import of a value that is white space only (corpus xmlports/Y91XpTests.al): with
 //! PreserveWhiteSpace a CDATA section of white space is kept in a text element (:149 `cdata_space`) and a Text field element
 //! (:214 `n_cdata_space`), plain white space is not; a text attribute of white space only is kept with it (:184 `att_space`)
 //! and is empty without it (:82 `att_space`).

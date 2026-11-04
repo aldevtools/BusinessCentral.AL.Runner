@@ -1,5 +1,5 @@
 //! An unlinked ListPart over a temporary source that the host's OnOpenPage filled opens on the row its Rec stands on, as a
-//! list whose OnOpenPage left Rec on a later row does (pages/lt-y15/Y15WorksheetPartRefresh.al:287
+//! list whose OnOpenPage left Rec on a later row does (pages/Y15WorksheetPartRefresh.al:287
 //! Y15_PartRefresh_TwoRowsPartOnFirst `open log` `AGR2;AGR1;AGR2;AGR2;AGCR2`, `at open` `2/B`; al-runner issue 6465).
 
 const SRC: &str = r#"

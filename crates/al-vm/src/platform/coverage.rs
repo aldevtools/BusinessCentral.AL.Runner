@@ -4,30 +4,30 @@
 //! While `CodeCoverageLog(true, ...)` is on, the session records which statements ran (hits per
 //! source position), which objects were entered, which `[Test]` procedures started and which
 //! methods ran inside each of them. The tables are stored tables that start empty (what real BC
-//! holds until something is recorded: codeunit/TestCodeCoverageTable.al:`DeleteAll_AfterRecording_
+//! holds until something is recorded: codeunits/TestCodeCoverageTable.al:`DeleteAll_AfterRecording_
 //! LeavesTableEmpty`). A read of one of them first writes what was recorded into the three tables
 //! ([`Session::coverage_flush`]); `DeleteAll` without filters forgets what the table showed.
 //!
 //! What the corpus pins:
 //! - A Code Coverage row's `Line No.` is a line of the object's source file; the line of a
 //!   procedure's declaration is a `Trigger/Function` row; a statement is a `Code` row with
-//!   `No. of Hits`, 0 for one that did not run (codeunit/TestCodeCoverageTable.al:73-104, lines 33,
+//!   `No. of Hits`, 0 for one that did not run (codeunits/TestCodeCoverageTable.al:73-104, lines 33,
 //!   36, 37). A tableextension, pageextension and reportextension have `Code` rows with hits
-//!   (codeunit/TestCodeCoverageTableExtension.al:201-239).
+//!   (codeunits/TestCodeCoverageTableExtension.al:201-239).
 //! - A `[Test]` procedure that starts while recording has one Tests Run row (its codeunit's id,
 //!   the method's name, the owning app) and every method that runs inside it, the test procedure
 //!   itself excluded, one Test Lookup row, a codeunit's `OnRun` trigger included
-//!   (codeunit/TestCodeCoveragePerTest.al:54-168). A procedure that runs outside any test
+//!   (codeunits/TestCodeCoveragePerTest.al:54-168). A procedure that runs outside any test
 //!   leaves no per-test row (same file, `PerTestTables_NoTestStartedWhileRecording_AreEmpty...`).
 //! - `Test ID` and `Method ID` are only compared between rows, never to a literal. The Test ID is the same for every test
-//!   recorded in one recording and in two recordings of one test, and is not 1 (coverage/W6CodeCoverageIds.al:96-97,
+//!   recorded in one recording and in two recordings of one test, and is not 1 (test-framework/code-coverage/W6CodeCoverageIds.al:96-97,
 //!   :111-112, :167-168). Its value is not pinned ([`Session::RUN_TEST_ID`]): a read of it outside those shapes is refused
 //!   (al-sema lower/coverage_ids.rs; a FieldRef read here). Tests Run is keyed by Test ID alone, so the
 //!   runtime cannot hold two recorded tests at once: a read of the per-test tables is refused then.
 //!
 //! - Of an app compiled without its source in the symbols, every row's `Line` holds the platform's
 //!   "source cannot be viewed" text; the `begin` and `end` lines are `Empty` rows; the status is
-//!   Covered, Not Covered or Non Applicable (codeunit/TestCodeCoverageLineTextContracts.al).
+//!   Covered, Not Covered or Non Applicable (codeunits/TestCodeCoverageLineTextContracts.al).
 //!
 //! Not pinned, and set to a stated default (docs/probes-needed.md, "Code coverage rows"): `Line` of an
 //! app that shows its source, the `Method Id` column, the hits of a `Trigger/Function` row.
@@ -45,7 +45,7 @@ pub(crate) const TESTS_RUN: u32 = 2_000_000_289;
 pub(crate) const COVERAGE_TABLES: [u32; 3] = [CODE_COVERAGE, TEST_LOOKUP, TESTS_RUN];
 
 /// What `Line` holds for an app compiled without its source in the symbols, the default
-/// (codeunit/TestCodeCoverageLineTextContracts.al). An app with `ShowMyCode` or
+/// (codeunits/TestCodeCoverageLineTextContracts.al). An app with `ShowMyCode` or
 /// `IncludeSourceInSymbolFile` would show the source text: not pinned (docs/probes-needed.md).
 const NO_SOURCE: &str = "The extension that declares this object has its manifest property ShowMyCode (being deprecated) or IncludeSourceInSymbolFile set to false. This means that the source code cannot be viewed.";
 
@@ -93,8 +93,8 @@ impl Session {
     /// A routine starts while recording. Returns what to restore when it ends, if it started a test.
     ///
     /// Only a `[Test]` procedure that AL code calls while no recorded test runs is noted as a test
-    /// (codeunit/TestCodeCoveragePerTest.al:RecordedTest_RunsTripled is called directly). A test the
-    /// runner starts while recording is on (codeunit/PWCodeCoverageRows.al:Outlives_2_...) is not, nor is
+    /// (codeunits/TestCodeCoveragePerTest.al:RecordedTest_RunsTripled is called directly). A test the
+    /// runner starts while recording is on (codeunits/PWCodeCoverageRows.al:Outlives_2_...) is not, nor is
     /// a test procedure that runs inside a recorded one (NestedTest_TestsRunAndLookupRows: one Tests
     /// Run row for the outer test, no Test Lookup row for the inner `[Test]` procedure).
     pub(crate) fn coverage_enter(&mut self, object: usize, routine: usize) -> Option<TestScope> {
@@ -141,12 +141,12 @@ impl Session {
         if table != CODE_COVERAGE && self.several_recorded_tests() {
             return Err(Signal::Unsupported(format!(
                 "a read of {}: several [Test] procedures were recorded and BC gives them one Test ID, which the Tests Run \
-                 table keys its rows by (coverage/W6CodeCoverageIds.al:111-112); the runtime cannot hold those rows",
+                 table keys its rows by (test-framework/code-coverage/W6CodeCoverageIds.al:111-112); the runtime cannot hold those rows",
                 t.name
             )));
         }
         // While logging is on the tables hold nothing new: what was recorded lands in them when logging stops or at
-        // CodeCoverageRefresh (platform/lt-code-coverage-refresh/CodeCoverageRefreshLogged.al: `rows before nonzero` No).
+        // CodeCoverageRefresh (metadata/code-coverage/CodeCoverageRefreshLogged.al: `rows before nonzero` No).
         if self.coverage.code_coverage {
             // After a refresh the table stays the snapshot the refresh wrote; whether BC shows later hits live is not pinned
             // (the test cannot tell the two apart): assumption code-coverage-snapshot-while-logging.
@@ -261,8 +261,8 @@ impl Session {
     }
 
     /// The Code Coverage rows of every object a routine of which ran while recording
-    /// (codeunit/PWCodeCoverageRows.al:Rows_AllLinesOfSmallCodeunit_OneProcedureRun and the `Hits_*` tests,
-    /// BC 27.5; onprem coverage/TestCodeCoverageSourceLinesContracts.al for the lines inside a routine):
+    /// (codeunits/PWCodeCoverageRows.al:Rows_AllLinesOfSmallCodeunit_OneProcedureRun and the `Hits_*` tests,
+    /// BC 27.5; onprem test-framework/code-coverage/TestCodeCoverageSourceLinesContracts.al for the lines inside a routine):
     /// - one `Object` row at line 0, status Non Applicable;
     /// - for each routine, one row for every line from its declaration to its `end`: the declaration is
     ///   `Trigger/Function`, a line where a statement starts is `Code`, every other line (`var`, a variable,
@@ -327,7 +327,7 @@ impl Session {
                 lines.extend(first..=last);
             }
             // An app that includes its source in the symbols shows the line as written
-            // (onprem coverage/TestCodeCoverageSourceLinesContracts.al:60-74); any other shows the platform's text.
+            // (onprem test-framework/code-coverage/TestCodeCoverageSourceLinesContracts.al:60-74); any other shows the platform's text.
             let source: Option<&Vec<String>> = o
                 .routines
                 .iter()
@@ -359,20 +359,20 @@ impl Session {
     }
 
     /// The "Method ID" of a Test Lookup row: the routine's index plus one. Kept, not pinned: the corpus pins one
-    /// literal (31658110, codeunit/PWCodeCoverageRows.al:309) and that it differs from the test's own Tests Run id
-    /// (codeunit/TestCodeCoveragePerTest.al:121), not the rule (docs/probes-needed.md).
+    /// literal (31658110, codeunits/PWCodeCoverageRows.al:309) and that it differs from the test's own Tests Run id
+    /// (codeunits/TestCodeCoveragePerTest.al:121), not the rule (docs/probes-needed.md).
     fn method_id(routine: usize) -> Value {
         Value::Integer(routine as i32 + 1)
     }
 
-    /// The "Method ID" of a Tests Run row: one number for every test procedure (codeunit/PWCodeCoverageRows.al:308;
-    /// coverage/W6CodeCoverageIds.al:105-107 for four tests of different bodies, :139 not below 1000, :168 the same in
+    /// The "Method ID" of a Tests Run row: one number for every test procedure (codeunits/PWCodeCoverageRows.al:308;
+    /// test-framework/code-coverage/W6CodeCoverageIds.al:105-107 for four tests of different bodies, :139 not below 1000, :168 the same in
     /// two recordings).
     const TEST_METHOD_ID: i32 = 469_735_107;
 
     /// The "Test ID" of every Tests Run and Test Lookup row. Pinned: one value for the tests of a recording and for two
-    /// recordings of one test, and not 1 (coverage/W6CodeCoverageIds.al:111-112, :167-168). The number itself is not
-    /// pinned (BC computes it per run, codeunit/TestCodeCoveragePerTest.al:14): every read that would show it is refused
+    /// recordings of one test, and not 1 (test-framework/code-coverage/W6CodeCoverageIds.al:111-112, :167-168). The number itself is not
+    /// pinned (BC computes it per run, codeunits/TestCodeCoveragePerTest.al:14): every read that would show it is refused
     /// (al-sema lower/coverage_ids.rs, `FieldRef.Value`), so no outcome depends on it.
     const RUN_TEST_ID: i32 = 2;
 

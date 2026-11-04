@@ -1,5 +1,5 @@
 //! `Report.Execute` twice on one variable with parameters, and data item views in the parameters (corpus master, corpus PR 886:
-//! report/lt-report-requestpage/ExecuteParamsTwiceAndViews.al:146-235).
+//! reports/request-page/ExecuteParamsTwiceAndViews.al:146-235).
 
 use al_testkit::{run_in, text};
 

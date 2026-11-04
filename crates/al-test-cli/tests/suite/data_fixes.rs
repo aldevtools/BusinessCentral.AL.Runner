@@ -1,6 +1,6 @@
 //! Behaviour of queries and XmlPorts pinned by probe tests that are not in the corpus submodule yet
-//! (corpus: query/TestQueryOuterJoinDescendingSaveAsContracts.al,
-//! xmlport/TestXmlPortTriggersReplaceViewContracts.al, xmlport/TestXmlPortTextFormatsContracts.al).
+//! (corpus: queries/TestQueryOuterJoinDescendingSaveAsContracts.al,
+//! xmlports/TestXmlPortTriggersReplaceViewContracts.al, xmlports/TestXmlPortTextFormatsContracts.al).
 //! AL source, compiled and run as a test codeunit. Each test names the probe it mirrors.
 
 use al_test_cli::report::Outcome;
@@ -190,7 +190,7 @@ procedure Seed() var P: Record \"DF Parent\"; C: Record \"DF Child\"; begin
     C.\"Entry No.\" := 12; C.\"Parent Entry No.\" := 3; C.Amount := 1; C.Insert();
     InsU(1, 2); InsU(2, 1); InsU(3, 2); InsU(4, 1); end;";
 
-// query/TestQueryOuterJoinDescendingSaveAsContracts.al:Query_DescendingOrderBy_TiesStayInAscendingPrimaryKeyOrder
+// queries/TestQueryOuterJoinDescendingSaveAsContracts.al:Query_DescendingOrderBy_TiesStayInAscendingPrimaryKeyOrder
 #[test]
 fn descending_order_by_keeps_ties_in_ascending_primary_key_order_and_groups_descend() {
     passes(&format!(
@@ -206,7 +206,7 @@ fn descending_order_by_keeps_ties_in_ascending_primary_key_order_and_groups_desc
     ));
 }
 
-// query/TestQueryOuterJoinDescendingSaveAsContracts.al:Query_LeftOuterJoin_RowsFiltersAndAggregates
+// queries/TestQueryOuterJoinDescendingSaveAsContracts.al:Query_LeftOuterJoin_RowsFiltersAndAggregates
 #[test]
 fn left_outer_join_rows_filters_and_aggregates() {
     passes(&format!(
@@ -228,7 +228,7 @@ fn left_outer_join_rows_filters_and_aggregates() {
     ));
 }
 
-// query/TestQueryOuterJoinDescendingSaveAsContracts.al:Query_SumOfAnIntegerColumn_AndARowInsertedBeforeTheFirstRead
+// queries/TestQueryOuterJoinDescendingSaveAsContracts.al:Query_SumOfAnIntegerColumn_AndARowInsertedBeforeTheFirstRead
 #[test]
 fn open_does_not_run_the_query() {
     passes(&format!(
@@ -248,7 +248,7 @@ const STREAM_TEXT: &str =
     B.CalcFields(Data); B.Data.CreateInStream(InStr, TextEncoding::UTF8);
     while not InStr.EOS() do begin InStr.ReadText(Line); Result += Line.Trim(); end; exit(Result); end;";
 
-// query/TestQueryOuterJoinDescendingSaveAsContracts.al:Query_SaveAsXml_And_SaveAsJson_Output
+// queries/TestQueryOuterJoinDescendingSaveAsContracts.al:Query_SaveAsXml_And_SaveAsJson_Output
 #[test]
 fn save_as_xml_writes_a_dataset_and_save_as_json_an_array_of_objects() {
     passes(&format!(
@@ -279,7 +279,7 @@ procedure HexOf(var B: Record "DF Blob"): Text var InStr: InStream; V: Byte; R: 
 procedure UniversalRows(): Text var U: Record "DF Universal"; R: Text; begin
     if U.FindSet() then repeat R += Format(U."Entry No.") + '|' + U."Text Field" + '|' + Format(U."Decimal Field", 0, 9) + '|' + Format(U."Date Field", 0, 9) + ' ; '; until U.Next() = 0; exit(R); end;"#;
 
-// xmlport/TestXmlPortTriggersReplaceViewContracts.al:Import_TriggerOrder_AndEveryElementStartsFromAnEmptyRecord
+// xmlports/TestXmlPortTriggersReplaceViewContracts.al:Import_TriggerOrder_AndEveryElementStartsFromAnEmptyRecord
 #[test]
 fn import_runs_the_triggers_in_order_and_every_element_starts_from_an_empty_record() {
     passes_raw(
@@ -377,7 +377,7 @@ fn nested_import_links_only_the_first_child() {
     );
 }
 
-// xmlport/TestXmlPortTextFormatsContracts.al:VariableText_Import_QuotedUnquotedAndBlankValues,
+// xmlports/TestXmlPortTextFormatsContracts.al:VariableText_Import_QuotedUnquotedAndBlankValues,
 // :VariableText_Import_DoubledQuoteInsideAQuotedValue_IsNotAnEscape
 #[test]
 fn variable_text_import_reads_quoted_unquoted_and_blank_values() {

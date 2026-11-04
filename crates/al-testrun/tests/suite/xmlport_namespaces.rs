@@ -1,5 +1,5 @@
 //! XmlPort `Namespaces`, the `NamespacePrefix` of a field element, and `AutoCalcField` on a field node
-//! (corpus xmlport/lt-y-xmlport-props/YXmlPortProps.al:652-679 NodeProperties_Export_NamesPrefixesAutoCalc,
+//! (corpus xmlports/shapes-properties/YXmlPortProps.al:652-679 NodeProperties_Export_NamesPrefixesAutoCalc,
 //! NodeProperties_Import_NamesPrefixes). A prefixed element is written `p:Name` and the root declares `xmlns:p`;
 //! the prefix on an attribute is not written. An import needs the prefix on the element. Declared but unused
 //! namespaces, a prefix that is not declared and more than one namespace are not pinned and are refused.

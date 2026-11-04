@@ -11,7 +11,7 @@ use std::rc::Rc;
 impl Session {
     /// `FieldRef.Validate` of the field at `pos`: validates the record's field. An Enum field given the caption of a member that
     /// is no member name raises the Evaluate error of an Option from BC 28 and `The type NavOption is unknown.` before, and keeps
-    /// its value (text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:271-317, `fieldref validate text`). Another text into an
+    /// its value (text/text-methods/Y49FieldRefIntoText.al:271-317, `fieldref validate text`). Another text into an
     /// Enum field is not pinned and is refused where it is converted.
     pub(crate) fn fieldref_validate(
         &mut self,
@@ -51,7 +51,7 @@ impl Session {
         }
         let mut a = vec![Value::Integer(pos as i32)];
         // A number, Enum, Option, Date or Boolean into a Text or Code field goes in as its Format text
-        // (recordref/lt-y47-validate-fieldref/Y47ValidateFieldRef.al:461-492, Y57_ValidateVariantValue_IntoText).
+        // (recordref-fieldref/recordref/Y47ValidateFieldRef.al:461-492, Y57_ValidateVariantValue_IntoText).
         let first = args
             .first()
             .and_then(|v| al_builtins::fieldref_value_text::variant_into_text_field(v, &t.fields[pos].ty, &*self))
@@ -77,7 +77,7 @@ impl Session {
     ) -> Result<Option<Result<Value, Signal>>, Signal> {
         let ty = &t.fields[pos].ty;
         // A text into a Guid field: a Variant holding one that is no GUID raises the Evaluate error from BC 28 (Y67FieldRefValidateVariant.al
-        // Validate_Into_G_B `text abc`), a Text variable the GUID format error (fieldref/TestFieldRefValue.al:282
+        // Validate_Into_G_B `text abc`), a Text variable the GUID format error (recordref-fieldref/fieldref/TestFieldRefValue.al:282
         // FieldRef_Value_TextIntoBooleanDateGuidOption, `FieldRef.Value :=` only). The runtime does not see which of the two the
         // caller passed: `FieldRef.Value :=` keeps the Text's pinned error, `FieldRef.Validate`, which no test pins for a Text, is
         // refused.

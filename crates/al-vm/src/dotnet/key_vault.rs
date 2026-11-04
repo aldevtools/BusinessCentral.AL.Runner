@@ -4,7 +4,7 @@
 //! the helper, hands it the provider "Azure Key Vault Test Library" set (or none) and asks it for secrets and certificates;
 //! the cache, the "missing or empty" error and ClearSecrets are that codeunit's own AL.
 //!
-//! Pinned by tests/al-language-onprem-dotnet/lt-y58-key-vault/Y58AzureKeyVault.al (corpus master 7330f181, PR 1019; real BC
+//! Pinned by tests/al-language-onprem-dotnet/dotnet/key-vault/Y58AzureKeyVault.al (corpus master 7330f181, PR 1019; real BC
 //! 27.5, 28.5 and 29.0):
 //! - no provider (never set, or a null one): both getters raise "Azure key vault has not been set up. Please contact your
 //!   system administrator." as a failed call of the helper, code `DotNetInvoke:` on 27 and 28 and `DotNetInvoke:InvalidOperation`
@@ -31,7 +31,7 @@ use std::rc::Rc;
 use al_builtins::dotnet_sigs::{KEY_VAULT_HELPER as HELPER, KEY_VAULT_MOCK_PROVIDER as MOCK_PROVIDER};
 
 const PIN: &str =
-    "tests/al-language-onprem-dotnet/lt-y58-key-vault/Y58AzureKeyVault.al:71-404 (corpus master 7330f181)";
+    "tests/al-language-onprem-dotnet/dotnet/key-vault/Y58AzureKeyVault.al:71-404 (corpus master 7330f181)";
 
 const SECRET: &str = "s";
 const CERTIFICATE: &str = "c";

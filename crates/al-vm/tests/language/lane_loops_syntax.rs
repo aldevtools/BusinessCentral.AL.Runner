@@ -68,7 +68,7 @@ fn for_big_with(end: i64) -> String {
     }
 }
 
-// corpus misc/lt-system-functions/ControlFlow.al:779-830, LT_BU_ForLoop_BigIntegerEndBoundOnInteger.
+// corpus language/ControlFlow.al:779-830, LT_BU_ForLoop_BigIntegerEndBoundOnInteger.
 #[test]
 fn a_big_integer_end_bound_beyond_integer_on_an_integer_counter_fails_after_the_counter_takes_the_start() {
     assert_eq!(
@@ -231,7 +231,7 @@ codeunit 69905 MS
 }
 "#;
 
-// corpus text/lt-text-functions/MaxStrLen.Codeunit.al:91-151, LT_BU_MaxStrLen_TextParameters: a `var` parameter reports the
+// corpus text/text-methods/MaxStrLen.Codeunit.al:91-151, LT_BU_MaxStrLen_TextParameters: a `var` parameter reports the
 // declared length of the caller's variable or field, a by-value parameter its own.
 #[test]
 fn max_str_len_of_a_var_parameter_is_the_length_of_the_callers_variable() {
@@ -241,7 +241,7 @@ fn max_str_len_of_a_var_parameter_is_the_length_of_the_callers_variable() {
     );
 }
 
-// corpus text/lt-text-functions/MaxStrLen.Codeunit.al:146-170, PYC_MaxStrLen_VarParameterHops (`two hops text30` = 30).
+// corpus text/text-methods/MaxStrLen.Codeunit.al:146-170, PYC_MaxStrLen_VarParameterHops (`two hops text30` = 30).
 #[test]
 fn max_str_len_of_a_var_parameter_handed_on_from_another_var_parameter_is_the_first_callers_length() {
     assert_eq!(text(run_in(MAXSTRLEN, "MS", "Chained")), "30");
@@ -300,7 +300,7 @@ fn continue_else_in_a_foreach_nested_in_a_loop_is_refused() {
 }
 
 // `#undef x` after `#define X`: preprocessor symbols are case-sensitive in `#if`
-// (misc/lt-bm-preprocessor-scope/BmPreprocessorDefine.al:83), but whether `#undef` matches the other case is not pinned:
+// (permissions/BmPreprocessorDefine.al:83), but whether `#undef` matches the other case is not pinned:
 // the file is refused (docs/probes-needed.md, "Loops, continue and MaxStrLen").
 #[test]
 fn undef_of_a_symbol_defined_only_in_another_case_is_refused() {

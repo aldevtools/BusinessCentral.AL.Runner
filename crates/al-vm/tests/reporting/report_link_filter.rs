@@ -1,5 +1,5 @@
 //! A data item whose own filter (DataItemTableView) is on a field its DataItemLink joins: both apply, the child shows the rows that
-//! satisfy the view and the link (report/lt-f3-reports/F3ReportTests.al:68 LinkFilter_InItemView, :116 LinkFilter_CallerViewOverItemView).
+//! satisfy the view and the link (reports/F3ReportTests.al:68 LinkFilter_InItemView, :116 LinkFilter_CallerViewOverItemView).
 //! Microsoft's Assembly Header item of Get Source Documents has `where("Document Type" = const(Order))` and a link on "Document Type".
 
 use al_testkit::text;

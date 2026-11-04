@@ -82,7 +82,7 @@ fn truth(vars: &str, body: &str) -> bool {
 
 #[test]
 fn today_time_and_current_datetime_come_from_one_instant() {
-    // session/TestSessionEvaluateRegionalPatterns.al:52-67, session/TestDateTimeContracts.al:19-21:
+    // session-system/TestSessionEvaluateRegionalPatterns.al:52-67, session-system/TestDateTimeContracts.al:19-21:
     // the three views of the clock agree.
     assert!(truth("D: DateTime;", "DT2Date(CurrentDateTime()) = Today()"));
     assert!(truth("", "CurrentDateTime() <> 0DT"));
@@ -131,7 +131,7 @@ fn the_clock_never_reads_earlier_than_the_last_stamp() {
 
 #[test]
 fn a_stamp_is_a_value_the_datetime_column_holds() {
-    // A DateTime field keeps 1/300 s (errors/lt-ms-refusals-130/P130DateFilters.al:162-183). Whether a record's buffer holds
+    // A DateTime field keeps 1/300 s (record/filters/P130DateFilters.al:162-183). Whether a record's buffer holds
     // a stamp rounded is not pinned (sqltime.rs `store`), so a stamp is always a value the column holds as it is: copied into
     // a DateTime field and read back, it is still equal.
     assert_eq!(
@@ -193,8 +193,8 @@ fn every_read_of_the_clock_is_one_millisecond_later_than_the_last() {
 
 #[test]
 fn work_date_defaults_to_today_and_can_be_set() {
-    // session/TestSessionFunctions.al:53 (non-zero), :62-65 (set and read back),
-    // handlers/TestPageTemporalSetValue_Tests.al:285 (WorkDate is the working date shorthand).
+    // session-system/TestSessionFunctions.al:53 (non-zero), :62-65 (set and read back),
+    // testpage/TestPageTemporalSetValue_Tests.al:285 (WorkDate is the working date shorthand).
     assert!(truth("", "WorkDate() = Today()"));
     assert!(truth("", "WorkDate() <> 0D"));
     assert_eq!(
@@ -208,7 +208,7 @@ fn work_date_defaults_to_today_and_can_be_set() {
 
 #[test]
 fn work_date_of_the_undefined_date_resets_to_today() {
-    // session/TestProbeSessionMiscContracts.al:WorkDate_SetUndefined (`after_set_0D_minus_today` is 0).
+    // session-system/TestProbeSessionMiscContracts.al:WorkDate_SetUndefined (`after_set_0D_minus_today` is 0).
     assert_eq!(text("", "WorkDate(0D); exit(Format(WorkDate() - Today()));"), "0");
 }
 
@@ -216,13 +216,13 @@ fn work_date_of_the_undefined_date_resets_to_today() {
 
 #[test]
 fn user_id_is_the_fixed_test_user() {
-    // session/TestSessionFunctions.al:18,75-77: not empty and stable (ADR-013 decision 9).
+    // session-system/TestSessionFunctions.al:18,75-77: not empty and stable (ADR-013 decision 9).
     assert_eq!(text("", "exit(UserId());"), "TESTUSER");
 }
 
 #[test]
 fn user_security_id_is_the_fixed_guid() {
-    // session/TestUserSecurityId.al:34-58: not empty and stable (ADR-013 decision 9).
+    // session-system/TestUserSecurityId.al:34-58: not empty and stable (ADR-013 decision 9).
     assert_eq!(
         text("", "exit(Format(UserSecurityId(), 0, 9));"),
         "{C0A1BDFA-0000-0000-0000-545553545553}"
@@ -233,7 +233,7 @@ fn user_security_id_is_the_fixed_guid() {
 
 #[test]
 fn session_and_service_instance_ids_are_positive() {
-    // session/TestSessionIdentityValues.al:24-59.
+    // session-system/TestSessionIdentityValues.al:24-59.
     assert!(truth("", "ServiceInstanceId() > 0"));
     assert!(truth("", "Database.ServiceInstanceId() = ServiceInstanceId()"));
     assert!(truth("", "SessionId() > 0"));
@@ -242,13 +242,13 @@ fn session_and_service_instance_ids_are_positive() {
 
 #[test]
 fn tenant_id_is_not_empty() {
-    // session/TestDatabaseExtended.al:63-70.
+    // session-system/TestDatabaseExtended.al:63-70.
     assert!(truth("", "Database.TenantId() <> ''"));
 }
 
 #[test]
 fn serial_number_is_stable_not_blank_and_at_most_250_long() {
-    // platform/lt-system-database-members/DbSerialNumber.al:33-41 (al-runner issue 6055).
+    // metadata/platform-tables/DbSerialNumber.al:33-41 (al-runner issue 6055).
     assert!(truth("S: Text;", "Database.SerialNumber() = Database.SerialNumber()"));
     assert!(truth("", "Database.SerialNumber() <> ''"));
     assert!(truth("", "StrLen(Database.SerialNumber()) <= 250"));
@@ -256,7 +256,7 @@ fn serial_number_is_stable_not_blank_and_at_most_250_long() {
 
 #[test]
 fn platform_answers_of_a_test_session() {
-    // session/TestBCPlatformContracts.al:27-42,205-211, session/TestFinalCoverage.al:62-73.
+    // session-system/TestBCPlatformContracts.al:27-42,205-211, session-system/TestFinalCoverage.al:62-73.
     assert!(truth("", "GuiAllowed()"));
     assert!(truth("", "IsServiceTier()"));
     assert!(truth("", "WindowsLanguage() > 0"));
@@ -265,7 +265,7 @@ fn platform_answers_of_a_test_session() {
 
 #[test]
 fn global_language_can_be_set() {
-    // session/TestSessionSettings.al:534 reads it; setting it is the other form of the builtin.
+    // session-system/TestSessionSettings.al:534 reads it; setting it is the other form of the builtin.
     assert_eq!(
         text("", "GlobalLanguage(1031); exit(Format(GlobalLanguage()));"),
         "1031"
@@ -276,7 +276,7 @@ fn global_language_can_be_set() {
 fn global_language_can_be_assigned_like_a_property() {
     // `GlobalLanguage := Id` is the other spelling of `GlobalLanguage(Id)`; System Application's
     // "Reten. Pol. Telemetry Impl." sets and restores it that way. The setter itself is pinned by
-    // session/TestSessionSettings.al:534.
+    // session-system/TestSessionSettings.al:534.
     assert_eq!(
         text(
             "Saved: Integer;",
@@ -289,7 +289,7 @@ fn global_language_can_be_assigned_like_a_property() {
 #[test]
 fn client_types_are_callable() {
     // The test session is a web client session whose default client type is Windows
-    // (session/W5SessionFacts.al:135-138; callable: session/TestSessionExtended.al:21,31).
+    // (session-system/W5SessionFacts.al:135-138; callable: session-system/TestSessionExtended.al:21,31).
     assert!(truth("C: ClientType;", "Session.CurrentClientType() = ClientType::Web"));
     assert!(truth(
         "C: ClientType;",
@@ -311,7 +311,7 @@ end;
 
 #[test]
 fn insert_stamps_all_four_fields() {
-    // session/TestTransactionContracts.al:131-170, record/TestBCSystemFieldContracts.al:78-102:
+    // session-system/TestTransactionContracts.al:131-170, record/TestBCSystemFieldContracts.al:78-102:
     // the stamps are the clock and UserSecurityId().
     let (engine, oi) = compile(STAMPS);
     let v = call(&mut Session::new(engine), oi, "Stamps").unwrap();
@@ -324,7 +324,7 @@ fn insert_stamps_all_four_fields() {
 
 #[test]
 fn a_changing_modify_moves_modified_and_keeps_created() {
-    // record/TestRecordSystemId.al:726-750, session/TestTransactionContracts.al:172-190.
+    // record/TestRecordSystemId.al:726-750, session-system/TestTransactionContracts.al:172-190.
     let t = text(
         "R: Record \"ALT T\"; C0: DateTime; M0: DateTime;",
         "R.\"No.\" := 1; R.Insert(); R.Get(1); C0 := R.SystemCreatedAt; M0 := R.SystemModifiedAt; \
@@ -400,7 +400,7 @@ fn temporary_records_are_not_stamped() {
 
 #[test]
 fn session_settings_init_reads_language_locale_and_time_zone_from_the_host() {
-    // session/TestSessionSettings.al:371-455: Init populates a positive language id and a
+    // session-system/TestSessionSettings.al:371-455: Init populates a positive language id and a
     // non-empty time zone, overwrites what was set before, and is repeatable. The values are the
     // host's (en-US, UTC), the zone the runtime models (docs/probes-needed.md "Dates").
     assert_eq!(
@@ -422,8 +422,8 @@ fn session_settings_init_reads_language_locale_and_time_zone_from_the_host() {
 
 #[test]
 fn company_name_is_the_hosts_company() {
-    // session/TestSessionFunctions.al:25 (not empty), session/TestDatabase.al:74 (equals
-    // CurrentCompany); the name is the oracle's (session/TestEnvironmentUserTenantContracts.al:238).
+    // session-system/TestSessionFunctions.al:25 (not empty), session-system/TestDatabase.al:74 (equals
+    // CurrentCompany); the name is the oracle's (session-system/TestEnvironmentUserTenantContracts.al:238).
     assert_eq!(text("", "exit(CompanyName());"), "CRONUS International Ltd.");
     assert!(truth("R: Record \"ALT T\";", "R.CurrentCompany() = CompanyName()"));
 }
@@ -455,7 +455,7 @@ fn sleep_of_zero_is_allowed_and_a_negative_wait_is_refused() {
     }
 }
 
-// platform/lt-platform-members/PlTSession.al:245-266 (GlobalLanguage_InvalidIds): 0, -1 and 99999 raise NotSupportedLanguage and
+// metadata/platform-tables/PlTSession.al:245-266 (GlobalLanguage_InvalidIds): 0, -1 and 99999 raise NotSupportedLanguage and
 // leave the language unchanged, and so do 1000, 4096, 8192, 9999, 32767 and 65535 (:326-360, GlobalLanguage_PositiveIds); other ids
 // that are not positive are not pinned.
 #[test]
@@ -484,7 +484,7 @@ fn global_language_raises_for_the_pinned_invalid_ids() {
     }
 }
 
-// session/TestSessionComplete.al:45-52: an id no session has is not active; platform/lt-platform-members/PlTSession.al:294
+// session-system/TestSessionComplete.al:45-52: an id no session has is not active; metadata/platform-tables/PlTSession.al:294
 // (SessionId_Relations): the running session is.
 #[test]
 fn is_session_active_is_false_for_an_unknown_id_and_true_for_the_running_session() {
@@ -496,7 +496,7 @@ fn is_session_active_is_false_for_an_unknown_id_and_true_for_the_running_session
 
 // ------------------------------------------------------------------ the transaction type
 
-// session/TestClearAllTransactionTypeContracts.al:224-238 and session/ProbeSystemEnumMembers.al:78-92 (BC 27.5): a
+// session-system/TestClearAllTransactionTypeContracts.al:224-238 and session-system/ProbeSystemEnumMembers.al:78-92 (BC 27.5): a
 // test starts as UpdateNoLocks (not Update), and a set before any database call takes effect.
 #[test]
 fn the_transaction_type_starts_as_update_no_locks_and_a_set_before_any_call_takes_effect() {
@@ -843,7 +843,7 @@ fn format_of_a_record_ends_with_its_flow_filter_fields_at_their_value() {
     );
 }
 
-// misc/lt-probes-needed-5/PnE08RecordMisc.al:FormatRecord_FlowFilterPlacement `afterCalc`: after the stored fields come all
+// recordref-fieldref/PnE08RecordMisc.al:FormatRecord_FlowFilterPlacement `afterCalc`: after the stored fields come all
 // FlowFilter fields, then the FlowFields, whatever their field numbers.
 #[test]
 fn format_of_a_record_puts_flow_filter_fields_before_flow_fields() {
@@ -856,7 +856,7 @@ fn format_of_a_record_puts_flow_filter_fields_before_flow_fields() {
     );
 }
 
-// platform/lt-xmlport-session-navapp-cookie/P94Session.al: StopSession of an id no session has answers false; the running
+// metadata/session-system/P94Session.al: StopSession of an id no session has answers false; the running
 // session's own id is refused.
 #[test]
 fn stop_session_is_false_for_an_unknown_id_and_refused_for_the_running_session() {
@@ -898,7 +898,7 @@ fn geturl_web_is_the_host_server_address_and_marks_its_assumption() {
     );
 }
 
-// platform/lt-system-database-members/GetUrlCompany.al:67-77, session/lt-geturl-shape/GetUrlShape.al:121-130: the query after
+// metadata/platform-tables/GetUrlCompany.al:67-77, session-system/session/GetUrlShape.al:121-130: the query after
 // the host's address, with the company encoded.
 #[test]
 fn geturl_with_a_company_or_an_object_builds_the_pinned_query() {
@@ -928,7 +928,7 @@ fn geturl_with_a_company_or_an_object_builds_the_pinned_query() {
     }
 }
 
-// session/lt-geturl-shape/GetUrlShape.al:270 (QA_GetUrl_Web_NoArgument_Whole `default alone`): GetUrl(ClientType::Default)
+// session-system/session/GetUrlShape.al:270 (QA_GetUrl_Web_NoArgument_Whole `default alone`): GetUrl(ClientType::Default)
 // alone is the web address with the scheme dynamicsnav and the path followed by `//`. Only an http address and only the
 // form without arguments are pinned; the rest is refused.
 #[test]
@@ -963,7 +963,7 @@ fn geturl_default_alone_is_the_dynamicsnav_form_of_the_address() {
     }
 }
 
-// platform/lt-t-geturl/TGetUrl.al:203-210 (GetUrl_ClientDefault): the Default forms with a company and a page or report are
+// metadata/session-system/TGetUrl.al:203-210 (GetUrl_ClientDefault): the Default forms with a company and a page or report are
 // `dynamicsnav://<address>/<company>/` followed by `runpage?page=N` or `runreport?report=N`; the company is percent-encoded
 // (only the space is pinned).
 #[test]
@@ -1010,7 +1010,7 @@ fn geturl_of_another_client_type_or_an_unpinned_character_is_refused() {
     }
 }
 
-// text/lt-foreach-text/ForeachText.al:Foreach_Text_Char_Order: a Text visits its characters in order, a Code in upper case.
+// text/text-methods/ForeachText.al:Foreach_Text_Char_Order: a Text visits its characters in order, a Code in upper case.
 #[test]
 fn foreach_over_a_text_visits_each_character() {
     let r = run(
@@ -1019,7 +1019,7 @@ fn foreach_over_a_text_visits_each_character() {
     assert!(matches!(&r, Ok(Value::Text(t)) if &**t == "a,+,b,"), "{r:?}");
 }
 
-// types/lt-evaluate-wide-decimal/EvaluateWideDecimal.al:Evaluate_Decimal_IntegerDigits: 15 digits before the point read, 16 do not.
+// format-evaluate/EvaluateWideDecimal.al:Evaluate_Decimal_IntegerDigits: 15 digits before the point read, 16 do not.
 #[test]
 fn evaluate_decimal_takes_fifteen_integer_digits_and_not_sixteen() {
     let r = run(
@@ -1028,7 +1028,7 @@ fn evaluate_decimal_takes_fifteen_integer_digits_and_not_sixteen() {
     assert!(matches!(&r, Ok(Value::Text(t)) if &**t == "YesNo"), "{r:?}");
 }
 
-// types/lt-page-style/PageStyle.al: the members have the ordinals 1 to 11 and a fresh variable is 0.
+// types/page-style/PageStyle.al: the members have the ordinals 1 to 11 and a fresh variable is 0.
 #[test]
 fn page_style_members_and_default() {
     let r = run(
@@ -1037,7 +1037,7 @@ fn page_style_members_and_default() {
     assert!(matches!(&r, Ok(Value::Text(t)) if &**t == "11None0"), "{r:?}");
 }
 
-// types/lt-secret-text-from-text/SecretTextFromText.al:SecretStrSubstNo_TextArgument `text_var_in_template`.
+// types/text-code-char/SecretTextFromText.al:SecretStrSubstNo_TextArgument `text_var_in_template`.
 #[test]
 fn secret_str_subst_no_takes_a_text_variable() {
     let r = run(
@@ -1046,7 +1046,7 @@ fn secret_str_subst_no_takes_a_text_variable() {
     assert!(matches!(r, Ok(Value::Boolean(false))), "{r:?}");
 }
 
-// platform/lt-t-geturl/TGetUrl.al:383-388 GetUrl_Web_ReportQueryCodeunitWithRecord: a report, a query or a codeunit
+// metadata/session-system/TGetUrl.al:383-388 GetUrl_Web_ReportQueryCodeunitWithRecord: a report, a query or a codeunit
 // with a record and UseFilters false has no address, the empty text. A query with UseFilters true is not pinned.
 #[test]
 fn geturl_of_report_query_or_codeunit_with_a_record_is_empty_and_a_query_with_filters_is_refused() {
@@ -1068,7 +1068,7 @@ fn geturl_of_report_query_or_codeunit_with_a_record_is_empty_and_a_query_with_fi
     );
 }
 
-// misc/lt-probes-needed-5/PnE08RecordMisc.al:TestField_Blob `af219`: an error inside ASSERTERROR rolls the Insert back, and a
+// recordref-fieldref/PnE08RecordMisc.al:TestField_Blob `af219`: an error inside ASSERTERROR rolls the Insert back, and a
 // later CalcFields of the Blob finds no row, so the content a stream wrote is gone.
 #[test]
 fn calcfields_of_a_blob_of_a_rolled_back_row_empties_the_blob() {
@@ -1084,7 +1084,7 @@ fn calcfields_of_a_blob_of_a_rolled_back_row_empties_the_blob() {
 
 #[test]
 fn random_of_a_decimal() {
-    // types/lt-aj-probes/AjScalars.al:375-433: a whole Decimal draws as that Integer, a fraction is the conversion error.
+    // format-evaluate/AjScalars.al:375-433: a whole Decimal draws as that Integer, a fraction is the conversion error.
     assert_eq!(text("D: Decimal;", "D := 1.0; exit(Format(Random(D)));"), "1");
     match run("procedure F(): Text var D: Decimal; I: Integer; begin D := 2.5; I := Random(D); exit(''); end;") {
         Err(Signal::Error(e)) => {
@@ -1098,7 +1098,7 @@ fn random_of_a_decimal() {
     }
 }
 
-// platform/lt-t-geturl/TGetUrl.al:248-285 (GetUrl_ClientPhone, Tablet, Desktop): `ms-dynamicsnav://` and the address, then the
+// metadata/session-system/TGetUrl.al:248-285 (GetUrl_ClientPhone, Tablet, Desktop): `ms-dynamicsnav://` and the address, then the
 // web query without a `/`; TGetUrl.al:233-240 (GetUrl_ClientWindows): the Default text; GetUrlCtBackground.al,
 // GetUrlCtManagement.al, GetUrlCtNAS.al:69-73: the empty text.
 #[test]
@@ -1130,7 +1130,7 @@ fn geturl_of_the_other_client_types_builds_the_pinned_text() {
     }
 }
 
-// platform/lt-t-geturl/TGetUrl.al:310-329 (GetUrl_Web_CompanyCharacters): only letters, digits and - . _ ~ stay unencoded.
+// metadata/session-system/TGetUrl.al:310-329 (GetUrl_Web_CompanyCharacters): only letters, digits and - . _ ~ stay unencoded.
 #[test]
 fn geturl_web_encodes_every_other_printable_character() {
     for (company, want) in [
@@ -1149,7 +1149,7 @@ fn geturl_web_encodes_every_other_printable_character() {
     }
 }
 
-// platform/lt-t-geturl/TGetUrl.al:481-559 on corpus master (TV_GetUrl_ClientSOAP, _ClientOData, _ClientODataV4, _ClientApi):
+// metadata/session-system/TGetUrl.al:481-559 on corpus master (TV_GetUrl_ClientSOAP, _ClientOData, _ClientODataV4, _ClientApi):
 // the service client types answer the host's address (host and instance masked there) with their path, a company in it, and
 // the empty text for an object. Api with a company (an id the pins mask) and the forms no pin shows are refused.
 // The service address is not the web address: the pins mask the web address as <base> first and the service texts show
@@ -1215,7 +1215,7 @@ fn geturl_of_the_service_client_types_builds_the_pinned_addresses() {
 }
 
 /// al-runner issue 6301: `Sleep(D)` with a Duration waits D's milliseconds, the Integer the Duration converts to
-/// (types/lt-filter-enum-relation-duration-guid/D_Duration.al:DateTimeMinusDateTime_To_Integer).
+/// (types/duration/D_Duration.al:DateTimeMinusDateTime_To_Integer).
 #[test]
 fn sleep_takes_a_duration_as_its_milliseconds() {
     assert_eq!(
@@ -1329,7 +1329,7 @@ fn randomize_with_a_seed_carries_over_to_the_next_test_for_every_run_seed() {
     }
 }
 
-// platform/lt-system-database-members/GetUrlBookmarkEnumKey.al:80-170: the bookmark of a key of an Enum or Option field and a
+// metadata/platform-tables/GetUrlBookmarkEnumKey.al:80-170: the bookmark of a key of an Enum or Option field and a
 // Code[20] field: the first field as 0x00 0x8b and the enum's value (the option's ordinal) in four bytes, an empty Code after it
 // as nothing.
 #[test]
@@ -1385,7 +1385,7 @@ codeunit 50100 C
     assert_eq!(al_testkit::text(al_testkit::run(src, "Only")), "bookmark=12%3bgWQBAACL");
 }
 
-// platform/lt-system-database-members/GetUrlBookmarkDigitCode.al:117-184 (corpus master): the bookmark of a key of one Code[20]
+// metadata/platform-tables/GetUrlBookmarkDigitCode.al:117-184 (corpus master): the bookmark of a key of one Code[20]
 // field that starts with a digit. All digits: the marker byte is the digit count (`1` 01, `12345` 05, `007` 03), then the UTF-16
 // text. Digits followed by other characters: 0xff, as for a Code that starts with a letter. An Enum as the only key field: the
 // value's number with its zero bytes dropped (`pWQBAACL` for 0). An Option as the only key field is not pinned.

@@ -1,5 +1,5 @@
 //! `Validate` of a table procedure's own Rec, in a procedure the code called on the record variable (a plain call): xRec in
-//! OnValidate is the procedure's blank xRec, not the record as it was before the call (types/lt-up-this-field/UpThisField.al:175
+//! OnValidate is the procedure's blank xRec, not the record as it was before the call (types/operators-expressions/UpThisField.al:175
 //! UP_This_ValidateTestFieldCompound: Qty := 3, ValidateQty(5) sees old=0; this.Qty := 7, this.Validate(this.Qty) sees old=0).
 //! The same Validate called from a codeunit sees the record before the call (record/TestTableEventSequenceContracts.al
 //! Validate_Events_SeeTheNewValueInRec_TheOldInXRec_AndCurrFieldNoZero).

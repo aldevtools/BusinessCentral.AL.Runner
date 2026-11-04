@@ -136,7 +136,7 @@ codeunit 69301 T {{ Subtype = Test; var Rows: Text;
 
 // A subscriber to a page field's OnAfterValidateEvent refused every page that was merely opened (about 610 Microsoft
 // tests: Sales Setup / Sales Order subscribers in Base Application). The client raises the event when it writes the
-// field (record/lt-loadfields-pagesource-validate/P81PageValidateEvents.al), so the write runs the subscriber.
+// field (record/load-fields/P81PageValidateEvents.al), so the write runs the subscriber.
 #[test]
 fn a_page_field_event_does_not_refuse_the_open_and_the_write_raises_it() {
     let (ws, l) = compile(format!(

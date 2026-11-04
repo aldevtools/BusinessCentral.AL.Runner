@@ -1,7 +1,7 @@
 //! BC installs apps one at a time in dependency order. While an app installs, only the apps installed before it and the app
 //! itself are installed: subscribers of an app installed later do not run, and `NavApp.GetModuleInfo` does not find that app.
 //! Measured on BC 29 (corpus branch al-runtime-rs-staging-y3: tests/al-language-xapp-a/Y3XaInstallEvents.al,
-//! tests/al-language-xapp-b/Y3XbInstallEvents.al, tests/al-language/install/lt-install-order-subscribers/
+//! tests/al-language-xapp-b/Y3XbInstallEvents.al, tests/al-language/install-upgrade/install-order/
 //! InstallOrderSubscriberTests.al:66-79, :90-91, :104-117, :139-144): during XApp A's install only A's own subscribers ran, for its integration event and for
 //! the OnAfterInsertEvent of its table, and GetModuleInfo(B) was false; during B's install A's and B's ran, the main app's did
 //! not; at test time all of them ran.
@@ -157,7 +157,7 @@ codeunit 64001 T
 
 /// The table extension of an app installed later is not active while an earlier app installs: XApp A's install inserts a row
 /// with Insert(true) and XApp B's OnBeforeInsert does not run on it nor does B's field InitValue apply; during B's own install
-/// and at test time both do (install/lt-y8-install-order/Y8InstallOrderTests.al:88-110, fixtures tests/al-language-xapp-a/
+/// and at test time both do (install-upgrade/install-order/Y8InstallOrderTests.al:88-110, fixtures tests/al-language-xapp-a/
 /// Y8XaInstallOrder.al and tests/al-language-xapp-b/Y8XbInstallOrder.al).
 #[test]
 fn a_later_apps_table_extension_is_not_active_during_an_earlier_install() {

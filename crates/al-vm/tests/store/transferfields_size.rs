@@ -1,5 +1,5 @@
 //! al-runner issue 5773: TransferFields of a text longer than the target Text field
-//! (errors/lt-ms-refusals-130/P130TransferTypes.al:424-480 RN_Transfer_Text100ToText10_ByValueLength).
+//! (record/crud/P130TransferTypes.al:424-480 RN_Transfer_Text100ToText10_ByValueLength).
 
 const SRC: &str = r#"
 table 50940 "Tf Src" { fields { field(1; Id; Integer) { } field(19; TextLong; Text[100]) { } } keys { key(PK; Id) { } } }
@@ -31,7 +31,7 @@ fn a_text_too_long_for_the_target_fails_with_type_mismatch_after_the_key() {
     );
 }
 
-// A Boolean and a Text field of the same number, either way (misc/lt-probes-needed-6/PnF07TransferEnumOption.al:185-206).
+// A Boolean and a Text field of the same number, either way (record/crud/PnF07TransferEnumOption.al:185-206).
 const BOOL_TEXT: &str = r#"
 table 50942 "Tf Bool" { fields { field(1; Id; Integer) { } field(2; Flag; Boolean) { } } keys { key(PK; Id) { } } }
 table 50943 "Tf Text" { fields { field(1; Id; Integer) { } field(2; Flag; Text[30]) { } } keys { key(PK; Id) { } } }

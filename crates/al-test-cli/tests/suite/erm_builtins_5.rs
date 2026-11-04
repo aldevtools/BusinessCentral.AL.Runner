@@ -70,7 +70,7 @@ fn the_about_properties_of_a_query_do_not_stop_it() {
 }
 
 // A link to an outer data item joins on that item's row since the probe pinned it (issue 38: corpus branch
-// al-runtime-rs-staging, query/PXQueryOuterLink.al); it no longer stops the query.
+// al-runtime-rs-staging, queries/PXQueryOuterLink.al); it no longer stops the query.
 #[test]
 fn a_link_to_an_outer_data_item_lowers() {
     assert_eq!(refusal("OpenOuter"), "");

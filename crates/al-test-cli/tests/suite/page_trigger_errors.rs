@@ -1,5 +1,5 @@
 //! An error in OnQueryClosePage at TestPage.Close() shows as an unhandled message, and the page is closed after it (corpus
-//! pages/lt-cc-page-leads/CcPageLeads.al:611-621 TriggerError_OnQueryClosePage). The message needs a test method, so this
+//! testpage/CcPageLeads.al:611-621 TriggerError_OnQueryClosePage). The message needs a test method, so this
 //! runs through the test runner.
 
 const SRC: &str = r#"
@@ -63,7 +63,7 @@ fn an_error_in_on_query_close_page_leaves_the_page_closed() {
     );
 }
 
-// With a MessageHandler, Close() returns (handlers/TestPageCloseVeto_Tests.al:170 and two more baseline cases pin it).
+// With a MessageHandler, Close() returns (testpage/TestPageCloseVeto_Tests.al:170 and two more baseline cases pin it).
 #[test]
 fn close_after_a_handled_on_query_close_page_error_returns() {
     let outcomes = al_testkit::outcomes_in(SRC, "T");

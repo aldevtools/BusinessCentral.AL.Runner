@@ -1,5 +1,5 @@
 //! The conversions of the run matrix cells (`al_builtins::conv`), through `ops::convert` as the runtime calls it. The values
-//! are BC's, from corpus types/lt-y31-conversion-matrix/Y31ConvCv.al.
+//! are BC's, from corpus types/operators-expressions/Y31ConvCv.al.
 
 use al_builtins::conv::variant_into;
 use al_builtins::native::Signal;
@@ -94,7 +94,7 @@ fn char_and_byte_go_through_code_page_437() {
         convert(Value::Char(65535), &RtType::Byte),
         Ok(Value::Byte(63))
     ));
-    // Every byte is pinned (types/lt-byte-char-high/ByteCharHigh.al: 200 is 732); a character neither table holds is refused.
+    // Every byte is pinned (types/text-code-char/ByteCharHigh.al: 200 is 732); a character neither table holds is refused.
     assert!(matches!(convert(Value::Byte(200), &RtType::Char), Ok(Value::Char(732))));
     assert!(matches!(
         convert(Value::Char(300), &RtType::Byte),

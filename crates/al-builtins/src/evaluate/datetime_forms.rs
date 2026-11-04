@@ -1,5 +1,5 @@
 //! More texts Evaluate reads into a DateTime without a number and with number 0 (al-runner issue 6655). Pinned by corpus
-//! types/lt-evaluate-format-lasterror-setview/P86Eval.al:932-1110, `t4` to `t8` of Dflt1_* and Fmt01_*.
+//! format-evaluate/P86Eval.al:932-1110, `t4` to `t8` of Dflt1_* and Fmt01_*.
 
 use super::Parsed;
 use crate::value::Value;

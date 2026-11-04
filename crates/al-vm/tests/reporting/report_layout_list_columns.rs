@@ -1,7 +1,7 @@
 //! The columns of a Report Layout List row of a layout declared in AL: CaptionML (4), Runtime Package ID (5), Report Name
 //! (12), Layout Publisher (13), User Defined (14), ReportIsInstalled (15), Layout Status (18) and, for a layout without a
-//! Subtype, Layout Subtype (19), HeaderFooterPart (20) and ThemePart (21); Custom Type (8) and MIME Type (9). Pins: platform/lt-ug-report-layout-list/
-//! UgReportLayoutList.al:94-150 (an RDLC and a Word layout) and platform/lt-aw-fresh-tenant/AwTests.al:220-300 (Excel
+//! Subtype, Layout Subtype (19), HeaderFooterPart (20) and ThemePart (21); Custom Type (8) and MIME Type (9). Pins: metadata/platform-tables/
+//! UgReportLayoutList.al:94-150 (an RDLC and a Word layout) and metadata/platform-tables/AwTests.al:220-300 (Excel
 //! layouts). The platform table is not in the test workspace: a table of its number and name stands in.
 
 use al_builtins::native::Signal;

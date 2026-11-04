@@ -1,5 +1,5 @@
 //! Format of a RecordId with a standard format number: 0, 1, 2 and 9 are pinned, 3 to 8 raise
-//! (types/lt-implicit-conversions/P79RecordId.al:183-200, :330-346). 10 is the bookmark (recordid_bookmark.rs). Any other
+//! (types/operators-expressions/P79RecordId.al:183-200, :330-346). 10 is the bookmark (recordid_bookmark.rs). Any other
 //! number is not pinned and refused.
 
 use al_builtins::native::Signal;

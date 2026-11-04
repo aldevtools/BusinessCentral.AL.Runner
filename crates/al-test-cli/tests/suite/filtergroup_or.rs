@@ -40,7 +40,7 @@ fn the_or_group_selects_alternatives_and_other_negative_groups_are_stored() {
     );
     // corpus record/PWFilterGroupOr.al pins the OR group in full.
     assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0]);
-    // A bare FilterGroup(-2) is stored and read back (record/lt-filters-keys-finds/P68F_FilterGroup.al).
+    // A bare FilterGroup(-2) is stored and read back (record/filters/P68F_FilterGroup.al).
     assert_eq!(o[1].1, Outcome::Pass, "{:?}", o[1]);
     assert_eq!(o[2].1, Outcome::Pass, "{:?}", o[2]);
 }

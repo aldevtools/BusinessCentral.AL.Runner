@@ -1,5 +1,5 @@
 //! A Record assigned to a RecordRef or passed to a by-value RecordRef parameter: the RecordRef holds a copy of the record's
-//! table, filters and current row, not shared with the record (misc/lt-cx-odd-leads/CxVariants.al:174-210
+//! table, filters and current row, not shared with the record (types/variant/CxVariants.al:174-210
 //! RecordToRecordRef_Implicit). A temporary record is not pinned and stays refused.
 
 use al_builtins::native::Signal;

@@ -1,4 +1,4 @@
-//! `Evaluate` into a TableFilter field (al-runner issues 5998 and 6006), pinned by records/W4PlatformAndMeta.al (writer SI:
+//! `Evaluate` into a TableFilter field (al-runner issues 5998 and 6006), pinned by record/W4PlatformAndMeta.al (writer SI:
 //! TableFilterEvaluate_AcceptedForms, _RejectedForms, _ErrorsAsStatement, _StoredValue; writer SR: TableFilterEvaluate_SeveralCodeFields,
 //! _SrMultiFieldForms, _SrSecondFieldTypes, _SrExpressionForms, _SrRejectedForms, _SrStoredSpaceValue). The stored text names the
 //! table by its name and each field by its caption, an Option value by its caption, a Code value in capitals, the conditions in
@@ -278,7 +278,7 @@ fn a_field_given_by_its_number() {
 
 #[test]
 fn y67_text_or_values_quoted_numbers_and_a_second_condition_after_an_or() {
-    // xmlport/lt-y67-xmlport-tablefilter/Y67XpTableFilter.al:52 (Seed, `Note=a|b`) and :189-213 TableFilterField_Evaluate_Forms.
+    // xmlports/shapes-properties/Y67XpTableFilter.al:52 (Seed, `Note=a|b`) and :189-213 TableFilterField_Evaluate_Forms.
     assert_eq!(
         statement_form("SR TF Pair: Descr=a|b").unwrap(),
         "ok:[SR TF Pair: SR Descr Cap=a|b]"

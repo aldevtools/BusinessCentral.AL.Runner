@@ -1,5 +1,5 @@
 //! An error in a page trigger while a TestPage opens, moves, starts a new row, inserts or modifies a row, or closes
-//! (corpus pages/lt-cc-page-leads/CcPageLeads.al:453-633, the TriggerError_* tests, on the card of CcFixtures.al:336-421).
+//! (corpus testpage/CcPageLeads.al:453-633, the TriggerError_* tests, on the card of CcFixtures.al:336-421).
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -238,7 +238,7 @@ fn an_error_while_a_card_opens_for_editing_says_the_page_has_to_close() {
     }
 }
 
-// testpageteardown/TestPageTeardown.al:1130-1141 (CardTrigger_FailedOpen_Value_RaisesNotOpen): OpenView raises the error itself.
+// testpage/lifecycle/TestPageTeardown.al:1130-1141 (CardTrigger_FailedOpen_Value_RaisesNotOpen): OpenView raises the error itself.
 #[test]
 fn an_error_while_a_card_opens_for_viewing_is_raised_as_it_is() {
     assert_eq!(

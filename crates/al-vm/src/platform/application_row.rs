@@ -1,7 +1,7 @@
 //! The Published Application row of the `Application` aggregate app. It holds no source, so the program has no app for it,
-//! but a tier always publishes it (onprem session/PZPublishedApplicationColumns.al:53, :58).
+//! but a tier always publishes it (onprem session-system/PZPublishedApplicationColumns.al:53, :58).
 //!
-//! Pinned by al-language-onprem/platform/lt-y48-published-app/Y48PublishedApplication.al (corpus Y48, CI BC 27.5, 28.5 and
+//! Pinned by al-language-onprem/metadata/session-system/Y48PublishedApplication.al (corpus Y48, CI BC 27.5, 28.5 and
 //! 29.0): one row (:135 PA_ApplicationRow_Columns `count` 1); Package ID and Runtime Package ID not null and different, equal to
 //! no other app's Package ID, and no AllObjWithCaption row carries it (:154 PA_ApplicationRow_PackageIds); the four version
 //! parts are Base Application's (and System Application's); Package Type Extension, Published As Global, Tenant ID blank,

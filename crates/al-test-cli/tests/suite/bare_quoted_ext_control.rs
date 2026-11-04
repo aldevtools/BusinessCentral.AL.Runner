@@ -1,5 +1,5 @@
 //! From BC 28 a TestPage read of the Value of a page extension's control whose source is a bare quoted name of a table
-//! extension's field raises TestFieldNotFound (pages/lt-wd/WdBareQuotedField.al:185-198 WD_BareNameExt_ValueReadError,
+//! extension's field raises TestFieldNotFound (testpage/WdBareQuotedField.al:185-198 WD_BareNameExt_ValueReadError,
 //! al-runner issue 6314). The same field bound through `Rec.` is read as usual.
 
 use al_test_cli::report::Outcome;

@@ -9,14 +9,14 @@ impl Session {
     /// go to the platform's translation (`caption_class_translate`). An area that is not a number, or no
     /// area at all, goes to no built-in resolver: the System Application's Caption Class codeunit
     /// raises OnResolveCaptionClass for it, and when no subscriber claims it the text stays as
-    /// written (corpus handlers/TestPageCaptionClass.al:90
+    /// written (corpus testpage/TestPageCaptionClass.al:90
     /// TestPageField_Caption_UnresolvedCaptionClass_ReturnsExpressionUnchanged;
-    /// autoformat/TestCaptionClassResolverFailure.al: an error the subscriber raises reaches the
+    /// format-evaluate/autoformat/TestCaptionClassResolverFailure.al: an error the subscriber raises reaches the
     /// open, and a subscriber that claims nothing changes nothing). The language handed to the
     /// event is the session language (types/PSCaptionClass.al).
     /// The caption a control's CaptionClass text stands for. `3,` with nothing after the comma shows the caption of the last other
     /// control on the same field (its Caption, else the field's caption), or the control's own caption when it is the only one on
-    /// its field (pages/lt-y80-captionclass-empty/Y80CaptionClassEmpty.al, Y80_CC_Card_OpenView, _OpenEdit, _OpenNew,
+    /// its field (pages/properties/Y80CaptionClassEmpty.al, Y80_CC_Card_OpenView, _OpenEdit, _OpenNew,
     /// Y80_CC_List_*, Y80_CC_Worksheet_*, Y80_CC_Doc_AfterNext: the same on BC 27, 28 and 29, on every page type and open mode,
     /// after a move and after a SetValue; `CtlLit`, `CtlExpr`, `CtlAlone`, `CtlAloneExpr`, `CtlVar`). The literal and the
     /// expression forms behave the same. Needs a corpus bump for the Y80 file.
@@ -87,9 +87,9 @@ impl Session {
         // An empty area before the comma is not resolved either (P84Captions.al: c14 ',x', no event call).
         if text.contains(',') && (area.trim().parse::<u32>().is_ok() || area.is_empty()) {
             // A numeric area other than 3 (dimension, VAT, county, currency captions of Base Application) goes to the platform's
-            // translation as FieldCaption does: Base Application's subscribers resolve it (record/lt-qd-captionclass-areas/
+            // translation as FieldCaption does: Base Application's subscribers resolve it (record/captions/
             // QdCaptionClassAreas.al:422-481 Page_ControlCaptions `lit20`, `lit53`, `pageExpr`), a text no subscriber resolves stays
-            // as written, and a text the session translated before raises no event (pages/lt-page-report-events/P84Captions.al:
+            // as written, and a text the session translated before raises no event (pages/triggers/P84Captions.al:
             // Page_NoSubscriber c01..c13, Page_Log_*, Page_Resolve_A/B after the table reads of the same texts).
             return self.caption_class_translate_deferring(text);
         }
@@ -142,14 +142,14 @@ impl Session {
     }
 
     /// Base Application resolves areas 1 (dimensions) and 101 (currencies) from General Ledger Setup. The corpus database
-    /// holds CRONUS's setup (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:254 `Amount (GBP)`, :256 `Department Code`);
+    /// holds CRONUS's setup (record/captions/QdCaptionClassAreas.al:254 `Amount (GBP)`, :256 `Department Code`);
     /// without Microsoft's test data the runtime's setup row is the one the install code writes, so a caption those areas
-    /// resolved is refused. A text they leave as written does not read the setup (pages/lt-page-report-events/P84Captions.al:
+    /// resolved is refused. A text they leave as written does not read the setup (pages/triggers/P84Captions.al:
     /// '1,1,x' and the other area 1 texts).
     /// A test that wrote General Ledger Setup before any caption of these areas was resolved in the session is answered for what
     /// it wrote: area 101 type 0 (the LCY Code) and area 1 type 1 reference 1 (Global Dimension 1 Code and its Dimension row)
     /// (QdCaptionClassAreas.al:267 `lit101` 'Amount (GBP)', :269 `lit11` 'Department Code', :311 `expr101`, after
-    /// misc/lt-qk-setup-rows/QkSetupRows.al WriteGLSetupCaptions). The other types read fields that test does not write.
+    /// record/QkSetupRows.al WriteGLSetupCaptions). The other types read fields that test does not write.
     fn setup_caption_refusal(&self, area: &str, text: &str, caption: &str) -> Option<String> {
         let written = self.gl_setup_written && !self.setup_caption_read_early && {
             let expr = text.split_once(',').map_or("", |(_, e)| e);
@@ -194,7 +194,7 @@ impl Session {
     }
 
     /// Every caption class the client translates raises `CaptionClassTranslate` of the platform codeunit `UI Helper Triggers`,
-    /// area 3 included (events/lt-global-triggers-statements/P114GlobalTriggerEvents.al:301, :304, :323-327). The runtime does
+    /// area 3 included (events/platform-triggers/P114GlobalTriggerEvents.al:301, :304, :323-327). The runtime does
     /// not raise it, so a translation while a subscriber listens is refused.
     pub(crate) fn refuse_caption_class_translate(&self) -> Result<(), Signal> {
         let test = self.test_object.and_then(|t| self.engine.program.objects.get(t));

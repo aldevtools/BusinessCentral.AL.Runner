@@ -4,9 +4,9 @@ use al_builtins::media::MediaObject;
 
 /// The three columns of `o`'s Tenant Media row, or why they are not known.
 /// - A two or three argument import of content that is no PNG, with no MIME type: `application/octet-stream`
-///   (media/lt-y48-tenant-media/Y48TenantMediaRows.al:399 `tm row before` of a three argument import keeps its type; :484 `item 1
+///   (streams/media/Y48TenantMediaRows.al:399 `tm row before` of a three argument import keeps its type; :484 `item 1
 ///   tm row` and :333 TM_DeleteRowOfHeldMedia, two argument imports into a MediaSet and a Media field). A PNG's type is
-///   `image/png` (media/PXMediaFileName.al), set by the import.
+///   `image/png` (streams/media/PXMediaFileName.al), set by the import.
 /// - A four argument import with a blank description and MIME type (Base Application's Document Attachment.ImportAttachment):
 ///   Description blank, File Name the given name, Mime Type from its extension: `.txt` text/plain, none
 ///   application/octet-stream, `.PDF` application/pdf (Y48TenantMediaRows.al:312-329 TM_RowOfFourArgImport, BC 27.5, 28.5,

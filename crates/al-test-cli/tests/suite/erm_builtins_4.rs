@@ -33,7 +33,7 @@ fn record_ref_filter_group_returns_the_group_just_set_and_reads_only_the_current
          [Test] procedure OrGroup() var R: Record \"B4 Row\"; RR: RecordRef; begin RR.GetTable(R); RR.FilterGroup(-2); end;",
     );
     assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0]);
-    // A bare FilterGroup(-2) is stored and read back (record/lt-filters-keys-finds/P68F_FilterGroup.al).
+    // A bare FilterGroup(-2) is stored and read back (record/filters/P68F_FilterGroup.al).
     assert_eq!(o[1].1, Outcome::Pass, "{:?}", o[1]);
 }
 
@@ -95,7 +95,7 @@ fn the_arm_shapes_of_a_journal_line_ic_account_relation_are_understood() {
 }
 
 // An enum named by a condition of a relation, in a namespace the dependency's file imports with `using`:
-// the dependency's file resolves it as the compiler did (corpus fieldref/TestRelationTargetNamespaceScope.al
+// the dependency's file resolves it as the compiler did (corpus recordref-fieldref/fieldref/TestRelationTargetNamespaceScope.al
 // pins the target's scope the same way).
 #[test]
 fn a_condition_on_an_enum_of_another_namespace_in_a_dependency_is_understood() {

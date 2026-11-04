@@ -1,5 +1,5 @@
 //! Three server classes the System Application calls through DotNet, as pinned by corpus
-//! tests/al-language-onprem-dotnet/lt-y58-server-helpers/Y58ServerHelpers.al (corpus master 7330f181; real BC 27.5, 28.5,
+//! tests/al-language-onprem-dotnet/dotnet/server-helpers/Y58ServerHelpers.al (corpus master 7330f181; real BC 27.5, 28.5,
 //! 29.0): `PasswordGenerator.GeneratePassword`, `VSCodeRequestHelper.GetLaunchInformationQueryPart` and
 //! `ALSearch.IsItemSearchReady`. The AL below is my own minimal version of those calls.
 

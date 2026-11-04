@@ -7,8 +7,8 @@
 use crate::value::{RtType, Value};
 
 /// The key shapes whose bookmark GetUrl pins: one Code[10], Code[20] or Code[50] field, one Integer field, a Code[20] and an
-/// Integer field, two Code[20] fields (platform/lt-t-geturl/TGetUrl.al:439-447 GetUrl_Web_BookmarkOfCodeKeys), an Enum or
-/// Option field and a Code[20] field (platform/lt-system-database-members/GetUrlBookmarkEnumKey.al:80-170), or one Enum field.
+/// Integer field, two Code[20] fields (metadata/session-system/TGetUrl.al:439-447 GetUrl_Web_BookmarkOfCodeKeys), an Enum or
+/// Option field and a Code[20] field (metadata/platform-tables/GetUrlBookmarkEnumKey.al:80-170), or one Enum field.
 pub fn url_shape_pinned(shape: &[&RtType]) -> bool {
     matches!(
         shape,
@@ -22,7 +22,7 @@ pub fn url_shape_pinned(shape: &[&RtType]) -> bool {
 }
 
 /// The key shapes `Format(RecordId, 0, 10)` and `Evaluate(RecordId, Text, 10)` take: those of GetUrl (the text is the same,
-/// types/lt-y49-recordid-format10/Y49RecordIdFormat10.al:117-148 `A-1` and `A-1 url`) and an Option, a Code[20] and an
+/// format-evaluate/Y49RecordIdFormat10.al:117-148 `A-1` and `A-1 url`) and an Option, a Code[20] and an
 /// Integer field (:134 `B line`).
 pub fn record_id_shape_pinned(shape: &[&RtType]) -> bool {
     url_shape_pinned(shape) || matches!(shape, [RtType::Option(_), RtType::Code(Some(20)), RtType::Integer])
@@ -54,7 +54,7 @@ pub fn encode(table_id: u32, shape: &[&RtType], values: &[&Value]) -> Result<(us
                 // `order 106001`); a Code that starts with a digit in another form is not pinned, except in a key of one
                 // Code[20] field: there a Code of digits only is marked with its digit count (`1` 0x01, `007` 0x03, 20
                 // digits 0x14) and digits followed by other characters (`1A`, `12345A`, `1-2`, `1 2`) 0xff
-                // (platform/lt-system-database-members/GetUrlBookmarkDigitCode.al:117-163, corpus master).
+                // (metadata/platform-tables/GetUrlBookmarkDigitCode.al:117-163, corpus master).
                 let marker = if s.is_empty() {
                     0x00
                 } else if one_code20 && s.starts_with(|c: char| c.is_ascii_digit()) {

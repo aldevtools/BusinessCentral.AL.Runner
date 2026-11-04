@@ -1,5 +1,5 @@
 //! A move (Next) after a save the page refused with SaveAbort (ModifyAllowed is false) does not move. The corpus discards the
-//! answer (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_List_Set_Next_Next: `P.Next();`), so the answer is not pinned:
+//! answer (pages/modify-denied/Y80ModifyDenied.al Y80_MD_List_Set_Next_Next: `P.Next();`), so the answer is not pinned:
 //! a discarded Next runs, a Next whose answer the code uses is refused.
 
 const SRC: &str = r#"

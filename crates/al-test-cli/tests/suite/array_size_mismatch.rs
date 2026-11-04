@@ -1,7 +1,7 @@
 //! An array passed to a parameter declared with more elements than the argument has (Tests-ERM
 //! codeunit 134831 passes an `array[2]` variable to `var DimensionValue: array[9]`) panicked in the
 //! interpreter (issue 18). BC raises `Index out of bounds.` (code IndexOutOfBounds) for an element beyond the argument
-//! (misc/lt-probes-needed-5/PnE01Arrays.al:SmallerArray_VarParameter, SmallerArray_ByValue, Integer arrays), with the elements
+//! (types/arrays/PnE01Arrays.al:SmallerArray_VarParameter, SmallerArray_ByValue, Integer arrays), with the elements
 //! that exist reading and writing as before. `ArrayLen` inside the procedure is the
 //! argument's length (types/W7VarArray.al), so a loop up to `ArrayLen` stays within it.
 

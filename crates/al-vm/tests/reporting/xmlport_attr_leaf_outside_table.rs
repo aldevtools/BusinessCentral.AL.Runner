@@ -1,5 +1,5 @@
 //! A text element with text attributes (and its own text) and OnBeforePassVariable, below container text elements that are not
-//! inside a table element (corpus xmlport/lt-y67-xmlport-textattr-skip/Y67XpTextAttrSkip.al:298-374). Its trigger runs before
+//! inside a table element (corpus xmlports/shapes-properties/Y67XpTextAttrSkip.al:298-374). Its trigger runs before
 //! its attributes'; Skip there leaves out the element with its attributes, whose triggers do not run; Skip in an attribute
 //! leaves out only the attribute; an empty text writes the element empty with its attributes. On import the attributes' triggers
 //! run first, then the element's, then the containers' (children first).

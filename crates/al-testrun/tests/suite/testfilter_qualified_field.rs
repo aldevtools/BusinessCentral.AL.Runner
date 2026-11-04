@@ -1,6 +1,6 @@
 //! `TP.Filter.SetFilter(TP.Filter."Field", text)` names the field through the filter itself, as Microsoft's Workflow Overview Tests
 //! do (`CustomerCard.WorkflowStatus.FILTER.SetFilter(CustomerCard.WorkflowStatus.FILTER."Workflow Code", ...)`; 64 tests
-//! were refused as "is not assignable"). The bare name form is pinned by corpus handlers/TestPageActionRunObjectCodeunitRec_Tests.al:95.
+//! were refused as "is not assignable"). The bare name form is pinned by corpus testpage/TestPageActionRunObjectCodeunitRec_Tests.al:95.
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};
