@@ -685,6 +685,16 @@ impl Session {
         *self.events.event_stats.active.borrow_mut() = active;
     }
 
+    /// The codeunit instances bound by `BindSubscription` and still alive, as addresses: a test runner compares them
+    /// before and after a test to see whether the test left a manual binding (al-runner issue 6924).
+    pub fn bound_subscriptions(&self) -> Vec<usize> {
+        self.events
+            .bindings
+            .iter()
+            .filter_map(|b| b.instance.upgrade().map(|i| Rc::as_ptr(&i) as usize))
+            .collect()
+    }
+
     /// `BindSubscription(Codeunit)` (`bind`) and `UnbindSubscription(Codeunit)`.
     pub(crate) fn subscription(&mut self, bind: bool, cu: Value, ret_used: bool) -> Result<Value, Signal> {
         let Value::Codeunit(rc) = cu else {
