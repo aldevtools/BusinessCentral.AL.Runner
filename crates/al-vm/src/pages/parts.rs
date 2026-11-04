@@ -220,12 +220,10 @@ impl Session {
 
     /// Next from the last row of a page that has a new-row line: it lands on that line and answers Yes. A part whose control
     /// says Editable = false has none: Next answers No and the part stays on its last row, as on a part page that is not
-    /// editable or allows no insert (pages/parts/R6926PartNextReadOnly.al R6926_CtlRO_Walk `next_walk = Yes[L2] No`,
-    /// R6926_CtlRO_LastNextPrevious `next_after_last = No[L2]`, R6926_CtlRO_GoToRecord `next_after_goto = No[L2]`; corpus PR
-    /// 1116, not yet pinned).
+    /// editable or allows no insert (pages/parts/R6926PartNextReadOnly.al:229 R6926_CtlRO_Walk `next_walk = Yes[L2] No`,
+    /// :249 R6926_CtlRO_LastNextPrevious `next_after_last = No[L2]`, :272 R6926_CtlRO_GoToRecord `next_after_goto = No[L2]`).
     pub(super) fn walk_onto_new_line(&mut self, st: &St) -> Result<bool, Signal> {
         if self.part_control_read_only(st) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartReadOnlyNextAtEnd);
             return Ok(false);
         }
         self.land_on_new_line(st)?;
@@ -2157,7 +2155,7 @@ impl Session {
         // Visible() and Editable() of the part insert the host as a first field read does, with or without rows of the blank
         // key, on a Document and on a Card host (pages/parts/PartLineBeforeHostKey.al:3726 R6920_CardIssue_BlankRows_OpenNew_VisibleFirst,
         // :2696 R6920_DocAfterGet_BlankRows_OpenNew_EditableFirst, :2768 R6920_DocAfterGet_NoRows_OpenNew_VisibleFirst and the other
-        // R6920_*_OpenNew_* tests: `visible_log` / `editable_log` = `[H.OnInsert:]`; corpus master 55fa9dff, not yet the pin).
+        // R6920_*_OpenNew_* tests: `visible_log` / `editable_log` = `[H.OnInsert:]`).
         let pinned_call = field_read || matches!(m, PageMethod::First | PageMethod::Visible | PageMethod::Editable);
         let host_type = self.engine.object_facts[o].page_type.clone();
         if !matches!(host_type, Some(al_ir::PageType::Document | al_ir::PageType::Card)) || !field_linked {
@@ -2177,9 +2175,6 @@ impl Session {
             // Kept, not pinned: a call other than a field read or First on the part of a new host whose part shows no rows
             // inserts nothing, as before (the write paths save the host themselves: `save_unsaved_host_first`).
             return Ok(false);
-        }
-        if matches!(m, PageMethod::Visible | PageMethod::Editable) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartPropsNewHost);
         }
         let used = self.ret_used;
         host.borrow_mut().dirty = true;

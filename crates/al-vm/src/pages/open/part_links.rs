@@ -71,7 +71,7 @@ impl Session {
         let table_blank = self.initial_fields(table);
         // A host opened for edit over an empty table shows no row and is not editable (`runs_on_blank_record`): its part stamps
         // the link value without validating it (pages/parts/PartLineBeforeHostKey.al:2720 R6920_DocAfterGet_BlankRows_OpenEdit_VisibleFirst,
-        // :3868 R6920_CardIssue_NoRows_OpenEdit_VisibleFirst and the other R6920_*_OpenEdit_* tests (corpus master 55fa9dff, not yet the pin)
+        // :3868 R6920_CardIssue_NoRows_OpenEdit_VisibleFirst and the other R6920_*_OpenEdit_* tests
         // `open=[] fired at least once: LP.OnNewRecord`, no `L.OnValidate(Document No.)`, with and
         // without rows of the blank key). The corpus pins two runs or more; the three runs are kept from the editable host.
         let host_blank_on_open = st
@@ -99,10 +99,7 @@ impl Session {
                 let fresh = self.initial_fields(table);
                 rec.borrow_mut().fields = fresh;
                 let stamped = match blank_held.clone() {
-                    _ if host_blank_on_open => {
-                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartPropsNewHost);
-                        self.stamp_from_filters(st, false)
-                    }
+                    _ if host_blank_on_open => self.stamp_from_filters(st, false),
                     Some(before) => self.stamp_from_filters_seen_as(st, before),
                     None => self.stamp_from_filters(st, true),
                 };

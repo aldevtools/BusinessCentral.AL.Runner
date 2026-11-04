@@ -218,7 +218,7 @@ impl Session {
         // `part_description=[]`). So does the part of such a host opened for edit over an empty table, which shows no row
         // (`runs_on_blank_record`): :2720 R6920_DocAfterGet_BlankRows_OpenEdit_VisibleFirst, :3578
         // R6920_CardOpenPage_BlankRows_OpenEdit_EditableFirst and the other R6920_*_BlankRows_OpenEdit_* tests `description=[]`,
-        // `open=[] fired at least once: LP.OnNewRecord` as without rows (the pin).
+        // `open=[] fired at least once: LP.OnNewRecord` as without rows (:2727, :2733).
         let engine = self.engine();
         let part_temporary = self.page_rec(st).borrow().temporary;
         let host_shows_no_row_as = |view: bool| {
@@ -251,9 +251,6 @@ impl Session {
         };
         let edit_host_no_row = host_shows_no_row_as(false);
         let host_shows_no_row = host_shows_no_row_as(true) || edit_host_no_row;
-        if edit_host_no_row {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartPropsNewHost);
-        }
         if !host_shows_no_row && self.nav_find(st, which)? {
             // A part linked by a field that shows rows of a host that is a new, unsaved record: BC inserts the host at Close although
             // nothing was typed (PartLineBeforeHostKey.al:1057 PYB_OpenNew_LinkedPart_BlankKeyRowsExist `close =
