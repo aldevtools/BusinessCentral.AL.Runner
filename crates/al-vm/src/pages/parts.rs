@@ -141,8 +141,8 @@ impl Session {
     }
 
     /// Whether the part control that shows `st` says `Editable = false`. What that does to the
-    /// part's rows is pinned only for SetValue, which writes; New() and Next() onto the new-row line
-    /// of such a part are refused.
+    /// part's rows is pinned for SetValue, which writes, and for Next from the last row, which answers No
+    /// (R6926PartNextReadOnly.al); New() on such a part is refused.
     pub(super) fn part_control_read_only(&self, st: &St) -> bool {
         let Some((host, idx)) = st.borrow().host.clone() else {
             return false;
@@ -216,6 +216,20 @@ impl Session {
             ));
         }
         Ok(())
+    }
+
+    /// Next from the last row of a page that has a new-row line: it lands on that line and answers Yes. A part whose control
+    /// says Editable = false has none: Next answers No and the part stays on its last row, as on a part page that is not
+    /// editable or allows no insert (pages/parts/R6926PartNextReadOnly.al R6926_CtlRO_Walk `next_walk = Yes[L2] No`,
+    /// R6926_CtlRO_LastNextPrevious `next_after_last = No[L2]`, R6926_CtlRO_GoToRecord `next_after_goto = No[L2]`; corpus PR
+    /// 1116, not yet pinned).
+    pub(super) fn walk_onto_new_line(&mut self, st: &St) -> Result<bool, Signal> {
+        if self.part_control_read_only(st) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartReadOnlyNextAtEnd);
+            return Ok(false);
+        }
+        self.land_on_new_line(st)?;
+        Ok(true)
     }
 
     /// The `SubPageView` of the part control that shows `st`.
