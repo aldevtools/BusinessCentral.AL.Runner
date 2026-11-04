@@ -1,13 +1,20 @@
 name: Nightly edge
 
-# Once a night: fast-forward `release` to the newest commit of main that passed CI on a push,
-# then build and publish `edge` from it (edge.yml, called as a reusable workflow). Nothing
+# Once a night: fast-forward `release` to the newest commit of main whose scheduled (nightly) CI run
+# passed, then build and publish `edge` from it (edge.yml, called as a reusable workflow). Nothing
 # happens when `release` already contains that commit. Owner decision 2026-10-20: edge is a
 # nightly build; numbered alphas stay manual (docs/releasing.md).
 #
 # The push to `release` uses GITHUB_TOKEN, so it does not start CI or edge.yml a second time.
 # That is wanted: the commit already passed CI on main. A person's push to `release` still
 # runs CI and then edge.yml, as before.
+#
+# Owner decision 2026-11-04: the scheduled run, not the newest green push run. Since then a push
+# run of a merged pull request skips the jobs the pull request already ran, and the slow
+# comparisons (eager, fresh, compile cache, baseline rule, perf budgets, affected differential)
+# run only in the scheduled run. CI's schedule (00:17 UTC) ends before this one (02:17 UTC).
+# When the night's scheduled run failed or has not finished, the newest earlier one that passed
+# is used, and that commit is usually already on `release`, so nothing is built.
 
 on:
   schedule:
@@ -41,10 +48,10 @@ jobs:
           submodules: false
       - id: advance
         run: |
-          sha="$(gh run list --workflow ci.yml --branch main --event push --status success \
+          sha="$(gh run list --workflow ci.yml --branch main --event schedule --status success \
             --limit 1 --json headSha -q '.[0].headSha')"
           if [ -z "$sha" ]; then
-            echo "::error::no successful CI run on a push to main found"
+            echo "::error::no successful scheduled CI run on main found"
             exit 1
           fi
           echo "Newest main commit with green CI: $sha"

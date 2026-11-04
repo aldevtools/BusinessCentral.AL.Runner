@@ -54,8 +54,10 @@ on:
   # ready_for_review: a draft pull request runs no job (see `jobs` below); marking it ready starts the run.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  # 00:17 UTC: the nightly run (with the nightly set) ends before nightly-edge.yml (02:17 UTC), which advances
+  # `release` only to a commit whose scheduled run passed (owner, 2026-11-04; it was 05:17 before).
   schedule:
-    - cron: "17 5 * * *"
+    - cron: "17 0 * * *"
   workflow_dispatch:
   # release-tag.yml runs the same checks before it builds a numbered alpha, the nightly set included. A called
   # workflow sees the caller's event name, so the input (always true when called) is how it knows.

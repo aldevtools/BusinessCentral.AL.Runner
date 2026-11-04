@@ -10,11 +10,10 @@ Rules:
 - The `edge` pre-release is the newest build of `release`. Each build replaces
   the assets of the one release named `edge` and moves its tag.
 - Every night at 02:17 UTC, `nightly-edge.yml` fast-forwards `release` to the
-  newest commit of `main` whose CI passed on a push, and builds `edge` from it.
-  Since 2026-11-04 a push run of a merged pull request skips the jobs the pull
-  request already ran on the same tree, and the slow comparisons run only in the
-  nightly CI run (05:17 UTC), so edge can hold a commit those comparisons have
-  not yet checked.
+  newest commit of `main` whose scheduled (nightly) CI run passed, and builds
+  `edge` from it. That run starts at 00:17 UTC and holds the slow comparisons
+  that no longer run on a push to main (owner decision 2026-11-04; before, edge
+  took the newest commit whose CI passed on a push).
   It does nothing when `release` already has that commit. It fails, and changes
   nothing, when `release` has commits that `main` lacks (a hotfix without
   merge-back). Numbered alphas stay manual (owner decision 2026-10-20).
@@ -39,8 +38,10 @@ Rules:
 
 ## 1. A new edge build
 
-The nightly run does this by itself. To get a build sooner, run "Nightly edge"
-from the Actions tab (workflow_dispatch), or push `release` by hand:
+The nightly run does this by itself. Running "Nightly edge" from the Actions tab
+(workflow_dispatch) builds the newest commit whose scheduled CI run passed, so it
+gives nothing newer than the last night. To get a newer build, push `release` by
+hand (the CI run on `release` is then the check):
 
 1. Check that CI is green on the `main` commit you want.
 2. `git fetch origin`
