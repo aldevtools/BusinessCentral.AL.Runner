@@ -37,6 +37,7 @@ pub(crate) use interp::constant;
 #[doc(hidden)]
 pub use platform::{FieldGetByKey, field_get_by_key_pairs};
 pub use profile::flush as profile_flush;
+pub use profile::frame_name as profile_frame_name;
 mod callstack;
 mod code_storage_check;
 mod column_formatter;

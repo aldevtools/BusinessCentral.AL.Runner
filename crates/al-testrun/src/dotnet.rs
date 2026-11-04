@@ -37,7 +37,7 @@ pub struct SidecarConfig {
     pub assembly_dirs: Vec<PathBuf>,
     /// `--dotnet-allow-roll-forward`: run on a newer major than 8, with a warning.
     pub allow_roll_forward: bool,
-    /// Where each process gets its working folders; default: the system temporary folder.
+    /// Where each process gets its working folders; default: `run/` under the helper's cache ([`work_root`]).
     pub work_root: Option<PathBuf>,
     /// Deadline of one call; on expiry the process is killed (ADR-014 section 10).
     pub timeout: Duration,
@@ -702,6 +702,20 @@ fn no_cache_message() -> String {
     )
 }
 
+/// Where each process gets its working folders (`cwd`, `home`, `tmp`; removed with the process): `work_root` when
+/// set, else `run/` under the helper's cache (`cache_dir`, else `env_cache`, the cache the environment names), else
+/// the system temporary folder. Issue 6954: the process's temporary folder belongs to the run, not to the machine.
+fn work_root(cfg: &SidecarConfig, env_cache: Option<PathBuf>) -> PathBuf {
+    if let Some(w) = &cfg.work_root {
+        return w.clone();
+    }
+    cfg.cache_dir
+        .clone()
+        .or(env_cache)
+        .map(|c| c.join("run"))
+        .unwrap_or_else(std::env::temp_dir)
+}
+
 /// [`sidecar_cache_dir`] over the process environment.
 pub fn sidecar_cache_dir_from_env(flag: Option<&Path>) -> Option<PathBuf> {
     sidecar_cache_dir(flag, &|k| std::env::var(k).ok())
@@ -945,30 +959,24 @@ impl SidecarSession {
     fn start_process(&mut self) -> Result<(), String> {
         let began = std::time::Instant::now();
         let r = self.resolved.clone()?;
-        let workdir = self
-            .shared
-            .cfg
-            .work_root
-            .clone()
-            .unwrap_or_else(std::env::temp_dir)
-            .join(format!("al-runtime-dotnet-{}-{}", std::process::id(), self.number));
+        let cfg = &self.shared.cfg;
+        let env_cache = (cfg.work_root.is_none() && cfg.cache_dir.is_none()).then(|| sidecar_cache_dir_from_env(None));
+        let workdir = work_root(cfg, env_cache.flatten()).join(format!(
+            "al-runtime-dotnet-{}-{}",
+            std::process::id(),
+            self.number
+        ));
         let (cwd, home, tmp) = (workdir.join("cwd"), workdir.join("home"), workdir.join("tmp"));
         for d in [&cwd, &home, &tmp] {
             std::fs::create_dir_all(d).map_err(|e| format!("cannot create {}: {e}", d.display()))?;
         }
         // A cleared environment, UTC, an empty working directory (ADR-014 section 9).
         let mut cmd = Command::new(&r.dotnet);
-        cmd.arg(&r.sidecar)
-            .env_clear()
-            .env("HOME", &home)
-            .env("TMPDIR", &tmp)
-            .env("TZ", "UTC")
-            .env("DOTNET_NOLOGO", "1")
-            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
-            .env("DOTNET_TieredPGO", "0")
-            .env("DOTNET_TC_QuickJitForLoops", "1")
-            .env("DOTNET_gcServer", "0")
-            .current_dir(&cwd)
+        cmd.arg(&r.sidecar).env_clear();
+        for (k, v) in crate::dotnet_env::fixed(&home, &tmp) {
+            cmd.env(k, v);
+        }
+        cmd.current_dir(&cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -1594,6 +1602,30 @@ mod tests {
 
     fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |k| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+    }
+
+    #[test]
+    fn process_folders_live_under_the_runner_cache() {
+        // Issue 6954: the process's temporary folder is a folder of its own under the runner's cache, not a folder of
+        // the system temporary folder; a chosen `work_root` wins.
+        let cfg = |cache: Option<&str>, work: Option<&str>| SidecarConfig {
+            cache_dir: cache.map(PathBuf::from),
+            work_root: work.map(PathBuf::from),
+            ..Default::default()
+        };
+        assert_eq!(
+            work_root(&cfg(Some("/c/dotnet-sidecar"), None), None),
+            PathBuf::from("/c/dotnet-sidecar/run")
+        );
+        assert_eq!(
+            work_root(&cfg(Some("/c/dotnet-sidecar"), Some("/w")), None),
+            PathBuf::from("/w")
+        );
+        assert_eq!(
+            work_root(&cfg(None, None), Some(PathBuf::from("/e/dotnet-sidecar"))),
+            PathBuf::from("/e/dotnet-sidecar/run")
+        );
+        assert_eq!(work_root(&cfg(None, None), None), std::env::temp_dir());
     }
 
     #[test]
