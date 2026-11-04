@@ -1400,3 +1400,10 @@ text/textbuilder-bigtext, format-evaluate, format-evaluate, types/date-time).
 | A page edit saved after an OnModifyRecordEvent subscriber vetoed a save of the page | REFUSED (al-vm/src/pages/draft.rs save_row). The vetoed edit itself is not saved again after the action or at Close (testpage/TestPageTriggerEvents.al:181-206). | After a veto: SetValue of another value, then Next or Close: whether the subscriber runs again and what is stored; the control's value right after the veto |
 | `FieldRef.Validate` of an Enum field with a text that is no caption, or a member name | REFUSED where it converts. A caption that is no name raises the Option Evaluate error (gate EnumFieldRefValidateCaptionEvaluateErrorFrom28, Y49FieldRefIntoText.al:271-317). | `FieldRef.Validate('Beta Two')` (a name) and `FieldRef.Validate('x')` on an Enum field |
 | `Format(RecordId, 0, 10)` and `Evaluate(RecordId, Text, 10)` of key shapes beyond GetUrl's and Option, Code[20], Integer | REFUSED (al-builtins/src/bookmark.rs). | The bookmark of a Date, Guid, Text and Decimal key field, and of a three-field Code key |
+
+## XmlPorts of al-runner issue 6924 (2026-11-04)
+
+| Shape | Status | Probe wanted |
+|---|---|---|
+| A table element whose LinkTable names a table element that is not above it (a preceding sibling: `Root > TransportHeader, TransportLine` with `LinkTable = TransportHeader`) | REFUSED when lowered (al-sema/src/xmlports.rs, "LinkTable X is not a table element above it"). | R6924eLinkSibling.al on corpus branch al-runtime-rs-staging-r6924e: whether it compiles, which lines an export writes, which "Doc No." an import gives the lines (headers first, interleaved, a line with its own Doc). |
+| A container below a table element with its own text, or a Break in a leaf's OnBeforePassVariable inside it | REFUSED (al-vm/src/xmlports/export_xml.rs, `leaf_triggered_tree` arm). | R6924eTreeInTable.al `TreeInTable_ContainerOwnText` observes the own text; Break not asked. |
