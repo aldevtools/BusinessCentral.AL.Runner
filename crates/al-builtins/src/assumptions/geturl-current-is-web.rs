@@ -1,11 +1,6 @@
 GetUrlCurrentIsWeb => {
     id: "geturl-current-is-web",
-    assumed: "GetUrl(ClientType::Current) in a test session answers what GetUrl(ClientType::Web) answers, alone and with a company, an object and a record. Measured on real BC (three majors) by corpus branch al-runtime-rs-staging-p6924c; the entry goes when that file is in the pinned corpus.",
-    tests: "Microsoft and partner code that asks GetUrl(ClientType::Current) for a link (al-runner issue 6924).",
-    probe: "session-system/session/GetUrlShape.al GU6924_Current_EqualsWhichForm on corpus branch al-runtime-rs-staging-p6924c.",
-    awaiting: Awaiting {
-        issues: &[6924],
-        files: &["tests/al-language/session-system/session/GetUrlShape.al::GU6924_Current_EqualsWhichForm"],
-        since: "2026-11-04",
-    },
+    assumed: "GetUrl(ClientType::Current) in a test session with a company or a record answers what GetUrl(ClientType::Web) answers with the same arguments. Pinned and not part of the assumption: Current alone and with a page equals Web (session-system/session/GetUrlShape.al:424, 429, GU6924_Current_EqualsWhichForm).",
+    tests: "Microsoft and partner code that asks GetUrl(ClientType::Current) for a link.",
+    probe: "Extend GetUrlShape.al GU6924_Current_EqualsWhichForm with Current against Web for a company and for a page with a record (UseFilters false and true).",
 }

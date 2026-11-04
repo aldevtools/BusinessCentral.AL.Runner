@@ -479,7 +479,7 @@ pub(crate) fn remainder_reach_facts(
             refs(&mut named, args);
         }
         Expr::InterfaceCall { targets, args, .. } => {
-            calls.extend(targets.iter().copied());
+            calls.extend(al_ir::walk::interface_routines(targets));
             refs(&mut named, args);
         }
         Expr::DotNet { args, .. } => refs(&mut named, args),

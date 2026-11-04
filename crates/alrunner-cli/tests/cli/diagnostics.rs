@@ -243,3 +243,63 @@ fn warm_without_a_backup_or_a_build_says_what_it_needs() {
         text(&o)
     );
 }
+
+const CHAIN: &str = r#"
+table 50300 "XS Target" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { } } }
+table 50301 "XS Line"
+{
+    fields { field(1; Id; Integer) { } field(2; Ref; Code[20]) { TableRelation = "XS Target"; } }
+    keys { key(PK; Id) { } }
+}
+codeunit 50302 "XS OnRun Tests"
+{
+    Subtype = Test;
+    trigger OnRun()
+    var T: Record "XS Target";
+    begin
+        T.Code := 'ONRUN'; if T.Insert() then;
+    end;
+    [Test]
+    procedure RelationError()
+    var L: Record "XS Line";
+    begin
+        L.Init();
+        L.Validate(Ref, 'MISSING');
+    end;
+}
+"#;
+
+/// al-runner issue 6924: a codeunit whose OnRun writes runs in the carry chain, and `--explain` printed "where: not
+/// recorded" for its failures; the same under `--isolation disabled`, where every codeunit runs in the chain.
+#[test]
+fn explain_shows_where_a_test_of_the_carry_chain_raised_its_error() {
+    let d = tempfile::tempdir().unwrap();
+    let app = one_file_app(
+        d.path(),
+        "chain",
+        "11111111-0000-0000-0000-000000006924",
+        "Chain",
+        "src/Tests.al",
+        CHAIN,
+    );
+    for extra in [&[][..], &["--isolation", "disabled"][..]] {
+        let mut args = vec![
+            "test",
+            app.to_str().unwrap(),
+            "--no-download",
+            "--explain",
+            "RelationError",
+        ];
+        args.extend_from_slice(extra);
+        let t = text(&alrunner(&args));
+        assert!(
+            t.contains("cannot be found in the related table (XS Target)"),
+            "{extra:?}: {t}"
+        );
+        assert!(
+            t.contains("raised in (innermost first):") && t.contains("src/Tests.al:21:9"),
+            "{extra:?}: {t}"
+        );
+        assert!(!t.contains("where: not recorded"), "{extra:?}: {t}");
+    }
+}

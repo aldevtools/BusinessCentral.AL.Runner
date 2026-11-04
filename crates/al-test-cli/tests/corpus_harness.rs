@@ -22,7 +22,7 @@ fn require_corpus() {
 
 /// Runs the CLI over the corpus on its own: without the Microsoft apps, which would make
 /// each run in this unoptimised test build take minutes (the release CI step runs with
-/// them). No ratchet unless the test brings a baseline: the real one lists cases that need
+/// them). No list check unless the test brings a list: the real lists assume
 /// those apps.
 fn cli(args: &[&str]) -> (i32, String, String) {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_al-test-cli"));
@@ -91,10 +91,10 @@ impl AllVersions {
 fn every_oracle_case_is_reported_and_attributed_to_an_area() {
     // BC 29: the version a run without `--bc-version` picks.
     let r = all_versions().json("29");
-    assert_eq!(r["overall"]["total"], 23581);
+    assert_eq!(r["overall"]["total"], 23718);
     assert_eq!(r["unmapped"].as_array().unwrap().len(), 0, "{}", r["unmapped"]);
-    assert_eq!(r["areas"]["json"]["total"], 535); // corpus bump to 833a01ce: the restructure moved JSON tests into json/
-    assert_eq!(r["areas"]["record"]["total"], 3619); // corpus bump to 833a01ce: the restructure merged records, filters, calcfields and system-fields into record/
+    assert_eq!(r["areas"]["json"]["total"], 548); // corpus bump to 833a01ce: the restructure moved JSON tests into json/
+    assert_eq!(r["areas"]["record"]["total"], 3634); // corpus bump to 833a01ce: the restructure merged records, filters, calcfields and system-fields into record/
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn oracle_pinned_to_a_different_corpus_commit_is_refused() {
     std::fs::write(
         &bad,
         t.replace(
-            "86a89e70e28388ba674bbd505208e69b563d7fc7",
+            "e89f0e53ca7be9c391f671867286e969828c026a",
             "0000000000000000000000000000000000000000",
         ),
     )
@@ -168,16 +168,23 @@ fn an_oracle_recorded_for_a_commit_missing_from_the_checkout_is_a_setup_error() 
     assert!(err.contains("fetch"), "{err}");
 }
 
+// ADR-065 section 2 point 3: a listed case that is no longer in the oracle is a stale line, and CI asks for its
+// deletion.
 #[test]
-fn a_baseline_case_that_does_not_pass_fails_the_run() {
+fn a_listed_case_no_longer_in_the_oracle_asks_for_its_deletion() {
     require_corpus();
     let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().join("passing.txt");
-    std::fs::write(&base, "60002 NoSuchProcedure_UsedByTheRegressionTest\n").unwrap();
-    // The ratchet checks the cases of the selection, so selecting the codeunit is enough.
+    let base = dir.path().join("not-passing.txt");
+    std::fs::write(&base, "60002 NoSuchProcedure_UsedByTheStaleLineTest\n").unwrap();
+    // The rule checks the cases of the selection, so selecting the codeunit is enough.
     let (code, _, err) = cli(&["--baseline", base.to_str().unwrap(), "--codeunit", "60002"]);
     assert_eq!(code, 1, "{err}");
-    assert!(err.contains("60002 NoSuchProcedure_UsedByTheRegressionTest"), "{err}");
+    assert!(
+        err.contains("stale line(s)")
+            && err.contains("--prune-not-passing")
+            && err.contains("60002 NoSuchProcedure_UsedByTheStaleLineTest  [not in the oracle]"),
+        "{err}"
+    );
 }
 
 /// A repository of its own: a git "corpus" with one test app, and an oracle for BC 27 that says real
@@ -300,7 +307,7 @@ corpus_commit = "{head}"
 major = 27
 bc_version = "27.5"
 junit = "27/junit.xml"
-baseline = "metrics/27/passing.txt"
+baseline = "metrics/27/not-passing.txt"
 "#
         ),
     )
@@ -308,43 +315,224 @@ baseline = "metrics/27/passing.txt"
     dir
 }
 
-#[test]
-fn a_failing_case_outside_the_baseline_is_reported_but_does_not_fail_the_run() {
-    // ADR-007: only a baseline case that stops passing exits 1. The probe tests the corpus adds
-    // for behaviour the runtime does not have yet are failures in the report, not in the gate.
-    // The run needs a failing case, and the real corpus may have none (the runtime keeps getting
-    // better), so it runs on a fixture whose second test fails on purpose.
-    let root = root_with_a_failing_test();
-    let run = |baseline: &str| {
-        let base = root.path().join("passing.txt");
-        std::fs::write(&base, baseline).unwrap();
-        let out = root.path().join("r.json");
-        let o = Command::new(env!("CARGO_BIN_EXE_al-test-cli"))
-            .arg("--root")
-            .arg(root.path())
-            .args(["--no-deps", "--bc-version", "27", "--baseline"])
-            .arg(&base)
-            .arg("--json")
-            .arg(&out)
-            .output()
-            .unwrap();
-        let err = String::from_utf8_lossy(&o.stderr).to_string();
-        let report: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(&out).unwrap_or_else(|_| panic!("no report written; stderr:\n{err}")),
-        )
+/// Runs the CLI on a fixture root against the list `list` (written to `<root>/not-passing.txt` first), with `extra`
+/// flags. Returns the exit code, the report and standard error.
+fn run_fixture(root: &Path, list: &str, extra: &[&str]) -> (i32, serde_json::Value, String) {
+    let base = root.join("not-passing.txt");
+    std::fs::write(&base, list).unwrap();
+    let out = root.join("r.json");
+    let o = Command::new(env!("CARGO_BIN_EXE_al-test-cli"))
+        .arg("--root")
+        .arg(root)
+        .args(["--no-deps", "--bc-version", "27", "--baseline"])
+        .arg(&base)
+        .arg("--json")
+        .arg(&out)
+        .args(extra)
+        .output()
         .unwrap();
-        (o.status.code().unwrap_or(-1), report, err)
-    };
-    // The passing case is in the baseline, the failing one is not: reported, exit 0.
-    let (code, r, err) = run("60900 Passes\n");
+    let err = String::from_utf8_lossy(&o.stderr).to_string();
+    let report: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&out).unwrap_or_else(|_| panic!("no report written; stderr:\n{err}")),
+    )
+    .unwrap();
+    (o.status.code().unwrap_or(-1), report, err)
+}
+
+// ADR-065 section 2 point 1. The run needs a failing case, and the real corpus may have none (the runtime keeps getting
+// better), so it runs on a fixture whose second test fails on purpose.
+#[test]
+fn a_listed_failing_case_passes_the_run_and_an_unlisted_one_is_a_regression() {
+    let root = root_with_a_failing_test();
+    // The failing case is listed: reported, exit 0.
+    let (code, r, err) = run_fixture(root.path(), "60900 FailsOnPurpose\n", &[]);
     assert_eq!(code, 0, "{err}");
     assert_eq!(r["overall"]["total"], 2, "{}", r["overall"]);
     assert_eq!(r["overall"]["pass"], 1, "{}", r["overall"]);
     assert_eq!(r["overall"]["fail"], 1, "{}", r["overall"]);
-    // The control: the same failure inside the baseline is a regression.
-    let (code, _, err) = run("60900 Passes\n60900 FailsOnPurpose\n");
+    // Not listed: a regression, with what it does now.
+    let (code, _, err) = run_fixture(root.path(), "", &[]);
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("1 regression(s)")
+            && err.contains("60900 FailsOnPurpose  [fail: the harness fixture fails on purpose]"),
+        "{err}"
+    );
+}
+
+// ADR-065 section 2 point 2 and owner decision 1: a listed case that passes fails the run until
+// `--prune-not-passing` deletes its line; the flag deletes stale lines and adds none.
+#[test]
+fn a_stale_listed_case_fails_until_prune_not_passing_deletes_it() {
+    let root = root_with_a_failing_test();
+    let list = "60900 FailsOnPurpose\n60900 Passes\n60900 LeftTheOracle\n";
+    let (code, _, err) = run_fixture(root.path(), list, &[]);
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("2 stale line(s)")
+            && err.contains("60900 Passes  [passes]")
+            && err.contains("60900 LeftTheOracle  [not in the oracle]"),
+        "{err}"
+    );
+    let base = root.path().join("not-passing.txt");
+    let run_prune = || {
+        Command::new(env!("CARGO_BIN_EXE_al-test-cli"))
+            .arg("--root")
+            .arg(root.path())
+            .args(["--no-deps", "--bc-version", "27", "--prune-not-passing", "--baseline"])
+            .arg(&base)
+            .output()
+            .unwrap()
+    };
+    let o = run_prune();
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let now = std::fs::read_to_string(&base).unwrap();
+    assert!(now.starts_with("# Corpus cases"), "{now}");
+    assert_eq!(
+        now.lines().filter(|l| !l.starts_with('#')).collect::<Vec<_>>(),
+        ["60900 FailsOnPurpose"]
+    );
+    // Pruning never adds a line: a regression stays a failure and the list keeps what it had.
+    std::fs::write(&base, "").unwrap();
+    let o = run_prune();
+    assert_eq!(o.status.code(), Some(1), "{}", String::from_utf8_lossy(&o.stderr));
+    assert_eq!(std::fs::read_to_string(&base).unwrap(), "");
+}
+
+// ADR-065 section 2 point 4: an oracle case the run recorded no outcome for fails the run, listed or not. Here the
+// oracle names a procedure the fixture codeunit does not declare, so the runner never runs it.
+#[test]
+fn an_oracle_case_without_an_outcome_fails_the_run_listed_or_not() {
+    let root = root_with_a_failing_test();
+    std::fs::write(
+        root.path().join("oracle/27/junit.xml"),
+        r#"<?xml version='1.0' encoding='utf-8'?>
+<testsuites name="DEFAULT" tests="3" failures="0" errors="0" skipped="0">
+  <testsuite name="Codeunit 60900" tests="3" failures="0" errors="0" skipped="0">
+    <testcase classname="Codeunit 60900" name="Passes" time="0.001" />
+    <testcase classname="Codeunit 60900" name="FailsOnPurpose" time="0.001" />
+    <testcase classname="Codeunit 60900" name="NeverRuns" time="0.001" />
+  </testsuite>
+</testsuites>
+"#,
+    )
+    .unwrap();
+    for list in ["60900 FailsOnPurpose\n", "60900 FailsOnPurpose\n60900 NeverRuns\n"] {
+        let (code, _, err) = run_fixture(root.path(), list, &[]);
+        assert_eq!(code, 1, "{list}: {err}");
+        assert!(
+            err.contains("1 oracle case(s) got no outcome") && err.contains("  60900 NeverRuns"),
+            "{list}: {err}"
+        );
+        assert!(!err.contains("regression"), "{err}");
+    }
+}
+
+/// Makes `root` a git repository whose one commit holds `oracle/` as it is now (the base branch of
+/// `--list-new-cases` and `--list-changes`).
+fn commit_oracle(root: &Path) {
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.com",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["init", "-q"]);
+    git(&["add", "oracle"]);
+    if root.join("not-passing.txt").exists() {
+        git(&["add", "not-passing.txt"]);
+    }
+    git(&["commit", "-q", "-m", "base"]);
+}
+
+const ORACLE_ONLY_PASSES: &str = r#"<?xml version='1.0' encoding='utf-8'?>
+<testsuites name="DEFAULT" tests="1" failures="0" errors="0" skipped="0">
+  <testsuite name="Codeunit 60900" tests="1" failures="0" errors="0" skipped="0">
+    <testcase classname="Codeunit 60900" name="Passes" time="0.001" />
+  </testsuite>
+</testsuites>
+"#;
+
+// ADR-065 section 2 ("New cases from a corpus bump are not regressions"): `--list-new-cases REV` lists a failing case
+// that the oracle at REV did not have, and never one REV's oracle had.
+#[test]
+fn list_new_cases_adds_only_cases_the_base_oracle_lacks() {
+    let root = root_with_a_failing_test();
+    let junit = root.path().join("oracle/27/junit.xml");
+    let bumped = std::fs::read_to_string(&junit).unwrap();
+    // The base branch's oracle had only Passes; the bump adds FailsOnPurpose.
+    std::fs::write(&junit, ORACLE_ONLY_PASSES).unwrap();
+    commit_oracle(root.path());
+    std::fs::write(&junit, &bumped).unwrap();
+    let (code, _, err) = run_fixture(root.path(), "", &["--list-new-cases", "HEAD"]);
+    assert_eq!(code, 0, "{err}");
+    let list = std::fs::read_to_string(root.path().join("not-passing.txt")).unwrap();
+    assert!(list.lines().any(|l| l == "60900 FailsOnPurpose"), "{list}");
+    // The same failure against a base whose oracle already had it is a regression: no line is added.
+    let root = root_with_a_failing_test();
+    commit_oracle(root.path());
+    let (code, _, err) = run_fixture(root.path(), "", &["--list-new-cases", "HEAD"]);
     assert_eq!(code, 1, "{err}");
     assert!(err.contains("60900 FailsOnPurpose"), "{err}");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("not-passing.txt")).unwrap(),
+        ""
+    );
+    // A revision that does not exist is a setup error.
+    let (code, _, err) = run_fixture(root.path(), "", &["--list-new-cases", "no-such-branch"]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("no-such-branch"), "{err}");
+}
+
+// ADR-065 owner decision 2: a line added for a case the base oracle had is a regression shown for the owner's review;
+// a line for a new case is not.
+#[test]
+fn list_changes_tells_accepted_regressions_from_new_cases() {
+    let root = root_with_a_failing_test();
+    let toml = root.path().join("oracle/oracle.toml");
+    let t = std::fs::read_to_string(&toml)
+        .unwrap()
+        .replace("metrics/27/not-passing.txt", "not-passing.txt");
+    std::fs::write(&toml, t).unwrap();
+    std::fs::write(root.path().join("not-passing.txt"), "").unwrap();
+    commit_oracle(root.path());
+    let changes = |list: &str| {
+        std::fs::write(root.path().join("not-passing.txt"), list).unwrap();
+        let o = Command::new(env!("CARGO_BIN_EXE_al-test-cli"))
+            .arg("--root")
+            .arg(root.path())
+            .args(["--list-changes", "HEAD"])
+            .output()
+            .unwrap();
+        (
+            o.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&o.stdout).to_string(),
+        )
+    };
+    let (code, md) = changes("60900 FailsOnPurpose\n");
+    assert_eq!(code, 1, "{md}");
+    assert!(
+        md.contains("Regressions accepted by this pull request (1)") && md.contains("60900 FailsOnPurpose"),
+        "{md}"
+    );
+    let (code, md) = changes("");
+    assert_eq!(code, 0, "{md}");
+    assert!(md.contains("No list changed."), "{md}");
 }
 
 /// The corpus app depends on corpus apps next to it (corpus `tests/al-language/app.json`: the internals fixture and the
@@ -525,15 +713,15 @@ fn root_with_an_environment_suite() -> tempfile::TempDir {
 name = "env"
 app = "fixture/tests/suite-app"
 oracle = "27/junit-env.xml"
-baseline = "metrics/27/passing-env.txt"
+baseline = "metrics/27/not-passing-env.txt"
 extra_apps = [{{ id = "{ENV_APP_ID}", name = "Harness Env Lib" }}]
 "#
         ),
     )
     .unwrap();
     std::fs::create_dir_all(at("metrics/27")).unwrap();
-    std::fs::write(at("metrics/27/passing.txt"), "60900 Passes\n").unwrap();
-    std::fs::write(at("metrics/27/passing-env.txt"), "").unwrap();
+    std::fs::write(at("metrics/27/not-passing.txt"), "60900 FailsOnPurpose\n").unwrap();
+    std::fs::write(at("metrics/27/not-passing-env.txt"), "").unwrap();
     root
 }
 
@@ -592,17 +780,24 @@ fn a_suite_with_extra_apps_runs_in_its_own_environment() {
         "{env_junit}"
     );
     assert!(out.contains("BC 27.5 env: 1/1 pass"), "{out}");
-    // The suite's ratchet: --update-baseline writes its new pass to its own file, and the main one keeps its own.
-    let (code, out, err) = cli_env(root.path(), &["--update-baseline"]);
-    assert_eq!(code, 0, "{out}\n{err}");
-    let env_base = std::fs::read_to_string(root.path().join("metrics/27/passing-env.txt")).unwrap();
-    assert!(env_base.contains("60960 EnvAppIsLoaded"), "{env_base}");
-    let main_base = std::fs::read_to_string(root.path().join("metrics/27/passing.txt")).unwrap();
+    // The suite's list (ADR-065): a line of the suite's that passes is stale in its own file, and
+    // --prune-not-passing deletes it there while the main app's list keeps its own line.
+    let env_list = root.path().join("metrics/27/not-passing-env.txt");
+    std::fs::write(&env_list, "60960 EnvAppIsLoaded\n").unwrap();
+    let (code, out, err) = cli_env(root.path(), &[]);
+    assert_eq!(code, 1, "{out}\n{err}");
     assert!(
-        main_base.contains("60900 Passes")
-            && main_base.contains("60901 EnvAppIsAbsent")
-            && !main_base.contains("60960"),
-        "{main_base}"
+        err.contains("BC 27.5 env: 1 stale line(s)") && err.contains("60960 EnvAppIsLoaded  [passes]"),
+        "{err}"
+    );
+    let (code, out, err) = cli_env(root.path(), &["--prune-not-passing"]);
+    assert_eq!(code, 0, "{out}\n{err}");
+    let env_now = std::fs::read_to_string(&env_list).unwrap();
+    assert!(!env_now.contains("60960"), "{env_now}");
+    let main_now = std::fs::read_to_string(root.path().join("metrics/27/not-passing.txt")).unwrap();
+    assert!(
+        main_now.contains("60900 FailsOnPurpose") && !main_now.contains("60900 Passes"),
+        "{main_now}"
     );
     // A selection of the suite's codeunit runs only its environment; --baseline-diff lists the suite.
     let (code, out, err) = cli_env(root.path(), &["--codeunit", "60960", "--baseline-diff"]);
@@ -633,7 +828,7 @@ fn markdown_summary_is_written() {
     let shared = all_versions();
     assert_eq!(shared.code, 0, "{}", shared.err);
     let md = std::fs::read_to_string(shared.file("pass-rate", "29", "md")).unwrap();
-    assert!(md.starts_with("- BC 29.0: ") && md.contains(" of 23581 ("), "{md}");
+    assert!(md.starts_with("- BC 29.0: ") && md.contains(" of 23718 ("), "{md}");
     assert_eq!(md.lines().count(), 1, "one line per version: {md}");
     // ... and `--markdown` of a single-version run writes the file it is given.
     let dir = tempfile::tempdir().unwrap();
@@ -698,7 +893,7 @@ fn every_bc_major_has_an_oracle_with_the_same_cases() {
     // 28 and 29 come from the hybrid runner: its OnRun pseudo-cases must be skipped, or the
     // run stops with exit 2 (ADR-015 1.6).
     // All three are recorded for the pinned corpus commit.
-    for (v, total) in [("27", 23299), ("28", 23440), ("29", 23581)] {
+    for (v, total) in [("27", 23434), ("28", 23575), ("29", 23718)] {
         let r = all_versions().json(v);
         assert_eq!(r["overall"]["total"], total, "BC {v}");
         assert_eq!(r["unmapped"].as_array().unwrap().len(), 0, "BC {v}");
@@ -743,14 +938,14 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bumps 33 and 34 make it 195. Six leave: the BC 27 only tests of 85660 and 85661 in
     // http/client/LtDaSendFailure.al are now compiled under `#if BC28PLUS and LT_HELD_BCLINUX_165`, which the
     // Linux CI does not define, so no major has them. Three come: PW_RaisedEvents_OtherFormats and PW_RaisedEvents_RunRunModal
-    // of 23581 (events/platform-triggers/PeVTests.al:750, the RDLC holds lifted to `#if BC28PLUS`) and 85312
+    // of 23718 (events/platform-triggers/PeVTests.al:750, the RDLC holds lifted to `#if BC28PLUS`) and 85312
     // CodeunitRun_ByQualifiedName (session-system/isolated-storage/CuWriteTxTests.al, hold LT_HELD_BCLINUX_159 lifted inside its BC28PLUS
-    // guard). Corpus bump 42 makes it 196: PW_RaisedEvents_Execute of 23581 (PeVTests.al:725, hold LT_HELD_BCLINUX_158 lifted
+    // guard). Corpus bump 42 makes it 196: PW_RaisedEvents_Execute of 23718 (PeVTests.al:725, hold LT_HELD_BCLINUX_158 lifted
     // inside the BC28PLUS guard) now runs on BC 28 and 29. Corpus bump 43 makes it 202: the six tests of 85660 and 85661 in
     // LtDaSendFailure.al come back under `#if BC28PLUS` (hold LT_HELD_BCLINUX_165 lifted), on BC 28 and 29 only.
     // The multi-app corpus bump (corpus PR 710) makes it 203: 78603 QV_Header_CompanyLogo_PictureVariants
     // (reports/dataset/AhDatasetHeader.al:220, inside the file's `#if BC29PLUS`) runs on BC 29 only.
-    // Corpus bump 55 makes it 209: the six RB_Header_AddressFormat_* tests of 23581 (AhDatasetHeader.al:309-430), BC 29 only.
+    // Corpus bump 55 makes it 209: the six RB_Header_AddressFormat_* tests of 23718 (AhDatasetHeader.al:309-430), BC 29 only.
     // Corpus bump to master 2db2dbd5 makes it 211: the two tests of 99830 in collections/SsCallerModulesTestRunner.al run on
     // BC 27 only (`#if not BC28PLUS`, the Test Runner app path of the CI; gate TestRunnerHubRequiredIsolationFrom28).
     // Corpus bump to master 28de3f39 makes it 214: the three tests of 90645 in metadata/WcFieldRowCopy.al run on BC 29
@@ -758,7 +953,7 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bump to master 09855762 makes it 224: the nine Y8_IsDirty_* tests of 91415 in record/Y8RecordIsDirtyShapes.al run
     // on BC 29 only (`#if BC29PLUS`; gate RecordIsDirtyFrom29), and 90775 WD_BareNameExt_ValueReadError in
     // testpage/WdBareQuotedField.al on BC 28 and 29 only (`#if BC28PLUS`; gate ExtControlBareQuotedSourceNotFoundFrom28).
-    // Corpus bump to master 92031e20 makes it 238: five tests of 23581 (Y17_TenantReportLayoutCfg_InsertModifyDelete, _Shapes,
+    // Corpus bump to master 92031e20 makes it 238: five tests of 23718 (Y17_TenantReportLayoutCfg_InsertModifyDelete, _Shapes,
     // Y40_TenantReportLayoutOverride_InsertModifyDelete, _SeenByReportLayoutList, _TypedRecord) and nine BigInteger and Enum
     // conversions of the Y31 conversion matrix (types/operators-expressions/, `#if BC29PLUS`; gate
     // BigIntegerToEnumVariableFrom29) run on BC 29 only. Corpus bump to master 7f7cdc2a makes it 239:
@@ -770,7 +965,9 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bump to master 941cd813 makes it 283: the bump to 9cce33bd (writers Y76 to Y81, which did not update this count)
     // and the Y79 fix and Y85 pins after it add BC28PLUS and BC29PLUS guards that the probed-values gates cite.
     // Corpus bump to master c8bb6694 makes it 298: the Y90 BC28PLUS guards (gate PermissionShapeProbesFrom28) and the other new cases.
-    assert!(out.contains("oracle: 298 case(s) differ between versions"), "{out}");
+    // Corpus bump to master eccb1330 makes it 300: the two tests of codeunits/interfaces/R6924dThisInDefaultBody.al (`#if BC29PLUS`;
+    // gate DefaultInterfaceMethodsFrom29) run on BC 29 only.
+    assert!(out.contains("oracle: 300 case(s) differ between versions"), "{out}");
     // The known BC 29 differences are gated (ADR-015 3.4), so the runtime passes the same cases on every version, among the
     // cases every oracle has. One difference is known and open (corpus bump 10, backlog): the runtime passes
     // 71500 Get_Uses_Primary_Key_Not_Current_Key on BC 27 only. A new difference would be listed here.
@@ -798,7 +995,7 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // ControlAddInNotInstantiatedErrorFrom28) and refuses on BC 27, so 77540 AC_ControlAddIn_ProcedureCallFromFieldTrigger,
     // 79590 AddinProcedureFromAction, 67122 Addin_PageOpened_OnOpenPageCallsProcedure and Addin_PageVariableNeverOpened_Calls
     // pass on BC 28 and 29 only.
-    // Corpus bump to 21a41286 makes it 27: eight new TZ_* cases of 23581 (control add-in calls from page triggers and
+    // Corpus bump to 21a41286 makes it 27: eight new TZ_* cases of 23718 (control add-in calls from page triggers and
     // actions) pass on BC 28 and 29 only, behind the same gate ControlAddInNotInstantiatedErrorFrom28.
     // Branch fix-left makes it 17: the numbers a Required-isolation codeunit takes are carried over, so the ten
     // remaining RqIsolationModes.al cases (88512-88515 and the ones after them) now run and pass on BC 28 and 29 too.
@@ -852,7 +1049,7 @@ fn require_dotnet_turns_an_unusable_dotnet_into_a_setup_error() {
 #[test]
 fn the_other_test_apps_are_reported_apart_from_the_main_one() {
     let r = all_versions().json("28");
-    assert_eq!(r["overall"]["total"], 23440);
+    assert_eq!(r["overall"]["total"], 23575);
     let suites = r["suites"].as_array().unwrap();
     let get = |n: &str| {
         suites
@@ -889,14 +1086,14 @@ fn a_version_without_an_isolation_oracle_lists_only_the_onprem_and_testlibraries
     assert_eq!(names, vec!["onprem", "onprem-dotnet", "testlibraries"]);
 }
 
-// `--baseline FILE` is the main app's ratchet alone. The extra apps keep their own files in
+// `--baseline FILE` is the main app's list alone. The extra apps keep their own files in
 // `oracle.toml`, which may need the dependency apps this `--no-deps` run does not load.
 #[test]
 fn an_explicit_baseline_does_not_ratchet_the_extra_apps() {
     require_corpus();
-    // Not a regression: onprem's own baseline lists cases that need the dependency apps.
+    // Not a regression: onprem's own list assumes the dependency apps.
     let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().join("passing.txt");
+    let base = dir.path().join("not-passing.txt");
     std::fs::write(&base, "").unwrap();
     // Codeunit 61200 is the OnPrem app's: its cases are refused without the dependency apps.
     let (code, _, err) = cli(&[
@@ -914,15 +1111,11 @@ fn an_explicit_baseline_does_not_ratchet_the_extra_apps() {
 fn a_suite_baseline_ratchets_that_extra_app_and_no_ratchet_ignores_it() {
     require_corpus();
     let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().join("passing.txt");
+    let base = dir.path().join("not-passing.txt");
     std::fs::write(&base, "").unwrap();
-    // A case the OnPrem app cannot pass without its platform tables and dependency apps.
+    // An empty list for the OnPrem app, whose cases cannot pass without their platform tables and dependency apps.
     let suite = dir.path().join("onprem.txt");
-    std::fs::write(
-        &suite,
-        "61200 ObjectMetadata_Find_ApplicationDatabaseTableId_ReturnsARow\n",
-    )
-    .unwrap();
+    std::fs::write(&suite, "").unwrap();
     let args = |extra: &[&str]| {
         let mut a = vec![
             "--bc-version",
@@ -942,10 +1135,7 @@ fn a_suite_baseline_ratchets_that_extra_app_and_no_ratchet_ignores_it() {
     let run = |a: Vec<String>| cli(&a.iter().map(String::as_str).collect::<Vec<_>>());
     let (code, _, err) = run(args(&[]));
     assert_eq!(code, 1, "{err}");
-    assert!(
-        err.contains("27.5 onprem") && err.contains("ObjectMetadata_Find_ApplicationDatabaseTableId"),
-        "{err}"
-    );
+    assert!(err.contains("BC 27.5 onprem") && err.contains("regression(s)"), "{err}");
     // --no-ratchet reports only, for every app.
     let mut a = args(&["--no-ratchet"]);
     a.retain(|x| x != base.to_str().unwrap() && x != "--baseline");

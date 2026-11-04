@@ -224,8 +224,8 @@ pub const PROBES_TABLE_BEGIN: &str = "<!-- assumptions:begin (generated from cra
 pub const PROBES_TABLE_END: &str = "<!-- assumptions:end -->";
 
 /// `docs/probes-needed.md` (`text`) with the table between its two markers replaced by
-/// [`markdown_table`]; the rest of the file is kept. `al-test-cli --assumptions-doc` writes it, and the
-/// regen bot on main runs that after every green push (`.github/workflows/ci.yml`, job `regen-bot`).
+/// [`markdown_table`]; the rest of the file is kept. `al-test-cli --assumptions-doc` writes it. The pull request that
+/// changes the registry regenerates it (ADR-065 section 5); a test fails while it is stale.
 pub fn probes_needed_doc(text: &str) -> Result<String, String> {
     let (Some(a), Some(b)) = (text.find("<!-- assumptions:begin"), text.find(PROBES_TABLE_END)) else {
         return Err("docs/probes-needed.md has no assumptions block: add the two marker lines".into());
@@ -533,9 +533,9 @@ mod tests {
         );
     }
 
-    /// The table is generated. A pull request does not need to regenerate it: the regen bot on main does
-    /// that after the merge (`.github/workflows/ci.yml`, job `regen-bot`). So a stale table is reported, not
-    /// failed; `UPDATE_ASSUMPTIONS_DOC=1` rewrites it locally.
+    /// The table is generated from the registry. The pull request that changes the registry regenerates it (ADR-065
+    /// section 5: no bot writes to main), so a stale table fails, as `builtin_ids_current` does for `builtin_ids.rs`.
+    /// `UPDATE_ASSUMPTIONS_DOC=1` (or `al-test-cli --root . --assumptions-doc`) rewrites it.
     #[test]
     fn the_table_in_probes_needed_is_generated_from_the_registry() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/probes-needed.md");
@@ -545,8 +545,8 @@ mod tests {
             if std::env::var_os("UPDATE_ASSUMPTIONS_DOC").is_some() {
                 std::fs::write(&path, want).expect("write docs/probes-needed.md");
             } else {
-                eprintln!(
-                    "note: the assumptions table of docs/probes-needed.md is out of date; the regen bot updates it on main after the merge (locally: UPDATE_ASSUMPTIONS_DOC=1 cargo test -p al-builtins assumptions)"
+                panic!(
+                    "the assumptions table of docs/probes-needed.md is out of date: regenerate it in this pull request with `al-test-cli --root . --assumptions-doc` (or UPDATE_ASSUMPTIONS_DOC=1 cargo test -p al-builtins assumptions)"
                 );
             }
         }

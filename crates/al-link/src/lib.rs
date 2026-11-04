@@ -424,6 +424,14 @@ impl<'a, S: Space + ?Sized> Tables<'a, S> {
         })
     }
 
+    /// The routine of interface `iface` that declares procedure `name` with these parameters: its default body when a
+    /// codeunit does not declare the member (codeunits/CwDefaultInterfaceMethods.al:20-33). A member without a body is
+    /// a declaration alc makes every implementer declare, so only a default body is ever reached here.
+    fn default_body(&self, iface: usize, name: &str, params: &[String]) -> Option<usize> {
+        let keys = self.space.routines(iface);
+        (0..keys.len()).find(|&r| !keys[r].trigger && keys[r].name == name && keys[r].params == params)
+    }
+
     /// The codeunits that implement interface `iface`, in program order.
     fn implementers(&self, iface: usize) -> &[usize] {
         let all = self.implementers.get_or_init(|| {
@@ -469,6 +477,20 @@ impl<'a, S: Space + ?Sized> Tables<'a, S> {
                     let same: Vec<usize> = (0..keys.len()).filter(|&r| shape(&keys[r])).collect();
                     let exact = same.iter().copied().find(|&r| keys[r].params == *params);
                     let Some(r) = exact.or(same.first().copied()) else {
+                        // The interface's default body, for a codeunit that does not declare the member and has
+                        // no local procedure of its name (what lowering lists, `Lowerer::interface_call`).
+                        // A local procedure of the name beside the default leaves the codeunit off the targets.
+                        let own_local = keys.iter().any(|k| k.local && !k.trigger && k.name == *name);
+                        if let Some(d) = self.default_body(i, name, params) {
+                            if own_local {
+                                continue;
+                            }
+                            targets.push((cu, al_ir::walk::DEFAULT_BODY));
+                            if !targets.contains(&(i, d)) {
+                                targets.push((i, d));
+                            }
+                            continue;
+                        }
                         return Err(Box::new(LinkError::NoImplementation {
                             from: from.clone(),
                             codeunit: self.space.key(cu).clone(),
@@ -1855,6 +1877,7 @@ mod tests {
                 expr_source: None,
                 expr_call: false,
                 array_element: None,
+                source_text: None,
                 bare_quoted_ext_source: false,
                 factbox: false,
             },

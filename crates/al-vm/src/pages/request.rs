@@ -58,6 +58,28 @@ impl Session {
         }
     }
 
+    /// `Visible` of a built-in action the page offers. OK and Cancel are visible (reports/TestProbeReportContracts.al:
+    /// RequestPage_InvokeActionNotFound). On the request page `Report.Run` opens for a report that renders, Preview is not
+    /// visible when the report has no layout and Print is (reports/W3ReportRequestPageRun.al:388
+    /// Run_NonProcessingOnly_ActionsOfThePage); Preview of a report with a layout is not pinned and refused.
+    pub(super) fn builtin_visible(&mut self, st: &St, name: &str) -> Result<Value, Signal> {
+        if name != "Preview" || !self.is_request_page(st) {
+            return Ok(Value::Boolean(true));
+        }
+        let object = st.borrow().object as usize;
+        let engine = self.engine();
+        let Some(report) = engine.program.objects[object].report.as_ref() else {
+            return Ok(Value::Boolean(true));
+        };
+        let no_layout = report.layout == ir::ReportLayout::None
+            && !report.layout_file_missing
+            && !report.output.iter().any(|r| r.contains("(a layout)"));
+        if no_layout {
+            return Ok(Value::Boolean(false));
+        }
+        unsupported("Visible of the Preview action on the request page of a report with a layout (not pinned)")
+    }
+
     /// The Preview and Print actions are pinned on the request page of a report that renders, started by `Report.Run`
     /// (reports/W3ReportObjectIdPreviewLanguage.al:717-752 QV_Preview_Run_PreviewAction, QV_Preview_Run_PrintAction; :484-511
     /// Preview_RequestPagePreviewAction). On a processing-only report, on the page `RunRequestPage` opens, in a `RunModal` and
@@ -343,8 +365,12 @@ impl Session {
             return Err(e);
         }
         if st.borrow().open {
-            self.mark_closed(&st);
-            return unsupported("a request page handler that returned without closing the page (not pinned)");
+            if let Err(e) = self.close_left_open_request_page(&st) {
+                if st.borrow().open {
+                    self.mark_closed(&st);
+                }
+                return Err(e);
+            }
         }
         let result = st.borrow().result.clone();
         match result.as_deref() {
@@ -363,6 +389,54 @@ impl Session {
             Some("SaveAsXml" | "SaveAsPdf" | "SaveAsExcel") => Ok((RequestClosed::SavedAsXml, None)),
             other => unsupported(format!("a request page closed with {} (not pinned)", other.describe())),
         }
+    }
+
+    /// A handler that returns without OK, Cancel or another close action: the page closes with Cancel, OnQueryClosePage(Cancel)
+    /// seeing what the handler set, then OnClosePage; the report does not run, `RunRequestPage` returns '' and a SaveValues page
+    /// stores nothing (reports/W3ReportRequestPageRun.al:322 Run_HandlerLeavesThePageOpen, :351
+    /// RunRequestPage_HandlerLeavesThePageOpen; reports/request-page/RptRequestPage.al:750 Handler_DoesNotClosePage;
+    /// reports/request-page/Y42RequestLeftOpen.al:671-830, al-runner issue 6996). Those pins hold no source table, parts, refused
+    /// entries, OnAfterGetCurrRecord, close triggers of an extension or close event subscribers: such a page is refused. An
+    /// OnQueryClosePage that answers false is pinned (Y42RequestLeftOpen.al:753, the report then runs) but not implemented: refused.
+    fn close_left_open_request_page(&mut self, st: &St) -> Result<(), Signal> {
+        let object = st.borrow().object as usize;
+        let refuse = |what: &str| {
+            unsupported(format!(
+                "a request page handler that left the page open, with {what} (not pinned)"
+            ))
+        };
+        self.refuse_ext_save_values_close(st, "a handler that left it open")?;
+        let ext_closes = page_of(&self.engine(), st)
+            .ext_triggers
+            .iter()
+            .any(|(n, _, _)| n == "onqueryclosepage" || n == "onclosepage");
+        if ext_closes {
+            return refuse("close triggers in a request page extension");
+        }
+        if self.has_source(st) {
+            return refuse("a request page with a source table");
+        }
+        if !st.borrow().parts.is_empty() || !st.borrow().hidden_parts.is_empty() {
+            return refuse("a request page with parts");
+        }
+        if !st.borrow().errors.is_empty() {
+            return refuse("a refused entry on the request page");
+        }
+        if self.declares(st, "onaftergetcurrrecord") {
+            return refuse("OnAfterGetCurrRecord on the request page");
+        }
+        let engine = self.engine();
+        if engine.events.is_subscribed(object, "onqueryclosepageevent")
+            || engine.events.is_subscribed(object, "onclosepageevent")
+        {
+            return refuse("subscribers to the request page's close events");
+        }
+        // Closed as the Cancel action closes it: no SaveValues store.
+        self.close_with(st, "Cancel", false, true)?;
+        if st.borrow().open {
+            return refuse("an OnQueryClosePage that answers false or raises");
+        }
+        Ok(())
     }
 
     /// An AL error the handler does not catch closes the still open request page with Cancel before it leaves the run:
@@ -782,6 +856,17 @@ impl Session {
         })))
     }
 
+    /// The text of a value in a parameters text: a Boolean as `true`/`false`, an Option or Enum as its ordinal, anything
+    /// else formatted (reports/W3ReportParametersText.al:255, :272).
+    fn request_option_text(&self, v: &Value) -> Result<String, Signal> {
+        Ok(match v {
+            Value::Boolean(b) => b.to_string(),
+            // An option travels as its ordinal.
+            Value::Option(n, _) | Value::Enum(_, n) => n.to_string(),
+            other => al_builtins::format::try_format(other, 0, 9, self).map_err(Signal::Unsupported)?,
+        })
+    }
+
     /// The parameters of the request page as BC returns them from `RunRequestPage`: the report's
     /// options (the controls bound to variables) and the view of every data item.
     pub(crate) fn request_parameters(
@@ -801,29 +886,14 @@ impl Session {
                     let (slot, who) = b.var_slot(c.owner).expect("a variable binding");
                     let owner = owner_inst(inst, exts, who);
                     let v = owner.borrow().globals[slot].clone();
-                    let text = match &v {
-                        Value::Boolean(b) => b.to_string(),
-                        // An option travels as its ordinal.
-                        Value::Option(n, _) | Value::Enum(_, n) => n.to_string(),
-                        other => al_builtins::format::try_format(other, 0, 9, self).map_err(Signal::Unsupported)?,
-                    };
+                    let text = self.request_option_text(&v)?;
                     // The parameter carries the name of the variable, not of the control (reports/TestProbeReportContracts.al:
                     // RunRequestPage_ParametersText: control OptName shows variable NameValue).
                     let var_name = engine.program.objects[who.unwrap_or(object)]
                         .globals
                         .get(slot)
                         .map_or_else(|| c.name.clone(), |g| g.name.clone());
-                    // An empty value is an empty element, `<Field name="TxtVal" />`, for Text, Code, Date, Time and DateTime
-                    // alike (reports/W3ReportParametersText.al:255).
-                    if text.is_empty() {
-                        options.push_str(&format!("<Field name=\"{}\" />", xml_escape(&var_name)));
-                    } else {
-                        options.push_str(&format!(
-                            "<Field name=\"{}\">{}</Field>",
-                            xml_escape(&var_name),
-                            xml_text(&text)
-                        ));
-                    }
+                    options.push_str(&option_field(&var_name, &text));
                 }
                 (ir::ControlKind::DataItem, ir::Binding::Var(slot)) => {
                     // ShowFilter = false still writes the data item with its view (reports/TestProbeReportContracts.al:
@@ -843,6 +913,25 @@ impl Session {
                         "<DataItem name=\"{}\">{}</DataItem>",
                         xml_escape(&c.name),
                         xml_text(&view)
+                    ));
+                }
+                // A field of the request page's SourceTable is not in the text
+                // (reports/TestReportRequestPageSourceTableCompiledContracts.al:221).
+                (ir::ControlKind::Field, ir::Binding::Field(_)) => {}
+                // A field bound to a place written as an expression (`BufArr[1].Name`): named by its source as written
+                // (`request_expr_params`).
+                (ir::ControlKind::Field, ir::Binding::Expr(_)) => {
+                    let (name, read, _) = self.request_expr_place(c)?;
+                    let v = self.request_expr_read(object, inst, read)?;
+                    let text = self.request_option_text(&v)?;
+                    options.push_str(&option_field(&name, &text));
+                }
+                // Any other field (another expression, a label) and a data item that holds no record of its own: what BC
+                // writes is not pinned (al-runner issue 6960). Refused rather than left out of the text.
+                (ir::ControlKind::Field | ir::ControlKind::DataItem, _) => {
+                    return unsupported(format!(
+                        "the parameters text for request page control {} with this binding (not pinned)",
+                        c.name
                     ));
                 }
                 _ => {}
@@ -932,6 +1021,17 @@ impl Session {
             .and_then(|r| r.split("</Options>").next())
             .unwrap_or("");
         for (name, text) in super::request_options::option_fields(options) {
+            // A control bound to a place written as an expression, named by its source (`request_expr_params`).
+            let expr = page.controls.iter().find(|c| {
+                c.kind == ir::ControlKind::Field
+                    && matches!(c.binding, ir::Binding::Expr(_))
+                    && c.source_text.as_deref() == Some(name.as_str())
+            });
+            if let Some(c) = expr {
+                let (_, read, write) = self.request_expr_place(c)?;
+                self.request_expr_write(object, inst, &name, &text, (read, write))?;
+                continue;
+            }
             let Some(c) = page.controls.iter().find(|c| {
                 c.kind == ir::ControlKind::Field
                     && c.binding.var_slot(c.owner).is_some_and(|(slot, who)| {
@@ -1281,6 +1381,16 @@ fn xml_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+/// One `Field` element of `<Options>`. An empty value is an empty element, `<Field name="TxtVal" />`, for Text, Code, Date, Time
+/// and DateTime alike (reports/W3ReportParametersText.al:255).
+fn option_field(name: &str, text: &str) -> String {
+    if text.is_empty() {
+        format!("<Field name=\"{}\" />", xml_escape(name))
+    } else {
+        format!("<Field name=\"{}\">{}</Field>", xml_escape(name), xml_text(text))
+    }
 }
 
 #[cfg(test)]

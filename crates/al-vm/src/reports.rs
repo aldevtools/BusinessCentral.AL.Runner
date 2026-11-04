@@ -111,7 +111,7 @@ impl Session {
         running: Inst,
     ) -> Result<Value, Signal> {
         // In a report extension's code the running instance is the extension's; its report is the base it belongs to
-        // (`CurrReport.` and the bare form there: reports/bare-report-member/Y36BareReportMember.al:206-317,
+        // (`CurrReport.` and the bare form there: reports/bare-report-member/Y36BareReportMember.al:191-302,
         // ExtGetUseRp, ExtCurrUseRp, ExtSetUseRpFalse).
         let report_of_running = || -> Inst {
             running
@@ -123,7 +123,7 @@ impl Session {
         };
         match id {
             // `IsReadOnly()` of the running report is No, in a procedure of a variable never run and in OnPreReport
-            // (Y36BareReportMember.al:206-262 `readonly=No/No`, a processing-only report). A report variable is not pinned.
+            // (Y36BareReportMember.al:191-247 `readonly=No/No`, a processing-only report). A report variable is not pinned.
             ids::REPORT_ISREADONLY_1 if receiver.is_none() => Ok(Value::Boolean(false)),
             ids::REPORT_LAYOUTLISTEXPORTSTREAM_1 => self.report_layout_list_export(receiver, args),
             ids::REPORT_QUIT_1 => self.report_quit_builtin(&running),
@@ -140,7 +140,7 @@ impl Session {
             ids::REPORT_BREAK_1 => self.report_flow_builtin(&running, Flow::Break),
             ids::REPORT_SETTABLEVIEW_1 => {
                 // Without a receiver (`SetTableView(R)` bare in a procedure of the report) it is the report whose code runs: the
-                // next run reads only the filtered rows (Y36BareReportMember.al:343-357 Y36_BareSetTableView_ThenRun).
+                // next run reads only the filtered rows (Y36BareReportMember.al:328-342 Y36_BareSetTableView_ThenRun).
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
                 let inst = self.report_instance(receiver, false)?.0;
                 let schema = self.report_schema(&inst)?;
@@ -1428,7 +1428,7 @@ impl Session {
                     args.is_empty() || matches!(args.first(), Some(Value::Boolean(_)))
                 }
                 // The getter outside a run (a procedure of a report variable never run) reads No
-                // (reports/bare-report-member/Y36BareReportMember.al:206-233 `onlyifdetail=No/No`).
+                // (reports/bare-report-member/Y36BareReportMember.al:191-218 `onlyifdetail=No/No`).
                 ("PrintOnlyIfDetail", None) => args.is_empty() && self.report.report_trigger.is_none(),
                 _ => false,
             }
@@ -1741,7 +1741,7 @@ impl Session {
             return Ok(false);
         }
         // A run with the request page after an uncommitted insert raises before the page opens (reports/bare-report-member/
-        // Y36BareReportMember.al:251-264, Report.Run(Id, true) in a test; the handler is not called).
+        // Y36BareReportMember.al:236-249, Report.Run(Id, true) in a test; the handler is not called).
         if self.in_write_transaction()? {
             return Err(crate::transactions::transaction_stopped());
         }

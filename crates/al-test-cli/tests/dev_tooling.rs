@@ -1,5 +1,5 @@
 //! The developer tooling of `al-test-cli`: `--help`, test selection, `--explain`,
-//! `--top-refusals` and `--baseline-diff`, against the real pinned corpus and oracle (BC 29),
+//! `--top-refusals` and `--baseline-diff` (ADR-065), against the real pinned corpus and oracle (BC 29),
 //! without the Microsoft apps so that each run stays short in the unoptimised test build.
 
 use al_test_cli::oracle::{self, CaseId};
@@ -75,7 +75,7 @@ fn help_lists_every_flag_in_groups() {
         "INPUT",
         "SELECTION",
         "DIAGNOSE",
-        "BASELINE AND REPORTS",
+        "NOT-PASSING LISTS (ADR-065) AND REPORTS",
         "DOTNET",
         "EXIT CODES",
     ] {
@@ -89,7 +89,9 @@ fn help_lists_every_flag_in_groups() {
         "--json",
         "--markdown",
         "--junit",
-        "--update-baseline",
+        "--prune-not-passing",
+        "--list-new-cases",
+        "--list-changes",
         "--no-ratchet",
         "--deps",
         "--no-deps",
@@ -205,10 +207,10 @@ fn selection_flags_repeat_and_make_a_union() {
         .count() as u64;
     assert_eq!(total_of(&["--test", &name.to_uppercase()]), by_name);
     // --area and --codeunit together: the area, plus the codeunit when it is outside it.
-    assert_eq!(total_of(&["--area", "json"]), 535); // corpus bump to 833a01ce: 40 more (the restructure moved JSON tests into json/); corpus bump to 21a41286: six more (JsonValueGetters.al); corpus bump 29: 22 more json cases on BC 29; the multi-app bump one more; bump to 86a98479 seven more; bump to 84ebf506 one more (FormatOfEmptyJsonArrays); bump to 55ad94c3 one more (Sq_DigitText_BigIntegerByteOption); bump to 92031e20 seven more (json/json/Y44FormatJsonValue.al); bump to 7f7cdc2a four more (the Y47_* tests of json/DbJPathLeads.al); bump to 4b6013d0 four more (Y65 tests of json/JsonValueGetters.al)
+    assert_eq!(total_of(&["--area", "json"]), 548); // corpus bump to 833a01ce: 40 more (the restructure moved JSON tests into json/); corpus bump to 21a41286: six more (JsonValueGetters.al); corpus bump 29: 22 more json cases on BC 29; the multi-app bump one more; bump to 86a98479 seven more; bump to 84ebf506 one more (FormatOfEmptyJsonArrays); bump to 55ad94c3 one more (Sq_DigitText_BigIntegerByteOption); bump to 92031e20 seven more (json/json/Y44FormatJsonValue.al); bump to 7f7cdc2a four more (the Y47_* tests of json/DbJPathLeads.al); bump to 4b6013d0 four more (Y65 tests of json/JsonValueGetters.al); bump to eccb1330 ten more (SelectToken paths of json/DbJPathLeads.al, corpus PR 1120); bump to e89f0e53 three more (json/management-properties/TestJsonProperty.Codeunit.al and QW_Add_CharAndText_ThroughVariant of json/JsonObjectBasics.al)
     assert_eq!(
         total_of(&["--area", "json", "--codeunit", &SMALL_CU.to_string()]),
-        535 + in_cu(SMALL_CU)
+        548 + in_cu(SMALL_CU)
     );
 }
 
@@ -236,12 +238,12 @@ fn a_selection_that_matches_nothing_is_a_setup_error() {
 }
 
 #[test]
-fn update_baseline_refuses_a_selection_and_writes_nothing() {
+fn prune_not_passing_refuses_a_selection_and_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().join("passing.txt");
+    let base = dir.path().join("not-passing.txt");
     std::fs::write(&base, "1 Keep\n").unwrap();
     let r = cli(&[
-        "--update-baseline",
+        "--prune-not-passing",
         "--baseline",
         base.to_str().unwrap(),
         "--codeunit",
@@ -249,7 +251,7 @@ fn update_baseline_refuses_a_selection_and_writes_nothing() {
     ]);
     assert_eq!(r.code, 2);
     assert!(
-        r.err.contains("--update-baseline") && r.err.contains("selection"),
+        r.err.contains("--prune-not-passing") && r.err.contains("selection"),
         "{}",
         r.err
     );
@@ -257,11 +259,15 @@ fn update_baseline_refuses_a_selection_and_writes_nothing() {
 }
 
 #[test]
-fn the_ratchet_checks_only_the_selected_baseline_cases() {
+fn the_lists_are_checked_only_over_the_selected_cases() {
+    let (_, refused) = outcomes_of_codeunit(SMALL_CU);
     let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().join("passing.txt");
-    // A case of a codeunit the selection leaves out: it did not run, so it cannot regress.
-    std::fs::write(&base, "60002 NoSuchProcedure_OutsideTheSelection\n").unwrap();
+    let base = dir.path().join("not-passing.txt");
+    // The refused cases of the selected codeunit are listed. A stale line of a codeunit the selection leaves out
+    // is not checked: its codeunit did not run.
+    let mut lines: Vec<String> = refused.iter().map(|n| format!("{SMALL_CU} {n}")).collect();
+    lines.push("60002 NoSuchProcedure_OutsideTheSelection".into());
+    std::fs::write(&base, lines.join("\n") + "\n").unwrap();
     let b = base.to_str().unwrap();
     let ok = cli(&["--baseline", b, "--codeunit", &SMALL_CU.to_string()]);
     assert_eq!(ok.code, 0, "{}", ok.err);
@@ -314,42 +320,52 @@ fn run_outcomes_of_codeunit(cu: u32) -> (Vec<String>, Vec<String>) {
 }
 
 #[test]
-fn baseline_diff_lists_new_passes_and_lost_baseline_cases_by_area() {
+fn baseline_diff_lists_regressions_stale_lines_and_what_is_still_listed_by_area() {
     let (pass, refused) = outcomes_of_codeunit(SMALL_CU);
-    assert!(pass.len() >= 2 && !refused.is_empty(), "{pass:?} {refused:?}");
+    assert!(!pass.is_empty() && !refused.is_empty(), "{pass:?} {refused:?}");
     let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().join("passing.txt");
-    // Baseline: every pass but one, and one case that is refused today.
-    let mut lines: Vec<String> = pass[1..].iter().map(|n| format!("{SMALL_CU} {n}")).collect();
-    lines.push(format!("{SMALL_CU} {}", refused[0]));
-    std::fs::write(&base, lines.join("\n") + "\n").unwrap();
-    let r = cli(&[
-        "--baseline",
-        base.to_str().unwrap(),
-        "--baseline-diff",
-        "--codeunit",
-        &SMALL_CU.to_string(),
-    ]);
-    assert_eq!(r.code, 1, "a lost baseline case is still a regression: {}", r.err);
-    let diff = &r.out[r.out.find("Baseline diff").expect(&r.out)..];
-    assert!(diff.contains("1 newly pass"), "{diff}");
-    assert!(diff.contains("1 baseline cases no longer pass"), "{diff}");
-    let section = |title: &str| {
+    let base = dir.path().join("not-passing.txt");
+    let diff_of = |lines: &[String]| {
+        std::fs::write(&base, lines.join("\n") + "\n").unwrap();
+        let r = cli(&[
+            "--baseline",
+            base.to_str().unwrap(),
+            "--baseline-diff",
+            "--codeunit",
+            &SMALL_CU.to_string(),
+        ]);
+        assert_eq!(r.code, 1, "a regression or a stale line fails the run: {}", r.err);
+        r.out[r.out.find("Baseline diff").expect(&r.out)..].to_string()
+    };
+    let section = |diff: &str, title: &str| {
         let at = diff
             .find(title)
             .unwrap_or_else(|| panic!("no section {title}:\n{diff}"));
         diff[at..].split("\n\n").next().unwrap().to_string()
     };
-    let new = section("Newly passing");
+    // The list holds a case that passes today (stale) and not the refused one (a regression).
+    let diff = diff_of(&[format!("{SMALL_CU} {}", pass[0])]);
     assert!(
-        new.contains("  types (1):") && new.contains(&format!("{SMALL_CU} {}", pass[0])),
-        "{new}"
+        diff.contains("1 regressions, 1 stale lines to delete, 0 cases still listed"),
+        "{diff}"
     );
-    let lost = section("In the baseline but no longer passing");
+    let lost = section(&diff, "Regressions: not listed and not passing");
     assert!(
-        lost.contains(&format!("{SMALL_CU} {}", refused[0])) && lost.contains("not run:"),
+        lost.contains("  types (1):")
+            && lost.contains(&format!("{SMALL_CU} {}", refused[0]))
+            && lost.contains("not run:"),
         "{lost}"
     );
+    let stale = section(&diff, "Stale lines to delete");
+    assert!(stale.contains(&format!("{SMALL_CU} {}  [passes]", pass[0])), "{stale}");
+    // With the refused case listed too, it is counted as still listed.
+    let diff = diff_of(&[format!("{SMALL_CU} {}", pass[0]), format!("{SMALL_CU} {}", refused[0])]);
+    assert!(
+        diff.contains("0 regressions, 1 stale lines to delete, 1 cases still listed"),
+        "{diff}"
+    );
+    let still = section(&diff, "Still listed, by area");
+    assert!(still.contains("types: 1"), "{still}");
 }
 
 #[test]

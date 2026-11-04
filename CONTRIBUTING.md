@@ -65,8 +65,8 @@ owns what). `CLAUDE.md` lists the project rules in full. The short version:
   that reproduces the bug. Unit tests live next to the code or in the crate's `tests/` folder.
   A user's report gets a regression test in `crates/al-test-cli/tests/suite/user_reports.rs`.
 - **Cite the pin.** Put the corpus `file:line` in a comment at the code that implements it.
-- **Do not edit `corpus/` or `oracle/`**, and do not remove lines from
-  `metrics/<major>/passing.txt`. Those files are the reference the project is measured against.
+- **Do not edit `corpus/` or `oracle/`**, and do not add a line to `metrics/<major>/not-passing*.txt`
+  for a case the oracle already had. Those files are the reference the project is measured against.
 - **Match BC where AL code can see it**: values, errors, database state, trigger and event
   order, and whether code compiles. Internals, speed and diagnostics are free to be better.
 - **Interfaces between crates change only through an ADR** in `docs/adr/`. If your change needs
@@ -80,15 +80,26 @@ A full corpus run with `al-test-cli` takes about 20 seconds:
 ./target/release/al-test-cli --root . --baseline-diff
 ```
 
-It lists what newly passes and which baseline cases stopped passing. No baseline case may stop
-passing. CI fails a pull request that loses one.
+Each BC major and test app has a list of the corpus cases the runtime does not pass yet,
+`metrics/<major>/not-passing*.txt` (ADR-065). The diff shows, by area, the regressions (cases not
+listed that do not pass), the stale lines (listed cases that now pass, or that left the oracle), the
+cases still listed, and cases that got no outcome. CI fails a pull request on any of them.
 
-Do not update the baselines (`metrics/<major>/passing*.txt`), the coverage maps
-(`docs/corpus-coverage.*`, `docs/corpus-behavior-coverage.*`) or the assumptions table in
-`docs/probes-needed.md`. A bot commits them to `main` after your pull request is merged, so new
-passes are added to the baseline then. Say in your pull request which corpus cases newly pass. CI does not fail when these files are out of date in a pull
-request. One generated file still belongs in your pull request: if you add a builtin, run
-`cargo run -p al-builtins --example gen_builtin_ids` and commit `crates/al-builtins/src/builtin_ids.rs`.
+When your change makes listed cases pass, delete their lines in the same pull request:
+
+```
+./target/release/al-test-cli --root . --prune-not-passing
+```
+
+It only deletes lines. Never add a line to hide a regression: a line for a case the oracle already
+had needs the owner's OK, and CI shows it in the job summary for review.
+
+If you change the assumption registry, regenerate the table in `docs/probes-needed.md` in the same
+pull request (`./target/release/al-test-cli --root . --assumptions-doc`); a test fails while it is
+stale. If you add a builtin, run `cargo run -p al-builtins --example gen_builtin_ids` and commit
+`crates/al-builtins/src/builtin_ids.rs`. The coverage maps (`docs/corpus-coverage.*`,
+`docs/corpus-behavior-coverage.*`) are not committed: `--coverage-map` and `--behavior-coverage-map`
+write them locally, and CI on `main` uploads them as an artifact.
 
 To work on one test: `--explain TestName` shows why a test ends as it does, and `--codeunit ID`
 or `--test NAME` runs only part of the corpus. `./target/release/al-test-cli --help` lists every

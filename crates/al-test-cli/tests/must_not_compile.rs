@@ -32,7 +32,7 @@ fn every_must_not_compile_case_gets_the_expected_codes() {
     let cases = read_cases(&dir).expect("cases parse");
     assert!(!cases.is_empty(), "{} holds no case", dir.display());
     // The cases the front end does not decide yet are listed in `must-not-compile-known-gaps.txt`
-    // (`<major> <case name>` per line), a ratchet like `metrics/<major>/passing.txt`: a mismatch outside
+    // (`<major> <case name>` per line), a ratchet like `metrics/<major>/not-passing.txt`: a mismatch outside
     // the list fails, and so does a listed case that matches now (delete its line). The cases are never
     // edited or skipped.
     let gaps_text = include_str!("must-not-compile-known-gaps.txt");

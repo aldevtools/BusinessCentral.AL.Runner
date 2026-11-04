@@ -596,7 +596,7 @@ impl Walk<'_> {
                 targets,
                 args,
             } => {
-                for &(o, r) in targets {
+                for (o, r) in al_ir::walk::interface_routines(targets) {
                     self.enter(o, r)?;
                 }
                 self.expr(receiver)?;

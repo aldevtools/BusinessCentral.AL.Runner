@@ -1285,14 +1285,14 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
         num(&body[..2], 2).zip(num(&body[2..], 2)).map(|(h, m)| (h, m, 0, 0))
     } else if body.len() == 6 && number == 0 {
         // `hhmmss` reads as hours, minutes and seconds and an hour from 24 is rejected (format-evaluate/
-        // AxEvaluateText.al:44-118: `085606`, `246000`), and so are minutes or seconds from 60 (record/
+        // AxEvaluateText.al:28-102: `085606`, `246000`), and so are minutes or seconds from 60 (record/
         // Y70Probes.al:123-170 `086000`, `085960`).
         num(&body[..2], 2)
             .zip(num(&body[2..4], 2))
             .zip(num(&body[4..], 2))
             .map(|((h, m), s)| (h, m, s, 0))
     } else if (1..=2).contains(&body.len()) && number == 0 && body.bytes().all(|b| b.is_ascii_digit()) {
-        // One or two digits are an hour; 24 is rejected (AxEvaluateText.al:44-118: `23`, `5`, `24`).
+        // One or two digits are an hour; 24 is rejected (AxEvaluateText.al:28-102: `23`, `5`, `24`).
         num(body, 2).map(|h| (h, 0, 0, 0))
     } else {
         None
@@ -1650,7 +1650,7 @@ pub fn evaluate_typed(
 }
 
 /// The tail of the error for an unknown table name: a space, then each part after a real backslash and six spaces, the last one after
-/// four spaces (xmlports/shapes-properties/Y88XmlPortProbes.al:223 and :241; W4PlatformAndMeta.al:706 pins the head up to the backslash).
+/// four spaces (xmlports/shapes-properties/Y88XmlPortProbes.al:209 and :241; W4PlatformAndMeta.al:706 pins the head up to the backslash).
 const METADATA_NOT_FOUND_TAIL: &str = " \\      The metadata object Table -1 was not found.\\      The application might be incompatible with the current compiler. Please unpublish the application that contains the application object Table -1 and republish it. \\      Or, run a technical upgrade of the application database with the 'Force' flag set.\\    ";
 
 /// `Evaluate(TableFilterField, Text)` (al-runner issues 5998 and 6006), pinned by record/W4PlatformAndMeta.al (writer SI:
@@ -1698,7 +1698,7 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
         .unwrap_or(table);
     let def = match c.table_filter_table(table) {
         Some(Ok(Some(def))) => def,
-        // An unknown table name: the whole text is pinned by xmlports/shapes-properties/Y88XmlPortProbes.al:223 (Y88_EvaluateTableFilter_
+        // An unknown table name: the whole text is pinned by xmlports/shapes-properties/Y88XmlPortProbes.al:209 (Y88_EvaluateTableFilter_
         // UnknownTableErrorText, 27-29), see METADATA_NOT_FOUND_TAIL.
         Some(Ok(None)) if table.parse::<i64>().is_err() => {
             return reject(c, METADATA_NOT_FOUND_TAIL, "Evaluate:MetadataNotFound");

@@ -52,10 +52,16 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         }
         return Err(Signal::Unsupported(why.to_string()));
     }
-    // A counter value stays tainted in a BigInteger or a Variant; any other type would show its number (`sqlcount`).
-    if let Value::SqlCount(_) = &v {
+    // A counter value stays tainted in a Variant and in a number slot, with the slot's type (`sqlcount`, SqlCounters.al
+    // P6924_Counters_StoredInInteger_NotNegative, P6924_Counters_StoredInDecimal_NotNegativeAndWhole); any other type would
+    // show its number.
+    if let Value::SqlCount(c) = &v {
+        use crate::value::SqlType;
         return match t {
-            T::BigInteger | T::Variant => Ok(v),
+            T::Variant => Ok(v),
+            T::BigInteger => Ok(crate::sqlcount::into_number(*c, SqlType::BigInteger)),
+            T::Integer => Ok(crate::sqlcount::into_number(*c, SqlType::Integer)),
+            T::Decimal => Ok(crate::sqlcount::into_number(*c, SqlType::Decimal)),
             _ => Err(crate::sqlcount::refusal("a conversion to another type")),
         };
     }
@@ -324,7 +330,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
             }
         }
         // A Boolean for a Code (a Boolean handed to `Get` of a Code key): as `Format` writes it, upper-cased: Get(true)
-        // finds the row YES and not 1 or TRUE (format-evaluate/AxEvaluateText.al:348 GetTrue_CodeKey_Yes).
+        // finds the row YES and not 1 or TRUE (format-evaluate/AxEvaluateText.al:332 GetTrue_CodeKey_Yes).
         // An assignment of a Boolean to a Text or Code does not compile (must-not-compile cases 1190, 1191). For a Text
         // (`Get` of a Text key) it is Yes or No (record/Y70Probes.al RecordGet_BooleanOnTextKey `text_true`, `text_false`).
         (Value::Boolean(b), T::Text(max)) => Value::Text(fit(if b { "Yes" } else { "No" }.to_string(), *max)?.into()),
@@ -1583,7 +1589,11 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
 /// marker of either decides it: the first character that differs there, or a text without a marker that ends while the
 /// other still has known characters. `None` when the texts agree up to a marker.
 fn known_prefix_order(a: &str, b: &str) -> Option<Ordering> {
-    let marker = |c: char| c == crate::native::CALL_STACK_MARK || c == crate::native::CARRIED_TEXT_MARK;
+    let marker = |c: char| {
+        c == crate::native::CALL_STACK_MARK
+            || c == crate::native::CARRIED_TEXT_MARK
+            || c == crate::native::SQL_COUNT_TEXT_MARK
+    };
     let (mut x, mut y) = (a.chars(), b.chars());
     loop {
         match (x.next(), y.next()) {

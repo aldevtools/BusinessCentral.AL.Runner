@@ -353,7 +353,9 @@ impl Session {
             return self.stamp_from_filters(st, true);
         }
         self.validating.push((handle, before));
+        self.stamp_validating.push(handle);
         let r = self.stamp_from_filters(st, true);
+        self.stamp_validating.retain(|h| *h != handle);
         self.validating.retain(|(h, _)| *h != handle);
         r
     }

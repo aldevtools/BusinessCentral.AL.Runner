@@ -25,6 +25,9 @@ pub struct Plan {
     pub constants: Vec<(Value, i32)>,
     /// `AddJoin`: (source field, destination field).
     pub joins: Vec<(i32, i32)>,
+    /// `SetTables` ran again on this variable without a `Clear` between. The field mappings stay
+    /// (install-upgrade/AsDtInstallRead.al:182-195, C2); what happens to the rest of the plan is not pinned.
+    pub restaged: bool,
 }
 
 /// The native of method `$id` inside install code: the VM's, else `$outside`.
@@ -42,6 +45,17 @@ macro_rules! in_install {
 
 fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(what.into()))
+}
+
+/// A staging or copying call on a variable `SetTables` has not staged (or `Clear` reset).
+pub fn before_set_tables<T>() -> Result<T, Signal> {
+    error("SetTables must first be called before calling other methods on DataTransfer.")
+}
+
+/// `AddFieldValue` onto a destination field a mapping already writes, after a second `SetTables`
+/// (install-upgrade/AsDtInstallRead.al:191, the text is BC's, with its spelling).
+pub fn same_destination_twice<T>() -> Result<T, Signal> {
+    error("Not possible to add the same field as destionation field twice.")
 }
 
 fn error<T>(message: &str) -> Result<T, Signal> {
@@ -78,7 +92,7 @@ fn other_call(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     if staged {
         error("DataTransfer is only usable during upgrade and installation code.")
     } else {
-        error("SetTables must first be called before calling other methods on DataTransfer.")
+        before_set_tables()
     }
 }
 

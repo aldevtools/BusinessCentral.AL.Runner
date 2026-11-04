@@ -221,7 +221,7 @@ Older files that carry a writer or batch prefix (`PA*`, `PC*`, `PE*`, `PF*`, `PO
 
 Before you write a test for a member, in this order:
 
-1. Look the member up in `docs/corpus-coverage.md` (in al-runtime-rs): it lists, per type, which overloads the corpus already calls. A pinned overload is not new work unless you add cases it misses.
+1. Look the member up in `docs/corpus-coverage.md` (in al-runtime-rs; generated, not committed: `./target/release/al-test-cli --root . --coverage-map` writes it, or take the artifact `coverage-maps-<run id>` of main's newest CI run): it lists, per type, which overloads the corpus already calls. A pinned overload is not new work unless you add cases it misses.
 2. `grep -rn "<MemberName>(" tests/al-language/<topic folder> tests/al-language-onprem` in the corpus. Read the matching tests. Add only the cases that are missing (other inputs, edge values, error texts, other types of the argument).
 3. Write your tests. Before you hand the branch over run the duplicate finder:
 

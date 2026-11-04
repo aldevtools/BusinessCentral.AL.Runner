@@ -233,7 +233,7 @@ corpus_commit = "abc"
 major = 27
 bc_version = "27.5"
 junit = "27/junit.xml"
-baseline = "metrics/27/passing.txt"
+baseline = "metrics/27/not-passing.txt"
 
 [[version]]
 major = 29
@@ -242,13 +242,13 @@ bc_build = "29.0.54011.55816"
 workflow_run = 1
 artifact_id = 2
 junit = "29/junit.xml"
-baseline = "metrics/29/passing.txt"
+baseline = "metrics/29/not-passing.txt"
 
 [[version]]
 major = 28
 bc_version = "28.5"
 junit = "28/junit.xml"
-baseline = "metrics/28/passing.txt"
+baseline = "metrics/28/not-passing.txt"
 "#;
 
     fn file() -> OracleFile {
@@ -286,7 +286,7 @@ baseline = "metrics/28/passing.txt"
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
 oracle = "28/junit-onprem.xml"
-baseline = "metrics/28/passing-onprem.txt"
+baseline = "metrics/28/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "isolation-function"
@@ -296,7 +296,7 @@ runner = 61300
 bc_version = "28.4"
 corpus_commit = "old"
 oracle = "28/xunit-isolation-function.xml"
-baseline = "metrics/28/passing-isolation-function.txt"
+baseline = "metrics/28/not-passing-isolation-function.txt"
 "#
         );
         let f = OracleFile::parse(&t).unwrap();
@@ -321,13 +321,13 @@ baseline = "metrics/28/passing-isolation-function.txt"
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
 oracle = "28/junit-onprem.xml"
-baseline = "metrics/28/passing-onprem.txt"
+baseline = "metrics/28/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
 oracle = "28/junit-testlibraries.xml"
-baseline = "metrics/28/passing-testlibraries.txt"
+baseline = "metrics/28/not-passing-testlibraries.txt"
 extra_apps = [
   {{ id = "5d86850b-0d76-4eca-bd7b-951ad998e997", name = "Tests-TestLibraries" }},
   {{ id = "7819d79d-feea-4f09-bbed-5bbaca4bf323", name = "Data Archive" }},
