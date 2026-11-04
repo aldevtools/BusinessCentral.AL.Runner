@@ -2,8 +2,8 @@
 //! pinned only as positive for non-empty content; a field with `Compressed = false` stores the content size
 //! (record/flowfields/BlobStoredSizeSign.al StoredSize_*_Result: `p` for g, fs, mg of `LT BSS Compressed`, the content size for `LT BSS Plain`).
 
-use al_testkit::{int, run_with};
 use al_builtins::value::Value;
+use al_testkit::{int, run_with};
 
 const SRC: &str = r#"
 table 69970 "BLS Packed" { fields { field(1; Id; Integer) { } field(2; Content; Blob) { Compressed = true; } } keys { key(PK; Id) { } } }

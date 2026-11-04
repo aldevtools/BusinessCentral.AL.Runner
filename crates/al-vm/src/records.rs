@@ -2327,7 +2327,12 @@ impl Session {
     }
 
     /// The unloaded copy of a stored row's Blob field `pos`, marked when the field says `Compressed = false`.
-    pub(crate) fn copy_blob_db_row(&self, t: &TableDef, pos: usize, b: &al_builtins::stream::BlobRef) -> al_builtins::stream::BlobRef {
+    pub(crate) fn copy_blob_db_row(
+        &self,
+        t: &TableDef,
+        pos: usize,
+        b: &al_builtins::stream::BlobRef,
+    ) -> al_builtins::stream::BlobRef {
         let off = self
             .field_property(t, pos, "Compressed")
             .is_some_and(|v| v.trim().eq_ignore_ascii_case("false"));

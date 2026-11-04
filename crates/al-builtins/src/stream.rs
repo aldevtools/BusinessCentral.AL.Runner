@@ -953,7 +953,7 @@ fn blob_length(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
         // 8 bytes (record/flowfields/BlobAutoCalc.al:144, Persistent_InsertedRecord_Blob) and 12 bytes (:276, :320;
         // record/temporary/TemporaryBlobAutoCalc.al:144), and for 1 and 2 bytes from BC 29 (misc/lt-probes-needed-1/
         // PnABlobLength.al:49-54, Length_ByStoredSize; the test is BC 29 only). 100 bytes and more are a compressed size (:55-60:
-        // 10, 31, 118 for 100, 10000, 100000 `x`). 
+        // 10, 31, 118 for 100, 10000, 100000 `x`).
         let n = buf.bytes.len();
         if n == 0 || buf.temp_row {
             return Ok(Value::Integer(n as i32));
