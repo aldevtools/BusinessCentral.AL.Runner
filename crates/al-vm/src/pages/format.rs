@@ -189,9 +189,12 @@ impl Session {
                     vf.name
                 ));
             }
-            if let Some(c) = has("OptionCaption")
-                .filter(|_| ctl.prop("optioncaption").is_none() && ctl.prop("optioncaptionml").is_none())
-            {
+            // On a page with no source table the control shows and takes the member names on BC 29.0 (testpage/no-source-controls/
+            // NoSourceGlobalRecordSetValue.al SetValue_EveryKind_TextArgs_ValueReadBack `opt`, SetValue_TextThatDoesNotFit_Errors
+            // `opt caption`; corpus branch al-runtime-rs-staging-r6918-22).
+            if let Some(c) = has("OptionCaption").filter(|_| {
+                ctl.prop("optioncaption").is_none() && ctl.prop("optioncaptionml").is_none() && self.has_source(st)
+            }) {
                 // BC 27 and 28 show the member names on the Linux CI legs only, a Linux suspect (`Gate::OtherRecordOptionCaptionFrom29`).
                 if !self.has(al_version::Gate::OtherRecordOptionCaptionFrom29) {
                     return unsupported(format!(

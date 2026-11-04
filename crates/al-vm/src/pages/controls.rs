@@ -98,9 +98,9 @@ impl Session {
     }
 
     /// The type of the record field a control of a page with no source table is bound to, when it names a field of a global
-    /// record: Code, Text, Integer, Decimal, Boolean, Date, BigInteger and Time are pinned (testpage/no-source-controls/
+    /// record: Code, Text, Integer, Decimal, Boolean, Date, BigInteger, Time and Option are pinned (testpage/no-source-controls/
     /// NoSourceGlobalRecordSetValue.al, corpus branch al-runtime-rs-staging-r6918-22; al-runner issue 6918). An Option field there
-    /// shows its member name and takes no caption, which is not modelled: refused.
+    /// shows and takes its member names on BC 29.0; earlier versions are not measured yet and refused.
     fn global_record_field_type(&self, st: &St, idx: usize, no_source_expr: bool) -> Result<Option<RtType>, Signal> {
         if !no_source_expr {
             return Ok(None);
@@ -112,9 +112,9 @@ impl Session {
                 .as_ref()
                 .map(|tb| tb.fields[p].ty.clone())
         });
-        if matches!(ty, Some(RtType::Option(_))) {
+        if matches!(ty, Some(RtType::Option(_))) && !self.has(al_version::Gate::OtherRecordOptionCaptionFrom29) {
             return unsupported(
-                "SetValue on a control bound to an Option field of a global record of a page with no source table (not pinned)",
+                "SetValue on a control bound to an Option field of a global record of a page with no source table on a version before the gate OtherRecordOptionCaptionFrom29 (not pinned)",
             );
         }
         Ok(ty)
@@ -147,6 +147,35 @@ impl Session {
                 "The length of the string is {len}, but it must be less than or equal to {max} characters. Value: {t}"
             )
         }))
+    }
+
+    /// A Time control bound to a field of a global record, on a page with no source table, takes `10:30:00` without AM or PM and
+    /// shows `10:30:00 AM` (testpage/no-source-controls/NoSourceGlobalRecordSetValue.al SetValue_EveryKind_TextArgs_ValueReadBack
+    /// `tm`, corpus branch al-runtime-rs-staging-r6918-22). Measured for an hour below 12 only; other entries read as before.
+    fn time_entry(&self, st: &St, idx: usize, ty: &RtType, text: &str) -> String {
+        let global_rec = page_of(&self.engine(), st).controls[idx].var_field.is_some() && !self.has_source(st);
+        let parts: Vec<&str> = text.split(':').collect();
+        let small_hour = parts
+            .first()
+            .and_then(|h| h.parse::<u32>().ok())
+            .is_some_and(|h| (1..12).contains(&h));
+        let digits = parts.len() == 3
+            && parts[1..]
+                .iter()
+                .all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_digit()));
+        if matches!(ty, RtType::Time) && global_rec && small_hour && digits {
+            format!("{text} AM")
+        } else {
+            text.to_string()
+        }
+    }
+
+    /// On a control bound to a field of a global record of a page with no source table the refused-entry texts of an Integer,
+    /// Boolean, Date and Option field are pinned (testpage/no-source-controls/NoSourceGlobalRecordSetValue.al
+    /// SetValue_TextThatDoesNotFit_Errors, corpus branch al-runtime-rs-staging-r6918-22).
+    fn refused_entry_text_pinned(&self, st: &St, idx: usize, ty: &RtType) -> bool {
+        page_of(&self.engine(), st).controls[idx].var_field.is_some()
+            && matches!(ty, RtType::Integer | RtType::Boolean | RtType::Date | RtType::Option(_))
     }
 
     fn control_set_value_now(&mut self, st: &St, idx: usize, args: &mut [Value]) -> Result<Value, Signal> {
@@ -700,7 +729,9 @@ impl Session {
         }
         let parsed = match blank_enum {
             Some(v) => Ok(v),
-            None => al_builtins::pagefmt::parse_control_text(&text, &ty, &fmt, &by_text),
+            None => {
+                al_builtins::pagefmt::parse_control_text(&self.time_entry(st, idx, &ty, &text), &ty, &fmt, &by_text)
+            }
         };
         let parsed = match parsed {
             Ok(v) => v,
@@ -715,14 +746,7 @@ impl Session {
                         && !self.has_source(st)
                         && !self.is_request_page(st)
                 };
-                // On a control bound to a field of a global record the Integer, Boolean and Date texts are pinned too
-                // (testpage/no-source-controls/NoSourceGlobalRecordSetValue.al SetValue_TextThatDoesNotFit_Errors, corpus branch
-                // al-runtime-rs-staging-r6918-22).
-                let global_rec_field = page_of(&self.engine(), st).controls[idx].var_field.is_some();
-                if no_source_expr
-                    && !matches!(ty, RtType::Decimal)
-                    && !(global_rec_field && matches!(ty, RtType::Integer | RtType::Boolean | RtType::Date))
-                {
+                if no_source_expr && !matches!(ty, RtType::Decimal) && !self.refused_entry_text_pinned(st, idx, &ty) {
                     return unsupported(
                         "a refused entry on a control bound to an expression of a page with no source table, of a type other than Decimal (the text is not pinned)",
                     );
