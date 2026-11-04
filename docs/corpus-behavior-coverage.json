@@ -17089,7 +17089,7 @@
         "code": "DB:Ok",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 193,
+        "line": 195,
         "pinned": true,
         "site": "record/TestPlatformTablesWritableContracts.al:107",
         "template": "It is not possible to % any record in the Tenant License State table."
@@ -17098,16 +17098,16 @@
         "code": "DB:Ok",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 209,
+        "line": 211,
         "pinned": true,
         "site": "metadata/PtOnPremTables.al:135",
         "template": "The % table is read-only."
       },
       {
         "code": "RenameArgument",
-        "file": "crates/al-vm/src/records.rs",
+        "file": "crates/al-vm/src/records/op_inner.rs",
         "generic": false,
-        "line": 5514,
+        "line": 2329,
         "pinned": true,
         "site": "recordref-fieldref/recordref/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
