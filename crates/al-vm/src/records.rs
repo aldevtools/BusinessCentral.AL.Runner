@@ -742,12 +742,32 @@ impl Session {
         found
     }
 
+    /// Whether table extension `e`, whose install order is not known, can change what trigger `name` does (`run_ext_trigger`).
+    fn ext_trigger_matters(&self, e: usize, name: &str) -> bool {
+        name.to_ascii_lowercase().contains("insert")
+            || self.engine.program.objects[e]
+                .routines
+                .iter()
+                .enumerate()
+                .any(|(ri, r)| {
+                    r.is_trigger
+                        && r.field.is_none()
+                        && r.name.eq_ignore_ascii_case(name)
+                        && !self.inert_in_either_order(e, ri)
+                })
+    }
+
     /// Runs the extension trigger `name`, if any, with the record and `xrec`.
     fn run_ext_trigger(&mut self, t: &TableDef, name: &str, rec: &Rec, xrec: Option<&Rec>) -> Result<(), Signal> {
         // While an app installs, a table extension of an app with no dependency path to it may or may not be installed yet:
-        // whether its triggers and InitValues apply is not known.
+        // whether its triggers and InitValues apply is not known. Its InitValues matter to an insert only; another trigger
+        // matters only when the extension declares it and it has an effect in either order (db_event_no_op.rs, empty_reads.rs;
+        // corpus install-upgrade/install-triggers/Y79InstallUnrelated.al:6-12, al-runner issue 6924).
         if let Some(schema) = &self.engine.program.objects[t.object as usize].table
-            && let Some(&e) = schema.extensions.iter().find(|&&e| self.object_app_order_unknown(e))
+            && let Some(&e) = schema
+                .extensions
+                .iter()
+                .find(|&&e| self.object_app_order_unknown(e) && self.ext_trigger_matters(e, name))
         {
             return unsupported(format!(
                 "{name} of table {}: a table extension in app {} while an app installs that it has no dependency path to; the \
