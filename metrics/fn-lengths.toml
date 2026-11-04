@@ -21,7 +21,7 @@
 "crates/al-sema/src/lower/shared.rs::lower_object" = 510
 "crates/al-sema/src/lower/stmt.rs::assign" = 424
 "crates/al-sema/src/lower/stmt.rs::routine" = 275
-"crates/al-test-cli/src/main.rs::run_version_inner" = 833
+"crates/al-test-cli/src/main.rs::run_version_inner" = 756
 "crates/al-testrun/src/impact_static.rs::build" = 332
 "crates/al-testrun/src/reach.rs::report" = 315
 "crates/al-testrun/src/runtime/corpus.rs::compile_suites_once" = 446
