@@ -46,6 +46,9 @@ pub struct TableFilterTable {
 }
 
 /// A field of a [`TableFilterTable`].
+/// A member of an Option or Enum field: (ordinal, name, caption).
+pub type FieldMember = (i32, String, String);
+
 pub struct TableFilterField {
     pub number: u32,
     pub name: String,
@@ -54,7 +57,7 @@ pub struct TableFilterField {
     pub ty: crate::value::RtType,
     /// An Option or Enum field's members as (ordinal, name, caption), or why reading them is refused; `Ok(None)` for other
     /// fields.
-    pub options: Result<Option<Vec<(i32, String, String)>>, String>,
+    pub options: Result<Option<Vec<FieldMember>>, String>,
 }
 
 /// The field an `Evaluate` into a `FieldRef` writes (see [`Ctx::evaluate_field_target`]).
