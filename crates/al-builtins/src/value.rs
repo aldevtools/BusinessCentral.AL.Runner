@@ -638,6 +638,9 @@ pub struct PageState {
     pub marking_action: bool,
     /// The refresh after such an action took the marked rows it read as the rows the client holds.
     pub marked_rows_held: bool,
+    /// An action left the list's view without rows (`empty_view_after_action`): while the page shows no row, its repeater
+    /// controls read blank, page variables too.
+    pub empty_after_action: bool,
     /// While an action runs: the view of the page's record (filters, key and its ad-hoc fields, Ascending) as it was before
     /// the action, so the refresh inside the action can tell the view changed (al-runner issue 6381).
     pub view_before_action: Option<ActionView>,
@@ -1071,6 +1074,7 @@ impl PageState {
             marked_only_by_action: false,
             marking_action: false,
             marked_rows_held: false,
+            empty_after_action: false,
             view_before_action: None,
             unmarking_action: false,
             shown_until_next_call: None,
