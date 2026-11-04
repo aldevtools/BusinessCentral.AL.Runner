@@ -16432,7 +16432,7 @@
         "code": "InvalidStandardFormat",
         "file": "crates/al-builtins/src/native/format_fns.rs",
         "generic": false,
-        "line": 9,
+        "line": 10,
         "pinned": true,
         "site": "format-evaluate/Y49RecordIdFormat10.al:355",
         "template": "Standard format number % does not exist for the type 'Variant'."
@@ -16441,7 +16441,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/native/format_fns.rs",
         "generic": false,
-        "line": 232,
+        "line": 229,
         "pinned": true,
         "site": "errors/PnBDateFormat.al:159",
         "template": "The date is not valid."
@@ -16450,7 +16450,7 @@
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/native/registry.rs",
         "generic": false,
-        "line": 399,
+        "line": 400,
         "pinned": true,
         "site": "codeunits/TestInterfaceRuntimeContracts.al:85",
         "template": "Interface not initialized"
@@ -16666,7 +16666,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1116,
+        "line": 1155,
         "pinned": true,
         "site": "errors/Y68Small.al:424",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16675,7 +16675,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1311,
+        "line": 1350,
         "pinned": true,
         "site": "errors/Y68Small.al:424",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16684,7 +16684,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1539,
+        "line": 1578,
         "pinned": true,
         "site": "errors/Y68Small.al:424",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16693,7 +16693,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1566,
+        "line": 1605,
         "pinned": true,
         "site": "errors/Y68Small.al:424",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16702,7 +16702,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1598,
+        "line": 1637,
         "pinned": true,
         "site": "errors/PnBDateFormat.al:159",
         "template": "The date is not valid."
@@ -16711,7 +16711,7 @@
         "code": "InvalidStreamMode",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1846,
+        "line": 1885,
         "pinned": true,
         "site": "streams/instream-outstream/StreamLengthOthers.al:573",
         "template": "ALStream.ALWrite, invalid stream mode: Stream"
@@ -16720,7 +16720,7 @@
         "code": "InvalidStreamLength",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1986,
+        "line": 2025,
         "pinned": true,
         "site": "streams/PnAStreamReadMisc.al:223",
         "template": "An invalid length % was specified in stream function. % was expected."
@@ -16945,7 +16945,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1613,
+        "line": 1614,
         "pinned": true,
         "site": "collections/Arrays.al:203",
         "template": "Index out of bounds."
@@ -16954,7 +16954,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1690,
+        "line": 1691,
         "pinned": true,
         "site": "collections/Arrays.al:203",
         "template": "Index out of bounds."
@@ -16963,7 +16963,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1700,
+        "line": 1701,
         "pinned": true,
         "site": "collections/Arrays.al:203",
         "template": "Index out of bounds."
@@ -16972,7 +16972,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 2142,
+        "line": 2152,
         "pinned": true,
         "site": "codeunits/call-depth/CallDepthDirectAndEvent.al:95",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
