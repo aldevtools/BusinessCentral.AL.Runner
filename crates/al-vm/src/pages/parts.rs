@@ -2108,8 +2108,8 @@ impl Session {
         Ok(())
     }
 
-    /// A call reaches part `child` of a Document host that is a new, unsaved record: a read of a part field or the part's First
-    /// inserts the host (page OnInsertRecord and table OnInsert, nothing typed), and the parts link to it and read their rows
+    /// A call reaches part `child` of a Document host that is a new, unsaved record: a read of a part field, the part's First,
+    /// Visible() or Editable() inserts the host (page OnInsertRecord and table OnInsert, nothing typed), and the parts link to it and read their rows
     /// again, with or without rows of the blank key (pages/parts/PartLineBeforeHostKey.al:1967
     /// QH_BlankRows_ReadPart_Stored, :2032 QH_NoRows_ReadPartControl, :2057 QH_OtherKeyRows_ReadPartControl, :2083
     /// QH_BlankRows_PartFirst, :2142 QH_BlankRows_ReadPartControlTwice_TraceHost). Pinned for a field-linked part of a host
@@ -2140,7 +2140,11 @@ impl Session {
                 .as_ref()
                 .is_some_and(|l| l.entries.iter().any(|e| matches!(e, ir::LinkEntry::Field(..))))
         });
-        let pinned_call = field_read || m == PageMethod::First;
+        // Visible() and Editable() of the part insert the host as a first field read does, with or without rows of the blank
+        // key, on a Document and on a Card host (pages/parts/PartLineBeforeHostKey.al:3726 R6920_CardIssue_BlankRows_OpenNew_VisibleFirst,
+        // :2696 R6920_DocAfterGet_BlankRows_OpenNew_EditableFirst, :2768 R6920_DocAfterGet_NoRows_OpenNew_VisibleFirst and the other
+        // R6920_*_OpenNew_* tests: `visible_log` / `editable_log` = `[H.OnInsert:]`; corpus master 55fa9dff, not yet the pin).
+        let pinned_call = field_read || matches!(m, PageMethod::First | PageMethod::Visible | PageMethod::Editable);
         let host_type = self.engine.object_facts[o].page_type.clone();
         if !matches!(host_type, Some(al_ir::PageType::Document | al_ir::PageType::Card)) || !field_linked {
             if shows_rows {
@@ -2159,6 +2163,9 @@ impl Session {
             // Kept, not pinned: a call other than a field read or First on the part of a new host whose part shows no rows
             // inserts nothing, as before (the write paths save the host themselves: `save_unsaved_host_first`).
             return Ok(false);
+        }
+        if matches!(m, PageMethod::Visible | PageMethod::Editable) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartPropsNewHost);
         }
         let used = self.ret_used;
         host.borrow_mut().dirty = true;
