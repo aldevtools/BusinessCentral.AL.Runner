@@ -133,6 +133,10 @@ pub enum Gate {
     /// error for an Option field is pinned (record/table-properties/UTableCdsOrdinals.al:170,175); for numbers it is
     /// pinned by recordref-fieldref/fieldref/TestFieldRefValue.al:202 FieldRef_Value_TextIntoInteger_ErrorText and :229 FieldRef_Value_TextIntoNumberTypes.
     FieldRefTextNumberEvaluateErrorFrom28,
+    /// `Evaluate(FieldRef, Text)` into a Guid field with its result used, on a text that is no Guid: it answers false and leaves
+    /// the field on every version; BC 28 and 29 also clear the last error, BC 27 keeps the InvalidGuidFormat error
+    /// (recordref-fieldref/N582EvalFieldRefUnused.al:264,273,282, corpus PR 1120). Not consumed yet.
+    GuidFieldRefEvaluateFalseClearsLastErrorFrom28,
     /// `AL:MetadataNotFound` for an unknown report id names the calling test codeunit from BC 28, and `Test Runner - Mgt.` before (reports/layouts-saveas/TValidateLayout.al, corpus bump 26; the layout members and DefaultLayout in reports/request-page/P105LytInitSM.al). Not consumed yet.
     MetadataNotFoundNamesTheCallerFrom28,
     /// The fully qualified name overloads of Report.Run, Page.Run and RecordRef.Open exist from BC 28 (runtime 17.0); the test file is compiled from BC 28 on (reports/runtime/LtTFqnRun.al, corpus bump 26). Not consumed yet.
@@ -399,6 +403,7 @@ impl Gate {
         Gate::OptionFieldRefSetEvaluateErrorFrom28,
         Gate::EnumFieldRefValidateCaptionEvaluateErrorFrom28,
         Gate::FieldRefTextNumberEvaluateErrorFrom28,
+        Gate::GuidFieldRefEvaluateFalseClearsLastErrorFrom28,
         Gate::MetadataNotFoundNamesTheCallerFrom28,
         Gate::FullyQualifiedNameRunAndOpenFrom28,
         Gate::ControlAddInNotInstantiatedErrorFrom28,
@@ -503,6 +508,7 @@ impl Gate {
             | Gate::OptionFieldRefSetEvaluateErrorFrom28
             | Gate::EnumFieldRefValidateCaptionEvaluateErrorFrom28
             | Gate::FieldRefTextNumberEvaluateErrorFrom28
+            | Gate::GuidFieldRefEvaluateFalseClearsLastErrorFrom28
             | Gate::MetadataNotFoundNamesTheCallerFrom28
             | Gate::FullyQualifiedNameRunAndOpenFrom28
             | Gate::ControlAddInNotInstantiatedErrorFrom28
@@ -530,7 +536,9 @@ impl Gate {
             | Gate::DocxMediaRezippedFrom29
             | Gate::MovedOntoDeletedStaysFrom28
             | Gate::MovedOntoDeletedRefreshesAgainFrom29
-            | Gate::PlatformMetadataColumnsFrom29 => self.evidence_of_first_gates(),
+            | Gate::PlatformMetadataColumnsFrom29
+            | Gate::DefaultInterfaceMethodsFrom29
+            | Gate::GuidFieldRefEvaluateFalseClearsLastErrorFrom28 => self.evidence_of_first_gates(),
             Gate::OtherRecordOptionCaptionFrom29 => &[Evidence {
                 file: "pages/controls/SaOtherRecordControl.al",
                 lines: "284,290,295,300",
@@ -864,10 +872,6 @@ impl Gate {
                     lines: "9",
                 },
             ],
-            Gate::DefaultInterfaceMethodsFrom29 => &[Evidence {
-                file: "codeunits/CwDefaultInterfaceMethods.al",
-                lines: "19",
-            }],
             Gate::BigIntegerLiteralInControlExpressionFrom28 => &[Evidence {
                 file: "testpage/CcPageLeads.al",
                 lines: "801",
@@ -986,6 +990,21 @@ impl Gate {
     /// The evidence of the first gates of `evidence` (split out to keep that function short).
     fn evidence_of_first_gates(self) -> &'static [Evidence] {
         match self {
+            Gate::DefaultInterfaceMethodsFrom29 => &[
+                Evidence {
+                    file: "codeunits/CwDefaultInterfaceMethods.al",
+                    lines: "19",
+                },
+                // `this.Member()` in a default interface body (corpus PR 1118).
+                Evidence {
+                    file: "codeunits/interfaces/R6924dThisInDefaultBody.al",
+                    lines: "11",
+                },
+            ],
+            Gate::GuidFieldRefEvaluateFalseClearsLastErrorFrom28 => &[Evidence {
+                file: "recordref-fieldref/N582EvalFieldRefUnused.al",
+                lines: "264,273,282",
+            }],
             Gate::MovedOntoDeletedStaysFrom28 | Gate::MovedOntoDeletedRefreshesAgainFrom29 => &[Evidence {
                 file: "pages/deleted-rows/Y80GoneRows.al",
                 lines: "1677,1715,1785,1854,1922,1960,1998,2068,2137,2205",
