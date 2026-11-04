@@ -1054,15 +1054,15 @@ impl Merges {
             for (pos, x) in order.iter().enumerate() {
                 if x.0 == BASE {
                     let mut c = base_slots[x.1].take().expect("a control is placed once");
-                    c.parent = c.parent.map(&pure).transpose()?;
+                    c.parent = c.parent.map(pure).transpose()?;
                     if let Some(al_ir::ActionRef::Target(t)) = &mut c.action_ref {
                         *t = pure(*t)?;
                     }
                     if let Some(l) = c.part_link.as_mut() {
-                        l.provider = l.provider.map(&pure).transpose()?;
+                        l.provider = l.provider.map(pure).transpose()?;
                     }
                     if let Some(l) = c.run_object.as_mut().and_then(|r| r.link.as_mut()) {
-                        l.provider = l.provider.map(&pure).transpose()?;
+                        l.provider = l.provider.map(pure).transpose()?;
                     }
                     controls.push(c);
                 } else {
