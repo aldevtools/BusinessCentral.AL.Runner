@@ -101,8 +101,11 @@ pub const RAISED_FILTER_EVENTS: [&str; 4] = [
 
 /// The events of a page the test client raises (`al-vm/src/pages.rs`). A subscriber to any other
 /// event of a page is refused when the page opens.
-pub const RAISED_PAGE_EVENTS: [&str; 9] = [
+pub const RAISED_PAGE_EVENTS: [&str; 10] = [
     "onopenpageevent",
+    // After the page's OnAfterGetRecord and the extensions' (events/ClEventLeads.al:530); only on a page that declares the
+    // trigger (`check_page_events` refuses the others).
+    "onaftergetrecordevent",
     "onqueryclosepageevent",
     "onclosepageevent",
     "onaftergetcurrrecordevent",

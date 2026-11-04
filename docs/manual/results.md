@@ -112,6 +112,32 @@ raised in (innermost first):
     at Demo.Test: src/CalcTests.Codeunit.al:20:13
 ```
 
+## Time per AL routine
+
+`--timings` stops at the test codeunit. To see which AL routines a slow run spends
+its time in, set the environment variable `AL_PROFILE` to a file name:
+
+```bash
+AL_PROFILE=profile.txt al-runner test ./MyApp ./MyApp.Test --codeunit 50100
+```
+
+The run samples the AL call stack every 5 ms. It writes the file every 5 seconds
+and once more when the run ends. The file has the sample count and two lists of the
+60 routines with the most samples:
+
+- `self`: samples where the routine was running its own statements.
+- `inclusive`: samples where the routine was anywhere on the call stack.
+
+Each line is the sample count, then the object type, the object name and the routine.
+Two more variables help with short runs:
+
+- `AL_PROFILE_US=N`: sample every N microseconds instead of 5,000.
+- `AL_PROFILE_ONLY=TEXT`: count only samples whose call stack has a frame, written as
+  in the file, that contains TEXT. Use one test's name to profile that test.
+
+The profile counts AL statements only, including install code. Loading and compiling
+are not in it; `--timings` shows those.
+
 ## Report files
 
 - `--junit FILE`: JUnit XML. A test that did not run is `<skipped>` with its reason.

@@ -2493,8 +2493,8 @@ mod tests {
                 "codeunit 30 Subs {\n\
                  [EventSubscriber(ObjectType::Page, Page::P, 'OnOpenPageEvent', '', false, false)]\n\
                  local procedure Opened() begin end;\n\
-                 [EventSubscriber(ObjectType::Page, Page::P, 'OnAfterGetRecordEvent', '', false, false)]\n\
-                 local procedure Row() begin end; }",
+                 [EventSubscriber(ObjectType::Page, Page::P, 'OnDeleteRecordEvent', '', false, false)]\n\
+                 local procedure Row(var Rec: Record T; var AllowDelete: Boolean) begin end; }",
             ),
         ];
         let (_, l) = compile(

@@ -125,7 +125,7 @@ See [Writing tests](writing-tests.md#several-versions-and-countries).
 | `--refusal-detail TEXT` | Not-run reasons that contain TEXT, most common first. |
 | `--junit FILE` | JUnit XML. |
 | `--output-json [FILE]`, `--output-json=FILE` | JSON in the shape of AL Runner version 2. See [Reading results](results.md). |
-| `--timings` | Compile phases and the slowest test codeunits. |
+| `--timings` | Compile phases and the slowest test codeunits. For the time per AL routine, set `AL_PROFILE=FILE` (see [Reading results](results.md#time-per-al-routine)). |
 | `--list-assumptions` | Print the registry of unprobed assumptions with the counts of the last run. Use it alone. |
 
 ## Coverage

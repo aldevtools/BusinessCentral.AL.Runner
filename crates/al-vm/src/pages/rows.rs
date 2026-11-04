@@ -1790,9 +1790,7 @@ impl Session {
                         "Next from the last row onto the new-row line of a page with OnNextRecord (whether the page is asked is not pinned)",
                     );
                 }
-                self.refuse_read_only_part(st, "Next() onto the new-row line")?;
-                self.land_on_new_line(st)?;
-                return Ok(Some(true));
+                return Ok(Some(self.walk_onto_new_line(st)?));
             }
             return Ok(Some(false));
         }
@@ -2302,9 +2300,7 @@ impl Session {
                     } else if st.borrow().new_line {
                         // corpus testpage/TestPageNewRowLine_Tests.al: Next() past the last data
                         // row lands on the blank line and answers true.
-                        self.refuse_read_only_part(st, "Next() onto the new-row line")?;
-                        self.land_on_new_line(st)?;
-                        return Ok(true);
+                        return self.walk_onto_new_line(st);
                     } else {
                         false
                     }
