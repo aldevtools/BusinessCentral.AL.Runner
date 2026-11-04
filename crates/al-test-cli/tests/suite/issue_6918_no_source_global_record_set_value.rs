@@ -132,7 +132,9 @@ codeunit 50141 C
         Card.ctlDec.SetValue('1234.5'); R += '|' + Card.ctlDec.Value();
         Card.ctlFlag.SetValue('Yes'); R += '|' + Card.ctlFlag.Value();
         Card.ctlDt.SetValue('03/15/2026'); R += '|' + Card.ctlDt.Value();
+        Card.ctlOpt.SetValue('Alpha'); R += '|' + Card.ctlOpt.Value();
         Card.ctlBig.SetValue('1234567890123'); R += '|' + Card.ctlBig.Value();
+        Card.ctlTm.SetValue('10:30:00'); R += '|' + Card.ctlTm.Value();
         Card.Close();
         exit(R);
     end;
@@ -146,6 +148,7 @@ codeunit 50141 C
         Card.ctlDec.SetValue(12.5); R += '|' + Card.ctlDec.Value();
         Card.ctlFlag.SetValue(true); R += '|' + Card.ctlFlag.Value();
         Card.ctlDt.SetValue(DMY2Date(15, 3, 2026)); R += '|' + Card.ctlDt.Value();
+        Card.ctlOpt.SetValue(2); R += '|' + Card.ctlOpt.Value();
         Card.ctlBig.SetValue(1234567890123L); R += '|' + Card.ctlBig.Value();
         Card.ctlTm.SetValue(103000T); R += '|' + Card.ctlTm.Value();
         Card.Close();
@@ -164,6 +167,8 @@ codeunit 50141 C
         R += '|' + GetLastErrorText() + '|' + Card.ctlRailcar.Value();
         asserterror Card.ctlTxt.SetValue('1234567890123456789012345678901');
         R += '|' + GetLastErrorText();
+        asserterror Card.ctlOpt.SetValue('Alpha cap');
+        R += '|' + GetLastErrorText();
         Card.Close();
         exit(R);
     end;
@@ -177,22 +182,21 @@ codeunit 50141 C
 }
 "#;
 
-/// SetValue_EveryKind_TextArgs_ValueReadBack (without the Option control, which is refused, and the Time control, whose text
-/// the first probe run did not reach).
+/// SetValue_EveryKind_TextArgs_ValueReadBack.
 #[test]
 fn text_arguments_on_global_record_controls_read_back() {
     assert_eq!(
         al_testkit::text(al_testkit::run_in(PROBE, "C", "TextArgs")),
-        "RC-003|Some text|42|1,234.50|Yes|3/15/2026|1234567890123"
+        "RC-003|Some text|42|1,234.50|Yes|3/15/2026|Alpha|1234567890123|10:30:00 AM"
     );
 }
 
-/// SetValue_EveryKind_TypedArgs_ValueReadBack (without the Option control).
+/// SetValue_EveryKind_TypedArgs_ValueReadBack.
 #[test]
 fn typed_arguments_on_global_record_controls_read_back() {
     assert_eq!(
         al_testkit::text(al_testkit::run_in(PROBE, "C", "TypedArgs")),
-        "123|7.25|42|12.50|Yes|3/15/2026|1234567890123|10:30:00 AM"
+        "123|7.25|42|12.50|Yes|3/15/2026|Beta|1234567890123|10:30:00 AM"
     );
 }
 
@@ -204,7 +208,8 @@ fn a_text_that_does_not_fit_a_global_record_field_is_a_validation_error() {
         "TestValidation:Validation error for Field: ctlInt,  Message = 'Your entry of 'abc' is not an acceptable value for 'ctlInt'. The value \"abc\" can't be evaluated into type Integer.'|5\
          |Validation error for Field: ctlFlag,  Message = 'Your entry of 'maybe' is not an acceptable value for 'ctlFlag'.'\
          |Validation error for Field: ctlRailcar,  Message = 'The length of the string is 21, but it must be less than or equal to 20 characters. Value: ABCDEFGHIJKLMNOPQRSTU'|\
-         |Validation error for Field: ctlTxt,  Message = 'The length of the string is 31, but it must be less than or equal to 30 characters. Value: 1234567890123456789012345678901'"
+         |Validation error for Field: ctlTxt,  Message = 'The length of the string is 31, but it must be less than or equal to 30 characters. Value: 1234567890123456789012345678901'\
+         |Validation error for Field: ctlOpt,  Message = 'Your entry of 'Alpha cap' is not an acceptable value for 'ctlOpt'.'"
     );
 }
 
