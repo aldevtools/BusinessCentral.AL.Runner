@@ -2165,6 +2165,41 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "TextCount");
 }
 
+/// The Field rows of SystemId and the audit fields carry the platform's own DataClassification whatever the table declares
+/// (CustomerContent, ToBeClassified or nothing): EndUserPseudonymousIdentifiers (4) for SystemId (2000000000), SystemCreatedBy
+/// (2000000002) and SystemModifiedBy (2000000004); SystemMetadata (6) for SystemCreatedAt (2000000001) and SystemModifiedAt
+/// (2000000003), by `Get` and in a `SetRange(TableNo)` walk, on BC 27.5, 28.5 and 29.0 alike (corpus
+/// metadata/platform-tables/R6890SystemFieldClassification.al:97-157, al-runner issue 6890).
+#[test]
+fn system_field_rows_carry_the_platforms_data_classification() {
+    let src = r#"table 50001 "RCC" { DataClassification = CustomerContent; fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+table 50002 "RNone" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+table 50003 "RTbc" { DataClassification = ToBeClassified; fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+codeunit 50000 "T" { Subtype = Test;
+  procedure Check(TableNo: Integer) var F: Record Field; N: Text; begin
+      F.Get(TableNo, 2000000000); if F.DataClassification <> F.DataClassification::EndUserPseudonymousIdentifiers then Error('systemid %1', F.DataClassification);
+      F.Get(TableNo, 2000000001); if F.DataClassification <> F.DataClassification::SystemMetadata then Error('createdat %1', F.DataClassification);
+      F.Get(TableNo, 2000000002); if F.DataClassification <> F.DataClassification::EndUserPseudonymousIdentifiers then Error('createdby %1', F.DataClassification);
+      F.Get(TableNo, 2000000003); if F.DataClassification <> F.DataClassification::SystemMetadata then Error('modifiedat %1', F.DataClassification);
+      F.Get(TableNo, 2000000004); if F.DataClassification <> F.DataClassification::EndUserPseudonymousIdentifiers then Error('modifiedby %1', F.DataClassification);
+      Clear(F); F.SetRange(TableNo, TableNo); F.SetRange("No.", 2000000000, 2000000004); F.SetRange(DataClassification, F.DataClassification::SystemMetadata);
+      if F.FindSet() then repeat N += Format(F."No.") + ',' until F.Next() = 0;
+      if N <> '2000000001,2000000003,' then Error('metadata walk %1', N);
+      F.SetRange(DataClassification, F.DataClassification::EndUserPseudonymousIdentifiers); N := '';
+      if F.FindSet() then repeat N += Format(F."No.") + ',' until F.Next() = 0;
+      if N <> '2000000000,2000000002,2000000004,' then Error('pseudonymous walk %1', N);
+  end;
+  [Test] procedure CustomerContentTable() begin Check(50001); end;
+  [Test] procedure NoClassificationTable() begin Check(50002); end;
+  [Test] procedure ToBeClassifiedTable() begin Check(50003); end; }"#;
+    for ver in ["27.5.0.0", "29.0.0.0"] {
+        let o = outcomes_bc("main", src, al_sema::check::Roots::default(), ver);
+        passes(&o, "CustomerContentTable");
+        passes(&o, "NoClassificationTable");
+        passes(&o, "ToBeClassifiedTable");
+    }
+}
+
 /// The SystemId of a Field row is not the null Guid: the Field table's number, the table's number and the field's number as
 /// little-endian bytes, then four zero bytes (metadata/WcFieldRowCopy.al:48, :60-63 on BC 29, al-runner issue 6313).
 /// A copy of the row of a user-name system field into a temporary Field record inserts with it (:53-65) and so does every
