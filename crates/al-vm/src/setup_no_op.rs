@@ -11,6 +11,11 @@
 //! variables from constants and those variables (no call, no record, no global, no loop): it has no effect outside its
 //! `var` flags and its result depends only on the table id and the flags it gets. Then it is run, for the table asked
 //! about, on all 16 combinations of the four flags, and must give each back unchanged.
+//!
+//! A subscriber that sets its flags only after it found a row of a table of its own app (`if not Reg.Get(TableId) then
+//! exit;`, al-runner issue 6924) is shown to change nothing without running it, while that table is empty in either install
+//! order (empty_reads.rs, db_event_no_op.rs `Cx`): the code that runs for the table asked about exits before it assigns a
+//! flag.
 
 use crate::Session;
 use al_builtins::value::{RtType, Value};
@@ -112,11 +117,32 @@ impl Session {
             if s.manual || !unknown.contains(&engine.program.objects[s.object].app) {
                 continue;
             }
-            if flags_only(&engine.program, s.object, s.routine) && self.changes_nothing(s.object, s.routine, table_id) {
+            if (flags_only(&engine.program, s.object, s.routine) && self.changes_nothing(s.object, s.routine, table_id))
+                || self.exits_before_a_flag(s.object, s.routine, table_id)
+            {
                 quiet.insert((s.object, s.routine));
             }
         }
         quiet
+    }
+
+    /// Whether subscriber routine `r` of `object`, run for `table_id`, assigns no flag and has no other effect, the reads of
+    /// its own app's empty tables decided (module comment).
+    fn exits_before_a_flag(&self, object: usize, r: usize, table_id: i32) -> bool {
+        let Some(routine) = self.engine.program.objects[object].routines.get(r) else {
+            return false;
+        };
+        let table_param = routine.locals[..routine.params]
+            .iter()
+            .position(|p| p.name.eq_ignore_ascii_case(PARAMS[0]));
+        let cx = crate::db_event_no_op::Cx {
+            routine,
+            table: Some(table_id),
+            table_param,
+            number: None,
+            reads: self.empty_reads(object, r),
+        };
+        cx.inert(routine.body.stmts())
     }
 
     /// Runs subscriber routine `r` of `object` for `table_id` on every combination of the flags: true when each comes

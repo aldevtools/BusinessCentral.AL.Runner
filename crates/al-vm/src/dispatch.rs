@@ -434,6 +434,11 @@ impl Session {
                 if self.events.setup_no_ops.contains(&(s.object, s.routine)) {
                     continue;
                 }
+                // A subscriber with no effect in either order, its own app's empty tables read (db_event_no_op.rs,
+                // empty_reads.rs; Y79InstallUnrelated.al:6-12: it runs only when its app installed first).
+                if self.inert_in_either_order(s.object, s.routine) {
+                    continue;
+                }
                 return unsupported(format!(
                     "event {event}: a subscriber in app {} would run while an app installs that it has no dependency path \
                      to; the install order of the two is not known",

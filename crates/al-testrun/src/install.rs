@@ -72,6 +72,67 @@ fn is_install(o: &al_ir::ObjectHead) -> bool {
             .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Install"))
 }
 
+fn is_upgrade(o: &al_ir::ObjectHead) -> bool {
+    o.is_kind(al_ir::ObjKind::Codeunit)
+        && o.properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Upgrade"))
+}
+
+/// The tables (object indexes) the install and upgrade code of the apps under test may write: every routine of their
+/// Install and Upgrade codeunits, their install subscribers and Company Triggers subscribers, what those call and the
+/// subscribers they reach. A subscriber whose install order is not known and that stops unless it finds a row of an empty
+/// table of its own app outside this set does nothing in either order (al-vm empty_reads.rs; al-runner issue 6924).
+/// `None` when that code holds a RecordRef or a DataTransfer, which may write any table.
+pub(crate) fn tables_install_code_may_write(lowered: &Lowered, engine: &Engine) -> Option<BTreeSet<u32>> {
+    use al_builtins::library_kind::LibraryKind;
+    use al_builtins::value::RtType;
+    let objs = &lowered.program.objects;
+    let under_test = |o: usize| !lowered.dependency[o];
+    let mut roots: Vec<(usize, usize)> = Vec::new();
+    for (oi, o) in objs.heads().iter().enumerate() {
+        if under_test(oi) && (is_install(o) || is_upgrade(o)) {
+            roots.extend((0..objs[oi].routines.len()).map(|ri| (oi, ri)));
+        }
+    }
+    roots.extend(
+        engine
+            .events
+            .install_subscribers
+            .iter()
+            .filter(|(so, _, _)| under_test(*so))
+            .map(|&(so, sr, _)| (so, sr)),
+    );
+    roots.extend(company_open_subscribers(lowered, &engine.events, under_test));
+    let mut all: BTreeSet<(usize, usize)> = roots.iter().copied().collect();
+    for &(o, r) in &roots {
+        all.extend(crate::runtime::subscribers_reached(engine, lowered, o, r));
+    }
+    // Every routine those reach through calls, for the slots that may write any table.
+    let mut seen = BTreeSet::new();
+    let mut stack: Vec<(usize, usize)> = all.iter().copied().collect();
+    while let Some((o, r)) = stack.pop() {
+        if !seen.insert((o, r)) {
+            continue;
+        }
+        let obj = &objs[o];
+        let dynamic = |t: &RtType| matches!(t, RtType::Library(LibraryKind::RecordRef | LibraryKind::DataTransfer));
+        if obj
+            .routines
+            .get(r)
+            .is_none_or(|rt| rt.locals.iter().chain(&obj.globals).any(|s| dynamic(&s.ty)))
+        {
+            return None;
+        }
+        lowered.calls_into(o, r, &mut stack);
+    }
+    let mut out = BTreeSet::new();
+    for &(o, r) in &all {
+        out.extend(crate::baseline::tables_written(lowered, o, r));
+    }
+    Some(out)
+}
+
 fn is_single_instance(o: &al_ir::ObjectHead) -> bool {
     o.is_kind(al_ir::ObjKind::Codeunit)
         && o.properties
@@ -436,6 +497,9 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     session.set_install_without_client(true);
     let view = InstallView::new(lowered, crate::host::publish_order_known());
     let under_test = apps_under_test(lowered);
+    if under_test.len() > 1 {
+        session.set_install_written_tables(tables_install_code_may_write(lowered, &engine));
+    }
     for (k, app) in plan(lowered, &engine.events, false).into_iter().enumerate() {
         if app.company.is_empty() && app.database.is_empty() {
             continue;
@@ -548,6 +612,7 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     session.set_install_session_id(None);
     session.set_apps_not_installed(None);
     session.set_apps_install_order_unknown(None);
+    session.set_install_written_tables(None);
     session.set_install_without_client(false);
     // The test session does not see the SingleInstance state of the install run (PeVTests.al:297, fact 6).
     session.reset_single_instances();
