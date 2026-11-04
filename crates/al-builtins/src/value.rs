@@ -170,6 +170,18 @@ pub struct SqlCount {
     /// The model's number.
     pub n: i64,
     pub form: SqlForm,
+    /// The type of the slot that holds it: a read is a BigInteger, and an Integer or a Decimal keeps it tainted (al-runner
+    /// issue 6924, session-system/session/SqlCounters.al P6924 tests).
+    pub ty: SqlType,
+}
+
+/// The number type a counter value has (`SqlCount::ty`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum SqlType {
+    Integer,
+    #[default]
+    BigInteger,
+    Decimal,
 }
 
 /// What a counter value is.
@@ -2294,7 +2306,13 @@ impl Value {
             // Never reached: a read of an unknown column is refused before its value reaches a Variant.
             Value::Unknown(_) => false,
             // A BigInteger (session-system/session/SqlCounters.al:87-103).
-            Value::SqlCount(_) => k == "biginteger",
+            Value::SqlCount(c) => {
+                k == match c.ty {
+                    SqlType::Integer => "integer",
+                    SqlType::BigInteger => "biginteger",
+                    SqlType::Decimal => "decimal",
+                }
+            }
         }
     }
 }

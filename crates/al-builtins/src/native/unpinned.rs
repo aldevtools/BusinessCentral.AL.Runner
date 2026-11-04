@@ -10,6 +10,10 @@ pub const CALL_STACK_MARK: char = '\u{FDD0}';
 /// and a file .NET saves with it is marked (`stream::PACKAGE_CARRIED`).
 pub const CARRIED_TEXT_MARK: char = '\u{FDD1}';
 
+/// The text `Format` gives for a SQL counter value (`crate::sqlcount`): its digits are not pinned, so no text function reads
+/// it (`Txt::has_marker`); it moves between Text slots, into collections and into telemetry (al-runner issue 6924).
+pub const SQL_COUNT_TEXT_MARK: char = '\u{FDD3}';
+
 /// Stands for a call stack that exists in BC but is not tracked here.
 pub const UNTRACKED_CALL_STACK: &str = "\u{FDD0}";
 
