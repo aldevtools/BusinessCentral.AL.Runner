@@ -536,7 +536,7 @@ impl Gate {
                 lines: "284,290,295,300",
             }],
             Gate::JpegMediaSetKeptFrom29 => &[Evidence {
-                file: "../al-language-onprem/media/MediaFiles.al",
+                file: "../al-language-onprem/streams/media/MediaFiles.al",
                 lines: "515",
             }],
             Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29 => &[Evidence {
@@ -951,7 +951,7 @@ impl Gate {
             }],
             Gate::PermissionShapeProbesFrom28 => PERMISSION_SHAPE_PROBES_EVIDENCE,
             Gate::FileDownloadWithoutClientFrom28 => &[Evidence {
-                file: "../al-language-onprem/lt-file-type/FileQProbes.al",
+                file: "../al-language-onprem/streams/files/file-type/FileQProbes.al",
                 lines: "92",
             }],
             Gate::MediaExportFirstBytesProbedFrom29 => &[Evidence {
@@ -1040,6 +1040,12 @@ impl Gate {
                     file: "text/text-methods/RwDecimalFieldPlaces.al",
                     lines: "99,104,127,132,155,160,183,188",
                 },
+                // The amount field (AutoFormatType 1) under the digit codes of a partner app's fixed-width string
+                // (al-runner issue 6901; corpus PR 1104).
+                Evidence {
+                    file: "language/R6901DecimalFieldFormat.al",
+                    lines: "104,110,116,133",
+                },
                 // AutoFormatType 1, 4 and 5 without an expression, in StrSubstNo and Format (al-builtins format_auto_format_field).
                 Evidence {
                     file: "text/text-methods/SaUnitAmountSubst.al",
@@ -1047,15 +1053,15 @@ impl Gate {
                 },
             ],
             Gate::DocxMediaRezippedFrom29 => &[Evidence {
-                file: "../al-language-onprem/media/MediaFiles.al",
+                file: "../al-language-onprem/streams/media/MediaFiles.al",
                 lines: "506,511",
             }],
             Gate::DotNetRuntime10From29 => &[Evidence {
-                file: "../al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al",
+                file: "../al-language-onprem-dotnet/dotnet/runonclient/BgRunOnClient.al",
                 lines: "443",
             }],
             Gate::ExceptionTraceValueTaskFrameFrom29 => &[Evidence {
-                file: "../al-language-onprem-dotnet/lt-az-dotnet/AzLastErrorObject.al",
+                file: "../al-language-onprem-dotnet/dotnet/dotnet/AzLastErrorObject.al",
                 lines: "212",
             }],
             Gate::OptionFieldRefSetEvaluateErrorFrom28 => &[

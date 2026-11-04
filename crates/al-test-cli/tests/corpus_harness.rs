@@ -93,8 +93,8 @@ fn every_oracle_case_is_reported_and_attributed_to_an_area() {
     let r = all_versions().json("29");
     assert_eq!(r["overall"]["total"], 23513);
     assert_eq!(r["unmapped"].as_array().unwrap().len(), 0, "{}", r["unmapped"]);
-    assert_eq!(r["areas"]["json"]["total"], 495);
-    assert_eq!(r["areas"]["record"]["total"], 3250);
+    assert_eq!(r["areas"]["json"]["total"], 535); // corpus bump to 833a01ce: the restructure moved JSON tests into json/
+    assert_eq!(r["areas"]["record"]["total"], 3619); // corpus bump to 833a01ce: the restructure merged records, filters, calcfields and system-fields into record/
 }
 
 #[test]
