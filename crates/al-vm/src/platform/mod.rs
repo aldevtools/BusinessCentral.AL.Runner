@@ -98,6 +98,8 @@ pub(crate) struct Ident {
     /// The companies the run declared (ADR-046 decision 2, `--companies`), the session company first; empty for the
     /// default of one company. `Companies::All` is resolved against the test data in [`Ident::resolve_companies`].
     pub companies: Vec<String>,
+    /// The kind of server the session runs on (`--environment`).
+    pub environment: al_host::Environment,
 }
 
 impl Ident {
@@ -116,6 +118,7 @@ impl Ident {
             login_millis: host.clock.now_utc_millis(),
             time_zones: id.time_zones(),
             companies: Vec::new(),
+            environment: id.environment(),
         }
     }
 
@@ -581,6 +584,13 @@ impl Providers {
                     self.engine().program.objects[t.object as usize].id.unwrap_or(0)
                 )));
             }
+            // "No rows" is pinned for the Cloud suite only (metadata/platform-tables/Y21EnvColumns.al:30-40); an OnPrem
+            // server can list real printers and no OnPrem corpus test pins the table.
+            Virtual::Printer if self.ident.environment == al_host::Environment::OnPrem => {
+                return Err(refused(
+                    "Printer (2000000039): the rows of an OnPrem server's printers are not pinned (only the Cloud suite pins no rows)",
+                ));
+            }
             // The media the session imported, read fresh each time (they change between reads).
             Virtual::TenantMedia => return Ok(Listed::Own(Rc::new(mat::Mat::new(t, self.tenant_media_rows(t))))),
             _ => {}
@@ -627,6 +637,8 @@ impl Providers {
             Virtual::ApiWebhookEntity | Virtual::TenantMedia | Virtual::Media | Virtual::Unprovided => {
                 unreachable!("refused or listed before")
             }
+            // No rows (metadata/platform-tables/Y21EnvColumns.al:30-40 Y21_Printer_NoRows).
+            Virtual::Printer => Vec::new(),
             Virtual::XmlPortMetadata => metadata::xmlport_metadata_rows(self, t),
             Virtual::EventSubscription => metadata::event_subscription_rows(self, t),
             Virtual::PageAction => metadata::page_action_rows(self, t),

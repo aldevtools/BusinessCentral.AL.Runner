@@ -117,6 +117,7 @@ mod part_after_modal_close;
 mod part_array_element_control;
 mod perm_compose;
 mod prepush_script;
+mod printer_table;
 mod provider_factbox_edit;
 mod quoted_ident;
 mod r1b_page_moves;
