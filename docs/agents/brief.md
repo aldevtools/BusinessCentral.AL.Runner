@@ -55,8 +55,9 @@ on the main machine or as a remote worker (`docs/agents/remote-worker.md`).
   probe: ... }` (copy any file there; the file name must be the id; `build.rs` collects the files, so two
   branches that each add one do not conflict), and call `assumptions::assume(Assumption::YourId)` on the
   path (at runtime, or `Lowerer::assume` in `al-sema/src/lower.rs` for a compile-time choice, which becomes
-  an `ir::Stmt::Assume`). Mark only the part no corpus test pins. Do not regenerate the table in
-  `docs/probes-needed.md`: the regen bot does that on main after the merge (see "Generated files" below).
+  an `ir::Stmt::Assume`). Mark only the part no corpus test pins. Regenerate the table in
+  `docs/probes-needed.md` in the same pull request (`al-test-cli --root . --assumptions-doc`); a test fails while
+  it is stale (see "Generated files" below).
   When a probe pins it, delete the entry's file: the compiler lists the marker sites that remain.
   `al-runner test --top-assumptions` ranks the entries by flagged passes; `--list-assumptions`
   prints the registry with the counts of the last run (also in `al-test-cli`).
@@ -77,11 +78,12 @@ on the main machine or as a remote worker (`docs/agents/remote-worker.md`).
 - **Unsupported is refused explicitly.** Use a lowering reason, a diagnostic in
   `al-sema`, or `Signal::Unsupported`. Never run a guessed or partial behavior
   silently.
-- **Never weaken an oracle.** Never edit `corpus/` or `oracle/`. Never remove
-  lines from `metrics/<major>/passing.txt`. The one exception is a case shown
-  to have passed by accident, in its own commit that names each case. If real
-  BC and the corpus disagree, say so in your report; the owner opens the corpus
-  issue.
+- **Never weaken an oracle.** Never edit `corpus/` or `oracle/`. Never add a
+  line to `metrics/<major>/not-passing*.txt` for a case the oracle already had
+  (ADR-065): that hides a regression. The one exception is a case shown to have
+  passed by accident, with the owner's OK, in its own commit that names each
+  case. If real BC and the corpus disagree, say so in your report; the owner
+  opens the corpus issue.
 - **Seams change only through an ADR.** Additive changes (a new `Value`
   variant, an IR field, a defaulted `Ctx` method) need no ADR. Core crates do
   no OS access (ADR-006).
@@ -161,11 +163,13 @@ minutes. Do not iterate on either. `al-test-cli --help` lists every flag.
    stack. Add `--codeunit ID` if the name is not unique.
 3. Iterate: select with `--codeunit ID`, `--test SUBSTR`, `--area FOLDER` or
    `--file SUFFIX` (each repeats; the union is used). Only the selected test
-   codeunits compile and run, and the ratchet covers only them. Add
+   codeunits compile and run, and only they are checked against the lists. Add
    `--no-deps` (about 0.5 s) when the test needs no Microsoft app. A selected
    codeunit runs whole, because its tests share state.
-4. Before you commit: one full run with `--baseline-diff`. It shows what newly
-   passes, what failed, and which baseline cases stopped passing, by area.
+4. Before you commit: one full run with `--baseline-diff`. It shows, by area,
+   the regressions (not listed, not passing), the stale lines (listed cases that
+   pass, or left the oracle), the cases still listed and the cases without an
+   outcome. Then `--prune-not-passing` deletes the stale lines.
 5. `--timings` shows where a run spends its time.
 
 Do not write ad-hoc scripts that parse JUnit XML. If a view of a run is
@@ -199,7 +203,7 @@ you run the corpus again.
 - Do not use `prlimit --as` or `ulimit -v` on runs that use Microsoft's apps.
   They also cap the .NET helper process. CoreCLR then fails to start ("Failed
   to create CoreCLR, 0x8007000E") and every DotNet test is refused. That looks
-  like many baseline regressions and is not.
+  like many regressions and is not.
 - Never run several corpus runs at once. Never run `cargo-mutants` with more
   than `-j 1`.
 - Set thread counts to fit the machine. The runtime uses one worker thread per
@@ -211,27 +215,31 @@ you run the corpus again.
 
 ## Generated files
 
-The regen bot (`.github/workflows/regen-bot.yml`) keeps these files current on
-`main`. After every green CI run on a push to `main`, it commits them straight
-to `main` with `[skip ci]` in the message. A pull request does not regenerate
-or commit them, and CI does not fail when they are out of date:
+No bot writes to `main` (ADR-065). A pull request keeps these files current
+itself, and CI fails while they are stale:
 
-- `metrics/<major>/passing*.txt`, the baselines. The bot only adds cases.
-  CI still fails a pull request that loses a baseline case, and removing a
-  case stays a human decision (CLAUDE.md hard rule 2).
-- `docs/corpus-coverage.md` and `.json` (`al-test-cli --coverage-map`).
-- `docs/corpus-behavior-coverage.md` and `.json`
-  (`al-test-cli --behavior-coverage-map`).
+- `metrics/<major>/not-passing*.txt`, the lists of the cases the runtime does
+  not pass yet. Delete the lines of the cases your change makes pass
+  (`al-test-cli --root . --prune-not-passing`; it never adds a line). A line
+  for a case the oracle already had is a regression and needs the owner's OK
+  (CLAUDE.md hard rule 2); CI shows it in the job summary.
 - The assumptions table in `docs/probes-needed.md`
-  (`al-test-cli --assumptions-doc`). The text outside the table is still
-  yours to edit.
+  (`al-test-cli --assumptions-doc`), when you change the registry. The text
+  outside the table is still yours to edit.
+
+The coverage maps (`docs/corpus-coverage.md` and `.json`, `--coverage-map`;
+`docs/corpus-behavior-coverage.md` and `.json`, `--behavior-coverage-map`) are
+not committed. Make them locally in seconds, or take the artifact
+`coverage-maps-<run id>` of a CI run on `main`.
 
 The corpus bump bot (`.github/workflows/corpus-bump-bot.yml`,
 `tools/corpus_bump_bot.sh`) follows the corpus: every 20 minutes it looks for
 a green corpus run newer than the pin and opens a pull request on a branch
-`corpus-bump/<commit>` with the pin, `oracle/` and the harness counts. It
-writes no baseline and does not merge. Its pull request body lists what is
-left for a person (lost baseline cases, new failures, landed awaiting
+`corpus-bump/<commit>` with the pin, `oracle/`, the harness counts and the
+not-passing lists (lines for new cases that do not pass, `--list-new-cases
+HEAD`; stale lines deleted). It never adds a line for a case the old oracle had
+and does not merge. Its pull request body lists what is left for a person
+(regressions, new failures, landed awaiting
 assumptions, guards without a gate, harness counts, stale golden files). Fix
 those on its branch; the bot never pushes to a branch that exists.
 
@@ -250,12 +258,13 @@ reviewed list depends on them, and CI fails while they are stale:
 
 Run these in order. Do not skip any.
 
-1. Do not regenerate the generated files (see "Generated files" below). Run
-   `./target/release/al-test-cli --root . --baseline-diff` once over the whole
-   corpus: no baseline case may stop passing. Leave `metrics/<major>/passing*.txt`
-   alone; new passes reach the baseline after the merge.
+1. Run `./target/release/al-test-cli --root . --baseline-diff` once over the
+   whole corpus: no regression and no case without an outcome. Then
+   `./target/release/al-test-cli --root . --prune-not-passing` deletes the lines
+   of the cases your change makes pass; commit them (see "Generated files"
+   above).
 2. `./check.sh` must be green. It runs fmt, clippy with `-D warnings`, all
-   tests and the corpus ratchet. The two tests that run `al-test-cli` over the
+   tests and the not-passing lists. The two tests that run `al-test-cli` over the
    whole corpus run against the release build, which step 1 has already made,
    as in CI.
 3. Run the release-only tests. `check.sh` skips these `#[ignore]`d tests and CI
@@ -283,7 +292,7 @@ Run these in order. Do not skip any.
    (`al-deps/src/lazy.rs`, `Workspace::load_apps_lazy`), run `al-runner test` on Tests-ERM twice, once with
    `ALRUNNER_EAGER_SOURCES=1`, and compare the two `--junit` files with `tools/compare_junit.py`: 0 differences.
 5. No corpus case may newly fail. A case that was not run and now fails counts
-   as wrong behavior (hard rule 4); the baseline ratchet does not catch it. Run
+   as wrong behavior (hard rule 4); the lists do not catch it (a listed case may fail or be refused). Run
    `al-test-cli --root . --bc-version 27 --junit FILE` on `origin/main` and on
    your branch, and list every case that fails on the branch but not on main.
    Fix each one or refuse its path. Before each commit, check
@@ -293,9 +302,9 @@ Run these in order. Do not skip any.
 6. Commit on your branch. Do not add attribution or session lines to commit
    messages. The message says what changed and why, in plain American English.
 7. Merge current `origin/main` into your branch (`git fetch`, then
-   `git merge origin/main`). Resolve conflicts. Regenerate the baselines after
-   the merge; never hand-merge `metrics/<major>/passing.txt`. Run `check.sh`
-   again and commit.
+   `git merge origin/main`). Resolve conflicts. In a not-passing list take the
+   deletions of both sides, then run `--prune-not-passing`. Run `check.sh` again
+   and commit.
 8. Do not merge into `main`. Whether you push is set by your task: a local
    agent does not push, a remote worker pushes its own branch and nothing else.
 9. Before every push, also a push of a fix after review, run `tools/prepush.sh`.
@@ -320,7 +329,7 @@ Your final message or issue comment has these parts:
 
 - Branch and final commit.
 - Passed, failed and not run, before and after, for each BC version (27, 28,
-  29). Confirm no baseline case regressed.
+  29). Confirm no regression against the not-passing lists, and name the lines you deleted.
 - What you implemented, with the corpus files that now pass.
 - What is still refused or failing in your area, with the reason and counts.
 - Gates run (`check.sh`, release-only tests, demand/eager) and their result.

@@ -507,16 +507,39 @@ fn a_new_pin_moves_the_testlibraries_suite_with_its_artifact() {
     assert_eq!(seen, 3, "{toml}");
 }
 
-/// After the baselines, the bump prints the assumptions whose awaited corpus pin is now in the corpus
+/// ADR-065: the bump updates the not-passing lists against HEAD, the commit before the bump, so it adds lines only for
+/// cases the base oracle lacks (al-test-cli `--list-new-cases`; corpus_harness.rs
+/// `list_new_cases_adds_only_cases_the_base_oracle_lacks`) and deletes stale lines. It never rewrites a list whole.
+#[test]
+fn the_bump_adds_lines_only_for_cases_the_base_oracle_lacks() {
+    let script = std::fs::read_to_string(root().join("tools/corpus_bump.sh")).unwrap();
+    let step = script
+        .lines()
+        .find(|l| l.contains("./target/release/al-test-cli --root . --list-new-cases"))
+        .expect("the list step");
+    assert!(
+        step.contains("--list-new-cases HEAD") && step.contains("--prune-not-passing"),
+        "{step}"
+    );
+    assert!(!script.contains("--update-baseline"), "retired by ADR-065");
+    let bot = std::fs::read_to_string(root().join("tools/corpus_bump_bot.sh")).unwrap();
+    assert!(
+        bot.contains("--list-new-cases HEAD --prune-not-passing"),
+        "the bump bot's run"
+    );
+    assert!(bot.contains("--list-changes HEAD"), "the bump bot's commit gate");
+}
+
+/// After the lists, the bump prints the assumptions whose awaited corpus pin is now in the corpus
 /// (`al-test-cli --awaiting-assumptions`), and a nonzero answer of that check does not stop the bump.
 #[test]
-fn the_bump_prints_the_assumptions_whose_pin_landed_after_the_baselines() {
+fn the_bump_prints_the_assumptions_whose_pin_landed_after_the_lists() {
     let script = std::fs::read_to_string(root().join("tools/corpus_bump.sh")).unwrap();
-    let baseline = script.find("--update-baseline").expect("the baseline step");
+    let baseline = script.find("--list-new-cases HEAD").expect("the list step");
     let check = script
         .find("./target/release/al-test-cli --root . --awaiting-assumptions")
         .expect("the bump runs al-test-cli --awaiting-assumptions");
-    assert!(check > baseline, "the check runs after the baseline step");
+    assert!(check > baseline, "the check runs after the list step");
     let line = script[check..].lines().next().unwrap();
     assert!(line.contains("||"), "a landed pin must not stop the bump: {line}");
 }

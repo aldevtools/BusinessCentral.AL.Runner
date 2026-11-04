@@ -31,7 +31,8 @@ name: CI
 #     commit. The ruleset's "branch must be up to date" policy makes them equal, but the workflow does not rely on
 #     it: after an admin bypass, a rule change, a merge that was not up to date, or a direct push (no merged
 #     pull request), the trees differ or nothing is found, and the full pull request set runs. When the check
-#     itself fails, the full set runs too. The `corpus` job always runs: the regen bot needs its baselines.
+#     itself fails, the full set runs too. The `corpus` job always runs: it checks the not-passing lists (ADR-065) and
+#     uploads the coverage maps.
 #   - Required checks apply to pull requests only. On a pull request `test`, `licenses`, `portable` and `corpus` always
 #     run in full (owner rule: no path filter or selection on `corpus` or `test`).
 #   - `release-tests` on a pull request runs unless the job `release-tests-paths` proves that every changed file is
@@ -68,7 +69,7 @@ on:
         default: true
 
 # Read-only token for every job; cache-cleanup asks for actions: write on its own. No job here writes
-# to the repository (the regen bot is .github/workflows/regen-bot.yml).
+# to the repository, and no workflow pushes to main (ADR-065).
 permissions:
   contents: read
 
@@ -323,9 +324,10 @@ jobs:
         run: |
           ./target/release/al-test-cli --all-versions --build-compile-cache | tee cache-build.txt
 
-      # The corpus pass rate fails the job on any regression against metrics/<major>/passing.txt of
-      # every version in oracle/oracle.toml (exit 1), or when the oracle and the corpus pin disagree
-      # (exit 2).
+      # The corpus pass rate fails the job when a not-passing list of a version in oracle/oracle.toml does not hold
+      # (ADR-065, exit 1): a case not listed in metrics/<major>/not-passing*.txt does not pass (a regression), a listed
+      # case passes or left the oracle (a stale line: `al-test-cli --prune-not-passing` deletes it), or an oracle case
+      # got no outcome. Exit 2 when the oracle and the corpus pin disagree.
       #
       # ADR-013 decision 6: the demand-driven compile of the dependency apps must never change an
       # outcome. The corpus runs a second time with every dependency routine compiled
@@ -349,15 +351,9 @@ jobs:
         run: |
           step_start=$(date +%s)
           status=0
-          # On a push to main the same run also writes the baselines for the regen bot
-          # (.github/workflows/regen-bot.yml). It costs no extra run: the file is written only when no baseline case of
-          # that version regressed, so it only grows; a regression still exits 1 here.
-          update=()
-          if [ "${{ github.event_name }}" = push ] && [ "${{ github.ref }}" = refs/heads/main ]; then
-            update=(--update-baseline)
-          fi
-          # Its output also goes to normal.log, which the comparison of the passes below reads (ADR-063).
-          ./target/release/al-test-cli --all-versions --require-dotnet "${update[@]}" \
+          # Its output also goes to normal.log, which the comparison of the passes below and the job summary read
+          # (ADR-063; the failures of the not-passing lists, ADR-065).
+          ./target/release/al-test-cli --all-versions --require-dotnet \
             --json pass-rate.json --markdown pass-rate.md --junit runtime-junit.xml 2>&1 | tee normal.log
           [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
           normal_end=$(date +%s)
@@ -476,6 +472,23 @@ jobs:
             echo "Owner decision, 2026-11-04: the demand-driven against eager compile, the runs that compile every pass from source, the compile cache against the uncached run, the install baseline rule, the perf budgets and the affected selection differential run on the nightly schedule, on manual dispatch and before a numbered release. Not on a pull request or a push."
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # ADR-065, owner decision 2: how this pull request changes the not-passing lists against the base branch. A line
+      # for a case the base oracle already had is a regression the owner approves in review: listed in the job summary
+      # with a warning, not a failure (the run above already fails while such a case is neither passing nor listed).
+      - name: Not-passing lists against the base branch
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          git fetch -q --no-tags --depth=1 origin "${{ github.base_ref }}"
+          status=0
+          ./target/release/al-test-cli --root . --list-changes FETCH_HEAD > list-changes.md || status=$?
+          sed -i "1s|FETCH_HEAD|${{ github.base_ref }}|" list-changes.md
+          cat list-changes.md
+          if [ "$status" = 1 ]; then
+            echo "::warning::this pull request adds a not-passing line for a case the base oracle had (a regression); it needs the owner's OK"
+          elif [ "$status" != 0 ]; then
+            echo "::error::al-test-cli --list-changes failed"
+            exit 1
+          fi
       - name: Corpus job summary
         if: always()
         run: |
@@ -492,6 +505,23 @@ jobs:
             fi
           }
           {
+            # ADR-065: what the run says about the not-passing lists (regressions, stale lines, cases without an
+            # outcome), from its log.
+            echo "## Not-passing lists"
+            echo
+            if grep -qE "^BC [^:]+: [0-9]+ (regression\(s\)|stale line\(s\)|oracle case\(s\) got no outcome)" normal.log 2>/dev/null; then
+              echo '```'
+              awk '/^BC [^:]+: [0-9]+ (regression\(s\)|stale line\(s\)|oracle case\(s\) got no outcome)/ {on=1; print; next}
+                   on && /^  / {print; next} {on=0}' normal.log | head -n 400
+              echo '```'
+            else
+              echo "Every list holds: no regression, no stale line, every oracle case has an outcome."
+            fi
+            echo
+            if [ -f list-changes.md ]; then
+              cat list-changes.md
+              echo
+            fi
             echo "## Corpus pass rate and time"
             echo
             echo "Pass, fail and not run are from the normal run. The times are the total of each run."
@@ -588,25 +618,19 @@ jobs:
             echo "$used" | grep -qx "$f" || { echo "pruned $f"; rm -f "$f"; }
           done
 
-      # The regen bot (.github/workflows/regen-bot.yml) commits the generated files to main, so pull requests leave
-      # them alone. The baselines came from the corpus run above; the coverage maps and the table of
-      # docs/probes-needed.md are static and take seconds. Only on a push to main.
-      - name: Generated files for the regen bot
+      # ADR-065, owner decision 3: the coverage maps are not committed. Each run on main uploads them (static, seconds).
+      - name: Coverage maps
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          ./target/release/al-test-cli --root . --coverage-map
-          ./target/release/al-test-cli --root . --behavior-coverage-map
-          ./target/release/al-test-cli --root . --assumptions-doc
-          mkdir -p "$RUNNER_TEMP/regen"
-          cp --parents metrics/*/passing*.txt docs/corpus-coverage.md docs/corpus-coverage.json \
-            docs/corpus-behavior-coverage.md docs/corpus-behavior-coverage.json docs/probes-needed.md \
-            "$RUNNER_TEMP/regen/"
+          mkdir -p "$RUNNER_TEMP/coverage-maps"
+          ./target/release/al-test-cli --root . --coverage-map "$RUNNER_TEMP/coverage-maps"
+          ./target/release/al-test-cli --root . --behavior-coverage-map "$RUNNER_TEMP/coverage-maps"
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
-          name: regen-${{ github.run_id }}
-          path: ${{ runner.temp }}/regen/
-          retention-days: 3
+          name: coverage-maps-${{ github.run_id }}
+          path: ${{ runner.temp }}/coverage-maps/
+          retention-days: 90
 
       - name: Date stamp
         if: always()
