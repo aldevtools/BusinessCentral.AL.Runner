@@ -16855,7 +16855,7 @@
         "code": "",
         "file": "crates/al-vm/src/dotnet/server_classes.rs",
         "generic": false,
-        "line": 568,
+        "line": 575,
         "pinned": true,
         "site": "lt-ty-dotnet/TyAkvProvider.al:91",
         "template": "Not initialized."
@@ -17026,7 +17026,7 @@
         "code": "FormAbort:Permission",
         "file": "crates/al-vm/src/permission_triggers.rs",
         "generic": false,
-        "line": 86,
+        "line": 124,
         "pinned": true,
         "site": "pages/lt-cc-page-leads/CcPageLeads.al:525",
         "template": "Page % has to close."
