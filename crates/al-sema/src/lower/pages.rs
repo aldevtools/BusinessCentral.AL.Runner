@@ -290,8 +290,9 @@ impl Lowerer<'_> {
                     }
                     // A bare name of a field of the source table (no `Rec.`, warning AL0604) is that field: the control shows
                     // the field's caption and value (pages/lt-page-controls-aa/AaControls.al:684-692, `SystemId`). Pinned only where
-                    // nothing else in scope has the name; with a procedure of the page or the table, a page variable or another
-                    // control of that name, which one BC binds is not pinned: refused.
+                    // nothing else in scope has the name; with a procedure of the page or the table or a page variable of that
+                    // name, which one BC binds is not pinned: refused. Another CONTROL of that name does not change the binding: both
+                    // read and write the field (pages/lt-wd/R6858ControlNamedLikeField.al, al-runner issue 6858).
                     Some(crate::pages::Source::Expr)
                         if let Some((n, p)) = crate::pages::plain_name(raw_args.get(1).map_or("", |a| a.as_str()))
                             .and_then(|n| {
@@ -313,11 +314,7 @@ impl Lowerer<'_> {
                             || named(ow.object)
                             || table.is_some_and(named)
                             || ow.names.contains(&n.to_lowercase())
-                            || globals.iter().any(|g| g.name.eq_ignore_ascii_case(&n))
-                            || layout
-                                .controls
-                                .iter()
-                                .any(|c| !std::ptr::eq(c, raw) && c.name.eq_ignore_ascii_case(&n));
+                            || globals.iter().any(|g| g.name.eq_ignore_ascii_case(&n));
                         if other {
                             unsupported.push(format!(
                                 "control {} is bound to the bare name {n}, which is a field of the source table and also another name in scope (which one BC binds is not pinned)",

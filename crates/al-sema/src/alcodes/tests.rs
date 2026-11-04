@@ -2542,3 +2542,20 @@ fn xmlport_separator_read_into_char() {
         assert!(codes(&[&xp(ok)]).is_empty(), "{ok}");
     }
 }
+
+// Must-not-compile cases 2830 and 2831 (corpus branch al-runtime-rs-staging-y93): an object's Permissions property takes table data
+// only, by name; a permission set takes wildcards and every kind.
+#[test]
+fn an_object_permissions_property_takes_named_table_data_only() {
+    let wild = "codeunit 50000 \"W\" { Permissions = tabledata * = i; }";
+    assert_eq!(
+        codes(&[wild]),
+        vec!["AL0104".to_string(), "AL0104".into(), "AL0107".into()]
+    );
+    let kind = "codeunit 50000 \"K\" { Permissions = codeunit \"K\" = X; }";
+    assert_eq!(codes(&[kind]), vec!["AL0104".to_string()]);
+    let good = "table 50001 \"T, x\" { fields { field(1; Id; Integer) { } } }\ncodeunit 50000 \"G\" { Permissions = tabledata \"T, x\" = rimd; }";
+    assert_eq!(codes(&[good]), Vec::<String>::new());
+    let set = "permissionset 50002 \"S\" { Assignable = true; Permissions = tabledata * = RIMD, codeunit * = X; }";
+    assert_eq!(codes(&[set]), Vec::<String>::new());
+}

@@ -11,6 +11,7 @@ mod allobj_tabledata_rows;
 mod array_size_mismatch;
 mod autoformat_units;
 mod awaiting_assumptions;
+mod bare_name_control_named_like_field;
 mod bare_quoted_ext_control;
 mod bigtext_write;
 mod blocked_set_2;

@@ -760,6 +760,7 @@ fn content_of<O: al_ir::ObjectInfo + ?Sized>(
             wild,
             explicit,
             unread_system,
+            cut: Vec::new(),
         }
     })
 }
