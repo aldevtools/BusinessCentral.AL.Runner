@@ -42,6 +42,9 @@ pub struct BlobBuf {
     /// The buffer is the unloaded copy a Get of a temporary record handed out: its `Length` is the content's, not the
     /// stored size of a database row (record/PnABlobLength.al:Length_InMemoryAndFindVariants `temporary-regot`).
     pub temp_row: bool,
+    /// The Blob field of the table has `Compressed = false` (set when a read hands out the row's copy): its stored size is the
+    /// content's (record/flowfields/BlobStoredSizeSign.al StoredSize_*_Result, `U-` observations).
+    pub uncompressed: bool,
     /// A stream wrote to the buffer since it was fetched or saved: `Modify` counts the Blob as changed whatever it holds now
     /// (record/PnASystemFields.al:Modify_StampsOnlyWhenStoredFieldDiffers `same-blob-content-keeps-stamp`).
     pub written: bool,
@@ -326,6 +329,7 @@ pub fn new_blob() -> BlobRef {
         refetch: false,
         persisted: false,
         temp_row: false,
+        uncompressed: false,
         written: false,
         render_pending: None,
         inserted: false,
@@ -364,6 +368,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         refetch: false,
         persisted: false,
         temp_row: false,
+        uncompressed: false,
         written: false,
         render_pending: b.render_pending.clone(),
         inserted: b.inserted,
@@ -378,8 +383,17 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
 
 /// The unloaded copy a read of a database row hands out (`BlobBuf::db_row`).
 pub fn copy_blob_db_row(b: &BlobRef) -> BlobRef {
+    copy_blob_db_row_of(b, false)
+}
+
+/// [`copy_blob_db_row`] of a field whose `Compressed` property is false when `uncompressed`.
+pub fn copy_blob_db_row_of(b: &BlobRef, uncompressed: bool) -> BlobRef {
     let c = copy_blob(b, false);
-    c.borrow_mut().db_row = true;
+    {
+        let mut c = c.borrow_mut();
+        c.db_row = true;
+        c.uncompressed = uncompressed;
+    }
     c
 }
 
@@ -853,6 +867,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         refetch: false,
         persisted: false,
         temp_row: false,
+        uncompressed: false,
         written: false,
         render_pending: None,
         inserted: false,
@@ -927,6 +942,16 @@ fn blob_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
 }
 
 fn blob_length(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    blob_length_of(c, r, false)
+}
+
+/// `Blob.Length` written as an operand of a comparison with the literal 0 (al-sema `blob_length_sign.rs`): only its sign is
+/// observed, so the stored size of non-empty content that is not pinned is answered with a positive number.
+pub fn blob_length_sign(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    blob_length_of(c, r, true)
+}
+
+fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NResult {
     let b = blob_of(r)?;
     let buf = b.borrow();
     buf.observe()?;
@@ -943,6 +968,11 @@ fn blob_length(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
         if n == 0 || buf.temp_row {
             return Ok(Value::Integer(n as i32));
         }
+        // A field with `Compressed = false` stores the content size on every host
+        // (record/flowfields/BlobStoredSizeSign.al:224-356 StoredSize_*_Result, the `U-` observations g, fs and mg).
+        if buf.uncompressed {
+            return Ok(Value::Integer(n as i32));
+        }
         // 2 and 3 bytes on every major: record/flowfields/BlobCalcFieldsLength.al:250 ('ab' 8), :222 ('new' 9).
         // The stored size is compressed (40 repeated digits are 19 at :470), so for longer content only the texts the corpus
         // stored are given: 'stored' 12 (:350) and 'a long stored value' 25 (:222).
@@ -951,6 +981,15 @@ fn blob_length(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
             || matches!(&buf.bytes[..], b"stored" | b"a long stored value");
         if is_y57_three_mb(&buf.bytes) {
             return Ok(Value::Integer(3072));
+        }
+        if !pinned && sign_only {
+            // The stored size of non-empty content is positive whenever HasValue is Yes, for every content measured (1 byte to 5 MB;
+            // text, XML, random, zero and repeated bytes; Compressed true and false; Get, FindSet and Modify): the `g=`, `fs=` and `mg=`
+            // values of record/flowfields/BlobStoredSizeSign.al:224-356 StoredSize_*_Result (`p` = positive; Windows 27.5, 28.5). An
+            // empty or cleared blob is 0 with HasValue No (:354). Assumed until that file is in the pinned corpus
+            // (`blob-stored-size-positive`). Any positive number answers the comparison.
+            crate::assumptions::assume(crate::assumptions::Assumption::BlobStoredSizePositive);
+            return Ok(Value::Integer(n as i32 + 6));
         }
         if !pinned {
             return unsupported(format!(

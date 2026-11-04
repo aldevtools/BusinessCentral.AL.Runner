@@ -13,8 +13,13 @@
 //! Integer local from constants, locals and `RecRef.Number()`; exit; and branch (`if`, `case`) on such values. A branch the
 //! table id decides is followed; one it does not decide must have every arm inert. Anything else (a call, a record or
 //! `RecordRef` operation, a loop, a global) is not inert, and the event stays refused.
+//!
+//! A read of a table of the subscriber's own app that is empty in either install order is decided too (empty_reads.rs,
+//! al-runner issue 6924): `if not Reg.Get(RecRef.Number()) then exit;` exits for every table, so what follows does not
+//! run. The same check serves the setup event (setup_no_op.rs) and any other event (`Session::inert_in_either_order`).
 
 use crate::Session;
+use crate::empty_reads::{Answer, EmptyReads};
 use al_builtins::value::RtType;
 use al_ir as ir;
 use std::collections::BTreeSet;
@@ -28,10 +33,14 @@ const EVENTS: [&str; 5] = [
     "onglobalrename",
 ];
 
-struct Cx<'a> {
-    routine: &'a ir::Routine,
-    table: i32,
-    number: Option<ir::BuiltinId>,
+pub(crate) struct Cx<'a> {
+    pub(crate) routine: &'a ir::Routine,
+    /// The table id raised, when known.
+    pub(crate) table: Option<i32>,
+    /// The parameter that holds the table id (`TableId` of the setup event).
+    pub(crate) table_param: Option<usize>,
+    pub(crate) number: Option<ir::BuiltinId>,
+    pub(crate) reads: EmptyReads,
 }
 
 impl Cx<'_> {
@@ -40,6 +49,42 @@ impl Cx<'_> {
             .locals
             .get(l)
             .is_some_and(|s| matches!(s.ty, RtType::Boolean | RtType::Integer))
+    }
+
+    /// A local that may be assigned: a scalar that is not a parameter (a parameter can be `var`, and the setup event's
+    /// flags are its result).
+    fn assignable(&self, l: usize) -> bool {
+        self.scalar(l) && l >= self.routine.params
+    }
+
+    /// The type of a key or filter value, when evaluating it has no effect.
+    fn value_type(&self, e: &ir::Expr) -> Option<RtType> {
+        match e {
+            ir::Expr::Const(ir::Const::Integer(_)) => Some(RtType::Integer),
+            ir::Expr::Const(ir::Const::Boolean(_)) => Some(RtType::Boolean),
+            ir::Expr::Load(ir::Place::Local(l)) if self.scalar(*l) => Some(self.routine.locals[*l].ty.clone()),
+            _ if self.is_number(e) => Some(RtType::Integer),
+            _ => None,
+        }
+    }
+
+    /// What `e` gives when it reads an empty table of the subscriber's own app.
+    fn read(&self, e: &ir::Expr) -> Option<Answer> {
+        self.reads.answer(self.routine, e, &|x| self.value_type(x))
+    }
+
+    /// `Rec.IsTemporary()` of a record parameter (a table event's `Rec`): no effect, its answer not known here.
+    fn is_temporary(&self, e: &ir::Expr) -> bool {
+        let ir::Expr::Builtin { id, receiver, args, .. } = e else {
+            return false;
+        };
+        Some(*id) == ir::BuiltinId::of("Record.IsTemporary#1")
+            && args.is_empty()
+            && matches!(
+                receiver.as_deref(),
+                Some(ir::Arg::Ref(ir::Place::Local(l)) | ir::Arg::Value(ir::Expr::Load(ir::Place::Local(l))))
+                    if *l < self.routine.params
+            )
     }
 
     /// `RecRef.Number()` of a record reference parameter.
@@ -64,7 +109,7 @@ impl Cx<'_> {
             ir::Expr::Unary(_, a) => self.pure(a),
             ir::Expr::Binary(_, a, b) => self.pure(a) && self.pure(b),
             ir::Expr::In(a, set) => self.pure(a) && set.iter().all(|s| self.pure_elem(s)),
-            ir::Expr::Builtin { .. } => self.is_number(e),
+            ir::Expr::Builtin { .. } => self.is_number(e) || self.is_temporary(e) || self.read(e).is_some(),
             _ => false,
         }
     }
@@ -80,8 +125,12 @@ impl Cx<'_> {
     fn num(&self, e: &ir::Expr) -> Option<i32> {
         match e {
             ir::Expr::Const(ir::Const::Integer(n)) => Some(*n),
-            _ if self.is_number(e) => Some(self.table),
-            _ => None,
+            ir::Expr::Load(ir::Place::Local(l)) if Some(*l) == self.table_param => self.table,
+            _ if self.is_number(e) => self.table,
+            _ => match self.read(e) {
+                Some(Answer::Int(n)) => Some(n),
+                _ => None,
+            },
         }
     }
 
@@ -108,7 +157,10 @@ impl Cx<'_> {
                 _ => None,
             },
             ir::Expr::In(a, set) => self.matches(self.num(a)?, set),
-            _ => None,
+            _ => match self.read(e) {
+                Some(Answer::Bool(b)) => Some(b),
+                _ => None,
+            },
         }
     }
 
@@ -140,7 +192,7 @@ impl Cx<'_> {
     }
 
     /// Whether the statements, run for this table, have no effect.
-    fn inert(&self, stmts: &[ir::Stmt]) -> bool {
+    pub(crate) fn inert(&self, stmts: &[ir::Stmt]) -> bool {
         self.run(stmts).is_some()
     }
 
@@ -151,7 +203,8 @@ impl Cx<'_> {
             let exited = match s {
                 ir::Stmt::Pos(_) => false,
                 ir::Stmt::Exit(None) => true,
-                ir::Stmt::Assign(ir::Place::Local(l), e) if self.scalar(*l) && self.pure(e) => false,
+                ir::Stmt::Assign(ir::Place::Local(l), e) if self.assignable(*l) && self.pure(e) => false,
+                ir::Stmt::Expr(e) if self.reads.inert(self.routine, e, &|x| self.value_type(x)) => false,
                 ir::Stmt::If(c, a, b) if self.pure(c) => match self.truth(c) {
                     Some(true) => self.run(a)?,
                     Some(false) => self.run(b)?,
@@ -230,13 +283,34 @@ impl Session {
             };
             let cx = Cx {
                 routine,
-                table: table_id,
+                table: Some(table_id),
+                table_param: None,
                 number,
+                reads: self.empty_reads(s.object, s.routine),
             };
             if cx.inert(routine.body.stmts()) {
                 quiet.insert((s.object, s.routine));
             }
         }
         quiet
+    }
+}
+
+impl Session {
+    /// Whether subscriber routine `r` of `object`, whose install order is not known, has no effect for any event and table:
+    /// the code that runs assigns only its own locals, branches on them, and reads empty tables of its own app (module
+    /// comment). Then the result is the same whether it runs or not.
+    pub(crate) fn inert_in_either_order(&self, object: usize, r: usize) -> bool {
+        let Some(routine) = self.engine.program.objects[object].routines.get(r) else {
+            return false;
+        };
+        let cx = Cx {
+            routine,
+            table: None,
+            table_param: None,
+            number: ir::BuiltinId::of("RecordRef.Number#1"),
+            reads: self.empty_reads(object, r),
+        };
+        cx.inert(routine.body.stmts())
     }
 }

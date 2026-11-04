@@ -1011,6 +1011,18 @@ B's install A's and B's ran, the main app's did not; at test time all ran.
    (shared tables written by a routine that stops in another company) is not touched. This assumes nothing new. Test:
    `al-testrun/tests/suite/install_db_event_order.rs`. Not covered (still refused): table extension triggers of an unrelated
    app, and a subscriber whose effects only matter to no test (needs the write set of the reached code, not just a guard).
+8. **A subscriber that stops unless its own app's table holds a row (al-runner issue 6924, 2026-11-04).** Items 6 and 7, and
+   every other event, also follow a read of a table of the subscriber's own app that is empty in either install order
+   (`al-vm/src/empty_reads.rs`): the table holds no row when the event is raised, and no install code of an app under test
+   writes it (`al-testrun/src/install.rs` `tables_install_code_may_write`: the Install and Upgrade codeunits of the apps under
+   test, their install and Company Triggers subscribers, what those call and the subscribers they reach; none when that code
+   holds a RecordRef or DataTransfer). Then `Get` (result used, key values of the key fields' types), `FindFirst`,
+   `FindLast`, `FindSet` give false, `IsEmpty` true, `Count` 0, and `SetRange` and `Reset` on that record have no effect, so
+   `if not Reg.Get(TableId) then exit;` exits in the order where the subscriber runs (Y79InstallUnrelated.al:6-12: it runs
+   exactly when its app installed first). Such a subscriber, and any whose code that runs has no effect at all, is left out
+   instead of refused. A table extension of an unrelated app no longer stops a delete or modify trigger when it does not
+   declare that trigger or its trigger has no effect in this sense; an insert still stops (its InitValues). An upgrade-tag
+   subscriber that adds tags is not covered. This assumes nothing new. Test: `al-testrun/tests/suite/install_own_table_guard.rs`.
 
 ### Still not pinned (probes wanted)
 

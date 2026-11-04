@@ -44,6 +44,16 @@ runs:
         fi
         dotnet --list-sdks
         dotnet --list-runtimes
+    # .NET on Linux maps a Windows zone id ("Argentina Standard Time") to an old IANA link name
+    # (America/Buenos_Aires). Ubuntu ships those links in tzdata-legacy, which the ubuntu-24.04 image
+    # 20261025.353 lacked (dotnet_diff::the_stand_ins_answer_what_the_sidecar_answers failed). Install it only when missing.
+    - name: Install the legacy time zone links when missing
+      shell: bash
+      run: |
+        if [ ! -e /usr/share/zoneinfo/America/Buenos_Aires ]; then
+          sudo apt-get update -qq && sudo apt-get install -y -qq tzdata-legacy
+        fi
+        ls -l /usr/share/zoneinfo/America/Buenos_Aires
     - uses: actions/setup-dotnet@v4
       if: steps.dotnet.outputs.preinstalled != 'true'
       with:

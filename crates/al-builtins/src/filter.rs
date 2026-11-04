@@ -1,6 +1,7 @@
 //! Record filters as data (shared by the VM and the store).
 
 use crate::describe::Describe;
+use crate::native::Signal;
 use crate::ops::compare;
 use crate::value::Value;
 use std::cmp::Ordering;
@@ -98,6 +99,44 @@ impl FilterExpr {
             FilterExpr::NumCode(inner) => match code_number(v) {
                 Some(n) => inner.matches(&Value::BigInteger(n)),
                 None => inner.matches(v),
+            },
+        }
+    }
+}
+
+impl FilterExpr {
+    /// The first comparison of `v` with a value of the filter that cannot be answered. [`FilterExpr::matches`] counts such a
+    /// value as not passing; a caller that must not guess (a TableRelation condition, hard rule 4) refuses on it instead.
+    pub fn compare_error(&self, v: &Value) -> Option<Signal> {
+        let v = &*blank_if_spaces(v);
+        let cmp = |x: &Value| {
+            let x = blank_if_spaces(x);
+            if crate::ops::hyphen_filter_order(v, &x).is_some() {
+                return None;
+            }
+            compare(v, &x).err()
+        };
+        match self {
+            FilterExpr::Range(lo, hi) => lo.iter().chain(hi.iter()).find_map(cmp),
+            FilterExpr::Eq(x)
+            | FilterExpr::RangeSame(x)
+            | FilterExpr::Ne(x)
+            | FilterExpr::Lt(x)
+            | FilterExpr::Le(x)
+            | FilterExpr::Gt(x)
+            | FilterExpr::Ge(x) => cmp(x),
+            FilterExpr::Like(..) | FilterExpr::NotLike(..) => match v {
+                Value::Unknown(why) => Some(Signal::Unsupported(why.to_string())),
+                Value::Text(t) | Value::Code(t) if t.has_marker() => Some(Signal::Unsupported(
+                    "a wildcard filter on a text that is not known".into(),
+                )),
+                _ => None,
+            },
+            FilterExpr::AtSignAlone(_) | FilterExpr::EmptyViewValue => None,
+            FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().find_map(|x| x.compare_error(v)),
+            FilterExpr::NumCode(inner) => match code_number(v) {
+                Some(n) => inner.compare_error(&Value::BigInteger(n)),
+                None => inner.compare_error(v),
             },
         }
     }
@@ -2120,5 +2159,32 @@ mod placeholder_wildcard_tests {
         for t in ["%1", "%1&*a*", "a*|%1", "*", "%"] {
             assert!(!p(t), "{t}");
         }
+    }
+}
+
+#[cfg(test)]
+mod compare_error_tests {
+    use super::FilterExpr;
+    use crate::value::Value;
+
+    #[test]
+    fn a_value_that_cannot_be_compared_is_reported() {
+        let unknown = Value::Unknown("not known".into());
+        let f = FilterExpr::Or(vec![
+            FilterExpr::Eq(Value::Text("A".into())),
+            FilterExpr::Like("B*".into(), false),
+        ]);
+        assert!(f.compare_error(&unknown).is_some());
+        assert!(!f.matches(&unknown));
+    }
+
+    #[test]
+    fn a_value_that_compares_is_not_reported() {
+        let f = FilterExpr::Or(vec![
+            FilterExpr::Eq(Value::Code("A".into())),
+            FilterExpr::Like("B*".into(), false),
+        ]);
+        assert!(f.compare_error(&Value::Code("C".into())).is_none());
+        assert!(f.compare_error(&Value::Code("".into())).is_none());
     }
 }
