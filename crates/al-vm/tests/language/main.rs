@@ -144,6 +144,7 @@ mod permission_moved_table;
 mod permission_system_grant;
 mod private_use_chars;
 mod proc_assign;
+mod profile_frame_names;
 mod qe_decimal_digits;
 mod quoted_this_variable;
 mod rec_field_by_var;
