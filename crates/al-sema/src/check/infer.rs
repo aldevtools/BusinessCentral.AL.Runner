@@ -1029,6 +1029,21 @@ impl<'a> Checker<'a> {
         {
             return;
         }
+        // A protected variable of the table, named in another object (not an extension of the table): AL0161 (must-not-compile
+        // 2953-codeunit-protected-table-var-through-record.al:1; corpus PR 1126).
+        if sc.oi != ti
+            && crate::base_access::visible_vars(&self.ws.object_ast(ti))
+                .iter()
+                .any(|(n, _)| n.eq_ignore_ascii_case(name))
+        {
+            self.diag(
+                sc,
+                node,
+                "AL0161",
+                format!("'{name}' is inaccessible due to its protection level"),
+            );
+            return;
+        }
         self.diag(
             sc,
             node,
@@ -1579,6 +1594,9 @@ impl<'a> Checker<'a> {
                 }
                 self.currreport_request_options_page(sc, node, &kids[0], &base_ty, &mname);
                 self.al_codeunit_access(sc, node, &base_ty, &mname);
+                if let Some(e) = self.record_protected_member(sc, node, &base_ty, &mname) {
+                    return e;
+                }
                 match self.member(sc, &base_ty, &mname) {
                     Some(e) => e,
                     None if self.tdd_member(sc, node, &kids[0], &base_ty, &mname) => E::Val(Ty::Unknown),

@@ -2004,6 +2004,22 @@ impl Lowerer<'_> {
                     let slot = self.ext_var(ext, &name)?;
                     Ok(ir::Place::ExtGlobal(ext, slot))
                 }
+                // `Other.<protected var>` in a table extension: Other's variable (al-runner issue 6984; corpus PR 1126,
+                // table-objects/extensions/ProtectedVarCrossApp.al, see `check/protected_member.rs`).
+                Some(Res::RecGlobal { object, name }) => {
+                    let (object, name) = (*object, name.clone());
+                    let slot = if self.ws.objects[object].kind == ObjKind::Table {
+                        let (slot, _, label) = self.base_var(&name)?;
+                        if label.is_some() {
+                            return Err(format!("`{name}`, a Label of the table, through another record variable (not pinned)"));
+                        }
+                        slot
+                    } else {
+                        self.ext_var(object, &name)?
+                    };
+                    let base = self.place(&n.children().next().ok_or("member base")?)?;
+                    Ok(ir::Place::RecGlobal(Box::new(base), object, slot))
+                }
                 Some(Res::Field { table, id }) => {
                     let (table, id) = (*table, *id);
                     // A temporary record of a platform table is an ordinary temporary table: the

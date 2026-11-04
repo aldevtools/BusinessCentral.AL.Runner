@@ -750,6 +750,7 @@ impl<'a> Compiler<'a> {
                 p.clone()
             }
             ir::Place::Field(base, pos) => ir::Place::Field(Box::new(self.rplace(base)?), *pos),
+            ir::Place::RecGlobal(base, o, slot) => ir::Place::RecGlobal(Box::new(self.rplace(base)?), *o, *slot),
             ir::Place::Index(base, idx) => {
                 let base = self.rplace(base)?;
                 let mut regs = Vec::with_capacity(idx.len());

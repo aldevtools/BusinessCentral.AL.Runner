@@ -1647,6 +1647,9 @@ pub enum Place {
     /// Global slot `.1` of the instance of page extension `.0` (an object index) on the same open page, in a routine of
     /// another extension of that page: a `protected var` one extension declares and another one names (al-runner issue 6159).
     ExtGlobal(usize, usize),
+    /// Global slot `.2` of the instance of table or table extension `.1` (an object index) on the record in place `.0`:
+    /// `Other.<protected var>` in a table extension (al-runner issue 6984). The instance is made when the record has none.
+    RecGlobal(Box<Place>, usize, usize),
     /// Element of an array place.
     Index(Box<Place>, Vec<Expr>),
     /// Field at position `.1` of the record in place `.0`.
