@@ -1472,16 +1472,20 @@ fn a_nested_text_group_exports_and_imports_its_variables() {
     assert_eq!(out, "World");
 }
 
-// A text element with content inside a table element is refused in both directions when a container is below it (only
-// attributes and leaf elements below it are pinned: xmlport_text_in_table.rs).
+// A text element with content inside a table element is refused on import when a container is below it (only attributes and
+// leaf elements below it are pinned: xmlport_text_in_table.rs). The export writes it as any container under the unprobed
+// assumption `xmlport-leaf-triggers-tree-in-table` (xmlport_tree_in_table.rs).
 #[test]
-fn a_text_group_inside_a_table_element_is_refused() {
-    let r = refusal(
+fn a_text_group_inside_a_table_element_is_refused_on_import() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    take_hits();
+    let out = text(
         "H: Codeunit Helpers; B: Record \"ALT Blob\"; OutStr: OutStream;",
         "H.Row(1, 0, '', ''); B.Code := 'N2'; B.Insert(); B.Data.CreateOutStream(OutStr);
-         XmlPort.Export(60045, OutStr); exit('');",
+         XmlPort.Export(60045, OutStr); B.Modify(); exit(H.ReadAll(B));",
     );
-    assert!(r.contains("text element with content inside a table element"), "{r}");
+    assert!(out.contains("<Group>"), "{out}");
+    assert!(take_hits().contains(&Assumption::XmlportLeafTriggersTreeInTable));
     let r = refusal(
         IMPORT_VARS,
         "H.Stage(B, InStr, '<Universals><Universal><EntryNo>1</EntryNo><Group><Inner><Deep>x</Deep></Inner></Group></Universal></Universals>');

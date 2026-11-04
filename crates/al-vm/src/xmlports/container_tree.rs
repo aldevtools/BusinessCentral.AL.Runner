@@ -44,6 +44,29 @@ pub(super) fn triggered_container(schema: &Schema, c: usize) -> bool {
     container_tree(schema, c) && has(schema, c)
 }
 
+/// A `container_tree` right below a table element whose triggers are only on its leaf text elements: no trigger on itself, on a
+/// container below it, on a text element of only text attributes or on a text attribute. The TaxCategory of a TaxSubtotal and of an
+/// AllowanceCharge in Microsoft's PEPPOL 3.0 ports (`ID`, `Percent`, `TaxExemptionReason` that skips when empty, `TaxScheme > ID`).
+/// Not pinned yet: assumption `xmlport-leaf-triggers-tree-in-table` (PEPPOL Tests, codeunits 139235, 139236).
+pub(super) fn leaf_triggered_tree(schema: &Schema, c: usize, table: usize) -> bool {
+    fn quiet(schema: &Schema, c: usize) -> bool {
+        schema.node(c).triggers.is_empty()
+            && schema.children(c).into_iter().all(|k| {
+                let n = schema.node(k);
+                match n.kind {
+                    ir::XmlNodeKind::TextAttr => n.triggers.is_empty(),
+                    ir::XmlNodeKind::Text if schema.children(k).is_empty() => true,
+                    ir::XmlNodeKind::Text => quiet(schema, k),
+                    _ => false,
+                }
+            })
+    }
+    schema.node(table).kind == ir::XmlNodeKind::Table
+        && schema.node(c).parent == Some(table)
+        && container_tree(schema, c)
+        && quiet(schema, c)
+}
+
 impl Session {
     /// The export of a `triggered_container`: its OnBeforePassVariable first; `currXMLport.Skip()` there leaves out the element
     /// with all below it and their triggers do not run (Y60XpContainerSkip.al Container_Skip_BelowRoot_Export `period;after;post;`,
