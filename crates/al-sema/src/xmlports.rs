@@ -856,8 +856,10 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
         // are no rows, import of none fails the schema
         // (xmlports/shapes-properties/SgXmlPortOccurs.al TF_MinOnce_*, TF_MinMaxOnce_*, TF_MinMaxOnceReal_*).
         K::Table => (&["zero", "once"], &["unbounded", "once"]),
-        // MinOccurs of a field element was already read before these pins (any value).
-        K::Field => (&["zero", "once"], &["once"]),
+        // MinOccurs of a field element was already read before these pins (any value). MaxOccurs = Unbounded: export writes the
+        // element once per row, import takes it several times, runs OnAfterAssignField for each and keeps the last value
+        // (xmlports/shapes-properties/XpRootMinOccursZero.al ElementOccurs_FieldMaxUnbounded_*, corpus branch al-runtime-rs-staging-r6963).
+        K::Field => (&["zero", "once"], &["once", "unbounded"]),
         _ => return None,
     };
     let kind = match raw.kind {
@@ -1414,8 +1416,8 @@ mod tests {
                 "minoccurs = zero of tableelement C",
             ),
             (
-                "textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { MaxOccurs = Unbounded; } } }",
-                "maxoccurs = unbounded of fieldelement N",
+                "textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { MinOccurs = Unbounded; } } }",
+                "minoccurs = unbounded of fieldelement N",
             ),
         ] {
             let l = layout_of(&format!("xmlport 1 X {{ schema {{ {src} }} }}"));
