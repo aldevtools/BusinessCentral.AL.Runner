@@ -36,6 +36,10 @@ fn dec(v: &Value) -> Option<Decimal> {
 /// pinned for a precision of 0 and -1000 (shown as `1,000`) and the direction `x` (:91-109). Any direction text other than `=`, `>`
 /// and `<` raises InvalidValue (types/decimal-integer/Round.al:118-138, :435-505; BcRoundDuration.al:163-190).
 fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
+    if let (Value::SqlCount(_), 2) = (&a[0], a.len()) {
+        return crate::sqlcount::round_whole(&a[0], a.get(1))
+            .ok_or_else(|| crate::sqlcount::refusal("Round with a precision other than 1"));
+    }
     let duration = matches!(a[0], Value::Duration(_));
     let number = match &a[0] {
         Value::Duration(ms) => Decimal::from(*ms),

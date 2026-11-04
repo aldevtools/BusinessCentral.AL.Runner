@@ -334,15 +334,13 @@ fn n_send(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
 }
 
 /// `Recall()` of a sent notification is true, of one never sent false
-/// (ui-handlers/TestNotificationSendRecallContracts.al:95-131).
+/// (ui-handlers/TestNotificationSendRecallContracts.al:95-131). A notification with no Id goes to the UI as the null
+/// Guid: `Ctx::ui_recall_notification` decides what a never-sent one does with a recall handler bound.
 fn n_recall(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let Some(recv) = r else {
         return unsupported("Notification.Recall without a receiver");
     };
-    let id = with_notification(Some(&mut *recv), |n| n.id)?;
-    let Some(id) = id else {
-        return Ok(Value::Boolean(false));
-    };
+    let id = with_notification(Some(&mut *recv), |n| n.id)?.unwrap_or([0; 16]);
     let copy = notification_copy(Some(recv))?;
     c.ui_recall_notification(copy, id).map(Value::Boolean)
 }

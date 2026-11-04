@@ -707,6 +707,15 @@ impl<'a> Checker<'a> {
                     self.ws.objects[sc.oi].name.as_str().into(),
                 )));
             }
+            // In the default body of an interface procedure (runtime 18.0), `this` is the implementing instance seen as
+            // the interface (Microsoft's PEPPOL Tax Info Provider: `this.GetTaxExemptionReason(..)`;
+            // codeunits/interfaces/R6924dThisInDefaultBody.al:72, :93).
+            if self.ws.objects[sc.oi].kind == ObjKind::Interface && sc.self_obj == sc.oi {
+                return Some(E::Val(Ty::Object(
+                    ObjKind::Interface,
+                    self.ws.objects[sc.oi].name.as_str().into(),
+                )));
+            }
             if matches!(self.ws.objects[sc.oi].kind, ObjKind::Table | ObjKind::TableExtension)
                 && let Some(t @ Ty::Record { .. }) = sc.globals.get("rec").cloned()
             {
