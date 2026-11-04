@@ -14,6 +14,10 @@ Rules:
   `edge` from it. That run starts at 00:17 UTC and holds the slow comparisons
   that no longer run on a push to main (owner decision 2026-11-04; before, edge
   took the newest commit whose CI passed on a push).
+- A manual run of "Nightly edge" (workflow_dispatch) keeps the old rule: it
+  takes the newest commit of `main` whose CI passed on a push. Use it during the
+  day so outside reporters can test fresh fixes. That push run has the pull
+  request checks but not the slow comparisons.
   It does nothing when `release` already has that commit. It fails, and changes
   nothing, when `release` has commits that `main` lacks (a hotfix without
   merge-back). Numbered alphas stay manual (owner decision 2026-10-20).
@@ -38,10 +42,10 @@ Rules:
 
 ## 1. A new edge build
 
-The nightly run does this by itself. Running "Nightly edge" from the Actions tab
-(workflow_dispatch) builds the newest commit whose scheduled CI run passed, so it
-gives nothing newer than the last night. To get a newer build, push `release` by
-hand (the CI run on `release` is then the check):
+The nightly run does this by itself, from the newest commit whose scheduled CI
+run passed. To get a build sooner, run "Nightly edge" from the Actions tab
+(workflow_dispatch): it builds the newest commit of `main` whose CI passed on a
+push. Or push `release` by hand:
 
 1. Check that CI is green on the `main` commit you want.
 2. `git fetch origin`

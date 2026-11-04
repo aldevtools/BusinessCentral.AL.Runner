@@ -1,7 +1,6 @@
 name: Nightly edge
 
-# Once a night: fast-forward `release` to the newest commit of main whose scheduled (nightly) CI run
-# passed, then build and publish `edge` from it (edge.yml, called as a reusable workflow). Nothing
+# Fast-forward `release` to a commit of main that passed CI, then build and publish `edge` from it (edge.yml, called as a reusable workflow). Nothing
 # happens when `release` already contains that commit. Owner decision 2026-10-20: edge is a
 # nightly build; numbered alphas stay manual (docs/releasing.md).
 #
@@ -9,12 +8,16 @@ name: Nightly edge
 # That is wanted: the commit already passed CI on main. A person's push to `release` still
 # runs CI and then edge.yml, as before.
 #
-# Owner decision 2026-11-04: the scheduled run, not the newest green push run. Since then a push
-# run of a merged pull request skips the jobs the pull request already ran, and the slow
-# comparisons (eager, fresh, compile cache, baseline rule, perf budgets, affected differential)
-# run only in the scheduled run. CI's schedule (00:17 UTC) ends before this one (02:17 UTC).
-# When the night's scheduled run failed or has not finished, the newest earlier one that passed
-# is used, and that commit is usually already on `release`, so nothing is built.
+# Which commit (owner decision 2026-11-04):
+#   - The scheduled run (02:17 UTC) takes the newest commit of main whose scheduled (nightly) CI run
+#     passed. Since 2026-11-04 the slow comparisons (eager, fresh, compile cache, baseline rule, perf
+#     budgets, affected differential) run only in that CI run, and CI's schedule (00:17 UTC) ends
+#     before this one. When the night's CI run failed or has not finished, the newest earlier one
+#     that passed is used; that commit is usually already on `release`, so nothing is built.
+#   - A manual run (workflow_dispatch) keeps the old rule: the newest commit of main whose CI run on
+#     a push passed. The owner starts it during the day so outside reporters can test fresh fixes.
+#     That push run has the pull request checks (or merge-check proved the pull request ran them on
+#     the same tree) but not the slow comparisons.
 
 on:
   schedule:
@@ -48,12 +51,15 @@ jobs:
           submodules: false
       - id: advance
         run: |
-          sha="$(gh run list --workflow ci.yml --branch main --event schedule --status success \
+          # The scheduled run trusts the nightly CI run; a manual run the newest push run (see the header).
+          if [ "${{ github.event_name }}" = schedule ]; then ci_event=schedule; else ci_event=push; fi
+          sha="$(gh run list --workflow ci.yml --branch main --event "$ci_event" --status success \
             --limit 1 --json headSha -q '.[0].headSha')"
           if [ -z "$sha" ]; then
-            echo "::error::no successful scheduled CI run on main found"
+            echo "::error::no successful CI run on main found for the event $ci_event"
             exit 1
           fi
+          echo "CI event trusted: $ci_event"
           echo "Newest main commit with green CI: $sha"
           git fetch origin release
           if ! git merge-base --is-ancestor "$sha" origin/main; then
