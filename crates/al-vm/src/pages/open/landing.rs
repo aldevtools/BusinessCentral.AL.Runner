@@ -243,10 +243,14 @@ impl Session {
                     hb.host.is_none()
                         && mode_ok
                         && hb.cursor == Cursor::None
-                        && matches!(
-                            self.engine.object_facts[hb.object as usize].page_type,
-                            Some(al_ir::PageType::Document | al_ir::PageType::Card)
-                        )
+                        && match self.engine.object_facts[hb.object as usize].page_type {
+                            Some(al_ir::PageType::Document | al_ir::PageType::Card) => true,
+                            // Opened for view, a ListPlus host behaves the same (corpus branch al-runtime-rs-staging-r6951
+                            // pages/parts/PartListPlusHostNoRow.al ListPlusHost_OpenView_NoRow_PartTriggers, _PartInGroup,
+                            // _PartFirst `No`; issue 6953; assumption `listplus-host-no-row-part` until the file is pinned).
+                            Some(al_ir::PageType::ListPlus) => view,
+                            _ => false,
+                        }
                 })
         };
         let edit_host_no_row = host_shows_no_row_as(false);
@@ -368,7 +372,8 @@ impl Session {
             // OnAfterGetCurrRecord once; the host runs neither (PartLineBeforeHostKey.al:1722 QH_OpenView_NoRow_Document
             // `[LP.OnNewRecord:]`, :1530 _TraceHost `[TH.OnOpenPage | CP.OnOpenPage | CP.OnNewRecord: below=Yes |
             // CP.OnAfterGetCurrRecord:/0]`, :1562 _UnlinkedPart, :1602 QH_OpenView_RowFilteredAway after the host's filter
-            // left no row). Pinned for a Document or Card host (`host_shows_no_row`); another host is refused.
+            // left no row). Pinned for a Document or Card host, and measured for a ListPlus host (`host_shows_no_row`); another
+            // host is refused.
             let view_part_no_host_row = self.has_source(st)
                 && !host_on_row
                 && !host_shows_no_row
@@ -389,6 +394,9 @@ impl Session {
                 );
             }
             if view_part || (host_shows_no_row && self.has_source(st) && st.borrow().mode == PageMode::View) {
+                if host_shows_no_row && self.host_is_list_plus(st) {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListplusHostNoRowPart);
+                }
                 let rec = self.page_rec(st);
                 let table = rec.borrow().table as usize;
                 let fresh = self.initial_fields(table);
@@ -407,6 +415,17 @@ impl Session {
             }
             self.populate_expressions(st)
         }
+    }
+
+    /// The page's host is a ListPlus page.
+    fn host_is_list_plus(&self, st: &St) -> bool {
+        st.borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, _)| h.upgrade())
+            .is_some_and(|h| {
+                self.engine.object_facts[h.borrow().object as usize].page_type == Some(al_ir::PageType::ListPlus)
+            })
     }
 
     /// A top-level Card, Document or ListPlus page with a source table, no repeater, opened for edit.
