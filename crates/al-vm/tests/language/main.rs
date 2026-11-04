@@ -9,6 +9,7 @@ mod autoformat_type11;
 mod bigint_div_into_integer;
 mod bigtext_copystream_count;
 mod bigtext_value_copy;
+mod bind_already_bound_kinds;
 mod builtin_name_same_arity;
 mod builtins;
 mod byte_char_table;
