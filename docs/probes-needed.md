@@ -1400,11 +1400,3 @@ text/textbuilder-bigtext, format-evaluate, format-evaluate, types/date-time).
 | A page edit saved after an OnModifyRecordEvent subscriber vetoed a save of the page | REFUSED (al-vm/src/pages/draft.rs save_row). The vetoed edit itself is not saved again after the action or at Close (testpage/TestPageTriggerEvents.al:181-206). | After a veto: SetValue of another value, then Next or Close: whether the subscriber runs again and what is stored; the control's value right after the veto |
 | `FieldRef.Validate` of an Enum field with a text that is no caption, or a member name | REFUSED where it converts. A caption that is no name raises the Option Evaluate error (gate EnumFieldRefValidateCaptionEvaluateErrorFrom28, Y49FieldRefIntoText.al:271-317). | `FieldRef.Validate('Beta Two')` (a name) and `FieldRef.Validate('x')` on an Enum field |
 | `Format(RecordId, 0, 10)` and `Evaluate(RecordId, Text, 10)` of key shapes beyond GetUrl's and Option, Code[20], Integer | REFUSED (al-builtins/src/bookmark.rs). | The bookmark of a Date, Guid, Text and Decimal key field, and of a three-field Code key |
-
-## Validate nested by an event subscriber (al-runner issue 6924, item 3.9, 2026-11-04)
-
-Probe: corpus branch `al-runtime-rs-staging-r6924b`, `events/table-events/ValidateInValidateSubscriber.al`.
-
-| Behavior | Today | Probe |
-|---|---|---|
-| A Validate of a record that an event subscriber nests in a Validate of the same record (a subscriber of OnAfterValidateEvent that validates the field again) | REFUSED when the outer before-image and the record as it is differ (al-vm/src/records/nested_validate.rs). A Validate that the table's own OnValidate nests keeps the outer before-image (record/TestXRecContracts.al:133). | Whether the inner Validate runs OnValidate and both events, and which xRec each sees, nested by a subscriber and by a codeunit OnValidate calls. |

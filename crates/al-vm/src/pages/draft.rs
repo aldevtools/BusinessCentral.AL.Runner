@@ -432,7 +432,7 @@ impl Session {
         }
     }
 
-    pub(crate) fn same_values(a: &[Value], b: &[Value]) -> bool {
+    pub(super) fn same_values(a: &[Value], b: &[Value]) -> bool {
         a.len() == b.len()
             && a.iter()
                 .zip(b)
