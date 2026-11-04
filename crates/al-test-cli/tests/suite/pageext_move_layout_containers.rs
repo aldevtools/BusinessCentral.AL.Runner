@@ -1,7 +1,7 @@
 //! A page extension that moves a field to the front of its repeater, a part to the front of the FactBoxes area, or a group to
 //! the end of the Content area: the page opens and a TestPage reads the moved control (al-runner issue 6952). Pinned by
-//! corpus pages/extension-layout-containers/TestRepeaterMove.Codeunit.al, TestFactboxMove.Codeunit.al and
-//! TestContentMove.Codeunit.al (`LayoutMove_OpenPage_ReadsSeededValue`, passed on BC 27.5, 28.5 and 29.0).
+//! corpus pages/extension-layout-containers/TestRepeaterMove.Codeunit.al:21, TestFactboxMove.Codeunit.al:21 and
+//! TestContentMove.Codeunit.al:21 (`PageExtension_Move*_ReadsSeededValue`, passed on BC 27.5, 28.5 and 29.0).
 
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;

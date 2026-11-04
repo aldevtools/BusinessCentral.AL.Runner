@@ -1305,8 +1305,8 @@ impl Tree {
                 // pages/extensions/Y20PageExtMoves.al).
                 let first_last = kind == "movefirst" || kind == "movelast";
                 // movefirst/movelast into an area: of actions, and of the layout (`movefirst(FactBoxes; Details)`,
-                // `movelast(Content; Data)`: pages/extension-layout-containers/TestFactboxMove.Codeunit.al,
-                // TestContentMove.Codeunit.al `LayoutMove_OpenPage_ReadsSeededValue`; issue 6952).
+                // `movelast(Content; Data)`: pages/extension-layout-containers/TestFactboxMove.Codeunit.al:21,
+                // TestContentMove.Codeunit.al:21; issue 6952).
                 let area = if first_last {
                     self.areas
                         .iter()
@@ -1337,7 +1337,7 @@ impl Tree {
                                 al_ir::ControlKind::Group => !op.in_actions,
                                 al_ir::ControlKind::ActionGroup => op.in_actions,
                                 // Fields into a repeater (`movefirst(General; Description)`: pages/extension-layout-containers/
-                                // TestRepeaterMove.Codeunit.al `LayoutMove_OpenPage_ReadsSeededValue`; issue 6952).
+                                // TestRepeaterMove.Codeunit.al:21; issue 6952).
                                 al_ir::ControlKind::Repeater => {
                                     !op.in_actions
                                         && ms.iter().all(|&m| self.nodes[m].kind == al_ir::ControlKind::Field)
