@@ -55,6 +55,17 @@ impl Session {
                         if let Some(t) = super::filter_link_numbers::link_filter_numbers(&f.expr) {
                             return Ok(Value::Text(t.into()));
                         }
+                    } else if rec
+                        .borrow()
+                        .filters
+                        .iter()
+                        .any(|g| g.field == pos && g.group == super::parts::LINK_GROUP)
+                    {
+                        // The part sets its own filter on the field next to the link: BC reads numbers for equal filters
+                        // (Y42LinkQuotedMember.al:342 Lq_Option_PartAlsoSetsFilter); other combinations are not pinned.
+                        return unsupported(
+                            "TestFilter.GetFilter of an Option or Enum field with the part's own filter next to its SubPageLink (not pinned)",
+                        );
                     }
                 }
                 if let (RtType::Enum(id), Some(f)) = (&table.fields[pos].ty, first.as_ref()) {
