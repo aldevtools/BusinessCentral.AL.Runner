@@ -1056,7 +1056,7 @@ fn issue_6173_filter_element_read_without_a_row_raises() {
 
 /// Issue 6174: a query column over a Sum or Count FlowField of a LeftOuterJoin dataitem is calculated per joined
 /// row, and is 0 for a parent row without a matching child. Pins:
-/// queries/P130QueryOuterFlow.al:163-184 (P130_Query_FlowFieldOfOuterJoinedItem) and :210-229.
+/// queries/P130QueryOuterFlow.al:151-172 (P130_Query_FlowFieldOfOuterJoinedItem) and :210-229.
 #[test]
 fn issue_6174_flowfield_column_of_outer_joined_item() {
     let objects = "

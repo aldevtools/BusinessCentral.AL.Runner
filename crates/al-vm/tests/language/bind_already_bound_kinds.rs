@@ -1,6 +1,6 @@
 //! BindSubscription on a copy of a bound instance and on a second variable of a SingleInstance manual codeunit raises
-//! "already been bound" (corpus branch al-runtime-rs-staging-p6924c, events/TestProbeEventContracts.al
-//! BSK_Bind_AfterClear_And_OnCopy and BSK_Bind_SingleInstanceManual_TwoVariables, objects in
+//! "already been bound" (events/TestProbeEventContracts.al:1062 BSK_Bind_AfterClear_And_OnCopy and
+//! :1104 BSK_Bind_SingleInstanceManual_TwoVariables, objects in
 //! events/BindSubscriptionKinds.Objects.al; BC 27.5, 28.5, 29.0). Clear of a bound variable drops its binding.
 
 const SRC: &str = r#"

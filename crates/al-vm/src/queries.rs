@@ -274,9 +274,9 @@ impl Session {
                 // A filter set after Open and before the first Read is in force when the query runs.
                 // After a Read that did not reach the end the filter is set, and the next Read raises until the query is
                 // opened again (queries/flowfields-filters/QuerySetRangeAfterRead.al:52-77, SetRange_AfterFirstRead;
-                // queries/P131QuerySetRangeAfterRead.al:118-145, SetFilter).
+                // queries/P131QuerySetRangeAfterRead.al:105-132, SetFilter).
                 // The same after the last Read returned false: the filter is set and the next Read raises
-                // (queries/P131QuerySetRangeAfterRead.al:154-170, P131_Query_SetRangeAfterLastRead_AndAfterClose).
+                // (queries/P131QuerySetRangeAfterRead.al:141-157, P131_Query_SetRangeAfterLastRead_AndAfterClose).
                 if let Some(run) = qs.borrow_mut().run.as_mut().filter(|r| r.started) {
                     run.filters_changed = true;
                 }
@@ -716,7 +716,7 @@ impl Session {
             return Ok(caption.clone());
         }
         // A totals column (Sum, Count, Average, Min, Max) without a Caption is captioned by its name
-        // (queries/CfQueryLeads.al:174-182, :276; queries/flowfields-filters/Y78QueryOuterAggFilter.al:1057).
+        // (queries/CfQueryLeads.al:174-182, :276; queries/flowfields-filters/Y78QueryOuterAggFilter.al:1041).
         if c.method.is_some() {
             return Ok(c.name.clone());
         }
@@ -1224,7 +1224,7 @@ impl Session {
                 row[field].clone()
             } else if joined[c.item].is_empty() {
                 // A FlowField of a left-outer-joined dataitem with no matching row is the field's default (0 for the
-                // Sum and Count FlowFields the compile lets through: queries/P130QueryOuterFlow.al:179,225).
+                // Sum and Count FlowFields the compile lets through: queries/P130QueryOuterFlow.al:167,225).
                 let t = engine.tables[item.table].clone().expect("table");
                 self.default_value(&t.fields[field].ty)
             } else {

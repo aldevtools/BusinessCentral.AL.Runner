@@ -330,7 +330,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
             }
         }
         // A Boolean for a Code (a Boolean handed to `Get` of a Code key): as `Format` writes it, upper-cased: Get(true)
-        // finds the row YES and not 1 or TRUE (format-evaluate/AxEvaluateText.al:348 GetTrue_CodeKey_Yes).
+        // finds the row YES and not 1 or TRUE (format-evaluate/AxEvaluateText.al:332 GetTrue_CodeKey_Yes).
         // An assignment of a Boolean to a Text or Code does not compile (must-not-compile cases 1190, 1191). For a Text
         // (`Get` of a Text key) it is Yes or No (record/Y70Probes.al RecordGet_BooleanOnTextKey `text_true`, `text_false`).
         (Value::Boolean(b), T::Text(max)) => Value::Text(fit(if b { "Yes" } else { "No" }.to_string(), *max)?.into()),

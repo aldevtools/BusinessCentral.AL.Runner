@@ -590,7 +590,7 @@ impl Lowerer<'_> {
                         Some(Box::new(ir::Arg::Ref(ir::Place::Global(*slot))))
                     }
                     // A bare report method in a report's or report extension's procedure is the `CurrReport.` form: the VM
-                    // takes the report whose code runs (reports/bare-report-member/Y36BareReportMember.al:206-357, also
+                    // takes the report whose code runs (reports/bare-report-member/Y36BareReportMember.al:191-342, also
                     // on a report variable never run and from a report extension; the checker resolves only the pinned names,
                     // `check::calls::BARE_REPORT_MEMBERS`). In a trigger the bare form is not pinned. The bare `RunModal()` and
                     // `Run()` run the report's own instance: the triggers run once, the globals they set read back through the
@@ -932,7 +932,7 @@ impl Lowerer<'_> {
     /// A Char argument for a by-value number parameter of a procedure called on a variable of another object (`receiver`
     /// is its kind). A Char variable handed to an Integer parameter of a report procedure fails with 'Unable to convert from
     /// System.Char to System.Int32.' (code Conversion), with and without a report extension that adds an overload, measured on
-    /// Windows too (reports/runtime/BvReportCharArg.al:87-131); a local procedure converts it (:160-170, the
+    /// Windows too (reports/runtime/BvReportCharArg.al:72-116); a local procedure converts it (:160-170, the
     /// runtime's usual conversion). The same call on another codeunit was measured on the Linux tiers only (:140-158), so it
     /// is refused until the Windows check; other receivers, other number types and other Char expressions are not pinned and
     /// are refused. `None`: not such an argument.
