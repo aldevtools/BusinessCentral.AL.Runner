@@ -48,6 +48,46 @@ impl Lowerer<'_> {
         parts.into_iter().flatten().collect()
     }
 
+    /// The filter text of a where() value written with `::`. `Database::"X"` / `Report::"X"` etc. is the object's id, as for a
+    /// CalcFormula const (corpus record/CdcOwner.Table.al:67,79); `"Enum"::Member` on a field of that enum names the member as
+    /// `const(Member)` does; `filter(A | B)` of such terms is each term joined by `|` (al-runner issue 6999,
+    /// record/table-relation/RelationWhereQualifiedConst.al). `None` for any other text, so the where() is not understood.
+    fn where_qualified_text(&self, file: usize, text: &str, ty: &Ty) -> Option<String> {
+        let terms: Vec<&str> = text.split('|').collect();
+        let mut out = Vec::with_capacity(terms.len());
+        for term in terms {
+            let term = term.trim();
+            let (qualifier, member) = term.split_once("::")?;
+            let qualifier = qualifier.trim().trim_matches('"');
+            if let Ty::Enum(field_enum) = ty {
+                let same = matches!(
+                    (
+                        self.ws.resolve_relation_target(file, ObjKind::Enum, &[qualifier.to_string()]),
+                        self.ws.resolve_relation_target(file, ObjKind::Enum, &crate::types::qualified_parts(field_enum)),
+                    ),
+                    (Resolution::Found(a), Resolution::Found(b)) if a == b
+                );
+                let member = member.trim().trim_matches('"').trim();
+                if !same || member.is_empty() || member.contains(['\'', '"', ':']) {
+                    return None;
+                }
+                out.push(if member.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    member.to_string()
+                } else {
+                    format!("'{member}'")
+                });
+                continue;
+            }
+            out.push(match calc_const(self.ws, self.members, file, term, ty) {
+                Ok(ir::Const::Integer(id)) => id.to_string(),
+                Ok(ir::Const::BigInteger(id)) => id.to_string(),
+                Ok(ir::Const::Decimal(id)) => id,
+                _ => return None,
+            });
+        }
+        Some(out.join("|"))
+    }
+
     fn relation_arms_of(
         &self,
         oi: usize,
@@ -175,12 +215,7 @@ impl Lowerer<'_> {
                             // `Database::"X"` / `Report::"X"` etc.: the object's id, as for a
                             // CalcFormula const (corpus record/CdcOwner.Table.al:67,79).
                             let text = if !text.starts_with('\'') && text.contains("::") {
-                                match calc_const(self.ws, self.members, file, text, &self.members[t].fields[p].ty) {
-                                    Ok(ir::Const::Integer(id)) => id.to_string(),
-                                    Ok(ir::Const::BigInteger(id)) => id.to_string(),
-                                    Ok(ir::Const::Decimal(id)) => id,
-                                    _ => return None,
-                                }
+                                self.where_qualified_text(file, text, &self.members[t].fields[p].ty)?
                             } else if text.contains('"') {
                                 // `filter(Inventory | "Non-Inventory")`: AL quotes an identifier with `"`,
                                 // the filter grammar with `'` (corpus
