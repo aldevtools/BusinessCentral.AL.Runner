@@ -446,7 +446,7 @@ impl Session {
             s.agr_row = Some(key);
         }
         // What the repeater's page-variable controls show for the row: what the variables hold after its OnAfterGetRecord, and for
-        // the current row after OnAfterGetCurrRecord (pages/row-page-variable/QiRowPageVar.al:223 QI_RV_List_Navigation, :312
+        // the current row after OnAfterGetCurrRecord (pages/row-page-variable/QiRowPageVar.al:208 QI_RV_List_Navigation, :312
         // QI_RV_Part_Navigation: every row shows its own `agr N | cur N` after every move).
         if declared && result.is_ok() && (name == "onaftergetrecord" || (name == "onaftergetcurrrecord" && stored_row))
         {

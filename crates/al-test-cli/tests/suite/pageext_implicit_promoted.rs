@@ -7,7 +7,7 @@
 //!
 //! A run of the extension's action and actionref from a TestPage is pinned for `addafter` and `addlast` of an undeclared
 //! category (pages/extensions/UpPromotedCategories.al, groups 7 and 12), and by corpus writer Y64 (branch
-//! al-runtime-rs-staging-y64 85d86e7b, pages/extensions/Y64PromotedImplicit.al:229-308) for modify and addlast of groups 5 and 6
+//! al-runtime-rs-staging-y64 85d86e7b, pages/extensions/Y64PromotedImplicit.al:217-296) for modify and addlast of groups 5 and 6
 //! and addafter/addbefore of `<action>_Promoted`. Here the group and the implicit actionref are anchors only, so a Caption or
 //! ShowAs on them is not seen by AL code. Reading the implicit actionref from a TestPage and setting its Visible (Y64 pins both)
 //! are not supported yet and stay refused, as do the forms nothing pins.

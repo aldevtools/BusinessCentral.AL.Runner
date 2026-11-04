@@ -42,7 +42,7 @@ impl Session {
         }
         // A link value the part's table relation refuses: the client stamps it without validating (no OnBeforeValidate, no
         // OnValidate), runs the part's OnNewRecord and OnAfterGetCurrRecord once, then the open fails with code TestWrapped and the
-        // relation's text (PartLineBeforeHostKey.al:1600-1680 QH_ConstLink_Missing_OpenNew_Trace `[CP.OnOpenPage |
+        // relation's text (PartLineBeforeHostKey.al:1819-1899 QH_ConstLink_Missing_OpenNew_Trace `[CP.OnOpenPage |
         // CP.OnNewRecord:D9 below=Yes | CP.OnAfterGetCurrRecord:D9/0]`, QH_ConstLink_Missing_OpenNew_Events `[LP.OnNewRecord:D9]`,
         // QH_ConstLink_Missing_OpenEdit; :776 PYB_OpenNew_ConstLinkedPart).
         if let Some(e) = self.part_link_relation_error(st)? {
@@ -65,7 +65,7 @@ impl Session {
         // A value typed on this blank line without New() is stored with the first AutoSplitKey number, 10000
         // (pages/triggers/NewLineStampsFilters.al QP_TwoKeyLink_TypeFirst_BlankLine `db.first =
         // Order|H1|10000|...`); a line New() starts from it burns one interval (20000: QP_TwoKeyLink_TypeFirst_NewLine,
-        // PartLineBeforeHostKey.al:900 PartLine_EnteredAfterHostKey_Baseline). `auto_split_key` reads it on the placeholder line only.
+        // PartLineBeforeHostKey.al:1119 PartLine_EnteredAfterHostKey_Baseline). `auto_split_key` reads it on the placeholder line only.
         st.borrow_mut().split_starts_low = true;
         let blank_held = self.blank_held_xrec(st, &held);
         let table_blank = self.initial_fields(table);

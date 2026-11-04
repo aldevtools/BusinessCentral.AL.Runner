@@ -61,7 +61,7 @@ impl Session {
                 for arm in arms {
                     match arm.table {
                         Some(a) if a == t.object as usize => {
-                            // A `Field = filter(<> X)` arm is pinned (record/table-relation/TableRelationArms.al:208
+                            // A `Field = filter(<> X)` arm is pinned (record/table-relation/TableRelationArms.al:192
                             // Rename_FollowsOnlyTheArmsThatApply: the rows the filter takes follow the rename, the others
                             // stay); any other filter form is the assumption.
                             if arm.conditions.iter().any(|c| c.filter && !single_not_equal(&c.value)) {

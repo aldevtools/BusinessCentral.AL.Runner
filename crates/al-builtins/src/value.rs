@@ -605,7 +605,7 @@ pub struct PageState {
     /// without MarkedOnly (testpage/ScDrillDownMarkedOnly.al, DrilldownWithoutUpdateListAndGoTo).
     pub marked_only_unshown: bool,
     /// The same OnDrillDown on a list WITH OnAfterGetRecord or OnAfterGetCurrRecord: what the page shows then is not pinned
-    /// (corpus testpage/ScDrillDownMarkedOnly.al:422 covers only a page without them); every TestPage call
+    /// (corpus testpage/ScDrillDownMarkedOnly.al:408 covers only a page without them); every TestPage call
     /// but Close is refused until Close.
     pub marked_only_unpinned: bool,
     /// A TestField.Lookup on this page, whose OnValidate called `CurrPage.Update(false)`, left that refresh for later, as BC
@@ -720,10 +720,10 @@ pub struct PageState {
     /// inserts that line at the first write to a field outside the key (pages/parts/QjPartPropagation.al:3696).
     pub blank_after_empty_last: bool,
     /// A list without the new-row line lost its only row to an action and stands on a blank Rec: a later action runs
-    /// OnNewRecord and OnAfterGetCurrRecord again (testpage/RmWorksheetGoneRow.al:352).
+    /// OnNewRecord and OnAfterGetCurrRecord again (testpage/RmWorksheetGoneRow.al:336).
     pub gone_blank_no_new_line: bool,
     /// A list with the new-row line lost its only row to an action and stands on that line: its fields show the blank Rec's
-    /// values, an Integer key 0 (testpage/RmWorksheetGoneRow.al:452 `shown after action = 0|`).
+    /// values, an Integer key 0 (testpage/RmWorksheetGoneRow.al:436 `shown after action = 0|`).
     pub gone_blank_shows_line: bool,
     /// A List with Editable = false opened for view lost its only row to an action and shows no row: a later action is not
     /// pinned and is refused (testpage/RmWorksheetGoneRow.al SH_ListViewNotEditable_, awaiting).

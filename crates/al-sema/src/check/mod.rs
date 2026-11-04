@@ -1081,7 +1081,7 @@ pub(crate) struct Checker<'a> {
     panicked: HashMap<(usize, usize), String>,
     /// For the next `pick`: the arguments that are a bare field name of the receiver's table where no value of that name
     /// is in scope (`Row.Validate(Note, 'x')` in a codeunit). Such an argument fits a built-in's field parameter only, not
-    /// a procedure's (record/builtin-name-procedures/Y36BuiltinNameSameArity.al:229-251).
+    /// a procedure's (record/builtin-name-procedures/Y36BuiltinNameSameArity.al:214-236).
     field_only_args: Vec<usize>,
     /// For the next `pick`: the arguments that are a `FieldRef.Value()` call, which fit a procedure's Variant parameter only
     /// (`is_fieldref_value`).

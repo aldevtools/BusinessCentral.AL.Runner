@@ -114,7 +114,7 @@ fn page_run_modal_with_a_marked_only_record_shows_the_marked_rows() {
     ));
 }
 
-// pages/lifecycle/PageVariableLifecycle.al:158 PageVar_MethodCallBeforeRun: SetRecord constructs the page.
+// pages/lifecycle/PageVariableLifecycle.al:146 PageVar_MethodCallBeforeRun: SetRecord constructs the page.
 #[test]
 fn set_record_on_a_page_variable_runs_on_init() {
     passes(
@@ -125,7 +125,7 @@ fn set_record_on_a_page_variable_runs_on_init() {
     );
 }
 
-// pages/lifecycle/PageVariableLifecycle.al:131 PageVar_RunTwiceOnOneVariable: a second non-modal Run runs OnInit again.
+// pages/lifecycle/PageVariableLifecycle.al:119 PageVar_RunTwiceOnOneVariable: a second non-modal Run runs OnInit again.
 #[test]
 fn a_second_non_modal_run_of_a_page_variable_runs_on_init_again() {
     passes(
@@ -136,7 +136,7 @@ fn a_second_non_modal_run_of_a_page_variable_runs_on_init_again() {
     );
 }
 
-// ui-handlers/P128ModalOnInit.al:210 P128_TypedModalHandler_PageWithOnInit_PageVariable: a page variable keeps its
+// ui-handlers/P128ModalOnInit.al:194 P128_TypedModalHandler_PageWithOnInit_PageVariable: a page variable keeps its
 // own LookupMode (No) in a Page-typed handler; the static RunModal whose answer is used reads Yes (:191; called as a statement
 // it is no lookup, pages/triggers/BeRunModalOnLookup.al:916).
 #[test]

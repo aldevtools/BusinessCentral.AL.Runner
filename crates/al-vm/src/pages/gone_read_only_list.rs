@@ -23,7 +23,7 @@ impl Session {
             && self.tree_indentation(st).is_none()
             && st.borrow().host.is_none();
         // Opened for view without being modal, the page takes the pinned path of `read_only_view_list_shows_nothing`
-        // (RmWorksheetGoneRow.al:481), which Y66's OpenView agrees with.
+        // (RmWorksheetGoneRow.al:465), which Y66's OpenView agrees with.
         let pinned_elsewhere = !st.borrow().modal && st.borrow().mode == PageMode::View;
         if shape && pinned_elsewhere {
             // A later action is pinned for this page too (`settle_gone_view_list_again`; Y66_Desc_OpenView_Filter0).
@@ -156,7 +156,7 @@ impl Session {
 impl Session {
     /// A List with Editable = false opened for view, without the new-row line, that lost its only row to an action raises nothing
     /// and shows no row, as a List with the line opened for view does (pages/W1Update.al:534;
-    /// testpage/RmWorksheetGoneRow.al:481 SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate `R:10000;`, shown
+    /// testpage/RmWorksheetGoneRow.al:465 SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate `R:10000;`, shown
     /// blank, First No). A List opened for view that is editable, and a non-editable one opened for edit, are not pinned.
     pub(super) fn read_only_view_list_shows_nothing(&mut self, st: &St) -> bool {
         let engine = self.engine();

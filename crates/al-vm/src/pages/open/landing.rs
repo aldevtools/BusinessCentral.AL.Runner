@@ -214,7 +214,7 @@ impl Session {
             None
         };
         // A part of a Document or Card host opened for view on no row shows no row, though rows of the blank key exist
-        // (pages/parts/PartLineBeforeHostKey.al:1578 QH_OpenView_NoRow_BlankKeyLinesExist
+        // (pages/parts/PartLineBeforeHostKey.al:1797 QH_OpenView_NoRow_BlankKeyLinesExist
         // `part_description=[]`).
         let host_shows_no_row = st
             .borrow()
@@ -233,7 +233,7 @@ impl Session {
             });
         if !host_shows_no_row && self.nav_find(st, which)? {
             // A part linked by a field that shows rows of a host that is a new, unsaved record: BC inserts the host at Close although
-            // nothing was typed (PartLineBeforeHostKey.al:838 PYB_OpenNew_LinkedPart_BlankKeyRowsExist `close =
+            // nothing was typed (PartLineBeforeHostKey.al:1057 PYB_OpenNew_LinkedPart_BlankKeyRowsExist `close =
             // [HP.OnInsertRecord: | H.OnInsert:]`). Not modelled: refused.
             let new_host_link = st
                 .borrow()
@@ -328,7 +328,7 @@ impl Session {
             self.populate_expressions(st)
         } else {
             // A list part that shows no row of a host opened for view runs its OnNewRecord once, the link value set without
-            // validation, and then shows no row (pages/parts/PartLineBeforeHostKey.al:883
+            // validation, and then shows no row (pages/parts/PartLineBeforeHostKey.al:1102
             // PYB_OpenView_ExistingHost `[LP.OnNewRecord:D6]`). What the part's fields read afterwards is kept as before (blank).
             // Only a host that shows a stored row is pinned.
             let host_on_row = st
@@ -345,7 +345,7 @@ impl Session {
                     .iter()
                     .any(|c| c.kind == ir::ControlKind::Repeater);
             // A host over no row: the part runs OnNewRecord once too, with the blank link value and no validation, and
-            // OnAfterGetCurrRecord once; the host runs neither (PartLineBeforeHostKey.al:1503 QH_OpenView_NoRow_Document
+            // OnAfterGetCurrRecord once; the host runs neither (PartLineBeforeHostKey.al:1722 QH_OpenView_NoRow_Document
             // `[LP.OnNewRecord:]`, :1530 _TraceHost `[TH.OnOpenPage | CP.OnOpenPage | CP.OnNewRecord: below=Yes |
             // CP.OnAfterGetCurrRecord:/0]`, :1562 _UnlinkedPart, :1602 QH_OpenView_RowFilteredAway after the host's filter
             // left no row). Pinned for a Document or Card host (`host_shows_no_row`); another host is refused.
@@ -377,7 +377,7 @@ impl Session {
                 self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
                 self.page_event(st, "onnewrecordevent", None, Some(true))?;
                 // The part then runs OnAfterGetCurrRecord and its event subscribers once on the blank row, after OnNewRecord and
-                // with the link value in place (PartLineBeforeHostKey.al:1594 QH_OpenView_NoRow_TraceHost `CP.OnNewRecord: below=Yes |
+                // with the link value in place (PartLineBeforeHostKey.al:1813 QH_OpenView_NoRow_TraceHost `CP.OnNewRecord: below=Yes |
                 // CP.OnAfterGetCurrRecord:/0`, :1610 _CurrRecordOnlyPart `OP.OnAfterGetCurrRecord:/0`, :1642 _BlankKeyLinesExist,
                 // :1666 _RowFilteredAway `CP.OnNewRecord:D6 below=Yes | CP.OnAfterGetCurrRecord:D6/0` on a host that stands on a row).
                 self.populate_expressions(st)?;

@@ -182,7 +182,7 @@ fn a_page_without_get_record_triggers_lists_only_the_marked_row_after_the_drilld
 }
 
 // Without CurrPage.Update on a page WITH OnAfterGetRecord and OnAfterGetCurrRecord: what the page lists is not pinned
-// (corpus testpage/ScDrillDownMarkedOnly.al:422 DrilldownWithoutUpdateListAndGoTo pins only a page without
+// (corpus testpage/ScDrillDownMarkedOnly.al:408 DrilldownWithoutUpdateListAndGoTo pins only a page without
 // those triggers), so the next TestPage call is refused. Close is still allowed.
 #[test]
 fn a_page_with_get_record_triggers_refuses_reads_after_a_drilldown_without_update() {
