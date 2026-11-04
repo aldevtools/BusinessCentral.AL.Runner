@@ -336,12 +336,12 @@ impl Session {
     pub(in crate::pages) fn stamp_from_filters_seen_as(&mut self, st: &St, before: Vec<Value>) -> Result<(), Signal> {
         let rec = self.page_rec(st);
         let handle = Rc::as_ptr(&rec) as usize;
-        if self.validating.iter().any(|(h, _)| *h == handle) {
+        if self.validating.iter().any(|(h, _, _)| *h == handle) {
             return self.stamp_from_filters(st, true);
         }
-        self.validating.push((handle, before));
+        self.push_validating(handle, before);
         let r = self.stamp_from_filters(st, true);
-        self.validating.retain(|(h, _)| *h != handle);
+        self.validating.retain(|(h, _, _)| *h != handle);
         r
     }
 

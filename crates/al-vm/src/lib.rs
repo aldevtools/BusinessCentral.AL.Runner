@@ -807,8 +807,8 @@ pub struct Session {
     pub(crate) truncate_undo: std::collections::HashMap<(String, u32), i64>,
     /// Records inside an OnValidate (by handle) with the field values from before the outermost
     /// Validate, which nested Validates of the same record see as xRec (corpus
-    /// record/TestXRecContracts.al:133).
-    pub(crate) validating: Vec<(usize, Vec<Value>)>,
+    /// record/TestXRecContracts.al:133), and how many event subscribers were running when it started.
+    pub(crate) validating: Vec<(usize, Vec<Value>, usize)>,
     /// The table procedures that run on a record by a plain call (no operation of the record called them), innermost
     /// last: the record's handle, the depth of `call_stack` inside the procedure and its blank xRec. A Validate of that
     /// record in the procedure's own body passes this xRec (`RecordOp::Validate`).
