@@ -1,5 +1,5 @@
 //! A Time or DateTime primary key value with milliseconds the SQL column rounds (al-runner issue 5689): corpus
-//! errors/lt-ms-refusals-130/P130DateFilters.al:527-735, measured on BC 27.5, 28.5 and 29.0.
+//! record/filters/P130DateFilters.al:527-735, measured on BC 27.5, 28.5 and 29.0.
 
 use al_builtins::native::Signal;
 use al_testkit::text;

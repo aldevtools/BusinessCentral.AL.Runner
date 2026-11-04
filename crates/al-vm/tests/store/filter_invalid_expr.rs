@@ -1,4 +1,4 @@
-//! SetFilter on a Text field with a malformed expression (filters/lt-wc/WcInvalidFilterExpr.al, al-runner issue 6319): an
+//! SetFilter on a Text field with a malformed expression (record/filters/WcInvalidFilterExpr.al, al-runner issue 6319): an
 //! unclosed `(` raises "A ')' is missing.", a `)` or `<>` where no operator may stand raises "Did not expect ...", `@` alone keeps
 //! every row, `<>@` alone keeps none, `<>@` before a value keeps the rows that do not equal it without regard to case, and
 //! `@@` reads the second `@` as a character.

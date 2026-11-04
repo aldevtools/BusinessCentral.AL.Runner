@@ -66,7 +66,7 @@ Microsoft's own suites run on an on-prem server, and some tests rely on it. The 
 132926 and 101 tests of System Application Test (BC 29.0, build 54011.55816) delete every user before they switch
 to SaaS through `SetTestabilitySoftwareAsAService(true)`, and fail on `saas` at that first delete. Pass
 `--environment onprem` for a Microsoft bucket run. Nothing in the runtime is missing: the user table keeps the
-SUPER user and the SaaS check, as the corpus pins (`tests/al-language-onprem/session/PZUserDelete.al`).
+SUPER user and the SaaS check, as the corpus pins (`tests/al-language-onprem/session-system/PZUserDelete.al`).
 
 Times (12 cores, no thread option; the machine was shared, load average 20 to 30, so read them as upper bounds):
 
@@ -409,7 +409,7 @@ one test per module and level (16 modules x Setup/Master/Transactional/Historica
    `CreateSetupDemoData`, so it blocks both lanes and hides what follows (13 further tests fail only because the Foundation
    data is missing).
 2. `builtin System.DWY2Date#1 is not implemented`: 7 tests (for example `Bank Module` `CreateHistoricalData`). Implemented
-   on 2026-10-18 as pinned by types/lt-datetime/DateFuncs.al:311-399; the spike no longer shows it.
+   on 2026-10-18 as pinned by types/date-time/DateFuncs.al:311-399; the spike no longer shows it.
 3. `DotNet new System.Net.Mail.MailAddress` (refused by policy: touches the network): `CRM Module` `CreateMasterData`.
 
 Behind the Bitmap refusal (2026-10-18, scratch run with the `MakePicture` body cut out of the Base App source, not committed;
@@ -445,7 +445,7 @@ table `License Permission` answers its two pinned rows.
 
 WorkDate: the recipe does not set one. BCApps `Invoke-ContosoDemoTool` runs Company-Initialize (codeunit 2), then
 `CreateSetupDemoData` / `CreateAllDemoData` (codeunit 5193) and the tenant data (5691) through OData, so WorkDate is today, as in
-`al-runner` (session/TestSessionFunctions.al:53-65). The demo dates are relative to the Starting Year (today's year minus one), so
+`al-runner` (session-system/TestSessionFunctions.al:53-65). The demo dates are relative to the Starting Year (today's year minus one), so
 a sales shipment dated in the past gives the message "Shipment Date ... is before work date ..." on real BC as well. The OData
 call ignores the message; a test method does not. The `Unhandled UI` failure of the first spike was a spike artifact: a
 `[MessageHandler]` on the test makes `SalesTransactional` pass. The lanes need a message handler (or UI off) around the roots.
@@ -456,9 +456,9 @@ The Contoso lanes run on an empty company (`--no-test-data`, as BCApps does). Ru
 the real order (all Setup, then Master, Transactional, Historical) stops at, in order:
 
 1. `Windows Language`: the Contoso language setup filters the table by "Abbreviated Name". Since corpus bump 53 the rows of the
-   DemoTool's 54 codes are pinned (platform/lt-ag-contoso/AgWindowsLanguage.al); a code outside them still needs a probe.
+   DemoTool's 54 codes are pinned (metadata/platform-tables/AgWindowsLanguage.al); a code outside them still needs a probe.
 2. XmlPort `Imp / Exp Data Exch Def & Map` (1225), imported for 7 data exchange definitions from the Contoso resources:
-   `Encoding = UTF8` (export is pinned by xmlport/W7XmlPortTests.al:345-364, import is not), `MinOccurs` on a `tableelement`,
+   `Encoding = UTF8` (export is pinned by xmlports/W7XmlPortTests.al:345-364, import is not), `MinOccurs` on a `tableelement`,
    `Occurrence = Optional` on 53 field attributes (no corpus test uses `Occurrence`), `FieldValidate`, `SourceTableView`, and an
    empty `requestpage` section (refused even when empty). Without the definitions the Bank module fails on a missing
    `SEPA CAMT` row.

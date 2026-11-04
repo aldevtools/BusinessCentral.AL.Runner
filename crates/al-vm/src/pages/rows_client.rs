@@ -7,7 +7,7 @@ use al_builtins::record_op::RecordOp;
 impl Session {
     /// A move onto a row the client holds reads that row from the table again, so a change made elsewhere since the window
     /// was read shows (pages/W1Update.al:836-840 List_BufferLeftByOnAfterGetRecord_AfterTheStoredRowChanged `name_row2 =
-    /// changed`; misc/lt-probes-needed-7/PnGRefresh.al:268-269 BufferEditOfOnAfterGetRecordOnAList). Pinned for a page that
+    /// changed`; testpage/PnGRefresh.al:268-269 BufferEditOfOnAfterGetRecordOnAList). Pinned for a page that
     /// reads its rows from the table; a page with OnFindRecord or OnNextRecord keeps the row it holds (what the client asks
     /// such a page for is not pinned). A held row the table no longer has is refused (not pinned).
     pub(super) fn reread_held_row(&mut self, st: &St, target: usize) -> Result<(), Signal> {
@@ -32,7 +32,7 @@ impl Session {
     /// The reads of a move onto row `target` of the rows the client holds (see `move_in_client_rows`).
     pub(super) fn read_client_row(&mut self, st: &St, target: usize) -> Result<(), Signal> {
         // First, Last, GoToKey and GoToRecord in a key other than the primary key read the row once more too
-        // (pages/lt-sg-list-key-moves/SgListKeyMovesTests.al SG_Key_FourRows_Moves `last`, `first`, `gotokey_b`, `gotorecord_c`).
+        // (pages/list-key-navigation/SgListKeyMovesTests.al SG_Key_FourRows_Moves `last`, `first`, `gotokey_b`, `gotorecord_c`).
         let once_more = self.still_reads_once_more(st);
         self.read_client_row_in(st, target, once_more)
     }
@@ -42,12 +42,12 @@ impl Session {
         let rec = self.page_rec(st);
         let stored = st.borrow().window[target].stored.clone();
         rec.borrow_mut().fields = stored;
-        // A list with OnAfterGetRecord alone reads nothing when the cursor moves onto a row the client holds (pages/lt-testpage-list-rows/
+        // A list with OnAfterGetRecord alone reads nothing when the cursor moves onto a row the client holds (testpage/
         // ListRowsOpenAG.al:OpenView_OnlyRec5Rows_ReadsAtOpen `after-next-total = 0`).
-        // The same holds with OnFindRecord and OnNextRecord declared: pages/lt-f3-pages/F3ListTests.al:24
+        // The same holds with OnFindRecord and OnNextRecord declared: testpage/F3ListTests.al:24
         // Nav_TwelveRows_OpenLastPreviousFirstNext (`after_last`, `after_previous3`, `after_first`, `after_next2` all empty).
         // A list (or list part) with OnFindRecord, a filtered SourceTableView and no row trigger asks the page nothing either
-        // (corpus branch al-runtime-rs-staging-qc eca98051, pagefindrecord/QcFindViewTests.al:97 ViewList_FirstNextLastPrevious,
+        // (corpus branch al-runtime-rs-staging-qc eca98051, pages/triggers/QcFindViewTests.al:97 ViewList_FirstNextLastPrevious,
         // :236 NextList_NextLog, :540 DocPart_OpenEdit_LinesOfH2: the logs are empty).
         if !self.declares(st, "onaftergetcurrrecord")
             && (self.declares(st, "onaftergetrecord") || self.filtered_find_list_without_row_triggers(st))
@@ -110,7 +110,7 @@ impl Session {
         let mut gone_seen = false;
         while !found && idx < st.borrow().window.len() {
             // The key asked for was deleted by code after the list read it, and the cursor stands on the first row: the first step
-            // of the scan is a move onto a gone row (pages/lt-y80-gone-rows/Y80GoneRows.al:1922 Y80_Moved_All_GoToKeyDeleted, :2205
+            // of the scan is a move onto a gone row (pages/deleted-rows/Y80GoneRows.al:1922 Y80_Moved_All_GoToKeyDeleted, :2205
             // Y80_Moved_NoNew_GoToKeyDeleted); the scan goes on over the rows the page holds afterwards.
             if idx == 1 && origin == 0 && !gone_seen && at_key(self, 1) == Some(true) {
                 gone_seen = self.moved_onto_deleted(st, PageMethod::Next, 0, 1, false)?.is_some();

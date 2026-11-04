@@ -1,6 +1,6 @@
 //! BigText is a value: `B := A` copies it, a by-value parameter gets a copy, and Clear of a copy leaves the original
 //! (al-runner issue 5940, the reporter's repro on real BC; pinned by text/TestBigText.al:108-160 and, for an event parameter and a
-//! return value, text/lt-bigtext-copies/BigTextCopies.al:95-170).
+//! return value, text/textbuilder-bigtext/BigTextCopies.al:95-170).
 
 use al_builtins::assumptions::{clear_hits, take_hits};
 

@@ -5,8 +5,8 @@
 //! is raised: each frame it unwinds through adds its own line, innermost first, and the frame
 //! that catches it (`asserterror`, a TryFunction call, a guarded `Codeunit.Run`) adds the last.
 //!
-//! The corpus pins the text (codeunit/TestCodeunitAlCallStack.al, and on BC 27.5
-//! session/TestSessionInformationCallstackContracts.al for codeunit, table, field-trigger and event
+//! The corpus pins the text (codeunits/TestCodeunitAlCallStack.al, and on BC 27.5
+//! session-system/TestSessionInformationCallstackContracts.al for codeunit, table, field-trigger and event
 //! frames and for the line counting):
 //!
 //! ```text
@@ -15,7 +15,7 @@
 //!
 //! One frame per line, innermost first (`SessionInformation.Callstack` and `GetLastErrorCallStack`
 //! show a backslash after each frame instead of the line feed kept here; corpus
-//! session/TestSessionInformationCallstackContracts.al:12-14); a trigger is `OnRun(Trigger)`; `line` is the line of the
+//! session-system/TestSessionInformationCallstackContracts.al:12-14); a trigger is `OnRun(Trigger)`; `line` is the line of the
 //! statement that was running minus the line of the `procedure` or `trigger` keyword. A frame the
 //! format is not known for (an object type that has not been measured, a routine
 //! with no source) puts `UNTRACKED_CALL_STACK` in the stack, and no text function reads a text
@@ -64,7 +64,7 @@ impl Session {
 
     /// `ErrorInfo.Callstack` of an error collected now: the live frames, innermost first, a line feed between them, then
     /// `UNTRACKED_CALL_STACK`. The corpus keeps only the lines of its own app after it drops CR and splits at LF
-    /// (misc/lt-probes-needed-2/PnBErrorsCollections.al:282-306 and :329-358, RO_CollectedErrorInfo_Internal_And_Client), so
+    /// (errors/PnBErrorsCollections.al:282-306 and :329-358, RO_CollectedErrorInfo_Internal_And_Client), so
     /// the rest of the text (the test runner's frames, which writer RO saw on BC 27.5 and not on 28.5 or 29.0, CR, a trailing
     /// separator) is not pinned: with the mark the stack is not empty and no text function reads it.
     pub(crate) fn collected_call_stack(&self) -> String {
@@ -98,11 +98,11 @@ impl Session {
 
 /// The text of one frame; `None` where the format is not known.
 ///
-/// Measured (session/TestSessionCallstackSourcesContracts.al:Callstack_FromTablePageReportAndExtensionCode,
+/// Measured (session-system/TestSessionCallstackSourcesContracts.al:Callstack_FromTablePageReportAndExtensionCode,
 /// BC 27.5): the object type is `CodeUnit`, `Table`, `Page`, `PageExtension`, `Report` or `ReportExtension`; a
 /// trigger of an action or of a report data item is named `"<action or item> - <trigger>"` with `(Trigger)`
 /// after it; a procedure with a name that is not a plain identifier is quoted
-/// (handlers/PWRefusedBuiltins.al:Callstack_QuotedProcedureName). A trigger inside any other control, query,
+/// (recordref-fieldref/PWRefusedBuiltins.al:Callstack_QuotedProcedureName). A trigger inside any other control, query,
 /// xmlport and the other object types have not been measured.
 fn frame_line(program: &ir::Program, object: usize, frame: CallFrame) -> Option<String> {
     let obj = &program.objects[object];
@@ -116,9 +116,9 @@ fn frame_line(program: &ir::Program, object: usize, frame: CallFrame) -> Option<
         ObjKind::PageExtension => "PageExtension",
         ObjKind::Report => "Report",
         ObjKind::ReportExtension => "ReportExtension",
-        // errors/lt-ms-refusals-128/P128Callstack.al:263-264 (procedures), lt-ms-refusals-129/P129CallstackQuery.al:105
+        // session-system/callstack/P128Callstack.al:263-264 (procedures), lt-ms-refusals-129/P129CallstackQuery.al:105
         // (OnBeforeOpen), P129CallstackXmlPort.al:147-153 and lt-ms-refusals-135/P135CallstackXmlportEtc.al:187-189.
-        // errors/lt-ms-refusals-129/P129CallstackTableExt.al: the extension's own OnInsert, OnModify, OnDelete and OnRename,
+        // table-objects/P129CallstackTableExt.al: the extension's own OnInsert, OnModify, OnDelete and OnRename,
         // an OnValidate of its field and a procedure.
         ObjKind::TableExtension => "TableExtension",
         ObjKind::Query => "Query",
@@ -156,7 +156,7 @@ fn frame_line(program: &ir::Program, object: usize, frame: CallFrame) -> Option<
         return None;
     }
     // The event frame of a publisher stands at its `end` (corpus
-    // session/TestSessionInformationCallstackContracts.al:187: an empty publisher is line 2).
+    // session-system/TestSessionInformationCallstackContracts.al:187: an empty publisher is line 2).
     let stmt = program.pos(if frame.event { routine.end_pos } else { frame.pos })?;
     let signature = program.pos(routine.pos)?;
     let line = stmt.line.checked_sub(signature.line)?;

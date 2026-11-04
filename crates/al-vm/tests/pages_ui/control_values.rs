@@ -241,7 +241,7 @@ codeunit 70105 C
 
 #[test]
 fn an_enum_control_shows_the_option_caption_entry_at_the_value_position() {
-    // handlers/TestPageEnumField_Tests.al:197-205 (Enum_SparseOrdinals_PageOptionCaption): position 1 is c1, position 2 of
+    // testpage/TestPageEnumField_Tests.al:197-205 (Enum_SparseOrdinals_PageOptionCaption): position 1 is c1, position 2 of
     // ' ,c1,,,c4,c5' is empty so ordinal 4 shows its number, position 0 is ' '.
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "SparseShown")),
@@ -251,7 +251,7 @@ fn an_enum_control_shows_the_option_caption_entry_at_the_value_position() {
 
 #[test]
 fn set_value_on_an_enum_control_takes_the_option_caption_entry_at_the_value_position() {
-    // handlers/TestPageEnumField_Tests.al:235-246 (Enum_SparseOrdinals_PageOptionCaption_SetValue).
+    // testpage/TestPageEnumField_Tests.al:235-246 (Enum_SparseOrdinals_PageOptionCaption_SetValue).
     let refused = |t: &str| {
         format!(
             "Validation error for Field: E,  Message = 'Your entry of '{t}' is not an acceptable value for 'E'. (Select Refresh to discard errors)'"
@@ -263,7 +263,7 @@ fn set_value_on_an_enum_control_takes_the_option_caption_entry_at_the_value_posi
     );
 }
 
-// OptionCount of an Enum control with ValuesAllowed counts only the allowed values (misc/lt-y13-triage/Y13PageTriage.al:197-243,
+// OptionCount of an Enum control with ValuesAllowed counts only the allowed values (testpage/Y13PageTriage.al:197-243,
 // corpus master; option_count_values_allowed.rs).
 #[test]
 fn option_count_of_a_control_with_values_allowed_counts_the_allowed_values() {
@@ -277,7 +277,7 @@ fn option_count_of_an_enum_control_with_an_option_caption_is_refused() {
 
 #[test]
 fn set_value_on_an_enum_control_splits_the_captions_at_every_comma() {
-    // misc/lt-cv-odd-leads/CvEnumCaptionComma.al:150-174 (TestPageSetValueByCaption): the halves select other values, the whole
+    // testpage/CvEnumCaptionComma.al:150-174 (TestPageSetValueByCaption): the halves select other values, the whole
     // caption is refused and named shortened in the middle; a refused entry leaves the ordinal shown.
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "CommaSet")),
@@ -297,7 +297,7 @@ fn an_enum_variable_control_with_a_comma_caption_is_refused() {
 
 #[test]
 fn as_decimal_of_a_text_control_that_is_no_number_raises_the_format_error() {
-    // pages/lt-ca-odd-667/CaTestPageTests.al:90-91, :130-135 (Ca01_AsDecimal_*).
+    // testpage/notifications-and-control-values/CaTestPageTests.al:90-91, :130-135 (Ca01_AsDecimal_*).
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "TextAsDecimal")),
         "12.5#The input string '' was not in a correct format./AL:Format#The input string ' ' was not in a correct format./AL:Format#The input string 'abc' was not in a correct format./AL:Format"
@@ -307,7 +307,7 @@ fn as_decimal_of_a_text_control_that_is_no_number_raises_the_format_error() {
 
 #[test]
 fn set_value_checks_the_table_field_values_allowed() {
-    // pages/lt-cd-testpage-leads/CdTestPageLeads.al:400-423 (Item56_ValuesAllowedEmpty_SetValueEmptyAfterA, _SetValueNotAllowed).
+    // testpage/CdTestPageLeads.al:400-423 (Item56_ValuesAllowedEmpty_SetValueEmptyAfterA, _SetValueNotAllowed).
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "ValuesAllowedSet")),
         "A#Validation error for Field: C1Ctl,  Message = 'Value '' is not a valid value. The following values can be used: ;A;N. (Select Refresh to discard errors)'/TestValidation/A#Validation error for Field: C1Ctl,  Message = 'Value 'X' is not a valid value. The following values can be used: ;A;N. (Select Refresh to discard errors)'"
@@ -317,7 +317,7 @@ fn set_value_checks_the_table_field_values_allowed() {
         al_testkit::text(al_testkit::run_in(SRC, "C", "ValuesAllowedValidate")),
         "X"
     );
-    // An Integer field's list is checked too (al-runner issue 6672, pages/lt-y65-values-allowed-table-field/
+    // An Integer field's list is checked too (al-runner issue 6672, pages/values-allowed-table-field/
     // Y65ValuesAllowedTableField.al:280-286 `int 5`): a listed value is taken.
     assert!(al_testkit::run_in(SRC, "C", "ValuesAllowedInteger").is_ok());
     refused(al_testkit::run_in(SRC, "C", "ValuesAllowedList"), "ValuesAllowed");
@@ -325,8 +325,8 @@ fn set_value_checks_the_table_field_values_allowed() {
 
 #[test]
 fn set_selection_filter_marks_the_selected_row_alone() {
-    // pages/lt-cd-testpage-leads/CdTestPageLeads.al:676-708 (Item60_SelectionFilter_*): a fresh record gets the selected row
-    // marked; pages/lt-ap-testpage-642/ApTestPageTests.al:866-882 (Ap15_SetSelectionFilter_IntoMarkedRecord, `marks`): the marks of
+    // testpage/CdTestPageLeads.al:676-708 (Item60_SelectionFilter_*): a fresh record gets the selected row
+    // marked; testpage/ApTestPageTests.al:866-882 (Ap15_SetSelectionFilter_IntoMarkedRecord, `marks`): the marks of
     // other rows are gone and MarkedOnly stays off.
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "SelectionMarks")),

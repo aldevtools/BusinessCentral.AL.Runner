@@ -1,4 +1,4 @@
-//! CaptionClass areas other than 3 on table fields and page controls (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al,
+//! CaptionClass areas other than 3 on table fields and page controls (record/captions/QdCaptionClassAreas.al,
 //! writer QD, corpus bump 34). The subscriber stands in for Base Application's VAT resolver (area 2).
 
 use al_testkit::text;

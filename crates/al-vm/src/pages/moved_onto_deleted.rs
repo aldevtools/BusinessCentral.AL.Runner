@@ -1,5 +1,5 @@
 //! A move of a plain list onto a row that a deletion by code took from the table after the list read it. The pinned values are
-//! the Y80_Moved_All_* and Y80_Moved_NoNew_* tests of pages/lt-y80-gone-rows/Y80GoneRows.al (:1677 Next, :1715 Previous, :1785
+//! the Y80_Moved_All_* and Y80_Moved_NoNew_* tests of pages/deleted-rows/Y80GoneRows.al (:1677 Next, :1715 Previous, :1785
 //! First, :1854 Last, :1922 GoToKey on the deleted key, and the same five for the list without the new-row line from :1960).
 //! The list stands on row `c` and one other row of the rows it holds is gone; `c` is the row the cursor stays on or moves from.
 //!

@@ -1,4 +1,4 @@
-//! `Record.IsDirty` in the shapes lt-ac/Y8RecordIsDirtyShapes.al pins (codeunit 91415, BC 29): a temporary record, Find forms,
+//! `Record.IsDirty` in the shapes record/Y8RecordIsDirtyShapes.al pins (codeunit 91415, BC 29): a temporary record, Find forms,
 //! writes with triggers and inside them, Copy, Clear, CalcFields, GetBySystemId, SetPosition, reads and writes that answer
 //! false, by-value copies, RecordRef.SetTable, SystemId, InitValue fields, a partial record, a Blob, ModifyAll and DeleteAll.
 

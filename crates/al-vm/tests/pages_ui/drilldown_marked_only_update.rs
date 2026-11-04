@@ -1,6 +1,6 @@
 //! A field's OnDrillDown sets marks and MarkedOnly on Rec and calls `CurrPage.Update(false)`: the page then lists only the
 //! marked row, whether or not the page declares OnAfterGetRecord and OnAfterGetCurrRecord (al-runner issue 5844, the
-//! reporter's run on real BC 29.0.54011.55407, 4/4 tests). Pinned by pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al.
+//! reporter's run on real BC 29.0.54011.55407, 4/4 tests). Pinned by testpage/ScDrillDownMarkedOnly.al.
 
 use al_testkit::{Built, boolean, text};
 
@@ -182,7 +182,7 @@ fn a_page_without_get_record_triggers_lists_only_the_marked_row_after_the_drilld
 }
 
 // Without CurrPage.Update on a page WITH OnAfterGetRecord and OnAfterGetCurrRecord: what the page lists is not pinned
-// (corpus pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al:422 DrilldownWithoutUpdateListAndGoTo pins only a page without
+// (corpus testpage/ScDrillDownMarkedOnly.al:422 DrilldownWithoutUpdateListAndGoTo pins only a page without
 // those triggers), so the next TestPage call is refused. Close is still allowed.
 #[test]
 fn a_page_with_get_record_triggers_refuses_reads_after_a_drilldown_without_update() {

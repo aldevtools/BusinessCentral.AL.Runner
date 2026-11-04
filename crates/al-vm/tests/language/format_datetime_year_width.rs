@@ -1,5 +1,5 @@
 //! `Format` of a DateTime shows the year with two digits from 1950 to 2049 and four otherwise, in formats 0 to 3 of the year
-//! 9999 too; through a Variant, format 3 does not exist (types/lt-y49-datetime-9999/Y49DateTime9999.al:64-209, corpus master).
+//! 9999 too; through a Variant, format 3 does not exist (types/date-time/Y49DateTime9999.al:64-209, corpus master).
 
 const SRC: &str = r#"
 codeunit 50769 C {
@@ -67,8 +67,8 @@ codeunit 50779 D {
 }
 "#;
 
-/// Format 0 and 9 of a DateFormula are pinned (misc/lt-system-functions/RandomFormat.al:484-505); format 2 shows the angle
-/// brackets and format 1 in English none (types/lt-y62-dateformula-format/Y62DateFormulaFormat.al:DateFormulaFormat_Std1_English,
+/// Format 0 and 9 of a DateFormula are pinned (format-evaluate/RandomFormat.al:484-505); format 2 shows the angle
+/// brackets and format 1 in English none (format-evaluate/Y62DateFormulaFormat.al:DateFormulaFormat_Std1_English,
 /// _Std2_English).
 #[test]
 fn format_2_of_a_date_formula_is_bracketed() {

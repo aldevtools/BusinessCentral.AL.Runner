@@ -1,4 +1,4 @@
-//! A Guid handed as the filter text of SetFilter (corpus record/lt-y77-guid-filter/Y77GuidFilter.al Record_*Field `*_sf_g1`).
+//! A Guid handed as the filter text of SetFilter (corpus record/filters/Y77GuidFilter.al Record_*Field `*_sf_g1`).
 
 use al_testkit::text;
 

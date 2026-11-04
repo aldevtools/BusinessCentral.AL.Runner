@@ -2,7 +2,7 @@
 //! test case that the data source's `ITestDataSource.ListTestCases` returns, and each case is a result of its own named
 //! `Procedure[identifier]`.
 //!
-//! Pins: corpus al-language-testlibraries/lt-bi-test-framework/BiDataDriven.al (corpus PR 861). Its header (:9-41) is the
+//! Pins: corpus al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiDataDriven.al (corpus PR 861). Its header (:9-41) is the
 //! reference run on BC 29; the asserting tests passed on the corpus CI of BC 29 with the result names used here (for
 //! example `Rows[alpha]`, `Id[ padded ]`), and the red part (:542-703) holds the results of the cases that cannot pass.
 use super::*;

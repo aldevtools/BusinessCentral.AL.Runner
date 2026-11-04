@@ -35,10 +35,10 @@ All file references are in the corpus submodule at `db082fc`, under `tests/al-la
 Both tests below pass on real BC 27, 28 and 29 (`oracle/27|28|29/junit.xml`, codeunit 69852).
 
 1. **An ordinary codeunit that subscribes to "Extension Triggers" runs at install.** Codeunit 69851 "LT V Subs" has no
-   `Subtype` (`events/lt-platform-events-v/PeVFixtures.al:222`). It subscribes to `OnInstallAppPerCompany` and
+   `Subtype` (`events/platform-triggers/PeVFixtures.al:222`). It subscribes to `OnInstallAppPerCompany` and
    `OnInstallAppPerDatabase` of codeunit "Extension Triggers" (`PeVFixtures.al:395-407`). Each subscriber writes a row
    into table 69840 "LT V Event Log" (`DataPerCompany = false`, `AutoIncrement` Id: `PeVFixtures.al:9-23`, written by
-   `WriteRow` at `:237-246`). A test finds those rows (`events/lt-platform-events-v/PeVTests.al:284-285`).
+   `WriteRow` at `:237-246`). A test finds those rows (`events/platform-triggers/PeVTests.al:284-285`).
 2. **The per-company part runs once in each of two companies.** There are 2 `OnInstallAppPerCompany` rows
    (`PeVTests.al:284`). Each row holds `CompanyName()` as the subscriber saw it (`PeVFixtures.al:398-399`). Row #1
    holds the company of the test session, row #2 another company (`PeVTests.al:313-314`). So the corpus CI database
@@ -54,10 +54,10 @@ Both tests below pass on real BC 27, 28 and 29 (`oracle/27|28|29/junit.xml`, cod
 6. **The test session does not see the SingleInstance state of the install run.** The subscribers also add to a list
    in a SingleInstance codeunit (`PeVFixtures.al:133-135`, `:248-252`). In the test session that list holds only the
    two Company Triggers entries (`PeVTests.al:297`).
-7. **The test company is "CRONUS International Ltd."** (`session/TestEnvironmentUserTenantContracts.al:253`).
+7. **The test company is "CRONUS International Ltd."** (`session-system/TestEnvironmentUserTenantContracts.al:253`).
 8. **For install codeunits (already pinned):** the per-company trigger runs in the test company and finds its Company row
-   (`install/TestInstallEnvVisible_Tests.al:39-58`); the test company holds exactly 2 per-company seed rows and the
-   database exactly 1 per-database seed row (`install/TestInstallTriggerSeed_Tests.al:58-59`). Two companies do not
+   (`install-upgrade/TestInstallEnvVisible_Tests.al:39-58`); the test company holds exactly 2 per-company seed rows and the
+   database exactly 1 per-database seed row (`install-upgrade/TestInstallTriggerSeed_Tests.al:58-59`). Two companies do not
    change these: "Install Seed" is per company and "Install Seed Database" is written only by the per-database trigger.
 
 ### What the runtime does today
@@ -83,7 +83,7 @@ company of the test session = Yes] but was []") and `EventLog_RowsWrittenBeforeT
    `OnInstallAppPerDatabase` triggers, and its subscribers to the same two events of "Extension Triggers" (fact 1). This
    holds for every app. Microsoft's apps have no such subscribers outside install codeunits (see Cost), so for them
    nothing changes. A look-alike procedure on a normal codeunit is still not install code
-   (`install/TestInstallTriggerSeed_Tests.al`, `TestInstall_NonInstallCodeunitDidNotAutoRun`).
+   (`install-upgrade/TestInstallTriggerSeed_Tests.al`, `TestInstall_NonInstallCodeunitDidNotAutoRun`).
 
 2. **Two company modes.**
    - **One company (the default).** The run has one company, the session company. The install baseline never runs for
@@ -143,7 +143,7 @@ company of the test session = Yes] but was []") and `EventLog_RowsWrittenBeforeT
 
    Why at run time, not statically: the table list of item c is static, but the read decides. A static refusal of every
    test that reaches the Company table or one of those tables would also refuse correct work, such as
-   `Company.Get(CompanyName())` (`session/lt-company-record/CompanyRecord.al:20`) or an insert into a shared table. The
+   `Company.Get(CompanyName())` (`session-system/company/CompanyRecord.al:20`) or an insert into a shared table. The
    runner reports a refused test as not run, with the reason.
 
    Under the opt-in the declared list is complete: items a and b are answered from it (a name that is not on it does
@@ -158,7 +158,7 @@ company of the test session = Yes] but was []") and `EventLog_RowsWrittenBeforeT
    P3). So in a declared company other than the session company:
    - a per-company table of an app under test is answered normally. It is new at that app's install, so its rows are
      exactly what install code and tests wrote there (consistent with the exact counts at
-     `install/TestInstallTriggerSeed_Tests.al:58-59`);
+     `install-upgrade/TestInstallTriggerSeed_Tests.al:58-59`);
    - a read or write of any other per-company table (dependency tables, per-company platform tables, and the rows a
      test-data backup holds for that company) raises `Signal::Unsupported` naming the table and the company;
    - shared tables behave as today.
@@ -207,9 +207,9 @@ Each step is built only after the probes it names have landed and the submodule 
   `oracle.toml`), step 4a per declared company, decisions 5 and 6, the default-mode refusals 4a and 4b, and
   `tools/company_mode_check.sh`. Items 4a and 4b come only together with the corpus opt-in, so the corpus cases that
   read the Company table or name a company keep passing. Two baseline cases of that kind: `Company_Names` counts the
-  Company table (`session/TestProbeSessionMiscContracts.al:705`), and `TestInstall_CompanyGetConsultsTheKeyDuringInstall`
-  reads what the install code's `Comp.Get('NO SUCH COMPANY')` answered (`install/TestInstallSeeder.al:72`,
-  `install/TestInstallEnvVisible_Tests.al:64`). Expected: `EventLog_InstallRowCompany` passes on 27, 28 and 29.
+  Company table (`session-system/TestProbeSessionMiscContracts.al:705`), and `TestInstall_CompanyGetConsultsTheKeyDuringInstall`
+  reads what the install code's `Comp.Get('NO SUCH COMPANY')` answered (`install-upgrade/TestInstallSeeder.al:72`,
+  `install-upgrade/TestInstallEnvVisible_Tests.al:64`). Expected: `EventLog_InstallRowCompany` passes on 27, 28 and 29.
 - **Interim, until step A (2026-10-20):** replaced by step A as built (section "Step A as built" below).
 - **Not in this ADR:** `EventLog_RowsWrittenBeforeTheTestSessionStarted` also needs Company Triggers `OnCompanyOpen`
   and `OnCompanyOpenCompleted` raised at the start of the test session (`PeVTests.al:297`). No code raises them today.
@@ -301,7 +301,7 @@ items 1 to 3 ask related questions for install codeunits.
   (`PeVFixtures.al:244`) but no test asserts it; `RowsOfSession` (`PeVTests.al:250-257`) is not used. Does a SingleInstance
   codeunit keep its state from the session company's run into the second company's run and the per-database run (log
   `Log.Early()` into `Info`)? What does `Session.GetExecutionContext()` answer inside a subscriber (pinned only for install
-  codeunit triggers, `install/TestInstallEnvVisible_Tests.al`)? Blocks step B.
+  codeunit triggers, `install-upgrade/TestInstallEnvVisible_Tests.al`)? Blocks step B.
 - **P9. Which companies exist in each lane of Microsoft's CI** (Legacy, UnitTest, IntegrationTest, Uncategorized)? Not
   a corpus probe: read it from BCApps' AL-Go setup or a run on a Windows container. Until then the recipe lanes run in
   the default mode.
@@ -326,10 +326,10 @@ oracle bump that brings these files is a precondition of every build step below.
 
 File names used in this section, all in the corpus:
 
-- `BfTests` = `tests/al-language/install/lt-bf-install-probes/BfInstallTests.al` (codeunit 81257)
-- `BfFix` = `tests/al-language/install/lt-bf-install-probes/BfInstallFixtures.al`
+- `BfTests` = `tests/al-language/record/BfInstallTests.al` (codeunit 81257)
+- `BfFix` = `tests/al-language/record/BfInstallFixtures.al`
 - `BfDep` = `tests/al-language-internals-fixture/LTBFInstallSubs.al` (in the fixture app, which the main app depends on)
-- `BfOpen` = `tests/al-language/events/lt-bf-company-open/BfCompanyOpenTests.al` (fixtures in `BfCompanyOpenFixtures.al`)
+- `BfOpen` = `tests/al-language/events/platform-triggers/BfCompanyOpenTests.al` (fixtures in `BfCompanyOpenFixtures.al`)
 
 "Install routine" means one `OnInstallAppPerCompany` or `OnInstallAppPerDatabase` trigger of an install codeunit, or
 one subscriber to those events of "Extension Triggers". "Part" means the per-company code in one company, or the
@@ -426,8 +426,8 @@ Descending object name is the only fixed rule found that fits. It is not adopted
 - It disagrees with the order of ordinary events, which the corpus pins as ascending codeunit id within one app:
   `record/TestTableEventSequenceContracts.al:456-471` (68154, 68155, 68156), `events/TestProbeEventContracts.al:668-680`
   (69806 "PA Ev Subs" before 69807 "PA Ev Subs Other Id": descending name would put 69807 first),
-  `misc/lt-probes-needed-3/PnC01Events.al:143-166` (71073 to 71076, manual codeunits in id order) and
-  `handlers/ProbeEventSubscriberOrder.al:146-164`. So install code would need its own rule. That is possible, but
+  `events/PnC01Events.al:143-166` (71073 to 71076, manual codeunits in id order) and
+  `events/ProbeEventSubscriberOrder.al:146-164`. So install code would need its own rule. That is possible, but
   nothing pins it.
 - Hard rule 3: a rule nobody pinned is a guess.
 
@@ -454,7 +454,7 @@ Items a to c are found before anything runs, from the static closures of the rou
 read, and the SingleInstance codeunits reached), the same analysis as item 4c. They apply to the apps under test.
 Today's corpus has no case they refuse: the install routines of the main app write disjoint tables, and "ALT Install
 Probe" and "ALT Quoted Install Probe" write nothing. Item d also refuses `InstallCodeunit_PerDatabaseAndPerCompany_OrderAndCount`
-(corpus branch `al-runtime-rs-staging-av`, `tests/al-language/install/lt-av-install-order/AvInstallOrder.al:16-69`)
+(corpus branch `al-runtime-rs-staging-av`, `tests/al-language/install-upgrade/install-order/AvInstallOrder.al:16-69`)
 once it lands, although that test only compares per-company rows with the per-database row, an order that is pinned
 (fact 5). This is accepted: the runtime cannot tell which rows a test compares. That case is not in the baseline.
 
@@ -483,7 +483,7 @@ This replaces decision 8.
    (fact 8), in the default mode as well (the per-database part no longer sees the per-company state). Within one
    company it carries from one install routine to the next.
 3. **Execution context `Install`** in subscribers and in install codeunit triggers (fact 7). This is already true for
-   install codeunit triggers (`install/TestInstallEnvVisible_Tests.al`).
+   install codeunit triggers (`install-upgrade/TestInstallEnvVisible_Tests.al`).
 4. **Company Triggers in the install session.** The install session raises `OnCompanyOpen` and then
    `OnCompanyOpenCompleted` in each company, before that company's install routines, and not in the per-database part
    (fact 9). Pinned only for subscribers of the app being installed. Whether a dependency app's subscribers run there
@@ -624,7 +624,7 @@ New subscribers need no allow-list change; a new install codeunit does.
 
 - Corpus: after step A, `EventLog_InstallRowCompany` and `EventLog_RowsWrittenBeforeTheTestSessionStarted` are not run;
   after step B, with the corpus opt-in, `EventLog_InstallRowCompany` passes on BC 27, 28 and 29. The install tests stay
-  passing: `install/TestInstallTriggerSeed_Tests.al`, `TestInstallEnvVisible_Tests.al`,
+  passing: `install-upgrade/TestInstallTriggerSeed_Tests.al`, `TestInstallEnvVisible_Tests.al`,
   `TestInstallEventDispatch_Tests.al`, `TestInstallStartSession_Tests.al`. `--baseline-diff` shows no baseline case lost.
 - `tools/company_mode_check.sh run` (step B): a corpus case differs between the two modes only by being not run in the
   default mode.
@@ -692,7 +692,7 @@ This replaces item 1 of "Decided without owner review (2026-10-20)".
   as one of the app's own subscribers does: what the subscribers did is rolled back, and a test that touches a table one
   of the routines or one of the subscribers can write is not run. System Application's "System Initialization" runs here
   since `NavUserAccountHelper.IsDelegatedUser`, `IsUserDelegatedAdmin` and `IsUserDelegatedHelpdesk` answer false
-  (`al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:61-63`); a first build kept a fallback to the app's own
+  (`al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:61-63`); a first build kept a fallback to the app's own
   subscribers while it could not, and that fallback is gone (al-runner issue 6046).
 
 ## Amendment 2: step B as built (2026-10-29, branch `companies`)
@@ -703,9 +703,9 @@ decided is changed.
 ### The pins, checked against the corpus at the pin
 
 - P1 (companies): two companies in key order, "CRONUS International Ltd." (the session company) then "My Company"
-  (`install/lt-bf-install-probes/BfInstallTests.al:47-64`, header `:10`), on 27.5, 28.5 and 29.0.
+  (`record/BfInstallTests.al:47-64`, header `:10`), on 27.5, 28.5 and 29.0.
 - Per-company install code runs once in each company, the session company first, before the per-database part:
-  `BfInstallTests.al:125-140` (rows #1 to #6, then #7 to #9) and `:239`; `install/lt-av-install-order/AvInstallOrder.al:16-69`
+  `BfInstallTests.al:125-140` (rows #1 to #6, then #7 to #9) and `:239`; `install-upgrade/install-order/AvInstallOrder.al:16-69`
   (`first per-company run` = session company, `per-company after per-database` = No in both companies).
 - `CompanyName()` is that company in the per-company part (`AvInstallOrder.al:43-44`, `:60`, `:64`) and empty in the
   per-database part (`BfInstallTests.al:138-140`, `blank`).
@@ -741,7 +741,7 @@ decided is changed.
    the corpus app in "My Company" and 1,104 baseline cases on BC 29 were lost.
 2. **Evaluation Company.** The corpus database's session company is an evaluation company (`BfInstallTests.al:61`), but
    a user's database need not be, and Company-Initialize reads the flag: with it set, Experience Tier Setup came out
-   Basic where BC has Essential (`session/lt-company-setup-rows/CompanySetupRows.al:50-66`, a failure). So the session
+   Basic where BC has Essential (`session-system/company/CompanySetupRows.al:50-66`, a failure). So the session
    company's row stays the row of the default mode; another company's row has `Evaluation Company` No and an empty
    `Display Name` (pinned for "My Company").
 3. **`companies` is not set in `oracle/oracle.toml` yet.** See the next section.
@@ -782,13 +782,13 @@ ids) and `install-order2` (this text, across blocks).
 ### What the probes pin
 
 1. Corpus PR 807 (writer UM, branch `al-runtime-rs-staging-pub-um`, commit `e3b2eedf`),
-   `tests/al-language/install/lt-um-install-order/UmInstallOrder.al:120-125`. Five install codeunits of the main app,
+   `tests/al-language/install-upgrade/install-order/UmInstallOrder.al:120-125`. Five install codeunits of the main app,
    90431 to 90435, named so that name order and id order differ, in five files of four folders. In each company and in
    the per-database part they run in ascending object id (`Mu;b;Cu;Ay;Zz;`), not name or file order. A SingleInstance
    codeunit's state carries from one to the next and starts again in each company and in the per-database part. All
    rows carry one session id (A4 item 1).
 2. Corpus PR 810 (writer UR, branch `al-runtime-rs-staging-ur`, commit `1ac158e1`),
-   `tests/al-language/install/lt-ur-block-order/UrBlockOrderTests.al`, codeunit 90510. Same on the three supported
+   `tests/al-language/install-upgrade/install-order/UrBlockOrderTests.al`, codeunit 90510. Same on the three supported
    majors.
    - `:59-81`: install codeunit triggers and Extension Triggers subscribers of one app run as ONE sequence in ascending
      codeunit id across the 65536 boundary (50300, 50301, 50302, then 90511, 90512, 90515), in each company and in the
@@ -804,7 +804,7 @@ until the bumps land.
 
 ### Why A1 fact 5 looked like another order
 
-`install/lt-bf-install-probes/BfInstallTests.al:239` orders the rows by `SystemRowVersion` and saw 81254 before 60445,
+`record/BfInstallTests.al:239` orders the rows by `SystemRowVersion` and saw 81254 before 60445,
 60618 and 60894. Those three write with a plain `Insert()`, so their rows got later row versions (UR item 3). The run
 order was ascending id all along. The first version of this amendment read fact 5 as a run order and limited the rule
 to one block of 65536 ids; that limit is gone.
@@ -840,7 +840,7 @@ to one block of 65536 ids; that limit is gone.
   1,604 pass, 13 fail, 3,759 not run before; 3,407 pass, 13 fail, 1,956 not run after (1,803 not run to pass, no
   other change). With the app as a dependency only: no change (5,226 pass, 8 fail, 142 not run).
 7. **Trigger events during an install, measured (al-runner issues 6644, 6755; corpus branch al-runtime-rs-staging-y79,
-   install/lt-y79-install-unrelated/Y79InstallUnrelated.al, needs corpus bump).** A subscriber or table extension of another
+   install-upgrade/install-triggers/Y79InstallUnrelated.al, needs corpus bump).** A subscriber or table extension of another
    app runs during an install exactly when its app is the installing app or was installed earlier, which is item 2 with the
    install order known (`host::publish_order_known`, the corpus run); with the order unknown the refusal of item 2 stays.
    `OnInstallAppPerCompany` asks `GetGlobalTableTriggerMask`, then `GetDatabaseTableTriggerSetup`, then raises
@@ -862,7 +862,7 @@ to one block of 65536 ids; that limit is gone.
   gives 70000, 130000, 60100. Needs an id range above 99999 in a corpus app. This unblocks NP Retail.
 - **Q1c. Ordinary events across blocks.** Fact 5 interleaves install codeunits with Extension Triggers subscribers in
   one sequence, so BC may order ordinary event subscribers the same way. Every pin of ordinary event order has its
-  subscribers in one block (for example `handlers/ProbeEventSubscriberOrder.al`, 69461 to 69467). The runtime sorts
+  subscribers in one block (for example `events/ProbeEventSubscriberOrder.al`, 69461 to 69467). The runtime sorts
   subscribers by plain codeunit id (`al-vm/src/events.rs`). Probe: one event of the main app with subscribers 60100 and
   70000.
 
@@ -886,7 +886,7 @@ specifies multiple companies or `all`, it has to behave like Microsoft would in 
 ### What "My Company" holds (built, branch `mycompany`)
 
 Corpus PR 804 (writer UO, on corpus master, not yet in the submodule pin) pinned more of "My Company" in
-`install/lt-bf-install-probes/BfInstallTests.al`, the same on 27.5, 28.5 and 29.0:
+`record/BfInstallTests.al`, the same on 27.5, 28.5 and 29.0:
 `SecondCompany_CdsConnectionSetup_ComparedWithSessionCompany` (no CDS Connection Setup row in either company) and
 `SecondCompany_SetupTablesReadByCompanyInitialize_ComparedWithSessionCompany` (no General Ledger Setup, Sales &
 Receivables Setup or Company Information row in "My Company"; one Application Area Setup row, a shared table; one Job
@@ -909,7 +909,7 @@ Checked against Microsoft's demo database of 29.0 (`al-bcdb read`): its "My Comp
 **The session company is an evaluation company under the opt-in without test data** (`BfInstallTests.al:61`). Its row
 gets `Evaluation Company` Yes after the dependency apps' install code and Company-Initialize, before the apps under test
 install: Company-Initialize keeps the row of the default mode, which gives Experience Tier Essential as pinned
-(`session/lt-company-setup-rows/CompanySetupRows.al:50-66`). This replaces amendment 2's decision 2 for runs without
+(`session-system/company/CompanySetupRows.al:50-66`). This replaces amendment 2's decision 2 for runs without
 test data. With test data the row stays as amendment 2 says.
 
 ### Decided without owner review (2026-10-30)
@@ -936,7 +936,7 @@ database's two companies run in the default mode and fail (69852 `EventLog_RowsW
 
 ### Built
 
-1. **CRM Connection Setup is pinned empty in both companies** (install/lt-bf-install-probes/BfInstallTests.al:317-318,
+1. **CRM Connection Setup is pinned empty in both companies** (record/BfInstallTests.al:317-318,
    corpus issue 811, the same on 27.5, 28.5 and 29.0). It joins the Base Application tables that start empty in "My
    Company" without test data (`al-vm/src/companies.rs`).
 2. **`companies` is in `oracle/oracle.toml`** (`["CRONUS International Ltd.", "My Company"]`, BfInstallTests.al:60-62).
@@ -949,11 +949,11 @@ database's two companies run in the default mode and fail (69852 `EventLog_RowsW
 
 Corpus PR 815 (issue 812) pins that a freshly installed app's per-company install code sees `HasUpgradeTag` = No for its
 own tag and no row its `OnCompanyInitialize` subscriber writes, in both companies
-(install/lt-bf-install-probes/BfUpgradeTagInstallTests.al:42-43). The install baseline now holds back the subscribers of
+(install-upgrade/BfUpgradeTagInstallTests.al:42-43). The install baseline now holds back the subscribers of
 the apps under test while the dependency apps install, Company-Initialize and the company build run
 (`al-testrun/src/baseline.rs`). Their own install code runs after the baseline with every app installed, so their own
-subscribers still run there (install/lt-ug-install-trigger-setup/UgInstallTests.al:37-41). Tests:
-`al-testrun/tests/install_hold_back.rs`. With the bump, the upgrade-tag cases of misc/lt-cm-upgrade-tag (codeunit 84835
+subscribers still run there (install-upgrade/install-triggers/UgInstallTests.al:37-41). Tests:
+`al-testrun/tests/install_hold_back.rs`. With the bump, the upgrade-tag cases of install-upgrade (codeunit 84835
 `Item44_*`) need this fix: without it the install code inserts its own tag a second time.
 
 ## Amendment 6 (2026-10-30): one app at a time, for every app
@@ -963,7 +963,7 @@ Status: Accepted (owner, 2026-10-30), including the corpus listed-order exceptio
 Owner direction (2026-10-30): BC installs apps one at a time in dependency order. While an app installs, only the apps
 installed before it and the app itself are installed. Measured on BC 29 (corpus branch al-runtime-rs-staging-y3:
 tests/al-language-xapp-a/Y3XaInstallEvents.al, tests/al-language-xapp-b/Y3XbInstallEvents.al,
-install/lt-install-order-subscribers/InstallOrderSubscriberTests.al:66-79, :90-91, :104-117, :139-144): during XApp A's install only A's subscribers ran,
+install-upgrade/install-order/InstallOrderSubscriberTests.al:66-79, :90-91, :104-117, :139-144): during XApp A's install only A's subscribers ran,
 for its integration event and its table's OnAfterInsertEvent, and `NavApp.GetModuleInfo` of XApp B was false; during
 B's install A's and B's ran, the main app's did not; at test time all ran.
 

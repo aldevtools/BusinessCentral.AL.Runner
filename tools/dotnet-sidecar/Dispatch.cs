@@ -74,7 +74,7 @@ public sealed class Server
                 // position, position 0 afterwards; with a count from the position, which follows.
                 var stream = StreamOf(req["handle"]!.GetValue<long>());
                 // The stream ZipArchiveEntry.Open() gives in Read mode, used once as the source of CopyStream without a count:
-                // all its bytes (lt-y44-zip-create/Y44ZipCreateMode.al ReadZip, Zip_TwoEntries_CopyStreamIntoOpen
+                // all its bytes (dotnet/zip-create/Y44ZipCreateMode.al ReadZip, Zip_TwoEntries_CopyStreamIntoOpen
                 // `content_<i>`; a compressed entry gives a DeflateStream, the empty stored one `d.txt` a SubReadStream). The
                 // runtime sends it only for a temporary Open() stream nothing read before.
                 var entryRead = stream is System.IO.Compression.DeflateStream
@@ -109,7 +109,7 @@ public sealed class Server
                 var type = DeclaredType(req["type"]!);
                 // A generic type AL declares without type arguments is made closed over System.Object, as BC does: the type
                 // its messages name is `Dictionary`2[System.Object,System.Object]` (tests/al-language-onprem-dotnet/
-                // lt-y17-dotnet-dictionary/Y17DotNetDictionary.al:126, :147). System Application's ABS and AFS Operation Payload
+                // dotnet/dotnet-dictionary/Y17DotNetDictionary.al:126, :147). System Application's ABS and AFS Operation Payload
                 // make a SortedDictionary`2 so.
                 if (type.IsGenericTypeDefinition)
                     type = type.MakeGenericType(type.GetGenericArguments().Select(_ => typeof(object)).ToArray());
@@ -187,7 +187,7 @@ public sealed class Server
                         .Select(p => (MethodBase)p.GetMethod!).ToArray();
                     // With one argument more than the index, the last one is the value assigned through the indexer:
                     // `DataRow.Item(ColumnName, Value)` (System Application "Business Chart Impl."; corpus
-                    // tests/al-language/misc/lt-au-language-edges/AuEdgeTests.al:608, real BC reads the value back).
+                    // tests/al-language/streams/AuEdgeTests.al:608, real BC reads the value back).
                     // Both can fit two arguments (`DataRow.Item(String, DataRowVersion)` reads, `Item(String) = Object`
                     // writes): the closer fit wins and a tie reads. An Integer value is written, as on real BC (the
                     // corpus test above sets 7 with SetValueByIndex and reads it back).
@@ -455,7 +455,7 @@ public sealed class Server
         if (a is decimal && pt.IsPrimitive && pt != typeof(bool) && pt != typeof(char)) return 4;
         // A one-character AL text into a char[] (String.Split(','), whose one-argument form is `params char[]`): the
         // character (tests/al-language-onprem-dotnet/TestDotNetValueKindsContracts.al:250 Foreach_OverClrCollections,
-        // lt-y51-dotnet-builtin-args/Y51DotNetBuiltinArgs.al DotNetString_ErrorInfoCreate `Source.Split(',')`).
+        // dotnet/dotnet-builtin-args/Y51DotNetBuiltinArgs.al DotNetString_ErrorInfoCreate `Source.Split(',')`).
         if (pt == typeof(char[]) && a is string { Length: 1 }) return 5;
         return -1;
     }

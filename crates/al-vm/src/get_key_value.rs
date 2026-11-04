@@ -10,7 +10,7 @@ impl Session {
     pub(crate) fn get_key_value(&self, v: &Value, ty: &RtType) -> Result<Value, Signal> {
         Ok(match v {
             // A text for an Integer or BigInteger key reads as Evaluate reads it: surrounding spaces and a sign are fine, anything
-            // else raises (GetWithTextArgument.al:Get_TextForIntegerKey, Get_TextVariableDirect; misc/lt-y70-assumptions/Y70Probes.al
+            // else raises (GetWithTextArgument.al:Get_TextForIntegerKey, Get_TextVariableDirect; record/Y70Probes.al
             // RecordGet_TextOnIntegerKey `int_text5`, `int_padded`, `int_plus`, `int_x`, `int_empty`, `int_decimal_text`, and
             // RecordGet_TextOnBigIntegerKey; BC 27 names the type unknown, BC 28 and later say the value can't be evaluated). A one-character
             // literal is a Char in a Variant and reads as the text of that character (`int_text5` passes '5', `int_x` passes 'x').
@@ -45,7 +45,7 @@ impl Session {
                 }
             }
             // A non-negative Integer for a Text key is its digits: Get(1) finds the row '1', Get(0) the row '0'
-            // (misc/lt-y70-assumptions/Y70Probes.al RecordGet_BooleanOnTextKey `text_int1`, `text_int0`). A negative one and one longer
+            // (record/Y70Probes.al RecordGet_BooleanOnTextKey `text_int1`, `text_int0`). A negative one and one longer
             // than the field are not pinned.
             Value::Integer(i) if matches!(ty, RtType::Text(_)) => {
                 let digits = i.to_string();
@@ -58,7 +58,7 @@ impl Session {
                 Value::Text(digits.into())
             }
             // An Integer (literal or variable) for a Code key reads as its digits: found, not found and the
-            // not-found error (record/lt-at-partner-gaps/AtGetIntegerOnCodeKey.al:86-140, Integer 123 on a
+            // not-found error (record/crud/AtGetIntegerOnCodeKey.al:86-140, Integer 123 on a
             // Code[20] key). A negative number, one longer than the field and a Text key are not pinned.
             Value::Integer(i) if matches!(ty, RtType::Code(_)) => {
                 let digits = i.to_string();
@@ -71,7 +71,7 @@ impl Session {
                 Value::Code(digits.into())
             }
             // An Option or Enum value for a Code key looks for the member's name: `ClientType::Web`, an own Option variable and an
-            // Enum value find the row `WEB`, not the row of the ordinal (types/lt-y71-value-conversions/Y71ValueConversions.al:
+            // Enum value find the row `WEB`, not the row of the ordinal (types/operators-expressions/Y71ValueConversions.al:
             // 218-328). An Enum member with a caption of its own, a name longer than the field and a Text key are not pinned.
             Value::Option(..) | Value::Enum(..) if matches!(ty, RtType::Code(_)) => {
                 let name = self.member_name_for_key(v)?;

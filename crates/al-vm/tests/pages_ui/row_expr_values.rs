@@ -1,6 +1,6 @@
 //! A list computes each control whose source is a function or an expression once per row, when it reads its rows: after
 //! that row's OnAfterGetRecord. A read shows the value of the row the cursor stands on, also after FindFirstField and Next,
-//! which run no trigger and no control function (misc/lt-y14-triage/Y14PageTriage.al:241 Trapped_FindFirstField_FunctionControl,
+//! which run no trigger and no control function (testpage/Y14PageTriage.al:241 Trapped_FindFirstField_FunctionControl,
 //! :274 OpenView_FindFirstField_FunctionControl, corpus master).
 
 const SRC: &str = r#"

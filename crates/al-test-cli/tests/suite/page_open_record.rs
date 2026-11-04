@@ -78,7 +78,7 @@ const LIST_HANDLER: &str = r#"
     end;
 "#;
 
-// misc/W2PageProperties.al:234 SetTableView_DescendingOrder: the page opens `=><` from the blank record, so a descending view
+// ui-handlers/W2PageProperties.al:234 SetTableView_DescendingOrder: the page opens `=><` from the blank record, so a descending view
 // lands on its last row.
 #[test]
 fn a_descending_view_handed_by_set_table_view_opens_on_its_last_row() {
@@ -91,7 +91,7 @@ fn a_descending_view_handed_by_set_table_view_opens_on_its_last_row() {
     ));
 }
 
-// platform/lt-xmlport-session-navapp-cookie/P94PageRun.al:88 Run_WithRecordNotInTable: a record past the last row opens on the last.
+// metadata/session-system/P94PageRun.al:88 Run_WithRecordNotInTable: a record past the last row opens on the last.
 #[test]
 fn a_record_past_the_last_row_opens_the_card_on_the_last_row() {
     passes(
@@ -102,7 +102,7 @@ fn a_record_past_the_last_row_opens_the_card_on_the_last_row() {
     );
 }
 
-// misc/lt-protected-var-abs-query-views/P146ViewMarkedTemp.al:304 P146_PageRunModal_MarkedOnly_Real: the page shows the marked rows only.
+// record/P146ViewMarkedTemp.al:304 P146_PageRunModal_MarkedOnly_Real: the page shows the marked rows only.
 #[test]
 fn page_run_modal_with_a_marked_only_record_shows_the_marked_rows() {
     passes(&format!(
@@ -114,7 +114,7 @@ fn page_run_modal_with_a_marked_only_record_shows_the_marked_rows() {
     ));
 }
 
-// pages/lt-page-variable-lifecycle/PageVariableLifecycle.al:158 PageVar_MethodCallBeforeRun: SetRecord constructs the page.
+// pages/lifecycle/PageVariableLifecycle.al:158 PageVar_MethodCallBeforeRun: SetRecord constructs the page.
 #[test]
 fn set_record_on_a_page_variable_runs_on_init() {
     passes(
@@ -125,7 +125,7 @@ fn set_record_on_a_page_variable_runs_on_init() {
     );
 }
 
-// pages/lt-page-variable-lifecycle/PageVariableLifecycle.al:131 PageVar_RunTwiceOnOneVariable: a second non-modal Run runs OnInit again.
+// pages/lifecycle/PageVariableLifecycle.al:131 PageVar_RunTwiceOnOneVariable: a second non-modal Run runs OnInit again.
 #[test]
 fn a_second_non_modal_run_of_a_page_variable_runs_on_init_again() {
     passes(
@@ -136,9 +136,9 @@ fn a_second_non_modal_run_of_a_page_variable_runs_on_init_again() {
     );
 }
 
-// errors/lt-ms-refusals-128/P128ModalOnInit.al:210 P128_TypedModalHandler_PageWithOnInit_PageVariable: a page variable keeps its
+// ui-handlers/P128ModalOnInit.al:210 P128_TypedModalHandler_PageWithOnInit_PageVariable: a page variable keeps its
 // own LookupMode (No) in a Page-typed handler; the static RunModal whose answer is used reads Yes (:191; called as a statement
-// it is no lookup, pages/lt-be-runmodal-onlookup/BeRunModalOnLookup.al:916).
+// it is no lookup, pages/triggers/BeRunModalOnLookup.al:916).
 #[test]
 fn a_page_typed_handler_reads_the_lookup_mode_of_the_page_variable() {
     passes(
@@ -151,7 +151,7 @@ fn a_page_typed_handler_reads_the_lookup_mode_of_the_page_variable() {
     );
 }
 
-// platform/lt-xmlport-session-navapp-cookie/P94PageRun.al:211 Run_UnknownPage and misc/W5MissingObject.al:52: inside a try
+// metadata/session-system/P94PageRun.al:211 Run_UnknownPage and errors/W5MissingObject.al:52: inside a try
 // function the error names the test codeunit, not the test runner.
 #[test]
 fn a_missing_page_run_in_a_try_function_names_the_test_codeunit() {
@@ -203,7 +203,7 @@ codeunit 62522 T
 }
 "#;
 
-// pages/lt-ah-pages/AhPageTests.al:981 Tree_ThroughPageRun: a tree offers no blank new line; Expand(true) shows the direct
+// testpage/AhPageTests.al:981 Tree_ThroughPageRun: a tree offers no blank new line; Expand(true) shows the direct
 // children of the row, Expand(false) hides them again.
 #[test]
 fn expand_on_a_tree_shows_and_hides_the_direct_children() {
@@ -211,7 +211,7 @@ fn expand_on_a_tree_shows_and_hides_the_direct_children() {
     assert_eq!(o, vec![("Tree".to_string(), Outcome::Pass)]);
 }
 
-// record/lt-loadfields-pagesource-validate/P81PageTempSource.al:238-242 RunModal_TempRecord_NewRow: a new line saved below a row it
+// record/load-fields/P81PageTempSource.al:238-242 RunModal_TempRecord_NewRow: a new line saved below a row it
 // does not follow in the key order keeps its place in the client; where First goes then is not pinned, so it is refused.
 #[test]
 fn first_after_a_new_line_saved_out_of_key_order_is_refused() {

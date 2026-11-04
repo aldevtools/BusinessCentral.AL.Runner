@@ -125,17 +125,17 @@ page_methods! {
     "TestRequestPage.SaveAsXml#1" => TestRequestPageSaveAsXml,
     "TestRequestPage.SaveAsPdf#1" => TestRequestPageSaveAsPdf,
     "TestRequestPage.SaveAsExcel#1" => TestRequestPageSaveAsExcel,
-    // report/W3ReportObjectIdPreviewLanguage.al:717-752: the Preview and Print actions of a report run by Run.
+    // reports/W3ReportObjectIdPreviewLanguage.al:717-752: the Preview and Print actions of a report run by Run.
     "TestRequestPage.Preview#1" => TestRequestPagePreview,
     "TestRequestPage.Print#1" => TestRequestPagePrint,
     "TestRequestPage.OK#1" => TestPageOK,
     "TestRequestPage.Cancel#1" => TestPageCancel,
     "TestRequestPage.Caption#1" => TestPageCaption,
-    // report/lt-y-request-page/YRequestPageTests.al:124-161: New on a request page whose InsertAllowed is false.
+    // reports/request-page/YRequestPageTests.al:124-161: New on a request page whose InsertAllowed is false.
     "TestRequestPage.New#1" => TestPageNew,
-    // handlers/PSRequestPageEditable.al: the page-level form answers as TestPage.Editable does.
+    // reports/PSRequestPageEditable.al: the page-level form answers as TestPage.Editable does.
     "TestRequestPage.Editable#1" => TestPageEditable,
-    // report/lt-report-requestpage-query-members/P105RpNav.al and P105RpFind.al: moves, searches and Expand on a request
+    // reports/request-page/P105RpNav.al and P105RpFind.al: moves, searches and Expand on a request
     // page without a SourceTable (al-vm pages/request.rs `request_page_without_source_op`).
     "TestRequestPage.First#1" => TestPageFirst,
     "TestRequestPage.Last#1" => TestPageLast,

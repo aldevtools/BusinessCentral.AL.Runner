@@ -1,6 +1,6 @@
 //! RecordRef.Copy(Record) into an opened RecordRef takes the record's filters, key and view, as Copy from a RecordRef does
-//! (misc/lt-probes-needed-6/PnF27RecordRefCopy.al:117-158 Copy_FromRecord, Copy_FromRecord_WithView). Into a RecordRef opened
-//! as temporary, from a Record that is temporary or not, it stays temporary (record/lt-y51-recordref-copy-temp/Y51RecRefCopyTemp.al).
+//! (recordref-fieldref/PnF27RecordRefCopy.al:117-158 Copy_FromRecord, Copy_FromRecord_WithView). Into a RecordRef opened
+//! as temporary, from a Record that is temporary or not, it stays temporary (record/temporary/Y51RecRefCopyTemp.al).
 //! A temporary Record into a non-temporary RecordRef is not pinned and stays refused.
 
 use al_builtins::native::Signal;

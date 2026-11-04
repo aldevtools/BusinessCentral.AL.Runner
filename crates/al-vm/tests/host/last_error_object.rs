@@ -1,6 +1,6 @@
 //! `GetLastErrorObject` (OnPrem): the last error as a .NET exception object, served by the runtime.
 //! Every pinned literal is what the real service tier answered in the corpus:
-//! tests/al-language-onprem-dotnet/lt-dotnet-interop/GetLastErrorObject.al (BC 27, 28, 29; corpus issue 572).
+//! tests/al-language-onprem-dotnet/dotnet/dotnet-interop/GetLastErrorObject.al (BC 27, 28, 29; corpus issue 572).
 //! The stack text of `ToString` after its first line is not pinned (only that it has `   at ` frames).
 
 use al_builtins::native::Signal;

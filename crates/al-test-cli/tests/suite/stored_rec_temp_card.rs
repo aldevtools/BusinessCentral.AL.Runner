@@ -1,5 +1,5 @@
 //! A stored record handed to a Card or NavigatePage whose source table is temporary (crates/al-vm/src/pages/open/record_refusals.rs,
-//! pages/open/close.rs). Each test names the corpus test of pages/lt-y61-page-probes/Y61StoredRecToTempCard.al that pins it.
+//! pages/open/close.rs). Each test names the corpus test of pages/run-modal/Y61StoredRecToTempCard.al that pins it.
 
 const SRC: &str = r#"
 table 69970 "TC Log" { fields { field(1; Id; Integer) { } field(2; Txt; Text[250]) { } } keys { key(PK; Id) { } } }

@@ -9,7 +9,7 @@ fn xmlport_run_is_refused_with_its_reason() {
     let l = al_testkit::compile(src);
     let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
     // The static form raises its errors when it runs (branch ms-top-refusals-1). The instance form lowers since corpus master
-    // ac3499d6 pins it for an export port with a request page (xmlport/lt-y40-xmlport-request-page/Y40XmlPortRequestPage.al:398);
+    // ac3499d6 pins it for an export port with a request page (xmlports/shapes-properties/Y40XmlPortRequestPage.al:398);
     // on a port without one it is refused when it runs (al-vm xmlports/run_request.rs).
     let ri = l.program.objects[oi]
         .routines

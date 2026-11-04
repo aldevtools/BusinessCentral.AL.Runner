@@ -63,7 +63,7 @@ No. Series Line `P-CR+` starts at 109001 and ends at 1010999. `NoIsWithinValidRa
 `CurrentNo > EndingNo`. The runtime ordered two Code values as text, so `'109001' > '1010999'` was true and the series
 read as used up ("no unused posted credit memo numbers").
 
-The corpus pins Code apart from Text: text/lt-text-functions/TextCompare.Codeunit.al `CodeComparison` (lines 205-246)
+The corpus pins Code apart from Text: text/text-methods/TextCompare.Codeunit.al `CodeComparison` (lines 205-246)
 shows `'10' < '9'` is No for Code (observation `tenlt`). The fix orders two Codes of plain digits (no leading zero) as
 numbers in the `<`, `<=`, `>`, `>=` operators. Leading zeros, signs and mixed codes are not pinned and stay as before.
 It is registered as the assumption `code-digits-compare-as-numbers`. Test: `crates/al-vm/tests/language/code_compare.rs`.
@@ -73,7 +73,7 @@ Results without any scratch app are in the hand-back; the prepayment and return-
 
 `al-bcdb read <bak> --table <T> --company CRONUS` returns no rows for these, and the tests below call `FindFirst` or `FindSet`
 without creating a row first, so they fail with "The <table> table is empty." (DB:TableIsEmpty, pinned by
-record/lt-filters-keys-finds/P68C_EmptyFinds.al). The backup holds 5 customers and no Service Item.
+record/filters/P68C_EmptyFinds.al). The backup holds 5 customers and no Service Item.
 
 | Table | Tests that fail on it (Tests-Misc, Tests-SCM, Tests-ERM) |
 |---|---|
@@ -96,7 +96,7 @@ the merges that followed the full run of main 0b414672 (3273 failures then, 924 
 remaining part is a runtime defect fixed on branch ms-fails-2: a `where()` condition of a TableRelation that names the
 validated field itself (`Item Variant.Code where("Item No." = field("Item No."), Code = field("Variant Code"), ...)` of Prod.
 Order Line, Assembly Header and Assembly Line) read the old, blank value of the field, so it contradicted the key and the
-variant "cannot be found". It reads the value being validated now (pinned by record/lt-relation-where-validated/RelationWhereValidated.al,
+variant "cannot be found". It reads the value being validated now (pinned by record/table-relation/RelationWhereValidated.al,
 test `crates/al-vm/tests/store/relation_where_enum_filter.rs`).
 
 How the data rows above were proven: `bcdb tables BusinessCentral-W1.bak` lists the page count of every table of the

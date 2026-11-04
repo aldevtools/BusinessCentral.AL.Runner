@@ -108,10 +108,10 @@ corpus tests that reach it.
 - Use: decode or encode Base64 text. `FromBase64` calls `Convert.FromBase64String`
   and writes the bytes to an `OutStream`. `ToBase64` does the reverse.
 - Reached by 8 tests through `FromBase64` and 2 through `ToBase64`. Example:
-  `media/TestMediaPngImport.al:70`, which imports a PNG given as Base64 text.
+  `streams/media/TestMediaPngImport.al:70`, which imports a PNG given as Base64 text.
   The test's helper `ImportBase64` (line 258) calls `Base64Convert.FromBase64`.
-  Others: `handlers/TestPageFieldFormatsMediaFilled_Tests.al:22`,
-  `handlers/TestReportSaveAsPdfContent.al:137`.
+  Others: `streams/TestPageFieldFormatsMediaFilled_Tests.al:22`,
+  `reports/TestReportSaveAsPdfContent.al:137`.
 - Why it matters: here the Base64 step is only a vehicle. The test is about
   Media fields. Refusing hides those results too.
 
@@ -121,7 +121,7 @@ corpus tests that reach it.
 - DotNet type: `NavTenantSettingsHelper`, a Microsoft server class.
 - Use: ask the server whether the tenant is a sandbox or production.
 - Reached by 3 tests through `IsSandbox` and 1 through `IsProduction`. Example:
-  `session/TestEnvironmentInformationAgreement.al:26` asserts that
+  `session-system/TestEnvironmentInformationAgreement.al:26` asserts that
   `IsProduction()` is the opposite of `IsSandbox()`.
 - Why it matters: the answer is the same data as the "Environment type" row of
   the identity table in ADR-013 (Production by default). If a shim exists, it
@@ -135,7 +135,7 @@ corpus tests that reach it.
   permission set. The AL code first checks the Access Control table itself and
   asks the server only when the direct check finds nothing.
 - Reached by 3 tests. Example:
-  `access-control/TestAccessControlBacksIsSuper.al:37`. That test requires that
+  `permissions/access-control/TestAccessControlBacksIsSuper.al:37`. That test requires that
   the permission answer and the Access Control table agree.
 - Why it matters: the .NET call runs only after two AL checks fail. If the
   Access Control table holds the row, the AL code answers first. If the user does
@@ -164,7 +164,7 @@ corpus tests that reach it.
   reads the new row back from the `All Profile` table. So the .NET call must
   also write that row. It is a service operation on metadata, like the metadata
   tables the owner said we must create ourselves.
-- Reached by 1 test: `profile/TestCopyProfile.al:62` expects the error "could
+- Reached by 1 test: `profiles/TestCopyProfile.al:62` expects the error "could
   not copy" when the target profile id already exists.
 - Why it matters: this one cannot be a pure function. A shim needs a write path
   into a platform table provider.

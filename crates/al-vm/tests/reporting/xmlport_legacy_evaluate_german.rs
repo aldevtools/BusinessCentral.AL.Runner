@@ -1,5 +1,5 @@
 //! A Legacy (`FormatEvaluate = Legacy`) Xml port reads a Boolean as Evaluate does, and under language 1031 its error is the German
-//! one (corpus xmlport/lt-dg-xmlport-leads/DgXmlPortLeads.al:Item107_BoolImportByLanguage `legacy_1031_yes`).
+//! one (corpus streams/DgXmlPortLeads.al:Item107_BoolImportByLanguage `legacy_1031_yes`).
 
 const SRC: &str = r#"
 table 69995 "XG Blob" { fields { field(1; Code; Code[10]) { } field(2; Data; Blob) { } } keys { key(PK; Code) { } } }

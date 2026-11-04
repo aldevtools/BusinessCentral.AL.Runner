@@ -1,5 +1,5 @@
 //! An element of `in [...]` or a case label of another type than the selector converts to the selector's type before the
-//! comparison (corpus types/lt-y31-conversion-matrix/Y31ConvCmp.al, LT Y31 Cmp: `Integer_Decimal`, `Code10_Text`,
+//! comparison (corpus types/operators-expressions/Y31ConvCmp.al, LT Y31 Cmp: `Integer_Decimal`, `Code10_Text`,
 //! `Text10_Text`).
 
 use al_testkit::{run_in, text};
@@ -194,7 +194,7 @@ codeunit 69968 LE
     assert_eq!(text(run_in(src, "LE", "P")), "97");
 }
 
-// types/lt-scalars/ScT70061.al:Char_Arithmetic: a one-character literal compared with a Char is a Char ('a' > 'A' is true), while
+// types/decimal-integer/ScT70061.al:Char_Arithmetic: a one-character literal compared with a Char is a Char ('a' > 'A' is true), while
 // a Text variable against a Char compares as texts (LT Y31 Cmp Text `Text_Char`: 'a' < 'A').
 #[test]
 fn a_char_against_a_literal_compares_as_chars() {

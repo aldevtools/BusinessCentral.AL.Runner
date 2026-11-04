@@ -1,4 +1,4 @@
-//! corpus pages/lt-qi-row-page-var/QiRowPageVar.al (codeunit 86864): a repeater control over a page variable shows, on every row,
+//! corpus pages/row-page-variable/QiRowPageVar.al (codeunit 86864): a repeater control over a page variable shows, on every row,
 //! what the variable held after that row's OnAfterGetRecord (and OnAfterGetCurrRecord for the current row). The fixture objects
 //! are the corpus file's.
 

@@ -1,5 +1,5 @@
 //! A linked FactBox that serves its rows from OnFindRecord is read again when its host moves back with First() after GoToKey
-//! (pages/lt-part-reads/PartReadsOpen.al SH_FindRecordPart_HostFirstAfterGoToKey, SH_FindRecordPart_HostNextLastPrevious): it
+//! (pages/parts/PartReadsOpen.al SH_FindRecordPart_HostFirstAfterGoToKey, SH_FindRecordPart_HostNextLastPrevious): it
 //! reads as after a forward move, and
 //! reads nothing on a move that keeps its link value.
 

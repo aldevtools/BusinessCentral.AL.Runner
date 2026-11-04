@@ -94,7 +94,7 @@ fn general(op: Arith, family: Family, l: &Value, r: &Value) -> Option<Result<Val
 }
 
 /// DateTime +/- a Decimal with a fraction: the conversion error names the amount added, a subtraction the negated one
-/// (types/lt-y31-conversion-matrix/Y31ConvAr.al, LT Y31 Ar DateTime `DateTime_Decimal`: DT - 1.5 names -1.5).
+/// (types/operators-expressions/Y31ConvAr.al, LT Y31 Ar DateTime `DateTime_Decimal`: DT - 1.5 names -1.5).
 pub(crate) fn datetime_fraction_error(op: Arith, d: Decimal) -> Result<Value, Signal> {
     let shown = if op == Arith::Sub { -d } else { d };
     crate::native::raise(
@@ -110,7 +110,7 @@ pub(crate) fn datetime_fraction_error(op: Arith, d: Decimal) -> Result<Value, Si
 mod tests {
     use super::*;
 
-    /// `B += E` with a Byte `B` and an Enum `E` (types/lt-y31-conversion-matrix/Y31ConvAr.al, LT Y31 Ar Enum `Enum_Byte`
+    /// `B += E` with a Byte `B` and an Enum `E` (types/operators-expressions/Y31ConvAr.al, LT Y31 Ar Enum `Enum_Byte`
     /// `compound_add`): the sum of the byte and the ordinal, an Integer that the store into the Byte range-checks.
     #[test]
     fn a_byte_plus_an_enum_is_the_integer_sum() {

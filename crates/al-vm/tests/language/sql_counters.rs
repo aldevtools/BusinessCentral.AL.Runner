@@ -1,5 +1,5 @@
 //! `SessionInformation.SqlStatementsExecuted()` and `SqlRowsRead()` (issue 5580). The corpus pins only properties of the
-//! counters, never a count (session/lt-bl-sql-counters/SqlCounters.al:74-202, session/TestMiscTypes.al:97-114): the value
+//! counters, never a count (session-system/session/SqlCounters.al:74-202, session-system/TestMiscTypes.al:97-114): the value
 //! is not negative, it is a BigInteger, and the sign of the change between two reads around pinned operations. The values
 //! the runtime gives are a model (one per pinned increase), so a value may only reach a comparison whose answer the pins
 //! decide; any other use refuses the test.

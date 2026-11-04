@@ -1,6 +1,6 @@
 //! A plain `TestPage.Close()` in a ModalPageHandler (no OnQueryClosePage veto): RunModal raises. Pinned only for the static
-//! RunModal of a StandardDialog (misc/lt-cb-odd-leads/CbHandlerTests.al:181 ModalHandler_CallsClose_RunModalOutcome) and a Page
-//! variable's RunModal of a Card (pages/lt-bl-unopened-currpage/UnopenedCurrPage.al:273 Update_Then_RunModal_Card_HandlerCloses).
+//! RunModal of a StandardDialog (ui-handlers/CbHandlerTests.al:181 ModalHandler_CallsClose_RunModalOutcome) and a Page
+//! variable's RunModal of a Card (pages/currpage/UnopenedCurrPage.al:273 Update_Then_RunModal_Card_HandlerCloses).
 //! Every other page type and run kind is refused.
 
 use al_test_cli::report::Outcome;

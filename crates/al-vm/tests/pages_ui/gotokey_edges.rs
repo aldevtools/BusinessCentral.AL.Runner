@@ -1,6 +1,6 @@
 //! GoToKey and GoToRecord at the edges of the client's row scan (pages/gotokey_find.rs): a find list with all four row triggers
 //! (a key in the second block of rows, the first row, the current row, a miss from a later row) and a list with
-//! OnAfterGetCurrRecord only (a miss). Each test names the corpus test of pages/lt-y61-page-probes/Y61GoToKeyEdges.al that pins it.
+//! OnAfterGetCurrRecord only (a miss). Each test names the corpus test of testpage/Y61GoToKeyEdges.al that pins it.
 
 const SRC: &str = r#"
 table 69980 "GE Log" { fields { field(1; Id; Integer) { } field(2; Txt; Text[250]) { } } keys { key(PK; Id) { } } }
@@ -264,7 +264,7 @@ fn a_key_in_the_second_block_of_a_find_list_walks_into_it() {
     assert_eq!(&out[3..], ["Yes", &step(34), "N034"]);
 }
 
-/// pages/lt-y72-page-probes/Y72FindPagesEdges.al:498 FindList_GoToKey_ThirdBlock: arriving on row 40 reads the third block the same
+/// testpage/Y72FindPagesEdges.al:498 FindList_GoToKey_ThirdBlock: arriving on row 40 reads the third block the same
 /// way (rows 41 to 60).
 #[test]
 fn a_key_in_the_third_block_of_a_find_list_walks_into_it() {

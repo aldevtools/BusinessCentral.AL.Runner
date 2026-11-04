@@ -22,9 +22,9 @@ use std::sync::Arc;
 type St = Rc<RefCell<PageState>>;
 type Rec = Rc<RefCell<RecordState>>;
 
-/// corpus testpageteardown/TestPageTeardown.al:227, testpageclose/TestPageClosingActions.al:338
+/// corpus testpage/lifecycle/TestPageTeardown.al:227, testpage/lifecycle/TestPageClosingActions.al:338
 const NOT_OPEN: &str = "The TestPage is not open.";
-/// corpus testpageclose/TestPageClosingActions.al:339
+/// corpus testpage/lifecycle/TestPageClosingActions.al:339
 const ALREADY_OPEN: &str = "The TestPage is already open.";
 
 enum Left {
@@ -81,7 +81,7 @@ fn page_of<'a>(engine: &'a Engine, st: &St) -> &'a ir::Page {
 }
 
 /// A property of a page as the page and its extensions leave it: an extension's value wins over the base
-/// page's (corpus pageext/lt-z-page-ext-props/ZPageExtProps.al:629, 685-1110). Two extensions that set the
+/// page's (corpus pages/extensions/ZPageExtProps.al:629, 685-1110). Two extensions that set the
 /// same property are not pinned. The value is trimmed.
 fn effective_prop(engine: &Engine, object: usize, name: &str) -> Result<Option<String>, Signal> {
     let prop = |o: usize| {
@@ -148,7 +148,7 @@ fn is_true(s: &str) -> bool {
 
 /// A boolean control property as written: `true` or `false`. Anything else is an expression the compile keeps as text
 /// (only Visible, Editable, Enabled and HideValue are evaluated, `al_sema::pages::dynamic_type`); reading it as false would
-/// be silently wrong (pages/lt-page-presentation-properties/P119LabelHideValue.al:74: `HideValue = <variable>` hides the
+/// be silently wrong (pages/properties/P119LabelHideValue.al:74: `HideValue = <variable>` hides the
 /// value), so it is refused.
 fn lit_bool(name: &str, s: &str) -> Result<bool, Signal> {
     let t = unquote(s);
@@ -304,7 +304,7 @@ impl Session {
     }
 
     /// The error the client raises when a page trigger's AL error forces the page to close: "Page <caption> has to close."
-    /// with the code FormAbort:Dialog (corpus pages/lt-cc-page-leads/CcPageLeads.al:525, :538, :551 on open, :564 with the
+    /// with the code FormAbort:Dialog (corpus testpage/CcPageLeads.al:525, :538, :551 on open, :564 with the
     /// key on Next). Pinned for an AL `Error` (code Dialog) on a page with no caption of its own, where the caption is the
     /// page's name; any other error, or a page with a caption, raises an error whose text and code are not pinned.
     fn has_to_close(&self, st: &St, e: &AlError, caption: String) -> Signal {
@@ -331,9 +331,9 @@ impl Session {
         let object = st.borrow().object as usize;
         let page = page_of(&engine, st);
         // The request page of a report never runs OnAfterGetRecord, whatever the report's data items do
-        // (report/lt-request-page-record-triggers/RequestPageOnAfterGetRecord.al: no `rp OnAfterGetRecord` in any of the three runs).
-        // With a source table it runs, before OnAfterGetCurrRecord (pages/lt-ab-tests/ABTests.al:1195 ReqPageBaseReportOk,
-        // report/lt-y80-reportext-request-page/Y80ReportExtRequestPage.al Y80_RX_ReadOnly_OK `handler start`).
+        // (reports/request-page/RequestPageOnAfterGetRecord.al: no `rp OnAfterGetRecord` in any of the three runs).
+        // With a source table it runs, before OnAfterGetCurrRecord (testpage/ABTests.al:1195 ReqPageBaseReportOk,
+        // reports/request-page/Y80ReportExtRequestPage.al Y80_RX_ReadOnly_OK `handler start`).
         if name == "onaftergetrecord"
             && engine.program.objects[object].is_kind(al_ir::ObjKind::Report)
             && !self.has_source(st)
@@ -349,7 +349,7 @@ impl Session {
         }
         // In OnAfterGetRecord xRec is the row the page fetched before (a blank row first); in OnAfterGetCurrRecord on a stored
         // row it is the row OnAfterGetCurrRecord ran with before (a blank row with the part link first). Every other trigger
-        // keeps the xRec the page holds (testpart/QiHostSaveParts.al:361-362, :411-412, :580).
+        // keeps the xRec the page holds (testpage/parts/QiHostSaveParts.al:361-362, :411-412, :580).
         // On a new row OnAfterGetCurrRecord sees the xRec the page holds, the new row as it was set up (misc/lt-probes-needed-7/
         // PnGNewRecord.al:94 HandedRecordNoFilters `List.OnNewRecord;List.AGCR(,)` after `List.AGCR(N1,)`; PnGShowRow.al
         // ListLosesOnlyRowDeleteNoUpdate `List.OnNewRecord;List.AGCR(,)` after `List.AGR(U1,Upd 1)`), and so does the next one on a
@@ -447,7 +447,7 @@ impl Session {
             s.agr_row = Some(key);
         }
         // What the repeater's page-variable controls show for the row: what the variables hold after its OnAfterGetRecord, and for
-        // the current row after OnAfterGetCurrRecord (pages/lt-qi-row-page-var/QiRowPageVar.al:223 QI_RV_List_Navigation, :312
+        // the current row after OnAfterGetCurrRecord (pages/row-page-variable/QiRowPageVar.al:223 QI_RV_List_Navigation, :312
         // QI_RV_Part_Navigation: every row shows its own `agr N | cur N` after every move).
         if declared && result.is_ok() && (name == "onaftergetrecord" || (name == "onaftergetcurrrecord" && stored_row))
         {
@@ -597,7 +597,7 @@ impl Session {
     }
 
     /// xRec of the first OnAfterGetRecord (a blank row) or OnAfterGetCurrRecord (a blank row with each primary-key field
-    /// whose filter is a single value on it: the part link) of an open page (testpart/QiHostSaveParts.al:361
+    /// whose filter is a single value on it: the part link) of an open page (testpage/parts/QiHostSaveParts.al:361
     /// `L.AGR(D1/10000|d1 l1 x=/0)`, `L.AGCR(D1/10000|d1 l1 x=D1/0)`, `U.AGCR(D1/10000 x=/0)`, `H.AGCR(D1 x=)`).
     fn blank_fetch_xrec(&mut self, st: &St, with_filters: bool) -> Result<Vec<Value>, Signal> {
         let rec = self.page_rec(st);
@@ -638,7 +638,7 @@ impl Session {
     }
 
     /// A page-driven call ends: the client takes the page's view back, which carries the key and
-    /// `Ascending` but not a per-field `SetAscending` (corpus handlers/TestPageViewRoundTripRoutes.al,
+    /// `Ascending` but not a per-field `SetAscending` (corpus testpage/TestPageViewRoundTripRoutes.al,
     /// Action_SetAscending_ReadInTheSameTrigger_IsDescending against ..._ReadByALaterAction).
     fn end_page_call(&mut self, st: &St) {
         let engine = self.engine();
@@ -653,8 +653,8 @@ impl Session {
 
     /// A page trigger that answers Boolean: `Some(answer)` when the trigger exists and can state one,
     /// `None` when it is absent or never executes `exit(value)`. A trigger that falls off its end
-    /// without an exit does not veto (corpus pageupdate/PageUpdateNewRowCard.Page.al: OnInsertRecord
-    /// assigns the key and exits nothing, and the row is saved; handlers/TrtCardNoInsert.Page.al
+    /// without an exit does not veto (corpus pages/currpage/PageUpdateNewRowCard.Page.al: OnInsertRecord
+    /// assigns the key and exits nothing, and the row is saved; testpage/TrtCardNoInsert.Page.al
     /// exits false and it is not).
     fn page_trigger_answer(&mut self, st: &St, name: &str, args: Vec<Value>) -> Result<Option<bool>, Signal> {
         let engine = self.engine();
@@ -672,13 +672,13 @@ impl Session {
             _ => None,
         };
         // OnInsertRecord and OnModifyRecord of the page extensions: all of them run, the page's first, whatever the others
-        // answered, and one false answer of an extension vetoes the insert or the modify (pageext/lt-ue-pageext-leads/
+        // answered, and one false answer of an extension vetoes the insert or the modify (testpage/
         // UeTriggerTests.al NewRow_FirstExtensionAnswersFalse, ModifyRow_SecondExtensionAnswersFalse; awaiting the corpus pin).
         let exts = std::mem::take(&mut self.pages.ext_answers);
         if exts.is_empty() {
             return Ok(own);
         }
-        // Pinned by pageext/lt-ue-pageext-leads/UeTriggerTests.al (was assumption `pageext-record-trigger-answers`).
+        // Pinned by testpage/UeTriggerTests.al (was assumption `pageext-record-trigger-answers`).
         if exts.contains(&false) {
             self.pages.ext_vetoed = true;
             return Ok(Some(false));
@@ -693,7 +693,7 @@ impl Session {
     /// `OnQueryClosePage` of a page and of the extensions that declare it: all of them run, the page's first
     /// and then each extension's in application order, whatever the earlier ones answered. The page closes
     /// only when every trigger that states an answer says true (corpus
-    /// handlers/TestPageCloseTriggersSelectionCardPageContracts.al:
+    /// testpage/TestPageCloseTriggersSelectionCardPageContracts.al:
     /// OnQueryClosePage_PageAndExtension_BothRun_AndBothMustAgreeToClose). `Some(false)` vetoes; `None` when
     /// none states an answer.
     fn query_close_answer(&mut self, st: &St, args: Vec<Value>) -> Result<Option<bool>, Signal> {
@@ -742,7 +742,7 @@ impl Session {
     }
 
     /// Raises the platform event `event` that BC publishes after the page's own trigger of that name
-    /// (corpus handlers/TestPageTriggerEvents.al:1-20): the page's own trigger runs first, the event is
+    /// (corpus testpage/TestPageTriggerEvents.al:1-20): the page's own trigger runs first, the event is
     /// the platform's last word. `allow` is the `var Allow...` parameter some of them carry; the
     /// returned flag is what the subscribers left in it.
     fn page_event(&mut self, st: &St, event: &str, allow: Option<bool>, below: Option<bool>) -> Result<bool, Signal> {
@@ -801,7 +801,7 @@ impl Session {
 
     /// `OnBeforeValidateEvent` / `OnAfterValidateEvent` of the control `element` of the page: raised around the control's own
     /// OnValidate after the table field's events and trigger have run (corpus
-    /// record/lt-loadfields-pagesource-validate/P81PageValidateEvents.al: `T.Name.After > P.Name.Before > P.Name.OnValidate >
+    /// record/load-fields/P81PageValidateEvents.al: `T.Name.After > P.Name.Before > P.Name.OnValidate >
     /// P.Name.After`). The parameters are `Rec` and `xRec` (the corpus subscribers take `Rec` only).
     pub(crate) fn page_validate_event(&mut self, st: &St, event: &str, element: &str) -> Result<(), Signal> {
         let engine = self.engine();
@@ -833,7 +833,7 @@ impl Session {
 
     /// `OnBeforeActionEvent` / `OnAfterActionEvent` of the action `element` of the page: raised by `TestAction.Invoke` before
     /// the action's OnAction trigger and after it when it did not fail (corpus
-    /// events/lt-global-triggers-statements/P114PageActionEvents.al: P114_ActionOrder, P114_ActionRaisesError,
+    /// events/platform-triggers/P114PageActionEvents.al: P114_ActionOrder, P114_ActionRaisesError,
     /// P114_BeforeEventChangesRecord). The subscribers take `Rec` or nothing. A page without a source table,
     /// and a subscriber that is declared and not compiled are refused: none is pinned.
     pub(crate) fn page_action_event(&mut self, st: &St, event: &str, element: &str) -> Result<(), Signal> {
@@ -862,7 +862,7 @@ impl Session {
             sender: None,
         };
         // An error a subscriber raises stops the action (before) or comes after its OnAction (after) and reaches Invoke
-        // with its own text (events/lt-page-action-subscriber-errors/PageActionSubscriberErrors.al: Act_BeforeSubscriberRaises,
+        // with its own text (events/page-events/PageActionSubscriberErrors.al: Act_BeforeSubscriberRaises,
         // Act_AfterSubscriberRaises, Act_BothSubscribersRaise).
         self.raise(&call, &mut args)
     }

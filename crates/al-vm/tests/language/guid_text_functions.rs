@@ -1,5 +1,5 @@
 //! A Guid passed to the Text parameter of a string function is its upper-case text form
-//! (types/lt-guid-as-text-argument/GuidAsTextArgument.al:108-146, Guid_AsTextArgument_MoreStringFunctions).
+//! (types/guid/GuidAsTextArgument.al:108-146, Guid_AsTextArgument_MoreStringFunctions).
 
 use al_testkit::{run_in, text};
 
@@ -42,7 +42,7 @@ fn string_functions_read_a_guid_as_its_text() {
 }
 
 /// EndsWith, LastIndexOf, Split, TrimStart, TrimEnd and IndexOfAny read a Guid as its text too
-/// (misc/lt-y70-assumptions/Y70Probes.al:264-311, GuidAsText_OtherFunctions).
+/// (record/Y70Probes.al:264-311, GuidAsText_OtherFunctions).
 const MORE: &str = r#"
 codeunit 70971 C
 {

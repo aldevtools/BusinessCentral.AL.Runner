@@ -64,7 +64,7 @@ pub(crate) fn days_in_month(y: i32, m: u32) -> u32 {
 }
 
 /// A whole number of any kind DMY2Date takes: an Integer, and a Byte, BigInteger, Decimal, Option or Char that holds the same
-/// number (types/lt-y71-evaluate-dmy2date/Y71EvaluateDashedDates.al:150-228, all give 2026-03-01 for 3). A Decimal with a
+/// number (format-evaluate/Y71EvaluateDashedDates.al:150-228, all give 2026-03-01 for 3). A Decimal with a
 /// fraction and a BigInteger beyond Integer are no number it takes ([`int_overflow`]).
 fn int_of(v: Option<&Value>) -> Option<i32> {
     use rust_decimal::prelude::ToPrimitive;
@@ -79,7 +79,7 @@ fn int_of(v: Option<&Value>) -> Option<i32> {
 }
 
 /// The ConversionCast a Decimal with a fraction or a BigInteger beyond Integer raises as a DMY2Date argument, before any range
-/// check (types/lt-y81-values/Y81DMY2Date.al:183-215 Y81_DMY2Date_DecimalArguments, _BigIntegerArguments; needs corpus bump).
+/// check (types/Y81DMY2Date.al:183-215 Y81_DMY2Date_DecimalArguments, _BigIntegerArguments; needs corpus bump).
 fn int_overflow(v: Option<&Value>) -> Option<String> {
     let (shown, ty) = match v? {
         Value::Decimal(d) if !d.fract().is_zero() => {
@@ -104,10 +104,10 @@ fn plain_date(v: &Value, what: &str) -> Result<i32, Signal> {
     }
 }
 
-/// `DMY2Date(Day [, Month [, Year]])` (fieldref/TestFieldRefValue.al:122, record/TestDateVirtualTableFlowField.al:65,83).
+/// `DMY2Date(Day [, Month [, Year]])` (recordref-fieldref/fieldref/TestFieldRefValue.al:122, record/TestDateVirtualTableFlowField.al:65,83).
 /// A missing month and year come from Today, never from the work date, and then bound the day like given ones
-/// (errors/lt-ms-refusals-133/P133DateEvaluateFormat.al:104-218); without a host clock the short forms are refused.
-/// One part outside the calendar raises the range error that names it (types/lt-datetime/DateFuncs.al:243-302,
+/// (types/P133DateEvaluateFormat.al:104-218); without a host clock the short forms are refused.
+/// One part outside the calendar raises the range error that names it (types/date-time/DateFuncs.al:243-302,
 /// DMY2Date_Invalid): the day against the length of its month (30 February 2024: 1 to 29), the month against 1 to 12, the year
 /// against 1 to 9999; a month out of range in year 0 raises the month's error. Year 0 is valid only as (1, 1, 0); which
 /// part BC names when two are out of range is not pinned: refused.
@@ -148,7 +148,7 @@ fn dmy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         (false, false) if y == 0 && day_any_month => return range(2, m, 12),
         // The shortest length of the month: a day in range in every year.
         // Year 0 is valid only as (1, 1, 0), which is (2, 1, 1); any other year 0 with a day and a month in range raises the
-        // year's error (types/lt-y81-values/Y81DMY2Date.al:41-64; needs corpus bump).
+        // year's error (types/Y81DMY2Date.al:41-64; needs corpus bump).
         (false, true) if y == 0 && (d, m) == (1, 1) => return Ok(Value::Date(day_from_civil(1, 1, 2), false)),
         (false, true) if y == 0 && (1..=31).contains(&d) => return range(3, y, 9999),
         (false, true) if y != 0 && d >= 1 && d as u32 <= days_in_month(2023, m as u32) => return range(3, y, 9999),
@@ -158,8 +158,8 @@ fn dmy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
             ));
         }
     }
-    // DMY2Date(1, 1, 1) is the undefined date, not the 00010101D literal (types/lt-datetime/DateFuncs.al:213, :227: Format(.., 0, 9)
-    // is ''; errors/lt-ms-refusals-130/P130DateFilters.al:261-262).
+    // DMY2Date(1, 1, 1) is the undefined date, not the 00010101D literal (types/date-time/DateFuncs.al:213, :227: Format(.., 0, 9)
+    // is ''; record/filters/P130DateFilters.al:261-262).
     if (d, m, y) == (1, 1, 1) {
         return Ok(Value::Date(0, false));
     }
@@ -167,7 +167,7 @@ fn dmy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 }
 
 /// `CreateDateTime(Date, Time)`. A defined date with `0T` is midnight
-/// (handlers/TestPageTemporalSetValue_Tests.al:85). Two blanks give the blank DateTime; a blank
+/// (testpage/TestPageTemporalSetValue_Tests.al:85). Two blanks give the blank DateTime; a blank
 /// date with a time is an error (types/TestDateRoundFormatStringContracts.al:CreateDateTime_MidnightBlankAndInvalid).
 fn create_datetime(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let Value::Time(t) = a[1] else {
@@ -180,13 +180,13 @@ fn create_datetime(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> O
         return raise("The date is not valid.", "DateInvalid");
     }
     // A closing date is its day plus 23:59:59: with 12:00 PM the result reads 11:59 AM of the next day, with 0T 11:59 PM of the same
-    // day (misc/lt-probes-needed-2/PnBDateFormat.al:CreateDateTime_ClosingDate pins the minutes; the seconds are 59:
-    // types/lt-y67-variant-numeric/Y67VariantNumeric.al:226-236 Variant_DateTimes_A `dt closing` 2026-01-16T11:59:59Z).
+    // day (errors/PnBDateFormat.al:CreateDateTime_ClosingDate pins the minutes; the seconds are 59:
+    // types/variant/Y67VariantNumeric.al:226-236 Variant_DateTimes_A `dt closing` 2026-01-16T11:59:59Z).
     let (day, closing) = match &a[0] {
         Value::Date(n, c) if *n > 0 => (*n, *c),
         other => return plain_date(other, "CreateDateTime").map(|_| unreachable!()),
     };
-    // 0001-01-01 is no date a DateTime can be made of (types/lt-datetime/DateTimeFuncs.al:CreateDateTime_Variants `af32`,
+    // 0001-01-01 is no date a DateTime can be made of (types/date-time/DateTimeFuncs.al:CreateDateTime_Variants `af32`,
     // RoundDateTime_Edges `af118`).
     if day == 1 {
         return raise("The date is not valid.", "DateInvalid");
@@ -274,7 +274,7 @@ fn defined_datetime(v: &Value, what: &str) -> Result<i64, Signal> {
     }
 }
 
-/// handlers/TestPageTemporalSetValue_Tests.al:118.
+/// testpage/TestPageTemporalSetValue_Tests.al:118.
 fn dt2date(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     // The undefined DateTime gives the undefined Date (text/TestProbeTextDateFormatContracts.al:Dates_CreateDateTimeRoundTrip).
     if matches!(a[0], Value::DateTime(0)) {
@@ -285,7 +285,7 @@ fn dt2date(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 }
 
 /// `DateTime.Date()` is `DT2Date` of the receiver, the undefined DateTime included
-/// (types/lt-datetime-date-time-methods/DateTimeDateTimeMethods.al:27 DateTime_DateAndTimeMethods_SetValue, :51 _Undefined).
+/// (types/date-time/DateTimeDateTimeMethods.al:27 DateTime_DateAndTimeMethods_SetValue, :51 _Undefined).
 fn datetime_date(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let Some(v) = r else {
         return unsupported("DateTime.Date without a receiver");
@@ -294,7 +294,7 @@ fn datetime_date(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out
 }
 
 /// `DateTime.Time()` is `DT2Time` of the receiver, the undefined DateTime included
-/// (types/lt-datetime-date-time-methods/DateTimeDateTimeMethods.al:27 DateTime_DateAndTimeMethods_SetValue, :51 _Undefined).
+/// (types/date-time/DateTimeDateTimeMethods.al:27 DateTime_DateAndTimeMethods_SetValue, :51 _Undefined).
 fn datetime_time(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let Some(v) = r else {
         return unsupported("DateTime.Time without a receiver");
@@ -302,7 +302,7 @@ fn datetime_time(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out
     dt2time(c, None, &mut [v.clone()])
 }
 
-/// handlers/TestPageTemporalSetValue_Tests.al:117.
+/// testpage/TestPageTemporalSetValue_Tests.al:117.
 fn dt2time(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     if matches!(a[0], Value::DateTime(0)) {
         return Ok(Value::Time(0));
@@ -311,13 +311,13 @@ fn dt2time(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     Ok(Value::Time(ms.rem_euclid(MS_PER_DAY) + 1))
 }
 
-/// `Date2DMY(Date, 1|2|3)`: day, month, year (session/TestCalcDateNotificationContracts.al:21,22,32).
+/// `Date2DMY(Date, 1|2|3)`: day, month, year (session-system/TestCalcDateNotificationContracts.al:21,22,32).
 /// Any other part raises (types/TestDateRoundFormatStringContracts.al:Date2DMY_Part4_Throws, measured for 4).
 fn date2dmy(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let day = match &a[0] {
-        // The undefined date raises for part 1 (misc/lt-probes-needed-2/PnBDateFormat.al:135-163, Date2DWY_PartsOutOfRange
+        // The undefined date raises for part 1 (errors/PnBDateFormat.al:135-163, Date2DWY_PartsOutOfRange
         // `undefinedDmy`); the other parts are not pinned.
-        // The parts 0 and 4 raise the same for it (types/lt-datetime/DateFuncs.al Date2DMY_Invalid `0D what 0`, `0D what 4`).
+        // The parts 0 and 4 raise the same for it (types/date-time/DateFuncs.al Date2DMY_Invalid `0D what 0`, `0D what 4`).
         Value::Date(0, _) if matches!(int_of(a.get(1)), Some(0 | 1 | 4)) => {
             return raise("The date is not valid.", "DateInvalid");
         }
@@ -327,8 +327,8 @@ fn date2dmy(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         Value::Date(n, _) if *n > 0 => *n,
         other => return plain_date(other, "Date2DMY").map(|_| unreachable!()),
     };
-    // 0001-01-02, the first defined date, reads as 1 January of year 0 (types/lt-datetime/DateFuncs.al:477 UN_DMY2Date_YearZero_Value
-    // `1.1.0`: day=1, month=1, year=0; types/lt-y81-values/Y81DMY2Date.al:62 `2.1.1` reads the same; needs corpus bump for the second).
+    // 0001-01-02, the first defined date, reads as 1 January of year 0 (types/date-time/DateFuncs.al:477 UN_DMY2Date_YearZero_Value
+    // `1.1.0`: day=1, month=1, year=0; types/Y81DMY2Date.al:62 `2.1.1` reads the same; needs corpus bump for the second).
     let (y, m, d) = if day == 2 { (0, 1, 1) } else { civil_from_day(day) };
     match int_of(a.get(1)) {
         Some(1) => Ok(Value::Integer(d as i32)),
@@ -373,7 +373,7 @@ fn date2dwy(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 }
 
 /// `DWY2Date(WeekDay [, Week [, Year]])`: the date of an ISO 8601 weekday (Monday is 1), week and year
-/// (types/lt-datetime/DateFuncs.al:311-346 `DWY2Date_Valid`). A missing Week is the ISO week of today and a missing
+/// (types/date-time/DateFuncs.al:311-346 `DWY2Date_Valid`). A missing Week is the ISO week of today and a missing
 /// Year the ISO year of today (`only day`, `day week`, lines 324-325 and 339-340). Week 1 holds January 4th
 /// (`mon w1 2020` is 2019-12-30, line 334). A week 53 the year does not have, and a day after 9999-12-31, raise
 /// "The date is not valid." (`DateInvalid`, `DWY2Date_Invalid` lines 349-399). A part outside its range raises with the
@@ -449,12 +449,12 @@ fn closing_date(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out 
     }
 }
 
-/// 1 = Monday (session/TestSystemExtended.al:278). Day 1 (0001-01-01) is a Monday.
+/// 1 = Monday (session-system/TestSystemExtended.al:278). Day 1 (0001-01-01) is a Monday.
 pub(crate) fn weekday(day: i32) -> i32 {
     (day - 1).rem_euclid(7) + 1
 }
 
-/// The day number of a defined date; a closing date counts as its day (types/lt-totext-bigtext-codeunit-run/P93Date.al
+/// The day number of a defined date; a closing date counts as its day (format-evaluate/P93Date.al
 /// BT_DayOfWeek_WeekNo_Year `closing 2024-12-30`: `1|1|2024`, as 2024-12-30).
 fn receiver_date(r: Option<&mut Value>, what: &str) -> Result<i32, Signal> {
     match r {
@@ -472,7 +472,7 @@ fn day_of_week(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     Ok(Value::Integer(weekday(receiver_date(r, "Date.DayOfWeek")?)))
 }
 
-/// `Date.Day/Month/Year()`: the parts of a normal or closing date (types/lt-totext-bigtext-codeunit-run/P93Date.al:51-78,
+/// `Date.Day/Month/Year()`: the parts of a normal or closing date (format-evaluate/P93Date.al:51-78,
 /// :98-121); the undefined date raises "The date is not valid." (`DateInvalid`, P93Date.al:81-95).
 fn date_part(r: Option<&mut Value>, what: &str, pick: fn((i32, u32, u32)) -> i32) -> Out {
     match r {
@@ -486,7 +486,7 @@ fn date_part(r: Option<&mut Value>, what: &str, pick: fn((i32, u32, u32)) -> i32
 }
 
 /// The ISO 8601 week: the week that holds the year's first Thursday is week 1. The corpus pins
-/// the range and the first week of a year (session/TestSystemExtended.al:285-300); the rule
+/// the range and the first week of a year (session-system/TestSystemExtended.al:285-300); the rule
 /// itself is the documented one (docs/probes-needed.md).
 fn week_no(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let day = receiver_date(r, "Date.WeekNo")?;
@@ -495,7 +495,7 @@ fn week_no(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     Ok(Value::Integer((thursday - day_from_civil(y, 1, 1)) / 7 + 1))
 }
 
-/// `Time.Hour/Minute/Second/Millisecond` (session/TestMiscTypes.al:22-42). The undefined time is not pinned.
+/// `Time.Hour/Minute/Second/Millisecond` (session-system/TestMiscTypes.al:22-42). The undefined time is not pinned.
 fn time_part(r: Option<&mut Value>, unit_ms: i64, modulo: i64) -> Out {
     match r {
         Some(Value::Time(t)) if *t > 0 => Ok(Value::Integer((((*t - 1) / unit_ms) % modulo) as i32)),
@@ -552,7 +552,7 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
     let refuse = || unsupported(format!("date formula `{text}`: this form is not pinned by the corpus"));
     // The empty formula, `<>`, `<` and a text of white space are formulas without a term; CalcDate with
     // them returns the date (types/TestDateFormulaDurationFormatContracts.al:28-74,
-    // types/lt-date-formula-edges/DateFormulaEdges.al:ClosingBracket_MissingAfterPlus).
+    // types/date-time/DateFormulaEdges.al:ClosingBracket_MissingAfterPlus).
     if is_blank_formula(text) {
         return Ok(Vec::new());
     }
@@ -578,7 +578,7 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
         _ => None,
     };
     // A formula opened with one `<` and never closed shows the bracket in the message; with a closing bracket it shows the
-    // body alone (errors/lt-ms-refusals-136/P136Text.al:P136_CalcDate_OneAngleBracket `noNumber`, `noNumberOpen`). More than
+    // body alone (text/text-methods/P136Text.al:P136_CalcDate_OneAngleBracket `noNumber`, `noNumberOpen`). More than
     // one opening bracket without a closing one is not pinned.
     let err_number = || {
         let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
@@ -589,7 +589,7 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
             ));
         }
         // Brackets inside the outer pair stay in the message: `<CY>+<-10Y>` shows 'CY>+<-10Y' (al-runner issue 6648; corpus
-        // branch al-runtime-rs-staging-y64 85d86e7b, types/lt-date-formula-edges/DateFormulaEdges.al:705-706). Pinned for an
+        // branch al-runtime-rs-staging-y64 85d86e7b, types/date-time/DateFormulaEdges.al:705-706). Pinned for an
         // upper-case formula in one outer pair.
         let inner = compact
             .strip_prefix('<')
@@ -648,8 +648,8 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
             return err_number();
         }
         // A sign at the end of a formula opened with `<` has no number. The message shows the text between the brackets
-        // when it ends with `>`, else the whole text (errors/lt-ms-refusals-131/P131CalcDate.al:80-81 `<+` and `<->`,
-        // :116-117 `<1D>+` and `<1D+>`; errors/lt-ms-refusals-132/P132DateFormula.al:142 `<+>`). Without the opening bracket, or with lower case letters, it is not
+        // when it ends with `>`, else the whole text (types/date-time/P131CalcDate.al:80-81 `<+` and `<->`,
+        // :116-117 `<1D>+` and `<1D+>`; types/P132DateFormula.al:142 `<+>`). Without the opening bracket, or with lower case letters, it is not
         // pinned.
         if (plus || negative) && i == b.len() {
             let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
@@ -685,7 +685,7 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
                 if i + 2 == b.len() {
                     return err_number();
                 }
-                // `WD0` is an error whose text is not pinned (types/lt-datetime/CalcDate.al:188,204: Evaluate answers false).
+                // `WD0` is an error whose text is not pinned (types/date-time/CalcDate.al:188,204: Evaluate answers false).
                 if b.get(i + 2) == Some(&b'0') && !b.get(i + 3).is_some_and(u8::is_ascii_digit) {
                     return Err(Signal::Error(Box::new(crate::native::unpinned_error())));
                 }
@@ -698,7 +698,7 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
             i += 3;
             continue;
         }
-        // `W17` and `Q3` forward (corpus master, corpus PR 871: misc/lt-np4-probes/Np4DateFormulas.al NP4_CalcDate_W17,
+        // `W17` and `Q3` forward (corpus master, corpus PR 871: types/date-time/Np4DateFormulas.al NP4_CalcDate_W17,
         // NP4_CalcDate_Q3): see `apply`. Other numbers, `-Wn` and
         // `-Qn` are not pinned.
         if !negative && matches!(b.get(i), Some(b'W' | b'Q')) && b.get(i + 1).is_some_and(u8::is_ascii_digit) {
@@ -709,7 +709,7 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
                 i += 1;
             }
             match (letter, &body[start..i]) {
-                // `W21` and `W25`: corpus master (corpus PR 886) types/lt-date-formula-edges/DateFormulaInsidePeriod.al:64, :90.
+                // `W21` and `W25`: corpus master (corpus PR 886) types/date-time/DateFormulaInsidePeriod.al:64, :90.
                 (b'W', "17") => terms.push(Term::WeekLetterFirst { n: 17 }),
                 (b'W', "21") => terms.push(Term::WeekLetterFirst { n: 21 }),
                 (b'W', "25") => terms.push(Term::WeekLetterFirst { n: 25 }),
@@ -719,7 +719,7 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
             continue;
         }
         // `Mn`: the first day of month n after the month of the date (`-Mn`: before it). `M0` and `M13` raise the range error
-        // (corpus master types/lt-date-formula-edges/DateFormulaEdges.al:433-505, TV_MonthNumber_*); other numbers above 12
+        // (corpus master types/date-time/DateFormulaEdges.al:433-505, TV_MonthNumber_*); other numbers above 12
         // are not pinned.
         if b.get(i) == Some(&b'M') && b.get(i + 1).is_some_and(u8::is_ascii_digit) {
             let start = i + 1;
@@ -768,11 +768,11 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
             // SignsAndDigits_ErrorTexts `D`, `+D`, `-D`; WeekAndWeekdayUnits `W`, `WD`; TextsFromTheTestLibraries `Y`;
             // Placeholders_PercentN `+%D`). The other units (M, Q) are not pinned.
             let rest = &b[i..];
-            // `%Q` and `%Y` too, with or without the brackets (types/lt-date-formula-signed-wd/DateFormulaSignedWd.al:89-136).
+            // `%Q` and `%Y` too, with or without the brackets (types/date-time/DateFormulaSignedWd.al:89-136).
             if matches!(rest, b"D" | b"W" | b"WD" | b"Y" | b"%D" | b"%Q" | b"%Y") {
                 return err_number();
             }
-            // Letters that start with no unit letter are the unit error: `abc` shows `ABC` (types/lt-datetime/CalcDate.al:463,
+            // Letters that start with no unit letter are the unit error: `abc` shows `ABC` (types/date-time/CalcDate.al:463,
             // 478). Other letters are not pinned.
             if i == 0
                 && rest.iter().all(u8::is_ascii_alphabetic)
@@ -789,7 +789,7 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
         // EvaluateDateFormula_Format2_NonEnglishFormulas, Friday + `1WD` is the Saturday). Pinned without a sign only.
         if b.get(i) == Some(&b'W') && b.get(i + 1) == Some(&b'D') && !b.get(i + 2).is_some_and(u8::is_ascii_digit) {
             // With a sign as the first term, `+1WD` and `-1WD` move one day too, with or without the brackets
-            // (types/lt-date-formula-signed-wd/DateFormulaSignedWd.al:41-88). Another number with a sign, and a signed later
+            // (types/date-time/DateFormulaSignedWd.al:41-88). Another number with a sign, and a signed later
             // term, are not pinned.
             if (plus || negative) && !(n == 1 && start == 1) {
                 return refuse();
@@ -798,16 +798,16 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
             i += 2;
             continue;
         }
-        // A number before a current period (`2CW`) is an error whose text is not pinned (types/lt-datetime/CalcDate.al:100,117:
+        // A number before a current period (`2CW`) is an error whose text is not pinned (types/date-time/CalcDate.al:100,117:
         // Evaluate answers false).
         if b.get(i) == Some(&b'C') && unit_of(b.get(i + 1)).is_some() {
             return Err(Signal::Error(Box::new(crate::native::unpinned_error())));
         }
         let Some(unit) = unit_of(b.get(i)) else {
             // A number with no unit: at the end of the formula or before a slash (`+5`, `5`, `01/01/26`), or
-            // a text of digits and hyphens, a date (errors/lt-ms-refusals-128/P128CalcDateForms.al:
+            // a text of digits and hyphens, a date (types/date-time/P128CalcDateForms.al:
             // P128_CalcDate_DateTextIsNotAFormula `2026-10-16`, `10-16-26`).
-            // A number and one letter that is no unit is the unit error (types/lt-datetime/CalcDate.al:465,480 `1X`).
+            // A number and one letter that is no unit is the unit error (types/date-time/CalcDate.al:465,480 `1X`).
             if i + 1 == b.len() && start == 0 && b[i].is_ascii_alphabetic() && b[i] != b'C' {
                 return err_unit();
             }
@@ -835,7 +835,7 @@ pub fn is_blank_formula(text: &str) -> bool {
 
 /// `<A><B>`: two bracketed steps (`digits` and a unit) with no sign between them. The second step has no sign, so the
 /// formula raises the missing-sign error, with the text between the outer brackets
-/// (errors/lt-ms-refusals-131/P131CalcDate.al:111 `<1D><1D>` gives '1D><1D'). Only this shape is pinned; any other
+/// (types/date-time/P131CalcDate.al:111 `<1D><1D>` gives '1D><1D'). Only this shape is pinned; any other
 /// bracket inside a term stays refused (see [`normalize_formula`]).
 fn bracketed_steps_without_sign(text: &str) -> Option<&str> {
     let body = text.strip_prefix('<')?.strip_suffix('>')?;
@@ -850,7 +850,7 @@ fn bracketed_steps_without_sign(text: &str) -> Option<&str> {
 }
 
 /// `<A>+` or `<A>-`: one bracketed step (`digits` and a unit) followed by a sign. `Evaluate` with its result used answers
-/// false (errors/lt-ms-refusals-131/P131CalcDate.al:152 `<1D>+`); the statement form and other trailing signs are not
+/// false (types/date-time/P131CalcDate.al:152 `<1D>+`); the statement form and other trailing signs are not
 /// pinned for `Evaluate`.
 fn bracketed_step_then_sign(text: &str) -> bool {
     let Some(rest) = text.strip_prefix('<') else {
@@ -872,8 +872,8 @@ fn bracketed_step_then_sign(text: &str) -> bool {
 /// start, for the units D, W and M (DateFormulaEdges.al:Placeholders_PercentN).
 fn normalize_formula(text: &str) -> Result<String, Signal> {
     let refuse = |why: &str| unsupported(format!("date formula `{text}`: {why} is not pinned by the corpus"));
-    // Spaces are ignored: inside the brackets (types/lt-datetime/Evaluate.al:Format_Evaluate `< 1D >`) and between the terms
-    // (types/lt-date-formula-spaces/DateFormulaSpaces.al: CalcDate_Spaces, EvaluateDateFormula_Spaces).
+    // Spaces are ignored: inside the brackets (types/date-time/Evaluate.al:Format_Evaluate `< 1D >`) and between the terms
+    // (types/date-time/DateFormulaSpaces.al: CalcDate_Spaces, EvaluateDateFormula_Spaces).
     let chars: Vec<char> = text
         .chars()
         .filter(|c| !c.is_whitespace())
@@ -945,7 +945,7 @@ pub enum Evaluated {
 /// Rejected: a letter no formula uses (`1X`, `LW`), a `D` alone, a number alone, a decimal point,
 /// and two parts without a sign (`1D1W`). Any other text stays refused (docs/probes-needed.md).
 pub fn evaluate_formula(text: &str) -> Result<Evaluated, Signal> {
-    // Evaluate with its result used answers false (errors/lt-ms-refusals-131/P131CalcDate.al:147, 152); the statement
+    // Evaluate with its result used answers false (types/date-time/P131CalcDate.al:147, 152); the statement
     // form is not pinned.
     // The statement form raises the missing-sign error (DateFormulaEdges.al:627-628, `<1D><1D>`).
     if let Some(shown) = bracketed_steps_without_sign(text) {
@@ -985,7 +985,7 @@ pub fn evaluate_formula(text: &str) -> Result<Evaluated, Signal> {
         }));
     }
     // Letters only, none a time unit or `C`: the statement raises the time-unit error with the text upper-cased
-    // (types/lt-y49-evaluate-date-blanks/Y49EvaluateDateBlanks.al:299-330 `zz`).
+    // (format-evaluate/Y49EvaluateDateBlanks.al:299-330 `zz`).
     if n.bytes().all(|b| b.is_ascii_uppercase() && !b"DWMQYC".contains(&b)) {
         return Ok(Evaluated::Rejected(Some(format!(
             "The date formula '{n}' should include a time unit.\\\\Time units can be: D,WD,W,M,Q, or Y.\\C, meaning current time unit based on date, can be specified as a prefix to the time unit."
@@ -1076,8 +1076,8 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
             }
             // `Dn` forward: day n of the date's month, cut back to the month's length, when the date's day is below n; else day n
             // of the next month, cut back the same way (`<D29>` on 2023-02-28 stays 2023-02-28, `<D31>` on 2023-01-31 is
-            // 2023-02-28). Pinned for D1 (types/lt-date-formula-edges/DateFormulaInsidePeriod.al:36-47, types/
-            // TestDateFormulaEvaluateLeftoversContracts.al:45), D15, D28, D29, D31 (misc/lt-np4-probes/Np4DateFormulas.al
+            // 2023-02-28). Pinned for D1 (types/date-time/DateFormulaInsidePeriod.al:36-47, types/
+            // TestDateFormulaEvaluateLeftoversContracts.al:45), D15, D28, D29, D31 (types/date-time/Np4DateFormulas.al
             // NP4_CalcDate_D15, _D28, _D29, _D31), D29, D30, D31 on seven dates each (DateFormulaEdges.al SG_DayOfMonth_D29_D30_D31)
             // and D5 after CM (SG_DayOfMonth_Combined); every number of 1 to 31 follows the same rule.
             Term::DayLetterFirst { n, forward: true } if (1..=31).contains(&n) => {
@@ -1236,7 +1236,7 @@ mod tests {
         call("System.CalcDate#2", vec![t(formula), from])
     }
 
-    /// Corpus master (corpus PR 871) misc/lt-np4-probes/Np4DateFormulas.al NP4_CalcDate_*.
+    /// Corpus master (corpus PR 871) types/date-time/Np4DateFormulas.al NP4_CalcDate_*.
     #[test]
     fn letter_first_formulas_follow_the_pins() {
         type Ymd = (i32, u32, u32);
@@ -1264,7 +1264,7 @@ mod tests {
         }
     }
 
-    /// Corpus master (corpus PR 886) types/lt-date-formula-edges/DateFormulaInsidePeriod.al: `<D1>` and `<-D1>` from any day,
+    /// Corpus master (corpus PR 886) types/date-time/DateFormulaInsidePeriod.al: `<D1>` and `<-D1>` from any day,
     /// `<W21>`, `<W25>`, `<W17>` and `<Q3>` from a date inside the period.
     #[test]
     fn letter_first_formulas_inside_the_period_go_to_the_next_one() {
@@ -1304,7 +1304,7 @@ mod tests {
         refused(calc("<W22>", date(2024, 1, 1)));
     }
 
-    /// types/lt-datetime/DateFuncs.al Date2DMY_Invalid `0D what 0`, `0D what 4`: the undefined date raises DateInvalid for the parts
+    /// types/date-time/DateFuncs.al Date2DMY_Invalid `0D what 0`, `0D what 4`: the undefined date raises DateInvalid for the parts
     /// 0 and 4 as for 1.
     #[test]
     fn date2dmy_of_the_undefined_date_raises_for_parts_0_1_and_4() {
@@ -1330,7 +1330,7 @@ mod tests {
         is_date(calc("<D31>", date(2024, 1, 1)), 2024, 1, 31);
     }
 
-    /// types/lt-date-formula-edges/DateFormulaEdges.al SG_DayOfMonth_D29_D30_D31 and SG_DayOfMonth_Backward (the dates
+    /// types/date-time/DateFormulaEdges.al SG_DayOfMonth_D29_D30_D31 and SG_DayOfMonth_Backward (the dates
     /// 2024-01-10, 01-15, 01-31, 02-29, 2023-02-28, 2024-04-30, 12-31), SG_DayOfMonth_Combined (`D5` after `CM`).
     #[test]
     fn a_day_letter_before_its_number_follows_the_corpus_tables() {
@@ -1476,7 +1476,7 @@ mod tests {
 
     #[test]
     fn dmy2date_builds_a_date() {
-        // fieldref/TestFieldRefValue.al:122 `DMY2Date(1, 1, 2024)`; record/TestDateVirtualTableFlowField.al:65
+        // recordref-fieldref/fieldref/TestFieldRefValue.al:122 `DMY2Date(1, 1, 2024)`; record/TestDateVirtualTableFlowField.al:65
         // `DMY2Date(3, 1, 1)` and :83 `DMY2Date(31, 12, 9999)` are the ends of the range.
         let d = |a: i32, b: i32, c: i32| {
             call(
@@ -1488,16 +1488,16 @@ mod tests {
         is_date(d(31, 12, 9999), 9999, 12, 31);
         is_date(d(3, 1, 1), 1, 1, 3);
         is_date(d(29, 2, 2024), 2024, 2, 29);
-        // DMY2Date(1, 1, 1) is the undefined date: Format(.., 0, 9) gives '' (types/lt-datetime/DateFuncs.al:213, :227), which
+        // DMY2Date(1, 1, 1) is the undefined date: Format(.., 0, 9) gives '' (types/date-time/DateFuncs.al:213, :227), which
         // the 00010101D literal does not (it raises), and a Date field stored with it reads back equal and blank
-        // (errors/lt-ms-refusals-130/P130DateFilters.al:261-262).
+        // (record/filters/P130DateFilters.al:261-262).
         assert!(matches!(d(1, 1, 1), Ok(Value::Date(0, false))), "{:?}", d(1, 1, 1));
     }
 
     #[test]
     fn dmy2date_year_zero_is_pinned_only_as_the_first_defined_date() {
         let d = |args: Vec<i32>| call("System.DMY2Date#1", args.into_iter().map(Value::Integer).collect());
-        // (1, 1, 0) is the first defined date, 0001-01-02 (types/lt-datetime/DateFuncs.al:477 UN_DMY2Date_YearZero_Value).
+        // (1, 1, 0) is the first defined date, 0001-01-02 (types/date-time/DateFuncs.al:477 UN_DMY2Date_YearZero_Value).
         assert!(
             matches!(d(vec![1, 1, 0]), Ok(Value::Date(2, false))),
             "{:?}",
@@ -1508,7 +1508,7 @@ mod tests {
     #[test]
     fn dmy2date_refuses_what_the_corpus_does_not_pin() {
         let d = |args: Vec<i32>| call("System.DMY2Date#1", args.into_iter().map(Value::Integer).collect());
-        // Year 0 with a day and a month in range, other than (1, 1, 0), is a year error (types/lt-y81-values/Y81DMY2Date.al:41-64).
+        // Year 0 with a day and a month in range, other than (1, 1, 0), is a year error (types/Y81DMY2Date.al:41-64).
         // Two parts out of range, other than a month out of range in year 0, are not pinned.
         refused(d(vec![0, 0, 2024]));
         refused(d(vec![32, 1, 0]));
@@ -1517,7 +1517,7 @@ mod tests {
         refused(d(vec![1, 1]));
     }
 
-    /// types/lt-datetime/DateFuncs.al:243-302 DMY2Date_Invalid: the one part out of range is named with its number, its value and
+    /// types/date-time/DateFuncs.al:243-302 DMY2Date_Invalid: the one part out of range is named with its number, its value and
     /// its range; the day's range is the length of its month; a month out of range in year 0 is the month's error.
     #[test]
     fn dmy2date_names_the_part_out_of_range() {
@@ -1558,7 +1558,7 @@ mod tests {
     #[test]
     fn create_datetime_joins_date_and_time() {
         // json/TestJsonTypedGetters.al:351 `CreateDateTime(Today(), 120000T)`;
-        // handlers/TestPageTemporalSetValue_Tests.al:85 pairs a date with 0T (midnight).
+        // testpage/TestPageTemporalSetValue_Tests.al:85 pairs a date with 0T (midnight).
         let day = i64::from(day_from_civil(2024, 1, 15)) - 1;
         let noon = Value::Time(43_200_000 + 1);
         assert!(matches!(
@@ -1591,7 +1591,7 @@ mod tests {
 
     #[test]
     fn dt2date_and_dt2time_split_a_datetime() {
-        // handlers/TestPageTemporalSetValue_Tests.al:117-118.
+        // testpage/TestPageTemporalSetValue_Tests.al:117-118.
         let dt = call(
             "System.CreateDateTime#1",
             vec![date(2024, 3, 17), Value::Time(52_200_000 + 1)],
@@ -1632,7 +1632,7 @@ mod tests {
 
     #[test]
     fn dati2variant_is_a_datetime() {
-        // session/TestSystemExtended.al:168.
+        // session-system/TestSystemExtended.al:168.
         assert!(matches!(
             call("System.DaTi2Variant#1", vec![date(2024, 1, 1), Value::Time(43_200_001)]),
             Ok(Value::DateTime(_))
@@ -1641,7 +1641,7 @@ mod tests {
 
     #[test]
     fn date2dmy_picks_a_part() {
-        // session/TestCalcDateNotificationContracts.al:61 `Date2DMY(D, 1)` is the day, :79 `..., 2)` the
+        // session-system/TestCalcDateNotificationContracts.al:61 `Date2DMY(D, 1)` is the day, :79 `..., 2)` the
         // month; :32 `..., 3)` the year.
         let part = |n: i32| int(call("System.Date2DMY#1", vec![date(2024, 3, 15), Value::Integer(n)]));
         assert_eq!((part(1), part(2), part(3)), (15, 3, 2024));
@@ -1654,7 +1654,7 @@ mod tests {
             e.message
                 .ends_with("The current value is: 4. The permitted range is: from 1 to 3.")
         );
-        // Date2DMY of the undefined date raises for part 1 (misc/lt-probes-needed-2/PnBDateFormat.al, undefinedDmy); the
+        // Date2DMY of the undefined date raises for part 1 (errors/PnBDateFormat.al, undefinedDmy); the
         // other parts are not pinned.
         let Err(Signal::Error(e)) = call("System.Date2DMY#1", vec![Value::Date(0, false), Value::Integer(1)]) else {
             panic!("0D must raise");
@@ -1702,7 +1702,7 @@ mod tests {
 
     #[test]
     fn day_of_week_counts_from_monday() {
-        // session/TestSystemExtended.al:278 `20240101D.DayOfWeek()` is 1 (Monday).
+        // session-system/TestSystemExtended.al:278 `20240101D.DayOfWeek()` is 1 (Monday).
         assert_eq!(int(on("Date.DayOfWeek#1", date(2024, 1, 1))), 1);
         assert_eq!(int(on("Date.DayOfWeek#1", date(2024, 1, 7))), 7);
         assert_eq!(int(on("Date.DayOfWeek#1", date(2024, 1, 3))), 3);
@@ -1719,7 +1719,7 @@ mod tests {
 
     #[test]
     fn date_day_month_year_methods() {
-        // types/lt-totext-bigtext-codeunit-run/P93Date.al:51-78 (normal dates, 9999-12-31, 1753, leap days).
+        // format-evaluate/P93Date.al:51-78 (normal dates, 9999-12-31, 1753, leap days).
         let parts = |v: Value| {
             (
                 int(on("Date.Day#1", v.clone())),
@@ -1747,7 +1747,7 @@ mod tests {
 
     #[test]
     fn week_no_is_the_iso_week() {
-        // session/TestSystemExtended.al:285-300 pins the range 1..53 and the first week of a year.
+        // session-system/TestSystemExtended.al:285-300 pins the range 1..53 and the first week of a year.
         assert_eq!(int(on("Date.WeekNo#1", date(2024, 1, 1))), 1);
         assert_eq!(int(on("Date.WeekNo#1", date(2024, 1, 15))), 3);
         assert_eq!(int(on("Date.WeekNo#1", date(2021, 1, 3))), 53);
@@ -1756,7 +1756,7 @@ mod tests {
 
     #[test]
     fn time_parts() {
-        // session/TestMiscTypes.al:22-42.
+        // session-system/TestMiscTypes.al:22-42.
         let t = Value::Time(((12 * 60 + 30) * 60 + 5) * 1000 + 250 + 1);
         assert_eq!(int(on("Time.Hour#1", t.clone())), 12);
         assert_eq!(int(on("Time.Minute#1", t.clone())), 30);
@@ -1767,7 +1767,7 @@ mod tests {
 
     #[test]
     fn calcdate_day_month_year_steps() {
-        // types/TestDate.al:28-38 (`<+1D>`, `<-1D>`), session/TestDateTimeContracts.al:29 (`<-1M>`),
+        // types/TestDate.al:28-38 (`<+1D>`, `<-1D>`), session-system/TestDateTimeContracts.al:29 (`<-1M>`),
         // :38 and :47 (`<1Y>` clamps Feb 29 to Feb 28).
         is_date(calc("<+1D>", date(2024, 1, 1)), 2024, 1, 2);
         is_date(calc("<-1D>", date(2024, 1, 2)), 2024, 1, 1);
@@ -1782,7 +1782,7 @@ mod tests {
 
     #[test]
     fn calcdate_ends_of_periods() {
-        // session/TestCalcDateNotificationContracts.al:16-80.
+        // session-system/TestCalcDateNotificationContracts.al:16-80.
         is_date(calc("<CM>", date(2024, 3, 15)), 2024, 3, 31);
         is_date(calc("<CM>", date(2024, 2, 15)), 2024, 2, 29);
         is_date(calc("<-CM>", date(2024, 3, 15)), 2024, 3, 1);
@@ -1793,7 +1793,7 @@ mod tests {
 
     #[test]
     fn calcdate_terms_apply_left_to_right() {
-        // session/TestCalcDateNotificationContracts.al:30 `<1M-1D>` from the first of a month stays in it.
+        // session-system/TestCalcDateNotificationContracts.al:30 `<1M-1D>` from the first of a month stays in it.
         is_date(calc("<1M-1D>", date(2024, 3, 1)), 2024, 3, 31);
         is_date(calc("<CM+1D>", date(2024, 3, 10)), 2024, 4, 1);
     }
@@ -1812,7 +1812,7 @@ mod tests {
         refused(call("System.CalcDate#2", vec![t("<1D>")]));
     }
 
-    // types/lt-date-formula-edges/DateFormulaEdges.al: from Monday 2024-01-15.
+    // types/date-time/DateFormulaEdges.al: from Monday 2024-01-15.
     #[test]
     fn calcdate_edges_of_the_grammar() {
         let mon = date(2024, 1, 15);
@@ -1837,7 +1837,7 @@ mod tests {
             ("<+%D>", "The date formula '+%D' should include a number."),
             ("<WD>", "The date formula 'WD' should include a number."),
             // With the opening bracket and no closing one, the text keeps the bracket
-            // (errors/lt-ms-refusals-136/P136Text.al:P136_CalcDate_OneAngleBracket `noNumberOpen`).
+            // (text/text-methods/P136Text.al:P136_CalcDate_OneAngleBracket `noNumberOpen`).
             ("<W", "The date formula '<W' should include a number."),
             ("<+5>", "The date formula '+5' should include a time unit."),
             ("01/01/26", "The date formula '01/01/26' should include a time unit."),
@@ -1856,7 +1856,7 @@ mod tests {
 
     #[test]
     fn two_bracketed_terms_without_a_sign() {
-        // errors/lt-ms-refusals-131/P131CalcDate.al:111 (CalcDate) and :147 (Evaluate with its result used).
+        // types/date-time/P131CalcDate.al:111 (CalcDate) and :147 (Evaluate with its result used).
         let Err(Signal::Error(e)) = calc("<1D><1D>", date(2024, 1, 15)) else {
             panic!("`<1D><1D>` must raise");
         };
@@ -2115,7 +2115,7 @@ mod tests {
         }
     }
 
-    // types/lt-datetime/DateFuncs.al:311-346 DWY2Date_Valid.
+    // types/date-time/DateFuncs.al:311-346 DWY2Date_Valid.
     #[test]
     fn dwy2date_valid_cases_of_the_corpus() {
         for ((d, w, y), want) in [
@@ -2144,7 +2144,7 @@ mod tests {
         }
     }
 
-    // types/lt-datetime/DateFuncs.al:349-399 DWY2Date_Invalid.
+    // types/date-time/DateFuncs.al:349-399 DWY2Date_Invalid.
     #[test]
     fn dwy2date_invalid_cases_of_the_corpus() {
         for (d, w, y) in [
@@ -2182,7 +2182,7 @@ mod tests {
             vec![t("x"), Value::Integer(1), Value::Integer(2024)],
         ));
     }
-    // types/lt-date-formula-signed-wd/DateFormulaSignedWd.al:41-136; types/lt-datetime/CalcDate.al:100,117,188,204,463-480.
+    // types/date-time/DateFormulaSignedWd.al:41-136; types/date-time/CalcDate.al:100,117,188,204,463-480.
     #[test]
     fn calcdate_signed_working_day_percent_units_and_letter_errors() {
         let fri = date(2024, 1, 12);
@@ -2221,7 +2221,7 @@ mod tests {
     }
 
     // `Mn`: the first day of month n after the month of the date (`-Mn`: before it), corpus master
-    // types/lt-date-formula-edges/DateFormulaEdges.al:433-505 (TV_MonthNumber_*).
+    // types/date-time/DateFormulaEdges.al:433-505 (TV_MonthNumber_*).
     #[test]
     fn a_month_letter_before_its_number_goes_to_the_first_of_that_month() {
         for (y, m, d, want) in [

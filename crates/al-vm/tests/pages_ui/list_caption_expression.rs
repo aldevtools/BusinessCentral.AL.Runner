@@ -1,5 +1,5 @@
 //! The caption of a List or ListPart with `DataCaptionExpression` (gap G5-18), pinned by
-//! pages/lt-y50-list-caption-expr/Y50ListCaptionExpr.al: `<caption> - <value>` evaluated at each read; an empty value or no
+//! pages/properties/Y50ListCaptionExpr.al: `<caption> - <value>` evaluated at each read; an empty value or no
 //! row shows the caption alone; page DataCaptionFields add nothing; a ListPart shows the value alone.
 
 const SRC: &str = r#"

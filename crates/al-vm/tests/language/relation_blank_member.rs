@@ -31,7 +31,7 @@ fn a_relation_filter_naming_the_blank_enum_member_selects_the_unblocked_rows() {
 }
 
 // An empty `const('')` or `filter('')` term of a where() selects the rows whose field is blank (corpus
-// record/lt-relation-where-empty-term/RelationWhereEmptyTerm.al:Relation_ErrorTextOfFailedValidate, CalcFormula_CountWhereEmptyTerms:
+// record/table-relation/RelationWhereEmptyTerm.al:Relation_ErrorTextOfFailedValidate, CalcFormula_CountWhereEmptyTerms:
 // `empty_const` counts the 2 blank-zone rows).
 const EMPTY: &str = r#"
 table 69861 "RE Item" { fields { field(1; No; Code[10]) { } field(2; Zone; Code[10]) { } } keys { key(PK; No) { } } }
@@ -59,9 +59,9 @@ fn an_empty_const_term_of_a_relation_selects_the_blank_rows() {
 }
 
 // A where() on a field of the related table's primary key answers DB:RecordNotFound, not DB:NothingInsideFilter
-// (corpus misc/lt-probes-needed-6/PnF13RelationFilterConditions.al:122-126, 144-149, 166-169: primary key (Code, Zone),
+// (corpus record/table-relation/PnF13RelationFilterConditions.al:122-126, 144-149, 166-169: primary key (Code, Zone),
 // where(Zone = ...)). A where() on a field outside the key answers NothingInsideFilter
-// (record/lt-relation-where-empty-term/RelationWhereEmptyTerm.al:173-177).
+// (record/table-relation/RelationWhereEmptyTerm.al:173-177).
 const KEYED: &str = r#"
 table 69871 "RK Bin" { fields { field(1; Code; Code[10]) { } field(2; Zone; Code[10]) { } } keys { key(PK; Code, Zone) { } } }
 table 69872 "RK Line" { fields { field(1; Id; Integer) { } field(2; BinCode; Code[10]) { TableRelation = "RK Bin".Code where(Zone = const('Z1')); } } keys { key(PK; Id) { } } }

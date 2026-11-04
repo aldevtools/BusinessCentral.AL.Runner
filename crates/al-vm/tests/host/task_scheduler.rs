@@ -1,4 +1,4 @@
-//! TaskScheduler tasks (al-vm tasks.rs). Pins: platform/W6TaskScheduler.al:88-176, platform/lt-platform-members/
+//! TaskScheduler tasks (al-vm tasks.rs). Pins: metadata/W6TaskScheduler.al:88-176, metadata/platform-tables/
 //! PlTTaskScheduler.al:40-215.
 
 use al_builtins::native::Signal;
@@ -59,7 +59,7 @@ codeunit 50101 "TS Probe"
         exit(Task.Get(Id));
     end;
 
-    // platform/lt-wd/WdScheduledTaskGet.al (90751) and session/lt-cn-session-leads/CnSessionLeads.al:23-46.
+    // session-system/WdScheduledTaskGet.al (90751) and session-system/CnSessionLeads.al:23-46.
     procedure RowOfOpenTask(): Text
     var
         Task: Record "Scheduled Task";
@@ -88,7 +88,7 @@ codeunit 50101 "TS Probe"
         exit(Task."Failure Codeunit" = 0);
     end;
 
-    // platform/lt-y43-task-after-commit/Y43TaskAfterCommit.al (corpus master): after the Commit the task is still there, not
+    // metadata/session-system/Y43TaskAfterCommit.al (corpus master): after the Commit the task is still there, not
     // run, with its columns.
     local procedure ReadTask(Id: Guid): Text
     var
@@ -151,7 +151,7 @@ fn created_tasks_exist_until_cancelled() {
     assert_eq!(r, "NoYesYesYesYesYesNoNoNoNoNo");
 }
 
-// session/lt-cn-session-leads/CnSessionLeads.al:23-46 and platform/lt-wd/WdScheduledTaskGet.al: the task created in the open
+// session-system/CnSessionLeads.al:23-46 and session-system/WdScheduledTaskGet.al: the task created in the open
 // transaction has its row, with the pinned columns, until CancelTask removes it.
 #[test]
 fn a_task_of_the_open_transaction_has_its_row() {
@@ -178,7 +178,7 @@ fn a_rolled_back_task_has_no_row() {
     assert!(matches!(r, Ok(al_builtins::value::Value::Boolean(false))), "{r:?}");
 }
 
-// platform/lt-y43-task-after-commit/Y43TaskAfterCommit.al:258-268 (TaskExists after the Commit) and :170-182, :184-207,
+// metadata/session-system/Y43TaskAfterCommit.al:258-268 (TaskExists after the Commit) and :170-182, :184-207,
 // :282-298 (al-runner issue 6592): a committed task keeps its row and is not run.
 #[test]
 fn a_task_whose_creation_was_committed_still_exists() {

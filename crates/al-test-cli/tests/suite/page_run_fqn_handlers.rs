@@ -1,4 +1,4 @@
-//! Page.Run and Page.RunModal with a fully qualified page name, with page handlers (corpus master pages/lt-y74-fqn-run/
+//! Page.Run and Page.RunModal with a fully qualified page name, with page handlers (corpus master pages/run-modal/
 //! Y74FqnRunForms.al Run_Name_Only, Run_Name_Record, Run_Name_Record_FieldValue, Run_Name_Spellings, RunModal_Name_Only).
 
 use al_testkit::outcomes_in;

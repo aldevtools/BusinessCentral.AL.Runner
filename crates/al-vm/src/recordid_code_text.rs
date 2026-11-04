@@ -1,5 +1,5 @@
 //! `Evaluate(RecordId, 'Table: A,B')` on a table whose primary key is a Code field and a Text field
-//! (misc/lt-y68-small-probes/Y68Small.al:65-121 Q5_Evaluate_RecordId_CodeAndText_Forms, :123-180 the round trips; corpus
+//! (errors/Y68Small.al:65-121 Q5_Evaluate_RecordId_CodeAndText_Forms, :123-180 the round trips; corpus
 //! master 0d01b0cc, BC 27.5, 28.5, 29.0).
 
 use al_builtins::value::{RtType, Value};

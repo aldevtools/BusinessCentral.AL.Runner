@@ -50,7 +50,7 @@ fn enum_names_works_on_a_variable() {
 
 #[test]
 fn enum_ordinals_lists_every_declared_value() {
-    // session/TestSystemExtended.al:381-390 and types/TestLanguageEdgeCases.al:91-105.
+    // session-system/TestSystemExtended.al:381-390 and types/TestLanguageEdgeCases.al:91-105.
     let v = "O: List of [Integer];";
     assert_eq!(
         int_of(v, "O := \"ALT Status\".Ordinals(); exit(O.Count());").unwrap(),
@@ -80,8 +80,8 @@ fn enum_as_integer_returns_the_ordinal() {
     assert_eq!(int_of(v, "exit(S.AsInteger());").unwrap(), 0);
 }
 
-// types/lt-filter-enum-relation-duration-guid/B_EnumOptionVariant.al:EnumVariant_To_Integer pins an Enum in a Variant read as an
-// Integer by assignment; FromInteger taking such a Variant is the same conversion (enum/lt-enum-fromint-variant/EnumFromIntegerVariant.al:
+// types/duration/B_EnumOptionVariant.al:EnumVariant_To_Integer pins an Enum in a Variant read as an
+// Integer by assignment; FromInteger taking such a Variant is the same conversion (types/enum-option/EnumFromIntegerVariant.al:
 // FromInteger_VariantHolding `enum`, `decimal` 1 and `text` '1' all give Green; a fraction or a non-number text is not pinned: refused).
 #[test]
 fn enum_from_integer_takes_a_variant_that_holds_an_enum() {
@@ -121,7 +121,7 @@ fn enum_from_integer_takes_a_variant_that_holds_a_whole_decimal_or_a_number_text
     );
 }
 
-// foreach over Ordinals into an Enum variable (enum/lt-enum-foreach-integer/EnumForeachInteger.al:15): the variable holds the enum value.
+// foreach over Ordinals into an Enum variable (types/enum-option/EnumForeachInteger.al:15): the variable holds the enum value.
 #[test]
 fn foreach_over_ordinals_into_an_enum_variable_gives_enum_values() {
     // Draft (1) and Closed (5) are the ordinals after the blank one: the loop sees the enum value of each.
@@ -132,7 +132,7 @@ fn foreach_over_ordinals_into_an_enum_variable_gives_enum_values() {
     assert_eq!(r.unwrap(), 11);
 }
 
-// enum/lt-enum-foreach-integer/EnumForeachInteger.al:32: foreach over a List of Enum into an Integer variable gives the ordinals.
+// types/enum-option/EnumForeachInteger.al:32: foreach over a List of Enum into an Integer variable gives the ordinals.
 #[test]
 fn foreach_over_enums_into_an_integer_variable_gives_ordinals() {
     // Closed is ordinal 5 and Draft 1: 5 * 100 + 1.
@@ -143,7 +143,7 @@ fn foreach_over_enums_into_an_integer_variable_gives_ordinals() {
     assert_eq!(r.unwrap(), 501);
 }
 
-// errors/lt-ms-refusals-128/P128EvalBasic.al:P128_Evaluate_IntoText, _IntoCode, _IntoShortText_ResultUnused: a Text keeps the text as written,
+// recordref-fieldref/P128EvalBasic.al:P128_Evaluate_IntoText, _IntoCode, _IntoShortText_ResultUnused: a Text keeps the text as written,
 // a Code is trimmed and upper case, and a text longer than the variable fails (No with the result used).
 #[test]
 fn evaluate_into_text_and_code() {
@@ -189,7 +189,7 @@ fn text_of(vars: &str, body: &str) -> Result<String, Signal> {
     }
 }
 
-// platform/lt-platform-members/PlTNumberSequence.al:372-394 (UpperLimit_NoCycle): a Next past the BigInteger range raises the
+// metadata/platform-tables/PlTNumberSequence.al:372-394 (UpperLimit_NoCycle): a Next past the BigInteger range raises the
 // SQL error and the sequence is gone afterwards.
 #[test]
 fn number_sequence_next_past_the_range_raises_and_drops_the_sequence() {
@@ -212,7 +212,7 @@ fn number_sequence_next_past_the_range_raises_and_drops_the_sequence() {
 
 #[test]
 fn number_sequence_honours_seed_and_increment_per_scope() {
-    // session/TestNumberSequence.al:15-60: the default scope is company specific, a global one is
+    // session-system/TestNumberSequence.al:15-60: the default scope is company specific, a global one is
     // independent, and Next starts at the seed and advances by the increment.
     let r = text_of(
         "a: Text;",
@@ -228,7 +228,7 @@ fn number_sequence_honours_seed_and_increment_per_scope() {
 
 #[test]
 fn number_sequence_current_restart_range_and_delete() {
-    // session/TestNumberSequence.al:63-170.
+    // session-system/TestNumberSequence.al:63-170.
     let r = text_of(
         "a: Text; i: BigInteger; first: BigInteger;",
         "NumberSequence.Insert('S', 10, 3, false);
@@ -247,7 +247,7 @@ fn number_sequence_current_restart_range_and_delete() {
 
 #[test]
 fn number_sequence_errors_are_catchable_and_a_missing_delete_is_not_one() {
-    // session/TestNumberSequence.al:173-205 and error-handling/TestNumberSequenceTrappableErrors.al.
+    // session-system/TestNumberSequence.al:173-205 and errors/TestNumberSequenceTrappableErrors.al.
     let r = text_of(
         "a: Text; v: BigInteger;",
         "NumberSequence.Insert('S', 1, 1, false);
@@ -274,8 +274,8 @@ fn number_sequence_errors_are_catchable_and_a_missing_delete_is_not_one() {
 
 #[test]
 fn number_sequence_survives_an_asserterror_rollback() {
-    // session/TestNumberSequence.al:173-186 and :188-201: a failed call leaves the sequence as it
-    // was; error-handling/TestNumberSequenceTrappableErrors.al:134 ("Number sequences are
+    // session-system/TestNumberSequence.al:173-186 and :188-201: a failed call leaves the sequence as it
+    // was; errors/TestNumberSequenceTrappableErrors.al:134 ("Number sequences are
     // database objects, not rows"): a sequence outlives the rollback an asserterror triggers.
     let r = text_of(
         "a: Text;",
@@ -288,7 +288,7 @@ fn number_sequence_survives_an_asserterror_rollback() {
 
 #[test]
 fn number_sequence_defaults_texts_and_codes_the_probe_pins() {
-    // session/TestNumberSequenceRuntimeContracts.al: Insert without arguments starts at 0 and steps by 1;
+    // session-system/TestNumberSequenceRuntimeContracts.al: Insert without arguments starts at 0 and steps by 1;
     // Restart without a seed makes the sequence 0 again.
     let r = text_of(
         "",
@@ -347,7 +347,7 @@ fn text_with_table(body: &str) -> Result<String, Signal> {
 
 #[test]
 fn a_write_opens_a_write_transaction_until_the_commit() {
-    // codeunit/TestWriteTxTestBoundary.al:93,103,142: an uncommitted Insert leaves one open; a
+    // codeunits/TestWriteTxTestBoundary.al:93,103,142: an uncommitted Insert leaves one open; a
     // Commit (and the test boundary) closes it.
     let r = text_with_table(
         "exit(Format(Database.IsInWriteTransaction()));
@@ -377,7 +377,7 @@ fn wsac(body: &str) -> Result<String, Signal> {
 
 #[test]
 fn wsac_fresh_instance_and_round_trips() {
-    // session/TestWebServiceActionContext.al:180-250 (defaults) and :256-345 (round trips).
+    // session-system/TestWebServiceActionContext.al:180-250 (defaults) and :256-345 (round trips).
     let r = wsac(
         "a := Format(c.GetObjectId()) + '|' + Format(c.GetResultCode());
          c.SetObjectId(50123); c.SetObjectType(ObjectType::Page); c.SetResultCode(WebServiceActionResultCode::Created);
@@ -391,7 +391,7 @@ fn wsac_fresh_instance_and_round_trips() {
 
 #[test]
 fn wsac_a_fresh_object_type_is_none_of_the_seven_members() {
-    // session/TestWebServiceActionContext.al:187-200 and :411-428 (Clear returns it to the pristine value).
+    // session-system/TestWebServiceActionContext.al:187-200 and :411-428 (Clear returns it to the pristine value).
     let r = wsac(
         "if (c.GetObjectType() <> ObjectType::Table) and (c.GetObjectType() <> ObjectType::Page) and (c.GetObjectType() <> ObjectType::Report)
             and (c.GetObjectType() <> ObjectType::Codeunit) and (c.GetObjectType() <> ObjectType::XmlPort)
@@ -406,7 +406,7 @@ fn wsac_a_fresh_object_type_is_none_of_the_seven_members() {
 
 #[test]
 fn wsac_updated_reads_back_as_get() {
-    // session/TestWebServiceActionContext.al:352-395: Get and Updated share the value 200.
+    // session-system/TestWebServiceActionContext.al:352-395: Get and Updated share the value 200.
     let r = wsac(
         "c.SetResultCode(WebServiceActionResultCode::Updated); a := Format(c.GetResultCode());
          c.SetResultCode(WebServiceActionResultCode::Get); a += ',' + Format(c.GetResultCode());
@@ -419,7 +419,7 @@ fn wsac_updated_reads_back_as_get() {
 
 #[test]
 fn wsac_entity_keys_are_a_map_by_field_id() {
-    // session/TestWebServiceActionContext.al:437-520: a duplicate field id returns false when the
+    // session-system/TestWebServiceActionContext.al:437-520: a duplicate field id returns false when the
     // result is used and raises (naming the type) when it is not; Clear empties the map.
     let r = wsac(
         "a := Format(c.AddEntityKey(1, 'x')) + Format(c.AddEntityKey(2, 42)) + Format(c.AddEntityKey(1, 'y')) + Format(c.AddEntityKey(1, 'x'));
@@ -433,7 +433,7 @@ fn wsac_entity_keys_are_a_map_by_field_id() {
 
 #[test]
 fn wsac_assignment_shares_the_context_and_clear_replaces_it() {
-    // session/TestWebServiceActionContext.al:552-590: `Copy := Original` shares; the keys too.
+    // session-system/TestWebServiceActionContext.al:552-590: `Copy := Original` shares; the keys too.
     let r = wsac(
         "c.SetObjectId(50123); d := c; d.SetObjectId(50124); a := Format(c.GetObjectId());
          b := c.AddEntityKey(1, 'k');
@@ -446,7 +446,7 @@ fn wsac_assignment_shares_the_context_and_clear_replaces_it() {
 
 #[test]
 fn wsac_in_a_variant_has_an_empty_text() {
-    // session/TestWebServiceActionContext.al:615-650.
+    // session-system/TestWebServiceActionContext.al:615-650.
     let r = wsac(
         "c.SetObjectId(50123); v := c;
          exit(Format(v.IsInteger()) + Format(v.IsText()) + Format(v.IsRecord()) + '|' + Format(v));",
@@ -465,7 +465,7 @@ fn settings(body: &str) -> Result<String, Signal> {
 
 #[test]
 fn session_settings_properties_round_trip_and_are_independent() {
-    // session/TestSessionSettings.al:25-165.
+    // session-system/TestSessionSettings.al:25-165.
     let r = settings(
         "s.LanguageId(1030); s.LocaleId(2057); s.TimeZone('Pacific Standard Time'); s.ProfileId('ALT PROFILE');
          s.Company('ALT Company'); g := CreateGuid(); s.ProfileAppId(g);
@@ -477,7 +477,7 @@ fn session_settings_properties_round_trip_and_are_independent() {
 
 #[test]
 fn session_settings_profile_system_scope_ignores_its_argument() {
-    // session/TestSessionSettings.al:172-215.
+    // session-system/TestSessionSettings.al:172-215.
     let r = settings(
         "a := Format(s.ProfileSystemScope()); s.ProfileSystemScope(true); a += Format(s.ProfileSystemScope());
          s.ProfileSystemScope(false); exit(a + Format(s.ProfileSystemScope()));",
@@ -487,7 +487,7 @@ fn session_settings_profile_system_scope_ignores_its_argument() {
 
 #[test]
 fn session_settings_assignment_copies_by_value() {
-    // session/TestSessionSettings.al:222-262.
+    // session-system/TestSessionSettings.al:222-262.
     let r = settings(
         "s.Company('Source'); s.LanguageId(1030); t := s; t.Company('Target'); t.LanguageId(2057);
          exit(s.Company() + Format(s.LanguageId()) + '|' + t.Company() + Format(t.LanguageId()));",
@@ -497,7 +497,7 @@ fn session_settings_assignment_copies_by_value() {
 
 #[test]
 fn session_settings_compare_by_value_and_format_shows_the_contents() {
-    // session/TestSessionSettings.al:478-560.
+    // session-system/TestSessionSettings.al:478-560.
     let r = settings(
         "s.Company('C'); s.LanguageId(1030); t.Company('C'); t.LanguageId(1030);
          a := Format(s = t);
@@ -512,14 +512,14 @@ fn session_settings_compare_by_value_and_format_shows_the_contents() {
 
 #[test]
 fn session_settings_clear_returns_to_a_pristine_instance() {
-    // session/TestSessionSettings.al:565-595.
+    // session-system/TestSessionSettings.al:565-595.
     let r = settings("s.Company('C'); s.LanguageId(1030); Clear(s); a := Format(s = p) + s.Company(); exit(a);");
     assert_eq!(r.unwrap(), "Yes");
 }
 
 #[test]
 fn session_settings_defaults_of_an_instance_nobody_set() {
-    // session/TestProbeSessionMiscContracts.al:SessionSettings_PristineProperties. RequestSessionUpdate(false) goes to a
+    // session-system/TestProbeSessionMiscContracts.al:SessionSettings_PristineProperties. RequestSessionUpdate(false) goes to a
     // handler (SessionSettings_RequestUpdateFalse_Handler); without one it is refused.
     let r = settings(
         "exit(Format(s.LanguageId()) + '|' + Format(s.LocaleId()) + '|' + s.TimeZone() + '|' + s.ProfileId() + '|' + s.Company());",
@@ -537,8 +537,8 @@ fn notification(body: &str) -> Result<String, Signal> {
 
 #[test]
 fn notification_message_and_data() {
-    // handlers/TestNotificationHandler.al:28-35, session/TestMiscTypes.al:155-184,
-    // session/TestCalcDateNotificationContracts.al:130-180.
+    // ui-handlers/TestNotificationHandler.al:28-35, session-system/TestMiscTypes.al:155-184,
+    // session-system/TestCalcDateNotificationContracts.al:130-180.
     let r = notification(
         "n.Message('Hello'); a := n.Message();
          a += '|' + Format(n.HasData('k1'));
@@ -552,8 +552,8 @@ fn notification_message_and_data() {
 
 #[test]
 fn notification_scope_and_actions_are_accepted() {
-    // session/TestCalcDateNotificationContracts.al:182-188, session/TestSystemExtended.al:553-575,
-    // session/TestMiscComplete.al:106-119: they must not throw.
+    // session-system/TestCalcDateNotificationContracts.al:182-188, session-system/TestSystemExtended.al:553-575,
+    // session-system/TestMiscComplete.al:106-119: they must not throw.
     let r = notification(
         "n.Message('Test'); n.Scope(NotificationScope::LocalScope);
          n.AddAction('Click me', 60019, 'Initialize'); n.AddAction('Click Me', 60145, 'Initialize', 'Action description');
@@ -563,7 +563,7 @@ fn notification_scope_and_actions_are_accepted() {
     assert_eq!(r.unwrap(), "Yes");
 }
 
-// handlers/TestNotificationSendRecallContracts.al:65-69: a notification nobody set reads empty.
+// ui-handlers/TestNotificationSendRecallContracts.al:65-69: a notification nobody set reads empty.
 #[test]
 fn a_notification_nobody_set_reads_empty() {
     let r = notification(
@@ -588,7 +588,7 @@ fn error_info(body: &str) -> Result<String, Signal> {
 
 #[test]
 fn error_info_create_defaults() {
-    // errorinfo/TestErrorInfoType.al:21-60: the zero-argument Create is collectible, Create(Message)
+    // errors/errorinfo/TestErrorInfoType.al:21-60: the zero-argument Create is collectible, Create(Message)
     // is not; Verbosity::Error and DataClassification::CustomerContent are the defaults.
     let r = error_info(
         "e := ErrorInfo.Create();
@@ -601,7 +601,7 @@ fn error_info_create_defaults() {
 
 #[test]
 fn error_info_accessors_round_trip_independently() {
-    // errorinfo/TestErrorInfoType.al:64-160 and :330-440.
+    // errors/errorinfo/TestErrorInfoType.al:64-160 and :330-440.
     let r = error_info(
         "e := ErrorInfo.Create();
          e.Message('MSG'); e.Title('TITLE'); e.DetailedMessage('DETAIL'); e.ControlName('CTRL');
@@ -616,7 +616,7 @@ fn error_info_accessors_round_trip_independently() {
 
 #[test]
 fn error_info_create_with_a_record_sets_table_id_record_id_and_field() {
-    // errorinfo/TestErrorInfoType.al:243-326.
+    // errors/errorinfo/TestErrorInfoType.al:243-326.
     let r = error_info(
         "r1.Id := 1; r1.Insert(); r2.Id := 2; r2.Insert();
          e := ErrorInfo.Create('m', true, r1, r1.FieldNo(Payload));
@@ -628,7 +628,7 @@ fn error_info_create_with_a_record_sets_table_id_record_id_and_field() {
 
 #[test]
 fn error_info_custom_dimensions_round_trip() {
-    // errorinfo/TestErrorInfoType.al:313-345.
+    // errors/errorinfo/TestErrorInfoType.al:313-345.
     let r = error_info(
         "e := ErrorInfo.Create(); a := Format(e.CustomDimensions().Count());
          d.Add('alpha', 'one'); d.Add('beta', 'two'); e.CustomDimensions(d);
@@ -656,7 +656,7 @@ fn error_info_defaults_the_shared_dictionary_and_the_assigned_record_id() {
 
 #[test]
 fn error_info_actions_do_not_disturb_the_state() {
-    // errorinfo/TestErrorInfoType.al:523-557.
+    // errors/errorinfo/TestErrorInfoType.al:523-557.
     let r = error_info(
         "e := ErrorInfo.Create('an error', true); e.Title('a title');
          e.AddAction('Fix it', 50100, 'F'); e.AddNavigationAction('Show me');
@@ -669,7 +669,7 @@ fn error_info_actions_do_not_disturb_the_state() {
 
 #[test]
 fn a_progress_dialog_is_a_headless_no_op() {
-    // handlers/TestHandlersDialogProgressNoOp.al:24-110: Open, Update (all forms) and Close run and
+    // ui-handlers/TestHandlersDialogProgressNoOp.al:24-110: Open, Update (all forms) and Close run and
     // change nothing.
     let src = "codeunit 50100 C { var Window: Dialog; procedure F(): Integer var i: Integer; total: Integer; begin
         Window.Open('Processing record #1######');
@@ -682,14 +682,14 @@ fn a_progress_dialog_is_a_headless_no_op() {
 
 #[test]
 fn select_latest_version_does_nothing() {
-    // session/TestBCDatabaseContracts.al:170-187, session/TestMiscComplete.al:36-55.
+    // session-system/TestBCDatabaseContracts.al:170-187, session-system/TestMiscComplete.al:36-55.
     let r = text_of("", "SelectLatestVersion(); SelectLatestVersion(60000); exit('ok');");
     assert_eq!(r.unwrap(), "ok");
 }
 
 #[test]
 fn company_name_is_the_company_of_the_session() {
-    // session/TestSessionFunctions.al:25 (not empty), session/TestDatabase.al:69-75 (same as CurrentCompany).
+    // session-system/TestSessionFunctions.al:25 (not empty), session-system/TestDatabase.al:69-75 (same as CurrentCompany).
     let src = "table 50900 \"ALT Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
         codeunit 50100 C { procedure F(): Text var R: Record \"ALT Row\"; begin exit(Format(CompanyName() = R.CurrentCompany()) + Format(CompanyName() <> '')); end; }";
     assert!(matches!(run(src, "F"), Ok(Value::Text(ref s)) if s == "YesYes"));
@@ -712,7 +712,7 @@ fn change_company_to_the_session_company_succeeds_and_an_unknown_company_is_fals
 
 #[test]
 fn a_sequential_guid_is_not_null_and_not_repeated() {
-    // session/TestSystemExtended.al:306-328.
+    // session-system/TestSystemExtended.al:306-328.
     let r = text_of(
         "a: Guid; b: Guid;",
         "a := Guid.CreateSequentialGuid(); b := Guid.CreateSequentialGuid(); exit(Format(IsNullGuid(a)) + Format(a = b));",
@@ -722,14 +722,14 @@ fn a_sequential_guid_is_not_null_and_not_repeated() {
 
 #[test]
 fn text_builder_max_capacity_is_large() {
-    // session/TestSystemExtended.al:450-473: positive and at least a million.
+    // session-system/TestSystemExtended.al:450-473: positive and at least a million.
     let r = text_of("tb: TextBuilder;", "exit(Format(tb.MaxCapacity() >= 1000000));");
     assert_eq!(r.unwrap(), "Yes");
 }
 
 #[test]
 fn a_version_is_read_by_evaluate_and_split_in_parts() {
-    // session/TestMiscTypes.al:44-80.
+    // session-system/TestMiscTypes.al:44-80.
     let r = text_of(
         "v: Version; w: Version;",
         "Evaluate(v, '1.2.3.4'); Evaluate(w, '5.6.7.8');
@@ -754,7 +754,7 @@ fn transfer(body: &str) -> Result<String, Signal> {
 
 #[test]
 fn data_transfer_outside_upgrade_says_which_of_the_two_things_is_wrong() {
-    // install/TestDataTransferContracts.al:44-160: a call before SetTables asks for SetTables; after it,
+    // install-upgrade/TestDataTransferContracts.al:44-160: a call before SetTables asks for SetTables; after it,
     // every staging or copying call says the transfer is for upgrade and install code only.
     let r = transfer(
         "asserterror DT.AddFieldValue(1, 1); a := GetLastErrorText();
@@ -783,7 +783,7 @@ fn data_transfer_with_a_table_outside_the_workspace_is_refused() {
 
 #[test]
 fn code_coverage_log_reports_the_requested_state() {
-    // codeunit/TestCodeCoverageStartStop.al:30-102.
+    // codeunits/TestCodeCoverageStartStop.al:30-102.
     let r = text_of(
         "a: Text; b: Boolean;",
         "a := Format(CodeCoverageLog());
@@ -846,7 +846,7 @@ fn storage(body: &str) -> Result<String, Signal> {
     )
 }
 
-// Assumption isolated-storage-overwrite-tx: session/lt-cn-session-leads/CnIsolatedStorageLeads.al
+// Assumption isolated-storage-overwrite-tx: session-system/CnIsolatedStorageLeads.al
 // TO_IsoOverwrite_OutsideWriteTransaction (corpus branch al-runtime-rs-staging-pub-to): an overwrite right after a Commit
 // opens the write transaction, plain and encrypted alike.
 #[test]
@@ -865,7 +865,7 @@ fn isolated_storage_overwrite_after_a_commit_opens_the_write_transaction() {
 
 #[test]
 fn isolated_storage_round_trips_and_deletes() {
-    // session/TestIsolatedStorage.al:30-65 and :95-125.
+    // session-system/TestIsolatedStorage.al:30-65 and :95-125.
     let r = storage(
         "a := Format(IsolatedStorage.Set('k', 'value')) + Format(IsolatedStorage.Contains('k'));
          a += Format(IsolatedStorage.Get('k', v)) + v;
@@ -878,7 +878,7 @@ fn isolated_storage_round_trips_and_deletes() {
 
 #[test]
 fn isolated_storage_scopes_are_apart_and_encrypted_entries_read_back_as_text() {
-    // session/TestIsolatedStorage.al:97-110, session/TestIsolatedStoragePerApp.al:100-110 (the Company scope).
+    // session-system/TestIsolatedStorage.al:97-110, session-system/TestIsolatedStoragePerApp.al:100-110 (the Company scope).
     let r = storage(
         "IsolatedStorage.Set('k', 'module'); IsolatedStorage.Set('k', 'company', DataScope::Company);
          ok := IsolatedStorage.Get('k', v); a := v;
@@ -895,14 +895,14 @@ fn isolated_storage_scopes_are_apart_and_encrypted_entries_read_back_as_text() {
 fn isolated_storage_takes_secret_text_and_the_user_scopes() {
     let r = storage("s := 'hidden'; IsolatedStorage.Set('k', s); ok := IsolatedStorage.Get('k', s); exit(Format(ok));");
     assert_eq!(r.unwrap(), "Yes");
-    // The user scopes are stores of their own (session/TestProbeSessionMiscContracts.al:IsolatedStorage_Behaviour).
+    // The user scopes are stores of their own (session-system/TestProbeSessionMiscContracts.al:IsolatedStorage_Behaviour).
     let r = storage("IsolatedStorage.Set('k', 'x', DataScope::User); exit('');");
     assert!(r.is_ok(), "{r:?}");
 }
 
 #[test]
 fn isolated_storage_set_and_delete_open_the_write_transaction_and_contains_does_not() {
-    // session/lt-cn-session-leads/CnIsolatedStorageLeads.al:238-263 (IsoSet_OpensWriteTransaction).
+    // session-system/CnIsolatedStorageLeads.al:238-263 (IsoSet_OpensWriteTransaction).
     let r = storage(
         "a := Format(Database.IsInWriteTransaction());
          IsolatedStorage.Set('k', 'v', DataScope::User); a += Format(Database.IsInWriteTransaction()); Commit();
@@ -926,7 +926,7 @@ fn isolated_storage_set_over_an_existing_key_inside_a_write_transaction_runs() {
 
 #[test]
 fn isolated_storage_set_then_guarded_codeunit_run_fails() {
-    // session/lt-cn-session-leads/CnIsolatedStorageLeads.al:265-277 (IsoSet_ThenGuardedCodeunitRun) and :279-290 after a Commit.
+    // session-system/CnIsolatedStorageLeads.al:265-277 (IsoSet_ThenGuardedCodeunitRun) and :279-290 after a Commit.
     let src = "codeunit 50101 Noop { trigger OnRun() begin end; }
         codeunit 50100 C {
             procedure F(): Boolean begin IsolatedStorage.Set('k', 'v', DataScope::User); exit(Codeunit.Run(50101)); end;
@@ -942,7 +942,7 @@ fn isolated_storage_set_then_guarded_codeunit_run_fails() {
 
 #[test]
 fn set_encrypted_keeps_214_bytes_and_refuses_216() {
-    // session/lt-cn-session-leads/CnIsolatedStorageLeads.al:368-424: 214 ASCII and 107 two-byte characters are kept,
+    // session-system/CnIsolatedStorageLeads.al:368-424: 214 ASCII and 107 two-byte characters are kept,
     // 216 ASCII and 108 two-byte characters fail with EncryptionDataTooLong.
     let set = |value: &str| {
         storage(&format!(
@@ -968,7 +968,7 @@ fn set_encrypted_keeps_214_bytes_and_refuses_216() {
 
 #[test]
 fn isolated_storage_get_into_text_of_a_secret_value_fails() {
-    // misc/lt-cu-odd-leads/CuTryTests.al:181-232: a value stored from a SecretText (SetEncrypted or Set) cannot be read into a Text.
+    // errors/CuTryTests.al:181-232: a value stored from a SecretText (SetEncrypted or Set) cannot be read into a Text.
     for set in ["SetEncrypted", "Set"] {
         let e = storage(&format!(
             "s := SecretStrSubstNo('x'); ok := IsolatedStorage.{set}('k', s, DataScope::Module); IsolatedStorage.Get('k', DataScope::Module, v); exit(v);"
@@ -1072,8 +1072,8 @@ fn module_text(body: &str) -> Result<String, Signal> {
 
 #[test]
 fn module_info_reports_the_manifest_of_the_running_app() {
-    // session/TestBCPlatformContracts.al:100-130 (Id, Name, AppVersion match app.json),
-    // session/TestMiscTypes.al:100-150 (AppVersion, PackageId, DataVersion), TestNavAppExtended.al.
+    // session-system/TestBCPlatformContracts.al:100-130 (Id, Name, AppVersion match app.json),
+    // session-system/TestMiscTypes.al:100-150 (AppVersion, PackageId, DataVersion), TestNavAppExtended.al.
     let r = module_text(
         "NavApp.GetCurrentModuleInfo(i);
          v := i.AppVersion();
@@ -1083,13 +1083,13 @@ fn module_info_reports_the_manifest_of_the_running_app() {
               + '|' + Format(i.Dependencies().Count()));",
     );
     // The dependencies include the platform's Application when the manifest names an application version
-    // (session/TestProbeSessionMiscContracts.al:ModuleInfo_CurrentModule, `dependency_Application`).
+    // (session-system/TestProbeSessionMiscContracts.al:ModuleInfo_CurrentModule, `dependency_Application`).
     assert_eq!(r.unwrap(), "Main|Main Publisher|Yes|101.0.0.0|NoNo|3");
 }
 
 #[test]
 fn get_module_info_finds_installed_apps_and_names_an_unknown_id() {
-    // session/TestNavAppExtended.al:94-150.
+    // session-system/TestNavAppExtended.al:94-150.
     let r = module_text(
         "NavApp.GetCurrentModuleInfo(i);
          a := Format(NavApp.GetModuleInfo(i.Id(), j)) + Format(j.Name() = i.Name());
@@ -1112,7 +1112,7 @@ fn a_manifest_dependency_outside_the_workspace_is_refused_not_called_missing() {
 
 #[test]
 fn the_callee_in_another_app_sees_its_own_module_and_its_caller() {
-    // session/TestNavAppModuleInfoCallerIdentity.al:35-100 and TestNavAppCallerCallstackModuleInfos.al:25-100.
+    // session-system/TestNavAppModuleInfoCallerIdentity.al:35-100 and TestNavAppCallerCallstackModuleInfos.al:25-100.
     let r = module_text(
         "NavApp.GetCurrentModuleInfo(i);
          a := c.OwnName() + ',' + c.CallerName() + '|';
@@ -1128,14 +1128,14 @@ fn the_callee_in_another_app_sees_its_own_module_and_its_caller() {
 
 #[test]
 fn is_installing_is_false_in_test_code() {
-    // session/TestNavAppExtended.al, session/TestBCPlatformContracts.al:IsInstalling.
+    // session-system/TestNavAppExtended.al, session-system/TestBCPlatformContracts.al:IsInstalling.
     let r = module_text("exit(Format(NavApp.IsInstalling()));");
     assert_eq!(r.unwrap(), "No");
 }
 
 #[test]
 fn packaged_resources_read_back_exactly() {
-    // session/TestNavAppGetResource.al:25-60.
+    // session-system/TestNavAppGetResource.al:25-60.
     let r = module_text(
         "NavApp.GetResource('greeting.txt', ins, TextEncoding::UTF8); ins.ReadText(a);
          NavApp.GetResource('sub/nested.txt', ins, TextEncoding::UTF8); ins.ReadText(t2);
@@ -1179,7 +1179,7 @@ fn resource_bytes_without_an_encoding() {
 
 #[test]
 fn a_missing_resource_is_named_in_the_error() {
-    // session/TestNavAppGetResource.al:62-85: "A resource matching 'missing.txt' could not be found in app".
+    // session-system/TestNavAppGetResource.al:62-85: "A resource matching 'missing.txt' could not be found in app".
     let r = module_text(
         "asserterror NavApp.GetResource('missing.txt', ins); a := GetLastErrorText();
          asserterror t2 := NavApp.GetResourceAsText('missing.txt'); a += '|' + GetLastErrorText();
@@ -1195,7 +1195,7 @@ fn a_missing_resource_is_named_in_the_error() {
 
 #[test]
 fn resources_are_listed_with_an_optional_wildcard_filter() {
-    // session/TestMiscComplete.al:139-165 (they must succeed); the filter is the documented wildcard.
+    // session-system/TestMiscComplete.al:139-165 (they must succeed); the filter is the documented wildcard.
     let r = module_text(
         "names := NavApp.ListResources(); a := Format(names.Count());
          names := NavApp.ListResources('*.json'); a += Format(names.Count()) + names.Get(1);
@@ -1209,7 +1209,7 @@ fn resources_are_listed_with_an_optional_wildcard_filter() {
 
 #[test]
 fn error_with_an_error_info_raises_its_message() {
-    // errorinfo/TestErrorInfoErrorType.al:50-65 (a client error reports the message verbatim).
+    // errors/errorinfo/TestErrorInfoErrorType.al:50-65 (a client error reports the message verbatim).
     let r = text_of(
         "e: ErrorInfo; a: Text;",
         "e := ErrorInfo.Create('the client visible text'); e.ErrorType(ErrorType::Client);
@@ -1217,7 +1217,7 @@ fn error_with_an_error_info_raises_its_message() {
          e.ErrorType(ErrorType::Internal); asserterror Error(e);
          exit(a + '|' + CopyStr(GetLastErrorText(), 1, 87));",
     );
-    // session/TestProbeSessionMiscContracts.al:ErrorInfo_ErrorClientAndInternal: an internal error says only that an error
+    // session-system/TestProbeSessionMiscContracts.al:ErrorInfo_ErrorClientAndInternal: an internal error says only that an error
     // occurred, with a correlation id.
     assert_eq!(
         r.unwrap(),
@@ -1233,7 +1233,7 @@ fn error_with_an_error_info_raises_its_message() {
 
 #[test]
 fn the_execution_context_is_normal_in_a_test() {
-    // install/TestInstallEnvVisible_Tests.al:120-127, session/TestBCPlatformContracts.al:46-60.
+    // install-upgrade/TestInstallEnvVisible_Tests.al:120-127, session-system/TestBCPlatformContracts.al:46-60.
     let r = text_of(
         "ec: ExecutionContext;",
         "ec := Session.GetExecutionContext();
@@ -1277,7 +1277,7 @@ fn dictionary_get_of_a_missing_key_raises_the_key_not_found_error() {
 
 #[test]
 fn list_index_errors_raise_the_pinned_error() {
-    // session/TestProbeSessionMiscContracts.al:Dictionary_List_ErrorTexts: Get, RemoveAt, Set and Insert outside the list.
+    // session-system/TestProbeSessionMiscContracts.al:Dictionary_List_ErrorTexts: Get, RemoveAt, Set and Insert outside the list.
     for body in ["l.RemoveAt(3);", "l.Set(3, 1);", "l.Insert(4, 1);", "l.Get(0);"] {
         let r = text_of("l: List of [Integer];", &format!("{body} exit('');"));
         let Err(Signal::Error(e)) = r else {
@@ -1298,8 +1298,8 @@ fn list_index_errors_raise_the_pinned_error() {
 
 #[test]
 fn a_test_runs_with_a_gui_on_a_service_tier() {
-    // session/TestBCPlatformContracts.al:26-43 (GuiAllowed and IsServiceTier are true in a test);
-    // handlers/TestConfirmNoHandler.al:28 (GuiAllowed is Yes inside a page trigger).
+    // session-system/TestBCPlatformContracts.al:26-43 (GuiAllowed and IsServiceTier are true in a test);
+    // ui-handlers/TestConfirmNoHandler.al:28 (GuiAllowed is Yes inside a page trigger).
     let r = text_of(
         "",
         "exit(Format(GuiAllowed()) + Format(System.GuiAllowed()) + Format(IsServiceTier()));",
@@ -1309,7 +1309,7 @@ fn a_test_runs_with_a_gui_on_a_service_tier() {
 
 #[test]
 fn the_last_used_row_version_is_positive_and_does_not_fall_after_an_insert() {
-    // session/TestSystemExtended.al:635-659, session/TestBCDatabaseContracts.al:100-117.
+    // session-system/TestSystemExtended.al:635-659, session-system/TestBCDatabaseContracts.al:100-117.
     let src = "table 50902 \"RV Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
         codeunit 50100 C { procedure F(): Text var r: Record \"RV Row\"; a: BigInteger; b: BigInteger;
         begin a := Database.LastUsedRowVersion(); r.Id := 1; r.Insert(); b := Database.LastUsedRowVersion();
@@ -1322,7 +1322,7 @@ fn the_last_used_row_version_is_positive_and_does_not_fall_after_an_insert() {
 
 #[test]
 fn the_lock_timeout_can_be_read_and_set() {
-    // session/TestSystemExtended.al:608-630: callable in every form. The default is the documented one.
+    // session-system/TestSystemExtended.al:608-630: callable in every form. The default is the documented one.
     let r = text_of(
         "a: Text;",
         "a := Format(Database.LockTimeout()); Database.LockTimeout(false); a += Format(Database.LockTimeout());
@@ -1371,7 +1371,7 @@ fn a_date_formula_field_starts_at_its_init_value() {
 
 #[test]
 fn table_connections_are_registered_found_by_any_case_and_unregistered() {
-    // session/TestDatabaseTableConnectionCrm.al:34-117.
+    // session-system/TestDatabaseTableConnectionCrm.al:34-117.
     let r = text_of(
         "",
         "exit(Format(HasTableConnection(TableConnectionType::CRM, 'ALTTEST'))
@@ -1400,7 +1400,7 @@ fn table_connections_are_registered_found_by_any_case_and_unregistered() {
 
 #[test]
 fn registering_a_table_connection_twice_names_it_in_the_error() {
-    // session/TestDatabaseTableConnectionCrm.al:76-87 (the name is the pinned fragment).
+    // session-system/TestDatabaseTableConnectionCrm.al:76-87 (the name is the pinned fragment).
     let r = text_of(
         "",
         "RegisterTableConnection(TableConnectionType::CRM, 'ALTTEST', '@@test@@');
@@ -1412,7 +1412,7 @@ fn registering_a_table_connection_twice_names_it_in_the_error() {
 
 #[test]
 fn registering_an_external_sql_connection_is_a_permission_error() {
-    // session/TestMiscComplete.al:185-194 (the word `permission` is the pinned fragment).
+    // session-system/TestMiscComplete.al:185-194 (the word `permission` is the pinned fragment).
     let r = text_of(
         "",
         "asserterror Database.RegisterTableConnection(TableConnectionType::ExternalSQL, 'TestConn', '');
@@ -1453,7 +1453,7 @@ fn log_message_is_a_telemetry_write_that_changes_nothing() {
 
 // Session.LogSecurityAudit writes to the server's security audit log, which AL cannot observe
 // (ADR-009): it returns. Base Application's Change Log Management calls it
-// (session/TestEnvironmentUserTenantContracts.al:315-374).
+// (session-system/TestEnvironmentUserTenantContracts.al:315-374).
 #[test]
 fn log_security_audit_is_an_audit_write_that_changes_nothing() {
     let src = r#"codeunit 50100 C
@@ -1482,7 +1482,7 @@ fn a_cleared_date_formula_is_the_empty_formula() {
     assert_eq!(r.unwrap(), "|2024-03-05|Yes|2024-03-05");
 }
 
-// misc/lt-protected-var-abs-query-views/P146FormatCalcDate.al:P146_CalcDate_FormatBuilt_Formula: a plus sign, a percent sign
+// types/date-time/P146FormatCalcDate.al:P146_CalcDate_FormatBuilt_Formula: a plus sign, a percent sign
 // and a number before the unit read as the number (`<+%1D>` and `<+%1D` add one day). Only the plus sign is pinned.
 #[test]
 fn calcdate_reads_a_percent_sign_after_a_plus_as_the_number_that_follows() {
@@ -1491,7 +1491,7 @@ fn calcdate_reads_a_percent_sign_after_a_plus_as_the_number_that_follows() {
         "D := DMY2Date(15, 1, 2024); exit(Format(CalcDate('<+%1D>', D), 0, 9) + '|' + Format(CalcDate(Format('<+%1D>', 5), D), 0, 9));",
     );
     assert_eq!(r.unwrap(), "2024-01-16|2024-01-16");
-    // A minus or no sign in front of the percent sign reads the same (types/lt-date-formula-edges/DateFormulaEdges.al:Placeholders_PercentN).
+    // A minus or no sign in front of the percent sign reads the same (types/date-time/DateFormulaEdges.al:Placeholders_PercentN).
     let r = text_of(
         "D: Date;",
         "D := DMY2Date(15, 1, 2024); exit(Format(CalcDate('<-%1D>', D), 0, 9) + '|' + Format(CalcDate('<%1D>', D), 0, 9));",
@@ -1499,9 +1499,9 @@ fn calcdate_reads_a_percent_sign_after_a_plus_as_the_number_that_follows() {
     assert_eq!(r.unwrap(), "2024-01-14|2024-01-16");
 }
 
-// session/TestEnvironmentUserTenantContracts.al:195-201 and session/TestNavAppExtended.al:116-117:
+// session-system/TestEnvironmentUserTenantContracts.al:195-201 and session-system/TestNavAppExtended.al:116-117:
 // GetModuleInfo of the null app id is true and answers a module whose data version is the installed
-// application's, at least 27. Its name is W1 and its publisher Microsoft (session/TestProbeSessionMiscContracts.al:ModuleInfo_NullAppId).
+// application's, at least 27. Its name is W1 and its publisher Microsoft (session-system/TestProbeSessionMiscContracts.al:ModuleInfo_NullAppId).
 #[test]
 fn get_module_info_of_the_null_id_answers_the_application_version() {
     let r = text_of(
@@ -1540,7 +1540,7 @@ codeunit 50100 C
 }
 
 /// Red first: CanCreateTask was refused as "not pinned". The corpus pins it false in a
-/// test (session/TestEnvironmentUserTenantContracts.al:238): there is no scheduler
+/// test (session-system/TestEnvironmentUserTenantContracts.al:238): there is no scheduler
 /// and a test does not wait for a commit.
 #[test]
 fn task_scheduler_can_create_task_is_false() {
@@ -1550,7 +1550,7 @@ fn task_scheduler_can_create_task_is_false() {
 
 /// Red first: `Session.ApplicationIdentifier` was refused as not implemented, which stopped
 /// Base App's `Environment Information Impl.` and so every `Environment Information` call.
-/// Measured on real BC: 'NAV' (session/TestEnvironmentUserTenantContracts.al:241).
+/// Measured on real BC: 'NAV' (session-system/TestEnvironmentUserTenantContracts.al:241).
 #[test]
 fn session_application_identifier_is_nav() {
     let src = "codeunit 50100 C { procedure F(): Text begin exit(Session.ApplicationIdentifier()); end; }";
@@ -1558,7 +1558,7 @@ fn session_application_identifier_is_nav() {
 }
 
 /// Red first: `ProductName.Full()`, `Short()` and `Marketing()` were refused as not implemented.
-/// Measured on real BC (session/TestEnvironmentUserTenantContracts.al:237-239).
+/// Measured on real BC (session-system/TestEnvironmentUserTenantContracts.al:237-239).
 #[test]
 fn product_name_answers_the_three_forms() {
     for (member, want) in [
@@ -1572,7 +1572,7 @@ fn product_name_answers_the_three_forms() {
 }
 
 /// Red first: `Session.CurrentExecutionMode` was refused as not implemented. A test run is in
-/// Standard mode (session/TestEnvironmentUserTenantContracts.al:247); the ordinals are not pinned.
+/// Standard mode (session-system/TestEnvironmentUserTenantContracts.al:247); the ordinals are not pinned.
 #[test]
 fn current_execution_mode_is_standard() {
     let src = "codeunit 50100 C { procedure F(): Text begin exit(Format(Session.CurrentExecutionMode())); end; }";
@@ -1582,7 +1582,7 @@ fn current_execution_mode_is_standard() {
 #[test]
 fn database_sid_is_a_stable_windows_style_sid_per_user_name() {
     // Database.SID, as probed on BC 27.5: corpus branch al-runtime-rs-staging (ae3fe88),
-    // tests/al-language-onprem/session/PXDatabaseSid.al:31-46 (eight dash-separated parts, all but
+    // tests/al-language-onprem/session-system/PXDatabaseSid.al:31-46 (eight dash-separated parts, all but
     // the first numeric, prefix S-1-5-21-; the same for the same name; not the text of
     // UserSecurityId(); an unknown name gets one of that shape too).
     let r = text_of(
@@ -1601,7 +1601,7 @@ fn database_sid_is_a_stable_windows_style_sid_per_user_name() {
     }
 }
 
-// handlers/PWRefusedBuiltins.al:113-168 (BC 27.5): FieldError(Field, ErrorInfo) raises `<field> <message> in <table> <key>.`
+// recordref-fieldref/PWRefusedBuiltins.al:113-168 (BC 27.5): FieldError(Field, ErrorInfo) raises `<field> <message> in <table> <key>.`
 // with the code NCLCSRTS:TableErrorStr and leaves the ErrorInfo's message alone; FieldRef.FieldError(ErrorInfo) the same.
 #[test]
 fn field_error_with_an_error_info_raises_the_formatted_text() {
@@ -1666,7 +1666,7 @@ fn a_chained_index_of_a_two_dimensional_array_is_the_element() {
 }
 
 // `A[x]` alone on a two-dimensional array is a row; Clear of a row clears its cells (commit 70719d7e, corpus
-// collections/lt-array-rows/ArrayRows.al).
+// collections/multi-dimension-array-rows/ArrayRows.al).
 #[test]
 fn clear_of_a_row_of_a_two_dimensional_array_clears_its_cells() {
     let r = text_of(

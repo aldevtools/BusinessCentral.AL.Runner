@@ -1,5 +1,5 @@
 //! A new record of a card whose key an action or a SetValue sets (pages/actions.rs, pages/draft.rs). Each test names the corpus
-//! test of pages/lt-table-globals-page/TableGlobalsPageWithoutValidation.al that pins what BC does.
+//! test of pages/table-globals-page/TableGlobalsPageWithoutValidation.al that pins what BC does.
 
 const SRC: &str = r#"
 table 69980 "DK Row"

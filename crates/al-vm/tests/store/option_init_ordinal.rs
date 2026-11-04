@@ -51,7 +51,7 @@ codeunit 69982 C
 
 #[test]
 fn a_numeric_option_init_value_is_the_member_at_that_ordinal() {
-    // misc/lt-y70-assumptions/Y70Probes.al:715-748 OptionInitValue_Ordinal.
+    // record/Y70Probes.al:715-748 OptionInitValue_Ordinal.
     take_hits();
     assert_eq!(text(al_testkit::run_in(SRC, "C", "F")), "Monday/1|Monday/1|Monday/1");
     assert!(take_hits().is_empty());
@@ -63,7 +63,7 @@ fn an_option_init_value_by_name_is_that_member() {
 }
 
 /// A member named by digits wins over the ordinal, for the quoted and the bare form alike (al-runner issue 6859; corpus
-/// record/lt-y47-initvalue-quoted/R6859NumericOptionInit.al, measured on Windows BC 27.5).
+/// record/crud/R6859NumericOptionInit.al, measured on Windows BC 27.5).
 #[test]
 fn a_numeric_init_value_that_is_a_member_name_is_that_member() {
     let src = r#"
@@ -79,7 +79,7 @@ codeunit 69984 C { procedure F(): Text var R: Record "OIO Amb"; begin R.Init();
 }
 
 /// An Enum field whose member names are numbers: the name is taken, not the ordinal (corpus
-/// record/lt-y47-initvalue-quoted/R6859NumericOptionInit.al R6859_NumEnum, Windows BC 27.5 and 28.5).
+/// record/crud/R6859NumericOptionInit.al R6859_NumEnum, Windows BC 27.5 and 28.5).
 #[test]
 fn an_enum_init_value_that_is_a_number_is_the_member_of_that_name() {
     let src = r#"

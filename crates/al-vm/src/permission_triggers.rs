@@ -1,5 +1,5 @@
 //! ADR-062 stage 3: Execute checks around code a platform event starts (table triggers, event subscribers, OnOpenPage).
-//! Values: corpus `tests/al-language/permissions/lt-y84-perm-shapes/Y84PermExecute.al` (Y84_Exec_*, BC 29.0 Linux CI).
+//! Values: corpus `tests/al-language/permissions/permission-sets/Y84PermExecute.al` (Y84_Exec_*, BC 29.0 Linux CI).
 
 use crate::Session;
 use crate::permissions::{Access, Op};
@@ -129,7 +129,7 @@ impl Session {
 }
 
 /// Whether an error of an action's OnAction comes out of the test page's Invoke with the code `TestWrapped:Permission`: an Execute
-/// denial (Y84PermExecute.al Y84_Exec_PageAction) and an Insert denial (permissions/lt-permissions-mock-indirect/
+/// denial (Y84PermExecute.al Y84_Exec_PageAction) and an Insert denial (permissions/permission-sets/
 /// RiskyPagePermissions.al:129).
 pub(crate) fn wraps_as_permission(code: &str, message: &str) -> bool {
     matches!(code, "DB:ExecuteObjDenied" | "DB:ClientInsertDenied")

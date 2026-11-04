@@ -405,7 +405,7 @@ impl Providers {
 
     /// One `Tenant Media` row per imported media object, in id order: ID, Description, Content, Mime
     /// Type, Height, Width and File Name, as the importing methods leave them (corpus
-    /// media/PXMediaFileName.al, media/TestMediaSetPersistence.al:180-207; `tenant_media_row::columns`).
+    /// streams/media/PXMediaFileName.al, streams/media/TestMediaSetPersistence.al:180-207; `tenant_media_row::columns`).
     fn tenant_media_rows(&self, t: &TableDef) -> Vec<mat::Entry> {
         let objects = self.media.objects.borrow();
         let mut ids: Vec<_> = objects.keys().copied().collect();
@@ -441,7 +441,7 @@ impl Providers {
                 if al_builtins::media::jpg_holding_png(o) {
                     blob.borrow_mut().render_pending = Some(al_builtins::stream::MEDIA_JPG_HOLDING_PNG.into());
                 } else if al_builtins::media::png_size(&o.bytes).is_some() {
-                    // BC stores an imported PNG re-encoded (onprem session/UsAppLogo.al:7, the Icon of an app's logo; types/W7Media.al:141-145):
+                    // BC stores an imported PNG re-encoded (onprem session-system/UsAppLogo.al:7, the Icon of an app's logo; types/W7Media.al:141-145):
                     // a look at the bytes is refused.
                     blob.borrow_mut().render_pending = Some(al_builtins::stream::MEDIA_PNG_STORED_REENCODED.into());
                 }
@@ -464,7 +464,7 @@ impl Providers {
                 {
                     row[p] = Value::Text(file_name.into());
                 }
-                // The row names the session company (platform/W6TenantMedia.al:TenantMedia_RowAfterImportStream).
+                // The row names the session company (metadata/W6TenantMedia.al:TenantMedia_RowAfterImportStream).
                 if let Some(p) = t
                     .fields
                     .iter()
@@ -794,7 +794,7 @@ impl VirtualTables for Providers {
         }
     }
 
-    /// Active Session keeps the rows an Insert adds (platform/lt-outside-platform/RvActiveSessionWrites.al, AL Runner issue 5807).
+    /// Active Session keeps the rows an Insert adds (metadata/platform-tables/RvActiveSessionWrites.al, AL Runner issue 5807).
     fn takes_inserts(&self, t: &TableDef) -> bool {
         self.served.get(t.object as usize) == Some(&Some(Virtual::ActiveSession))
     }
@@ -978,9 +978,9 @@ impl VirtualTables for Providers {
 
 impl Providers {
     /// Media (2000000181) read by one ID. No row has the null ID: Guided Experience Impl looks up the Logo of an app whose
-    /// app.json declares none by its null MediaId and finds nothing (onprem session/PZPublishedApplicationColumns.al
+    /// app.json declares none by its null MediaId and finds nothing (onprem session-system/PZPublishedApplicationColumns.al
     /// Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps, `media row=none`). The id of an app's PNG logo finds its row
-    /// ([`apps::logo_media_rows`], onprem session/UsAppLogo.al). The other rows (media AL imports, other ids) are not
+    /// ([`apps::logo_media_rows`], onprem session-system/UsAppLogo.al). The other rows (media AL imports, other ids) are not
     /// pinned: any other read is refused.
     fn media_of_id(&self, t: &TableDef, id: Option<&Value>) -> Result<mat::Mat, StoreError> {
         match id {

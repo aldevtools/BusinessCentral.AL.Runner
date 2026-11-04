@@ -1,6 +1,6 @@
 //! A page without OnFindRecord opened without a record, whose OnOpenPage leaves Rec on a row that is not the first of the
 //! view: a Card or List opens on that row, or on the nearest row of the view when Rec is outside the filter OnOpenPage set
-//! (corpus pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:175 QR_Card_OpenView_Get, :292 QR_List_OpenView_Get, :253
+//! (corpus pages/onopenpage-moves-rec/QrMovedTests.al:175 QR_Card_OpenView_Get, :292 QR_List_OpenView_Get, :253
 //! QR_Card_OpenView_GetThenFilterExcludes, :409 QR_TempCard_OpenView_NoMove). In a key other than the primary key (a
 //! SetCurrentKey in OnOpenPage, :345 QR_List_OpenView_SetCurrentKeyGet, or a SourceTableView, the QS_* tests from :856) the
 //! page reads Rec's row before it finds from it, and a list reads each row once more. Other page types stay refused.

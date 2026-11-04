@@ -1,9 +1,9 @@
 //! A report with SaveValues stores what its request page shows when the page closes with OK (corpus
-//! report/lt-requestpage-savevalues-date-text-setvalue/P147SaveValuesFilter.al:P147_Filter_SetTableViewVsStored: the
+//! reports/request-page/P147SaveValuesFilter.al:P147_Filter_SetTableViewVsStored: the
 //! data item filter confirmed by OK is the filter the next instance's request page shows). The stored record is a copy:
 //! filters the report body sets after the page closed are not request page values and must not reach a later
 //! instance (al-runner issue 6065, the reporter's cases). A filter edit closed by Cancel is not kept: pinned by
-//! report/lt-y86-request-page/Y86RequestFilters.al:435 (Y86_CancelKeeps_FilterChangedThenCancel), so the pass is clean.
+//! reports/request-page/Y86RequestFilters.al:435 (Y86_CancelKeeps_FilterChangedThenCancel), so the pass is clean.
 
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;

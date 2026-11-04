@@ -1,5 +1,5 @@
 //! Triggers of a container text element (one with child elements) and `currXMLport.Skip()` in them (corpus
-//! xmlport/lt-y60-xmlport-container-skip/Y60XpContainerSkip.al): Skip in a container's OnBeforePassVariable leaves out the
+//! xmlports/shapes-properties/Y60XpContainerSkip.al): Skip in a container's OnBeforePassVariable leaves out the
 //! container with all its children, whose triggers do not run; a container whose children are all skipped is written empty;
 //! Skip of an element with text attributes leaves out the attributes too; Skip of a text attribute leaves out only it. On
 //! import a container's OnAfterAssignVariable runs after its children, with its own text.

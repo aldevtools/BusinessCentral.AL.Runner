@@ -20,9 +20,9 @@ impl Session {
     }
 
     /// How many times each CaptionClass expression of the source table runs with an empty record when page `st` opens: a page of
-    /// its own (no host, not modal) opened with OpenView or OpenEdit. Pinned by writer SX (record/lt-sx-captionclass-count/
+    /// its own (no host, not modal) opened with OpenView or OpenEdit. Pinned by writer SX (record/captions/
     /// SxCaptionClassCount.al:190-369): one expression field, Card 8 and List 7; two with the same expression text, 9 and 8 each.
-    /// And by writer Y61 (pages/lt-y61-page-probes/Y61CaptionClassCount.al, three cycles alike on every major): on a List each field
+    /// And by writer Y61 (testpage/Y61CaptionClassCount.al, three cycles alike on every major): on a List each field
     /// runs 9 times for three fields with the same text (:540), 10 for four fields with different or the same texts (:468, :516),
     /// 21 for fifteen fields with different texts (:564); a Worksheet as a List (:492 four fields, :639 one). `None` for any other shape: the counts are pinned per number of fields only.
     pub(super) fn caption_empty_runs_pinned(&self, st: &St, exprs: &[(usize, String)]) -> Option<usize> {

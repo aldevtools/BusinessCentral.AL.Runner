@@ -1,5 +1,5 @@
 //! `TestField.SetValue` of a value that is not a Text, on a control bound to a Text or Code field or variable (moved out of controls.rs).
-//! Pinned by pages/lt-y80-setvalue-types/Y80SetValueTypes.al (needs corpus bump).
+//! Pinned by pages/properties/Y80SetValueTypes.al (needs corpus bump).
 
 use super::*;
 
@@ -34,7 +34,7 @@ impl Session {
     }
 
     /// The text a Text or Code control takes from `arg`:
-    /// - a Decimal is its Format text (1.11, `1,234`, `100,000`; misc/lt-y14-triage/Y14Small.al:237; Y80_ST_Card_TxtCtl_Decimals and
+    /// - a Decimal is its Format text (1.11, `1,234`, `100,000`; format-evaluate/Y14Small.al:237; Y80_ST_Card_TxtCtl_Decimals and
     ///   _CdCtl_Decimals);
     /// - an Integer or BigInteger is its digits, with no thousands separator (Y80_ST_Card_TxtCtl_Integers `int 1234567`,
     ///   _BigIntegers `big 5000000000`; the same on a List and on a Code control). On a control bound to a variable it is unprobed
@@ -55,7 +55,7 @@ impl Session {
             return Ok(TextConv::Other);
         }
         // Pinned on a control bound to a variable, Text and Code: an Integer (14, 1234, -3) and the Decimal 14.0 enter their digits
-        // (pages/lt-ao-testpage/AoTests.al:363-404 NumberIntoTextVariable, NumberIntoCodeVariable). A BigInteger and any other
+        // (testpage/AoTests.al:363-404 NumberIntoTextVariable, NumberIntoCodeVariable). A BigInteger and any other
         // Decimal (a fraction, a thousand or more: Format puts a separator in) are not.
         let pinned_number = match arg {
             Value::Integer(_) => true,

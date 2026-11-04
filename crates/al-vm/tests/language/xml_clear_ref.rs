@@ -1,5 +1,5 @@
 //! Clear of an XmlElement, XmlNode and XmlDocument variable (corpus branch al-runtime-rs-staging-ul at b753d3fb7a,
-//! xml/lt-ul-clear-ref/UlClearXmlRef.al, codeunit 90420): the cleared variable reads as an unassigned one, and another
+//! xml/xml/UlClearXmlRef.al, codeunit 90420): the cleared variable reads as an unassigned one, and another
 //! variable that holds the same node or document keeps it.
 
 use al_testkit::text;

@@ -1,5 +1,5 @@
 //! OnFindRecord (and OnNextRecord) on a page whose SourceTableView has a WHERE part. Pinned by
-//! tests/al-language/pagefindrecord/QcFindViewTests.al (corpus bump 33), so these paths mark no assumption.
+//! tests/al-language/pages/triggers/QcFindViewTests.al (corpus bump 33), so these paths mark no assumption.
 //! Shapes from Base Application: Interaction Log Entries (list), Service Invoice (document card with a fallback),
 //! Sales Order Subform (list part).
 
@@ -193,7 +193,7 @@ fn a_list_with_on_next_record_reads_ahead_at_open() {
 }
 
 /// QcFindViewTests.al:257 DescList_OpenAndWalk: the open lands on the lowest row; First goes to the top row of the view and
-/// asks the page nothing (misc/lt-probes-needed-6/PnF06FindListMoves.al:825-868 QV_DescKind_FindOnly_Moves `01_first = Yes|5|`).
+/// asks the page nothing (testpage/PnF06FindListMoves.al:825-868 QV_DescKind_FindOnly_Moves `01_first = Yes|5|`).
 #[test]
 fn a_descending_filtered_view_opens_on_the_lowest_row_and_first_goes_to_the_top() {
     let src = format!(

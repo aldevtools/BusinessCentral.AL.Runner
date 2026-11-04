@@ -43,12 +43,12 @@ pub struct ControlFormat {
     /// `OptionCaption` of the control, else of the source field.
     pub option_captions: Option<Vec<String>>,
     /// The session's work date, which a Date control reads from the shorthand `w`
-    /// (handlers/TestPageTemporalSetValue_Tests.al:272-286). `None` where the caller has none.
+    /// (testpage/TestPageTemporalSetValue_Tests.al:272-286). `None` where the caller has none.
     pub work_date: Option<i32>,
-    /// Today's date as a day number, for the shorthand `t` (session/W5WorkDateShorthand.al).
+    /// Today's date as a day number, for the shorthand `t` (session-system/W5WorkDateShorthand.al).
     pub today: Option<i32>,
     /// `ClosingDates = true` on the control or the source field: a closing date shows as `C12/31/2025`
-    /// (record/lt-x-table-props/XTablePropsTests.al:523-524, pageext/lt-z-modify-controls/ZModifyControls.al:290-291).
+    /// (record/table-properties/XTablePropsTests.al:523-524, pages/extensions/ZModifyControls.al:290-291).
     /// Without it a closing date shows its plain day.
     pub closing_dates: bool,
 }
@@ -65,7 +65,7 @@ pub fn parse_decimal_places(p: &str) -> Option<(u32, u32)> {
 }
 
 /// The precision of an auto-format expression: `<Precision,4:4><Standard Format,0>` is 4 : 4
-/// (corpus autoformat/TestAutoFormat.al, AutoFormat_CustomExpressionControl_HonoursTheFormatString).
+/// (corpus format-evaluate/autoformat/TestAutoFormat.al, AutoFormat_CustomExpressionControl_HonoursTheFormatString).
 pub fn parse_precision(expr: &str) -> Option<(u32, u32)> {
     let rest = expr.split("<Precision,").nth(1)?;
     parse_decimal_places(rest.split('>').next()?)
@@ -143,13 +143,13 @@ fn duration_text(ms: i64) -> String {
 }
 
 /// The inverse of [`duration_text`]: exactly its own spelling, in milliseconds. Blank is zero
-/// (corpus handlers/TestPageFieldFormats_Tests.al:1703 SetValue_Duration, :1724 _Text, :1745 _BlankText).
+/// (corpus testpage/TestPageFieldFormats_Tests.al:1703 SetValue_Duration, :1724 _Text, :1745 _BlankText).
 /// Any other spelling of a duration is not pinned.
 fn parse_duration(t: &str) -> Option<i64> {
     if t.is_empty() {
         return Some(0);
     }
-    // Every unit of a negative Duration carries the sign (handlers/TestPageRuntimeContracts.al:157).
+    // Every unit of a negative Duration carries the sign (testpage/TestPageRuntimeContracts.al:157).
     let neg = t.starts_with('-');
     let body = t;
     let units: [(&str, i64); 5] = [
@@ -255,9 +255,9 @@ pub fn control_text(v: &Value, f: &ControlFormat, enum_caption: &dyn Fn(u32, i32
 }
 
 /// What a control accepts as text for a value of type `ty`: the inverse of [`control_text`]
-/// (corpus handlers/TestPageFieldFormats_Tests.al:1-40, "SetValue is spelled the same way and read
+/// (corpus testpage/TestPageFieldFormats_Tests.al:1-40, "SetValue is spelled the same way and read
 /// back by the client's own parser"). `None` = not an acceptable value
-/// (handlers/TestPageBooleanSpelling_Tests.al: `Yes`/`No` only; `False` is refused).
+/// (testpage/TestPageBooleanSpelling_Tests.al: `Yes`/`No` only; `False` is refused).
 /// `enum_by_text` finds an enum value's ordinal by caption or name.
 pub fn parse_control_text(
     text: &str,
@@ -267,7 +267,7 @@ pub fn parse_control_text(
 ) -> Result<Value, ParseError> {
     use crate::value::RtType as T;
     let t = text.trim();
-    // Only the upper-case closing mark is pinned (pages/lt-page-presentation-properties/P119ReportFields.al:174).
+    // Only the upper-case closing mark is pinned (pages/properties/P119ReportFields.al:174).
     if matches!(ty, T::Date) && f.closing_dates && t.strip_prefix('c').is_some_and(|r| r.contains('/')) {
         return Err(ParseError::Unsupported);
     }
@@ -327,7 +327,7 @@ fn parse_typed(
                 .and_then(|c| c.iter().position(|x| x.eq_ignore_ascii_case(t)));
             let i = by_caption.or_else(|| members.iter().position(|x| x.eq_ignore_ascii_case(t)));
             // A blank text of spaces selects the first member whose caption is blank; the empty text does not, it is refused
-            // (pages/lt-testpage-assertequals-option/TestPageAssertEqualsOption.al:SetValue_BlankOption_AsSpaceText,
+            // (testpage/TestPageAssertEqualsOption.al:SetValue_BlankOption_AsSpaceText,
             // SetValue_BlankOption_AsEmptyText). Only a control with an OptionCaption is pinned; a control whose blank member
             // has no caption stays an assumption (testpage-setvalue-blank-option-member).
             let i = match i {
@@ -350,13 +350,13 @@ fn parse_typed(
                 Value::Date(0, false)
             } else if matches!(t.to_ascii_lowercase().as_str(), "w" | "workdate") {
                 // The shorthands, in any case: w and workdate are the work date, t and today the system date
-                // (session/W5WorkDateShorthand.al, BC 27.5 and 29.0).
+                // (session-system/W5WorkDateShorthand.al, BC 27.5 and 29.0).
                 Value::Date(f.work_date?, false)
             } else if matches!(t.to_ascii_lowercase().as_str(), "t" | "today") {
                 Value::Date(f.today?, false)
             } else if let Some(rest) = t.strip_prefix('C').filter(|r| f.closing_dates && r.contains('/')) {
                 // A ClosingDates control takes back the closing date it shows, `C12/31/2025`
-                // (pages/lt-page-presentation-properties/P119ReportFields.al:174, :257-258).
+                // (pages/properties/P119ReportFields.al:174, :257-258).
                 match parse_typed(rest, rest, ty, f, enum_by_text)? {
                     Value::Date(d, false) if d != 0 => Value::Date(d, true),
                     _ => return None,
@@ -371,7 +371,7 @@ fn parse_typed(
                 let (m, d, y) = (p.next()?, p.next()?, p.next()?);
                 let (m, d, mut yy): (u32, u32, i32) = (m.parse().ok()?, d.parse().ok()?, y.parse().ok()?);
                 if y.len() <= 2 {
-                    // 00 to 30 are 2000 to 2030, 31 to 99 are 1931 to 1999 (controls/W2ValueControls.al:
+                    // 00 to 30 are 2000 to 2030, 31 to 99 are 1931 to 1999 (pages/controls/W2ValueControls.al:
                     // Date_SessionFormatTwoDigitYear_Later, `06/15/30` is 2030-06-15).
                     yy += if yy <= 30 { 2000 } else { 1900 };
                 }
@@ -388,7 +388,7 @@ fn parse_typed(
         }
         T::Duration => Value::Duration(parse_duration(t)?),
         // A formula reads with or without its angle brackets and is kept in the bracketed form
-        // (dateformulacontrol/TestDateFormulaControl.al:63-100). BC reads a leading token and
+        // (pages/controls/TestDateFormulaControl.al:63-100). BC reads a leading token and
         // stops, so it accepts texts the runtime's formula parser refuses; those are not pinned and
         // end as `Unsupported`, never as an invalid entry.
         T::DateFormula => {
@@ -487,7 +487,7 @@ mod tests {
         }
     }
 
-    // pages/lt-page-presentation-properties/P119ReportFields.al:174, :257-258: a closing date set on a ClosingDates control
+    // pages/properties/P119ReportFields.al:174, :257-258: a closing date set on a ClosingDates control
     // reads back as `C12/31/2025`.
     #[test]
     fn a_closing_dates_control_reads_back_the_closing_date_it_shows() {
@@ -512,7 +512,7 @@ mod tests {
         assert!(matches!(v, Err(ParseError::Unsupported)), "{v:?}");
     }
 
-    // handlers/TestPageFieldFormats_Tests.al Value_Decimal_TwoPlaces / NoDecimalPlaces
+    // testpage/TestPageFieldFormats_Tests.al Value_Decimal_TwoPlaces / NoDecimalPlaces
     #[test]
     fn decimals_default_to_two_places_with_thousands_and_half_away_from_zero_rounding() {
         let f = ControlFormat::default();
@@ -642,7 +642,7 @@ mod tests {
             (90_000_000, "1 day 1 hour"),
             (86_400_000, "1 day"),
             (1, "1 millisecond"),
-            // handlers/TestPageRuntimeContracts.al:157: every unit of a negative Duration is negative.
+            // testpage/TestPageRuntimeContracts.al:157: every unit of a negative Duration is negative.
             (-90_061_001, "-1 day -1 hour -1 minute -1 second -1 millisecond"),
             (-5000, "-5 seconds"),
         ] {
@@ -650,8 +650,8 @@ mod tests {
         }
     }
 
-    // handlers/TestPageBooleanSpelling_Tests.al: SetValue accepts Yes/No and refuses True/False;
-    // handlers/TestPageFieldFormats_Tests.al:1-40: "a blank text written to a numeric control is zero".
+    // testpage/TestPageBooleanSpelling_Tests.al: SetValue accepts Yes/No and refuses True/False;
+    // testpage/TestPageFieldFormats_Tests.al:1-40: "a blank text written to a numeric control is zero".
     #[test]
     fn control_text_parses_back() {
         use crate::value::RtType as T;
@@ -664,7 +664,7 @@ mod tests {
         assert!(matches!(p("", &T::Integer), Ok(Value::Integer(0))));
         assert!(matches!(p("12", &T::Integer), Ok(Value::Integer(12))));
         assert_eq!(p("abc", &T::Integer).unwrap_err(), ParseError::Invalid);
-        // handlers/TestPageFieldFormats_Tests.al:1724 SetValue_Duration_Text, :1745 _BlankText, :1703 SetValue_Duration
+        // testpage/TestPageFieldFormats_Tests.al:1724 SetValue_Duration_Text, :1745 _BlankText, :1703 SetValue_Duration
         // (the control's own spelling reads back); other spellings are not pinned.
         assert!(matches!(p("5 seconds", &T::Duration), Ok(Value::Duration(5000))));
         assert!(matches!(p("", &T::Duration), Ok(Value::Duration(0))));
@@ -676,7 +676,7 @@ mod tests {
             p("-1 day -1 millisecond", &T::Duration),
             Ok(Value::Duration(-86_400_001))
         ));
-        // A sign on the first unit only is not BC's spelling (handlers/TestPageRuntimeContracts.al:157).
+        // A sign on the first unit only is not BC's spelling (testpage/TestPageRuntimeContracts.al:157).
         assert_eq!(
             p("-1 day 1 millisecond", &T::Duration).unwrap_err(),
             ParseError::Unsupported
@@ -686,7 +686,7 @@ mod tests {
             p("1 second 2 hours", &T::Duration).unwrap_err(),
             ParseError::Unsupported
         );
-        // dateformulacontrol/TestDateFormulaControl.al: '<1D>' and the unbracketed '3D' name the same formula.
+        // pages/controls/TestDateFormulaControl.al: '<1D>' and the unbracketed '3D' name the same formula.
         assert!(matches!(p("<1D>", &T::DateFormula), Ok(Value::DateFormula(s)) if s == "<1D>"));
         assert!(matches!(p("3D", &T::DateFormula), Ok(Value::DateFormula(s)) if s == "<3D>"));
         assert!(matches!(p("", &T::DateFormula), Ok(Value::DateFormula(s)) if s.is_empty()));
@@ -715,7 +715,7 @@ mod tests {
         ));
     }
 
-    // handlers/TestPageTemporalSetValue_Tests.al:TemporalSetValue_PageVariableDateControlTakesIsoText
+    // testpage/TestPageTemporalSetValue_Tests.al:TemporalSetValue_PageVariableDateControlTakesIsoText
     // and ...TakesFormattedText: a Date control takes the ISO spelling and the `Format(Date)` text
     // (`01/01/24`, a two-digit year read as in Evaluate: 1930-2029).
     #[test]

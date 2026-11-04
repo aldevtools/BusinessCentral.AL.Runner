@@ -81,8 +81,8 @@ impl Session {
         self.events.global_setups.insert(table, GlobalSetup::default());
         let mut setup = GlobalSetup::default();
         // With no company open (the per-database part of an install) BC asks for neither the trigger mask nor the database
-        // trigger setup, and raises no database event (install/lt-y79-install-unrelated/Y79InstallUnrelated.al:178
-        // Y79_PerDatabase_NoTriggerSubscriberAsked; install/lt-ug-install-trigger-setup/UgInstallTests.al:37).
+        // trigger setup, and raises no database event (install-upgrade/install-triggers/Y79InstallUnrelated.al:178
+        // Y79_PerDatabase_NoTriggerSubscriberAsked; install-upgrade/install-triggers/UgInstallTests.al:37).
         let no_company = self.cx.company.is_empty();
         if !no_company && self.engine.events.is_subscribed(key, "getglobaltabletriggermask") {
             let mut args = [Value::Integer(id), Value::Integer(0)];
@@ -106,7 +106,7 @@ impl Session {
                     return unsupported(format!("Global Triggers: mask {}", other.describe()));
                 }
             };
-            // The bits 16, 32, 64 and 128 raise nothing (install/lt-y79-install-unrelated/Y79InstallUnrelated.al:345-347,
+            // The bits 16, 32, 64 and 128 raise nothing (install-upgrade/install-triggers/Y79InstallUnrelated.al:345-347,
             // :420-431: tables whose subscriber adds one of them); of the low four only 0 and 15 are pinned.
             let low = mask & MASK_ALL;
             let high = mask & !MASK_ALL;
@@ -194,7 +194,7 @@ impl Session {
             return Ok(());
         }
         // A temporary record asks for no setup and raises nothing
-        // (session/TestEnvironmentUserTenantContracts.al:GlobalTriggers_TemporaryRecord_RaisesNoDatabaseEventAndAsksNoSetup).
+        // (session-system/TestEnvironmentUserTenantContracts.al:GlobalTriggers_TemporaryRecord_RaisesNoDatabaseEventAndAsksNoSetup).
         if rec.borrow().temporary {
             return Ok(());
         }

@@ -699,7 +699,7 @@ fn copy_filter_copies_one_fields_filter_to_a_field_of_another_record() {
 
 // A second SetCurrentKey on a prefix of the record's ad hoc key (fields no key starts with) is
 // another ad hoc key: rows by those fields, then by the primary key (record/TestRecordNavContracts.al:180-195,
-// xmlport/TestXmlPortTriggersReplaceViewContracts.al:339-375). It matched the ad hoc key itself and
+// xmlports/TestXmlPortTriggersReplaceViewContracts.al:339-375). It matched the ad hoc key itself and
 // left the record on a key index the table does not have (a panic in Tests-General Journal).
 #[test]
 fn set_current_key_on_a_prefix_of_the_ad_hoc_key() {

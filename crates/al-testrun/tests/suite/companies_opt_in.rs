@@ -1,6 +1,6 @@
 //! ADR-046 step B: the `--companies` opt-in. The run declares the companies of its database; the per-company install code
 //! of the apps under test runs once in each, the session company first, then the per-database part
-//! (install/lt-bf-install-probes/BfInstallTests.al:125-140; install/lt-av-install-order/AvInstallOrder.al:56-67). The
+//! (record/BfInstallTests.al:125-140; install-upgrade/install-order/AvInstallOrder.al:56-67). The
 //! company list is a setting of the process (`al_testrun::host::set_companies`), so these tests have a binary of their own,
 //! and every test in it declares the same list.
 
@@ -187,7 +187,7 @@ const BASE_TABLES: &str = "table 7200 \"CDS Connection Setup\" { fields { field(
     table 77 \"Report Selections\" { fields { field(1; Usage; Integer) { } field(2; Sequence; Code[10]) { } } }";
 
 // ADR-046 amendment 4: "My Company" of the corpus CI database holds no CDS Connection Setup row
-// (install/lt-bf-install-probes/BfInstallTests.al, SecondCompany_CdsConnectionSetup_ComparedWithSessionCompany, corpus PR
+// (record/BfInstallTests.al, SecondCompany_CdsConnectionSetup_ComparedWithSessionCompany, corpus PR
 // 804). Under the opt-in, a run without test data answers the table there as empty: what install code and tests write
 // there is what it holds. A Base Application table that holds rows of unpinned content there stays refused.
 #[test]
@@ -217,7 +217,7 @@ fn a_base_table_pinned_empty_in_my_company_starts_empty_there() {
 }
 
 // "My Company" of the corpus CI database holds no CRM Connection Setup row either
-// (install/lt-bf-install-probes/BfInstallTests.al, SecondCompany_CrmConnectionSetup_ComparedWithSessionCompany, corpus
+// (record/BfInstallTests.al, SecondCompany_CrmConnectionSetup_ComparedWithSessionCompany, corpus
 // issue 811, :317-318): under the opt-in a run without test data answers it as empty there.
 #[test]
 fn crm_connection_setup_starts_empty_in_my_company() {
@@ -342,7 +342,7 @@ impl al_host::testdata::TableProvider for CompanyInfo {
 
 // al-runner issue 6507 (comment of 2026-10-31, the reporter's repro): install code copies the session company; the copy
 // holds the restored database's Company Information row as it is (corpus
-// session/lt-y22-copy-company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows), and a test reads and modifies it
+// session-system/company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows), and a test reads and modifies it
 // there, as report 357 Copy Company does.
 #[test]
 fn a_copy_of_the_session_company_holds_its_restored_company_information() {
@@ -374,7 +374,7 @@ fn a_copy_of_the_session_company_holds_its_restored_company_information() {
 
 // al-runner issue 6507: a company AL code makes with Company.Insert holds no Company Information row on BC: the test inserts
 // the primary-key row there and copies the company, and the copy holds that row as it is
-// (session/lt-y22-copy-company/Y22CopyCompany.al:90-94, :132, :154). Copying such a company works under the opt-in as
+// (session-system/company/Y22CopyCompany.al:90-94, :132, :154). Copying such a company works under the opt-in as
 // without it; a Base Application table with install rows whose content there no test pins stays refused in both companies.
 #[test]
 fn a_company_made_in_the_run_starts_without_company_information_and_copies() {

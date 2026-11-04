@@ -1,6 +1,6 @@
 //! An action that changes nothing on a list with ModifyAllowed = false, over a table with a Blob field, also after a
 //! CalcFields of a Blob that holds a value: the action runs, no modify trigger runs and the row is unchanged (corpus
-//! pages/lt-outside-worksheet/RmReadOnlyBlob.al:316-:470, al-runner issue 5781). An action that writes the Blob through a
+//! testpage/RmReadOnlyBlob.al:316-:470, al-runner issue 5781). An action that writes the Blob through a
 //! stream is not pinned.
 
 use al_testkit::{run_in, text};

@@ -5,8 +5,8 @@
 //! request to the session (`Ctx::http_send`), which gives it to the `[HttpClientHandler]` of the running test,
 //! raises the policy error, or refuses.
 //!
-//! Pinned by: corpus network/TestHttpRequestMessage.al and misc/W4XmlJsonHttp.al; the staging probes
-//! tests/al-language-onprem/session/PZHttpHandler.al and PZHttpBlock.al (BC 29.0.54011.55816) and
+//! Pinned by: corpus http/TestHttpRequestMessage.al and json/W4XmlJsonHttp.al; the staging probes
+//! tests/al-language-onprem/session-system/PZHttpHandler.al and PZHttpBlock.al (BC 29.0.54011.55816) and
 //! tests/al-language/network/lt-http/*.al (the laptop's HTTP topic, BC 29.0.54011.55816). What those do not
 //! measure is refused or marked in the assumption registry.
 
@@ -132,7 +132,7 @@ fn with_response<R>(r: Option<&mut Value>, f: impl FnOnce(&mut HttpResponseState
 }
 
 /// What a handler is given to fill: 200 OK, successful, nothing blocked, an empty body
-/// (network/lt-http/TestHttpMessages.al:FreshTestResponse).
+/// (http/test-messages/TestHttpMessages.al:FreshTestResponse).
 pub fn fresh_test_response() -> TestHttpResponseState {
     TestHttpResponseState {
         request_failed: false,
@@ -300,10 +300,10 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
 /// How a real request to `url` fails before any connection is made, as (error text, error code), or None when its outcome
 /// needs the network (the runtime never opens a connection, ADR-027). Two cases are pinned:
 /// - an internal address is refused: 127.x, localhost, [::1], 10.x, 192.168.x, 172.16.x and 169.254.169.254
-///   (network/lt-cz-http-leads/CzHttpOutbound.al:91-108, BC 27, 28, 29; `http://localhost:1` also in
-///   al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al:86-90 and AyHttpHandler.al:Handler_FallThrough_ConnectionRefused);
+///   (http/CzHttpOutbound.al:91-108, BC 27, 28, 29; `http://localhost:1` also in
+///   al-language-onprem/http/client/PyHttpPolicy.al:86-90 and AyHttpHandler.al:Handler_FallThrough_ConnectionRefused);
 /// - a host under the `.invalid` top-level domain, which never resolves (RFC 6761), fails with HttpRequest:Socket
-///   (network/lt-http-send-failure/LtDaSendFailure.al:45-49 `lt-da.invalid`, PyHttpPolicy.al:113-127 `example.invalid`).
+///   (http/client/LtDaSendFailure.al:45-49 `lt-da.invalid`, PyHttpPolicy.al:113-127 `example.invalid`).
 ///
 /// 0.0.0.0 raises HttpRequest:Argument with a text no test pins: None.
 pub fn failure_without_connection(url: &str) -> Option<(&'static str, &'static str)> {
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn uris_take_their_normal_form() {
-        // network/lt-http/HttpRequest.al:SetRequestUriValid, SetRequestUriRelativeAndInvalid, SetRequestUriOtherSchemes.
+        // http/HttpRequest.al:SetRequestUriValid, SetRequestUriRelativeAndInvalid, SetRequestUriOtherSchemes.
         let ok = |i: &str, o: &str| assert_eq!(normalize_uri(i).as_deref(), Ok(o), "{i}");
         ok("https://example.invalid/path?q=1", "https://example.invalid/path?q=1");
         ok("http://example.invalid", "http://example.invalid/");
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn a_web_scheme_with_nothing_after_the_colon_is_no_uri() {
-        // misc/lt-probes-needed-4/PnD06_SetRequestUri.al:65-67: `http:`, `https:` and `http://` are invalid.
+        // http/PnD06_SetRequestUri.al:65-67: `http:`, `https:` and `http://` are invalid.
         for bad in ["http:", "https:", "http://"] {
             assert_eq!(normalize_uri(bad), Err(false), "{bad}");
         }

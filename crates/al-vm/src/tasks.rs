@@ -1,7 +1,7 @@
 //! `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask` and `SetTaskReady`. A test never sees a task run (it starts in a
-//! session of its own after the creating transaction commits: platform/W6TaskScheduler.al:71-86
+//! session of its own after the creating transaction commits: metadata/W6TaskScheduler.al:71-86
 //! CreateTask_DoesTheTaskRun_AfterAPause), so a task is only an id the session knows until the transaction ends.
-//! Pinned by platform/W6TaskScheduler.al:88-176 and platform/lt-platform-members/PlTTaskScheduler.al:40-215:
+//! Pinned by metadata/W6TaskScheduler.al:88-176 and metadata/platform-tables/PlTTaskScheduler.al:40-215:
 //! - a created task exists, also when created not ready, with a failure codeunit, a company, a start time or a record id;
 //! - CancelTask of it answers true and the task no longer exists; a second CancelTask answers false;
 //! - TaskExists and CancelTask of an unknown or the null id answer false; SetTaskReady of an unknown id returns, of a
@@ -11,15 +11,15 @@
 //!   codeunit 0 and an unknown company do not (PlTTaskScheduler.al:162-170, 184-193).
 //!
 //! After the creating transaction commits the task stays as created and never runs, also after a pause and in the next
-//! test of the codeunit (platform/lt-y43-task-after-commit/Y43TaskAfterCommit.al:121-300, BC 27.5, 28.5, 29.0 and SaaS):
+//! test of the codeunit (metadata/session-system/Y43TaskAfterCommit.al:121-300, BC 27.5, 28.5, 29.0 and SaaS):
 //! its row reads the same, TaskExists answers true, SetTaskReady answers true and makes it ready, CancelTask removes it.
 //! Not Before is blank for a task created without one and the given value otherwise (:139-148, :302-317); after
 //! SetTaskReady it is only pinned as not blank (:288), so it is refused when read.
 //!
 //! A task of the open transaction has its row in the Scheduled Task table: Get answers Yes, a filter on ID counts it, and
-//! CancelTask removes it (platform/lt-wd/WdScheduledTaskGet.al, corpus branch al-runtime-rs-staging-1030c, al-runner issue
+//! CancelTask removes it (session-system/WdScheduledTaskGet.al, corpus branch al-runtime-rs-staging-1030c, al-runner issue
 //! 6315). Its User ID, User Name, Company, Run Codeunit and Is Ready (No for a task created not ready) are pinned by
-//! session/lt-cn-session-leads/CnSessionLeads.al:23-46; every other column is refused when read (`platform::unknown`).
+//! session-system/CnSessionLeads.al:23-46; every other column is refused when read (`platform::unknown`).
 
 use crate::Session;
 use al_builtins::builtin_id::ids;

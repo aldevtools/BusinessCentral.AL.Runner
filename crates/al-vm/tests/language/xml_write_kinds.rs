@@ -1,5 +1,5 @@
 //! `WriteTo` of attributes, document types made without a subset, and `WriteTo(XmlWriteOptions, Text)` (corpus
-//! xml/lt-xml-attr-doc-http-members/P97AttrWrite.al, xml/lt-xml-remaining-node-methods/P104Write*.al, xml/XmlDocReadWrite.al).
+//! xml/xml/P97AttrWrite.al, xml/lt-xml-remaining-node-methods/P104Write*.al, xml/XmlDocReadWrite.al).
 
 use al_testkit::text;
 

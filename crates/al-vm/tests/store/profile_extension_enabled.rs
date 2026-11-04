@@ -1,6 +1,6 @@
 //! The Enabled column of "All Profile" when a profile extension declares `Enabled`: a profile that is
-//! disabled and has an extension with `Enabled = true` shows as enabled, and the reverse (pageext/lt-u-page-props/UPageProps.al:340-365); an extension that declares
-//! only a Caption leaves the profile's own Enabled (corpus pages/lt-y88-page-probes/Y88PageProbes.al:
+//! disabled and has an extension with `Enabled = true` shows as enabled, and the reverse (pages/extensions/UPageProps.al:340-365); an extension that declares
+//! only a Caption leaves the profile's own Enabled (corpus testpage/Y88PageProbes.al:
 //! 239-247, Y88_Profile_EnabledForms, objects in Y88PageObjects.al:323-358).
 
 use al_builtins::native::Signal;

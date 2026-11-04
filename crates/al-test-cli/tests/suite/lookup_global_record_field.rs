@@ -1,7 +1,7 @@
 //! TestField.Lookup on a header control bound to a field of a global record of the page, whose OnLookup sets Text and
 //! returns true and whose OnValidate saves the record and calls `CurrPage.Update(false)`: the control then reads the
 //! picked value and the record holds it (al-runner issue 5843, the reporter's run on real BC 29.0.54011.55407, 2/2 tests).
-//! The read after the Lookup is pinned by pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al (run in outside_sc_pins.rs).
+//! The read after the Lookup is pinned by testpage/ScLookupGlobalRecordField.al (run in outside_sc_pins.rs).
 
 use al_test_cli::report::Outcome;
 
@@ -322,14 +322,14 @@ fn part_outcome(update: &str, link: &str) -> Outcome {
 
 #[test]
 fn a_lookup_on_a_page_with_an_unlinked_part_shows_the_picked_value() {
-    // Pinned: pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al:469 LookupUpdateFalseOnPart `shows=[R2]`.
+    // Pinned: testpage/ScLookupGlobalRecordField.al:469 LookupUpdateFalseOnPart `shows=[R2]`.
     assert_eq!(part_outcome("CurrPage.Update(false);", ""), Outcome::Pass);
     assert!(al_builtins::assumptions::take_hits().is_empty());
 }
 
 #[test]
 fn a_lookup_on_a_page_with_a_part_shows_the_picked_value_in_every_pinned_form() {
-    // Pinned: pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al LookupUpdateTrueOnPart (:493), LookupNoUpdateOnPart
+    // Pinned: testpage/ScLookupGlobalRecordField.al LookupUpdateTrueOnPart (:493), LookupNoUpdateOnPart
     // (:517), LookupUpdateFalseOnLinkedPart (:541), LookupUpdateTrueOnLinkedPart (:565), LookupNoUpdateOnLinkedPart (:589):
     // `shows=[R2]` in each.
     let linked = "SubPageLink = \"No.\" = field(\"No.\");";
@@ -352,7 +352,7 @@ fn a_lookup_on_a_page_with_a_part_shows_the_picked_value_in_every_pinned_form() 
 #[test]
 fn a_lookup_on_a_page_with_a_part_keeps_the_unmeasured_forms_refused() {
     // A SubPageLink with a filter entry, and a SubPageView: no corpus test reads the host after a lookup with these. Two
-    // field entries are pinned since (pages/lt-wb-6290/WbLookupListPartTests.al:21-31, tests/lookup_two_field_link.rs).
+    // field entries are pinned since (testpage/WbLookupListPartTests.al:21-31, tests/lookup_two_field_link.rs).
     for link in [
         "SubPageLink = \"No.\" = const('R1');",
         "SubPageView = where(\"No.\" = const('R1'));",

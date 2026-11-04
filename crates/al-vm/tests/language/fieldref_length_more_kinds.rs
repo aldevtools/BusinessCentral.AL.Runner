@@ -1,5 +1,5 @@
 //! `FieldRef.Length` of the field types the first probe left out (al-runner issue 6663). Real BC values from corpus writer
-//! Y66 (tests/al-language/fieldref/lt-y66-fieldref-length-types/Y66FieldRefLengthTypes.al:61-141, not on corpus master yet).
+//! Y66 (tests/al-language/recordref-fieldref/fieldref/Y66FieldRefLengthTypes.al:61-141, not on corpus master yet).
 
 use al_testkit::{run_in, text};
 

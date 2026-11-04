@@ -1,7 +1,7 @@
 //! A journal batch switch: an insert-allowed Worksheet (AutoSplitKey, DelayedInsert) whose header control's OnValidate calls
 //! CurrPage.SaveRecord, sets the batch filter in filter group 2, moves Rec with Find('-') and calls CurrPage.Update(false) (the
 //! General Journal shape). A batch with rows reads as the pinned refresh after a filter change; an empty batch shows the new-row
-//! line, OnNewRecord and OnAfterGetCurrRecord twice (corpus master 97c29f86, pages/lt-y17-journal-batch/
+//! line, OnNewRecord and OnAfterGetCurrRecord twice (corpus master 97c29f86, pages/journal-batch-switch/
 //! Y17JournalBatchSwitch.al:466 UpdWs_BatchSwitch_ToBatchWithRows, :485 UpdWs_BatchSwitch_ToEmptyBatch).
 
 const SRC: &str = r#"

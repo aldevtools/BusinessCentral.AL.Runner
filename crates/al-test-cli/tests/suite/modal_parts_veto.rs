@@ -1,6 +1,6 @@
 //! A modal page with a part whose close is refused: the parts are asked first, with None, then the host. A handler that does
 //! nothing gets None after one OnQueryClosePage call; a refusal by the part alone answers the same and the host is never
-//! asked (corpus pages/lt-modal-query-close-veto/PageModalQueryCloseVeto.al:448-542; al-runner issue 5762).
+//! asked (corpus pages/triggers/PageModalQueryCloseVeto.al:448-542; al-runner issue 5762).
 
 use al_testkit::{outcomes_in, run_in, text};
 

@@ -1,6 +1,6 @@
 //! A page procedure that calls the bare `RunModal()` runs the page instance it belongs to modally, after the bare `Caption`
 //! and `LookupMode(true)`; the ModalPageHandler picks the first row and OK answers `Action::LookupOK` (corpus
-//! pages/lt-wb-6283/WbBareRunModal.al:35-43 and :49-71, PageProcedureRunsItselfModal, corpus branch al-runtime-rs-staging-wb
+//! ui-handlers/WbBareRunModal.al:35-43 and :49-71, PageProcedureRunsItselfModal, corpus branch al-runtime-rs-staging-wb
 //! at a07787b2, not yet on master; al-runner issue 6283).
 
 use al_testkit::outcomes_in;

@@ -2,7 +2,7 @@
 //! the request page's OnOpenPage and from the OnAfterValidate of a modified base field bound to a variable (al-runner issue 6651).
 //! Inside the extension's request page its own procedure is the call: next to a local or a public base procedure, and next to an
 //! extension-level procedure of the same name, which the extension's other triggers call (corpus writer Y64, branch
-//! al-runtime-rs-staging-y64 85d86e7b, reportext/lt-y64-local-proc-names/Y64LocalProcNames.al:438-477). In a report itself, a
+//! al-runtime-rs-staging-y64 85d86e7b, reports/extensions/Y64LocalProcNames.al:438-477). In a report itself, a
 //! request page procedure next to a report procedure of the same name is not pinned: refused.
 
 use al_test_cli::report::Outcome;

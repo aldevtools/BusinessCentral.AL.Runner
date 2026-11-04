@@ -7,15 +7,15 @@ use al_builtins::page_op::PageMethod;
 impl Session {
     /// GoToKey on a list that declares OnAfterGetCurrRecord and no OnAfterGetRecord: from a row other than the first the client goes to the
     /// first row, then steps on row by row until the key is there, each arrival one current-record read; standing on the first row it
-    /// does not read that row again (pages/lt-testpage-list-rows/ListRowsWindow.al:GoToKeyLastThenRow2_OnlyCurr41Rows `C2;...;C41`, then
+    /// does not read that row again (testpage/ListRowsWindow.al:GoToKeyLastThenRow2_OnlyCurr41Rows `C2;...;C41`, then
     /// back to row 2: `C1;C2`). A key the list does not hold walks every row the same way and then moves back to the row it started
     /// from, one more read unless that is the last row; the answer is false, and with the result unused the row error
-    /// (pages/lt-y61-page-probes/Y61GoToKeyEdges.al:334 G613_Current_Miss_FromFirstRow `C:002;C:003;C:001`, :408
+    /// (testpage/Y61GoToKeyEdges.al:334 G613_Current_Miss_FromFirstRow `C:002;C:003;C:001`, :408
     /// G613_Current_Miss_FromLaterRow `C:001;C:002;C:003` from the last row and `C:001;C:002;C:003;C:002` from row 2, :444 one row:
     /// nothing read, :365 a temporary source). A key equal to the row the cursor stands on (not the first) is not pinned.
     ///
     /// Standing on the first row it holds, a key it does not find, because the test stored a row before that row while the page was
-    /// open (pages/lt-y65-gotorecord-action-insert/Y65GoToRecordActionInsert.al:641 `test inserts A, no action` `on B |error:...|
+    /// open (pages/actions/Y65GoToRecordActionInsert.al:641 `test inserts A, no action` `on B |error:...|
     /// TestRowNotFound|now B`), also takes the walk above; the reads of that miss are not pinned (assumption action-inserted-rows-held).
     pub(super) fn go_to_key_current_only(
         &mut self,
@@ -81,7 +81,7 @@ impl Session {
     /// GoToKey for a key past a full window of a list with OnFindRecord, OnNextRecord and OnAfterGetRecord (no OnAfterGetCurrRecord)
     /// that holds its first 20 rows: the client reads the last two rows it holds again, without asking the page, then asks
     /// OnNextRecord(1) and reads each row after them to the end of the view; the cursor lands on the key without another read
-    /// (pages/lt-ai-list-order/AiListOrderTests.al:999 Paging_GoToKey_Nav `R:R1019;R:R1020;N:1=1;R:R1021;...;R:R1025;N:1=0`, 25
+    /// (pages/list-order/AiListOrderTests.al:999 Paging_GoToKey_Nav `R:R1019;R:R1020;N:1=1;R:R1021;...;R:R1025;N:1=0`, 25
     /// rows). The walk on from there asks nothing (:1020 Paging_GoToKeyThenWalk_Nav). A second full block and a key the view does
     /// not have are refused (not pinned). `None` when the page or its window is not of that kind.
     pub(super) fn go_to_key_past_a_full_find_window(
@@ -150,7 +150,7 @@ impl Session {
     /// (`R:x;F:==Yes;R:x;C:x`); arriving on the last row it holds it first reads that row and the rest of the view with
     /// OnNextRecord(1) (`R:R020;N:1=1;R:R021;...;R:R030;N:1=0`), then moves on. From another row the walk starts with a move to the
     /// first row; a key the view does not have walks every row and goes back to the row it started from and answers false. Pinned for 30
-    /// rows by pages/lt-y41-page-probes/Y41GoToKeyFindListCurr.al:157 GK_FindList_Curr_PastWindow_GoToRecord, :178 _GoToKey, :199
+    /// rows by testpage/Y41GoToKeyFindListCurr.al:157 GK_FindList_Curr_PastWindow_GoToRecord, :178 _GoToKey, :199
     /// _LastRow, :213 _Missing, :227 _FromOtherRow (the second walk), :253 _ThenNext, and by pages/lt-y61-page-probes/
     /// Y61GoToKeyEdges.al: :212 a key in the second block of 45 rows (arriving on row 20 reads one full block of 20 more rows,
     /// `R:020;N:1=1;R:021;...;R:040`), :241 the first row while standing on it reads nothing and from row 10 is one move, :270 the
@@ -199,7 +199,7 @@ impl Session {
         }
         let mut idx = 1;
         // Arriving on the last row held reads the next block of up to 20 rows, the third and later blocks too, and a view of exactly
-        // 20 or 40 rows reads `N:1=0` there (pages/lt-y72-page-probes/Y72FindPagesEdges.al:498 FindList_GoToKey_ThirdBlock, :535
+        // 20 or 40 rows reads `N:1=0` there (testpage/Y72FindPagesEdges.al:498 FindList_GoToKey_ThirdBlock, :535
         // _FromSecondBlock, :558 _Exactly20, :585 _Exactly40, :615 _Exactly21, :637 _ThirdBlock_Missing).
         while !found && idx < st.borrow().window.len() {
             let r = self.arrive_held(st, idx);

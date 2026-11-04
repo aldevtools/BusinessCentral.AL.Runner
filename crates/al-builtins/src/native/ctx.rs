@@ -22,7 +22,7 @@ pub struct HttpOutgoing {
     /// `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD` or the request's own method, upper case.
     pub method: String,
     /// The absolute uri in its normal form; for a relative path with no base address (or a request with no uri) the path as
-    /// written, which only a request that no handler sees can carry (network/lt-http-relative-request/HttpRelativeRequestPath.al).
+    /// written, which only a request that no handler sees can carry (http/client/HttpRelativeRequestPath.al).
     pub url: String,
     pub has_secret_uri: bool,
     /// The uri came from joining a path to the client's base address in a form the corpus does not pin (registry entry
@@ -219,7 +219,7 @@ pub trait Ctx: FormatCtx {
         None
     }
     /// The profile id, the profile's app id and the company of the session user's User Personalization row, which
-    /// `SessionSettings.Init` reads (session/W6UserPersonalization.al). `None` where the context has none.
+    /// `SessionSettings.Init` reads (session-system/W6UserPersonalization.al). `None` where the context has none.
     fn session_profile(&self) -> Option<(String, [u8; 16], String)> {
         None
     }
@@ -413,7 +413,7 @@ pub trait Ctx: FormatCtx {
         Err(Signal::Unsupported("Message: this context has no UI".into()))
     }
     /// `Confirm(question, default)`: the question is NOT substituted
-    /// (corpus handlers/TestConfirmFormatArgs.al).
+    /// (corpus ui-handlers/TestConfirmFormatArgs.al).
     /// `Hyperlink(url)` in a test with a bound `[HyperlinkHandler]`: runs the handler with the URL and answers true. False
     /// when no such handler is bound (the caller then raises `Unhandled UI: Hyperlink <url>`).
     fn ui_hyperlink(&mut self, _url: String) -> Result<bool, Signal> {

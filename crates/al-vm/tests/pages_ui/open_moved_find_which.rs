@@ -1,5 +1,5 @@
 //! A list with OnFindRecord whose OnOpenPage left Rec on a row that is not the first of its view is asked `=>` when it opens
-//! (pages/lt-ai-list-order/AiListOrderTests.al:851 OpenOnRow_SetPositionInOnOpenPage_LastRow_OpenLog `F:=>=Yes;R:R1006;N:1=0;
+//! (pages/list-order/AiListOrderTests.al:851 OpenOnRow_SetPositionInOnOpenPage_LastRow_OpenLog `F:=>=Yes;R:R1006;N:1=0;
 //! N:-1=-1;R:R1005;...`, :871 _SecondLastRow_OpenLog `F:=>=Yes;R:R1005;N:1=1;R:R1006;N:1=0;R:R1005;N:-1=-1;...`). On the last row
 //! the opening row is not read again before OnNextRecord(-1); on the row before it, it is.
 

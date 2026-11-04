@@ -173,7 +173,7 @@ fn run_page_link_to_a_list_with_a_source_table_view_applies_both() {
     let (out, hits) = run(LINK_VIEW, "Repro Link To View Tests");
     assert_eq!(of(&out, "LinkToDescendingView"), Outcome::Pass);
     assert_eq!(of(&out, "LinkToWhereView"), Outcome::Pass);
-    // Pinned by pages/lt-rz-outside-page-moves/RzRunPageLinkView.al.
+    // Pinned by testpage/RzRunPageLinkView.al.
     for t in ["LinkToDescendingView", "LinkToWhereView"] {
         assert_eq!(hits_of(&hits, t), Vec::<Assumption>::new(), "{t}");
     }
@@ -446,6 +446,6 @@ fn database_worksheet_in_a_secondary_key_opens_where_the_rec_lands() {
     for t in ["SecondaryKeyRecBeforeTheView", "SecondaryKeyRecInsideTheView"] {
         assert_eq!(hits_of(&hits, t), Vec::<Assumption>::new(), "{t}");
     }
-    // The primary key is pinned (pages/lt-outside-worksheet-2/RtFillOnOpen.al:263-417).
+    // The primary key is pinned (testpage/RtFillOnOpen.al:263-417).
     assert_eq!(hits_of(&hits, "PrimaryKeyRecBeforeTheView"), vec![]);
 }

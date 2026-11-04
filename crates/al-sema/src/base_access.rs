@@ -15,12 +15,12 @@ use al_syntax::ast;
 /// Probe ids whose behavior a corpus test pins. The ids are the ones of ADR-023: `P1` to `P10` for
 /// pages, `R1` to `R4` for reports. Pinned on BC 27.5 by the corpus (tests/al-language/...):
 ///
-/// - P1, P2, P5: handlers/TestPageExtensionBaseAccessContracts.al:275 (reads), :288 (writes seen
+/// - P1, P2, P5: pages/extensions/TestPageExtensionBaseAccessContracts.al:275 (reads), :288 (writes seen
 ///   by the base and a second extension, also Record filters, List, Dictionary).
 /// - P4, P10: the same file :310 (public and protected base procedures, return value, var
 ///   parameter, changing a variable, CurrPage.Update/Editable/Caption).
 /// - P9: the same file :326 (control sources naming a base variable or a field of a base Record).
-/// - R1, R3: reportextensiontrigger/TestReportExtensionBaseMembersContracts.al:256 and its header
+/// - R1, R3: reports/extensions/TestReportExtensionBaseMembersContracts.al:256 and its header
 ///   comment (lines 9-15: protected Integer, Decimal, Record, Dialog, List, protected and public
 ///   procedure; Window.Open/Update/Close).
 ///

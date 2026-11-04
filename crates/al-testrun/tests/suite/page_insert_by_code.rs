@@ -1,7 +1,7 @@
 //! A page whose OnInsertRecord inserts the row itself and answers false keeps editing that row as a stored one: the next
 //! edit goes through OnModifyRecord and lands in the table (Base Application's Item Tracking Lines does this on a temporary
 //! source; assumption page-oninsertrecord-false-after-code-insert; Tests-Manufacturing PostProductionJournalUsingLotItemTracking).
-//! A row nobody inserted stays vetoed (corpus handlers/TestPageRecordTriggers.al:OnInsertRecord_ReturningFalse_SuppressesTheInsert).
+//! A row nobody inserted stays vetoed (corpus testpage/TestPageRecordTriggers.al:OnInsertRecord_ReturningFalse_SuppressesTheInsert).
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};

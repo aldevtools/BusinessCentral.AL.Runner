@@ -7,7 +7,7 @@ impl Session {
     pub(super) fn report_format_region(&mut self, args: &[Value]) -> Result<Value, Signal> {
         // A region the platform does not know raises at the assignment, in a report started by Run and in a SaveAs: the blank
         // text (`Invalid language ID supplied: 0.`, Argument), `zz-ZZ` and the neutral culture `de` (`An unsupported language was
-        // selected`, ReportFormatCultureNotFound); the log stops after `before=` (report/lt-bd-format-region/BdRegionTests.al:
+        // selected`, ReportFormatCultureNotFound); the log stops after `before=` (reports/runtime/BdRegionTests.al:
         // 773-801 BdSetter_ZzZZ and BdSetter_Blank, :910-925 BdSetter_Neutral). `zz-ZZ` is fine as the property
         // (YReportPropsTests.al:FormatRegion_UnknownRegion_XmlOrError); other texts are not pinned.
         if let Some(Value::Text(t) | Value::Code(t)) = args.first()
@@ -32,11 +32,11 @@ impl Session {
                     // `de-DE` after `CurrReport.Language := 1031` (PnC06ReportLanguage.al:58-65 `region1:de-DE`).
                     Some(1031) if t == "de-DE" => self.report.format_region = Some(t),
                     // `en-US` after 1031, 1036 or 1033: the run goes on, the region reads back empty and Format keeps
-                    // following the language (report/lt-bd-format-region/BdRegionTests.al:942, :1036, :1065
+                    // following the language (reports/runtime/BdRegionTests.al:942, :1036, :1065
                     // `after=... language=N region=[]`).
                     Some(1031 | 1036 | 1033) if t == "en-US" => self.report.format_region = None,
                     // A region after its own language is kept and reads back: `es-ES_tradnl` after 1034, `en-GB` after 2057,
-                    // `nl-NL` after 1043, `da-DK` after 1030 (report/lt-bd-format-region/BdRegionTests.al:1346-1440, corpus
+                    // `nl-NL` after 1043, `da-DK` after 1030 (reports/runtime/BdRegionTests.al:1346-1440, corpus
                     // master: `language=1034 region=[es-ES_tradnl]`). What Format writes then is decided in al-builtins format.rs
                     // `format_in_region`, which refuses the regions and shapes it has no pin for.
                     Some(1034) if t == "es-ES_tradnl" => self.report.format_region = Some(t),
@@ -57,7 +57,7 @@ impl Session {
             ),
             // `CurrReport.FormatRegion :=` in a trigger of a SaveAs Xml (OnPreReport) before the first data item opens: the region of
             // the formats from then on, the `formatRegion` of the header and the data items and the culture of the columns
-            // (report/lt-bd-format-region/BdRegionTests.al:582-925 BdSetter_*: `after=... region=[nl-NL]`, header, columns; :1109-1200 in a report with the property). A
+            // (reports/runtime/BdRegionTests.al:582-925 BdSetter_*: `after=... region=[nl-NL]`, header, columns; :1109-1200 in a report with the property). A
             // language set as well is not built (BdSetterLanguage_*).
             Some(Value::Text(t) | Value::Code(t))
                 if (t.as_str() != "en-US" || self.report.region_property)
@@ -79,7 +79,7 @@ impl Session {
                 Ok(Value::Null)
             }
             // Outside a report started by Run a region changes the formats and the dataset of a SaveAs
-            // (report/W3ReportObjectIdPreviewLanguage.al:559-570 FormatRegion_SetDeDE_FormatAndColumns), which is not built;
+            // (reports/W3ReportObjectIdPreviewLanguage.al:559-570 FormatRegion_SetDeDE_FormatAndColumns), which is not built;
             // the session's own region changes nothing.
             Some(Value::Text(t) | Value::Code(t)) if t.as_str() != "en-US" => unsupported(format!(
                 "CurrReport.FormatRegion := '{t}' in a report not started by Run (its formats and dataset in that region are not built)"

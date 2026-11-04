@@ -1,5 +1,5 @@
 //! A collected `ErrorInfo` read back through `GetCollectedErrors` (al-runner issue 5766; corpus
-//! misc/lt-probes-needed-2/PnBErrorsCollections.al:263-375, RO_CollectedErrorInfo_*): an Internal error's Message is the generic
+//! errors/PnBErrorsCollections.al:263-375, RO_CollectedErrorInfo_*): an Internal error's Message is the generic
 //! text with its correlation id after a line break, its other properties are kept, and Callstack lists the frames from the
 //! `Error` call out to the caller, innermost first; the rest of its text is not pinned. Left at the end of the scope it raises the generic
 //! text with a backslash before the correlation id.

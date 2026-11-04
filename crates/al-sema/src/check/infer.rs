@@ -390,7 +390,7 @@ impl<'a> Checker<'a> {
         };
         let name = name_of(&callee);
         let own = self.members[sc.self_obj].procedures_named(&name);
-        // A TryFunction returns a Boolean without declaring one (corpus errors/lt-error-handling/ErTTryBasics.al:81).
+        // A TryFunction returns a Boolean without declaring one (corpus errors/error-texts/ErTTryBasics.al:81).
         let try_function = self.ws.object_ast(sc.self_obj).routines().any(|r| {
             r.name().eq_ignore_ascii_case(&name) && r.attributes().any(|a| a.name().eq_ignore_ascii_case("TryFunction"))
         });
@@ -463,8 +463,8 @@ impl<'a> Checker<'a> {
 
     /// `CurrReport.RequestOptionsPage` is AL0161 anywhere in the report except inside its `requestpage` section: in a
     /// report procedure, a report trigger or a data item trigger (must-not-compile 2514, 2580-2584). The bare
-    /// `RequestOptionsPage` is the report's request page (report/lt-y40-bare-report-run/Y40BareReportRun.al:156). Request
-    /// page code compiles (report/lt-request-options-page-access/RequestOptionsPageAccess.al, al-runner #6631).
+    /// `RequestOptionsPage` is the report's request page (reports/runtime/Y40BareReportRun.al:156). Request
+    /// page code compiles (reports/request-page/RequestOptionsPageAccess.al, al-runner #6631).
     fn currreport_request_options_page(
         &mut self,
         sc: &Scope,
@@ -491,7 +491,7 @@ impl<'a> Checker<'a> {
 
     /// AL0161 for `Break`, `BreakUnbound`, `Quit` and `Skip` on an XmlPort variable: they exist only inside the XmlPort, through
     /// `currXMLport` (corpus must-not-compile 2642-xmlport-variable-break-quit-skip.al; the members a variable has:
-    /// xmlport/lt-y66-xmlport-var-members/Y66XmlPortVarMembers.al). Judged for a variable of another XmlPort than the code's own.
+    /// xmlports/shapes-properties/Y66XmlPortVarMembers.al). Judged for a variable of another XmlPort than the code's own.
     pub(crate) fn al_xmlport_access(&mut self, sc: &Scope, node: &SyntaxNode, base: &Ty, name: &str) {
         let Some(recv) = node.children().next() else { return };
         let Ty::Object(ObjKind::XmlPort, xname) = base else {
@@ -712,7 +712,7 @@ impl<'a> Checker<'a> {
                 return Ty::Unknown;
             }
             // A builtin whose only form takes the value is assigned as a property too when lowering knows it as a setter
-            // (`Client.UseResponseCookies := b`: network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:16-74).
+            // (`Client.UseResponseCookies := b`: http/client/HttpClientPropertyAssign.al:16-74).
             let setter = |c: &Cand| match &c.target {
                 Res::Proc { .. } => true,
                 Res::Builtin(id) => self.catalog.by_id(id).is_some_and(|s| {
@@ -874,7 +874,7 @@ impl<'a> Checker<'a> {
         }
         let name = name_of(node);
         let kind = self.ws.objects[sc.oi].kind;
-        // AL0161 (corpus must-not-compile 0001, 0002; handlers/TestPageExtensionBaseAccessContracts.al,
+        // AL0161 (corpus must-not-compile 0001, 0002; pages/extensions/TestPageExtensionBaseAccessContracts.al,
         // header): a page extension names a base page variable that is not `protected`, or calls a
         // `local` base procedure. The extension's own variables and parameters were looked up first.
         let base_kind = match kind {
@@ -1317,7 +1317,7 @@ impl<'a> Checker<'a> {
                     let field_pos = cands.iter().any(|c| c.is_field_pos(i));
                     // `Page.FindFirstField(Code, 'x')`: a bare name in a field position of a test page
                     // method is a control of that page (corpus
-                    // handlers/TestPagePlatformPageSourceTable_Tests.al:66).
+                    // testpage/TestPagePlatformPageSourceTable_Tests.al:66).
                     if field_pos && a.kind() == NameRef {
                         if let Some(t @ (Ty::TestPage(_) | Ty::TestRequestPage(_) | Ty::TestPart(_))) = receiver.clone()
                         {
@@ -1349,7 +1349,7 @@ impl<'a> Checker<'a> {
                                 }
                             }
                             // A `TestPage.Filter` field is a field of the page's source table
-                            // (corpus testfilter/TestTestFilter.al:1-30).
+                            // (corpus testpage/filters/TestTestFilter.al:1-30).
                             let table_idx = match &receiver {
                                 Some(Ty::Record { table, .. } | Ty::TestFilter(table)) => {
                                     self.resolve(sc, ObjKind::Table, table)
@@ -1457,7 +1457,7 @@ impl<'a> Checker<'a> {
                     }
                 }
                 // `CurrPage.<protected var of the base page>` in a page extension: the base page's variable, as the plain name
-                // is (pages/lt-up-page-ext/UpPageExt.al:74 with :143-152, a read; corpus PR 808 at branch commit 910da83e;
+                // is (pages/extensions/UpPageExt.al:74 with :143-152, a read; corpus PR 808 at branch commit 910da83e;
                 // al-runner issue 6219). Lowering refuses it as an assignment target (not pinned).
                 if self.ws.objects[sc.oi].kind == ObjKind::PageExtension
                     && kids[0].kind() == NameRef
@@ -1570,7 +1570,7 @@ impl<'a> Checker<'a> {
                 }
                 // `Host.OpenView.Invoke()` is the control called OpenView, not the built-in method:
                 // a member that is itself the receiver of another member can only be a control
-                // (corpus handlers/TestPageActionRunPageMode.al: actions named OpenView and OpenEdit).
+                // (corpus testpage/TestPageActionRunPageMode.al: actions named OpenView and OpenEdit).
                 // `Part.Page` is the page the part shows, also when that page has a control called Page (Base
                 // Application's Purch. Invoice Subform has a group "Page"): real BC compiles
                 // `CurrPage.PurchLines.Page.ForceTotalsCalculation()`; no corpus test names a control Page.
@@ -1648,7 +1648,7 @@ impl<'a> Checker<'a> {
                         // `Kinds::Purchase` with `Kinds: array[3] of Option ...` names a member of
                         // the element's option (Microsoft's SCM Supply Planning tests).
                         // The member is then a plain Integer, not an Option: `Format(Kinds::Released)` is `1`
-                        // (misc/lt-probes-needed-3/PnC14OptionArray.al:OptionArray_MemberOnArrayName).
+                        // (types/arrays/PnC14OptionArray.al:OptionArray_MemberOnArrayName).
                         let (t, via_array) = match t {
                             Ty::Array(_, el) if matches!(*el, Ty::Option(_)) => (*el, true),
                             t => (t, false),
@@ -1695,7 +1695,7 @@ impl<'a> Checker<'a> {
 
     /// `X::Value` in a procedure of a codeunit with `TableNo`, where the implicit Rec has a field `X` and an enum type
     /// `X` exists: `X` is the enum type, whatever values either enum has (al-runner issue 6129; corpus
-    /// types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al:142-149, must-not-compile 2262, on the corpus
+    /// types/enum-option/EnumTypeBeforeRecField.al:142-149, must-not-compile 2262, on the corpus
     /// branch al-runtime-rs-staging-ub, bump PR 793). Everywhere else `X` stays the field or variable, as before: the
     /// codeunit's OnRun trigger (:152-158, mnc 2267), a table procedure or trigger (:161-177, mnc 2263), a page on the
     /// table (:180-187, mnc 2264), and a global or local variable `X` (:190-205, mnc 2265 and 2266). A `with` record
@@ -1840,7 +1840,7 @@ impl<'a> Checker<'a> {
 
     /// `Codeunit::"X"`, `Page::"X"`, ...: the object's id is used. A codeunit named so can run. A test
     /// hands `Report::"X"` to a helper that runs it
-    /// (handlers/TestReportDatasetHelpLink.al:RenderDataset(Report::"G/L Register")), so the call that
+    /// (xml/TestReportDatasetHelpLink.al:RenderDataset(Report::"G/L Register")), so the call that
     /// runs it names no constant: code of the workspace that passes a report's id to a call may run it. A
     /// dependency's mention (a report id in a setup table) does not, except in the app of a company data codeunit, which
     /// the install baseline runs as a root (the DemoTool's `RunReport(Report::"Create Conts. from Customers")`).

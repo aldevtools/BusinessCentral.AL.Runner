@@ -1,5 +1,5 @@
 //! Visible of a cuegroup and of the fields in it bound to expressions (al-runner issue 6675; corpus writer Y65,
-//! pages/lt-y65-cue-visible/Y65CueVisible.al:235, :262 on corpus branch al-runtime-rs-staging-y65, not pinned yet): variables
+//! pages/cue-visible/Y65CueVisible.al:235, :262 on corpus branch al-runtime-rs-staging-y65, not pinned yet): variables
 //! set in OnInit, OnOpenPage and OnAfterGetRecord, `not` a variable, a Boolean field of Rec, an expression over Rec, a variable
 //! and a Rec expression, an array element and `not Rec.IsEmpty()` give the value they have after the page opened; a cuegroup
 //! bound to a call of the page's own procedure reads No. A hidden field still answers its value.

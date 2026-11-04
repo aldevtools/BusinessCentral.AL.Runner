@@ -1,7 +1,7 @@
 //! `TextType = BigText` on a text attribute of a table element: its variable is a BigText, an import fills it and an export
-//! writes it (corpus report/lt-u-report-props/UReportObjects.al:150, UPropertyTests.al:311-330 `bigLength=8 big=bigvalue`,
+//! writes it (corpus reports/runtime/UReportObjects.al:150, UPropertyTests.al:311-330 `bigLength=8 big=bigvalue`,
 //! :399-400 `BigAttr="big"`). Text and BigText on a text attribute of the root text element and of a table element, and Text on a
-//! container text element, run too (xmlport/lt-y72-xmlport-probes/Y72XpTextTypeBlankEnum.al); BigText on a container does not.
+//! container text element, run too (streams/Y72XpTextTypeBlankEnum.al); BigText on a container does not.
 
 use al_builtins::native::Signal;
 use al_testkit::run;

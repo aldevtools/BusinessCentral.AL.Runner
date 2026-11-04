@@ -1,5 +1,5 @@
 //! ADR-062: wildcard grants (`codeunit * = X`, `tabledata * = RIMD`) under a lowered session. Values: corpus
-//! `tests/al-language/permissions/lt-y93-wildcard-scope/Y93WildScope.al` (writer Y93, branch al-runtime-rs-staging-y93, Windows BC
+//! `tests/al-language/permissions/wildcard-scope/Y93WildScope.al` (writer Y93, branch al-runtime-rs-staging-y93, Windows BC
 //! 27.5 and 28.5 and Linux 28.5 and 29.0 agree):
 //! - a wildcard applies to every object of the installation, whatever app declares the set (Y93WildScope.al:165-244, `xa cu|W All`,
 //!   `xa td insert|W Data`);

@@ -1,6 +1,6 @@
 //! Angle brackets inside a term of a date formula, where the reader of [`super::normalize_formula`] does not accept
 //! them at the start of the formula, after a sign or at the end. Pinned by
-//! types/lt-date-formula-edges/DateFormulaEdges.al:533-635 (Y43_G413_*): a bracket after the number and before the
+//! types/date-time/DateFormulaEdges.al:533-635 (Y43_G413_*): a bracket after the number and before the
 //! unit is dropped (`-62<D>` is `-62D`, `2<D>` is stored as `2D`, for D, WD, W, M, Q and Y), as are `<1>D`, `1<>D`
 //! and `1D<+1D>`. A bracket after the number and before `C` or a digit raises the missing time unit error, and one
 //! between `C` and the unit (`C<M>`) the missing number error; the message shows the formula as written.
@@ -66,7 +66,7 @@ pub(super) fn close(chars: &[char], i: usize) -> Inside {
 }
 
 /// `>` at `chars[i]` right before `<`, after a term: the end of one bracketed term and the start of the next (al-runner issue
-/// 6648; corpus writer Y64, branch al-runtime-rs-staging-y64 85d86e7b, types/lt-date-formula-edges/DateFormulaEdges.al:636-722).
+/// 6648; corpus writer Y64, branch al-runtime-rs-staging-y64 85d86e7b, types/date-time/DateFormulaEdges.al:636-722).
 /// Both brackets are dropped when the next term starts with a sign (`<CY><-10Y>` is `CY-10Y`, `<WD2><+1W>` is `WD2+1W`) or when
 /// only brackets follow (`<CY><>` is `CY`). A next term without a sign raises the missing-sign error, showing the formula
 /// without its outer brackets (`<-1Y><CY>`: '-1Y><CY'; P131CalcDate.al:111 `<1D><1D>`): pinned for a formula in one pair of
@@ -180,7 +180,7 @@ mod tests {
     }
 
     /// Separately bracketed terms (al-runner issue 6648; corpus writer Y64, branch al-runtime-rs-staging-y64 85d86e7b,
-    /// types/lt-date-formula-edges/DateFormulaEdges.al:636-722): the brackets between two terms are dropped when the next
+    /// types/date-time/DateFormulaEdges.al:636-722): the brackets between two terms are dropped when the next
     /// term has a sign; without one the formula raises the missing-sign error.
     #[test]
     fn separately_bracketed_terms_join() {

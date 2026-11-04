@@ -1,6 +1,6 @@
 //! `Format(DateFormula, 0, N)` for the standard formats 0, 1, 2, 9 and 3 to 8 under the global languages 1033, 1030 and 1031,
 //! and Evaluate of the Danish text format 1 prints. Every literal is what real BC answered in the corpus:
-//! types/lt-y62-dateformula-format/Y62DateFormulaFormat.al (codeunit 93262, writer Y62).
+//! format-evaluate/Y62DateFormulaFormat.al (codeunit 93262, writer Y62).
 
 use al_testkit::text;
 

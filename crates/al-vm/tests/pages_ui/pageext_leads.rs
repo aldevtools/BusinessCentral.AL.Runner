@@ -25,7 +25,7 @@ codeunit 52500 "LD Log"
 }
 "#;
 
-// ---- OnAfterAction in modify(action) (pages/lt-pageext-action-after/PageExtensionActionOnAfterAction.al) ----
+// ---- OnAfterAction in modify(action) (pages/extensions/PageExtensionActionOnAfterAction.al) ----
 
 const AFTER_ACTION: &str = r#"
 page 52501 "LD Host"
@@ -82,7 +82,7 @@ fn on_after_action_runs_after_the_action_then_each_extension_and_not_after_an_er
 }
 
 // ---- OnNewRecord, OnInsertRecord, OnModifyRecord, OnAfterGetRecord of a page and two extensions (al-runner issue 6149; corpus
-// pageext/lt-ue-pageext-leads/UeTriggerTests.al, corpus branch al-runtime-rs-staging-ue at 001970d3) ----
+// testpage/UeTriggerTests.al, corpus branch al-runtime-rs-staging-ue at 001970d3) ----
 
 const TRIGGERS: &str = r#"
 page 52510 "LD List"
@@ -213,7 +213,7 @@ fn a_false_on_insert_record_of_an_extension_leaves_the_row_unstored() {
 }
 
 // ---- actionrefs added to promoted groups and to area(Promoted) a page does not declare (al-runner issues 6150, 6158; corpus
-// pageext/lt-ue-pageext-leads/UePromotedTests.al, corpus branch al-runtime-rs-staging-ue at 001970d3) ----
+// testpage/UePromotedTests.al, corpus branch al-runtime-rs-staging-ue at 001970d3) ----
 
 const PROMOTED: &str = r#"
 page 52520 "LD Process"
@@ -339,7 +339,7 @@ fn actionrefs_added_to_a_page_without_actions_are_there_and_run() {
 }
 
 // ---- a protected variable one page extension declares, used by another extension of the same page (al-runner issue 6159;
-// corpus pageext/lt-ue-pageext-leads/UeProtectedVarTests.al, corpus branch al-runtime-rs-staging-ue at 001970d3) ----
+// corpus testpage/UeProtectedVarTests.al, corpus branch al-runtime-rs-staging-ue at 001970d3) ----
 
 const PV_BASE: &str = r#"
 table 52530 "LD PV Row" { fields { field(1; Id; Integer) { } field(2; Amount; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }

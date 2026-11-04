@@ -139,7 +139,7 @@ Answered on 2026-10-13 and recorded in ADR-013 (and, for `DotNet`, on 2026-10-13
 ## Known issues and debt
 
 - `GetLastErrorCallStack` and `SessionInformation.Callstack` list real AL frames, innermost first with a
-  backslash after each, the test runner's frames below the test (pinned: session/TestSessionInformationCallstackContracts.al).
+  backslash after each, the test runner's frames below the test (pinned: session-system/TestSessionInformationCallstackContracts.al).
   Frames of pages, reports, queries, xmlports and extensions are still refused, and so is `Callstack` inside an event
   with no publisher routine. `ErrorInfo.Callstack()` is not implemented.
 - Red/green discipline slipped in places during the parallel build-out. A

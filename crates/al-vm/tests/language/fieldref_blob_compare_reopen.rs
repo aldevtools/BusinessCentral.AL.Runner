@@ -1,5 +1,5 @@
 //! `FldRef.Value <> xFldRef.Value` over every field of a row and a second RecordRef opened on the same row by its RecordId,
-//! the loop of Change Log Management.LogModification (al-runner issue 6661). Blob compare: recordref/lt-y49-blob-compare/
+//! the loop of Change Log Management.LogModification (al-runner issue 6661). Blob compare: recordref-fieldref/recordref/
 //! Y49BlobCompare.al:141-283.
 
 const SRC: &str = r#"

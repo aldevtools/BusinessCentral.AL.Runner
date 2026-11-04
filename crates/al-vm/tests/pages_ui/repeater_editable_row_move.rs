@@ -1,6 +1,6 @@
 //! TestPage `Editable()` of a repeater control whose Editable expression reads a page variable OnAfterGetRecord sets, after
 //! GoToRecord moves to another row (al-runner issue 5808, the reporter's Worksheet). BC answers for the row the TestPage stands
-//! on, with the variable as that row's OnAfterGetRecord left it (writer RT's pages/lt-outside-worksheet-2/RtRowEditable.al:162
+//! on, with the variable as that row's OnAfterGetRecord left it (writer RT's testpage/RtRowEditable.al:162
 //! RT_EdWs_OpenEdit_GoToRecord_AB). An expression that calls
 //! code stays refused there.
 

@@ -1,6 +1,6 @@
 //! TestFilter.GetFilter of an Enum field filtered to a range of two values reads as the two ordinals
-//! (pages/lt-cd-testpage-leads/CdTestPageLeads.al:923 SH_TestPageFilter_GetFilter_EnumRangeAndList), a range over more values
-//! and the forms around it read as pages/lt-y76-view-filters/Y76TestFilterEnum.al pins them.
+//! (testpage/CdTestPageLeads.al:923 SH_TestPageFilter_GetFilter_EnumRangeAndList), a range over more values
+//! and the forms around it read as pages/view-filters/Y76TestFilterEnum.al pins them.
 
 const SRC: &str = r#"
 enum 51530 "EF Kind" { value(0; First) { } value(1; Second) { } value(2; Third) { } }

@@ -1,5 +1,5 @@
 //! A decimal control with `AutoFormatType` 1, 2, 4 or 5 (on the control or on the table field). Pinned by
-//! autoformat/PWAutoFormatTypes.al (BC 27.5): types 1 and 4 are amounts, 2 and 5 unit amounts. With no
+//! format-evaluate/autoformat/PWAutoFormatTypes.al (BC 27.5): types 1 and 4 are amounts, 2 and 5 unit amounts. With no
 //! currency (a blank expression) an amount has 2:2 places and a unit amount 2:5, whatever General Ledger
 //! Setup says (:98-128, :131-175). A currency code that exists gives the places of the currency, its
 //! "Amount Decimal Places" for the amounts and its "Unit-Amount Decimal Places" for the unit amounts
@@ -46,7 +46,7 @@ fn open(values: &str) -> String {
     format!("R.\"No.\" := 'X'; {values} R.Insert(); P.OpenView(); P.GoToRecord(R);")
 }
 
-// autoformat/TestAutoFormat.al: AutoFormatType = 1 with a blank expression keeps two decimals, and
+// format-evaluate/autoformat/TestAutoFormat.al: AutoFormatType = 1 with a blank expression keeps two decimals, and
 // 1234.5 reads 1,234.50 whatever the type.
 #[test]
 fn values_with_at_most_two_decimals_read_as_before() {
@@ -61,7 +61,7 @@ fn values_with_at_most_two_decimals_read_as_before() {
 }
 
 // :98-128: a unit amount with a blank expression keeps up to five decimals, an amount two; a plain control
-// two (autoformat/TestAutoFormat.al).
+// two (format-evaluate/autoformat/TestAutoFormat.al).
 #[test]
 fn a_unit_amount_without_a_currency_has_two_to_five_places() {
     let o = outcomes(&format!(
@@ -261,7 +261,7 @@ page 62520 "AF Field Expr Card"
 }
 "#;
 
-// types/lt-auto-format-currency/QiTableFieldAutoFormat.al:272, :300: a table field's AutoFormatExpression that is a field of
+// format-evaluate/QiTableFieldAutoFormat.al:272, :300: a table field's AutoFormatExpression that is a field of
 // the row (`Rec."Currency Code"`, `"Currency Code"`), read through a control without one of its own, is evaluated with the
 // control's row.
 #[test]
@@ -280,7 +280,7 @@ fn a_table_field_expression_is_evaluated_with_the_row() {
     assert_eq!(al_testkit::text(al_testkit::run_in(&src, "T", "F")), "ok");
 }
 
-// types/lt-auto-format-currency/QiTableFieldAutoFormat.al:272 QI_TableFieldExpression_Card_ShowCurrencyNever (`nocur_t1`
+// format-evaluate/QiTableFieldAutoFormat.al:272 QI_TableFieldExpression_Card_ShowCurrencyNever (`nocur_t1`
 // 1,234.57, `nocur_t2` 1,234.56789 with General Ledger Setup 2:2 and 2:5): a code that is no currency reads General Ledger
 // Setup's "Amount Decimal Places" for the amounts and its "Unit-Amount Decimal Places" for the unit amounts.
 #[test]
@@ -319,7 +319,7 @@ fn a_code_that_is_no_currency_without_a_setup_row_is_refused() {
     );
 }
 
-// types/lt-auto-format-currency/QiTableFieldAutoFormat.al:421 QI_Type10Procedure_Card_Calls (`after-open` fmt();fmt(A);,
+// format-evaluate/QiTableFieldAutoFormat.al:421 QI_Type10Procedure_Card_Calls (`after-open` fmt();fmt(A);,
 // `after-t10-read` empty): BC runs a table field's AutoFormatExpression that calls a procedure when the page fetches the row,
 // not when the control's text is read. The runtime evaluates it on read, so a procedure there is refused.
 #[test]

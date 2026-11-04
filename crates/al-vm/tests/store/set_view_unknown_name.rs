@@ -1,5 +1,5 @@
 //! SetView with a WHERE condition on a name the table has no field of drops that condition, and a SORTING of one such name
-//! gives the primary key (record/lt-setview-caption-form/SetViewCaptionForm.al:179-191; types/lt-evaluate-format-lasterror-setview/
+//! gives the primary key (record/views/SetViewCaptionForm.al:179-191; format-evaluate/
 //! P86SetView.al:184, :222). `Field0` (the timestamp column) and lists that mix a known and an unknown name stay refused.
 
 use al_builtins::native::Signal;
@@ -54,7 +54,7 @@ fn field_zero_and_mixed_lists_stay_refused() {
 
 #[test]
 fn an_empty_sorting_is_an_invalid_view() {
-    // record/lt-setview-sorting-nonkey/SetViewSortingNonKey.al:205, :224-226 `empty_sorting`.
+    // record/keys-sorting/SetViewSortingNonKey.al:205, :224-226 `empty_sorting`.
     assert_eq!(
         al_testkit::error_message(run("SORTING()")),
         "Invalid expression of type: table view.\\SORTING()"

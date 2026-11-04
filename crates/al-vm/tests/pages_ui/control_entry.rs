@@ -190,7 +190,7 @@ codeunit 69963 C
 }
 "#;
 
-/// record/lt-x-table-props/XTablePropsTests.al:104: a Code control upper-cases the entry, so the refused character is named
+/// record/table-properties/XTablePropsTests.al:104: a Code control upper-cases the entry, so the refused character is named
 /// upper-cased. A Code control whose CharAllowed holds letters is not pinned and is refused.
 #[test]
 fn char_allowed_on_a_code_control_names_the_upper_cased_character() {
@@ -201,7 +201,7 @@ fn char_allowed_on_a_code_control_names_the_upper_cased_character() {
     refused(al_testkit::run_in(CARD, "C", "CodeCharAllowedLetters"), "CharAllowed");
 }
 
-/// pages/lt-ah-pages/AhPageTests.al:176, :808-811: CharAllowed of several pairs takes a character in any of the ranges and
+/// testpage/AhPageTests.al:176, :808-811: CharAllowed of several pairs takes a character in any of the ranges and
 /// lists them comma-separated. An odd number of characters or a range from a higher to a lower character is not pinned.
 #[test]
 fn char_allowed_with_several_ranges() {
@@ -213,7 +213,7 @@ fn char_allowed_with_several_ranges() {
     refused(al_testkit::run_in(CARD, "C", "BackwardsCharAllowed"), "CharAllowed");
 }
 
-/// pages/lt-ah-pages/AhPageTests.al:112-113, :133-134: on a card, a text that is not a number says why, with TestValidation.
+/// testpage/AhPageTests.al:112-113, :133-134: on a card, a text that is not a number says why, with TestValidation.
 #[test]
 fn a_failed_number_conversion_on_a_card_says_why() {
     assert_eq!(
@@ -226,7 +226,7 @@ fn a_failed_number_conversion_on_a_card_says_why() {
     );
 }
 
-/// pages/lt-ah-pages/AhPageTests.al:73, :94: a card that holds a refused entry stores none of its edits at Close;
+/// testpage/AhPageTests.al:73, :94: a card that holds a refused entry stores none of its edits at Close;
 /// :220 a corrected entry clears it and the edits are stored. After a refusal raised by OnValidate, Close leaves that
 /// error as the last error (:155-159).
 #[test]
@@ -245,7 +245,7 @@ fn close_after_a_refused_entry_on_a_card_drops_the_edits() {
     );
 }
 
-/// pages/lt-page-presentation-properties/P119PageFields.al:205-207: NotBlank on the page control refuses a blank entry and
+/// pages/properties/P119PageFields.al:205-207: NotBlank on the page control refuses a blank entry and
 /// keeps the value. On a control bound to a variable of a page that is not a request page it is not pinned.
 #[test]
 fn not_blank_on_the_page_control() {
@@ -256,7 +256,7 @@ fn not_blank_on_the_page_control() {
     refused(al_testkit::run_in(CARD, "C", "NotBlankVariableControl"), "NotBlank");
 }
 
-/// pages/lt-ah-pages/AhPageTests.al:444-535 (GVE_TwoOnOne_*): a second refusal on one control replaces the first.
+/// testpage/AhPageTests.al:444-535 (GVE_TwoOnOne_*): a second refusal on one control replaces the first.
 /// When another control's refusal came in between, the order is not pinned: refused.
 #[test]
 fn a_second_refusal_on_one_control_replaces_the_first() {
@@ -267,7 +267,7 @@ fn a_second_refusal_on_one_control_replaces_the_first() {
     refused(al_testkit::run_in(CARD, "C", "InterleavedOnOne"), "refusal");
 }
 
-/// pages/lt-page-enum-control/PageEnumControlCaptionless.al:107, :109: after a refusal an Enum control shows the ordinal,
+/// pages/controls/PageEnumControlCaptionless.al:107, :109: after a refusal an Enum control shows the ordinal,
 /// and an empty entry is that ordinal's text, which is refused too.
 #[test]
 fn an_empty_entry_on_an_enum_control_after_a_refusal_is_the_ordinal() {
@@ -277,8 +277,8 @@ fn an_empty_entry_on_an_enum_control_after_a_refusal_is_the_ordinal() {
     );
 }
 
-/// pages/lt-ab-group-properties/ABLayouts.al:68, :70: a Text control in a cuegroup with CuegroupLayout = Wide reads '0';
-/// pages/lt-page-controls-aa/AaControls.al:422 a Decimal one reads its value. Other types there are not pinned.
+/// pages/properties/ABLayouts.al:68, :70: a Text control in a cuegroup with CuegroupLayout = Wide reads '0';
+/// pages/controls/AaControls.al:422 a Decimal one reads its value. Other types there are not pinned.
 #[test]
 fn a_text_control_in_a_wide_cue_group_reads_zero() {
     let src = r#"

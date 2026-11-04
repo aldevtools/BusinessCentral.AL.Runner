@@ -1,7 +1,7 @@
 //! The format regions whose texts the corpus pins, and what `Format` and a dataset column write in each.
 //!
-//! Values: report/lt-y-report-props/YReportPropsTests.al:34-148 (de-DE, en-GB, fr-FR, ja-JP, zz-ZZ), misc/lt-probes-needed-8/
-//! PnH4CurrReport.al:241-249 (de-DE, fr-FR, da-DK) and report/lt-bd-format-region/BdRegionTests.al (all of them, with 5 March 2024
+//! Values: reports/runtime/YReportPropsTests.al:34-148 (de-DE, en-GB, fr-FR, ja-JP, zz-ZZ), misc/lt-probes-needed-8/
+//! PnH4CurrReport.al:241-249 (de-DE, fr-FR, da-DK) and reports/runtime/BdRegionTests.al (all of them, with 5 March 2024
 //! 09:05:07 as the one-digit day and hour). BdRegionTests.al asserts en-GB, da-DK, nl-NL, es-ES, sv-SE and nb-NO under `#if BC29PLUS`
 //! only (`Observer.Discard()` below), so a text no earlier test pinned is refused there on BC 27 and 28.
 
@@ -19,7 +19,7 @@ pub enum Region {
     /// BdRegionTests.al:267).
     EnUS,
     /// `zz-ZZ`, a region no culture has: en-US texts, but `MM/dd/yyyy` dates and a 24-hour clock in a dataset column
-    /// (report/lt-y-report-props/YReportPropsTests.al:FormatRegion_UnknownRegion_XmlOrError).
+    /// (reports/runtime/YReportPropsTests.al:FormatRegion_UnknownRegion_XmlOrError).
     ZzZZ,
     NlNL,
     DeCH,
@@ -54,7 +54,7 @@ impl Region {
     }
 
     /// The region `CurrReport.FormatRegion := name` names: the regions of [`Region::parse`], and `de-de`, which the platform takes as
-    /// de-DE and reads back as typed (report/lt-bd-format-region/BdRegionTests.al:890 BdSetter_Lower).
+    /// de-DE and reads back as typed (reports/runtime/BdRegionTests.al:890 BdSetter_Lower).
     pub fn parse_setter(name: &str) -> Option<Region> {
         match name {
             "de-de" => Some(Region::DeDE),
@@ -74,7 +74,7 @@ impl Region {
     }
 
     /// The group separator and the decimal separator of an amount. fr-FR groups with U+00A0 on BC 27, 28 and 29
-    /// (misc/lt-probes-needed-8/PnH4CurrReport.al:247,311, report/lt-y-report-props/YReportPropsTests.al:74; corpus bump 62, where
+    /// (reports/PnH4CurrReport.al:247,311, reports/runtime/YReportPropsTests.al:74; corpus bump 62, where
     /// the corpus CI's newer Linux image stopped giving U+202F on BC 27 and 28). de-CH groups with U+2019 (BdRegionTests.al:311),
     /// sv-SE and nb-NO with U+00A0 (:371, :398).
     pub(super) fn separators(self) -> (char, char) {
@@ -193,8 +193,8 @@ impl Region {
     }
 }
 
-/// The text of a dataset column under the report's `FormatRegion` (report/lt-y-report-props/YReportPropsTests.al:34-148 and
-/// report/lt-bd-format-region/BdRegionTests.al), `None` when the shape is not pinned: a Date, a DateTime with seconds and a Time
+/// The text of a dataset column under the report's `FormatRegion` (reports/runtime/YReportPropsTests.al:34-148 and
+/// reports/runtime/BdRegionTests.al), `None` when the shape is not pinned: a Date, a DateTime with seconds and a Time
 /// in the region's order, and a Decimal with the region's decimal separator and no grouping (`1234567,891`, `-1234,5`).
 /// `g29`: the target is BC 29 or later.
 pub fn region_column(r: Region, v: &Value, g29: bool) -> Option<String> {

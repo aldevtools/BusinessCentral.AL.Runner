@@ -195,7 +195,7 @@ pub struct MemStore {
     /// rows (`unknown_read`).
     unknown_cols: std::collections::HashMap<u32, Vec<usize>>,
     /// A virtual table took a change (a Feature Key's Enabled) since the last commit: whether a rollback undoes it is
-    /// not settled (platform/lt-aw-fresh-tenant/AwTests.al:557-576, a Linux suspect), so the session refuses that rollback.
+    /// not settled (metadata/platform-tables/AwTests.al:557-576, a Linux suspect), so the session refuses that rollback.
     virtual_write_pending: bool,
     /// While set, the tables whose access is watched and the first one that was read or written ([`MemStore::watch`]).
     /// Shared by the clones of the store, so a snapshot, a restore or a rollback does not lose it.
@@ -915,7 +915,7 @@ impl MemStore {
     }
 
     /// A number that changes whenever the rows of table `t` change (a rollback included). Queries
-    /// compare it to tell whether their result set is stale (corpus query/TestQueryReadAfterWrite.al).
+    /// compare it to tell whether their result set is stale (corpus queries/TestQueryReadAfterWrite.al).
     pub fn table_stamp(&self, cx: &AccessContext, t: &TableDef) -> u64 {
         if self.virtual_of(t).is_some() {
             return 0;
@@ -1285,7 +1285,7 @@ impl Store for MemStore {
                         self.virtual_write_pending = true;
                         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FeatureKeyEnabledModify);
                     }
-                    // A Modify that changes nothing succeeds and changes nothing (misc/lt-y70-assumptions/Y70Probes.al:868-922).
+                    // A Modify that changes nothing succeeds and changes nothing (record/Y70Probes.al:868-922).
                     return Ok(WriteOutcome::Done);
                 }
             }
@@ -2252,7 +2252,7 @@ mod tests {
     }
 
     // al-runner issue 6507: a copy of the backed company holds the backing's rows of the tables nothing wrote to
-    // (session/lt-y22-copy-company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows), apart from the source's.
+    // (session-system/company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows), apart from the source's.
     #[test]
     fn a_copy_of_the_backed_company_reads_the_backing_rows() {
         let (mut s, _) = backed();

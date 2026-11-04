@@ -1,7 +1,7 @@
 //! TestPage.Close() reports CloseAction OK on a NavigatePage (temporary or real source, after a footer action, opened with
 //! OpenView), a CardPart and a ListPart, and Cancel on a StandardDialog and a ConfirmationDialog; the dialogs' OK/Cancel and
 //! Yes/No actions report their own name (corpus branch al-runtime-rs-staging-y65,
-//! testpageclose/lt-y65-close-page-types/Y65ClosePageTypes.al:505-626; al-runner issue 6670; assumption
+//! testpage/lifecycle/Y65ClosePageTypes.al:505-626; al-runner issue 6670; assumption
 //! close-action-ok-navigate-and-parts until that file is on the pinned corpus).
 
 use al_testkit::{run_in, text};

@@ -122,8 +122,8 @@ fn built() -> Built {
     Built::new(l)
 }
 
-// Agent Utilities outside an agent session: task id 0 (platform/lt-rh-agent-session/RhAgentSession.al:47 through
-// "Agent Session"; al-language-onprem/platform/lt-rh-agent-natives/RhAgentNatives.al:82), provider type -1 (RhAgentNatives.al:83).
+// Agent Utilities outside an agent session: task id 0 (metadata/session-system/RhAgentSession.al:47 through
+// "Agent Session"; al-language-onprem/metadata/session-system/RhAgentNatives.al:82), provider type -1 (RhAgentNatives.al:83).
 #[test]
 fn agent_utilities_outside_an_agent_session() {
     assert_eq!(text(built().run_in("P", "Ids")), "0|-1");

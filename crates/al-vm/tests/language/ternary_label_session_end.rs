@@ -1,6 +1,6 @@
 //! A conditional `Cond ? Label : 'literal'` (Label first, text literal second) used as the exit value of a procedure that
 //! returns a Variant, or as the argument of a Variant parameter, ends the whole BC 29 session when its codeunit is loaded,
-//! even if the procedure is never called (writer Y81, types/lt-y81-values/Y81LabelVariant.al codeunit 94259 "LT Y81 Label
+//! even if the procedure is never called (writer Y81, types/Y81LabelVariant.al codeunit 94259 "LT Y81 Label
 //! Variant Held", Suspect_ReturnLabelOrLiteral and Suspect_ArgumentLabelOrLiteral; needs corpus bump). The runtime refuses
 //! both shapes statically and names the shape.
 

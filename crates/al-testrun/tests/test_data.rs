@@ -702,7 +702,7 @@ fn the_session_companys_row_of_the_company_table_comes_from_the_backup() {
 
 // al-runner issue 6507 (comment of 2026-10-31): a company Database.CopyCompany makes from the restored company holds every
 // per-company row of the source as it is, the rows the backup holds included (corpus
-// session/lt-y22-copy-company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows: Company Information copied as is).
+// session-system/company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows: Company Information copied as is).
 // Install code copies; the test reads and modifies the copy's restored row; the source keeps its own.
 #[test]
 fn a_company_copied_from_the_restored_company_holds_the_restored_rows() {

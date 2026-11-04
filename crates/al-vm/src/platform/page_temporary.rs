@@ -1,6 +1,6 @@
 //! Page Metadata columns 25 "SourceTableTemporary" and 29 "App ID".
 //!
-//! Pinned by corpus platform/lt-y59-page-metadata/Y59PageMetaSourceTemp.al:192-197 (corpus master 9cf26907): the column is Yes
+//! Pinned by corpus metadata/platform-tables/Y59PageMetaSourceTemp.al:192-197 (corpus master 9cf26907): the column is Yes
 //! for a page that declares `SourceTableTemporary = true` (a List and a Card) and for a page whose source table is
 //! `TableType = Temporary` and that does not declare the property; No for an explicit `false`, for no property and for a page
 //! without a SourceTable. "App ID" is the id of the app that declares the page (:192, `own_app=Yes` for all six pages).

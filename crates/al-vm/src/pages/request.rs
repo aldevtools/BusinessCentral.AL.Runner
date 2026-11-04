@@ -3,8 +3,8 @@
 //! A report whose request page opens (`Report.Run`, `RunModal`, `RunRequestPage`) opens it for the
 //! test's `[RequestPageHandler]`, which receives a `TestRequestPage` for the report. The page's
 //! controls bind to the report's global variables, so what a handler writes is what the report
-//! reads (corpus handlers/TestReportRequestPageControl.al); its data items are controls whose
-//! filters a handler sets (`RequestPage.Rows.SetFilter`, handlers/TestReportRunRequestPage.al).
+//! reads (corpus reports/TestReportRequestPageControl.al); its data items are controls whose
+//! filters a handler sets (`RequestPage.Rows.SetFilter`, reports/TestReportRunRequestPage.al).
 //!
 //! Every rule cites the corpus test that pins it; the rest is refused.
 
@@ -21,7 +21,7 @@ pub(crate) enum RequestClosed {
     /// The handler confirmed with OK.
     Ok,
     /// The handler cancelled: no parameters, and a run stops
-    /// (handlers/TestReportRunWithRequestPage.al:Report_Run_CancelledRequestPageRunsNothingAndRaisesNoError).
+    /// (reports/TestReportRunWithRequestPage.al:Report_Run_CancelledRequestPageRunsNothingAndRaisesNoError).
     Cancel,
     /// The handler called `SaveAsXml`: the report ran there, and the page is closed.
     SavedAsXml,
@@ -40,9 +40,9 @@ impl Session {
 
     /// The built-in actions of a request page. Plain OK is the confirmation of a processing-only
     /// report and is not offered otherwise; Cancel is always offered
-    /// (handlers/TestReportRunWithRequestPage.al:Report_Run_NonProcessingOnlyRequestPageHasNoOKAction).
+    /// (reports/TestReportRunWithRequestPage.al:Report_Run_NonProcessingOnlyRequestPageHasNoOKAction).
     /// The page `RunRequestPage` opens has OK whatever the report renders: it confirms the
-    /// parameters (handlers/TestReportRunRequestPage.al:TestReport_CapturedParameters_ReplayThroughSaveAs_
+    /// parameters (reports/TestReportRunRequestPage.al:TestReport_CapturedParameters_ReplayThroughSaveAs_
     /// FilterTheDataset, a report with an RDLC layout).
     pub(super) fn request_builtin_offered(&self, st: &St, which: &str) -> bool {
         let object = st.borrow().object as usize;
@@ -59,7 +59,7 @@ impl Session {
     }
 
     /// The Preview and Print actions are pinned on the request page of a report that renders, started by `Report.Run`
-    /// (report/W3ReportObjectIdPreviewLanguage.al:717-752 QV_Preview_Run_PreviewAction, QV_Preview_Run_PrintAction; :484-511
+    /// (reports/W3ReportObjectIdPreviewLanguage.al:717-752 QV_Preview_Run_PreviewAction, QV_Preview_Run_PrintAction; :484-511
     /// Preview_RequestPagePreviewAction). On a processing-only report, on the page `RunRequestPage` opens, in a `RunModal` and
     /// on a report with SaveValues they are not pinned and refused. The CloseAction they close with formats as their name
     /// (:731 `rp close Preview`, :750 `rp close Print`), a member the Action type here does not have: a request page with an
@@ -96,7 +96,7 @@ impl Session {
 
     /// The moves and searches of a `TestRequestPage` whose request page has no SourceTable: it shows one set of
     /// controls and no rows. `None` hands the call on to the page client.
-    /// report/lt-report-requestpage-query-members/P105RpNav.al:105-235: First is Yes; Last, Next and Previous are No;
+    /// reports/request-page/P105RpNav.al:105-235: First is Yes; Last, Next and Previous are No;
     /// GoToKey() is Yes; GoToKey(1) and GoToRecord(Row) raise. P105RpFind.al:121-252: FindFirstField of the value the
     /// control holds is Yes, of another value No; FindNextField and FindPreviousField of the value it holds are No.
     /// Not pinned and refused: a Find*Field whose result is not used, a FindNext/PreviousField of another value, a text
@@ -195,7 +195,7 @@ impl Session {
     }
 
     /// Whether the request page's SourceTableView is the one shape the corpus pins: a SORTING that names the primary key and a
-    /// WHERE of CONST conditions only (report/lt-y-request-page/YRequestPageTests.al:72-87, the request page's `Rec` then has
+    /// WHERE of CONST conditions only (reports/request-page/YRequestPageTests.al:72-87, the request page's `Rec` then has
     /// neither the filter nor another key). Anything else is refused.
     pub(super) fn request_source_view_pinned(&mut self, st: &St, view: &str) -> Result<(), Signal> {
         let rec = self.page_rec(st);
@@ -260,7 +260,7 @@ impl Session {
     /// Opens the request page of the report `inst` is an instance of, hands it to the bound
     /// `[RequestPageHandler]` and reports how the handler closed it. The page's `OnInit` and
     /// `OnOpenPage` run before the handler sees it, and write the report's own variables
-    /// (handlers/TestRequestPageOnInit.al, handlers/TestReportRunRequestPage.al: `rp-open`).
+    /// (reports/TestRequestPageOnInit.al, reports/TestReportRunRequestPage.al: `rp-open`).
     pub(crate) fn run_request_page(
         &mut self,
         inst: &Inst,
@@ -279,7 +279,7 @@ impl Session {
         if let Some(why) = page.unsupported.first() {
             return unsupported(format!("the request page of report \"{name}\": {why}"));
         }
-        // handlers/TestReportRuntimeContracts.al:425-429: with no [RequestPageHandler] the page
+        // reports/TestReportRuntimeContracts.al:425-429: with no [RequestPageHandler] the page
         // opens and the run is refused with "Unhandled UI: RequestPage <report id>".
         if !self.has_page_handler(UiKind::RequestPage, object as u32) {
             // `--dev-endpoint-ui` (al-runner issue 3697): the measured shape skips the page (`pages/dev_endpoint.rs`).
@@ -297,7 +297,7 @@ impl Session {
             s.parameters_wanted = want_parameters;
         }
         // The OnInit ran at the procedure that used the variable first and does not run again when the page opens
-        // (report/lt-request-page-oninit/RequestPageOnInitFirstUse.al:104-185).
+        // (reports/request-page/RequestPageOnInitFirstUse.al:104-185).
         if self.request_page_init_done(inst) {
             st.borrow_mut().inited = true;
         }
@@ -314,7 +314,7 @@ impl Session {
             exts.push((e, ext));
         }
         // A parameters string is loaded after the page's OnInit and before its OnOpenPage: OnInit sets a variable,
-        // OnOpenPage and the handler read the seeded value (report/lt-aq/AqTests.al:362-381,
+        // OnOpenPage and the handler read the seeded value (reports/AqTests.al:362-381,
         // Seeded_OnInitSetsControl_HandlerReads: `OnInit int=5 opt=Alpha;OnOpenPage int=9 opt=Gamma;`).
         st.borrow_mut().request_seed = seed.map(str::to_string);
         st.borrow_mut().ext_instances = exts.clone();
@@ -326,7 +326,7 @@ impl Session {
         self.request_page_takes_init_caption(inst, &st);
         self.ui_state.page_handler_depth += 1;
         // The handler of a `RunRequestPage` finds no transaction, while the page's own triggers write as ever
-        // (report/TestProbeReportContracts.al:RequestPage_TableWriteInsideHandler; handlers/TestReportInstanceRunReqPage.al
+        // (reports/TestProbeReportContracts.al:RequestPage_TableWriteInsideHandler; reports/TestReportInstanceRunReqPage.al
         // writes a log row from OnOpenPage).
         let outer = std::mem::replace(&mut self.report.request_only_page, want_parameters);
         let handled = self.call(hobject, hroutine, hinst, vec![Value::TestPage(st.clone())]);
@@ -367,11 +367,11 @@ impl Session {
 
     /// An AL error the handler does not catch closes the still open request page with Cancel before it leaves the run:
     /// OnQueryClosePage(Cancel), then OnClosePage, and the handler's error is the one raised
-    /// (report/lt-report-requestpage/RptRequestPage.al:304, :413, :453). The corpus pins this for a page without a
+    /// (reports/request-page/RptRequestPage.al:304, :413, :453). The corpus pins this for a page without a
     /// source table, parts, close triggers of an extension or refused entries; any other shape, an answer or an error of
     /// those triggers, and the page events are not pinned and are refused. With SaveValues the values are not stored,
-    /// as after a Cancel action (handlers/TestPageSaveValues.al); whether BC stores them here is not pinned, and the
-    /// earlier behavior is kept for handlers/TestReportMultiLineDataItemView.al:GetDemandToReserve_HandlerError_ReachesTheTest.
+    /// as after a Cancel action (pages/properties/TestPageSaveValues.al); whether BC stores them here is not pinned, and the
+    /// earlier behavior is kept for reports/TestReportMultiLineDataItemView.al:GetDemandToReserve_HandlerError_ReachesTheTest.
     fn close_after_handler_error(&mut self, st: &St, err: &al_builtins::native::AlError) -> Result<(), Signal> {
         let object = st.borrow().object as usize;
         let refuse = |what: &str| unsupported(format!("a request page handler error with {what} (close not pinned)"));
@@ -391,7 +391,7 @@ impl Session {
         }
         // One refused entry whose own TestValidation error is the one leaving the handler (the handler did not catch its
         // SetValue) closes the page the same way: OnQueryClosePage(Cancel) sees the variable's old value, then OnClosePage
-        // (report/lt-report-requestpage/RptRequestPage.al:1243 RI_HandlerSetValue_OnValidateError_ReachesRun, an OnValidate
+        // (reports/request-page/RptRequestPage.al:1243 RI_HandlerSetValue_OnValidateError_ReachesRun, an OnValidate
         // error; :1264 RI_HandlerSetValue_NotEvaluable_ReachesRun, a value that cannot be evaluated). Two refused entries,
         // an unsaved entry, or another error leaving the handler are not pinned.
         let refused_entry_left = {
@@ -443,7 +443,7 @@ impl Session {
 
     /// `TestRequestPage.SaveAsXml(ParametersFileName, ReportDataFileName)` from a request page handler: runs the
     /// report there and then with the page's values, writes the parameters file and the .NET DataSet of the
-    /// rows, and closes the page. Pinned by al-language-onprem/handlers/TestRequestPageSaveAsXmlContracts.al
+    /// rows, and closes the page. Pinned by al-language-onprem/reports/TestRequestPageSaveAsXmlContracts.al
     /// (a Target = OnPrem app): one run with the request page's filters applied, two files, every later use
     /// of the handler's page raises "The TestPage is not open.". What the parameters file holds between the
     /// parts the corpus asserts is assumed (docs/probes-needed.md).
@@ -476,7 +476,7 @@ impl Session {
         self.host.files.write(&data_file, &data).map_err(Signal::Unsupported)?;
         st.borrow_mut().result = Some("SaveAsXml".into());
         // SaveValues: the close stores the values of the page and of its extensions; the next run opens with them (al-language-onprem/
-        // report/lt-y60-reportext-saveasxml/Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun).
+        // reports/layouts-saveas/Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun).
         self.store_page_values(st);
         self.mark_closed(st);
         Ok(Value::Null)
@@ -581,7 +581,7 @@ impl Session {
     /// The parameters file of `SaveAsXml`: a byte order mark, then `ArrayOfReportParameter` with the user id
     /// and the execution time. LF line ends, none after the last element; each parameter name is followed by a
     /// fixed 32 digit GUID; the execution time has seven fraction digits and `+00:00`
-    /// (al-language-onprem/handlers/TestRequestPageSaveAsXmlContracts.al:SaveAsXml_ParametersFile_RawForm).
+    /// (al-language-onprem/reports/TestRequestPageSaveAsXmlContracts.al:SaveAsXml_ParametersFile_RawForm).
     fn save_as_xml_parameters(&self) -> Vec<u8> {
         let ms = self.now_millis();
         let day = ms.div_euclid(86_400_000) + i64::from(al_builtins::format::day_from_civil(1970, 1, 1));
@@ -641,7 +641,7 @@ impl Session {
 
     /// The methods of a data item of the request page (`TestFilter`): they read and write the
     /// filters of the item's record, in the user filter group 0, as the page's `Filter` does
-    /// (handlers/TestReportRunRequestPage.al: `RequestPage.Rows.SetFilter("Entry No.", '1')` reaches
+    /// (reports/TestReportRunRequestPage.al: `RequestPage.Rows.SetFilter("Entry No.", '1')` reaches
     /// the parameters). Nothing here moves a row: a request page has none.
     pub(super) fn request_item_op(
         &mut self,
@@ -666,7 +666,7 @@ impl Session {
                 };
                 let ty = table.fields[pos].ty.clone();
                 // An empty text takes the filter off the field: GetFilter reads empty and the report runs unfiltered
-                // (pages/lt-ao-testpage/AoTests.al:734-742, RequestPage_SetFilterEmpty).
+                // (testpage/AoTests.al:734-742, RequestPage_SetFilterEmpty).
                 if text.is_empty() {
                     rec.borrow_mut().filters.retain(|f| !(f.field == pos && f.group == 0));
                     return Ok(Value::Null);
@@ -756,9 +756,9 @@ impl Session {
 
     /// `Invoke` of an action of the request page. BC's test client does not find it: the error
     /// names the action by an id the compiler derives from the report id and the action name
-    /// (handlers/TestReportRequestPageAction.al:RequestPageAction_Invoke_IsNotFoundOnThePage_AndOnActionDoesNotRun
+    /// (reports/TestReportRequestPageAction.al:RequestPageAction_Invoke_IsNotFoundOnThePage_AndOnActionDoesNotRun
     /// and the two tests after it), and no trigger runs. `Visible` and `Enabled` raise the same error
-    /// (report/W3ReportActions.al:186).
+    /// (reports/W3ReportActions.al:186).
     pub(super) fn request_action_not_found(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
@@ -771,8 +771,8 @@ impl Session {
             "The action with ID = {} is not found on the page.",
             action_id(id, &c.name)
         );
-        // The code is TestActionNotFound for an action declared `Enabled = false` or `Visible = false` (report/lt-aq/AqTests.al:334-358,
-        // Actions_DisabledAndHidden_Invoke) and for a visible, enabled one (report/lt-y86-request-page/Y86RequestCaption.al
+        // The code is TestActionNotFound for an action declared `Enabled = false` or `Visible = false` (reports/AqTests.al:334-358,
+        // Actions_DisabledAndHidden_Invoke) and for a visible, enabled one (reports/request-page/Y86RequestCaption.al
         // Y86_Caption_OnActionSets `invoke=TestActionNotFound`).
         let code = "TestActionNotFound".to_string();
         Err(Signal::Error(Box::new(al_builtins::native::AlError {
@@ -807,14 +807,14 @@ impl Session {
                         Value::Option(n, _) | Value::Enum(_, n) => n.to_string(),
                         other => al_builtins::format::try_format(other, 0, 9, self).map_err(Signal::Unsupported)?,
                     };
-                    // The parameter carries the name of the variable, not of the control (report/TestProbeReportContracts.al:
+                    // The parameter carries the name of the variable, not of the control (reports/TestProbeReportContracts.al:
                     // RunRequestPage_ParametersText: control OptName shows variable NameValue).
                     let var_name = engine.program.objects[who.unwrap_or(object)]
                         .globals
                         .get(slot)
                         .map_or_else(|| c.name.clone(), |g| g.name.clone());
                     // An empty value is an empty element, `<Field name="TxtVal" />`, for Text, Code, Date, Time and DateTime
-                    // alike (report/W3ReportParametersText.al:255).
+                    // alike (reports/W3ReportParametersText.al:255).
                     if text.is_empty() {
                         options.push_str(&format!("<Field name=\"{}\" />", xml_escape(&var_name)));
                     } else {
@@ -826,7 +826,7 @@ impl Session {
                     }
                 }
                 (ir::ControlKind::DataItem, ir::Binding::Var(slot)) => {
-                    // ShowFilter = false still writes the data item with its view (report/TestProbeReportContracts.al:
+                    // ShowFilter = false still writes the data item with its view (reports/TestProbeReportContracts.al:
                     // RequestPage_ShowFilterFalse); only the item's filter methods stay refused.
                     let rec = match inst.borrow().globals[*slot].clone() {
                         Value::Record(r) => r,
@@ -850,13 +850,13 @@ impl Session {
         }
         let id = o.id.map_or(String::new(), |i| i.to_string());
         // A page with no option control has no `Options` element
-        // (handlers/TestReportRequestPageSourceTableCompiledContracts.al:RunRequestPage_RequestPageRecIsUnfiltered).
+        // (reports/TestReportRequestPageSourceTableCompiledContracts.al:RunRequestPage_RequestPageRecIsUnfiltered).
         let options = if options.is_empty() {
             String::new()
         } else {
             format!("<Options>{options}</Options>")
         };
-        // A report without data items has no `DataItems` element (misc/lt-y14-triage/Y14ReportSubstitute.al:225, :276, corpus
+        // A report without data items has no `DataItems` element (reports/Y14ReportSubstitute.al:225, :276, corpus
         // master). Without options as well the text is not pinned by a test.
         let items = if items.is_empty() {
             if options.is_empty() {
@@ -876,7 +876,7 @@ impl Session {
     /// the view of every data item. Only the text this runtime hands out is understood (its own
     /// `RunRequestPage` result), because the corpus pins nothing else: a string it cannot read, or
     /// that names another report, is refused
-    /// (handlers/TestReportInstanceRunReqPage.al:TestReport_InstanceRunRequestPage_SeededWithParameters_StillRunsTheHandler
+    /// (reports/TestReportInstanceRunReqPage.al:TestReport_InstanceRunRequestPage_SeededWithParameters_StillRunsTheHandler
     /// pins only that the handler still runs and its own filter comes back).
     pub(crate) fn apply_request_parameters(
         &mut self,
@@ -895,8 +895,8 @@ impl Session {
             o.id.map_or(String::new(), |i| i.to_string())
         );
         // The parameters of another report (a SubstituteReport subscriber swapped the report the call named): nothing of them
-        // reaches this page, its values stay as they are (misc/lt-y14-triage/Y14ReportSubstitute.al:389 Execute_SaveAs_Swap
-        // `execute xmlA` -> `B-pre()`, corpus master; report/W3ReportParametersText.al:431
+        // reaches this page, its values stay as they are (reports/Y14ReportSubstitute.al:389 Execute_SaveAs_Swap
+        // `execute xmlA` -> `B-pre()`, corpus master; reports/W3ReportParametersText.al:431
         // RunRequestPage_SeededWithTextOfAnotherReport `opt=Alpha`).
         if xml.ends_with("</ReportParameters>") && !xml.starts_with(&head) {
             let other = xml
@@ -977,7 +977,7 @@ impl Session {
                 ));
             };
             // An Execute (`skip_unknown`) applies the view also where the request page hides the filters
-            // (session/lt-y22-copy-company/Y22CopyCompany.al:301-323: report 357 "Copy Company" has `ShowFilter = false`
+            // (session-system/company/Y22CopyCompany.al:301-323: report 357 "Copy Company" has `ShowFilter = false`
             // and copies only the company its parameters' view names).
             if !skip_unknown {
                 self.require_filters_shown(object)?;
@@ -992,7 +992,7 @@ impl Session {
     }
 
     /// `Report.RunRequestPage(Id, Parameters)` loads the parameters string after the request page's OnInit
-    /// (report/lt-aq/AqTests.al:362-381 pins it for a control value only). On a report with an OnInit or OnInitReport
+    /// (reports/AqTests.al:362-381 pins it for a control value only). On a report with an OnInit or OnInitReport
     /// trigger, a data item view in the string that differs from the view the item has at that point is refused: whether
     /// it replaces or adds to a view those triggers set, and what they read of it, is not pinned.
     pub(crate) fn refuse_seeded_view_after_init(
@@ -1120,10 +1120,10 @@ impl Session {
 
     /// A record's view the way the parameters spell it: field numbers, not captions, and each
     /// filter as `<n>(<filter>)` (the corpus pins `WHERE(Field1=1(1))` for `SetFilter("Entry No.",
-    /// '1')`: handlers/TestReportRunRequestPage.al:81-86). A descending view is `ORDER(1)` and a Boolean
-    /// filter on Yes is `1` (report/W3ReportParametersText.al:256, :306). Only the filters the page holds
+    /// '1')`: reports/TestReportRunRequestPage.al:81-86). A descending view is `ORDER(1)` and a Boolean
+    /// filter on Yes is `1` (reports/W3ReportParametersText.al:256, :306). Only the filters the page holds
     /// in filter group 0 are written: those of the item's DataItemTableView are not
-    /// (report/W3ReportSaveAsExecute.al:209). The leading `VERSION(1)` and the key clause are docs/probes-needed.md.
+    /// (reports/W3ReportSaveAsExecute.al:209). The leading `VERSION(1)` and the key clause are docs/probes-needed.md.
     /// Not pinned, and refused: a filter in another group, a Boolean filter on No, a direction per key field.
     pub(crate) fn parameter_view(&mut self, rec: &Rec) -> Result<String, Signal> {
         let t = self.table(rec)?;
@@ -1163,7 +1163,7 @@ impl Session {
     }
 }
 
-/// `e` with a Boolean Yes written as `1` (report/W3ReportParametersText.al:306 `Field4=1(1)` for `SetFilter(Flag, 'Yes')`).
+/// `e` with a Boolean Yes written as `1` (reports/W3ReportParametersText.al:306 `Field4=1(1)` for `SetFilter(Flag, 'Yes')`).
 /// No is not pinned and refused.
 fn boolean_as_number(e: &FilterExpr) -> Result<FilterExpr, Signal> {
     let map = |v: &Value| -> Result<Value, Signal> {
@@ -1257,7 +1257,7 @@ fn split_conditions(s: &str) -> Vec<&str> {
 /// The id BC's test client names an action of a request page by: FNV-1a over the UTF-16 text of
 /// the report id followed by the action name, read as a signed 32-bit number and made positive.
 /// Derived from the three ids the corpus pins, for report 60398
-/// (handlers/TestReportRequestPageAction.al:31-33: StampText 727081671, AppendText 622821794,
+/// (reports/TestReportRequestPageAction.al:31-33: StampText 727081671, AppendText 622821794,
 /// RefuseAction 1188892507, which is the negation of the signed hash).
 pub(crate) fn action_id(report_id: u32, name: &str) -> i64 {
     let mut h: u32 = 0x811c_9dc5;
@@ -1270,7 +1270,7 @@ pub(crate) fn action_id(report_id: u32, name: &str) -> i64 {
     i64::from(h as i32).abs()
 }
 
-/// Element text as BC writes it: `&`, `<` and `>` escaped, a double quote kept (report/W3ReportParametersText.al:272
+/// Element text as BC writes it: `&`, `<` and `>` escaped, a double quote kept (reports/W3ReportParametersText.al:272
 /// `a&lt;b&amp;"c"`, :306 `Field3=1(&gt;10)`).
 fn xml_text(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
@@ -1287,7 +1287,7 @@ fn xml_escape(s: &str) -> String {
 mod tests {
     use super::action_id;
 
-    // handlers/TestReportRequestPageAction.al:31-33
+    // reports/TestReportRequestPageAction.al:31-33
     #[test]
     fn action_ids_are_the_ones_the_corpus_pins() {
         assert_eq!(action_id(60398, "StampText"), 727_081_671);
@@ -1295,7 +1295,7 @@ mod tests {
         assert_eq!(action_id(60398, "RefuseAction"), 1_188_892_507);
     }
 
-    // testpart/TestTestPart.al:233 and pageapplicationarea/TestPageApplicationAreaPrecompiledControlRemoval.al:57,92,124
+    // testpage/parts/TestTestPart.al:233 and pages/application-area/TestPageApplicationAreaPrecompiledControlRemoval.al:57,92,124
     #[test]
     fn control_ids_are_the_ones_the_corpus_pins() {
         assert_eq!(action_id(60344, "Hidden"), 1_318_487_454);

@@ -1,6 +1,6 @@
 //! `Error('')` out of a table field's OnValidate, raised while a test edits the field on a ListPart inside a Card: the SetValue
 //! ends quietly. The test goes on, the last error has the empty text and code NSValidateField:Dialog, the control shows the old
-//! value, and a later edit of the same control is stored (misc/lt-y13-triage/Y13PageTriage.al:350-374, corpus master).
+//! value, and a later edit of the same control is stored (testpage/Y13PageTriage.al:350-374, corpus master).
 
 const SRC: &str = r#"
 table 69960 "LV Head" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }

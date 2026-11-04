@@ -1,5 +1,5 @@
 //! A JsonValue set with a Date, Time or DateTime and read as one of the other two raises a Conversion error, and a Time or
-//! DateTime with milliseconds reads as the text it is written as (json/lt-json-overloads/P88DateTimeReadback.al:78-210).
+//! DateTime with milliseconds reads as the text it is written as (json/json/P88DateTimeReadback.al:78-210).
 
 use al_builtins::native::Signal;
 

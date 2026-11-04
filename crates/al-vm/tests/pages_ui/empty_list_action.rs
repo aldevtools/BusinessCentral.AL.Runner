@@ -1,5 +1,5 @@
 //! An action on a list that shows no stored row (pages/actions.rs `empty_page_after_action`). Each test names the corpus test
-//! of misc/lt-probes-needed-7/PnGShowRow.al that pins what BC does.
+//! of testpage/PnGShowRow.al that pins what BC does.
 
 const SRC: &str = r#"
 codeunit 69990 "EL Log"

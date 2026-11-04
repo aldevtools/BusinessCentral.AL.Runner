@@ -52,12 +52,12 @@ pub const ENVIRONMENT: &str = "System.Environment";
 
 /// `System.IO.Compression.GZipStream`, behind System Application's "Data Compression".
 /// The exceptions `GetLastErrorObject` answers and the `System.Type` of `GetType()` on them
-/// (tests/al-language-onprem-dotnet/lt-dotnet-interop/GetLastErrorObject.al).
+/// (tests/al-language-onprem-dotnet/dotnet/dotnet-interop/GetLastErrorObject.al).
 pub const NCL_DIALOG_EXCEPTION: &str = "Microsoft.Dynamics.Nav.Types.Exceptions.NavNCLDialogException";
 pub const RECORD_NOT_FOUND_EXCEPTION: &str = "Microsoft.Dynamics.Nav.Types.Exceptions.NavCSideRecordNotFoundException";
 pub const AL_EXCEPTION: &str = "Microsoft.Dynamics.Nav.Types.Exceptions.NavALException";
 /// A failing `TestField`, an `Evaluate` without a return value, and the base exception of a division by zero
-/// (tests/al-language-onprem-dotnet/lt-dotnet-interop/GetLastErrorObjectKinds.al).
+/// (tests/al-language-onprem-dotnet/dotnet/dotnet-interop/GetLastErrorObjectKinds.al).
 pub const TEST_FIELD_EXCEPTION: &str = "Microsoft.Dynamics.Nav.Types.NavTestFieldException";
 pub const NCL_EVALUATE_EXCEPTION: &str = "Microsoft.Dynamics.Nav.Types.Exceptions.NavNCLEvaluateException";
 pub const DIVIDE_BY_ZERO_EXCEPTION: &str = "System.DivideByZeroException";
@@ -110,7 +110,7 @@ pub const CAMERA_PROVIDER: &str = "Microsoft.Dynamics.Nav.Client.Capabilities.Ca
 pub const RUNTIME_TYPE: &str = "<Type of a last-error exception>";
 
 /// What an AL `OutStream` or `InStream` is when a `DotNet` System.IO.Stream variable holds it: its run-time type name
-/// (tests/al-language-onprem-dotnet/lt-sg-dotnet/SgDotNetStreams.al:118, :387), served by al-vm `dotnet/blob_stream.rs`.
+/// (tests/al-language-onprem-dotnet/dotnet/dotnet/SgDotNetStreams.al:118, :387), served by al-vm `dotnet/blob_stream.rs`.
 pub const NAV_BLOB_STREAM: &str = "Microsoft.Dynamics.Nav.Runtime.NavBLOB+InternalStream";
 /// What `GetType()` of that stream answers (only `FullName` is pinned). Not a real CLR type name, as for [`RUNTIME_TYPE`].
 pub const NAV_BLOB_STREAM_TYPE: &str = "<Type of NavBLOB+InternalStream>";

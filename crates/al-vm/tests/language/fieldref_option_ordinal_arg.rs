@@ -1,5 +1,5 @@
 //! `FieldRef.GetEnumValueCaptionFromOrdinalValue(FieldRef.Value())` on an Option field takes the Option value as its ordinal
-//! (al-runner issue 5987: fieldref/TestFieldRefEnumOrdinalByIndex.al SO_OptionField_ValueAsOrdinalArgument_ReproShape); an ordinal
+//! (al-runner issue 5987: recordref-fieldref/fieldref/TestFieldRefEnumOrdinalByIndex.al SO_OptionField_ValueAsOrdinalArgument_ReproShape); an ordinal
 //! the field has no member for answers the number as its caption and an empty name (SO_OptionField_IntegerOrdinalArguments).
 
 use al_builtins::native::Signal;

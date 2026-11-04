@@ -1,6 +1,6 @@
 //! The `Position` of the runtime's blob stream over an AL `InStream` (blob_stream.rs) after AL read from it, a `Position` set,
 //! and the stream assigned back to an `InStream` (System Application's Data Compression IsGZip and IsZip). Pinned by
-//! tests/al-language-onprem-dotnet/lt-y51-blob-stream-position/Y51BlobStreamPosition.al (BC 27.5, 28.5, 29.0):
+//! tests/al-language-onprem-dotnet/dotnet/blob-stream-position/Y51BlobStreamPosition.al (BC 27.5, 28.5, 29.0):
 //! - `Position` follows what AL read (2 after two `InStream.Read` of a byte, BlobStream_PositionSet_AfterALRead);
 //! - a `Position` set takes any number, -1 and past the end too, reads back as set, and does not move the AL stream
 //!   (`rest_after_set` `cdef`, BlobStream_PositionSet_OutOfRange);

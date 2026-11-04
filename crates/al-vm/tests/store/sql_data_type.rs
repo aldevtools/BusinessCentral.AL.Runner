@@ -1,5 +1,5 @@
 //! A Code field stored as an integer (`SQLDataType = Integer`) and a BigInteger field stored as the row version
-//! (`SQLTimestamp = true`): corpus record/lt-x-table-props/XTablePropsTests.al:293-415.
+//! (`SQLTimestamp = true`): corpus record/table-properties/XTablePropsTests.al:293-415.
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -179,7 +179,7 @@ fn an_sql_timestamp_field_reads_the_row_version() {
     assert_eq!(text(run("Stamp")), "YesYesYes");
 }
 
-// record/lt-qr-temp-sqltimestamp/QrTempTimestamp.al:76-85 (stays 0 through Insert, Modify, Rename and Get), :111-115 (an assigned
+// record/temporary/QrTempTimestamp.al:76-85 (stays 0 through Insert, Modify, Rename and Get), :111-115 (an assigned
 // value is kept).
 #[test]
 fn a_temporary_record_never_stamps_its_sql_timestamp_field() {

@@ -1,13 +1,13 @@
 //! The values of `SessionInformation.SqlStatementsExecuted()` and `SqlRowsRead()` (issue 5580).
 //!
-//! BC counts real SQL work; the corpus pins properties of the count (session/lt-bl-sql-counters/SqlCounters.al:4: "only
+//! BC counts real SQL work; the corpus pins properties of the count (session-system/session/SqlCounters.al:4: "only
 //! properties are observed (sign of a difference, equal or not)"), and the size of the change only for the shapes
 //! SqlCounters.al:204-395 measured (issue 5761). The runtime's counters are a model: the VM adds one for each pinned increase between two reads
 //! (`al-vm/src/sqlcount.rs`). So a value read from a counter is tainted ([`Value::SqlCount`]): it may be stored in a
 //! BigInteger or a Variant, passed on, and subtracted from another read of the same counter, and it may reach a comparison
 //! only where the pins decide the answer:
 //!
-//! - a read against 0 with `>=` / `<` (not negative: SqlCounters.al:74-84, session/TestMiscTypes.al:97-114);
+//! - a read against 0 with `>=` / `<` (not negative: SqlCounters.al:74-84, session-system/TestMiscTypes.al:97-114);
 //! - two reads of the same counter with only classified segments between them (the same epoch), or a difference of two such
 //!   reads against 0 or against another difference whose sign makes the answer certain (the sign of a change:
 //!   SqlCounters.al:51-58, :105-202).

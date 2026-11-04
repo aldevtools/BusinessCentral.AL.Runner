@@ -9,7 +9,7 @@
 //   the control's Value() and, after Close, the saved setting row. Also: the same OnLookup cancelled (answers false
 //   without touching Text), an OnValidate without CurrPage.Update, and an OnLookup that sets Text and answers false.
 // BC versions: all (CI)
-// Neighbours: pages/lt-test-field-lookup/TestFieldLookupTriggers.al pins Lookup on controls bound to Rec fields.
+// Neighbours: pages/run-modal/TestFieldLookupTriggers.al pins Lookup on controls bound to Rec fields.
 
 table 89004 "LT SC Planner Setting"
 {

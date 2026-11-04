@@ -1,5 +1,5 @@
 //! A Worksheet over a temporary source that empties and refills Rec (Reset, DeleteAll, insert numbered from 1, FindFirst) from
-//! a filter field's OnValidate and from an action (corpus pages/lt-outside-worksheet/RmTempRefill.al, al-runner issues 5779 and
+//! a filter field's OnValidate and from an action (corpus testpage/RmTempRefill.al, al-runner issues 5779 and
 //! 5780): the page then shows the new rows, from the row the refill left Rec on, wherever the client stood.
 
 use al_testkit::text;

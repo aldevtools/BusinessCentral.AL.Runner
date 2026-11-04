@@ -1,5 +1,5 @@
 //! A list whose control's OnValidate changes the page's filters so that the row it stands on leaves the view, then calls
-//! CurrPage.Update: which row the list shows then is pinned only after an action (pages/lt-ai-list-order/AiListOrderTests.al:335
+//! CurrPage.Update: which row the list shows then is pinned only after an action (pages/list-order/AiListOrderTests.al:335
 //! DropCurrent_RowsAfter_Plain). Refused. Tests-SCM 137831 BinContentsPage_CanSwitchLocationFilterWithoutRenamingRecord (Bin
 //! Contents, page 7374) reached it: First was served from the rows read before the filter changed.
 

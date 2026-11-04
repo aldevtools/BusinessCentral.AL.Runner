@@ -13,7 +13,7 @@ pub struct Token {
 const BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
 /// The byte length of a Unicode space separator at the start of `s` that is white space between tokens, or 0. alc reads
-/// these as white space (corpus misc/lt-uf-nbsp/UfNbsp.al:31-42 for U+00A0 as indentation, between tokens, after `begin`,
+/// these as white space (corpus language/UfNbsp.al:31-42 for U+00A0 as indentation, between tokens, after `begin`,
 /// before `;` and after `//`; :102-160 for U+2003, U+3000, U+202F, U+2009, U+2002, U+2007 and U+1680; al-runner issue 6152).
 /// The other separators of category Zs (U+2000, U+2001, U+2004-U+2006, U+2008, U+200A, U+205F) are not pinned and stay
 /// an error.
@@ -389,8 +389,8 @@ mod tests {
     }
 
     // A multiline text literal `@'...'` (BC 26 and later) is one string token that may span lines, with the
-    // line ends of the source kept (al-language/misc/lt-expressions-statements/PLiteralExpressions.al:152-158,
-    // al-language/text/lt-bu-multiline-crlf/BuMultilineCrlf.al:23-27).
+    // line ends of the source kept (al-language/language/PLiteralExpressions.al:152-158,
+    // al-language/text/text-methods/BuMultilineCrlf.al:23-27).
     #[test]
     fn multiline_text_literal_is_one_string_token() {
         assert_eq!(significant("@'a\nb' x"), vec![(StringLit, "@'a\nb'"), (Ident, "x")]);
@@ -540,7 +540,7 @@ mod tests {
     }
 
     // NO-BREAK SPACE and the other Unicode space separators the corpus pins are white space between tokens, as in
-    // alc, and stay one character inside a string: corpus misc/lt-uf-nbsp/UfNbsp.al:31-42 (U+00A0 as indentation,
+    // alc, and stay one character inside a string: corpus language/UfNbsp.al:31-42 (U+00A0 as indentation,
     // between tokens, after `begin`, before `;`, inside a string literal) and :102-160 (U+2003, U+3000, U+202F, U+2009,
     // U+2002, U+2007, U+1680).
     #[test]
@@ -600,7 +600,7 @@ mod tests {
         );
     }
 
-    /// `&` joins terms in a TableRelation filter (record/lt-table-relation-quotes/TableRelationQuotes.al:65,
+    /// `&` joins terms in a TableRelation filter (record/table-relation/TableRelationQuotes.al:65,
     /// `filter(<> A & <> "B C")`).
     #[test]
     fn filter_ampersand() {

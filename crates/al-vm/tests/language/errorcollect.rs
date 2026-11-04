@@ -1,5 +1,5 @@
 //! `[ErrorBehavior(ErrorBehavior::Collect)]` and the error-collection builtins, end to end.
-//! Each test names the corpus test that pins what it asserts (errorinfo/TestErrorInfoType.al).
+//! Each test names the corpus test that pins what it asserts (errors/errorinfo/TestErrorInfoType.al).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -7,7 +7,7 @@ use al_builtins::value::Value;
 const HELPERS: &str = r#"
 codeunit 50100 C
 {
-    // errorinfo/TestErrorInfoType.al:642-656: the raisers carry no attribute.
+    // errors/errorinfo/TestErrorInfoType.al:642-656: the raisers carry no attribute.
     local procedure RaiseCollectible(Message: Text)
     var EI: ErrorInfo;
     begin EI := ErrorInfo.Create(Message, true); Error(EI); end;
@@ -100,7 +100,7 @@ fn text(body: &str) -> String {
 
 #[test]
 fn a_collectible_error_does_not_abort_the_scope_and_is_rethrown_on_exit() {
-    // errorinfo/TestErrorInfoType.al:448-459 (CollectibleError_UnderCollectScope_DoesNotAbortCaller):
+    // errors/errorinfo/TestErrorInfoType.al:448-459 (CollectibleError_UnderCollectScope_DoesNotAbortCaller):
     // the helper reaches its later statements, and the scope rethrows the collected message.
     assert_eq!(
         text(
@@ -112,7 +112,7 @@ fn a_collectible_error_does_not_abort_the_scope_and_is_rethrown_on_exit() {
 
 #[test]
 fn the_collected_error_carries_its_message_and_the_count_is_one() {
-    // errorinfo/TestErrorInfoType.al:464-470 (CollectibleError_IsCollectedWithItsMessage).
+    // errors/errorinfo/TestErrorInfoType.al:464-470 (CollectibleError_IsCollectedWithItsMessage).
     assert_eq!(
         text("asserterror CollectOne('the collected message'); exit(GetLastErrorText());"),
         "the collected message"
@@ -121,7 +121,7 @@ fn the_collected_error_carries_its_message_and_the_count_is_one() {
 
 #[test]
 fn a_non_collectible_error_unwinds_with_the_raisers_message() {
-    // errorinfo/TestErrorInfoType.al:474-490 (NonCollectibleError_InCollectScope_IsNotCollected).
+    // errors/errorinfo/TestErrorInfoType.al:474-490 (NonCollectibleError_InCollectScope_IsNotCollected).
     assert_eq!(
         text("asserterror CollectNonCollectible('not collectible'); exit(GetLastErrorText());"),
         "not collectible"
@@ -130,7 +130,7 @@ fn a_non_collectible_error_unwinds_with_the_raisers_message() {
 
 #[test]
 fn collected_errors_accumulate_in_raise_order() {
-    // errorinfo/TestErrorInfoType.al:494-503: the scope-exit text for two errors contains the
+    // errors/errorinfo/TestErrorInfoType.al:494-503: the scope-exit text for two errors contains the
     // first message; the helper's own order assertions fail with their own text if wrong.
     let t = text("asserterror CollectTwo('first raised', 'second raised'); exit(GetLastErrorText());");
     assert!(t.contains("first raised"), "{t}");
@@ -142,14 +142,14 @@ fn collected_errors_accumulate_in_raise_order() {
 
 #[test]
 fn clearing_inside_the_scope_empties_the_set_and_disarms_the_rethrow() {
-    // errorinfo/TestErrorInfoType.al:507-520 (ClearCollectedErrors_EmptiesTheSetInsideTheScope):
+    // errors/errorinfo/TestErrorInfoType.al:507-520 (ClearCollectedErrors_EmptiesTheSetInsideTheScope):
     // the helper returns normally.
     assert_eq!(text("ClearInside('to be cleared'); exit('returned');"), "returned");
 }
 
 #[test]
 fn outside_a_scope_nothing_is_collecting_and_clearing_does_not_throw() {
-    // session/TestSystemGlobals.al:16-21, session/TestFinalCoverage.al:127-143.
+    // session-system/TestSystemGlobals.al:16-21, session-system/TestFinalCoverage.al:127-143.
     assert_eq!(
         text("ClearCollectedErrors(); exit(Format(IsCollectingErrors()) + Format(GetCollectedErrors().Count()));"),
         "No0"
@@ -158,14 +158,14 @@ fn outside_a_scope_nothing_is_collecting_and_clearing_does_not_throw() {
 
 #[test]
 fn has_collected_errors_outside_a_scope_answers_true() {
-    // errorinfo/TestErrorInfoType.al finding D (lines 133-141): outside a collecting scope the
+    // errors/errorinfo/TestErrorInfoType.al finding D (lines 133-141): outside a collecting scope the
     // global answers TRUE (0 < 0 - (-1)); the tier failed an assertion of false on every leg.
     assert_eq!(text("exit(Format(HasCollectedErrors()));"), "Yes");
 }
 
 #[test]
 fn a_nested_scope_hands_its_errors_to_the_outermost_scope() {
-    // errorinfo/TestErrorInfoType.al:128-131: only closing the OUTERMOST scope rethrows.
+    // errors/errorinfo/TestErrorInfoType.al:128-131: only closing the OUTERMOST scope rethrows.
     assert_eq!(
         text("asserterror a := Outer(); exit(GetLastErrorText());"),
         "from inner"
@@ -174,7 +174,7 @@ fn a_nested_scope_hands_its_errors_to_the_outermost_scope() {
 
 #[test]
 fn an_error_with_error_info_outside_a_scope_unwinds_even_if_collectible() {
-    // errorinfo/TestErrorInfoType.al:474-490: Collect is what makes a collectible error
+    // errors/errorinfo/TestErrorInfoType.al:474-490: Collect is what makes a collectible error
     // collectable; with no scope it is raised like any other.
     assert_eq!(
         text("asserterror RaiseCollectible('plain'); exit(GetLastErrorText());"),

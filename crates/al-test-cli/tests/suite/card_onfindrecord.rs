@@ -1,5 +1,5 @@
 //! A card run with Page.Run(Id, Rec): which Which strings OnFindRecord is asked and what the card reads at open and around
-//! an action (pages/lt-be-card-onfindrecord/BeCardOnFindRecord.al, codeunit 81164).
+//! an action (pages/triggers/BeCardOnFindRecord.al, codeunit 81164).
 
 use al_test_cli::report::Outcome;
 
@@ -54,7 +54,7 @@ fn a_card_with_on_find_record_is_asked_equals_and_reads_its_row_around_an_action
 }
 
 // BeCardOnFindRecord.al:374 CardTemp_PageRun_StoredRec: BC shows the stored row on a card over a temporary table; Page.Run(Id, Rec)
-// makes the card's Rec a database record (pages/lt-y61-page-probes/Y61StoredRecToTempCard.al:435), so the run goes on.
+// makes the card's Rec a database record (pages/run-modal/Y61StoredRecToTempCard.al:435), so the run goes on.
 #[test]
 fn a_stored_record_handed_to_a_temporary_card_runs() {
     let src = format!(

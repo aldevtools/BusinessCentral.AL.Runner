@@ -2,7 +2,7 @@
 //! the flagged rows; after an outside change of a row's flag, `First` runs OnAfterGetCurrRecord, which marks the rows again and
 //! calls `CurrPage.Update(false)`. The page then holds the marked rows of the new view: a GoToRecord of the row the refresh left
 //! out is false and the page stays on row 1 (al-runner issue 6467, the reporter's repro without Library Assert; real BC:
-//! `before=false/1 after=false/1`). The primary key is pinned by pages/lt-y1-6288/Y1ExternalReapplyMarks.al.
+//! `before=false/1 after=false/1`). The primary key is pinned by testpage/Y1ExternalReapplyMarks.al.
 
 use al_testkit::outcomes_in;
 

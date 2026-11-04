@@ -1,5 +1,5 @@
 //! An Option FlowField whose CalcFormula looks up, or takes the max of, an Enum field (al-runner issue 6481). Measured on BC by
-//! corpus writer Y20 (record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al): a lookup keeps the Enum member,
+//! corpus writer Y20 (record/flowfields/Y20FlowFieldLookupEnumIntoOption.al): a lookup keeps the Enum member,
 //! so Format shows the Enum's member name and the ordinal is the member's (also one the Option lacks); no row gives the
 //! Option's first member. A max gives an Option ordinal: Format shows the Option's member, or the number when the Option has
 //! no member with it. A filter on the FlowField compares ordinals.

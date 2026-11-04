@@ -1,7 +1,7 @@
 //! Variable attributes the runtime does not implement are refused where the variable is used, never ignored
-//! (hard rule 4): `[RunOnClient]` and `[WithEvents]` on DotNet variables (al-language-onprem-dotnet/lt-ac/AcDnAttributes.al:50,
+//! (hard rule 4): `[RunOnClient]` and `[WithEvents]` on DotNet variables (al-language-onprem-dotnet/dotnet/ac/AcDnAttributes.al:50,
 //! :86, :145-146) and the read of `SecurityFiltering()` on a global record declared with `[SecurityFiltering(...)]`
-//! (al-language/lt-ac/ACAttributes.al:176-191).
+//! (al-language/reports/runtime/ACAttributes.al:176-191).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -10,7 +10,7 @@ fn refused(r: Result<Value, Signal>, needle: &str) {
     match r {
         Err(Signal::Unsupported(why)) => assert!(why.contains(needle), "{why}"),
         // The constructor of a [RunOnClient] variable raises the pinned error, not a refusal
-        // (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:122-150, lt-ac/AcDnAttributes.al:131-147).
+        // (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:122-150, dotnet/ac/AcDnAttributes.al:131-147).
         Err(Signal::Error(e)) if needle == "RunOnClient" => {
             assert!(e.code.contains("DotNetFromAlNotSupported"), "{e:?}")
         }
@@ -51,7 +51,7 @@ fn a_with_events_variable_is_refused_where_it_is_used() {
     refused(al_testkit::run_in(&src, "C", "F"), "WithEvents");
 }
 
-// A local record declared with `[SecurityFiltering(x)]` starts with x (al-language/lt-ac/ACAttributes.al:176-179,
+// A local record declared with `[SecurityFiltering(x)]` starts with x (al-language/reports/runtime/ACAttributes.al:176-179,
 // :187-190; its counts are unchanged, :184-186). What `Clear` or an assignment leaves on such a variable is not
 // pinned, nor is the attribute on a global: those are refused.
 #[test]

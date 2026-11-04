@@ -1,5 +1,5 @@
 //! Which media and media sets the stored rows hold, for `Media.FindOrphans` and `MediaSet.FindOrphans`
-//! (al-builtins `media_orphans`; media/lt-y48-find-orphans/Y48FindOrphans.al:229-410). Every table with a Media or
+//! (al-builtins `media_orphans`; streams/media/Y48FindOrphans.al:229-410). Every table with a Media or
 //! MediaSet field is read in every company; a temporary record holds nothing here (:378-391 FO_TemporaryHolder).
 
 use crate::Session;

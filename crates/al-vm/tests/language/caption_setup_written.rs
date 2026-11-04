@@ -1,6 +1,6 @@
 //! CaptionClass areas 101 and 1 after the test wrote its own General Ledger Setup and Dimension rows
-//! (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:244-270 Literals_FieldCaption and :279-312 Expressions_FieldCaption, with
-//! misc/lt-qk-setup-rows/QkSetupRows.al WriteGLSetupCaptions: LCY Code 'GBP', Global Dimension 1 Code 'DEPARTMENT', Code Caption
+//! (record/captions/QdCaptionClassAreas.al:244-270 Literals_FieldCaption and :279-312 Expressions_FieldCaption, with
+//! record/QkSetupRows.al WriteGLSetupCaptions: LCY Code 'GBP', Global Dimension 1 Code 'DEPARTMENT', Code Caption
 //! 'Department Code'). Without test data the runtime has no demo setup rows, so a caption these areas resolve is refused unless the
 //! test wrote the rows the resolver reads before any caption of those areas was resolved in the session. The subscriber stands in for
 //! Base Application's codeunits 342 and 343 (SingleInstance, they keep the setup they read first).

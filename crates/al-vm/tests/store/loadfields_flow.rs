@@ -1,6 +1,6 @@
 //! SetLoadFields and AddLoadFields with FlowFields and FlowFilters among several fields, the function forms' answers and
 //! AreFieldsLoaded of a FlowField after a whole-row fetch. Every literal is what real BC answered in the corpus:
-//! record/lt-y67-addloadfields-flow/Y67AddLoadFlow.al (codeunit 93628, writer Y67).
+//! record/load-fields/Y67AddLoadFlow.al (codeunit 93628, writer Y67).
 
 use al_testkit::text;
 

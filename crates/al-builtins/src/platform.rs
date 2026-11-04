@@ -36,9 +36,9 @@ pub enum Virtual {
     PageControlField,
     TimeZone,
     WindowsLanguage,
-    /// Every row of a fresh tenant is pinned (platform/lt-platform-rows-fresh/PlatformRowsLanguageSelection.al).
+    /// Every row of a fresh tenant is pinned (metadata/platform-tables/PlatformRowsLanguageSelection.al).
     LanguageSelection,
-    /// Two rows are pinned (platform/lt-platform-tables/PtCloudTables.al:60-76); any other read is refused.
+    /// Two rows are pinned (metadata/platform-tables/PtCloudTables.al:60-76); any other read is refused.
     LicensePermission,
     NavAppInstalledApp,
     NavAppExtra,
@@ -49,7 +49,7 @@ pub enum Virtual {
     /// Media live in the session's media store (ADR-017); the table is not a view of it yet.
     TenantMedia,
     /// Media (OnPrem): a read keyed to the null ID finds nothing (the Logo of an app without one, onprem
-    /// session/PZPublishedApplicationColumns.al Logo_*, corpus branch al-runtime-rs-staging-ug); any other read is refused.
+    /// session-system/PZPublishedApplicationColumns.al Logo_*, corpus branch al-runtime-rs-staging-ug); any other read is refused.
     Media,
     MetadataPermissionSet,
     /// One row per include and exclude of a permission set object (al-vm `platform/permission_set_rel.rs`).
@@ -250,46 +250,46 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     (2_000_000_184, "Tenant Media", Provider::Virtual(Virtual::TenantMedia)),
     (2_000_000_181, "Media", Provider::Virtual(Virtual::Media)),
     // An ordinary table: rows inserted, read by code (also lower case), duplicate Insert false, Count and DeleteAll
-    // (platform/lt-platform-tables/PtCloudTables.al:303-360 QX_MediaResources_ImportStreamAndBlob). The rows a tenant
+    // (metadata/platform-tables/PtCloudTables.al:303-360 QX_MediaResources_ImportStreamAndBlob). The rows a tenant
     // holds before any AL runs (:269) and the Tenant Media row of its media (:352) are refused elsewhere.
     (2_000_000_182, "Media Resources", Provider::Stored),
     (2_000_000_121, "User Property", Provider::Stored),
     (2_000_000_175, "Scheduled Task", Provider::Stored),
     (2_000_000_096, "API Webhook Notification", Provider::Stored),
     (2_000_000_098, "API Webhook Notification Aggr", Provider::Stored),
-    // Take Insert, Modify and Delete (tests/al-language-onprem/session/PZPlatformSurvey.al:178-187). A fresh tenant
+    // Take Insert, Modify and Delete (tests/al-language-onprem/session-system/PZPlatformSurvey.al:178-187). A fresh tenant
     // holds rows in them that nothing pins: see `UNSEEDED_ROWS`.
     (2_000_000_076, "Web Service", Provider::Stored),
     (2_000_000_168, "Tenant Web Service", Provider::Stored),
-    // Empty on a fresh tenant and ordinary to Insert, Modify and Delete (platform/lt-platform-tables/PtCloudTables.al:
+    // Empty on a fresh tenant and ordinary to Insert, Modify and Delete (metadata/platform-tables/PtCloudTables.al:
     // EntityText_InsertModifyDelete, ObjectAccessIntentOverride_InsertModifyDelete: `has_rows` No, `first_row` none).
     (2_000_000_132, "Entity Text", Provider::Stored),
     (2_000_000_205, "Object Access Intent Override", Provider::Stored),
-    // Empty on a fresh tenant and ordinary to Insert, Modify and Delete, with several rows and a blank App ID (platform/lt-platform-tables/
+    // Empty on a fresh tenant and ordinary to Insert, Modify and Delete, with several rows and a blank App ID (metadata/platform-tables/
     // PtServicesAppSetting.al: NavAppSetting_Content `count` 0, NavAppSetting_InsertModifyDelete, NavAppSetting_SeveralRowsAndBlankGuid).
     (2_000_000_201, "NAV App Setting", Provider::Stored),
-    // Empty, and ordinary to Insert, Modify and Delete, also with another key (al-language-onprem/platform/PtOnPremTables.al:248,
-    // QZ_IntelligentCloud_Read; al-language-onprem/platform/lt-y48-intelligent-cloud/Y48IntelligentCloudWrites.al IC_InsertModifyGet,
+    // Empty, and ordinary to Insert, Modify and Delete, also with another key (al-language-onprem/metadata/PtOnPremTables.al:248,
+    // QZ_IntelligentCloud_Read; al-language-onprem/metadata/session-system/Y48IntelligentCloudWrites.al IC_InsertModifyGet,
     // IC_Standard).
     (2_000_000_146, "Intelligent Cloud", Provider::Stored),
     // Ordinary tables that a fresh tenant fills with pinned rows (al-vm `platform/seed.rs`): Insert(true) of an existing key
-    // answers false and Modify(true) true (platform/lt-platform-tables/PtCloudTables.al:378-432 and :435-492).
+    // answers false and Modify(true) true (metadata/platform-tables/PtCloudTables.al:378-432 and :435-492).
     (2_000_000_233, "Tenant Report Layout Selection", Provider::Stored),
     // A fresh tenant holds rows here that nothing pins (SaaS: 12), none of a report of the app under test; an Insert of a
-    // row whose Layout is the report's own RDLC layout is stored as given (report/lt-sc-report-metadata-views/
+    // row whose Layout is the report's own RDLC layout is stored as given (reports/runtime/
     // Y6TenantReportLayoutRows.al, corpus master). What else is pinned: al-vm `tenant_layouts.rs`.
     (2_000_000_232, "Tenant Report Layout", Provider::Stored),
     (2_000_000_179, "OData Edm Type", Provider::Stored),
-    // Empty on a fresh tenant; Insert, Modify, Delete and DeleteAll without triggers work (al-language-onprem/session/
-    // PZPlatformSurvey.al:142-145, :166-169; records/W4PlatformAndMeta.al:123). Document Service's own insert trigger is
+    // Empty on a fresh tenant; Insert, Modify, Delete and DeleteAll without triggers work (al-language-onprem/session-system/
+    // PZPlatformSurvey.al:142-145, :166-169; record/W4PlatformAndMeta.al:123). Document Service's own insert trigger is
     // native (al-vm recmeta.rs `document_service_insert`).
     (2_000_000_255, "Signup Context", Provider::Stored),
     (2_000_000_114, "Document Service", Provider::Stored),
-    // An ordinary table, empty on a fresh tenant (al-language-onprem/platform/PtOnPremTables.al:214-236, session/
+    // An ordinary table, empty on a fresh tenant (al-language-onprem/metadata/PtOnPremTables.al:214-236, session/
     // PZPlatformSurvey.al:172-175); its rows follow the rename of their tenant profile (al-vm profiles.rs).
     (2_000_000_187, "Tenant Profile Page Metadata", Provider::Stored),
     // OnPrem tables that a fresh tenant leaves empty and that take Insert, a duplicate Insert (false), Modify, Delete, an Insert
-    // without triggers and DeleteAll (al-language-onprem/platform/PtOnPremTables.al:57-78, :80-101, :149-170, :192-213).
+    // without triggers and DeleteAll (al-language-onprem/metadata/PtOnPremTables.al:57-78, :80-101, :149-170, :192-213).
     // Tenant Profile reads "Customization Status" Updated after an Insert (:200), its first option and so its default.
     (2_000_000_170, "Configuration Package File", Provider::Stored),
     (2_000_000_115, "Document Service Scenario", Provider::Stored),
@@ -298,32 +298,32 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     // Empty on a fresh tenant; an Insert raises the license error and stores nothing (PtOnPremTables.al:172-190). Only that
     // Insert, with triggers, is pinned: the others refuse (al-vm records.rs).
     (2_000_000_130, "Device", Provider::Stored),
-    // Empty on the corpus containers, and ordinary stored tables (corpus master platform/lt-y35-stored-tables/
+    // Empty on the corpus containers, and ordinary stored tables (corpus master metadata/platform-tables/
     // Y35StoredTables.al, onprem): Webhook Subscription and Webhook Notification take Insert, a duplicate Insert (false),
     // filters, Delete(true) and DeleteAll, and keep the rows as written, except that the platform fills a blank
     // "Application ID" of a subscription with 'NAV' (al-vm records.rs `webhook_application_id`). MCP Configuration Tool
     // takes Insert, Get, GetBySystemId, Modify, ModifyAll and Delete without a parent or object check; a Delete of an MCP
     // Configuration with tools differs by major and is refused (al-vm records.rs `stored_platform_check`).
     // Privacy Notice Approval (Cloud, main suite:
-    // platform/lt-y35-privacy-approval/Y35PrivacyApproval.al) is empty, takes Insert, Modify and DeleteAll, leaves
+    // metadata/platform-tables/Y35PrivacyApproval.al) is empty, takes Insert, Modify and DeleteAll, leaves
     // "Approver User SID" as written and fires its table events; Privacy Notice's FlowFields read it per exact User SID.
     (2_000_000_199, "Webhook Subscription", Provider::Stored),
     (2_000_000_194, "Webhook Notification", Provider::Stored),
     (2_000_000_293, "MCP Configuration Tool", Provider::Stored),
     (2_000_000_238, "Privacy Notice Approval", Provider::Stored),
     // OnPrem; takes Insert, a duplicate Insert (false), Modify, Delete, an Insert without triggers and DeleteAll, and keeps
-    // the Blob File it is given (al-language-onprem/platform/PtOnPremTables.al Y17_PowerBIBlob_InsertModifyDelete,
+    // the Blob File it is given (al-language-onprem/metadata/PtOnPremTables.al Y17_PowerBIBlob_InsertModifyDelete,
     // Y17_PowerBIBlob_BlobRoundTrip, corpus master 97c29f86). A fresh tenant holds demo rows nothing pins: `UNSEEDED_ROWS`.
     (2_000_000_144, "Power BI Blob", Provider::Stored),
     // OnPrem; a stored table that sets Default Role Center and Disable Personalization of its profile's All Profile row, with
-    // two Base Application rows on a fresh tenant (al-language-onprem/platform/lt-y35-stored-tables/Y35StoredTables.al:483-620,
+    // two Base Application rows on a fresh tenant (al-language-onprem/metadata/platform-tables/Y35StoredTables.al:483-620,
     // lt-y59-tenant-profile-setting/Y59AllProfileGhostSetting.al; al-vm platform/profile_settings.rs).
     (2_000_000_083, "Tenant Profile Setting", Provider::Stored),
     // A stored tenant table: Insert(false), a duplicate Insert (false), Modify(false), key order, filters, any User SID; Date and
-    // Time stay as written (platform/lt-y59-page-personalization/Y59PageDataPersonalization.al, corpus master 9cf26907).
+    // Time stay as written (metadata/platform-tables/Y59PageDataPersonalization.al, corpus master 9cf26907).
     (2_000_000_080, "Page Data Personalization", Provider::Stored),
     // OnPrem; a plain stored table: Insert (a blank Id and Context too), a duplicate Insert (false), Get, SetRange, Modify,
-    // Rename, Delete and DeleteAll, no validation (al-language-onprem/platform/PtOnPremTables.al:365, :395, corpus master
+    // Rename, Delete and DeleteAll, no validation (al-language-onprem/metadata/PtOnPremTables.al:365, :395, corpus master
     // ac3499d6). A fresh tenant holds demo rows nothing pins: `UNSEEDED_ROWS`.
     (2_000_000_145, "Power BI Default Selection", Provider::Stored),
 ];
@@ -333,7 +333,7 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
 /// refused. Web Service and Tenant Web Service are seeded with their pinned rows instead (al-vm `platform/seed.rs`;
 /// PtWebServiceRows.al:39-73, PlatformRowsWebService.al:66-215). Their System Application neighbours are not: Tenant Web
 /// Service OData (6710) holds 29 rows and Tenant Web Service Columns (6711) 402 on a fresh tenant, only the counts are pinned
-/// (onprem platform/PtWebServiceRows.al:237, :267 'counts before'); what Tenant Web Service Filter (6712) holds is not pinned.
+/// (onprem metadata/PtWebServiceRows.al:237, :267 'counts before'); what Tenant Web Service Filter (6712) holds is not pinned.
 /// Power BI Blob (2000000144) holds demo rows on a fresh tenant (8 on the Linux CI containers, recorded and not asserted:
 /// PtOnPremTables.al Y17_PowerBIBlob_BlobRoundTrip); once the session's own DeleteAll without filters has emptied it, it is
 /// answered (al-vm `Session::is_unseeded`). Power BI Default Selection (2000000145) likewise (8 demo rows on the Linux CI
@@ -344,15 +344,15 @@ pub const UNSEEDED_ROWS: &[u32] = &[6710, 6711, 6712, 2_000_000_144, 2_000_000_1
 /// of the first major the corpus pins, `tests/platform_tables.rs`). Ordinary stored tables here, written by install code:
 /// "Agent Install" (System Application "Agent Upgrade") and "MCP Install" insert into them, and without a provider the install
 /// baseline of those majors stopped at them and left tables unseeded. A Cloud-target `RecordRef.Open` of Agent Creation Control
-/// is refused (platform/lt-aw-fresh-tenant/AwTests.al:590-616, `al-vm` refs.rs).
+/// is refused (metadata/platform-tables/AwTests.al:590-616, `al-vm` refs.rs).
 pub const LATER_MAJORS: &[(u32, &str, Provider)] = &[
     (2_000_000_297, "Agent Creation Control", Provider::Stored),
     (2_000_000_292, "MCP Configuration", Provider::Stored),
     // BC 29 on. Empty on a fresh tenant and writable; an Insert checks the layout parts it names (al-vm
-    // tenant_layout_cfg.rs; platform/lt-platform-tables/PtCloudTables.al Y17_TenantReportLayoutCfg_*, corpus master 97c29f86).
+    // tenant_layout_cfg.rs; metadata/platform-tables/PtCloudTables.al Y17_TenantReportLayoutCfg_*, corpus master 97c29f86).
     (2_000_000_249, "Tenant Report Layout Cfg", Provider::Stored),
     // BC 29 on. Empty on a fresh tenant; Insert, a duplicate Insert (false), Modify, Rename, Delete and DeleteAll, with no
-    // validation of the report or the company (platform/lt-platform-tables/PtCloudTables.al:794, :824, corpus master
+    // validation of the report or the company (metadata/platform-tables/PtCloudTables.al:794, :824, corpus master
     // ac3499d6). Report Layout List shows its overrides (al-vm platform/reports.rs `apply_layout_overrides`, :901).
     (2_000_000_248, "Tenant Report Layout Override", Provider::Stored),
 ];
@@ -432,13 +432,13 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
     (
         2_000_000_207,
         "6",
-        "al-language-onprem-dotnet/lt-qx-dotnet/QxDotNetDemoShapes.al:173-181; lt-re-dotnet/ReQueryMetadataShapes.al:116-140",
+        "al-language-onprem-dotnet/dotnet/dotnet/QxDotNetDemoShapes.al:173-181; dotnet/dotnet/ReQueryMetadataShapes.al:116-140",
     ),
     // Field. IsPartOfPrimaryKey of own and Base Application fields.
     (
         2_000_000_041,
         "28",
-        "al-language/metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:237-268",
+        "al-language/metadata/platform-tables/PlatformMetadataColumnValues.al:237-268",
     ),
     // ExternalName blank and SQLDataType Varchar for Text fields; unknown for a declared ExternalName and for
     // SQLDataType of the other types (al-vm fields.rs).
@@ -460,7 +460,7 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
     (
         2_000_000_206,
         "12",
-        "al-language/install/TestRetenPolAllowedTables_Tests.al:51-61",
+        "al-language/install-upgrade/TestRetenPolAllowedTables_Tests.al:51-61",
     ),
     // The targets of the Lookup and Exist FlowFields of Published Application.
     (
@@ -494,141 +494,121 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
         "4",
         "al-language/permissions/TestPermissionSetGrants.al:68",
     ),
-    (
-        2_000_000_139,
-        "1",
-        "al-language/handlers/TestReportMetadataColumns.al:49",
-    ),
+    (2_000_000_139, "1", "al-language/record/TestReportMetadataColumns.al:49"),
     (
         2_000_000_280,
         "1",
-        "al-language/xmlport/TestXmlPortMetadataVirtualTable.al:42",
+        "al-language/xmlports/TestXmlPortMetadataVirtualTable.al:42",
     ),
     (
         2_000_000_142,
         "1",
-        "al-language/query/TestQueryMetadataVirtualTable.al:44",
+        "al-language/queries/TestQueryMetadataVirtualTable.al:44",
     ),
     // Report Metadata, read by field name through a RecordRef (the helpers' FieldIndex loops).
     (
         2_000_000_139,
         "2",
-        "al-language/report/lt-reportext-layout-relations/ReportMetadataRelations.al:151; al-language/misc/lt-probes-needed-3/PnC21Metadata.al:280",
+        "al-language/reports/layouts-saveas/ReportMetadataRelations.al:151; al-language/recordref-fieldref/PnC21Metadata.al:280",
     ),
     (
         2_000_000_139,
         "3",
-        "al-language/report/lt-reportext-layout-relations/ReportMetadataRelations.al:152; al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:202",
+        "al-language/reports/layouts-saveas/ReportMetadataRelations.al:152; al-language/metadata/platform-tables/ReportMetadata.al:202",
     ),
     // EnableExternalImages, the paper sources (Upper, Lower, Middle; another one poisons the row), FormatRegion
     // and ExcelLayoutMultipleDataSheets as declared; EnableExternalAssemblies No (unknown when declared).
     (
         2_000_000_139,
         "6",
-        "al-language/report/lt-y-report-props/YHelper.al:226, YReportPropsTests.al:34-160",
+        "al-language/reports/runtime/YHelper.al:226, YReportPropsTests.al:34-160",
     ),
     (
         2_000_000_139,
         "8",
-        "al-language/report/lt-y-report-props/YHelper.al:226, YReportPropsTests.al:45",
+        "al-language/reports/runtime/YHelper.al:226, YReportPropsTests.al:45",
     ),
     (
         2_000_000_139,
         "12",
-        "al-language/report/lt-y-report-props/YHelper.al:226, YReportPropsTests.al:34-160",
+        "al-language/reports/runtime/YHelper.al:226, YReportPropsTests.al:34-160",
     ),
     (
         2_000_000_139,
         "13",
-        "al-language/report/lt-y-report-props/YHelper.al:226, YReportPropsTests.al:34-160",
+        "al-language/reports/runtime/YHelper.al:226, YReportPropsTests.al:34-160",
     ),
     (
         2_000_000_139,
         "14",
-        "al-language/report/lt-y-report-props/YHelper.al:226, YReportPropsTests.al:34-160",
+        "al-language/reports/runtime/YHelper.al:226, YReportPropsTests.al:34-160",
     ),
     (
         2_000_000_139,
         "24",
-        "al-language/report/lt-y-report-props/YHelper.al:226, YReportPropsTests.al:45, :64",
+        "al-language/reports/runtime/YHelper.al:226, YReportPropsTests.al:45, :64",
     ),
     (
         2_000_000_139,
         "25",
-        "al-language/report/lt-y-report-props/YHelper.al:226, YReportPropsTests.al:34-160",
+        "al-language/reports/runtime/YHelper.al:226, YReportPropsTests.al:34-160",
     ),
     // EnableHyperLinks, ShowPrintStatus and PreviewMode of a report that declares none of them, read through the helper's
     // FieldIndex loop; unknown for a declared one (al-vm reports.rs).
     (
         2_000_000_139,
         "7",
-        "al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:22-31, :206",
+        "al-language/metadata/platform-tables/ReportMetadata.al:22-31, :206",
     ),
     (
         2_000_000_139,
         "10",
-        "al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:22-31, :209",
+        "al-language/metadata/platform-tables/ReportMetadata.al:22-31, :209",
     ),
     (
         2_000_000_139,
         "15",
-        "al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:22-31, :214",
+        "al-language/metadata/platform-tables/ReportMetadata.al:22-31, :214",
     ),
     // UseSystemPrinter as declared, No for a report that does not declare it (al-vm reports.rs).
     (
         2_000_000_139,
         "5",
-        "al-language/misc/lt-y13-triage/Y13ReportSystemPrinter.al:526, :530-543; al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:204",
+        "al-language/reports/Y13ReportSystemPrinter.al:526, :530-543; al-language/metadata/platform-tables/ReportMetadata.al:204",
     ),
     // TransactionType UpdateNoLocks for a report that declares none; unknown for a declared one (al-vm reports.rs).
     (
         2_000_000_139,
         "11",
-        "al-language/metadata/lt-report-metadata-columns/ReportMetadata.al:210, :236, :262",
+        "al-language/metadata/platform-tables/ReportMetadata.al:210, :236, :262",
     ),
     (
         2_000_000_139,
         "16",
-        "al-language/report/lt-reportext-layout-relations/ReportExtensionLayoutRelations.al:82; al-language/report/lt-y-report-props/YReportParts.al:65-70",
+        "al-language/reports/layouts-saveas/ReportExtensionLayoutRelations.al:82; al-language/reports/runtime/YReportParts.al:65-70",
     ),
     (
         2_000_000_139,
         "23",
-        "al-language/metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:145",
+        "al-language/metadata/platform-tables/PlatformMetadataColumnValues.al:145",
     ),
     // Table Relations Metadata names of the own and the related table and field, read through the helper's FieldIndex loop
     // (al-vm metadata.rs).
-    (
-        2_000_000_141,
-        "12",
-        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
-    ),
-    (
-        2_000_000_141,
-        "13",
-        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
-    ),
-    (
-        2_000_000_141,
-        "14",
-        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
-    ),
-    (
-        2_000_000_141,
-        "15",
-        "al-language/misc/lt-probes-needed-5/PnE09Platform.al:82-93, :122-125",
-    ),
+    (2_000_000_141, "12", "al-language/json/PnE09Platform.al:82-93, :122-125"),
+    (2_000_000_141, "13", "al-language/json/PnE09Platform.al:82-93, :122-125"),
+    (2_000_000_141, "14", "al-language/json/PnE09Platform.al:82-93, :122-125"),
+    (2_000_000_141, "15", "al-language/json/PnE09Platform.al:82-93, :122-125"),
     // BC 29 only: DefaultHeaderFooterPartName (30), DefaultThemePartName (31). By id, because the symbols of
     // older majors lack them.
     (
         2_000_000_139,
         "30",
-        "al-language/report/lt-y-report-props/YReportParts.al:65-70, YReportPropsTests.al:45",
+        "al-language/reports/runtime/YReportParts.al:65-70, YReportPropsTests.al:45",
     ),
     (
         2_000_000_139,
         "31",
-        "al-language/report/lt-y-report-props/YReportParts.al:65-70, YReportPropsTests.al:45",
+        "al-language/reports/runtime/YReportParts.al:65-70, YReportPropsTests.al:45",
     ),
     // Table Metadata InherentPermissions: `X` or blank as declared; another value is unknown (al-vm objects.rs).
     (
@@ -646,103 +626,91 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
     (
         2_000_000_136,
         "10",
-        "al-language/metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:114",
+        "al-language/metadata/platform-tables/PlatformMetadataColumnValues.al:114",
     ),
     (
         2_000_000_063,
         "5",
-        "al-language/metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:187, :210",
+        "al-language/metadata/platform-tables/PlatformMetadataColumnValues.al:187, :210",
     ),
     // Report Layout List of a layout declared in AL, read through a RecordRef (al-vm reports.rs): CaptionML (4) blank for a
     // layout that declares none, Runtime Package ID (5) a non-null guid other than the app id, Custom Type (8) the null guid
     // and MIME Type (9) blank for an RDLC, Word or Excel layout, Report Name (12) the name of a
     // report that declares no caption, Layout Publisher (13) "<app> by <publisher>", User Defined (14) No for an RDLC, Word or
     // Excel layout, ReportIsInstalled (15) Yes, Layout Status (18, BC 28+) Approved for a layout without a Subtype
-    // (platform/lt-ug-report-layout-list/UgReportLayoutList.al:94-150; platform/lt-aw-fresh-tenant/AwTests.al:220-300).
+    // (metadata/platform-tables/UgReportLayoutList.al:94-150; metadata/platform-tables/AwTests.al:220-300).
     (
         2_000_000_234,
         "4",
-        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:103, :137",
+        "al-language/metadata/platform-tables/UgReportLayoutList.al:103, :137",
     ),
     (
         2_000_000_234,
         "5",
-        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:101, :135",
+        "al-language/metadata/platform-tables/UgReportLayoutList.al:101, :135",
     ),
     (
         2_000_000_234,
         "8",
-        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:105, :139; platform/lt-aw-fresh-tenant/AwTests.al:228",
+        "al-language/metadata/platform-tables/UgReportLayoutList.al:105, :139; metadata/platform-tables/AwTests.al:228",
     ),
     (
         2_000_000_234,
         "9",
-        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:106, :140; platform/lt-aw-fresh-tenant/AwTests.al:228",
+        "al-language/metadata/platform-tables/UgReportLayoutList.al:106, :140; metadata/platform-tables/AwTests.al:228",
     ),
     (
         2_000_000_234,
         "12",
-        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:110, :144; platform/lt-aw-fresh-tenant/AwTests.al:228",
+        "al-language/metadata/platform-tables/UgReportLayoutList.al:110, :144; metadata/platform-tables/AwTests.al:228",
     ),
     (
         2_000_000_234,
         "13",
-        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:111, :145; platform/lt-aw-fresh-tenant/AwTests.al:228",
+        "al-language/metadata/platform-tables/UgReportLayoutList.al:111, :145; metadata/platform-tables/AwTests.al:228",
     ),
     (
         2_000_000_234,
         "14",
-        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:112, :146; platform/lt-aw-fresh-tenant/AwTests.al:228",
+        "al-language/metadata/platform-tables/UgReportLayoutList.al:112, :146; metadata/platform-tables/AwTests.al:228",
     ),
     (
         2_000_000_234,
         "15",
-        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:113, :147; platform/lt-aw-fresh-tenant/AwTests.al:228",
+        "al-language/metadata/platform-tables/UgReportLayoutList.al:113, :147; metadata/platform-tables/AwTests.al:228",
     ),
     (
         2_000_000_234,
         "18",
-        "al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al:117, :151; platform/lt-aw-fresh-tenant/AwTests.al:228",
+        "al-language/metadata/platform-tables/UgReportLayoutList.al:117, :151; metadata/platform-tables/AwTests.al:228",
     ),
     // BC 29 only: "Layout Subtype" (19), HeaderFooterPart (20), ThemePart (21), read by field name, for layouts that declare
     // a Subtype, and through a RecordRef as Default and blank for one that declares none (UgReportLayoutList.al:119-121). By id.
-    (
-        2_000_000_234,
-        "19",
-        "al-language/report/lt-y-report-props/YReportParts.al:75-80",
-    ),
-    (
-        2_000_000_234,
-        "20",
-        "al-language/report/lt-y-report-props/YReportParts.al:75-80",
-    ),
-    (
-        2_000_000_234,
-        "21",
-        "al-language/report/lt-y-report-props/YReportParts.al:75-80",
-    ),
+    (2_000_000_234, "19", "al-language/reports/runtime/YReportParts.al:75-80"),
+    (2_000_000_234, "20", "al-language/reports/runtime/YReportParts.al:75-80"),
+    (2_000_000_234, "21", "al-language/reports/runtime/YReportParts.al:75-80"),
     // XmlPort Metadata InherentPermissions and InherentEntitlements: blank or X as declared; another value is refused.
     (
         2_000_000_280,
         "InherentPermissions",
-        "al-language/xmlport/lt-y-xmlport-props/YXmlPortProps.al:731-740",
+        "al-language/xmlports/shapes-properties/YXmlPortProps.al:731-740",
     ),
     (
         2_000_000_280,
         "InherentEntitlements",
-        "al-language/xmlport/lt-y-xmlport-props/YXmlPortProps.al:731-740",
+        "al-language/xmlports/shapes-properties/YXmlPortProps.al:731-740",
     ),
     // Event Subscription "Originating Package ID": a Guid, scrubbed by the observer because it changes per publish; read through
     // the helper's FieldIndex loop (al-vm metadata.rs).
     (
         2_000_000_140,
         "10",
-        "al-language/misc/lt-probes-needed-5/PnE11EventSub.al:67-78, :99",
+        "al-language/recordref-fieldref/PnE11EventSub.al:67-78, :99",
     ),
     (
         2_000_000_140,
         "11",
-        "al-language/events/lt-event-subscription-trigger-rows/EventSubscriptionTriggerRows.al:163",
+        "al-language/events/platform-triggers/EventSubscriptionTriggerRows.al:163",
     ),
 ];
 
@@ -793,12 +761,12 @@ pub const COVERAGE_TEST_ID: [(u32, u32); 2] = [(2_000_000_289, 1), (2_000_000_28
 
 /// Why `what` (a read of a coverage `Test ID`) is refused. The corpus pins only that the Test ID is the same for the tests
 /// of a recording and for two recordings of one test, that the lookup rows of a test carry it, and that it is not 1
-/// (coverage/W6CodeCoverageIds.al:111-112, :167-168; codeunit/TestCodeCoveragePerTest.al:116). BC computes the number per
-/// run (codeunit/TestCodeCoveragePerTest.al:14), so any other read would show the runtime's own choice.
+/// (test-framework/code-coverage/W6CodeCoverageIds.al:111-112, :167-168; codeunits/TestCodeCoveragePerTest.al:116). BC computes the number per
+/// run (codeunits/TestCodeCoveragePerTest.al:14), so any other read would show the runtime's own choice.
 pub fn coverage_test_id_refusal(what: &str) -> String {
     format!(
         "{what}: the value of the Code Coverage Test ID is not pinned (only that it is equal across rows and recordings and \
-         not 1, coverage/W6CodeCoverageIds.al:111-112, :167-168)"
+         not 1, test-framework/code-coverage/W6CodeCoverageIds.al:111-112, :167-168)"
     )
 }
 

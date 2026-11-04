@@ -275,7 +275,7 @@ mod tests {
             Some(vec![arm(&[], &["ALT Rel Where Parent", "Code"], Some(vec![]))])
         );
         assert_eq!(parse("Location"), Some(vec![arm(&[], &["Location"], Some(vec![]))]));
-        // fieldref/TestFieldRefRelation.al:270-325: namespace-qualified targets keep every part
+        // recordref-fieldref/fieldref/TestFieldRefRelation.al:270-325: namespace-qualified targets keep every part
         assert_eq!(
             parse("Microsoft.Manufacturing.Forecast.\"Production Forecast Name\".Name"),
             Some(vec![arm(

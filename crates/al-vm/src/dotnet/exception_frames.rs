@@ -1,5 +1,5 @@
 //! The .NET frames of `Exception.ToString()` for the shapes the corpus pins line by line
-//! (tests/al-language-onprem-dotnet/lt-y89-tostring-frames/Y89ToStringFrames.al, BC 27, 28, 29): an error an asserterror caught,
+//! (tests/al-language-onprem-dotnet/dotnet/tostring-frames/Y89ToStringFrames.al, BC 27, 28, 29): an error an asserterror caught,
 //! and an error a TryFunction caught, when the error is raised in procedures of one other codeunit that the caller (or the
 //! TryFunction) calls. Any other trace is written by `last_error::exception_text` under `exception-tostring-stack-frames`.
 

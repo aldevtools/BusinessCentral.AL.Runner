@@ -1,4 +1,4 @@
-//! `Media.FindOrphans()` and `MediaSet.FindOrphans()` (media/lt-y48-find-orphans/Y48FindOrphans.al:229-410).
+//! `Media.FindOrphans()` and `MediaSet.FindOrphans()` (streams/media/Y48FindOrphans.al:229-410).
 //!
 //! A media is an orphan when it has a Tenant Media row and no stored row holds it, neither in a Media field nor as an item of
 //! a media set (`FO_DetachedTenantMediaSetRows`: the items of a set no field holds are no orphans; :305-341 a media imported
@@ -43,7 +43,7 @@ fn store_ids(c: &mut dyn Ctx) -> Result<StoreIds, Signal> {
     }
     let objects: Vec<Id> = store.objects.borrow().keys().copied().collect();
     // A set is Tenant Media Set rows, one per item: a set none of whose items has its Tenant Media row any more (the Delete of
-    // the row that held it removes them) is no set (streams/lt-stream-read-write-media/P102MediaOrphans.al:55-59
+    // the row that held it removes them) is no set (streams/media/P102MediaOrphans.al:55-59
     // `deleted_in_orphans` No).
     let sets = store
         .sets

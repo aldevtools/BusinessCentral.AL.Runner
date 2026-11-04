@@ -329,7 +329,7 @@ impl Session {
         let old = std::mem::replace(&mut self.cx.company, company.into()).to_string();
         if old != company && !self.events.global_setups.is_empty() {
             // The per-company part of an install asks for the setup again in each company
-            // (install/lt-ug-install-trigger-setup/UgInstallTests.al:59 "asked once for each company").
+            // (install-upgrade/install-triggers/UgInstallTests.al:59 "asked once for each company").
             self.events.global_setups.clear();
         }
         old
@@ -343,11 +343,11 @@ impl Session {
 
     /// Puts into `b` the numbers the session took since `b` from the sequences `b` holds. Under runner 130450 a test's
     /// `NumberSequence.Next` is not given back when the codeunit's writes are rolled back, while its new sequences and its
-    /// isolated storage writes are (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage
+    /// isolated storage writes are (testlibraries test-framework/onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage
     /// :447-457). A test's Restart of a sequence of `b` is rolled back too, with the numbers taken after it: the later
     /// codeunits see the sequence as it was just before the first Restart, the numbers taken before it included. A test's
     /// Delete of a sequence of `b` that it had not taken numbers from, and what it did with the name after (Insert,
-    /// Next), is rolled back the same way. codeunit/lt-seq-carry/SeqCarry.al (corpus pin 9cf26907, every CI major and
+    /// Next), is rolled back the same way. codeunits/run-onrun/SeqCarry.al (corpus pin 9cf26907, every CI major and
     /// SaaS): Restart R1_Act :391-411, read by R2_Act :503-510; Delete D1_Act :123-132, read by D2_Act :206-211.
     /// `None`: no number was taken and nothing was rolled back. `Some(false)`: a sequence of `b` was changed otherwise (a
     /// Delete after numbers were taken from it, or both Restart and Delete), which is not pinned; `b` is left as it was.

@@ -1,5 +1,5 @@
 //! A Variant holding a defined Date, Time, DateTime or a number or text assigned to a number, Duration, temporal or Boolean
-//! variable. Every literal is what real BC answered in the corpus: types/lt-y67-variant-numeric/Y67VariantNumeric.al (codeunit
+//! variable. Every literal is what real BC answered in the corpus: types/variant/Y67VariantNumeric.al (codeunit
 //! 93629, writer Y67).
 
 use al_testkit::text;
@@ -142,7 +142,7 @@ codeunit 50204 D
 }
 "#;
 
-/// types/lt-y31-conversion-matrix/Y31ConvCv.al:9942 Variant_To_Char `assign.big` and `assign.dec1p5`, :10138 Variant_To_Byte
+/// types/operators-expressions/Y31ConvCv.al:9942 Variant_To_Char `assign.big` and `assign.dec1p5`, :10138 Variant_To_Byte
 /// `assign.int300`.
 #[test]
 fn a_variant_number_beyond_a_char_or_a_byte() {

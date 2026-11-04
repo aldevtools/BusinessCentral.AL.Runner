@@ -1,6 +1,6 @@
 //! The XmlPort property `Encoding` on a Format = Xml port: UTF8 writes the declaration `UTF-8` and UTF-8 bytes
 //! with no byte order mark, UTF16 (the default) writes `UTF-16` and UTF-16 little endian after a byte order mark
-//! (corpus xmlport/lt-af-xmlport/AfXmlPortEncoding.al:AF_Encoding_Export). An import of a UTF-16 document that
+//! (corpus xmlports/shapes-properties/AfXmlPortEncoding.al:AF_Encoding_Export). An import of a UTF-16 document that
 //! declares `utf-8` fails in the reader (AF_Encoding_Import_Utf8Property_Utf16DocDeclaredUtf8). Other encodings
 //! are refused.
 

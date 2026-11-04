@@ -1,5 +1,5 @@
 //! `Format(RecordId, 0, 10)` is the bookmark GetUrl gives, unescaped, and `Evaluate(RecordId, Text, 10)` reads it back; a text
-//! without `;` is no bookmark (types/lt-y49-recordid-format10/Y49RecordIdFormat10.al:117-335, corpus master).
+//! without `;` is no bookmark (format-evaluate/Y49RecordIdFormat10.al:117-335, corpus master).
 
 const SRC: &str = r#"
 table 92943 "LT Y49 Bm Code Row" { fields { field(1; "No."; Code[20]) { } field(2; Name; Text[30]) { } } keys { key(PK; "No.") { } } }

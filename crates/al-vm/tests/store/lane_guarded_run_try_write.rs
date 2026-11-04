@@ -1,7 +1,7 @@
 //! A guarded `Codeunit.Run` whose OnRun uses the result of a TryFunction that writes: the TryFunctionWrite error ends the run,
 //! the guard traps it (returns false, last error text and code set, the run's rows undone).
 //!
-//! Pinned by misc/lt-y68-small-probes/Y68Small.al:211-274 (Q6_CodeunitRun_GuardedOnRunWrites_*), values measured on the
+//! Pinned by errors/Y68Small.al:211-274 (Q6_CodeunitRun_GuardedOnRunWrites_*), values measured on the
 //! 27.5, 28.5 and 29.0 CI containers (the SaaS server does not apply the rule).
 
 use al_builtins::native::Signal;

@@ -11,7 +11,7 @@ pub(super) fn write_from(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]
 
 /// `WriteFrom(SecretText)`: the body is the secret's text and the content is secret: `IsSecretContent` is true, `ReadAs(SecretText)`
 /// gives it back, `ReadAs(Text)` answers false, and the headers no longer list the Content-Type
-/// (xml/lt-xml-attr-doc-http-members/P97ContentSecret.al:83-101, :103-117, :119-150, :152-168; al-runner issue 6161). A later
+/// (xml/xml/P97ContentSecret.al:83-101, :103-117, :119-150, :152-168; al-runner issue 6161). A later
 /// WriteFrom of text or a stream, and Clear, make it plain again (:119-150, :170-190).
 pub(super) fn write_from_secret(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let (t, _) = text_or_secret(a, 0)?;
@@ -25,7 +25,7 @@ pub(super) fn write_from_secret(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
     .map(|()| Value::Null)
 }
 
-/// `IsSecretContent()`: the last WriteFrom took a SecretText (P97ContentSecret.al:83-150; network/lt-uf-http-clear/UfHttpClear.al:102
+/// `IsSecretContent()`: the last WriteFrom took a SecretText (P97ContentSecret.al:83-150; http/client/UfHttpClear.al:102
 /// after a Clear and a WriteFrom of text).
 pub(super) fn is_secret_content(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     with_content(r, |s| Value::Boolean(s.secret))
@@ -50,7 +50,7 @@ pub(super) fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
 }
 
 /// `WriteFrom(InStream)` takes the bytes the stream has left. The source then is not at its end
-/// (network/lt-db-http-leads/DbHttpContentLeads.al:310); any other use of it is not pinned and refused (`stream::hand_to_content`).
+/// (http/content/DbHttpContentLeads.al:310); any other use of it is not pinned and refused (`stream::hand_to_content`).
 pub(super) fn write_from_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let bytes = crate::stream::hand_to_content(&mut a[0])?;
     with_content(r, |s| {
@@ -61,14 +61,14 @@ pub(super) fn write_from_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
 }
 
 /// `ReadAs(var Text)` gives the body back, UTF-8 decoded; a content nobody wrote to reads as an empty text and
-/// answers true (misc/W4XmlJsonHttp.al:ReadAs_FreshContent). On the content a request has when none was set, three shapes are
+/// answers true (json/W4XmlJsonHttp.al:ReadAs_FreshContent). On the content a request has when none was set, three shapes are
 /// pinned:
-/// - `Req.Content.ReadAs(Txt)` with its result used answers false and leaves the text (network/lt-http/HttpRequest.al:220,
+/// - `Req.Content.ReadAs(Txt)` with its result used answers false and leaves the text (http/HttpRequest.al:220,
 ///   FreshRequestContent);
-/// - `Req.Content.ReadAs(Txt)` as a statement raises `NotInitialized` (misc/lt-probes-needed-5/PnE12HttpContent.al:205,
+/// - `Req.Content.ReadAs(Txt)` as a statement raises `NotInitialized` (http/PnE12HttpContent.al:205,
 ///   RequestWithoutContent, under asserterror);
 /// - a copy of it in a variable (`Content := Req.Content`), called as a statement, raises `NotInitialized`
-///   (misc/W4XmlJsonHttp.al:342-343, RequestWithoutContent_ReadAs, through a TryFunction).
+///   (json/W4XmlJsonHttp.al:342-343, RequestWithoutContent_ReadAs, through a TryFunction).
 ///
 /// A copy with the result used is refused. Probe wanted (docs/probes-needed.md).
 pub(super) fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
@@ -100,8 +100,8 @@ pub(super) fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
                 })
             });
         // Reading the body makes the content buffer it, and its headers then list a Content-Length of the body's length when they
-        // hold none (misc/lt-probes-needed-5/PnE12HttpContent.al:WriteFromText_ThenReadAndHeaders reads `5` after WriteFrom('hello')
-        // and ReadAs; network/lt-ay-http/AyContentLength.al:ContentLength_* and PY_*: none after ReadAs(InStream), an empty body reads
+        // hold none (http/PnE12HttpContent.al:WriteFromText_ThenReadAndHeaders reads `5` after WriteFrom('hello')
+        // and ReadAs; http/AyContentLength.al:ContentLength_* and PY_*: none after ReadAs(InStream), an empty body reads
         // `0`). A Content-Length the headers already hold stays as it is: one an earlier read put there (PY_ContentLength_LongerBodyAfterRead
         // `second_read` Yes[5]) and one added by hand (AyContentLength.al:324-343 SE_ContentLength_AddedByHandBeforeRead `Yes[3]`).
         if !s.uninitialized {
@@ -127,9 +127,9 @@ pub(super) fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
         };
     }
     // Once the body was handed out as a stream, whether that stream was read to its end, in part or not at all: a copy of a
-    // content (network/lt-db-http-leads/DbHttpContentLeads.al:146, :430-480 QG_RespContentCopy_*) and a content written from a
+    // content (http/content/DbHttpContentLeads.al:146, :430-480 QG_RespContentCopy_*) and a content written from a
     // stream (:336, :552-600 QG_StreamContent_*) read an empty text; the response's own content (:113, :384-428 QG_RespContent_*)
-    // and a variable written from a text (xml/lt-xml-attr-doc-http-members/P97ContentRead.al:89, DbHttpContentLeads.al:506-550
+    // and a variable written from a text (xml/xml/P97ContentRead.al:89, DbHttpContentLeads.al:506-550
     // QG_TextContent_*) still read the body.
     if taken {
         a[0] = Value::Text(String::new().into());
@@ -161,7 +161,7 @@ pub(super) fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
 }
 
 /// `ReadAs(var InStream)` hands the body out once: a second read gets an empty stream
-/// (network/lt-http/HttpContent.al:ReadAsInStreamTwice).
+/// (http/content/HttpContent.al:ReadAsInStreamTwice).
 pub(super) fn read_as_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let mut r = r;
     // On a secret content the stream is left not initialized (P97ContentSecret.al:40-51: its EOS raises NotInitialized); what the
@@ -185,10 +185,10 @@ pub(super) fn read_as_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     Ok(Value::Boolean(true))
 }
 
-/// `GetHeaders(var Headers)` hands out the content's own header list (network/TestHttpRequestMessage.al:39); the
-/// uninitialized content of a request raises `NotInitialized` (network/lt-http/HttpRequest.al:FreshRequestContent). With the
+/// `GetHeaders(var Headers)` hands out the content's own header list (http/TestHttpRequestMessage.al:39); the
+/// uninitialized content of a request raises `NotInitialized` (http/HttpRequest.al:FreshRequestContent). With the
 /// result used it answers false, raises nothing, leaves the headers variable as it was and the content uninitialized
-/// (network/lt-y62-content-headers/Y62ContentHeaders.al:GetHeaders_ResultUsed_FreshRequest, _ThenStatementAndReadAs); on a
+/// (http/headers/Y62ContentHeaders.al:GetHeaders_ResultUsed_FreshRequest, _ThenStatementAndReadAs); on a
 /// copy of such a content that is not pinned.
 pub(super) fn get_headers(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let (list, uninit, copied) = with_content(r, |s| (s.headers.clone(), s.uninitialized, s.copied))?;
@@ -211,7 +211,7 @@ pub(super) fn get_headers(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value
 }
 
 /// `Clear` empties the body and gives the content its own fresh headers, the Content-Type among them
-/// (network/lt-http/HttpContent.al:ClearContent).
+/// (http/content/HttpContent.al:ClearContent).
 pub(super) fn content_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     with_content(r, |s| s.clear_body()).map(|()| Value::Null)
 }
@@ -240,7 +240,7 @@ impl HttpContentState {
     }
 
     /// `Clear`: the content gets no body and a header collection of its own that holds the Content-Type; a header
-    /// collection handed out before keeps what it held (network/lt-http/HttpContent.al:ClearContent,
+    /// collection handed out before keeps what it held (http/content/HttpContent.al:ClearContent,
     /// lt-http-header-rules/P87Content.al:ClearAfterAdd, ClearBeforeWrite, ClearFresh).
     fn clear_body(&mut self) {
         let headers = new_header_list(HeaderKind::Content);
@@ -261,7 +261,7 @@ impl HttpContentState {
     /// shows, with its Content-Type set to `text/plain; charset=utf-8` (put first when it was removed) and the other headers kept
     /// (lt-http-header-rules/P87Content.al:AddThenWrite_Text, WriteThenAdd_Text, RewriteKeepsHeader, P87ContentType.al:HeaderBeforeWrite,
     /// P87ContentStream.al, HttpWriteFromStream.al:P100_*). A Content-Length the headers already hold (see `read_as`) is not
-    /// rewritten: it stays for an empty body (network/lt-ay-http/AyContentLength.al:ContentLength_SecondWriteFrom `empty`
+    /// rewritten: it stays for an empty body (http/AyContentLength.al:ContentLength_SecondWriteFrom `empty`
     /// `Yes[13]`), for a body of the same length (P100_SecondWrite_ReplacesBody, 5 bytes twice) and for a longer, a shorter or a
     /// stream body (AyContentLength.al:PY_ContentLength_LongerBodyAfterRead, _ShorterBodyAfterRead, _InStreamAfterRead `Yes[5]`).
     /// Pinned for a value a read put there (AyContentLength.al PY_ContentLength_*) and for one added by hand, before or after a

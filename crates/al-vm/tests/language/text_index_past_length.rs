@@ -1,5 +1,5 @@
 //! `Text[i]` past the end of the text reads the character 0, whatever the position
-//! (text/lt-text-instance/Index1.Codeunit.al Index_Read_Variable: `T[7]` and `T[100]` of a 6-character text, `E[1]` of an empty
+//! (text/text-methods/Index1.Codeunit.al Index_Read_Variable: `T[7]` and `T[100]` of a 6-character text, `E[1]` of an empty
 //! one); a position of 0 or below raises.
 
 use al_testkit::{int, run_in, text};

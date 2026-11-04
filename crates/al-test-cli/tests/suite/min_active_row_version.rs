@@ -1,6 +1,6 @@
 //! `Database.MinimumActiveRowVersion` under TestIsolation = Codeunit: the isolation keeps one transaction open across
 //! `Commit()`, so the value stays at what it was when the codeunit began, through Insert, Modify and Commit
-//! (corpus platform/lt-platform-members/PlTRowVersionValue.al: TV_MinimumActiveRowVersion_AcrossInsertModifyCommit and
+//! (corpus metadata/platform-tables/PlTRowVersionValue.al: TV_MinimumActiveRowVersion_AcrossInsertModifyCommit and
 //! TV_MinimumActiveRowVersion_ReadOnlyAfterCommittedWrite). `LastUsedRowVersion` stays put after an Insert alone, covers the
 //! row after a read of its table and grows after a Modify (the same file, and PlTDatabase.al:220-245). Where it is not pinned
 //! (an Insert left in one table while another was read or modified, a Delete or bulk write meeting inserted rows), both are

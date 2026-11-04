@@ -1,7 +1,7 @@
 //! `FieldRef.Value()` of a number assigned to a Text or Code *variable*: the number's Format text, checked against the
-//! variable's length (misc/lt-y13-triage/Y13FieldRefValueToText.al:96-153, corpus master: Integer, Decimal, BigInteger and
+//! variable's length (recordref-fieldref/Y13FieldRefValueToText.al:96-153, corpus master: Integer, Decimal, BigInteger and
 //! the field 0 timestamp into Text, Text[30] and Code[20]; Code[3] raises StringLengthExceeded). An Enum is its caption, and a
-//! number passed straight as a Text argument its Format text (text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al). A Date into a Code variable is its Format text (report/lt-requestpage-savevalues-date-text-setvalue/
+//! number passed straight as a Text argument its Format text (text/text-methods/Y49FieldRefIntoText.al). A Date into a Code variable is its Format text (reports/request-page/
 //! P147DateToText.al QO_*FieldRef_EachConversion).
 
 const SRC: &str = r#"
@@ -95,7 +95,7 @@ fn an_enum_from_fieldref_value_into_a_text_variable_is_its_caption() {
     assert_eq!(run("EnumIntoText"), "A");
 }
 
-/// text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:290-327 (corpus master).
+/// text/text-methods/Y49FieldRefIntoText.al:290-327 (corpus master).
 #[test]
 fn a_number_from_fieldref_value_passed_as_a_text_argument_is_its_format_text() {
     assert_eq!(run("IntoTextParameter"), "7");

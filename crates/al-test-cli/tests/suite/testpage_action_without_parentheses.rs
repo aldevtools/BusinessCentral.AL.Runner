@@ -1,8 +1,8 @@
 //! A parameterless TestPage method written without parentheses (`P.OK.Invoke()`, `P.Cancel.Invoke()`) is the same call as
 //! with them, as for any parameterless method: the corpus reads a TestField's Caption without
-//! parentheses as the method (pages/lt-ca-odd-667/CaTestPageTests.al:261-282 Ca07_CaptionWithoutParentheses) and the
+//! parentheses as the method (testpage/notifications-and-control-values/CaTestPageTests.al:261-282 Ca07_CaptionWithoutParentheses) and the
 //! Assert fixture calls RecRef.Count without them (_fixtures/Assert.al:167). A control of the page with that name still
-//! wins (handlers/TestPageKeywordActionName_Tests.al:64 invokes an action named Delete).
+//! wins (testpage/TestPageKeywordActionName_Tests.al:64 invokes an action named Delete).
 
 use al_test_cli::report::Outcome;
 

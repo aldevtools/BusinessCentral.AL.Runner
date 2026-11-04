@@ -149,7 +149,7 @@ fn run_with(fixtures: &str, body: &str, routine: &str, enums: &[(&str, i32)]) ->
     s.call(oi, ri, inst, args).map(|(v, _)| v)
 }
 
-// corpus codeunit/TestCodeunitInterface.al:14-26 (Interface_Assign_DoubleImpl_ComputesDouble)
+// corpus codeunits/TestCodeunitInterface.al:14-26 (Interface_Assign_DoubleImpl_ComputesDouble)
 #[test]
 fn a_codeunit_variable_assigns_to_an_interface_and_dispatches() {
     let r = run(
@@ -160,7 +160,7 @@ fn a_codeunit_variable_assigns_to_an_interface_and_dispatches() {
     assert_eq!(int(r), 20);
 }
 
-// corpus codeunit/TestCodeunitInterface.al:40-60 (Interface_Reassign_ChangesImpl)
+// corpus codeunits/TestCodeunitInterface.al:40-60 (Interface_Reassign_ChangesImpl)
 #[test]
 fn reassigning_an_interface_switches_the_implementation() {
     let r = run(
@@ -171,7 +171,7 @@ fn reassigning_an_interface_switches_the_implementation() {
     assert_eq!(int(r), 8 * 100 + 16);
 }
 
-// corpus codeunit/TestCodeunitInterface.al:85-96 (negative input)
+// corpus codeunits/TestCodeunitInterface.al:85-96 (negative input)
 #[test]
 fn dispatch_passes_arguments_through() {
     let r = run(
@@ -270,7 +270,7 @@ enum 60370 StateKind implements IState { value(0; V) { Implementation = IState =
     assert_eq!(int(r), 2);
 }
 
-// codeunit/TestInterfaceRuntimeContracts.al:76
+// codeunits/TestInterfaceRuntimeContracts.al:76
 // (Interface_CallOnUnassignedVariable_Throws_InterfaceNotInitialized)
 #[test]
 fn a_call_on_an_unassigned_interface_raises_interface_not_initialized() {
@@ -351,7 +351,7 @@ fn an_extended_interface_converts_to_its_base_and_answers_is_and_as() {
     assert_eq!(text(r), "10YesYes20b");
 }
 
-// codeunit/TestInterfaceIsAsContracts.al:61-102: `is` is false, not an error, for an interface the
+// codeunits/TestInterfaceIsAsContracts.al:61-102: `is` is false, not an error, for an interface the
 // instance does not implement and for an unassigned variable; `as` to such an interface, or on an
 // unassigned variable, raises "The expression cannot be the target interface." / UnableToCast.
 #[test]
@@ -407,7 +407,7 @@ fn an_enum_value_from_frominteger_converts_to_the_interface_directly() {
 // al-runner issue 6249: an interface that extends another and declares a method of the same name with other parameters. A
 // call of the base interface's overload through the derived interface resolves to the base overload, as alc compiles it (the
 // reporter's run). That base procedures are callable through the derived interface is pinned by
-// codeunit/TestInterfaceRuntimeContracts.al (Interface_ExtendedInterface_IsAndAs).
+// codeunits/TestInterfaceRuntimeContracts.al (Interface_ExtendedInterface_IsAndAs).
 #[test]
 fn a_base_overload_is_called_through_a_derived_interface_that_declares_the_name_again() {
     let fixtures = "interface IEBase { procedure SetValue(Value: Text; Count: Integer); procedure GetValue(): Text; } \
@@ -434,8 +434,8 @@ fn a_base_overload_is_called_through_a_derived_interface_that_declares_the_name_
 // An interface that no codeunit in the workspace implements still lowers its calls (al-runner
 // issue 6299: alc accepts the code, so the runner must not refuse the procedure). With no
 // implementer the variable can only be unassigned when the call runs, so the call raises
-// "Interface not initialized" (codeunit/TestInterfaceRuntimeContracts.al:76), and an `is` guard
-// on an instance that does not implement it is false (codeunit/TestInterfaceIsAsContracts.al:61-102).
+// "Interface not initialized" (codeunits/TestInterfaceRuntimeContracts.al:76), and an `is` guard
+// on an instance that does not implement it is false (codeunits/TestInterfaceIsAsContracts.al:61-102).
 #[test]
 fn a_call_on_an_interface_without_implementer_lowers_and_runs_behind_an_is_guard() {
     let fixtures = "interface IA { procedure A(): Text; } interface IV extends IA { procedure V(): Boolean; } \

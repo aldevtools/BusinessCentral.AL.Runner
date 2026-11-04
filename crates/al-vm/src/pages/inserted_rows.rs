@@ -1,5 +1,5 @@
 //! Rows inserted while a list is open: what the client holds after an action stored them, and what a GoToKey finds of a row the
-//! test stored itself (corpus branch al-runtime-rs-staging-y65 eefaf01b, pages/lt-y65-gotorecord-action-insert/
+//! test stored itself (corpus branch al-runtime-rs-staging-y65 eefaf01b, pages/actions/
 //! Y65GoToRecordActionInsert.al, al-runner issue 6671).
 
 use super::*;

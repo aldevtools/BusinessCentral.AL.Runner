@@ -60,7 +60,7 @@ items iterated with views and links, `OnInitReport`, `OnPreReport`, data item tr
 `CurrReport.Preview` use) keep their existing refusals.
 
 The call answers `true` for the Boolean form. This is an assumption: Windows BC answers true for a report with a
-valid layout (`handlers/TestReportSaveAsPdfContent.al`, Windows arm). It is registered as one assumption id (section 5).
+valid layout (`reports/TestReportSaveAsPdfContent.al`, Windows arm). It is registered as one assumption id (section 5).
 
 ### 3. When it applies: an allow-list, not a rule
 
@@ -141,11 +141,11 @@ These errors come from the platform's render stage and are already pinned. They 
 
 - Pdf, Html, Word, Excel of a report with `DefaultLayout` and no layout file: `false` and
   `Report <id> does not have a valid layout. Valid layout types are: Word, RDLC, Excel, and Custom.`
-  (`report/PRSaveAsFormats.al`, `al-language-onprem/session/PXSaveAsPdf.al`, BC 27.5).
+  (`reports/PRSaveAsFormats.al`, `al-language-onprem/session-system/PXSaveAsPdf.al`, BC 27.5).
 - Html of a report with an RDLC layout: `false` and the pinned format text
-  (`handlers/TestReportSaveAsDatasetContracts.al:SaveAs_Html_WithAnRdlcLayout_IsRefused`).
+  (`text/TestReportSaveAsDatasetContracts.al:SaveAs_Html_WithAnRdlcLayout_IsRefused`).
 - Pdf of a `ProcessingOnly` report: the pinned `ReportProcessingOnly` answer or error
-  (`handlers/TestReportSaveAsColumnTypesContracts.al:372-388`).
+  (`reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:372-388`).
 
 Errors a real render would raise from a broken layout cannot be seen without a renderer. That is the reason the
 change is an allow-list (section 3): for a listed report the test's claim does not include "the layout renders".

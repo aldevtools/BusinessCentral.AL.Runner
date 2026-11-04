@@ -44,7 +44,7 @@ fn passes(o: &[(String, Outcome)], test: &str) {
 }
 
 /// `EI.Message := 'x'` is the property form of `EI.Message('x')`; the storage and the getter are
-/// pinned through the call form (errorinfo/TestErrorInfoType.al:249-271 Message and
+/// pinned through the call form (errors/errorinfo/TestErrorInfoType.al:249-271 Message and
 /// DetailedMessage, :284-307 Verbosity, :313-345 CustomDimensions, errorinfo/
 /// TestErrorInfoErrorType.al:25-45 ErrorType).
 #[test]
@@ -98,7 +98,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// `Rec.Mark := b`, `Rec.MarkedOnly := b`, `Rec.Ascending := b` and `WorkDate := d` are the
 /// property forms of the calls the corpus pins (record/TestRecordFind.al:237-284 for Mark and
-/// MarkedOnly, handlers/TestPartOwnSortVsSubPageView.al:187 for Ascending, session/
+/// MarkedOnly, testpage/TestPartOwnSortVsSubPageView.al:187 for Ascending, session/
 /// TestSessionFunctions.al:63-65 for WorkDate). Unqualified in table code they act on the
 /// implicit Rec.
 #[test]
@@ -133,7 +133,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// Unqualified in a dataitem trigger, `FilterGroup := g` and `MarkedOnly := b` act on the
 /// dataitem's record, as the unqualified call forms do. The properties are the ones pinned above;
-/// the dataitem record in triggers is pinned by handlers/RgfFilterReport.Report.al:38 (`Rows`).
+/// the dataitem record in triggers is pinned by reports/RgfFilterReport.Report.al:38 (`Rows`).
 #[test]
 fn dataitem_record_properties_assign_unqualified_in_report_triggers() {
     let o = outcomes(
@@ -153,7 +153,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// Microsoft's tests write `Page.FindFirstField(Name, Value)` with the control named bare, and so
-/// does the corpus (handlers/TestPagePlatformPageSourceTable_Tests.al:66, :125): a bare name in the
+/// does the corpus (testpage/TestPagePlatformPageSourceTable_Tests.al:66, :125): a bare name in the
 /// field position of a test page method is a control of that page.
 #[test]
 fn a_bare_control_name_as_a_testfield_argument_is_that_pages_control() {
@@ -168,7 +168,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// Microsoft's code compares `ClientType::ODataV4` (Price List Lines, Calc. Running GL. Acc.
 /// Balance). The member is a name of the platform option; its position is not pinned
-/// (session/TestSessionExtended.al:21,31 only calls the Session functions), so nothing here may
+/// (session-system/TestSessionExtended.al:21,31 only calls the Session functions), so nothing here may
 /// depend on it.
 #[test]
 fn the_odata_v4_client_type_member_exists_and_differs_from_the_others() {
@@ -202,7 +202,7 @@ fn this_passed_to_bind_subscription_is_the_running_instance() {
 /// The static members are pinned for the plain form (enum shipped-ordinal tests: types/
 /// TestEnumShippedOrdinalTests.Codeunit.al:91 `FromInteger`, types/TestDateRoundFormatStringContracts.al:221
 /// `Names`), and a namespace-qualified object name resolves as `Codeunit::A.B."X"` does
-/// (fieldref/TestFieldRefRelation.al:270-325).
+/// (recordref-fieldref/fieldref/TestFieldRefRelation.al:270-325).
 #[test]
 fn a_namespace_qualified_enum_has_the_static_members() {
     let o = outcomes(
@@ -239,7 +239,7 @@ fn an_array_of_options_names_members_with_a_double_colon() {
 /// `Ns.Sub."Enum"::Value` names a member of a namespace-qualified enum without the `Enum::`
 /// keyword (`Microsoft.Manufacturing.ProductionBOM."Production BOM Line Type"::Item` in Microsoft's
 /// code). The member lookup is pinned for the plain forms (`"ALT Status"::Active`, types/
-/// TestEnumNamesContracts.al:76; `Enum::"TPEDO Kind"::Beta`, handlers/TestPageEnumDeclaredOrder_Tests.al:56)
+/// TestEnumNamesContracts.al:76; `Enum::"TPEDO Kind"::Beta`, testpage/TestPageEnumDeclaredOrder_Tests.al:56)
 /// and the namespace resolution as for `Enum::Ns."Name"` above.
 #[test]
 fn a_namespace_qualified_enum_names_its_members_without_the_enum_keyword() {

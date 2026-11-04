@@ -34,7 +34,7 @@
 - **2,339 tests are not run** because they lower their permissions: 2,155 Microsoft tests (BC 29 run of all buckets;
   most in Tests-SMB 451, Tests-ERM 328, Tests-ERM-Finance 217, Tests-Fixed_Asset 187, Tests-Bank 126), 70 corpus tests
   per major, and 116 more through a cascade.
-- **14 corpus test-library cases fail** (`al-language-testlibraries/lt-bi-testpermissions`): with Tests-TestLibraries
+- **14 corpus test-library cases fail** (`al-language-testlibraries/test-framework/testpermissions`): with Tests-TestLibraries
   installed, BC lowers every test whose TestPermissions is not Disabled to D365 Full Access, and the runtime grants
   everything (BiTpDefault, BiTpRestr, BiTpNonRestr, BiTpDisMRestr, BiTpDisMNonRestr: `_Permissions` and `_Insert`;
   BiInherentPerms: InsertPlain, InherentR, ScopeEntitlements, PermissionFunctions).
@@ -65,7 +65,7 @@
 
 1. With no set assigned (mock not started, started with none, or `ClearAssignments`), the user's own permissions
    apply, and the test user is SUPER: everything is allowed (`permissions/TestPermissionsMockEnforcement.al:74-97`,
-   `QcRunnerSets.al:299-317`, `session/TestSessionCompanyInfoExperienceClose.al:62-90`).
+   `QcRunnerSets.al:299-317`, `session-system/TestSessionCompanyInfoExperienceClose.al:62-90`).
 2. With sets assigned, the session has exactly the union of those sets: an access they do not grant raises the
    permission error, one they grant goes through (`TestPermissionsMockEnforcement.al:28-72`,
    `lt-permissions-mock-indirect/TestMockBasics.al:20-79`). The runner sets grant what D365 Full Access, D365 Basic and
@@ -93,7 +93,7 @@
    - The `[InherentPermissions]` attribute on a procedure grants for that call and every call made from it, and ends
      when the procedure returns; scope Permissions and Both grant, Entitlements does not; `ReadPermission` and
      `WritePermission` inside it report it (`CpPermLeads.al:155-189`,
-     `al-language-testlibraries/lt-bi-testpermissions/BiInherentPerms.al:4-12, 172-288`).
+     `al-language-testlibraries/test-framework/testpermissions/BiInherentPerms.al:4-12, 172-288`).
    - `RequiredPermissions` on an external business event has no run-time effect (`BiInherentPerms.al:294-306`).
 6. **FlowFields.** `CalcFields` of a FlowField whose CalcFormula table the user cannot read fails with an
    `IndirectRead` error (code DB:ClientReadDenied), also inside `if`; a user with `r` on that table gets the value
@@ -122,9 +122,9 @@
 
 | Part | Pinned values | Where |
 |---|---|---|
-| Kind | `TableData`; `Page` (page insert, not from sets); `System` | `TestMockBasics.al:72`, `CfPageLeads.al:169`, `al-language-onprem/lt-system-database-onprem/PCheckLicenseFile.al:37` |
+| Kind | `TableData`; `Page` (page insert, not from sets); `System` | `TestMockBasics.al:72`, `CfPageLeads.al:169`, `al-language-onprem/session-system/server-system-functions/PCheckLicenseFile.al:37` |
 | Operation | `Read`, `Insert`, `Modify`, `Delete`, `IndirectRead`, `IndirectInsert`, `IndirectModify`; `Execute` (System only) | `TestMockBasics.al:72-78`, `CpPermLeads.al:31, 115`, `CoPermissionLeads.al:356` |
-| App name | the app whose code makes the access: the test app for its own and system tables, `Base Application` when Base Application code reads Company Information | `QcRunnerSets.al:255`, `report/lt-u-report-props/UPropertyTests.al:186` |
+| App name | the app whose code makes the access: the test app for its own and system tables, `Base Application` when Base Application code reads Company Information | `QcRunnerSets.al:255`, `reports/runtime/UPropertyTests.al:186` |
 | Code | `DB:ClientReadDenied`, `DB:ClientInsertDenied`, `DB:ClientModifyDenied`, `DB:ClientDeleteDenied`; `DB:ExecuteObjDenied` (System); `TestWrapped:Permission` from a TestPage action | `TestMockBasics.al:73-79`, `PCheckLicenseFile.al:37`, `RiskyPagePermissions.al:129` |
 
 The operation word is `Indirect<Op>` when the object whose code runs grants `<Op>` in its `Permissions` property (the
@@ -440,7 +440,7 @@ Reads is on by default for the shapes the corpus pins (Y24PermReads.al, Y24PermO
   code: without a property it needs Read (`Read` error), with `Permissions = r` the indirect grant (`IndirectRead` error).
 - **A denied read in a test that reaches a part the analysis cannot follow** (a report the runtime refuses, `InherentPermissions` on a
   report for now) is refused at the read, for a test that holds a `Permissions Mock` variable. Going on would refuse the test later,
-  after it changed state a later test of the codeunit reads (report/lt-u-report-props/UPropertyTests.al
+  after it changed state a later test of the codeunit reads (reports/runtime/UPropertyTests.al
   Report_RequestPagePermissions_AndInherentPermissions, then Query_InherentPermissions_UnderTheMock).
 - **A read of an empty table of a dependency app** is refused: BC's Cronus database may hold rows there (Y69SystemGrants.al
   Y69_SY_ReporterShapes reads Customer). The empty-table rule is pinned for tables of the app under test only.
@@ -459,8 +459,8 @@ Reads is on by default for the shapes the corpus pins (Y24PermReads.al, Y24PermO
 ## Amendment 1: the measured permission model (2026-11-03)
 
 - Status: Accepted (owner, 2026-11-03). Where it differs from section 1, this amendment is the rule.
-- Evidence: corpus writers Y90 (`permissions/lt-y90-perm-shapes/`, merged in the corpus, PR 1088) and Y93
-  (`permissions/lt-y93-wildcard-scope/`, branch `al-runtime-rs-staging-y93`, corpus PR 1095). Windows BC 27.5 and 28.5 agree on
+- Evidence: corpus writers Y90 (`permissions/permission-sets/`, merged in the corpus, PR 1088) and Y93
+  (`permissions/wildcard-scope/`, branch `al-runtime-rs-staging-y93`, corpus PR 1095). Windows BC 27.5 and 28.5 agree on
   every asserted case; Linux 28.5 and 29.0 match. Citations are `tests/al-language/permissions/` unless the path says otherwise.
 - Owner input of 2026-11-03 (points 1-5 of the permission model, and the license ceiling).
 

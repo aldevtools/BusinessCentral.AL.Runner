@@ -1,5 +1,5 @@
 //! An Option into a Decimal is its ordinal, a Decimal into an Option a whole number (al-runner issue 6060). Pinned by
-//! types/lt-implicit-conversions/P79OptionDecimal.al.
+//! types/operators-expressions/P79OptionDecimal.al.
 
 use al_builtins::assumptions::take_hits;
 use al_builtins::native::Signal;
@@ -149,7 +149,7 @@ fn a_decimal_into_an_option_takes_whole_numbers_and_raises_on_a_fraction() {
         }
         other => panic!("{other:?}"),
     }
-    // Beyond Integer: ConversionCast to Int32 (types/lt-y31-conversion-matrix/Y31ConvCv.al, LT Y31 Cv Decimal
+    // Beyond Integer: ConversionCast to Int32 (types/operators-expressions/Y31ConvCv.al, LT Y31 Cv Decimal
     // `Decimal_To_Option` 2147483648.0).
     match call("3000000000") {
         Err(Signal::Error(e)) => assert_eq!(e.code, "ConversionCast"),

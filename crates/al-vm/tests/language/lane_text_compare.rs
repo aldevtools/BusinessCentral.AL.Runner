@@ -66,7 +66,7 @@ fn case_with_a_code_selector_compares_the_label_as_a_code() {
     );
 }
 
-// types/lt-ax-text-format-dates/AxCodeCompare.al:174-214 (InRange_CodeAndTextMixedCase): a Text value in a range of Text
+// format-evaluate/AxCodeCompare.al:174-214 (InRange_CodeAndTextMixedCase): a Text value in a range of Text
 // variables or Text literals uses the culture order (`K` is inside `a .. z`, `k` inside `A .. Z`); a Text equals a Code by case.
 #[test]
 fn a_text_range_end_follows_the_culture_order() {
@@ -85,12 +85,12 @@ fn a_text_range_end_follows_the_culture_order() {
         text(vars, "TVal := 'k'; CVal := 'K'; exit(Format(TVal in [CVal]));"),
         "No"
     );
-    // types/lt-expression-operators-literals/ExpressionBinaryOperators.al:288, :303: a Char literal in a range of Char literals
+    // types/operators-expressions/ExpressionBinaryOperators.al:288, :303: a Char literal in a range of Char literals
     // compares by number.
     assert_eq!(text(vars, "exit(Format('K' in ['a' .. 'z']));"), "No");
 }
 
-// text/lt-text-functions/CaseConv.Codeunit.al:127-168 (LT_BU_CaseConv_TurkishGreekLanguage): with GlobalLanguage 1055
+// text/text-methods/CaseConv.Codeunit.al:127-168 (LT_BU_CaseConv_TurkishGreekLanguage): with GlobalLanguage 1055
 // LowerCase('I') is the dotless `ı` and UpperCase('i') the dotted `İ`; ToLower and ToUpper do not follow the language.
 #[test]
 fn lowercase_and_uppercase_follow_turkish() {
@@ -105,7 +105,7 @@ fn lowercase_and_uppercase_follow_turkish() {
     assert_eq!(r, "iI");
 }
 
-// misc/lt-system-functions/ErrorMessage.al:590-620 (LT_BU_Message_BackslashAndAppendLine): Message shows a CR LF, from the text
+// errors/error-texts/ErrorMessage.al:590-620 (LT_BU_Message_BackslashAndAppendLine): Message shows a CR LF, from the text
 // or from an argument, as one backslash; the error text of Error(Text) without arguments does too (17 characters).
 #[test]
 fn message_and_error_show_crlf_as_a_backslash() {
@@ -137,7 +137,7 @@ fn message_and_error_show_crlf_as_a_backslash() {
     assert_eq!(out(b.run_in("C", "E")), "line1\\line2\\line3|17|19");
 }
 
-// misc/lt-system-functions/ErrorMessage.al:684-718 (PYC_Error_CrLfAndLoneCrLf): a CR LF in an argument of Error shows as one
+// errors/error-texts/ErrorMessage.al:684-718 (PYC_Error_CrLfAndLoneCrLf): a CR LF in an argument of Error shows as one
 // backslash, in the text and next to other text; a backslash written in the text stays one backslash.
 #[test]
 fn error_with_an_argument_that_holds_crlf_shows_a_backslash() {
@@ -150,7 +150,7 @@ fn error_with_an_argument_that_holds_crlf_shows_a_backslash() {
     assert_eq!(r, "a\\b|xa\\by|p\\q a\\b");
 }
 
-// record/lt-as-records/AsCodeKeySigns.al:13-124: the key order of Code values drops every leading hyphen, and of two that tie
+// record/AsCodeKeySigns.al:13-124: the key order of Code values drops every leading hyphen, and of two that tie
 // there the one with fewer hyphens comes first; a filter on such values uses the same order.
 #[test]
 fn a_code_key_drops_every_leading_hyphen() {

@@ -2,7 +2,7 @@
 //! the globals they set read back through the variable; a second call, and a bare `RunModal()` inside OnPreReport of the running
 //! instance, raise ObjectHasAlreadyBeenRun (the run goes on). The bare `RequestOptionsPage.Caption` reads the request page's
 //! Caption, and back what was set, also inside a later run (corpus master ac3499d6,
-//! report/lt-y40-bare-report-run/Y40BareReportRun.al:214-377, BC 27.5/28.5/29.0).
+//! reports/runtime/Y40BareReportRun.al:214-377, BC 27.5/28.5/29.0).
 
 use al_testkit::{Built, text};
 

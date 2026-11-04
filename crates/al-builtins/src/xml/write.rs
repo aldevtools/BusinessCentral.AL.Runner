@@ -95,7 +95,7 @@ impl Writer {
     }
 
     /// Every line end the writer is given is written as CR LF, as .NET's writer replaces them (corpus
-    /// xml/TestXmlRuntimeContracts.al, misc/lt-probes-needed-1/PnAXmlWriteTo.al: `\r\n` where the source has `\n`).
+    /// xml/TestXmlRuntimeContracts.al, xml/PnAXmlWriteTo.al: `\r\n` where the source has `\n`).
     fn push_text(&mut self, s: &str) {
         if self.crlf && s.contains(['\n', '\r']) {
             self.out
@@ -169,7 +169,7 @@ impl Writer {
                 t.replace("--", "- -"),
                 if t.ends_with('-') { " " } else { "" }
             )),
-            // The end marker inside the data is written `? >` (xml/lt-xml-cdata-comment-pi-text/P90PIRead.al:1989 `pi-end-x`,
+            // The end marker inside the data is written `? >` (xml/xml/P90PIRead.al:1989 `pi-end-x`,
             // :2110 `pi-end-doc`).
             XData::Pi { target, data } => Plan::Markup(if data.is_empty() {
                 format!("<?{target}?>")
@@ -185,7 +185,7 @@ impl Writer {
                 args,
             } => {
                 if !*ready {
-                    // A type made without a subset (xml/lt-xml-remaining-node-methods/P104WriteDocType.al:146..157,
+                    // A type made without a subset (xml/xml/P104WriteDocType.al:146..157,
                     // P104DocTypeCreate.al `doc1`..`doc3`): `<!DOCTYPE r >` for a name only, `<!DOCTYPE r PUBLIC "pub" "sys">`
                     // with a public identifier. An empty public identifier with Create(Name, Public[, System]) is not pinned.
                     if *args == 1 {
@@ -262,7 +262,7 @@ impl Writer {
                 });
             } else if ap.is_empty() && al == "xmlns" && ans.is_empty() {
                 // `XmlAttribute.Create('xmlns', Uri)` on an element: the same URI as the element's own namespace is written once,
-                // another one raises when the start tag is written (xml/lt-de-xml-leads/DeXmlWriteLeads.al:246-310). On an element
+                // another one raises when the start tag is written (xml/DeXmlWriteLeads.al:246-310). On an element
                 // with a prefix it is not pinned.
                 if !prefix.is_empty() {
                     return unsupported("an xmlns attribute on an element with a prefix (not pinned)");
@@ -381,7 +381,7 @@ pub(super) fn serialize(h: &Handle) -> Result<String, Signal> {
 }
 
 /// An attribute written on its own: `name="value"` with the value escaped as in an element
-/// (xml/lt-xml-attr-doc-http-members/P97AttrWrite.al:86 WriteTo_Text_Kinds `t1`..`t4`, `t9`, `t10`, `newline_tab`;
+/// (xml/xml/P97AttrWrite.al:86 WriteTo_Text_Kinds `t1`..`t4`, `t9`, `t10`, `newline_tab`;
 /// :261 WriteTo_Detached_And_Removed, attached and removed alike; xml/XmlAttributes.al:56 Attribute_Create). A namespace
 /// declaration is `xmlns:prefix="uri"` (`t7`); a detached attribute with a namespace and no prefix gets `p0` (`t5`, `t6`,
 /// `t8`). Other namespaced shapes (a prefix of its own, attached to an element, `xmlns="uri"`) are not pinned. `None` for a
@@ -425,7 +425,7 @@ pub(super) fn serialize_with(h: &Handle, indent: bool) -> Result<String, Signal>
             _ => None,
         });
         // A read declaration that names an encoding is written as its own node; one without an encoding is replaced by the
-        // writer's (xml/XmlEntitiesMisc.al:208 `with_nl`, misc/lt-probes-needed-1/PnAXmlWriteTo.al:90: a line end after
+        // writer's (xml/XmlEntitiesMisc.al:208 `with_nl`, xml/PnAXmlWriteTo.al:90: a line end after
         // `<?xml version="1.0"?>` is written once).
         let has_decl = decl.as_ref().is_some_and(|d| {
             with(

@@ -1,5 +1,5 @@
 //! `BigText.Write(OutStream)` as the probes of corpus tests/al-language/streams/StTBigText.al pin it
-//! (WriteToStreamAndRead :267-296, WriteReadLargeText :382-400) and streams/lt-bigtext-write/BigTextWriteEdges.al.
+//! (WriteToStreamAndRead :267-296, WriteReadLargeText :382-400) and streams/instream-outstream/BigTextWriteEdges.al.
 
 use al_test_cli::report::Outcome;
 use al_test_cli::runtime::run_codeunit;

@@ -1,5 +1,5 @@
 //! `SelectToken(Path, var JsonToken)` with a filter `[?(@.name == x)]` or `[?(@.name > n)]`: the forms
-//! json/lt-db-json-leads/DbJPathLeads.al:52-85 and json/lt-dc-json-leads/DcJsonLeads.al:286-345 pin, and the root forms
+//! json/DbJPathLeads.al:52-85 and json/DcJsonLeads.al:286-345 pin, and the root forms
 //! `$[?(..)]` and `$.[?(..)]` on a JsonArray of al-runner issue 6588 (DbJPathLeads.al:249-250, :353-354).
 
 fn run(body: &str) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
@@ -82,7 +82,7 @@ fn a_double_quoted_indexer_answers_false_when_the_result_is_used() {
     );
 }
 
-/// json/lt-db-json-leads/DbJPathLeads.al Y47_ArrayFilter_ReporterShapes and Y47_ArrayFilter_Neighbours (al-runner
+/// json/DbJPathLeads.al Y47_ArrayFilter_ReporterShapes and Y47_ArrayFilter_Neighbours (al-runner
 /// issue 6588).
 #[test]
 fn the_neighbour_filters_of_the_reporter_shape() {

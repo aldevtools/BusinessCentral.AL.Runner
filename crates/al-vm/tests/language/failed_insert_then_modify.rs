@@ -1,6 +1,6 @@
 //! `if not R.Insert() then R.Modify()` on a buffer read before, whose row another variable changed since, raises DB:RecordChanged
 //! at the Modify, also with no Commit in between; a buffer never read, and one whose row nobody changed, write
-//! (record/lt-y71-failed-insert-modify/Y71FailedInsertModify.al: FailedInsert_ThenModify_*, FailedInsertTwice_ThenModify).
+//! (record/crud/Y71FailedInsertModify.al: FailedInsert_ThenModify_*, FailedInsertTwice_ThenModify).
 
 use al_testkit::text;
 

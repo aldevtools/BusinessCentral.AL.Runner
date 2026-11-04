@@ -1,4 +1,4 @@
-//! `Unbound = true` on a text element (corpus xmlport/lt-y60-xmlport-unbound-text/Y60XpUnboundText.al, xmlports 93220-93223):
+//! `Unbound = true` on a text element (corpus xmlports/shapes-properties/Y60XpUnboundText.al, xmlports 93220-93223):
 //! on a VariableText import the unbound text element takes every further column of the line, OnAfterAssignVariable once per
 //! column (empty ones included), all in one record; without Unbound the columns after the next are left out without an error.
 //! In an Xml port it imports like a plain text element; BC's export of it does not end, so the export is refused.

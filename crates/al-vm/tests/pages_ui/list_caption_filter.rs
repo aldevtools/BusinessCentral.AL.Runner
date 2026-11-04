@@ -1,8 +1,8 @@
 //! The caption of a list page whose record has a filter on a data caption field (al-runner issue 5593), pinned by
-//! pages/lt-y37-list-caption/Y37ListCaptionTests.al: only the page's DataCaptionFields count, and only a filter on one
+//! pages/properties/Y37ListCaptionTests.al: only the page's DataCaptionFields count, and only a filter on one
 //! value adds it (`- Z1`, two fields joined by ` ∙ `); a range, a list, a wildcard or a blank value leaves the caption
 //! alone. A Date caption field with one date filtered fails on BC's test client and stays refused. A field with a TableRelation
-//! adds the related record's DataCaptionFields (pages/lt-y45-list-caption-relation/Y45ListCaptionRelation.al).
+//! adds the related record's DataCaptionFields (pages/properties/Y45ListCaptionRelation.al).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -212,7 +212,7 @@ fn a_date_caption_field_with_one_date_filtered_is_refused() {
 }
 
 /// A caption field with a TableRelation adds the related record's own DataCaptionFields, here the related Probe Bin's "Code"
-/// (pages/lt-y45-list-caption-relation/Y45ListCaptionRelation.al:367 `Y45 Cap RefDcf - D1 ∙ Dcf One`), and nothing when no
+/// (pages/properties/Y45ListCaptionRelation.al:367 `Y45 Cap RefDcf - D1 ∙ Dcf One`), and nothing when no
 /// related record has the value (:147 `Y45 Cap DCF`).
 #[test]
 fn a_caption_field_with_a_table_relation_adds_the_related_records_caption_fields() {

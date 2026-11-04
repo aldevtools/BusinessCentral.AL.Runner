@@ -6,7 +6,7 @@
 //! The rule is the one of the staged-folder `Directory.GetFiles` (router step 1c, `mod.rs`): which files a staged folder
 //! holds is a detail of the host's set-up that no test sees, so the listing is answered from the staged folder as
 //! Windows BC answers it. `Exists` of a folder that exists is Yes (corpus
-//! tests/al-language-onprem-dotnet/lt-qx-dotnet/QxDotNetDemoShapes.al:97, :127). Windows lists '*.xml' without case, in
+//! tests/al-language-onprem-dotnet/dotnet/dotnet/QxDotNetDemoShapes.al:97, :127). Windows lists '*.xml' without case, in
 //! name order, and leaves out `e.xml.bak` and `d.txt`; FullName joins folder and name with a backslash
 //! (windows-check-results 2026-10-22, QX 14, the same test). Linux BC lists nothing there (bc-linux draft E).
 //!
@@ -22,7 +22,7 @@ use al_builtins::value::{DotNetKind, DotNetObject, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-const PIN: &str = "tests/al-language-onprem-dotnet/lt-qx-dotnet/QxDotNetDemoShapes.al:97 (Exists); \
+const PIN: &str = "tests/al-language-onprem-dotnet/dotnet/dotnet/QxDotNetDemoShapes.al:97 (Exists); \
     the listing: windows-check-results 2026-10-22 QX 14, a staged folder only (no test sees it)";
 
 fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {

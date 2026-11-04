@@ -1,5 +1,5 @@
 //! An Execute of a report whose only layout setting is `DefaultLayout = RDLC`, with no layout declared: it fails with the
-//! no-layout error before OnPreReport (report/lt-y68-selfclosing-params/Y68SelfClosingParams.al:420-444
+//! no-layout error before OnPreReport (reports/runtime/Y68SelfClosingParams.al:420-444
 //! Q1_SaveAs_SelfClosing_DataReport `execute text`, corpus master 0d01b0cc; a SaveAs Xml of the same report writes its
 //! dataset). A Run of such a report, and other DefaultLayout values, are not pinned and stay refused where they render.
 

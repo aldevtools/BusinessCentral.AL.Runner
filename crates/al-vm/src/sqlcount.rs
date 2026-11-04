@@ -1,7 +1,7 @@
 //! The model behind `SessionInformation.SqlStatementsExecuted()` and `SqlRowsRead()` (issue 5580).
 //!
 //! The corpus pins the sign of a counter's change between two reads, and its size only for the shapes [`sized`] lists
-//! (session/lt-bl-sql-counters/SqlCounters.al). So a read gives a tainted value (`Value::SqlCount`,
+//! (session-system/session/SqlCounters.al). So a read gives a tainted value (`Value::SqlCount`,
 //! `al_builtins::sqlcount`), and between two reads of a counter the VM classifies what ran (a segment):
 //!
 //! - nothing that touched the store: no change (SqlCounters.al:105-119);
@@ -22,7 +22,7 @@
 //! not classified.
 //!
 //! Database Inserts are buffered, and each record method is also given its cost under the buffer rule that
-//! session/lt-bl-sql-counters/SkSqlBudget.al measured ([`SqlCounters::cost`]); a segment of methods that all have a cost is
+//! session-system/session/SkSqlBudget.al measured ([`SqlCounters::cost`]); a segment of methods that all have a cost is
 //! sized by their sum, whatever came before it, as long as the buffer was known throughout. With nothing buffered, the reads
 //! (and a Modify after its Get) have the cost writer TX measured for each method alone ([`SqlCounters::read_cost`]); Inserts
 //! made before the session's first read are followed too ([`SqlCounters::pre_insert`]), so a measurement that starts after

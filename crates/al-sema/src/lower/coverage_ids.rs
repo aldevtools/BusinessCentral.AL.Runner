@@ -2,8 +2,8 @@
 //!
 //! The corpus pins only shapes of the value, never the number (BC computes it per run, codeunit/
 //! TestCodeCoveragePerTest.al:14): it is the same for the tests of a recording and for two recordings of one test
-//! (`a - b` is 0, `a = b`, `a <> b`: coverage/W6CodeCoverageIds.al:111-112, :167), it is not 1 (:168), and the lookup
-//! rows of a test carry it (`Lookup.SetRange("Test ID", Run."Test ID")`: codeunit/TestCodeCoveragePerTest.al:116).
+//! (`a - b` is 0, `a = b`, `a <> b`: test-framework/code-coverage/W6CodeCoverageIds.al:111-112, :167), it is not 1 (:168), and the lookup
+//! rows of a test carry it (`Lookup.SetRange("Test ID", Run."Test ID")`: codeunits/TestCodeCoveragePerTest.al:116).
 //! A read of the value is lowered only in one of those shapes, directly or through an Integer local that only ever
 //! holds a Test ID; any other read would show the runtime's own number and is refused.
 use super::*;
@@ -51,11 +51,11 @@ impl Lowerer<'_> {
 
     /// `n` reads the "Method ID" of a stored Code Coverage Test Lookup row (field 3 of 2000000288) or Tests Run row (field 3 of
     /// 2000000289). BC's numbers are compiler-assigned ids (Test Lookup 31658110 for `RecordedInner`, Tests Run 469735107 for
-    /// `RecordedOuter`, codeunit/PWCodeCoverageRows.al:308-309; per name and signature and per test, coverage/
+    /// `RecordedOuter`, codeunits/PWCodeCoverageRows.al:308-309; per name and signature and per test, coverage/
     /// PxCodeCoverageIds.al:7-8, :186) whose rule is not known; the runtime's own numbers would show. Kept, because refusing them
-    /// loses baseline cases: an argument of `AreNotEqual`/`AreEqual` (codeunit/TestCodeCoveragePerTest.al:121,
+    /// loses baseline cases: an argument of `AreNotEqual`/`AreEqual` (codeunits/TestCodeCoveragePerTest.al:121,
     /// TestLookup_TestStartedWhileRecording_HasTheMethodItRan, pinned: the two differ) and a comparison, directly or through an
-    /// Integer local that is only compared (coverage/W6CodeCoverageIds.al:83-98 MethodId_SameBody_DifferentNames_TestsRunRows,
+    /// Integer local that is only compared (test-framework/code-coverage/W6CodeCoverageIds.al:83-98 MethodId_SameBody_DifferentNames_TestsRunRows,
     /// :129-139 MethodId_TestsRunVersusTestLookup, :156-164 MethodId_SameProcedure_TwoRecordings). Any other read is refused.
     pub(crate) fn coverage_lookup_method_id_read(&self, n: &SyntaxNode, table: usize, id: u32) -> L<()> {
         if id != 3 || !matches!(self.ws.objects[table].id, Some(2_000_000_288 | 2_000_000_289)) {
@@ -79,7 +79,7 @@ impl Lowerer<'_> {
             }
         }
         Err(format!(
-            "`{}`: the value of the Code Coverage Method ID is not pinned (a compiler-assigned id, codeunit/PWCodeCoverageRows.al:308-309)",
+            "`{}`: the value of the Code Coverage Method ID is not pinned (a compiler-assigned id, codeunits/PWCodeCoverageRows.al:308-309)",
             parent.as_ref().unwrap_or(n).text_string().trim()
         ))
     }

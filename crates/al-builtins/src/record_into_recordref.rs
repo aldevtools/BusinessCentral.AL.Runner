@@ -1,6 +1,6 @@
 //! A Record converted to a RecordRef: assigned to a RecordRef variable or passed to a by-value RecordRef parameter. The RecordRef
 //! holds a copy of the record's table, buffer, filters, key and current row, not shared afterwards: a change through the ref does
-//! not reach the record and one to the record does not reach the ref (misc/lt-cx-odd-leads/CxVariants.al:174-210
+//! not reach the record and one to the record does not reach the ref (types/variant/CxVariants.al:174-210
 //! RecordToRecordRef_Implicit: `assigned` and `param` `85482|2|2`, `assigned_filters` `Id: 2..3`, `record_after_ref_change` `two`,
 //! `ref_after_record_change` `changed`). A temporary record, or one whose buffer carries an unpinned state, is not pinned and refused.
 

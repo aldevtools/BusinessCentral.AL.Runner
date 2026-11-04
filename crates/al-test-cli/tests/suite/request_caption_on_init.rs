@@ -1,6 +1,6 @@
 //! `RequestOptionsPage.Caption := Text` in the request page's OnInit is the caption a request page handler reads; OnOpenPage wins
 //! over OnInit; a set in a control's OnValidate changes what the report's code reads back and not what the handler reads
-//! (report/lt-y86-request-page/Y86RequestCaption.al).
+//! (reports/request-page/Y86RequestCaption.al).
 
 use al_testrun::Outcome;
 

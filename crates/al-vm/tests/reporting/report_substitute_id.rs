@@ -1,4 +1,4 @@
-//! `Report.GetSubstituteReportId` (report/lt-report-members-testrequestpage/P91Unsure.al:80 GetSubstituteReportId_Values): without a
+//! `Report.GetSubstituteReportId` (reports/request-page/P91Unsure.al:80 GetSubstituteReportId_Values): without a
 //! subscriber to SubstituteReport it answers the id itself, also for 0 and an id no report has. With one it raises SubstituteReport
 //! (ReportId, RunMode Normal, RequestPageXml '', RecordRef not open, NewReportId -1) and answers the NewReportId a subscriber set
 //! (P91Unsure.al:112-170 Sq_GetSubstituteReportId_*).

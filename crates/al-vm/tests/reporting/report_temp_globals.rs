@@ -1,6 +1,6 @@
 //! A temporary record that is a global of a report belongs to the report instance: a second report variable starts
 //! with an empty one (Base Application's "Get Demand To Reserve" collects lines into such records and the Reservation
-//! Worksheet reads them back through getters; corpus reportextensiontrigger/TestPrecompiledReportExtensionDataItems.al).
+//! Worksheet reads them back through getters; corpus reports/extensions/TestPrecompiledReportExtensionDataItems.al).
 
 use al_testkit::text;
 

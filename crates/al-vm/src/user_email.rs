@@ -23,7 +23,7 @@ fn letter_or_digit(c: char) -> bool {
 /// becomes `a@b.c`, a comma separated list becomes its last address, white space alone becomes empty
 /// (TestUserAuthEmailTrigger.al:44-125). An address without `@` is invalid (:143-159).
 ///
-/// The forms corpus writer Y66 measured on real BC 27.5, 28.5 and 29.0 (tests/al-language-onprem/access-control/
+/// The forms corpus writer Y66 measured on real BC 27.5, 28.5 and 29.0 (tests/al-language-onprem/permissions/access-control/
 /// lt-y66-auth-email-local-part/Y66AuthEmailLocalPart.al, al-runner issue 6662): a quoted local part is kept with its quotes; an unquoted one may hold letters, digits and
 /// `!#$%&'*+/=?^_`{|}~-.` and end with a dot, but not start with one; a comment right before the `@` is dropped; a word and a
 /// space before the address drop the word (`a b@example.com` keeps `b@example.com`); the domain may be dotless, an IPv4
@@ -157,7 +157,7 @@ mod tests {
         normalise_email(s, newest) == Err(EmailProblem::Invalid)
     }
 
-    /// access-control/TestUserAuthEmailTrigger.al:44-125.
+    /// permissions/access-control/TestUserAuthEmailTrigger.al:44-125.
     #[test]
     fn the_pinned_forms_are_normalised() {
         assert_eq!(ok("   a@t.example.com    "), "a@t.example.com");
@@ -169,13 +169,13 @@ mod tests {
         assert_eq!(ok(""), "");
     }
 
-    /// access-control/TestUserAuthEmailTrigger.al:143-159.
+    /// permissions/access-control/TestUserAuthEmailTrigger.al:143-159.
     #[test]
     fn an_address_without_an_at_sign_is_invalid() {
         assert!(invalid("Abc.example.com", true));
     }
 
-    /// access-control/lt-y66-auth-email-local-part/Y66AuthEmailLocalPart.al (al-runner issue 6662): Y66_AuthEmail_LocalParts
+    /// permissions/access-control/Y66AuthEmailLocalPart.al (al-runner issue 6662): Y66_AuthEmail_LocalParts
     /// :45-63, _Domains :66-86, _VersionDependent :89-125 and the reporter's shape :25-42.
     #[test]
     fn the_forms_y66_measured_are_kept_as_given() {

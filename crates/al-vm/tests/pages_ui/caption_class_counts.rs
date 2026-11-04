@@ -1,6 +1,6 @@
 //! How many times a page open runs the CaptionClass expressions with an empty record, for more fields and page types than one or
 //! two fields on a Card or a List (pages/caption_runs.rs). Each test names the corpus test of
-//! pages/lt-y61-page-probes/Y61CaptionClassCount.al that pins it.
+//! testpage/Y61CaptionClassCount.al that pins it.
 
 const SRC: &str = r#"
 codeunit 69930 "CK Log"

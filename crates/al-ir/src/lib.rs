@@ -81,7 +81,7 @@ pub enum PlatformPublisher {
 }
 
 /// The events of `Reporting Triggers` the runtime raises: `CustomDocumentMergerEx` for a custom layout, and
-/// `SubstituteReport` and `OnDocumentReady` around an Xml `SaveAs` (events/lt-platform-events-v/PeVTests.al:432), and
+/// `SubstituteReport` and `OnDocumentReady` around an Xml `SaveAs` (events/platform-triggers/PeVTests.al:432), and
 /// `SetupPrinters` for the static `Report.RunRequestPage` (PeVTests.al:450).
 pub const RAISED_REPORTING_EVENTS: [&str; 4] = [
     "CustomDocumentMergerEx",
@@ -91,7 +91,7 @@ pub const RAISED_REPORTING_EVENTS: [&str; 4] = [
 ];
 
 /// The events of `Filter Helper Triggers` the runtime raises (MakeDateFilter, MakeIntFilter and MakeTimeFilter:
-/// events/lt-platform-triggers/PtObserve.al) or refuses to raise (MakeDateTimeFilter).
+/// events/platform-triggers/PtObserve.al) or refuses to raise (MakeDateTimeFilter).
 pub const RAISED_FILTER_EVENTS: [&str; 4] = [
     "MakeDateFilter",
     "MakeIntFilter",
@@ -109,7 +109,7 @@ pub const RAISED_PAGE_EVENTS: [&str; 9] = [
     "onnewrecordevent",
     "oninsertrecordevent",
     "onmodifyrecordevent",
-    // Around the OnAction trigger of an action a TestPage invokes (corpus events/lt-global-triggers-statements/P114PageActionEvents.al).
+    // Around the OnAction trigger of an action a TestPage invokes (corpus events/platform-triggers/P114PageActionEvents.al).
     "onbeforeactionevent",
     "onafteractionevent",
 ];
@@ -462,7 +462,7 @@ pub struct Report {
     pub request_flag_slot: usize,
     /// Procedures of the report whose body names `Rec` or `xRec` of a request page that states `SourceTable`: one called
     /// while OnInitReport runs is refused (Rec read in OnInitReport itself raises `ReportRequestPageNotInitialized`,
-    /// report/lt-y-request-page/YRequestPageTests.al:551; through a procedure it is not pinned).
+    /// reports/request-page/YRequestPageTests.al:551; through a procedure it is not pinned).
     #[serde(default)]
     pub request_rec_routines: Vec<usize>,
     /// Why running the report would render output (it is not `ProcessingOnly`, or it declares a
@@ -550,7 +550,7 @@ pub struct ReportColumn {
     pub include_caption: bool,
     /// The table (object index) and the field position whose Caption an `IncludeCaption` label shows: the field the source names,
     /// bare or written with the name of the own, the parent, a child or an earlier top-level data item
-    /// (errors/lt-ms-refusals-138/P138ColCaptionQualified.al, QS_* tests). `None` for any other source.
+    /// (streams/P138ColCaptionQualified.al, QS_* tests). `None` for any other source.
     #[serde(default)]
     pub caption_table: Option<usize>,
     #[serde(default)]
@@ -563,7 +563,7 @@ pub struct ReportColumn {
     #[serde(default)]
     pub decimal_places: Option<String>,
     /// The `OptionCaptionML` property as written (`ENU = '..', DEU = '..'`): an Option value shows the caption of the session
-    /// language (record/lt-x-table-props/XTablePropsTests.al:741-785).
+    /// language (record/table-properties/XTablePropsTests.al:741-785).
     #[serde(default)]
     pub option_caption_ml: Option<String>,
     /// The `AutoFormatType` and `AutoFormatExpression` properties of the column as written; with `decimal_places` they decide
@@ -610,7 +610,7 @@ pub struct ReportExtAdd {
 pub struct ReportExtModify {
     /// Index of the base item.
     pub item: usize,
-    /// `RequestFilterFields` as written, from the block's property (report/lt-y-report-props/YReportExt.al:231).
+    /// `RequestFilterFields` as written, from the block's property (reports/runtime/YReportExt.al:231).
     #[serde(default)]
     pub request_filter_fields: Option<String>,
     /// `OnBeforeAfterGetRecord` and `OnAfterAfterGetRecord` as routine indices.
@@ -650,7 +650,7 @@ pub enum ItemAnchor {
 }
 
 /// `addfirst`, `addlast`, `addbefore` and `addafter`
-/// (reportextensiontrigger/TestReportExtensionDataItemPlacementContracts.al).
+/// (reports/extensions/TestReportExtensionDataItemPlacementContracts.al).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AddedPlace {
     #[default]
@@ -749,7 +749,7 @@ pub struct XmlPort {
     #[serde(default)]
     pub utf8: bool,
     /// `Encoding = UTF8` on a Format = Xml port: the export declares UTF-8 and writes UTF-8 bytes with no byte order mark
-    /// (corpus xmlport/lt-af-xmlport/AfXmlPortEncoding.al:AF_Encoding_Export). `Encoding = UTF16` is the default.
+    /// (corpus xmlports/shapes-properties/AfXmlPortEncoding.al:AF_Encoding_Export). `Encoding = UTF16` is the default.
     #[serde(default)]
     pub xml_utf8: bool,
     /// `InlineSchema = true`: the export writes an XSD inside the root element.
@@ -765,7 +765,7 @@ pub struct XmlPort {
     #[serde(default)]
     pub namespaces: Vec<(String, String)>,
     /// `UseDefaultNamespace = true` without `DefaultNamespace`: every element is in BC's own namespace
-    /// `urn:microsoft-dynamics-nav/xmlports/x<id>` (corpus xmlport/lt-bd-xmlport/BdXmlPort.al:499).
+    /// `urn:microsoft-dynamics-nav/xmlports/x<id>` (corpus xmlports/shapes-properties/BdXmlPort.al:499).
     #[serde(default)]
     pub default_ns: Option<String>,
     /// A `TextEncoding` property other than UTF8 was declared (its value is not kept).
@@ -775,15 +775,15 @@ pub struct XmlPort {
     #[serde(default)]
     pub text_encoding: Option<String>,
     /// `FormatEvaluate = Xml`: values export and import in their XML forms. The default and
-    /// `Legacy` use the display text (xmlport/TestXmlPortFormatEvaluateContracts.al).
+    /// `Legacy` use the display text (xmlports/TestXmlPortFormatEvaluateContracts.al).
     #[serde(default)]
     pub format_evaluate_xml: bool,
     /// The port declares `FormatEvaluate`. Without it an import reads the display text and, when that fails, the XML form
-    /// (xmlport/lt-xmlport-query-datatransfer/XpTImportBasic.al:Import_OneItem; an export writes the display text).
+    /// (xmlports/import/XpTImportBasic.al:Import_OneItem; an export writes the display text).
     #[serde(default)]
     pub format_evaluate_declared: bool,
     /// `DefaultFieldsValidation = false`: an import validates only the field elements that say `FieldValidate = Yes`
-    /// (xmlport/lt-bj-xmlport-default-validation/BjXmlPortDefaultValidation.al:274-283).
+    /// (xmlports/import/BjXmlPortDefaultValidation.al:274-283).
     #[serde(default)]
     pub no_default_fields_validation: bool,
     /// `PreserveWhiteSpace = true`: an Xml import keeps the white space around the value of a Text field element.
@@ -847,7 +847,7 @@ pub struct XmlNode {
     #[serde(default)]
     pub width: Option<usize>,
     /// `NamespacePrefix` of a field node: the prefix the port declares in `Namespaces`. A field element is written
-    /// `prefix:Name`; a field attribute is written without it (corpus xmlport/lt-y-xmlport-props/YXmlPortProps.al:
+    /// `prefix:Name`; a field attribute is written without it (corpus xmlports/shapes-properties/YXmlPortProps.al:
     /// NodeProperties_Export_NamesPrefixesAutoCalc).
     #[serde(default)]
     pub ns_prefix: Option<String>,
@@ -860,8 +860,8 @@ pub struct XmlNode {
     #[serde(default)]
     pub unbound: bool,
     /// `Occurrence` of a text or field attribute as declared: `Some(true)` Required, `Some(false)` Optional, `None` not declared
-    /// (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:441, the QS_TextAttr_* tests; for a field attribute
-    /// platform/lt-ag-contoso/AgXmlPortImport.al:248).
+    /// (xmlports/shapes-properties/QrXpContainerOccurs.al:441, the QS_TextAttr_* tests; for a field attribute
+    /// metadata/platform-tables/AgXmlPortImport.al:248).
     #[serde(default)]
     pub required: Option<bool>,
     /// `FieldValidate` of a field element as declared (`None`: not declared, the port's `DefaultFieldsValidation` decides).
@@ -874,7 +874,7 @@ pub struct XmlNode {
     #[serde(default)]
     pub source_view: Option<String>,
     /// `CalcFields` of a table element: the positions of the FlowFields an export calculates on each row before its
-    /// OnAfterGetRecord (xmlport/lt-y68-xmlport-shapes/Y68XmlPortShapes.al:567-621).
+    /// OnAfterGetRecord (xmlports/shapes-properties/Y68XmlPortShapes.al:567-621).
     #[serde(default)]
     pub calc_fields: Vec<usize>,
     /// Triggers by lower-case name (`onbeforepassvariable`, ...) to routine index.
@@ -1012,7 +1012,7 @@ pub enum ControlKind {
     SystemAction,
     ActionGroup,
     /// A `cuegroup`: a group whose fields take `SetValue` without effect
-    /// (corpus handlers/TestPageCueGroupFixedGridContracts.al).
+    /// (corpus testpage/TestPageCueGroupFixedGridContracts.al).
     CueGroup,
     Part,
     /// A data item of a report's request page: its `binding` is the global slot of the item's
@@ -1034,7 +1034,7 @@ pub enum Binding {
     /// A read-only expression: a routine returning the value.
     Expr(usize),
     /// A `label` control: its value is its caption and it is not editable
-    /// (corpus handlers/TestPageLabelControlContracts.al).
+    /// (corpus testpage/TestPageLabelControlContracts.al).
     Caption,
 }
 
@@ -1118,18 +1118,18 @@ pub struct Control {
     pub expr_source: Option<(String, bool)>,
     /// For a page's own control bound to an expression that is a single call written as a name with or without an argument
     /// list (`CompanyName`, `Format(Costs[1])`), or a member call (`Rec.DisplayCode()`, `Names.NameOf(Rec."No.")`): Page
-    /// Control Field serves its row with no source field (record/lt-wb-6284/WbPageControlBuiltIn.al, al-runner issue 6284;
-    /// record/lt-x3-6368/X3PageControlCalls.al, al-runner issue 6368).
+    /// Control Field serves its row with no source field (record/WbPageControlBuiltIn.al, al-runner issue 6284;
+    /// record/X3PageControlCalls.al, al-runner issue 6368).
     #[serde(default)]
     pub expr_call: bool,
     /// For a page's own control bound to an element of a one-dimensional page array variable with a number index
     /// (`ElementText[2]`): the slot of the array among the page's globals and the element's 0-based position. It shows
-    /// what a control bound to a plain page variable shows (pages/lt-y5/Y5PartArrayElementControl.al on corpus branch
+    /// what a control bound to a plain page variable shows (testpage/Y5PartArrayElementControl.al on corpus branch
     /// al-runtime-rs-staging-y5, al-runner issue 6379).
     #[serde(default)]
     pub array_element: Option<(usize, usize)>,
     /// A page extension's control whose source is a bare quoted name (no `Rec.`, warning AL0604) of a table extension's field
-    /// (`field("LT WD Profile"; "LT WD Profile Code")`): from BC 28 a TestPage cannot read it (pages/lt-wd/WdBareQuotedField.al:185).
+    /// (`field("LT WD Profile"; "LT WD Profile Code")`): from BC 28 a TestPage cannot read it (testpage/WdBareQuotedField.al:185).
     #[serde(default)]
     pub bare_quoted_ext_source: bool,
     /// Declared in the layout's `area(FactBoxes)`.
@@ -1252,7 +1252,7 @@ pub struct Table {
 /// The field number AL code sees for the schema id `id` of a user-name system FlowField (SystemCreatedByUserName and the
 /// three others, BC 29), or `None` when `id` is not one. The schema keeps them at 2000001005 to 2000001008 because
 /// 2000000005 is SystemRowVersion's id there; AL code sees 2000000005 to 2000000008
-/// (platform/lt-y35-username-field-rows/Y35UserNameFieldRows.al:88-90).
+/// (metadata/platform-tables/Y35UserNameFieldRows.al:88-90).
 pub fn user_name_field_no(id: u32) -> Option<u32> {
     (2_000_001_005..=2_000_001_008).contains(&id).then(|| id - 1_000)
 }

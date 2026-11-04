@@ -12,7 +12,7 @@ pub struct NsDecl {
 }
 
 /// The declarations of an `XmlNamespaceManager` and its scope depth (0 before any PushScope). The behavior is pinned by
-/// xml/lt-xml-remaining-node-methods/P104NsManager.al (BC 27, 28, 29); each method cites its tests.
+/// xml/xml/P104NsManager.al (BC 27, 28, 29); each method cites its tests.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct NsScopes {
     decls: Vec<NsDecl>,

@@ -8,7 +8,7 @@ fn text(vars: &str, body: &str) -> String {
     }
 }
 
-// types/lt-variant-time-enum/VariantTextTimeEnumFilter.al:Variant_Text_ToDecimal
+// types/date-time/VariantTextTimeEnumFilter.al:Variant_Text_ToDecimal
 #[test]
 fn a_text_variant_converts_into_a_decimal_by_the_pinned_forms() {
     for (input, want) in [
@@ -40,7 +40,7 @@ fn a_text_variant_that_is_no_number_raises_the_type_conversion() {
     }
 }
 
-// types/lt-variant-time-enum/VariantTextTimeEnumFilter.al:Variant_CodeAndOtherTypes_ToDecimal `boolean`
+// types/date-time/VariantTextTimeEnumFilter.al:Variant_CodeAndOtherTypes_ToDecimal `boolean`
 #[test]
 fn a_true_variant_converts_into_a_decimal_as_one() {
     let r = text(

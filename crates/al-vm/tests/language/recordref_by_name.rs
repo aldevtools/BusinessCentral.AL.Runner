@@ -1,7 +1,7 @@
 //! RecordRef.Field(FieldName) and RecordRef.FieldExist(FieldName) find a field by its name, case-insensitively and
 //! without trimming; a caption is not a name. Field raises FieldNotFound with the supplied text
-//! (misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:14-97). A field number a table lacks raises the
-//! same error (recordref/lt-refs/RfTMeta.al:90-123), and so does SetLoadFields/AddLoadFields with one unknown number
+//! (recordref-fieldref/P107RecRefNames.al:14-97). A field number a table lacks raises the
+//! same error (recordref-fieldref/recordref/RfTMeta.al:90-123), and so does SetLoadFields/AddLoadFields with one unknown number
 //! (P107RecRefNames.al:159-171).
 
 const TABLE: &str = "table 50721 \"LT Name Rec\" { fields { field(1; \"Code\"; Code[20]) { Caption = 'Code Cap'; }
@@ -123,7 +123,7 @@ fn open_with_a_variant() {
     );
 }
 
-/// FieldIndex(0) is the timestamp field, number 0 (misc/lt-probes-needed-4/PnD12_RemovedFieldRecordRef.al:120-136).
+/// FieldIndex(0) is the timestamp field, number 0 (recordref-fieldref/PnD12_RemovedFieldRecordRef.al:120-136).
 #[test]
 fn field_index_zero_is_the_timestamp() {
     assert_eq!(

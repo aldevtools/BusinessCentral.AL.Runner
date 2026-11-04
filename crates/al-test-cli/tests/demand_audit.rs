@@ -1158,7 +1158,7 @@ probe!(
     RanOrRefused,
     vars = "SessionId: Integer;",
     // The platform refuses to start a session in a test run under test isolation, before it looks at
-    // the codeunit (session/TestStartSessionRecord.al:StartSession_FromATestCodeunit_IsRefusedUnderCodeunitIsolation).
+    // the codeunit (session-system/TestStartSessionRecord.al:StartSession_FromATestCodeunit_IsRefusedUnderCodeunitIsolation).
     body = "asserterror StartSession(SessionId, 50120); if StrPos(GetLastErrorText, 'Sessions can only be started') = 0 then Error('got [' + GetLastErrorText + ']');",
     dep = [("c.al", RUN_CU)],
 );
@@ -1168,7 +1168,7 @@ probe!(
 
 /// A query of a dependency app with a property value the runtime refuses (`TopNumberOfRows = -1`; before
 /// al-runner issue 6050 it was `ReadState = ReadCommitted`, which now runs as an assumption; Base Application's
-/// query 777, which corpus query/TestQueryRoleCenterFromPlans.al uses, once had `InherentEntitlements`,
+/// query 777, which corpus queries/TestQueryRoleCenterFromPlans.al uses, once had `InherentEntitlements`,
 /// which the runtime now accepts as harmless). The
 /// eager compile must refuse the test that opens it, as the demand-driven compile does, and must
 /// not lower the query without a layout (a runtime panic).

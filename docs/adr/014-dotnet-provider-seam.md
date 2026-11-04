@@ -44,7 +44,7 @@ directly.
    faked session (`MetadataPatches.cs` builds that session). Each registry member records its
    source: `Pin::AlRunner("AL Runner v2 <file:line>")` now, `Pin::Probe` once a probe pins it,
    `Pin::Corpus` where a corpus test does. Where a probe and AL Runner differ, the probe wins.
-5. The probe batch (corpus tests under `tests/al-language/session/`, measured on BC 27.5 and later) pinned the
+5. The probe batch (corpus tests under `tests/al-language/session-system/`, measured on BC 27.5 and later) pinned the
    ALConfigSettings flags and limits, `IsSandbox` true, `IsProduction` false, `IsAzure` true on
    27 and 28, false from 29 (through `IsSaaSInfrastructure`, `Gate::NotSaaSInfrastructure`), `GetApplicationFamily` `W1`, the empty Power Platform
    environment id, and `IsInTestMode` (through `CanStartSession`). AL Runner's tenant is
@@ -712,7 +712,7 @@ separate findings.
 
 - Section 4, streams, item 2 said the bridge for an `OutStream` starts empty. BC hands .NET the Blob's own stream, which reads,
   writes and seeks (`SgDotNetStreams.al:106-126`), so a `ZipArchive` in `Read` mode over an `OutStream` that AL copied a zip into
-  reads that zip (corpus `tests/al-language-onprem-dotnet/lt-wd-dotnet/WdZipArchiveOverOutStream.al`, al-runner issue 6317;
+  reads that zip (corpus `tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al`, al-runner issue 6317;
   this is System Application's `Data Compression.OpenZipArchive`).
 - Now, when the AL stream stands at the end of bytes its Blob holds, the host sends them (`DotNetValue::OutStreamWith`, wire
   tag `outs` with a `v`), and the sidecar's bridge starts with them, positioned at their end. Bytes written after them are

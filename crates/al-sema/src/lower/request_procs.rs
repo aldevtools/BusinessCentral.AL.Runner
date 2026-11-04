@@ -6,7 +6,7 @@ use crate::members::ProcSig;
 impl Lowerer<'_> {
     /// The signature of the procedure at `offset` of `object`. In a report extension's request page its own procedure is the
     /// call, also next to a procedure of the extension or a public one of the base report with the same name (al-runner issue 6651;
-    /// corpus branch al-runtime-rs-staging-y64 85d86e7b, reportext/lt-y64-local-proc-names/Y64LocalProcNames.al:465-477: `ext rp
+    /// corpus branch al-runtime-rs-staging-y64 85d86e7b, reports/extensions/Y64LocalProcNames.al:465-477: `ext rp
     /// MyProc<-ext rp open`, `ext rp Pub<-ext aftervalidate`). In a report a request page procedure next to a report procedure of
     /// the same name is not pinned: refused.
     pub(crate) fn request_proc_refusal(&self, object: usize, offset: usize) -> L<ProcSig> {

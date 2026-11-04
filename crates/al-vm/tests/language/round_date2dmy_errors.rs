@@ -1,5 +1,5 @@
 //! Round with a negative fractional precision and Date2DMY of the undefined date raise
-//! (misc/lt-probes-needed-2/PnBDateFormat.al:135-163, Date2DWY_PartsOutOfRange; :387-407, Round_Precision).
+//! (errors/PnBDateFormat.al:135-163, Date2DWY_PartsOutOfRange; :387-407, Round_Precision).
 
 fn run(body: &str) -> String {
     let src = format!("codeunit 50100 C {{ procedure F(): Text {body} }}");

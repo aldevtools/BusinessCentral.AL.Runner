@@ -1,4 +1,4 @@
-//! `Clear` of a TableFilter field (record/lt-wc/WcClearTableFilter.al, al-runner issue 6318): the field becomes the empty
+//! `Clear` of a TableFilter field (record/WcClearTableFilter.al, al-runner issue 6318): the field becomes the empty
 //! filter, the other fields keep their values, and the stored row changes only with Modify.
 
 use al_testkit::text;

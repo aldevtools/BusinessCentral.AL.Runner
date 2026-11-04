@@ -1,5 +1,5 @@
 //! An action or action group whose Visible or Enabled is bound to a procedure call (corpus bump 47, AL Runner issue 3762):
-//! pages/lt-qq-procedure-bound-action/QqBoundProps.al. BC compiles it with warning AL0573; the property reads No whatever
+//! pages/actions/QqBoundProps.al. BC compiles it with warning AL0573; the property reads No whatever
 //! the procedure returns, and the procedure never runs.
 
 use al_builtins::native::Signal;

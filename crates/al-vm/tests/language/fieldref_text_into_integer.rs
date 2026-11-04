@@ -1,5 +1,5 @@
 //! `FieldRef.Value := 'abc'` on an Integer field raises `The value "abc" can't be evaluated into type Integer.`
-//! Its code is Evaluate:Format (fieldref/TestFieldRefValue.al:202 FieldRef_Value_TextIntoInteger_ErrorText).
+//! Its code is Evaluate:Format (recordref-fieldref/fieldref/TestFieldRefValue.al:202 FieldRef_Value_TextIntoInteger_ErrorText).
 
 const TABLE: &str =
     "table 50711 Row { fields { field(1; Code; Code[20]) { } field(4; Qty; Integer) { } } keys { key(PK; Code) { } } }";
@@ -39,7 +39,7 @@ fn the_other_number_types_and_an_empty_text() {
 }
 
 /// A text of letters into a Boolean, Date, Guid or Option field through FieldRef.Value raises and keeps the field
-/// (fieldref/TestFieldRefValue.al:282 FieldRef_Value_TextIntoBooleanDateGuidOption).
+/// (recordref-fieldref/fieldref/TestFieldRefValue.al:282 FieldRef_Value_TextIntoBooleanDateGuidOption).
 #[test]
 fn letters_into_boolean_date_guid_and_option() {
     let src = "table 50713 Kinds { fields { field(1; K; Integer) { } field(2; B; Boolean) { } field(3; D; Date) { }

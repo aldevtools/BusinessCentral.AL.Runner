@@ -1,6 +1,6 @@
 //! al-runner issue 6379: a ListPart control bound to an element of a page array variable (`ElementText[2]`) shows what
 //! OnAfterGetRecord left in it for the row, as a control bound to a plain page variable does. Measured on real BC by corpus
-//! writer Y5 (branch al-runtime-rs-staging-y5, pages/lt-y5/Y5PartArrayElementControl.al, codeunit 90983): `cell of A` after
+//! writer Y5 (branch al-runtime-rs-staging-y5, testpage/Y5PartArrayElementControl.al, codeunit 90983): `cell of A` after
 //! First, `cell of B` after Next; an Integer element 10/20/30 for rows 1-3; an element never assigned gives ''; Last,
 //! Previous, GoToKey and a read without First the same. AL source -> compile -> run as a test codeunit.
 

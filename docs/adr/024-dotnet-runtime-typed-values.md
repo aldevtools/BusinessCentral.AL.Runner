@@ -207,7 +207,7 @@ codeunits. Not acceptable as the end state.
   handle is a `System.IO.Stream`.
 - `System.CopyStream#N` gets a VM-level branch (like `Session.BindSubscription`, `al-vm/src/lib.rs`): when the
   target is a host `Value::DotNet`, read the unread bytes of the AL `InStream` (position advances, as pinned by
-  session/TestSystemExtended.al:94-128) and write them with `stream_write`; when the source is a host
+  session-system/TestSystemExtended.al:94-128) and write them with `stream_write`; when the source is a host
   `Value::DotNet`, `stream_read` and append to the AL `OutStream`. The optional byte count is honoured.
 - `al-host` gets two defaulted methods on `DotNetSession`: `stream_write(handle, &[u8])` and
   `stream_read(handle, max) -> Vec<u8>` (default: refuse "this host cannot copy a stream"). The sidecar
@@ -270,9 +270,9 @@ No corpus test contains `DotNet` (the corpus app is `Cloud`). The nearest pins:
 
 | Behaviour | Corpus |
 |---|---|
-| `CopyStream(OutStream, InStream)` between blobs copies the whole unread stream and advances the source | session/TestSystemExtended.al:94-128; empty stream without error: session/TestSystemExtended.al:132-157 |
+| `CopyStream(OutStream, InStream)` between blobs copies the whole unread stream and advances the source | session-system/TestSystemExtended.al:94-128; empty stream without error: session-system/TestSystemExtended.al:132-157 |
 | `foreach` over `List` and `Dictionary`: order, empty, `break`, body semantics | collections/TestForeachContracts.al:16-194 |
-| `DateTime + Duration` | session/TestDateTimeContracts.al:50-75 |
+| `DateTime + Duration` | session-system/TestDateTimeContracts.al:50-75 |
 | BC accepts `Format(Variant, 0, 2)` on a `DotNet` variant (`Variant.IsDotNet`) | `_fixtures/Assert.al:493` (a fixture; no test passes a `DotNet` value) |
 
 ### Probes needed (an `OnPrem` probe app on a BC 27.5 container; written down, not run)
@@ -391,7 +391,7 @@ submodule. Code comments cite it by corpus path.
 ## Owner decision 2026-10-18: System.Net.Mail.MailAddress is allowed
 
 The owner allows the .NET type `System.Net.Mail.MailAddress`, and only it. It parses text and does not touch the
-network. The corpus pins it in `tests/al-language-onprem-dotnet/lt-af-dotnet/AfMailAddress.al` (constructor, `User`,
+network. The corpus pins it in `tests/al-language-onprem-dotnet/dotnet/dotnet/AfMailAddress.al` (constructor, `User`,
 `Host`, `DisplayName`, `ToString`, error texts and codes `DotNetInvoke:Format` and `DotNetInvoke:Argument`).
 `policy.txt` has a new rule kind `allow-type` (exact type, never a prefix) placed before `deny-type System.Net.`.
 Every other `System.Net.` type stays refused, including `SmtpClient` and `MailMessage`.

@@ -1,6 +1,6 @@
 //! A set filtered down to nothing: Find('-') and Find('+') say "There is no ... within the filter", and Find(), Find('='),
 //! Find('>') and Find('<') say the record does not exist, with the record's own key (writer Y81,
-//! record/lt-y81-values/Y81EmptySetFinds.al Y81_RecRef_FilteredOut_Unused, on a RecordRef and a temporary Record; needs corpus
+//! recordref-fieldref/Y81EmptySetFinds.al Y81_RecRef_FilteredOut_Unused, on a RecordRef and a temporary Record; needs corpus
 //! bump).
 
 use al_testkit::text;

@@ -120,7 +120,7 @@ codeunit 69962 MHEvents
 
 "#;
 
-// corpus text/lt-text-functions/MaxStrLen.Codeunit.al:146-170, PYC_MaxStrLen_VarParameterHops: a `var` parameter handed on
+// corpus text/text-methods/MaxStrLen.Codeunit.al:146-170, PYC_MaxStrLen_VarParameterHops: a `var` parameter handed on
 // from another `var` parameter keeps the declared length of the first caller's variable or field, through two and three
 // hops and through a `var` Text[30] parameter on the way (`hop through text30 param field` = 100).
 #[test]
@@ -128,7 +128,7 @@ fn max_str_len_of_a_var_parameter_handed_on_is_the_length_of_the_first_callers_v
     assert_eq!(text(run_in(HOPS, "MHops", "Hops")), "30|100|2147483647|30|30|100|20");
 }
 
-// corpus text/lt-text-functions/MaxStrLen.Codeunit.al:172-201, PYC_MaxStrLen_EventSubscriberVarParameter: the `var` Text
+// corpus text/text-methods/MaxStrLen.Codeunit.al:172-201, PYC_MaxStrLen_EventSubscriberVarParameter: the `var` Text
 // parameter of a subscriber reports the declared length of the publisher's argument, raised directly, from a procedure,
 // and from a procedure that got it through a `var` parameter.
 #[test]

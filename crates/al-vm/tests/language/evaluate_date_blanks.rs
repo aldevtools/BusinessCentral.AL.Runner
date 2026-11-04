@@ -1,5 +1,5 @@
 //! A failing `Evaluate` statement into a Date raises the date format error for every text in English, with and without number 9;
-//! Duration (number 0), Char and BigInteger raise their Evaluate errors (types/lt-y49-evaluate-date-blanks/Y49EvaluateDateBlanks.al,
+//! Duration (number 0), Char and BigInteger raise their Evaluate errors (format-evaluate/Y49EvaluateDateBlanks.al,
 //! corpus master).
 
 const SRC: &str = r#"

@@ -1,5 +1,5 @@
 //! A new Card without parts: a field outside the key typed first stores the row with a blank key, the key typed next is dropped,
-//! and Close saves the pending edit (pages/lt-part-link-unsaved-host/PagePartLinkUnsavedHost.al:482 PYB_NoPart_DescrFirstThenKey).
+//! and Close saves the pending edit (pages/parts/PagePartLinkUnsavedHost.al:482 PYB_NoPart_DescrFirstThenKey).
 
 const SRC: &str = r#"
 table 51900 "NDK Host" { fields { field(1; Code; Code[10]) { } field(2; Descr; Text[30]) { } } keys { key(PK; Code) { Clustered = true; } } }

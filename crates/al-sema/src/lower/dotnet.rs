@@ -56,7 +56,7 @@ impl Lowerer<'_> {
         // A `[RunOnClient]` variable: BC runs its calls on the client and a test session has none, so the constructor, a
         // client feature's `Create` and a static call raise DotNetFromAlNotSupported
         // (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:122-150 for a constructor and Environment.MachineName,
-        // :186-209 and :226-236 for `Create` and a constructor in a local variable; lt-ac/AcDnAttributes.al:131-147 for a
+        // :186-209 and :226-236 for `Create` and a constructor in a local variable; dotnet/ac/AcDnAttributes.al:131-147 for a
         // global one). Only these members are pinned; any other member of such a variable stays refused.
         if let (Some(why), ir::DotNetOp::Call(_)) = (self.run_on_client_var(&recv), &op) {
             let simple = ty
@@ -72,7 +72,7 @@ impl Lowerer<'_> {
                 .unwrap_or_default();
             let simple = simple.split('`').next().unwrap_or("").to_string();
             // The client features' static IsAvailable() answers No in a test session
-            // (lt-bg-runonclient/BgRunOnClient.al:99-120, the seven types of the probe; measured on Windows).
+            // (dotnet/runonclient/BgRunOnClient.al:99-120, the seven types of the probe; measured on Windows).
             if name.eq_ignore_ascii_case("IsAvailable")
                 && args.is_empty()
                 && ty.is_some_and(|i| al_builtins::dotnet_sigs::is_client_capability(&self.ws.dotnet[i].decl.type_name))
@@ -82,7 +82,7 @@ impl Lowerer<'_> {
             let ctor = ty.is_some_and(|i| self.ws.dotnet[i].decl.alias.eq_ignore_ascii_case(name))
                 || simple.eq_ignore_ascii_case(name);
             if ctor || al_builtins::dotnet_sigs::run_on_client_fails(name) {
-                // Pinned by tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al TY_RunOnClient_GuiAllowedGuard_CameraCreate (was assumption `run-on-client-create`),
+                // Pinned by tests/al-language-onprem-dotnet/dotnet/runonclient/BgRunOnClient.al TY_RunOnClient_GuiAllowedGuard_CameraCreate (was assumption `run-on-client-create`),
                 // and for System.IO.Directory by Y16_RunOnClient_FileManagementDirectory (corpus master 92fdde19).
                 let key = format!("{why}: {name}");
                 self.run_failures.insert(
@@ -247,14 +247,14 @@ impl Lowerer<'_> {
         let (spec, with_value) = match self.ty_of(arg) {
             // DotNetTypeScalars.al: an Option is an Int32, a Code and a Text a String, a Date and a Time a DateTime.
             Ty::Integer | Ty::Option(_) => (fixed("System.Int32"), true),
-            // An AL Enum is an Int32 (lt-bb-dotnet/BbGetDotNetType.al:341), pinned for Enum "Sales Document Type" only.
+            // An AL Enum is an Int32 (dotnet/dotnet/BbGetDotNetType.al:341), pinned for Enum "Sales Document Type" only.
             Ty::Enum(name) if name.eq_ignore_ascii_case("Sales Document Type") => (fixed("System.Int32"), true),
             Ty::Enum(name) => {
                 return Err(format!(
                     "GetDotNetType of an Enum other than \"Sales Document Type\" (Enum \"{name}\") is not pinned (docs/probes-needed.md)"
                 ));
             }
-            // lt-bb-dotnet/BbGetDotNetType.al:352-353.
+            // dotnet/dotnet/BbGetDotNetType.al:352-353.
             Ty::DateFormula => (
                 "error:GetDotNetType() does not support the type Microsoft.Dynamics.Nav.Runtime.NavDateFormula."
                     .to_string(),

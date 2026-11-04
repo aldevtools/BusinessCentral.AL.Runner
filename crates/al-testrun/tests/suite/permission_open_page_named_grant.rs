@@ -1,5 +1,5 @@
 //! ADR-062 stage 3, runner issue 6867: a codeunit call from OnOpenPage under a session with wildcard Execute on codeunits (`Permissions
-//! Mock.Set` adds All Objects). Values: corpus `tests/al-language/permissions/lt-y90-perm-shapes/Y90PermOpenPage.al:91-118`
+//! Mock.Set` adds All Objects). Values: corpus `tests/al-language/permissions/permission-sets/Y90PermOpenPage.al:91-118`
 //! (Y90_Open_D365BasicPlusAppSet, branch al-runtime-rs-staging-y90): `Set` plus an assigned set that grants the callee codeunit by name
 //! opens the page. The reporter's repro (OpensUnderBasicPlusAppSet, OpensUnderFullAccess, OpensWithoutMock) is the test codeunit below.
 //! The abort of a codeunit call from OnInit, OnAfterGetRecord and `Codeunit.Run` from OnOpenPage under an exact set: Y90PermOpenPage.al:72-88.

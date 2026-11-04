@@ -1,4 +1,4 @@
-//! `Clear` of a Version variable gives `0.0.0.0` (types/lt-y64-clear-types/Y64ClearTypes.al:112,124,137 Y64_Clear_Scalars;
+//! `Clear` of a Version variable gives `0.0.0.0` (types/clear/Y64ClearTypes.al:112,124,137 Y64_Clear_Scalars;
 //! al-runner issue 6656, full surface of Clear).
 
 use al_testkit::text;

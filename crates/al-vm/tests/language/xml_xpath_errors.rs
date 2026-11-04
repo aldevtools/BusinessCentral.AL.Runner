@@ -56,7 +56,7 @@ fn a_prefix_star_selects_every_element_of_its_namespace_and_xml_is_a_known_prefi
 
 #[test]
 fn a_processing_instruction_gets_a_new_target_and_data() {
-    // xml/lt-xml-cdata-comment-pi-text/P90PIRead.al:2215 PI_GetSetTargetAndData.
+    // xml/xml/P90PIRead.al:2215 PI_GetSetTargetAndData.
     let src = "codeunit 50100 C { procedure F(): Text var P: XmlProcessingInstruction; S: Text; T: Text; begin
         P := XmlProcessingInstruction.Create('t', 'data1'); P.SetTarget('t2');
         asserterror P.SetTarget(''); S := GetLastErrorCode(); asserterror P.SetTarget('a b'); S += '|' + GetLastErrorCode();

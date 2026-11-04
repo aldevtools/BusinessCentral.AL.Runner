@@ -1,5 +1,5 @@
 //! The static `Report.RunRequestPage(id)` shows the request page with the data items' views in force, as `Report.Run` does
-//! (corpus report/W3ReportRequestPageRun.al:280, RunRequestPage_OrderOfReportAndRequestPageTriggers: `handler view=[1..3]`).
+//! (corpus reports/W3ReportRequestPageRun.al:280, RunRequestPage_OrderOfReportAndRequestPageTriggers: `handler view=[1..3]`).
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};

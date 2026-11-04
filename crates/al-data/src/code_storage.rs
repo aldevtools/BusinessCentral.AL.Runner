@@ -1,5 +1,5 @@
 //! Code fields the database stores as a number (`SQLDataType` Integer, BigInteger, Variant): their key order and the filters on
-//! them. Pinned by the corpus writer's probe (needs corpus bump) tests/al-language/record/lt-y82-sqldatatype-code/ Y82PkTests.al
+//! them. Pinned by the corpus writer's probe (needs corpus bump) tests/al-language/record/system-fields/ Y82PkTests.al
 //! (`Pk*_NumericOrder`, `Pk*_Blank`, `Pk*_Mixed`, `Pk*_FilterLetters_*`) and Y82SecTests.al (`Sec*_NumericOrder`).
 
 use crate::*;

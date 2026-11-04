@@ -1,5 +1,5 @@
 //! A report column of an Option field shows the OptionCaptionML caption of the session language: the column's own, else the
-//! field's, ENU where the language has no entry (record/lt-x-table-props/XTablePropsTests.al:741-785).
+//! field's, ENU where the language has no entry (record/table-properties/XTablePropsTests.al:741-785).
 
 use al_builtins::value::Value;
 use al_testkit::text;
@@ -28,7 +28,7 @@ fn option_columns_show_the_captions_of_the_session_language() {
     );
 }
 
-/// A German session's SaveAs runs (report/W3ReportObjectIdPreviewLanguage.al:870) with the DEU captions
+/// A German session's SaveAs runs (reports/W3ReportObjectIdPreviewLanguage.al:870) with the DEU captions
 /// (XTablePropsTests.al:783); a French session's SaveAs is not pinned and refused.
 #[test]
 fn save_as_in_a_german_session_shows_deu_and_a_french_one_is_refused() {

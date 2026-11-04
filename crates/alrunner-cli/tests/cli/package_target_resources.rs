@@ -4,8 +4,8 @@
 use super::dependencies::zip;
 use super::*;
 
-/// The test codeunit: session/TestNavAppGetResource.al:26-69 (top-level file, nested path, GetResourceAsText, the
-/// missing-name error) and session/Y18NavAppResourceEncodings.al (a name with a space).
+/// The test codeunit: session-system/TestNavAppGetResource.al:26-69 (top-level file, nested path, GetResourceAsText, the
+/// missing-name error) and session-system/Y18NavAppResourceEncodings.al (a name with a space).
 const TESTS: &str = r#"codeunit 50330 "Own Res Tests"
 {
     Subtype = Test;

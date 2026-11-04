@@ -1,4 +1,4 @@
-//! JsonValue.AsDecimal of a JSON string (al-runner issue 5690; types/lt-aj-probes/AjScalars.al:150-209).
+//! JsonValue.AsDecimal of a JSON string (al-runner issue 5690; format-evaluate/AjScalars.al:150-209).
 
 use al_testkit::{run, text};
 

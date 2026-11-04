@@ -1,7 +1,7 @@
 //! The .NET exception `GetLastErrorObject` answers, and the `System.Type` its `GetType()` gives. The runtime
 //! provides them itself (ADR-014 section 1, ADR-038), so a run needs no .NET host.
 //!
-//! Pinned by tests/al-language-onprem-dotnet/lt-dotnet-interop/GetLastErrorObject.al (BC 27, 28, 29):
+//! Pinned by tests/al-language-onprem-dotnet/dotnet/dotnet-interop/GetLastErrorObject.al (BC 27, 28, 29):
 //! - `Message` is the text `GetLastErrorText` answers (:80), `InnerException` is null for a dialog and a
 //!   record-not-found exception and not null for a `NavALException` (:83, :155, :251, :275);
 //! - `GetType().FullName` is the exception class (:81-82);
@@ -24,7 +24,7 @@ use al_builtins::value::{DotNetKind, DotNetObject, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-const PIN: &str = "tests/al-language-onprem-dotnet/lt-dotnet-interop/GetLastErrorObject.al:79-87";
+const PIN: &str = "tests/al-language-onprem-dotnet/dotnet/dotnet-interop/GetLastErrorObject.al:79-87";
 
 fn pin() -> Pin {
     Pin::Corpus(PIN.into())
@@ -197,7 +197,7 @@ pub(crate) fn exception_text(session: &Session, this: &Rc<DotNetObject>) -> Resu
     }
     // The frames are .NET's: an AL frame of a codeunit is `Codeunit<id>.<procedure>()` (a trigger OnRun is `OnRunAsync`), and an error
     // an asserterror caught shows `NavMethodScope.AssertErrorAsync` where a TryFunction shows its own frame (onprem-dotnet/
-    // lt-y76-dotnet/Y76DotNet.al Y76_TryFunction_*, Y76_Asserterror_*, Y76_CodeunitRun_ThreeDeep_GetMissing_Division, each pinning one
+    // dotnet/dotnet/Y76DotNet.al Y76_TryFunction_*, Y76_Asserterror_*, Y76_CodeunitRun_ThreeDeep_GetMissing_Division, each pinning one
     // frame by name). The rest of each line and the frames between are not pinned: the assumption stays.
     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ExceptionToStringStackFrames);
     if type_name == AL_EXCEPTION {

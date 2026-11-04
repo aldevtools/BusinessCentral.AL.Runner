@@ -1,7 +1,7 @@
 //! A conditional with a Label branch handed to a Variant: the Variant holds the kind of the branch taken. A Label before the
 //! colon against another Label or against a Text or Code that is no literal gives a TextConstant when the Label branch is
 //! taken; with a literal, or with the Label second, the Variant holds Text or Code (writer Y81,
-//! types/lt-y81-values/Y81LabelVariant.al routes 1 to 13; needs corpus bump).
+//! types/Y81LabelVariant.al routes 1 to 13; needs corpus bump).
 
 use al_builtins::value::Value;
 use al_testkit::{run_with, text};
