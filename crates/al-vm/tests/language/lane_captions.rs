@@ -38,11 +38,27 @@ fn format_9_of_a_record_id_of_a_namespaced_table_names_it_qualified() {
     );
 }
 
-/// Only a namespaced table whose name holds a space is pinned for format 9: the brackets around a name without one are refused.
+/// Format 9 brackets every namespaced table name, a one-word name too; a name with a dot is quoted inside the brackets, a name
+/// with an underscore, a hyphen or a slash is not (corpus branch al-runtime-rs-staging-r6985,
+/// tests/al-language/language/namespaces/R7003RecordIdFormat9.al: Format9_NamespacedOwnTables, al-runner issue 7003).
 #[test]
-fn format_9_of_a_record_id_of_a_namespaced_table_without_a_space_is_refused() {
+fn format_9_of_a_record_id_of_a_namespaced_one_word_table_brackets_it() {
     let src = "namespace LT.Data; table 50100 LTRow { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
-        codeunit 50100 C { procedure F(): Text var R: Record LTRow; begin R.Id := 2; exit(Format(R.RecordId(), 0, 9)); end; }";
+        table 50101 \"LT.Dot\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
+        table 50102 \"LT_Under-Hy/Sl\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
+        codeunit 50100 C { procedure F(): Text var R: Record LTRow; D: Record \"LT.Dot\"; U: Record \"LT_Under-Hy/Sl\"; begin R.Id := 2; D.Id := 3; U.Id := 4; \
+        exit(Format(R.RecordId(), 0, 9) + '|' + Format(D.RecordId(), 0, 9) + '|' + Format(U.RecordId(), 0, 9) + '|' + Format(D.RecordId())); end; }";
+    assert_eq!(
+        text(al_testkit::run_in(src, "C", "F")),
+        "[LT.Data.LTRow]: 2|[LT.Data.\"LT.Dot\"]: 3|[LT.Data.LT_Under-Hy/Sl]: 4|LT.Dot: 3"
+    );
+}
+
+/// A namespaced table name with a character R7003RecordIdFormat9.al does not cover is refused for format 9.
+#[test]
+fn format_9_of_a_record_id_of_a_namespaced_table_with_another_character_is_refused() {
+    let src = "namespace LT.Data; table 50100 \"LT&Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
+        codeunit 50100 C { procedure F(): Text var R: Record \"LT&Row\"; begin R.Id := 2; exit(Format(R.RecordId(), 0, 9)); end; }";
     refused(al_testkit::run_in(src, "C", "F"), "namespace");
 }
 
@@ -196,4 +212,26 @@ fn a_caption_class_set_twice_with_an_expression_is_refused() {
         tableextension 50101 E1 extends Base { fields { modify(Id) { CaptionClass = '3,Lit'; } } } \
         codeunit 50100 C { procedure F(): Text var R: Record Base; begin exit(R.FieldCaption(Id)); end; }";
     refused(al_testkit::run_in(over_base, "C", "F"), "CaptionClass");
+}
+
+/// FieldCaption and FieldRef.Caption of a field whose literal CaptionClass has an area that is not a number raise
+/// OnResolveCaptionClass and give the caption a subscriber resolves, else the whole CaptionClass text (also with a Caption
+/// property); the session keeps the result, shared with CaptionClassTranslate, so a second read raises no event (corpus
+/// branch al-runtime-rs-staging-r6985, record/captions/R6985FieldCaptionArea.al, al-runner issue 6985).
+#[test]
+fn field_caption_of_a_non_numeric_caption_area_raises_on_resolve_caption_class() {
+    let src = format!(
+        "{CAPTION_SUBSCRIBER} table 50102 T {{ fields {{ field(1; Id; Integer) {{ }} field(2; W; Decimal) {{ CaptionClass = 'PS,2,1,UOM'; }} \
+        field(3; U; Decimal) {{ Caption = 'Has Caption'; CaptionClass = 'ZZ,x'; }} }} keys {{ key(PK; Id) {{ }} }} }} \
+        codeunit 50100 C {{ procedure F(): Text var S: Codeunit Sub; R: Record T; RR: RecordRef; Res: Text; begin S.Take(); \
+        Res := R.FieldCaption(W) + '/' + S.Take() + '|'; \
+        Res += R.FieldCaption(W) + '/' + S.Take() + '|'; \
+        Res += CaptionClassTranslate('PS,2,1,UOM') + '/' + S.Take() + '|'; \
+        Res += R.FieldCaption(U) + '/' + S.Take() + '|'; \
+        RR.Open(50102); Res += RR.Field(3).Caption() + '/' + S.Take(); exit(Res); end; }}"
+    );
+    assert_eq!(
+        text(al_testkit::run_in(&src, "C", "F")),
+        "resolved:2,1,UOM/resolve(PS)|resolved:2,1,UOM/|resolved:2,1,UOM/|ZZ,x/resolve(ZZ)|ZZ,x/"
+    );
 }

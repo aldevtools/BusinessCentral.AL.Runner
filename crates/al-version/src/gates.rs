@@ -362,6 +362,16 @@ pub enum Gate {
     /// The end of [`Gate::MarkedSecondaryKeyMovesFrom28`]: from BC 29 the moves give the BC 27 values again
     /// (testpage/Y15ReapplyMarksSecondaryKey.al:336). Not consumed yet.
     MarkedSecondaryKeyMovesAgainFrom29,
+    /// After an action of a list with OnAfterGetRecord and OnAfterGetCurrRecord filtered the view down to no row and called
+    /// CurrPage.Update, OnAfterGetRecord runs for every other row of the old view on BC 28, and once, for the row before the
+    /// current one, on BC 27 and from BC 29 (pages/actions/ActionFilterEmptyView.al:226 Action_NoRowsLeft_UpdateFalse_Moves,
+    /// :322 Action_NoRowsLeft_FromLaterRow_UpdateFalse, guarded `#if BC28PLUS and not BC29PLUS`; al-runner issue 6945). BC 28
+    /// only: [`Gate::EmptyActionViewOneRowAgainFrom29`] ends it. Consumed by `al-vm` pages/empty_after_action.rs
+    /// (`empty_view_after_action`).
+    EmptyActionViewEveryRowFrom28,
+    /// The end of [`Gate::EmptyActionViewEveryRowFrom28`]: from BC 29 OnAfterGetRecord runs once again, as on BC 27
+    /// (pages/actions/ActionFilterEmptyView.al:226). Consumed with it.
+    EmptyActionViewOneRowAgainFrom29,
     /// The SystemId of a row of the platform table Field is the Guid made of 2000000041, the table number and the field number
     /// from BC 28; on BC 27 it is the null Guid for every row, and `GetBySystemId` of the null Guid finds the row of table 3,
     /// field 1 (metadata/platform-tables/FieldRowSystemId.al:56-169, guarded `#if BC28PLUS`). Consumed by `al-vm`
@@ -395,6 +405,8 @@ impl Gate {
         Gate::ReportLayoutListColumnsFrom28,
         Gate::MarkedSecondaryKeyMovesFrom28,
         Gate::MarkedSecondaryKeyMovesAgainFrom29,
+        Gate::EmptyActionViewEveryRowFrom28,
+        Gate::EmptyActionViewOneRowAgainFrom29,
         Gate::ThreeLineLeavesKeyTwiceAgainFrom29,
         Gate::ReportLayoutSelectionPartNamesFrom29,
         Gate::ReportPartNamePropertiesFrom29,
@@ -483,6 +495,7 @@ impl Gate {
             | Gate::ThreeLineLeavesKeyTwiceAgainFrom29
             | Gate::MovedOntoDeletedRefreshesAgainFrom29
             | Gate::MarkedSecondaryKeyMovesAgainFrom29
+            | Gate::EmptyActionViewOneRowAgainFrom29
             | Gate::ExceptionTraceValueTaskFrameFrom29
             | Gate::DotNetRuntime10From29 => 29,
             Gate::ReportSaveAsDataItemIdentity
@@ -519,7 +532,8 @@ impl Gate {
             | Gate::TestRunnerHubRequiredIsolationFrom28
             | Gate::LicensePermissionTopRangePageFrom28
             | Gate::ReportLayoutListColumnsFrom28
-            | Gate::MarkedSecondaryKeyMovesFrom28 => 28,
+            | Gate::MarkedSecondaryKeyMovesFrom28
+            | Gate::EmptyActionViewEveryRowFrom28 => 28,
         }
     }
 
@@ -538,11 +552,11 @@ impl Gate {
             | Gate::MovedOntoDeletedRefreshesAgainFrom29
             | Gate::PlatformMetadataColumnsFrom29
             | Gate::DefaultInterfaceMethodsFrom29
-            | Gate::GuidFieldRefEvaluateFalseClearsLastErrorFrom28 => self.evidence_of_first_gates(),
-            Gate::OtherRecordOptionCaptionFrom29 => &[Evidence {
-                file: "pages/controls/SaOtherRecordControl.al",
-                lines: "284,290,295,300",
-            }],
+            | Gate::GuidFieldRefEvaluateFalseClearsLastErrorFrom28
+            | Gate::OtherRecordOptionCaptionFrom29
+            | Gate::EmptyActionViewEveryRowFrom28
+            | Gate::EmptyActionViewOneRowAgainFrom29
+            | Gate::ReportSaveAsXmlHeaderHasCompanyBlock => self.evidence_of_first_gates(),
             Gate::JpegMediaSetKeptFrom29 => &[Evidence {
                 file: "../al-language-onprem/streams/media/MediaFiles.al",
                 lines: "515",
@@ -601,20 +615,6 @@ impl Gate {
                 file: "session-system/TestEnvironmentUserTenantContracts.al",
                 lines: "169",
             }],
-            Gate::ReportSaveAsXmlHeaderHasCompanyBlock => &[
-                Evidence {
-                    file: "reports/runtime/BdRegionTests.al",
-                    lines: "125,142,159,176",
-                },
-                Evidence {
-                    file: "text/TestReportSaveAsDatasetContracts.al",
-                    lines: "243",
-                },
-                Evidence {
-                    file: "reports/W3ReportDataset.al",
-                    lines: "164,209",
-                },
-            ],
             Gate::PermissionObjectNameLongerFrom29 => &[Evidence {
                 file: "permissions/W6PermissionColumns.al",
                 lines: "122",
@@ -990,6 +990,40 @@ impl Gate {
     /// The evidence of the first gates of `evidence` (split out to keep that function short).
     fn evidence_of_first_gates(self) -> &'static [Evidence] {
         match self {
+            Gate::ReportSaveAsXmlHeaderHasCompanyBlock => &[
+                Evidence {
+                    file: "reports/runtime/BdRegionTests.al",
+                    lines: "125,142,159,176",
+                },
+                Evidence {
+                    file: "text/TestReportSaveAsDatasetContracts.al",
+                    lines: "243",
+                },
+                Evidence {
+                    file: "reports/W3ReportDataset.al",
+                    lines: "164,209",
+                },
+                // Report.WordXmlPart: ReportCaption and CompanyMetadata in BCReportInformation from BC 29 (corpus PR 1145).
+                Evidence {
+                    file: "reports/WordXmlPartNames.al",
+                    lines: "647,663,679",
+                },
+            ],
+            Gate::OtherRecordOptionCaptionFrom29 => &[
+                Evidence {
+                    file: "pages/controls/SaOtherRecordControl.al",
+                    lines: "284,290,295,300",
+                },
+                // A control bound to another record's Option field: the caption from BC 29 (corpus PR 1135, al-runner issue 7005).
+                Evidence {
+                    file: "pages/controls/OtherRecordOptionMembers.al",
+                    lines: "154,163,203,212",
+                },
+            ],
+            Gate::EmptyActionViewEveryRowFrom28 | Gate::EmptyActionViewOneRowAgainFrom29 => &[Evidence {
+                file: "pages/actions/ActionFilterEmptyView.al",
+                lines: "236,261,287,310,332,353,376,404",
+            }],
             Gate::DefaultInterfaceMethodsFrom29 => &[
                 Evidence {
                     file: "codeunits/CwDefaultInterfaceMethods.al",
@@ -1213,6 +1247,15 @@ pub fn dev_endpoint_answers_unhandled_ui(bc_major: u16) -> Option<bool> {
         28 | 29 => Some(true),
         _ => None,
     }
+}
+
+/// Whether the member names that a page control bound to an Option field of another record variable shows before
+/// [`Gate::OtherRecordOptionCaptionFrom29`] are confirmed on Windows for `bc_major`: BC 28.5 on a Windows OnPrem container
+/// (al-runner issue 7005, the reporter's run) shows `Short` as the Linux CI legs do (corpus pages/controls/
+/// OtherRecordOptionMembers.al:146, corpus PR 1135; SaOtherRecordControl.al:13-15). BC 27 is measured on the
+/// Linux CI legs only, a Linux suspect: not confirmed.
+pub fn other_record_option_member_names_confirmed(bc_major: u16) -> bool {
+    bc_major == 28
 }
 
 /// Whether the platform tables of System.app that are `Scope = OnPrem`, internal or removed are known for

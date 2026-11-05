@@ -530,7 +530,11 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 // Format 1 names the table by its caption (record/crud/RcBMeta.al:572, :578, also under
                 // GlobalLanguage 1031); format 9 of a table in a namespace names it `[<namespace>.<name>]`
                 // (language/namespaces/P69NsConsumers.al:214, a name with spaces; :210 format 1 of the same table
-                // gives the plain name, which is its caption). The other numbers give the plain name (RcBMeta.al:570-574).
+                // gives the plain name, which is its caption), a one-word name too, and a name with a dot is quoted
+                // inside the brackets (corpus branch al-runtime-rs-staging-r6985, language/namespaces/
+                // R7003RecordIdFormat9.al: Format9_NamespacedOwnTables, Format9_BaseAppContactAndItem `[Microsoft.CRM.Contact.Contact]`;
+                // a table outside a namespace gives the plain name, Format9_TablesWithoutNamespace). The other numbers give
+                // the plain name (RcBMeta.al:570-574).
                 let shown = match standard {
                     1 | 9 => {
                         let Some((caption, namespace)) = ctx.record_id_table(*table) else {
@@ -538,13 +542,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                         };
                         match (standard, namespace) {
                             (1, _) => caption,
-                            (_, Some(ns)) if name.contains(' ') => format!("[{ns}.{name}]"),
-                            (_, Some(_)) => {
-                                return Err(format!(
-                                    "Format(RecordId, 0, 9) of table {name} in a namespace, whose name has no space (whether it is bracketed is not pinned)"
-                                )
-                                .into());
-                            }
+                            (_, Some(ns)) => format!("[{ns}.{}]", recordid_number::namespaced_name(name)?),
                             (_, None) => name.clone(),
                         }
                     }

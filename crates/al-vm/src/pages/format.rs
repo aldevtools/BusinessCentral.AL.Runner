@@ -195,14 +195,18 @@ impl Session {
             if let Some(c) = has("OptionCaption").filter(|_| {
                 ctl.prop("optioncaption").is_none() && ctl.prop("optioncaptionml").is_none() && self.has_source(st)
             }) {
-                // BC 27 and 28 show the member names on the Linux CI legs only, a Linux suspect (`Gate::OtherRecordOptionCaptionFrom29`).
-                if !self.has(al_version::Gate::OtherRecordOptionCaptionFrom29) {
+                // Before BC 29 such a control shows the member names (`Gate::OtherRecordOptionCaptionFrom29`), confirmed on Windows for
+                // BC 28 only (al-runner issue 7005; pages/controls/OtherRecordOptionMembers.al:146 OtherRecordOption_OneRow_Values `[Short]`);
+                // BC 27 is seen on the Linux CI legs only, a Linux suspect.
+                if !self.other_record_option_shown(st) {
                     return unsupported(format!(
                         "a control bound to Option field {} of another record variable on a BC version before the gate OtherRecordOptionCaptionFrom29 (the member names were seen on Linux only; not pinned)",
                         vf.name
                     ));
                 }
-                var_captions = Some(c);
+                if self.has(al_version::Gate::OtherRecordOptionCaptionFrom29) {
+                    var_captions = Some(c);
+                }
             }
         }
         // The field whose DecimalPlaces and AutoFormat the control takes, and the record its AutoFormatExpression reads.
