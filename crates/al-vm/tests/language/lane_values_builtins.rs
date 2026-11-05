@@ -723,7 +723,7 @@ codeunit 50220 C
 #[test]
 fn read_as_of_an_uninitialized_content_runs_only_the_two_pinned_shapes() {
     // http/HttpRequest.al:220 (FreshRequestContent): `Req.Content.ReadAs(Txt)` with its result used answers No and leaves
-    // the text. http/PnE12HttpContent.al:205: the same call as a statement raises. json/W4XmlJsonHttp.al:342-343
+    // the text. http/PnE12HttpContent.al:192: the same call as a statement raises. json/W4XmlJsonHttp.al:342-343
     // (RequestWithoutContent_ReadAs): a copy in a variable, called as a statement, raises
     // (read_as_of_an_uninitialized_content_as_a_statement_raises). A copy with the result used is pinned by none, so it is refused.
     let r = |routine: &str| out(al_testkit::run_in(READ_AS_SHAPES, "C", routine));
