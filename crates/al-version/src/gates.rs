@@ -27,6 +27,12 @@ const REPORT_SAVE_AS_INHERENT_PERMISSIONS_EVIDENCE: &[Evidence] = &[
     },
 ];
 
+/// Evidence of [`Gate::LegacyStatisticsActionGoneFrom29`]; a constant so `Gate::evidence` stays under its length cap.
+const LEGACY_STATISTICS_EVIDENCE: &[Evidence] = &[Evidence {
+    file: "pages/statistics-compatibility/TestStatisticsCompatibility.al",
+    lines: "9",
+}];
+
 /// Evidence of [`Gate::PermissionShapeProbesFrom28`]; a constant so `Gate::evidence` stays under its length cap.
 const PERMISSION_SHAPE_PROBES_EVIDENCE: &[Evidence] = &[
     Evidence {
@@ -324,6 +330,11 @@ pub enum Gate {
     /// and 28.5 (al-language-onprem-dotnet/dotnet/runonclient/BgRunOnClient.al:443-447,
     /// Y16_RunOnClient_AssignBetweenClientAndServerVariables). Consumed by `al-vm` dotnet/mod.rs `run_on_client_assign`.
     DotNetRuntime10From29,
+    /// Base Application's `Sales Order List` and `Sales Invoice` pages have no `Statistics` action from BC 29 (replaced by
+    /// `SalesOrderStatistics` and `SalesStatistics`): a page extension anchored on it and a TestPage member that names it
+    /// do not compile there (pages/statistics-compatibility/TestStatisticsCompatibility.al:9, must-not-compile cases 2971
+    /// and 2972, corpus PR 1152). An app difference the compile of Microsoft's source shows; not consumed.
+    LegacyStatisticsActionGoneFrom29,
     /// A list action that deletes two or three worksheet lines of a filtered page and leaves Rec on a key no row has runs
     /// OnNewRecord and OnAfterGetCurrRecord once on BC 28, twice on BC 27 and from BC 29 (pages/lt-outside-worksheet-2/
     /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`; two lines:
@@ -455,6 +466,7 @@ impl Gate {
         Gate::JpegMediaSetKeptFrom29,
         Gate::ExceptionTraceValueTaskFrameFrom29,
         Gate::DotNetRuntime10From29,
+        Gate::LegacyStatisticsActionGoneFrom29,
     ];
 
     /// The first BC major with the new behaviour.
@@ -497,7 +509,8 @@ impl Gate {
             | Gate::MarkedSecondaryKeyMovesAgainFrom29
             | Gate::EmptyActionViewOneRowAgainFrom29
             | Gate::ExceptionTraceValueTaskFrameFrom29
-            | Gate::DotNetRuntime10From29 => 29,
+            | Gate::DotNetRuntime10From29
+            | Gate::LegacyStatisticsActionGoneFrom29 => 29,
             Gate::ReportSaveAsDataItemIdentity
             | Gate::FeatureKeyListChangedFrom28
             | Gate::FromBase64InvalidTextRaises
@@ -774,6 +787,7 @@ impl Gate {
                 lines: "9",
             }],
             Gate::ReportSaveAsInherentPermissionsFrom29 => REPORT_SAVE_AS_INHERENT_PERMISSIONS_EVIDENCE,
+            Gate::LegacyStatisticsActionGoneFrom29 => LEGACY_STATISTICS_EVIDENCE,
             Gate::ObsoleteRequiredPendingAttributeFrom29 => &[Evidence {
                 file: "reports/runtime/ACAttributes.al",
                 lines: "146",

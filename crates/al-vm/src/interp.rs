@@ -1478,7 +1478,6 @@ impl Session {
                                             file: false,
                                             dotnet_view: 0,
                                             unread_content: false,
-                                            assign_copied: false,
                                         },
                                     )))
                                 }
