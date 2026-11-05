@@ -511,3 +511,149 @@ codeunit 95724 T
     );
     run(&objects);
 }
+
+/// Issue 6990: a filter() element over a Count, Lookup or Exist FlowField of a left-outer-joined child filters the joined rows by
+/// the value calculated per row, with the flow filters of the item; a parent without a child meets it with the field's default
+/// (0, blank, false). ColumnName gives the element's name.
+/// Pins: QueryOuterFlowFilters.al OuterFilterElem_ColumnName, OuterFilterElem_Count_Rows, OuterFilterElem_LookupExist_Rows,
+/// InnerFilterElem_CountLookupExist_Rows.
+#[test]
+fn issue_6990_filter_element_over_flowfield_of_outer_joined_item() {
+    let query = |id: u32, name: &str, join: &str| {
+        format!(
+            r#"
+query {id} "{name}"
+{{
+    OrderBy = ascending(PId), ascending(CId);
+    elements
+    {{
+        dataitem(Parent; "QOF Parent")
+        {{
+            column(PId; Id) {{ }}
+            dataitem(Child; "QOF Child")
+            {{
+                DataItemLink = ParentId = Parent.Id;
+                SqlJoinType = {join};
+                column(CId; Id) {{ }}
+                filter(FCnt; Cnt) {{ }}
+                filter(FRef; RefName) {{ }}
+                filter(FHas; HasDetail) {{ }}
+                filter(DayF; "Day Filter") {{ }}
+            }}
+        }}
+    }}
+}}"#
+        )
+    };
+    let objects = format!(
+        "{}{}{}",
+        query(95719, "QOF Outer Filter Elem", "LeftOuterJoin"),
+        query(95720, "QOF Inner Filter Elem", "InnerJoin"),
+        r#"
+codeunit 95725 T
+{
+    Subtype = Test;
+
+    local procedure Outer(var Q: Query "QOF Outer Filter Elem") Rows: Text
+    begin
+        Q.Open();
+        while Q.Read() do
+            Rows += Format(Q.PId) + ':' + Format(Q.CId) + ' ';
+        Q.Close();
+    end;
+
+    local procedure Inner(var Q: Query "QOF Inner Filter Elem") Rows: Text
+    begin
+        Q.Open();
+        while Q.Read() do
+            Rows += Format(Q.PId) + ':' + Format(Q.CId) + ' ';
+        Q.Close();
+    end;
+
+    local procedure Check(Name: Text; Got: Text; Expected: Text)
+    begin
+        if Got <> Expected then
+            Error('%1: got [%2], expected [%3]', Name, Got, Expected);
+    end;
+
+    [Test]
+    procedure ColumnNames()
+    var
+        Q: Query "QOF Outer Filter Elem";
+    begin
+        Check('FCnt', Q.ColumnName(Q.FCnt), 'FCnt');
+        Check('FRef', Q.ColumnName(Q.FRef), 'FRef');
+        Check('FHas', Q.ColumnName(Q.FHas), 'FHas');
+        Check('DayF', Q.ColumnName(Q.DayF), 'DayF');
+    end;
+
+    [Test]
+    procedure OuterCount()
+    var
+        Seeder: Codeunit "QOF Seed";
+        Q: Query "QOF Outer Filter Elem";
+    begin
+        Seeder.Seed();
+        Check('no filter', Outer(Q), '1:10 1:11 2:0 3:30 4:40 ');
+        Clear(Q);
+        Q.SetFilter(FCnt, '>0');
+        Check('FCnt >0', Outer(Q), '1:10 1:11 4:40 ');
+        Clear(Q);
+        Q.SetRange(FCnt, 0);
+        Check('FCnt 0', Outer(Q), '2:0 3:30 ');
+        Clear(Q);
+        Q.SetRange(FCnt, 2);
+        Check('FCnt 2', Outer(Q), '1:10 4:40 ');
+        Clear(Q);
+        Q.SetRange(DayF, 1);
+        Q.SetRange(FCnt, 1);
+        Check('DayF 1 FCnt 1', Outer(Q), '1:10 1:11 4:40 ');
+    end;
+
+    [Test]
+    procedure OuterLookupExist()
+    var
+        Seeder: Codeunit "QOF Seed";
+        Q: Query "QOF Outer Filter Elem";
+    begin
+        Seeder.Seed();
+        Q.SetFilter(FRef, 'Ref*');
+        Check('FRef Ref*', Outer(Q), '1:10 3:30 ');
+        Clear(Q);
+        Q.SetRange(FRef, '');
+        Check('FRef blank', Outer(Q), '1:11 2:0 4:40 ');
+        Clear(Q);
+        Q.SetRange(FHas, true);
+        Check('FHas true', Outer(Q), '1:10 1:11 4:40 ');
+        Clear(Q);
+        Q.SetRange(FHas, false);
+        Check('FHas false', Outer(Q), '2:0 3:30 ');
+    end;
+
+    [Test]
+    procedure InnerCountLookupExist()
+    var
+        Seeder: Codeunit "QOF Seed";
+        Q: Query "QOF Inner Filter Elem";
+    begin
+        Seeder.Seed();
+        Check('no filter', Inner(Q), '1:10 1:11 3:30 4:40 ');
+        Clear(Q);
+        Q.SetRange(FCnt, 0);
+        Check('FCnt 0', Inner(Q), '3:30 ');
+        Clear(Q);
+        Q.SetRange(DayF, 1);
+        Q.SetRange(FCnt, 1);
+        Check('DayF 1 FCnt 1', Inner(Q), '1:10 1:11 4:40 ');
+        Clear(Q);
+        Q.SetRange(FRef, '');
+        Check('FRef blank', Inner(Q), '1:11 4:40 ');
+        Clear(Q);
+        Q.SetRange(FHas, false);
+        Check('FHas false', Inner(Q), '3:30 ');
+    end;
+}
+"#
+    );
+    run(&objects);
+}
