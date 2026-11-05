@@ -1358,16 +1358,10 @@ fn test_inner(
         source_root: source_root(),
         // Under the same cache root as the apps when the user chose one (issue 5747).
         cache_dir: al_testrun::dotnet::sidecar_cache_dir_from_env(a.cache_dir.as_deref()),
-        // ADR-014 section 3, step 2: after the user's folders, the service tier of the platform artifact in use.
-        assembly_dirs: al_testrun::dotnet::probe_dirs(
-            &a.dotnet_assembly_dirs,
-            al_deps::cache::bcartifacts_sandbox_from_env().as_deref(),
-            bc_build.as_deref(),
-            u32::from(chosen.target.bc.major),
-        ),
         allow_roll_forward: a.dotnet_allow_roll_forward,
         timeout: Duration::from_secs(a.dotnet_timeout_secs.unwrap_or(60)),
-        ..Default::default()
+        // ADR-014 section 3, step 2 and issue 6924: the user's folders, an extracted artifact, then fetched assemblies.
+        ..crate::service_tier::dotnet_dirs(a, dependencies.build.as_ref(), u32::from(chosen.target.bc.major))
     }));
     if a.require_dotnet {
         if let Err(why) = host.availability() {

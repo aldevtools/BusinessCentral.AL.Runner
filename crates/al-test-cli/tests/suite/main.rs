@@ -37,6 +37,7 @@ mod data_fixes;
 mod deferred_insert_at_test_end;
 mod dependency_positions;
 mod dotnet_diff;
+mod dotnet_service_tier;
 mod dotnet_sidecar;
 mod dotnet_typed_values;
 mod drilldown_lookup;

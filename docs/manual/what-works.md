@@ -111,6 +111,20 @@ tests are not run, with the reason, and the exit code is 8. `--require-dotnet` t
 a missing helper into an error, for CI. Arbitrary .NET that reaches the machine
 (`System.IO.File`, `System.Net`, `Process`, the registry) is refused by a policy list.
 
+`DotNet` types of the Business Central service tier, such as
+`Microsoft.Dynamics.Nav.OpenXml` (Excel export), need the service-tier DLLs of the
+BC build in use. AL Runner looks for them in this order:
+
+1. The folders you pass with `--dotnet-assembly-dir DIR`.
+2. An artifact that BcContainerHelper extracted to `~/.bcartifacts.cache/sandbox`.
+3. Its own artifact cache, `<cache>/artifacts/<build>/service`.
+
+When neither of the first two has the DLL, AL Runner downloads it into its cache the
+first time a test uses the type. It takes only that DLL and the service-tier DLLs it
+references, read from Microsoft's platform artifact like the apps. For
+`WorkbookWriter` that is seven files: about 2.4 MB to download, 7.9 MB on disk.
+`--no-download` turns this off. Then only a platform artifact already in the cache is used.
+
 One exception is modeled instead of refused: `System.Environment.GetEnvironmentVariable`
 answers "not set" for every variable, as a Business Central container that sets none.
 AL reads the answer as an empty text. AL Runner never reads your machine's environment,

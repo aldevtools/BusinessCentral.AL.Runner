@@ -159,7 +159,10 @@ block names an assembly and a type. At run time `NavAutomationHelper` calls
   in `AlRunner/DependencyLoader.cs` and is pinned by a test when implemented.
 - The service-tier folder comes from the platform package that ADR-013 selects
   for the run, stored in the same cache outside the repo. Nothing from
-  Microsoft is committed (hard rule 7).
+  Microsoft is committed (hard rule 7). Since 2026-11-05 (al-runner issue 6924): when no
+  extracted artifact is on disk, the assembly a type names and the service-tier
+  assemblies it references are fetched by range from the platform artifact
+  into `<cache>/artifacts/<build>/service` on first use (`al_deps::service_tier`).
 - **Compile time.** Compilation never starts the sidecar. AL0296 (Cloud target
   uses `DotNet`) is checked from `app.json`, for apps we compile that are not
   Microsoft's. AL0185 (type missing) is **not** reproduced statically. BC would
