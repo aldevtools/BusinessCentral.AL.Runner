@@ -192,6 +192,48 @@ impl Baseline {
         Some(self.fingerprint_apart(&[])?.whole())
     }
 
+    /// [`Baseline::with_delta`] for a run that did not see what the table objects `apart` held at its start (al-testrun
+    /// `suite_rows.rs`, the Test Runner's tables), each given with the position of its AutoIncrement field: such a run
+    /// empties each table and writes its rows with keys it chose, so it raises the table's counter to the largest value
+    /// it wrote (al-vm `autoinc.rs` `note_explicit_key`) and the counter it left depends on its start. Here each such
+    /// counter is set as that run from this baseline leaves it: the larger of this baseline's counter (or, without one,
+    /// the floor of the test data's rows, as `autoinc.rs` reads it) and the largest value the rows the delta writes hold
+    /// in the field. A table the delta does not write keeps its counter.
+    pub fn with_delta_apart(&self, delta: &Delta, apart: &[(u32, usize)]) -> Option<Baseline> {
+        let mut b = self.with_delta(delta)?;
+        for &(object, field) in apart {
+            for (company, _) in delta.tables.keys().filter(|(_, o)| *o == object) {
+                let slot = (company.clone(), object);
+                let (t, _) = b.store.committed_table(company, object)?;
+                let mut wrote = 0_i64;
+                for (_, row) in &t.rows {
+                    wrote = wrote.max(match row.get(field)? {
+                        al_builtins::value::Value::Integer(i) => i64::from(*i),
+                        al_builtins::value::Value::BigInteger(i) => *i,
+                        _ => return None,
+                    });
+                }
+                match self.autoinc.get(&slot) {
+                    Some(&at) => {
+                        b.autoinc.insert(slot, at.max(wrote));
+                    }
+                    None => {
+                        let floor = self
+                            .store
+                            .backed_rows(company, object)
+                            .map_or(0, |r| r.auto_increment_floor());
+                        if wrote > floor {
+                            b.autoinc.insert(slot, wrote);
+                        } else {
+                            b.autoinc.remove(&slot);
+                        }
+                    }
+                }
+            }
+        }
+        Some(b)
+    }
+
     /// The [`Baseline::fingerprint`] in two parts: everything but the committed rows of the table objects `apart` (in
     /// any company), and those rows. Two baselines whose first parts are equal start a session the same way but for
     /// the rows of `apart`: a run that empties those tables before anything reads them starts the same way from both
@@ -215,6 +257,22 @@ impl Baseline {
                 }
                 gone.push((company, object));
             }
+        }
+        // Their AutoIncrement counters (`Baseline::with_delta_apart`).
+        let mut counters: Vec<((String, u32), i64)> = Vec::new();
+        b.autoinc.retain(|k, v| {
+            let keep = !apart.contains(&k.1);
+            if !keep {
+                counters.push((k.clone(), *v));
+            }
+            keep
+        });
+        counters.sort();
+        put_u32(&mut rows, counters.len() as u32);
+        for ((company, object), last) in counters {
+            put_str(&mut rows, &company);
+            put_u32(&mut rows, object);
+            put_i64(&mut rows, last);
         }
         if !gone.is_empty() {
             b.store = b.store.with_committed_tables(Vec::new(), &gone);
@@ -318,8 +376,65 @@ mod tests {
         assert_ne!(fa.rows, fb.rows);
         // Without the table at all the rest is the same too; another table's rows are not apart.
         assert_eq!(start.fingerprint_apart(&[130450]).unwrap().main, fa.main);
-        assert_eq!(start.fingerprint_apart(&[130450]).unwrap().rows, Vec::<u8>::new());
+        assert_eq!(
+            start.fingerprint_apart(&[130450]).unwrap().rows,
+            start.fingerprint_apart(&[]).unwrap().rows,
+            "no rows and no counter apart"
+        );
         assert_eq!(a.fingerprint_apart(&[]).unwrap().whole(), a.fingerprint().unwrap());
         assert_ne!(start.fingerprint_apart(&[311]).unwrap().main, fa.main);
+        // The AutoIncrement counter of a table apart is apart too; another table's counter is not.
+        let mut c = a.clone();
+        c.autoinc.insert(("CRONUS".into(), 130450), 40_000);
+        let fc = c.fingerprint_apart(&[130450]).unwrap();
+        assert_eq!(fc.main, fa.main, "the counter of a table apart");
+        assert_ne!(fc.rows, fa.rows);
+        c.autoinc.insert(("CRONUS".into(), 311), 13);
+        assert_ne!(c.fingerprint_apart(&[130450]).unwrap().main, fa.main);
+    }
+
+    /// A run that empties a table apart and writes its rows with keys it chose, from another start: applied with
+    /// `with_delta_apart`, the table's AutoIncrement counter is what the run would leave from this start, the larger
+    /// of this start's counter and the largest value the rows hold in the counter's field.
+    #[test]
+    fn a_delta_applied_apart_raises_the_counter_of_a_table_apart_as_the_run_from_here_would() {
+        let start = sample();
+        let lines = |keys: &[i32]| {
+            vec![(
+                al_data::memory::ExportedTable {
+                    company: "CRONUS".into(),
+                    object: 130450,
+                    rows: keys
+                        .iter()
+                        .map(|&k| (vec![Value::Integer(k)], vec![Value::Integer(k), Value::Integer(5)]))
+                        .collect(),
+                },
+                true,
+            )]
+        };
+        let slot = ("CRONUS".to_string(), 130450);
+        // The run ahead started where the counter was 90000 and wrote lines up to 20000: it left 90000.
+        let mut predicted = start.clone();
+        predicted.autoinc.insert(slot.clone(), 90_000);
+        let mut ran = predicted.clone();
+        ran.store = ran.store.clone().with_committed_tables(lines(&[10_000, 20_000]), &[]);
+        let d = ran.delta_from(&predicted).unwrap();
+        // From a start at 5000 the run leaves 20000; from one at 30000 it leaves 30000; from one without a counter 20000.
+        for (at, left) in [(Some(5_000), Some(20_000)), (Some(30_000), Some(30_000)), (None, Some(20_000))] {
+            let mut actual = start.clone();
+            match at {
+                Some(v) => actual.autoinc.insert(slot.clone(), v),
+                None => actual.autoinc.remove(&slot),
+            };
+            let b = actual.with_delta_apart(&d, &[(130450, 0)]).unwrap();
+            assert_eq!(b.autoinc.get(&slot).copied(), left, "from {at:?}");
+            assert_eq!(b.store.committed_table("CRONUS", 130450).unwrap().0.rows.len(), 2);
+        }
+        // Another table's counter is applied as it is.
+        let mut other = ran.clone();
+        other.autoinc.insert(("CRONUS".into(), 311), 99);
+        let d = other.delta_from(&predicted).unwrap();
+        let b = start.with_delta_apart(&d, &[(130450, 0)]).unwrap();
+        assert_eq!(b.autoinc.get(&("CRONUS".to_string(), 311)).copied(), Some(99));
     }
 }

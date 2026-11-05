@@ -228,7 +228,8 @@ fn a_unit_that_does_not_touch_the_runner_rows_before_the_reset_leaves_them_unsee
 #[test]
 fn a_test_that_reads_the_runner_rows_is_not_run() {
     let (engine, l) = compiled(&test_codeunit(60472, "if L.FindFirst() then;"));
-    let (out, _) = run_from(&engine, &l, 60472, None);
+    let (out, unseen) = run_from(&engine, &l, 60472, None);
+    assert!(!unseen, "what the test did to the rows may depend on what they held");
     assert_eq!(out.len(), 1);
     match &out[0].1 {
         Outcome::NotRun(why) => assert!(why.contains("Test Method Line") && why.contains("ADR-066"), "{why}"),
@@ -243,7 +244,8 @@ fn a_test_codeunit_whose_on_run_reads_the_runner_rows_runs_none_of_its_tests() {
         "Subtype = Test;\n    trigger OnRun() var S: Record \"AL Test Suite\"; begin if S.IsEmpty() then; end;",
     );
     let (engine, l) = compiled(&src);
-    let (out, _) = run_from(&engine, &l, 60473, None);
+    let (out, unseen) = run_from(&engine, &l, 60473, None);
+    assert!(!unseen, "what OnRun did to the rows may depend on what they held");
     match &out[0].1 {
         Outcome::NotRun(why) => assert!(why.starts_with("OnRun:") && why.contains("AL Test Suite"), "{why}"),
         other => panic!("{other:?}"),

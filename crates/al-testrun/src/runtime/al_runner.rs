@@ -139,6 +139,9 @@ impl Steps {
             return None;
         }
         let t = session.store_mut().watch_window_end()?;
+        // What the code did to the tables (an insert without a key reads their AutoIncrement counter) may depend on
+        // what they held at the unit's start: a run ahead of the carry chain is then taken only from the same rows.
+        super::suite_rows::note_unseen(false);
         Some(format!(
             "the test reads or writes the Test Runner's table \"{}\": on BC it holds the lines and results of the other \
              test codeunits of the run, which al-runner does not write (each test codeunit gets only its own lines; ADR-066 \

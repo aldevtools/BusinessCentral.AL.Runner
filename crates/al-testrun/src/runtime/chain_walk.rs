@@ -189,8 +189,9 @@ fn kept_of(left: Option<&super::run::Carried>, start: &al_vm::Baseline) -> Optio
 
 /// What a member that started from `start` (the state its run ahead started from, by fingerprint) and hands on
 /// `kept` leaves: what that run left, with its baseline rebuilt on the walk's thread as `start` with the run's delta
-/// applied. `None` when the delta does not apply to `start`.
-fn left_of(kept: &Kept, start: Option<&al_vm::Baseline>) -> Option<super::run::Carried> {
+/// applied, with the AutoIncrement counters of the tables `apart` raised as the run from `start` would leave them
+/// when given (`Baseline::with_delta_apart`). `None` when the delta does not apply to `start`.
+fn left_of(kept: &Kept, start: Option<&al_vm::Baseline>, apart: Option<&[(u32, usize)]>) -> Option<super::run::Carried> {
     match kept {
         Kept::Nothing => Some(super::run::Carried::nothing()),
         Kept::Left {
@@ -201,7 +202,10 @@ fn left_of(kept: &Kept, start: Option<&al_vm::Baseline>) -> Option<super::run::C
             storage_why,
             as_started,
         } => Some(super::run::Carried {
-            baseline: Some(start?.with_delta(delta)?),
+            baseline: Some(match apart {
+                Some(apart) => start?.with_delta_apart(delta, apart)?,
+                None => start?.with_delta(delta)?,
+            }),
             tables: tables.clone(),
             unfinished: unfinished.clone(),
             everything: *everything,
@@ -304,6 +308,17 @@ impl ChainWalk<'_> {
         super::suite_rows::tables(&self.engine.program).into_iter().collect()
     }
 
+    /// The tables of `apart` with an AutoIncrement field, with its position (`Baseline::with_delta_apart`).
+    fn counters(&self, apart: &[u32]) -> Vec<(u32, usize)> {
+        apart
+            .iter()
+            .filter_map(|&o| {
+                let fields = &self.engine.program.objects[o as usize].table.as_ref()?.fields;
+                Some((o, fields.iter().position(|f| f.auto_increment)?))
+            })
+            .collect()
+    }
+
     /// Tells member `k`'s hooks the events of its run ahead, in the order they happened.
     fn replay(&self, k: usize, events: Vec<HookEvent>) {
         let hooks = &self.units[k].hooks;
@@ -333,6 +348,7 @@ impl ChainWalk<'_> {
     ) -> Vec<Carry> {
         let (engine, lowered, units) = (self.engine, self.lowered, self.units);
         let apart = self.apart();
+        let counters = self.counters(&apart);
         let name_of = |oi: usize| lowered.program.objects[oi].name.clone();
         // Per suite, in id order: the codeunit id and what it left, with the tables of every one before it.
         let mut carried: Vec<Carry> = Vec::new();
@@ -381,10 +397,12 @@ impl ChainWalk<'_> {
                         });
                     }
                     // A run ahead from the walk's own state that left nothing or only numbers: its outcome is the serial one.
-                    let kept = ahead
-                        .as_ref()
-                        .and_then(|a| a.kept.as_ref())
-                        .and_then(|kept| left_of(kept, start));
+                    // Taken from a start whose Test Runner rows differ (its run did not see them): their AutoIncrement
+                    // counters are set as the run from the walk's start leaves them (`Baseline::with_delta_apart`).
+                    let kept = ahead.as_ref().and_then(|a| {
+                        let differ = a.start.as_deref().map(|f| &f.rows) != actual.as_ref().map(|f| &f.rows);
+                        left_of(a.kept.as_ref()?, start, differ.then_some(counters.as_slice()))
+                    });
                     let took_ahead = kept.is_some();
                     if took_ahead {
                         *track.taken.entry(si).or_default() += 1;

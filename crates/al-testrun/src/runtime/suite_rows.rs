@@ -54,7 +54,8 @@ std::thread_local! {
     static UNSEEN: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
 }
 
-fn note_unseen(unseen: bool) {
+/// Notes whether what the two tables held before [`write`] emptied them stayed unseen in this session ([`take_unseen`]).
+pub(crate) fn note_unseen(unseen: bool) {
     UNSEEN.with(|c| c.set(Some(c.get().unwrap_or(true) && unseen)));
 }
 
@@ -127,7 +128,13 @@ pub(crate) fn write(session: &mut Session, runner: usize, object: usize, selecte
     // of the unit can read a counter, a read before it does not reach the unit, and AL sees only the difference of two
     // reads (al-builtins `sqlcount.rs`: an absolute value is refused, two reads of different epochs subtract to
     // `SqlForm::Unknown`), so no difference a test takes spans the reset. The commit below empties the insert buffer
-    // either way (al-vm `sqlcount.rs` `SqlCounters::committed`).
+    // either way (al-vm `sqlcount.rs` `SqlCounters::committed`). The runner's own AL reads only the current codeunit's
+    // lines while its tests run, so it cannot see them either: Microsoft's Test Runner (BC 29, `Test Runner.Source.zip`)
+    // calls `PlatformBeforeTestRun`/`PlatformAfterTestRun` from runner 130450's OnBeforeTestRun/OnAfterTestRun with the
+    // suite and the codeunit's "Line No." filter (TestRunnerIsolCodeunit.Codeunit.al:28-40), and those read lines only
+    // through `GetTestCodeunit`, `GetTestFunction` and `UpdateCodeunitLine`, each filtered on "Test Suite", "Test
+    // Codeunit" and that filter (TestRunnerMgt.Codeunit.al:146-158, :215-241). The test's own code may not touch the
+    // tables at all (`al_runner.rs` `Steps::rows_touched`, ADR-066 decision 4).
     let mut unseen = !(engine.events.any_subscriber_of(lines) || engine.events.any_subscriber_of(suites));
     let both: std::collections::BTreeSet<u32> = [lines as u32, suites as u32].into();
     for t in [lines, suites] {

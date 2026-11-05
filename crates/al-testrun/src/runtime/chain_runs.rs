@@ -317,6 +317,39 @@ impl Runs {
             _ => None,
         };
         loop {
+            if std::env::var_os("AL_CHAIN_DEBUG").is_some() {
+                let d = |fp: Option<&al_vm::Fingerprint>| match (fp, actual) {
+                    (Some(fp), Some(a)) => {
+                        let first = fp.main.iter().zip(&a.main).position(|(x, y)| x != y);
+                        if let Some(i) = first {
+                            let show = |v: &[u8]| {
+                                let lo = i.saturating_sub(160);
+                                let hi = (i + 60).min(v.len());
+                                format!("{:?}", String::from_utf8_lossy(&v[lo..hi]))
+                            };
+                            eprintln!("DBG   pred: {}\nDBG   walk: {}", show(&fp.main), show(&a.main));
+                        }
+                        format!(
+                            "main_eq={} (len {} vs {}, first diff {:?}) rows_eq={}",
+                            fp.main == a.main,
+                            fp.main.len(),
+                            a.main.len(),
+                            first,
+                            fp.rows == a.rows
+                        )
+                    }
+                    _ => format!("fp={} actual={}", fp.is_some(), actual.is_some()),
+                };
+                match &s.slots[k] {
+                    Slot::Done(e, _, Some(a)) => {
+                        eprintln!("DBG take {k} epoch {epoch:?}/{e} done complete={} unseen={} {}", s.complete[k], a.unseen, d(a.start.as_deref()))
+                    }
+                    Slot::Done(e, _, None) => eprintln!("DBG take {k} epoch {epoch:?}/{e} done-none"),
+                    Slot::Running(e, _, fp) => eprintln!("DBG take {k} epoch {epoch:?}/{e} running complete={} {}", s.complete[k], d(fp.as_deref())),
+                    Slot::Pending => eprintln!("DBG take {k} pending"),
+                    Slot::Taken => eprintln!("DBG take {k} taken"),
+                }
+            }
             match std::mem::replace(&mut s.slots[k], Slot::Taken) {
                 Slot::Done(e, _, Some(a)) if same(&e, a.start.as_deref()).is_some_and(|rows| rows || a.unseen) => {
                     return (Some(*a), false);
