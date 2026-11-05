@@ -1256,7 +1256,7 @@ impl Session {
                     }
                 } =>
             {
-                Ok(Value::Null)
+                self.never_run_update(method, st, args)
             }
             PageMethod::Update | PageMethod::SaveRecord => {
                 self.require_open(st)?;

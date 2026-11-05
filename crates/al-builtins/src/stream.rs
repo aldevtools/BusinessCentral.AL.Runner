@@ -510,6 +510,8 @@ impl Encoding {
                     // WriteText_ExplicitEncodings_Bytes, streams/TestProbeStreamContracts.al `61 84 94 B1 00`).
                     '€' => 0xB1,
                     c if msdos_table_byte(c).is_some() => msdos_table_byte(c).expect("checked"),
+                    // π is written as `p` (streams/StTEncodings.al:UnmappableCharacters `msdos`: it reads back as `p`).
+                    'π' => b'p',
                     c => CP437_HIGH.iter().position(|u| *u == c).map_or(b'?', |i| 0x80 + i as u8),
                 })
                 .collect(),
@@ -525,6 +527,9 @@ impl Encoding {
                         // WD_CallStack_Collected_ToWindowsBlob, corpus branch al-runtime-rs-staging-1030c, al-runner issue
                         // 6310). Its bytes are not pinned: the mark is kept as its UTF-8 bytes, which `decode` reads back.
                         out.extend_from_slice(CALL_STACK_MARK_BYTES);
+                    } else if c == 'π' {
+                        // Written as `p` (streams/StTEncodings.al:UnmappableCharacters `windows`: it reads back as `p`).
+                        out.push(b'p');
                     } else {
                         out.push(
                             CP1252_HIGH
@@ -550,10 +555,10 @@ impl Encoding {
                 .iter()
                 .map(|&x| match x {
                     0..=0x7F => char::from(x),
-                    x => CP437_AS_READ
-                        .iter()
-                        .find(|(b, _)| *b == x)
-                        .map_or(CP437_HIGH[usize::from(x - 0x80)], |(_, c)| *c),
+                    // Every byte from 0x80 up reads as the Byte to Char table gives it (`conv::byte_char`): ReadText and BigText.Read of
+                    // each byte 128 to 255 (corpus branch al-runtime-rs-staging-r6963, streams/instream-outstream/
+                    // ReadTextMsDosHighBytes.al ReadText_NoEncoding_Bytes128To159, _160To191, _192To223, _224To255).
+                    x => char::from_u32(u32::from(crate::conv::byte_char::byte_to_char(x))).unwrap_or('?'),
                 })
                 .collect(),
             Encoding::Windows => {
@@ -590,7 +595,9 @@ impl Encoding {
     }
 
     /// Whether `encode` of `t` is pinned: ASCII, the characters code page 1252 has for a Windows stream, and for an MS-DOS
-    /// stream the characters of code page 437 and the euro sign.
+    /// stream the characters of the Byte to Char table (which read back from their byte, `decode`), the euro sign and π. A code
+    /// page 437 character outside the table (a box-drawing or Greek letter) would be written as its code page 437 byte, which
+    /// reads back as another character: not pinned.
     pub fn encode_pinned(self, t: &str) -> bool {
         t.is_ascii()
             || match self {
@@ -600,10 +607,13 @@ impl Encoding {
                     t.contains(crate::native::CALL_STACK_MARK)
                         && t.chars().all(|c| c.is_ascii() || c == crate::native::CALL_STACK_MARK)
                 }
-                Encoding::Windows => self.decode(&self.encode(t)) == *t,
+                Encoding::Windows => t.chars().all(|c| {
+                    let one = c.to_string();
+                    c == 'π' || self.decode(&self.encode(&one)) == one
+                }),
                 Encoding::MsDos => t
                     .chars()
-                    .all(|c| c.is_ascii() || c == '€' || CP437_HIGH.contains(&c) || msdos_table_byte(c).is_some()),
+                    .all(|c| c.is_ascii() || c == '€' || c == 'π' || msdos_table_byte(c).is_some()),
                 _ => false,
             }
     }
@@ -1161,7 +1171,7 @@ pub(crate) fn read_all_text(stream: &mut Value) -> Result<String, Signal> {
             Encoding::Utf16 if body.len() % 2 != 0 => {
                 unsupported("BigText.Read of a UTF-16 stream with an odd number of bytes (not pinned)")
             }
-            _ if !enc.decode_pinned(body) => unsupported("BigText.Read of MS-DOS bytes whose character is not pinned"),
+            // Every MS-DOS byte reads as `decode` gives (ReadTextMsDosHighBytes.al, corpus branch al-runtime-rs-staging-r6963).
             _ => Ok(enc.decode(body)),
         }
     })
@@ -1339,7 +1349,9 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
             // XpTExportBasic.al:Export_ThreeRows: the UTF-16 bytes of an export).
             let invalid_utf8 = enc == Encoding::Utf8 && std::str::from_utf8(&line).is_err();
             (
-                (!invalid_utf8 && enc.decode_pinned(&line)).then(|| enc.decode(&line)),
+                // Every MS-DOS byte reads as `decode` gives (ReadTextMsDosHighBytes.al, corpus branch
+                // al-runtime-rs-staging-r6963).
+                if invalid_utf8 { String::new() } else { enc.decode(&line) },
                 consumed,
                 invalid_utf8,
             )
@@ -1353,9 +1365,6 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
                 ..Default::default()
             })));
         }
-        let Some(text) = text else {
-            return unsupported("InStream.ReadText of MS-DOS bytes whose character is not pinned");
-        };
         s.pos = pos + consumed;
         enc_used = enc;
         Ok(text)
@@ -2237,6 +2246,24 @@ mod blob_cell_tests {
     }
 
     // streams/TestStreamsRuntimeContracts.al:WriteText_ExplicitEncodings_Bytes, streams/StTEncodings.al:RoundTripSameEncoding and
+    /// π is written as `p` on an MS-DOS and a Windows stream (streams/StTEncodings.al:UnmappableCharacters); a box-drawing
+    /// character of code page 437 is not pinned.
+    #[test]
+    fn pi_is_written_as_p() {
+        assert_eq!(Encoding::MsDos.encode("aπb"), b"apb".to_vec());
+        assert_eq!(Encoding::Windows.encode("aπb"), b"apb".to_vec());
+        assert!(Encoding::MsDos.encode_pinned("π") && Encoding::Windows.encode_pinned("π"));
+        assert!(!Encoding::MsDos.encode_pinned("\u{2500}"));
+    }
+
+    /// The bytes pinned earlier one by one (`CP437_AS_READ`) read as the full table says.
+    #[test]
+    fn the_earlier_pins_agree_with_the_msdos_table() {
+        for (b, c) in CP437_AS_READ {
+            assert_eq!(Encoding::MsDos.decode(&[b]), c.to_string(), "{b:#x}");
+        }
+    }
+
     // CrossEncodingUtf8ToOthers: the default encoding is code page 437.
     #[test]
     fn the_default_encoding_is_code_page_437() {

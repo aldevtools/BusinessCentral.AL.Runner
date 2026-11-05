@@ -160,6 +160,12 @@ pub enum Res {
         ext: usize,
         name: String,
     },
+    /// `Other.<protected var>` in a table extension, where `Other` is a record of the extended table: the variable of table or
+    /// table extension `object` (an object index) on that record, by lower-case name (al-runner issue 6984).
+    RecGlobal {
+        object: usize,
+        name: String,
+    },
     /// `this.<protected variable of the base>` in an extension, by lower-case name: BC compiles it and raises when it
     /// runs (types/PYThisExtensions.al:ReportExtension_ThisBaseVariable_ReadInATrigger).
     ThisBaseGlobal(String),
@@ -1435,6 +1441,7 @@ mod infer;
 mod member;
 mod object;
 pub(crate) mod posmap;
+mod protected_member;
 pub mod tdd;
 pub mod tdd_decl;
 #[cfg(test)]

@@ -4521,3 +4521,35 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "Columns");
     assert!(not_run(&o, "DecimalColumn").contains("column Amt"));
 }
+
+// A not-equal filter on FieldName, an `&` of them, a comparison and a range leave out the timestamp row, with or without the
+// Class, Enabled and ObsoleteState filters (al-runner issue 6995; metadata/FieldNameNotEqualFilter.al:57-120, staging r6980). The rows
+// from 2000000005 on (SystemCreatedByUserName and the like, which BC 29 adds) are left out, as in the probe.
+#[test]
+fn not_equal_filters_on_the_field_name_leave_out_the_rowversion_row() {
+    let o = outcomes(
+        r#"table 50005 "Ne Probe" { fields { field(1; "Code"; Code[10]) { } field(2; Name; Text[30]) { } field(3; Amount; Decimal) { } }
+  keys { key(PK; "Code") { } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Rows(var Fld: Record Field): Text var s: Text; begin
+    if not Fld.FindSet() then exit('none');
+    repeat if Fld."No." < 2000000005 then s += Format(Fld."No.") + ':' + Fld.FieldName + ' '; until Fld.Next() = 0;
+    exit(s.TrimEnd()); end;
+  [Test] procedure FourNames() var Fld: Record Field; s: Text; begin
+    Fld.SetRange(TableNo, 50005);
+    Fld.SetFilter(FieldName, '<>%1&<>%2&<>%3&<>%4', 'SystemCreatedAt', 'SystemModifiedAt', 'SystemCreatedBy', 'SystemModifiedBy');
+    s := Rows(Fld);
+    Fld.SetRange(Class, Fld.Class::Normal); Fld.SetRange(Enabled, true); Fld.SetRange(ObsoleteState, Fld.ObsoleteState::No);
+    s += '|' + Rows(Fld);
+    if s <> '1:Code 2:Name 3:Amount 2000000000:$systemId|1:Code 2:Name 3:Amount 2000000000:$systemId' then Error(s); end;
+  [Test] procedure OtherForms() var Fld: Record Field; s: Text; begin
+    Fld.SetRange(TableNo, 50005);
+    Fld.SetFilter(FieldName, '<>%1', 'timestamp'); s := Rows(Fld);
+    Fld.SetFilter(FieldName, '<%1', 'Name'); s += '|' + Rows(Fld);
+    Fld.SetFilter(FieldName, '%1..%2', 'A', 'z'); s += '|' + Rows(Fld);
+    if s <> '1:Code 2:Name 3:Amount 2000000000:$systemId 2000000001:SystemCreatedAt 2000000002:SystemCreatedBy 2000000003:SystemModifiedAt 2000000004:SystemModifiedBy|1:Code 3:Amount 2000000000:$systemId|1:Code 2:Name 3:Amount 2000000001:SystemCreatedAt 2000000002:SystemCreatedBy 2000000003:SystemModifiedAt 2000000004:SystemModifiedBy' then Error(s); end; }"#,
+    );
+    for t in ["FourNames", "OtherForms"] {
+        passes(&o, t);
+    }
+}

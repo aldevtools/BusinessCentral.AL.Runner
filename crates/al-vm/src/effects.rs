@@ -266,7 +266,8 @@ impl Walk<'_> {
                 }
                 self.place(inner, at, inst)
             }
-            Place::Field(inner, _) => self.place(inner, at, inst),
+            // A variable of a record's table or table extension instance lives as long as the record variable.
+            Place::Field(inner, _) | Place::RecGlobal(inner, ..) => self.place(inner, at, inst),
         }
     }
 
@@ -281,7 +282,7 @@ impl Walk<'_> {
                 Place::Local(_) => return Inst::Transient,
                 Place::Global(_) => return inst,
                 Place::BaseGlobal(_) | Place::ExtGlobal(..) => return Inst::Lasting,
-                Place::Index(inner, _) | Place::Field(inner, _) => p = inner,
+                Place::Index(inner, _) | Place::Field(inner, _) | Place::RecGlobal(inner, ..) => p = inner,
             }
         }
     }

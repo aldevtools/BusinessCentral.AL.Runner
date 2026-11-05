@@ -1066,6 +1066,31 @@ impl Session {
         })
     }
 
+    /// The instance of table or table extension `object` on the record in place `base` (`Other.<protected var>` in a table
+    /// extension, al-runner issue 6984): the one the record's calls run on, made and kept in the record when it has none yet
+    /// (ADR-021 per-record instances; corpus PR 1126, table-objects/extensions/ProtectedVarCrossApp.al).
+    fn record_instance(
+        &mut self,
+        base: &ir::Place,
+        object: usize,
+        f: &mut Frame,
+    ) -> Result<Rc<RefCell<Instance>>, Signal> {
+        let Value::Record(rec) = self.read(base, f)? else {
+            return Err(Signal::Unsupported(
+                "internal error: a protected variable named through a record variable that holds no record".into(),
+            ));
+        };
+        let existing = rec.borrow().globals.instance(object as u32);
+        Ok(match existing {
+            Some(i) => i,
+            None => {
+                let i = self.table_instance(object);
+                rec.borrow().globals.set_instance(object as u32, i.clone());
+                i
+            }
+        })
+    }
+
     /// The declared type of a local, a global, or an element of an array of those, by reference.
     pub(crate) fn place_ty<'a>(&'a self, p: &ir::Place, f: &Frame) -> Option<&'a RtType> {
         match p {
@@ -1149,6 +1174,7 @@ impl Session {
                 Err(_) => RtType::Variant,
             },
             ir::Place::ExtGlobal(e, i) => self.engine.program.objects[*e].globals[*i].ty.clone(),
+            ir::Place::RecGlobal(_, o, i) => self.engine.program.objects[*o].globals[*i].ty.clone(),
             ir::Place::Index(base, _) => match self.place_type(base, f) {
                 RtType::Array(_, el) => *el,
                 other => other,
@@ -1223,6 +1249,11 @@ impl Session {
             ir::Place::ExtGlobal(e, i) => {
                 let ext = self.sibling_instance(f, *e)?;
                 let v = ext.borrow().globals.get(*i).cloned();
+                v.ok_or_else(|| base_slot_missing(*i))
+            }
+            ir::Place::RecGlobal(base, o, i) => {
+                let inst = self.record_instance(base, *o, f)?;
+                let v = inst.borrow().globals.get(*i).cloned();
                 v.ok_or_else(|| base_slot_missing(*i))
             }
             ir::Place::Index(base, idx) => {
@@ -1518,6 +1549,14 @@ impl Session {
             ir::Place::ExtGlobal(e, i) => {
                 let ext = self.sibling_instance(f, *e)?;
                 let mut b = ext.borrow_mut();
+                match b.globals.get_mut(*i) {
+                    Some(slot) => *slot = v,
+                    None => return Err(base_slot_missing(*i)),
+                }
+            }
+            ir::Place::RecGlobal(base, o, i) => {
+                let inst = self.record_instance(base, *o, f)?;
+                let mut b = inst.borrow_mut();
                 match b.globals.get_mut(*i) {
                     Some(slot) => *slot = v,
                     None => return Err(base_slot_missing(*i)),

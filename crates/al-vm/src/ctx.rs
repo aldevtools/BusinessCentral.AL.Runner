@@ -516,12 +516,14 @@ impl al_builtins::native::Ctx for Session {
                     Err(_) => Err(format!("the caption of field {}", f.name)),
                 };
                 let options = match &f.ty {
-                    al_builtins::value::RtType::Option(_) => match self.members_of_field(&def, pos) {
-                        Ok(Some((false, members))) => Ok(Some(members.into_iter().map(|m| (m.1, m.2)).collect())),
-                        Ok(_) => Err(format!("the members of Option field {}", f.name)),
-                        Err(Signal::Unsupported(why)) => Err(why),
-                        Err(_) => Err(format!("the members of Option field {}", f.name)),
-                    },
+                    al_builtins::value::RtType::Option(_) | al_builtins::value::RtType::Enum(_) => {
+                        match self.members_of_field(&def, pos) {
+                            Ok(Some((_, members))) => Ok(Some(members)),
+                            Ok(None) => Err(format!("the members of Option field {}", f.name)),
+                            Err(Signal::Unsupported(why)) => Err(why),
+                            Err(_) => Err(format!("the members of Option field {}", f.name)),
+                        }
+                    }
                     _ => Ok(None),
                 };
                 TableFilterField {
