@@ -184,6 +184,12 @@ impl Session {
                     })
                     .collect()
             };
+            // A TAB inside a value: the evaluate error of such a value shows the TAB as a space (XpSeparatorTokens.al
+            // VariableText_Import_SepTabLower_Plain, corpus branch al-runtime-rs-staging-r6963, `1 Alpha`); where BC changes it is not
+            // pinned.
+            if variable && values.iter().any(|v| v.contains('\t')) {
+                return unsupported("a TAB inside a VariableText value (not pinned)");
+            }
             if xp.preserve_whitespace && variable {
                 if let Some(v) = values.iter().find(|v| {
                     v.as_str() != v.trim() && (fdelim.is_empty() || !line.contains(&format!("{fdelim}{v}{fdelim}")))
@@ -479,14 +485,25 @@ pub(super) fn text_separator(value: Option<&str>, default: &str) -> Result<Strin
             rest = "";
             break;
         };
-        match rest[start + 1..start + end].to_ascii_uppercase().as_str() {
+        // The tokens are case-sensitive, and <> is no token: <>, <tab> and <none> are written as these characters
+        // (xmlports/shapes-properties/XpSeparatorTokens.al, corpus branch al-runtime-rs-staging-r6963:
+        // VariableText_Export_DelimEmptySepTab, _DelimNoneSepEmpty, _SepTabLower, _DelimNoneLower). Other spellings are not
+        // pinned.
+        match &rest[start + 1..start + end] {
             "LF" => out.push('\n'),
             "CR" => out.push('\r'),
             "TAB" => out.push('\t'),
-            // <NewLine> writes CR LF (XpTVariableText.al:Csv_ExportThreeRows reads the lines back as <NL>-separated).
-            "NEWLINE" | "CR/LF" => out.push_str("\r\n"),
-            // <None> is the empty text (XmlPortFixtures.al "LT XpT Csv Semi" has no field delimiter).
-            "NONE" => {}
+            // <NewLine> and <CR/LF> write CR LF (XpTVariableText.al:Csv_ExportThreeRows reads the lines back as <NL>-separated;
+            // XpSeparatorTokens.al VariableText_Export_SepNewLine, _SepCRLF).
+            "NewLine" | "CR/LF" => out.push_str("\r\n"),
+            // <None> is the empty text (XmlPortFixtures.al "LT XpT Csv Semi" has no field delimiter; XpSeparatorTokens.al
+            // VariableText_Export_SepNone).
+            "None" => {}
+            literal @ ("" | "tab" | "none") => {
+                out.push('<');
+                out.push_str(literal);
+                out.push('>');
+            }
             other => return unsupported(format!("the separator token <{other}> (not pinned)")),
         }
         rest = &rest[start + end + 1..];

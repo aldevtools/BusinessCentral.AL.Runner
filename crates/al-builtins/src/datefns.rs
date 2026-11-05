@@ -544,6 +544,18 @@ pub fn formula_text(text: &str) -> String {
     t.strip_suffix('>').unwrap_or(t).to_string()
 }
 
+/// The time-unit error of `<=` and a formatted date (`'<=' + Format(D)`, a date filter text used as a formula): BC shows the whole
+/// text; Evaluate with its result used answers false (record/filters/DateFormulaOperatorFilterText.al:149-182, staging r6980;
+/// al-runner issue 6998). Only `<=` before digits and slashes is pinned.
+fn less_or_equal_date(text: &str) -> Option<String> {
+    let rest = text.strip_prefix("<=")?;
+    (rest.contains('/') && rest.bytes().all(|c| c.is_ascii_digit() || c == b'/')).then(|| {
+        format!(
+            "The date formula '{text}' should include a time unit.\\\\Time units can be: D,WD,W,M,Q, or Y.\\C, meaning current time unit based on date, can be specified as a prefix to the time unit."
+        )
+    })
+}
+
 /// Parses `<term...>` or the same without brackets (types/TestDateRoundFormatStringContracts.al:
 /// CalcDate_WeeksQuartersWeekDaysAndCurrentPeriods), where a term is `[+|-][digits](D|W|M|Q|Y)`,
 /// `[+|-]C(D|W|M|Q|Y)` or `[+|-]WD(1-7)`. After the first term every term carries its sign. A formula
@@ -555,6 +567,9 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
     // types/date-time/DateFormulaEdges.al:ClosingBracket_MissingAfterPlus).
     if is_blank_formula(text) {
         return Ok(Vec::new());
+    }
+    if let Some(message) = less_or_equal_date(text) {
+        return raise(message, "Evaluate");
     }
     if let Some(shown) = bracketed_steps_without_sign(text) {
         return raise(
@@ -945,6 +960,9 @@ pub enum Evaluated {
 /// Rejected: a letter no formula uses (`1X`, `LW`), a `D` alone, a number alone, a decimal point,
 /// and two parts without a sign (`1D1W`). Any other text stays refused (docs/probes-needed.md).
 pub fn evaluate_formula(text: &str) -> Result<Evaluated, Signal> {
+    if let Some(message) = less_or_equal_date(text) {
+        return Ok(Evaluated::Failed(message));
+    }
     // Evaluate with its result used answers false (types/date-time/P131CalcDate.al:147, 152); the statement
     // form is not pinned.
     // The statement form raises the missing-sign error (DateFormulaEdges.al:627-628, `<1D><1D>`).

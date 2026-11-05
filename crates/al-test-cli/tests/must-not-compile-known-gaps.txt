@@ -375,11 +375,8 @@
 28 2785-accessbypermission-group
 29 2785-accessbypermission-group
 # corpus bump 1104a: new cases the front end does not decide yet (Permissions property on an object)
-# corpus bump 1105a (pin c9aac994): new protected-variable cases the front end does not decide yet
-# (2952 wants AL0118 and gets none; 2953 wants AL0161 and gets AL0132)
+# corpus bump 1105a (pin c9aac994): a new protected-variable case the front end does not decide yet
+# (2952 wants AL0118 and gets none)
 27 2952-tableext-protected-var-of-app-not-depended-on
 28 2952-tableext-protected-var-of-app-not-depended-on
 29 2952-tableext-protected-var-of-app-not-depended-on
-27 2953-codeunit-protected-table-var-through-record
-28 2953-codeunit-protected-table-var-through-record
-29 2953-codeunit-protected-table-var-through-record

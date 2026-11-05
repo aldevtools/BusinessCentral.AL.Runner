@@ -783,6 +783,11 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
         {
             (&["zero", "once"], &["once"])
         }
+        // MinOccurs = Zero on a root that holds elements runs as the default, on an Xml port both ways and on a VariableText export
+        // (xmlports/shapes-properties/XpRootMinOccursZero.al, corpus branch al-runtime-rs-staging-r6963: export writes the root
+        // without rows, import takes it with or without content and fails as for the default on no root, another root or two
+        // roots; RootMinOccursZero_*_Export, _Import, _Import2).
+        K::Text if root && !leaf => (&["zero", "once"], &["once"]),
         K::Text if root => (&["once"], &["once"]),
         K::Text if leaf => (&["zero", "once"], &["once", "unbounded"]),
         K::Text => (&["zero", "once"], &["once"]),
@@ -856,8 +861,10 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
         // are no rows, import of none fails the schema
         // (xmlports/shapes-properties/SgXmlPortOccurs.al TF_MinOnce_*, TF_MinMaxOnce_*, TF_MinMaxOnceReal_*).
         K::Table => (&["zero", "once"], &["unbounded", "once"]),
-        // MinOccurs of a field element was already read before these pins (any value).
-        K::Field => (&["zero", "once"], &["once"]),
+        // MinOccurs of a field element was already read before these pins (any value). MaxOccurs = Unbounded: export writes the
+        // element once per row, import takes it several times, runs OnAfterAssignField for each and keeps the last value
+        // (xmlports/shapes-properties/XpRootMinOccursZero.al ElementOccurs_FieldMaxUnbounded_*, corpus branch al-runtime-rs-staging-r6963).
+        K::Field => (&["zero", "once"], &["once", "unbounded"]),
         _ => return None,
     };
     let kind = match raw.kind {
@@ -1360,10 +1367,14 @@ mod tests {
             "xmlport 1 X { schema { textelement(R) { MinOccurs = Once; tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
         );
         assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
+        // MinOccurs = Zero on the root runs too (XpRootMinOccursZero.al, corpus branch al-runtime-rs-staging-r6963), on a root that
+        // holds elements; on a root without children it is not pinned.
         let zero = layout_of(
             "xmlport 1 X { schema { textelement(R) { MinOccurs = Zero; tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
         );
-        assert!(!zero.run_reasons.is_empty());
+        assert!(zero.run_reasons.is_empty(), "{:?}", zero.run_reasons);
+        let leaf = layout_of("xmlport 1 X { schema { textelement(R) { MinOccurs = Zero; } } }");
+        assert!(!leaf.run_reasons.is_empty());
     }
 
     #[test]
@@ -1402,8 +1413,8 @@ mod tests {
                 "maxoccurs = unbounded of container textelement Q",
             ),
             (
-                "textelement(R) { MinOccurs = Zero; textelement(L) { } }",
-                "minoccurs = zero of container textelement R",
+                "textelement(R) { MaxOccurs = Unbounded; textelement(L) { } }",
+                "maxoccurs = unbounded of container textelement R",
             ),
             (
                 "textelement(R) { tableelement(H; Cust) { tableelement(C; Cust) { MinOccurs = Once; } } }",
@@ -1414,8 +1425,8 @@ mod tests {
                 "minoccurs = zero of tableelement C",
             ),
             (
-                "textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { MaxOccurs = Unbounded; } } }",
-                "maxoccurs = unbounded of fieldelement N",
+                "textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { MinOccurs = Unbounded; } } }",
+                "minoccurs = unbounded of fieldelement N",
             ),
         ] {
             let l = layout_of(&format!("xmlport 1 X {{ schema {{ {src} }} }}"));

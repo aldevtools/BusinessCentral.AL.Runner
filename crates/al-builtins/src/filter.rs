@@ -628,7 +628,27 @@ pub fn parse_filter_with(
     };
     let mut kept_placeholder = false;
     let mut at_placeholder = false;
-    let toks = tokenize(text, args, &mut kept_placeholder, &mut at_placeholder)?;
+    let mut missing_placeholder = None;
+    let toks = tokenize(
+        text,
+        args,
+        &mut kept_placeholder,
+        &mut at_placeholder,
+        &mut missing_placeholder,
+    )?;
+    // A placeholder without an argument: on a Code and a Text field it is the text `%n` (`<>%1` keeps the blank row and leaves out
+    // the row `%1`; record/filters/PlaceholderWithoutArgument.al:95-132, :155-168); on an Integer and a Decimal field BC raises
+    // `The variable "%1" was not understood.` (record/crud/RcAFilters.al:446,464; PlaceholderWithoutArgument.al:135-145). Other
+    // types are not pinned (on a Date field it reads back as a date of the session, :8-9).
+    if let Some(var) = missing_placeholder {
+        match ty {
+            crate::value::RtType::Text(_) | crate::value::RtType::Code(_) => {}
+            crate::value::RtType::Integer | crate::value::RtType::Decimal => {
+                return Err(format!("{VARIABLE_NOT_UNDERSTOOD}{var}"));
+            }
+            _ => return Err("filter placeholder without an argument".into()),
+        }
+    }
     if at_placeholder && !matches!(ty, crate::value::RtType::Text(_)) {
         return Err(format!(
             "`@` right before a placeholder on a {} field (only Text is pinned)",
@@ -707,6 +727,7 @@ fn tokenize(
     args: &[Value],
     kept_placeholder: &mut bool,
     at_placeholder: &mut bool,
+    missing_placeholder: &mut Option<String>,
 ) -> Result<Vec<Tok>, String> {
     let c: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
@@ -828,10 +849,14 @@ fn tokenize(
                 continue;
             }
             flush(&mut raw, &mut out);
-            let arg = args
-                .get(n.wrapping_sub(1))
-                .cloned()
-                .ok_or("filter placeholder without an argument")?;
+            // A placeholder with no argument stays as written: on a Code and a Text field `<>%1` is the text `%1`
+            // (record/filters/PlaceholderWithoutArgument.al:95-132, staging r6980); the caller decides per field type.
+            let Some(arg) = args.get(n.wrapping_sub(1)).cloned() else {
+                missing_placeholder.get_or_insert_with(|| format!("%{n}"));
+                out.push(Tok::Raw(format!("%{n}")));
+                i += 2;
+                continue;
+            };
             // A text substituted for a placeholder is TEXT, not a filter, except that `*` and `?` stay
             // wildcards and a leading `@` ignores case. `&`, `|`, `(`, `)`, `<`, `=` and `..` in it make
             // BC quote the whole value (record/TestSetFilterSpecialTextContracts.al, BC 27.5);
@@ -1082,6 +1107,20 @@ impl Parser<'_> {
             // The empty text is the empty formula: `''` keeps the row without a formula, `<>''` the rows with one
             // (record/Y70Probes.al:218-262, FilterDateFormula_EmptyText `filter_two_quotes`, `filter_ne_two_quotes`).
             T::DateFormula if text.trim().is_empty() => Value::DateFormula(String::new()),
+            // A formula without brackets is the stored formula: `1M` keeps the row of `<1M>`, `<=1M` and `<>1M` compare the
+            // stored texts (record/filters/DateFormulaOperatorFilterText.al:116-134, staging r6980). Pinned for a number and an
+            // upper-case unit.
+            T::DateFormula if date_formula_step(text.trim()) => Value::DateFormula(format!("<{}>", text.trim())),
+            // A date (a formatted Date, `'<=' + Format(D)`) is no formula: BC raises the time-unit error of the value without
+            // its operator (DateFormulaOperatorFilterText.al:95-113, al-runner issue 6998).
+            T::DateFormula
+                if text.trim().contains('/') && text.trim().bytes().all(|c| c.is_ascii_digit() || c == b'/') =>
+            {
+                return Err(format!(
+                    "{FILTER_SYNTAX}The date formula '{}' should include a time unit.\\\\Time units can be: D,WD,W,M,Q, or Y.\\C, meaning current time unit based on date, can be specified as a prefix to the time unit.",
+                    text.trim()
+                ));
+            }
             // A Guid text on a Media field compares with the field's media id, braced or plain, with `=` or `<>` before it: an empty
             // field equals the null Guid (al-runner issue 5991: streams/media/SoMediaFilter.al SO_MediaFilter_NullGuidForms,
             // SO_MediaFilter_MediaIdOfFilledRow, SO_MediaFilter_FieldRefReproShape). Letters, `*` and a number raise the Guid format
@@ -1169,9 +1208,15 @@ impl Parser<'_> {
                 Ok(Some(FilterExpr::NotLike(p, ci)))
             }
             // On a Text field `<>@` before a value without a wildcard keeps the rows that do not equal it without regard to case,
-            // and `<>@` alone keeps none (WcInvalidFilterExpr.al:93-111 `<>@C-A`, `<>@c-b`, `<>@`).
-            Some(Tok::Raw(s)) if ci && matches!(self.ty, T::Text(_)) => {
-                let p = s.clone();
+            // and `<>@` alone keeps none (WcInvalidFilterExpr.al:93-111 `<>@C-A`, `<>@c-b`, `<>@`). A placeholder value that starts
+            // with `@` (`'<>%1', '@NO PRINT'`) is the same filter, and on a Code field the value is upper-cased first
+            // (record/filters/PlaceholderAtSignValue.al, staging r6980; al-runner issue 7034).
+            Some(Tok::Raw(s) | Tok::Arg(s)) if ci && matches!(self.ty, T::Text(_) | T::Code(_)) => {
+                let p = if matches!(self.ty, T::Code(_)) {
+                    filter_upper(s)?
+                } else {
+                    s.clone()
+                };
                 self.i = at + 1;
                 Ok(Some(FilterExpr::NotLike(p, true)))
             }
@@ -1564,6 +1609,12 @@ fn date_filter_value(t: &str) -> Result<Value, String> {
     ))
 }
 
+/// A DateFormula filter value of one step without brackets: digits and an upper-case unit (`1M`, `10D`).
+fn date_formula_step(t: &str) -> bool {
+    let digits = t.trim_end_matches(['D', 'W', 'M', 'Q', 'Y']);
+    t.len() == digits.len() + 1 && !digits.is_empty() && digits.bytes().all(|c| c.is_ascii_digit())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1825,10 +1876,10 @@ mod tests {
         let not_blank = parse_filter("<>''", &[], &T::DateFormula).expect("<> the empty formula");
         assert!(!not_blank.matches(&Value::DateFormula(String::new())));
         assert!(not_blank.matches(&Value::DateFormula("<1M>".into())));
-        assert!(
-            parse_filter("1M", &[], &T::DateFormula).is_err(),
-            "a formula stays refused"
-        );
+        // A formula without brackets is the stored formula (record/filters/DateFormulaOperatorFilterText.al:116-134, staging r6980).
+        let one_month = parse_filter("1M", &[], &T::DateFormula).expect("a formula without brackets");
+        assert!(one_month.matches(&Value::DateFormula("<1M>".into())));
+        assert!(!one_month.matches(&Value::DateFormula("<1D>".into())));
     }
 
     /// An angle-bracketed formula is no DateFormula filter: the closing `>` is not expected (errors/lt-ms-refusals-136/
@@ -1840,8 +1891,8 @@ mod tests {
             let e = parse_filter(text, &[], &T::DateFormula).expect_err(text);
             assert_eq!(e, did_not_expect(">"), "{text}");
         }
-        // An open bracket is a less-than filter on a formula, refused.
-        assert!(parse_filter("<1M", &[], &T::DateFormula).is_err());
+        // An open bracket is a less-than filter on a formula, as `<=1M` is (DateFormulaOperatorFilterText.al:130).
+        assert!(parse_filter("<1M", &[], &T::DateFormula).is_ok());
         // A text of letters that is no unit needs a time unit (Y77GuidFilter.al DateFormula_TextFilter_SetFilterOther `sf_plain`).
         let e = parse_filter("abc", &[], &T::DateFormula).unwrap_err();
         assert!(
