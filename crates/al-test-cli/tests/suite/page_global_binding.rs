@@ -2,9 +2,9 @@
 //! 6924: a licensed page's `OnOpenPage` calls a controller codeunit that binds a manual subscriber on its own global, and
 //! the page's instance is what holds the binding). Pinned by corpus codeunits/TestEventManualBinding.al Contract 11
 //! (:277-376): the binding fires while the page is open, ends when a TestPage closes or a page no variable holds closes,
-//! and lives on after a Page variable's RunModal while the variable is in scope. A page left open that nothing holds any
-//! more is not pinned (probe Test11i-k, branch al-runtime-rs-staging-licbind2): an event that would reach its binding is
-//! refused.
+//! and lives on after a Page variable's RunModal while the variable is in scope. A local TestPage left open drops the
+//! binding once its variable is gone (:379-421 Test11i-k). A Page variable after its non-modal Run is not pinned: an
+//! event that would reach its binding is refused.
 
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;
@@ -138,6 +138,23 @@ codeunit 50513 "LP Tests"
         Row.Id := 5;
         Row.Insert();
     end;
+
+    [Test]
+    procedure T08_InsertAfterHelperLeftTestPageOpen()
+    var
+        Row: Record "LP Row";
+    begin
+        OpenCardAndLeaveItOpen();
+        Row.Id := 6;
+        Row.Insert();
+    end;
+
+    local procedure OpenCardAndLeaveItOpen()
+    var
+        Card: TestPage "LP Card";
+    begin
+        Card.OpenView();
+    end;
 }
 
 codeunit 50514 "LP Modal Tests"
@@ -229,7 +246,7 @@ fn a_binding_a_page_holds_follows_the_page_instance() {
     let mut all = outcomes_in(SRC, "LP Tests");
     all.extend(outcomes_in(SRC, "LP Modal Tests"));
     // TestEventManualBinding.al:277 Test11a, :291 Test11b, :302 Test11c, :317 Test11d, :330 Test11e, :343 Test11f,
-    // :355 Test11g, :367 Test11h.
+    // :355 Test11g, :367 Test11h, :379 Test11i, :393 Test11j, :404 Test11k.
     for pass in [
         "T01_ControllerLocal",
         "T02_InsertAfterControllerLocal",
@@ -237,6 +254,8 @@ fn a_binding_a_page_holds_follows_the_page_instance() {
         "T04_InsertAfterTestPageClose",
         "T05_InsertInNextTest",
         "T06_TestPageLeftOpen",
+        "T07_InsertAfterTestPageLeftOpen",
+        "T08_InsertAfterHelperLeftTestPageOpen",
         "M01_InsertAfterRunModalById",
         "M02_InsertAfterRunById",
         "M03_InsertAfterRunModalOfPageVariable",
@@ -251,14 +270,13 @@ fn a_binding_a_page_holds_follows_the_page_instance() {
 fn a_binding_of_a_page_whose_fate_is_not_pinned_is_refused_where_it_would_fire() {
     let mut all = outcomes_in(SRC, "LP Tests");
     all.extend(outcomes_in(SRC, "LP Modal Tests"));
-    for refused in ["T07_InsertAfterTestPageLeftOpen", "M05_InsertAfterRunOfPageVariable"] {
-        match outcome(&all, refused) {
-            Outcome::NotRun(why) => assert!(
-                why.contains("whether that page still holds it is not pinned"),
-                "{refused}: {why}"
-            ),
-            other => panic!("{refused}: {other:?}"),
-        }
+    let refused = "M05_InsertAfterRunOfPageVariable";
+    match outcome(&all, refused) {
+        Outcome::NotRun(why) => assert!(
+            why.contains("whether that page still holds it is not pinned"),
+            "{refused}: {why}"
+        ),
+        other => panic!("{refused}: {other:?}"),
     }
 }
 

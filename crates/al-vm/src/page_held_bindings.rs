@@ -12,11 +12,12 @@
 //! - a Page variable keeps it after its `RunModal` while the variable is in scope (:330 Test11e), and drops it once the
 //!   variable is gone (:343 Test11f).
 //!
+//! - a local TestPage left open drops it once its variable is gone: at the end of the test method (:393 Test11j) or of a
+//!   helper procedure (:404 Test11k); while the variable is in scope it fires (:379 Test11i).
+//!
 //! The runtime's page values form a reference cycle (`CurrPage` in the page's globals holds the page), so a page never
-//! drops by itself: the binding is ended here. Not pinned, and refused when an event would reach the binding: a page that
-//! is still open when no variable holds it any more (a local TestPage left open at the end of its scope; corpus probe
-//! TestEventManualBinding.al Test11i-k, branch al-runtime-rs-staging-licbind2), and a Page variable's non-modal `Run`
-//! while the variable is still in scope.
+//! drops by itself: the binding is ended here. Not pinned, and refused when an event would reach the binding: a Page
+//! variable's non-modal `Run` while the variable is still in scope.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -168,7 +169,13 @@ impl Session {
         // A Page variable that never ran holds its instance like a codeunit variable does (types/operators-expressions/
         // Y73ThisObjects.al:498 Page_OwnType_And_Codeunit_Variable binds a global of one); once the variable is gone it
         // is not pinned.
-        if s.open || !s.ran {
+        // A page still open that no variable holds any more (a local TestPage left open at the end of a test method or of
+        // a helper procedure) is gone: TestEventManualBinding.al:393 Test11j, :404 Test11k (and :379 Test11i: it lives
+        // while its variable is in scope).
+        if s.open {
+            return if outside { Fate::Lives } else { Fate::Gone };
+        }
+        if !s.ran {
             return if outside { Fate::Lives } else { Fate::Unknown };
         }
         if var_run {
@@ -198,8 +205,8 @@ impl Session {
             .unwrap_or_default();
         Err(Signal::Unsupported(format!(
             "a manual subscription of codeunit {} bound through the globals of page {page} would receive an event, and \
-             whether that page still holds it is not pinned (a page left open that no variable holds, or a Page variable \
-             after its non-modal Run; al-runner issue 6924)",
+             whether that page still holds it is not pinned (a Page variable after its non-modal Run; al-runner issue \
+             6924)",
             program.objects[inst.borrow().object as usize].name,
         )))
     }
