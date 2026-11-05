@@ -4,7 +4,8 @@
 //! routines by samples where they were the innermost frame ("self") and by samples where they were anywhere on the
 //! stack ("inclusive"). One process-wide timer: each tick is taken by the first thread of any kind that reaches a
 //! statement marker, so one thread is sampled per tick and a tick no thread takes merges with the next. The file's first
-//! line names the interval.
+//! line names the interval. A third list ranks the self samples by statement (file and line) and, when the tick fired
+//! inside a builtin (FindLast, SetRange, Modify, ...), by that builtin: a sample is also taken when a builtin returns.
 
 use crate::Session;
 use std::collections::HashMap;
@@ -21,6 +22,8 @@ struct Counts {
     samples: u64,
     own: HashMap<String, u64>,
     inclusive: HashMap<String, u64>,
+    /// Self samples by statement and builtin (`statement_key`).
+    statements: HashMap<String, u64>,
 }
 
 static COUNTS: OnceLock<Mutex<Counts>> = OnceLock::new();
@@ -76,6 +79,12 @@ fn write(path: &str) {
     for (name, n) in top(&c.inclusive) {
         out.push_str(&format!("{n:8} {name}\n"));
     }
+    out.push_str(
+        "\nself by statement (the statement running when the tick fired; [builtin] when it fired inside one)\n",
+    );
+    for (name, n) in top(&c.statements) {
+        out.push_str(&format!("{n:8} {name}\n"));
+    }
     let _ = std::fs::write(path, out);
 }
 
@@ -119,6 +128,22 @@ pub fn frame_name(program: &al_ir::Program, object: usize, routine: usize) -> St
     }
 }
 
+/// The name of a self sample in the "self by statement" list: the innermost frame, the file and line of the statement
+/// it was running ("(entry)" before its first statement), and the builtin the sample landed in, if any.
+fn statement_key(frame: &str, at: Option<(&str, u32)>, builtin: Option<&str>) -> String {
+    let mut k = match at {
+        Some((path, line)) => {
+            let file = path.rsplit(['/', '\\']).next().unwrap_or(path);
+            format!("{frame}  {file}:{line}")
+        }
+        None => format!("{frame}  (entry)"),
+    };
+    if let Some(b) = builtin {
+        k.push_str(&format!("  [{b}]"));
+    }
+    k
+}
+
 fn top(m: &HashMap<String, u64>) -> Vec<(&String, u64)> {
     let mut v: Vec<(&String, u64)> = m.iter().map(|(k, n)| (k, *n)).collect();
     v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
@@ -127,8 +152,18 @@ fn top(m: &HashMap<String, u64>) -> Vec<(&String, u64)> {
 }
 
 impl Session {
-    /// Called at a statement marker when profiling is on.
-    pub(crate) fn profile_sample(&self) {
+    /// A builtin returned: takes a pending tick, booked to that builtin. One relaxed load when profiling is off.
+    #[inline(always)]
+    pub(crate) fn profile_builtin(&self, id: al_builtins::builtin_id::BuiltinId) {
+        if ON.load(Relaxed) {
+            self.profile_sample(Some(id));
+        }
+    }
+
+    /// Called when profiling is on: at a statement marker before the frame moves to the new statement (so the sample
+    /// names the statement that was running), and after a builtin returns, with its id (so the time a builtin spends
+    /// is booked to it and to the statement that called it).
+    pub(crate) fn profile_sample(&self, builtin: Option<al_builtins::builtin_id::BuiltinId>) {
         if !TICK.swap(false, Relaxed) {
             return;
         }
@@ -152,6 +187,19 @@ impl Session {
         c.samples += 1;
         if let Some(last) = names.last() {
             *c.own.entry(last.clone()).or_default() += 1;
+            let at = self.call_stack.last().and_then(|fr| program.pos(fr.pos)).map(|p| {
+                (
+                    program.sources.get(p.file as usize).map_or("?", |f| f.path.as_str()),
+                    p.line,
+                )
+            });
+            // The overload suffix (`#1`) says nothing to a reader: `Record.FindLast`.
+            let key = statement_key(
+                last,
+                at,
+                builtin.map(|b| b.name().split('#').next().unwrap_or_default()),
+            );
+            *c.statements.entry(key).or_default() += 1;
         }
         let mut seen = std::collections::HashSet::new();
         for n in names {
@@ -177,5 +225,25 @@ mod tests {
             "samples 12 of 5 ms (one process-wide timer: each tick samples the one thread that takes it)"
         );
         assert!(super::header(3, 250).starts_with("samples 3 of 250 us "));
+    }
+
+    #[test]
+    fn statement_key_names_file_line_and_builtin() {
+        assert_eq!(
+            super::statement_key(
+                "codeunit No. Series - Impl..GetNoSeriesLine",
+                Some(("src/NoSeries/NoSeriesImpl.Codeunit.al", 132)),
+                Some("Record.FindLast")
+            ),
+            "codeunit No. Series - Impl..GetNoSeriesLine  NoSeriesImpl.Codeunit.al:132  [Record.FindLast]"
+        );
+        assert_eq!(
+            super::statement_key("codeunit X.Run", None, None),
+            "codeunit X.Run  (entry)"
+        );
+        assert_eq!(
+            super::statement_key("codeunit X.Run", Some(("a\\b.al", 7)), None),
+            "codeunit X.Run  b.al:7"
+        );
     }
 }
