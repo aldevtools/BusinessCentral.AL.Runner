@@ -1015,7 +1015,10 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // OtherRecordOption_TwoRows_AfterNext_Values (pages/controls/OtherRecordOptionMembers.al:146, :194, al-runner issue 7005)
     // pass on BC 29 only, where the control shows the OptionCaption (gate OtherRecordOptionCaptionFrom29); before BC 29 a
     // control bound to another record's Option field is refused.
-    assert!(out.contains("runtime: 35 case(s) differ between versions"), "{out}");
+    // Train 1105f makes it 36: the runtime pull request for issue 7005 shows the member names on BC 28 (confirmed on Windows)
+    // and a blank control on a list without rows, so the three 95439 OtherRecordOption_* cases pass on BC 28 and 29; BC 27 is a
+    // Linux suspect and stays refused.
+    assert!(out.contains("runtime: 36 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 
