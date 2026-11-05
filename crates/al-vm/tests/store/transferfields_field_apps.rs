@@ -1,6 +1,6 @@
 //! TransferFields between two tables of one app whose fields of one number come from different apps (al-runner issue 6982:
 //! Base Application's `Contact.TransferFields(Cust)` with a Boolean of one app and a Code[20] of another under one number).
-//! Real BC's values: corpus branch al-runtime-rs-staging-r6792 0394701c, record/transferfields-cross-app/
+//! Real BC's values: corpus master 3eb812ed, record/transferfields-cross-app/
 //! TransferFieldsFieldApps.al:131-206 with tests/al-language-xapp-a|b|c|d/Tfx*.al (BC 27.5, 28.5 and 29.0).
 
 use al_builtins::value::Value;

@@ -121,8 +121,8 @@ impl Session {
                 let standard = if iso { 9 } else { 1 };
                 return al_builtins::format::try_format(v, 0, standard, self).map_err(Signal::Unsupported);
             }
-            // The undefined Time shows as `''` in GetFilter(s), given as `''`, as `%1` or by SetRange (corpus branch
-            // al-runtime-rs-staging-r6792 0394701c, record/filters/TimeFilterEmptyText.al:113-126). In a view it is not pinned.
+            // The undefined Time shows as `''` in GetFilter(s), given as `''`, as `%1` or by SetRange (corpus
+            // master 3eb812ed, record/filters/TimeFilterEmptyText.al:113-126). In a view it is not pinned.
             if !iso {
                 return Ok("''".into());
             }

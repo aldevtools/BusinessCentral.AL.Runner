@@ -1,5 +1,5 @@
 //! A quoted empty text as the filter value on a Time field is the undefined Time 0T, with every operator, in a range, in an OR
-//! list and after `<>` (al-runner issue 6900). Real BC's values: corpus branch al-runtime-rs-staging-r6792 0394701c,
+//! list and after `<>` (al-runner issue 6900). Real BC's values: corpus master 3eb812ed,
 //! record/filters/TimeFilterEmptyText.al:104-128 (SetFilter_TimeField_QuotedEmptyText), BC 27.5, 28.5 and 29.0.
 
 use al_testkit::text;

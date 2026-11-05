@@ -207,8 +207,8 @@ fn the_reporters_unique_code_and_the_error_text() {
 }
 
 /// The undefined DateTime 0DT writes nothing for every string of Y64Strings but `<Second dec..>`, which stays the invalid-format
-/// error, also not the literal period after `<Second dec>`; a Length pads the empty text (al-runner issue 6976). Corpus branch
-/// al-runtime-rs-staging-r6792 0394701c, types/date-time/Format.al:1293-1349 (Y64_DateTime_Format_SecondDecPeriod_Undefined,
+/// error, also not the literal period after `<Second dec>`; a Length pads the empty text (al-runner issue 6976). Corpus
+/// master 3eb812ed, types/date-time/Format.al:1293-1349 (Y64_DateTime_Format_SecondDecPeriod_Undefined,
 /// Y64_DateTime_SecondDecPeriod_IsoHelper, _IsoHelperUndefined).
 #[test]
 fn second_dec_on_the_undefined_datetime_and_the_iso_helper() {

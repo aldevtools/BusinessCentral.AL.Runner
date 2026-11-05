@@ -1,5 +1,5 @@
-//! `<Standard Format,N>` with a `<Comma,x>` element on a Decimal (al-runner issue 6792). Real BC's values: corpus branch
-//! al-runtime-rs-staging-r6792 0394701c, format-evaluate/FormatCommaMore.al:258-640 (BC 27.5, 28.5 and 29.0 gave the same
+//! `<Standard Format,N>` with a `<Comma,x>` element on a Decimal (al-runner issue 6792). Real BC's values: corpus
+//! master 3eb812ed, format-evaluate/FormatCommaMore.al:258-640 (BC 27.5, 28.5 and 29.0 gave the same
 //! values; GlobalLanguage 1031 writes what 1033 writes).
 
 use super::INVALID_FORMAT_MARK;

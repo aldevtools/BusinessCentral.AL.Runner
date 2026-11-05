@@ -1445,8 +1445,8 @@ impl Session {
             };
             // Fields of one number declared by different apps count as fields of different apps, also on two tables of one app:
             // a table extension's field against another app's extension field or against the table's own field
-            // (record/transferfields-cross-app/TransferFieldsFieldApps.al:131-163 on corpus branch al-runtime-rs-staging-r6792
-            // 0394701c, al-runner issue 6982).
+            // (record/transferfields-cross-app/TransferFieldsFieldApps.al:131-163 on corpus master
+            // 3eb812ed, al-runner issue 6982).
             let cross_app = cross_app || self.field_app(t, dp) != self.field_app(&from, sp);
             // An Enum field and an Option field with the same field number are the same kind of field to
             // TransferFields: Base Application's "Sales Order Entity Buffer" holds `Shipping Advice` as an
@@ -1691,7 +1691,7 @@ impl Session {
                 | ("Integer", "Option")
                 | ("DateTime", "Date")
                 | ("Boolean", "Decimal")
-                // Two extension fields of one app: TransferFieldsFieldApps.al:204-205 (corpus branch al-runtime-rs-staging-r6792).
+                // Two extension fields of one app: TransferFieldsFieldApps.al:204-205 (corpus master 3eb812ed).
                 | ("Code", "Boolean")
         ) {
             return None;
