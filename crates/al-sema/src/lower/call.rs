@@ -90,6 +90,24 @@ impl Lowerer<'_> {
     }
 
     /// A call resolved on `node` (the CallExpr, or the callee for a call without parentheses).
+    /// The id of the implementation for a call whose argument is written as a Variant, where BC treats it apart.
+    fn variant_argument_id(&self, id: &str, args: &[SyntaxNode]) -> Option<&'static str> {
+        let variant = |i: usize| args.get(i).is_some_and(|a| matches!(self.ty_of(a), Ty::Variant));
+        match id {
+            "System.Format#1" if args.len() >= 3 && variant(0) => Some("System.FormatVariant#1"),
+            // A record that reaches GetTable through a Variant loses its ChangeCompany (types/lt-cw-variant-leads/
+            // CwVariantChangeCompany.al:CW_Variant_KeepsOrDropsChangeCompany `variant to recordref`).
+            "RecordRef.GetTable#1" if variant(0) => Some("RecordRef.GetTableVariant#1"),
+            // A Variant converts into the field as through `FieldRef.Validate` (corpus
+            // record/validate/RecordValidateVariant.al; al-runner issue 6975).
+            "Record.Validate#1" if args.len() == 2 && variant(1) => Some("Record.ValidateVariant#1"),
+            // A Text inside a Variant goes by ordinal digits on an Enum or Option control
+            // (pages/enum-setvalue-blank/BeEnumSetValueBlank.al:532-597).
+            "TestField.SetValue#1" if variant(0) => Some("TestField.SetValueVariant#1"),
+            _ => None,
+        }
+    }
+
     pub(crate) fn call(&mut self, node: &SyntaxNode, callee: &SyntaxNode, args: &[SyntaxNode]) -> L<ir::Expr> {
         if let Some(Res::TddStub(site)) = self.res(node).cloned() {
             return self.tdd_stub(&site, args);
@@ -468,11 +486,8 @@ impl Lowerer<'_> {
                         ErrorTextForm::Other => id.as_str(),
                     }
                     .to_string()
-                } else if id == "System.Format#1"
-                    && args.len() >= 3
-                    && args.first().is_some_and(|a| matches!(self.ty_of(a), Ty::Variant))
-                {
-                    "System.FormatVariant#1".to_string()
+                } else if let Some(variant_id) = self.variant_argument_id(&id, args) {
+                    variant_id.to_string()
                 } else if id == "TextBuilder.Append#1"
                     && args
                         .first()
@@ -490,18 +505,6 @@ impl Lowerer<'_> {
                     // A Variant variable holding a number raises (format-evaluate/NumberToTextIsFormat.al:193-216);
                     // a `FieldRef.Value()` argument goes to `TextBuilder.AppendFieldValue#1`.
                     "TextBuilder.AppendVariant#1".to_string()
-                } else if id == "RecordRef.GetTable#1"
-                    && args.first().is_some_and(|a| matches!(self.ty_of(a), Ty::Variant))
-                {
-                    // A record that reaches GetTable through a Variant loses its ChangeCompany (types/lt-cw-variant-leads/
-                    // CwVariantChangeCompany.al:CW_Variant_KeepsOrDropsChangeCompany `variant to recordref`).
-                    "RecordRef.GetTableVariant#1".to_string()
-                } else if id == "TestField.SetValue#1"
-                    && args.first().is_some_and(|a| matches!(self.ty_of(a), Ty::Variant))
-                {
-                    // A Text inside a Variant goes by ordinal digits on an Enum or Option control
-                    // (pages/enum-setvalue-blank/BeEnumSetValueBlank.al:532-597).
-                    "TestField.SetValueVariant#1".to_string()
                 } else if (id == "System.Format#1" || id == "System.Format#2") && decimal_field_places.is_some() {
                     "System.FormatDecimalField#1".to_string()
                 } else if id == "System.Format#1" && auto_format_field.is_some() {

@@ -275,6 +275,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         c.record(RecordOp::SetCurrentKey, r, a)
     }),
     ("Record.Validate#1", |c, r, a| c.record(RecordOp::Validate, r, a)),
+    ("Record.ValidateVariant#1", |c, r, a| c.record_validate_variant(r, a)),
     ("Record.Rename#1", |c, r, a| c.record(RecordOp::Rename, r, a)),
     ("Record.Truncate#1", |c, r, a| c.record(RecordOp::Truncate, r, a)),
     ("Record.CalcSums#1", |c, r, a| c.record(RecordOp::CalcSums, r, a)),
