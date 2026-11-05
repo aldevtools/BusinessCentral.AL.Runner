@@ -322,6 +322,75 @@ fn labels_and_captions_come_first_sorted() {
     );
 }
 
+const TWO_EXTENSIONS: &str = r#"report 95749 "LT WXP Two Ext Base"
+{
+    dataset
+    {
+        dataitem(Head; "LT WXP Row") { column(HCode; "Code") { } column(HQty; Qty) { } }
+        dataitem(Tail; "LT WXP Line") { column(TLine; LineNo) { } }
+    }
+}
+reportextension 95751 "LT WXP Two Ext A" extends "LT WXP Two Ext Base"
+{
+    dataset
+    {
+        add(Head) { column(AAmount; Amount) { } }
+        addfirst(Head) { dataitem(ALines; "LT WXP Line") { DataItemLink = RowCode = field("Code"); column(ALineQty; Qty) { } } }
+    }
+    labels { ExtLabel = 'Extension label'; }
+}
+reportextension 95752 "LT WXP Two Ext B" extends "LT WXP Two Ext Base"
+{
+    dataset
+    {
+        add(Head) { column(BFlag; Flag) { IncludeCaption = true; } }
+        add(Tail) { column(BQty; Qty) { } }
+        addlast(Tail) { dataitem(BNested; "LT WXP Row") { column(BMidCode; "Code") { } } }
+    }
+}"#;
+
+// WordXmlPartNames.al: WordXmlPart_TwoExtensions_Plain and _Extended (al-runner issue 6994). The columns, data items and labels
+// of every extension join the report's.
+#[test]
+fn report_extensions_add_their_columns_data_items_and_labels() {
+    assert_eq!(
+        part(TWO_EXTENSIONS, 95749, false),
+        lines(&[
+            HEAD_PLAIN,
+            r#"<NavWordReportXmlPart xmlns="urn:microsoft-dynamics-nav/reports/LT_WXP_Two_Ext_Base/95749/">"#,
+            "  <BCReportInformation>x</BCReportInformation>",
+            "  <Labels>",
+            "    <BFlagCaption>BFlagCaption</BFlagCaption>",
+            "    <ExtLabel>ExtLabel</ExtLabel>",
+            "  </Labels>",
+            "  <Head>",
+            "    <AAmount>AAmount</AAmount>",
+            "    <BFlag>BFlag</BFlag>",
+            "    <HCode>HCode</HCode>",
+            "    <HQty>HQty</HQty>",
+            "    <ALines>",
+            "      <ALineQty>ALineQty</ALineQty>",
+            "    </ALines>",
+            "  </Head>",
+            "  <Tail>",
+            "    <BQty>BQty</BQty>",
+            "    <TLine>TLine</TLine>",
+            "    <BNested>",
+            "      <BMidCode>BMidCode</BMidCode>",
+            "    </BNested>",
+            "  </Tail>",
+            "</NavWordReportXmlPart>",
+        ])
+    );
+    let extended = part(TWO_EXTENSIONS, 95749, true);
+    assert!(extended.contains(
+        "\r\n  <Labels>\r\n    <BFlagCaption ElementType=\"Parameter\" ElementId=\"912455157\" DataType=\"String\">BFlagCaption</BFlagCaption>\r\n    <ExtLabel ElementType=\"Parameter\" ElementId=\"813550006\" DataType=\"String\">ExtLabel</ExtLabel>\r\n  </Labels>\r\n  <Tooltips />\r\n"
+    ));
+    assert!(extended.contains(
+        "\r\n    <BNested ElementType=\"DataItem\" ElementId=\"1904151690\">\r\n      <BMidCode ElementType=\"Column\" ElementId=\"1503903634\" DataType=\"Code\">BMidCode</BMidCode>\r\n    </BNested>\r\n"
+    ));
+}
+
 // WordXmlPartNames.al: WordXmlPart_Order_Plain (BC 27.5, 28.5, 29.0). Sibling data items keep the report's order; columns and
 // labels sort case-insensitively, an underscore before a letter.
 #[test]
